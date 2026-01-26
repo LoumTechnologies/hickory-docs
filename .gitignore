@@ -1,0 +1,10 @@
+/target
+
+# IDE files
+.idea/
+
+# Rust
+target/
+
+# macOS system files
+.DS_Store
