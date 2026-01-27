@@ -2,7 +2,7 @@ use std::path::Path;
 use std::sync::OnceLock;
 use std::time::Duration;
 
-use hick::container::{Container, ContainerConfig, create_async_engine};
+use container::{Container, ContainerConfig, create_async_engine};
 use wasmtime::{Engine, Module};
 
 // ---------------------------------------------------------------------------
