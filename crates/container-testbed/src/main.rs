@@ -1,8 +1,50 @@
+use std::os::fd::AsRawFd;
 use std::path::{Path, PathBuf};
 
 use container::{Container, ContainerConfig, create_async_engine};
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use wasmtime::{Engine, Module};
+
+// ---------------------------------------------------------------------------
+// Terminal raw mode
+// ---------------------------------------------------------------------------
+
+struct RawModeGuard {
+    orig: libc::termios,
+    fd: i32,
+}
+
+impl RawModeGuard {
+    fn enable() -> Option<Self> {
+        let fd = std::io::stdin().as_raw_fd();
+        unsafe {
+            let mut orig: libc::termios = std::mem::zeroed();
+            if libc::tcgetattr(fd, &mut orig) != 0 {
+                return None;
+            }
+            let mut raw = orig;
+            // Raw input: no echo, no line buffering, no signal keys, no extensions
+            raw.c_lflag &= !(libc::ECHO | libc::ICANON | libc::ISIG | libc::IEXTEN);
+            // No CR→NL translation, no XON/XOFF flow control
+            raw.c_iflag &= !(libc::ICRNL | libc::IXON);
+            // Return after 1 byte, no timeout
+            raw.c_cc[libc::VMIN] = 1;
+            raw.c_cc[libc::VTIME] = 0;
+            if libc::tcsetattr(fd, libc::TCSAFLUSH, &raw) != 0 {
+                return None;
+            }
+            Some(Self { orig, fd })
+        }
+    }
+}
+
+impl Drop for RawModeGuard {
+    fn drop(&mut self) {
+        unsafe {
+            libc::tcsetattr(self.fd, libc::TCSAFLUSH, &self.orig);
+        }
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Meta-command parsing
@@ -126,15 +168,23 @@ fn strip_dsr(src: &[u8]) -> Vec<u8> {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    let _raw = RawModeGuard::enable();
+
     let engine = create_async_engine()?;
 
     let mut stack: Vec<(String, Container)> = Vec::new();
     push_container(&mut stack, &engine, "alpine").await?;
 
-    let stdin = BufReader::new(tokio::io::stdin());
-    let mut lines = stdin.lines();
-
+    let mut stdin = tokio::io::stdin();
+    let mut stdin_buf = [0u8; 256];
     let mut stdout_buf = [0u8; 4096];
+
+    // Meta-command state: lines starting with `:` are buffered locally and
+    // echoed by the testbed rather than forwarded to the container.
+    let mut meta_buf: Vec<u8> = Vec::new();
+    let mut in_meta = false;
+    let mut at_line_start = true;
+    let mut should_exit = false;
 
     loop {
         let (_, container) = stack.last_mut().expect("stack should not be empty in loop");
@@ -144,7 +194,6 @@ async fn main() -> anyhow::Result<()> {
             result = container.read_stdout(&mut stdout_buf) => {
                 match result {
                     Ok(0) => {
-                        // Container EOF
                         if !pop_container(&mut stack) {
                             break;
                         }
@@ -165,38 +214,127 @@ async fn main() -> anyhow::Result<()> {
                 }
             }
 
-            // User input → parse meta-commands or forward to container stdin
-            line = lines.next_line() => {
-                match line {
-                    Ok(Some(line)) => {
-                        if let Some(cmd) = parse_meta_command(&line) {
-                            match cmd {
-                                MetaCommand::From(name) => {
-                                    if let Err(e) = push_container(&mut stack, &engine, name).await {
-                                        eprintln!("[testbed] Failed to start container '{name}': {e}");
+            // User input → raw bytes, forwarded or buffered as meta-command
+            result = stdin.read(&mut stdin_buf) => {
+                match result {
+                    Ok(0) => break, // EOF
+                    Ok(n) => {
+                        for &byte in &stdin_buf[..n] {
+                            match byte {
+                                // Enter (CR in raw mode since ICRNL is off)
+                                b'\r' | b'\n' => {
+                                    if in_meta {
+                                        let line = String::from_utf8_lossy(&meta_buf).to_string();
+                                        // Echo newline locally for the meta-command line
+                                        tokio::io::stdout().write_all(b"\r\n").await?;
+                                        tokio::io::stdout().flush().await?;
+
+                                        if let Some(cmd) = parse_meta_command(&line) {
+                                            match cmd {
+                                                MetaCommand::From(name) => {
+                                                    let name = name.to_string();
+                                                    if let Err(e) = push_container(&mut stack, &engine, &name).await {
+                                                        eprintln!("[testbed] Failed to start container '{name}': {e}");
+                                                    }
+                                                }
+                                                MetaCommand::Exit => {
+                                                    if !pop_container(&mut stack) {
+                                                        should_exit = true;
+                                                        break;
+                                                    }
+                                                }
+                                            }
+                                        } else {
+                                            // Not a valid meta-command — forward to container
+                                            if let Some((_, c)) = stack.last_mut() {
+                                                c.write_stdin(&meta_buf).await?;
+                                                c.write_stdin(b"\n").await?;
+                                            }
+                                        }
+                                        meta_buf.clear();
+                                        in_meta = false;
+                                    } else {
+                                        // Forward newline to container
+                                        if let Some((_, c)) = stack.last_mut() {
+                                            c.write_stdin(b"\n").await?;
+                                        }
+                                    }
+                                    at_line_start = true;
+                                }
+
+                                // Ctrl+C
+                                0x03 => {
+                                    if in_meta {
+                                        meta_buf.clear();
+                                        in_meta = false;
+                                        at_line_start = true;
+                                        tokio::io::stdout().write_all(b"^C\r\n").await?;
+                                        tokio::io::stdout().flush().await?;
+                                    } else {
+                                        if let Some((_, c)) = stack.last_mut() {
+                                            c.write_stdin(&[0x03]).await?;
+                                        }
                                     }
                                 }
-                                MetaCommand::Exit => {
-                                    if !pop_container(&mut stack) {
-                                        break;
+
+                                // Ctrl+\ — force quit testbed
+                                0x1c => {
+                                    should_exit = true;
+                                    break;
+                                }
+
+                                // Backspace / Delete
+                                0x7f | 0x08 => {
+                                    if in_meta {
+                                        if meta_buf.pop().is_some() {
+                                            if meta_buf.is_empty() {
+                                                in_meta = false;
+                                                at_line_start = true;
+                                            }
+                                            tokio::io::stdout().write_all(b"\x08 \x08").await?;
+                                            tokio::io::stdout().flush().await?;
+                                        }
+                                    } else {
+                                        if let Some((_, c)) = stack.last_mut() {
+                                            c.write_stdin(&[byte]).await?;
+                                        }
+                                        at_line_start = false;
+                                    }
+                                }
+
+                                // Regular byte
+                                _ => {
+                                    if at_line_start && byte == b':' {
+                                        // Start of a potential meta-command — buffer locally
+                                        in_meta = true;
+                                        meta_buf.push(byte);
+                                        tokio::io::stdout().write_all(&[byte]).await?;
+                                        tokio::io::stdout().flush().await?;
+                                    } else if in_meta {
+                                        meta_buf.push(byte);
+                                        tokio::io::stdout().write_all(&[byte]).await?;
+                                        tokio::io::stdout().flush().await?;
+                                    } else {
+                                        // Forward to container — it handles echoing
+                                        if let Some((_, c)) = stack.last_mut() {
+                                            c.write_stdin(&[byte]).await?;
+                                        }
+                                        at_line_start = false;
                                     }
                                 }
                             }
-                        } else {
-                            let (_, container) = stack.last_mut().unwrap();
-                            container.write_line(&line).await?;
                         }
-                    }
-                    Ok(None) => {
-                        // EOF on stdin
-                        break;
                     }
                     Err(e) => {
                         eprintln!("[testbed] stdin read error: {e}");
-                        break;
+                        should_exit = true;
                     }
                 }
             }
+        }
+
+        if should_exit {
+            break;
         }
     }
 
