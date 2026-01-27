@@ -1,6 +1,11 @@
+mod assembler;
 mod builder;
 mod cli;
 mod image;
+mod iso;
+mod rootfs;
+mod spec;
+mod template;
 mod wizer;
 
 use std::fs;
@@ -49,6 +54,15 @@ fn run(cli: Cli) -> Result<()> {
         }
     };
 
+    // Determine whether to use the no-Docker pipeline
+    let use_no_docker =
+        cli.no_docker || (which::which(&cli.builder).is_err() && !cli.show_dockerfile);
+
+    if use_no_docker {
+        return run_no_docker_pipeline(&cli, &arg1);
+    }
+
+    // --- Existing Docker-based pipeline ---
     let output_path: String;
     let needs_img: bool;
     if cli.external_bundle || cli.pack.is_some() {
@@ -130,18 +144,11 @@ fn run(cli: Cli) -> Result<()> {
     fs::create_dir(&src_img_path).context("failed to create img dir in temp")?;
 
     if needs_img {
-        image::prepare_source_img(
-            builder_path,
-            &src_img_name,
-            &src_img_path,
-            &cli.target_arch,
-        )
-        .context("failed to prepare image")?;
+        image::prepare_source_img(builder_path, &src_img_name, &src_img_path, &cli.target_arch)
+            .context("failed to prepare image")?;
     }
 
-    let src_img_path_str = src_img_path
-        .to_str()
-        .context("temp path not valid UTF-8")?;
+    let src_img_path_str = src_img_path.to_str().context("temp path not valid UTF-8")?;
 
     let build_result = if legacy {
         builder::build_with_legacy_builder(
@@ -177,7 +184,10 @@ fn run(cli: Cli) -> Result<()> {
                     Ok::<_, std::io::Error>(())
                 })
                 .with_context(|| {
-                    format!("failed to replace {:?} with pre-initialized output", wasm_path)
+                    format!(
+                        "failed to replace {:?} with pre-initialized output",
+                        wasm_path
+                    )
                 })?;
 
             log::info!("wizer pre-initialization applied to {:?}", wasm_path);
@@ -190,6 +200,20 @@ fn run(cli: Cli) -> Result<()> {
     }
 
     Ok(())
+}
+
+/// Run the pure Rust no-Docker pipeline.
+fn run_no_docker_pipeline(cli: &Cli, image_ref: &str) -> Result<()> {
+    let output_path = cli.output.as_deref().unwrap_or(DEFAULT_OUTPUT_FILE);
+    let output = Path::new(output_path);
+
+    // Build a tokio runtime for async operations (OCI pull)
+    let rt = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .context("failed to create tokio runtime")?;
+
+    rt.block_on(assembler::build_without_docker(image_ref, output, cli))
 }
 
 /// Run Wizer pre-initialization on an existing .wasm file without performing

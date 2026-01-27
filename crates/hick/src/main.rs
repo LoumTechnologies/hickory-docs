@@ -1,6 +1,6 @@
 use wasmtime::{Engine, Module, Store};
-use wasmtime_wasi::p1::{self, WasiP1Ctx};
 use wasmtime_wasi::WasiCtxBuilder;
+use wasmtime_wasi::p1::{self, WasiP1Ctx};
 
 fn main() -> wasmtime::Result<()> {
     let engine = Engine::default();
