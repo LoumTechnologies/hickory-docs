@@ -4,6 +4,13 @@ version = "0.1.0"
 edition = "2021"
 description = "Container to WASM converter"
 
+[features]
+default = []
+# Use the wizer crate for library-based pre-initialization instead of
+# shelling out to the wizer CLI binary. Pulls in wasmtime as a transitive
+# dependency, which significantly increases compile time and binary size.
+wizer-lib = ["dep:wizer"]
+
 [dependencies]
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
@@ -16,3 +23,4 @@ tar = "0.4"
 tempfile = "3"
 walkdir = "2"
 which = "7"
+wizer = { version = "4", optional = true }
