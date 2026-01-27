@@ -5,6 +5,7 @@ edition = "2024"
 
 [dependencies]
 container = { path = "../container" }
+container2wasm = { path = "../container2wasm" }
 wasmtime = "41.0.0"
 wasmtime-wasi = "41.0.0"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-util", "sync"] }

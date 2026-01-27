@@ -5,11 +5,9 @@ use anyhow::{Context, Result};
 
 use crate::cli::Cli;
 
-const DOCKERFILE: &[u8] = include_bytes!("../../../Dockerfile");
-
 pub fn write_dockerfile_to_temp() -> Result<tempfile::NamedTempFile> {
     let mut f = tempfile::NamedTempFile::new().context("failed to create temp Dockerfile")?;
-    f.write_all(DOCKERFILE)
+    f.write_all(crate::DOCKERFILE)
         .context("failed to write embedded Dockerfile")?;
     f.flush()?;
     Ok(f)
