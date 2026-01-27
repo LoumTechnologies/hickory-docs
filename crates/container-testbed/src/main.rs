@@ -565,5 +565,11 @@ async fn main() -> anyhow::Result<()> {
         eprintln!("[testbed] Killed container: {name}");
     }
 
-    Ok(())
+    // Restore the terminal now rather than relying on implicit drop, so we
+    // can force-exit below without leaving the terminal in raw mode.
+    drop(_raw);
+
+    // A blocking stdin read on the tokio thread-pool cannot be cancelled,
+    // which prevents the runtime from shutting down.  Force-exit instead.
+    std::process::exit(0);
 }
