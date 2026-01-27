@@ -60,6 +60,34 @@ pub struct Cli {
     #[arg(long)]
     pub pack: Option<String>,
 
+    /// Enable Wizer pre-initialization for instant startup.
+    ///
+    /// After the Docker build produces a .wasm file, runs Wizer to snapshot
+    /// the boot process (CPU emulator init, kernel boot, etc.) so the module
+    /// starts near-instantly at a responsive shell. Passes SKIP_WIZER=true to
+    /// the Docker build so the Dockerfile can skip its own Wizer step.
+    #[arg(long)]
+    pub wizer: bool,
+
+    /// Run only Wizer pre-initialization on an existing .wasm file, skipping
+    /// the Docker build entirely. The image_name argument is treated as the
+    /// input .wasm file path.
+    #[arg(long)]
+    pub wizer_only: bool,
+
+    /// Directory mapping for Wizer WASI filesystem (format: guest_dir::host_dir).
+    ///
+    /// Makes host directories available to the WASI environment during the
+    /// pre-initialization phase. For container2wasm, you typically need to map
+    /// the /pack directory containing the kernel and container filesystem.
+    /// Can be specified multiple times.
+    #[arg(long)]
+    pub wizer_map_dir: Vec<String>,
+
+    /// Name of the Wizer initialization function export.
+    #[arg(long, default_value = "wizer.initialize")]
+    pub wizer_init_func: String,
+
     /// Image name (or output path when using --external-bundle or --pack).
     pub image_name: Option<String>,
 
