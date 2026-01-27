@@ -1,3 +1,4 @@
+use std::collections::VecDeque;
 use std::os::fd::AsRawFd;
 use std::path::{Path, PathBuf};
 
@@ -163,6 +164,153 @@ fn strip_dsr(src: &[u8]) -> Vec<u8> {
 }
 
 // ---------------------------------------------------------------------------
+// Echo suppressor
+// ---------------------------------------------------------------------------
+
+/// Suppresses container echo of bytes we already displayed locally.
+///
+/// When we locally echo a typed character, we push it into the queue. When the
+/// container later sends back that same byte, we pop it from the queue instead
+/// of printing it (it was already shown). On mismatch the queue is cleared and
+/// the byte passes through — the container is sending something unexpected.
+///
+/// ANSI escape sequences from the container (starting with ESC `[`) are always
+/// passed through without attempting to match them against the queue.
+struct EchoSuppressor {
+    queue: VecDeque<u8>,
+}
+
+impl EchoSuppressor {
+    fn new() -> Self {
+        Self {
+            queue: VecDeque::new(),
+        }
+    }
+
+    fn push(&mut self, byte: u8) {
+        self.queue.push_back(byte);
+    }
+
+    fn pop_last(&mut self) {
+        self.queue.pop_back();
+    }
+
+    /// Process a slice of container output bytes. Returns only the bytes that
+    /// should be printed (i.e. not suppressed).
+    fn process(&mut self, src: &[u8]) -> Vec<u8> {
+        let mut out = Vec::with_capacity(src.len());
+        let mut i = 0;
+        while i < src.len() {
+            // Pass ANSI escape sequences through without matching
+            if src[i] == 0x1b && i + 1 < src.len() && src[i + 1] == b'[' {
+                out.push(src[i]);
+                i += 1;
+                // Copy the rest of the escape sequence (up to the final byte)
+                while i < src.len() {
+                    out.push(src[i]);
+                    if src[i].is_ascii_alphabetic() || src[i] == b'~' {
+                        i += 1;
+                        break;
+                    }
+                    i += 1;
+                }
+                continue;
+            }
+
+            if let Some(&expected) = self.queue.front() {
+                if src[i] == expected {
+                    // Match — suppress this byte
+                    self.queue.pop_front();
+                } else {
+                    // Mismatch — flush: the container is sending something
+                    // different from what we echoed, so stop suppressing.
+                    self.queue.clear();
+                    out.push(src[i]);
+                }
+            } else {
+                // Queue empty — nothing to suppress
+                out.push(src[i]);
+            }
+            i += 1;
+        }
+        out
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Prompt matcher
+// ---------------------------------------------------------------------------
+
+const PROMPT: &[u8] = b"/ # ";
+
+/// Streaming pattern matcher for the BusyBox ash prompt `/ # `.
+///
+/// Buffers bytes that partially match the prompt pattern. When the full pattern
+/// is matched, the buffered bytes are discarded (suppressed) and the caller is
+/// notified via the returned flag. On mismatch, buffered partial-match bytes
+/// are flushed to output.
+struct PromptMatcher {
+    matched: usize,
+    buffer: Vec<u8>,
+}
+
+impl PromptMatcher {
+    fn new() -> Self {
+        Self {
+            matched: 0,
+            buffer: Vec::new(),
+        }
+    }
+
+    /// Process container output. Returns `(bytes_to_print, prompt_detected)`.
+    fn process(&mut self, src: &[u8]) -> (Vec<u8>, bool) {
+        let mut out = Vec::with_capacity(src.len());
+        let mut detected = false;
+
+        for &byte in src {
+            if byte == PROMPT[self.matched] {
+                self.buffer.push(byte);
+                self.matched += 1;
+                if self.matched == PROMPT.len() {
+                    // Full prompt matched — suppress the buffered bytes
+                    self.buffer.clear();
+                    self.matched = 0;
+                    detected = true;
+                }
+            } else {
+                // Mismatch — flush buffered partial match
+                if !self.buffer.is_empty() {
+                    out.extend_from_slice(&self.buffer);
+                    self.buffer.clear();
+                }
+                self.matched = 0;
+                // Check if the current byte starts a new match
+                if byte == PROMPT[0] {
+                    self.buffer.push(byte);
+                    self.matched = 1;
+                } else {
+                    out.push(byte);
+                }
+            }
+        }
+
+        (out, detected)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Testbed state
+// ---------------------------------------------------------------------------
+
+#[derive(PartialEq)]
+enum TestbedState {
+    /// Kernel is booting — forward container output, detect first prompt.
+    Booting,
+    /// Shell is interactive — local echo, suppress container echo.
+    Interactive,
+}
+
+// ---------------------------------------------------------------------------
 // Main loop
 // ---------------------------------------------------------------------------
 
@@ -176,6 +324,7 @@ async fn main() -> anyhow::Result<()> {
     push_container(&mut stack, &engine, "alpine").await?;
 
     let mut stdin = tokio::io::stdin();
+    let mut stdout = tokio::io::stdout();
     let mut stdin_buf = [0u8; 256];
     let mut stdout_buf = [0u8; 4096];
 
@@ -186,11 +335,16 @@ async fn main() -> anyhow::Result<()> {
     let mut at_line_start = true;
     let mut should_exit = false;
 
+    // Local echo + suppression state
+    let mut state = TestbedState::Booting;
+    let mut suppressor = EchoSuppressor::new();
+    let mut prompt_matcher = PromptMatcher::new();
+
     loop {
         let (_, container) = stack.last_mut().expect("stack should not be empty in loop");
 
         tokio::select! {
-            // Container stdout → user terminal
+            // Container stdout → filter pipeline → user terminal
             result = container.read_stdout(&mut stdout_buf) => {
                 match result {
                     Ok(0) => {
@@ -199,10 +353,32 @@ async fn main() -> anyhow::Result<()> {
                         }
                     }
                     Ok(n) => {
-                        let filtered = strip_dsr(&stdout_buf[..n]);
-                        if !filtered.is_empty() {
-                            tokio::io::stdout().write_all(&filtered).await?;
-                            tokio::io::stdout().flush().await?;
+                        // Pipeline: strip DSR → echo suppressor → prompt matcher → print
+                        let after_dsr = strip_dsr(&stdout_buf[..n]);
+
+                        let after_suppress = if state == TestbedState::Interactive {
+                            suppressor.process(&after_dsr)
+                        } else {
+                            after_dsr
+                        };
+
+                        let (to_print, prompt_detected) = prompt_matcher.process(&after_suppress);
+
+                        if !to_print.is_empty() {
+                            stdout.write_all(&to_print).await?;
+                        }
+
+                        if prompt_detected {
+                            if state == TestbedState::Booting {
+                                state = TestbedState::Interactive;
+                            }
+                            // Print our own prompt
+                            stdout.write_all(PROMPT).await?;
+                            at_line_start = true;
+                        }
+
+                        if !to_print.is_empty() || prompt_detected {
+                            stdout.flush().await?;
                         }
                     }
                     Err(e) => {
@@ -226,8 +402,8 @@ async fn main() -> anyhow::Result<()> {
                                     if in_meta {
                                         let line = String::from_utf8_lossy(&meta_buf).to_string();
                                         // Echo newline locally for the meta-command line
-                                        tokio::io::stdout().write_all(b"\r\n").await?;
-                                        tokio::io::stdout().flush().await?;
+                                        stdout.write_all(b"\r\n").await?;
+                                        stdout.flush().await?;
 
                                         if let Some(cmd) = parse_meta_command(&line) {
                                             match cmd {
@@ -246,15 +422,32 @@ async fn main() -> anyhow::Result<()> {
                                             }
                                         } else {
                                             // Not a valid meta-command — forward to container
+                                            // and add to suppress queue (already echoed locally)
                                             if let Some((_, c)) = stack.last_mut() {
+                                                if state == TestbedState::Interactive {
+                                                    for &b in &meta_buf {
+                                                        suppressor.push(b);
+                                                    }
+                                                    suppressor.push(b'\r');
+                                                    suppressor.push(b'\n');
+                                                }
                                                 c.write_stdin(&meta_buf).await?;
                                                 c.write_stdin(b"\n").await?;
                                             }
                                         }
                                         meta_buf.clear();
                                         in_meta = false;
+                                    } else if state == TestbedState::Interactive {
+                                        // Echo locally and suppress container echo
+                                        stdout.write_all(b"\r\n").await?;
+                                        stdout.flush().await?;
+                                        suppressor.push(b'\r');
+                                        suppressor.push(b'\n');
+                                        if let Some((_, c)) = stack.last_mut() {
+                                            c.write_stdin(b"\n").await?;
+                                        }
                                     } else {
-                                        // Forward newline to container
+                                        // Booting — just forward
                                         if let Some((_, c)) = stack.last_mut() {
                                             c.write_stdin(b"\n").await?;
                                         }
@@ -262,18 +455,18 @@ async fn main() -> anyhow::Result<()> {
                                     at_line_start = true;
                                 }
 
-                                // Ctrl+C
+                                // Ctrl+C — exit current container (or quit if last)
                                 0x03 => {
                                     if in_meta {
                                         meta_buf.clear();
                                         in_meta = false;
                                         at_line_start = true;
-                                        tokio::io::stdout().write_all(b"^C\r\n").await?;
-                                        tokio::io::stdout().flush().await?;
-                                    } else {
-                                        if let Some((_, c)) = stack.last_mut() {
-                                            c.write_stdin(&[0x03]).await?;
-                                        }
+                                    }
+                                    stdout.write_all(b"^C\r\n").await?;
+                                    stdout.flush().await?;
+                                    if !pop_container(&mut stack) {
+                                        should_exit = true;
+                                        break;
                                     }
                                 }
 
@@ -291,10 +484,20 @@ async fn main() -> anyhow::Result<()> {
                                                 in_meta = false;
                                                 at_line_start = true;
                                             }
-                                            tokio::io::stdout().write_all(b"\x08 \x08").await?;
-                                            tokio::io::stdout().flush().await?;
+                                            stdout.write_all(b"\x08 \x08").await?;
+                                            stdout.flush().await?;
                                         }
+                                    } else if state == TestbedState::Interactive {
+                                        // Echo backspace locally and suppress container echo
+                                        stdout.write_all(b"\x08 \x08").await?;
+                                        stdout.flush().await?;
+                                        suppressor.pop_last();
+                                        if let Some((_, c)) = stack.last_mut() {
+                                            c.write_stdin(&[byte]).await?;
+                                        }
+                                        at_line_start = false;
                                     } else {
+                                        // Booting — just forward
                                         if let Some((_, c)) = stack.last_mut() {
                                             c.write_stdin(&[byte]).await?;
                                         }
@@ -302,25 +505,43 @@ async fn main() -> anyhow::Result<()> {
                                     }
                                 }
 
-                                // Regular byte
-                                _ => {
+                                // Printable ASCII
+                                0x20..=0x7e => {
                                     if at_line_start && byte == b':' {
                                         // Start of a potential meta-command — buffer locally
                                         in_meta = true;
                                         meta_buf.push(byte);
-                                        tokio::io::stdout().write_all(&[byte]).await?;
-                                        tokio::io::stdout().flush().await?;
+                                        stdout.write_all(&[byte]).await?;
+                                        stdout.flush().await?;
                                     } else if in_meta {
                                         meta_buf.push(byte);
-                                        tokio::io::stdout().write_all(&[byte]).await?;
-                                        tokio::io::stdout().flush().await?;
+                                        stdout.write_all(&[byte]).await?;
+                                        stdout.flush().await?;
+                                    } else if state == TestbedState::Interactive {
+                                        // Echo locally and suppress container echo
+                                        stdout.write_all(&[byte]).await?;
+                                        stdout.flush().await?;
+                                        suppressor.push(byte);
+                                        if let Some((_, c)) = stack.last_mut() {
+                                            c.write_stdin(&[byte]).await?;
+                                        }
+                                        at_line_start = false;
                                     } else {
-                                        // Forward to container — it handles echoing
+                                        // Booting — just forward, no echo
                                         if let Some((_, c)) = stack.last_mut() {
                                             c.write_stdin(&[byte]).await?;
                                         }
                                         at_line_start = false;
                                     }
+                                }
+
+                                // Other bytes (escape sequences, control chars)
+                                // Forward to container without local echo or suppress queue
+                                _ => {
+                                    if let Some((_, c)) = stack.last_mut() {
+                                        c.write_stdin(&[byte]).await?;
+                                    }
+                                    at_line_start = false;
                                 }
                             }
                         }
