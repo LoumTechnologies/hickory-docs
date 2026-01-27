@@ -97,6 +97,30 @@ fn pop_container(stack: &mut Vec<(String, Container)>) -> bool {
 }
 
 // ---------------------------------------------------------------------------
+// ANSI terminal query filtering
+// ---------------------------------------------------------------------------
+
+/// Remove Device Status Report queries (ESC[6n) from container output so the
+/// host terminal doesn't respond with Cursor Position Reports that leak back
+/// into the container as garbage input.
+fn strip_dsr(src: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(src.len());
+    let mut i = 0;
+    while i < src.len() {
+        if i + 3 <= src.len() && src[i] == 0x1b && src[i + 1] == b'[' && src[i + 2] == b'6'
+            && i + 4 <= src.len() && src[i + 3] == b'n'
+        {
+            // Skip ESC[6n
+            i += 4;
+        } else {
+            out.push(src[i]);
+            i += 1;
+        }
+    }
+    out
+}
+
+// ---------------------------------------------------------------------------
 // Main loop
 // ---------------------------------------------------------------------------
 
@@ -126,9 +150,11 @@ async fn main() -> anyhow::Result<()> {
                         }
                     }
                     Ok(n) => {
-                        let chunk = &stdout_buf[..n];
-                        tokio::io::stdout().write_all(chunk).await?;
-                        tokio::io::stdout().flush().await?;
+                        let filtered = strip_dsr(&stdout_buf[..n]);
+                        if !filtered.is_empty() {
+                            tokio::io::stdout().write_all(&filtered).await?;
+                            tokio::io::stdout().flush().await?;
+                        }
                     }
                     Err(e) => {
                         eprintln!("[testbed] stdout read error: {e}");
