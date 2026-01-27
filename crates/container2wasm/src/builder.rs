@@ -5,7 +5,7 @@ use anyhow::{Context, Result};
 
 use crate::cli::Cli;
 
-const DOCKERFILE: &[u8] = include_bytes!("../../Dockerfile");
+const DOCKERFILE: &[u8] = include_bytes!("../../../Dockerfile");
 
 pub fn write_dockerfile_to_temp() -> Result<tempfile::NamedTempFile> {
     let mut f = tempfile::NamedTempFile::new().context("failed to create temp Dockerfile")?;
@@ -85,6 +85,12 @@ pub fn build(
         args.extend_from_slice(&["--build-arg".into(), "EXTERNAL_BUNDLE=true".into()]);
     }
 
+    // When --wizer is set, tell the Dockerfile to skip its own Wizer step
+    // so we can apply it ourselves after the build with the Rust library/CLI.
+    if cli.wizer {
+        args.extend_from_slice(&["--build-arg".into(), "SKIP_WIZER=true".into()]);
+    }
+
     for a in &cli.build_arg {
         args.extend_from_slice(&["--build-arg".into(), a.clone()]);
     }
@@ -162,6 +168,10 @@ pub fn build_with_legacy_builder(
 
     if cli.external_bundle {
         args.extend_from_slice(&["--build-arg".into(), "EXTERNAL_BUNDLE=true".into()]);
+    }
+
+    if cli.wizer {
+        args.extend_from_slice(&["--build-arg".into(), "SKIP_WIZER=true".into()]);
     }
 
     for a in &cli.build_arg {
