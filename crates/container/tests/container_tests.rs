@@ -22,8 +22,7 @@ fn shared_alpine_module() -> &'static Module {
             .parent()
             .unwrap()
             .join("container2wasm/converted_images/alpine/3.23.2.wasm");
-        Module::from_file(shared_engine(), &wasm_path)
-            .expect("failed to load alpine module")
+        Module::from_file(shared_engine(), &wasm_path).expect("failed to load alpine module")
     })
 }
 
@@ -105,11 +104,8 @@ async fn test_stdin_stderr() {
     // Container2wasm may merge stderr into stdout since it emulates a full
     // OS with a single virtual console.
     let mut stderr_buf = [0u8; 4096];
-    let stderr_result = tokio::time::timeout(
-        Duration::from_secs(5),
-        c.read_stderr(&mut stderr_buf),
-    )
-    .await;
+    let stderr_result =
+        tokio::time::timeout(Duration::from_secs(5), c.read_stderr(&mut stderr_buf)).await;
 
     match stderr_result {
         Ok(Ok(n)) if n > 0 => {

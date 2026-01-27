@@ -56,7 +56,10 @@ impl WizerOpts {
                 if parts.len() == 2 {
                     Some((parts[0].to_string(), parts[1].to_string()))
                 } else {
-                    log::warn!("ignoring invalid --wizer-map-dir {:?} (expected guest::host)", mapping);
+                    log::warn!(
+                        "ignoring invalid --wizer-map-dir {:?} (expected guest::host)",
+                        mapping
+                    );
                     None
                 }
             })
@@ -85,8 +88,8 @@ impl WizerOpts {
 pub fn pre_initialize(input: &Path, output: &Path, opts: &WizerOpts) -> Result<()> {
     log::info!("pre-initializing {:?} with Wizer (library mode)", input);
 
-    let wasm_bytes = std::fs::read(input)
-        .with_context(|| format!("failed to read wasm file {:?}", input))?;
+    let wasm_bytes =
+        std::fs::read(input).with_context(|| format!("failed to read wasm file {:?}", input))?;
 
     let mut w = wizer::Wizer::new();
     w.allow_wasi(true)
@@ -103,7 +106,8 @@ pub fn pre_initialize(input: &Path, output: &Path, opts: &WizerOpts) -> Result<(
         w.func_rename(new_name, old_name);
     }
 
-    let output_wasm = w.run(&wasm_bytes)
+    let output_wasm = w
+        .run(&wasm_bytes)
         .context("Wizer pre-initialization failed")?;
 
     std::fs::write(output, &output_wasm)
@@ -152,13 +156,11 @@ pub fn pre_initialize(input: &Path, output: &Path, opts: &WizerOpts) -> Result<(
     }
 
     for (guest, host) in &opts.map_dirs {
-        cmd.arg("--mapdir")
-            .arg(format!("{}::{}", guest, host));
+        cmd.arg("--mapdir").arg(format!("{}::{}", guest, host));
     }
 
     for (old_name, new_name) in &opts.func_renames {
-        cmd.arg("-r")
-            .arg(format!("{}={}", old_name, new_name));
+        cmd.arg("-r").arg(format!("{}={}", old_name, new_name));
     }
 
     cmd.arg("-o").arg(output);
@@ -168,9 +170,7 @@ pub fn pre_initialize(input: &Path, output: &Path, opts: &WizerOpts) -> Result<(
 
     log::info!("running: {:?}", cmd);
 
-    let status = cmd
-        .status()
-        .context("failed to execute wizer binary")?;
+    let status = cmd.status().context("failed to execute wizer binary")?;
 
     if !status.success() {
         anyhow::bail!(

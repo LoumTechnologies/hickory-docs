@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use clap::Parser;
 
 #[derive(Parser, Debug)]
@@ -87,6 +89,37 @@ pub struct Cli {
     /// Name of the Wizer initialization function export.
     #[arg(long, default_value = "wizer.initialize")]
     pub wizer_init_func: String,
+
+    // -- No-Docker pipeline flags --
+    /// Skip Docker and use the pure Rust OCI pipeline instead.
+    ///
+    /// Pulls the container image directly from the registry via HTTP,
+    /// then assembles the WASM module using local tools (wasi-vfs, wizer).
+    /// Requires a pre-built template directory with emulator + kernel artifacts.
+    #[arg(long)]
+    pub no_docker: bool,
+
+    /// Path to a pre-built template directory containing emulator WASM,
+    /// kernel, BIOS, and guest binaries. Required for --no-docker unless
+    /// the template is already cached.
+    #[arg(long)]
+    pub template: Option<PathBuf>,
+
+    /// Template version to use (default: matches upstream container2wasm release).
+    #[arg(long)]
+    pub template_version: Option<String>,
+
+    /// Override the template cache directory (default: ~/.cache/c2w/templates/).
+    #[arg(long)]
+    pub cache_dir: Option<PathBuf>,
+
+    /// Registry username for OCI image pull (--no-docker mode).
+    #[arg(long)]
+    pub registry_username: Option<String>,
+
+    /// Registry password for OCI image pull (--no-docker mode).
+    #[arg(long)]
+    pub registry_password: Option<String>,
 
     /// Image name (or output path when using --external-bundle or --pack).
     pub image_name: Option<String>,

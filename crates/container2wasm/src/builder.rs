@@ -73,7 +73,11 @@ pub fn build(
         args.extend_from_slice(&["--build-arg".into(), format!("OUTPUT_NAME={}", dest_file)]);
     }
 
-    let (linux_log_level, init_debug) = if cli.debug_image { (7, true) } else { (0, false) };
+    let (linux_log_level, init_debug) = if cli.debug_image {
+        (7, true)
+    } else {
+        (0, false)
+    };
     args.extend_from_slice(&[
         "--build-arg".into(),
         format!("LINUX_LOGLEVEL={}", linux_log_level),
@@ -158,7 +162,11 @@ pub fn build_with_legacy_builder(
         args.extend_from_slice(&["--build-arg".into(), format!("OUTPUT_NAME={}", dest_file)]);
     }
 
-    let (linux_log_level, init_debug) = if cli.debug_image { (7, true) } else { (0, false) };
+    let (linux_log_level, init_debug) = if cli.debug_image {
+        (7, true)
+    } else {
+        (0, false)
+    };
     args.extend_from_slice(&[
         "--build-arg".into(),
         format!("LINUX_LOGLEVEL={}", linux_log_level),

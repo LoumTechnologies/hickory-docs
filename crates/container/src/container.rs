@@ -5,8 +5,8 @@ use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader, DuplexStream};
 use tokio::task::JoinHandle;
 use wasmtime::{Engine, Module, Store};
-use wasmtime_wasi::p1::{self, WasiP1Ctx};
 use wasmtime_wasi::WasiCtxBuilder;
+use wasmtime_wasi::p1::{self, WasiP1Ctx};
 
 use crate::pipe::{ChannelStdin, ChannelStdout};
 
@@ -160,7 +160,7 @@ impl Container {
         let result = Pin::new(&mut self.task).await;
         match result {
             Ok(Ok(())) => Ok(()),
-            Ok(Err(e)) => Err(e.into()),
+            Ok(Err(e)) => Err(e),
             Err(join_err) if join_err.is_cancelled() => Ok(()),
             Err(join_err) => Err(anyhow::anyhow!("wasm task panicked: {join_err}")),
         }

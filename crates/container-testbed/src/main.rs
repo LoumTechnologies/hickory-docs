@@ -46,17 +46,17 @@ fn resolve_image_path(name: &str) -> PathBuf {
 
     // 2. Check for directory: {name}/, pick latest .wasm by lexicographic sort
     let dir = images_dir.join(name);
-    if dir.is_dir() {
-        if let Ok(entries) = std::fs::read_dir(&dir) {
-            let mut wasm_files: Vec<PathBuf> = entries
-                .filter_map(|e| e.ok())
-                .map(|e| e.path())
-                .filter(|p| p.extension().is_some_and(|ext| ext == "wasm"))
-                .collect();
-            wasm_files.sort();
-            if let Some(latest) = wasm_files.last() {
-                return latest.clone();
-            }
+    if dir.is_dir()
+        && let Ok(entries) = std::fs::read_dir(&dir)
+    {
+        let mut wasm_files: Vec<PathBuf> = entries
+            .filter_map(|e| e.ok())
+            .map(|e| e.path())
+            .filter(|p| p.extension().is_some_and(|ext| ext == "wasm"))
+            .collect();
+        wasm_files.sort();
+        if let Some(latest) = wasm_files.last() {
+            return latest.clone();
         }
     }
 

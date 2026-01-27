@@ -2,9 +2,11 @@ use std::io;
 
 fn main() {
     let mut line = String::new();
-    io::stdin().read_line(&mut line).expect("failed to read stdin");
+    io::stdin()
+        .read_line(&mut line)
+        .expect("failed to read stdin");
 
-    let parts: Vec<&str> = line.trim().split_whitespace().collect();
+    let parts: Vec<&str> = line.split_whitespace().collect();
     if parts.len() != 3 {
         eprintln!("expected: <number> <op> <number>");
         std::process::exit(1);
