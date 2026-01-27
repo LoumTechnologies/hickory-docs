@@ -6,7 +6,7 @@ fn main() -> wasmtime::Result<()> {
     let engine = Engine::default();
     let module = Module::from_file(
         &engine,
-        "crates/container2wasm/converted_images/alpine/3.23.2.wasm",
+        "crates/c2w/converted_images/alpine/3.23.2.wasm",
     )?;
 
     let mut linker = wasmtime::Linker::<WasiP1Ctx>::new(&engine);

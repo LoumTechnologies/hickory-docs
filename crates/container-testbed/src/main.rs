@@ -79,7 +79,7 @@ fn resolve_image_path(name: &str) -> PathBuf {
     let images_dir = Path::new(manifest_dir)
         .parent()
         .unwrap()
-        .join("container2wasm/converted_images");
+        .join("c2w/converted_images");
 
     // 1. Check for exact file: {name}.wasm
     let exact = images_dir.join(format!("{name}.wasm"));

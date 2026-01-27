@@ -2,7 +2,7 @@
 name = "c2w-testbed"
 version = "0.1.0"
 edition = "2021"
-description = "CLI testbed for the container2wasm library"
+description = "CLI testbed for the c2w library"
 
 [[bin]]
 name = "c2w"
@@ -10,5 +10,5 @@ path = "src/main.rs"
 
 [dependencies]
 clap = { version = "4", features = ["derive"] }
-container2wasm = { path = "../container2wasm" }
+c2w = { path = "../c2w" }
 env_logger = "0.11"
