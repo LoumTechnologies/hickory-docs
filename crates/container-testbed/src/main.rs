@@ -150,8 +150,12 @@ fn strip_dsr(src: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(src.len());
     let mut i = 0;
     while i < src.len() {
-        if i + 3 <= src.len() && src[i] == 0x1b && src[i + 1] == b'[' && src[i + 2] == b'6'
-            && i + 4 <= src.len() && src[i + 3] == b'n'
+        if i + 3 <= src.len()
+            && src[i] == 0x1b
+            && src[i + 1] == b'['
+            && src[i + 2] == b'6'
+            && i + 4 <= src.len()
+            && src[i + 3] == b'n'
         {
             // Skip ESC[6n
             i += 4;
