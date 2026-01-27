@@ -1,37 +1,25 @@
-mod assembler;
-mod builder;
-mod cli;
-mod image;
-mod iso;
-mod rootfs;
-mod spec;
-mod template;
-mod wizer;
+pub mod assembler;
+pub mod builder;
+pub mod cli;
+pub mod image;
+pub mod iso;
+pub mod rootfs;
+pub mod spec;
+pub mod template;
+pub mod wizer;
 
 use std::fs;
 use std::path::Path;
 use std::process::Command;
 
 use anyhow::{bail, Context, Result};
-use clap::Parser;
 
 use cli::Cli;
 
-const DEFAULT_OUTPUT_FILE: &str = "out.wasm";
-const DOCKERFILE: &[u8] = include_bytes!("../../../Dockerfile");
+pub const DEFAULT_OUTPUT_FILE: &str = "out.wasm";
+pub const DOCKERFILE: &[u8] = include_bytes!("../../../Dockerfile");
 
-fn main() {
-    env_logger::init();
-
-    let cli = Cli::parse();
-
-    if let Err(e) = run(cli) {
-        eprintln!("{:+}", e);
-        std::process::exit(1);
-    }
-}
-
-fn run(cli: Cli) -> Result<()> {
+pub fn run(cli: Cli) -> Result<()> {
     if cli.show_dockerfile {
         print!("{}", String::from_utf8_lossy(DOCKERFILE));
         println!();
@@ -203,7 +191,7 @@ fn run(cli: Cli) -> Result<()> {
 }
 
 /// Run the pure Rust no-Docker pipeline.
-fn run_no_docker_pipeline(cli: &Cli, image_ref: &str) -> Result<()> {
+pub fn run_no_docker_pipeline(cli: &Cli, image_ref: &str) -> Result<()> {
     let output_path = cli.output.as_deref().unwrap_or(DEFAULT_OUTPUT_FILE);
     let output = Path::new(output_path);
 
@@ -219,7 +207,7 @@ fn run_no_docker_pipeline(cli: &Cli, image_ref: &str) -> Result<()> {
 /// Run Wizer pre-initialization on an existing .wasm file without performing
 /// any Docker build. Useful for re-processing or separately optimizing a wasm
 /// module that was previously built without Wizer.
-fn run_wizer_only(cli: &Cli) -> Result<()> {
+pub fn run_wizer_only(cli: &Cli) -> Result<()> {
     let input_path = cli
         .image_name
         .as_deref()

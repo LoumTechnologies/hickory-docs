@@ -1,8 +1,12 @@
 [package]
-name = "c2w"
+name = "container2wasm"
 version = "0.1.0"
 edition = "2021"
 description = "Container to WASM converter"
+
+[lib]
+name = "container2wasm"
+path = "src/lib.rs"
 
 [features]
 default = []
@@ -15,7 +19,6 @@ wizer-lib = ["dep:wizer"]
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
 dirs = "6"
-env_logger = "0.11"
 filetime = "0.2"
 log = "0.4"
 oci-pull = { path = "../oci-pull" }
