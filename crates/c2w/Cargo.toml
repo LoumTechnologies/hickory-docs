@@ -1,11 +1,11 @@
 [package]
-name = "container2wasm"
+name = "c2w"
 version = "0.1.0"
 edition = "2021"
 description = "Container to WASM converter"
 
 [lib]
-name = "container2wasm"
+name = "c2w"
 path = "src/lib.rs"
 
 [features]

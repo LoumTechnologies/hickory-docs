@@ -21,7 +21,7 @@ fn shared_alpine_module() -> &'static Module {
         let wasm_path = Path::new(manifest_dir)
             .parent()
             .unwrap()
-            .join("container2wasm/converted_images/alpine/3.23.2.wasm");
+            .join("c2w/converted_images/alpine/3.23.2.wasm");
         Module::from_file(shared_engine(), &wasm_path).expect("failed to load alpine module")
     })
 }
