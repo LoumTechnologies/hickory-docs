@@ -4,6 +4,6 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-tokio = { version = "1", features = ["io-util", "macros", "rt", "sync"] }
+tokio = { version = "1", features = ["io-util", "macros", "net", "rt", "sync", "time"] }
 anyhow = "1"
 smoltcp = { version = "0.12.0", default-features = false, features = ["std", "alloc", "medium-ethernet", "proto-ipv4", "socket-tcp", "socket-udp", "socket-raw"] }
