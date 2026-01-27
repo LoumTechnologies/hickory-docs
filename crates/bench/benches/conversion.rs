@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use bench::{alpine_wasm_path, ConversionPrereqs};
 use clap::Parser;
-use container2wasm::cli::Cli;
+use c2w::cli::Cli;
 use criterion::{criterion_group, criterion_main, Criterion, SamplingMode};
 
 fn conversion_without_wizer(c: &mut Criterion) {
@@ -31,7 +31,7 @@ fn conversion_without_wizer(c: &mut Criterion) {
                 "alpine:3.23.2",
                 output.to_str().unwrap(),
             ]);
-            container2wasm::run(cli).expect("conversion failed");
+            c2w::run(cli).expect("conversion failed");
         });
     });
 
@@ -65,7 +65,7 @@ fn conversion_with_wizer(c: &mut Criterion) {
                 "alpine:3.23.2",
                 output.to_str().unwrap(),
             ]);
-            container2wasm::run(cli).expect("conversion with wizer failed");
+            c2w::run(cli).expect("conversion with wizer failed");
         });
     });
 
@@ -109,7 +109,7 @@ fn conversion_wizer_only(c: &mut Criterion) {
                 input.to_str().unwrap(),
                 output.to_str().unwrap(),
             ]);
-            container2wasm::run(cli).expect("wizer-only failed");
+            c2w::run(cli).expect("wizer-only failed");
         });
     });
 

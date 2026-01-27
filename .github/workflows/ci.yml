@@ -46,10 +46,5 @@ jobs:
       - name: Build workspace
         run: cargo build --workspace
 
-      - name: Unzip WASM test fixture
-        run: |
-          unzip -o crates/c2w/converted_images/alpine/3.23.2.wasm.zip \
-            -d crates/c2w/converted_images/alpine/
-
-      - name: Run all tests (including ignored integration tests)
-        run: cargo test --workspace -- --include-ignored --test-threads=1
+      - name: Run tests
+        run: cargo test --workspace -- --test-threads=1

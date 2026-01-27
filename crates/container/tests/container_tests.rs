@@ -14,6 +14,31 @@ fn shared_engine() -> &'static Engine {
     ENGINE.get_or_init(|| create_async_engine().expect("failed to create async engine"))
 }
 
+/// Ensure the `.wasm` file exists, extracting from the `.wasm.zip` if needed.
+fn ensure_wasm_extracted(wasm_path: &Path) {
+    if wasm_path.exists() {
+        return;
+    }
+    let zip_path = wasm_path.with_extension("wasm.zip");
+    assert!(
+        zip_path.exists(),
+        "Neither {wasm_path:?} nor {zip_path:?} found. \
+         Check out the fixture with Git LFS: git lfs pull"
+    );
+    let file = std::fs::File::open(&zip_path)
+        .unwrap_or_else(|e| panic!("failed to open {zip_path:?}: {e}"));
+    let mut archive = zip::ZipArchive::new(file)
+        .unwrap_or_else(|e| panic!("failed to read zip {zip_path:?}: {e}"));
+    let dest_dir = wasm_path.parent().unwrap();
+    archive
+        .extract(dest_dir)
+        .unwrap_or_else(|e| panic!("failed to extract {zip_path:?}: {e}"));
+    assert!(
+        wasm_path.exists(),
+        "Extraction succeeded but {wasm_path:?} still missing"
+    );
+}
+
 fn shared_alpine_module() -> &'static Module {
     static MODULE: OnceLock<Module> = OnceLock::new();
     MODULE.get_or_init(|| {
@@ -22,6 +47,7 @@ fn shared_alpine_module() -> &'static Module {
             .parent()
             .unwrap()
             .join("c2w/converted_images/alpine/3.23.2.wasm");
+        ensure_wasm_extracted(&wasm_path);
         Module::from_file(shared_engine(), &wasm_path).expect("failed to load alpine module")
     })
 }

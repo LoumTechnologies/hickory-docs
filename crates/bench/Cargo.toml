@@ -6,7 +6,7 @@ publish = false
 
 [dependencies]
 container = { path = "../container" }
-container2wasm = { path = "../container2wasm" }
+c2w = { path = "../c2w" }
 wasmtime = "41.0.0"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-util", "time"] }
 anyhow = "1"

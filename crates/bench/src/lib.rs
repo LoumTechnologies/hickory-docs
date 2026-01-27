@@ -13,7 +13,7 @@ use wasmtime::{Engine, Module};
 /// Directory containing converted alpine images.
 pub fn fixture_dir() -> PathBuf {
     let manifest = env!("CARGO_MANIFEST_DIR");
-    Path::new(manifest).join("../container2wasm/converted_images/alpine")
+    Path::new(manifest).join("../c2w/converted_images/alpine")
 }
 
 /// Path to the plain (non-wizer'd) alpine WASM fixture.
