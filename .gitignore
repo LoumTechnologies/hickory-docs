@@ -8,3 +8,5 @@ target/
 
 # macOS system files
 .DS_Store
+
+*.wasm
