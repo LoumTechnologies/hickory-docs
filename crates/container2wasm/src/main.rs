@@ -1,6 +1,7 @@
 mod builder;
 mod cli;
 mod image;
+mod wizer;
 
 use std::fs;
 use std::path::Path;
@@ -12,7 +13,7 @@ use clap::Parser;
 use cli::Cli;
 
 const DEFAULT_OUTPUT_FILE: &str = "out.wasm";
-const DOCKERFILE: &[u8] = include_bytes!("../../Dockerfile");
+const DOCKERFILE: &[u8] = include_bytes!("../../../Dockerfile");
 
 fn main() {
     env_logger::init();
@@ -30,6 +31,12 @@ fn run(cli: Cli) -> Result<()> {
         print!("{}", String::from_utf8_lossy(DOCKERFILE));
         println!();
         return Ok(());
+    }
+
+    // --wizer-only mode: skip Docker build entirely, just pre-initialize
+    // an existing .wasm file.
+    if cli.wizer_only {
+        return run_wizer_only(&cli);
     }
 
     let arg1 = match &cli.image_name {
@@ -113,6 +120,10 @@ fn run(cli: Cli) -> Result<()> {
         bail!("\"pack\" unsupported on docker build as of now; install docker buildx instead");
     }
 
+    if cli.wizer && cli.to_js {
+        bail!("--wizer cannot be used with --to-js (Wizer only works on WASI targets)");
+    }
+
     let src_img_name = arg1;
     let tmpdir = tempfile::tempdir().context("failed to create temp dir")?;
     let src_img_path = tmpdir.path().join("img");
@@ -132,7 +143,7 @@ fn run(cli: Cli) -> Result<()> {
         .to_str()
         .context("temp path not valid UTF-8")?;
 
-    if legacy {
+    let build_result = if legacy {
         builder::build_with_legacy_builder(
             builder_path,
             src_img_path_str,
@@ -142,5 +153,75 @@ fn run(cli: Cli) -> Result<()> {
         )
     } else {
         builder::build(builder_path, src_img_path_str, &dest_dir, &dest_file, &cli)
+    };
+
+    build_result?;
+
+    // Post-build Wizer pre-initialization
+    if cli.wizer && !dest_file.is_empty() {
+        let wasm_path = Path::new(&dest_dir).join(&dest_file);
+        if wasm_path.exists() {
+            let opts = wizer::WizerOpts::from_cli(&cli);
+
+            // Pre-initialize to a temp file, then replace the original
+            let tmp_output = tempfile::NamedTempFile::new_in(&dest_dir)
+                .context("failed to create temp file for Wizer output")?;
+
+            wizer::pre_initialize(&wasm_path, tmp_output.path(), &opts)
+                .context("Wizer pre-initialization failed")?;
+
+            fs::rename(tmp_output.path(), &wasm_path)
+                .or_else(|_| {
+                    // rename can fail across filesystems; fall back to copy
+                    fs::copy(tmp_output.path(), &wasm_path)?;
+                    Ok::<_, std::io::Error>(())
+                })
+                .with_context(|| {
+                    format!("failed to replace {:?} with pre-initialized output", wasm_path)
+                })?;
+
+            log::info!("wizer pre-initialization applied to {:?}", wasm_path);
+        } else {
+            log::warn!(
+                "--wizer was set but output file {:?} not found; skipping pre-initialization",
+                wasm_path
+            );
+        }
     }
+
+    Ok(())
+}
+
+/// Run Wizer pre-initialization on an existing .wasm file without performing
+/// any Docker build. Useful for re-processing or separately optimizing a wasm
+/// module that was previously built without Wizer.
+fn run_wizer_only(cli: &Cli) -> Result<()> {
+    let input_path = cli
+        .image_name
+        .as_deref()
+        .context("specify the input .wasm file path")?;
+
+    let input = Path::new(input_path);
+    if !input.exists() {
+        bail!("input file {:?} does not exist", input);
+    }
+
+    let output = match &cli.output {
+        Some(out) => Path::new(out).to_path_buf(),
+        None => {
+            // Default: write to <name>.pre-init.wasm alongside the input
+            let stem = input
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("output");
+            let parent = input.parent().unwrap_or(Path::new("."));
+            parent.join(format!("{}.pre-init.wasm", stem))
+        }
+    };
+
+    let opts = wizer::WizerOpts::from_cli(cli);
+    wizer::pre_initialize(input, &output, &opts)?;
+
+    log::info!("wrote pre-initialized module to {:?}", output);
+    Ok(())
 }
