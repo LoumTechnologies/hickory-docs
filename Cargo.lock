@@ -501,6 +501,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "container",
+ "libc",
  "tokio",
  "wasmtime 41.0.1",
 ]
