@@ -1,14 +1,16 @@
 use std::io;
+use std::net::SocketAddr;
 use std::pin::Pin;
 use std::time::Duration;
 
-use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader, DuplexStream};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
+use tokio::net::UnixStream;
+use tokio::sync::watch;
 use tokio::task::JoinHandle;
+use wasi_common::WasiCtx;
 use wasmtime::{Engine, Module, Store};
-use wasmtime_wasi::WasiCtxBuilder;
-use wasmtime_wasi::p1::{self, WasiP1Ctx};
 
-use crate::pipe::{ChannelStdin, ChannelStdout};
+use crate::pipe::{stderr_pipe, stdin_pipe, stdout_pipe};
 
 const DEFAULT_PIPE_BUFFER_SIZE: usize = 65536;
 
@@ -17,6 +19,7 @@ pub struct ContainerConfig {
     pub engine: Engine,
     pub module: Module,
     pub pipe_buffer_size: usize,
+    pub networking: bool,
 }
 
 impl ContainerConfig {
@@ -25,6 +28,7 @@ impl ContainerConfig {
             engine,
             module,
             pipe_buffer_size: DEFAULT_PIPE_BUFFER_SIZE,
+            networking: false,
         }
     }
 }
@@ -32,15 +36,15 @@ impl ContainerConfig {
 /// A running WASM container with programmatic stdin/stdout/stderr I/O.
 ///
 /// The WASM module runs in a background tokio task. The host communicates via
-/// [`DuplexStream`] pairs bridged to WASI through custom
-/// [`StdinStream`](wasmtime_wasi::cli::StdinStream) /
-/// [`StdoutStream`](wasmtime_wasi::cli::StdoutStream) implementations.
+/// OS pipe pairs bridged to WASI through `wasi-common` [`ReadPipe`](wasi_common::pipe::ReadPipe)
+/// / [`WritePipe`](wasi_common::pipe::WritePipe) implementations.
 pub struct Container {
-    stdin: DuplexStream,
-    stdout: BufReader<DuplexStream>,
-    stderr: BufReader<DuplexStream>,
+    stdin: UnixStream,
+    stdout: BufReader<UnixStream>,
+    stderr: BufReader<UnixStream>,
     task: JoinHandle<wasmtime::Result<()>>,
     epoch_task: JoinHandle<()>,
+    network_shutdown: Option<watch::Sender<bool>>,
     #[allow(dead_code)]
     engine: Engine,
 }
@@ -48,20 +52,42 @@ pub struct Container {
 impl Container {
     /// Start a WASM module in a background task.
     pub async fn start(config: ContainerConfig) -> anyhow::Result<Self> {
-        let buf = config.pipe_buffer_size;
         let engine = config.engine;
         let module = config.module;
+        let networking = config.networking;
 
-        // Create duplex stream pairs for stdin, stdout, stderr.
-        // For each pair: host uses one end, module uses the other.
-        let (host_stdin, module_stdin) = tokio::io::duplex(buf);
-        let (module_stdout, host_stdout) = tokio::io::duplex(buf);
-        let (module_stderr, host_stderr) = tokio::io::duplex(buf);
+        // Create OS pipe pairs for stdin, stdout, stderr.
+        let (host_stdin, wasi_stdin) = stdin_pipe()?;
+        let (host_stdout, wasi_stdout) = stdout_pipe()?;
+        let (host_stderr, wasi_stderr) = stderr_pipe()?;
 
-        // Wrap module-side streams in WASI-compatible types
-        let channel_stdin = ChannelStdin::new(module_stdin);
-        let channel_stdout = ChannelStdout::new(module_stdout);
-        let channel_stderr = ChannelStdout::new(module_stderr);
+        // Build WASI context
+        let mut builder = wasi_common::tokio::WasiCtxBuilder::new();
+        builder
+            .stdin(Box::new(wasi_stdin))
+            .stdout(Box::new(wasi_stdout))
+            .stderr(Box::new(wasi_stderr));
+
+        // Set up networking if enabled
+        let mut network_shutdown = None;
+        if networking {
+            // Create a TCP listener for the WASM module's network socket (fd=3)
+            let std_listener = std::net::TcpListener::bind("127.0.0.1:0")?;
+            let listen_addr = std_listener.local_addr()?;
+
+            let cap_listener = cap_std::net::TcpListener::from_std(std_listener);
+            builder.preopened_socket(3, cap_listener)?;
+
+            // Pass args and env so the container2wasm kernel knows to use networking
+            builder.arg("--net=socket")?;
+            builder.env("LISTEN_FDS", "1")?;
+
+            // Spawn network task that accepts the connection and runs the stack
+            let (shutdown_tx, shutdown_rx) = watch::channel(false);
+            network_shutdown = Some(shutdown_tx);
+
+            tokio::spawn(run_network_connector(listen_addr, shutdown_rx));
+        }
 
         // Start epoch incrementer for async cooperative scheduling
         let engine_for_epoch = engine.clone();
@@ -75,15 +101,10 @@ impl Container {
         // Spawn the WASM module in a background task
         let engine_for_task = engine.clone();
         let task = tokio::task::spawn(async move {
-            let mut linker = wasmtime::Linker::<WasiP1Ctx>::new(&engine_for_task);
-            p1::add_to_linker_async(&mut linker, |cx| cx)?;
+            let mut linker = wasmtime::Linker::<WasiCtx>::new(&engine_for_task);
+            wasi_common::tokio::add_to_linker(&mut linker, |cx| cx)?;
 
-            let wasi = WasiCtxBuilder::new()
-                .stdin(channel_stdin)
-                .stdout(channel_stdout)
-                .stderr(channel_stderr)
-                .build_p1();
-
+            let wasi = builder.build();
             let mut store = Store::new(&engine_for_task, wasi);
             store.epoch_deadline_async_yield_and_update(1);
 
@@ -91,9 +112,7 @@ impl Container {
 
             let func = linker.get_default(&mut store, "")?;
             let typed = func.typed::<(), ()>(&store)?;
-            typed.call_async(&mut store, ()).await?;
-
-            Ok(())
+            typed.call_async(&mut store, ()).await
         });
 
         Ok(Self {
@@ -102,6 +121,7 @@ impl Container {
             stderr: BufReader::new(host_stderr),
             task,
             epoch_task,
+            network_shutdown,
             engine,
         })
     }
@@ -156,6 +176,9 @@ impl Container {
     /// Await completion of the WASM module.
     pub async fn wait(mut self) -> anyhow::Result<()> {
         self.epoch_task.abort();
+        if let Some(tx) = &self.network_shutdown {
+            let _ = tx.send(true);
+        }
 
         let result = Pin::new(&mut self.task).await;
         match result {
@@ -170,7 +193,28 @@ impl Container {
 impl Drop for Container {
     fn drop(&mut self) {
         self.epoch_task.abort();
+        if let Some(tx) = &self.network_shutdown {
+            let _ = tx.send(true);
+        }
     }
+}
+
+/// Connect to the WASM module's network socket and run the network stack.
+///
+/// The WASM module has a preopened listener on fd=3. We connect to it from
+/// the host side, then the WASM kernel calls `sock_accept` to get its end of
+/// the stream. Both sides then speak the QEMU network protocol over this
+/// connection.
+async fn run_network_connector(listen_addr: SocketAddr, shutdown: watch::Receiver<bool>) {
+    // Wait briefly for the WASM module to start and begin listening
+    tokio::time::sleep(Duration::from_millis(100)).await;
+
+    let stream = match tokio::net::TcpStream::connect(listen_addr).await {
+        Ok(s) => s,
+        Err(_) => return,
+    };
+
+    network::network_loop::run_network(stream, shutdown).await;
 }
 
 /// Create a [`wasmtime::Engine`] configured for async operation with epoch
