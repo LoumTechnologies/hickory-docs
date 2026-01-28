@@ -5,9 +5,12 @@ edition = "2024"
 
 [dependencies]
 wasmtime = "41.0.0"
-wasmtime-wasi = "41.0.0"
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-util", "sync", "time"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-util", "net", "sync", "time"] }
 anyhow = "1"
+wasi-common = { version = "41.0.1", features = ["tokio"] }
+network = { version = "0.1.0", path = "../network" }
+cap-std = "3.4.5"
+async-trait = "0.1.89"
 
 [dev-dependencies]
 zip = "2"

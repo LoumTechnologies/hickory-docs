@@ -620,9 +620,12 @@ name = "container"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
+ "cap-std 3.4.5",
+ "network",
  "tokio",
+ "wasi-common 41.0.1",
  "wasmtime 41.0.1",
- "wasmtime-wasi 41.0.1",
  "zip",
 ]
 
@@ -3787,7 +3790,7 @@ dependencies = [
  "rustix 0.38.44",
  "system-interface 0.26.1",
  "tracing",
- "wasi-common",
+ "wasi-common 16.0.0",
  "windows-sys 0.48.0",
 ]
 
@@ -3809,6 +3812,33 @@ dependencies = [
  "wasmtime 16.0.0",
  "wiggle 16.0.0",
  "windows-sys 0.48.0",
+]
+
+[[package]]
+name = "wasi-common"
+version = "41.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "032d744cba48983783808b0e84e39a65aef0629fa42a5adc36bf2938b5d027f1"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "bitflags 2.10.0",
+ "cap-fs-ext 3.4.5",
+ "cap-rand 3.4.5",
+ "cap-std 3.4.5",
+ "cap-time-ext 3.4.5",
+ "fs-set-times",
+ "io-extras",
+ "io-lifetimes",
+ "log",
+ "rustix 1.1.3",
+ "system-interface 0.27.3",
+ "thiserror 2.0.18",
+ "tokio",
+ "tracing",
+ "wasmtime 41.0.1",
+ "wiggle 41.0.1",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -4592,7 +4622,7 @@ dependencies = [
  "tracing",
  "url",
  "wasi-cap-std-sync",
- "wasi-common",
+ "wasi-common 16.0.0",
  "wasmtime 16.0.0",
  "wiggle 16.0.0",
  "windows-sys 0.48.0",

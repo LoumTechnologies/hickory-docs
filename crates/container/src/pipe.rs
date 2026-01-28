@@ -1,90 +1,129 @@
-use std::pin::Pin;
-use std::sync::Arc;
-use std::task::{Context, Poll};
+use std::any::Any;
+use std::io::{IoSlice, IoSliceMut, Read, Write};
+use std::os::unix::net::UnixStream;
+use std::sync::{Arc, RwLock};
 
-use tokio::io::{AsyncRead, AsyncWrite, DuplexStream, ReadBuf};
-use wasmtime_wasi::cli::{IsTerminal, StdinStream, StdoutStream};
+use wasi_common::Error;
+use wasi_common::file::{FdFlags, FileType, WasiFile};
 
-/// A stdin stream backed by a [`DuplexStream`], allowing the host to write
-/// bytes that the WASM module reads as its standard input.
+/// WASI stdin backed by a non-blocking [`UnixStream`].
 ///
-/// Cloning produces a handle to the same underlying stream, satisfying the
-/// WASI requirement that multiple stdin handles share read progress.
+/// Implements [`WasiFile`] with synchronous `read_vectored`. The stream is
+/// non-blocking; when no data is available, returns 0 (like EOF) so the
+/// container2wasm shell doesn't block waiting for terminal responses it
+/// won't receive.
 #[derive(Clone)]
-pub struct ChannelStdin(Arc<std::sync::Mutex<DuplexStream>>);
+pub struct PipeReader {
+    inner: Arc<RwLock<UnixStream>>,
+}
 
-impl ChannelStdin {
-    pub fn new(stream: DuplexStream) -> Self {
-        Self(Arc::new(std::sync::Mutex::new(stream)))
+impl PipeReader {
+    fn new(stream: UnixStream) -> Self {
+        Self {
+            inner: Arc::new(RwLock::new(stream)),
+        }
     }
 }
 
-impl AsyncRead for ChannelStdin {
-    fn poll_read(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        buf: &mut ReadBuf<'_>,
-    ) -> Poll<std::io::Result<()>> {
-        let mut guard = self.0.lock().unwrap();
-        Pin::new(&mut *guard).poll_read(cx, buf)
+#[async_trait::async_trait]
+impl WasiFile for PipeReader {
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+
+    async fn get_filetype(&self) -> Result<FileType, Error> {
+        Ok(FileType::Pipe)
+    }
+
+    async fn read_vectored<'a>(&self, bufs: &mut [IoSliceMut<'a>]) -> Result<u64, Error> {
+        use std::io::ErrorKind;
+        match self.inner.write().unwrap().read_vectored(bufs) {
+            Ok(n) => Ok(n as u64),
+            Err(e) if e.kind() == ErrorKind::WouldBlock => {
+                // No data available - return 0 so kernel doesn't block
+                Ok(0)
+            }
+            Err(e) => Err(e.into()),
+        }
     }
 }
 
-impl IsTerminal for ChannelStdin {
-    fn is_terminal(&self) -> bool {
-        false
-    }
-}
-
-impl StdinStream for ChannelStdin {
-    fn async_stream(&self) -> Box<dyn AsyncRead + Send + Sync> {
-        Box::new(self.clone())
-    }
-}
-
-/// A stdout/stderr stream backed by a [`DuplexStream`], allowing the WASM
-/// module to write output that the host reads.
+/// WASI stdout/stderr backed by a [`UnixStream`].
 ///
-/// Cloning produces a handle to the same underlying stream, satisfying the
-/// WASI requirement that multiple output handles share write state.
+/// Implements [`WasiFile`] with synchronous `write_vectored`.
 #[derive(Clone)]
-pub struct ChannelStdout(Arc<std::sync::Mutex<DuplexStream>>);
+pub struct PipeWriter {
+    inner: Arc<RwLock<UnixStream>>,
+}
 
-impl ChannelStdout {
-    pub fn new(stream: DuplexStream) -> Self {
-        Self(Arc::new(std::sync::Mutex::new(stream)))
+impl PipeWriter {
+    fn new(stream: UnixStream) -> Self {
+        Self {
+            inner: Arc::new(RwLock::new(stream)),
+        }
+    }
+
+    /// Create from a raw UnixStream (for testing).
+    pub fn from_unix_stream(stream: UnixStream) -> Self {
+        Self::new(stream)
     }
 }
 
-impl AsyncWrite for ChannelStdout {
-    fn poll_write(
-        self: Pin<&mut Self>,
-        cx: &mut Context<'_>,
-        buf: &[u8],
-    ) -> Poll<std::io::Result<usize>> {
-        let mut guard = self.0.lock().unwrap();
-        Pin::new(&mut *guard).poll_write(cx, buf)
+#[async_trait::async_trait]
+impl WasiFile for PipeWriter {
+    fn as_any(&self) -> &dyn Any {
+        self
     }
 
-    fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
-        let mut guard = self.0.lock().unwrap();
-        Pin::new(&mut *guard).poll_flush(cx)
+    async fn get_filetype(&self) -> Result<FileType, Error> {
+        Ok(FileType::Pipe)
     }
 
-    fn poll_shutdown(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<std::io::Result<()>> {
-        let mut guard = self.0.lock().unwrap();
-        Pin::new(&mut *guard).poll_shutdown(cx)
+    async fn get_fdflags(&self) -> Result<FdFlags, Error> {
+        Ok(FdFlags::APPEND)
+    }
+
+    async fn write_vectored<'a>(&self, bufs: &[IoSlice<'a>]) -> Result<u64, Error> {
+        let n = self.inner.write().unwrap().write_vectored(bufs)?;
+        Ok(n as u64)
     }
 }
 
-impl IsTerminal for ChannelStdout {
-    fn is_terminal(&self) -> bool {
-        false
-    }
+/// Create a stdin pipe pair.
+///
+/// Returns `(host_write, wasi_read)` where the host writes bytes into
+/// `host_write` (a tokio `UnixStream`) and the WASM module reads them
+/// via the `PipeReader` WasiFile.
+pub fn stdin_pipe() -> anyhow::Result<(tokio::net::UnixStream, PipeReader)> {
+    let (host, wasi) = UnixStream::pair()?;
+    host.set_nonblocking(true)?;
+    // WASI side is non-blocking: reads return 0 when no data is available,
+    // preventing the c2w shell from blocking on terminal escape sequence
+    // responses that we can't provide.
+    wasi.set_nonblocking(true)?;
+    let host = tokio::net::UnixStream::from_std(host)?;
+    let wasi = PipeReader::new(wasi);
+    Ok((host, wasi))
 }
 
-impl StdoutStream for ChannelStdout {
-    fn async_stream(&self) -> Box<dyn AsyncWrite + Send + Sync> {
-        Box::new(self.clone())
-    }
+/// Create a stdout/stderr pipe pair.
+///
+/// Returns `(host_read, wasi_write)` where the WASM module writes bytes
+/// into the `PipeWriter` WasiFile and the host reads them from `host_read`
+/// (a tokio `UnixStream`).
+pub fn stdout_pipe() -> anyhow::Result<(tokio::net::UnixStream, PipeWriter)> {
+    let (host, wasi) = UnixStream::pair()?;
+    host.set_nonblocking(true)?;
+    let host = tokio::net::UnixStream::from_std(host)?;
+    let wasi = PipeWriter::new(wasi);
+    Ok((host, wasi))
+}
+
+/// Create a stderr pipe pair.
+pub fn stderr_pipe() -> anyhow::Result<(tokio::net::UnixStream, PipeWriter)> {
+    let (host, wasi) = UnixStream::pair()?;
+    host.set_nonblocking(true)?;
+    let host = tokio::net::UnixStream::from_std(host)?;
+    let wasi = PipeWriter::new(wasi);
+    Ok((host, wasi))
 }
