@@ -4,10 +4,7 @@ use wasmtime_wasi::p1::{self, WasiP1Ctx};
 
 fn main() -> wasmtime::Result<()> {
     let engine = Engine::default();
-    let module = Module::from_file(
-        &engine,
-        "crates/c2w/converted_images/alpine/3.23.2.wasm",
-    )?;
+    let module = Module::from_file(&engine, "crates/c2w/converted_images/alpine/3.23.2.wasm")?;
 
     let mut linker = wasmtime::Linker::<WasiP1Ctx>::new(&engine);
     p1::add_to_linker_sync(&mut linker, |cx| cx)?;
