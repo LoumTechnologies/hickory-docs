@@ -1,5 +1,4 @@
 use std::io;
-use std::net::SocketAddr;
 use std::pin::Pin;
 use std::time::Duration;
 
@@ -61,8 +60,11 @@ impl Container {
         let (host_stdout, wasi_stdout) = stdout_pipe()?;
         let (host_stderr, wasi_stderr) = stderr_pipe()?;
 
-        // Build WASI context
-        let mut builder = wasi_common::tokio::WasiCtxBuilder::new();
+        // Build WASI context using the sync builder. The sync implementation
+        // uses POSIX poll() for poll_oneoff and blocking accept() for
+        // sock_accept, which is how wasmtime CLI handles it. The tokio builder
+        // wraps sync files in a way that breaks async readiness for listeners.
+        let mut builder = wasi_common::sync::WasiCtxBuilder::new();
         builder
             .stdin(Box::new(wasi_stdin))
             .stdout(Box::new(wasi_stdout))
@@ -70,23 +72,39 @@ impl Container {
 
         // Set up networking if enabled
         let mut network_shutdown = None;
+        let mut network_connect_addr = None;
         if networking {
-            // Create a TCP listener for the WASM module's network socket (fd=3)
-            let std_listener = std::net::TcpListener::bind("127.0.0.1:0")?;
+            // Create a TCP listener that WASM will use to accept connections
+            // The kernel calls sock_accept on this fd to establish the network channel
+            // Use the same default port (1234) that c2w-net uses
+            let std_listener = std::net::TcpListener::bind("127.0.0.1:1234")
+                .or_else(|_| std::net::TcpListener::bind("127.0.0.1:0"))?;
+            // Set non-blocking like wasmtime CLI does
+            std_listener.set_nonblocking(true)?;
             let listen_addr = std_listener.local_addr()?;
+            eprintln!(
+                "[container] Created listener (non-blocking), local_addr = {:?}",
+                listen_addr
+            );
 
-            let cap_listener = cap_std::net::TcpListener::from_std(std_listener);
-            builder.preopened_socket(3, cap_listener)?;
+            // Use wasi_common::sync::TcpListener like wasmtime CLI does.
+            // The sync implementation uses POSIX poll() for readiness which
+            // properly blocks until a connection arrives.
+            let wasi_listener = wasi_common::sync::TcpListener::from_std(std_listener);
+            builder.preopened_socket(3, wasi_listener)?;
 
-            // Pass args and env so the container2wasm kernel knows to use networking
+            // Pass args and env so the container2wasm kernel knows to use networking.
+            // argv[0] must be a program name (like wasmtime CLI passes the module basename).
+            // LISTEN_FDS=1 tells the kernel there's one preopened socket (at fd=3).
+            builder.arg("container.wasm")?;
             builder.arg("--net=socket")?;
             builder.env("LISTEN_FDS", "1")?;
+            builder.env("LISTEN_PID", "1")?;
 
-            // Spawn network task that accepts the connection and runs the stack
+            // Store the address for connecting after WASM starts
             let (shutdown_tx, shutdown_rx) = watch::channel(false);
             network_shutdown = Some(shutdown_tx);
-
-            tokio::spawn(run_network_connector(listen_addr, shutdown_rx));
+            network_connect_addr = Some((listen_addr, shutdown_rx));
         }
 
         // Start epoch incrementer for async cooperative scheduling
@@ -102,7 +120,7 @@ impl Container {
         let engine_for_task = engine.clone();
         let task = tokio::task::spawn(async move {
             let mut linker = wasmtime::Linker::<WasiCtx>::new(&engine_for_task);
-            wasi_common::tokio::add_to_linker(&mut linker, |cx| cx)?;
+            wasi_common::sync::add_to_linker(&mut linker, |cx| cx)?;
 
             let wasi = builder.build();
             let mut store = Store::new(&engine_for_task, wasi);
@@ -114,6 +132,16 @@ impl Container {
             let typed = func.typed::<(), ()>(&store)?;
             typed.call_async(&mut store, ()).await
         });
+
+        // Spawn the network task with the pre-connected stream
+        // Spawn the network task - it will connect to the WASM listener
+        if let Some((listen_addr, shutdown_rx)) = network_connect_addr {
+            eprintln!(
+                "[container] Spawning network task to connect to {:?}...",
+                listen_addr
+            );
+            tokio::spawn(run_network_connect(listen_addr, shutdown_rx));
+        }
 
         Ok(Self {
             stdin: host_stdin,
@@ -199,22 +227,48 @@ impl Drop for Container {
     }
 }
 
-/// Connect to the WASM module's network socket and run the network stack.
+/// Run the network stack by connecting to the WASM module's listener.
 ///
-/// The WASM module has a preopened listener on fd=3. We connect to it from
-/// the host side, then the WASM kernel calls `sock_accept` to get its end of
-/// the stream. Both sides then speak the QEMU network protocol over this
-/// connection.
-async fn run_network_connector(listen_addr: SocketAddr, shutdown: watch::Receiver<bool>) {
-    // Wait briefly for the WASM module to start and begin listening
-    tokio::time::sleep(Duration::from_millis(100)).await;
+/// The WASM module has a preopened listener socket on fd=3. When the kernel
+/// starts up and calls sock_accept, it will block waiting for a connection.
+/// We connect from the host side to complete the handshake.
+async fn run_network_connect(addr: std::net::SocketAddr, shutdown: watch::Receiver<bool>) {
+    // Wait for kernel to initialize before attempting to connect
+    // In c2w-net, the first connection attempt fails because the kernel
+    // hasn't called sock_accept yet
+    eprintln!("[network] Waiting 2s for kernel to initialize...");
+    tokio::time::sleep(Duration::from_secs(2)).await;
 
-    let stream = match tokio::net::TcpStream::connect(listen_addr).await {
-        Ok(s) => s,
-        Err(_) => return,
+    // Connect with retries like c2w-net does
+    eprintln!("[network] Connecting to {:?} with retries...", addr);
+
+    let mut stream = None;
+    for attempt in 1..=10 {
+        eprintln!("[network] Connection attempt {}...", attempt);
+        match tokio::net::TcpStream::connect(addr).await {
+            Ok(s) => {
+                eprintln!("[network] Connected on attempt {}!", attempt);
+                stream = Some(s);
+                break;
+            }
+            Err(e) => {
+                eprintln!("[network] Attempt {} failed: {e}", attempt);
+                tokio::time::sleep(Duration::from_secs(1)).await;
+            }
+        }
+    }
+
+    let stream = match stream {
+        Some(s) => s,
+        None => {
+            eprintln!("[network] Failed to connect after 10 attempts");
+            return;
+        }
     };
 
+    eprintln!("[network] Starting network loop...");
     network::network_loop::run_network(stream, shutdown).await;
+    eprintln!("[network] Network loop exited");
 }
 
 /// Create a [`wasmtime::Engine`] configured for async operation with epoch

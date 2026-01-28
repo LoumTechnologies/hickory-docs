@@ -88,8 +88,14 @@ impl DhcpServer {
         }
 
         match msg_type[0] {
-            DHCP_DISCOVER => Some(self.build_response(msg, DHCP_OFFER)),
-            DHCP_REQUEST => Some(self.build_response(msg, DHCP_ACK)),
+            DHCP_DISCOVER => {
+                eprintln!("[dhcp] Received DISCOVER, sending OFFER");
+                Some(self.build_response(msg, DHCP_OFFER))
+            }
+            DHCP_REQUEST => {
+                eprintln!("[dhcp] Received REQUEST, sending ACK");
+                Some(self.build_response(msg, DHCP_ACK))
+            }
             _ => None,
         }
     }

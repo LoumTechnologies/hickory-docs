@@ -125,7 +125,11 @@ async fn push_container(
     config.networking = networking;
     let container = Container::start(config).await?;
 
-    let net_status = if networking { " (networking enabled)" } else { "" };
+    let net_status = if networking {
+        " (networking enabled)"
+    } else {
+        ""
+    };
     eprintln!("[testbed] Started container: {name}{net_status}");
     stack.push((name.to_string(), container));
     Ok(())
