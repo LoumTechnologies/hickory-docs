@@ -65,10 +65,7 @@ async fn test_wasi_common_fd_write() {
         let mut store = Store::new(&engine3, wasi_ctx);
         store.epoch_deadline_async_yield_and_update(1);
 
-        linker
-            .module_async(&mut store, "", &module)
-            .await
-            .unwrap();
+        linker.module_async(&mut store, "", &module).await.unwrap();
         let func = linker.get_default(&mut store, "").unwrap();
         let typed = func.typed::<(), ()>(&store).unwrap();
         typed.call_async(&mut store, ()).await.unwrap();
@@ -161,10 +158,7 @@ async fn test_wasi_common_fd_read_then_write() {
         let mut store = Store::new(&engine3, wasi_ctx);
         store.epoch_deadline_async_yield_and_update(1);
 
-        linker
-            .module_async(&mut store, "", &module)
-            .await
-            .unwrap();
+        linker.module_async(&mut store, "", &module).await.unwrap();
         let func = linker.get_default(&mut store, "").unwrap();
         let typed = func.typed::<(), ()>(&store).unwrap();
         typed.call_async(&mut store, ()).await.unwrap();

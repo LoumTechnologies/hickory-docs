@@ -11,16 +11,24 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 pub async fn read_frame<R: AsyncRead + Unpin>(reader: &mut R) -> anyhow::Result<Option<Vec<u8>>> {
     let mut len_buf = [0u8; 4];
     match reader.read_exact(&mut len_buf).await {
-        Ok(_) => {}
-        Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(None),
-        Err(e) => return Err(e.into()),
+        Ok(_) => {
+            let len = u32::from_be_bytes(len_buf) as usize;
+            eprintln!("[codec] Read frame header, len={len}");
+            let mut frame = vec![0u8; len];
+            if len > 0 {
+                reader.read_exact(&mut frame).await?;
+            }
+            Ok(Some(frame))
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
+            eprintln!("[codec] EOF on frame read");
+            Ok(None)
+        }
+        Err(e) => {
+            eprintln!("[codec] Error reading frame: {e}");
+            Err(e.into())
+        }
     }
-    let len = u32::from_be_bytes(len_buf) as usize;
-    let mut frame = vec![0u8; len];
-    if len > 0 {
-        reader.read_exact(&mut frame).await?;
-    }
-    Ok(Some(frame))
 }
 
 /// Write a single length-prefixed Ethernet frame.

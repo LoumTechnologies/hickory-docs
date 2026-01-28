@@ -210,7 +210,10 @@ async fn test_container_boots_with_networking() {
     tokio::time::sleep(Duration::from_secs(5)).await;
 
     // Verify the container is still running (didn't crash due to networking setup)
-    assert!(c.is_running(), "Container should still be running after boot");
+    assert!(
+        c.is_running(),
+        "Container should still be running after boot"
+    );
 
     c.kill();
 }

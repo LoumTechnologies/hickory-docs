@@ -9,9 +9,8 @@ use wasi_common::file::{FdFlags, FileType, WasiFile};
 /// WASI stdin backed by a non-blocking [`UnixStream`].
 ///
 /// Implements [`WasiFile`] with synchronous `read_vectored`. The stream is
-/// non-blocking; when no data is available, returns 0 (like EOF) so the
-/// container2wasm shell doesn't block waiting for terminal responses it
-/// won't receive.
+/// non-blocking; when no data is available, returns EAGAIN so the kernel
+/// can proceed with other operations without blocking.
 #[derive(Clone)]
 pub struct PipeReader {
     inner: Arc<RwLock<UnixStream>>,
@@ -23,6 +22,11 @@ impl PipeReader {
             inner: Arc::new(RwLock::new(stream)),
         }
     }
+
+    /// Create from a raw UnixStream (for testing).
+    pub fn from_unix_stream(stream: UnixStream) -> Self {
+        Self::new(stream)
+    }
 }
 
 #[async_trait::async_trait]
@@ -31,19 +35,36 @@ impl WasiFile for PipeReader {
         self
     }
 
+    #[cfg(unix)]
+    fn pollable(&self) -> Option<rustix::fd::BorrowedFd<'_>> {
+        // Expose the underlying UnixStream fd for poll_oneoff.
+        // SAFETY: The fd is valid as long as `self` lives because the UnixStream
+        // is owned by the Arc<RwLock<UnixStream>> which won't be dropped while
+        // `self` exists.
+        let guard = self.inner.read().unwrap();
+        Some(unsafe {
+            rustix::fd::BorrowedFd::borrow_raw(std::os::fd::AsRawFd::as_raw_fd(&*guard))
+        })
+    }
+
     async fn get_filetype(&self) -> Result<FileType, Error> {
         Ok(FileType::Pipe)
     }
 
+    async fn readable(&self) -> Result<(), Error> {
+        // For a non-blocking pipe, return immediately. The kernel can then
+        // call fd_read, which will return EAGAIN if no data is available.
+        // This allows poll_oneoff to complete so the kernel can proceed
+        // with other operations (like writing to stdout).
+        Ok(())
+    }
+
     async fn read_vectored<'a>(&self, bufs: &mut [IoSliceMut<'a>]) -> Result<u64, Error> {
-        use std::io::ErrorKind;
+        // Non-blocking read: return EAGAIN if no data, not 0 (which means EOF).
+        // The WouldBlock error is converted to EAGAIN by wasi-common.
         match self.inner.write().unwrap().read_vectored(bufs) {
             Ok(n) => Ok(n as u64),
-            Err(e) if e.kind() == ErrorKind::WouldBlock => {
-                // No data available - return 0 so kernel doesn't block
-                Ok(0)
-            }
-            Err(e) => Err(e.into()),
+            Err(e) => Err(e.into()), // WouldBlock becomes EAGAIN
         }
     }
 }
@@ -75,12 +96,28 @@ impl WasiFile for PipeWriter {
         self
     }
 
+    #[cfg(unix)]
+    fn pollable(&self) -> Option<rustix::fd::BorrowedFd<'_>> {
+        let guard = self.inner.read().unwrap();
+        Some(unsafe {
+            rustix::fd::BorrowedFd::borrow_raw(std::os::fd::AsRawFd::as_raw_fd(&*guard))
+        })
+    }
+
     async fn get_filetype(&self) -> Result<FileType, Error> {
         Ok(FileType::Pipe)
     }
 
     async fn get_fdflags(&self) -> Result<FdFlags, Error> {
         Ok(FdFlags::APPEND)
+    }
+
+    async fn writable(&self) -> Result<(), Error> {
+        // Pipe is always writable from the WASM side's perspective.
+        // poll_oneoff needs this to complete so fd_write can proceed.
+        // If the pipe buffer is full, the synchronous write will block,
+        // but that's acceptable since the host is always reading.
+        Ok(())
     }
 
     async fn write_vectored<'a>(&self, bufs: &[IoSlice<'a>]) -> Result<u64, Error> {
@@ -97,9 +134,9 @@ impl WasiFile for PipeWriter {
 pub fn stdin_pipe() -> anyhow::Result<(tokio::net::UnixStream, PipeReader)> {
     let (host, wasi) = UnixStream::pair()?;
     host.set_nonblocking(true)?;
-    // WASI side is non-blocking: reads return 0 when no data is available,
-    // preventing the c2w shell from blocking on terminal escape sequence
-    // responses that we can't provide.
+    // WASI side is non-blocking: reads return EAGAIN when no data is available,
+    // allowing the kernel to proceed with other operations (like stdout writes)
+    // instead of blocking on terminal escape sequence responses.
     wasi.set_nonblocking(true)?;
     let host = tokio::net::UnixStream::from_std(host)?;
     let wasi = PipeReader::new(wasi);
