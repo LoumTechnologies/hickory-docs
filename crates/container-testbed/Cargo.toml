@@ -9,3 +9,5 @@ wasmtime = "41.0.0"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-util", "sync", "time"] }
 anyhow = "1"
 libc = "0.2"
+log = "0.4.29"
+env_logger = "0.11.8"

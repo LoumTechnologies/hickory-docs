@@ -4,6 +4,8 @@
 //! container guest. Only the options required for basic connectivity are
 //! included: subnet mask, router (gateway), DNS server, and lease time.
 
+use log::debug;
+
 use crate::net_config::{DHCP_LEASE_SECS, GATEWAY_IP, SUBNET_MASK, VM_IP};
 
 // DHCP message types (option 53 values)
@@ -89,11 +91,11 @@ impl DhcpServer {
 
         match msg_type[0] {
             DHCP_DISCOVER => {
-                eprintln!("[dhcp] Received DISCOVER, sending OFFER");
+                debug!("[dhcp] Received DISCOVER, sending OFFER");
                 Some(self.build_response(msg, DHCP_OFFER))
             }
             DHCP_REQUEST => {
-                eprintln!("[dhcp] Received REQUEST, sending ACK");
+                debug!("[dhcp] Received REQUEST, sending ACK");
                 Some(self.build_response(msg, DHCP_ACK))
             }
             _ => None,

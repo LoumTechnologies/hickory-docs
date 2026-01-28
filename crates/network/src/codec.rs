@@ -3,6 +3,7 @@
 //! Each frame on the wire is: `[4-byte big-endian length][payload]`.
 //! The payload is a raw Ethernet frame.
 
+use log::{trace, warn};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
 /// Read a single length-prefixed Ethernet frame.
@@ -13,7 +14,7 @@ pub async fn read_frame<R: AsyncRead + Unpin>(reader: &mut R) -> anyhow::Result<
     match reader.read_exact(&mut len_buf).await {
         Ok(_) => {
             let len = u32::from_be_bytes(len_buf) as usize;
-            eprintln!("[codec] Read frame header, len={len}");
+            trace!("[codec] Read frame header, len={len}");
             let mut frame = vec![0u8; len];
             if len > 0 {
                 reader.read_exact(&mut frame).await?;
@@ -21,11 +22,11 @@ pub async fn read_frame<R: AsyncRead + Unpin>(reader: &mut R) -> anyhow::Result<
             Ok(Some(frame))
         }
         Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => {
-            eprintln!("[codec] EOF on frame read");
+            trace!("[codec] EOF on frame read");
             Ok(None)
         }
         Err(e) => {
-            eprintln!("[codec] Error reading frame: {e}");
+            warn!("[codec] Error reading frame: {e}");
             Err(e.into())
         }
     }

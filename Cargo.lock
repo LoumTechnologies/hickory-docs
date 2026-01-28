@@ -639,7 +639,9 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "container",
+ "env_logger",
  "libc",
+ "log",
  "tokio",
  "wasmtime 41.0.1",
 ]
@@ -2356,6 +2358,7 @@ name = "network"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "log",
  "smoltcp",
  "tokio",
 ]
