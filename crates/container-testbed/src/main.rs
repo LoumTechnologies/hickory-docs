@@ -115,15 +115,18 @@ async fn push_container(
     stack: &mut Vec<(String, Container)>,
     engine: &Engine,
     name: &str,
+    networking: bool,
 ) -> anyhow::Result<()> {
     let wasm_path = resolve_image_path(name);
     eprintln!("[testbed] Loading image: {}", wasm_path.display());
 
     let module = Module::from_file(engine, &wasm_path)?;
-    let config = ContainerConfig::new(engine.clone(), module);
+    let mut config = ContainerConfig::new(engine.clone(), module);
+    config.networking = networking;
     let container = Container::start(config).await?;
 
-    eprintln!("[testbed] Started container: {name}");
+    let net_status = if networking { " (networking enabled)" } else { "" };
+    eprintln!("[testbed] Started container: {name}{net_status}");
     stack.push((name.to_string(), container));
     Ok(())
 }
@@ -324,8 +327,11 @@ async fn main() -> anyhow::Result<()> {
 
     let engine = create_async_engine()?;
 
+    // Enable networking by default for all containers
+    let networking = true;
+
     let mut stack: Vec<(String, Container)> = Vec::new();
-    push_container(&mut stack, &engine, "alpine").await?;
+    push_container(&mut stack, &engine, "alpine", networking).await?;
 
     let mut stdin = tokio::io::stdin();
     let mut stdout = tokio::io::stdout();
@@ -413,7 +419,7 @@ async fn main() -> anyhow::Result<()> {
                                             match cmd {
                                                 MetaCommand::From(name) => {
                                                     let name = name.to_string();
-                                                    if let Err(e) = push_container(&mut stack, &engine, &name).await {
+                                                    if let Err(e) = push_container(&mut stack, &engine, &name, networking).await {
                                                         eprintln!("[testbed] Failed to start container '{name}': {e}");
                                                     }
                                                 }
