@@ -9,8 +9,9 @@ use wasi_common::file::{FdFlags, FileType, WasiFile};
 /// WASI stdin backed by a non-blocking [`UnixStream`].
 ///
 /// Implements [`WasiFile`] with synchronous `read_vectored`. The stream is
-/// non-blocking; when no data is available, returns EAGAIN so the kernel
-/// can proceed with other operations without blocking.
+/// non-blocking; when no data is available, returns `Ok(0)` so the WASM
+/// kernel treats it as "no data yet" rather than an error, avoiding a
+/// busy-loop retry on EAGAIN during terminal initialization.
 #[derive(Clone)]
 pub struct PipeReader {
     inner: Arc<RwLock<UnixStream>>,
@@ -60,11 +61,11 @@ impl WasiFile for PipeReader {
     }
 
     async fn read_vectored<'a>(&self, bufs: &mut [IoSliceMut<'a>]) -> Result<u64, Error> {
-        // Non-blocking read: return EAGAIN if no data, not 0 (which means EOF).
-        // The WouldBlock error is converted to EAGAIN by wasi-common.
+        use std::io::ErrorKind;
         match self.inner.write().unwrap().read_vectored(bufs) {
             Ok(n) => Ok(n as u64),
-            Err(e) => Err(e.into()), // WouldBlock becomes EAGAIN
+            Err(e) if e.kind() == ErrorKind::WouldBlock => Ok(0),
+            Err(e) => Err(e.into()),
         }
     }
 }
@@ -134,7 +135,7 @@ impl WasiFile for PipeWriter {
 pub fn stdin_pipe() -> anyhow::Result<(tokio::net::UnixStream, PipeReader)> {
     let (host, wasi) = UnixStream::pair()?;
     host.set_nonblocking(true)?;
-    // WASI side is non-blocking: reads return EAGAIN when no data is available,
+    // WASI side is non-blocking: reads return Ok(0) when no data is available,
     // allowing the kernel to proceed with other operations (like stdout writes)
     // instead of blocking on terminal escape sequence responses.
     wasi.set_nonblocking(true)?;
