@@ -9,6 +9,8 @@ use tokio::task::JoinHandle;
 use wasi_common::WasiCtx;
 use wasmtime::{Engine, Module, Store};
 
+use log::{debug, info, warn};
+
 use crate::pipe::{stderr_pipe, stdin_pipe, stdout_pipe};
 
 const DEFAULT_PIPE_BUFFER_SIZE: usize = 65536;
@@ -82,7 +84,7 @@ impl Container {
             // Set non-blocking like wasmtime CLI does
             std_listener.set_nonblocking(true)?;
             let listen_addr = std_listener.local_addr()?;
-            eprintln!(
+            debug!(
                 "[container] Created listener (non-blocking), local_addr = {:?}",
                 listen_addr
             );
@@ -136,7 +138,7 @@ impl Container {
         // Spawn the network task with the pre-connected stream
         // Spawn the network task - it will connect to the WASM listener
         if let Some((listen_addr, shutdown_rx)) = network_connect_addr {
-            eprintln!(
+            debug!(
                 "[container] Spawning network task to connect to {:?}...",
                 listen_addr
             );
@@ -236,23 +238,23 @@ async fn run_network_connect(addr: std::net::SocketAddr, shutdown: watch::Receiv
     // Wait for kernel to initialize before attempting to connect
     // In c2w-net, the first connection attempt fails because the kernel
     // hasn't called sock_accept yet
-    eprintln!("[network] Waiting 2s for kernel to initialize...");
+    debug!("[network] Waiting 2s for kernel to initialize...");
     tokio::time::sleep(Duration::from_secs(2)).await;
 
     // Connect with retries like c2w-net does
-    eprintln!("[network] Connecting to {:?} with retries...", addr);
+    debug!("[network] Connecting to {:?} with retries...", addr);
 
     let mut stream = None;
     for attempt in 1..=10 {
-        eprintln!("[network] Connection attempt {}...", attempt);
+        debug!("[network] Connection attempt {}...", attempt);
         match tokio::net::TcpStream::connect(addr).await {
             Ok(s) => {
-                eprintln!("[network] Connected on attempt {}!", attempt);
+                info!("[network] Connected on attempt {}!", attempt);
                 stream = Some(s);
                 break;
             }
             Err(e) => {
-                eprintln!("[network] Attempt {} failed: {e}", attempt);
+                warn!("[network] Attempt {} failed: {e}", attempt);
                 tokio::time::sleep(Duration::from_secs(1)).await;
             }
         }
@@ -261,14 +263,14 @@ async fn run_network_connect(addr: std::net::SocketAddr, shutdown: watch::Receiv
     let stream = match stream {
         Some(s) => s,
         None => {
-            eprintln!("[network] Failed to connect after 10 attempts");
+            warn!("[network] Failed to connect after 10 attempts");
             return;
         }
     };
 
-    eprintln!("[network] Starting network loop...");
+    info!("[network] Starting network loop...");
     network::network_loop::run_network(stream, shutdown).await;
-    eprintln!("[network] Network loop exited");
+    debug!("[network] Network loop exited");
 }
 
 /// Create a [`wasmtime::Engine`] configured for async operation with epoch

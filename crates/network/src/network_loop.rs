@@ -13,6 +13,8 @@ use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpStream;
 use tokio::sync::{mpsc, watch};
 
+use log::{debug, trace, warn};
+
 use crate::dns;
 use crate::interface::VirtualNetwork;
 use crate::tcp_proxy::{ProxyAction, TcpProxy};
@@ -58,14 +60,14 @@ where
     let mut poll_interval = tokio::time::interval(Duration::from_millis(1));
     poll_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
-    eprintln!("[net] Network loop starting, waiting for frames...");
+    debug!("[net] Network loop starting, waiting for frames...");
     let mut frame_count = 0u64;
     let mut last_status = std::time::Instant::now();
 
     loop {
         // Periodic status update
         if last_status.elapsed() > Duration::from_secs(5) {
-            eprintln!("[net] Status: {} frames received so far", frame_count);
+            debug!("[net] Status: {} frames received so far", frame_count);
             last_status = std::time::Instant::now();
         }
 
@@ -77,18 +79,18 @@ where
                         frame_count += 1;
                         if frame.len() >= 14 {
                             let ethertype = u16::from_be_bytes([frame[12], frame[13]]);
-                            eprintln!("[net] Received frame #{}: {} bytes, ethertype=0x{ethertype:04x}", frame_count, frame.len());
+                            trace!("[net] Received frame #{}: {} bytes, ethertype=0x{ethertype:04x}", frame_count, frame.len());
                         } else {
-                            eprintln!("[net] Received short frame #{}: {} bytes", frame_count, frame.len());
+                            trace!("[net] Received short frame #{}: {} bytes", frame_count, frame.len());
                         }
                         net.inject_frame(frame);
                     }
                     Ok(None) => {
-                        eprintln!("[net] EOF on frame reader");
+                        debug!("[net] EOF on frame reader");
                         break;
                     }
                     Err(e) => {
-                        eprintln!("[net] Error reading frame: {e}");
+                        warn!("[net] Error reading frame: {e}");
                         break;
                     }
                 }
@@ -201,7 +203,7 @@ async fn handle_dns(
     while sock.can_recv() {
         match sock.recv() {
             Ok((data, meta)) => {
-                eprintln!(
+                debug!(
                     "[dns] Received query from {:?}, {} bytes",
                     meta.endpoint,
                     data.len()
@@ -213,10 +215,10 @@ async fn handle_dns(
     }
 
     for (query, source) in queries {
-        eprintln!("[dns] Forwarding query to system resolver {resolver}");
+        debug!("[dns] Forwarding query to system resolver {resolver}");
         match dns::forward_query(&query, resolver, Duration::from_secs(5)).await {
             Ok(response) => {
-                eprintln!(
+                debug!(
                     "[dns] Got response, {} bytes, sending to {source:?}",
                     response.len()
                 );
@@ -224,7 +226,7 @@ async fn handle_dns(
                 let _ = sock.send_slice(&response, source);
             }
             Err(e) => {
-                eprintln!("[dns] Forward failed: {e}");
+                warn!("[dns] Forward failed: {e}");
             }
         }
     }

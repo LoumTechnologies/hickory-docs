@@ -327,6 +327,7 @@ enum TestbedState {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    env_logger::init();
     let _raw = RawModeGuard::enable();
 
     let engine = create_async_engine()?;
