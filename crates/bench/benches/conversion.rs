@@ -1,8 +1,8 @@
 use std::time::Duration;
 
 use bench::{alpine_wasm_path, ConversionPrereqs};
-use clap::Parser;
 use c2w::cli::Cli;
+use clap::Parser;
 use criterion::{criterion_group, criterion_main, Criterion, SamplingMode};
 
 fn conversion_without_wizer(c: &mut Criterion) {

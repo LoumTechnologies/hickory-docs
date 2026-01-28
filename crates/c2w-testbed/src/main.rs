@@ -1,5 +1,5 @@
-use clap::Parser;
 use c2w::cli::Cli;
+use clap::Parser;
 
 fn main() {
     env_logger::init();
