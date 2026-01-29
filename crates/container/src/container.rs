@@ -12,10 +12,10 @@ use wasmtime::{Engine, Module, Store};
 
 use log::{debug, info, warn};
 
-use network::bridge::NetworkBridge;
-use network::connection_filter::{AllowAll, ConnectionFilter};
+use bridge::NetworkBridge;
+use connection_filter::{AllowAll, ConnectionFilter};
+use net_config::NetworkConfig;
 use network::http::HttpFilter;
-use network::net_config::NetworkConfig;
 
 use crate::pipe::{stderr_pipe, stdin_pipe, stdout_pipe};
 

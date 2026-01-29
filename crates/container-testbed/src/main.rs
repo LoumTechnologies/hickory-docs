@@ -5,9 +5,9 @@ use std::os::fd::AsRawFd;
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
+use bridge::NetworkBridge;
+use connection_filter::{ConnectionFilter, ConnectionVerdict, NetworkRequest};
 use container::create_async_engine;
-use network::bridge::NetworkBridge;
-use network::connection_filter::{ConnectionFilter, ConnectionVerdict, NetworkRequest};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::{RwLock, mpsc, oneshot};
 
@@ -221,12 +221,12 @@ async fn show_prompt_if_interactive(
     manager: &mut ContainerManager,
     stdout: &mut tokio::io::Stdout,
 ) -> anyhow::Result<()> {
-    if let Some(mc) = manager.active_mut() {
-        if mc.terminal.testbed_state == TestbedState::Interactive {
-            stdout.write_all(PROMPT).await?;
-            stdout.flush().await?;
-            mc.terminal.at_line_start = true;
-        }
+    if let Some(mc) = manager.active_mut()
+        && mc.terminal.testbed_state == TestbedState::Interactive
+    {
+        stdout.write_all(PROMPT).await?;
+        stdout.flush().await?;
+        mc.terminal.at_line_start = true;
     }
     Ok(())
 }

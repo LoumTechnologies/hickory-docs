@@ -10,3 +10,7 @@ smoltcp = { version = "0.12.0", default-features = false, features = ["std", "al
 async-trait = "0.1"
 log = "0.4.29"
 httparse = "1"
+net_config_crate = { package = "net-config", path = "../net-config" }
+connection_filter_crate = { package = "connection-filter", path = "../connection-filter" }
+bridge_crate = { package = "bridge", path = "../bridge" }
+tcp_nat_crate = { package = "tcp-nat", path = "../tcp-nat" }
