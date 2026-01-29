@@ -90,14 +90,21 @@ pub async fn run_network<S>(
                             trace!("[net] Received short frame #{}: {} bytes", frame_count, frame.len());
                         }
 
-                        // Detect TCP SYN to external IPs and create listening
-                        // sockets so smoltcp can accept the connection.
-                        if let Some((_dest_ip, dest_port)) = parse_tcp_syn(&frame) {
+                        // Detect TCP SYN to external IPs: register the
+                        // destination IP with smoltcp and create a listening
+                        // socket so smoltcp can accept the connection.
+                        if let Some((dest_ip, dest_port)) = parse_tcp_syn(&frame) {
+                            net.ensure_ip_addr(smoltcp::wire::Ipv4Address::new(
+                                dest_ip.octets()[0],
+                                dest_ip.octets()[1],
+                                dest_ip.octets()[2],
+                                dest_ip.octets()[3],
+                            ));
                             let handle = net.add_tcp_socket(65535, 65535);
                             let sock = net.tcp_socket(handle);
                             if sock.listen(dest_port).is_ok() {
                                 tcp_proxy.add_listener(handle);
-                                debug!("[net] Created TCP listener for port {dest_port}");
+                                debug!("[net] Created TCP listener for {dest_ip}:{dest_port}");
                             }
                         }
 

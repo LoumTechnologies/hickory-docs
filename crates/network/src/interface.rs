@@ -146,6 +146,21 @@ impl VirtualNetwork {
         &mut self.sockets
     }
 
+    /// Ensure an IPv4 address is present in the interface's address list.
+    ///
+    /// smoltcp's TCP dispatch requires the destination IP to be a recognised
+    /// local address. When proxying connections to external hosts we must add
+    /// their IPs here so that listening sockets can accept incoming SYNs.
+    pub fn ensure_ip_addr(&mut self, addr: smoltcp::wire::Ipv4Address) {
+        let cidr = IpCidr::new(IpAddress::Ipv4(addr), 32);
+        let already_present = self.iface.ip_addrs().contains(&cidr);
+        if !already_present {
+            self.iface.update_ip_addrs(|addrs| {
+                addrs.push(cidr).expect("failed to add IP address");
+            });
+        }
+    }
+
     fn handle_dhcp(&mut self) {
         let sock = self.sockets.get_mut::<udp::Socket>(self.dhcp_handle);
 
@@ -438,6 +453,228 @@ mod tests {
         );
         let (data, _meta) = dns_sock.recv().expect("recv from DNS socket");
         assert_eq!(data, dns_payload);
+    }
+
+    /// Helper: compute TCP checksum over pseudo-header + TCP segment.
+    fn tcp_checksum(src_ip: [u8; 4], dst_ip: [u8; 4], tcp_segment: &[u8]) -> u16 {
+        let mut sum: u32 = 0;
+        // Pseudo-header
+        sum += (src_ip[0] as u32) << 8 | src_ip[1] as u32;
+        sum += (src_ip[2] as u32) << 8 | src_ip[3] as u32;
+        sum += (dst_ip[0] as u32) << 8 | dst_ip[1] as u32;
+        sum += (dst_ip[2] as u32) << 8 | dst_ip[3] as u32;
+        sum += 6u32; // protocol TCP
+        sum += tcp_segment.len() as u32;
+        // TCP segment
+        for i in (0..tcp_segment.len()).step_by(2) {
+            let word = if i + 1 < tcp_segment.len() {
+                (tcp_segment[i] as u32) << 8 | tcp_segment[i + 1] as u32
+            } else {
+                (tcp_segment[i] as u32) << 8
+            };
+            sum += word;
+        }
+        while sum >> 16 != 0 {
+            sum = (sum & 0xFFFF) + (sum >> 16);
+        }
+        !(sum as u16)
+    }
+
+    /// Helper: build a raw Ethernet/IP/TCP SYN frame.
+    fn build_tcp_syn(
+        src_mac: EthernetAddress,
+        dst_mac: EthernetAddress,
+        src_ip: [u8; 4],
+        dst_ip: [u8; 4],
+        src_port: u16,
+        dst_port: u16,
+    ) -> Vec<u8> {
+        // TCP header: 20 bytes (no options)
+        let tcp_header_len = 20;
+        let ip_total_len = (20 + tcp_header_len) as u16;
+        let total = 14 + 20 + tcp_header_len;
+        let mut buf = vec![0u8; total];
+
+        // Ethernet header
+        buf[0..6].copy_from_slice(&dst_mac.0);
+        buf[6..12].copy_from_slice(&src_mac.0);
+        buf[12..14].copy_from_slice(&u16::from(EthernetProtocol::Ipv4).to_be_bytes());
+
+        // IP header
+        let ip_start = 14;
+        buf[ip_start] = 0x45; // version=4, IHL=5
+        buf[ip_start + 2..ip_start + 4].copy_from_slice(&ip_total_len.to_be_bytes());
+        buf[ip_start + 4..ip_start + 6].copy_from_slice(&0x1234u16.to_be_bytes()); // ID
+        buf[ip_start + 8] = 64; // TTL
+        buf[ip_start + 9] = 6; // Protocol: TCP
+        buf[ip_start + 12..ip_start + 16].copy_from_slice(&src_ip);
+        buf[ip_start + 16..ip_start + 20].copy_from_slice(&dst_ip);
+        let checksum = ip_checksum(&buf[ip_start..ip_start + 20]);
+        buf[ip_start + 10..ip_start + 12].copy_from_slice(&checksum.to_be_bytes());
+
+        // TCP header
+        let tcp_start = 34;
+        buf[tcp_start..tcp_start + 2].copy_from_slice(&src_port.to_be_bytes());
+        buf[tcp_start + 2..tcp_start + 4].copy_from_slice(&dst_port.to_be_bytes());
+        buf[tcp_start + 4..tcp_start + 8].copy_from_slice(&1000u32.to_be_bytes()); // seq
+        buf[tcp_start + 8..tcp_start + 12].copy_from_slice(&0u32.to_be_bytes()); // ack
+        buf[tcp_start + 12] = 5 << 4; // data offset = 5 (20 bytes)
+        buf[tcp_start + 13] = 0x02; // SYN flag
+        buf[tcp_start + 14..tcp_start + 16].copy_from_slice(&65535u16.to_be_bytes()); // window
+        // Checksum placeholder at tcp_start + 16..18 (zeroes)
+        // Urgent pointer at tcp_start + 18..20 (zeroes)
+
+        // Compute TCP checksum
+        let tcp_cksum = tcp_checksum(src_ip, dst_ip, &buf[tcp_start..]);
+        buf[tcp_start + 16..tcp_start + 18].copy_from_slice(&tcp_cksum.to_be_bytes());
+
+        buf
+    }
+
+    #[test]
+    fn test_tcp_syn_to_gateway_ip() {
+        use smoltcp::socket::tcp as smoltcp_tcp;
+
+        let mut net = VirtualNetwork::new();
+
+        // First, teach smoltcp the VM's MAC via ARP
+        let vm_ip = Ipv4Address::new(192, 168, 127, 3);
+        let arp_frame = build_arp_request(VM_MAC, vm_ip, GATEWAY_IP);
+        net.inject_frame(arp_frame);
+        net.poll(Instant::from_millis(1));
+
+        // Add a TCP socket and listen on port 80
+        let handle = net.add_tcp_socket(65535, 65535);
+        let sock = net.tcp_socket(handle);
+        sock.listen(80).unwrap();
+        assert_eq!(sock.state(), smoltcp_tcp::State::Listen);
+
+        // Build a TCP SYN from VM to the GATEWAY IP (should definitely work)
+        let syn_frame = build_tcp_syn(
+            VM_MAC,
+            GATEWAY_MAC,
+            [192, 168, 127, 3],  // src IP (VM)
+            GATEWAY_IP.octets(), // dst IP (gateway)
+            12345,               // src port
+            80,                  // dst port
+        );
+
+        net.inject_frame(syn_frame);
+        let outbound = net.poll(Instant::from_millis(100));
+
+        let sock = net.tcp_socket(handle);
+        eprintln!("=== SYN to GATEWAY_IP ===");
+        eprintln!("Socket state: {:?}", sock.state());
+        eprintln!("Socket is_active: {}", sock.is_active());
+        eprintln!("Socket local_endpoint: {:?}", sock.local_endpoint());
+        eprintln!("Socket remote_endpoint: {:?}", sock.remote_endpoint());
+        eprintln!("Outbound frames: {}", outbound.len());
+
+        assert!(
+            sock.is_active(),
+            "Socket should be active after SYN to gateway (state: {:?})",
+            sock.state()
+        );
+    }
+
+    #[test]
+    fn test_tcp_syn_to_external_ip_fails_without_addr() {
+        use smoltcp::socket::tcp as smoltcp_tcp;
+
+        let mut net = VirtualNetwork::new();
+
+        // Teach smoltcp the VM's MAC via ARP
+        let vm_ip = Ipv4Address::new(192, 168, 127, 3);
+        let arp_frame = build_arp_request(VM_MAC, vm_ip, GATEWAY_IP);
+        net.inject_frame(arp_frame);
+        net.poll(Instant::from_millis(1));
+
+        // Add a TCP socket and listen on port 80
+        let handle = net.add_tcp_socket(65535, 65535);
+        let sock = net.tcp_socket(handle);
+        sock.listen(80).unwrap();
+        assert_eq!(sock.state(), smoltcp_tcp::State::Listen);
+
+        // SYN to external IP WITHOUT adding the IP to the interface
+        let syn_frame = build_tcp_syn(
+            VM_MAC,
+            GATEWAY_MAC,
+            [192, 168, 127, 3],
+            [93, 184, 216, 34],
+            12345,
+            80,
+        );
+        net.inject_frame(syn_frame);
+        net.poll(Instant::from_millis(100));
+
+        let sock = net.tcp_socket(handle);
+        // any_ip accepts at IP layer but TCP dispatch still needs the addr
+        assert_eq!(
+            sock.state(),
+            smoltcp_tcp::State::Listen,
+            "Without the external IP in the address list, socket stays in Listen"
+        );
+    }
+
+    #[test]
+    fn test_tcp_syn_to_external_ip_works_with_addr() {
+        use smoltcp::socket::tcp as smoltcp_tcp;
+
+        let mut net = VirtualNetwork::new();
+
+        // Teach smoltcp the VM's MAC via ARP
+        let vm_ip = Ipv4Address::new(192, 168, 127, 3);
+        let arp_frame = build_arp_request(VM_MAC, vm_ip, GATEWAY_IP);
+        net.inject_frame(arp_frame);
+        net.poll(Instant::from_millis(1));
+
+        let external_ip: [u8; 4] = [93, 184, 216, 34];
+
+        // Add the external IP to the interface BEFORE the SYN
+        net.iface().update_ip_addrs(|addrs| {
+            addrs
+                .push(IpCidr::new(
+                    IpAddress::Ipv4(Ipv4Address::new(
+                        external_ip[0],
+                        external_ip[1],
+                        external_ip[2],
+                        external_ip[3],
+                    )),
+                    32,
+                ))
+                .expect("push external IP");
+        });
+
+        // Add a TCP socket and listen on port 80
+        let handle = net.add_tcp_socket(65535, 65535);
+        let sock = net.tcp_socket(handle);
+        sock.listen(80).unwrap();
+        assert_eq!(sock.state(), smoltcp_tcp::State::Listen);
+
+        // SYN to external IP — now it should match
+        let syn_frame = build_tcp_syn(
+            VM_MAC,
+            GATEWAY_MAC,
+            [192, 168, 127, 3],
+            external_ip,
+            12345,
+            80,
+        );
+        net.inject_frame(syn_frame);
+        let outbound = net.poll(Instant::from_millis(100));
+
+        let sock = net.tcp_socket(handle);
+        eprintln!("=== SYN to external IP (with addr) ===");
+        eprintln!("Socket state: {:?}", sock.state());
+        eprintln!("Socket local_endpoint: {:?}", sock.local_endpoint());
+        eprintln!("Outbound frames: {}", outbound.len());
+
+        assert!(
+            sock.is_active(),
+            "With external IP added to interface, socket should be active (state: {:?})",
+            sock.state()
+        );
+        assert!(!outbound.is_empty(), "Should generate SYN-ACK");
     }
 
     /// Build a minimal DHCP DISCOVER payload.
