@@ -132,6 +132,7 @@ enum MetaCommand<'a> {
     Kill,
     Detach,
     Exit,
+    Help,
 }
 
 fn parse_meta_command(line: &str) -> Option<MetaCommand<'_>> {
@@ -177,9 +178,26 @@ fn parse_meta_command(line: &str) -> Option<MetaCommand<'_>> {
         ":kill" => Some(MetaCommand::Kill),
         ":detach" => Some(MetaCommand::Detach),
         ":exit" => Some(MetaCommand::Exit),
+        ":help" | ":h" => Some(MetaCommand::Help),
         _ => None,
     }
 }
+
+const HELP_TEXT: &str = "\
+\r\n  :from <image>              Start a new container\
+\r\n  :from <image> as <name>    Start a named container\
+\r\n  :switch <name>             Switch to a named container\
+\r\n  :name <name>               Name/rename the active container\
+\r\n  :ls                        List all containers\
+\r\n  :kill                      Kill the active container\
+\r\n  :detach                    Detach (leave running in background)\
+\r\n  :exit                      Same as :kill\
+\r\n  :help                      Show this help\
+\r\n  Ctrl+C                     Kill active container / exit testbed\
+\r\n  Ctrl+\\                     Force quit\
+\r\n";
+
+const TESTBED_HINT: &[u8] = b"Type :help for commands, :from <image> to start a container\r\n";
 
 // ---------------------------------------------------------------------------
 // Input mode
@@ -188,6 +206,13 @@ fn parse_meta_command(line: &str) -> Option<MetaCommand<'_>> {
 enum InputMode {
     Normal,
     AwaitingApproval(oneshot::Sender<ConnectionVerdict>),
+}
+
+async fn show_testbed_prompt(stdout: &mut tokio::io::Stdout) -> anyhow::Result<()> {
+    stdout.write_all(TESTBED_HINT).await?;
+    stdout.write_all(b"[testbed] > ").await?;
+    stdout.flush().await?;
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -231,8 +256,8 @@ async fn main() -> anyhow::Result<()> {
                         Ok(0) => {
                             manager.kill_active().await;
                             if !manager.has_active() {
-                                stdout.write_all(b"\r\n[testbed] > ").await?;
-                                stdout.flush().await?;
+                                stdout.write_all(b"\r\n").await?;
+                                show_testbed_prompt(&mut stdout).await?;
                             }
                         }
                         Ok(n) => {
@@ -270,8 +295,8 @@ async fn main() -> anyhow::Result<()> {
                             eprintln!("[testbed] stdout read error: {e}");
                             manager.kill_active().await;
                             if !manager.has_active() {
-                                stdout.write_all(b"\r\n[testbed] > ").await?;
-                                stdout.flush().await?;
+                                stdout.write_all(b"\r\n").await?;
+                                show_testbed_prompt(&mut stdout).await?;
                             }
                         }
                     }
@@ -351,8 +376,7 @@ async fn main() -> anyhow::Result<()> {
                                                 .await?;
 
                                                 if !manager.has_active() {
-                                                    stdout.write_all(b"[testbed] > ").await?;
-                                                    stdout.flush().await?;
+                                                    show_testbed_prompt(&mut stdout).await?;
                                                     break; // exit byte loop
                                                 }
                                             } else {
@@ -397,8 +421,7 @@ async fn main() -> anyhow::Result<()> {
                                         stdout.flush().await?;
                                         manager.kill_active().await;
                                         if !manager.has_active() {
-                                            stdout.write_all(b"[testbed] > ").await?;
-                                            stdout.flush().await?;
+                                            show_testbed_prompt(&mut stdout).await?;
                                         }
                                         break; // exit byte loop
                                     }
@@ -543,7 +566,10 @@ async fn main() -> anyhow::Result<()> {
                                                     break;
                                                 }
                                             } else {
-                                                eprintln!("[testbed] Unknown command: {line}");
+                                                let msg = format!(
+                                                    "Unknown command: {line}. Type :help for commands.\r\n"
+                                                );
+                                                stdout.write_all(msg.as_bytes()).await?;
                                             }
                                         }
 
@@ -551,6 +577,15 @@ async fn main() -> anyhow::Result<()> {
                                             stdout.write_all(b"[testbed] > ").await?;
                                             stdout.flush().await?;
                                         }
+                                    }
+
+                                    // Ctrl+C — exit testbed
+                                    0x03 => {
+                                        testbed_line_buf.clear();
+                                        stdout.write_all(b"^C\r\n").await?;
+                                        stdout.flush().await?;
+                                        should_exit = true;
+                                        break;
                                     }
 
                                     // Ctrl+\ — force quit
@@ -646,6 +681,10 @@ async fn handle_meta_command(
         }
         MetaCommand::Detach => {
             manager.detach();
+        }
+        MetaCommand::Help => {
+            stdout.write_all(HELP_TEXT.as_bytes()).await?;
+            stdout.flush().await?;
         }
     }
     Ok(())
