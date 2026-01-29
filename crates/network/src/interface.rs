@@ -146,31 +146,6 @@ impl VirtualNetwork {
         &mut self.sockets
     }
 
-    /// Ensure an IPv4 address is present in the interface's address list.
-    ///
-    /// smoltcp's TCP dispatch requires the destination IP to be a recognised
-    /// local address. When proxying connections to external hosts we must add
-    /// their IPs here so that listening sockets can accept incoming SYNs.
-    ///
-    /// smoltcp 0.12 has a fixed-capacity address list (2 slots with proto-ipv4
-    /// only). The gateway IP occupies slot 0. We recycle slot 1 for external
-    /// IPs — this is safe because established connections are matched by their
-    /// 4-tuple, not the address list.
-    pub fn ensure_ip_addr(&mut self, addr: smoltcp::wire::Ipv4Address) {
-        let cidr = IpCidr::new(IpAddress::Ipv4(addr), 32);
-        if self.iface.ip_addrs().contains(&cidr) {
-            return;
-        }
-        self.iface.update_ip_addrs(|addrs| {
-            if addrs.push(cidr).is_err() {
-                // Address list is full — replace the last entry.
-                // Index 0 is the gateway IP and must not be touched.
-                let last = addrs.len() - 1;
-                addrs[last] = cidr;
-            }
-        });
-    }
-
     fn handle_dhcp(&mut self) {
         let sock = self.sockets.get_mut::<udp::Socket>(self.dhcp_handle);
 
@@ -587,8 +562,12 @@ mod tests {
         );
     }
 
+    /// Demonstrates why TCP NAT is needed: smoltcp ignores TCP SYN packets
+    /// addressed to IPs not in its address list. The `TcpNat` layer rewrites
+    /// external destination IPs to GATEWAY_IP before injection, avoiding this
+    /// limitation entirely.
     #[test]
-    fn test_tcp_syn_to_external_ip_fails_without_addr() {
+    fn test_smoltcp_ignores_tcp_syn_for_unknown_ip() {
         use smoltcp::socket::tcp as smoltcp_tcp;
 
         let mut net = VirtualNetwork::new();
@@ -605,7 +584,7 @@ mod tests {
         sock.listen(80).unwrap();
         assert_eq!(sock.state(), smoltcp_tcp::State::Listen);
 
-        // SYN to external IP WITHOUT adding the IP to the interface
+        // SYN to external IP WITHOUT NAT rewriting — smoltcp will ignore it
         let syn_frame = build_tcp_syn(
             VM_MAC,
             GATEWAY_MAC,
@@ -618,89 +597,10 @@ mod tests {
         net.poll(Instant::from_millis(100));
 
         let sock = net.tcp_socket(handle);
-        // any_ip accepts at IP layer but TCP dispatch still needs the addr
         assert_eq!(
             sock.state(),
             smoltcp_tcp::State::Listen,
-            "Without the external IP in the address list, socket stays in Listen"
-        );
-    }
-
-    #[test]
-    fn test_tcp_syn_to_external_ip_works_with_addr() {
-        use smoltcp::socket::tcp as smoltcp_tcp;
-
-        let mut net = VirtualNetwork::new();
-
-        // Teach smoltcp the VM's MAC via ARP
-        let vm_ip = Ipv4Address::new(192, 168, 127, 3);
-        let arp_frame = build_arp_request(VM_MAC, vm_ip, GATEWAY_IP);
-        net.inject_frame(arp_frame);
-        net.poll(Instant::from_millis(1));
-
-        let external_ip: [u8; 4] = [93, 184, 216, 34];
-
-        // Add the external IP to the interface BEFORE the SYN
-        net.ensure_ip_addr(Ipv4Address::new(
-            external_ip[0],
-            external_ip[1],
-            external_ip[2],
-            external_ip[3],
-        ));
-
-        // Add a TCP socket and listen on port 80
-        let handle = net.add_tcp_socket(65535, 65535);
-        let sock = net.tcp_socket(handle);
-        sock.listen(80).unwrap();
-        assert_eq!(sock.state(), smoltcp_tcp::State::Listen);
-
-        // SYN to external IP — now it should match
-        let syn_frame = build_tcp_syn(
-            VM_MAC,
-            GATEWAY_MAC,
-            [192, 168, 127, 3],
-            external_ip,
-            12345,
-            80,
-        );
-        net.inject_frame(syn_frame);
-        let outbound = net.poll(Instant::from_millis(100));
-
-        let sock = net.tcp_socket(handle);
-        eprintln!("=== SYN to external IP (with addr) ===");
-        eprintln!("Socket state: {:?}", sock.state());
-        eprintln!("Socket local_endpoint: {:?}", sock.local_endpoint());
-        eprintln!("Outbound frames: {}", outbound.len());
-
-        assert!(
-            sock.is_active(),
-            "With external IP added to interface, socket should be active (state: {:?})",
-            sock.state()
-        );
-        assert!(!outbound.is_empty(), "Should generate SYN-ACK");
-    }
-
-    #[test]
-    fn test_ensure_ip_addr_recycles_slot() {
-        let mut net = VirtualNetwork::new();
-
-        // Adding many external IPs should not panic — the slot is recycled
-        for i in 1..=10u8 {
-            net.ensure_ip_addr(Ipv4Address::new(10, 0, 0, i));
-        }
-
-        // The last one added should be present
-        let last = IpCidr::new(IpAddress::Ipv4(Ipv4Address::new(10, 0, 0, 10)), 32);
-        assert!(
-            net.iface().ip_addrs().contains(&last),
-            "Last added IP should be in address list"
-        );
-
-        // The gateway IP should still be present
-        let gw = IpCidr::Ipv4(GATEWAY_CIDR);
-        assert!(
-            net.iface().ip_addrs().contains(&gw),
-            "Gateway IP must never be evicted"
+            "Without NAT rewriting, smoltcp ignores SYN to unknown IP"
         );
     }
 

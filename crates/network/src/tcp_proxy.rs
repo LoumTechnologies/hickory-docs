@@ -24,6 +24,7 @@ struct ProxyConnection {
     #[allow(dead_code)]
     dest: SocketAddr,
     state: ConnectionState,
+    vm_src_port: u16,
 }
 
 enum ConnectionState {
@@ -36,6 +37,12 @@ enum ConnectionState {
         /// Data received from smoltcp, to be sent to the real socket.
         to_real: Vec<u8>,
     },
+    /// Real socket closed; flushing remaining data to smoltcp before
+    /// graceful close.
+    Draining {
+        /// Data still to be sent to smoltcp.
+        from_real: Vec<u8>,
+    },
 }
 
 /// Actions the network loop should perform based on proxy state changes.
@@ -44,11 +51,15 @@ pub enum ProxyAction {
     Connect {
         handle: SocketHandle,
         dest: SocketAddr,
+        vm_src_port: u16,
     },
     /// Send this data to the real socket.
     SendToReal { handle: SocketHandle, data: Vec<u8> },
     /// Close the real socket.
-    CloseReal { handle: SocketHandle },
+    CloseReal {
+        handle: SocketHandle,
+        vm_src_port: u16,
+    },
 }
 
 impl Default for TcpProxy {
@@ -79,28 +90,31 @@ impl TcpProxy {
         let mut new_connections = Vec::new();
         self.listening.retain(|&handle| {
             let sock = net.tcp_socket(handle);
-            if sock.is_active() {
-                // Connection established — the local endpoint is the
-                // external address the VM was trying to reach (thanks to
-                // any_ip mode on the smoltcp interface).
-                if let Some(local) = sock.local_endpoint() {
-                    let dest = endpoint_to_addr(local);
-                    new_connections.push((handle, dest));
-                    return false; // Remove from listening
-                }
+            if sock.is_active()
+                && let Some(local) = sock.local_endpoint()
+            {
+                let vm_src_port = sock.remote_endpoint().map(|ep| ep.port).unwrap_or(0);
+                let dest = endpoint_to_addr(local);
+                new_connections.push((handle, dest, vm_src_port));
+                return false; // Remove from listening
             }
             true
         });
 
-        for (handle, dest) in new_connections {
+        for (handle, dest, vm_src_port) in new_connections {
             self.connections.insert(
                 handle,
                 ProxyConnection {
                     dest,
                     state: ConnectionState::Connecting,
+                    vm_src_port,
                 },
             );
-            actions.push(ProxyAction::Connect { handle, dest });
+            actions.push(ProxyAction::Connect {
+                handle,
+                dest,
+                vm_src_port,
+            });
         }
 
         // Process existing connections
@@ -156,7 +170,50 @@ impl TcpProxy {
                             sock.close();
                         }
                         to_remove.push(handle);
-                        actions.push(ProxyAction::CloseReal { handle });
+                        actions.push(ProxyAction::CloseReal {
+                            handle,
+                            vm_src_port: conn.vm_src_port,
+                        });
+                    }
+                }
+                ConnectionState::Draining { from_real } => {
+                    let sock = net.tcp_socket(handle);
+
+                    // Flush remaining data from real socket → smoltcp
+                    if !from_real.is_empty() && sock.can_send() {
+                        match sock.send_slice(from_real) {
+                            Ok(sent) => {
+                                from_real.drain(..sent);
+                            }
+                            Err(_) => {
+                                to_remove.push(handle);
+                                actions.push(ProxyAction::CloseReal {
+                                    handle,
+                                    vm_src_port: conn.vm_src_port,
+                                });
+                                continue;
+                            }
+                        }
+                    }
+
+                    // All data flushed — initiate graceful close
+                    if from_real.is_empty() {
+                        sock.close();
+                        to_remove.push(handle);
+                        actions.push(ProxyAction::CloseReal {
+                            handle,
+                            vm_src_port: conn.vm_src_port,
+                        });
+                        continue;
+                    }
+
+                    // VM side closed before drain completed
+                    if !sock.is_open() {
+                        to_remove.push(handle);
+                        actions.push(ProxyAction::CloseReal {
+                            handle,
+                            vm_src_port: conn.vm_src_port,
+                        });
                     }
                 }
                 ConnectionState::Connecting => {
@@ -188,15 +245,32 @@ impl TcpProxy {
 
     /// Push data received from the real socket into the proxy buffer.
     pub fn push_from_real(&mut self, handle: SocketHandle, data: &[u8]) {
-        if let Some(conn) = self.connections.get_mut(&handle)
-            && let ConnectionState::Connected { from_real, .. } = &mut conn.state
-        {
-            from_real.extend_from_slice(data);
+        if let Some(conn) = self.connections.get_mut(&handle) {
+            match &mut conn.state {
+                ConnectionState::Connected { from_real, .. }
+                | ConnectionState::Draining { from_real } => {
+                    from_real.extend_from_slice(data);
+                }
+                _ => {}
+            }
         }
     }
 
     /// Mark a connection as closed (real socket disconnected or errored).
+    ///
+    /// Instead of aborting immediately, transitions to `Draining` so any
+    /// buffered data is flushed to smoltcp before a graceful close.
     pub fn mark_closed(&mut self, handle: SocketHandle, net: &mut VirtualNetwork) {
+        if let Some(conn) = self.connections.get_mut(&handle)
+            && let ConnectionState::Connected { from_real, .. } = &mut conn.state
+        {
+            let remaining = std::mem::take(from_real);
+            conn.state = ConnectionState::Draining {
+                from_real: remaining,
+            };
+            return;
+        }
+        // Not in Connected state or not found — abort
         self.connections.remove(&handle);
         let sock = net.tcp_socket(handle);
         sock.abort();

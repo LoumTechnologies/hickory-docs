@@ -23,6 +23,12 @@ pub const GATEWAY_MAC: EthernetAddress = EthernetAddress([0x02, 0x00, 0x00, 0x00
 /// MAC address of the VM (container guest).
 pub const VM_MAC: EthernetAddress = EthernetAddress([0x02, 0x00, 0x00, 0x00, 0x00, 0x02]);
 
+/// Gateway IP as a `std::net::Ipv4Addr` (for use outside smoltcp, e.g. NAT).
+pub const GATEWAY_IP_STD: std::net::Ipv4Addr = std::net::Ipv4Addr::new(192, 168, 127, 1);
+
+/// VM IP as a `std::net::Ipv4Addr` (for use outside smoltcp, e.g. NAT).
+pub const VM_IP_STD: std::net::Ipv4Addr = std::net::Ipv4Addr::new(192, 168, 127, 3);
+
 /// Ethernet MTU (maximum payload size inside an Ethernet frame).
 pub const MTU: usize = 1500;
 

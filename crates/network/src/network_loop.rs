@@ -19,7 +19,7 @@ use log::{debug, info, trace, warn};
 use crate::connection_filter::{ConnectionFilter, ConnectionVerdict, NetworkRequest};
 use crate::dns;
 use crate::interface::VirtualNetwork;
-use crate::net_config;
+use crate::tcp_nat::{IngressResult, TcpNat};
 use crate::tcp_proxy::{ProxyAction, TcpProxy};
 
 /// Channel message from real socket relay tasks back to the network loop.
@@ -50,6 +50,7 @@ pub async fn run_network<S>(
 
     let mut net = VirtualNetwork::new();
     let mut tcp_proxy = TcpProxy::new();
+    let mut tcp_nat = TcpNat::new();
 
     // DNS socket on port 53
     let dns_handle = net
@@ -81,7 +82,7 @@ pub async fn run_network<S>(
             // Read a frame from the QEMU wire
             frame_result = frame_reader.read() => {
                 match frame_result {
-                    Ok(Some(frame)) => {
+                    Ok(Some(mut frame)) => {
                         frame_count += 1;
                         if frame.len() >= 14 {
                             let ethertype = u16::from_be_bytes([frame[12], frame[13]]);
@@ -90,21 +91,16 @@ pub async fn run_network<S>(
                             trace!("[net] Received short frame #{}: {} bytes", frame_count, frame.len());
                         }
 
-                        // Detect TCP SYN to external IPs: register the
-                        // destination IP with smoltcp and create a listening
-                        // socket so smoltcp can accept the connection.
-                        if let Some((dest_ip, dest_port)) = parse_tcp_syn(&frame) {
-                            net.ensure_ip_addr(smoltcp::wire::Ipv4Address::new(
-                                dest_ip.octets()[0],
-                                dest_ip.octets()[1],
-                                dest_ip.octets()[2],
-                                dest_ip.octets()[3],
-                            ));
+                        // NAT-rewrite TCP frames destined for external IPs so
+                        // smoltcp always sees GATEWAY_IP as the destination.
+                        if let IngressResult::Syn { dest_port } =
+                            tcp_nat.rewrite_ingress(&mut frame)
+                        {
                             let handle = net.add_tcp_socket(65535, 65535);
                             let sock = net.tcp_socket(handle);
                             if sock.listen(dest_port).is_ok() {
                                 tcp_proxy.add_listener(handle);
-                                debug!("[net] Created TCP listener for {dest_ip}:{dest_port}");
+                                debug!("[net] Created TCP listener on port {dest_port} (via NAT)");
                             }
                         }
 
@@ -159,7 +155,12 @@ pub async fn run_network<S>(
                 .unwrap_or_default()
                 .as_millis() as i64,
         );
-        let outbound = net.poll(now);
+        let mut outbound = net.poll(now);
+
+        // NAT-rewrite egress TCP frames back to real external IPs
+        for frame in &mut outbound {
+            tcp_nat.rewrite_egress(frame);
+        }
 
         // Send outbound frames to the wire
         for frame in outbound {
@@ -172,7 +173,10 @@ pub async fn run_network<S>(
         handle_dns(&mut net, dns_handle, resolver, &filter).await;
 
         // Poll again after DNS responses
-        let outbound = net.poll(now);
+        let mut outbound = net.poll(now);
+        for frame in &mut outbound {
+            tcp_nat.rewrite_egress(frame);
+        }
         for frame in outbound {
             if frame_writer.write(&frame).await.is_err() {
                 break;
@@ -183,10 +187,20 @@ pub async fn run_network<S>(
         let actions = tcp_proxy.poll(&mut net);
         for action in actions {
             match action {
-                ProxyAction::Connect { handle, dest } => {
-                    let verdict = filter.filter(&NetworkRequest::Tcp { dest }).await;
+                ProxyAction::Connect {
+                    handle,
+                    dest,
+                    vm_src_port,
+                } => {
+                    let real_dest = tcp_nat
+                        .lookup_real_dest(vm_src_port)
+                        .map(|ip| std::net::SocketAddr::new(ip.into(), dest.port()))
+                        .unwrap_or(dest);
+                    let verdict = filter
+                        .filter(&NetworkRequest::Tcp { dest: real_dest })
+                        .await;
                     if verdict == ConnectionVerdict::Block {
-                        info!("[net] Blocked TCP connection to {dest}");
+                        info!("[net] Blocked TCP connection to {real_dest}");
                         tcp_proxy.mark_connect_failed(handle, &mut net);
                         continue;
                     }
@@ -196,7 +210,7 @@ pub async fn run_network<S>(
                     real_writers.insert(handle, write_tx);
 
                     tokio::spawn(async move {
-                        relay_real_socket(handle, dest, tx, write_rx).await;
+                        relay_real_socket(handle, real_dest, tx, write_rx).await;
                     });
                 }
                 ProxyAction::SendToReal { handle, data } => {
@@ -204,14 +218,21 @@ pub async fn run_network<S>(
                         let _ = writer.try_send(data);
                     }
                 }
-                ProxyAction::CloseReal { handle } => {
+                ProxyAction::CloseReal { handle, .. } => {
                     real_writers.remove(&handle);
+                    // NAT entries are intentionally kept — egress frames
+                    // during the TCP close sequence still need rewriting.
+                    // Entries are self-cleaning: VM port reuse overwrites
+                    // stale mappings.
                 }
             }
         }
 
         // Final poll to flush any TCP data
-        let outbound = net.poll(now);
+        let mut outbound = net.poll(now);
+        for frame in &mut outbound {
+            tcp_nat.rewrite_egress(frame);
+        }
         for frame in outbound {
             if frame_writer.write(&frame).await.is_err() {
                 break;
@@ -272,56 +293,6 @@ async fn handle_dns(
             }
         }
     }
-}
-
-/// Parse an Ethernet frame and return `(dest_ip, dest_port)` if it contains
-/// a TCP SYN (but not SYN+ACK) to an external IP address.
-fn parse_tcp_syn(frame: &[u8]) -> Option<(std::net::Ipv4Addr, u16)> {
-    if frame.len() < 14 {
-        return None;
-    }
-    let ethertype = u16::from_be_bytes([frame[12], frame[13]]);
-    if ethertype != 0x0800 {
-        return None; // Not IPv4
-    }
-
-    let ip_start = 14;
-    if frame.len() < ip_start + 20 {
-        return None;
-    }
-    let ihl = (frame[ip_start] & 0x0F) as usize * 4;
-    let proto = frame[ip_start + 9];
-    if proto != 6 {
-        return None; // Not TCP
-    }
-
-    let tcp_start = ip_start + ihl;
-    if frame.len() < tcp_start + 14 {
-        return None;
-    }
-
-    // TCP flags byte is at offset 13 in the TCP header
-    let tcp_flags = frame[tcp_start + 13];
-    let syn = tcp_flags & 0x02 != 0;
-    let ack = tcp_flags & 0x10 != 0;
-    if !syn || ack {
-        return None; // Not a pure SYN
-    }
-
-    let dest_ip = std::net::Ipv4Addr::new(
-        frame[ip_start + 16],
-        frame[ip_start + 17],
-        frame[ip_start + 18],
-        frame[ip_start + 19],
-    );
-    let dest_port = u16::from_be_bytes([frame[tcp_start + 2], frame[tcp_start + 3]]);
-
-    // Only intercept connections to external IPs (not the gateway itself)
-    if dest_ip.octets() == net_config::GATEWAY_IP.octets() {
-        return None;
-    }
-
-    Some((dest_ip, dest_port))
 }
 
 /// Relay task for a single real TCP connection.
