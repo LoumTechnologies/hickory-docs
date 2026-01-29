@@ -417,13 +417,27 @@ pub async fn run_network_bridged<S>(
                 .as_millis() as i64,
         );
         let outbound = net.poll(now);
-        send_outbound_bridged(&outbound, &mut frame_writer, &bridge, &mut tcp_nat, own_vm_ip).await;
+        send_outbound_bridged(
+            &outbound,
+            &mut frame_writer,
+            &bridge,
+            &mut tcp_nat,
+            own_vm_ip,
+        )
+        .await;
 
         // Handle DNS with bridge-aware resolution
         handle_dns_bridged(&mut net, dns_handle, resolver, &filter, &bridge).await;
 
         let outbound = net.poll(now);
-        send_outbound_bridged(&outbound, &mut frame_writer, &bridge, &mut tcp_nat, own_vm_ip).await;
+        send_outbound_bridged(
+            &outbound,
+            &mut frame_writer,
+            &bridge,
+            &mut tcp_nat,
+            own_vm_ip,
+        )
+        .await;
 
         // TCP proxy
         let actions = tcp_proxy.poll(&mut net);
@@ -467,7 +481,14 @@ pub async fn run_network_bridged<S>(
         }
 
         let outbound = net.poll(now);
-        send_outbound_bridged(&outbound, &mut frame_writer, &bridge, &mut tcp_nat, own_vm_ip).await;
+        send_outbound_bridged(
+            &outbound,
+            &mut frame_writer,
+            &bridge,
+            &mut tcp_nat,
+            own_vm_ip,
+        )
+        .await;
     }
 }
 
