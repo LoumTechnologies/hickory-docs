@@ -19,6 +19,7 @@ use log::{debug, info, trace, warn};
 use crate::connection_filter::{ConnectionFilter, ConnectionVerdict, NetworkRequest};
 use crate::dns;
 use crate::interface::VirtualNetwork;
+use crate::net_config;
 use crate::tcp_proxy::{ProxyAction, TcpProxy};
 
 /// Channel message from real socket relay tasks back to the network loop.
@@ -88,6 +89,18 @@ pub async fn run_network<S>(
                         } else {
                             trace!("[net] Received short frame #{}: {} bytes", frame_count, frame.len());
                         }
+
+                        // Detect TCP SYN to external IPs and create listening
+                        // sockets so smoltcp can accept the connection.
+                        if let Some((_dest_ip, dest_port)) = parse_tcp_syn(&frame) {
+                            let handle = net.add_tcp_socket(65535, 65535);
+                            let sock = net.tcp_socket(handle);
+                            if sock.listen(dest_port).is_ok() {
+                                tcp_proxy.add_listener(handle);
+                                debug!("[net] Created TCP listener for port {dest_port}");
+                            }
+                        }
+
                         net.inject_frame(frame);
                     }
                     Ok(None) => {
@@ -158,10 +171,6 @@ pub async fn run_network<S>(
                 break;
             }
         }
-
-        // Check for new TCP connections (SYN received by smoltcp)
-        // We need to add listening sockets for any new connections smoltcp accepted
-        check_for_new_tcp_connections(&mut net, &mut tcp_proxy);
 
         // Process TCP proxy
         let actions = tcp_proxy.poll(&mut net);
@@ -258,27 +267,54 @@ async fn handle_dns(
     }
 }
 
-/// Check smoltcp sockets for new incoming TCP connections.
-///
-/// When the container initiates a TCP connection to any address, smoltcp
-/// sees it as a SYN to our gateway. We accept it and register it with the
-/// TCP proxy for relay to the real destination.
-fn check_for_new_tcp_connections(net: &mut VirtualNetwork, proxy: &mut TcpProxy) {
-    // For each incoming TCP connection, we need a fresh smoltcp socket
-    // that has already received the SYN. Since smoltcp doesn't have a
-    // "listener" concept like a real OS, we pre-allocate sockets that
-    // listen on port 0 (wildcard) and let smoltcp match incoming SYNs.
-    //
-    // We maintain a pool of listening sockets. When one becomes active
-    // (connection established), we register it with the proxy and add
-    // a new listening socket to replace it.
+/// Parse an Ethernet frame and return `(dest_ip, dest_port)` if it contains
+/// a TCP SYN (but not SYN+ACK) to an external IP address.
+fn parse_tcp_syn(frame: &[u8]) -> Option<(std::net::Ipv4Addr, u16)> {
+    if frame.len() < 14 {
+        return None;
+    }
+    let ethertype = u16::from_be_bytes([frame[12], frame[13]]);
+    if ethertype != 0x0800 {
+        return None; // Not IPv4
+    }
 
-    // This is handled by the proxy's poll() method checking listening sockets.
-    // We just need to ensure there are always some listening sockets available.
+    let ip_start = 14;
+    if frame.len() < ip_start + 20 {
+        return None;
+    }
+    let ihl = (frame[ip_start] & 0x0F) as usize * 4;
+    let proto = frame[ip_start + 9];
+    if proto != 6 {
+        return None; // Not TCP
+    }
 
-    // Count how many listening sockets the proxy currently has
-    // (handled internally by TcpProxy)
-    let _ = (net, proxy);
+    let tcp_start = ip_start + ihl;
+    if frame.len() < tcp_start + 14 {
+        return None;
+    }
+
+    // TCP flags byte is at offset 13 in the TCP header
+    let tcp_flags = frame[tcp_start + 13];
+    let syn = tcp_flags & 0x02 != 0;
+    let ack = tcp_flags & 0x10 != 0;
+    if !syn || ack {
+        return None; // Not a pure SYN
+    }
+
+    let dest_ip = std::net::Ipv4Addr::new(
+        frame[ip_start + 16],
+        frame[ip_start + 17],
+        frame[ip_start + 18],
+        frame[ip_start + 19],
+    );
+    let dest_port = u16::from_be_bytes([frame[tcp_start + 2], frame[tcp_start + 3]]);
+
+    // Only intercept connections to external IPs (not the gateway itself)
+    if dest_ip.octets() == net_config::GATEWAY_IP.octets() {
+        return None;
+    }
+
+    Some((dest_ip, dest_port))
 }
 
 /// Relay task for a single real TCP connection.
