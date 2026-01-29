@@ -5,6 +5,7 @@
 //! DNS and TCP, and writes outbound frames.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::Duration;
 
 use smoltcp::iface::SocketHandle;
@@ -13,8 +14,9 @@ use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpStream;
 use tokio::sync::{mpsc, watch};
 
-use log::{debug, trace, warn};
+use log::{debug, info, trace, warn};
 
+use crate::connection_filter::{ConnectionFilter, ConnectionVerdict, NetworkRequest};
 use crate::dns;
 use crate::interface::VirtualNetwork;
 use crate::tcp_proxy::{ProxyAction, TcpProxy};
@@ -35,8 +37,11 @@ enum RealSocketMsg {
 ///
 /// Reads/writes QEMU-protocol frames from `stream`, drives smoltcp, handles
 /// DHCP/DNS/TCP proxy. Runs until `shutdown` signal fires or the stream closes.
-pub async fn run_network<S>(stream: S, mut shutdown: watch::Receiver<bool>)
-where
+pub async fn run_network<S>(
+    stream: S,
+    mut shutdown: watch::Receiver<bool>,
+    filter: Arc<dyn ConnectionFilter>,
+) where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
     let (reader, writer) = tokio::io::split(stream);
@@ -144,7 +149,7 @@ where
         }
 
         // Handle DNS queries
-        handle_dns(&mut net, dns_handle, resolver).await;
+        handle_dns(&mut net, dns_handle, resolver, &filter).await;
 
         // Poll again after DNS responses
         let outbound = net.poll(now);
@@ -163,6 +168,13 @@ where
         for action in actions {
             match action {
                 ProxyAction::Connect { handle, dest } => {
+                    let verdict = filter.filter(&NetworkRequest::Tcp { dest }).await;
+                    if verdict == ConnectionVerdict::Block {
+                        info!("[net] Blocked TCP connection to {dest}");
+                        tcp_proxy.mark_connect_failed(handle, &mut net);
+                        continue;
+                    }
+
                     let tx = real_tx.clone();
                     let (write_tx, write_rx) = mpsc::channel::<Vec<u8>>(64);
                     real_writers.insert(handle, write_tx);
@@ -197,6 +209,7 @@ async fn handle_dns(
     net: &mut VirtualNetwork,
     dns_handle: SocketHandle,
     resolver: std::net::SocketAddr,
+    filter: &Arc<dyn ConnectionFilter>,
 ) {
     let sock = net.udp_socket(dns_handle);
     let mut queries = Vec::new();
@@ -215,6 +228,19 @@ async fn handle_dns(
     }
 
     for (query, source) in queries {
+        // Extract domain name and check the filter
+        if let Some(domain) = dns::parse_query_domain(&query) {
+            let verdict = filter
+                .filter(&NetworkRequest::Dns {
+                    domain: domain.clone(),
+                })
+                .await;
+            if verdict == ConnectionVerdict::Block {
+                info!("[dns] Blocked DNS query for {domain}");
+                continue;
+            }
+        }
+
         debug!("[dns] Forwarding query to system resolver {resolver}");
         match dns::forward_query(&query, resolver, Duration::from_secs(5)).await {
             Ok(response) => {
@@ -317,15 +343,17 @@ async fn relay_real_socket(
 mod tests {
     use super::*;
     use crate::codec;
+    use crate::connection_filter::AllowAll;
     use tokio::io::duplex;
 
     #[tokio::test]
     async fn test_network_loop_shutdown() {
         let (client, server) = duplex(65536);
         let (shutdown_tx, shutdown_rx) = watch::channel(false);
+        let filter: Arc<dyn ConnectionFilter> = Arc::new(AllowAll);
 
         let task = tokio::spawn(async move {
-            run_network(server, shutdown_rx).await;
+            run_network(server, shutdown_rx, filter).await;
         });
 
         // Signal shutdown
@@ -344,9 +372,10 @@ mod tests {
     async fn test_network_loop_eof() {
         let (client, server) = duplex(65536);
         let (_shutdown_tx, shutdown_rx) = watch::channel(false);
+        let filter: Arc<dyn ConnectionFilter> = Arc::new(AllowAll);
 
         let task = tokio::spawn(async move {
-            run_network(server, shutdown_rx).await;
+            run_network(server, shutdown_rx, filter).await;
         });
 
         // Drop client to signal EOF
@@ -363,9 +392,10 @@ mod tests {
         // Test DHCP through the full network stack
         let (mut client, server) = duplex(65536);
         let (_shutdown_tx, shutdown_rx) = watch::channel(false);
+        let filter: Arc<dyn ConnectionFilter> = Arc::new(AllowAll);
 
         let task = tokio::spawn(async move {
-            run_network(server, shutdown_rx).await;
+            run_network(server, shutdown_rx, filter).await;
         });
 
         // Build and send a DHCP DISCOVER frame

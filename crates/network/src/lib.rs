@@ -1,4 +1,5 @@
 pub mod codec;
+pub mod connection_filter;
 pub mod device;
 pub mod dhcp;
 pub mod dns;

@@ -1,10 +1,54 @@
 use std::collections::VecDeque;
 use std::os::fd::AsRawFd;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
+use async_trait::async_trait;
 use container::{Container, ContainerConfig, create_async_engine};
+use network::connection_filter::{ConnectionFilter, ConnectionVerdict, NetworkRequest};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::sync::{mpsc, oneshot};
 use wasmtime::{Engine, Module};
+
+// ---------------------------------------------------------------------------
+// Interactive connection filter
+// ---------------------------------------------------------------------------
+
+/// A pending approval request sent from the network thread to the main loop.
+struct ApprovalRequest {
+    request: NetworkRequest,
+    response_tx: oneshot::Sender<ConnectionVerdict>,
+}
+
+/// Connection filter that prompts the user to allow or block each request.
+///
+/// Each call to `filter()` sends an [`ApprovalRequest`] over a channel and
+/// awaits the verdict on a oneshot. The testbed main loop picks up the
+/// request, prints a prompt, and sends back the user's answer.
+struct InteractiveFilter {
+    tx: mpsc::Sender<ApprovalRequest>,
+}
+
+#[async_trait]
+impl ConnectionFilter for InteractiveFilter {
+    async fn filter(&self, request: &NetworkRequest) -> ConnectionVerdict {
+        let (response_tx, response_rx) = oneshot::channel();
+        let approval = ApprovalRequest {
+            request: match request {
+                NetworkRequest::Tcp { dest } => NetworkRequest::Tcp { dest: *dest },
+                NetworkRequest::Dns { domain } => NetworkRequest::Dns {
+                    domain: domain.clone(),
+                },
+            },
+            response_tx,
+        };
+        if self.tx.send(approval).await.is_err() {
+            // Channel closed — default to allow so the container isn't stuck
+            return ConnectionVerdict::Allow;
+        }
+        response_rx.await.unwrap_or(ConnectionVerdict::Allow)
+    }
+}
 
 // ---------------------------------------------------------------------------
 // Terminal raw mode
@@ -116,6 +160,7 @@ async fn push_container(
     engine: &Engine,
     name: &str,
     networking: bool,
+    filter: Option<Arc<dyn ConnectionFilter>>,
 ) -> anyhow::Result<()> {
     let wasm_path = resolve_image_path(name);
     eprintln!("[testbed] Loading image: {}", wasm_path.display());
@@ -123,6 +168,7 @@ async fn push_container(
     let module = Module::from_file(engine, &wasm_path)?;
     let mut config = ContainerConfig::new(engine.clone(), module);
     config.networking = networking;
+    config.connection_filter = filter;
     let container = Container::start(config).await?;
 
     let net_status = if networking {
@@ -321,6 +367,12 @@ enum TestbedState {
     Interactive,
 }
 
+/// Input mode for the testbed — normal typing or awaiting a firewall verdict.
+enum InputMode {
+    Normal,
+    AwaitingApproval(oneshot::Sender<ConnectionVerdict>),
+}
+
 // ---------------------------------------------------------------------------
 // Main loop
 // ---------------------------------------------------------------------------
@@ -335,8 +387,21 @@ async fn main() -> anyhow::Result<()> {
     // Enable networking by default for all containers
     let networking = true;
 
+    // Interactive connection filter — shared across all containers
+    let (approval_tx, mut approval_rx) = mpsc::channel::<ApprovalRequest>(16);
+    let filter: Arc<dyn ConnectionFilter> = Arc::new(InteractiveFilter {
+        tx: approval_tx.clone(),
+    });
+
     let mut stack: Vec<(String, Container)> = Vec::new();
-    push_container(&mut stack, &engine, "alpine", networking).await?;
+    push_container(
+        &mut stack,
+        &engine,
+        "alpine",
+        networking,
+        Some(filter.clone()),
+    )
+    .await?;
 
     let mut stdin = tokio::io::stdin();
     let mut stdout = tokio::io::stdout();
@@ -354,6 +419,9 @@ async fn main() -> anyhow::Result<()> {
     let mut state = TestbedState::Booting;
     let mut suppressor = EchoSuppressor::new();
     let mut prompt_matcher = PromptMatcher::new();
+
+    // Firewall approval state
+    let mut input_mode = InputMode::Normal;
 
     loop {
         let (_, container) = stack.last_mut().expect("stack should not be empty in loop");
@@ -405,12 +473,57 @@ async fn main() -> anyhow::Result<()> {
                 }
             }
 
+            // Incoming approval request from the network thread
+            Some(req) = approval_rx.recv() => {
+                // Print the firewall prompt
+                let prompt_msg = format!(
+                    "\r\n[firewall] {} \u{2014} allow? (y/n) ",
+                    req.request
+                );
+                stdout.write_all(prompt_msg.as_bytes()).await?;
+                stdout.flush().await?;
+                input_mode = InputMode::AwaitingApproval(req.response_tx);
+            }
+
             // User input → raw bytes, forwarded or buffered as meta-command
             result = stdin.read(&mut stdin_buf) => {
                 match result {
                     Ok(0) => break, // EOF
                     Ok(n) => {
                         for &byte in &stdin_buf[..n] {
+                            // If awaiting a firewall verdict, capture y/n
+                            if let InputMode::AwaitingApproval(_) = &input_mode {
+                                let verdict = match byte {
+                                    b'y' | b'Y' => {
+                                        stdout.write_all(b"y\r\n").await?;
+                                        stdout.flush().await?;
+                                        Some(ConnectionVerdict::Allow)
+                                    }
+                                    b'n' | b'N' => {
+                                        stdout.write_all(b"n\r\n").await?;
+                                        stdout.flush().await?;
+                                        Some(ConnectionVerdict::Block)
+                                    }
+                                    _ => None, // ignore other keys
+                                };
+                                if let Some(v) = verdict {
+                                    // Take ownership of the sender
+                                    let mode = std::mem::replace(
+                                        &mut input_mode,
+                                        InputMode::Normal,
+                                    );
+                                    if let InputMode::AwaitingApproval(tx) = mode {
+                                        let _ = tx.send(v);
+                                    }
+                                    // Re-print the prompt if interactive
+                                    if state == TestbedState::Interactive {
+                                        stdout.write_all(PROMPT).await?;
+                                        stdout.flush().await?;
+                                    }
+                                }
+                                continue;
+                            }
+
                             match byte {
                                 // Enter (CR in raw mode since ICRNL is off)
                                 b'\r' | b'\n' => {
@@ -424,7 +537,7 @@ async fn main() -> anyhow::Result<()> {
                                             match cmd {
                                                 MetaCommand::From(name) => {
                                                     let name = name.to_string();
-                                                    if let Err(e) = push_container(&mut stack, &engine, &name, networking).await {
+                                                    if let Err(e) = push_container(&mut stack, &engine, &name, networking, Some(filter.clone())).await {
                                                         eprintln!("[testbed] Failed to start container '{name}': {e}");
                                                     }
                                                 }
