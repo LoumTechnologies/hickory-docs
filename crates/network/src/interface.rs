@@ -151,14 +151,24 @@ impl VirtualNetwork {
     /// smoltcp's TCP dispatch requires the destination IP to be a recognised
     /// local address. When proxying connections to external hosts we must add
     /// their IPs here so that listening sockets can accept incoming SYNs.
+    ///
+    /// smoltcp 0.12 has a fixed-capacity address list (2 slots with proto-ipv4
+    /// only). The gateway IP occupies slot 0. We recycle slot 1 for external
+    /// IPs — this is safe because established connections are matched by their
+    /// 4-tuple, not the address list.
     pub fn ensure_ip_addr(&mut self, addr: smoltcp::wire::Ipv4Address) {
         let cidr = IpCidr::new(IpAddress::Ipv4(addr), 32);
-        let already_present = self.iface.ip_addrs().contains(&cidr);
-        if !already_present {
-            self.iface.update_ip_addrs(|addrs| {
-                addrs.push(cidr).expect("failed to add IP address");
-            });
+        if self.iface.ip_addrs().contains(&cidr) {
+            return;
         }
+        self.iface.update_ip_addrs(|addrs| {
+            if addrs.push(cidr).is_err() {
+                // Address list is full — replace the last entry.
+                // Index 0 is the gateway IP and must not be touched.
+                let last = addrs.len() - 1;
+                addrs[last] = cidr;
+            }
+        });
     }
 
     fn handle_dhcp(&mut self) {
@@ -631,19 +641,12 @@ mod tests {
         let external_ip: [u8; 4] = [93, 184, 216, 34];
 
         // Add the external IP to the interface BEFORE the SYN
-        net.iface().update_ip_addrs(|addrs| {
-            addrs
-                .push(IpCidr::new(
-                    IpAddress::Ipv4(Ipv4Address::new(
-                        external_ip[0],
-                        external_ip[1],
-                        external_ip[2],
-                        external_ip[3],
-                    )),
-                    32,
-                ))
-                .expect("push external IP");
-        });
+        net.ensure_ip_addr(Ipv4Address::new(
+            external_ip[0],
+            external_ip[1],
+            external_ip[2],
+            external_ip[3],
+        ));
 
         // Add a TCP socket and listen on port 80
         let handle = net.add_tcp_socket(65535, 65535);
@@ -675,6 +678,30 @@ mod tests {
             sock.state()
         );
         assert!(!outbound.is_empty(), "Should generate SYN-ACK");
+    }
+
+    #[test]
+    fn test_ensure_ip_addr_recycles_slot() {
+        let mut net = VirtualNetwork::new();
+
+        // Adding many external IPs should not panic — the slot is recycled
+        for i in 1..=10u8 {
+            net.ensure_ip_addr(Ipv4Address::new(10, 0, 0, i));
+        }
+
+        // The last one added should be present
+        let last = IpCidr::new(IpAddress::Ipv4(Ipv4Address::new(10, 0, 0, 10)), 32);
+        assert!(
+            net.iface().ip_addrs().contains(&last),
+            "Last added IP should be in address list"
+        );
+
+        // The gateway IP should still be present
+        let gw = IpCidr::Ipv4(GATEWAY_CIDR);
+        assert!(
+            net.iface().ip_addrs().contains(&gw),
+            "Gateway IP must never be evicted"
+        );
     }
 
     /// Build a minimal DHCP DISCOVER payload.
