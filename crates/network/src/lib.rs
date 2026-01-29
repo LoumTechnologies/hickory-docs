@@ -7,4 +7,5 @@ pub mod interceptor;
 pub mod interface;
 pub mod net_config;
 pub mod network_loop;
+pub mod tcp_nat;
 pub mod tcp_proxy;
