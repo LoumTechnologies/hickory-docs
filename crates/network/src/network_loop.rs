@@ -65,9 +65,9 @@ pub async fn run_network_with_config<S>(
     let (reader, writer) = tokio::io::split(stream);
     let (mut frame_reader, mut frame_writer) = crate::codec::split(reader, writer);
 
+    let mut tcp_nat = TcpNat::with_config(&config);
     let mut net = VirtualNetwork::with_config(config);
     let mut tcp_proxy = TcpProxy::new();
-    let mut tcp_nat = TcpNat::new();
 
     // DNS socket on port 53
     let dns_handle = net
@@ -315,9 +315,10 @@ pub async fn run_network_bridged<S>(
     let (reader, writer) = tokio::io::split(stream);
     let (mut frame_reader, mut frame_writer) = crate::codec::split(reader, writer);
 
+    let own_vm_ip = config.vm_ip_std();
+    let mut tcp_nat = TcpNat::with_config(&config);
     let mut net = VirtualNetwork::with_config(config);
     let mut tcp_proxy = TcpProxy::new();
-    let mut tcp_nat = TcpNat::new();
 
     let dns_handle = net
         .add_udp_socket(53, 4096, 4096)
@@ -416,13 +417,13 @@ pub async fn run_network_bridged<S>(
                 .as_millis() as i64,
         );
         let outbound = net.poll(now);
-        send_outbound_bridged(&outbound, &mut frame_writer, &bridge, &mut tcp_nat).await;
+        send_outbound_bridged(&outbound, &mut frame_writer, &bridge, &mut tcp_nat, own_vm_ip).await;
 
         // Handle DNS with bridge-aware resolution
         handle_dns_bridged(&mut net, dns_handle, resolver, &filter, &bridge).await;
 
         let outbound = net.poll(now);
-        send_outbound_bridged(&outbound, &mut frame_writer, &bridge, &mut tcp_nat).await;
+        send_outbound_bridged(&outbound, &mut frame_writer, &bridge, &mut tcp_nat, own_vm_ip).await;
 
         // TCP proxy
         let actions = tcp_proxy.poll(&mut net);
@@ -466,24 +467,29 @@ pub async fn run_network_bridged<S>(
         }
 
         let outbound = net.poll(now);
-        send_outbound_bridged(&outbound, &mut frame_writer, &bridge, &mut tcp_nat).await;
+        send_outbound_bridged(&outbound, &mut frame_writer, &bridge, &mut tcp_nat, own_vm_ip).await;
     }
 }
 
 /// Send outbound frames, routing bridged frames through the bridge.
+///
+/// Frames destined for `own_vm_ip` are always sent to the wire (they are
+/// gateway→VM traffic within this container), not routed through the bridge.
 async fn send_outbound_bridged<W: AsyncWrite + Unpin>(
     frames: &[Vec<u8>],
     frame_writer: &mut crate::codec::FrameWriter<W>,
     bridge: &Arc<RwLock<NetworkBridge>>,
     tcp_nat: &mut TcpNat,
+    own_vm_ip: std::net::Ipv4Addr,
 ) {
     for frame in frames {
         let mut frame = frame.clone();
         tcp_nat.rewrite_egress(&mut frame);
 
         if let Some(dest_ip) = extract_dest_ip(&frame) {
-            let bridge_r = bridge.read().await;
-            if let Some(sender) = bridge_r.route(dest_ip) {
+            if dest_ip == own_vm_ip {
+                // Gateway→VM traffic for this container — send to the wire.
+            } else if let Some(sender) = bridge.read().await.route(dest_ip) {
                 // Set dst MAC to broadcast so the target container's smoltcp
                 // (which has any_ip enabled) accepts the frame.
                 let mut bridged_frame = frame;

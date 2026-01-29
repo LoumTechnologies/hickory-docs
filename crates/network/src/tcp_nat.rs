@@ -11,7 +11,7 @@
 use std::collections::HashMap;
 use std::net::Ipv4Addr;
 
-use crate::net_config::{GATEWAY_IP_STD, VM_IP_STD};
+use crate::net_config::{self, NetworkConfig};
 
 /// Result of ingress frame rewriting.
 pub enum IngressResult {
@@ -27,6 +27,10 @@ pub enum IngressResult {
 pub struct TcpNat {
     /// Maps VM source port -> real external destination IP.
     nat_table: HashMap<u16, Ipv4Addr>,
+    /// The gateway IP that smoltcp is configured with.
+    gateway_ip: Ipv4Addr,
+    /// The VM IP (passthrough — don't NAT traffic to itself).
+    vm_ip: Ipv4Addr,
 }
 
 impl Default for TcpNat {
@@ -39,6 +43,17 @@ impl TcpNat {
     pub fn new() -> Self {
         Self {
             nat_table: HashMap::new(),
+            gateway_ip: net_config::GATEWAY_IP_STD,
+            vm_ip: net_config::VM_IP_STD,
+        }
+    }
+
+    /// Create a NAT configured for a specific container's network.
+    pub fn with_config(config: &NetworkConfig) -> Self {
+        Self {
+            nat_table: HashMap::new(),
+            gateway_ip: config.gateway_ip_std(),
+            vm_ip: config.vm_ip_std(),
         }
     }
 
@@ -81,7 +96,7 @@ impl TcpNat {
         );
 
         // Only rewrite external IPs
-        if dst_ip == GATEWAY_IP_STD || dst_ip == VM_IP_STD {
+        if dst_ip == self.gateway_ip || dst_ip == self.vm_ip {
             return IngressResult::PassThrough;
         }
 
@@ -91,8 +106,8 @@ impl TcpNat {
         // Record the mapping
         self.nat_table.insert(src_port, dst_ip);
 
-        // Rewrite dst_ip -> GATEWAY_IP
-        let gw = GATEWAY_IP_STD.octets();
+        // Rewrite dst_ip -> gateway IP
+        let gw = self.gateway_ip.octets();
         frame[ip_start + 16] = gw[0];
         frame[ip_start + 17] = gw[1];
         frame[ip_start + 18] = gw[2];
@@ -150,7 +165,7 @@ impl TcpNat {
             frame[ip_start + 15],
         );
 
-        if src_ip != GATEWAY_IP_STD {
+        if src_ip != self.gateway_ip {
             return;
         }
 
@@ -252,6 +267,7 @@ fn recompute_tcp_checksum(frame: &mut [u8]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::net_config::{GATEWAY_IP_STD, VM_IP_STD};
 
     /// Build a raw Ethernet/IP/TCP frame for testing.
     fn build_tcp_frame(
