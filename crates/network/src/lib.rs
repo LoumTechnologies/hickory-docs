@@ -1,3 +1,4 @@
+pub mod bridge;
 pub mod codec;
 pub mod connection_filter;
 pub mod device;

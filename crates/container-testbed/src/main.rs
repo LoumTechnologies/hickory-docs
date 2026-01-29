@@ -1,36 +1,32 @@
-use std::collections::{HashMap, VecDeque};
+mod container_manager;
+
+use std::collections::HashMap;
 use std::os::fd::AsRawFd;
-use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
-use container::{Container, ContainerConfig, create_async_engine};
+use container::create_async_engine;
+use network::bridge::NetworkBridge;
 use network::connection_filter::{ConnectionFilter, ConnectionVerdict, NetworkRequest};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::sync::{mpsc, oneshot};
-use wasmtime::{Engine, Module};
+use tokio::sync::{RwLock, mpsc, oneshot};
+
+use container_manager::{ContainerManager, PROMPT, TestbedState, strip_dsr};
 
 // ---------------------------------------------------------------------------
 // Interactive connection filter
 // ---------------------------------------------------------------------------
 
-/// A pending approval request sent from the network thread to the main loop.
 struct ApprovalRequest {
     request: NetworkRequest,
+    source_label: Option<String>,
     response_tx: oneshot::Sender<ConnectionVerdict>,
 }
 
-/// Connection filter that prompts the user to allow or block each request.
-///
-/// Each call to `filter()` first checks a verdict cache. On a cache miss it
-/// sends an [`ApprovalRequest`] over a channel and awaits the verdict on a
-/// oneshot. Explicit user verdicts (y/n) are cached so the same destination
-/// is never prompted twice. Verdicts from cancelled/stale approvals (e.g.
-/// when the container prompt appears before the user answers) are *not*
-/// cached so the user gets a fresh prompt next time.
 struct InteractiveFilter {
     tx: mpsc::Sender<ApprovalRequest>,
     cache: Mutex<HashMap<String, ConnectionVerdict>>,
+    label: Option<String>,
 }
 
 impl InteractiveFilter {
@@ -38,6 +34,7 @@ impl InteractiveFilter {
         Self {
             tx,
             cache: Mutex::new(HashMap::new()),
+            label: None,
         }
     }
 
@@ -54,7 +51,6 @@ impl ConnectionFilter for InteractiveFilter {
     async fn filter(&self, request: &NetworkRequest) -> ConnectionVerdict {
         let key = Self::cache_key(request);
 
-        // Return cached verdict if we already prompted for this destination.
         if let Some(&verdict) = self.cache.lock().unwrap().get(&key) {
             return verdict;
         }
@@ -67,6 +63,7 @@ impl ConnectionFilter for InteractiveFilter {
                     domain: domain.clone(),
                 },
             },
+            source_label: self.label.clone(),
             response_tx,
         };
         if self.tx.send(approval).await.is_err() {
@@ -74,15 +71,10 @@ impl ConnectionFilter for InteractiveFilter {
         }
         match response_rx.await {
             Ok(verdict) => {
-                // User answered explicitly — cache the verdict.
                 self.cache.lock().unwrap().insert(key, verdict);
                 verdict
             }
-            Err(_) => {
-                // Oneshot dropped (stale approval cancelled) — don't cache
-                // so the user gets a fresh prompt next time.
-                ConnectionVerdict::Allow
-            }
+            Err(_) => ConnectionVerdict::Allow,
         }
     }
 }
@@ -105,11 +97,8 @@ impl RawModeGuard {
                 return None;
             }
             let mut raw = orig;
-            // Raw input: no echo, no line buffering, no signal keys, no extensions
             raw.c_lflag &= !(libc::ECHO | libc::ICANON | libc::ISIG | libc::IEXTEN);
-            // No CR→NL translation, no XON/XOFF flow control
             raw.c_iflag &= !(libc::ICRNL | libc::IXON);
-            // Return after 1 byte, no timeout
             raw.c_cc[libc::VMIN] = 1;
             raw.c_cc[libc::VTIME] = 0;
             if libc::tcsetattr(fd, libc::TCSAFLUSH, &raw) != 0 {
@@ -133,278 +122,69 @@ impl Drop for RawModeGuard {
 // ---------------------------------------------------------------------------
 
 enum MetaCommand<'a> {
-    From(&'a str),
+    From {
+        image: &'a str,
+        name: Option<&'a str>,
+    },
+    Name(&'a str),
+    Switch(&'a str),
+    List,
+    Kill,
+    Detach,
     Exit,
 }
 
 fn parse_meta_command(line: &str) -> Option<MetaCommand<'_>> {
     let trimmed = line.trim();
+
     if let Some(rest) = trimmed.strip_prefix(":from ") {
+        let rest = rest.trim();
+        if rest.is_empty() {
+            return None;
+        }
+        if let Some((image, name)) = rest.rsplit_once(" as ") {
+            let image = image.trim();
+            let name = name.trim();
+            if !image.is_empty() && !name.is_empty() {
+                return Some(MetaCommand::From {
+                    image,
+                    name: Some(name),
+                });
+            }
+        }
+        return Some(MetaCommand::From {
+            image: rest,
+            name: None,
+        });
+    }
+
+    if let Some(rest) = trimmed.strip_prefix(":name ") {
         let name = rest.trim();
         if !name.is_empty() {
-            return Some(MetaCommand::From(name));
-        }
-    }
-    if trimmed == ":exit" {
-        return Some(MetaCommand::Exit);
-    }
-    None
-}
-
-// ---------------------------------------------------------------------------
-// Image path resolution
-// ---------------------------------------------------------------------------
-
-fn resolve_image_path(name: &str) -> PathBuf {
-    let manifest_dir = env!("CARGO_MANIFEST_DIR");
-    let images_dir = Path::new(manifest_dir)
-        .parent()
-        .unwrap()
-        .join("c2w/converted_images");
-
-    // 1. Check for exact file: {name}.wasm
-    let exact = images_dir.join(format!("{name}.wasm"));
-    if exact.is_file() {
-        return exact;
-    }
-
-    // 2. Check for directory: {name}/, pick latest .wasm by lexicographic sort
-    let dir = images_dir.join(name);
-    if dir.is_dir()
-        && let Ok(entries) = std::fs::read_dir(&dir)
-    {
-        let mut wasm_files: Vec<PathBuf> = entries
-            .filter_map(|e| e.ok())
-            .map(|e| e.path())
-            .filter(|p| p.extension().is_some_and(|ext| ext == "wasm"))
-            .collect();
-        wasm_files.sort();
-        if let Some(latest) = wasm_files.last() {
-            return latest.clone();
+            return Some(MetaCommand::Name(name));
         }
     }
 
-    // 3. Fallback: return path as-is (wasmtime gives clear "file not found" error)
-    PathBuf::from(name)
-}
-
-// ---------------------------------------------------------------------------
-// Container stack management
-// ---------------------------------------------------------------------------
-
-async fn push_container(
-    stack: &mut Vec<(String, Container)>,
-    engine: &Engine,
-    name: &str,
-    networking: bool,
-    filter: Option<Arc<dyn ConnectionFilter>>,
-) -> anyhow::Result<()> {
-    let wasm_path = resolve_image_path(name);
-    eprintln!("[testbed] Loading image: {}", wasm_path.display());
-
-    let module = Module::from_file(engine, &wasm_path)?;
-    let mut config = ContainerConfig::new(engine.clone(), module);
-    config.networking = networking;
-    config.connection_filter = filter;
-    let container = Container::start(config).await?;
-
-    let net_status = if networking {
-        " (networking enabled)"
-    } else {
-        ""
-    };
-    eprintln!("[testbed] Started container: {name}{net_status}");
-    stack.push((name.to_string(), container));
-    Ok(())
-}
-
-fn pop_container(stack: &mut Vec<(String, Container)>) -> bool {
-    if let Some((name, container)) = stack.pop() {
-        container.kill();
-        eprintln!("[testbed] Exited container: {name}");
-        if let Some((current_name, _)) = stack.last() {
-            eprintln!("[testbed] Returning to container: {current_name}");
-        }
-    }
-    !stack.is_empty()
-}
-
-// ---------------------------------------------------------------------------
-// ANSI terminal query filtering
-// ---------------------------------------------------------------------------
-
-/// Remove Device Status Report queries (ESC[6n) from container output so the
-/// host terminal doesn't respond with Cursor Position Reports that leak back
-/// into the container as garbage input.
-fn strip_dsr(src: &[u8]) -> Vec<u8> {
-    let mut out = Vec::with_capacity(src.len());
-    let mut i = 0;
-    while i < src.len() {
-        if i + 3 <= src.len()
-            && src[i] == 0x1b
-            && src[i + 1] == b'['
-            && src[i + 2] == b'6'
-            && i + 4 <= src.len()
-            && src[i + 3] == b'n'
-        {
-            // Skip ESC[6n
-            i += 4;
-        } else {
-            out.push(src[i]);
-            i += 1;
-        }
-    }
-    out
-}
-
-// ---------------------------------------------------------------------------
-// Echo suppressor
-// ---------------------------------------------------------------------------
-
-/// Suppresses container echo of bytes we already displayed locally.
-///
-/// When we locally echo a typed character, we push it into the queue. When the
-/// container later sends back that same byte, we pop it from the queue instead
-/// of printing it (it was already shown). On mismatch the queue is cleared and
-/// the byte passes through — the container is sending something unexpected.
-///
-/// ANSI escape sequences from the container (starting with ESC `[`) are always
-/// passed through without attempting to match them against the queue.
-struct EchoSuppressor {
-    queue: VecDeque<u8>,
-}
-
-impl EchoSuppressor {
-    fn new() -> Self {
-        Self {
-            queue: VecDeque::new(),
+    if let Some(rest) = trimmed.strip_prefix(":switch ") {
+        let name = rest.trim();
+        if !name.is_empty() {
+            return Some(MetaCommand::Switch(name));
         }
     }
 
-    fn push(&mut self, byte: u8) {
-        self.queue.push_back(byte);
-    }
-
-    fn pop_last(&mut self) {
-        self.queue.pop_back();
-    }
-
-    /// Process a slice of container output bytes. Returns only the bytes that
-    /// should be printed (i.e. not suppressed).
-    fn process(&mut self, src: &[u8]) -> Vec<u8> {
-        let mut out = Vec::with_capacity(src.len());
-        let mut i = 0;
-        while i < src.len() {
-            // Pass ANSI escape sequences through without matching
-            if src[i] == 0x1b && i + 1 < src.len() && src[i + 1] == b'[' {
-                out.push(src[i]);
-                i += 1;
-                // Copy the rest of the escape sequence (up to the final byte)
-                while i < src.len() {
-                    out.push(src[i]);
-                    if src[i].is_ascii_alphabetic() || src[i] == b'~' {
-                        i += 1;
-                        break;
-                    }
-                    i += 1;
-                }
-                continue;
-            }
-
-            if let Some(&expected) = self.queue.front() {
-                if src[i] == expected {
-                    // Match — suppress this byte
-                    self.queue.pop_front();
-                } else {
-                    // Mismatch — flush: the container is sending something
-                    // different from what we echoed, so stop suppressing.
-                    self.queue.clear();
-                    out.push(src[i]);
-                }
-            } else {
-                // Queue empty — nothing to suppress
-                out.push(src[i]);
-            }
-            i += 1;
-        }
-        out
+    match trimmed {
+        ":ls" => Some(MetaCommand::List),
+        ":kill" => Some(MetaCommand::Kill),
+        ":detach" => Some(MetaCommand::Detach),
+        ":exit" => Some(MetaCommand::Exit),
+        _ => None,
     }
 }
 
 // ---------------------------------------------------------------------------
-// Prompt matcher
+// Input mode
 // ---------------------------------------------------------------------------
 
-const PROMPT: &[u8] = b"/ # ";
-
-/// Streaming pattern matcher for the BusyBox ash prompt `/ # `.
-///
-/// Buffers bytes that partially match the prompt pattern. When the full pattern
-/// is matched, the buffered bytes are discarded (suppressed) and the caller is
-/// notified via the returned flag. On mismatch, buffered partial-match bytes
-/// are flushed to output.
-struct PromptMatcher {
-    matched: usize,
-    buffer: Vec<u8>,
-}
-
-impl PromptMatcher {
-    fn new() -> Self {
-        Self {
-            matched: 0,
-            buffer: Vec::new(),
-        }
-    }
-
-    /// Process container output. Returns `(bytes_to_print, prompt_detected)`.
-    fn process(&mut self, src: &[u8]) -> (Vec<u8>, bool) {
-        let mut out = Vec::with_capacity(src.len());
-        let mut detected = false;
-
-        for &byte in src {
-            if byte == PROMPT[self.matched] {
-                self.buffer.push(byte);
-                self.matched += 1;
-                if self.matched == PROMPT.len() {
-                    // Full prompt matched — suppress the buffered bytes
-                    self.buffer.clear();
-                    self.matched = 0;
-                    detected = true;
-                }
-            } else {
-                // Mismatch — flush buffered partial match
-                if !self.buffer.is_empty() {
-                    out.extend_from_slice(&self.buffer);
-                    self.buffer.clear();
-                }
-                self.matched = 0;
-                // Check if the current byte starts a new match
-                if byte == PROMPT[0] {
-                    self.buffer.push(byte);
-                    self.matched = 1;
-                } else {
-                    out.push(byte);
-                }
-            }
-        }
-
-        (out, detected)
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Testbed state
-// ---------------------------------------------------------------------------
-
-#[derive(PartialEq)]
-enum TestbedState {
-    /// Kernel is booting — forward container output, detect first prompt.
-    Booting,
-    /// Shell is interactive — local echo, suppress container echo.
-    Interactive,
-}
-
-/// Input mode for the testbed — normal typing or awaiting a firewall verdict.
 enum InputMode {
     Normal,
     AwaitingApproval(oneshot::Sender<ConnectionVerdict>),
@@ -420,301 +200,388 @@ async fn main() -> anyhow::Result<()> {
     let _raw = RawModeGuard::enable();
 
     let engine = create_async_engine()?;
+    let bridge = Arc::new(RwLock::new(NetworkBridge::new()));
 
-    // Enable networking by default for all containers
-    let networking = true;
-
-    // Interactive connection filter — shared across all containers
     let (approval_tx, mut approval_rx) = mpsc::channel::<ApprovalRequest>(16);
     let filter: Arc<dyn ConnectionFilter> = Arc::new(InteractiveFilter::new(approval_tx.clone()));
 
-    let mut stack: Vec<(String, Container)> = Vec::new();
-    push_container(
-        &mut stack,
-        &engine,
-        "alpine",
-        networking,
-        Some(filter.clone()),
-    )
-    .await?;
+    let mut manager = ContainerManager::new(engine, filter.clone(), bridge);
+    manager.create("alpine", None).await?;
 
     let mut stdin = tokio::io::stdin();
     let mut stdout = tokio::io::stdout();
     let mut stdin_buf = [0u8; 256];
     let mut stdout_buf = [0u8; 4096];
 
-    // Meta-command state: lines starting with `:` are buffered locally and
-    // echoed by the testbed rather than forwarded to the container.
-    let mut meta_buf: Vec<u8> = Vec::new();
-    let mut in_meta = false;
-    let mut at_line_start = true;
     let mut should_exit = false;
-
-    // Local echo + suppression state
-    let mut state = TestbedState::Booting;
-    let mut suppressor = EchoSuppressor::new();
-    let mut prompt_matcher = PromptMatcher::new();
-
-    // Firewall approval state
     let mut input_mode = InputMode::Normal;
 
+    // Testbed-prompt line buffer (used when no active container)
+    let mut testbed_line_buf: Vec<u8> = Vec::new();
+
     loop {
-        let (_, container) = stack.last_mut().expect("stack should not be empty in loop");
+        if manager.has_active() {
+            // === Active container mode ===
+            let mc = manager.active_mut().unwrap();
 
-        tokio::select! {
-            // Container stdout → filter pipeline → user terminal
-            result = container.read_stdout(&mut stdout_buf) => {
-                match result {
-                    Ok(0) => {
-                        if !pop_container(&mut stack) {
-                            break;
+            tokio::select! {
+                result = mc.container.read_stdout(&mut stdout_buf) => {
+                    let mc = manager.active_mut().unwrap();
+                    match result {
+                        Ok(0) => {
+                            manager.kill_active().await;
+                            if !manager.has_active() {
+                                stdout.write_all(b"\r\n[testbed] > ").await?;
+                                stdout.flush().await?;
+                            }
+                        }
+                        Ok(n) => {
+                            let after_dsr = strip_dsr(&stdout_buf[..n]);
+                            let t = &mut mc.terminal;
+
+                            let after_suppress = if t.testbed_state == TestbedState::Interactive {
+                                t.suppressor.process(&after_dsr)
+                            } else {
+                                after_dsr
+                            };
+
+                            let (to_print, prompt_detected) = t.prompt_matcher.process(&after_suppress);
+
+                            if !to_print.is_empty() {
+                                stdout.write_all(&to_print).await?;
+                            }
+
+                            if prompt_detected {
+                                if t.testbed_state == TestbedState::Booting {
+                                    t.testbed_state = TestbedState::Interactive;
+                                }
+                                if matches!(input_mode, InputMode::AwaitingApproval(_)) {
+                                    input_mode = InputMode::Normal;
+                                }
+                                stdout.write_all(PROMPT).await?;
+                                t.at_line_start = true;
+                            }
+
+                            if !to_print.is_empty() || prompt_detected {
+                                stdout.flush().await?;
+                            }
+                        }
+                        Err(e) => {
+                            eprintln!("[testbed] stdout read error: {e}");
+                            manager.kill_active().await;
+                            if !manager.has_active() {
+                                stdout.write_all(b"\r\n[testbed] > ").await?;
+                                stdout.flush().await?;
+                            }
                         }
                     }
-                    Ok(n) => {
-                        // Pipeline: strip DSR → echo suppressor → prompt matcher → print
-                        let after_dsr = strip_dsr(&stdout_buf[..n]);
+                }
 
-                        let after_suppress = if state == TestbedState::Interactive {
-                            suppressor.process(&after_dsr)
-                        } else {
-                            after_dsr
-                        };
+                Some(req) = approval_rx.recv() => {
+                    let label_part = req.source_label
+                        .as_ref()
+                        .map(|l| format!(" [{l}]"))
+                        .unwrap_or_default();
+                    let prompt_msg = format!(
+                        "\r\n[firewall]{label_part} {} \u{2014} allow? (y/n) ",
+                        req.request
+                    );
+                    stdout.write_all(prompt_msg.as_bytes()).await?;
+                    stdout.flush().await?;
+                    input_mode = InputMode::AwaitingApproval(req.response_tx);
+                }
 
-                        let (to_print, prompt_detected) = prompt_matcher.process(&after_suppress);
+                result = stdin.read(&mut stdin_buf) => {
+                    match result {
+                        Ok(0) => break,
+                        Ok(n) => {
+                            for &byte in &stdin_buf[..n] {
+                                // Firewall verdict handling
+                                if let InputMode::AwaitingApproval(_) = &input_mode {
+                                    let verdict = match byte {
+                                        b'y' | b'Y' => {
+                                            stdout.write_all(b"y\r\n").await?;
+                                            stdout.flush().await?;
+                                            Some(ConnectionVerdict::Allow)
+                                        }
+                                        b'n' | b'N' => {
+                                            stdout.write_all(b"n\r\n").await?;
+                                            stdout.flush().await?;
+                                            Some(ConnectionVerdict::Block)
+                                        }
+                                        _ => None,
+                                    };
+                                    if let Some(v) = verdict {
+                                        let mode = std::mem::replace(
+                                            &mut input_mode,
+                                            InputMode::Normal,
+                                        );
+                                        if let InputMode::AwaitingApproval(tx) = mode {
+                                            let _ = tx.send(v);
+                                        }
+                                    }
+                                    continue;
+                                }
 
-                        if !to_print.is_empty() {
-                            stdout.write_all(&to_print).await?;
-                        }
+                                // Each byte processing gets a fresh borrow
+                                let Some(mc) = manager.active_mut() else {
+                                    break;
+                                };
+                                let t = &mut mc.terminal;
 
-                        if prompt_detected {
-                            if state == TestbedState::Booting {
-                                state = TestbedState::Interactive;
+                                match byte {
+                                    b'\r' | b'\n' => {
+                                        if t.in_meta {
+                                            let line = String::from_utf8_lossy(&t.meta_buf).to_string();
+                                            stdout.write_all(b"\r\n").await?;
+                                            stdout.flush().await?;
+
+                                            if let Some(cmd) = parse_meta_command(&line) {
+                                                // Clear meta state before executing command
+                                                // (command may change active container)
+                                                if let Some(mc) = manager.active_mut() {
+                                                    mc.terminal.meta_buf.clear();
+                                                    mc.terminal.in_meta = false;
+                                                }
+                                                handle_meta_command(
+                                                    cmd,
+                                                    &mut manager,
+                                                    &mut stdout,
+                                                )
+                                                .await?;
+
+                                                if !manager.has_active() {
+                                                    stdout.write_all(b"[testbed] > ").await?;
+                                                    stdout.flush().await?;
+                                                    break; // exit byte loop
+                                                }
+                                            } else {
+                                                // Not a valid meta-command — forward to container
+                                                let mc = manager.active_mut().unwrap();
+                                                if mc.terminal.testbed_state == TestbedState::Interactive {
+                                                    for &b in mc.terminal.meta_buf.clone().iter() {
+                                                        mc.terminal.suppressor.push(b);
+                                                    }
+                                                    mc.terminal.suppressor.push(b'\r');
+                                                    mc.terminal.suppressor.push(b'\n');
+                                                }
+                                                let buf = mc.terminal.meta_buf.clone();
+                                                mc.container.write_stdin(&buf).await?;
+                                                mc.container.write_stdin(b"\n").await?;
+                                                mc.terminal.meta_buf.clear();
+                                                mc.terminal.in_meta = false;
+                                            }
+                                        } else {
+                                            let mc = manager.active_mut().unwrap();
+                                            if mc.terminal.testbed_state == TestbedState::Interactive {
+                                                stdout.write_all(b"\r\n").await?;
+                                                stdout.flush().await?;
+                                                mc.terminal.suppressor.push(b'\r');
+                                                mc.terminal.suppressor.push(b'\n');
+                                                mc.container.write_stdin(b"\n").await?;
+                                            } else {
+                                                mc.container.write_stdin(b"\n").await?;
+                                            }
+                                            mc.terminal.at_line_start = true;
+                                        }
+                                    }
+
+                                    // Ctrl+C — kill active container
+                                    0x03 => {
+                                        if t.in_meta {
+                                            t.meta_buf.clear();
+                                            t.in_meta = false;
+                                            t.at_line_start = true;
+                                        }
+                                        stdout.write_all(b"^C\r\n").await?;
+                                        stdout.flush().await?;
+                                        manager.kill_active().await;
+                                        if !manager.has_active() {
+                                            stdout.write_all(b"[testbed] > ").await?;
+                                            stdout.flush().await?;
+                                        }
+                                        break; // exit byte loop
+                                    }
+
+                                    // Ctrl+\ — force quit testbed
+                                    0x1c => {
+                                        should_exit = true;
+                                        break;
+                                    }
+
+                                    // Backspace / Delete
+                                    0x7f | 0x08 => {
+                                        if t.in_meta {
+                                            if t.meta_buf.pop().is_some() {
+                                                if t.meta_buf.is_empty() {
+                                                    t.in_meta = false;
+                                                    t.at_line_start = true;
+                                                }
+                                                stdout.write_all(b"\x08 \x08").await?;
+                                                stdout.flush().await?;
+                                            }
+                                        } else if t.testbed_state == TestbedState::Interactive {
+                                            stdout.write_all(b"\x08 \x08").await?;
+                                            stdout.flush().await?;
+                                            t.suppressor.pop_last();
+                                            mc.container.write_stdin(&[byte]).await?;
+                                            t.at_line_start = false;
+                                        } else {
+                                            mc.container.write_stdin(&[byte]).await?;
+                                            t.at_line_start = false;
+                                        }
+                                    }
+
+                                    // Printable ASCII
+                                    0x20..=0x7e => {
+                                        if t.at_line_start && byte == b':' {
+                                            t.in_meta = true;
+                                            t.meta_buf.push(byte);
+                                            stdout.write_all(&[byte]).await?;
+                                            stdout.flush().await?;
+                                        } else if t.in_meta {
+                                            t.meta_buf.push(byte);
+                                            stdout.write_all(&[byte]).await?;
+                                            stdout.flush().await?;
+                                        } else if t.testbed_state == TestbedState::Interactive {
+                                            stdout.write_all(&[byte]).await?;
+                                            stdout.flush().await?;
+                                            t.suppressor.push(byte);
+                                            mc.container.write_stdin(&[byte]).await?;
+                                            t.at_line_start = false;
+                                        } else {
+                                            mc.container.write_stdin(&[byte]).await?;
+                                            t.at_line_start = false;
+                                        }
+                                    }
+
+                                    // Other bytes (escape sequences, control chars)
+                                    _ => {
+                                        mc.container.write_stdin(&[byte]).await?;
+                                        t.at_line_start = false;
+                                    }
+                                }
                             }
-                            // Cancel any pending firewall approval — the container
-                            // has returned to the prompt so the request is moot.
-                            // Dropping the oneshot sender causes the filter to
-                            // default to Allow (harmless: the request already
-                            // timed out on the guest side).
-                            if matches!(input_mode, InputMode::AwaitingApproval(_)) {
-                                input_mode = InputMode::Normal;
-                            }
-                            // Print our own prompt
-                            stdout.write_all(PROMPT).await?;
-                            at_line_start = true;
                         }
-
-                        if !to_print.is_empty() || prompt_detected {
-                            stdout.flush().await?;
-                        }
-                    }
-                    Err(e) => {
-                        eprintln!("[testbed] stdout read error: {e}");
-                        if !pop_container(&mut stack) {
-                            break;
+                        Err(e) => {
+                            eprintln!("[testbed] stdin read error: {e}");
+                            should_exit = true;
                         }
                     }
                 }
             }
+        } else {
+            // === Testbed prompt mode (no active container) ===
+            tokio::select! {
+                Some(req) = approval_rx.recv() => {
+                    let label_part = req.source_label
+                        .as_ref()
+                        .map(|l| format!(" [{l}]"))
+                        .unwrap_or_default();
+                    let prompt_msg = format!(
+                        "\r\n[firewall]{label_part} {} \u{2014} allow? (y/n) ",
+                        req.request
+                    );
+                    stdout.write_all(prompt_msg.as_bytes()).await?;
+                    stdout.flush().await?;
+                    input_mode = InputMode::AwaitingApproval(req.response_tx);
+                }
 
-            // Incoming approval request from the network thread
-            Some(req) = approval_rx.recv() => {
-                // Print the firewall prompt
-                let prompt_msg = format!(
-                    "\r\n[firewall] {} \u{2014} allow? (y/n) ",
-                    req.request
-                );
-                stdout.write_all(prompt_msg.as_bytes()).await?;
-                stdout.flush().await?;
-                input_mode = InputMode::AwaitingApproval(req.response_tx);
-            }
-
-            // User input → raw bytes, forwarded or buffered as meta-command
-            result = stdin.read(&mut stdin_buf) => {
-                match result {
-                    Ok(0) => break, // EOF
-                    Ok(n) => {
-                        for &byte in &stdin_buf[..n] {
-                            // If awaiting a firewall verdict, capture y/n
-                            if let InputMode::AwaitingApproval(_) = &input_mode {
-                                let verdict = match byte {
-                                    b'y' | b'Y' => {
-                                        stdout.write_all(b"y\r\n").await?;
+                result = stdin.read(&mut stdin_buf) => {
+                    match result {
+                        Ok(0) => break,
+                        Ok(n) => {
+                            for &byte in &stdin_buf[..n] {
+                                // Firewall verdict handling
+                                if let InputMode::AwaitingApproval(_) = &input_mode {
+                                    let verdict = match byte {
+                                        b'y' | b'Y' => {
+                                            stdout.write_all(b"y\r\n").await?;
+                                            stdout.flush().await?;
+                                            Some(ConnectionVerdict::Allow)
+                                        }
+                                        b'n' | b'N' => {
+                                            stdout.write_all(b"n\r\n").await?;
+                                            stdout.flush().await?;
+                                            Some(ConnectionVerdict::Block)
+                                        }
+                                        _ => None,
+                                    };
+                                    if let Some(v) = verdict {
+                                        let mode = std::mem::replace(
+                                            &mut input_mode,
+                                            InputMode::Normal,
+                                        );
+                                        if let InputMode::AwaitingApproval(tx) = mode {
+                                            let _ = tx.send(v);
+                                        }
+                                        stdout.write_all(b"[testbed] > ").await?;
                                         stdout.flush().await?;
-                                        Some(ConnectionVerdict::Allow)
                                     }
-                                    b'n' | b'N' => {
-                                        stdout.write_all(b"n\r\n").await?;
-                                        stdout.flush().await?;
-                                        Some(ConnectionVerdict::Block)
-                                    }
-                                    _ => None, // ignore other keys
-                                };
-                                if let Some(v) = verdict {
-                                    // Take ownership of the sender
-                                    let mode = std::mem::replace(
-                                        &mut input_mode,
-                                        InputMode::Normal,
-                                    );
-                                    if let InputMode::AwaitingApproval(tx) = mode {
-                                        let _ = tx.send(v);
-                                    }
+                                    continue;
                                 }
-                                continue;
-                            }
 
-                            match byte {
-                                // Enter (CR in raw mode since ICRNL is off)
-                                b'\r' | b'\n' => {
-                                    if in_meta {
-                                        let line = String::from_utf8_lossy(&meta_buf).to_string();
-                                        // Echo newline locally for the meta-command line
+                                match byte {
+                                    b'\r' | b'\n' => {
                                         stdout.write_all(b"\r\n").await?;
                                         stdout.flush().await?;
 
-                                        if let Some(cmd) = parse_meta_command(&line) {
-                                            match cmd {
-                                                MetaCommand::From(name) => {
-                                                    let name = name.to_string();
-                                                    if let Err(e) = push_container(&mut stack, &engine, &name, networking, Some(filter.clone())).await {
-                                                        eprintln!("[testbed] Failed to start container '{name}': {e}");
-                                                    }
-                                                }
-                                                MetaCommand::Exit => {
-                                                    if !pop_container(&mut stack) {
-                                                        should_exit = true;
-                                                        break;
-                                                    }
-                                                }
-                                            }
-                                        } else {
-                                            // Not a valid meta-command — forward to container
-                                            // and add to suppress queue (already echoed locally)
-                                            if let Some((_, c)) = stack.last_mut() {
-                                                if state == TestbedState::Interactive {
-                                                    for &b in &meta_buf {
-                                                        suppressor.push(b);
-                                                    }
-                                                    suppressor.push(b'\r');
-                                                    suppressor.push(b'\n');
-                                                }
-                                                c.write_stdin(&meta_buf).await?;
-                                                c.write_stdin(b"\n").await?;
-                                            }
-                                        }
-                                        meta_buf.clear();
-                                        in_meta = false;
-                                    } else if state == TestbedState::Interactive {
-                                        // Echo locally and suppress container echo
-                                        stdout.write_all(b"\r\n").await?;
-                                        stdout.flush().await?;
-                                        suppressor.push(b'\r');
-                                        suppressor.push(b'\n');
-                                        if let Some((_, c)) = stack.last_mut() {
-                                            c.write_stdin(b"\n").await?;
-                                        }
-                                    } else {
-                                        // Booting — just forward
-                                        if let Some((_, c)) = stack.last_mut() {
-                                            c.write_stdin(b"\n").await?;
-                                        }
-                                    }
-                                    at_line_start = true;
-                                }
+                                        if !testbed_line_buf.is_empty() {
+                                            let line = String::from_utf8_lossy(&testbed_line_buf).to_string();
+                                            testbed_line_buf.clear();
 
-                                // Ctrl+C — exit current container (or quit if last)
-                                0x03 => {
-                                    if in_meta {
-                                        meta_buf.clear();
-                                        in_meta = false;
-                                        at_line_start = true;
+                                            if let Some(cmd) = parse_meta_command(&line) {
+                                                handle_meta_command(
+                                                    cmd,
+                                                    &mut manager,
+                                                    &mut stdout,
+                                                )
+                                                .await?;
+
+                                                if manager.has_active() {
+                                                    // Switched to a container
+                                                    break;
+                                                }
+                                            } else {
+                                                eprintln!("[testbed] Unknown command: {line}");
+                                            }
+                                        }
+
+                                        if !manager.has_active() {
+                                            stdout.write_all(b"[testbed] > ").await?;
+                                            stdout.flush().await?;
+                                        }
                                     }
-                                    stdout.write_all(b"^C\r\n").await?;
-                                    stdout.flush().await?;
-                                    if !pop_container(&mut stack) {
+
+                                    // Ctrl+\ — force quit
+                                    0x1c => {
                                         should_exit = true;
                                         break;
                                     }
-                                }
 
-                                // Ctrl+\ — force quit testbed
-                                0x1c => {
-                                    should_exit = true;
-                                    break;
-                                }
-
-                                // Backspace / Delete
-                                0x7f | 0x08 => {
-                                    if in_meta {
-                                        if meta_buf.pop().is_some() {
-                                            if meta_buf.is_empty() {
-                                                in_meta = false;
-                                                at_line_start = true;
-                                            }
+                                    // Backspace
+                                    0x7f | 0x08 => {
+                                        if testbed_line_buf.pop().is_some() {
                                             stdout.write_all(b"\x08 \x08").await?;
                                             stdout.flush().await?;
                                         }
-                                    } else if state == TestbedState::Interactive {
-                                        // Echo backspace locally and suppress container echo
-                                        stdout.write_all(b"\x08 \x08").await?;
-                                        stdout.flush().await?;
-                                        suppressor.pop_last();
-                                        if let Some((_, c)) = stack.last_mut() {
-                                            c.write_stdin(&[byte]).await?;
-                                        }
-                                        at_line_start = false;
-                                    } else {
-                                        // Booting — just forward
-                                        if let Some((_, c)) = stack.last_mut() {
-                                            c.write_stdin(&[byte]).await?;
-                                        }
-                                        at_line_start = false;
                                     }
-                                }
 
-                                // Printable ASCII
-                                0x20..=0x7e => {
-                                    if at_line_start && byte == b':' {
-                                        // Start of a potential meta-command — buffer locally
-                                        in_meta = true;
-                                        meta_buf.push(byte);
+                                    // Printable
+                                    0x20..=0x7e => {
+                                        testbed_line_buf.push(byte);
                                         stdout.write_all(&[byte]).await?;
                                         stdout.flush().await?;
-                                    } else if in_meta {
-                                        meta_buf.push(byte);
-                                        stdout.write_all(&[byte]).await?;
-                                        stdout.flush().await?;
-                                    } else if state == TestbedState::Interactive {
-                                        // Echo locally and suppress container echo
-                                        stdout.write_all(&[byte]).await?;
-                                        stdout.flush().await?;
-                                        suppressor.push(byte);
-                                        if let Some((_, c)) = stack.last_mut() {
-                                            c.write_stdin(&[byte]).await?;
-                                        }
-                                        at_line_start = false;
-                                    } else {
-                                        // Booting — just forward, no echo
-                                        if let Some((_, c)) = stack.last_mut() {
-                                            c.write_stdin(&[byte]).await?;
-                                        }
-                                        at_line_start = false;
                                     }
-                                }
 
-                                // Other bytes (escape sequences, control chars)
-                                // Forward to container without local echo or suppress queue
-                                _ => {
-                                    if let Some((_, c)) = stack.last_mut() {
-                                        c.write_stdin(&[byte]).await?;
-                                    }
-                                    at_line_start = false;
+                                    _ => {}
                                 }
                             }
                         }
-                    }
-                    Err(e) => {
-                        eprintln!("[testbed] stdin read error: {e}");
-                        should_exit = true;
+                        Err(e) => {
+                            eprintln!("[testbed] stdin read error: {e}");
+                            should_exit = true;
+                        }
                     }
                 }
             }
@@ -725,17 +592,61 @@ async fn main() -> anyhow::Result<()> {
         }
     }
 
-    // Clean up remaining containers
-    while let Some((name, container)) = stack.pop() {
-        container.kill();
-        eprintln!("[testbed] Killed container: {name}");
-    }
-
-    // Restore the terminal now rather than relying on implicit drop, so we
-    // can force-exit below without leaving the terminal in raw mode.
+    manager.kill_all().await;
     drop(_raw);
-
-    // A blocking stdin read on the tokio thread-pool cannot be cancelled,
-    // which prevents the runtime from shutting down.  Force-exit instead.
     std::process::exit(0);
+}
+
+// ---------------------------------------------------------------------------
+// Meta-command handler
+// ---------------------------------------------------------------------------
+
+async fn handle_meta_command(
+    cmd: MetaCommand<'_>,
+    manager: &mut ContainerManager,
+    stdout: &mut tokio::io::Stdout,
+) -> anyhow::Result<()> {
+    match cmd {
+        MetaCommand::From { image, name } => {
+            let image = image.to_string();
+            let name_owned = name.map(|n| n.to_string());
+            if let Err(e) = manager.create(&image, name_owned.as_deref()).await {
+                eprintln!("[testbed] Failed to start container '{image}': {e}");
+            }
+        }
+        MetaCommand::Name(name) => {
+            if !manager.name_active(name).await {
+                eprintln!("[testbed] No active container to name");
+            }
+        }
+        MetaCommand::Switch(name) => {
+            if !manager.switch_to_name(name) {
+                eprintln!("[testbed] No container named '{name}'");
+            }
+        }
+        MetaCommand::List => {
+            let infos = manager.list();
+            if infos.is_empty() {
+                stdout.write_all(b"  (no containers)\r\n").await?;
+            } else {
+                let header = format!(
+                    "  {:>3}  {:<10} {:<10} {:<14} {}\r\n",
+                    "ID", "NAME", "IMAGE", "IP", "STATUS"
+                );
+                stdout.write_all(header.as_bytes()).await?;
+                for info in &infos {
+                    let line = format!("{info}\r\n");
+                    stdout.write_all(line.as_bytes()).await?;
+                }
+            }
+            stdout.flush().await?;
+        }
+        MetaCommand::Kill | MetaCommand::Exit => {
+            manager.kill_active().await;
+        }
+        MetaCommand::Detach => {
+            manager.detach();
+        }
+    }
+    Ok(())
 }

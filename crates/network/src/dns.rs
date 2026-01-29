@@ -92,6 +92,73 @@ pub fn parse_query_domain(query: &[u8]) -> Option<String> {
     Some(labels.join("."))
 }
 
+/// Build a minimal DNS A-record response for the given query and IP.
+///
+/// Copies the query header (with QR flag set), includes the original question
+/// section, and appends a single A record answer using a name pointer.
+pub fn build_a_response(query: &[u8], ip: std::net::Ipv4Addr) -> Option<Vec<u8>> {
+    const HEADER_LEN: usize = 12;
+    if query.len() < HEADER_LEN {
+        return None;
+    }
+
+    // Find the end of the QNAME (after the zero-length label terminator)
+    let mut pos = HEADER_LEN;
+    loop {
+        if pos >= query.len() {
+            return None;
+        }
+        let label_len = query[pos] as usize;
+        pos += 1;
+        if label_len == 0 {
+            break;
+        }
+        pos += label_len;
+    }
+    // pos is now past the QNAME zero terminator
+    // Skip QTYPE (2 bytes) + QCLASS (2 bytes)
+    if pos + 4 > query.len() {
+        return None;
+    }
+    let question_end = pos + 4;
+
+    // Build response
+    let mut resp = Vec::with_capacity(question_end + 16);
+
+    // Copy the header
+    resp.extend_from_slice(&query[..HEADER_LEN]);
+
+    // Set QR=1 (response), keep opcode, set AA=1 (authoritative)
+    resp[2] = (query[2] | 0x84) & 0xFD; // QR=1, AA=1, TC=0
+    resp[3] = query[3] & 0xF0; // RCODE=0 (no error), clear RA
+
+    // QDCOUNT = 1
+    resp[4] = 0;
+    resp[5] = 1;
+    // ANCOUNT = 1
+    resp[6] = 0;
+    resp[7] = 1;
+    // NSCOUNT = 0
+    resp[8] = 0;
+    resp[9] = 0;
+    // ARCOUNT = 0
+    resp[10] = 0;
+    resp[11] = 0;
+
+    // Copy the question section
+    resp.extend_from_slice(&query[HEADER_LEN..question_end]);
+
+    // Answer section: name pointer to QNAME at offset 12
+    resp.extend_from_slice(&[0xC0, 0x0C]); // pointer to offset 12
+    resp.extend_from_slice(&[0x00, 0x01]); // TYPE = A
+    resp.extend_from_slice(&[0x00, 0x01]); // CLASS = IN
+    resp.extend_from_slice(&60u32.to_be_bytes()); // TTL = 60s
+    resp.extend_from_slice(&[0x00, 0x04]); // RDLENGTH = 4
+    resp.extend_from_slice(&ip.octets()); // RDATA = IP address
+
+    Some(resp)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -170,6 +237,40 @@ mod tests {
         let mut query = vec![0u8; 12];
         query.push(0);
         assert_eq!(parse_query_domain(&query), None);
+    }
+
+    #[test]
+    fn test_build_a_response() {
+        // Build a DNS query for "web"
+        let mut query = vec![0u8; 12]; // header
+        query[0] = 0xAA; // ID high
+        query[1] = 0xBB; // ID low
+        // QDCOUNT = 1
+        query[4] = 0;
+        query[5] = 1;
+        // QNAME: \x03web\x00
+        query.push(3);
+        query.extend_from_slice(b"web");
+        query.push(0);
+        // QTYPE = A (1)
+        query.extend_from_slice(&[0x00, 0x01]);
+        // QCLASS = IN (1)
+        query.extend_from_slice(&[0x00, 0x01]);
+
+        let ip = std::net::Ipv4Addr::new(10, 0, 1, 2);
+        let resp = build_a_response(&query, ip).unwrap();
+
+        // Check ID preserved
+        assert_eq!(resp[0], 0xAA);
+        assert_eq!(resp[1], 0xBB);
+        // QR=1
+        assert!(resp[2] & 0x80 != 0);
+        // ANCOUNT = 1
+        assert_eq!(resp[6], 0);
+        assert_eq!(resp[7], 1);
+        // Answer A record IP
+        let rdata_start = resp.len() - 4;
+        assert_eq!(&resp[rdata_start..], &[10, 0, 1, 2]);
     }
 
     #[tokio::test]
