@@ -6,7 +6,7 @@
 
 use log::debug;
 
-use crate::net_config::{DHCP_LEASE_SECS, GATEWAY_IP, SUBNET_MASK, VM_IP};
+use crate::net_config::{DHCP_LEASE_SECS, GATEWAY_IP, NetworkConfig, SUBNET_MASK, VM_IP};
 
 // DHCP message types (option 53 values)
 const DHCP_DISCOVER: u8 = 1;
@@ -48,6 +48,8 @@ pub struct DhcpServer {
     server_ip: [u8; 4],
     /// The subnet mask.
     subnet_mask: [u8; 4],
+    /// DHCP lease duration in seconds.
+    lease_secs: u32,
 }
 
 impl Default for DhcpServer {
@@ -62,6 +64,17 @@ impl DhcpServer {
             client_ip: VM_IP.octets(),
             server_ip: GATEWAY_IP.octets(),
             subnet_mask: SUBNET_MASK.octets(),
+            lease_secs: DHCP_LEASE_SECS,
+        }
+    }
+
+    /// Create a DHCP server using a [`NetworkConfig`].
+    pub fn with_config(config: &NetworkConfig) -> Self {
+        Self {
+            client_ip: config.vm_ip.octets(),
+            server_ip: config.gateway_ip.octets(),
+            subnet_mask: config.subnet_mask.octets(),
+            lease_secs: config.dhcp_lease_secs,
         }
     }
 
@@ -132,7 +145,7 @@ impl DhcpServer {
             &mut resp,
             pos,
             OPT_LEASE_TIME,
-            &DHCP_LEASE_SECS.to_be_bytes(),
+            &self.lease_secs.to_be_bytes(),
         );
         // Subnet mask
         pos = self.write_option(&mut resp, pos, OPT_SUBNET_MASK, &self.subnet_mask);

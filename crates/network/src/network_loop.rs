@@ -12,13 +12,15 @@ use smoltcp::iface::SocketHandle;
 use smoltcp::time::Instant;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::net::TcpStream;
-use tokio::sync::{mpsc, watch};
+use tokio::sync::{RwLock, mpsc, watch};
 
 use log::{debug, info, trace, warn};
 
+use crate::bridge::NetworkBridge;
 use crate::connection_filter::{ConnectionFilter, ConnectionVerdict, NetworkRequest};
 use crate::dns;
 use crate::interface::VirtualNetwork;
+use crate::net_config::NetworkConfig;
 use crate::tcp_nat::{IngressResult, TcpNat};
 use crate::tcp_proxy::{ProxyAction, TcpProxy};
 
@@ -34,21 +36,33 @@ enum RealSocketMsg {
     ConnectFailed(SocketHandle),
 }
 
-/// Run the network stack.
+/// Run the network stack with the default [`NetworkConfig`].
 ///
 /// Reads/writes QEMU-protocol frames from `stream`, drives smoltcp, handles
 /// DHCP/DNS/TCP proxy. Runs until `shutdown` signal fires or the stream closes.
 pub async fn run_network<S>(
     stream: S,
+    shutdown: watch::Receiver<bool>,
+    filter: Arc<dyn ConnectionFilter>,
+) where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
+    run_network_with_config(stream, shutdown, filter, NetworkConfig::default()).await;
+}
+
+/// Run the network stack with a specific [`NetworkConfig`].
+pub async fn run_network_with_config<S>(
+    stream: S,
     mut shutdown: watch::Receiver<bool>,
     filter: Arc<dyn ConnectionFilter>,
+    config: NetworkConfig,
 ) where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
     let (reader, writer) = tokio::io::split(stream);
     let (mut frame_reader, mut frame_writer) = crate::codec::split(reader, writer);
 
-    let mut net = VirtualNetwork::new();
+    let mut net = VirtualNetwork::with_config(config);
     let mut tcp_proxy = TcpProxy::new();
     let mut tcp_nat = TcpNat::new();
 
@@ -241,6 +255,233 @@ pub async fn run_network<S>(
     }
 }
 
+/// Extract the IPv4 destination address from a raw Ethernet frame.
+///
+/// Returns `None` if the frame is not an IPv4 frame or is too short.
+fn extract_dest_ip(frame: &[u8]) -> Option<std::net::Ipv4Addr> {
+    if frame.len() < 34 {
+        return None;
+    }
+    let ethertype = u16::from_be_bytes([frame[12], frame[13]]);
+    if ethertype != 0x0800 {
+        return None;
+    }
+    Some(std::net::Ipv4Addr::new(
+        frame[30], frame[31], frame[32], frame[33],
+    ))
+}
+
+/// Overwrite the destination MAC address in a raw Ethernet frame.
+fn rewrite_dst_mac(frame: &mut [u8], mac: &[u8; 6]) {
+    if frame.len() >= 6 {
+        frame[..6].copy_from_slice(mac);
+    }
+}
+
+/// Run the network stack with bridge support for inter-container networking.
+///
+/// Like [`run_network_with_config`] but adds:
+/// - A `bridge_rx` channel for receiving frames from other containers
+/// - Outbound frame interception: frames destined for a bridged IP are
+///   routed through the bridge instead of the wire
+/// - Internal DNS resolution for container names
+pub async fn run_network_bridged<S>(
+    stream: S,
+    mut shutdown: watch::Receiver<bool>,
+    filter: Arc<dyn ConnectionFilter>,
+    config: NetworkConfig,
+    bridge: Arc<RwLock<NetworkBridge>>,
+    mut bridge_rx: mpsc::Receiver<Vec<u8>>,
+) where
+    S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+{
+    let (reader, writer) = tokio::io::split(stream);
+    let (mut frame_reader, mut frame_writer) = crate::codec::split(reader, writer);
+
+    let mut net = VirtualNetwork::with_config(config);
+    let mut tcp_proxy = TcpProxy::new();
+    let mut tcp_nat = TcpNat::new();
+
+    let dns_handle = net
+        .add_udp_socket(53, 4096, 4096)
+        .expect("failed to bind DNS socket");
+
+    let (real_tx, mut real_rx) = mpsc::channel::<RealSocketMsg>(256);
+    let mut real_writers: HashMap<SocketHandle, mpsc::Sender<Vec<u8>>> = HashMap::new();
+
+    let resolver = dns::system_resolver();
+    let mut poll_interval = tokio::time::interval(Duration::from_millis(1));
+    poll_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
+    debug!("[net] Bridged network loop starting...");
+    let mut frame_count = 0u64;
+    let mut last_status = std::time::Instant::now();
+
+    loop {
+        if last_status.elapsed() > Duration::from_secs(5) {
+            debug!("[net] Status: {} frames received so far", frame_count);
+            last_status = std::time::Instant::now();
+        }
+
+        tokio::select! {
+            // Read a frame from the QEMU wire
+            frame_result = frame_reader.read() => {
+                match frame_result {
+                    Ok(Some(mut frame)) => {
+                        frame_count += 1;
+                        if frame.len() >= 14 {
+                            let ethertype = u16::from_be_bytes([frame[12], frame[13]]);
+                            trace!("[net] Received frame #{}: {} bytes, ethertype=0x{ethertype:04x}", frame_count, frame.len());
+                        }
+
+                        if let IngressResult::Syn { dest_port } =
+                            tcp_nat.rewrite_ingress(&mut frame)
+                        {
+                            let handle = net.add_tcp_socket(65535, 65535);
+                            let sock = net.tcp_socket(handle);
+                            if sock.listen(dest_port).is_ok() {
+                                tcp_proxy.add_listener(handle);
+                                debug!("[net] Created TCP listener on port {dest_port} (via NAT)");
+                            }
+                        }
+
+                        net.inject_frame(frame);
+                    }
+                    Ok(None) => {
+                        debug!("[net] EOF on frame reader");
+                        break;
+                    }
+                    Err(e) => {
+                        warn!("[net] Error reading frame: {e}");
+                        break;
+                    }
+                }
+            }
+
+            // Receive frames from other containers via bridge
+            Some(frame) = bridge_rx.recv() => {
+                trace!("[net] Received bridge frame: {} bytes", frame.len());
+                net.inject_frame(frame);
+            }
+
+            Some(msg) = real_rx.recv() => {
+                match msg {
+                    RealSocketMsg::Connected(handle) => {
+                        tcp_proxy.mark_connected(handle);
+                    }
+                    RealSocketMsg::Data(handle, data) => {
+                        tcp_proxy.push_from_real(handle, &data);
+                    }
+                    RealSocketMsg::Closed(handle) => {
+                        tcp_proxy.mark_closed(handle, &mut net);
+                        real_writers.remove(&handle);
+                    }
+                    RealSocketMsg::ConnectFailed(handle) => {
+                        tcp_proxy.mark_connect_failed(handle, &mut net);
+                        real_writers.remove(&handle);
+                    }
+                }
+            }
+
+            _ = poll_interval.tick() => {}
+
+            _ = shutdown.changed() => {
+                if *shutdown.borrow() {
+                    break;
+                }
+            }
+        }
+
+        let now = Instant::from_millis(
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_millis() as i64,
+        );
+        let outbound = net.poll(now);
+        send_outbound_bridged(&outbound, &mut frame_writer, &bridge, &mut tcp_nat).await;
+
+        // Handle DNS with bridge-aware resolution
+        handle_dns_bridged(&mut net, dns_handle, resolver, &filter, &bridge).await;
+
+        let outbound = net.poll(now);
+        send_outbound_bridged(&outbound, &mut frame_writer, &bridge, &mut tcp_nat).await;
+
+        // TCP proxy
+        let actions = tcp_proxy.poll(&mut net);
+        for action in actions {
+            match action {
+                ProxyAction::Connect {
+                    handle,
+                    dest,
+                    vm_src_port,
+                } => {
+                    let real_dest = tcp_nat
+                        .lookup_real_dest(vm_src_port)
+                        .map(|ip| std::net::SocketAddr::new(ip.into(), dest.port()))
+                        .unwrap_or(dest);
+                    let verdict = filter
+                        .filter(&NetworkRequest::Tcp { dest: real_dest })
+                        .await;
+                    if verdict == ConnectionVerdict::Block {
+                        info!("[net] Blocked TCP connection to {real_dest}");
+                        tcp_proxy.mark_connect_failed(handle, &mut net);
+                        continue;
+                    }
+
+                    let tx = real_tx.clone();
+                    let (write_tx, write_rx) = mpsc::channel::<Vec<u8>>(64);
+                    real_writers.insert(handle, write_tx);
+
+                    tokio::spawn(async move {
+                        relay_real_socket(handle, real_dest, tx, write_rx).await;
+                    });
+                }
+                ProxyAction::SendToReal { handle, data } => {
+                    if let Some(writer) = real_writers.get(&handle) {
+                        let _ = writer.try_send(data);
+                    }
+                }
+                ProxyAction::CloseReal { handle, .. } => {
+                    real_writers.remove(&handle);
+                }
+            }
+        }
+
+        let outbound = net.poll(now);
+        send_outbound_bridged(&outbound, &mut frame_writer, &bridge, &mut tcp_nat).await;
+    }
+}
+
+/// Send outbound frames, routing bridged frames through the bridge.
+async fn send_outbound_bridged<W: AsyncWrite + Unpin>(
+    frames: &[Vec<u8>],
+    frame_writer: &mut crate::codec::FrameWriter<W>,
+    bridge: &Arc<RwLock<NetworkBridge>>,
+    tcp_nat: &mut TcpNat,
+) {
+    for frame in frames {
+        let mut frame = frame.clone();
+        tcp_nat.rewrite_egress(&mut frame);
+
+        if let Some(dest_ip) = extract_dest_ip(&frame) {
+            let bridge_r = bridge.read().await;
+            if let Some(sender) = bridge_r.route(dest_ip) {
+                // Set dst MAC to broadcast so the target container's smoltcp
+                // (which has any_ip enabled) accepts the frame.
+                let mut bridged_frame = frame;
+                rewrite_dst_mac(&mut bridged_frame, &[0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF]);
+                let _ = sender.try_send(bridged_frame);
+                continue;
+            }
+        }
+
+        if frame_writer.write(&frame).await.is_err() {
+            break;
+        }
+    }
+}
+
 /// Handle DNS queries received on the DNS UDP socket.
 async fn handle_dns(
     net: &mut VirtualNetwork,
@@ -274,6 +515,79 @@ async fn handle_dns(
                 .await;
             if verdict == ConnectionVerdict::Block {
                 info!("[dns] Blocked DNS query for {domain}");
+                continue;
+            }
+        }
+
+        debug!("[dns] Forwarding query to system resolver {resolver}");
+        match dns::forward_query(&query, resolver, Duration::from_secs(5)).await {
+            Ok(response) => {
+                debug!(
+                    "[dns] Got response, {} bytes, sending to {source:?}",
+                    response.len()
+                );
+                let sock = net.udp_socket(dns_handle);
+                let _ = sock.send_slice(&response, source);
+            }
+            Err(e) => {
+                warn!("[dns] Forward failed: {e}");
+            }
+        }
+    }
+}
+
+/// Handle DNS queries with bridge-aware resolution.
+///
+/// Before forwarding to the system resolver, checks if the queried domain
+/// matches a container name registered with the bridge. If so, returns a
+/// synthetic A record without hitting the network.
+async fn handle_dns_bridged(
+    net: &mut VirtualNetwork,
+    dns_handle: SocketHandle,
+    resolver: std::net::SocketAddr,
+    filter: &Arc<dyn ConnectionFilter>,
+    bridge: &Arc<RwLock<NetworkBridge>>,
+) {
+    let sock = net.udp_socket(dns_handle);
+    let mut queries = Vec::new();
+    while sock.can_recv() {
+        match sock.recv() {
+            Ok((data, meta)) => {
+                debug!(
+                    "[dns] Received query from {:?}, {} bytes",
+                    meta.endpoint,
+                    data.len()
+                );
+                queries.push((data.to_vec(), meta.endpoint));
+            }
+            Err(_) => break,
+        }
+    }
+
+    for (query, source) in queries {
+        // Extract domain name
+        let domain = dns::parse_query_domain(&query);
+
+        // Check connection filter
+        if let Some(ref d) = domain {
+            let verdict = filter
+                .filter(&NetworkRequest::Dns { domain: d.clone() })
+                .await;
+            if verdict == ConnectionVerdict::Block {
+                info!("[dns] Blocked DNS query for {d}");
+                continue;
+            }
+        }
+
+        // Check bridge for internal resolution
+        if let Some(ref d) = domain {
+            let bridge_r = bridge.read().await;
+            if let Some(ip) = bridge_r.resolve_name(d) {
+                debug!("[dns] Resolved '{d}' internally to {ip}");
+                if let Some(response) = dns::build_a_response(&query, ip) {
+                    let sock = net.udp_socket(dns_handle);
+                    let _ = sock.send_slice(&response, source);
+                }
                 continue;
             }
         }

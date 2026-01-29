@@ -5,14 +5,16 @@ use std::time::Duration;
 
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixStream;
-use tokio::sync::watch;
+use tokio::sync::{RwLock, mpsc, watch};
 use tokio::task::JoinHandle;
 use wasi_common::WasiCtx;
 use wasmtime::{Engine, Module, Store};
 
 use log::{debug, info, warn};
 
+use network::bridge::NetworkBridge;
 use network::connection_filter::{AllowAll, ConnectionFilter};
+use network::net_config::NetworkConfig;
 
 use crate::pipe::{stderr_pipe, stdin_pipe, stdout_pipe};
 
@@ -25,6 +27,11 @@ pub struct ContainerConfig {
     pub pipe_buffer_size: usize,
     pub networking: bool,
     pub connection_filter: Option<Arc<dyn ConnectionFilter>>,
+    pub network_config: Option<NetworkConfig>,
+    /// Shared bridge for inter-container networking.
+    pub bridge: Option<Arc<RwLock<NetworkBridge>>>,
+    /// Receiver for frames routed from other containers via the bridge.
+    pub bridge_rx: Option<mpsc::Receiver<Vec<u8>>>,
 }
 
 impl ContainerConfig {
@@ -35,6 +42,9 @@ impl ContainerConfig {
             pipe_buffer_size: DEFAULT_PIPE_BUFFER_SIZE,
             networking: false,
             connection_filter: None,
+            network_config: None,
+            bridge: None,
+            bridge_rx: None,
         }
     }
 }
@@ -62,6 +72,9 @@ impl Container {
         let module = config.module;
         let networking = config.networking;
         let connection_filter = config.connection_filter;
+        let network_config = config.network_config;
+        let bridge = config.bridge;
+        let bridge_rx = config.bridge_rx;
 
         // Create OS pipe pairs for stdin, stdout, stderr.
         let (host_stdin, wasi_stdin) = stdin_pipe()?;
@@ -82,11 +95,10 @@ impl Container {
         let mut network_shutdown = None;
         let mut network_connect_addr = None;
         if networking {
-            // Create a TCP listener that WASM will use to accept connections
-            // The kernel calls sock_accept on this fd to establish the network channel
-            // Use the same default port (1234) that c2w-net uses
-            let std_listener = std::net::TcpListener::bind("127.0.0.1:1234")
-                .or_else(|_| std::net::TcpListener::bind("127.0.0.1:0"))?;
+            // Create a TCP listener that WASM will use to accept connections.
+            // The kernel calls sock_accept on this fd to establish the network channel.
+            // Always bind to port 0 so multiple containers can coexist.
+            let std_listener = std::net::TcpListener::bind("127.0.0.1:0")?;
             // Set non-blocking like wasmtime CLI does
             std_listener.set_nonblocking(true)?;
             let listen_addr = std_listener.local_addr()?;
@@ -145,11 +157,19 @@ impl Container {
         if let Some((listen_addr, shutdown_rx)) = network_connect_addr {
             let filter: Arc<dyn ConnectionFilter> =
                 connection_filter.unwrap_or_else(|| Arc::new(AllowAll));
+            let net_cfg = network_config.unwrap_or_default();
             debug!(
                 "[container] Spawning network task to connect to {:?}...",
                 listen_addr
             );
-            tokio::spawn(run_network_connect(listen_addr, shutdown_rx, filter));
+            tokio::spawn(run_network_connect(
+                listen_addr,
+                shutdown_rx,
+                filter,
+                net_cfg,
+                bridge,
+                bridge_rx,
+            ));
         }
 
         Ok(Self {
@@ -245,6 +265,9 @@ async fn run_network_connect(
     addr: std::net::SocketAddr,
     shutdown: watch::Receiver<bool>,
     filter: Arc<dyn ConnectionFilter>,
+    config: NetworkConfig,
+    bridge: Option<Arc<RwLock<NetworkBridge>>>,
+    bridge_rx: Option<mpsc::Receiver<Vec<u8>>>,
 ) {
     // Wait for kernel to initialize before attempting to connect
     // In c2w-net, the first connection attempt fails because the kernel
@@ -280,7 +303,15 @@ async fn run_network_connect(
     };
 
     info!("[network] Starting network loop...");
-    network::network_loop::run_network(stream, shutdown, filter).await;
+    match (bridge, bridge_rx) {
+        (Some(b), Some(rx)) => {
+            network::network_loop::run_network_bridged(stream, shutdown, filter, config, b, rx)
+                .await;
+        }
+        _ => {
+            network::network_loop::run_network_with_config(stream, shutdown, filter, config).await;
+        }
+    }
     debug!("[network] Network loop exited");
 }
 

@@ -8,7 +8,7 @@ use smoltcp::wire::{IpAddress, IpCidr, IpEndpoint};
 
 use crate::device::VirtualDevice;
 use crate::dhcp::DhcpServer;
-use crate::net_config::{GATEWAY_CIDR, GATEWAY_MAC};
+use crate::net_config::NetworkConfig;
 
 /// Owns the smoltcp interface, device, DHCP server, and socket set.
 pub struct VirtualNetwork {
@@ -27,15 +27,20 @@ impl Default for VirtualNetwork {
 
 impl VirtualNetwork {
     pub fn new() -> Self {
+        Self::with_config(NetworkConfig::default())
+    }
+
+    /// Create a virtual network with the given configuration.
+    pub fn with_config(net_config: NetworkConfig) -> Self {
         let mut device = VirtualDevice::new();
 
-        let config = Config::new(GATEWAY_MAC.into());
+        let config = Config::new(net_config.gateway_mac.into());
         let mut iface = Interface::new(config, &mut device, Instant::ZERO);
 
         // Set gateway IP
         iface.update_ip_addrs(|addrs| {
             addrs
-                .push(IpCidr::Ipv4(GATEWAY_CIDR))
+                .push(IpCidr::Ipv4(net_config.gateway_cidr()))
                 .expect("failed to add gateway IP");
         });
 
@@ -62,12 +67,14 @@ impl VirtualNetwork {
         let sock = sockets.get_mut::<udp::Socket>(dhcp_handle);
         sock.bind(67).expect("failed to bind DHCP socket");
 
+        let dhcp_server = DhcpServer::with_config(&net_config);
+
         Self {
             iface,
             device,
             sockets,
             dhcp_handle,
-            dhcp_server: DhcpServer::new(),
+            dhcp_server,
         }
     }
 
