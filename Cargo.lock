@@ -638,10 +638,12 @@ name = "container-testbed"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "container",
  "env_logger",
  "libc",
  "log",
+ "network",
  "tokio",
  "wasmtime 41.0.1",
 ]
@@ -2358,6 +2360,7 @@ name = "network"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "log",
  "smoltcp",
  "tokio",

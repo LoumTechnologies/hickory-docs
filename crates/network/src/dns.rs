@@ -52,6 +52,46 @@ pub fn system_resolver() -> SocketAddr {
     )
 }
 
+/// Extract the QNAME (queried domain) from a raw DNS query packet.
+///
+/// DNS wire format: 12-byte header, then QNAME as a sequence of
+/// length-prefixed labels terminated by a zero byte. For example,
+/// `example.com` is encoded as `\x07example\x03com\x00`.
+///
+/// Returns `None` if the packet is too short or malformed.
+pub fn parse_query_domain(query: &[u8]) -> Option<String> {
+    const HEADER_LEN: usize = 12;
+    if query.len() <= HEADER_LEN {
+        return None;
+    }
+
+    let mut pos = HEADER_LEN;
+    let mut labels: Vec<&str> = Vec::new();
+
+    loop {
+        if pos >= query.len() {
+            return None;
+        }
+        let label_len = query[pos] as usize;
+        pos += 1;
+        if label_len == 0 {
+            break;
+        }
+        if pos + label_len > query.len() {
+            return None;
+        }
+        let label = std::str::from_utf8(&query[pos..pos + label_len]).ok()?;
+        labels.push(label);
+        pos += label_len;
+    }
+
+    if labels.is_empty() {
+        return None;
+    }
+
+    Some(labels.join("."))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -85,6 +125,51 @@ mod tests {
         // Should return a valid address with port 53
         assert_eq!(resolver.port(), 53);
         assert!(!resolver.ip().is_unspecified());
+    }
+
+    #[test]
+    fn test_parse_query_domain_basic() {
+        // Build a minimal DNS query for "example.com"
+        let mut query = vec![0u8; 12]; // 12-byte header (all zeros is fine)
+        // QNAME: \x07example\x03com\x00
+        query.push(7);
+        query.extend_from_slice(b"example");
+        query.push(3);
+        query.extend_from_slice(b"com");
+        query.push(0);
+
+        assert_eq!(parse_query_domain(&query), Some("example.com".to_string()));
+    }
+
+    #[test]
+    fn test_parse_query_domain_subdomain() {
+        let mut query = vec![0u8; 12];
+        query.push(3);
+        query.extend_from_slice(b"www");
+        query.push(7);
+        query.extend_from_slice(b"example");
+        query.push(3);
+        query.extend_from_slice(b"com");
+        query.push(0);
+
+        assert_eq!(
+            parse_query_domain(&query),
+            Some("www.example.com".to_string())
+        );
+    }
+
+    #[test]
+    fn test_parse_query_domain_too_short() {
+        assert_eq!(parse_query_domain(&[0u8; 10]), None);
+        assert_eq!(parse_query_domain(&[0u8; 12]), None);
+    }
+
+    #[test]
+    fn test_parse_query_domain_root() {
+        // Root domain: just a zero-length label
+        let mut query = vec![0u8; 12];
+        query.push(0);
+        assert_eq!(parse_query_domain(&query), None);
     }
 
     #[tokio::test]

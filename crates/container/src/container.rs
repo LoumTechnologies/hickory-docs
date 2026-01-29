@@ -1,5 +1,6 @@
 use std::io;
 use std::pin::Pin;
+use std::sync::Arc;
 use std::time::Duration;
 
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
@@ -11,6 +12,8 @@ use wasmtime::{Engine, Module, Store};
 
 use log::{debug, info, warn};
 
+use network::connection_filter::{AllowAll, ConnectionFilter};
+
 use crate::pipe::{stderr_pipe, stdin_pipe, stdout_pipe};
 
 const DEFAULT_PIPE_BUFFER_SIZE: usize = 65536;
@@ -21,6 +24,7 @@ pub struct ContainerConfig {
     pub module: Module,
     pub pipe_buffer_size: usize,
     pub networking: bool,
+    pub connection_filter: Option<Arc<dyn ConnectionFilter>>,
 }
 
 impl ContainerConfig {
@@ -30,6 +34,7 @@ impl ContainerConfig {
             module,
             pipe_buffer_size: DEFAULT_PIPE_BUFFER_SIZE,
             networking: false,
+            connection_filter: None,
         }
     }
 }
@@ -56,6 +61,7 @@ impl Container {
         let engine = config.engine;
         let module = config.module;
         let networking = config.networking;
+        let connection_filter = config.connection_filter;
 
         // Create OS pipe pairs for stdin, stdout, stderr.
         let (host_stdin, wasi_stdin) = stdin_pipe()?;
@@ -135,14 +141,15 @@ impl Container {
             typed.call_async(&mut store, ()).await
         });
 
-        // Spawn the network task with the pre-connected stream
         // Spawn the network task - it will connect to the WASM listener
         if let Some((listen_addr, shutdown_rx)) = network_connect_addr {
+            let filter: Arc<dyn ConnectionFilter> =
+                connection_filter.unwrap_or_else(|| Arc::new(AllowAll));
             debug!(
                 "[container] Spawning network task to connect to {:?}...",
                 listen_addr
             );
-            tokio::spawn(run_network_connect(listen_addr, shutdown_rx));
+            tokio::spawn(run_network_connect(listen_addr, shutdown_rx, filter));
         }
 
         Ok(Self {
@@ -234,7 +241,11 @@ impl Drop for Container {
 /// The WASM module has a preopened listener socket on fd=3. When the kernel
 /// starts up and calls sock_accept, it will block waiting for a connection.
 /// We connect from the host side to complete the handshake.
-async fn run_network_connect(addr: std::net::SocketAddr, shutdown: watch::Receiver<bool>) {
+async fn run_network_connect(
+    addr: std::net::SocketAddr,
+    shutdown: watch::Receiver<bool>,
+    filter: Arc<dyn ConnectionFilter>,
+) {
     // Wait for kernel to initialize before attempting to connect
     // In c2w-net, the first connection attempt fails because the kernel
     // hasn't called sock_accept yet
@@ -269,7 +280,7 @@ async fn run_network_connect(addr: std::net::SocketAddr, shutdown: watch::Receiv
     };
 
     info!("[network] Starting network loop...");
-    network::network_loop::run_network(stream, shutdown).await;
+    network::network_loop::run_network(stream, shutdown, filter).await;
     debug!("[network] Network loop exited");
 }
 
