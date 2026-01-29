@@ -455,6 +455,14 @@ async fn main() -> anyhow::Result<()> {
                             if state == TestbedState::Booting {
                                 state = TestbedState::Interactive;
                             }
+                            // Cancel any pending firewall approval — the container
+                            // has returned to the prompt so the request is moot.
+                            // Dropping the oneshot sender causes the filter to
+                            // default to Allow (harmless: the request already
+                            // timed out on the guest side).
+                            if matches!(input_mode, InputMode::AwaitingApproval(_)) {
+                                input_mode = InputMode::Normal;
+                            }
                             // Print our own prompt
                             stdout.write_all(PROMPT).await?;
                             at_line_start = true;
@@ -514,11 +522,6 @@ async fn main() -> anyhow::Result<()> {
                                     );
                                     if let InputMode::AwaitingApproval(tx) = mode {
                                         let _ = tx.send(v);
-                                    }
-                                    // Re-print the prompt if interactive
-                                    if state == TestbedState::Interactive {
-                                        stdout.write_all(PROMPT).await?;
-                                        stdout.flush().await?;
                                     }
                                 }
                                 continue;
