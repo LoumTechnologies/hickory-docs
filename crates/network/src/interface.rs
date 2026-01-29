@@ -39,6 +39,10 @@ impl VirtualNetwork {
                 .expect("failed to add gateway IP");
         });
 
+        // Accept packets addressed to any IP so we can proxy TCP connections
+        // to external hosts transparently.
+        iface.set_any_ip(true);
+
         // No default route needed — we ARE the gateway
 
         let mut sockets = SocketSet::new(vec![]);

@@ -80,9 +80,11 @@ impl TcpProxy {
         self.listening.retain(|&handle| {
             let sock = net.tcp_socket(handle);
             if sock.is_active() {
-                // Connection established — figure out where it wants to go
-                if let Some(remote) = sock.remote_endpoint() {
-                    let dest = endpoint_to_addr(remote);
+                // Connection established — the local endpoint is the
+                // external address the VM was trying to reach (thanks to
+                // any_ip mode on the smoltcp interface).
+                if let Some(local) = sock.local_endpoint() {
+                    let dest = endpoint_to_addr(local);
                     new_connections.push((handle, dest));
                     return false; // Remove from listening
                 }
