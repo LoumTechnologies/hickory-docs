@@ -377,6 +377,65 @@ mod tests {
         );
     }
 
+    #[test]
+    fn test_non_dns_udp_silently_dropped() {
+        let mut net = VirtualNetwork::new();
+
+        // Add a DNS socket on port 53, mirroring the network_loop setup
+        let dns_handle = net
+            .add_udp_socket(53, 4096, 4096)
+            .expect("failed to bind DNS socket");
+
+        // Resolve ARP first so smoltcp knows the VM's MAC
+        let vm_ip = Ipv4Address::new(192, 168, 127, 3);
+        let arp_frame = build_arp_request(VM_MAC, vm_ip, GATEWAY_IP);
+        net.inject_frame(arp_frame);
+        net.poll(Instant::from_millis(1));
+
+        // --- Send UDP to port 9999 (not DNS, not DHCP) ---
+        let payload = b"this should be dropped";
+        let frame = build_udp_frame(
+            VM_MAC,
+            GATEWAY_MAC,
+            [192, 168, 127, 3],
+            GATEWAY_IP.octets(),
+            12345,
+            9999,
+            payload,
+        );
+        net.inject_frame(frame);
+        net.poll(Instant::from_millis(2));
+
+        // DNS socket must NOT have received anything
+        let dns_sock = net.udp_socket(dns_handle);
+        assert!(
+            !dns_sock.can_recv(),
+            "DNS socket should not receive UDP destined for port 9999"
+        );
+
+        // --- Now send UDP to port 53 (DNS) and verify it IS delivered ---
+        let dns_payload = b"\x00\x01dns-query-data";
+        let dns_frame = build_udp_frame(
+            VM_MAC,
+            GATEWAY_MAC,
+            [192, 168, 127, 3],
+            GATEWAY_IP.octets(),
+            12345,
+            53,
+            dns_payload,
+        );
+        net.inject_frame(dns_frame);
+        net.poll(Instant::from_millis(3));
+
+        let dns_sock = net.udp_socket(dns_handle);
+        assert!(
+            dns_sock.can_recv(),
+            "DNS socket should receive UDP destined for port 53"
+        );
+        let (data, _meta) = dns_sock.recv().expect("recv from DNS socket");
+        assert_eq!(data, dns_payload);
+    }
+
     /// Build a minimal DHCP DISCOVER payload.
     fn build_dhcp_discover() -> Vec<u8> {
         let magic: [u8; 4] = [99, 130, 83, 99];
