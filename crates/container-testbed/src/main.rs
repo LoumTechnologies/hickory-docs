@@ -1,7 +1,7 @@
-use std::collections::VecDeque;
+use std::collections::{HashMap, VecDeque};
 use std::os::fd::AsRawFd;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use container::{Container, ContainerConfig, create_async_engine};
@@ -22,16 +22,43 @@ struct ApprovalRequest {
 
 /// Connection filter that prompts the user to allow or block each request.
 ///
-/// Each call to `filter()` sends an [`ApprovalRequest`] over a channel and
-/// awaits the verdict on a oneshot. The testbed main loop picks up the
-/// request, prints a prompt, and sends back the user's answer.
+/// Each call to `filter()` first checks a verdict cache. On a cache miss it
+/// sends an [`ApprovalRequest`] over a channel and awaits the verdict on a
+/// oneshot. Explicit user verdicts (y/n) are cached so the same destination
+/// is never prompted twice. Verdicts from cancelled/stale approvals (e.g.
+/// when the container prompt appears before the user answers) are *not*
+/// cached so the user gets a fresh prompt next time.
 struct InteractiveFilter {
     tx: mpsc::Sender<ApprovalRequest>,
+    cache: Mutex<HashMap<String, ConnectionVerdict>>,
+}
+
+impl InteractiveFilter {
+    fn new(tx: mpsc::Sender<ApprovalRequest>) -> Self {
+        Self {
+            tx,
+            cache: Mutex::new(HashMap::new()),
+        }
+    }
+
+    fn cache_key(request: &NetworkRequest) -> String {
+        match request {
+            NetworkRequest::Tcp { dest } => format!("tcp:{dest}"),
+            NetworkRequest::Dns { domain } => format!("dns:{domain}"),
+        }
+    }
 }
 
 #[async_trait]
 impl ConnectionFilter for InteractiveFilter {
     async fn filter(&self, request: &NetworkRequest) -> ConnectionVerdict {
+        let key = Self::cache_key(request);
+
+        // Return cached verdict if we already prompted for this destination.
+        if let Some(&verdict) = self.cache.lock().unwrap().get(&key) {
+            return verdict;
+        }
+
         let (response_tx, response_rx) = oneshot::channel();
         let approval = ApprovalRequest {
             request: match request {
@@ -43,10 +70,20 @@ impl ConnectionFilter for InteractiveFilter {
             response_tx,
         };
         if self.tx.send(approval).await.is_err() {
-            // Channel closed — default to allow so the container isn't stuck
             return ConnectionVerdict::Allow;
         }
-        response_rx.await.unwrap_or(ConnectionVerdict::Allow)
+        match response_rx.await {
+            Ok(verdict) => {
+                // User answered explicitly — cache the verdict.
+                self.cache.lock().unwrap().insert(key, verdict);
+                verdict
+            }
+            Err(_) => {
+                // Oneshot dropped (stale approval cancelled) — don't cache
+                // so the user gets a fresh prompt next time.
+                ConnectionVerdict::Allow
+            }
+        }
     }
 }
 
@@ -389,9 +426,7 @@ async fn main() -> anyhow::Result<()> {
 
     // Interactive connection filter — shared across all containers
     let (approval_tx, mut approval_rx) = mpsc::channel::<ApprovalRequest>(16);
-    let filter: Arc<dyn ConnectionFilter> = Arc::new(InteractiveFilter {
-        tx: approval_tx.clone(),
-    });
+    let filter: Arc<dyn ConnectionFilter> = Arc::new(InteractiveFilter::new(approval_tx.clone()));
 
     let mut stack: Vec<(String, Container)> = Vec::new();
     push_container(
