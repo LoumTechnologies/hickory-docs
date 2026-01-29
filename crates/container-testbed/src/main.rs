@@ -215,6 +215,22 @@ async fn show_testbed_prompt(stdout: &mut tokio::io::Stdout) -> anyhow::Result<(
     Ok(())
 }
 
+/// Display the shell prompt if the active container is already interactive.
+/// New/booting containers will emit their own prompt naturally.
+async fn show_prompt_if_interactive(
+    manager: &mut ContainerManager,
+    stdout: &mut tokio::io::Stdout,
+) -> anyhow::Result<()> {
+    if let Some(mc) = manager.active_mut() {
+        if mc.terminal.testbed_state == TestbedState::Interactive {
+            stdout.write_all(PROMPT).await?;
+            stdout.flush().await?;
+            mc.terminal.at_line_start = true;
+        }
+    }
+    Ok(())
+}
+
 // ---------------------------------------------------------------------------
 // Main loop
 // ---------------------------------------------------------------------------
@@ -258,6 +274,8 @@ async fn main() -> anyhow::Result<()> {
                             if !manager.has_active() {
                                 stdout.write_all(b"\r\n").await?;
                                 show_testbed_prompt(&mut stdout).await?;
+                            } else {
+                                show_prompt_if_interactive(&mut manager, &mut stdout).await?;
                             }
                         }
                         Ok(n) => {
@@ -297,6 +315,8 @@ async fn main() -> anyhow::Result<()> {
                             if !manager.has_active() {
                                 stdout.write_all(b"\r\n").await?;
                                 show_testbed_prompt(&mut stdout).await?;
+                            } else {
+                                show_prompt_if_interactive(&mut manager, &mut stdout).await?;
                             }
                         }
                     }
@@ -378,6 +398,8 @@ async fn main() -> anyhow::Result<()> {
                                                 if !manager.has_active() {
                                                     show_testbed_prompt(&mut stdout).await?;
                                                     break; // exit byte loop
+                                                } else {
+                                                    show_prompt_if_interactive(&mut manager, &mut stdout).await?;
                                                 }
                                             } else {
                                                 // Not a valid meta-command — forward to container
@@ -422,6 +444,8 @@ async fn main() -> anyhow::Result<()> {
                                         manager.kill_active().await;
                                         if !manager.has_active() {
                                             show_testbed_prompt(&mut stdout).await?;
+                                        } else {
+                                            show_prompt_if_interactive(&mut manager, &mut stdout).await?;
                                         }
                                         break; // exit byte loop
                                     }
@@ -562,7 +586,7 @@ async fn main() -> anyhow::Result<()> {
                                                 .await?;
 
                                                 if manager.has_active() {
-                                                    // Switched to a container
+                                                    show_prompt_if_interactive(&mut manager, &mut stdout).await?;
                                                     break;
                                                 }
                                             } else {
