@@ -4,6 +4,7 @@ pub mod connection_filter;
 pub mod device;
 pub mod dhcp;
 pub mod dns;
+pub mod http;
 pub mod interceptor;
 pub mod interface;
 pub mod net_config;

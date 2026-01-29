@@ -14,6 +14,7 @@ use log::{debug, info, warn};
 
 use network::bridge::NetworkBridge;
 use network::connection_filter::{AllowAll, ConnectionFilter};
+use network::http::HttpFilter;
 use network::net_config::NetworkConfig;
 
 use crate::pipe::{stderr_pipe, stdin_pipe, stdout_pipe};
@@ -27,6 +28,7 @@ pub struct ContainerConfig {
     pub pipe_buffer_size: usize,
     pub networking: bool,
     pub connection_filter: Option<Arc<dyn ConnectionFilter>>,
+    pub http_filter: Option<Arc<dyn HttpFilter>>,
     pub network_config: Option<NetworkConfig>,
     /// Shared bridge for inter-container networking.
     pub bridge: Option<Arc<RwLock<NetworkBridge>>>,
@@ -42,6 +44,7 @@ impl ContainerConfig {
             pipe_buffer_size: DEFAULT_PIPE_BUFFER_SIZE,
             networking: false,
             connection_filter: None,
+            http_filter: None,
             network_config: None,
             bridge: None,
             bridge_rx: None,
@@ -72,6 +75,7 @@ impl Container {
         let module = config.module;
         let networking = config.networking;
         let connection_filter = config.connection_filter;
+        let http_filter = config.http_filter;
         let network_config = config.network_config;
         let bridge = config.bridge;
         let bridge_rx = config.bridge_rx;
@@ -166,6 +170,7 @@ impl Container {
                 listen_addr,
                 shutdown_rx,
                 filter,
+                http_filter,
                 net_cfg,
                 bridge,
                 bridge_rx,
@@ -265,6 +270,7 @@ async fn run_network_connect(
     addr: std::net::SocketAddr,
     shutdown: watch::Receiver<bool>,
     filter: Arc<dyn ConnectionFilter>,
+    http_filter: Option<Arc<dyn HttpFilter>>,
     config: NetworkConfig,
     bridge: Option<Arc<RwLock<NetworkBridge>>>,
     bridge_rx: Option<mpsc::Receiver<Vec<u8>>>,
@@ -309,7 +315,14 @@ async fn run_network_connect(
                 .await;
         }
         _ => {
-            network::network_loop::run_network_with_config(stream, shutdown, filter, config).await;
+            network::network_loop::run_network_with_config(
+                stream,
+                shutdown,
+                filter,
+                config,
+                http_filter,
+            )
+            .await;
         }
     }
     debug!("[network] Network loop exited");

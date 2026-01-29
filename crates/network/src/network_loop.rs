@@ -19,13 +19,15 @@ use log::{debug, info, trace, warn};
 use crate::bridge::NetworkBridge;
 use crate::connection_filter::{ConnectionFilter, ConnectionVerdict, NetworkRequest};
 use crate::dns;
+use crate::http::{self, HttpFilter};
 use crate::interface::VirtualNetwork;
 use crate::net_config::NetworkConfig;
 use crate::tcp_nat::{IngressResult, TcpNat};
 use crate::tcp_proxy::{ProxyAction, TcpProxy};
 
 /// Channel message from real socket relay tasks back to the network loop.
-enum RealSocketMsg {
+#[derive(Debug)]
+pub(crate) enum RealSocketMsg {
     /// Real TCP connection established.
     Connected(SocketHandle),
     /// Data received from the real socket.
@@ -47,7 +49,7 @@ pub async fn run_network<S>(
 ) where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
-    run_network_with_config(stream, shutdown, filter, NetworkConfig::default()).await;
+    run_network_with_config(stream, shutdown, filter, NetworkConfig::default(), None).await;
 }
 
 /// Run the network stack with a specific [`NetworkConfig`].
@@ -56,6 +58,7 @@ pub async fn run_network_with_config<S>(
     mut shutdown: watch::Receiver<bool>,
     filter: Arc<dyn ConnectionFilter>,
     config: NetworkConfig,
+    http_filter: Option<Arc<dyn HttpFilter>>,
 ) where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
@@ -223,9 +226,23 @@ pub async fn run_network_with_config<S>(
                     let (write_tx, write_rx) = mpsc::channel::<Vec<u8>>(64);
                     real_writers.insert(handle, write_tx);
 
-                    tokio::spawn(async move {
-                        relay_real_socket(handle, real_dest, tx, write_rx).await;
-                    });
+                    if real_dest.port() == 80 {
+                        if let Some(ref hf) = http_filter {
+                            let hf = hf.clone();
+                            tokio::spawn(async move {
+                                http::http_relay_real_socket(handle, real_dest, tx, write_rx, hf)
+                                    .await;
+                            });
+                        } else {
+                            tokio::spawn(async move {
+                                relay_real_socket(handle, real_dest, tx, write_rx).await;
+                            });
+                        }
+                    } else {
+                        tokio::spawn(async move {
+                            relay_real_socket(handle, real_dest, tx, write_rx).await;
+                        });
+                    }
                 }
                 ProxyAction::SendToReal { handle, data } => {
                     if let Some(writer) = real_writers.get(&handle) {
