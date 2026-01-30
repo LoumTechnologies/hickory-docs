@@ -1956,6 +1956,7 @@ name = "hick"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "bridge",
  "c2w",
  "clap",
  "connection-filter",
@@ -1967,6 +1968,7 @@ dependencies = [
  "hick-secrets",
  "hick-token",
  "log",
+ "net-config",
  "rand",
  "tokio",
  "wasmtime 41.0.1",

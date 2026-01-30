@@ -229,3 +229,113 @@ async fn test_no_file_outputs() {
     let result = hick::run_pipeline(&[("test.hick", &src)]).await.unwrap();
     assert!(result.files.is_empty());
 }
+
+// ---------------------------------------------------------------------------
+// Custom prefix tests
+// ---------------------------------------------------------------------------
+
+fn h_doc(body: &str) -> String {
+    format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<h:doc xmlns:h="http://www.hickorydocs.com/1.0">
+{body}
+</h:doc>"#
+    )
+}
+
+#[tokio::test]
+async fn test_custom_prefix_file_output() {
+    let src = h_doc(r#"<h:file path="out.txt">hello from h prefix</h:file>"#);
+    let result = hick::run_pipeline(&[("test.hick", &src)]).await.unwrap();
+    assert_eq!(
+        result.files.get("out.txt").unwrap(),
+        "hello from h prefix"
+    );
+}
+
+#[tokio::test]
+async fn test_custom_prefix_cut_paste() {
+    let src = h_doc(concat!(
+        r#"<h:cut id="ns">http://www.hickorydocs.com/1.0</h:cut>"#,
+        "\n",
+        r##"<h:file path="out.txt">NS: <h:paste select="#ns" /></h:file>"##,
+    ));
+    let result = hick::run_pipeline(&[("test.hick", &src)]).await.unwrap();
+    assert_eq!(
+        result.files.get("out.txt").unwrap(),
+        "NS: http://www.hickorydocs.com/1.0"
+    );
+}
+
+#[tokio::test]
+async fn test_custom_prefix_hick_in_text_is_literal() {
+    // With h: prefix, <hick:...> in text body is NOT parsed
+    let src = h_doc(
+        r#"<h:file path="out.txt">Example: <hick:file path="x">y</hick:file></h:file>"#,
+    );
+    let result = hick::run_pipeline(&[("test.hick", &src)]).await.unwrap();
+    let content = result.files.get("out.txt").unwrap();
+    assert!(
+        content.contains("<hick:file"),
+        "expected literal <hick:file in output, got: {content}"
+    );
+}
+
+#[tokio::test]
+async fn test_custom_prefix_containers() {
+    let src = h_doc(
+        r#"<h:container name="worker" image="alpine">
+  <h:allow network="github.com:443" />
+  <h:deny network="*" />
+</h:container>
+<h:file path="out.txt">done</h:file>"#,
+    );
+    let result = hick::run_pipeline(&[("test.hick", &src)]).await.unwrap();
+    assert!(result.containers.contains_key("worker"));
+    assert_eq!(result.files.get("out.txt").unwrap(), "done");
+}
+
+#[tokio::test]
+async fn test_guide_hick_file_processes() {
+    let guide_src = include_str!("../../../docs/hick-guide.hick");
+    let result = hick::run_pipeline(&[("hick-guide.hick", guide_src)])
+        .await
+        .unwrap();
+
+    let guide = result.files.get("docs/hick-guide.md").unwrap();
+    assert!(
+        guide.contains("# The Hick Language"),
+        "guide should contain title"
+    );
+    assert!(
+        guide.contains("http://www.hickorydocs.com/1.0"),
+        "pasted namespace URI should appear in guide"
+    );
+    // Verify hick: examples are literal text, not parsed
+    assert!(
+        guide.contains("<hick:container"),
+        "guide should contain literal <hick:container examples"
+    );
+    assert!(
+        guide.contains("<hick:exec"),
+        "guide should contain literal <hick:exec examples"
+    );
+
+    // Verify live container demo
+    assert!(
+        result.containers.contains_key("guide-builder"),
+        "guide-builder container should be defined"
+    );
+    assert!(
+        result.containers.contains_key("guide-verifier"),
+        "guide-verifier container should be defined"
+    );
+    assert!(
+        guide.contains("[exec in container 'guide-verifier']"),
+        "exec placeholder should appear in output"
+    );
+    assert!(
+        guide.contains("echo \"Built by hick\" > /out/stamp.txt"),
+        "pasted build-cmd should appear in output"
+    );
+}

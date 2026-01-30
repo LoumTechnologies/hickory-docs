@@ -1,9 +1,17 @@
 //! Parser and AST for `.hick` files.
 //!
-//! Only `<hick:*>` tags are parsed as structured elements. Content between them
-//! is raw text that can contain `&`, `<`, `>` without escaping.
+//! Tags prefixed with the namespace bound to `http://www.hickorydocs.com/1.0`
+//! are parsed as structured elements. Content between them is raw text that
+//! can contain `&`, `<`, `>` without escaping.
+//!
+//! The namespace prefix is detected from the `xmlns:` declaration on the root
+//! element. For example, `<h:doc xmlns:h="http://www.hickorydocs.com/1.0">`
+//! uses prefix `h`, while `<hick:doc xmlns:hick="...">` uses prefix `hick`.
 
 use std::fmt;
+
+/// The XML namespace URI that identifies hick elements.
+pub const HICK_NAMESPACE: &str = "http://www.hickorydocs.com/1.0";
 
 // ---------------------------------------------------------------------------
 // AST
@@ -16,16 +24,16 @@ pub enum HickNode {
     Tag(HickTag),
 }
 
-/// A `<hick:*>` element with attributes and children.
+/// A structured hick element with attributes and children.
 #[derive(Debug, Clone, PartialEq)]
 pub struct HickTag {
-    /// Local name after the `hick:` prefix, e.g. `"file"`, `"exec"`, `"container"`.
+    /// Local name after the namespace prefix, e.g. `"file"`, `"exec"`, `"container"`.
     pub name: String,
     /// Attribute pairs in document order.
     pub attributes: Vec<(String, String)>,
     /// Child nodes (text and nested tags).
     pub children: Vec<HickNode>,
-    /// Whether this was a self-closing tag (`<hick:allow ... />`).
+    /// Whether this was a self-closing tag (`<prefix:allow ... />`).
     pub self_closing: bool,
     /// 1-based line number where the opening tag starts.
     pub source_line: usize,
@@ -68,10 +76,12 @@ fn collect_text(nodes: &[HickNode], out: &mut String) {
 /// A parsed `.hick` document.
 #[derive(Debug, Clone)]
 pub struct HickDocument {
-    /// Children of the root `<hick:doc>` element.
+    /// Children of the root doc element.
     pub nodes: Vec<HickNode>,
     /// Original source text.
     pub source: String,
+    /// The XML namespace prefix used in this document (e.g. `"hick"`, `"h"`).
+    pub prefix: String,
 }
 
 impl HickDocument {
@@ -98,14 +108,99 @@ pub enum ParseError {
     #[error("line {line}: {message}")]
     Syntax { line: usize, message: String },
 
-    #[error("missing root <hick:doc> element")]
+    #[error("missing root doc element (no xmlns for {HICK_NAMESPACE})")]
     MissingRoot,
 
-    #[error("unclosed tag <hick:{name}> opened at line {line}")]
-    UnclosedTag { name: String, line: usize },
+    #[error("unclosed tag <{prefix}:{name}> opened at line {line}")]
+    UnclosedTag {
+        prefix: String,
+        name: String,
+        line: usize,
+    },
 
-    #[error("line {line}: unexpected closing tag </hick:{name}>")]
-    UnexpectedClose { name: String, line: usize },
+    #[error("line {line}: unexpected closing tag </{prefix}:{name}>")]
+    UnexpectedClose {
+        prefix: String,
+        name: String,
+        line: usize,
+    },
+}
+
+// ---------------------------------------------------------------------------
+// Namespace prefix detection
+// ---------------------------------------------------------------------------
+
+/// Scan the source for `xmlns:PREFIX="http://www.hickorydocs.com/1.0"` and
+/// return the prefix. Falls back to `"hick"` if no declaration is found.
+fn detect_prefix(input: &str) -> String {
+    let xmlns_marker = "xmlns:";
+
+    let mut search_from = 0;
+    while let Some(rel_pos) = input[search_from..].find(xmlns_marker) {
+        let prefix_start = search_from + rel_pos + xmlns_marker.len();
+
+        // Read prefix chars until = or whitespace
+        let mut prefix_end = prefix_start;
+        while prefix_end < input.len() {
+            let ch = input.as_bytes()[prefix_end];
+            if ch == b'=' || ch == b' ' || ch == b'\t' || ch == b'\n' || ch == b'\r' {
+                break;
+            }
+            prefix_end += 1;
+        }
+
+        if prefix_end == prefix_start {
+            search_from = prefix_end;
+            continue;
+        }
+
+        let prefix = &input[prefix_start..prefix_end];
+
+        // Skip whitespace before '='
+        let mut val_pos = prefix_end;
+        while val_pos < input.len() {
+            let ch = input.as_bytes()[val_pos];
+            if ch != b' ' && ch != b'\t' && ch != b'\n' && ch != b'\r' {
+                break;
+            }
+            val_pos += 1;
+        }
+
+        if val_pos >= input.len() || input.as_bytes()[val_pos] != b'=' {
+            search_from = val_pos;
+            continue;
+        }
+        val_pos += 1; // skip =
+
+        // Skip whitespace after '='
+        while val_pos < input.len() {
+            let ch = input.as_bytes()[val_pos];
+            if ch != b' ' && ch != b'\t' && ch != b'\n' && ch != b'\r' {
+                break;
+            }
+            val_pos += 1;
+        }
+
+        if val_pos >= input.len() {
+            search_from = val_pos;
+            continue;
+        }
+
+        let quote = input.as_bytes()[val_pos];
+        if quote != b'"' && quote != b'\'' {
+            search_from = val_pos;
+            continue;
+        }
+        val_pos += 1; // skip opening quote
+
+        if input[val_pos..].starts_with(HICK_NAMESPACE) {
+            return prefix.to_string();
+        }
+
+        search_from = val_pos;
+    }
+
+    "hick".to_string()
 }
 
 // ---------------------------------------------------------------------------
@@ -114,8 +209,9 @@ pub enum ParseError {
 
 /// Parse a `.hick` file from source text.
 ///
-/// The parser is a custom scanner that only recognizes `<hick:*>` and
-/// `</hick:*>` tags. Everything else is treated as raw text.
+/// The parser detects the namespace prefix from the `xmlns:` declaration
+/// that binds to [`HICK_NAMESPACE`], then only recognizes tags with that
+/// prefix. Everything else is treated as raw text.
 pub fn parse(source: &str) -> Result<HickDocument, ParseError> {
     let mut parser = Parser::new(source);
     parser.parse_document()
@@ -125,14 +221,26 @@ struct Parser<'a> {
     input: &'a str,
     pos: usize,
     line: usize,
+    /// The detected namespace prefix (e.g. `"hick"`, `"h"`).
+    prefix: String,
+    /// Opening tag marker, e.g. `"<hick:"`.
+    open_marker: String,
+    /// Closing tag marker, e.g. `"</hick:"`.
+    close_marker: String,
 }
 
 impl<'a> Parser<'a> {
     fn new(input: &'a str) -> Self {
+        let prefix = detect_prefix(input);
+        let open_marker = format!("<{prefix}:");
+        let close_marker = format!("</{prefix}:");
         Self {
             input,
             pos: 0,
             line: 1,
+            prefix,
+            open_marker,
+            close_marker,
         }
     }
 
@@ -167,10 +275,11 @@ impl<'a> Parser<'a> {
     fn parse_document(&mut self) -> Result<HickDocument, ParseError> {
         self.skip_xml_declaration();
 
-        // Find the root <hick:doc ...> tag
+        // Find the root <PREFIX:doc ...> tag
+        let doc_marker = format!("<{}:doc", self.prefix);
         let root_start = self
             .remaining()
-            .find("<hick:doc")
+            .find(&doc_marker)
             .ok_or(ParseError::MissingRoot)?;
         self.advance(root_start);
 
@@ -180,16 +289,17 @@ impl<'a> Parser<'a> {
             return Err(ParseError::MissingRoot);
         }
 
-        // Parse children until </hick:doc>
+        // Parse children until </PREFIX:doc>
         let nodes = self.parse_children("doc", tag.source_line)?;
 
         Ok(HickDocument {
             nodes,
             source: self.input.to_string(),
+            prefix: self.prefix.clone(),
         })
     }
 
-    /// Parse children until `</hick:{close_name}>` is found.
+    /// Parse children until the matching closing tag is found.
     fn parse_children(
         &mut self,
         close_name: &str,
@@ -201,15 +311,16 @@ impl<'a> Parser<'a> {
         loop {
             if self.is_eof() {
                 return Err(ParseError::UnclosedTag {
+                    prefix: self.prefix.clone(),
                     name: close_name.to_string(),
                     line: open_line,
                 });
             }
 
-            // Look for the next `<hick:` or `</hick:` marker
+            // Look for the next opening or closing marker
             let rem = self.remaining();
-            let next_open = rem.find("<hick:");
-            let next_close = rem.find("</hick:");
+            let next_open = rem.find(self.open_marker.as_str());
+            let next_close = rem.find(self.close_marker.as_str());
 
             // Determine the nearest marker
             let nearest = match (next_open, next_close) {
@@ -221,8 +332,9 @@ impl<'a> Parser<'a> {
 
             match nearest {
                 None => {
-                    // No more hick tags -- rest is text (will be caught as unclosed)
+                    // No more tags -- rest is text (will be caught as unclosed)
                     return Err(ParseError::UnclosedTag {
+                        prefix: self.prefix.clone(),
                         name: close_name.to_string(),
                         line: open_line,
                     });
@@ -231,7 +343,7 @@ impl<'a> Parser<'a> {
                     let abs = self.pos + offset;
 
                     // Is this a closing tag?
-                    if self.input[abs..].starts_with("</hick:") {
+                    if self.input[abs..].starts_with(&self.close_marker) {
                         // Flush text before this closing tag
                         if abs > text_start {
                             nodes.push(HickNode::Text(self.input[text_start..abs].to_string()));
@@ -244,6 +356,7 @@ impl<'a> Parser<'a> {
                             return Ok(nodes);
                         } else {
                             return Err(ParseError::UnexpectedClose {
+                                prefix: self.prefix.clone(),
                                 name,
                                 line: self.line,
                             });
@@ -275,13 +388,12 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// Parse `<hick:name attr="val" ...>` or `<hick:name ... />`.
-    /// Cursor must be at `<hick:`.
+    /// Parse an opening tag. Cursor must be at the opening marker.
     fn parse_open_tag(&mut self) -> Result<HickTag, ParseError> {
         let tag_line = self.line;
 
-        // Skip `<hick:`
-        self.advance(6);
+        // Skip the opening marker (e.g. `<hick:` or `<h:`)
+        self.advance(self.open_marker.len());
 
         // Read tag name (until whitespace, `>`, or `/`)
         let name_start = self.pos;
@@ -296,7 +408,7 @@ impl<'a> Parser<'a> {
         if name.is_empty() {
             return Err(ParseError::Syntax {
                 line: tag_line,
-                message: "empty tag name after <hick:".to_string(),
+                message: format!("empty tag name after <{}:", self.prefix),
             });
         }
 
@@ -313,7 +425,7 @@ impl<'a> Parser<'a> {
             if self.is_eof() {
                 return Err(ParseError::Syntax {
                     line: tag_line,
-                    message: format!("unexpected EOF in <hick:{name}>"),
+                    message: format!("unexpected EOF in <{}:{name}>", self.prefix),
                 });
             }
 
@@ -363,11 +475,11 @@ impl<'a> Parser<'a> {
         })
     }
 
-    /// Parse `</hick:name>`. Cursor must be at `</hick:`.
+    /// Parse a closing tag. Cursor must be at the closing marker.
     fn parse_close_tag(&mut self) -> Result<(String, usize), ParseError> {
         let line = self.line;
-        // Skip `</hick:`
-        self.advance(7);
+        // Skip the closing marker (e.g. `</hick:` or `</h:`)
+        self.advance(self.close_marker.len());
 
         let name_start = self.pos;
         while !self.is_eof() {
@@ -498,6 +610,7 @@ mod tests {
 <hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
 </hick:doc>"#;
         let doc = parse(src).unwrap();
+        assert_eq!(doc.prefix, "hick");
         assert!(
             doc.nodes.is_empty()
                 || doc
@@ -828,5 +941,143 @@ curl --version
         assert_eq!(execs.len(), 2);
         assert_eq!(execs[0].get_attribute("image"), Some("alpine"));
         assert!(execs[1].get_attribute("image").is_none());
+    }
+
+    // -----------------------------------------------------------------------
+    // Custom prefix tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn detect_prefix_from_xmlns() {
+        assert_eq!(
+            detect_prefix(r#"<h:doc xmlns:h="http://www.hickorydocs.com/1.0">"#),
+            "h"
+        );
+        assert_eq!(
+            detect_prefix(r#"<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">"#),
+            "hick"
+        );
+        assert_eq!(
+            detect_prefix(r#"<hickory:doc xmlns:hickory="http://www.hickorydocs.com/1.0">"#),
+            "hickory"
+        );
+        // Single-quoted
+        assert_eq!(
+            detect_prefix(r#"<x:doc xmlns:x='http://www.hickorydocs.com/1.0'>"#),
+            "x"
+        );
+        // No xmlns -> fallback
+        assert_eq!(detect_prefix(r#"<hick:doc>"#), "hick");
+    }
+
+    #[test]
+    fn parse_with_short_prefix() {
+        let src = r#"<?xml version="1.0" encoding="UTF-8"?>
+<h:doc xmlns:h="http://www.hickorydocs.com/1.0">
+<h:file path="out.txt">hello world</h:file>
+</h:doc>"#;
+        let doc = parse(src).unwrap();
+        assert_eq!(doc.prefix, "h");
+        let files = doc.find_tags("file");
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].get_attribute("path"), Some("out.txt"));
+        assert_eq!(files[0].text_content(), "hello world");
+    }
+
+    #[test]
+    fn custom_prefix_ignores_hick_in_text() {
+        // Using prefix "h", so <hick:...> in text is NOT parsed as a tag
+        let src = r#"<?xml version="1.0" encoding="UTF-8"?>
+<h:doc xmlns:h="http://www.hickorydocs.com/1.0">
+<h:file path="guide.md">
+Here is an example hick file:
+
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
+  <hick:file path="out.txt">hello</hick:file>
+</hick:doc>
+
+The above produces a file called out.txt.
+</h:file>
+</h:doc>"#;
+        let doc = parse(src).unwrap();
+        assert_eq!(doc.prefix, "h");
+
+        let files = doc.find_tags("file");
+        assert_eq!(files.len(), 1);
+
+        // The <hick:...> example text should be raw text content, not parsed tags
+        let content = files[0].text_content();
+        assert!(
+            content.contains("<hick:doc"),
+            "expected literal <hick:doc in text, got: {content}"
+        );
+        assert!(
+            content.contains("<hick:file"),
+            "expected literal <hick:file in text, got: {content}"
+        );
+        assert!(
+            content.contains("</hick:file>"),
+            "expected literal </hick:file> in text, got: {content}"
+        );
+    }
+
+    #[test]
+    fn custom_prefix_nested_tags() {
+        let src = r#"<?xml version="1.0" encoding="UTF-8"?>
+<h:doc xmlns:h="http://www.hickorydocs.com/1.0">
+<h:container name="demo" image="alpine">
+  <h:allow network="github.com:443" />
+  <h:deny network="*" />
+  <h:secret name="TOKEN" from="my-token" />
+</h:container>
+<h:exec container="demo">
+echo hello
+</h:exec>
+</h:doc>"#;
+        let doc = parse(src).unwrap();
+        let containers = doc.find_tags("container");
+        assert_eq!(containers.len(), 1);
+        assert_eq!(containers[0].get_attribute("name"), Some("demo"));
+
+        let child_tags: Vec<_> = containers[0].child_tags().collect();
+        assert_eq!(child_tags.len(), 3);
+        assert_eq!(child_tags[0].name, "allow");
+        assert_eq!(child_tags[1].name, "deny");
+        assert_eq!(child_tags[2].name, "secret");
+
+        let execs = doc.find_tags("exec");
+        assert_eq!(execs.len(), 1);
+    }
+
+    #[test]
+    fn custom_prefix_copy_paste() {
+        let src = r##"<?xml version="1.0" encoding="UTF-8"?>
+<h:doc xmlns:h="http://www.hickorydocs.com/1.0">
+<h:copy id="ver">1.0</h:copy>
+<h:file path="out.txt"><h:paste select="#ver" /></h:file>
+</h:doc>"##;
+        let doc = parse(src).unwrap();
+        let copies = doc.find_tags("copy");
+        assert_eq!(copies.len(), 1);
+        assert_eq!(copies[0].text_content(), "1.0");
+
+        let files = doc.find_tags("file");
+        let pastes: Vec<_> = files[0]
+            .child_tags()
+            .filter(|t| t.name == "paste")
+            .collect();
+        assert_eq!(pastes.len(), 1);
+        assert_eq!(pastes[0].get_attribute("select"), Some("#ver"));
+    }
+
+    #[test]
+    fn custom_prefix_error_on_unclosed() {
+        let src = r#"<?xml version="1.0" encoding="UTF-8"?>
+<h:doc xmlns:h="http://www.hickorydocs.com/1.0">
+<h:exec container="demo">
+echo hello
+</h:doc>"#;
+        let err = parse(src).unwrap_err();
+        assert!(matches!(err, ParseError::UnexpectedClose { .. }));
     }
 }

@@ -30,6 +30,14 @@ struct Cli {
     #[arg(long, default_value = "~/.config/hick/secrets")]
     secrets_dir: PathBuf,
 
+    /// Directory containing pre-converted `.wasm` container images.
+    #[arg(long)]
+    images_dir: Option<PathBuf>,
+
+    /// Dry-run mode: produce placeholder strings instead of running containers.
+    #[arg(long)]
+    dry_run: bool,
+
     /// Enable verbose output.
     #[arg(short, long)]
     verbose: bool,
@@ -71,7 +79,17 @@ async fn main() -> Result<()> {
         .collect();
 
     // Run the pipeline
-    let result = hick::run_pipeline(&sources).await?;
+    let result = if cli.dry_run {
+        hick::run_pipeline(&sources).await?
+    } else {
+        let images_dir = cli
+            .images_dir
+            .map(|p| hick::expand_tilde(&p))
+            .unwrap_or_else(default_images_dir);
+
+        let config = hick::PipelineConfig { images_dir };
+        hick::run_pipeline_live(&sources, &config).await?
+    };
 
     // Write file outputs to disk
     for (path, content) in &result.files {
@@ -91,4 +109,27 @@ async fn main() -> Result<()> {
 
     info!("Done");
     Ok(())
+}
+
+/// Default images directory: `crates/c2w/converted_images` relative to the
+/// workspace root (detected via `CARGO_MANIFEST_DIR` at build time, then
+/// walking up to the workspace).
+fn default_images_dir() -> PathBuf {
+    // At runtime, try relative to current dir first
+    let candidates = [
+        PathBuf::from("crates/c2w/converted_images"),
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .unwrap_or(std::path::Path::new("."))
+            .join("c2w/converted_images"),
+    ];
+
+    for path in &candidates {
+        if path.is_dir() {
+            return path.clone();
+        }
+    }
+
+    // Fall back to the first candidate (will produce a clear error downstream)
+    candidates[0].clone()
 }

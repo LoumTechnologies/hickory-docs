@@ -4,6 +4,8 @@
 //! DAG validation, container capability extraction, copy/paste resolution,
 //! and file output collection — all without touching the filesystem.
 
+pub mod executor;
+
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -12,10 +14,13 @@ use anyhow::Result;
 use log::{debug, info, warn};
 use rand::RngCore;
 
+use hick_exec::dag;
 use hick_exec::node::{InsertionPoint, StringNode};
 use hick_exec::state::MultiDocumentState;
 use hick_lang::{HickNode, HickTag};
 use hick_token::{ContainerCapabilities, NetworkRule, TokenAuthority};
+
+use crate::executor::ContainerExecutor;
 
 // ---------------------------------------------------------------------------
 // Pipeline result
@@ -136,6 +141,179 @@ pub async fn run_pipeline_with_authority(
                         let container_name = tag_attr(child_tag, "container").unwrap_or_default();
                         let exec_text = format!("[exec in container '{container_name}']");
                         file_ip.add(Arc::new(StringNode::new(exec_text)));
+                    }
+                    HickNode::Tag(child_tag) if child_tag.name == "paste" => {
+                        let selector = tag_attr(child_tag, "select").unwrap_or_default();
+                        if let Some(content) = state.resolve_paste(&selector) {
+                            file_ip.add(Arc::new(StringNode::new(content)));
+                        } else {
+                            warn!("Paste selector '{selector}' not found");
+                        }
+                    }
+                    _ => {}
+                }
+            }
+
+            file_ip.close();
+            state.add_file_output(path, file_ip);
+        }
+    }
+
+    // Converge file outputs
+    let files = state.get_files().await;
+
+    Ok(PipelineResult {
+        files,
+        containers: container_defs,
+    })
+}
+
+// ---------------------------------------------------------------------------
+// Live pipeline (real container execution)
+// ---------------------------------------------------------------------------
+
+/// Configuration for live pipeline execution.
+pub struct PipelineConfig {
+    /// Directory containing pre-converted `.wasm` images.
+    pub images_dir: PathBuf,
+}
+
+/// Run the pipeline with real container execution.
+///
+/// Unlike [`run_pipeline`] which produces placeholder strings for exec tags,
+/// this function starts WASM containers, runs commands, and captures output.
+pub async fn run_pipeline_live(
+    sources: &[(&str, &str)],
+    config: &PipelineConfig,
+) -> Result<PipelineResult> {
+    let mut root_key = [0u8; 32];
+    rand::thread_rng().fill_bytes(&mut root_key);
+    let authority = Arc::new(TokenAuthority::new(&root_key));
+
+    // Parse all sources
+    let mut documents = Vec::new();
+    for (name, source) in sources {
+        let doc =
+            hick_lang::parse(source).map_err(|e| anyhow::anyhow!("parse error in {name}: {e}"))?;
+        info!("Parsed {name}: {} top-level nodes", doc.nodes.len());
+        documents.push((*name, doc));
+    }
+
+    // Collect all nodes across documents
+    let all_nodes: Vec<&HickNode> = documents
+        .iter()
+        .flat_map(|(_, doc)| doc.nodes.iter())
+        .collect();
+
+    // Collect container definitions
+    let mut container_defs: HashMap<String, ContainerCapabilities> = HashMap::new();
+    for node in &all_nodes {
+        if let HickNode::Tag(tag) = node
+            && tag.name == "container"
+        {
+            let name = tag_attr(tag, "name").unwrap_or_default();
+            let caps = build_capabilities_from_tag(tag);
+            debug!("Container '{name}': {:?}", caps);
+            container_defs.insert(name, caps);
+        }
+    }
+
+    // Mint tokens for each container
+    for (name, caps) in &container_defs {
+        let _token = authority
+            .mint(name, caps)
+            .map_err(|e| anyhow::anyhow!("failed to mint token for '{name}': {e}"))?;
+        info!("Minted token for container '{name}'");
+    }
+
+    // Build DAGs, run execs, collect outputs
+    // Key: (container_name, source_line) -> captured output
+    let mut exec_outputs: HashMap<(String, usize), String> = HashMap::new();
+    let mut executor = ContainerExecutor::new(config.images_dir.clone(), container_defs.clone())?;
+
+    for (name, doc) in &documents {
+        let flow_dag = dag::build_dag(doc)
+            .map_err(|e| anyhow::anyhow!("DAG validation failed in {name}: {e}"))?;
+        info!(
+            "DAG validated for {name}: {} exec nodes, running in topological order",
+            flow_dag.execs.len()
+        );
+
+        for exec_id in flow_dag.topological_order() {
+            let exec_info = flow_dag
+                .execs
+                .iter()
+                .find(|e| e.id == exec_id)
+                .unwrap();
+
+            let image = exec_info.image.as_deref().unwrap_or("alpine");
+            executor
+                .ensure_started(&exec_info.container, image)
+                .await?;
+
+            let output = executor
+                .execute(&exec_info.container, &exec_info.command)
+                .await?;
+
+            exec_outputs.insert(
+                (exec_info.container.clone(), exec_info.source_line),
+                output,
+            );
+        }
+    }
+
+    executor.shutdown().await;
+
+    // Set up multi-document state
+    let state = Arc::new(MultiDocumentState::default());
+
+    // Process copy/cut blocks
+    for node in &all_nodes {
+        if let HickNode::Tag(tag) = node {
+            match tag.name.as_str() {
+                "copy" => {
+                    let id = tag_attr(tag, "id").unwrap_or_default();
+                    let content = collect_text_children(tag);
+                    state.register_copy(id, content);
+                }
+                "cut" => {
+                    let id = tag_attr(tag, "id").unwrap_or_default();
+                    let content = collect_text_children(tag);
+                    state.register_cut(id, content);
+                }
+                _ => {}
+            }
+        }
+    }
+
+    // Process file outputs — use real exec output instead of placeholders
+    for node in &all_nodes {
+        if let HickNode::Tag(tag) = node
+            && tag.name == "file"
+        {
+            let path = tag_attr(tag, "path").unwrap_or_default();
+            let file_ip = Arc::new(InsertionPoint::new());
+
+            for child in &tag.children {
+                match child {
+                    HickNode::Text(text) => {
+                        file_ip.add(Arc::new(StringNode::new(text.clone())));
+                    }
+                    HickNode::Tag(child_tag) if child_tag.name == "exec" => {
+                        let container_name =
+                            tag_attr(child_tag, "container").unwrap_or_default();
+                        let key = (container_name.clone(), child_tag.source_line);
+                        if let Some(output) = exec_outputs.get(&key) {
+                            file_ip.add(Arc::new(StringNode::new(output.clone())));
+                        } else {
+                            warn!(
+                                "No exec output for container '{}' at line {}",
+                                container_name, child_tag.source_line
+                            );
+                            let placeholder =
+                                format!("[exec in container '{container_name}']");
+                            file_ip.add(Arc::new(StringNode::new(placeholder)));
+                        }
                     }
                     HickNode::Tag(child_tag) if child_tag.name == "paste" => {
                         let selector = tag_attr(child_tag, "select").unwrap_or_default();
