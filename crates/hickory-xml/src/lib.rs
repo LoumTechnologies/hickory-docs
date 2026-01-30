@@ -52,7 +52,9 @@ pub trait XmlElement: Send + Sync + std::fmt::Debug {
 
     /// Returns the exact original text slice that was parsed to produce this element, if available.
     /// Implementations may return `None` if they don't track original source.
-    fn original_source(&self) -> Option<&str> { None }
+    fn original_source(&self) -> Option<&str> {
+        None
+    }
 }
 
 // ========================
@@ -181,7 +183,9 @@ impl XmlElement for RoxmlElement {
     }
 
     fn owner_document(&self) -> Option<Arc<dyn XmlDocument>> {
-        Some(Arc::new(RoxmlDocument { shared: self.doc.clone() }) as Arc<dyn XmlDocument>)
+        Some(Arc::new(RoxmlDocument {
+            shared: self.doc.clone(),
+        }) as Arc<dyn XmlDocument>)
     }
 
     fn original_source(&self) -> Option<&str> {
@@ -244,7 +248,10 @@ pub fn try_parse_xml(input: &str) -> Result<Arc<dyn XmlDocument>, roxmltree::Err
 // Selector implementation
 // =======================
 
-pub fn select_elements_under(root: &Arc<dyn XmlElement>, selector: &str) -> Result<Vec<Arc<dyn XmlElement>>, HickoryDocumentFormatError> {
+pub fn select_elements_under(
+    root: &Arc<dyn XmlElement>,
+    selector: &str,
+) -> Result<Vec<Arc<dyn XmlElement>>, HickoryDocumentFormatError> {
     if let Some(id) = selector.strip_prefix('#') {
         let mut out = Vec::new();
         walk_elements(root, &mut |e| {
@@ -288,23 +295,37 @@ pub fn select_elements_under(root: &Arc<dyn XmlElement>, selector: &str) -> Resu
     Ok(out)
 }
 
-fn parse_min_xpath(s: &str) -> Result<(&str, Option<(String, String)>), HickoryDocumentFormatError> {
+fn parse_min_xpath(
+    s: &str,
+) -> Result<(&str, Option<(String, String)>), HickoryDocumentFormatError> {
     // "//file[@path='x']"
     if let Some(bracket) = s.find('[') {
         let tag = &s[..bracket];
         let rest = &s[bracket..];
         // Expect [@name='value']
         if !rest.starts_with("[@") || !rest.ends_with(']') {
-            return Err(HickoryDocumentFormatError::new(None, None, None, "Unsupported XPath selector"));
+            return Err(HickoryDocumentFormatError::new(
+                None,
+                None,
+                None,
+                "Unsupported XPath selector",
+            ));
         }
         let inner = &rest[2..rest.len() - 1]; // drop [@ and ]
         let Some(eq) = inner.find('=') else {
-            return Err(HickoryDocumentFormatError::new(None, None, None, "Unsupported XPath selector"));
+            return Err(HickoryDocumentFormatError::new(
+                None,
+                None,
+                None,
+                "Unsupported XPath selector",
+            ));
         };
         let attr = inner[..eq].to_string();
         let mut value = inner[eq + 1..].trim().to_string();
         // accept either '...' or "..."
-        if (value.starts_with('\'') && value.ends_with('\'')) || (value.starts_with('"') && value.ends_with('"')) {
+        if (value.starts_with('\'') && value.ends_with('\''))
+            || (value.starts_with('"') && value.ends_with('"'))
+        {
             value = value[1..value.len() - 1].to_string();
         }
         Ok((tag, Some((attr, value))))
@@ -322,7 +343,10 @@ pub fn walk_elements(root: &Arc<dyn XmlElement>, f: &mut dyn FnMut(&Arc<dyn XmlE
     }
 }
 
-pub fn find_first_element_by_tag_in_document(doc: &Arc<dyn XmlDocument>, tag: &str) -> Option<Arc<dyn XmlElement>> {
+pub fn find_first_element_by_tag_in_document(
+    doc: &Arc<dyn XmlDocument>,
+    tag: &str,
+) -> Option<Arc<dyn XmlElement>> {
     for node in doc.child_nodes() {
         if let XmlNode::Element(el) = node {
             let mut found = None;
