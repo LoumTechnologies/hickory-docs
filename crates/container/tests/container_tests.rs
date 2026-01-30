@@ -68,11 +68,51 @@ async fn start_alpine_with_networking() -> Container {
 }
 
 // ---------------------------------------------------------------------------
+// Terminal escape sequence helpers
+// ---------------------------------------------------------------------------
+
+/// Strip all ANSI CSI escape sequences (ESC[ ... <letter|~>) from a string.
+///
+/// The shell sends cursor movement, color codes, and device status queries
+/// that would otherwise prevent clean prompt matching.
+fn strip_ansi_csi(s: &str) -> String {
+    let bytes = s.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == 0x1b && i + 1 < bytes.len() && bytes[i + 1] == b'[' {
+            // Skip ESC[ and consume until a letter or ~ terminates the sequence
+            i += 2;
+            while i < bytes.len() {
+                if bytes[i].is_ascii_alphabetic() || bytes[i] == b'~' {
+                    i += 1;
+                    break;
+                }
+                i += 1;
+            }
+        } else {
+            out.push(bytes[i]);
+            i += 1;
+        }
+    }
+    String::from_utf8_lossy(&out).into_owned()
+}
+
+/// Check whether raw output contains a Device Status Report query (ESC[6n).
+fn contains_dsr(data: &[u8]) -> bool {
+    data.windows(4).any(|w| w == b"\x1b[6n")
+}
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
 /// Read stdout until a shell prompt (`/ # ` or `$ `) appears, with a timeout.
 /// Returns everything read up to and including the prompt.
+///
+/// Handles terminal escape sequences:
+/// - Responds to DSR cursor-position queries (ESC[6n) so the shell unblocks.
+/// - Strips all ANSI CSI sequences before matching the prompt pattern.
 async fn wait_for_prompt(container: &mut Container, timeout: Duration) -> String {
     let mut output = String::new();
     let mut buf = [0u8; 4096];
@@ -86,10 +126,22 @@ async fn wait_for_prompt(container: &mut Container, timeout: Duration) -> String
             if n == 0 {
                 break;
             }
-            let chunk = String::from_utf8_lossy(&buf[..n]);
+
+            let raw = &buf[..n];
+
+            // Respond to Device Status Report queries so the shell doesn't
+            // stall waiting for a cursor-position response.
+            if contains_dsr(raw) {
+                let _ = container.write_stdin(b"\x1b[1;1R").await;
+            }
+
+            let chunk = String::from_utf8_lossy(raw);
             output.push_str(&chunk);
 
-            if output.contains("/ # ") || output.ends_with("/ # ") || output.ends_with("$ ") {
+            // Strip ANSI escape sequences before checking for the prompt,
+            // since the shell interleaves CSI codes with the prompt text.
+            let clean = strip_ansi_csi(&output);
+            if clean.contains("/ # ") || clean.ends_with("$ ") {
                 break;
             }
         }
@@ -109,10 +161,13 @@ async fn run_command(container: &mut Container, cmd: &str) -> String {
 
 // ---------------------------------------------------------------------------
 // Tests
+//
+// All tests use `flavor = "multi_thread"` because the WASM task is CPU-bound
+// and needs a separate OS thread to make progress. In a single-threaded
+// runtime the epoch incrementer can never run, so the WASM task never yields.
 // ---------------------------------------------------------------------------
 
 #[tokio::test(flavor = "multi_thread")]
-#[ignore = "terminal emulation issues - shell sends cursor queries we can't respond to"]
 async fn test_stdin_stdout() {
     let mut c = start_alpine().await;
     let _initial = wait_for_prompt(&mut c, Duration::from_secs(300)).await;
@@ -126,8 +181,7 @@ async fn test_stdin_stdout() {
     c.kill();
 }
 
-#[tokio::test]
-#[ignore = "terminal emulation issues - shell sends cursor queries we can't respond to"]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_stdin_stderr() {
     let mut c = start_alpine().await;
     wait_for_prompt(&mut c, Duration::from_secs(300)).await;
@@ -165,8 +219,7 @@ async fn test_stdin_stderr() {
     c.kill();
 }
 
-#[tokio::test]
-#[ignore = "terminal emulation issues - shell sends cursor queries we can't respond to"]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_file_write_and_read() {
     let mut c = start_alpine().await;
     wait_for_prompt(&mut c, Duration::from_secs(300)).await;
@@ -182,8 +235,7 @@ async fn test_file_write_and_read() {
     c.kill();
 }
 
-#[tokio::test]
-#[ignore = "terminal emulation issues - shell sends cursor queries we can't respond to"]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_file_creation() {
     let mut c = start_alpine().await;
     wait_for_prompt(&mut c, Duration::from_secs(300)).await;
@@ -218,8 +270,7 @@ async fn test_container_boots_with_networking() {
     c.kill();
 }
 
-#[tokio::test]
-#[ignore = "terminal emulation issues - shell interaction required for wget"]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_network_request() {
     let mut c = start_alpine_with_networking().await;
     wait_for_prompt(&mut c, Duration::from_secs(300)).await;
@@ -234,8 +285,7 @@ async fn test_network_request() {
     c.kill();
 }
 
-#[tokio::test]
-#[ignore = "terminal emulation issues - shell sends cursor queries we can't respond to"]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_sequential_programs() {
     let mut c = start_alpine().await;
     wait_for_prompt(&mut c, Duration::from_secs(300)).await;
@@ -261,8 +311,7 @@ async fn test_sequential_programs() {
     c.kill();
 }
 
-#[tokio::test]
-#[ignore = "terminal emulation issues - shell sends cursor queries we can't respond to"]
+#[tokio::test(flavor = "multi_thread")]
 async fn test_kill_foreground_process() {
     let mut c = start_alpine().await;
     wait_for_prompt(&mut c, Duration::from_secs(300)).await;
