@@ -3,6 +3,14 @@ name = "hick"
 version = "0.1.0"
 edition = "2024"
 
+[lib]
+name = "hick"
+path = "src/lib.rs"
+
+[[bin]]
+name = "hick"
+path = "src/main.rs"
+
 [dependencies]
 container = { path = "../container" }
 c2w = { path = "../c2w" }
