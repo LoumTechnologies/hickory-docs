@@ -6,7 +6,18 @@ edition = "2024"
 [dependencies]
 container = { path = "../container" }
 c2w = { path = "../c2w" }
+connection-filter = { path = "../connection-filter", features = ["capability"] }
+hick-api = { path = "../hick-api" }
+hick-exec = { path = "../hick-exec" }
+hick-lang = { path = "../hick-lang" }
+hick-secrets = { path = "../hick-secrets" }
+hick-token = { path = "../hick-token" }
+
 wasmtime = "41.0.0"
 wasmtime-wasi = "41.0.0"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-util", "sync"] }
 anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+env_logger = "0.11"
+log = "0.4"
+rand = "0.8"
