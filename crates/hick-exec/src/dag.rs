@@ -76,6 +76,8 @@ pub struct ExecInfo {
     pub produces_copy: Vec<String>,
     /// Paste selectors consumed by this exec.
     pub consumes_paste: Vec<String>,
+    /// The command text inside the exec tag.
+    pub command: String,
     /// Source line number.
     pub source_line: usize,
 }
@@ -386,6 +388,8 @@ fn extract_exec_info(tag: &HickTag, index: usize) -> ExecInfo {
     let mut consumes_paste = Vec::new();
     scan_copy_paste(&tag.children, &mut produces_copy, &mut consumes_paste);
 
+    let command = tag.text_content();
+
     ExecInfo {
         id: ExecId(index),
         container,
@@ -393,6 +397,7 @@ fn extract_exec_info(tag: &HickTag, index: usize) -> ExecInfo {
         mounts,
         produces_copy,
         consumes_paste,
+        command,
         source_line: tag.source_line,
     }
 }

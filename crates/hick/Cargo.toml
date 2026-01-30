@@ -15,6 +15,8 @@ path = "src/main.rs"
 container = { path = "../container" }
 c2w = { path = "../c2w" }
 connection-filter = { path = "../connection-filter", features = ["capability"] }
+bridge = { path = "../bridge" }
+net-config = { path = "../net-config" }
 hick-api = { path = "../hick-api" }
 hick-exec = { path = "../hick-exec" }
 hick-lang = { path = "../hick-lang" }
@@ -23,7 +25,7 @@ hick-token = { path = "../hick-token" }
 
 wasmtime = "41.0.0"
 wasmtime-wasi = "41.0.0"
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-util", "sync"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-util", "sync", "time"] }
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
 env_logger = "0.11"
