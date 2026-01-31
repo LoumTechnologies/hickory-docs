@@ -94,6 +94,32 @@ pub async fn run_pipeline_with_authority(
         }
     }
 
+    // Collect fork definitions: inherit source capabilities and attenuate
+    for node in &all_nodes {
+        if let HickNode::Tag(tag) = node
+            && tag.name == "fork"
+        {
+            let from = tag_attr(tag, "from").unwrap_or_default();
+            let to = tag_attr(tag, "to").unwrap_or_default();
+            let additional_caps = build_fork_capabilities(tag);
+
+            if let Some(source_caps) = container_defs.get(&from) {
+                let mut forked_caps = source_caps.clone();
+                if let Some(extra) = &additional_caps {
+                    forked_caps.network_rules.extend(extra.network_rules.clone());
+                    forked_caps.file_rules.extend(extra.file_rules.clone());
+                }
+                debug!("Fork '{from}' -> '{to}': {:?}", forked_caps);
+                container_defs.insert(to, forked_caps);
+            } else {
+                // Source not explicitly declared; fork gets only its own caps
+                let caps = additional_caps.unwrap_or_default();
+                debug!("Fork '{from}' -> '{to}' (no source caps): {:?}", caps);
+                container_defs.insert(to, caps);
+            }
+        }
+    }
+
     // Mint tokens for each container
     for (name, caps) in &container_defs {
         let _token = authority
@@ -239,6 +265,34 @@ pub async fn run_pipeline_live(
         }
     }
 
+    // Collect fork definitions: inherit source capabilities and attenuate
+    let mut fork_registrations: Vec<(String, String, Option<ContainerCapabilities>)> = Vec::new();
+    for node in &all_nodes {
+        if let HickNode::Tag(tag) = node
+            && tag.name == "fork"
+        {
+            let from = tag_attr(tag, "from").unwrap_or_default();
+            let to = tag_attr(tag, "to").unwrap_or_default();
+            let additional_caps = build_fork_capabilities(tag);
+
+            if let Some(source_caps) = container_defs.get(&from) {
+                let mut forked_caps = source_caps.clone();
+                if let Some(extra) = &additional_caps {
+                    forked_caps.network_rules.extend(extra.network_rules.clone());
+                    forked_caps.file_rules.extend(extra.file_rules.clone());
+                }
+                debug!("Fork '{from}' -> '{to}': {:?}", forked_caps);
+                container_defs.insert(to.clone(), forked_caps);
+            } else {
+                let caps = additional_caps.clone().unwrap_or_default();
+                debug!("Fork '{from}' -> '{to}' (no source caps): {:?}", caps);
+                container_defs.insert(to.clone(), caps);
+            }
+
+            fork_registrations.push((from, to, additional_caps));
+        }
+    }
+
     // Mint tokens for each container
     for (name, caps) in &container_defs {
         let _token = authority
@@ -249,6 +303,11 @@ pub async fn run_pipeline_live(
 
     // Build DAGs, run execs in containers
     let mut executor = ContainerExecutor::new(config.images_dir.clone(), container_defs.clone())?;
+
+    // Register fork definitions with the executor
+    for (from, to, additional_caps) in &fork_registrations {
+        executor.register_fork(to, from, additional_caps.clone());
+    }
 
     for (name, doc) in &documents {
         let flow_dag = dag::build_dag(doc)
@@ -402,6 +461,45 @@ pub fn build_capabilities_from_tag(tag: &HickTag) -> ContainerCapabilities {
     }
 
     caps
+}
+
+/// Build additional capabilities from a `<hick:fork>` tag's children.
+///
+/// Returns `None` if the fork tag has no `<deny>` or `<allow>` children,
+/// meaning no additional restrictions are applied to the fork.
+pub fn build_fork_capabilities(tag: &HickTag) -> Option<ContainerCapabilities> {
+    let mut has_rules = false;
+    let mut caps = ContainerCapabilities::new();
+
+    for child in &tag.children {
+        if let HickNode::Tag(child_tag) = child {
+            match child_tag.name.as_str() {
+                "allow" => {
+                    has_rules = true;
+                    if let Some(network) = tag_attr(child_tag, "network")
+                        && let Some((host, port)) = network.rsplit_once(':')
+                    {
+                        caps.network_rules.push(NetworkRule::allow(host, port));
+                    }
+                    if let Some(path) = tag_attr(child_tag, "file-read") {
+                        caps.file_rules.push(hick_token::FileRule::Read(path));
+                    }
+                    if let Some(path) = tag_attr(child_tag, "file-write") {
+                        caps.file_rules.push(hick_token::FileRule::Write(path));
+                    }
+                }
+                "deny" => {
+                    has_rules = true;
+                    if tag_attr(child_tag, "network").is_some() {
+                        caps.network_rules.push(NetworkRule::deny_all());
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    if has_rules { Some(caps) } else { None }
 }
 
 /// Collect text content from a tag's children into a single string.

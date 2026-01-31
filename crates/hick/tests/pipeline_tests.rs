@@ -295,6 +295,139 @@ async fn test_custom_prefix_containers() {
     assert_eq!(result.files.get("out.txt").unwrap(), "done");
 }
 
+// ---------------------------------------------------------------------------
+// Fork tests
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_fork_creates_container_def_in_dry_run() {
+    let src = hick_doc(
+        r#"<hick:container name="base" image="alpine">
+  <hick:allow network="pypi.org:443" />
+  <hick:deny network="*" />
+</hick:container>
+<hick:exec container="base">echo setup</hick:exec>
+<hick:fork from="base" to="analyzer" />
+<hick:exec container="analyzer">echo analyze</hick:exec>"#,
+    );
+    let result = hick::run_pipeline(&[("test.hick", &src)]).await.unwrap();
+
+    // Fork target should appear as a container definition
+    assert!(
+        result.containers.contains_key("analyzer"),
+        "fork target 'analyzer' should be in container defs"
+    );
+    // Source container should also be present
+    assert!(
+        result.containers.contains_key("base"),
+        "source container 'base' should be in container defs"
+    );
+}
+
+#[tokio::test]
+async fn test_fork_inherits_source_capabilities() {
+    let src = hick_doc(
+        r#"<hick:container name="base" image="alpine">
+  <hick:allow network="pypi.org:443" />
+  <hick:deny network="*" />
+</hick:container>
+<hick:exec container="base">echo setup</hick:exec>
+<hick:fork from="base" to="analyzer" />
+<hick:exec container="analyzer">echo analyze</hick:exec>"#,
+    );
+    let result = hick::run_pipeline(&[("test.hick", &src)]).await.unwrap();
+
+    let base_caps = result.containers.get("base").unwrap();
+    let fork_caps = result.containers.get("analyzer").unwrap();
+
+    // Fork should inherit the source's network rules
+    assert_eq!(
+        base_caps.network_rules.len(),
+        fork_caps.network_rules.len(),
+        "fork should inherit source network rules"
+    );
+    assert_eq!(base_caps.network_rules, fork_caps.network_rules);
+}
+
+#[tokio::test]
+async fn test_fork_attenuates_capabilities() {
+    let src = hick_doc(
+        r#"<hick:container name="base" image="alpine">
+  <hick:allow network="pypi.org:443" />
+</hick:container>
+<hick:exec container="base">echo setup</hick:exec>
+<hick:fork from="base" to="restricted">
+  <hick:deny network="*" />
+</hick:fork>
+<hick:exec container="restricted">echo analyze</hick:exec>"#,
+    );
+    let result = hick::run_pipeline(&[("test.hick", &src)]).await.unwrap();
+
+    let base_caps = result.containers.get("base").unwrap();
+    let fork_caps = result.containers.get("restricted").unwrap();
+
+    // Base has 1 allow rule
+    assert_eq!(base_caps.network_rules.len(), 1);
+
+    // Fork inherits the allow rule AND adds a deny-all
+    assert_eq!(
+        fork_caps.network_rules.len(),
+        2,
+        "fork should have inherited allow + added deny"
+    );
+
+    // Check that the deny-all was added
+    assert!(
+        fork_caps
+            .network_rules
+            .iter()
+            .any(|r| matches!(r, hick_token::NetworkRule::DenyAll)),
+        "fork should have deny-all rule"
+    );
+}
+
+#[tokio::test]
+async fn test_fork_with_allow_and_deny_children() {
+    let src = hick_doc(
+        r#"<hick:container name="base" image="alpine">
+  <hick:allow network="pypi.org:443" />
+</hick:container>
+<hick:exec container="base">echo setup</hick:exec>
+<hick:fork from="base" to="scanner">
+  <hick:allow network="cve.mitre.org:443" />
+  <hick:deny network="*" />
+</hick:fork>
+<hick:exec container="scanner">echo scan</hick:exec>"#,
+    );
+    let result = hick::run_pipeline(&[("test.hick", &src)]).await.unwrap();
+
+    let fork_caps = result.containers.get("scanner").unwrap();
+
+    // Should have: inherited allow(pypi.org:443) + added allow(cve.mitre.org:443) + deny(*)
+    assert_eq!(
+        fork_caps.network_rules.len(),
+        3,
+        "fork should have 3 network rules (1 inherited + 2 from fork children)"
+    );
+}
+
+#[tokio::test]
+async fn test_fork_without_declared_source_gets_default_caps() {
+    // Source container has no explicit <container> declaration (implicit via exec image attr)
+    let src = hick_doc(
+        r#"<hick:exec container="base" image="alpine">echo setup</hick:exec>
+<hick:fork from="base" to="fork-target" />
+<hick:exec container="fork-target">echo hello</hick:exec>"#,
+    );
+    let result = hick::run_pipeline(&[("test.hick", &src)]).await.unwrap();
+
+    // Fork target should still appear in container defs with empty capabilities
+    assert!(result.containers.contains_key("fork-target"));
+    let fork_caps = result.containers.get("fork-target").unwrap();
+    assert!(fork_caps.network_rules.is_empty());
+    assert!(fork_caps.file_rules.is_empty());
+}
+
 #[tokio::test]
 async fn test_guide_hick_file_processes() {
     let guide_src = include_str!("../../../docs/hick-guide.hick");

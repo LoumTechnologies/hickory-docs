@@ -118,6 +118,26 @@ struct RunningContainer {
     booted: bool,
     #[allow(dead_code)]
     network_config: NetworkConfig,
+    /// Image name used to start this container (needed for forking).
+    image_name: String,
+    /// Commands executed in this container, in order (for replay-based forking).
+    command_history: Vec<String>,
+}
+
+// ---------------------------------------------------------------------------
+// Fork definition
+// ---------------------------------------------------------------------------
+
+/// Describes a pending fork: which source container to replay from and any
+/// additional capability restrictions applied to the fork target.
+struct ForkDef {
+    from: String,
+    /// Capability restrictions from fork's `<deny>`/`<allow>` children.
+    /// The pipeline applies these to `container_caps` before executor creation,
+    /// so the connection filter already uses the attenuated caps. Stored here
+    /// for future use (e.g. runtime re-attenuation).
+    #[allow(dead_code)]
+    additional_caps: Option<ContainerCapabilities>,
 }
 
 // ---------------------------------------------------------------------------
@@ -133,6 +153,8 @@ pub struct ContainerExecutor {
     next_subnet: u8,
     container_caps: HashMap<String, ContainerCapabilities>,
     transcripts: HashMap<String, String>,
+    /// Pending fork definitions: target container name -> fork info.
+    fork_defs: HashMap<String, ForkDef>,
 }
 
 impl ContainerExecutor {
@@ -154,15 +176,48 @@ impl ContainerExecutor {
             next_subnet: 0,
             container_caps,
             transcripts: HashMap::new(),
+            fork_defs: HashMap::new(),
         })
     }
 
+    /// Register a fork definition. When `ensure_started` is called for `target`,
+    /// the executor will start a fresh container from the source's image and
+    /// replay the source's command history.
+    pub fn register_fork(
+        &mut self,
+        target: &str,
+        from: &str,
+        additional_caps: Option<ContainerCapabilities>,
+    ) {
+        self.fork_defs.insert(
+            target.to_string(),
+            ForkDef {
+                from: from.to_string(),
+                additional_caps,
+            },
+        );
+    }
+
     /// Ensure a container is started and booted. No-op if already running.
+    ///
+    /// If the container name is registered as a fork target, it will be started
+    /// by replaying the source container's command history instead of starting
+    /// fresh.
     pub async fn ensure_started(&mut self, name: &str, image: &str) -> Result<()> {
         if self.containers.contains_key(name) {
             return Ok(());
         }
 
+        // Check if this is a fork target
+        if let Some(fork_def) = self.fork_defs.remove(name) {
+            return self.start_forked_container(name, &fork_def).await;
+        }
+
+        self.start_fresh_container(name, image).await
+    }
+
+    /// Start a brand-new container from a WASM image.
+    async fn start_fresh_container(&mut self, name: &str, image: &str) -> Result<()> {
         let wasm_path = resolve_image_path(&self.images_dir, image);
         info!("Loading image for container '{name}': {}", wasm_path.display());
 
@@ -206,6 +261,8 @@ impl ContainerExecutor {
                 prompt_matcher: PromptMatcher::new(),
                 booted: false,
                 network_config: net_cfg,
+                image_name: image.to_string(),
+                command_history: Vec::new(),
             },
         );
 
@@ -214,6 +271,130 @@ impl ContainerExecutor {
             .with_context(|| format!("container '{name}' failed to boot"))?;
 
         Ok(())
+    }
+
+    /// Start a forked container by replaying the source container's command history.
+    ///
+    /// 1. Looks up the source container's image and command history
+    /// 2. Starts a fresh container from the same image
+    /// 3. Replays each command from the source's history
+    async fn start_forked_container(&mut self, name: &str, fork_def: &ForkDef) -> Result<()> {
+        // Snapshot source state before starting the new container
+        let (source_image, history) = {
+            let source = self.containers.get(&fork_def.from)
+                .ok_or_else(|| anyhow::anyhow!(
+                    "fork source container '{}' not found (not started yet?)",
+                    fork_def.from
+                ))?;
+            (source.image_name.clone(), source.command_history.clone())
+        };
+
+        info!(
+            "Forking container '{}' -> '{name}': replaying {} commands from image '{source_image}'",
+            fork_def.from,
+            history.len()
+        );
+
+        // Start a fresh container from the same image
+        self.start_fresh_container(name, &source_image).await?;
+
+        // Replay command history (use replay_command to avoid recording to history)
+        for cmd in &history {
+            self.replay_command(name, cmd).await
+                .with_context(|| format!(
+                    "failed to replay command in forked container '{name}': {cmd}"
+                ))?;
+        }
+
+        info!("Fork '{name}' ready: replayed {} commands", history.len());
+        Ok(())
+    }
+
+    /// Execute a command in a container without recording it to the command history.
+    /// Used for replaying commands during fork.
+    async fn replay_command(&mut self, name: &str, command: &str) -> Result<String> {
+        // This is the same as execute() but skips the history push
+        let command = command.trim();
+        if command.is_empty() {
+            return Ok(String::new());
+        }
+
+        {
+            let rc = self.containers.get(name)
+                .ok_or_else(|| anyhow::anyhow!("container '{name}' not found"))?;
+            if !rc.booted {
+                bail!("container '{name}' has not booted yet");
+            }
+        }
+
+        info!("Replaying in '{name}': {command}");
+
+        let cmd_lines: Vec<String> = command
+            .lines()
+            .map(|l| l.trim().to_string())
+            .filter(|l| !l.is_empty())
+            .collect();
+
+        {
+            let rc = self.containers.get_mut(name).unwrap();
+            rc.container
+                .write_line(&format!("echo '{START_MARKER}'"))
+                .await?;
+            for line in &cmd_lines {
+                rc.container.write_line(line).await?;
+            }
+            rc.container
+                .write_line(&format!("echo '{END_MARKER}'"))
+                .await?;
+        }
+
+        let deadline = tokio::time::Instant::now() + COMMAND_TIMEOUT;
+        let mut buf = [0u8; 4096];
+        let mut all_output = Vec::new();
+
+        let (result, prompt_already_seen) = loop {
+            let rc = self.containers.get_mut(name).unwrap();
+            let read_result = tokio::time::timeout_at(
+                deadline,
+                rc.container.read_stdout(&mut buf),
+            ).await;
+
+            match read_result {
+                Err(_) => bail!("timed out waiting for command output"),
+                Ok(Err(e)) => bail!("read error: {e}"),
+                Ok(Ok(0)) => bail!("container exited unexpectedly"),
+                Ok(Ok(n)) => {
+                    let cleaned = strip_dsr(&buf[..n]);
+                    all_output.extend_from_slice(&cleaned);
+
+                    let text = String::from_utf8_lossy(&all_output);
+                    let start_line = format!("\n{START_MARKER}");
+                    let end_line = format!("\n{END_MARKER}");
+                    if text.contains(&end_line) {
+                        let start_pos = text.find(&start_line)
+                            .ok_or_else(|| anyhow::anyhow!("start marker not found on own line"))?;
+                        let after_start = start_pos + start_line.len();
+                        let end_pos = text.find(&end_line).unwrap();
+                        let captured = &text[after_start..end_pos];
+
+                        let result = clean_captured_output(captured, &cmd_lines);
+
+                        let after_end = end_pos + end_line.len();
+                        let leftover = text[after_end..].as_bytes();
+                        let mut pm = PromptMatcher::new();
+                        let (_, prompt_seen) = pm.process(leftover);
+
+                        break (result, prompt_seen);
+                    }
+                }
+            }
+        };
+
+        if !prompt_already_seen {
+            self.wait_for_prompt(name, deadline).await?;
+        }
+
+        Ok(result)
     }
 
     /// Wait for the container's shell prompt after boot.
@@ -253,6 +434,9 @@ impl ContainerExecutor {
     /// then reads all output until the end marker appears. The content
     /// between markers is extracted and cleaned of shell echoes, prompts,
     /// and ANSI escape sequences.
+    ///
+    /// The command is recorded in the container's history for replay-based
+    /// forking.
     pub async fn execute(&mut self, name: &str, command: &str) -> Result<String> {
         let command = command.trim();
         if command.is_empty() {
@@ -269,6 +453,12 @@ impl ContainerExecutor {
         }
 
         info!("Executing in '{name}': {command}");
+
+        // Record to history for potential future forks
+        {
+            let rc = self.containers.get_mut(name).unwrap();
+            rc.command_history.push(command.to_string());
+        }
 
         // Collect the command lines we're sending (for echo stripping later)
         let cmd_lines: Vec<String> = command
