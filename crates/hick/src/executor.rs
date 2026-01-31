@@ -132,6 +132,7 @@ pub struct ContainerExecutor {
     bridge: Arc<RwLock<NetworkBridge>>,
     next_subnet: u8,
     container_caps: HashMap<String, ContainerCapabilities>,
+    transcripts: HashMap<String, String>,
 }
 
 impl ContainerExecutor {
@@ -152,6 +153,7 @@ impl ContainerExecutor {
             bridge,
             next_subnet: 0,
             container_caps,
+            transcripts: HashMap::new(),
         })
     }
 
@@ -349,6 +351,16 @@ impl ContainerExecutor {
             self.wait_for_prompt(name, deadline).await?;
         }
 
+        // Append to the per-container transcript
+        let transcript = self.transcripts.entry(name.to_string()).or_default();
+        for line in &cmd_lines {
+            transcript.push_str(&format!("$ {line}\n"));
+        }
+        if !result.is_empty() {
+            transcript.push_str(&result);
+            transcript.push('\n');
+        }
+
         Ok(result)
     }
 
@@ -379,6 +391,14 @@ impl ContainerExecutor {
                 }
             }
         }
+    }
+
+    /// Per-container execution transcripts accumulated by [`execute`].
+    ///
+    /// Each entry maps a container name to a string containing all commands
+    /// prefixed with `$ ` and their outputs, in execution order.
+    pub fn transcripts(&self) -> &HashMap<String, String> {
+        &self.transcripts
     }
 
     /// Kill all containers and clean up.
