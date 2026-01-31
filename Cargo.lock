@@ -1864,6 +1864,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "glob"
+version = "0.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0cc23270f6e1808e30a928bdc84dea0b9b4136a8bc82338574f23baf47bbd280"
+
+[[package]]
 name = "half"
 version = "2.7.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1962,6 +1968,7 @@ dependencies = [
  "connection-filter",
  "container",
  "env_logger",
+ "glob",
  "hick-api",
  "hick-exec",
  "hick-lang",
@@ -1970,6 +1977,10 @@ dependencies = [
  "log",
  "net-config",
  "rand",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "sha2",
  "tokio",
  "wasmtime 41.0.1",
  "wasmtime-wasi 41.0.1",

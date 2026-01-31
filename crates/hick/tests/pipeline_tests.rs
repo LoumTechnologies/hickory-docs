@@ -19,7 +19,9 @@ fn hick_doc(body: &str) -> String {
 #[tokio::test]
 async fn test_simple_file_output() {
     let src = hick_doc(r#"<hick:file path="out.txt">hello world</hick:file>"#);
-    let result = hick::run_pipeline(&[("test.hick", &src)]).await.unwrap();
+    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+        .await
+        .unwrap();
     assert_eq!(result.files.get("out.txt").unwrap(), "hello world");
 }
 
@@ -29,7 +31,9 @@ async fn test_file_with_exec_dry_run_transcript() {
         r#"<hick:container name="demo" image="alpine" />
 <hick:file path="out.txt"><hick:exec container="demo">echo hi</hick:exec></hick:file>"#,
     );
-    let result = hick::run_pipeline(&[("test.hick", &src)]).await.unwrap();
+    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+        .await
+        .unwrap();
     let content = result.files.get("out.txt").unwrap();
     assert!(
         content.contains("$ echo hi"),
@@ -44,7 +48,9 @@ async fn test_multi_file_output() {
 <hick:file path="b.txt">bbb</hick:file>
 <hick:file path="c.txt">ccc</hick:file>"#,
     );
-    let result = hick::run_pipeline(&[("test.hick", &src)]).await.unwrap();
+    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+        .await
+        .unwrap();
     assert_eq!(result.files.len(), 3);
     assert_eq!(result.files.get("a.txt").unwrap(), "aaa");
     assert_eq!(result.files.get("b.txt").unwrap(), "bbb");
@@ -54,8 +60,63 @@ async fn test_multi_file_output() {
 #[tokio::test]
 async fn test_raw_text_characters() {
     let src = hick_doc(r#"<hick:file path="out.txt">a & b < c > d</hick:file>"#);
-    let result = hick::run_pipeline(&[("test.hick", &src)]).await.unwrap();
+    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+        .await
+        .unwrap();
     assert_eq!(result.files.get("out.txt").unwrap(), "a & b < c > d");
+}
+
+// ---------------------------------------------------------------------------
+// Exec show attribute tests
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_exec_show_command_only() {
+    let src = hick_doc(
+        r#"<hick:container name="demo" image="alpine" />
+<hick:exec container="demo">echo setup</hick:exec>
+<hick:file path="out.txt"><hick:exec container="demo" show="command">echo setup</hick:exec></hick:file>"#,
+    );
+    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+        .await
+        .unwrap();
+    let content = result.files.get("out.txt").unwrap();
+    assert!(
+        content.contains("$ echo setup"),
+        "should show command, got: {content}"
+    );
+}
+
+#[tokio::test]
+async fn test_exec_show_none() {
+    let src = hick_doc(
+        r#"<hick:container name="demo" image="alpine" />
+<hick:exec container="demo">echo setup</hick:exec>
+<hick:file path="out.txt">before<hick:exec container="demo" show="none">echo setup</hick:exec>after</hick:file>"#,
+    );
+    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+        .await
+        .unwrap();
+    let content = result.files.get("out.txt").unwrap();
+    assert_eq!(content, "beforeafter", "show=none should render nothing");
+}
+
+#[tokio::test]
+async fn test_exec_show_output_only() {
+    // In dry-run mode, output is always empty, so show="output" produces nothing
+    let src = hick_doc(
+        r#"<hick:container name="demo" image="alpine" />
+<hick:exec container="demo">echo hello</hick:exec>
+<hick:file path="out.txt">before<hick:exec container="demo" show="output">echo hello</hick:exec>after</hick:file>"#,
+    );
+    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+        .await
+        .unwrap();
+    let content = result.files.get("out.txt").unwrap();
+    assert_eq!(
+        content, "beforeafter",
+        "show=output in dry-run should render nothing (no output)"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -69,7 +130,9 @@ async fn test_copy_paste() {
         "\n",
         r##"<hick:file path="out.txt"><hick:paste select="#v" /></hick:file>"##,
     ));
-    let result = hick::run_pipeline(&[("test.hick", &src)]).await.unwrap();
+    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+        .await
+        .unwrap();
     assert_eq!(result.files.get("out.txt").unwrap(), "3.12");
 }
 
@@ -80,7 +143,9 @@ async fn test_cut_paste() {
         "\n",
         r##"<hick:file path="out.txt"><hick:paste select="#secret" /></hick:file>"##,
     ));
-    let result = hick::run_pipeline(&[("test.hick", &src)]).await.unwrap();
+    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+        .await
+        .unwrap();
     assert_eq!(result.files.get("out.txt").unwrap(), "hidden-value");
 }
 
@@ -89,7 +154,9 @@ async fn test_paste_missing_selector() {
     let src = hick_doc(
         r##"<hick:file path="out.txt">before<hick:paste select="#nonexistent" />after</hick:file>"##,
     );
-    let result = hick::run_pipeline(&[("test.hick", &src)]).await.unwrap();
+    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+        .await
+        .unwrap();
     // Missing paste produces no output, no crash
     assert_eq!(result.files.get("out.txt").unwrap(), "beforeafter");
 }
@@ -99,10 +166,129 @@ async fn test_copy_paste_across_documents() {
     let doc1 = hick_doc(r#"<hick:copy id="version">2.0.0</hick:copy>"#);
     let doc2 =
         hick_doc(r##"<hick:file path="out.txt"><hick:paste select="#version" /></hick:file>"##);
-    let result = hick::run_pipeline(&[("doc1.hick", &doc1), ("doc2.hick", &doc2)])
+    let result = hick::run_pipeline(&[("doc1.hick", &doc1), ("doc2.hick", &doc2)], &[])
         .await
         .unwrap();
     assert_eq!(result.files.get("out.txt").unwrap(), "2.0.0");
+}
+
+// ---------------------------------------------------------------------------
+// Variable / parameter tests
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_var_val_basic() {
+    let src = hick_doc(concat!(
+        r#"<hick:var name="version">1.0.0</hick:var>"#,
+        "\n",
+        r#"<hick:file path="out.txt">v=<hick:val name="version" /></hick:file>"#,
+    ));
+    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+        .await
+        .unwrap();
+    assert_eq!(result.files.get("out.txt").unwrap(), "v=1.0.0");
+}
+
+#[tokio::test]
+async fn test_param_overrides_var() {
+    let src = hick_doc(concat!(
+        r#"<hick:var name="version">1.0.0</hick:var>"#,
+        "\n",
+        r#"<hick:file path="out.txt">v=<hick:val name="version" /></hick:file>"#,
+    ));
+    let params = vec![("version".to_string(), "2.0.0".to_string())];
+    let result = hick::run_pipeline(&[("test.hick", &src)], &params)
+        .await
+        .unwrap();
+    assert_eq!(result.files.get("out.txt").unwrap(), "v=2.0.0");
+}
+
+#[tokio::test]
+async fn test_var_missing_produces_nothing() {
+    let src =
+        hick_doc(r#"<hick:file path="out.txt">before<hick:val name="missing" />after</hick:file>"#);
+    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+        .await
+        .unwrap();
+    assert_eq!(result.files.get("out.txt").unwrap(), "beforeafter");
+}
+
+#[tokio::test]
+async fn test_var_across_documents() {
+    let doc1 = hick_doc(r#"<hick:var name="shared">hello</hick:var>"#);
+    let doc2 = hick_doc(r#"<hick:file path="out.txt"><hick:val name="shared" /></hick:file>"#);
+    let result = hick::run_pipeline(&[("doc1.hick", &doc1), ("doc2.hick", &doc2)], &[])
+        .await
+        .unwrap();
+    assert_eq!(result.files.get("out.txt").unwrap(), "hello");
+}
+
+// ---------------------------------------------------------------------------
+// Include tests
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_include_basic() {
+    let dir = std::env::temp_dir().join("hick-test-include-basic");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+
+    // Write fragment
+    std::fs::write(
+        dir.join("version.hick"),
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
+<hick:copy id="ver">4.0.0</hick:copy>
+</hick:doc>"#,
+    )
+    .unwrap();
+
+    // Write main doc
+    let main_src = r##"<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
+<hick:include file="version.hick" />
+<hick:file path="out.txt">v=<hick:paste select="#ver" /></hick:file>
+</hick:doc>"##;
+    let main_path = dir.join("main.hick");
+    std::fs::write(&main_path, main_src).unwrap();
+
+    let result = hick::run_pipeline(&[(main_path.to_str().unwrap(), main_src)], &[])
+        .await
+        .unwrap();
+    assert_eq!(result.files.get("out.txt").unwrap(), "v=4.0.0");
+
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[tokio::test]
+async fn test_include_circular_detected() {
+    let dir = std::env::temp_dir().join("hick-test-include-cycle");
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+
+    std::fs::write(
+        dir.join("a.hick"),
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
+<hick:include file="b.hick" />
+</hick:doc>"#,
+    )
+    .unwrap();
+
+    std::fs::write(
+        dir.join("b.hick"),
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
+<hick:include file="a.hick" />
+</hick:doc>"#,
+    )
+    .unwrap();
+
+    let src = std::fs::read_to_string(dir.join("a.hick")).unwrap();
+    let result = hick::run_pipeline(&[(dir.join("a.hick").to_str().unwrap(), &src)], &[]).await;
+    assert!(result.is_err(), "circular include should fail");
+
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 // ---------------------------------------------------------------------------
@@ -206,7 +392,9 @@ async fn test_full_pipeline_smoke() {
 Container: build
 </hick:file>"##,
     ));
-    let result = hick::run_pipeline(&[("smoke.hick", &src)]).await.unwrap();
+    let result = hick::run_pipeline(&[("smoke.hick", &src)], &[])
+        .await
+        .unwrap();
 
     // File output exists and has pasted version
     let manifest = result.files.get("manifest.txt").unwrap();
@@ -226,7 +414,9 @@ async fn test_no_file_outputs() {
         r#"<hick:container name="worker" image="alpine" />
 <hick:exec container="worker">echo working</hick:exec>"#,
     );
-    let result = hick::run_pipeline(&[("test.hick", &src)]).await.unwrap();
+    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+        .await
+        .unwrap();
     assert!(result.files.is_empty());
 }
 
@@ -246,11 +436,10 @@ fn h_doc(body: &str) -> String {
 #[tokio::test]
 async fn test_custom_prefix_file_output() {
     let src = h_doc(r#"<h:file path="out.txt">hello from h prefix</h:file>"#);
-    let result = hick::run_pipeline(&[("test.hick", &src)]).await.unwrap();
-    assert_eq!(
-        result.files.get("out.txt").unwrap(),
-        "hello from h prefix"
-    );
+    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+        .await
+        .unwrap();
+    assert_eq!(result.files.get("out.txt").unwrap(), "hello from h prefix");
 }
 
 #[tokio::test]
@@ -260,7 +449,9 @@ async fn test_custom_prefix_cut_paste() {
         "\n",
         r##"<h:file path="out.txt">NS: <h:paste select="#ns" /></h:file>"##,
     ));
-    let result = hick::run_pipeline(&[("test.hick", &src)]).await.unwrap();
+    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+        .await
+        .unwrap();
     assert_eq!(
         result.files.get("out.txt").unwrap(),
         "NS: http://www.hickorydocs.com/1.0"
@@ -270,10 +461,11 @@ async fn test_custom_prefix_cut_paste() {
 #[tokio::test]
 async fn test_custom_prefix_hick_in_text_is_literal() {
     // With h: prefix, <hick:...> in text body is NOT parsed
-    let src = h_doc(
-        r#"<h:file path="out.txt">Example: <hick:file path="x">y</hick:file></h:file>"#,
-    );
-    let result = hick::run_pipeline(&[("test.hick", &src)]).await.unwrap();
+    let src =
+        h_doc(r#"<h:file path="out.txt">Example: <hick:file path="x">y</hick:file></h:file>"#);
+    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+        .await
+        .unwrap();
     let content = result.files.get("out.txt").unwrap();
     assert!(
         content.contains("<hick:file"),
@@ -290,7 +482,9 @@ async fn test_custom_prefix_containers() {
 </h:container>
 <h:file path="out.txt">done</h:file>"#,
     );
-    let result = hick::run_pipeline(&[("test.hick", &src)]).await.unwrap();
+    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+        .await
+        .unwrap();
     assert!(result.containers.contains_key("worker"));
     assert_eq!(result.files.get("out.txt").unwrap(), "done");
 }
@@ -310,7 +504,7 @@ async fn test_fork_creates_container_def_in_dry_run() {
 <hick:fork from="base" to="analyzer" />
 <hick:exec container="analyzer">echo analyze</hick:exec>"#,
     );
-    let result = hick::run_pipeline(&[("test.hick", &src)]).await.unwrap();
+    let result = hick::run_pipeline(&[("test.hick", &src)], &[]).await.unwrap();
 
     // Fork target should appear as a container definition
     assert!(
@@ -335,7 +529,7 @@ async fn test_fork_inherits_source_capabilities() {
 <hick:fork from="base" to="analyzer" />
 <hick:exec container="analyzer">echo analyze</hick:exec>"#,
     );
-    let result = hick::run_pipeline(&[("test.hick", &src)]).await.unwrap();
+    let result = hick::run_pipeline(&[("test.hick", &src)], &[]).await.unwrap();
 
     let base_caps = result.containers.get("base").unwrap();
     let fork_caps = result.containers.get("analyzer").unwrap();
@@ -361,7 +555,7 @@ async fn test_fork_attenuates_capabilities() {
 </hick:fork>
 <hick:exec container="restricted">echo analyze</hick:exec>"#,
     );
-    let result = hick::run_pipeline(&[("test.hick", &src)]).await.unwrap();
+    let result = hick::run_pipeline(&[("test.hick", &src)], &[]).await.unwrap();
 
     let base_caps = result.containers.get("base").unwrap();
     let fork_caps = result.containers.get("restricted").unwrap();
@@ -399,7 +593,7 @@ async fn test_fork_with_allow_and_deny_children() {
 </hick:fork>
 <hick:exec container="scanner">echo scan</hick:exec>"#,
     );
-    let result = hick::run_pipeline(&[("test.hick", &src)]).await.unwrap();
+    let result = hick::run_pipeline(&[("test.hick", &src)], &[]).await.unwrap();
 
     let fork_caps = result.containers.get("scanner").unwrap();
 
@@ -419,7 +613,7 @@ async fn test_fork_without_declared_source_gets_default_caps() {
 <hick:fork from="base" to="fork-target" />
 <hick:exec container="fork-target">echo hello</hick:exec>"#,
     );
-    let result = hick::run_pipeline(&[("test.hick", &src)]).await.unwrap();
+    let result = hick::run_pipeline(&[("test.hick", &src)], &[]).await.unwrap();
 
     // Fork target should still appear in container defs with empty capabilities
     assert!(result.containers.contains_key("fork-target"));
@@ -431,7 +625,7 @@ async fn test_fork_without_declared_source_gets_default_caps() {
 #[tokio::test]
 async fn test_guide_hick_file_processes() {
     let guide_src = include_str!("../../../docs/hick-guide.hick");
-    let result = hick::run_pipeline(&[("hick-guide.hick", guide_src)])
+    let result = hick::run_pipeline(&[("hick-guide.hick", guide_src)], &[])
         .await
         .unwrap();
 
@@ -470,5 +664,181 @@ async fn test_guide_hick_file_processes() {
     assert!(
         guide.contains("echo \"Built by hick\" > /out/stamp.txt"),
         "pasted build-cmd should appear in output"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Conditional content tests
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_when_attribute_true() {
+    let src = hick_doc(concat!(
+        r#"<hick:var name="debug">1</hick:var>"#,
+        "\n",
+        r#"<hick:container name="dbg" image="alpine" when="debug" />"#,
+        "\n",
+        r#"<hick:exec container="dbg" when="debug">echo debug</hick:exec>"#,
+        "\n",
+        r#"<hick:file path="out.txt"><hick:exec container="dbg" /></hick:file>"#,
+    ));
+    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+        .await
+        .unwrap();
+    // Container should exist (when=true)
+    assert!(result.containers.contains_key("dbg"));
+    // Exec should be in the transcript
+    let content = result.files.get("out.txt").unwrap();
+    assert!(
+        content.contains("$ echo debug"),
+        "exec should be included: {content}"
+    );
+}
+
+#[tokio::test]
+async fn test_when_attribute_false() {
+    let src = hick_doc(concat!(
+        r#"<hick:container name="dbg" image="alpine" when="debug" />"#,
+        "\n",
+        r#"<hick:exec container="dbg" when="debug">echo debug</hick:exec>"#,
+        "\n",
+        r#"<hick:file path="out.txt">done</hick:file>"#,
+    ));
+    // No debug var defined -> when="debug" is false
+    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+        .await
+        .unwrap();
+    // Container should NOT exist (filtered out)
+    assert!(!result.containers.contains_key("dbg"));
+}
+
+#[tokio::test]
+async fn test_when_tag_true() {
+    let src = hick_doc(concat!(
+        r#"<hick:var name="mode">prod</hick:var>"#,
+        "\n",
+        r#"<hick:file path="out.txt">start "#,
+        r#"<hick:when test="mode=prod">production content</hick:when>"#,
+        r#" end</hick:file>"#,
+    ));
+    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+        .await
+        .unwrap();
+    let content = result.files.get("out.txt").unwrap();
+    assert!(
+        content.contains("production content"),
+        "when=true should include children: {content}"
+    );
+}
+
+#[tokio::test]
+async fn test_when_tag_false() {
+    let src = hick_doc(concat!(
+        r#"<hick:var name="mode">dev</hick:var>"#,
+        "\n",
+        r#"<hick:file path="out.txt">start "#,
+        r#"<hick:when test="mode=prod">production content</hick:when>"#,
+        r#" end</hick:file>"#,
+    ));
+    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+        .await
+        .unwrap();
+    let content = result.files.get("out.txt").unwrap();
+    assert!(
+        !content.contains("production content"),
+        "when=false should exclude children: {content}"
+    );
+}
+
+#[tokio::test]
+async fn test_when_on_exec_skips_dag() {
+    // When an exec is filtered out, it should not appear in the DAG
+    let src = hick_doc(concat!(
+        r#"<hick:container name="c" image="alpine" />"#,
+        "\n",
+        r#"<hick:exec container="c">echo always</hick:exec>"#,
+        "\n",
+        r#"<hick:exec container="c" when="never_set">echo conditional</hick:exec>"#,
+        "\n",
+        r#"<hick:file path="out.txt"><hick:exec container="c" /></hick:file>"#,
+    ));
+    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+        .await
+        .unwrap();
+    let content = result.files.get("out.txt").unwrap();
+    assert!(
+        content.contains("$ echo always"),
+        "unconditional exec should appear: {content}"
+    );
+    assert!(
+        !content.contains("$ echo conditional"),
+        "conditional exec should be filtered: {content}"
+    );
+}
+
+#[tokio::test]
+async fn test_when_param_override() {
+    // Param should make condition true
+    let src = hick_doc(concat!(
+        r#"<hick:file path="out.txt">"#,
+        r#"<hick:when test="debug">debug info</hick:when>"#,
+        r#"done</hick:file>"#,
+    ));
+    let params = vec![("debug".to_string(), "1".to_string())];
+    let result = hick::run_pipeline(&[("test.hick", &src)], &params)
+        .await
+        .unwrap();
+    let content = result.files.get("out.txt").unwrap();
+    assert!(
+        content.contains("debug info"),
+        "param should enable conditional: {content}"
+    );
+}
+
+#[tokio::test]
+async fn test_when_not_defined() {
+    let src = hick_doc(concat!(
+        r#"<hick:var name="mode">prod</hick:var>"#,
+        "\n",
+        r#"<hick:file path="out.txt">"#,
+        r#"<hick:when test="!debug">no debug</hick:when>"#,
+        r#"<hick:when test="mode">has mode</hick:when>"#,
+        r#"</hick:file>"#,
+    ));
+    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+        .await
+        .unwrap();
+    let content = result.files.get("out.txt").unwrap();
+    assert!(
+        content.contains("no debug"),
+        "!debug should be true: {content}"
+    );
+    assert!(
+        content.contains("has mode"),
+        "mode should be defined: {content}"
+    );
+}
+
+#[tokio::test]
+async fn test_when_not_equals() {
+    let src = hick_doc(concat!(
+        r#"<hick:var name="env">staging</hick:var>"#,
+        "\n",
+        r#"<hick:file path="out.txt">"#,
+        r#"<hick:when test="env!=prod">not prod</hick:when>"#,
+        r#"<hick:when test="env!=staging">not staging</hick:when>"#,
+        r#"</hick:file>"#,
+    ));
+    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+        .await
+        .unwrap();
+    let content = result.files.get("out.txt").unwrap();
+    assert!(
+        content.contains("not prod"),
+        "env!=prod should be true: {content}"
+    );
+    assert!(
+        !content.contains("not staging"),
+        "env!=staging should be false: {content}"
     );
 }

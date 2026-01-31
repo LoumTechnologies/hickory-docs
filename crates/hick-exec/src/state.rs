@@ -21,6 +21,8 @@ pub struct MultiDocumentState {
     copy_blocks: Mutex<HashMap<String, String>>,
     /// Cut blocks: id → content (removed from output).
     cut_blocks: Mutex<HashMap<String, String>>,
+    /// Variables: name → value.
+    variables: Mutex<HashMap<String, String>>,
     /// Counter for generating unique container IDs.
     container_id_counter: std::sync::atomic::AtomicU64,
 }
@@ -32,6 +34,7 @@ impl Default for MultiDocumentState {
             file_outputs: Mutex::new(HashMap::new()),
             copy_blocks: Mutex::new(HashMap::new()),
             cut_blocks: Mutex::new(HashMap::new()),
+            variables: Mutex::new(HashMap::new()),
             container_id_counter: std::sync::atomic::AtomicU64::new(0),
         }
     }
@@ -90,6 +93,23 @@ impl MultiDocumentState {
         }
 
         result
+    }
+
+    /// Register a `<hick:var>` declaration. Does not overwrite existing
+    /// values (CLI params loaded first take precedence).
+    pub fn register_var(&self, name: String, value: String) {
+        let mut vars = self.variables.lock().unwrap();
+        vars.entry(name).or_insert(value);
+    }
+
+    /// Set a CLI `--param` value. Always overwrites.
+    pub fn set_param(&self, name: String, value: String) {
+        self.variables.lock().unwrap().insert(name, value);
+    }
+
+    /// Resolve a variable by name.
+    pub fn resolve_var(&self, name: &str) -> Option<String> {
+        self.variables.lock().unwrap().get(name).cloned()
     }
 
     /// Generate a unique container ID for this session.
