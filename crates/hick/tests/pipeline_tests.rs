@@ -842,3 +842,121 @@ async fn test_when_not_equals() {
         "env!=staging should be false: {content}"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Multi-stage pipeline tests
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_multi_stage_no_hick_output_single_stage() {
+    // Pipeline producing no .hick files -> single stage, same as today
+    let src = hick_doc(
+        r#"<hick:file path="out.txt">hello</hick:file>
+<hick:file path="data.json">{"key": "value"}</hick:file>"#,
+    );
+    let result = hick::run_pipeline_multi_stage(&[("test.hick", &src)], 3)
+        .await
+        .unwrap();
+    assert_eq!(result.files.len(), 2);
+    assert_eq!(result.files.get("out.txt").unwrap(), "hello");
+    assert_eq!(result.files.get("data.json").unwrap(), r#"{"key": "value"}"#);
+
+    // All files should have HickFile provenance (stage 1)
+    for (path, prov) in &result.provenance {
+        assert!(
+            matches!(prov, hick_store::FileProvenance::HickFile { .. }),
+            "expected HickFile provenance for {path}, got {prov:?}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn test_multi_stage_two_stages() {
+    // Stage 1 produces a .hick file that feeds into stage 2.
+    // Use h: prefix for outer doc so that hick: tags inside file body are
+    // treated as literal text (not parsed by the stage-1 parser).
+    let src = r#"<?xml version="1.0" encoding="UTF-8"?>
+<h:doc xmlns:h="http://www.hickorydocs.com/1.0">
+<h:file path="stage1-output.txt">from stage 1</h:file>
+<h:file path="generated.hick"><?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
+<hick:file path="stage2-output.txt">from stage 2</hick:file>
+</hick:doc></h:file>
+</h:doc>"#;
+
+    let result = hick::run_pipeline_multi_stage(&[("test.hick", &src)], 3)
+        .await
+        .unwrap();
+
+    // Stage 1 regular file should be present
+    assert_eq!(result.files.get("stage1-output.txt").unwrap(), "from stage 1");
+
+    // Stage 2 output should be present
+    assert_eq!(
+        result.files.get("stage2-output.txt").unwrap(),
+        "from stage 2"
+    );
+
+    // .hick file should NOT be in final output (it's intermediate)
+    assert!(
+        !result.files.contains_key("generated.hick"),
+        "intermediate .hick file should not appear in final output"
+    );
+
+    // Stage 1 file should have HickFile provenance
+    assert!(matches!(
+        result.provenance.get("stage1-output.txt").unwrap(),
+        hick_store::FileProvenance::HickFile { .. }
+    ));
+
+    // Stage 2 file should have GeneratedHick provenance
+    assert!(matches!(
+        result.provenance.get("stage2-output.txt").unwrap(),
+        hick_store::FileProvenance::GeneratedHick { .. }
+    ));
+}
+
+#[tokio::test]
+async fn test_multi_stage_limit_reached_error() {
+    // With max_stages=1, any .hick output triggers the limit error.
+    let src = hick_doc(
+        r#"<hick:file path="output.hick">placeholder</hick:file>"#,
+    );
+    let result = hick::run_pipeline_multi_stage(&[("test.hick", &src)], 1).await;
+    assert!(result.is_err(), "should error when stage limit reached");
+    let err = result.unwrap_err().to_string();
+    assert!(
+        err.contains("limit"),
+        "error should mention limit, got: {err}"
+    );
+    assert!(
+        err.contains("output.hick"),
+        "error should list offending files, got: {err}"
+    );
+}
+
+#[tokio::test]
+async fn test_multi_stage_hick_files_removed_from_output() {
+    // Verify that .hick files never appear in final output
+    // (they get fed to next stage and removed from results).
+    // Use h: prefix so that hick: tags in file body are literal text.
+    let src = r#"<?xml version="1.0" encoding="UTF-8"?>
+<h:doc xmlns:h="http://www.hickorydocs.com/1.0">
+<h:file path="keep-me.txt">kept</h:file>
+<h:file path="intermediate.hick"><?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
+<hick:file path="generated.txt">from generated hick</hick:file>
+</hick:doc></h:file>
+</h:doc>"#;
+
+    let result = hick::run_pipeline_multi_stage(&[("test.hick", src)], 3)
+        .await
+        .unwrap();
+
+    assert!(result.files.contains_key("keep-me.txt"));
+    assert!(result.files.contains_key("generated.txt"));
+    assert!(
+        !result.files.contains_key("intermediate.hick"),
+        ".hick files should be removed from final output"
+    );
+}

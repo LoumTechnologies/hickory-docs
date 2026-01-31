@@ -1,6 +1,8 @@
 //! Hick: Secure container orchestration shell.
 //!
-//! Usage: `hick [file.hick ...] [--config _hick.yml]`
+//! Usage:
+//!   `hick [file.hick ...] [--config _hick.yml]` — single-shot pipeline run
+//!   `hick up <file.hick> [file2.hick ...]`       — watch mode with merge-aware snapshots
 //!
 //! Parses `.hick` files, builds an information-flow DAG, validates it,
 //! and executes containers with capability-based security.
@@ -8,10 +10,11 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
-use clap::Parser;
+use clap::{Parser, Subcommand};
 use log::{debug, info};
 
 use hick::config::{HickConfig, find_config};
+use hick::store_config::{StoreConfig, StoreBackend};
 
 // ---------------------------------------------------------------------------
 // CLI
@@ -20,6 +23,23 @@ use hick::config::{HickConfig, find_config};
 #[derive(Parser)]
 #[command(name = "hick", about = "Secure container orchestration shell")]
 struct Cli {
+    #[command(subcommand)]
+    command: Command,
+}
+
+#[derive(Subcommand)]
+enum Command {
+    /// Run the pipeline once (default mode).
+    ///
+    /// This is also invoked when no subcommand is given.
+    Run(RunArgs),
+
+    /// Watch mode: re-run pipeline on file changes with merge-aware snapshots.
+    Up(UpArgs),
+}
+
+#[derive(clap::Args)]
+struct RunArgs {
     /// `.hick` files to process (overrides `_hick.yml` files list).
     files: Vec<PathBuf>,
 
@@ -71,22 +91,129 @@ fn parse_param(s: &str) -> Result<(String, String), String> {
     Ok((key.to_string(), value.to_string()))
 }
 
+#[derive(clap::Args)]
+struct UpArgs {
+    /// One or more `.hick` files to watch and process.
+    #[arg(required = true)]
+    files: Vec<PathBuf>,
+
+    /// Age identity file for decrypting secrets.
+    #[arg(long, default_value = "~/.config/hick/key.txt")]
+    key_file: PathBuf,
+
+    /// Directory containing age-encrypted secret files.
+    #[arg(long, default_value = "~/.config/hick/secrets")]
+    secrets_dir: PathBuf,
+
+    /// Directory containing pre-converted `.wasm` container images.
+    #[arg(long)]
+    images_dir: Option<PathBuf>,
+
+    /// Dry-run mode: produce placeholder strings instead of running containers.
+    #[arg(long)]
+    dry_run: bool,
+
+    /// Enable verbose output.
+    #[arg(short, long)]
+    verbose: bool,
+
+    /// Store backend: auto, git, or builtin.
+    #[arg(long, default_value = "auto")]
+    store: String,
+
+    /// LLM merge API URL for intelligent conflict resolution.
+    #[arg(long)]
+    merge_api: Option<String>,
+
+    /// Branch name for snapshot tracking.
+    #[arg(long, default_value = "main")]
+    branch: String,
+
+    /// Maximum number of multi-stage pipeline passes.
+    #[arg(long, default_value = "3")]
+    max_stages: usize,
+}
+
 // ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 
+/// Parse CLI, allowing bare `hick <files>` as sugar for `hick run <files>`.
+fn parse_cli() -> Cli {
+    let raw_args: Vec<String> = std::env::args().collect();
+
+    // Check if the first non-flag argument is a known subcommand
+    let first_positional = raw_args
+        .iter()
+        .skip(1)
+        .find(|a| !a.starts_with('-'));
+
+    let is_subcommand = first_positional
+        .is_some_and(|a| matches!(a.as_str(), "run" | "up" | "help"));
+
+    if is_subcommand {
+        Cli::parse()
+    } else {
+        // Inject "run" as the subcommand
+        let mut args = raw_args;
+        args.insert(1, "run".to_string());
+        Cli::parse_from(args)
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
-    let cli = Cli::parse();
+    let cli = parse_cli();
 
+    match cli.command {
+        Command::Run(args) => {
+            init_logger(args.verbose);
+            run_single_shot(args).await
+        }
+        Command::Up(args) => {
+            init_logger(args.verbose);
+
+            let key_path = hick::expand_tilde(&args.key_file);
+            let secrets_dir = hick::expand_tilde(&args.secrets_dir);
+            let _secrets_provider =
+                hick_secrets::AgeSecretsProvider::new(&key_path, &secrets_dir);
+
+            let mut config = StoreConfig::load(&std::env::current_dir()?);
+
+            // CLI flags override config file
+            config.store = match args.store.as_str() {
+                "git" => StoreBackend::Git,
+                "builtin" => StoreBackend::Builtin,
+                _ => StoreBackend::Auto,
+            };
+            if let Some(url) = args.merge_api {
+                config.merge_api = Some(url);
+            }
+            config.branch = args.branch;
+            config.max_stages = args.max_stages;
+
+            let images_dir = args
+                .images_dir
+                .map(|p| hick::expand_tilde(&p))
+                .unwrap_or_else(default_images_dir);
+
+            hick::watch::run_watch(&args.files, &config, args.dry_run, images_dir).await
+        }
+    }
+}
+
+fn init_logger(verbose: bool) {
     env_logger::Builder::from_default_env()
-        .filter_level(if cli.verbose {
+        .filter_level(if verbose {
             log::LevelFilter::Debug
         } else {
             log::LevelFilter::Info
         })
         .init();
+}
 
+/// Run the pipeline once and write outputs.
+async fn run_single_shot(cli: RunArgs) -> Result<()> {
     // Discover config file
     let config_path = cli
         .config
@@ -203,7 +330,10 @@ async fn main() -> Result<()> {
             })
             .unwrap_or_else(default_images_dir);
 
-        let pipeline_config = hick::PipelineConfig { images_dir };
+        let pipeline_config = hick::PipelineConfig {
+            images_dir,
+            working_dir: None,
+        };
         hick::run_pipeline_live(&sources, &pipeline_config, &params, cc.as_ref()).await?
     };
 
