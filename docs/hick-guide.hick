@@ -42,6 +42,15 @@ echo "Built by hick" > /out/stamp.txt
 cat /out/stamp.txt
 </h:exec>
 
+<!-- Fork demo: clone guide-builder's state into a restricted container -->
+<h:fork from="guide-builder" to="guide-forked">
+  <h:deny network="*" />
+</h:fork>
+
+<h:exec container="guide-forked" mount="guide-artifacts:/out">
+cat /out/stamp.txt && echo "Fork inherited builder state"
+</h:exec>
+
 <!-- ================================================================== -->
 <!-- File output: the guide itself                                      -->
 <!-- ================================================================== -->
@@ -323,15 +332,16 @@ This guide is itself a `.hick` file (`docs/hick-guide.hick`). It uses
 the `h:` prefix so that `hick:` code examples appear as literal text.
 
 The file defines two containers with restricted capabilities, a shared
-volume, and exec steps that exercise the full pipeline — DAG validation,
-capability minting, volume flow, and copy/paste — every time the guide
-is built.
+volume, a fork, and exec steps that exercise the full pipeline — DAG
+validation, capability minting, volume flow, forking, and copy/paste —
+every time the guide is built.
 
 ### Containers used to build this guide
 
 ```
 guide-builder   (alpine:3.20, network denied, file-write /out/*)
 guide-verifier  (alpine:3.20, network denied, file-read  /out/*)
+guide-forked    (forked from guide-builder, network denied)
 ```
 
 ### Container transcript
@@ -340,6 +350,16 @@ The following block is an exec tag rendered by the pipeline — it shows
 the full transcript for the referenced container (commands and output):
 
 > <h:exec container="guide-verifier">cat /out/stamp.txt</h:exec>
+
+### Forked container transcript
+
+The `guide-forked` container is a fork of `guide-builder`. It inherits
+the builder's filesystem state (including `/out/stamp.txt`) without
+re-running the original commands on the original container. The fork
+also adds a network deny rule, further restricting the builder's
+capabilities:
+
+> <h:exec container="guide-forked">cat /out/stamp.txt &amp;&amp; echo "Fork inherited builder state"</h:exec>
 
 ### Pasted build command
 
@@ -353,6 +373,7 @@ The builder's command is captured with `<hick:copy>` and pasted here:
 - **Container capabilities** — network deny, file allow
 - **Volume flow** — `guide-builder` writes, `guide-verifier` reads
 - **DAG validation** — volume dependency enforces ordering
+- **Fork** — `guide-forked` clones builder state with added restrictions
 - **Copy/paste** — content extracted from exec, pasted into output
 - **Cut/paste** — namespace URI pasted from a cut block
 - **File output** — this entire document
