@@ -217,6 +217,87 @@ pub fn parse(source: &str) -> Result<HickDocument, ParseError> {
     parser.parse_document()
 }
 
+// ---------------------------------------------------------------------------
+// Include resolution
+// ---------------------------------------------------------------------------
+
+/// Resolve all `<hick:include>` tags in a parsed document, recursively.
+///
+/// `base_dir` is the directory of the document being processed.
+/// `seen` tracks already-included paths for cycle detection.
+pub fn resolve_includes(
+    doc: &mut HickDocument,
+    base_dir: &std::path::Path,
+    seen: &mut std::collections::HashSet<std::path::PathBuf>,
+) -> Result<(), ParseError> {
+    let new_nodes = resolve_includes_in_nodes(std::mem::take(&mut doc.nodes), base_dir, seen)?;
+    doc.nodes = new_nodes;
+    Ok(())
+}
+
+fn resolve_includes_in_nodes(
+    nodes: Vec<HickNode>,
+    base_dir: &std::path::Path,
+    seen: &mut std::collections::HashSet<std::path::PathBuf>,
+) -> Result<Vec<HickNode>, ParseError> {
+    let mut result = Vec::new();
+    for node in nodes {
+        match node {
+            HickNode::Tag(tag) if tag.name == "include" => {
+                let file_attr = tag
+                    .get_attribute("file")
+                    .ok_or_else(|| ParseError::Syntax {
+                        line: tag.source_line,
+                        message: "<hick:include> missing 'file' attribute".into(),
+                    })?;
+
+                let include_path = base_dir.join(file_attr);
+                let canonical = include_path
+                    .canonicalize()
+                    .map_err(|e| ParseError::Syntax {
+                        line: tag.source_line,
+                        message: format!("include path '{}': {e}", include_path.display()),
+                    })?;
+
+                // Cycle detection
+                if !seen.insert(canonical.clone()) {
+                    return Err(ParseError::Syntax {
+                        line: tag.source_line,
+                        message: format!("circular include: {}", canonical.display()),
+                    });
+                }
+
+                // Parse included file
+                let source =
+                    std::fs::read_to_string(&canonical).map_err(|e| ParseError::Syntax {
+                        line: tag.source_line,
+                        message: format!("cannot read '{}': {e}", canonical.display()),
+                    })?;
+                let mut included_doc = parse(&source)?;
+
+                // Recursively resolve includes in the included doc
+                let included_dir = canonical.parent().unwrap_or(base_dir);
+                resolve_includes(&mut included_doc, included_dir, seen)?;
+
+                // Splice children into parent
+                result.extend(included_doc.nodes);
+
+                seen.remove(&canonical);
+            }
+            HickNode::Tag(mut tag) => {
+                // Check `when` attribute (skip if needed -- handled upstream)
+                // Recurse into children for nested includes (e.g. inside file tags)
+                tag.children = resolve_includes_in_nodes(tag.children, base_dir, seen)?;
+                result.push(HickNode::Tag(tag));
+            }
+            text => {
+                result.push(text);
+            }
+        }
+    }
+    Ok(result)
+}
+
 struct Parser<'a> {
     input: &'a str,
     pos: usize,

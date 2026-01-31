@@ -144,6 +144,15 @@ struct ForkDef {
 // ContainerExecutor
 // ---------------------------------------------------------------------------
 
+/// A single exec's transcript entry: command lines and captured output.
+#[derive(Debug, Clone)]
+pub struct ExecTranscriptEntry {
+    /// Individual command lines sent to the container.
+    pub commands: Vec<String>,
+    /// Captured output from the command execution.
+    pub output: String,
+}
+
 /// Manages WASM container lifecycles for pipeline execution.
 pub struct ContainerExecutor {
     engine: Engine,
@@ -152,7 +161,7 @@ pub struct ContainerExecutor {
     bridge: Arc<RwLock<NetworkBridge>>,
     next_subnet: u8,
     container_caps: HashMap<String, ContainerCapabilities>,
-    transcripts: HashMap<String, String>,
+    transcripts: HashMap<String, Vec<ExecTranscriptEntry>>,
     /// Pending fork definitions: target container name -> fork info.
     fork_defs: HashMap<String, ForkDef>,
 }
@@ -219,7 +228,10 @@ impl ContainerExecutor {
     /// Start a brand-new container from a WASM image.
     async fn start_fresh_container(&mut self, name: &str, image: &str) -> Result<()> {
         let wasm_path = resolve_image_path(&self.images_dir, image);
-        info!("Loading image for container '{name}': {}", wasm_path.display());
+        info!(
+            "Loading image for container '{name}': {}",
+            wasm_path.display()
+        );
 
         let module = Module::from_file(&self.engine, &wasm_path)
             .with_context(|| format!("failed to load WASM image: {}", wasm_path.display()))?;
@@ -235,12 +247,11 @@ impl ContainerExecutor {
         }
 
         // Build connection filter from capabilities
-        let filter: Arc<dyn ConnectionFilter> =
-            if let Some(caps) = self.container_caps.get(name) {
-                Arc::new(CapabilityFilter::new(caps.clone()))
-            } else {
-                Arc::new(AllowAll)
-            };
+        let filter: Arc<dyn ConnectionFilter> = if let Some(caps) = self.container_caps.get(name) {
+            Arc::new(CapabilityFilter::new(caps.clone()))
+        } else {
+            Arc::new(AllowAll)
+        };
 
         let mut config = ContainerConfig::new(self.engine.clone(), module);
         config.networking = true;
@@ -249,7 +260,8 @@ impl ContainerExecutor {
         config.bridge = Some(self.bridge.clone());
         config.bridge_rx = Some(bridge_rx);
 
-        let container = Container::start(config).await
+        let container = Container::start(config)
+            .await
             .with_context(|| format!("failed to start container '{name}'"))?;
 
         info!("Started container '{name}' (ip={})", net_cfg.vm_ip);
@@ -267,7 +279,8 @@ impl ContainerExecutor {
         );
 
         // Wait for boot prompt
-        self.wait_for_boot(name).await
+        self.wait_for_boot(name)
+            .await
             .with_context(|| format!("container '{name}' failed to boot"))?;
 
         Ok(())
@@ -281,11 +294,12 @@ impl ContainerExecutor {
     async fn start_forked_container(&mut self, name: &str, fork_def: &ForkDef) -> Result<()> {
         // Snapshot source state before starting the new container
         let (source_image, history) = {
-            let source = self.containers.get(&fork_def.from)
-                .ok_or_else(|| anyhow::anyhow!(
+            let source = self.containers.get(&fork_def.from).ok_or_else(|| {
+                anyhow::anyhow!(
                     "fork source container '{}' not found (not started yet?)",
                     fork_def.from
-                ))?;
+                )
+            })?;
             (source.image_name.clone(), source.command_history.clone())
         };
 
@@ -300,10 +314,9 @@ impl ContainerExecutor {
 
         // Replay command history (use replay_command to avoid recording to history)
         for cmd in &history {
-            self.replay_command(name, cmd).await
-                .with_context(|| format!(
-                    "failed to replay command in forked container '{name}': {cmd}"
-                ))?;
+            self.replay_command(name, cmd).await.with_context(|| {
+                format!("failed to replay command in forked container '{name}': {cmd}")
+            })?;
         }
 
         info!("Fork '{name}' ready: replayed {} commands", history.len());
@@ -320,7 +333,9 @@ impl ContainerExecutor {
         }
 
         {
-            let rc = self.containers.get(name)
+            let rc = self
+                .containers
+                .get(name)
                 .ok_or_else(|| anyhow::anyhow!("container '{name}' not found"))?;
             if !rc.booted {
                 bail!("container '{name}' has not booted yet");
@@ -354,10 +369,8 @@ impl ContainerExecutor {
 
         let (result, prompt_already_seen) = loop {
             let rc = self.containers.get_mut(name).unwrap();
-            let read_result = tokio::time::timeout_at(
-                deadline,
-                rc.container.read_stdout(&mut buf),
-            ).await;
+            let read_result =
+                tokio::time::timeout_at(deadline, rc.container.read_stdout(&mut buf)).await;
 
             match read_result {
                 Err(_) => bail!("timed out waiting for command output"),
@@ -371,7 +384,8 @@ impl ContainerExecutor {
                     let start_line = format!("\n{START_MARKER}");
                     let end_line = format!("\n{END_MARKER}");
                     if text.contains(&end_line) {
-                        let start_pos = text.find(&start_line)
+                        let start_pos = text
+                            .find(&start_line)
                             .ok_or_else(|| anyhow::anyhow!("start marker not found on own line"))?;
                         let after_start = start_pos + start_line.len();
                         let end_pos = text.find(&end_line).unwrap();
@@ -399,17 +413,17 @@ impl ContainerExecutor {
 
     /// Wait for the container's shell prompt after boot.
     async fn wait_for_boot(&mut self, name: &str) -> Result<()> {
-        let rc = self.containers.get_mut(name)
+        let rc = self
+            .containers
+            .get_mut(name)
             .ok_or_else(|| anyhow::anyhow!("container '{name}' not found"))?;
 
         let deadline = tokio::time::Instant::now() + BOOT_TIMEOUT;
         let mut buf = [0u8; 4096];
 
         loop {
-            let read_result = tokio::time::timeout_at(
-                deadline,
-                rc.container.read_stdout(&mut buf),
-            ).await;
+            let read_result =
+                tokio::time::timeout_at(deadline, rc.container.read_stdout(&mut buf)).await;
 
             match read_result {
                 Err(_) => bail!("timed out waiting for boot prompt"),
@@ -445,7 +459,9 @@ impl ContainerExecutor {
 
         // Check container exists and is booted
         {
-            let rc = self.containers.get(name)
+            let rc = self
+                .containers
+                .get(name)
                 .ok_or_else(|| anyhow::anyhow!("container '{name}' not found"))?;
             if !rc.booted {
                 bail!("container '{name}' has not booted yet");
@@ -492,10 +508,8 @@ impl ContainerExecutor {
 
         let (result, prompt_already_seen) = loop {
             let rc = self.containers.get_mut(name).unwrap();
-            let read_result = tokio::time::timeout_at(
-                deadline,
-                rc.container.read_stdout(&mut buf),
-            ).await;
+            let read_result =
+                tokio::time::timeout_at(deadline, rc.container.read_stdout(&mut buf)).await;
 
             match read_result {
                 Err(_) => bail!("timed out waiting for command output"),
@@ -511,7 +525,8 @@ impl ContainerExecutor {
                     let start_line = format!("\n{START_MARKER}");
                     let end_line = format!("\n{END_MARKER}");
                     if text.contains(&end_line) {
-                        let start_pos = text.find(&start_line)
+                        let start_pos = text
+                            .find(&start_line)
                             .ok_or_else(|| anyhow::anyhow!("start marker not found on own line"))?;
                         let after_start = start_pos + start_line.len();
                         let end_pos = text.find(&end_line).unwrap();
@@ -541,32 +556,26 @@ impl ContainerExecutor {
             self.wait_for_prompt(name, deadline).await?;
         }
 
-        // Append to the per-container transcript
-        let transcript = self.transcripts.entry(name.to_string()).or_default();
-        for line in &cmd_lines {
-            transcript.push_str(&format!("$ {line}\n"));
-        }
-        if !result.is_empty() {
-            transcript.push_str(&result);
-            transcript.push('\n');
-        }
+        // Append structured transcript entry
+        let entry = ExecTranscriptEntry {
+            commands: cmd_lines,
+            output: result.clone(),
+        };
+        self.transcripts
+            .entry(name.to_string())
+            .or_default()
+            .push(entry);
 
         Ok(result)
     }
 
     /// Wait for a prompt, discarding output.
-    async fn wait_for_prompt(
-        &mut self,
-        name: &str,
-        deadline: tokio::time::Instant,
-    ) -> Result<()> {
+    async fn wait_for_prompt(&mut self, name: &str, deadline: tokio::time::Instant) -> Result<()> {
         let mut buf = [0u8; 4096];
         loop {
             let rc = self.containers.get_mut(name).unwrap();
-            let read_result = tokio::time::timeout_at(
-                deadline,
-                rc.container.read_stdout(&mut buf),
-            ).await;
+            let read_result =
+                tokio::time::timeout_at(deadline, rc.container.read_stdout(&mut buf)).await;
 
             match read_result {
                 Err(_) => bail!("timed out waiting for prompt"),
@@ -585,10 +594,18 @@ impl ContainerExecutor {
 
     /// Per-container execution transcripts accumulated by [`execute`].
     ///
-    /// Each entry maps a container name to a string containing all commands
-    /// prefixed with `$ ` and their outputs, in execution order.
-    pub fn transcripts(&self) -> &HashMap<String, String> {
+    /// Each entry maps a container name to a list of [`ExecTranscriptEntry`]
+    /// values, each containing the command lines and output for one exec.
+    pub fn transcripts(&self) -> &HashMap<String, Vec<ExecTranscriptEntry>> {
         &self.transcripts
+    }
+
+    /// Inject a transcript entry from cache (no actual execution).
+    pub fn inject_transcript_entry(&mut self, container: &str, entry: ExecTranscriptEntry) {
+        self.transcripts
+            .entry(container.to_string())
+            .or_default()
+            .push(entry);
     }
 
     /// Kill all containers and clean up.
@@ -628,22 +645,25 @@ pub fn resolve_image_path(images_dir: &Path, name: &str) -> PathBuf {
 
     // 2. Directory with .wasm files
     let dir = images_dir.join(base_name);
-    if dir.is_dir() {
-        if let Ok(entries) = std::fs::read_dir(&dir) {
-            let mut wasm_files: Vec<PathBuf> = entries
-                .filter_map(|e| e.ok())
-                .map(|e| e.path())
-                .filter(|p| p.extension().is_some_and(|ext| ext == "wasm"))
-                .collect();
-            wasm_files.sort();
-            if let Some(latest) = wasm_files.last() {
-                return latest.clone();
-            }
+    if dir.is_dir()
+        && let Ok(entries) = std::fs::read_dir(&dir)
+    {
+        let mut wasm_files: Vec<PathBuf> = entries
+            .filter_map(|e| e.ok())
+            .map(|e| e.path())
+            .filter(|p| p.extension().is_some_and(|ext| ext == "wasm"))
+            .collect();
+        wasm_files.sort();
+        if let Some(latest) = wasm_files.last() {
+            return latest.clone();
         }
     }
 
     // 3. Fallback
-    warn!("WASM image not found for '{name}', tried: {}", exact.display());
+    warn!(
+        "WASM image not found for '{name}', tried: {}",
+        exact.display()
+    );
     PathBuf::from(name)
 }
 

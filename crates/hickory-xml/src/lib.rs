@@ -295,9 +295,9 @@ pub fn select_elements_under(
     Ok(out)
 }
 
-fn parse_min_xpath(
-    s: &str,
-) -> Result<(&str, Option<(String, String)>), HickoryDocumentFormatError> {
+type AttrFilter = Option<(String, String)>;
+
+fn parse_min_xpath(s: &str) -> Result<(&str, AttrFilter), HickoryDocumentFormatError> {
     // "//file[@path='x']"
     if let Some(bracket) = s.find('[') {
         let tag = &s[..bracket];
