@@ -82,6 +82,71 @@ impl FileRule {
     }
 }
 
+/// Volume access level for capability tokens.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum VolumeAccess {
+    /// Read-only access matching a glob pattern.
+    Read(String),
+    /// Write access matching a glob pattern (implies read).
+    Write(String),
+}
+
+/// Volume access rule for a container capability token.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VolumeRule {
+    /// Volume name.
+    pub volume: String,
+    /// Access level.
+    pub access: VolumeAccess,
+}
+
+impl VolumeRule {
+    pub fn read(volume: &str, pattern: &str) -> Self {
+        VolumeRule {
+            volume: volume.to_string(),
+            access: VolumeAccess::Read(pattern.to_string()),
+        }
+    }
+
+    pub fn write(volume: &str, pattern: &str) -> Self {
+        VolumeRule {
+            volume: volume.to_string(),
+            access: VolumeAccess::Write(pattern.to_string()),
+        }
+    }
+
+    /// Convert to a macaroon caveat string.
+    pub fn to_caveat(&self) -> String {
+        match &self.access {
+            VolumeAccess::Read(pattern) => {
+                format!("volume-read = {}:{}", self.volume, pattern)
+            }
+            VolumeAccess::Write(pattern) => {
+                format!("volume-write = {}:{}", self.volume, pattern)
+            }
+        }
+    }
+
+    /// Parse from a macaroon caveat string.
+    pub fn from_caveat(caveat: &str) -> Option<Self> {
+        if let Some(rest) = caveat.strip_prefix("volume-read = ") {
+            let (volume, pattern) = rest.split_once(':')?;
+            return Some(VolumeRule {
+                volume: volume.to_string(),
+                access: VolumeAccess::Read(pattern.to_string()),
+            });
+        }
+        if let Some(rest) = caveat.strip_prefix("volume-write = ") {
+            let (volume, pattern) = rest.split_once(':')?;
+            return Some(VolumeRule {
+                volume: volume.to_string(),
+                access: VolumeAccess::Write(pattern.to_string()),
+            });
+        }
+        None
+    }
+}
+
 /// Secret injection rule.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SecretRule {
@@ -114,6 +179,7 @@ pub struct ContainerCapabilities {
     pub network_rules: Vec<NetworkRule>,
     pub file_rules: Vec<FileRule>,
     pub secret_rules: Vec<SecretRule>,
+    pub volume_rules: Vec<VolumeRule>,
 }
 
 impl ContainerCapabilities {
@@ -149,6 +215,16 @@ impl ContainerCapabilities {
         self
     }
 
+    pub fn allow_volume_read(mut self, volume: &str, pattern: &str) -> Self {
+        self.volume_rules.push(VolumeRule::read(volume, pattern));
+        self
+    }
+
+    pub fn allow_volume_write(mut self, volume: &str, pattern: &str) -> Self {
+        self.volume_rules.push(VolumeRule::write(volume, pattern));
+        self
+    }
+
     /// Convert all capabilities to caveat strings.
     pub fn to_caveats(&self) -> Vec<String> {
         let mut caveats = Vec::new();
@@ -159,6 +235,9 @@ impl ContainerCapabilities {
             caveats.push(rule.to_caveat());
         }
         for rule in &self.secret_rules {
+            caveats.push(rule.to_caveat());
+        }
+        for rule in &self.volume_rules {
             caveats.push(rule.to_caveat());
         }
         caveats
@@ -212,15 +291,63 @@ impl ContainerCapabilities {
             _ => false,
         })
     }
+
+    /// Check if volume read access is allowed.
+    ///
+    /// If no volume rules are defined for the given volume, access is allowed.
+    pub fn check_volume_read(&self, volume: &str, path: &str) -> bool {
+        let relevant: Vec<_> = self
+            .volume_rules
+            .iter()
+            .filter(|r| r.volume == volume)
+            .collect();
+        if relevant.is_empty() {
+            return true;
+        }
+        relevant.iter().any(|r| match &r.access {
+            VolumeAccess::Read(pattern) | VolumeAccess::Write(pattern) => {
+                path_matches(path, pattern)
+            }
+        })
+    }
+
+    /// Check if volume write access is allowed.
+    ///
+    /// If no volume rules are defined for the given volume, access is allowed.
+    pub fn check_volume_write(&self, volume: &str, path: &str) -> bool {
+        let relevant: Vec<_> = self
+            .volume_rules
+            .iter()
+            .filter(|r| r.volume == volume)
+            .collect();
+        if relevant.is_empty() {
+            return true;
+        }
+        relevant.iter().any(|r| match &r.access {
+            VolumeAccess::Write(pattern) => path_matches(path, pattern),
+            _ => false,
+        })
+    }
 }
 
-/// Simple glob-style path matching (supports trailing `*`).
+/// Simple glob-style path matching.
+///
+/// Supports:
+/// - `**` matches everything
+/// - `prefix/**` matches anything under `prefix/`
+/// - Trailing `*` matches any suffix after prefix
+/// - Exact match otherwise
 fn path_matches(path: &str, pattern: &str) -> bool {
-    if let Some(prefix) = pattern.strip_suffix('*') {
-        path.starts_with(prefix)
-    } else {
-        path == pattern
+    if pattern == "**" {
+        return true;
     }
+    if let Some(prefix) = pattern.strip_suffix("**") {
+        return path.starts_with(prefix);
+    }
+    if let Some(prefix) = pattern.strip_suffix('*') {
+        return path.starts_with(prefix);
+    }
+    path == pattern
 }
 
 // ---------------------------------------------------------------------------
@@ -296,6 +423,7 @@ fn verify_hick_caveat(caveat: &ByteString) -> bool {
     NetworkRule::from_caveat(s).is_some()
         || FileRule::from_caveat(s).is_some()
         || SecretRule::from_caveat(s).is_some()
+        || VolumeRule::from_caveat(s).is_some()
 }
 
 // ---------------------------------------------------------------------------
@@ -333,6 +461,7 @@ impl CapabilityToken {
             .extend(additional.network_rules.clone());
         merged.file_rules.extend(additional.file_rules.clone());
         merged.secret_rules.extend(additional.secret_rules.clone());
+        merged.volume_rules.extend(additional.volume_rules.clone());
 
         Ok(CapabilityToken {
             macaroon: new_macaroon,
@@ -492,5 +621,56 @@ mod tests {
         assert!(caveats.contains(&"network = allow github.com:443".to_string()));
         assert!(caveats.contains(&"network = deny *".to_string()));
         assert!(caveats.contains(&"file-write = /output/*".to_string()));
+    }
+
+    #[test]
+    fn volume_rule_caveat_roundtrip() {
+        let read_rule = VolumeRule::read("project", "**");
+        let caveat = read_rule.to_caveat();
+        assert_eq!(caveat, "volume-read = project:**");
+        let parsed = VolumeRule::from_caveat(&caveat).unwrap();
+        assert_eq!(parsed, read_rule);
+
+        let write_rule = VolumeRule::write("output", "Controllers/**");
+        let caveat = write_rule.to_caveat();
+        assert_eq!(caveat, "volume-write = output:Controllers/**");
+        let parsed = VolumeRule::from_caveat(&caveat).unwrap();
+        assert_eq!(parsed, write_rule);
+    }
+
+    #[test]
+    fn volume_check_no_rules_allows_all() {
+        let caps = ContainerCapabilities::new();
+        assert!(caps.check_volume_read("any-vol", "any/path"));
+        assert!(caps.check_volume_write("any-vol", "any/path"));
+    }
+
+    #[test]
+    fn volume_check_with_rules() {
+        let caps = ContainerCapabilities::new()
+            .allow_volume_read("project", "**")
+            .allow_volume_write("project", "Controllers/*");
+
+        assert!(caps.check_volume_read("project", "Models/User.cs"));
+        assert!(caps.check_volume_write("project", "Controllers/Home.cs"));
+        assert!(!caps.check_volume_write("project", "Models/User.cs"));
+
+        // Different volume has no rules → allowed
+        assert!(caps.check_volume_read("other", "any/path"));
+    }
+
+    #[test]
+    fn volume_token_mint_and_verify() {
+        let authority = test_authority();
+        let caps = ContainerCapabilities::new()
+            .allow_volume_read("shared", "**")
+            .allow_volume_write("shared", "output/**");
+
+        let token = authority.mint("worker", &caps).unwrap();
+        authority.verify(&token).unwrap();
+
+        let caveats = caps.to_caveats();
+        assert!(caveats.contains(&"volume-read = shared:**".to_string()));
+        assert!(caveats.contains(&"volume-write = shared:output/**".to_string()));
     }
 }

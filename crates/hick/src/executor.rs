@@ -592,6 +592,99 @@ impl ContainerExecutor {
         }
     }
 
+    /// Create a mount point directory inside a running container.
+    pub async fn create_mount_point(&mut self, name: &str, mount_path: &str) -> Result<()> {
+        let rc = self
+            .containers
+            .get(name)
+            .ok_or_else(|| anyhow::anyhow!("container '{name}' not found"))?;
+        if !rc.booted {
+            bail!("container '{name}' has not booted yet");
+        }
+
+        info!("Creating mount point in '{name}': {mount_path}");
+        // Use execute to run mkdir, but don't record to history
+        self.replay_command(name, &format!("mkdir -p {mount_path}"))
+            .await
+            .with_context(|| {
+                format!("failed to create mount point '{mount_path}' in container '{name}'")
+            })?;
+        Ok(())
+    }
+
+    /// Inject volume data into a container by sending a base64-encoded tar
+    /// and unpacking it at the mount path.
+    pub async fn inject_volume(
+        &mut self,
+        name: &str,
+        mount_path: &str,
+        tar_data: &[u8],
+    ) -> Result<()> {
+        let rc = self
+            .containers
+            .get(name)
+            .ok_or_else(|| anyhow::anyhow!("container '{name}' not found"))?;
+        if !rc.booted {
+            bail!("container '{name}' has not booted yet");
+        }
+
+        let encoded = crate::volume_state::encode_base64(tar_data);
+        info!(
+            "Injecting volume into '{name}' at {mount_path}: {} bytes (base64: {} chars)",
+            tar_data.len(),
+            encoded.len()
+        );
+
+        // Create mount point, then decode and extract
+        self.create_mount_point(name, mount_path).await?;
+
+        // Use heredoc approach: echo the base64 data and pipe through base64 -d | tar xf -
+        // Split into chunks to avoid shell line length limits
+        let chunk_size = 4096;
+        let chunks: Vec<&str> = encoded
+            .as_bytes()
+            .chunks(chunk_size)
+            .map(|c| std::str::from_utf8(c).unwrap())
+            .collect();
+
+        let mut cmd = format!("cd {mount_path} && (");
+        for chunk in &chunks {
+            cmd.push_str(&format!("echo -n '{chunk}'; "));
+        }
+        cmd.push_str(") | base64 -d | tar xf -");
+
+        self.replay_command(name, &cmd).await.with_context(|| {
+            format!("failed to inject volume into container '{name}' at {mount_path}")
+        })?;
+
+        Ok(())
+    }
+
+    /// Extract volume data from a container by tarring the mount path
+    /// and capturing the base64-encoded output.
+    pub async fn extract_volume(
+        &mut self,
+        name: &str,
+        mount_path: &str,
+    ) -> Result<Vec<u8>> {
+        let rc = self
+            .containers
+            .get(name)
+            .ok_or_else(|| anyhow::anyhow!("container '{name}' not found"))?;
+        if !rc.booted {
+            bail!("container '{name}' has not booted yet");
+        }
+
+        info!("Extracting volume from '{name}' at {mount_path}");
+
+        let cmd = format!("cd {mount_path} && tar cf - . | base64");
+        let output = self.replay_command(name, &cmd).await.with_context(|| {
+            format!("failed to extract volume from container '{name}' at {mount_path}")
+        })?;
+
+        crate::volume_state::decode_base64(&output)
+    }
+
     /// Per-container execution transcripts accumulated by [`execute`].
     ///
     /// Each entry maps a container name to a list of [`ExecTranscriptEntry`]

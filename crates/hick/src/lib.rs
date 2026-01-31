@@ -8,6 +8,9 @@ pub mod cache;
 pub mod condition;
 pub mod config;
 pub mod executor;
+pub mod store_config;
+pub mod volume_state;
+pub mod watch;
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -77,6 +80,8 @@ pub struct PipelineResult {
     pub files: HashMap<String, String>,
     /// Container name -> parsed capabilities for each `<hick:container>` tag.
     pub containers: HashMap<String, ContainerCapabilities>,
+    /// Volume name -> list of containers that contributed to its final state.
+    pub volume_provenance: HashMap<String, Vec<String>>,
 }
 
 // ---------------------------------------------------------------------------
@@ -275,6 +280,7 @@ pub async fn run_pipeline_with_authority(
     Ok(PipelineResult {
         files,
         containers: container_defs,
+        volume_provenance: HashMap::new(),
     })
 }
 
@@ -286,6 +292,8 @@ pub async fn run_pipeline_with_authority(
 pub struct PipelineConfig {
     /// Directory containing pre-converted `.wasm` images.
     pub images_dir: PathBuf,
+    /// Working directory for resolving relative paths in volume declarations.
+    pub working_dir: Option<PathBuf>,
 }
 
 /// Run the pipeline with real container execution.
@@ -410,6 +418,48 @@ pub async fn run_pipeline_live(
         executor.register_fork(to, from, additional_caps.clone());
     }
 
+    // Collect volume declarations and set up volume store
+    let mut volume_store = volume_state::VolumeStore::new();
+    let mut all_volume_decls: HashMap<String, hick_exec::volume::VolumeDeclaration> =
+        HashMap::new();
+    let mut volume_provenance: HashMap<String, Vec<String>> = HashMap::new();
+
+    for (name, doc) in &documents {
+        let flow_dag = dag::build_dag(doc)
+            .map_err(|e| anyhow::anyhow!("DAG validation failed in {name}: {e}"))?;
+        for (vol_name, vol_decl) in &flow_dag.volumes {
+            all_volume_decls.insert(vol_name.clone(), vol_decl.clone());
+        }
+    }
+
+    // Seed input volumes from host directories
+    let working_dir = config
+        .working_dir
+        .clone()
+        .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
+    for (vol_name, vol_decl) in &all_volume_decls {
+        match &vol_decl.kind {
+            hick_exec::volume::VolumeKind::Input { path }
+            | hick_exec::volume::VolumeKind::InputOutput { input: path, .. } => {
+                let abs_path = if Path::new(path).is_absolute() {
+                    PathBuf::from(path)
+                } else {
+                    working_dir.join(path)
+                };
+                if abs_path.is_dir() {
+                    info!("Seeding input volume '{vol_name}' from {}", abs_path.display());
+                    volume_store.seed_from_directory(vol_name, &abs_path)?;
+                } else {
+                    warn!(
+                        "Input volume '{vol_name}' path does not exist: {}",
+                        abs_path.display()
+                    );
+                }
+            }
+            _ => {}
+        }
+    }
+
     for (name, doc) in &documents {
         let flow_dag = dag::build_dag(doc)
             .map_err(|e| anyhow::anyhow!("DAG validation failed in {name}: {e}"))?;
@@ -457,6 +507,19 @@ pub async fn run_pipeline_live(
             // Cache miss or caching disabled — execute for real
             executor.ensure_started(&exec_info.container, image).await?;
 
+            // Inject volumes before exec
+            for (vol_name, mount_path) in &exec_info.mounts {
+                if let Some(tar_data) = volume_store.get(vol_name) {
+                    info!(
+                        "Injecting volume '{vol_name}' into container '{}' at {mount_path}",
+                        exec_info.container
+                    );
+                    executor
+                        .inject_volume(&exec_info.container, mount_path, tar_data)
+                        .await?;
+                }
+            }
+
             executor
                 .execute(&exec_info.container, &exec_info.command)
                 .await?;
@@ -480,6 +543,63 @@ pub async fn run_pipeline_live(
                     };
                     cache::cache_store(cc, &exec_info.container, &key, &cache_entry)?;
                     info!("Cached exec in '{}': {}…", exec_info.container, &key[..12]);
+                }
+            }
+
+            // Extract volumes after exec (if container has write access)
+            for (vol_name, mount_path) in &exec_info.mounts {
+                let has_write = if let Some(decl) = all_volume_decls.get(vol_name) {
+                    decl.check_write(&exec_info.container, "**")
+                        || decl.access_rules.is_empty()
+                } else {
+                    true // no declaration = unrestricted
+                };
+
+                if has_write {
+                    info!(
+                        "Extracting volume '{vol_name}' from container '{}' at {mount_path}",
+                        exec_info.container
+                    );
+                    let tar_data = executor
+                        .extract_volume(&exec_info.container, mount_path)
+                        .await?;
+                    volume_store.update(vol_name, tar_data);
+                    volume_provenance
+                        .entry(vol_name.clone())
+                        .or_default()
+                        .push(exec_info.container.clone());
+                }
+            }
+        }
+    }
+
+    // Flush output volumes into pipeline result files
+    let mut volume_files: HashMap<String, String> = HashMap::new();
+    for (vol_name, vol_decl) in &all_volume_decls {
+        let output_prefix = match &vol_decl.kind {
+            hick_exec::volume::VolumeKind::Output { path } => Some(path.as_str()),
+            hick_exec::volume::VolumeKind::InputOutput { output, .. } => Some(output.as_str()),
+            _ => None,
+        };
+
+        if let Some(prefix) = output_prefix {
+            if volume_store.contains(vol_name) {
+                let unpacked = volume_store.unpack_to_files(vol_name)?;
+                for (file_path, content) in unpacked {
+                    let output_path = if prefix.is_empty() || prefix == "." {
+                        file_path
+                    } else {
+                        format!(
+                            "{}{}",
+                            prefix.trim_end_matches('/'),
+                            if file_path.starts_with('/') {
+                                file_path
+                            } else {
+                                format!("/{file_path}")
+                            }
+                        )
+                    };
+                    volume_files.insert(output_path, content);
                 }
             }
         }
@@ -523,11 +643,15 @@ pub async fn run_pipeline_live(
     }
 
     // Converge file outputs
-    let files = state.get_files().await;
+    let mut files = state.get_files().await;
+
+    // Merge volume output files into the result
+    files.extend(volume_files);
 
     Ok(PipelineResult {
         files,
         containers: container_defs,
+        volume_provenance,
     })
 }
 
@@ -642,6 +766,106 @@ fn process_file_children(
             _ => {}
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Multi-stage pipeline
+// ---------------------------------------------------------------------------
+
+/// Result of a multi-stage pipeline run.
+#[derive(Debug)]
+pub struct MultiStagePipelineResult {
+    /// Combined file outputs from all stages (later stages override earlier).
+    pub files: HashMap<String, String>,
+    /// Provenance for each output file.
+    pub provenance: HashMap<String, hick_store::FileProvenance>,
+}
+
+/// Run a multi-stage pipeline.
+///
+/// Detects `.hick` files in the output of each stage and feeds them as
+/// sources to the next stage. Repeats up to `max_stages` times.
+///
+/// Files with `.hick` extension are removed from the final output (they
+/// are intermediate).
+pub async fn run_pipeline_multi_stage(
+    sources: &[(&str, &str)],
+    max_stages: usize,
+) -> Result<MultiStagePipelineResult> {
+    let mut all_files: HashMap<String, String> = HashMap::new();
+    let mut provenance: HashMap<String, hick_store::FileProvenance> = HashMap::new();
+
+    // Build owned sources for first stage
+    let mut current_sources: Vec<(String, String)> = sources
+        .iter()
+        .map(|(n, s)| (n.to_string(), s.to_string()))
+        .collect();
+
+    for stage in 0..max_stages {
+        let stage_num = stage + 1;
+        info!("Running pipeline stage {stage_num}");
+
+        let source_refs: Vec<(&str, &str)> = current_sources
+            .iter()
+            .map(|(n, s)| (n.as_str(), s.as_str()))
+            .collect();
+
+        let result = run_pipeline(&source_refs, &[]).await?;
+
+        // Separate .hick outputs from regular outputs
+        let mut hick_files: Vec<(String, String)> = Vec::new();
+        let mut regular_files: HashMap<String, String> = HashMap::new();
+
+        for (path, content) in result.files {
+            if path.ends_with(".hick") {
+                hick_files.push((path, content));
+            } else {
+                regular_files.insert(path, content);
+            }
+        }
+
+        // Add regular files to combined output (later stages override)
+        for (path, content) in regular_files {
+            let prov = if stage == 0 {
+                hick_store::FileProvenance::HickFile {
+                    source: current_sources
+                        .first()
+                        .map(|(n, _)| n.clone())
+                        .unwrap_or_default(),
+                }
+            } else {
+                hick_store::FileProvenance::GeneratedHick {
+                    source_container: format!("stage-{stage_num}"),
+                }
+            };
+            provenance.insert(path.clone(), prov);
+            all_files.insert(path, content);
+        }
+
+        // If no .hick files produced, we're done
+        if hick_files.is_empty() {
+            info!("Stage {stage_num} produced no .hick files; pipeline complete");
+            return Ok(MultiStagePipelineResult {
+                files: all_files,
+                provenance,
+            });
+        }
+
+        // Feed .hick files as sources to next stage
+        info!(
+            "Stage {stage_num} produced {} .hick file(s); feeding to stage {}",
+            hick_files.len(),
+            stage_num + 1
+        );
+        current_sources = hick_files;
+    }
+
+    // Reached max stages and still producing .hick files
+    let offending: Vec<String> = current_sources.iter().map(|(n, _)| n.clone()).collect();
+    Err(anyhow::anyhow!(
+        "multi-stage pipeline reached limit ({max_stages} stages) but still producing .hick files: {}",
+        offending.join(", ")
+    ))
 }
 
 // ---------------------------------------------------------------------------

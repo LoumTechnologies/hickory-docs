@@ -8,6 +8,8 @@ use std::fmt;
 
 use hick_lang::{HickDocument, HickNode, HickTag};
 
+use crate::volume::{VolumeAccess, VolumeAccessRule, VolumeDeclaration, VolumeKind};
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -89,6 +91,8 @@ pub struct FlowDag {
     pub edges: Vec<DagEdge>,
     /// Exec IDs with no incoming edges (ready to start).
     pub roots: Vec<ExecId>,
+    /// Volume declarations parsed from `<hick:volume>` tags.
+    pub volumes: HashMap<String, VolumeDeclaration>,
 }
 
 impl FlowDag {
@@ -162,6 +166,16 @@ pub enum DagValidationError {
 
     #[error("exec {exec} references undeclared container '{container}'")]
     UndeclaredContainer { exec: ExecId, container: String },
+
+    #[error("exec {exec} mounts undeclared volume '{volume}'")]
+    UndeclaredVolume { exec: ExecId, volume: String },
+
+    #[error("container '{container}' denied {access} access to volume '{volume}'")]
+    VolumeAccessDenied {
+        container: String,
+        volume: String,
+        access: String,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -172,7 +186,7 @@ pub enum DagValidationError {
 pub fn build_dag(doc: &HickDocument) -> Result<FlowDag, DagValidationError> {
     let mut execs = Vec::new();
     let mut containers: HashSet<String> = HashSet::new();
-    let mut volumes: HashSet<String> = HashSet::new();
+    let mut volume_decls: HashMap<String, VolumeDeclaration> = HashMap::new();
     let mut forks: Vec<(String, String, usize)> = Vec::new(); // (from, to, doc_order)
     let mut attenuates: Vec<(String, usize)> = Vec::new(); // (container, doc_order)
 
@@ -187,8 +201,8 @@ pub fn build_dag(doc: &HickDocument) -> Result<FlowDag, DagValidationError> {
                     }
                 }
                 "volume" => {
-                    if let Some(name) = tag.get_attribute("name") {
-                        volumes.insert(name.to_string());
+                    if let Some(decl) = parse_volume_declaration(tag) {
+                        volume_decls.insert(decl.name.clone(), decl);
                     }
                 }
                 "exec" => {
@@ -245,19 +259,50 @@ pub fn build_dag(doc: &HickDocument) -> Result<FlowDag, DagValidationError> {
         last_exec_per_container.insert(exec.container.clone(), exec.id);
     }
 
-    // Volume writes/reads
+    // Classify each exec's role per volume using explicit access rules when
+    // available, otherwise fall back to the first-mounter heuristic.
     let mut volume_writers: HashMap<String, Vec<ExecId>> = HashMap::new();
     let mut volume_readers: HashMap<String, Vec<ExecId>> = HashMap::new();
+    let mut volume_first_seen: HashSet<String> = HashSet::new();
+
     for exec in &execs {
         for (vol_name, _mount_path) in &exec.mounts {
-            // Heuristic: writer if the container has file-write or is the first to mount
-            // For now, first mounter of a volume is the writer, subsequent are readers
-            if volume_writers.contains_key(vol_name) {
+            if let Some(decl) = volume_decls.get(vol_name) {
+                if !decl.access_rules.is_empty() {
+                    // Use explicit access rules
+                    let has_write = decl.access_rules.iter().any(|r| {
+                        r.container == exec.container
+                            && matches!(r.access, VolumeAccess::Write(_))
+                    });
+                    let has_read = decl.access_rules.iter().any(|r| {
+                        r.container == exec.container
+                            && matches!(r.access, VolumeAccess::Read(_))
+                    });
+
+                    if has_write {
+                        volume_writers
+                            .entry(vol_name.clone())
+                            .or_default()
+                            .push(exec.id);
+                    }
+                    if has_read && !has_write {
+                        volume_readers
+                            .entry(vol_name.clone())
+                            .or_default()
+                            .push(exec.id);
+                    }
+                    continue;
+                }
+            }
+
+            // Fallback heuristic: first mounter is writer, rest are readers
+            if volume_first_seen.contains(vol_name) {
                 volume_readers
                     .entry(vol_name.clone())
                     .or_default()
                     .push(exec.id);
             } else {
+                volume_first_seen.insert(vol_name.clone());
                 volume_writers
                     .entry(vol_name.clone())
                     .or_default()
@@ -266,6 +311,7 @@ pub fn build_dag(doc: &HickDocument) -> Result<FlowDag, DagValidationError> {
         }
     }
 
+    // Build edges: writers → readers, sequential ordering among writers
     for (vol_name, readers) in &volume_readers {
         if let Some(writers) = volume_writers.get(vol_name) {
             for &writer in writers {
@@ -279,6 +325,19 @@ pub fn build_dag(doc: &HickDocument) -> Result<FlowDag, DagValidationError> {
                     });
                 }
             }
+        }
+    }
+
+    // Sequential ordering for multiple writers on the same volume
+    for (_vol_name, writers) in &volume_writers {
+        for window in writers.windows(2) {
+            edges.push(DagEdge {
+                from: window[0],
+                to: window[1],
+                reason: DependencyReason::VolumeFlow {
+                    volume: _vol_name.clone(),
+                },
+            });
         }
     }
 
@@ -335,6 +394,7 @@ pub fn build_dag(doc: &HickDocument) -> Result<FlowDag, DagValidationError> {
         execs,
         edges,
         roots: Vec::new(),
+        volumes: volume_decls,
     };
 
     validate_dag(&dag)?;
@@ -352,6 +412,7 @@ pub fn build_dag(doc: &HickDocument) -> Result<FlowDag, DagValidationError> {
         execs: dag.execs,
         edges: dag.edges,
         roots,
+        volumes: dag.volumes,
     })
 }
 
@@ -422,6 +483,54 @@ fn scan_copy_paste(nodes: &[HickNode], copies: &mut Vec<String>, pastes: &mut Ve
             }
         }
     }
+}
+
+/// Parse a `<hick:volume>` tag into a `VolumeDeclaration`.
+fn parse_volume_declaration(tag: &HickTag) -> Option<VolumeDeclaration> {
+    let name = tag.get_attribute("name")?.to_string();
+
+    let input = tag.get_attribute("input").map(|s| s.to_string());
+    let output = tag.get_attribute("output").map(|s| s.to_string());
+
+    let kind = match (input, output) {
+        (Some(inp), Some(out)) => VolumeKind::InputOutput {
+            input: inp,
+            output: out,
+        },
+        (Some(path), None) => VolumeKind::Input { path },
+        (None, Some(path)) => VolumeKind::Output { path },
+        (None, None) => VolumeKind::Ephemeral,
+    };
+
+    // Parse <hick:allow> children for access rules
+    let mut access_rules = Vec::new();
+    for child in &tag.children {
+        if let HickNode::Tag(child_tag) = child {
+            if child_tag.name == "allow" {
+                if let Some(container) = child_tag.get_attribute("container") {
+                    let container = container.to_string();
+                    if let Some(pattern) = child_tag.get_attribute("read") {
+                        access_rules.push(VolumeAccessRule {
+                            container: container.clone(),
+                            access: VolumeAccess::Read(pattern.to_string()),
+                        });
+                    }
+                    if let Some(pattern) = child_tag.get_attribute("write") {
+                        access_rules.push(VolumeAccessRule {
+                            container: container.clone(),
+                            access: VolumeAccess::Write(pattern.to_string()),
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    Some(VolumeDeclaration {
+        name,
+        kind,
+        access_rules,
+    })
 }
 
 fn collect_nested_execs(tag: &HickTag, execs: &mut Vec<ExecInfo>, index: &mut usize) {
@@ -639,5 +748,110 @@ cat /etc/alpine-release
         let dag = parse_and_build(src).unwrap();
         assert_eq!(dag.execs.len(), 1);
         assert_eq!(dag.execs[0].container, "demo");
+    }
+
+    #[test]
+    fn volume_with_explicit_access_rules() {
+        let src = r#"<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
+<hick:container name="scaffolder" image="alpine" />
+<hick:container name="linter" image="alpine" />
+<hick:volume name="project" output="src/MyApi/">
+  <hick:allow container="scaffolder" write="**" />
+  <hick:allow container="linter" read="**" />
+</hick:volume>
+<hick:exec container="scaffolder" mount="project:/out">echo scaffold</hick:exec>
+<hick:exec container="linter" mount="project:/in">echo lint</hick:exec>
+</hick:doc>"#;
+        let dag = parse_and_build(src).unwrap();
+        assert_eq!(dag.execs.len(), 2);
+
+        // scaffolder is writer, linter is reader → writer→reader edge
+        let volume_edge = dag
+            .edges
+            .iter()
+            .find(|e| matches!(&e.reason, DependencyReason::VolumeFlow { .. }));
+        assert!(volume_edge.is_some(), "expected VolumeFlow edge from writer to reader");
+        let ve = volume_edge.unwrap();
+        assert_eq!(ve.from, ExecId(0)); // scaffolder
+        assert_eq!(ve.to, ExecId(1));   // linter
+
+        // Volume declaration is stored
+        assert!(dag.volumes.contains_key("project"));
+        let vol = &dag.volumes["project"];
+        assert_eq!(vol.access_rules.len(), 2);
+        assert!(matches!(vol.kind, VolumeKind::Output { .. }));
+    }
+
+    #[test]
+    fn volume_backward_compat_no_access_rules() {
+        // Volume with no <allow> children uses heuristic: first mounter = writer
+        let src = r#"<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
+<hick:container name="a" image="alpine" />
+<hick:container name="b" image="alpine" />
+<hick:volume name="scratch" />
+<hick:exec container="a" mount="scratch:/data">echo write</hick:exec>
+<hick:exec container="b" mount="scratch:/data">echo read</hick:exec>
+</hick:doc>"#;
+        let dag = parse_and_build(src).unwrap();
+        let volume_edge = dag
+            .edges
+            .iter()
+            .find(|e| matches!(&e.reason, DependencyReason::VolumeFlow { .. }));
+        assert!(volume_edge.is_some(), "expected VolumeFlow edge via heuristic");
+    }
+
+    #[test]
+    fn volume_declaration_parsing() {
+        let src = r#"<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
+<hick:volume name="input-vol" input="." />
+<hick:volume name="output-vol" output="dist/" />
+<hick:volume name="both-vol" input="." output="." />
+<hick:volume name="ephemeral" />
+</hick:doc>"#;
+        let dag = parse_and_build(src).unwrap();
+        assert_eq!(dag.volumes.len(), 4);
+
+        assert!(matches!(dag.volumes["input-vol"].kind, VolumeKind::Input { ref path } if path == "."));
+        assert!(matches!(dag.volumes["output-vol"].kind, VolumeKind::Output { ref path } if path == "dist/"));
+        assert!(matches!(dag.volumes["both-vol"].kind, VolumeKind::InputOutput { .. }));
+        assert!(matches!(dag.volumes["ephemeral"].kind, VolumeKind::Ephemeral));
+    }
+
+    #[test]
+    fn volume_multiple_writers_sequential() {
+        let src = r#"<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
+<hick:container name="step1" image="alpine" />
+<hick:container name="step2" image="alpine" />
+<hick:container name="consumer" image="alpine" />
+<hick:volume name="shared">
+  <hick:allow container="step1" write="**" />
+  <hick:allow container="step2" write="**" />
+  <hick:allow container="consumer" read="**" />
+</hick:volume>
+<hick:exec container="step1" mount="shared:/out">echo step1</hick:exec>
+<hick:exec container="step2" mount="shared:/out">echo step2</hick:exec>
+<hick:exec container="consumer" mount="shared:/in">echo consume</hick:exec>
+</hick:doc>"#;
+        let dag = parse_and_build(src).unwrap();
+
+        // Both writers should have edges to consumer
+        let writer_to_consumer: Vec<_> = dag
+            .edges
+            .iter()
+            .filter(|e| e.to == ExecId(2) && matches!(&e.reason, DependencyReason::VolumeFlow { .. }))
+            .collect();
+        assert_eq!(writer_to_consumer.len(), 2, "both writers should have edge to consumer");
+
+        // Writers should be sequentially ordered
+        let writer_seq: Vec<_> = dag
+            .edges
+            .iter()
+            .filter(|e| e.from == ExecId(0) && e.to == ExecId(1) && matches!(&e.reason, DependencyReason::VolumeFlow { .. }))
+            .collect();
+        assert_eq!(writer_seq.len(), 1, "writers should be sequentially ordered");
     }
 }

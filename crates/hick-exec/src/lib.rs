@@ -7,6 +7,7 @@ pub mod combine_latest;
 pub mod dag;
 pub mod node;
 pub mod state;
+pub mod volume;
 
 pub use combine_latest::DynamicCombineLatest;
 pub use dag::{DagEdge, DagValidationError, ExecId, FlowDag};
