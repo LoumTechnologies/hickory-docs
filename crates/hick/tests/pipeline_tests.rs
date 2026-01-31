@@ -24,7 +24,7 @@ async fn test_simple_file_output() {
 }
 
 #[tokio::test]
-async fn test_file_with_exec_placeholder() {
+async fn test_file_with_exec_dry_run_transcript() {
     let src = hick_doc(
         r#"<hick:container name="demo" image="alpine" />
 <hick:file path="out.txt"><hick:exec container="demo">echo hi</hick:exec></hick:file>"#,
@@ -32,8 +32,8 @@ async fn test_file_with_exec_placeholder() {
     let result = hick::run_pipeline(&[("test.hick", &src)]).await.unwrap();
     let content = result.files.get("out.txt").unwrap();
     assert!(
-        content.contains("[exec in container 'demo']"),
-        "expected exec placeholder, got: {content}"
+        content.contains("$ echo hi"),
+        "expected dry-run transcript with '$ echo hi', got: {content}"
     );
 }
 
@@ -331,8 +331,8 @@ async fn test_guide_hick_file_processes() {
         "guide-verifier container should be defined"
     );
     assert!(
-        guide.contains("[exec in container 'guide-verifier']"),
-        "exec placeholder should appear in output"
+        guide.contains("$ cat /out/stamp.txt"),
+        "dry-run transcript for guide-verifier should appear in output, got: {guide}"
     );
     assert!(
         guide.contains("echo \"Built by hick\" > /out/stamp.txt"),

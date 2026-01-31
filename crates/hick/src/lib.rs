@@ -102,6 +102,22 @@ pub async fn run_pipeline_with_authority(
         info!("Minted token for container '{name}'");
     }
 
+    // Build dry-run transcripts: collect commands per container in DAG order
+    let mut transcripts: HashMap<String, String> = HashMap::new();
+    for (_, doc) in &documents {
+        let flow_dag = dag::build_dag(doc).unwrap();
+        for exec_id in flow_dag.topological_order() {
+            let info = flow_dag.execs.iter().find(|e| e.id == exec_id).unwrap();
+            let entry = transcripts.entry(info.container.clone()).or_default();
+            for line in info.command.trim().lines() {
+                let line = line.trim();
+                if !line.is_empty() {
+                    entry.push_str(&format!("$ {line}\n"));
+                }
+            }
+        }
+    }
+
     // Set up multi-document state
     let state = Arc::new(MultiDocumentState::default());
 
@@ -124,7 +140,7 @@ pub async fn run_pipeline_with_authority(
         }
     }
 
-    // Process file outputs
+    // Process file outputs — use dry-run transcripts for exec tags
     for node in &all_nodes {
         if let HickNode::Tag(tag) = node
             && tag.name == "file"
@@ -139,8 +155,13 @@ pub async fn run_pipeline_with_authority(
                     }
                     HickNode::Tag(child_tag) if child_tag.name == "exec" => {
                         let container_name = tag_attr(child_tag, "container").unwrap_or_default();
-                        let exec_text = format!("[exec in container '{container_name}']");
-                        file_ip.add(Arc::new(StringNode::new(exec_text)));
+                        if let Some(transcript) = transcripts.get(&container_name) {
+                            file_ip.add(Arc::new(StringNode::new(transcript.clone())));
+                        } else {
+                            file_ip.add(Arc::new(StringNode::new(
+                                format!("[no transcript for container '{container_name}']"),
+                            )));
+                        }
                     }
                     HickNode::Tag(child_tag) if child_tag.name == "paste" => {
                         let selector = tag_attr(child_tag, "select").unwrap_or_default();
@@ -226,9 +247,7 @@ pub async fn run_pipeline_live(
         info!("Minted token for container '{name}'");
     }
 
-    // Build DAGs, run execs, collect outputs
-    // Key: (container_name, source_line) -> captured output
-    let mut exec_outputs: HashMap<(String, usize), String> = HashMap::new();
+    // Build DAGs, run execs in containers
     let mut executor = ContainerExecutor::new(config.images_dir.clone(), container_defs.clone())?;
 
     for (name, doc) in &documents {
@@ -251,17 +270,13 @@ pub async fn run_pipeline_live(
                 .ensure_started(&exec_info.container, image)
                 .await?;
 
-            let output = executor
+            executor
                 .execute(&exec_info.container, &exec_info.command)
                 .await?;
-
-            exec_outputs.insert(
-                (exec_info.container.clone(), exec_info.source_line),
-                output,
-            );
         }
     }
 
+    let transcripts = executor.transcripts().clone();
     executor.shutdown().await;
 
     // Set up multi-document state
@@ -286,7 +301,7 @@ pub async fn run_pipeline_live(
         }
     }
 
-    // Process file outputs — use real exec output instead of placeholders
+    // Process file outputs — use container transcripts for exec tags
     for node in &all_nodes {
         if let HickNode::Tag(tag) = node
             && tag.name == "file"
@@ -302,17 +317,12 @@ pub async fn run_pipeline_live(
                     HickNode::Tag(child_tag) if child_tag.name == "exec" => {
                         let container_name =
                             tag_attr(child_tag, "container").unwrap_or_default();
-                        let key = (container_name.clone(), child_tag.source_line);
-                        if let Some(output) = exec_outputs.get(&key) {
-                            file_ip.add(Arc::new(StringNode::new(output.clone())));
+                        if let Some(transcript) = transcripts.get(&container_name) {
+                            file_ip.add(Arc::new(StringNode::new(transcript.clone())));
                         } else {
-                            warn!(
-                                "No exec output for container '{}' at line {}",
-                                container_name, child_tag.source_line
-                            );
-                            let placeholder =
-                                format!("[exec in container '{container_name}']");
-                            file_ip.add(Arc::new(StringNode::new(placeholder)));
+                            file_ip.add(Arc::new(StringNode::new(
+                                format!("[no transcript for container '{container_name}']"),
+                            )));
                         }
                     }
                     HickNode::Tag(child_tag) if child_tag.name == "paste" => {

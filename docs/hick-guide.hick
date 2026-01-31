@@ -177,9 +177,10 @@ Version: <hick:paste select="#version" />
 </hick:file>
 ```
 
-Exec tags inside a file become placeholder text like
-`[exec in container 'builder']` in the current pipeline. Paste tags are
-resolved from matching copy/cut blocks.
+Exec tags inside a file render the full container transcript — every
+command prefixed with `$ ` followed by its output. In dry-run mode only
+the commands appear; in live mode the real output follows each command.
+Paste tags are resolved from matching copy/cut blocks.
 
 ---
 
@@ -333,10 +334,10 @@ guide-builder   (alpine:3.20, network denied, file-write /out/*)
 guide-verifier  (alpine:3.20, network denied, file-read  /out/*)
 ```
 
-### Exec placeholder
+### Container transcript
 
-The following line is an exec tag rendered by the pipeline — when
-containers run for real, it will be replaced with actual output:
+The following block is an exec tag rendered by the pipeline — it shows
+the full transcript for the referenced container (commands and output):
 
 > <h:exec container="guide-verifier">cat /out/stamp.txt</h:exec>
 
