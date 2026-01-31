@@ -17,6 +17,13 @@
 <h:cut id="ns-uri">http://www.hickorydocs.com/1.0</h:cut>
 
 <!-- ================================================================== -->
+<!-- Variables used in the live demo section                             -->
+<!-- ================================================================== -->
+
+<h:var name="guide-version">0.2.0</h:var>
+<h:var name="show-features">yes</h:var>
+
+<!-- ================================================================== -->
 <!-- Live container demo: exercises the full pipeline                   -->
 <!-- ================================================================== -->
 
@@ -266,7 +273,271 @@ proceeding.
 
 ---
 
-## 8. Information-Flow DAG
+## 8. Variables
+
+Variables let you define reusable values and reference them in file outputs.
+
+### Declaring variables
+
+```xml
+<hick:var name="version">2.0.0</hick:var>
+<hick:var name="env">production</hick:var>
+```
+
+### Using variables in file output
+
+Inside `<hick:file>`, the `<hick:val>` tag interpolates a variable:
+
+```xml
+<hick:file path="banner.txt">
+Application v<hick:val name="version" />
+Environment: <hick:val name="env" />
+</hick:file>
+```
+
+### CLI parameter overrides
+
+Variables can be overridden from the command line with `--param`:
+
+```
+hick --param env=staging file.hick
+```
+
+CLI params take priority over `<hick:var>` declarations, which in turn
+take priority over `_hick.yml` defaults.
+
+---
+
+## 9. Conditional Content
+
+Nodes can be included or excluded based on variable values.
+
+### The `<hick:when>` tag
+
+Wraps a block of content that is included only when the condition is true.
+When true, the wrapper is removed and children are promoted into the
+parent. When false, the entire block is dropped.
+
+```xml
+<hick:var name="mode">prod</hick:var>
+
+<hick:when test="mode=prod">
+  <hick:exec container="deploy">./deploy.sh</hick:exec>
+</hick:when>
+
+<hick:when test="!debug">
+  <hick:file path="release.txt">production build</hick:file>
+</hick:when>
+```
+
+### The `when` attribute
+
+Any hick tag can carry a `when` attribute for inline conditional logic:
+
+```xml
+<hick:exec container="linter" when="lint">
+eslint src/
+</hick:exec>
+
+<hick:file path="debug.log" when="debug">
+Debug output here
+</hick:file>
+```
+
+### Condition syntax
+
+| Condition | Meaning |
+|-----------|---------|
+| `var_name` | True if defined and non-empty |
+| `!var_name` | True if undefined or empty |
+| `var_name=value` | True if equals value |
+| `var_name!=value` | True if not equal to value |
+
+---
+
+## 10. Exec Show Modes
+
+When an `<hick:exec>` appears inside a `<hick:file>`, the `show`
+attribute controls which parts of the transcript are rendered:
+
+| Value | Renders |
+|-------|---------|
+| *(default)* | Commands (`$ ...`) and output |
+| `command` | Commands only |
+| `output` | Output only |
+| `none` | Nothing (side-effect only) |
+
+```xml
+<hick:file path="report.md">
+Full transcript:
+<hick:exec container="builder">make build</hick:exec>
+
+Output only:
+<hick:exec container="builder" show="output">make test</hick:exec>
+
+Side-effect (no output in file):
+<hick:exec container="builder" show="none">make clean</hick:exec>
+</hick:file>
+```
+
+---
+
+## 11. Volume Access Rules
+
+Volumes support explicit access rules that control which containers can
+read or write. This replaces the default heuristic (first mounter writes,
+others read) with fine-grained permissions.
+
+```xml
+<hick:volume name="project" output="src/MyApi/">
+  <hick:allow container="scaffolder" write="**" />
+  <hick:allow container="linter" read="**" />
+  <hick:allow container="patcher" read="**" write="Controllers/**" />
+</hick:volume>
+```
+
+### Volume kinds
+
+| Declaration | Behaviour |
+|-------------|-----------|
+| `<hick:volume name="x" />` | Ephemeral scratch (no host mapping) |
+| `<hick:volume name="x" input="." />` | Snapshot of host directory (read source) |
+| `<hick:volume name="x" output="dist/" />` | Contents become pipeline file outputs |
+| `<hick:volume name="x" input="." output="." />` | Read existing state AND write updates |
+
+When access rules are present, the DAG builder uses them to determine
+writer/reader edges instead of the first-mounter heuristic. Multiple
+writers on the same volume are sequenced automatically.
+
+---
+
+## 12. Project Configuration
+
+A `_hick.yml` file in the project root provides defaults for the pipeline.
+Hick searches for it by walking up directories (stopping at a `.git`
+boundary).
+
+```yaml
+files:
+  - docs/*.hick
+  - reference.hick
+
+vars:
+  version: "2.0.0"
+  env: staging
+
+defaults:
+  image: alpine:3.20
+  images-dir: /opt/hick/images
+
+output-dir: dist/
+
+secrets:
+  key-file: /etc/hick/key.txt
+  secrets-dir: /etc/hick/secrets
+```
+
+With a config file, you can simply run `hick` with no arguments — files
+and defaults are read from `_hick.yml`. CLI flags and `--param` values
+override config file values.
+
+---
+
+## 13. Execution Caching
+
+The `--cache` flag caches exec results to avoid re-running containers
+when inputs haven't changed. Cache keys are SHA-256 hashes of the
+container image, capabilities, command text, and secret names.
+
+```
+hick --cache file.hick          # Cache results, reuse on match
+hick --cache --freeze file.hick # Require cached results, never execute
+hick --clear-cache file.hick    # Clear cache before running
+```
+
+Cached transcripts are stored in `.hick-cache/transcripts/`. In freeze
+mode, any uncached exec step is an error — useful in CI to ensure
+reproducible builds.
+
+---
+
+## 14. Multi-Stage Pipeline
+
+When a pipeline produces `.hick` files as output, they are automatically
+fed as sources to a subsequent pipeline stage. This enables containers
+to generate hick documents that drive further execution.
+
+```xml
+<!-- Stage 1: a container generates a .hick file -->
+<hick:container name="scaffolder" image="alpine" />
+<hick:exec container="scaffolder">
+cat &gt; /output/build.hick &lt;&lt;'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
+<hick:file path="generated.txt">built by scaffolder</hick:file>
+</hick:doc>
+EOF
+</hick:exec>
+```
+
+Rules:
+- `.hick` files are removed from the final output (they are intermediate)
+- The pipeline repeats up to `max_stages` times (default 3)
+- If `.hick` files are still being produced at the limit, an error is raised
+- Stage 1 files get `HickFile` provenance, stage 2+ get `GeneratedHick`
+
+---
+
+## 15. Watch Mode (`hick up`)
+
+The `hick up` command runs the pipeline and watches source files for
+changes, re-running automatically with merge-aware snapshots.
+
+```
+hick up docs/guide.hick
+
+Options:
+  --store auto|git|builtin   Version store backend (default: auto)
+  --branch <name>            Snapshot branch (default: main)
+  --merge-api <url>          LLM merge API for conflict resolution
+  --max-stages <n>           Multi-stage limit (default: 3)
+```
+
+### How it works
+
+1. Initial pipeline run produces output files
+2. Output is merged with any user edits via three-way merge
+3. A snapshot is committed to the version store
+4. File watcher monitors `.hick` sources (debounced 100ms)
+5. On change: re-run pipeline, merge, snapshot, write outputs
+
+### Three-way merge
+
+The merge system tracks three versions of each file:
+- **Base** — the last snapshot's version
+- **Generated** — the new pipeline output
+- **Edited** — what's currently on disk (may have user edits)
+
+| Base vs Edited | Base vs Generated | Result |
+|---------------|-------------------|--------|
+| Same | Different | Use generated (no user edits) |
+| Different | Same | Keep edited (no pipeline changes) |
+| Both different | — | Delegate to merge strategy |
+
+Files with `HickFile` provenance always use the generated version
+(users edit the `.hick` source, not the output).
+
+### Store backends
+
+| Backend | Storage | When to use |
+|---------|---------|-------------|
+| `auto` | Detects `.git` → git, else builtin | Default |
+| `git` | Git plumbing at `.hick/git/` | When you want git-compatible history |
+| `builtin` | Content-addressed files at `.hick/store/` | Standalone projects |
+
+---
+
+## 16. Information-Flow DAG
 
 Hick validates the entire document as a directed acyclic graph before
 execution. Dependencies are inferred automatically:
@@ -275,6 +546,7 @@ execution. Dependencies are inferred automatically:
 |-----------------|---------|
 | Container state | Multiple execs in same container |
 | Volume flow | Writer then reader on same volume |
+| Volume access rules | Explicit read/write permissions on volumes |
 | Copy/paste | Producer then consumer of an id |
 | Fork | Source container's last exec before fork target |
 | Attenuate | Barrier between execs in same container |
@@ -283,7 +555,7 @@ Cycles are rejected at validation time with clear error messages.
 
 ---
 
-## 9. Capability Tokens
+## 17. Capability Tokens
 
 Each container receives a macaroon-based capability token at pipeline
 start. Tokens encode the container's allowed operations and can be
@@ -293,7 +565,7 @@ token to a subprocess.
 
 ---
 
-## 10. Custom Namespace Prefix
+## 18. Custom Namespace Prefix
 
 The parser detects the namespace prefix from the `xmlns:` declaration.
 This means you can use any prefix, not just `hick:`:
@@ -310,23 +582,39 @@ rather than parsed tags.
 
 ---
 
-## 11. Running Hick
+## 19. Running Hick
 
 ```
-hick file.hick [file2.hick ...]
+hick [file.hick ...]               Single-shot pipeline (default)
+hick run [file.hick ...] [options]  Explicit single-shot mode
+hick up <file.hick> [options]       Watch mode with merge snapshots
 
-Options:
-  --key-file &lt;path&gt;      Age identity file (default: ~/.config/hick/key.txt)
-  --secrets-dir &lt;path&gt;   Secrets directory (default: ~/.config/hick/secrets)
-  --verbose, -v          Enable verbose logging
+Common options:
+  --config <path>          Path to _hick.yml (default: auto-discover)
+  --param key=value        Set/override a variable
+  --key-file <path>        Age identity file
+  --secrets-dir <path>     Secrets directory
+  --images-dir <path>      Pre-converted .wasm images
+  --dry-run                Produce placeholders instead of running containers
+  --cache                  Cache exec results, reuse on match
+  --freeze                 Require cached results, never re-execute
+  --clear-cache            Clear cache before running
+  -v, --verbose            Enable verbose logging
+
+Watch mode options (hick up):
+  --store auto|git|builtin Version store backend
+  --branch <name>          Snapshot branch name
+  --merge-api <url>        LLM merge API endpoint
+  --max-stages <n>         Multi-stage pipeline limit
 ```
 
-Output files declared with `<hick:file>` are written to disk relative
-to the current directory.
+If no files are specified and a `_hick.yml` exists, files are read from
+the config. Output files declared with `<hick:file>` are written to disk
+relative to the current directory.
 
 ---
 
-## 12. Live Demo
+## 20. Live Demo
 
 This guide is itself a `.hick` file (`docs/hick-guide.hick`). It uses
 the `h:` prefix so that `hick:` code examples appear as literal text.
@@ -367,6 +655,16 @@ The builder's command is captured with `<hick:copy>` and pasted here:
 
 > `<h:paste select="#build-cmd" />`
 
+### Variables and conditionals
+
+This guide defines variables and uses conditional rendering:
+
+> Guide version: <h:val name="guide-version" />
+
+The following line only appears because `show-features` is defined:
+
+<h:when test="show-features">> Feature list is enabled via conditional rendering.</h:when>
+
 ### Pipeline features exercised
 
 - **Namespace prefix detection** — `h:` prefix bound via xmlns
@@ -376,6 +674,8 @@ The builder's command is captured with `<hick:copy>` and pasted here:
 - **Fork** — `guide-forked` clones builder state with added restrictions
 - **Copy/paste** — content extracted from exec, pasted into output
 - **Cut/paste** — namespace URI pasted from a cut block
+- **Variables** — `guide-version` declared with `<hick:var>`, rendered with `<hick:val>`
+- **Conditional content** — `<hick:when>` block controlled by `show-features` variable
 - **File output** — this entire document
 </h:file>
 
