@@ -82,8 +82,8 @@ impl VersionStore for BuiltinVersionStore {
             .await
             .map_err(|_| StoreError::SnapshotNotFound(id.clone()))?;
 
-        let snapshot: Snapshot = serde_json::from_slice(&data)
-            .map_err(|e| StoreError::Serialization(e.to_string()))?;
+        let snapshot: Snapshot =
+            serde_json::from_slice(&data).map_err(|e| StoreError::Serialization(e.to_string()))?;
 
         Ok(snapshot)
     }

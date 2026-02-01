@@ -28,7 +28,7 @@ use hick_exec::state::MultiDocumentState;
 use hick_lang::{HickNode, HickTag};
 use hick_token::{ContainerCapabilities, NetworkRule, TokenAuthority};
 
-use crate::executor::{ContainerExecutor, ExecTranscriptEntry};
+use crate::executor::{ContainerExecutor, ContainerResourceStats, ExecTranscriptEntry};
 
 // ---------------------------------------------------------------------------
 // Exec output control
@@ -84,6 +84,9 @@ pub struct PipelineResult {
     pub containers: HashMap<String, ContainerCapabilities>,
     /// Volume name -> list of containers that contributed to its final state.
     pub volume_provenance: HashMap<String, Vec<String>>,
+    /// Per-container resource stats (boot time, exec time, I/O, pause info).
+    /// Empty for dry-run pipelines.
+    pub resource_stats: HashMap<String, ContainerResourceStats>,
 }
 
 // ---------------------------------------------------------------------------
@@ -283,6 +286,7 @@ pub async fn run_pipeline_with_authority(
         files,
         containers: container_defs,
         volume_provenance: HashMap::new(),
+        resource_stats: HashMap::new(),
     })
 }
 
@@ -449,7 +453,10 @@ pub async fn run_pipeline_live(
                     working_dir.join(path)
                 };
                 if abs_path.is_dir() {
-                    info!("Seeding input volume '{vol_name}' from {}", abs_path.display());
+                    info!(
+                        "Seeding input volume '{vol_name}' from {}",
+                        abs_path.display()
+                    );
                     volume_store.seed_from_directory(vol_name, &abs_path)?;
                 } else {
                     warn!(
@@ -556,8 +563,7 @@ pub async fn run_pipeline_live(
             // Extract volumes after exec (if container has write access)
             for (vol_name, mount_path) in &exec_info.mounts {
                 let has_write = if let Some(decl) = all_volume_decls.get(vol_name) {
-                    decl.check_write(&exec_info.container, "**")
-                        || decl.access_rules.is_empty()
+                    decl.check_write(&exec_info.container, "**") || decl.access_rules.is_empty()
                 } else {
                     true // no declaration = unrestricted
                 };
@@ -589,31 +595,32 @@ pub async fn run_pipeline_live(
             _ => None,
         };
 
-        if let Some(prefix) = output_prefix {
-            if volume_store.contains(vol_name) {
-                let unpacked = volume_store.unpack_to_files(vol_name)?;
-                for (file_path, content) in unpacked {
-                    let output_path = if prefix.is_empty() || prefix == "." {
-                        file_path
-                    } else {
-                        format!(
-                            "{}{}",
-                            prefix.trim_end_matches('/'),
-                            if file_path.starts_with('/') {
-                                file_path
-                            } else {
-                                format!("/{file_path}")
-                            }
-                        )
-                    };
-                    volume_files.insert(output_path, content);
-                }
+        if let Some(prefix) = output_prefix
+            && volume_store.contains(vol_name)
+        {
+            let unpacked = volume_store.unpack_to_files(vol_name)?;
+            for (file_path, content) in unpacked {
+                let output_path = if prefix.is_empty() || prefix == "." {
+                    file_path
+                } else {
+                    format!(
+                        "{}{}",
+                        prefix.trim_end_matches('/'),
+                        if file_path.starts_with('/') {
+                            file_path
+                        } else {
+                            format!("/{file_path}")
+                        }
+                    )
+                };
+                volume_files.insert(output_path, content);
             }
         }
     }
 
     let transcripts = executor.transcripts().clone();
     executor.shutdown().await;
+    let resource_stats = executor.resource_stats().clone();
 
     // Process copy/cut blocks
     for node in &all_nodes {
@@ -659,6 +666,7 @@ pub async fn run_pipeline_live(
         files,
         containers: container_defs,
         volume_provenance,
+        resource_stats,
     })
 }
 

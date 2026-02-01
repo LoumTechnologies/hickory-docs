@@ -47,14 +47,10 @@ impl ObjectStore for FsObjectStore {
 
     async fn get(&self, key: &str) -> Result<Vec<u8>, StoreError> {
         let path = self.key_path(key);
-        tokio::fs::read(&path)
-            .await
-            .map_err(|e| match e.kind() {
-                std::io::ErrorKind::NotFound => {
-                    StoreError::Other(format!("key not found: {key}"))
-                }
-                _ => StoreError::Io(e),
-            })
+        tokio::fs::read(&path).await.map_err(|e| match e.kind() {
+            std::io::ErrorKind::NotFound => StoreError::Other(format!("key not found: {key}")),
+            _ => StoreError::Io(e),
+        })
     }
 
     async fn exists(&self, key: &str) -> Result<bool, StoreError> {

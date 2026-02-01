@@ -20,6 +20,12 @@ pub struct VolumeStore {
     archives: HashMap<String, Vec<u8>>,
 }
 
+impl Default for VolumeStore {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl VolumeStore {
     pub fn new() -> Self {
         Self {

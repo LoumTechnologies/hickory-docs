@@ -504,7 +504,9 @@ async fn test_fork_creates_container_def_in_dry_run() {
 <hick:fork from="base" to="analyzer" />
 <hick:exec container="analyzer">echo analyze</hick:exec>"#,
     );
-    let result = hick::run_pipeline(&[("test.hick", &src)], &[]).await.unwrap();
+    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+        .await
+        .unwrap();
 
     // Fork target should appear as a container definition
     assert!(
@@ -529,7 +531,9 @@ async fn test_fork_inherits_source_capabilities() {
 <hick:fork from="base" to="analyzer" />
 <hick:exec container="analyzer">echo analyze</hick:exec>"#,
     );
-    let result = hick::run_pipeline(&[("test.hick", &src)], &[]).await.unwrap();
+    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+        .await
+        .unwrap();
 
     let base_caps = result.containers.get("base").unwrap();
     let fork_caps = result.containers.get("analyzer").unwrap();
@@ -555,7 +559,9 @@ async fn test_fork_attenuates_capabilities() {
 </hick:fork>
 <hick:exec container="restricted">echo analyze</hick:exec>"#,
     );
-    let result = hick::run_pipeline(&[("test.hick", &src)], &[]).await.unwrap();
+    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+        .await
+        .unwrap();
 
     let base_caps = result.containers.get("base").unwrap();
     let fork_caps = result.containers.get("restricted").unwrap();
@@ -593,7 +599,9 @@ async fn test_fork_with_allow_and_deny_children() {
 </hick:fork>
 <hick:exec container="scanner">echo scan</hick:exec>"#,
     );
-    let result = hick::run_pipeline(&[("test.hick", &src)], &[]).await.unwrap();
+    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+        .await
+        .unwrap();
 
     let fork_caps = result.containers.get("scanner").unwrap();
 
@@ -613,7 +621,9 @@ async fn test_fork_without_declared_source_gets_default_caps() {
 <hick:fork from="base" to="fork-target" />
 <hick:exec container="fork-target">echo hello</hick:exec>"#,
     );
-    let result = hick::run_pipeline(&[("test.hick", &src)], &[]).await.unwrap();
+    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+        .await
+        .unwrap();
 
     // Fork target should still appear in container defs with empty capabilities
     assert!(result.containers.contains_key("fork-target"));
@@ -859,7 +869,10 @@ async fn test_multi_stage_no_hick_output_single_stage() {
         .unwrap();
     assert_eq!(result.files.len(), 2);
     assert_eq!(result.files.get("out.txt").unwrap(), "hello");
-    assert_eq!(result.files.get("data.json").unwrap(), r#"{"key": "value"}"#);
+    assert_eq!(
+        result.files.get("data.json").unwrap(),
+        r#"{"key": "value"}"#
+    );
 
     // All files should have HickFile provenance (stage 1)
     for (path, prov) in &result.provenance {
@@ -889,7 +902,10 @@ async fn test_multi_stage_two_stages() {
         .unwrap();
 
     // Stage 1 regular file should be present
-    assert_eq!(result.files.get("stage1-output.txt").unwrap(), "from stage 1");
+    assert_eq!(
+        result.files.get("stage1-output.txt").unwrap(),
+        "from stage 1"
+    );
 
     // Stage 2 output should be present
     assert_eq!(
@@ -919,9 +935,7 @@ async fn test_multi_stage_two_stages() {
 #[tokio::test]
 async fn test_multi_stage_limit_reached_error() {
     // With max_stages=1, any .hick output triggers the limit error.
-    let src = hick_doc(
-        r#"<hick:file path="output.hick">placeholder</hick:file>"#,
-    );
+    let src = hick_doc(r#"<hick:file path="output.hick">placeholder</hick:file>"#);
     let result = hick::run_pipeline_multi_stage(&[("test.hick", &src)], 1).await;
     assert!(result.is_err(), "should error when stage limit reached");
     let err = result.unwrap_err().to_string();

@@ -146,7 +146,10 @@ mod tests {
 
     #[test]
     fn glob_matches_prefix_double_star() {
-        assert!(glob_matches("Controllers/HomeController.cs", "Controllers/**"));
+        assert!(glob_matches(
+            "Controllers/HomeController.cs",
+            "Controllers/**"
+        ));
         assert!(!glob_matches("Models/User.cs", "Controllers/**"));
     }
 
