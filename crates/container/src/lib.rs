@@ -1,4 +1,4 @@
 pub mod container;
 pub mod pipe;
 
-pub use container::{Container, ContainerConfig, create_async_engine};
+pub use container::{Container, ContainerConfig, ContainerStats, create_async_engine};

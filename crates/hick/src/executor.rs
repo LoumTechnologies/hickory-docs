@@ -7,16 +7,16 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
 use log::{info, warn};
 use tokio::sync::{RwLock, mpsc};
-use wasmtime::{Engine, Module};
+use wasmtime::Module;
 
 use bridge::NetworkBridge;
 use connection_filter::{AllowAll, CapabilityFilter, ConnectionFilter};
-use container::{Container, ContainerConfig, create_async_engine};
+use container::{Container, ContainerConfig, ContainerStats, create_async_engine};
 use hick_token::ContainerCapabilities;
 use net_config::NetworkConfig;
 
@@ -30,6 +30,11 @@ const PROMPT: &[u8] = b"/ # ";
 /// Marker used to delimit captured command output.
 const START_MARKER: &str = "===HICK_START===";
 const END_MARKER: &str = "===HICK_END===";
+
+/// Sync marker echoed after the end marker.  We wait for this instead of
+/// the shell prompt so that commands that change the working directory
+/// (and therefore the prompt) don't cause a hang.
+const SYNC_MARKER: &str = "===HICK_SYNC===";
 
 /// How long to wait for the kernel to boot and show a prompt.
 const BOOT_TIMEOUT: Duration = Duration::from_secs(120);
@@ -122,6 +127,10 @@ struct RunningContainer {
     image_name: String,
     /// Commands executed in this container, in order (for replay-based forking).
     command_history: Vec<String>,
+    /// How long the container took to boot (prompt detected).
+    boot_duration: Option<Duration>,
+    /// Duration of each command executed via [`ContainerExecutor::execute`].
+    command_durations: Vec<Duration>,
 }
 
 // ---------------------------------------------------------------------------
@@ -153,9 +162,21 @@ pub struct ExecTranscriptEntry {
     pub output: String,
 }
 
+/// Aggregated resource statistics for a single container, collected at shutdown.
+#[derive(Debug, Clone)]
+pub struct ContainerResourceStats {
+    /// Stats snapshot from the container itself (epoch ticks, I/O bytes, pause info).
+    pub container_stats: ContainerStats,
+    /// Time from container start to shell prompt detection.
+    pub boot_duration: Duration,
+    /// Per-command execution durations (from [`ContainerExecutor::execute`]).
+    pub command_durations: Vec<Duration>,
+    /// Sum of `command_durations`.
+    pub total_exec_duration: Duration,
+}
+
 /// Manages WASM container lifecycles for pipeline execution.
 pub struct ContainerExecutor {
-    engine: Engine,
     containers: HashMap<String, RunningContainer>,
     images_dir: PathBuf,
     bridge: Arc<RwLock<NetworkBridge>>,
@@ -164,6 +185,12 @@ pub struct ContainerExecutor {
     transcripts: HashMap<String, Vec<ExecTranscriptEntry>>,
     /// Pending fork definitions: target container name -> fork info.
     fork_defs: HashMap<String, ForkDef>,
+    /// Serialized WASM modules keyed by image name. The first container of
+    /// each image compiles and serializes; subsequent containers deserialize
+    /// from cache (same `Config` guarantees compatibility).
+    module_cache: HashMap<String, Vec<u8>>,
+    /// Per-container resource stats, populated during [`shutdown`].
+    stats: HashMap<String, ContainerResourceStats>,
 }
 
 impl ContainerExecutor {
@@ -175,10 +202,8 @@ impl ContainerExecutor {
         images_dir: PathBuf,
         container_caps: HashMap<String, ContainerCapabilities>,
     ) -> Result<Self> {
-        let engine = create_async_engine()?;
         let bridge = Arc::new(RwLock::new(NetworkBridge::new()));
         Ok(Self {
-            engine,
             containers: HashMap::new(),
             images_dir,
             bridge,
@@ -186,6 +211,8 @@ impl ContainerExecutor {
             container_caps,
             transcripts: HashMap::new(),
             fork_defs: HashMap::new(),
+            module_cache: HashMap::new(),
+            stats: HashMap::new(),
         })
     }
 
@@ -228,13 +255,31 @@ impl ContainerExecutor {
     /// Start a brand-new container from a WASM image.
     async fn start_fresh_container(&mut self, name: &str, image: &str) -> Result<()> {
         let wasm_path = resolve_image_path(&self.images_dir, image);
-        info!(
-            "Loading image for container '{name}': {}",
-            wasm_path.display()
-        );
 
-        let module = Module::from_file(&self.engine, &wasm_path)
-            .with_context(|| format!("failed to load WASM image: {}", wasm_path.display()))?;
+        // Per-container engine for independent epoch control
+        let engine = create_async_engine()?;
+
+        // Use module cache: compile + serialize on first use, deserialize for
+        // subsequent containers (same Config guarantees compatibility).
+        let module = if let Some(serialized) = self.module_cache.get(image) {
+            info!("Loading cached module for container '{name}' (image: {image})");
+            // SAFETY: we trust our own serialized module data and the engine
+            // was created with the identical Config via create_async_engine().
+            unsafe { Module::deserialize(&engine, serialized) }
+                .with_context(|| format!("failed to deserialize cached module for '{image}'"))?
+        } else {
+            info!(
+                "Compiling image for container '{name}': {}",
+                wasm_path.display()
+            );
+            let module = Module::from_file(&engine, &wasm_path)
+                .with_context(|| format!("failed to load WASM image: {}", wasm_path.display()))?;
+            let serialized = module
+                .serialize()
+                .with_context(|| format!("failed to serialize module for '{image}'"))?;
+            self.module_cache.insert(image.to_string(), serialized);
+            module
+        };
 
         let net_cfg = NetworkConfig::for_container(self.next_subnet);
         self.next_subnet = self.next_subnet.wrapping_add(1);
@@ -253,13 +298,14 @@ impl ContainerExecutor {
             Arc::new(AllowAll)
         };
 
-        let mut config = ContainerConfig::new(self.engine.clone(), module);
+        let mut config = ContainerConfig::new(engine, module);
         config.networking = true;
         config.connection_filter = Some(filter);
         config.network_config = Some(net_cfg.clone());
         config.bridge = Some(self.bridge.clone());
         config.bridge_rx = Some(bridge_rx);
 
+        let boot_start = Instant::now();
         let container = Container::start(config)
             .await
             .with_context(|| format!("failed to start container '{name}'"))?;
@@ -275,6 +321,8 @@ impl ContainerExecutor {
                 network_config: net_cfg,
                 image_name: image.to_string(),
                 command_history: Vec::new(),
+                boot_duration: None,
+                command_durations: Vec::new(),
             },
         );
 
@@ -282,6 +330,14 @@ impl ContainerExecutor {
         self.wait_for_boot(name)
             .await
             .with_context(|| format!("container '{name}' failed to boot"))?;
+
+        let boot_duration = boot_start.elapsed();
+        let rc = self.containers.get_mut(name).unwrap();
+        rc.boot_duration = Some(boot_duration);
+        info!("Container '{name}' boot took {boot_duration:?}");
+
+        // Pause the container — it's idle until the first command
+        rc.container.pause();
 
         Ok(())
     }
@@ -335,11 +391,12 @@ impl ContainerExecutor {
         {
             let rc = self
                 .containers
-                .get(name)
+                .get_mut(name)
                 .ok_or_else(|| anyhow::anyhow!("container '{name}' not found"))?;
             if !rc.booted {
                 bail!("container '{name}' has not booted yet");
             }
+            rc.container.resume();
         }
 
         info!("Replaying in '{name}': {command}");
@@ -361,13 +418,18 @@ impl ContainerExecutor {
             rc.container
                 .write_line(&format!("echo '{END_MARKER}'"))
                 .await?;
+            rc.container
+                .write_line(&format!("echo '{SYNC_MARKER}'"))
+                .await?;
         }
 
         let deadline = tokio::time::Instant::now() + COMMAND_TIMEOUT;
         let mut buf = [0u8; 4096];
         let mut all_output = Vec::new();
 
-        let (result, prompt_already_seen) = loop {
+        // Read until the sync marker appears.  The output between START and
+        // END markers is the command output; SYNC signals the shell is ready.
+        let result = loop {
             let rc = self.containers.get_mut(name).unwrap();
             let read_result =
                 tokio::time::timeout_at(deadline, rc.container.read_stdout(&mut buf)).await;
@@ -381,31 +443,29 @@ impl ContainerExecutor {
                     all_output.extend_from_slice(&cleaned);
 
                     let text = String::from_utf8_lossy(&all_output);
-                    let start_line = format!("\n{START_MARKER}");
-                    let end_line = format!("\n{END_MARKER}");
-                    if text.contains(&end_line) {
+                    let sync_line = format!("\n{SYNC_MARKER}");
+                    if text.contains(&sync_line) {
+                        let start_line = format!("\n{START_MARKER}");
+                        let end_line = format!("\n{END_MARKER}");
                         let start_pos = text
                             .find(&start_line)
                             .ok_or_else(|| anyhow::anyhow!("start marker not found on own line"))?;
                         let after_start = start_pos + start_line.len();
-                        let end_pos = text.find(&end_line).unwrap();
+                        let end_pos = text
+                            .find(&end_line)
+                            .ok_or_else(|| anyhow::anyhow!("end marker not found on own line"))?;
                         let captured = &text[after_start..end_pos];
 
-                        let result = clean_captured_output(captured, &cmd_lines);
-
-                        let after_end = end_pos + end_line.len();
-                        let leftover = text[after_end..].as_bytes();
-                        let mut pm = PromptMatcher::new();
-                        let (_, prompt_seen) = pm.process(leftover);
-
-                        break (result, prompt_seen);
+                        break clean_captured_output(captured, &cmd_lines);
                     }
                 }
             }
         };
 
-        if !prompt_already_seen {
-            self.wait_for_prompt(name, deadline).await?;
+        // Pause container after replay completes
+        {
+            let rc = self.containers.get_mut(name).unwrap();
+            rc.container.pause();
         }
 
         Ok(result)
@@ -457,18 +517,21 @@ impl ContainerExecutor {
             return Ok(String::new());
         }
 
-        // Check container exists and is booted
+        // Check container exists and is booted, then resume
         {
             let rc = self
                 .containers
-                .get(name)
+                .get_mut(name)
                 .ok_or_else(|| anyhow::anyhow!("container '{name}' not found"))?;
             if !rc.booted {
                 bail!("container '{name}' has not booted yet");
             }
+            rc.container.resume();
         }
 
         info!("Executing in '{name}': {command}");
+
+        let cmd_start = Instant::now();
 
         // Record to history for potential future forks
         {
@@ -483,9 +546,10 @@ impl ContainerExecutor {
             .filter(|l| !l.is_empty())
             .collect();
 
-        // Send start marker, all command lines, and end marker without
-        // waiting for prompts in between. This ensures the command output
-        // stays in the stdout stream for us to capture.
+        // Send start marker, all command lines, end marker, and sync
+        // marker.  We wait for the sync marker instead of the shell prompt
+        // so that commands which change the working directory (and therefore
+        // the prompt string) don't cause a hang.
         {
             let rc = self.containers.get_mut(name).unwrap();
             rc.container
@@ -497,16 +561,17 @@ impl ContainerExecutor {
             rc.container
                 .write_line(&format!("echo '{END_MARKER}'"))
                 .await?;
+            rc.container
+                .write_line(&format!("echo '{SYNC_MARKER}'"))
+                .await?;
         }
 
-        // Read all output until we see both markers.
-        // Re-borrow `rc` each iteration so we don't hold a long-lived
-        // mutable borrow on `self.containers`.
+        // Read all output until the sync marker appears.
         let deadline = tokio::time::Instant::now() + COMMAND_TIMEOUT;
         let mut buf = [0u8; 4096];
         let mut all_output = Vec::new();
 
-        let (result, prompt_already_seen) = loop {
+        let result = loop {
             let rc = self.containers.get_mut(name).unwrap();
             let read_result =
                 tokio::time::timeout_at(deadline, rc.container.read_stdout(&mut buf)).await;
@@ -520,40 +585,35 @@ impl ContainerExecutor {
                     all_output.extend_from_slice(&cleaned);
 
                     let text = String::from_utf8_lossy(&all_output);
-                    // Search for the marker on its own line (preceded by \n),
-                    // not inside the echoed command (e.g. `/ # echo '===HICK_START==='`).
-                    let start_line = format!("\n{START_MARKER}");
-                    let end_line = format!("\n{END_MARKER}");
-                    if text.contains(&end_line) {
+                    let sync_line = format!("\n{SYNC_MARKER}");
+                    if text.contains(&sync_line) {
+                        let start_line = format!("\n{START_MARKER}");
+                        let end_line = format!("\n{END_MARKER}");
                         let start_pos = text
                             .find(&start_line)
                             .ok_or_else(|| anyhow::anyhow!("start marker not found on own line"))?;
                         let after_start = start_pos + start_line.len();
-                        let end_pos = text.find(&end_line).unwrap();
+                        let end_pos = text
+                            .find(&end_line)
+                            .ok_or_else(|| anyhow::anyhow!("end marker not found on own line"))?;
                         let captured = &text[after_start..end_pos];
 
                         let result = clean_captured_output(captured, &cmd_lines);
                         info!("Captured output from '{name}': {} bytes", result.len());
 
-                        // Check if the prompt was already in the data we
-                        // read past the end marker. Feed the leftover bytes
-                        // through the prompt matcher so we don't wait for a
-                        // prompt that's already been consumed.
-                        let after_end = end_pos + end_line.len();
-                        let leftover = text[after_end..].as_bytes();
-                        let mut pm = PromptMatcher::new();
-                        let (_, prompt_seen) = pm.process(leftover);
-
-                        break (result, prompt_seen);
+                        break result;
                     }
                 }
             }
         };
 
-        // Wait for the final prompt so the container is ready for the
-        // next command — unless we already saw it in the buffered data.
-        if !prompt_already_seen {
-            self.wait_for_prompt(name, deadline).await?;
+        let cmd_duration = cmd_start.elapsed();
+
+        // Pause container and record timing
+        {
+            let rc = self.containers.get_mut(name).unwrap();
+            rc.command_durations.push(cmd_duration);
+            rc.container.pause();
         }
 
         // Append structured transcript entry
@@ -567,29 +627,6 @@ impl ContainerExecutor {
             .push(entry);
 
         Ok(result)
-    }
-
-    /// Wait for a prompt, discarding output.
-    async fn wait_for_prompt(&mut self, name: &str, deadline: tokio::time::Instant) -> Result<()> {
-        let mut buf = [0u8; 4096];
-        loop {
-            let rc = self.containers.get_mut(name).unwrap();
-            let read_result =
-                tokio::time::timeout_at(deadline, rc.container.read_stdout(&mut buf)).await;
-
-            match read_result {
-                Err(_) => bail!("timed out waiting for prompt"),
-                Ok(Err(e)) => bail!("read error: {e}"),
-                Ok(Ok(0)) => bail!("container exited"),
-                Ok(Ok(n)) => {
-                    let cleaned = strip_dsr(&buf[..n]);
-                    let (_passthrough, detected) = rc.prompt_matcher.process(&cleaned);
-                    if detected {
-                        return Ok(());
-                    }
-                }
-            }
-        }
     }
 
     /// Create a mount point directory inside a running container.
@@ -635,24 +672,30 @@ impl ContainerExecutor {
             encoded.len()
         );
 
-        // Create mount point, then decode and extract
+        // Create mount point, then decode and extract.
         self.create_mount_point(name, mount_path).await?;
 
-        // Use heredoc approach: echo the base64 data and pipe through base64 -d | tar xf -
-        // Split into chunks to avoid shell line length limits
-        let chunk_size = 4096;
+        // Write the base64 data to a temp file in small chunks so that
+        // each individual shell line stays within BusyBox ash's line
+        // editor buffer limit (~1024 chars).  Then decode and extract.
+        let tmp_file = "/tmp/_hv.b64";
+        let chunk_size = 512;
         let chunks: Vec<&str> = encoded
             .as_bytes()
             .chunks(chunk_size)
             .map(|c| std::str::from_utf8(c).unwrap())
             .collect();
 
-        let mut cmd = format!("cd {mount_path} && (");
+        let mut lines = vec![format!("> {tmp_file}")];
         for chunk in &chunks {
-            cmd.push_str(&format!("echo -n '{chunk}'; "));
+            lines.push(format!("echo -n '{chunk}' >> {tmp_file}"));
         }
-        cmd.push_str(") | base64 -d | tar xf -");
+        lines.push(format!(
+            "cd {mount_path} && base64 -d {tmp_file} | tar xf -"
+        ));
+        lines.push(format!("rm -f {tmp_file}"));
 
+        let cmd = lines.join("\n");
         self.replay_command(name, &cmd).await.with_context(|| {
             format!("failed to inject volume into container '{name}' at {mount_path}")
         })?;
@@ -667,11 +710,7 @@ impl ContainerExecutor {
     /// payload so that stray kernel or daemon messages don't corrupt the
     /// data.  The `-w 0` flag disables line-wrapping in the container's
     /// `base64` command.
-    pub async fn extract_volume(
-        &mut self,
-        name: &str,
-        mount_path: &str,
-    ) -> Result<Vec<u8>> {
+    pub async fn extract_volume(&mut self, name: &str, mount_path: &str) -> Result<Vec<u8>> {
         let rc = self
             .containers
             .get(name)
@@ -690,8 +729,8 @@ impl ContainerExecutor {
         })?;
 
         // Extract the base64 payload between the inner markers.
-        let b64_data = extract_between_markers(&output, "===B64S===", "===B64E===")
-            .with_context(|| {
+        let b64_data =
+            extract_between_markers(&output, "===B64S===", "===B64E===").with_context(|| {
                 warn!(
                     "Base64 marker extraction failed. Cleaned output (first 500 chars): {:?}",
                     &output[..output.len().min(500)]
@@ -724,11 +763,41 @@ impl ContainerExecutor {
             .push(entry);
     }
 
-    /// Kill all containers and clean up.
+    /// Per-container resource stats, populated during [`shutdown`].
+    pub fn resource_stats(&self) -> &HashMap<String, ContainerResourceStats> {
+        &self.stats
+    }
+
+    /// Kill all containers and clean up. Snapshots resource stats before
+    /// killing each container.
     pub async fn shutdown(&mut self) {
         let names: Vec<String> = self.containers.keys().cloned().collect();
         for name in &names {
             if let Some(rc) = self.containers.remove(name) {
+                // Snapshot stats before killing
+                let container_stats = rc.container.stats();
+                let boot_duration = rc.boot_duration.unwrap_or_default();
+                let total_exec: Duration = rc.command_durations.iter().sum();
+                let resource_stats = ContainerResourceStats {
+                    container_stats,
+                    boot_duration,
+                    command_durations: rc.command_durations,
+                    total_exec_duration: total_exec,
+                };
+
+                info!(
+                    "Container '{name}' stats: boot={:?}, exec={:?}, epochs={}, \
+                     stdin={}B, stdout={}B, pauses={}",
+                    resource_stats.boot_duration,
+                    resource_stats.total_exec_duration,
+                    resource_stats.container_stats.epoch_ticks,
+                    resource_stats.container_stats.stdin_bytes,
+                    resource_stats.container_stats.stdout_bytes,
+                    resource_stats.container_stats.pause_count,
+                );
+
+                self.stats.insert(name.clone(), resource_stats);
+
                 let vm_ip = rc.network_config.vm_ip_std();
                 rc.container.kill();
                 let mut b = self.bridge.write().await;
@@ -881,8 +950,11 @@ fn clean_captured_output(raw: &str, sent_commands: &[String]) -> String {
             continue;
         }
 
-        // Skip prompt + end marker echo
-        if trimmed.contains(END_MARKER) || trimmed.contains(START_MARKER) {
+        // Skip prompt + marker echo lines
+        if trimmed.contains(END_MARKER)
+            || trimmed.contains(START_MARKER)
+            || trimmed.contains(SYNC_MARKER)
+        {
             continue;
         }
 
@@ -949,7 +1021,10 @@ fn is_prompt_echo(line: &str, sent_commands: &[String]) -> bool {
     }
 
     // Check against marker echo commands
-    if after_prompt.contains(START_MARKER) || after_prompt.contains(END_MARKER) {
+    if after_prompt.contains(START_MARKER)
+        || after_prompt.contains(END_MARKER)
+        || after_prompt.contains(SYNC_MARKER)
+    {
         return true;
     }
 
@@ -962,10 +1037,7 @@ fn looks_like_bare_prompt(trimmed: &str) -> bool {
     // Must end with '#' (already checked by caller) and the part before '#'
     // should look like a path or hostname:path.
     let before = trimmed.trim_end_matches('#').trim();
-    before.is_empty()
-        || before.starts_with('/')
-        || before.contains(":/")
-        || before.contains(":~")
+    before.is_empty() || before.starts_with('/') || before.contains(":/") || before.contains(":~")
 }
 
 // ---------------------------------------------------------------------------
@@ -1081,10 +1153,7 @@ mod tests {
     fn test_is_prompt_echo_hostname_prefix() {
         let cmds = vec!["cd /out && tar cf - . | base64".to_string()];
         // Standard prompt
-        assert!(is_prompt_echo(
-            "/ # cd /out && tar cf - . | base64",
-            &cmds
-        ));
+        assert!(is_prompt_echo("/ # cd /out && tar cf - . | base64", &cmds));
         // Path-based prompt after cd
         assert!(is_prompt_echo(
             "/out # cd /out && tar cf - . | base64",

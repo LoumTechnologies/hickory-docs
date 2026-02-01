@@ -24,12 +24,30 @@ pub enum CapabilityRule {
 /// An action recorded during a REPL session.
 #[derive(Debug, Clone)]
 pub enum TranscriptAction {
-    ContainerDeclared { name: String, image: String },
-    CapabilityAdded { container: String, rule: CapabilityRule },
-    VolumeCreated { name: String },
-    VolumeMounted { container: String, volume: String, path: String },
-    CommandExecuted { container: String, command: String },
-    Forked { from: String, to: String },
+    ContainerDeclared {
+        name: String,
+        image: String,
+    },
+    CapabilityAdded {
+        container: String,
+        rule: CapabilityRule,
+    },
+    VolumeCreated {
+        name: String,
+    },
+    VolumeMounted {
+        container: String,
+        volume: String,
+        path: String,
+    },
+    CommandExecuted {
+        container: String,
+        command: String,
+    },
+    Forked {
+        from: String,
+        to: String,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -55,6 +73,12 @@ pub struct TranscriptBuilder {
     volumes: Vec<String>,
     forks: Vec<(String, String)>,
     actions: Vec<TranscriptAction>,
+}
+
+impl Default for TranscriptBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl TranscriptBuilder {
@@ -211,19 +235,13 @@ impl TranscriptBuilder {
                             out.push_str("<hick:deny network=\"*\" />\n");
                         }
                         CapabilityRule::AllowNetwork { host, port } => {
-                            out.push_str(&format!(
-                                "<hick:allow network=\"{host}:{port}\" />\n",
-                            ));
+                            out.push_str(&format!("<hick:allow network=\"{host}:{port}\" />\n",));
                         }
                         CapabilityRule::AllowFileRead { path } => {
-                            out.push_str(&format!(
-                                "<hick:allow file-read=\"{path}\" />\n",
-                            ));
+                            out.push_str(&format!("<hick:allow file-read=\"{path}\" />\n",));
                         }
                         CapabilityRule::AllowFileWrite { path } => {
-                            out.push_str(&format!(
-                                "<hick:allow file-write=\"{path}\" />\n",
-                            ));
+                            out.push_str(&format!("<hick:allow file-write=\"{path}\" />\n",));
                         }
                     }
                 }
@@ -238,9 +256,7 @@ impl TranscriptBuilder {
 
         // Fork declarations
         for (from, to) in &self.forks {
-            out.push_str(&format!(
-                "<hick:fork from=\"{from}\" to=\"{to}\" />\n",
-            ));
+            out.push_str(&format!("<hick:fork from=\"{from}\" to=\"{to}\" />\n",));
         }
 
         // Exec tags for each CommandExecuted action

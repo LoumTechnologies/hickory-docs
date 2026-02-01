@@ -267,32 +267,30 @@ pub fn build_dag(doc: &HickDocument) -> Result<FlowDag, DagValidationError> {
 
     for exec in &execs {
         for (vol_name, _mount_path) in &exec.mounts {
-            if let Some(decl) = volume_decls.get(vol_name) {
-                if !decl.access_rules.is_empty() {
-                    // Use explicit access rules
-                    let has_write = decl.access_rules.iter().any(|r| {
-                        r.container == exec.container
-                            && matches!(r.access, VolumeAccess::Write(_))
-                    });
-                    let has_read = decl.access_rules.iter().any(|r| {
-                        r.container == exec.container
-                            && matches!(r.access, VolumeAccess::Read(_))
-                    });
+            if let Some(decl) = volume_decls.get(vol_name)
+                && !decl.access_rules.is_empty()
+            {
+                // Use explicit access rules
+                let has_write = decl.access_rules.iter().any(|r| {
+                    r.container == exec.container && matches!(r.access, VolumeAccess::Write(_))
+                });
+                let has_read = decl.access_rules.iter().any(|r| {
+                    r.container == exec.container && matches!(r.access, VolumeAccess::Read(_))
+                });
 
-                    if has_write {
-                        volume_writers
-                            .entry(vol_name.clone())
-                            .or_default()
-                            .push(exec.id);
-                    }
-                    if has_read && !has_write {
-                        volume_readers
-                            .entry(vol_name.clone())
-                            .or_default()
-                            .push(exec.id);
-                    }
-                    continue;
+                if has_write {
+                    volume_writers
+                        .entry(vol_name.clone())
+                        .or_default()
+                        .push(exec.id);
                 }
+                if has_read && !has_write {
+                    volume_readers
+                        .entry(vol_name.clone())
+                        .or_default()
+                        .push(exec.id);
+                }
+                continue;
             }
 
             // Fallback heuristic: first mounter is writer, rest are readers
@@ -505,23 +503,22 @@ fn parse_volume_declaration(tag: &HickTag) -> Option<VolumeDeclaration> {
     // Parse <hick:allow> children for access rules
     let mut access_rules = Vec::new();
     for child in &tag.children {
-        if let HickNode::Tag(child_tag) = child {
-            if child_tag.name == "allow" {
-                if let Some(container) = child_tag.get_attribute("container") {
-                    let container = container.to_string();
-                    if let Some(pattern) = child_tag.get_attribute("read") {
-                        access_rules.push(VolumeAccessRule {
-                            container: container.clone(),
-                            access: VolumeAccess::Read(pattern.to_string()),
-                        });
-                    }
-                    if let Some(pattern) = child_tag.get_attribute("write") {
-                        access_rules.push(VolumeAccessRule {
-                            container: container.clone(),
-                            access: VolumeAccess::Write(pattern.to_string()),
-                        });
-                    }
-                }
+        if let HickNode::Tag(child_tag) = child
+            && child_tag.name == "allow"
+            && let Some(container) = child_tag.get_attribute("container")
+        {
+            let container = container.to_string();
+            if let Some(pattern) = child_tag.get_attribute("read") {
+                access_rules.push(VolumeAccessRule {
+                    container: container.clone(),
+                    access: VolumeAccess::Read(pattern.to_string()),
+                });
+            }
+            if let Some(pattern) = child_tag.get_attribute("write") {
+                access_rules.push(VolumeAccessRule {
+                    container: container.clone(),
+                    access: VolumeAccess::Write(pattern.to_string()),
+                });
             }
         }
     }
@@ -771,10 +768,13 @@ cat /etc/alpine-release
             .edges
             .iter()
             .find(|e| matches!(&e.reason, DependencyReason::VolumeFlow { .. }));
-        assert!(volume_edge.is_some(), "expected VolumeFlow edge from writer to reader");
+        assert!(
+            volume_edge.is_some(),
+            "expected VolumeFlow edge from writer to reader"
+        );
         let ve = volume_edge.unwrap();
         assert_eq!(ve.from, ExecId(0)); // scaffolder
-        assert_eq!(ve.to, ExecId(1));   // linter
+        assert_eq!(ve.to, ExecId(1)); // linter
 
         // Volume declaration is stored
         assert!(dag.volumes.contains_key("project"));
@@ -799,7 +799,10 @@ cat /etc/alpine-release
             .edges
             .iter()
             .find(|e| matches!(&e.reason, DependencyReason::VolumeFlow { .. }));
-        assert!(volume_edge.is_some(), "expected VolumeFlow edge via heuristic");
+        assert!(
+            volume_edge.is_some(),
+            "expected VolumeFlow edge via heuristic"
+        );
     }
 
     #[test]
@@ -814,10 +817,20 @@ cat /etc/alpine-release
         let dag = parse_and_build(src).unwrap();
         assert_eq!(dag.volumes.len(), 4);
 
-        assert!(matches!(dag.volumes["input-vol"].kind, VolumeKind::Input { ref path } if path == "."));
-        assert!(matches!(dag.volumes["output-vol"].kind, VolumeKind::Output { ref path } if path == "dist/"));
-        assert!(matches!(dag.volumes["both-vol"].kind, VolumeKind::InputOutput { .. }));
-        assert!(matches!(dag.volumes["ephemeral"].kind, VolumeKind::Ephemeral));
+        assert!(
+            matches!(dag.volumes["input-vol"].kind, VolumeKind::Input { ref path } if path == ".")
+        );
+        assert!(
+            matches!(dag.volumes["output-vol"].kind, VolumeKind::Output { ref path } if path == "dist/")
+        );
+        assert!(matches!(
+            dag.volumes["both-vol"].kind,
+            VolumeKind::InputOutput { .. }
+        ));
+        assert!(matches!(
+            dag.volumes["ephemeral"].kind,
+            VolumeKind::Ephemeral
+        ));
     }
 
     #[test]
@@ -842,16 +855,30 @@ cat /etc/alpine-release
         let writer_to_consumer: Vec<_> = dag
             .edges
             .iter()
-            .filter(|e| e.to == ExecId(2) && matches!(&e.reason, DependencyReason::VolumeFlow { .. }))
+            .filter(|e| {
+                e.to == ExecId(2) && matches!(&e.reason, DependencyReason::VolumeFlow { .. })
+            })
             .collect();
-        assert_eq!(writer_to_consumer.len(), 2, "both writers should have edge to consumer");
+        assert_eq!(
+            writer_to_consumer.len(),
+            2,
+            "both writers should have edge to consumer"
+        );
 
         // Writers should be sequentially ordered
         let writer_seq: Vec<_> = dag
             .edges
             .iter()
-            .filter(|e| e.from == ExecId(0) && e.to == ExecId(1) && matches!(&e.reason, DependencyReason::VolumeFlow { .. }))
+            .filter(|e| {
+                e.from == ExecId(0)
+                    && e.to == ExecId(1)
+                    && matches!(&e.reason, DependencyReason::VolumeFlow { .. })
+            })
             .collect();
-        assert_eq!(writer_seq.len(), 1, "writers should be sequentially ordered");
+        assert_eq!(
+            writer_seq.len(),
+            1,
+            "writers should be sequentially ordered"
+        );
     }
 }

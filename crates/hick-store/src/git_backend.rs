@@ -37,9 +37,7 @@ impl GitVersionStore {
                 .map_err(|e| StoreError::GitCommand(format!("failed to run git init: {e}")))?;
             if !output.status.success() {
                 let stderr = String::from_utf8_lossy(&output.stderr);
-                return Err(StoreError::GitCommand(format!(
-                    "git init failed: {stderr}"
-                )));
+                return Err(StoreError::GitCommand(format!("git init failed: {stderr}")));
             }
         }
 
@@ -116,10 +114,7 @@ impl GitVersionStore {
     ///
     /// Groups files by their top-level directory component, creates sub-trees
     /// for directories, and assembles the root tree via `mktree`.
-    async fn build_tree(
-        &self,
-        files: &BTreeMap<String, BlobHash>,
-    ) -> Result<String, StoreError> {
+    async fn build_tree(&self, files: &BTreeMap<String, BlobHash>) -> Result<String, StoreError> {
         use std::collections::BTreeMap as Map;
 
         // Separate files at this level vs files in subdirectories
@@ -175,8 +170,9 @@ impl GitVersionStore {
             .await;
 
         match result {
-            Ok(json) => serde_json::from_str(&json)
-                .map_err(|e| StoreError::Serialization(e.to_string())),
+            Ok(json) => {
+                serde_json::from_str(&json).map_err(|e| StoreError::Serialization(e.to_string()))
+            }
             Err(_) => Ok(BTreeMap::new()), // No provenance in this commit
         }
     }
@@ -264,7 +260,7 @@ impl VersionStore for GitVersionStore {
         let mut files = BTreeMap::new();
         for line in tree_info.lines() {
             // Format: mode type hash\tpath
-            let parts: Vec<&str> = line.splitn(4, |c: char| c == ' ' || c == '\t').collect();
+            let parts: Vec<&str> = line.splitn(4, [' ', '\t']).collect();
             if parts.len() >= 4 {
                 let blob_hash = parts[2].to_string();
                 let path = parts[3].to_string();

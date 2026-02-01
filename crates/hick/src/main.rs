@@ -14,7 +14,7 @@ use clap::{Parser, Subcommand};
 use log::{debug, info};
 
 use hick::config::{HickConfig, find_config};
-use hick::store_config::{StoreConfig, StoreBackend};
+use hick::store_config::{StoreBackend, StoreConfig};
 
 // ---------------------------------------------------------------------------
 // CLI
@@ -174,13 +174,10 @@ fn parse_cli() -> Cli {
     }
 
     // Check if the first non-flag argument is a known subcommand
-    let first_positional = raw_args
-        .iter()
-        .skip(1)
-        .find(|a| !a.starts_with('-'));
+    let first_positional = raw_args.iter().skip(1).find(|a| !a.starts_with('-'));
 
-    let is_subcommand = first_positional
-        .is_some_and(|a| matches!(a.as_str(), "run" | "up" | "repl" | "help"));
+    let is_subcommand =
+        first_positional.is_some_and(|a| matches!(a.as_str(), "run" | "up" | "repl" | "help"));
 
     if is_subcommand {
         Cli::parse()
@@ -216,8 +213,7 @@ async fn main() -> Result<()> {
 
             let key_path = hick::expand_tilde(&args.key_file);
             let secrets_dir = hick::expand_tilde(&args.secrets_dir);
-            let _secrets_provider =
-                hick_secrets::AgeSecretsProvider::new(&key_path, &secrets_dir);
+            let _secrets_provider = hick_secrets::AgeSecretsProvider::new(&key_path, &secrets_dir);
 
             let mut config = StoreConfig::load(&std::env::current_dir()?);
 

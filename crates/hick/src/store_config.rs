@@ -9,20 +9,12 @@ use std::path::Path;
 use serde::Deserialize;
 
 /// Store backend selection for watch mode.
-#[derive(Debug, Clone, PartialEq, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Deserialize)]
 pub enum StoreBackend {
-    /// Automatically detect: use git if `.git` exists, otherwise builtin.
+    #[default]
     Auto,
-    /// Use a bare git repository under `.hick/git`.
     Git,
-    /// Use the built-in object store under `.hick/store`.
     Builtin,
-}
-
-impl Default for StoreBackend {
-    fn default() -> Self {
-        Self::Auto
-    }
 }
 
 /// Watch-mode / store configuration.
@@ -71,12 +63,11 @@ impl StoreConfig {
     /// Falls back to defaults if the file doesn't exist.
     pub fn load(project_dir: &Path) -> Self {
         let path = project_dir.join(".hick/config.json");
-        if path.is_file() {
-            if let Ok(content) = std::fs::read_to_string(&path) {
-                if let Ok(config) = serde_json::from_str(&content) {
-                    return config;
-                }
-            }
+        if path.is_file()
+            && let Ok(content) = std::fs::read_to_string(&path)
+            && let Ok(config) = serde_json::from_str(&content)
+        {
+            return config;
         }
         Self::default()
     }

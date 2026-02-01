@@ -9,8 +9,8 @@ use std::path::PathBuf;
 
 use anyhow::{Result, bail};
 use log::info;
-use rustyline::error::ReadlineError;
 use rustyline::DefaultEditor;
+use rustyline::error::ReadlineError;
 
 use hick_token::{ContainerCapabilities, NetworkRule};
 
@@ -205,12 +205,7 @@ impl ReplSession {
                 .container_names()
                 .iter()
                 .position(|n| n == &container)
-                .and_then(|_| {
-                    // Look up image from pending_caps context — we stored it
-                    // in the transcript builder. For simplicity, use "alpine"
-                    // as default since we track images via transcript.
-                    None::<String>
-                })
+                .and(None::<String>)
                 .unwrap_or_else(|| "alpine".to_string());
 
             executor.ensure_started(&container, &image).await?;
@@ -256,9 +251,7 @@ impl ReplSession {
                     }
                     self.current_container = name.clone();
                     if let Err(e) = self.rebuild_executor_caps() {
-                        return MetaCommandResult::Error(format!(
-                            "Failed to update executor: {e}"
-                        ));
+                        return MetaCommandResult::Error(format!("Failed to update executor: {e}"));
                     }
                     MetaCommandResult::Message(format!("Renamed '{old}' → '{name}'"))
                 } else {
@@ -312,10 +305,7 @@ impl ReplSession {
                          (won't take effect until replay)"
                     ));
                 }
-                let caps = self
-                    .pending_caps
-                    .entry(container.clone())
-                    .or_insert_with(ContainerCapabilities::new);
+                let caps = self.pending_caps.entry(container.clone()).or_default();
                 caps.network_rules.push(NetworkRule::allow(&host, &port));
                 MetaCommandResult::Message(format!(
                     "Allowed network {host}:{port} for '{container}'"
@@ -333,15 +323,10 @@ impl ReplSession {
                          (won't take effect until replay)"
                     ));
                 }
-                let caps = self
-                    .pending_caps
-                    .entry(container.clone())
-                    .or_insert_with(ContainerCapabilities::new);
+                let caps = self.pending_caps.entry(container.clone()).or_default();
                 caps.file_rules
                     .push(hick_token::FileRule::Read(path.clone()));
-                MetaCommandResult::Message(format!(
-                    "Allowed file-read '{path}' for '{container}'"
-                ))
+                MetaCommandResult::Message(format!("Allowed file-read '{path}' for '{container}'"))
             }
             MetaCommand::AllowFileWrite { path } => {
                 let container = self.current_container.clone();
@@ -355,15 +340,10 @@ impl ReplSession {
                          (won't take effect until replay)"
                     ));
                 }
-                let caps = self
-                    .pending_caps
-                    .entry(container.clone())
-                    .or_insert_with(ContainerCapabilities::new);
+                let caps = self.pending_caps.entry(container.clone()).or_default();
                 caps.file_rules
                     .push(hick_token::FileRule::Write(path.clone()));
-                MetaCommandResult::Message(format!(
-                    "Allowed file-write '{path}' for '{container}'"
-                ))
+                MetaCommandResult::Message(format!("Allowed file-write '{path}' for '{container}'"))
             }
             MetaCommand::DenyNetwork => {
                 let container = self.current_container.clone();
@@ -375,10 +355,7 @@ impl ReplSession {
                          (won't take effect until replay)"
                     ));
                 }
-                let caps = self
-                    .pending_caps
-                    .entry(container.clone())
-                    .or_insert_with(ContainerCapabilities::new);
+                let caps = self.pending_caps.entry(container.clone()).or_default();
                 caps.network_rules.push(NetworkRule::deny_all());
                 MetaCommandResult::Message(format!("Denied network for '{container}'"))
             }
@@ -409,13 +386,13 @@ impl ReplSession {
                     MetaCommandResult::Message(lines.join("\n"))
                 }
             }
-            MetaCommand::Transcript => {
-                MetaCommandResult::Message(self.transcript.to_hick_xml())
-            }
+            MetaCommand::Transcript => MetaCommandResult::Message(self.transcript.to_hick_xml()),
             MetaCommand::Save { filename } => {
                 let xml = self.transcript.to_hick_xml();
                 match std::fs::write(&filename, &xml) {
-                    Ok(()) => MetaCommandResult::Message(format!("Saved transcript to '{filename}'")),
+                    Ok(()) => {
+                        MetaCommandResult::Message(format!("Saved transcript to '{filename}'"))
+                    }
                     Err(e) => MetaCommandResult::Error(format!("Failed to save: {e}")),
                 }
             }
@@ -676,9 +653,15 @@ mod tests {
 
     #[test]
     fn parse_list_commands() {
-        assert_eq!(parse_meta_command(":containers"), Some(MetaCommand::Containers));
+        assert_eq!(
+            parse_meta_command(":containers"),
+            Some(MetaCommand::Containers)
+        );
         assert_eq!(parse_meta_command(":volumes"), Some(MetaCommand::Volumes));
-        assert_eq!(parse_meta_command(":transcript"), Some(MetaCommand::Transcript));
+        assert_eq!(
+            parse_meta_command(":transcript"),
+            Some(MetaCommand::Transcript)
+        );
     }
 
     #[test]
@@ -717,10 +700,8 @@ mod tests {
 
     #[test]
     fn session_meta_commands() {
-        let mut session = ReplSession::new(
-            PathBuf::from("/tmp/images"),
-            PathBuf::from("session.hick"),
-        );
+        let mut session =
+            ReplSession::new(PathBuf::from("/tmp/images"), PathBuf::from("session.hick"));
 
         // Default container exists
         assert_eq!(session.current_container, "alpine");
@@ -741,9 +722,7 @@ mod tests {
         assert!(matches!(result, MetaCommandResult::Error(_)));
 
         // Rename
-        let result = session.handle_meta_command(MetaCommand::Name {
-            name: "api".into(),
-        });
+        let result = session.handle_meta_command(MetaCommand::Name { name: "api".into() });
         assert!(matches!(result, MetaCommandResult::Message(_)));
         assert_eq!(session.current_container, "api");
 
@@ -773,10 +752,8 @@ mod tests {
 
     #[test]
     fn fork_requires_existing_source() {
-        let mut session = ReplSession::new(
-            PathBuf::from("/tmp/images"),
-            PathBuf::from("session.hick"),
-        );
+        let mut session =
+            ReplSession::new(PathBuf::from("/tmp/images"), PathBuf::from("session.hick"));
 
         let result = session.handle_meta_command(MetaCommand::Fork {
             from: "nonexistent".into(),
@@ -787,10 +764,8 @@ mod tests {
 
     #[test]
     fn transcript_output() {
-        let mut session = ReplSession::new(
-            PathBuf::from("/tmp/images"),
-            PathBuf::from("session.hick"),
-        );
+        let mut session =
+            ReplSession::new(PathBuf::from("/tmp/images"), PathBuf::from("session.hick"));
 
         let result = session.handle_meta_command(MetaCommand::Transcript);
         if let MetaCommandResult::Message(xml) = result {

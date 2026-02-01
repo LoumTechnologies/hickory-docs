@@ -55,13 +55,7 @@ impl<'a> MergeOrchestrator<'a> {
             let disk_version = disk_files.get(path);
 
             let merged = self
-                .merge_file(
-                    path,
-                    generated,
-                    provenance,
-                    disk_version,
-                    &base_snapshot,
-                )
+                .merge_file(path, generated, provenance, disk_version, &base_snapshot)
                 .await?;
 
             if let MergeFileResult::ConflictResolved = merged.kind {
@@ -73,17 +67,16 @@ impl<'a> MergeOrchestrator<'a> {
 
         // Carry forward UserCreated files from previous snapshot
         if let Some(ref base) = base_snapshot {
-            for (path, _blob_hash) in &base.files {
-                if !pipeline_files.contains_key(path) {
-                    if let Some(prov) = base.provenance.get(path) {
-                        if matches!(prov, FileProvenance::UserCreated) {
-                            if let Some(disk) = disk_files.get(path) {
-                                merged_files.insert(path.clone(), disk.clone());
-                            } else {
-                                // File deleted by user, don't carry forward
-                                debug!("UserCreated file '{path}' no longer on disk, skipping");
-                            }
-                        }
+            for path in base.files.keys() {
+                if !pipeline_files.contains_key(path)
+                    && let Some(prov) = base.provenance.get(path)
+                    && matches!(prov, FileProvenance::UserCreated)
+                {
+                    if let Some(disk) = disk_files.get(path) {
+                        merged_files.insert(path.clone(), disk.clone());
+                    } else {
+                        // File deleted by user, don't carry forward
+                        debug!("UserCreated file '{path}' no longer on disk, skipping");
                     }
                 }
             }
@@ -144,10 +137,7 @@ impl<'a> MergeOrchestrator<'a> {
         Ok(id)
     }
 
-    async fn get_base_snapshot(
-        &self,
-        branch: &str,
-    ) -> Result<Option<Snapshot>, MergeError> {
+    async fn get_base_snapshot(&self, branch: &str) -> Result<Option<Snapshot>, MergeError> {
         match self.store.get_branch(branch).await? {
             Some(id) => {
                 let snap = self.store.get_snapshot(&id).await?;
@@ -162,13 +152,13 @@ impl<'a> MergeOrchestrator<'a> {
         path: &str,
         snapshot: &Option<Snapshot>,
     ) -> Result<Option<Vec<u8>>, MergeError> {
-        if let Some(snap) = snapshot {
-            if let Some(hash) = snap.files.get(path) {
-                match self.store.get_blob(hash).await {
-                    Ok(data) => return Ok(Some(data)),
-                    Err(StoreError::BlobNotFound(_)) => return Ok(None),
-                    Err(e) => return Err(MergeError::Store(e)),
-                }
+        if let Some(snap) = snapshot
+            && let Some(hash) = snap.files.get(path)
+        {
+            match self.store.get_blob(hash).await {
+                Ok(data) => return Ok(Some(data)),
+                Err(StoreError::BlobNotFound(_)) => return Ok(None),
+                Err(e) => return Err(MergeError::Store(e)),
             }
         }
         Ok(None)
@@ -197,7 +187,7 @@ impl<'a> MergeOrchestrator<'a> {
                 return Ok(MergeFileOutcome {
                     content: generated.to_vec(),
                     kind: MergeFileResult::UseGenerated,
-                })
+                });
             }
         };
 

@@ -17,7 +17,7 @@ use hick_store::{
     BuiltinVersionStore, FileProvenance, FsObjectStore, GitVersionStore, VersionStore,
 };
 
-use crate::store_config::{StoreConfig, StoreBackend};
+use crate::store_config::{StoreBackend, StoreConfig};
 
 /// Run the watch loop: initial run + re-run on file changes.
 pub async fn run_watch(
@@ -40,11 +40,18 @@ pub async fn run_watch(
 
     // Initial run
     info!("Running initial pipeline...");
-    run_pipeline_and_merge(files, config, dry_run, &images_dir, &store, strategy.as_ref())
-        .await
-        .unwrap_or_else(|e| {
-            error!("Initial pipeline run failed: {e}");
-        });
+    run_pipeline_and_merge(
+        files,
+        config,
+        dry_run,
+        &images_dir,
+        &store,
+        strategy.as_ref(),
+    )
+    .await
+    .unwrap_or_else(|e| {
+        error!("Initial pipeline run failed: {e}");
+    });
 
     // Set up file watcher
     let (tx, rx) = std::sync::mpsc::channel();
@@ -69,38 +76,30 @@ pub async fn run_watch(
     info!("Watch mode active. Press Ctrl+C to stop.");
 
     // Debounce: collect events for 100ms before re-running
-    loop {
-        match rx.recv() {
-            Ok(event) => {
-                if !is_modify_event(&event) {
-                    continue;
-                }
-
-                debug!("Change detected: {:?}", event.paths);
-
-                // Drain any events within the debounce window
-                let debounce = Duration::from_millis(100);
-                while rx.recv_timeout(debounce).is_ok() {}
-
-                info!("Re-running pipeline...");
-                run_pipeline_and_merge(
-                    files,
-                    config,
-                    dry_run,
-                    &images_dir,
-                    &store,
-                    strategy.as_ref(),
-                )
-                .await
-                .unwrap_or_else(|e| {
-                    error!("Pipeline re-run failed: {e}");
-                });
-            }
-            Err(_) => {
-                // Channel disconnected — watcher was dropped
-                break;
-            }
+    while let Ok(event) = rx.recv() {
+        if !is_modify_event(&event) {
+            continue;
         }
+
+        debug!("Change detected: {:?}", event.paths);
+
+        // Drain any events within the debounce window
+        let debounce = Duration::from_millis(100);
+        while rx.recv_timeout(debounce).is_ok() {}
+
+        info!("Re-running pipeline...");
+        run_pipeline_and_merge(
+            files,
+            config,
+            dry_run,
+            &images_dir,
+            &store,
+            strategy.as_ref(),
+        )
+        .await
+        .unwrap_or_else(|e| {
+            error!("Pipeline re-run failed: {e}");
+        });
     }
 
     Ok(())
@@ -149,8 +148,7 @@ async fn run_pipeline_and_merge(
         .collect();
 
     // Run multi-stage pipeline
-    let pipeline_result =
-        crate::run_pipeline_multi_stage(&sources, config.max_stages).await?;
+    let pipeline_result = crate::run_pipeline_multi_stage(&sources, config.max_stages).await?;
 
     // Build pipeline files as bytes for merge
     let pipeline_files: HashMap<String, Vec<u8>> = pipeline_result
@@ -167,7 +165,12 @@ async fn run_pipeline_and_merge(
     // Run merge
     let orchestrator = MergeOrchestrator::new(store.as_ref(), strategy);
     let merge_result = orchestrator
-        .merge(&config.branch, &pipeline_files, &pipeline_provenance, &disk_files)
+        .merge(
+            &config.branch,
+            &pipeline_files,
+            &pipeline_provenance,
+            &disk_files,
+        )
         .await?;
 
     if !merge_result.conflicts_resolved.is_empty() {

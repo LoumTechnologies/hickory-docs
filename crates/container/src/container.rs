@@ -1,7 +1,8 @@
 use std::io;
 use std::pin::Pin;
 use std::sync::Arc;
-use std::time::Duration;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{Duration, Instant};
 
 use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixStream;
@@ -20,6 +21,65 @@ use network::http::HttpFilter;
 use crate::pipe::{stderr_pipe, stdin_pipe, stdout_pipe};
 
 const DEFAULT_PIPE_BUFFER_SIZE: usize = 65536;
+
+// ---------------------------------------------------------------------------
+// Resource tracking
+// ---------------------------------------------------------------------------
+
+/// Shared atomic counters for container resource monitoring.
+pub(crate) struct ContainerCounters {
+    pub epoch_ticks: AtomicU64,
+    pub stdin_bytes: AtomicU64,
+    pub stdout_bytes: AtomicU64,
+}
+
+impl ContainerCounters {
+    fn new() -> Self {
+        Self {
+            epoch_ticks: AtomicU64::new(0),
+            stdin_bytes: AtomicU64::new(0),
+            stdout_bytes: AtomicU64::new(0),
+        }
+    }
+}
+
+/// Tracks pause/resume state for a container.
+struct PauseState {
+    is_paused: bool,
+    last_paused_at: Option<Instant>,
+    total_paused: Duration,
+    pause_count: u32,
+}
+
+impl PauseState {
+    fn new() -> Self {
+        Self {
+            is_paused: false,
+            last_paused_at: None,
+            total_paused: Duration::ZERO,
+            pause_count: 0,
+        }
+    }
+}
+
+/// Snapshot of container resource usage.
+#[derive(Debug, Clone)]
+pub struct ContainerStats {
+    /// Boot duration (set externally by the executor, if known).
+    pub boot_duration: Option<Duration>,
+    /// Time the container spent actually executing (uptime minus paused time).
+    pub exec_duration: Duration,
+    /// Number of epoch ticks delivered to this container's engine.
+    pub epoch_ticks: u64,
+    /// Total bytes written to the container's stdin.
+    pub stdin_bytes: u64,
+    /// Total bytes read from the container's stdout.
+    pub stdout_bytes: u64,
+    /// Number of times the container was paused.
+    pub pause_count: u32,
+    /// Total time spent paused.
+    pub paused_duration: Duration,
+}
 
 /// Configuration for starting a [`Container`].
 pub struct ContainerConfig {
@@ -64,8 +124,11 @@ pub struct Container {
     task: JoinHandle<wasmtime::Result<()>>,
     epoch_task: JoinHandle<()>,
     network_shutdown: Option<watch::Sender<bool>>,
-    #[allow(dead_code)]
     engine: Engine,
+    pause_tx: watch::Sender<bool>,
+    counters: Arc<ContainerCounters>,
+    started_at: Instant,
+    pause_state: PauseState,
 }
 
 impl Container {
@@ -131,18 +194,30 @@ impl Container {
             network_connect_addr = Some((listen_addr, shutdown_rx));
         }
 
+        // Create pause channel (starts in running state)
+        let (pause_tx, pause_rx) = watch::channel(true);
+
+        // Shared counters for resource monitoring
+        let counters = Arc::new(ContainerCounters::new());
+
         // Start epoch incrementer for async cooperative scheduling
         let engine_for_epoch = engine.clone();
+        let counters_for_epoch = counters.clone();
         let epoch_task = tokio::task::spawn(async move {
             loop {
                 tokio::time::sleep(Duration::from_millis(10)).await;
                 engine_for_epoch.increment_epoch();
+                counters_for_epoch
+                    .epoch_ticks
+                    .fetch_add(1, Ordering::Relaxed);
             }
         });
 
-        // Spawn the WASM module in a background task
+        // Spawn the WASM module in a background task with pause support
         let engine_for_task = engine.clone();
         let task = tokio::task::spawn(async move {
+            let mut pause_rx = pause_rx;
+
             let mut linker = wasmtime::Linker::<WasiCtx>::new(&engine_for_task);
             wasi_common::sync::add_to_linker(&mut linker, |cx| cx)?;
 
@@ -154,7 +229,31 @@ impl Container {
 
             let func = linker.get_default(&mut store, "")?;
             let typed = func.typed::<(), ()>(&store)?;
-            typed.call_async(&mut store, ()).await
+
+            // Wrap call_async in a pause-aware loop. When paused, the future
+            // is not polled and the epoch task is stopped, so zero CPU is used.
+            let mut wasm_future = std::pin::pin!(typed.call_async(&mut store, ()));
+
+            loop {
+                tokio::select! {
+                    biased;
+                    result = &mut wasm_future => {
+                        return result;
+                    }
+                    result = pause_rx.changed() => {
+                        if result.is_err() {
+                            // Sender dropped — container is being destroyed
+                            return Ok(());
+                        }
+                        // If paused, wait until resumed
+                        while !*pause_rx.borrow() {
+                            if pause_rx.changed().await.is_err() {
+                                return Ok(());
+                            }
+                        }
+                    }
+                }
+            }
         });
 
         // Spawn the network task - it will connect to the WASM listener
@@ -185,23 +284,37 @@ impl Container {
             epoch_task,
             network_shutdown,
             engine,
+            pause_tx,
+            counters,
+            started_at: Instant::now(),
+            pause_state: PauseState::new(),
         })
     }
 
     /// Write raw bytes to the module's stdin.
     pub async fn write_stdin(&mut self, data: &[u8]) -> io::Result<()> {
+        self.counters
+            .stdin_bytes
+            .fetch_add(data.len() as u64, Ordering::Relaxed);
         self.stdin.write_all(data).await
     }
 
     /// Write a line (with trailing newline) to the module's stdin.
     pub async fn write_line(&mut self, line: &str) -> io::Result<()> {
+        self.counters
+            .stdin_bytes
+            .fetch_add(line.len() as u64 + 1, Ordering::Relaxed);
         self.stdin.write_all(line.as_bytes()).await?;
         self.stdin.write_all(b"\n").await
     }
 
     /// Read a chunk of bytes from the module's stdout.
     pub async fn read_stdout(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        self.stdout.read(buf).await
+        let n = self.stdout.read(buf).await?;
+        self.counters
+            .stdout_bytes
+            .fetch_add(n as u64, Ordering::Relaxed);
+        Ok(n)
     }
 
     /// Read a chunk of bytes from the module's stderr.
@@ -223,6 +336,73 @@ impl Container {
     /// in the emulated guest OS.
     pub async fn send_ctrl_c(&mut self) -> io::Result<()> {
         self.stdin.write_all(&[0x03]).await
+    }
+
+    /// Pause the container. Stops the epoch task and signals the WASM task
+    /// to suspend. No-op if already paused.
+    pub fn pause(&mut self) {
+        if self.pause_state.is_paused {
+            return;
+        }
+        self.pause_tx.send(false).ok();
+        self.epoch_task.abort();
+        self.pause_state.is_paused = true;
+        self.pause_state.last_paused_at = Some(Instant::now());
+        self.pause_state.pause_count += 1;
+    }
+
+    /// Resume a paused container. Spawns a new epoch task and signals the
+    /// WASM task to continue. No-op if already running.
+    pub fn resume(&mut self) {
+        if !self.pause_state.is_paused {
+            return;
+        }
+        // Accumulate paused duration
+        if let Some(paused_at) = self.pause_state.last_paused_at.take() {
+            self.pause_state.total_paused += paused_at.elapsed();
+        }
+        // Spawn a fresh epoch task
+        let engine_for_epoch = self.engine.clone();
+        let counters_for_epoch = self.counters.clone();
+        self.epoch_task = tokio::task::spawn(async move {
+            loop {
+                tokio::time::sleep(Duration::from_millis(10)).await;
+                engine_for_epoch.increment_epoch();
+                counters_for_epoch
+                    .epoch_ticks
+                    .fetch_add(1, Ordering::Relaxed);
+            }
+        });
+        self.pause_tx.send(true).ok();
+        self.pause_state.is_paused = false;
+    }
+
+    /// Returns `true` if the container is currently paused.
+    pub fn is_paused(&self) -> bool {
+        self.pause_state.is_paused
+    }
+
+    /// Snapshot current resource counters and pause state.
+    pub fn stats(&self) -> ContainerStats {
+        let uptime = self.started_at.elapsed();
+        let mut paused_duration = self.pause_state.total_paused;
+        if let Some(paused_at) = self.pause_state.last_paused_at {
+            paused_duration += paused_at.elapsed();
+        }
+        ContainerStats {
+            boot_duration: None,
+            exec_duration: uptime.saturating_sub(paused_duration),
+            epoch_ticks: self.counters.epoch_ticks.load(Ordering::Relaxed),
+            stdin_bytes: self.counters.stdin_bytes.load(Ordering::Relaxed),
+            stdout_bytes: self.counters.stdout_bytes.load(Ordering::Relaxed),
+            pause_count: self.pause_state.pause_count,
+            paused_duration,
+        }
+    }
+
+    /// Total wall-clock time since the container was started.
+    pub fn uptime(&self) -> Duration {
+        self.started_at.elapsed()
     }
 
     /// Check whether the WASM task is still running.

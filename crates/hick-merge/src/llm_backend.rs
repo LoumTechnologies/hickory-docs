@@ -76,11 +76,11 @@ impl MergeStrategy for LlmMergeStrategy {
     ) -> Result<Vec<u8>, MergeError> {
         // Check cache
         let cache_key = Self::cache_key(base, generated, edited);
-        if let Some(cache) = &self.cache {
-            if let Ok(cached) = cache.get(&cache_key).await {
-                debug!("Cache hit for merge of {path}");
-                return Ok(cached);
-            }
+        if let Some(cache) = &self.cache
+            && let Ok(cached) = cache.get(&cache_key).await
+        {
+            debug!("Cache hit for merge of {path}");
+            return Ok(cached);
         }
 
         info!("Calling LLM merge API for {path}");
@@ -106,9 +106,7 @@ impl MergeStrategy for LlmMergeStrategy {
                 .text()
                 .await
                 .unwrap_or_else(|_| "unknown".to_string());
-            return Err(MergeError::LlmApi(format!(
-                "API returned {status}: {body}"
-            )));
+            return Err(MergeError::LlmApi(format!("API returned {status}: {body}")));
         }
 
         let merge_response: LlmMergeResponse = response
@@ -169,8 +167,8 @@ mod tests {
             .await;
 
         let cache = Box::new(InMemoryObjectStore::new());
-        let strategy = LlmMergeStrategy::new(&format!("{}/merge", mock_server.uri()))
-            .with_cache(cache);
+        let strategy =
+            LlmMergeStrategy::new(&format!("{}/merge", mock_server.uri())).with_cache(cache);
 
         // First call hits API
         let r1 = strategy
@@ -198,9 +196,7 @@ mod tests {
             .await;
 
         let strategy = LlmMergeStrategy::new(&format!("{}/merge", mock_server.uri()));
-        let result = strategy
-            .merge("file.txt", b"base", b"gen", b"edit")
-            .await;
+        let result = strategy.merge("file.txt", b"base", b"gen", b"edit").await;
         assert!(matches!(result, Err(MergeError::LlmApi(_))));
     }
 }
