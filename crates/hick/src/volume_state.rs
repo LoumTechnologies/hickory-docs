@@ -134,10 +134,18 @@ pub fn encode_base64(data: &[u8]) -> String {
 }
 
 /// Decode base64 string to bytes.
+///
+/// Strips all ASCII whitespace before decoding so that line-wrapped output
+/// from the container's `base64` command (which wraps at 76 columns) is
+/// handled transparently.
 pub fn decode_base64(encoded: &str) -> Result<Vec<u8>> {
     use base64::Engine;
+    let clean: String = encoded
+        .chars()
+        .filter(|c| !c.is_ascii_whitespace())
+        .collect();
     base64::engine::general_purpose::STANDARD
-        .decode(encoded.trim())
+        .decode(&clean)
         .context("failed to decode base64")
 }
 
@@ -222,6 +230,23 @@ mod tests {
         let data = b"hello world tar data";
         let encoded = encode_base64(data);
         let decoded = decode_base64(&encoded).unwrap();
+        assert_eq!(decoded, data);
+    }
+
+    #[test]
+    fn base64_decode_with_newlines() {
+        // Simulates output from the container's `base64` command which wraps
+        // at 76 columns.
+        let data = b"hello world tar data with enough bytes to wrap";
+        let encoded = encode_base64(data);
+        // Insert newlines every 20 chars to simulate wrapping
+        let wrapped: String = encoded
+            .as_bytes()
+            .chunks(20)
+            .map(|c| std::str::from_utf8(c).unwrap())
+            .collect::<Vec<_>>()
+            .join("\n");
+        let decoded = decode_base64(&wrapped).unwrap();
         assert_eq!(decoded, data);
     }
 

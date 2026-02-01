@@ -662,6 +662,11 @@ impl ContainerExecutor {
 
     /// Extract volume data from a container by tarring the mount path
     /// and capturing the base64-encoded output.
+    ///
+    /// Uses inner markers (`===B64S===` / `===B64E===`) around the base64
+    /// payload so that stray kernel or daemon messages don't corrupt the
+    /// data.  The `-w 0` flag disables line-wrapping in the container's
+    /// `base64` command.
     pub async fn extract_volume(
         &mut self,
         name: &str,
@@ -677,12 +682,30 @@ impl ContainerExecutor {
 
         info!("Extracting volume from '{name}' at {mount_path}");
 
-        let cmd = format!("cd {mount_path} && tar cf - . | base64");
+        let cmd = format!(
+            "echo '===B64S==='; cd {mount_path} && tar cf - . | base64 -w 0; echo; echo '===B64E==='"
+        );
         let output = self.replay_command(name, &cmd).await.with_context(|| {
             format!("failed to extract volume from container '{name}' at {mount_path}")
         })?;
 
-        crate::volume_state::decode_base64(&output)
+        // Extract the base64 payload between the inner markers.
+        let b64_data = extract_between_markers(&output, "===B64S===", "===B64E===")
+            .with_context(|| {
+                warn!(
+                    "Base64 marker extraction failed. Cleaned output (first 500 chars): {:?}",
+                    &output[..output.len().min(500)]
+                );
+                format!("failed to locate base64 markers in volume extraction output from '{name}'")
+            })?;
+
+        crate::volume_state::decode_base64(b64_data).with_context(|| {
+            warn!(
+                "Base64 decode failed. Extracted payload (first 200 chars): {:?}",
+                &b64_data[..b64_data.len().min(200)]
+            );
+            "failed to decode base64".to_string()
+        })
     }
 
     /// Per-container execution transcripts accumulated by [`execute`].
@@ -764,6 +787,44 @@ pub fn resolve_image_path(images_dir: &Path, name: &str) -> PathBuf {
 // Output cleaning
 // ---------------------------------------------------------------------------
 
+/// Extract the text between two marker lines.
+///
+/// Markers must appear as the complete content of a line (after trimming)
+/// to avoid matching markers embedded in shell command echoes.  Returns
+/// the text between the two marker lines, trimmed of surrounding
+/// whitespace.
+fn extract_between_markers<'a>(
+    text: &'a str,
+    start_marker: &str,
+    end_marker: &str,
+) -> Option<&'a str> {
+    let lines: Vec<&str> = text.lines().collect();
+    let start_idx = lines.iter().position(|l| l.trim() == start_marker)?;
+    let end_idx = lines[start_idx + 1..]
+        .iter()
+        .position(|l| l.trim() == end_marker)?
+        + start_idx
+        + 1;
+
+    // Join the lines between the markers and trim.
+    let start_byte = lines[..=start_idx]
+        .iter()
+        .map(|l| l.len() + 1) // +1 for the newline
+        .sum::<usize>();
+    let end_byte = start_byte
+        + lines[start_idx + 1..end_idx]
+            .iter()
+            .map(|l| l.len() + 1)
+            .sum::<usize>();
+    // Avoid underflow if end_byte == start_byte (empty payload).
+    let payload = if end_byte > start_byte {
+        &text[start_byte..end_byte.min(text.len())]
+    } else {
+        ""
+    };
+    Some(payload.trim())
+}
+
 /// Strip ANSI escape sequences and carriage returns from a string.
 fn strip_ansi(raw: &str) -> String {
     let mut result = String::new();
@@ -825,8 +886,14 @@ fn clean_captured_output(raw: &str, sent_commands: &[String]) -> String {
             continue;
         }
 
-        // Skip bare prompt lines
-        if trimmed == "/ #" || trimmed == "/#" {
+        // Skip bare prompt lines (may include path or hostname:path prefix)
+        if trimmed == "/ #"
+            || trimmed == "/#"
+            || (trimmed.ends_with('#')
+                && !trimmed.contains(START_MARKER)
+                && !trimmed.contains(END_MARKER)
+                && looks_like_bare_prompt(trimmed))
+        {
             continue;
         }
 
@@ -855,11 +922,15 @@ fn is_prompt_echo(line: &str, sent_commands: &[String]) -> bool {
     } else if let Some(rest) = line.strip_prefix("~ # ") {
         rest
     } else if let Some(idx) = line.find("# ") {
-        // Fallback: find "# " anywhere (prompt might have path prefix)
+        // Fallback: find "# " anywhere (prompt might have path prefix or
+        // hostname:path prefix like `localhost:/out # `).
         let rest = &line[idx + 2..];
-        // Only use this if the part before "# " looks like a path
         let before = line[..idx].trim();
-        if before.starts_with('/') || before.is_empty() {
+        if before.starts_with('/')
+            || before.is_empty()
+            || before.contains(":/")
+            || before.contains(":~")
+        {
             rest
         } else {
             return false;
@@ -883,6 +954,18 @@ fn is_prompt_echo(line: &str, sent_commands: &[String]) -> bool {
     }
 
     false
+}
+
+/// Check whether a trimmed line looks like a bare shell prompt (no command
+/// after the `#`).  Handles `/ #`, `/out #`, `localhost:/out #`, etc.
+fn looks_like_bare_prompt(trimmed: &str) -> bool {
+    // Must end with '#' (already checked by caller) and the part before '#'
+    // should look like a path or hostname:path.
+    let before = trimmed.trim_end_matches('#').trim();
+    before.is_empty()
+        || before.starts_with('/')
+        || before.contains(":/")
+        || before.contains(":~")
 }
 
 // ---------------------------------------------------------------------------
@@ -992,5 +1075,78 @@ mod tests {
         let input = b"hello\x1b[6nworld";
         let result = strip_dsr(input);
         assert_eq!(result, b"helloworld");
+    }
+
+    #[test]
+    fn test_is_prompt_echo_hostname_prefix() {
+        let cmds = vec!["cd /out && tar cf - . | base64".to_string()];
+        // Standard prompt
+        assert!(is_prompt_echo(
+            "/ # cd /out && tar cf - . | base64",
+            &cmds
+        ));
+        // Path-based prompt after cd
+        assert!(is_prompt_echo(
+            "/out # cd /out && tar cf - . | base64",
+            &cmds
+        ));
+        // Hostname:path prompt
+        assert!(is_prompt_echo(
+            "localhost:/ # cd /out && tar cf - . | base64",
+            &cmds
+        ));
+        assert!(is_prompt_echo(
+            "localhost:/out # cd /out && tar cf - . | base64",
+            &cmds
+        ));
+    }
+
+    #[test]
+    fn test_clean_captured_output_hostname_prompt() {
+        let raw = "\nlocalhost:/ # echo 'hello'\nhello\nlocalhost:/ # echo '===HICK_END==='\n";
+        let cmds = vec!["echo 'hello'".to_string()];
+        assert_eq!(clean_captured_output(raw, &cmds), "hello");
+    }
+
+    #[test]
+    fn test_clean_captured_output_bare_prompt_with_path() {
+        let raw = "\n/ # ls\nfile.txt\n/out #\n";
+        let cmds = vec!["ls".to_string()];
+        assert_eq!(clean_captured_output(raw, &cmds), "file.txt");
+    }
+
+    #[test]
+    fn test_clean_captured_output_bare_prompt_hostname_path() {
+        let raw = "\n/ # ls\nfile.txt\nlocalhost:/out #\n";
+        let cmds = vec!["ls".to_string()];
+        assert_eq!(clean_captured_output(raw, &cmds), "file.txt");
+    }
+
+    #[test]
+    fn test_extract_between_markers() {
+        let text = "junk\n===B64S===\nSGVsbG8=\n===B64E===\nmore junk";
+        assert_eq!(
+            extract_between_markers(text, "===B64S===", "===B64E==="),
+            Some("SGVsbG8=")
+        );
+    }
+
+    #[test]
+    fn test_extract_between_markers_ignores_embedded() {
+        // Markers embedded inside a longer line (command echo) should be
+        // skipped; only standalone marker lines match.
+        let text = "/ # echo '===B64S==='; tar | base64; echo '===B64E==='\n===B64S===\nDATA\n===B64E===\n";
+        assert_eq!(
+            extract_between_markers(text, "===B64S===", "===B64E==="),
+            Some("DATA")
+        );
+    }
+
+    #[test]
+    fn test_extract_between_markers_missing() {
+        assert_eq!(
+            extract_between_markers("no markers here", "===B64S===", "===B64E==="),
+            None
+        );
     }
 }
