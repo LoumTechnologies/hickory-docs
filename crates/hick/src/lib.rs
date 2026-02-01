@@ -8,7 +8,9 @@ pub mod cache;
 pub mod condition;
 pub mod config;
 pub mod executor;
+pub mod repl;
 pub mod store_config;
+pub mod transcript;
 pub mod volume_state;
 pub mod watch;
 
