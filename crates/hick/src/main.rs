@@ -36,6 +36,9 @@ enum Command {
 
     /// Watch mode: re-run pipeline on file changes with merge-aware snapshots.
     Up(UpArgs),
+
+    /// Interactive REPL: explore containers interactively and record a session transcript.
+    Repl(ReplArgs),
 }
 
 #[derive(clap::Args)]
@@ -134,13 +137,41 @@ struct UpArgs {
     max_stages: usize,
 }
 
+#[derive(clap::Args)]
+struct ReplArgs {
+    /// Directory containing pre-converted `.wasm` container images.
+    #[arg(long)]
+    images_dir: Option<PathBuf>,
+
+    /// Output transcript file (default: session.hick).
+    #[arg(long, default_value = "session.hick")]
+    output: PathBuf,
+
+    /// Enable verbose output.
+    #[arg(short, long)]
+    verbose: bool,
+}
+
 // ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
 
 /// Parse CLI, allowing bare `hick <files>` as sugar for `hick run <files>`.
+///
+/// When invoked with no arguments at all, enters REPL mode.
 fn parse_cli() -> Cli {
     let raw_args: Vec<String> = std::env::args().collect();
+
+    // No arguments at all → REPL mode
+    if raw_args.len() == 1 {
+        return Cli {
+            command: Command::Repl(ReplArgs {
+                images_dir: None,
+                output: PathBuf::from("session.hick"),
+                verbose: false,
+            }),
+        };
+    }
 
     // Check if the first non-flag argument is a known subcommand
     let first_positional = raw_args
@@ -149,7 +180,7 @@ fn parse_cli() -> Cli {
         .find(|a| !a.starts_with('-'));
 
     let is_subcommand = first_positional
-        .is_some_and(|a| matches!(a.as_str(), "run" | "up" | "help"));
+        .is_some_and(|a| matches!(a.as_str(), "run" | "up" | "repl" | "help"));
 
     if is_subcommand {
         Cli::parse()
@@ -169,6 +200,16 @@ async fn main() -> Result<()> {
         Command::Run(args) => {
             init_logger(args.verbose);
             run_single_shot(args).await
+        }
+        Command::Repl(args) => {
+            init_logger(args.verbose);
+
+            let images_dir = args
+                .images_dir
+                .map(|p| hick::expand_tilde(&p))
+                .unwrap_or_else(default_images_dir);
+
+            hick::repl::run_repl(images_dir, args.output).await
         }
         Command::Up(args) => {
             init_logger(args.verbose);
