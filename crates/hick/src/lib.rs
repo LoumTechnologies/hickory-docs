@@ -509,7 +509,8 @@ pub async fn run_pipeline_live(
             // Cache miss or caching disabled — execute for real
             executor.ensure_started(&exec_info.container, image).await?;
 
-            // Inject volumes before exec
+            // Inject volumes before exec (or just create the mount point
+            // for the first writer when the volume is still empty).
             for (vol_name, mount_path) in &exec_info.mounts {
                 if let Some(tar_data) = volume_store.get(vol_name) {
                     info!(
@@ -518,6 +519,10 @@ pub async fn run_pipeline_live(
                     );
                     executor
                         .inject_volume(&exec_info.container, mount_path, tar_data)
+                        .await?;
+                } else {
+                    executor
+                        .create_mount_point(&exec_info.container, mount_path)
                         .await?;
                 }
             }
