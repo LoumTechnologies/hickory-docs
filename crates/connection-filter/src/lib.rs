@@ -3,7 +3,9 @@
 
 use std::fmt;
 use std::net::SocketAddr;
+use std::sync::Arc;
 
+use arc_swap::ArcSwap;
 use async_trait::async_trait;
 
 /// A network request that can be filtered.
@@ -47,6 +49,49 @@ pub struct AllowAll;
 impl ConnectionFilter for AllowAll {
     async fn filter(&self, _request: &NetworkRequest) -> ConnectionVerdict {
         ConnectionVerdict::Allow
+    }
+}
+
+// ---------------------------------------------------------------------------
+// SwappableFilter (lock-free atomic swap)
+// ---------------------------------------------------------------------------
+
+/// A [`ConnectionFilter`] whose inner implementation can be swapped
+/// atomically at runtime.
+///
+/// Uses [`ArcSwap`](arc_swap) for lock-free reads — the network loop calls
+/// `filter()` on every DNS/TCP request and only pays a single atomic load.
+/// Swaps happen when a warm container is assigned to a pipeline and the
+/// `AllowAll` placeholder is replaced with the real `CapabilityFilter`.
+/// Wrapper to hold a trait-object filter inside an [`ArcSwap`].
+///
+/// `Arc<dyn ConnectionFilter>` is a fat pointer and cannot be stored
+/// directly in ArcSwap. This newtype provides the required `Sized` bound.
+struct FilterSlot(Arc<dyn ConnectionFilter>);
+
+pub struct SwappableFilter {
+    inner: ArcSwap<FilterSlot>,
+}
+
+impl SwappableFilter {
+    /// Create a new swappable filter with the given initial implementation.
+    pub fn new(initial: Arc<dyn ConnectionFilter>) -> Self {
+        Self {
+            inner: ArcSwap::new(Arc::new(FilterSlot(initial))),
+        }
+    }
+
+    /// Atomically replace the inner filter.
+    pub fn swap(&self, new_filter: Arc<dyn ConnectionFilter>) {
+        self.inner.store(Arc::new(FilterSlot(new_filter)));
+    }
+}
+
+#[async_trait]
+impl ConnectionFilter for SwappableFilter {
+    async fn filter(&self, request: &NetworkRequest) -> ConnectionVerdict {
+        let guard = self.inner.load();
+        guard.0.filter(request).await
     }
 }
 
@@ -167,6 +212,43 @@ mod tests {
             domain: "example.com".to_string(),
         };
         assert_eq!(filter.filter(&tcp).await, ConnectionVerdict::Allow);
+        assert_eq!(filter.filter(&dns).await, ConnectionVerdict::Allow);
+    }
+
+    #[tokio::test]
+    async fn swappable_filter_starts_with_initial() {
+        let filter = SwappableFilter::new(Arc::new(AllowAll));
+        let dns = NetworkRequest::Dns {
+            domain: "example.com".to_string(),
+        };
+        assert_eq!(filter.filter(&dns).await, ConnectionVerdict::Allow);
+    }
+
+    #[tokio::test]
+    async fn swappable_filter_swap_changes_behavior() {
+        /// A filter that blocks everything.
+        struct BlockAll;
+        #[async_trait]
+        impl ConnectionFilter for BlockAll {
+            async fn filter(&self, _request: &NetworkRequest) -> ConnectionVerdict {
+                ConnectionVerdict::Block
+            }
+        }
+
+        let filter = SwappableFilter::new(Arc::new(AllowAll));
+        let dns = NetworkRequest::Dns {
+            domain: "example.com".to_string(),
+        };
+
+        // Initially allows
+        assert_eq!(filter.filter(&dns).await, ConnectionVerdict::Allow);
+
+        // Swap to blocking
+        filter.swap(Arc::new(BlockAll));
+        assert_eq!(filter.filter(&dns).await, ConnectionVerdict::Block);
+
+        // Swap back to allowing
+        filter.swap(Arc::new(AllowAll));
         assert_eq!(filter.filter(&dns).await, ConnectionVerdict::Allow);
     }
 }

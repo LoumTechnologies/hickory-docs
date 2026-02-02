@@ -6,15 +6,17 @@
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use anyhow::{Result, bail};
-use log::info;
+use log::{info, warn};
 use rustyline::DefaultEditor;
 use rustyline::error::ReadlineError;
 
 use hick_token::{ContainerCapabilities, NetworkRule};
 
 use crate::executor::ContainerExecutor;
+use crate::pool::{ContainerPool, PoolConfig, SharedPool};
 use crate::transcript::{CapabilityRule, TranscriptBuilder};
 
 // ---------------------------------------------------------------------------
@@ -137,10 +139,12 @@ struct ReplSession {
     executor: Option<ContainerExecutor>,
     images_dir: PathBuf,
     output_path: PathBuf,
+    /// Pre-warming pool for fast container startup.
+    pool: SharedPool,
 }
 
 impl ReplSession {
-    fn new(images_dir: PathBuf, output_path: PathBuf) -> Self {
+    fn new(images_dir: PathBuf, output_path: PathBuf, pool: SharedPool) -> Self {
         let mut transcript = TranscriptBuilder::new();
         transcript.declare_container("alpine", "alpine");
         transcript.add_capability("alpine", CapabilityRule::DenyNetwork);
@@ -159,17 +163,21 @@ impl ReplSession {
             executor: None,
             images_dir,
             output_path,
+            pool,
         }
     }
 
-    fn ensure_executor(&mut self) -> Result<()> {
+    async fn ensure_executor(&mut self) -> Result<()> {
         if self.executor.is_none() {
             let caps = self
                 .pending_caps
                 .iter()
                 .map(|(k, v)| (k.clone(), v.clone()))
                 .collect();
-            self.executor = Some(ContainerExecutor::new(self.images_dir.clone(), caps)?);
+            self.executor = Some(
+                ContainerExecutor::new_with_pool(self.images_dir.clone(), caps, self.pool.clone())
+                    .await?,
+            );
         }
         Ok(())
     }
@@ -177,7 +185,7 @@ impl ReplSession {
     /// Rebuild the executor with updated capabilities. This is needed when
     /// a new container is declared before any commands run — the executor
     /// needs the full capability map at construction time.
-    fn rebuild_executor_caps(&mut self) -> Result<()> {
+    async fn rebuild_executor_caps(&mut self) -> Result<()> {
         if self.executor.is_some() && self.booted_containers.is_empty() {
             // The executor doesn't support adding caps after construction,
             // but if no containers have booted yet, we can rebuild with
@@ -187,13 +195,16 @@ impl ReplSession {
                 .iter()
                 .map(|(k, v)| (k.clone(), v.clone()))
                 .collect();
-            self.executor = Some(ContainerExecutor::new(self.images_dir.clone(), caps)?);
+            self.executor = Some(
+                ContainerExecutor::new_with_pool(self.images_dir.clone(), caps, self.pool.clone())
+                    .await?,
+            );
         }
         Ok(())
     }
 
     async fn execute_command(&mut self, command: &str) -> Result<String> {
-        self.ensure_executor()?;
+        self.ensure_executor().await?;
 
         let container = self.current_container.clone();
         let executor = self.executor.as_mut().unwrap();
@@ -217,7 +228,7 @@ impl ReplSession {
         Ok(output)
     }
 
-    fn handle_meta_command(&mut self, cmd: MetaCommand) -> MetaCommandResult {
+    async fn handle_meta_command(&mut self, cmd: MetaCommand) -> MetaCommandResult {
         match cmd {
             MetaCommand::Container { name, image } => {
                 if self.transcript.has_container(&name) {
@@ -230,9 +241,18 @@ impl ReplSession {
                     name.clone(),
                     ContainerCapabilities::new().deny_all_network(),
                 );
-                if let Err(e) = self.rebuild_executor_caps() {
+                if let Err(e) = self.rebuild_executor_caps().await {
                     return MetaCommandResult::Error(format!("Failed to update executor: {e}"));
                 }
+                // Pre-warm the image in the background
+                let pool = self.pool.clone();
+                let warm_image = image.clone();
+                tokio::spawn(async move {
+                    let mut pool_guard = pool.lock().await;
+                    if let Err(e) = pool_guard.warm(&warm_image, 1).await {
+                        warn!("Pool: background warm failed for '{warm_image}': {e}");
+                    }
+                });
                 self.current_container = name.clone();
                 MetaCommandResult::Message(format!("Created container '{name}' (image: {image})"))
             }
@@ -250,7 +270,7 @@ impl ReplSession {
                         self.pending_caps.insert(name.clone(), caps);
                     }
                     self.current_container = name.clone();
-                    if let Err(e) = self.rebuild_executor_caps() {
+                    if let Err(e) = self.rebuild_executor_caps().await {
                         return MetaCommandResult::Error(format!("Failed to update executor: {e}"));
                     }
                     MetaCommandResult::Message(format!("Renamed '{old}' → '{name}'"))
@@ -405,6 +425,8 @@ impl ReplSession {
         if let Some(ref mut executor) = self.executor {
             executor.shutdown().await;
         }
+        let mut pool_guard = self.pool.lock().await;
+        pool_guard.shutdown().await;
     }
 
     fn save_transcript(&self) -> Result<()> {
@@ -460,7 +482,18 @@ pub async fn run_repl(images_dir: PathBuf, output_path: PathBuf) -> Result<()> {
     let history_path = dirs_history_path();
     let _ = editor.load_history(&history_path);
 
-    let mut session = ReplSession::new(images_dir, output_path);
+    // Create container pool and pre-warm the default alpine image
+    let pool_config = PoolConfig::new(images_dir.clone());
+    info!("Pool: created (max_warm: {})", pool_config.max_warm);
+    let pool: SharedPool = Arc::new(tokio::sync::Mutex::new(ContainerPool::new(pool_config)));
+    {
+        let mut pool_guard = pool.lock().await;
+        if let Err(e) = pool_guard.warm("alpine", 1).await {
+            warn!("Pool: failed to pre-warm alpine: {e}");
+        }
+    }
+
+    let mut session = ReplSession::new(images_dir, output_path, pool);
 
     println!("hick interactive session (type :help for commands, :quit to exit)");
     println!("Default container: alpine (deny-all-network)");
@@ -477,7 +510,7 @@ pub async fn run_repl(images_dir: PathBuf, output_path: PathBuf) -> Result<()> {
 
                 if trimmed.starts_with(':') {
                     match parse_meta_command(trimmed) {
-                        Some(cmd) => match session.handle_meta_command(cmd) {
+                        Some(cmd) => match session.handle_meta_command(cmd).await {
                             MetaCommandResult::Message(msg) => println!("{msg}"),
                             MetaCommandResult::Warning(msg) => {
                                 eprintln!("Warning: {msg}");
@@ -698,42 +731,58 @@ mod tests {
         );
     }
 
-    #[test]
-    fn session_meta_commands() {
-        let mut session =
-            ReplSession::new(PathBuf::from("/tmp/images"), PathBuf::from("session.hick"));
+    fn test_pool() -> SharedPool {
+        let config = PoolConfig::new(PathBuf::from("/tmp/images"));
+        Arc::new(tokio::sync::Mutex::new(ContainerPool::new(config)))
+    }
+
+    #[tokio::test]
+    async fn session_meta_commands() {
+        let mut session = ReplSession::new(
+            PathBuf::from("/tmp/images"),
+            PathBuf::from("session.hick"),
+            test_pool(),
+        );
 
         // Default container exists
         assert_eq!(session.current_container, "alpine");
 
         // Create new container
-        let result = session.handle_meta_command(MetaCommand::Container {
-            name: "web".into(),
-            image: "alpine".into(),
-        });
+        let result = session
+            .handle_meta_command(MetaCommand::Container {
+                name: "web".into(),
+                image: "alpine".into(),
+            })
+            .await;
         assert!(matches!(result, MetaCommandResult::Message(_)));
         assert_eq!(session.current_container, "web");
 
         // Duplicate container
-        let result = session.handle_meta_command(MetaCommand::Container {
-            name: "web".into(),
-            image: "alpine".into(),
-        });
+        let result = session
+            .handle_meta_command(MetaCommand::Container {
+                name: "web".into(),
+                image: "alpine".into(),
+            })
+            .await;
         assert!(matches!(result, MetaCommandResult::Error(_)));
 
         // Rename
-        let result = session.handle_meta_command(MetaCommand::Name { name: "api".into() });
+        let result = session
+            .handle_meta_command(MetaCommand::Name { name: "api".into() })
+            .await;
         assert!(matches!(result, MetaCommandResult::Message(_)));
         assert_eq!(session.current_container, "api");
 
         // Volume
-        let result = session.handle_meta_command(MetaCommand::Volume {
-            name: "data".into(),
-        });
+        let result = session
+            .handle_meta_command(MetaCommand::Volume {
+                name: "data".into(),
+            })
+            .await;
         assert!(matches!(result, MetaCommandResult::Message(_)));
 
         // List containers
-        let result = session.handle_meta_command(MetaCommand::Containers);
+        let result = session.handle_meta_command(MetaCommand::Containers).await;
         if let MetaCommandResult::Message(msg) = result {
             assert!(msg.contains("alpine"));
             assert!(msg.contains("api"));
@@ -742,7 +791,7 @@ mod tests {
         }
 
         // List volumes
-        let result = session.handle_meta_command(MetaCommand::Volumes);
+        let result = session.handle_meta_command(MetaCommand::Volumes).await;
         if let MetaCommandResult::Message(msg) = result {
             assert!(msg.contains("data"));
         } else {
@@ -750,24 +799,32 @@ mod tests {
         }
     }
 
-    #[test]
-    fn fork_requires_existing_source() {
-        let mut session =
-            ReplSession::new(PathBuf::from("/tmp/images"), PathBuf::from("session.hick"));
+    #[tokio::test]
+    async fn fork_requires_existing_source() {
+        let mut session = ReplSession::new(
+            PathBuf::from("/tmp/images"),
+            PathBuf::from("session.hick"),
+            test_pool(),
+        );
 
-        let result = session.handle_meta_command(MetaCommand::Fork {
-            from: "nonexistent".into(),
-            to: "derived".into(),
-        });
+        let result = session
+            .handle_meta_command(MetaCommand::Fork {
+                from: "nonexistent".into(),
+                to: "derived".into(),
+            })
+            .await;
         assert!(matches!(result, MetaCommandResult::Error(_)));
     }
 
-    #[test]
-    fn transcript_output() {
-        let mut session =
-            ReplSession::new(PathBuf::from("/tmp/images"), PathBuf::from("session.hick"));
+    #[tokio::test]
+    async fn transcript_output() {
+        let mut session = ReplSession::new(
+            PathBuf::from("/tmp/images"),
+            PathBuf::from("session.hick"),
+            test_pool(),
+        );
 
-        let result = session.handle_meta_command(MetaCommand::Transcript);
+        let result = session.handle_meta_command(MetaCommand::Transcript).await;
         if let MetaCommandResult::Message(xml) = result {
             assert!(xml.contains("<hick:container name=\"alpine\""));
             assert!(xml.contains("<hick:deny network=\"*\""));

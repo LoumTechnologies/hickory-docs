@@ -20,6 +20,8 @@ use container::{Container, ContainerConfig, ContainerStats, create_async_engine}
 use hick_token::ContainerCapabilities;
 use net_config::NetworkConfig;
 
+use crate::pool::SharedPool;
+
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
@@ -47,13 +49,13 @@ const COMMAND_TIMEOUT: Duration = Duration::from_secs(300);
 // ---------------------------------------------------------------------------
 
 /// Streaming pattern matcher for the BusyBox ash prompt `/ # `.
-struct PromptMatcher {
+pub(crate) struct PromptMatcher {
     matched: usize,
     buffer: Vec<u8>,
 }
 
 impl PromptMatcher {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             matched: 0,
             buffer: Vec::new(),
@@ -61,7 +63,7 @@ impl PromptMatcher {
     }
 
     /// Process a chunk of output. Returns `(passthrough_bytes, prompt_detected)`.
-    fn process(&mut self, src: &[u8]) -> (Vec<u8>, bool) {
+    pub(crate) fn process(&mut self, src: &[u8]) -> (Vec<u8>, bool) {
         let mut out = Vec::with_capacity(src.len());
         let mut detected = false;
 
@@ -94,7 +96,7 @@ impl PromptMatcher {
 }
 
 /// Remove Device Status Report queries (ESC[6n) from container output.
-fn strip_dsr(src: &[u8]) -> Vec<u8> {
+pub(crate) fn strip_dsr(src: &[u8]) -> Vec<u8> {
     let mut out = Vec::with_capacity(src.len());
     let mut i = 0;
     while i < src.len() {
@@ -191,6 +193,10 @@ pub struct ContainerExecutor {
     module_cache: HashMap<String, Vec<u8>>,
     /// Per-container resource stats, populated during [`shutdown`].
     stats: HashMap<String, ContainerResourceStats>,
+    /// Optional pool for adopting pre-warmed containers.
+    pool: Option<SharedPool>,
+    /// Number of containers adopted from the pool (vs fresh boot).
+    pool_hits: usize,
 }
 
 impl ContainerExecutor {
@@ -213,6 +219,39 @@ impl ContainerExecutor {
             fork_defs: HashMap::new(),
             module_cache: HashMap::new(),
             stats: HashMap::new(),
+            pool: None,
+            pool_hits: 0,
+        })
+    }
+
+    /// Create an executor backed by a shared container pool.
+    ///
+    /// Pre-seeds the module cache from the pool to avoid recompilation.
+    /// When `ensure_started` is called, the executor checks the pool first
+    /// and only boots a fresh container on miss.
+    pub async fn new_with_pool(
+        images_dir: PathBuf,
+        container_caps: HashMap<String, ContainerCapabilities>,
+        pool: SharedPool,
+    ) -> Result<Self> {
+        let pool_guard = pool.lock().await;
+        let bridge = pool_guard.bridge().clone();
+        let next_subnet = pool_guard.next_subnet();
+        let module_cache = pool_guard.module_cache().clone();
+        drop(pool_guard);
+
+        Ok(Self {
+            containers: HashMap::new(),
+            images_dir,
+            bridge,
+            next_subnet,
+            container_caps,
+            transcripts: HashMap::new(),
+            fork_defs: HashMap::new(),
+            module_cache,
+            stats: HashMap::new(),
+            pool: Some(pool),
+            pool_hits: 0,
         })
     }
 
@@ -239,6 +278,9 @@ impl ContainerExecutor {
     /// If the container name is registered as a fork target, it will be started
     /// by replaying the source container's command history instead of starting
     /// fresh.
+    ///
+    /// When a pool is available, attempts to adopt a pre-warmed container
+    /// first, falling back to a fresh boot on pool miss.
     pub async fn ensure_started(&mut self, name: &str, image: &str) -> Result<()> {
         if self.containers.contains_key(name) {
             return Ok(());
@@ -247,6 +289,36 @@ impl ContainerExecutor {
         // Check if this is a fork target
         if let Some(fork_def) = self.fork_defs.remove(name) {
             return self.start_forked_container(name, &fork_def).await;
+        }
+
+        // Try the pool first
+        if let Some(ref pool) = self.pool {
+            let caps = self.container_caps.get(name).cloned().unwrap_or_default();
+            let taken = {
+                let mut pool_guard = pool.lock().await;
+                pool_guard.take(image, &caps)
+            };
+            if let Some(taken) = taken {
+                info!(
+                    "Adopted pre-warmed container for '{name}' (image: {image}, boot: {:?})",
+                    taken.boot_duration
+                );
+                self.containers.insert(
+                    name.to_string(),
+                    RunningContainer {
+                        container: taken.container,
+                        prompt_matcher: taken.prompt_matcher,
+                        booted: true,
+                        network_config: taken.network_config,
+                        image_name: taken.image_name,
+                        command_history: Vec::new(),
+                        boot_duration: Some(taken.boot_duration),
+                        command_durations: Vec::new(),
+                    },
+                );
+                self.pool_hits += 1;
+                return Ok(());
+            }
         }
 
         self.start_fresh_container(name, image).await
@@ -766,6 +838,11 @@ impl ContainerExecutor {
     /// Per-container resource stats, populated during [`shutdown`].
     pub fn resource_stats(&self) -> &HashMap<String, ContainerResourceStats> {
         &self.stats
+    }
+
+    /// Number of containers adopted from the pool (vs fresh boot).
+    pub fn pool_hits(&self) -> usize {
+        self.pool_hits
     }
 
     /// Kill all containers and clean up. Snapshots resource stats before

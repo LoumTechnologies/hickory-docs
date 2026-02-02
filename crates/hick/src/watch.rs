@@ -17,6 +17,7 @@ use hick_store::{
     BuiltinVersionStore, FileProvenance, FsObjectStore, GitVersionStore, VersionStore,
 };
 
+use crate::pool::{ContainerPool, PoolConfig, SharedPool};
 use crate::store_config::{StoreBackend, StoreConfig};
 
 /// Run the watch loop: initial run + re-run on file changes.
@@ -38,6 +39,17 @@ pub async fn run_watch(
         Box::new(TakeGenerated)
     };
 
+    // Create container pool for live execution (survives across iterations)
+    let pool: Option<SharedPool> = if !dry_run {
+        let pool_config = PoolConfig::new(images_dir.clone());
+        info!("Pool: created (max_warm: {})", pool_config.max_warm);
+        Some(Arc::new(tokio::sync::Mutex::new(ContainerPool::new(
+            pool_config,
+        ))))
+    } else {
+        None
+    };
+
     // Initial run
     info!("Running initial pipeline...");
     run_pipeline_and_merge(
@@ -47,11 +59,13 @@ pub async fn run_watch(
         &images_dir,
         &store,
         strategy.as_ref(),
+        pool.as_ref(),
     )
     .await
     .unwrap_or_else(|e| {
         error!("Initial pipeline run failed: {e}");
     });
+    log_pool_stats(pool.as_ref()).await;
 
     // Set up file watcher
     let (tx, rx) = std::sync::mpsc::channel();
@@ -95,11 +109,19 @@ pub async fn run_watch(
             &images_dir,
             &store,
             strategy.as_ref(),
+            pool.as_ref(),
         )
         .await
         .unwrap_or_else(|e| {
             error!("Pipeline re-run failed: {e}");
         });
+        log_pool_stats(pool.as_ref()).await;
+    }
+
+    // Shutdown pool on exit
+    if let Some(pool) = pool {
+        let mut pool_guard = pool.lock().await;
+        pool_guard.shutdown().await;
     }
 
     Ok(())
@@ -129,10 +151,11 @@ async fn create_store(config: &StoreConfig, project_dir: &Path) -> Result<Arc<dy
 async fn run_pipeline_and_merge(
     files: &[PathBuf],
     config: &StoreConfig,
-    _dry_run: bool,
-    _images_dir: &Path,
+    dry_run: bool,
+    images_dir: &Path,
     store: &Arc<dyn VersionStore>,
     strategy: &dyn MergeStrategy,
+    pool: Option<&SharedPool>,
 ) -> Result<()> {
     // Read source files
     let mut file_contents = Vec::new();
@@ -147,17 +170,63 @@ async fn run_pipeline_and_merge(
         .map(|(name, content)| (name.as_str(), content.as_str()))
         .collect();
 
-    // Run multi-stage pipeline
-    let pipeline_result = crate::run_pipeline_multi_stage(&sources, config.max_stages).await?;
+    // Pre-warm pool from sources (if pool is active)
+    if let Some(pool) = pool {
+        let mut pool_guard = pool.lock().await;
+        pool_guard.warm_from_sources(&sources).await?;
+        drop(pool_guard);
+    }
 
-    // Build pipeline files as bytes for merge
-    let pipeline_files: HashMap<String, Vec<u8>> = pipeline_result
-        .files
-        .iter()
-        .map(|(k, v)| (k.clone(), v.as_bytes().to_vec()))
-        .collect();
+    // Run pipeline (live with pool, or dry-run multi-stage)
+    let (pipeline_files, pipeline_provenance) = if dry_run {
+        let pipeline_result = crate::run_pipeline_multi_stage(&sources, config.max_stages).await?;
+        let files: HashMap<String, Vec<u8>> = pipeline_result
+            .files
+            .iter()
+            .map(|(k, v)| (k.clone(), v.as_bytes().to_vec()))
+            .collect();
+        (files, pipeline_result.provenance)
+    } else {
+        let pipeline_config = crate::PipelineConfig {
+            images_dir: images_dir.to_path_buf(),
+            working_dir: None,
+        };
+        let result = crate::run_pipeline_live(&sources, &pipeline_config, &[], None, pool).await?;
+        let files: HashMap<String, Vec<u8>> = result
+            .files
+            .iter()
+            .map(|(k, v)| (k.clone(), v.as_bytes().to_vec()))
+            .collect();
+        let provenance: HashMap<String, FileProvenance> = result
+            .files
+            .keys()
+            .map(|k| {
+                (
+                    k.clone(),
+                    FileProvenance::HickFile {
+                        source: sources
+                            .first()
+                            .map(|(n, _)| n.to_string())
+                            .unwrap_or_default(),
+                    },
+                )
+            })
+            .collect();
+        if result.pool_hits > 0 {
+            info!(
+                "Pool: {} of {} containers adopted from pool",
+                result.pool_hits,
+                result.resource_stats.len()
+            );
+        }
+        (files, provenance)
+    };
 
-    let pipeline_provenance: HashMap<String, FileProvenance> = pipeline_result.provenance;
+    // Evict stale containers after each run
+    if let Some(pool) = pool {
+        let mut pool_guard = pool.lock().await;
+        pool_guard.evict_stale();
+    }
 
     // Read current disk files for three-way merge
     let disk_files = read_disk_files(&pipeline_files)?;
@@ -209,6 +278,19 @@ async fn run_pipeline_and_merge(
     );
 
     Ok(())
+}
+
+/// Log pool statistics after a pipeline run.
+async fn log_pool_stats(pool: Option<&SharedPool>) {
+    if let Some(pool) = pool {
+        let pool_guard = pool.lock().await;
+        let stats = pool_guard.stats();
+        let mem_mb = stats.estimated_memory_bytes / (1024 * 1024);
+        info!(
+            "Pool: {} warm ({}MB), {} served, {} evicted",
+            stats.warm_count, mem_mb, stats.containers_served, stats.containers_evicted
+        );
+    }
 }
 
 /// Read existing disk files that correspond to pipeline output paths.

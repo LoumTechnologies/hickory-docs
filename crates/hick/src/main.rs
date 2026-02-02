@@ -374,7 +374,7 @@ async fn run_single_shot(cli: RunArgs) -> Result<()> {
             images_dir,
             working_dir: None,
         };
-        hick::run_pipeline_live(&sources, &pipeline_config, &params, cc.as_ref()).await?
+        hick::run_pipeline_live(&sources, &pipeline_config, &params, cc.as_ref(), None).await?
     };
 
     // Write file outputs to disk (prepend output-dir)
@@ -422,7 +422,11 @@ async fn run_single_shot(cli: RunArgs) -> Result<()> {
 
     fn fmt_duration(d: std::time::Duration) -> String {
         if d.as_secs() >= 60 {
-            format!("{}m {:.1}s", d.as_secs() / 60, (d.as_millis() % 60_000) as f64 / 1000.0)
+            format!(
+                "{}m {:.1}s",
+                d.as_secs() / 60,
+                (d.as_millis() % 60_000) as f64 / 1000.0
+            )
         } else if d.as_millis() >= 1000 {
             format!("{:.2}s", d.as_secs_f64())
         } else {
@@ -430,13 +434,20 @@ async fn run_single_shot(cli: RunArgs) -> Result<()> {
         }
     }
 
+    let pool_info = if result.pool_hits > 0 {
+        format!(" ({} from pool)", result.pool_hits)
+    } else {
+        String::new()
+    };
+
     eprintln!(
-        "Done: {} file{} written ({} bytes), {} container{}, {} command{} — {} total (boot {}, exec {})",
+        "Done: {} file{} written ({} bytes), {} container{}{}, {} command{} — {} total (boot {}, exec {})",
         num_files,
         if num_files == 1 { "" } else { "s" },
         total_output_bytes,
         num_containers,
         if num_containers == 1 { "" } else { "s" },
+        pool_info,
         total_commands,
         if total_commands == 1 { "" } else { "s" },
         fmt_duration(wall_time),

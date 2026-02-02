@@ -8,6 +8,7 @@ pub mod cache;
 pub mod condition;
 pub mod config;
 pub mod executor;
+pub mod pool;
 pub mod repl;
 pub mod store_config;
 pub mod transcript;
@@ -29,6 +30,7 @@ use hick_lang::{HickNode, HickTag};
 use hick_token::{ContainerCapabilities, NetworkRule, TokenAuthority};
 
 use crate::executor::{ContainerExecutor, ContainerResourceStats, ExecTranscriptEntry};
+use crate::pool::SharedPool;
 
 // ---------------------------------------------------------------------------
 // Exec output control
@@ -87,6 +89,9 @@ pub struct PipelineResult {
     /// Per-container resource stats (boot time, exec time, I/O, pause info).
     /// Empty for dry-run pipelines.
     pub resource_stats: HashMap<String, ContainerResourceStats>,
+    /// Number of containers adopted from the pool (vs fresh boot).
+    /// Zero when no pool is used.
+    pub pool_hits: usize,
 }
 
 // ---------------------------------------------------------------------------
@@ -287,6 +292,7 @@ pub async fn run_pipeline_with_authority(
         containers: container_defs,
         volume_provenance: HashMap::new(),
         resource_stats: HashMap::new(),
+        pool_hits: 0,
     })
 }
 
@@ -315,6 +321,7 @@ pub async fn run_pipeline_live(
     config: &PipelineConfig,
     params: &[(String, String)],
     cache_config: Option<&cache::CacheConfig>,
+    pool: Option<&SharedPool>,
 ) -> Result<PipelineResult> {
     let mut root_key = [0u8; 32];
     rand::thread_rng().fill_bytes(&mut root_key);
@@ -417,7 +424,16 @@ pub async fn run_pipeline_live(
     }
 
     // Build DAGs, run execs in containers (with optional caching)
-    let mut executor = ContainerExecutor::new(config.images_dir.clone(), container_defs.clone())?;
+    let mut executor = if let Some(pool) = pool {
+        ContainerExecutor::new_with_pool(
+            config.images_dir.clone(),
+            container_defs.clone(),
+            pool.clone(),
+        )
+        .await?
+    } else {
+        ContainerExecutor::new(config.images_dir.clone(), container_defs.clone())?
+    };
 
     // Register fork definitions with the executor
     for (from, to, additional_caps) in &fork_registrations {
@@ -619,6 +635,7 @@ pub async fn run_pipeline_live(
     }
 
     let transcripts = executor.transcripts().clone();
+    let pool_hits = executor.pool_hits();
     executor.shutdown().await;
     let resource_stats = executor.resource_stats().clone();
 
@@ -667,6 +684,7 @@ pub async fn run_pipeline_live(
         containers: container_defs,
         volume_provenance,
         resource_stats,
+        pool_hits,
     })
 }
 
