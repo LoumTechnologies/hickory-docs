@@ -420,25 +420,14 @@ async fn run_single_shot(cli: RunArgs) -> Result<()> {
         .map(|s| s.command_durations.len())
         .sum();
 
-    fn fmt_duration(d: std::time::Duration) -> String {
-        if d.as_secs() >= 60 {
-            format!(
-                "{}m {:.1}s",
-                d.as_secs() / 60,
-                (d.as_millis() % 60_000) as f64 / 1000.0
-            )
-        } else if d.as_millis() >= 1000 {
-            format!("{:.2}s", d.as_secs_f64())
-        } else {
-            format!("{}ms", d.as_millis())
-        }
-    }
-
     let pool_info = if result.pool_hits > 0 {
         format!(" ({} from pool)", result.pool_hits)
     } else {
         String::new()
     };
+
+    // When pool was used, show only the boot time actually paid by this pipeline
+    let pipeline_boot = total_boot.saturating_sub(result.pool_boot_time_saved);
 
     eprintln!(
         "Done: {} file{} written ({} bytes), {} container{}{}, {} command{} — {} total (boot {}, exec {})",
@@ -450,9 +439,9 @@ async fn run_single_shot(cli: RunArgs) -> Result<()> {
         pool_info,
         total_commands,
         if total_commands == 1 { "" } else { "s" },
-        fmt_duration(wall_time),
-        fmt_duration(total_boot),
-        fmt_duration(total_exec),
+        hick::fmt_duration(wall_time),
+        hick::fmt_duration(pipeline_boot),
+        hick::fmt_duration(total_exec),
     );
 
     Ok(())

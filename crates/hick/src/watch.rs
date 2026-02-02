@@ -178,14 +178,19 @@ async fn run_pipeline_and_merge(
     }
 
     // Run pipeline (live with pool, or dry-run multi-stage)
-    let (pipeline_files, pipeline_provenance) = if dry_run {
+    let (pipeline_files, pipeline_provenance, pool_hits, pool_boot_time_saved) = if dry_run {
         let pipeline_result = crate::run_pipeline_multi_stage(&sources, config.max_stages).await?;
         let files: HashMap<String, Vec<u8>> = pipeline_result
             .files
             .iter()
             .map(|(k, v)| (k.clone(), v.as_bytes().to_vec()))
             .collect();
-        (files, pipeline_result.provenance)
+        (
+            files,
+            pipeline_result.provenance,
+            0usize,
+            std::time::Duration::ZERO,
+        )
     } else {
         let pipeline_config = crate::PipelineConfig {
             images_dir: images_dir.to_path_buf(),
@@ -219,7 +224,9 @@ async fn run_pipeline_and_merge(
                 result.resource_stats.len()
             );
         }
-        (files, provenance)
+        let hits = result.pool_hits;
+        let saved = result.pool_boot_time_saved;
+        (files, provenance, hits, saved)
     };
 
     // Evict stale containers after each run
@@ -271,11 +278,26 @@ async fn run_pipeline_and_merge(
         )
         .await?;
 
-    info!(
+    eprintln!(
         "Pipeline complete: {} file(s) written, snapshot committed to '{}'",
         merge_result.files.len(),
         config.branch
     );
+
+    // Print pool savings summary when pool was used
+    if pool_hits > 0
+        && let Some(pool) = pool
+    {
+        let pool_guard = pool.lock().await;
+        let stats = pool_guard.stats();
+        let peak_mb = stats.peak_memory_bytes / (1024 * 1024);
+        eprintln!(
+            "  Pool: saved {} boot, cost {}MB for {}",
+            crate::fmt_duration(pool_boot_time_saved),
+            peak_mb,
+            crate::fmt_duration(stats.uptime),
+        );
+    }
 
     Ok(())
 }
@@ -286,9 +308,15 @@ async fn log_pool_stats(pool: Option<&SharedPool>) {
         let pool_guard = pool.lock().await;
         let stats = pool_guard.stats();
         let mem_mb = stats.estimated_memory_bytes / (1024 * 1024);
+        let peak_mb = stats.peak_memory_bytes / (1024 * 1024);
         info!(
-            "Pool: {} warm ({}MB), {} served, {} evicted",
-            stats.warm_count, mem_mb, stats.containers_served, stats.containers_evicted
+            "Pool: {} warm ({}MB, peak {}MB), {} served, {} evicted, uptime {}",
+            stats.warm_count,
+            mem_mb,
+            peak_mb,
+            stats.containers_served,
+            stats.containers_evicted,
+            crate::fmt_duration(stats.uptime),
         );
     }
 }

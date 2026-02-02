@@ -18,6 +18,7 @@ pub mod watch;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Duration;
 
 use anyhow::Result;
 use log::{debug, info, warn};
@@ -92,6 +93,9 @@ pub struct PipelineResult {
     /// Number of containers adopted from the pool (vs fresh boot).
     /// Zero when no pool is used.
     pub pool_hits: usize,
+    /// Total boot time saved by adopting pre-warmed containers from the pool.
+    /// Zero when no pool is used or in dry-run mode.
+    pub pool_boot_time_saved: Duration,
 }
 
 // ---------------------------------------------------------------------------
@@ -293,6 +297,7 @@ pub async fn run_pipeline_with_authority(
         volume_provenance: HashMap::new(),
         resource_stats: HashMap::new(),
         pool_hits: 0,
+        pool_boot_time_saved: Duration::ZERO,
     })
 }
 
@@ -636,6 +641,7 @@ pub async fn run_pipeline_live(
 
     let transcripts = executor.transcripts().clone();
     let pool_hits = executor.pool_hits();
+    let pool_boot_time_saved = executor.pool_boot_time_saved();
     executor.shutdown().await;
     let resource_stats = executor.resource_stats().clone();
 
@@ -685,6 +691,7 @@ pub async fn run_pipeline_live(
         volume_provenance,
         resource_stats,
         pool_hits,
+        pool_boot_time_saved,
     })
 }
 
@@ -1002,6 +1009,21 @@ pub fn collect_text_children(tag: &HickTag) -> String {
         }
     }
     result
+}
+
+/// Format a duration for human-readable display.
+pub fn fmt_duration(d: Duration) -> String {
+    if d.as_secs() >= 60 {
+        format!(
+            "{}m {:.1}s",
+            d.as_secs() / 60,
+            (d.as_millis() % 60_000) as f64 / 1000.0
+        )
+    } else if d.as_millis() >= 1000 {
+        format!("{:.2}s", d.as_secs_f64())
+    } else {
+        format!("{}ms", d.as_millis())
+    }
 }
 
 /// Expand `~` to the user's home directory.
