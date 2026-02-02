@@ -8,6 +8,7 @@
 //! and executes containers with capability-based security.
 
 use std::path::{Path, PathBuf};
+use std::time::Instant;
 
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
@@ -244,13 +245,15 @@ fn init_logger(verbose: bool) {
         .filter_level(if verbose {
             log::LevelFilter::Debug
         } else {
-            log::LevelFilter::Info
+            log::LevelFilter::Warn
         })
         .init();
 }
 
 /// Run the pipeline once and write outputs.
 async fn run_single_shot(cli: RunArgs) -> Result<()> {
+    let pipeline_start = Instant::now();
+
     // Discover config file
     let config_path = cli
         .config
@@ -395,7 +398,52 @@ async fn run_single_shot(cli: RunArgs) -> Result<()> {
         info!("No file outputs produced");
     }
 
-    info!("Done");
+    // Print summary to stderr so it's always visible.
+    let wall_time = pipeline_start.elapsed();
+    let num_containers = result.resource_stats.len();
+    let num_files = result.files.len();
+    let total_output_bytes: usize = result.files.values().map(|c| c.len()).sum();
+
+    let total_boot: std::time::Duration = result
+        .resource_stats
+        .values()
+        .map(|s| s.boot_duration)
+        .sum();
+    let total_exec: std::time::Duration = result
+        .resource_stats
+        .values()
+        .map(|s| s.total_exec_duration)
+        .sum();
+    let total_commands: usize = result
+        .resource_stats
+        .values()
+        .map(|s| s.command_durations.len())
+        .sum();
+
+    fn fmt_duration(d: std::time::Duration) -> String {
+        if d.as_secs() >= 60 {
+            format!("{}m {:.1}s", d.as_secs() / 60, (d.as_millis() % 60_000) as f64 / 1000.0)
+        } else if d.as_millis() >= 1000 {
+            format!("{:.2}s", d.as_secs_f64())
+        } else {
+            format!("{}ms", d.as_millis())
+        }
+    }
+
+    eprintln!(
+        "Done: {} file{} written ({} bytes), {} container{}, {} command{} — {} total (boot {}, exec {})",
+        num_files,
+        if num_files == 1 { "" } else { "s" },
+        total_output_bytes,
+        num_containers,
+        if num_containers == 1 { "" } else { "s" },
+        total_commands,
+        if total_commands == 1 { "" } else { "s" },
+        fmt_duration(wall_time),
+        fmt_duration(total_boot),
+        fmt_duration(total_exec),
+    );
+
     Ok(())
 }
 
