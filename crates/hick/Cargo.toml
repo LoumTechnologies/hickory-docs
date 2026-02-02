@@ -25,7 +25,7 @@ hick-token = { path = "../hick-token" }
 
 wasmtime = "41.0.0"
 wasmtime-wasi = "41.0.0"
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-util", "sync", "time"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-util", "sync", "time", "signal"] }
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }
 env_logger = "0.11"

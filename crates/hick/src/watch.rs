@@ -3,7 +3,7 @@
 //! Monitors `.hick` source files for changes and re-runs the pipeline,
 //! merging results with the previous snapshot via the merge orchestrator.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
@@ -67,8 +67,26 @@ pub async fn run_watch(
     });
     log_pool_stats(pool.as_ref()).await;
 
-    // Set up file watcher
-    let (tx, rx) = std::sync::mpsc::channel();
+    // Collect canonical paths and their parent directories for watching.
+    // On macOS, notify's FsEventWatcher uses FSEvents which is a directory-level
+    // API. Watching individual files can silently miss events. Watching parent
+    // directories and filtering by source path is more reliable.
+    let mut watched_files: HashSet<PathBuf> = HashSet::new();
+    let mut watched_dirs: HashSet<PathBuf> = HashSet::new();
+    for file in files {
+        let canonical = file
+            .canonicalize()
+            .with_context(|| format!("cannot watch {}", file.display()))?;
+        eprintln!("Watching: {}", canonical.display());
+        if let Some(parent) = canonical.parent() {
+            watched_dirs.insert(parent.to_path_buf());
+        }
+        watched_files.insert(canonical);
+    }
+
+    // Set up file watcher.  Use a tokio channel so the event loop can
+    // `select!` between file events and Ctrl+C for clean shutdown.
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
     let mut watcher = RecommendedWatcher::new(
         move |res: notify::Result<notify::Event>| {
             if let Ok(event) = res {
@@ -78,20 +96,33 @@ pub async fn run_watch(
         notify::Config::default().with_poll_interval(Duration::from_millis(100)),
     )?;
 
-    // Watch each source file
-    for file in files {
-        let canonical = file
-            .canonicalize()
-            .with_context(|| format!("cannot watch {}", file.display()))?;
-        watcher.watch(&canonical, RecursiveMode::NonRecursive)?;
-        info!("Watching: {}", canonical.display());
+    for dir in &watched_dirs {
+        watcher.watch(dir, RecursiveMode::NonRecursive)?;
+        debug!("Watching directory: {}", dir.display());
     }
 
-    info!("Watch mode active. Press Ctrl+C to stop.");
+    eprintln!("Watch mode active. Press Ctrl+C to stop.");
 
-    // Debounce: collect events for 100ms before re-running
-    while let Ok(event) = rx.recv() {
+    // Debounce: collect events for 100ms before re-running.
+    // Filter events to only source files so output writes don't cause loops.
+    loop {
+        // Wait for a file event or Ctrl+C, whichever comes first.
+        let event = tokio::select! {
+            event = rx.recv() => match event {
+                Some(e) => e,
+                None => break, // channel closed
+            },
+            _ = tokio::signal::ctrl_c() => break,
+        };
+
         if !is_modify_event(&event) {
+            continue;
+        }
+
+        let is_source_change = event.paths.iter().any(|p| {
+            watched_files.contains(p) || p.canonicalize().is_ok_and(|c| watched_files.contains(&c))
+        });
+        if !is_source_change {
             continue;
         }
 
@@ -99,9 +130,9 @@ pub async fn run_watch(
 
         // Drain any events within the debounce window
         let debounce = Duration::from_millis(100);
-        while rx.recv_timeout(debounce).is_ok() {}
+        while let Ok(Some(_)) = tokio::time::timeout(debounce, rx.recv()).await {}
 
-        info!("Re-running pipeline...");
+        eprintln!("Re-running pipeline...");
         run_pipeline_and_merge(
             files,
             config,
@@ -119,6 +150,7 @@ pub async fn run_watch(
     }
 
     // Shutdown pool on exit
+    eprintln!("\nShutting down...");
     if let Some(pool) = pool {
         let mut pool_guard = pool.lock().await;
         pool_guard.shutdown().await;
@@ -335,9 +367,12 @@ fn read_disk_files(pipeline_files: &HashMap<String, Vec<u8>>) -> Result<HashMap<
 }
 
 /// Check if a notify event represents a file modification.
+///
+/// Includes `EventKind::Any` because macOS FSEvents can emit it for
+/// modifications that don't map to a specific sub-kind.
 fn is_modify_event(event: &notify::Event) -> bool {
     matches!(
         event.kind,
-        EventKind::Modify(_) | EventKind::Create(_) | EventKind::Remove(_)
+        EventKind::Any | EventKind::Modify(_) | EventKind::Create(_) | EventKind::Remove(_)
     )
 }
