@@ -66,6 +66,10 @@ pub struct PoolStats {
     pub containers_served: u64,
     /// Total containers evicted due to idle timeout.
     pub containers_evicted: u64,
+    /// How long the pool has been alive.
+    pub uptime: Duration,
+    /// Peak memory used by pool containers (high-water mark).
+    pub peak_memory_bytes: u64,
 }
 
 // ---------------------------------------------------------------------------
@@ -125,6 +129,10 @@ pub struct ContainerPool {
     /// Lifetime counters.
     containers_served: u64,
     containers_evicted: u64,
+    /// When the pool was created (for uptime tracking).
+    created_at: Instant,
+    /// High-water mark of estimated memory usage.
+    peak_memory_bytes: u64,
 }
 
 impl ContainerPool {
@@ -138,7 +146,14 @@ impl ContainerPool {
             next_subnet: 128, // Start at 128 to avoid collision with executor's 0-based range
             containers_served: 0,
             containers_evicted: 0,
+            created_at: Instant::now(),
+            peak_memory_bytes: 0,
         }
+    }
+
+    /// How long the pool has been alive.
+    pub fn uptime(&self) -> Duration {
+        self.created_at.elapsed()
     }
 
     /// Boot `count` containers for the given image and add them to the pool.
@@ -178,6 +193,12 @@ impl ContainerPool {
                 self.warm_count() + 1
             );
             self.warm.entry(image.to_string()).or_default().push(wc);
+
+            // Update peak memory high-water mark
+            let current_memory = self.warm_count() as u64 * ESTIMATED_MEMORY_PER_CONTAINER;
+            if current_memory > self.peak_memory_bytes {
+                self.peak_memory_bytes = current_memory;
+            }
         }
         Ok(())
     }
@@ -347,6 +368,8 @@ impl ContainerPool {
             estimated_memory_bytes: warm_count as u64 * ESTIMATED_MEMORY_PER_CONTAINER,
             containers_served: self.containers_served,
             containers_evicted: self.containers_evicted,
+            uptime: self.created_at.elapsed(),
+            peak_memory_bytes: self.peak_memory_bytes,
         }
     }
 
@@ -482,6 +505,9 @@ mod tests {
         assert_eq!(stats.containers_served, 0);
         assert_eq!(stats.containers_evicted, 0);
         assert!(stats.per_image.is_empty());
+        assert_eq!(stats.peak_memory_bytes, 0);
+        // uptime should be very small (just created)
+        assert!(stats.uptime < Duration::from_secs(1));
     }
 
     #[test]

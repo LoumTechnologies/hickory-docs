@@ -197,6 +197,8 @@ pub struct ContainerExecutor {
     pool: Option<SharedPool>,
     /// Number of containers adopted from the pool (vs fresh boot).
     pool_hits: usize,
+    /// Total boot time saved by adopting pre-warmed containers from the pool.
+    pool_boot_time_saved: Duration,
 }
 
 impl ContainerExecutor {
@@ -221,6 +223,7 @@ impl ContainerExecutor {
             stats: HashMap::new(),
             pool: None,
             pool_hits: 0,
+            pool_boot_time_saved: Duration::ZERO,
         })
     }
 
@@ -252,6 +255,7 @@ impl ContainerExecutor {
             stats: HashMap::new(),
             pool: Some(pool),
             pool_hits: 0,
+            pool_boot_time_saved: Duration::ZERO,
         })
     }
 
@@ -303,6 +307,7 @@ impl ContainerExecutor {
                     "Adopted pre-warmed container for '{name}' (image: {image}, boot: {:?})",
                     taken.boot_duration
                 );
+                self.pool_boot_time_saved += taken.boot_duration;
                 self.containers.insert(
                     name.to_string(),
                     RunningContainer {
@@ -843,6 +848,11 @@ impl ContainerExecutor {
     /// Number of containers adopted from the pool (vs fresh boot).
     pub fn pool_hits(&self) -> usize {
         self.pool_hits
+    }
+
+    /// Total boot time saved by adopting pre-warmed containers from the pool.
+    pub fn pool_boot_time_saved(&self) -> Duration {
+        self.pool_boot_time_saved
     }
 
     /// Kill all containers and clean up. Snapshots resource stats before
