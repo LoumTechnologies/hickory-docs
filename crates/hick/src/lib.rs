@@ -296,6 +296,12 @@ pub async fn run_pipeline_with_authority(
                         },
                     );
                 }
+                "exclude" => {
+                    let pattern = tag_attr(tag, "pattern").unwrap_or_default();
+                    if !pattern.is_empty() {
+                        state.register_exclusion(pattern);
+                    }
+                }
                 _ => {}
             }
         }
@@ -319,6 +325,9 @@ pub async fn run_pipeline_with_authority(
 
     // Converge file outputs
     let files = state.get_files().await;
+
+    // Apply exclusion patterns
+    let files = apply_exclusions(files, &state.get_exclusion_patterns());
 
     Ok(PipelineResult {
         files,
@@ -711,6 +720,12 @@ pub async fn run_pipeline_live(
                         },
                     );
                 }
+                "exclude" => {
+                    let pattern = tag_attr(tag, "pattern").unwrap_or_default();
+                    if !pattern.is_empty() {
+                        state.register_exclusion(pattern);
+                    }
+                }
                 _ => {}
             }
         }
@@ -737,6 +752,9 @@ pub async fn run_pipeline_live(
 
     // Merge volume output files into the result
     files.extend(volume_files);
+
+    // Apply exclusion patterns
+    let files = apply_exclusions(files, &state.get_exclusion_patterns());
 
     Ok(PipelineResult {
         files,
@@ -953,6 +971,56 @@ fn interpolate_path(path: &str, state: &MultiDocumentState) -> String {
 
     // Also apply regular substitutions to the path
     apply_substitutions(&result, state)
+}
+
+/// Filter out files that match any exclusion pattern.
+///
+/// Patterns use glob syntax:
+/// - `*` matches any sequence of characters (except `/`)
+/// - `**` matches any sequence of characters (including `/`)
+/// - `?` matches any single character
+///
+/// Examples:
+/// - `*.template-only` — exclude files ending with `.template-only`
+/// - `docs/internal/**` — exclude everything under `docs/internal/`
+/// - `TEMPLATE_README.md` — exclude a specific file
+fn apply_exclusions(
+    files: HashMap<String, String>,
+    patterns: &[String],
+) -> HashMap<String, String> {
+    if patterns.is_empty() {
+        return files;
+    }
+
+    // Compile glob patterns
+    let compiled_patterns: Vec<glob::Pattern> = patterns
+        .iter()
+        .filter_map(|p| {
+            match glob::Pattern::new(p) {
+                Ok(pattern) => Some(pattern),
+                Err(e) => {
+                    warn!("Invalid exclusion pattern '{}': {}", p, e);
+                    None
+                }
+            }
+        })
+        .collect();
+
+    if compiled_patterns.is_empty() {
+        return files;
+    }
+
+    // Filter out files matching any exclusion pattern
+    files
+        .into_iter()
+        .filter(|(path, _)| {
+            let excluded = compiled_patterns.iter().any(|pattern| pattern.matches(path));
+            if excluded {
+                debug!("Excluding file: {}", path);
+            }
+            !excluded
+        })
+        .collect()
 }
 
 /// Apply all registered substitutions to text content.
