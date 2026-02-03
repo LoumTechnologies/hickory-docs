@@ -23,6 +23,21 @@ pub struct SubstitutionDef {
 }
 
 // ---------------------------------------------------------------------------
+// Feature Definition
+// ---------------------------------------------------------------------------
+
+/// A feature definition parsed from `<hick:feature>` tags.
+#[derive(Debug, Clone)]
+pub struct FeatureInfo {
+    /// Feature name (identifier).
+    pub name: String,
+    /// Human-readable description.
+    pub description: String,
+    /// Names of features this feature requires (space-separated in XML).
+    pub requires: Vec<String>,
+}
+
+// ---------------------------------------------------------------------------
 // MultiDocumentState
 // ---------------------------------------------------------------------------
 
@@ -40,6 +55,10 @@ pub struct MultiDocumentState {
     variables: Mutex<HashMap<String, String>>,
     /// Substitution definitions: name → definition.
     substitutions: Mutex<HashMap<String, SubstitutionDef>>,
+    /// Feature definitions: name → info.
+    features: Mutex<HashMap<String, FeatureInfo>>,
+    /// Enabled features (from CLI --features flag).
+    enabled_features: Mutex<std::collections::HashSet<String>>,
     /// Counter for generating unique container IDs.
     container_id_counter: std::sync::atomic::AtomicU64,
 }
@@ -53,6 +72,8 @@ impl Default for MultiDocumentState {
             cut_blocks: Mutex::new(HashMap::new()),
             variables: Mutex::new(HashMap::new()),
             substitutions: Mutex::new(HashMap::new()),
+            features: Mutex::new(HashMap::new()),
+            enabled_features: Mutex::new(std::collections::HashSet::new()),
             container_id_counter: std::sync::atomic::AtomicU64::new(0),
         }
     }
@@ -138,6 +159,37 @@ impl MultiDocumentState {
     /// Get all substitution definitions.
     pub fn get_substitutions(&self) -> Vec<SubstitutionDef> {
         self.substitutions.lock().unwrap().values().cloned().collect()
+    }
+
+    /// Register a `<hick:feature>` definition.
+    pub fn register_feature(&self, info: FeatureInfo) {
+        self.features.lock().unwrap().insert(info.name.clone(), info);
+    }
+
+    /// Get all feature definitions.
+    pub fn get_features(&self) -> Vec<FeatureInfo> {
+        self.features.lock().unwrap().values().cloned().collect()
+    }
+
+    /// Enable a feature (from CLI --features flag).
+    pub fn enable_feature(&self, name: String) {
+        self.enabled_features.lock().unwrap().insert(name);
+    }
+
+    /// Enable multiple features at once.
+    pub fn enable_features(&self, names: impl IntoIterator<Item = String>) {
+        let mut features = self.enabled_features.lock().unwrap();
+        features.extend(names);
+    }
+
+    /// Check if a feature is enabled.
+    pub fn is_feature_enabled(&self, name: &str) -> bool {
+        self.enabled_features.lock().unwrap().contains(name)
+    }
+
+    /// Get all enabled feature names.
+    pub fn get_enabled_features(&self) -> Vec<String> {
+        self.enabled_features.lock().unwrap().iter().cloned().collect()
     }
 
     /// Generate a unique container ID for this session.

@@ -2698,6 +2698,7 @@ dependencies = [
  "serde_yaml",
  "sha2",
  "tar",
+ "thiserror 2.0.18",
  "tokio",
  "wasmtime 41.0.1",
  "wasmtime-wasi 41.0.1",
