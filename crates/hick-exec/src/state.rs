@@ -8,6 +8,21 @@ use crate::node::{Context, InsertionPoint, Node, converge_to_string};
 use std::sync::Arc;
 
 // ---------------------------------------------------------------------------
+// Substitution Definition
+// ---------------------------------------------------------------------------
+
+/// A substitution definition for text replacement.
+#[derive(Debug, Clone)]
+pub struct SubstitutionDef {
+    /// The pattern to search for in content.
+    pub pattern: String,
+    /// The value to replace the pattern with.
+    pub value: String,
+    /// Whether to auto-generate case variants (PascalCase, snake_case, etc.)
+    pub variants: bool,
+}
+
+// ---------------------------------------------------------------------------
 // MultiDocumentState
 // ---------------------------------------------------------------------------
 
@@ -23,6 +38,8 @@ pub struct MultiDocumentState {
     cut_blocks: Mutex<HashMap<String, String>>,
     /// Variables: name → value.
     variables: Mutex<HashMap<String, String>>,
+    /// Substitution definitions: name → definition.
+    substitutions: Mutex<HashMap<String, SubstitutionDef>>,
     /// Counter for generating unique container IDs.
     container_id_counter: std::sync::atomic::AtomicU64,
 }
@@ -35,6 +52,7 @@ impl Default for MultiDocumentState {
             copy_blocks: Mutex::new(HashMap::new()),
             cut_blocks: Mutex::new(HashMap::new()),
             variables: Mutex::new(HashMap::new()),
+            substitutions: Mutex::new(HashMap::new()),
             container_id_counter: std::sync::atomic::AtomicU64::new(0),
         }
     }
@@ -112,6 +130,16 @@ impl MultiDocumentState {
         self.variables.lock().unwrap().get(name).cloned()
     }
 
+    /// Register a `<hick:substitute>` definition.
+    pub fn register_substitution(&self, name: String, def: SubstitutionDef) {
+        self.substitutions.lock().unwrap().insert(name, def);
+    }
+
+    /// Get all substitution definitions.
+    pub fn get_substitutions(&self) -> Vec<SubstitutionDef> {
+        self.substitutions.lock().unwrap().values().cloned().collect()
+    }
+
     /// Generate a unique container ID for this session.
     pub fn next_container_id(&self) -> String {
         let id = self
@@ -172,5 +200,24 @@ mod tests {
         assert_eq!(state.next_container_id(), "container-0");
         assert_eq!(state.next_container_id(), "container-1");
         assert_eq!(state.next_container_id(), "container-2");
+    }
+
+    #[test]
+    fn substitution_roundtrip() {
+        let state = MultiDocumentState::default();
+        state.register_substitution(
+            "project_name".to_string(),
+            SubstitutionDef {
+                pattern: "FavoriteApp".to_string(),
+                value: "MyProject".to_string(),
+                variants: true,
+            },
+        );
+
+        let subs = state.get_substitutions();
+        assert_eq!(subs.len(), 1);
+        assert_eq!(subs[0].pattern, "FavoriteApp");
+        assert_eq!(subs[0].value, "MyProject");
+        assert!(subs[0].variants);
     }
 }

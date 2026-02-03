@@ -5,6 +5,7 @@
 //! and file output collection — all without touching the filesystem.
 
 pub mod cache;
+pub mod case_transform;
 pub mod condition;
 pub mod config;
 pub mod executor;
@@ -26,10 +27,11 @@ use rand::RngCore;
 
 use hick_exec::dag;
 use hick_exec::node::{InsertionPoint, StringNode};
-use hick_exec::state::MultiDocumentState;
+use hick_exec::state::{MultiDocumentState, SubstitutionDef};
 use hick_lang::{HickNode, HickTag};
 use hick_token::{ContainerCapabilities, NetworkRule, TokenAuthority};
 
+use crate::case_transform::{apply_case_variant, generate_case_variants};
 use crate::executor::{ContainerExecutor, ContainerResourceStats, ExecTranscriptEntry};
 use crate::pool::SharedPool;
 
@@ -254,7 +256,7 @@ pub async fn run_pipeline_with_authority(
         }
     }
 
-    // Process copy/cut blocks (they may be referenced by paste)
+    // Process copy/cut/substitute blocks (they may be referenced by paste or used for substitution)
     for node in &all_nodes {
         if let HickNode::Tag(tag) = node {
             match tag.name.as_str() {
@@ -268,6 +270,24 @@ pub async fn run_pipeline_with_authority(
                     let content = collect_text_children(tag);
                     state.register_cut(id, content);
                 }
+                "substitute" => {
+                    let name = tag_attr(tag, "name").unwrap_or_default();
+                    let pattern = tag_attr(tag, "pattern").unwrap_or_default();
+                    let value = tag_attr(tag, "value")
+                        .or_else(|| state.resolve_var(&name))
+                        .unwrap_or_default();
+                    let variants = tag_attr(tag, "variants")
+                        .map(|v| v == "true" || v == "1")
+                        .unwrap_or(false);
+                    state.register_substitution(
+                        name,
+                        SubstitutionDef {
+                            pattern,
+                            value,
+                            variants,
+                        },
+                    );
+                }
                 _ => {}
             }
         }
@@ -278,7 +298,8 @@ pub async fn run_pipeline_with_authority(
         if let HickNode::Tag(tag) = node
             && tag.name == "file"
         {
-            let path = tag_attr(tag, "path").unwrap_or_default();
+            let raw_path = tag_attr(tag, "path").unwrap_or_default();
+            let path = interpolate_path(&raw_path, &state);
             let file_ip = Arc::new(InsertionPoint::new());
 
             process_file_children(&tag.children, &file_ip, &transcripts, &state);
@@ -645,7 +666,7 @@ pub async fn run_pipeline_live(
     executor.shutdown().await;
     let resource_stats = executor.resource_stats().clone();
 
-    // Process copy/cut blocks
+    // Process copy/cut/substitute blocks
     for node in &all_nodes {
         if let HickNode::Tag(tag) = node {
             match tag.name.as_str() {
@@ -659,6 +680,24 @@ pub async fn run_pipeline_live(
                     let content = collect_text_children(tag);
                     state.register_cut(id, content);
                 }
+                "substitute" => {
+                    let name = tag_attr(tag, "name").unwrap_or_default();
+                    let pattern = tag_attr(tag, "pattern").unwrap_or_default();
+                    let value = tag_attr(tag, "value")
+                        .or_else(|| state.resolve_var(&name))
+                        .unwrap_or_default();
+                    let variants = tag_attr(tag, "variants")
+                        .map(|v| v == "true" || v == "1")
+                        .unwrap_or(false);
+                    state.register_substitution(
+                        name,
+                        SubstitutionDef {
+                            pattern,
+                            value,
+                            variants,
+                        },
+                    );
+                }
                 _ => {}
             }
         }
@@ -669,7 +708,8 @@ pub async fn run_pipeline_live(
         if let HickNode::Tag(tag) = node
             && tag.name == "file"
         {
-            let path = tag_attr(tag, "path").unwrap_or_default();
+            let raw_path = tag_attr(tag, "path").unwrap_or_default();
+            let path = interpolate_path(&raw_path, &state);
             let file_ip = Arc::new(InsertionPoint::new());
 
             process_file_children(&tag.children, &file_ip, &transcripts, &state);
@@ -758,6 +798,97 @@ fn filter_conditionals(nodes: &mut Vec<HickNode>, state: &MultiDocumentState) {
 // File output helpers
 // ---------------------------------------------------------------------------
 
+/// Interpolate variables in a file path using `{{variable}}` or `{{variable:variant}}` syntax.
+///
+/// Examples:
+/// - `Sources/{{project_name}}/App.swift` with project_name="MyApp" -> `Sources/MyApp/App.swift`
+/// - `{{project_name:snake_case}}.rs` with project_name="MyApp" -> `my_app.rs`
+fn interpolate_path(path: &str, state: &MultiDocumentState) -> String {
+    let mut result = path.to_string();
+    let mut start = 0;
+
+    while let Some(open_pos) = result[start..].find("{{") {
+        let open_pos = start + open_pos;
+        if let Some(close_pos) = result[open_pos..].find("}}") {
+            let close_pos = open_pos + close_pos;
+            let placeholder = &result[open_pos + 2..close_pos];
+
+            // Check for variant syntax: variable:variant
+            let (var_name, variant) = if let Some(colon_pos) = placeholder.find(':') {
+                (
+                    placeholder[..colon_pos].trim(),
+                    Some(placeholder[colon_pos + 1..].trim()),
+                )
+            } else {
+                (placeholder.trim(), None)
+            };
+
+            // Resolve the variable
+            let resolved = if let Some(value) = state.resolve_var(var_name) {
+                if let Some(variant_name) = variant {
+                    // Apply case transformation
+                    apply_case_variant(&value, variant_name).unwrap_or(value)
+                } else {
+                    value
+                }
+            } else {
+                // Variable not found, leave placeholder as-is
+                warn!("Path variable '{var_name}' not found");
+                start = close_pos + 2;
+                continue;
+            };
+
+            // Replace the placeholder with the resolved value
+            result = format!("{}{}{}", &result[..open_pos], resolved, &result[close_pos + 2..]);
+            start = open_pos + resolved.len();
+        } else {
+            // No closing }}, move past this {{
+            start = open_pos + 2;
+        }
+    }
+
+    // Also apply regular substitutions to the path
+    apply_substitutions(&result, state)
+}
+
+/// Apply all registered substitutions to text content.
+///
+/// When a substitution has `variants=true`, it generates all case variants
+/// (PascalCase, snake_case, etc.) of both the pattern and value, and applies
+/// them. Patterns are applied longest-first to avoid partial replacements.
+fn apply_substitutions(text: &str, state: &MultiDocumentState) -> String {
+    let substitutions = state.get_substitutions();
+    if substitutions.is_empty() {
+        return text.to_string();
+    }
+
+    // Collect all pattern -> value pairs, expanding variants
+    let mut replacements: Vec<(String, String)> = Vec::new();
+    for sub in &substitutions {
+        if sub.variants {
+            // Generate all case variants
+            let variants = generate_case_variants(&sub.pattern, &sub.value);
+            replacements.extend(variants);
+        } else {
+            // Just the single pattern -> value
+            replacements.push((sub.pattern.clone(), sub.value.clone()));
+        }
+    }
+
+    // Sort by pattern length descending (longest first to avoid partial matches)
+    replacements.sort_by(|a, b| b.0.len().cmp(&a.0.len()));
+
+    // Apply all replacements
+    let mut result = text.to_string();
+    for (pattern, value) in &replacements {
+        if !pattern.is_empty() {
+            result = result.replace(pattern, value);
+        }
+    }
+
+    result
+}
+
 /// Process children of a `<hick:file>` tag, adding rendered content to the
 /// insertion point. Handles text nodes, exec transcript rendering (with
 /// `show` attribute), paste resolution, and val interpolation.
@@ -770,7 +901,9 @@ fn process_file_children(
     for child in children {
         match child {
             HickNode::Text(text) => {
-                file_ip.add(Arc::new(StringNode::new(text.clone())));
+                // Apply substitutions to text content
+                let substituted = apply_substitutions(text, state);
+                file_ip.add(Arc::new(StringNode::new(substituted)));
             }
             HickNode::Tag(child_tag) if child_tag.name == "exec" => {
                 let container_name = tag_attr(child_tag, "container").unwrap_or_default();
@@ -790,7 +923,9 @@ fn process_file_children(
             HickNode::Tag(child_tag) if child_tag.name == "paste" => {
                 let selector = tag_attr(child_tag, "select").unwrap_or_default();
                 if let Some(content) = state.resolve_paste(&selector) {
-                    file_ip.add(Arc::new(StringNode::new(content)));
+                    // Apply substitutions to pasted content
+                    let substituted = apply_substitutions(&content, state);
+                    file_ip.add(Arc::new(StringNode::new(substituted)));
                 } else {
                     warn!("Paste selector '{selector}' not found");
                 }

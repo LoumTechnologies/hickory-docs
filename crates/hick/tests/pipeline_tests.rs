@@ -854,6 +854,392 @@ async fn test_when_not_equals() {
 }
 
 // ---------------------------------------------------------------------------
+// Compound boolean condition tests
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_when_and_condition() {
+    let src = hick_doc(concat!(
+        r#"<hick:var name="auth">1</hick:var>"#,
+        "\n",
+        r#"<hick:var name="billing">1</hick:var>"#,
+        "\n",
+        r#"<hick:file path="out.txt">"#,
+        r#"<hick:when test="auth && billing">premium features</hick:when>"#,
+        r#"</hick:file>"#,
+    ));
+    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+        .await
+        .unwrap();
+    let content = result.files.get("out.txt").unwrap();
+    assert!(
+        content.contains("premium features"),
+        "auth && billing should be true: {content}"
+    );
+}
+
+#[tokio::test]
+async fn test_when_and_condition_one_missing() {
+    let src = hick_doc(concat!(
+        r#"<hick:var name="auth">1</hick:var>"#,
+        "\n",
+        r#"<hick:file path="out.txt">"#,
+        r#"<hick:when test="auth && billing">premium features</hick:when>"#,
+        r#"basic</hick:file>"#,
+    ));
+    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+        .await
+        .unwrap();
+    let content = result.files.get("out.txt").unwrap();
+    assert!(
+        !content.contains("premium features"),
+        "auth && billing should be false when billing missing: {content}"
+    );
+    assert!(content.contains("basic"), "basic content should appear: {content}");
+}
+
+#[tokio::test]
+async fn test_when_or_condition() {
+    let src = hick_doc(concat!(
+        r#"<hick:var name="admin">1</hick:var>"#,
+        "\n",
+        r#"<hick:file path="out.txt">"#,
+        r#"<hick:when test="auth || admin">has access</hick:when>"#,
+        r#"</hick:file>"#,
+    ));
+    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+        .await
+        .unwrap();
+    let content = result.files.get("out.txt").unwrap();
+    assert!(
+        content.contains("has access"),
+        "auth || admin should be true when admin defined: {content}"
+    );
+}
+
+#[tokio::test]
+async fn test_when_or_condition_both_missing() {
+    let src = hick_doc(concat!(
+        r#"<hick:file path="out.txt">"#,
+        r#"<hick:when test="auth || admin">has access</hick:when>"#,
+        r#"denied</hick:file>"#,
+    ));
+    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+        .await
+        .unwrap();
+    let content = result.files.get("out.txt").unwrap();
+    assert!(
+        !content.contains("has access"),
+        "auth || admin should be false when both missing: {content}"
+    );
+    assert!(content.contains("denied"), "denied content should appear: {content}");
+}
+
+#[tokio::test]
+async fn test_when_not_with_parens() {
+    let src = hick_doc(concat!(
+        r#"<hick:var name="auth">1</hick:var>"#,
+        "\n",
+        r#"<hick:var name="billing">1</hick:var>"#,
+        "\n",
+        r#"<hick:file path="out.txt">"#,
+        r#"<hick:when test="!(auth && billing)">not premium</hick:when>"#,
+        r#"<hick:when test="auth && billing">premium</hick:when>"#,
+        r#"</hick:file>"#,
+    ));
+    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+        .await
+        .unwrap();
+    let content = result.files.get("out.txt").unwrap();
+    assert!(
+        !content.contains("not premium"),
+        "!(auth && billing) should be false: {content}"
+    );
+    assert!(
+        content.contains("premium"),
+        "auth && billing should be true: {content}"
+    );
+}
+
+#[tokio::test]
+async fn test_when_mixed_precedence() {
+    // Test that && has higher precedence than ||
+    // auth && billing || admin should be true if auth && billing is true
+    let src = hick_doc(concat!(
+        r#"<hick:var name="auth">1</hick:var>"#,
+        "\n",
+        r#"<hick:var name="billing">1</hick:var>"#,
+        "\n",
+        r#"<hick:file path="out.txt">"#,
+        r#"<hick:when test="auth && billing || admin">elevated</hick:when>"#,
+        r#"</hick:file>"#,
+    ));
+    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+        .await
+        .unwrap();
+    let content = result.files.get("out.txt").unwrap();
+    assert!(
+        content.contains("elevated"),
+        "auth && billing || admin should be true: {content}"
+    );
+}
+
+#[tokio::test]
+async fn test_when_parens_override_precedence() {
+    // (auth || admin) && billing should be false when billing is missing
+    let src = hick_doc(concat!(
+        r#"<hick:var name="auth">1</hick:var>"#,
+        "\n",
+        r#"<hick:file path="out.txt">"#,
+        r#"<hick:when test="(auth || admin) && billing">premium</hick:when>"#,
+        r#"basic</hick:file>"#,
+    ));
+    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+        .await
+        .unwrap();
+    let content = result.files.get("out.txt").unwrap();
+    assert!(
+        !content.contains("premium"),
+        "(auth || admin) && billing should be false without billing: {content}"
+    );
+    assert!(content.contains("basic"), "basic should appear: {content}");
+}
+
+#[tokio::test]
+async fn test_when_equals_with_and() {
+    let src = hick_doc(concat!(
+        r#"<hick:var name="env">prod</hick:var>"#,
+        "\n",
+        r#"<hick:var name="debug">1</hick:var>"#,
+        "\n",
+        r#"<hick:file path="out.txt">"#,
+        r#"<hick:when test="env=prod && debug">prod debug mode</hick:when>"#,
+        r#"<hick:when test="env=dev && debug">dev debug mode</hick:when>"#,
+        r#"</hick:file>"#,
+    ));
+    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+        .await
+        .unwrap();
+    let content = result.files.get("out.txt").unwrap();
+    assert!(
+        content.contains("prod debug mode"),
+        "env=prod && debug should be true: {content}"
+    );
+    assert!(
+        !content.contains("dev debug mode"),
+        "env=dev && debug should be false: {content}"
+    );
+}
+
+#[tokio::test]
+async fn test_when_on_exec_with_compound_condition() {
+    let src = hick_doc(concat!(
+        r#"<hick:var name="auth">1</hick:var>"#,
+        "\n",
+        r#"<hick:container name="c" image="alpine" />"#,
+        "\n",
+        r#"<hick:exec container="c">echo always</hick:exec>"#,
+        "\n",
+        r#"<hick:exec container="c" when="auth && billing">echo premium</hick:exec>"#,
+        "\n",
+        r#"<hick:file path="out.txt"><hick:exec container="c" /></hick:file>"#,
+    ));
+    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+        .await
+        .unwrap();
+    let content = result.files.get("out.txt").unwrap();
+    assert!(
+        content.contains("$ echo always"),
+        "unconditional exec should appear: {content}"
+    );
+    assert!(
+        !content.contains("$ echo premium"),
+        "conditional exec should be filtered: {content}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Substitution tests
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_substitute_basic() {
+    let src = hick_doc(concat!(
+        r#"<hick:substitute name="project" pattern="FavoriteApp" value="MyProject" />"#,
+        "\n",
+        r#"<hick:file path="out.txt">Welcome to FavoriteApp!</hick:file>"#,
+    ));
+    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+        .await
+        .unwrap();
+    let content = result.files.get("out.txt").unwrap();
+    assert_eq!(content, "Welcome to MyProject!");
+}
+
+#[tokio::test]
+async fn test_substitute_with_variants() {
+    let src = hick_doc(concat!(
+        r#"<hick:substitute name="project" pattern="FavoriteApp" value="MyProject" variants="true" />"#,
+        "\n",
+        r#"<hick:file path="out.txt">"#,
+        r#"class FavoriteApp { let favoriteApp = "favorite_app"; }"#,
+        r#"</hick:file>"#,
+    ));
+    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+        .await
+        .unwrap();
+    let content = result.files.get("out.txt").unwrap();
+    // Should have replaced all case variants
+    assert!(
+        content.contains("class MyProject"),
+        "PascalCase should be replaced: {content}"
+    );
+    assert!(
+        content.contains("let myProject"),
+        "camelCase should be replaced: {content}"
+    );
+    assert!(
+        content.contains("my_project"),
+        "snake_case should be replaced: {content}"
+    );
+}
+
+#[tokio::test]
+async fn test_substitute_value_from_var() {
+    let src = hick_doc(concat!(
+        r#"<hick:var name="project">MyProject</hick:var>"#,
+        "\n",
+        r#"<hick:substitute name="project" pattern="FavoriteApp" />"#,
+        "\n",
+        r#"<hick:file path="out.txt">Welcome to FavoriteApp!</hick:file>"#,
+    ));
+    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+        .await
+        .unwrap();
+    let content = result.files.get("out.txt").unwrap();
+    assert_eq!(content, "Welcome to MyProject!");
+}
+
+#[tokio::test]
+async fn test_substitute_value_from_param() {
+    let src = hick_doc(concat!(
+        r#"<hick:substitute name="project" pattern="FavoriteApp" />"#,
+        "\n",
+        r#"<hick:file path="out.txt">Welcome to FavoriteApp!</hick:file>"#,
+    ));
+    let params = vec![("project".to_string(), "MyProject".to_string())];
+    let result = hick::run_pipeline(&[("test.hick", &src)], &params)
+        .await
+        .unwrap();
+    let content = result.files.get("out.txt").unwrap();
+    assert_eq!(content, "Welcome to MyProject!");
+}
+
+#[tokio::test]
+async fn test_path_interpolation_basic() {
+    let src = hick_doc(concat!(
+        r#"<hick:var name="name">MyApp</hick:var>"#,
+        "\n",
+        r#"<hick:file path="Sources/{{name}}/App.swift">app code</hick:file>"#,
+    ));
+    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+        .await
+        .unwrap();
+    assert!(
+        result.files.contains_key("Sources/MyApp/App.swift"),
+        "path should be interpolated: {:?}",
+        result.files.keys().collect::<Vec<_>>()
+    );
+}
+
+#[tokio::test]
+async fn test_path_interpolation_with_variant() {
+    let src = hick_doc(concat!(
+        r#"<hick:var name="name">MyApp</hick:var>"#,
+        "\n",
+        r#"<hick:file path="{{name:snake_case}}.rs">rust code</hick:file>"#,
+    ));
+    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+        .await
+        .unwrap();
+    assert!(
+        result.files.contains_key("my_app.rs"),
+        "path should use snake_case: {:?}",
+        result.files.keys().collect::<Vec<_>>()
+    );
+}
+
+#[tokio::test]
+async fn test_substitute_in_path() {
+    let src = hick_doc(concat!(
+        r#"<hick:substitute name="project" pattern="FavoriteApp" value="MyProject" variants="true" />"#,
+        "\n",
+        r#"<hick:file path="Sources/FavoriteApp/App.swift">code</hick:file>"#,
+    ));
+    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+        .await
+        .unwrap();
+    assert!(
+        result.files.contains_key("Sources/MyProject/App.swift"),
+        "path substitution should work: {:?}",
+        result.files.keys().collect::<Vec<_>>()
+    );
+}
+
+#[tokio::test]
+async fn test_substitute_in_paste() {
+    let src = hick_doc(concat!(
+        r#"<hick:substitute name="project" pattern="FavoriteApp" value="MyProject" />"#,
+        "\n",
+        r#"<hick:copy id="template">class FavoriteApp {}</hick:copy>"#,
+        "\n",
+        r##"<hick:file path="out.txt"><hick:paste select="#template" /></hick:file>"##,
+    ));
+    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+        .await
+        .unwrap();
+    let content = result.files.get("out.txt").unwrap();
+    assert!(
+        content.contains("class MyProject"),
+        "substitution should apply to paste: {content}"
+    );
+}
+
+#[tokio::test]
+async fn test_substitute_multiple_patterns() {
+    let src = hick_doc(concat!(
+        r#"<hick:substitute name="org" pattern="ExampleOrg" value="MyCompany" />"#,
+        "\n",
+        r#"<hick:substitute name="app" pattern="FavoriteApp" value="MyApp" />"#,
+        "\n",
+        r#"<hick:file path="out.txt">ExampleOrg presents FavoriteApp</hick:file>"#,
+    ));
+    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+        .await
+        .unwrap();
+    let content = result.files.get("out.txt").unwrap();
+    assert_eq!(content, "MyCompany presents MyApp");
+}
+
+#[tokio::test]
+async fn test_substitute_longer_pattern_first() {
+    // If we have "App" and "FavoriteApp", "FavoriteApp" should be matched first
+    let src = hick_doc(concat!(
+        r#"<hick:substitute name="app" pattern="App" value="Program" />"#,
+        "\n",
+        r#"<hick:substitute name="favorite" pattern="FavoriteApp" value="MyProject" />"#,
+        "\n",
+        r#"<hick:file path="out.txt">FavoriteApp is an App</hick:file>"#,
+    ));
+    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+        .await
+        .unwrap();
+    let content = result.files.get("out.txt").unwrap();
+    // "FavoriteApp" should become "MyProject", "App" should become "Program"
+    assert_eq!(content, "MyProject is an Program");
+}
+
+// ---------------------------------------------------------------------------
 // Multi-stage pipeline tests
 // ---------------------------------------------------------------------------
 
