@@ -1,16 +1,43 @@
 //! Feature system for conditional code generation.
 //!
-//! Features are named, optional capabilities that can be enabled or disabled.
-//! Features can depend on other features via the `requires` attribute.
+//! This crate provides a feature system where features are named, optional capabilities
+//! that can be enabled or disabled. Features can depend on other features via the
+//! `requires` relationship, forming a directed acyclic graph (DAG).
 //!
-//! Example:
-//! ```xml
-//! <hick:feature name="auth" description="Authentication and authorization" />
-//! <hick:feature name="billing" description="Stripe billing" />
-//! <hick:feature name="premium" description="Premium tiers" requires="auth billing" />
+//! # Key Types
+//!
+//! - [`FeatureDef`] - A feature definition with name, description, and dependencies
+//! - [`FeatureRegistry`] - Registry of all defined features with validation
+//! - [`FeatureSet`] - A set of enabled features with expansion support
+//! - [`FeatureError`] - Errors for validation failures
+//!
+//! # Example
+//!
 //! ```
+//! use hick_feature::{FeatureDef, FeatureRegistry, FeatureSet};
 //!
-//! When `premium` is enabled, `auth` and `billing` are automatically enabled.
+//! // Define features
+//! let mut registry = FeatureRegistry::new();
+//! registry.register(FeatureDef::new("auth", "Authentication support"));
+//! registry.register(FeatureDef::new("billing", "Billing integration"));
+//! registry.register(
+//!     FeatureDef::new("premium", "Premium features")
+//!         .with_requires("auth")
+//!         .with_requires("billing")
+//! );
+//!
+//! // Validate the registry (checks for circular deps, unknown deps)
+//! registry.validate().unwrap();
+//!
+//! // Enable features and expand dependencies
+//! let requested = FeatureSet::parse("premium");
+//! let expanded = requested.validate_and_expand(&registry).unwrap();
+//!
+//! // "premium" auto-enables "auth" and "billing"
+//! assert!(expanded.is_enabled("premium"));
+//! assert!(expanded.is_enabled("auth"));
+//! assert!(expanded.is_enabled("billing"));
+//! ```
 
 use std::collections::{HashMap, HashSet};
 use thiserror::Error;

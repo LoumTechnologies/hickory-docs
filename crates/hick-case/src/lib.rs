@@ -1,6 +1,6 @@
-//! Case transformation utilities for substitution patterns.
+//! Case transformation utilities for text substitution patterns.
 //!
-//! Supports converting between common case conventions:
+//! This crate provides functions for converting between common case conventions:
 //! - PascalCase (FavoriteApp)
 //! - camelCase (favoriteApp)
 //! - snake_case (favorite_app)
@@ -9,6 +9,19 @@
 //! - Title Case (Favorite App)
 //! - lowercase (favoriteapp)
 //! - UPPERCASE (FAVORITEAPP)
+//!
+//! # Example
+//!
+//! ```
+//! use hick_case::{to_snake_case, to_pascal_case, generate_case_variants};
+//!
+//! assert_eq!(to_snake_case("FavoriteApp"), "favorite_app");
+//! assert_eq!(to_pascal_case("favorite_app"), "FavoriteApp");
+//!
+//! // Generate all case variants for substitution
+//! let variants = generate_case_variants("FavoriteApp", "MyProject");
+//! assert!(variants.contains(&("favorite_app".to_string(), "my_project".to_string())));
+//! ```
 
 /// Detect word boundaries in a string and return a list of lowercase words.
 ///
@@ -167,6 +180,9 @@ pub fn apply_case_variant(s: &str, variant: &str) -> Option<String> {
 ///
 /// This is used for substitution with variants=true: we detect the case of the
 /// pattern and generate corresponding transformations of the value.
+///
+/// The returned vector is sorted by pattern length (longest first) to avoid
+/// partial matches during substitution.
 pub fn generate_case_variants(pattern: &str, value: &str) -> Vec<(String, String)> {
     let mut variants = Vec::new();
 

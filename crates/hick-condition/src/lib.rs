@@ -6,7 +6,8 @@
 //! - `!` (NOT) - prefix operator, highest precedence
 //! - Parentheses for grouping
 //!
-//! Grammar:
+//! # Grammar
+//!
 //! ```text
 //! expr     := or_expr
 //! or_expr  := and_expr ('||' and_expr)*
@@ -15,8 +16,44 @@
 //! primary  := '(' expr ')' | atom
 //! atom     := name '!=' value | name '=' value | name
 //! ```
+//!
+//! # Example
+//!
+//! ```
+//! use hick_condition::{Condition, VariableResolver};
+//! use std::collections::HashMap;
+//!
+//! // Create a simple resolver from a HashMap
+//! let mut vars = HashMap::new();
+//! vars.insert("auth".to_string(), "1".to_string());
+//! vars.insert("env".to_string(), "prod".to_string());
+//!
+//! // Parse and evaluate conditions
+//! let cond = Condition::parse("auth && env=prod");
+//! assert!(cond.evaluate(&vars));
+//!
+//! let cond = Condition::parse("auth && env=dev");
+//! assert!(!cond.evaluate(&vars));
+//! ```
 
-use hick_exec::state::MultiDocumentState;
+use std::collections::HashMap;
+
+/// Trait for resolving variable values during condition evaluation.
+///
+/// Implement this trait to provide variable resolution from any source.
+pub trait VariableResolver {
+    /// Resolve a variable by name.
+    ///
+    /// Returns `Some(value)` if the variable is defined, `None` otherwise.
+    fn resolve(&self, name: &str) -> Option<String>;
+}
+
+/// Blanket implementation for HashMap<String, String>.
+impl VariableResolver for HashMap<String, String> {
+    fn resolve(&self, name: &str) -> Option<String> {
+        self.get(name).cloned()
+    }
+}
 
 /// A condition expression that can be compound.
 #[derive(Debug, Clone, PartialEq)]
@@ -52,19 +89,19 @@ impl Condition {
         parser.parse_expr()
     }
 
-    /// Evaluate against resolved variables.
-    pub fn evaluate(&self, state: &MultiDocumentState) -> bool {
+    /// Evaluate against a variable resolver.
+    pub fn evaluate(&self, resolver: &impl VariableResolver) -> bool {
         match self {
-            Condition::Defined(name) => state.resolve_var(name).is_some_and(|v| !v.is_empty()),
+            Condition::Defined(name) => resolver.resolve(name).is_some_and(|v| !v.is_empty()),
             Condition::Equals(name, expected) => {
-                state.resolve_var(name).as_deref() == Some(expected.as_str())
+                resolver.resolve(name).as_deref() == Some(expected.as_str())
             }
             Condition::NotEquals(name, expected) => {
-                state.resolve_var(name).as_deref() != Some(expected.as_str())
+                resolver.resolve(name).as_deref() != Some(expected.as_str())
             }
-            Condition::And(left, right) => left.evaluate(state) && right.evaluate(state),
-            Condition::Or(left, right) => left.evaluate(state) || right.evaluate(state),
-            Condition::Not(inner) => !inner.evaluate(state),
+            Condition::And(left, right) => left.evaluate(resolver) && right.evaluate(resolver),
+            Condition::Or(left, right) => left.evaluate(resolver) || right.evaluate(resolver),
+            Condition::Not(inner) => !inner.evaluate(resolver),
         }
     }
 }
@@ -390,88 +427,94 @@ mod tests {
     // Evaluation tests
     // -------------------------------------------------------------------------
 
+    fn make_vars<const N: usize>(pairs: [(&str, &str); N]) -> HashMap<String, String> {
+        pairs
+            .into_iter()
+            .map(|(k, v)| (k.to_string(), v.to_string()))
+            .collect()
+    }
+
     #[test]
     fn evaluate_defined() {
-        let state = MultiDocumentState::default();
-        state.set_param("debug".into(), "1".into());
+        let vars = make_vars([("debug", "1")]);
 
-        assert!(Condition::parse("debug").evaluate(&state));
-        assert!(!Condition::parse("!debug").evaluate(&state));
-        assert!(!Condition::parse("missing").evaluate(&state));
-        assert!(Condition::parse("!missing").evaluate(&state));
+        assert!(Condition::parse("debug").evaluate(&vars));
+        assert!(!Condition::parse("!debug").evaluate(&vars));
+        assert!(!Condition::parse("missing").evaluate(&vars));
+        assert!(Condition::parse("!missing").evaluate(&vars));
+    }
+
+    #[test]
+    fn evaluate_defined_empty_string() {
+        let vars = make_vars([("empty", "")]);
+
+        // Empty string is considered "not defined" for truthiness
+        assert!(!Condition::parse("empty").evaluate(&vars));
+        assert!(Condition::parse("!empty").evaluate(&vars));
     }
 
     #[test]
     fn evaluate_equals() {
-        let state = MultiDocumentState::default();
-        state.set_param("env".into(), "prod".into());
+        let vars = make_vars([("env", "prod")]);
 
-        assert!(Condition::parse("env=prod").evaluate(&state));
-        assert!(!Condition::parse("env=dev").evaluate(&state));
-        assert!(!Condition::parse("env!=prod").evaluate(&state));
-        assert!(Condition::parse("env!=dev").evaluate(&state));
+        assert!(Condition::parse("env=prod").evaluate(&vars));
+        assert!(!Condition::parse("env=dev").evaluate(&vars));
+        assert!(!Condition::parse("env!=prod").evaluate(&vars));
+        assert!(Condition::parse("env!=dev").evaluate(&vars));
     }
 
     #[test]
     fn evaluate_and() {
-        let state = MultiDocumentState::default();
-        state.set_param("auth".into(), "1".into());
-        state.set_param("billing".into(), "1".into());
+        let vars = make_vars([("auth", "1"), ("billing", "1")]);
 
-        assert!(Condition::parse("auth && billing").evaluate(&state));
-        assert!(!Condition::parse("auth && missing").evaluate(&state));
-        assert!(!Condition::parse("missing && billing").evaluate(&state));
+        assert!(Condition::parse("auth && billing").evaluate(&vars));
+        assert!(!Condition::parse("auth && missing").evaluate(&vars));
+        assert!(!Condition::parse("missing && billing").evaluate(&vars));
     }
 
     #[test]
     fn evaluate_or() {
-        let state = MultiDocumentState::default();
-        state.set_param("auth".into(), "1".into());
+        let vars = make_vars([("auth", "1")]);
 
-        assert!(Condition::parse("auth || billing").evaluate(&state));
-        assert!(Condition::parse("billing || auth").evaluate(&state));
-        assert!(!Condition::parse("billing || missing").evaluate(&state));
+        assert!(Condition::parse("auth || billing").evaluate(&vars));
+        assert!(Condition::parse("billing || auth").evaluate(&vars));
+        assert!(!Condition::parse("billing || missing").evaluate(&vars));
     }
 
     #[test]
     fn evaluate_complex() {
-        let state = MultiDocumentState::default();
-        state.set_param("auth".into(), "1".into());
-        state.set_param("billing".into(), "1".into());
+        let vars = make_vars([("auth", "1"), ("billing", "1")]);
 
         // (auth && billing) is true
-        assert!(Condition::parse("auth && billing").evaluate(&state));
+        assert!(Condition::parse("auth && billing").evaluate(&vars));
 
         // !(auth && billing) is false
-        assert!(!Condition::parse("!(auth && billing)").evaluate(&state));
+        assert!(!Condition::parse("!(auth && billing)").evaluate(&vars));
 
         // auth && billing || admin is true (first and-clause is true)
-        assert!(Condition::parse("auth && billing || admin").evaluate(&state));
+        assert!(Condition::parse("auth && billing || admin").evaluate(&vars));
 
         // !auth || billing is true (billing is true)
-        assert!(Condition::parse("!auth || billing").evaluate(&state));
+        assert!(Condition::parse("!auth || billing").evaluate(&vars));
     }
 
     #[test]
     fn evaluate_with_equals_in_compound() {
-        let state = MultiDocumentState::default();
-        state.set_param("env".into(), "prod".into());
-        state.set_param("auth".into(), "1".into());
+        let vars = make_vars([("env", "prod"), ("auth", "1")]);
 
-        assert!(Condition::parse("env=prod && auth").evaluate(&state));
-        assert!(!Condition::parse("env=dev && auth").evaluate(&state));
-        assert!(Condition::parse("env=dev || auth").evaluate(&state));
+        assert!(Condition::parse("env=prod && auth").evaluate(&vars));
+        assert!(!Condition::parse("env=dev && auth").evaluate(&vars));
+        assert!(Condition::parse("env=dev || auth").evaluate(&vars));
     }
 
     #[test]
     fn evaluate_nested_not() {
-        let state = MultiDocumentState::default();
-        state.set_param("debug".into(), "1".into());
+        let vars = make_vars([("debug", "1")]);
 
         // !!debug should be true (double negation)
-        assert!(Condition::parse("!(!debug)").evaluate(&state));
+        assert!(Condition::parse("!(!debug)").evaluate(&vars));
 
         // !(!missing) should be false
-        assert!(!Condition::parse("!(!missing)").evaluate(&state));
+        assert!(!Condition::parse("!(!missing)").evaluate(&vars));
     }
 }

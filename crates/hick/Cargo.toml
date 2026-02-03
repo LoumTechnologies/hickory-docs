@@ -18,7 +18,10 @@ connection-filter = { path = "../connection-filter", features = ["capability"] }
 bridge = { path = "../bridge" }
 net-config = { path = "../net-config" }
 hick-api = { path = "../hick-api" }
+hick-case = { path = "../hick-case" }
+hick-condition = { path = "../hick-condition" }
 hick-exec = { path = "../hick-exec" }
+hick-feature = { path = "../hick-feature" }
 hick-lang = { path = "../hick-lang" }
 hick-secrets = { path = "../hick-secrets" }
 hick-token = { path = "../hick-token" }
