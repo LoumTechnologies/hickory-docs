@@ -59,6 +59,8 @@ pub struct MultiDocumentState {
     features: Mutex<HashMap<String, FeatureInfo>>,
     /// Enabled features (from CLI --features flag).
     enabled_features: Mutex<std::collections::HashSet<String>>,
+    /// File exclusion patterns (glob patterns).
+    exclusion_patterns: Mutex<Vec<String>>,
     /// Counter for generating unique container IDs.
     container_id_counter: std::sync::atomic::AtomicU64,
 }
@@ -74,6 +76,7 @@ impl Default for MultiDocumentState {
             substitutions: Mutex::new(HashMap::new()),
             features: Mutex::new(HashMap::new()),
             enabled_features: Mutex::new(std::collections::HashSet::new()),
+            exclusion_patterns: Mutex::new(Vec::new()),
             container_id_counter: std::sync::atomic::AtomicU64::new(0),
         }
     }
@@ -190,6 +193,16 @@ impl MultiDocumentState {
     /// Get all enabled feature names.
     pub fn get_enabled_features(&self) -> Vec<String> {
         self.enabled_features.lock().unwrap().iter().cloned().collect()
+    }
+
+    /// Register an exclusion pattern (glob pattern for files to exclude from output).
+    pub fn register_exclusion(&self, pattern: String) {
+        self.exclusion_patterns.lock().unwrap().push(pattern);
+    }
+
+    /// Get all exclusion patterns.
+    pub fn get_exclusion_patterns(&self) -> Vec<String> {
+        self.exclusion_patterns.lock().unwrap().clone()
     }
 
     /// Generate a unique container ID for this session.

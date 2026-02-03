@@ -1579,3 +1579,139 @@ async fn test_feature_with_substitution() {
     assert!(content.contains("TestProject"), "should substitute PascalCase");
     assert!(content.contains("test_project"), "should substitute snake_case");
 }
+
+// ---------------------------------------------------------------------------
+// Exclusion pattern tests
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_exclude_basic() {
+    // Exclude a specific file
+    let src = hick_doc(
+        r#"<hick:exclude pattern="TEMPLATE_README.md" />
+<hick:file path="README.md">real readme</hick:file>
+<hick:file path="TEMPLATE_README.md">template only</hick:file>
+<hick:file path="src/main.rs">code</hick:file>"#,
+    );
+
+    let result = hick::run_pipeline(&[("test.hick", &src)], &[]).await.unwrap();
+
+    assert!(result.files.contains_key("README.md"), "README.md should exist");
+    assert!(result.files.contains_key("src/main.rs"), "src/main.rs should exist");
+    assert!(
+        !result.files.contains_key("TEMPLATE_README.md"),
+        "TEMPLATE_README.md should be excluded"
+    );
+}
+
+#[tokio::test]
+async fn test_exclude_glob_extension() {
+    // Exclude all files with a specific extension
+    let src = hick_doc(
+        r#"<hick:exclude pattern="*.template-only" />
+<hick:file path="config.json">config</hick:file>
+<hick:file path="notes.template-only">internal notes</hick:file>
+<hick:file path="setup.template-only">setup instructions</hick:file>"#,
+    );
+
+    let result = hick::run_pipeline(&[("test.hick", &src)], &[]).await.unwrap();
+
+    assert!(result.files.contains_key("config.json"));
+    assert!(!result.files.contains_key("notes.template-only"));
+    assert!(!result.files.contains_key("setup.template-only"));
+}
+
+#[tokio::test]
+async fn test_exclude_glob_directory() {
+    // Exclude all files under a directory using **
+    let src = hick_doc(
+        r#"<hick:exclude pattern="docs/internal/**" />
+<hick:file path="docs/readme.md">public docs</hick:file>
+<hick:file path="docs/internal/dev-notes.md">internal</hick:file>
+<hick:file path="docs/internal/setup.md">internal setup</hick:file>
+<hick:file path="src/main.rs">code</hick:file>"#,
+    );
+
+    let result = hick::run_pipeline(&[("test.hick", &src)], &[]).await.unwrap();
+
+    assert!(result.files.contains_key("docs/readme.md"));
+    assert!(result.files.contains_key("src/main.rs"));
+    assert!(!result.files.contains_key("docs/internal/dev-notes.md"));
+    assert!(!result.files.contains_key("docs/internal/setup.md"));
+}
+
+#[tokio::test]
+async fn test_exclude_multiple_patterns() {
+    // Multiple exclusion patterns
+    let src = hick_doc(
+        r#"<hick:exclude pattern="*.bak" />
+<hick:exclude pattern="*.tmp" />
+<hick:exclude pattern="TEMPLATE_*" />
+<hick:file path="main.rs">code</hick:file>
+<hick:file path="main.rs.bak">backup</hick:file>
+<hick:file path="cache.tmp">temp</hick:file>
+<hick:file path="TEMPLATE_CONFIG.md">template config</hick:file>
+<hick:file path="config.md">real config</hick:file>"#,
+    );
+
+    let result = hick::run_pipeline(&[("test.hick", &src)], &[]).await.unwrap();
+
+    assert!(result.files.contains_key("main.rs"));
+    assert!(result.files.contains_key("config.md"));
+    assert!(!result.files.contains_key("main.rs.bak"));
+    assert!(!result.files.contains_key("cache.tmp"));
+    assert!(!result.files.contains_key("TEMPLATE_CONFIG.md"));
+}
+
+#[tokio::test]
+async fn test_exclude_with_features() {
+    // Exclusion patterns work with features
+    let src = hick_doc(
+        r#"<hick:feature name="auth" description="Authentication" />
+<hick:exclude pattern="*.template" />
+<hick:file path="app.rs">main app</hick:file>
+<hick:file path="SETUP.template">setup instructions</hick:file>
+<hick:when test="auth">
+<hick:file path="auth.rs">auth code</hick:file>
+</hick:when>"#,
+    );
+
+    let result = hick::run_pipeline(
+        &[("test.hick", &src)],
+        &[("features".to_string(), "auth".to_string())],
+    )
+    .await
+    .unwrap();
+
+    assert!(result.files.contains_key("app.rs"));
+    assert!(result.files.contains_key("auth.rs"));
+    assert!(!result.files.contains_key("SETUP.template"));
+}
+
+#[tokio::test]
+async fn test_exclude_conditional() {
+    // Conditional exclusion based on feature
+    let src = hick_doc(
+        r#"<hick:feature name="dev" description="Development mode" />
+<hick:when test="!dev">
+<hick:exclude pattern="*.dev" />
+</hick:when>
+<hick:file path="app.rs">main app</hick:file>
+<hick:file path="debug.dev">dev only debug file</hick:file>"#,
+    );
+
+    // Without dev feature - debug.dev should be excluded
+    let result = hick::run_pipeline(&[("test.hick", &src)], &[]).await.unwrap();
+    assert!(result.files.contains_key("app.rs"));
+    assert!(!result.files.contains_key("debug.dev"), "should exclude .dev files in production");
+
+    // With dev feature - debug.dev should be kept
+    let result = hick::run_pipeline(
+        &[("test.hick", &src)],
+        &[("features".to_string(), "dev".to_string())],
+    )
+    .await
+    .unwrap();
+    assert!(result.files.contains_key("app.rs"));
+    assert!(result.files.contains_key("debug.dev"), "should keep .dev files in dev mode");
+}
