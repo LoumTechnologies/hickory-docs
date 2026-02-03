@@ -5,6 +5,7 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 
 use crate::node::{Context, InsertionPoint, Node, converge_to_string};
+use hick_condition::VariableResolver;
 use std::sync::Arc;
 
 // ---------------------------------------------------------------------------
@@ -211,6 +212,12 @@ impl MultiDocumentState {
             .container_id_counter
             .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         format!("container-{id}")
+    }
+}
+
+impl VariableResolver for MultiDocumentState {
+    fn resolve(&self, name: &str) -> Option<String> {
+        self.resolve_var(name)
     }
 }
 

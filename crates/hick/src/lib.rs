@@ -5,10 +5,7 @@
 //! and file output collection — all without touching the filesystem.
 
 pub mod cache;
-pub mod case_transform;
-pub mod condition;
 pub mod config;
-pub mod feature;
 pub mod executor;
 pub mod pool;
 pub mod repl;
@@ -30,11 +27,12 @@ use hick_exec::dag;
 use hick_exec::node::{InsertionPoint, StringNode};
 use hick_exec::state::{FeatureInfo, MultiDocumentState, SubstitutionDef};
 
-use crate::feature::{FeatureDef, FeatureRegistry, FeatureSet};
+use hick_feature::{FeatureDef, FeatureRegistry, FeatureSet};
 use hick_lang::{HickNode, HickTag};
 use hick_token::{ContainerCapabilities, NetworkRule, TokenAuthority};
 
-use crate::case_transform::{apply_case_variant, generate_case_variants};
+use hick_case::{apply_case_variant, generate_case_variants};
+use hick_condition::Condition;
 use crate::executor::{ContainerExecutor, ContainerResourceStats, ExecTranscriptEntry};
 use crate::pool::SharedPool;
 
@@ -890,7 +888,7 @@ fn filter_conditionals(nodes: &mut Vec<HickNode>, state: &MultiDocumentState) {
         match node {
             HickNode::Tag(mut tag) if tag.name == "when" => {
                 let test = tag_attr(&tag, "test").unwrap_or_default();
-                let cond = condition::Condition::parse(&test);
+                let cond = Condition::parse(&test);
                 if cond.evaluate(state) {
                     // Condition true — unwrap children into parent
                     filter_conditionals(&mut tag.children, state);
@@ -900,7 +898,7 @@ fn filter_conditionals(nodes: &mut Vec<HickNode>, state: &MultiDocumentState) {
             }
             HickNode::Tag(mut tag) => {
                 if let Some(when_val) = tag_attr(&tag, "when") {
-                    let cond = condition::Condition::parse(&when_val);
+                    let cond = Condition::parse(&when_val);
                     if !cond.evaluate(state) {
                         continue; // Skip this node
                     }

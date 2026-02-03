@@ -2682,7 +2682,10 @@ dependencies = [
  "env_logger",
  "glob",
  "hick-api",
+ "hick-case",
+ "hick-condition",
  "hick-exec",
+ "hick-feature",
  "hick-lang",
  "hick-merge",
  "hick-secrets",
@@ -2718,16 +2721,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "hick-case"
+version = "0.1.0"
+
+[[package]]
+name = "hick-condition"
+version = "0.1.0"
+
+[[package]]
 name = "hick-exec"
 version = "0.1.0"
 dependencies = [
  "futures",
+ "hick-condition",
  "hick-lang",
  "log",
  "thiserror 2.0.18",
  "tokio",
  "tokio-stream",
  "tokio-util",
+]
+
+[[package]]
+name = "hick-feature"
+version = "0.1.0"
+dependencies = [
+ "thiserror 2.0.18",
 ]
 
 [[package]]
