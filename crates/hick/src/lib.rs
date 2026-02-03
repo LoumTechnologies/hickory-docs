@@ -8,6 +8,7 @@ pub mod cache;
 pub mod case_transform;
 pub mod condition;
 pub mod config;
+pub mod feature;
 pub mod executor;
 pub mod pool;
 pub mod repl;
@@ -27,7 +28,9 @@ use rand::RngCore;
 
 use hick_exec::dag;
 use hick_exec::node::{InsertionPoint, StringNode};
-use hick_exec::state::{MultiDocumentState, SubstitutionDef};
+use hick_exec::state::{FeatureInfo, MultiDocumentState, SubstitutionDef};
+
+use crate::feature::{FeatureDef, FeatureRegistry, FeatureSet};
 use hick_lang::{HickNode, HickTag};
 use hick_token::{ContainerCapabilities, NetworkRule, TokenAuthority};
 
@@ -165,6 +168,11 @@ pub async fn run_pipeline_with_authority(
     for (_, doc) in &documents {
         scan_and_register_vars(&doc.nodes, &state);
     }
+
+    // Process features BEFORE conditional filtering (so features work in conditions)
+    let all_docs: Vec<_> = documents.iter().map(|(_, d)| d).collect();
+    process_features(&all_docs, &state)?;
+    drop(all_docs);
 
     // Filter conditional content (removes nodes with false conditions)
     for (_, doc) in &mut documents {
@@ -386,6 +394,11 @@ pub async fn run_pipeline_live(
     for (_, doc) in &documents {
         scan_and_register_vars(&doc.nodes, &state);
     }
+
+    // Process features BEFORE conditional filtering (so features work in conditions)
+    let all_docs: Vec<_> = documents.iter().map(|(_, d)| d).collect();
+    process_features(&all_docs, &state)?;
+    drop(all_docs);
 
     // Filter conditional content (removes nodes with false conditions)
     for (_, doc) in &mut documents {
@@ -756,6 +769,97 @@ fn scan_and_register_vars(nodes: &[HickNode], state: &MultiDocumentState) {
 }
 
 // ---------------------------------------------------------------------------
+// Feature processing
+// ---------------------------------------------------------------------------
+
+/// Process feature definitions from all documents.
+///
+/// This scans for `<hick:feature>` tags, validates dependencies, and enables
+/// features based on the `features` parameter. Enabled features are set as
+/// variables so they can be used in `when` conditions.
+fn process_features(documents: &[&hick_lang::HickDocument], state: &MultiDocumentState) -> Result<()> {
+    // Collect feature definitions from all documents
+    let mut feature_registry = FeatureRegistry::new();
+
+    for doc in documents {
+        scan_and_register_features(&doc.nodes, &feature_registry, state);
+    }
+
+    // Re-scan to actually register (we need mutable access)
+    for doc in documents {
+        collect_feature_defs(&doc.nodes, &mut feature_registry, state);
+    }
+
+    // Validate feature registry (checks for circular deps and unknown deps)
+    if let Err(e) = feature_registry.validate() {
+        return Err(anyhow::anyhow!("Feature validation error: {e}"));
+    }
+
+    // Process enabled features (from --features param or "features" var)
+    if let Some(features_param) = state.resolve_var("features") {
+        let requested = FeatureSet::parse(&features_param);
+        match requested.validate_and_expand(&feature_registry) {
+            Ok(expanded) => {
+                // Enable all features (including transitive deps)
+                for name in expanded.enabled() {
+                    state.enable_feature(name.to_string());
+                    // Also set as a variable so conditions like `when="auth"` work
+                    state.set_param(name.to_string(), "1".to_string());
+                }
+            }
+            Err(e) => {
+                return Err(anyhow::anyhow!("Feature error: {e}"));
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// First pass: just scan to register features with state (immutable registry).
+fn scan_and_register_features(nodes: &[HickNode], _registry: &FeatureRegistry, _state: &MultiDocumentState) {
+    // This pass just ensures we find all feature tags
+    for node in nodes {
+        if let HickNode::Tag(tag) = node {
+            scan_and_register_features(&tag.children, _registry, _state);
+        }
+    }
+}
+
+/// Second pass: collect feature definitions into the registry.
+fn collect_feature_defs(nodes: &[HickNode], registry: &mut FeatureRegistry, state: &MultiDocumentState) {
+    for node in nodes {
+        if let HickNode::Tag(tag) = node {
+            if tag.name == "feature" {
+                let name = tag_attr(tag, "name").unwrap_or_default();
+                let description = tag_attr(tag, "description").unwrap_or_default();
+                let requires_str = tag_attr(tag, "requires").unwrap_or_default();
+                let requires: Vec<String> = requires_str
+                    .split_whitespace()
+                    .filter(|s| !s.is_empty())
+                    .map(|s| s.to_string())
+                    .collect();
+
+                // Register in the feature registry for validation
+                let mut def = FeatureDef::new(name.clone(), description.clone());
+                for req in &requires {
+                    def = def.with_requires(req.clone());
+                }
+                registry.register(def);
+
+                // Also register in state for later access
+                state.register_feature(FeatureInfo {
+                    name,
+                    description,
+                    requires,
+                });
+            }
+            collect_feature_defs(&tag.children, registry, state);
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Conditional filtering
 // ---------------------------------------------------------------------------
 
@@ -965,6 +1069,7 @@ pub struct MultiStagePipelineResult {
 /// are intermediate).
 pub async fn run_pipeline_multi_stage(
     sources: &[(&str, &str)],
+    params: &[(String, String)],
     max_stages: usize,
 ) -> Result<MultiStagePipelineResult> {
     let mut all_files: HashMap<String, String> = HashMap::new();
@@ -985,7 +1090,7 @@ pub async fn run_pipeline_multi_stage(
             .map(|(n, s)| (n.as_str(), s.as_str()))
             .collect();
 
-        let result = run_pipeline(&source_refs, &[]).await?;
+        let result = run_pipeline(&source_refs, params).await?;
 
         // Separate .hick outputs from regular outputs
         let mut hick_files: Vec<(String, String)> = Vec::new();

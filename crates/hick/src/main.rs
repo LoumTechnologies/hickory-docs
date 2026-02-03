@@ -67,6 +67,10 @@ struct RunArgs {
     #[arg(long = "param", value_parser = parse_param)]
     params: Vec<(String, String)>,
 
+    /// Enable features (comma-separated list).
+    #[arg(long)]
+    features: Option<String>,
+
     /// Dry-run mode: produce placeholder strings instead of running containers.
     #[arg(long)]
     dry_run: bool,
@@ -112,6 +116,14 @@ struct UpArgs {
     /// Directory containing pre-converted `.wasm` container images.
     #[arg(long)]
     images_dir: Option<PathBuf>,
+
+    /// Set a variable: --param key=value
+    #[arg(long = "param", value_parser = parse_param)]
+    params: Vec<(String, String)>,
+
+    /// Enable features (comma-separated list).
+    #[arg(long)]
+    features: Option<String>,
 
     /// Dry-run mode: produce placeholder strings instead of running containers.
     #[arg(long)]
@@ -235,7 +247,14 @@ async fn main() -> Result<()> {
                 .map(|p| hick::expand_tilde(&p))
                 .unwrap_or_else(default_images_dir);
 
-            hick::watch::run_watch(&args.files, &config, args.dry_run, images_dir).await
+            // Build params from --param and --features flags
+            let mut params: Vec<(String, String)> = args.params.clone();
+            if let Some(ref features) = args.features {
+                params.retain(|(pk, _)| pk != "features");
+                params.push(("features".to_string(), features.clone()));
+            }
+
+            hick::watch::run_watch(&args.files, &config, &params, args.dry_run, images_dir).await
         }
     }
 }
@@ -292,6 +311,12 @@ async fn run_single_shot(cli: RunArgs) -> Result<()> {
     for (k, v) in &cli.params {
         params.retain(|(pk, _)| pk != k);
         params.push((k.clone(), v.clone()));
+    }
+
+    // Add features as a special param
+    if let Some(ref features) = cli.features {
+        params.retain(|(pk, _)| pk != "features");
+        params.push(("features".to_string(), features.clone()));
     }
 
     // Resolve paths: CLI flag > config value > default

@@ -24,6 +24,7 @@ use crate::store_config::{StoreBackend, StoreConfig};
 pub async fn run_watch(
     files: &[PathBuf],
     config: &StoreConfig,
+    params: &[(String, String)],
     dry_run: bool,
     images_dir: PathBuf,
 ) -> Result<()> {
@@ -55,6 +56,7 @@ pub async fn run_watch(
     run_pipeline_and_merge(
         files,
         config,
+        params,
         dry_run,
         &images_dir,
         &store,
@@ -136,6 +138,7 @@ pub async fn run_watch(
         run_pipeline_and_merge(
             files,
             config,
+            params,
             dry_run,
             &images_dir,
             &store,
@@ -183,6 +186,7 @@ async fn create_store(config: &StoreConfig, project_dir: &Path) -> Result<Arc<dy
 async fn run_pipeline_and_merge(
     files: &[PathBuf],
     config: &StoreConfig,
+    params: &[(String, String)],
     dry_run: bool,
     images_dir: &Path,
     store: &Arc<dyn VersionStore>,
@@ -211,7 +215,7 @@ async fn run_pipeline_and_merge(
 
     // Run pipeline (live with pool, or dry-run multi-stage)
     let (pipeline_files, pipeline_provenance, pool_hits, pool_boot_time_saved) = if dry_run {
-        let pipeline_result = crate::run_pipeline_multi_stage(&sources, config.max_stages).await?;
+        let pipeline_result = crate::run_pipeline_multi_stage(&sources, params, config.max_stages).await?;
         let files: HashMap<String, Vec<u8>> = pipeline_result
             .files
             .iter()
@@ -228,7 +232,7 @@ async fn run_pipeline_and_merge(
             images_dir: images_dir.to_path_buf(),
             working_dir: None,
         };
-        let result = crate::run_pipeline_live(&sources, &pipeline_config, &[], None, pool).await?;
+        let result = crate::run_pipeline_live(&sources, &pipeline_config, params, None, pool).await?;
         let files: HashMap<String, Vec<u8>> = result
             .files
             .iter()

@@ -1250,7 +1250,7 @@ async fn test_multi_stage_no_hick_output_single_stage() {
         r#"<hick:file path="out.txt">hello</hick:file>
 <hick:file path="data.json">{"key": "value"}</hick:file>"#,
     );
-    let result = hick::run_pipeline_multi_stage(&[("test.hick", &src)], 3)
+    let result = hick::run_pipeline_multi_stage(&[("test.hick", &src)], &[], 3)
         .await
         .unwrap();
     assert_eq!(result.files.len(), 2);
@@ -1283,7 +1283,7 @@ async fn test_multi_stage_two_stages() {
 </hick:doc></h:file>
 </h:doc>"#;
 
-    let result = hick::run_pipeline_multi_stage(&[("test.hick", &src)], 3)
+    let result = hick::run_pipeline_multi_stage(&[("test.hick", &src)], &[], 3)
         .await
         .unwrap();
 
@@ -1322,7 +1322,7 @@ async fn test_multi_stage_two_stages() {
 async fn test_multi_stage_limit_reached_error() {
     // With max_stages=1, any .hick output triggers the limit error.
     let src = hick_doc(r#"<hick:file path="output.hick">placeholder</hick:file>"#);
-    let result = hick::run_pipeline_multi_stage(&[("test.hick", &src)], 1).await;
+    let result = hick::run_pipeline_multi_stage(&[("test.hick", &src)], &[], 1).await;
     assert!(result.is_err(), "should error when stage limit reached");
     let err = result.unwrap_err().to_string();
     assert!(
@@ -1349,7 +1349,7 @@ async fn test_multi_stage_hick_files_removed_from_output() {
 </hick:doc></h:file>
 </h:doc>"#;
 
-    let result = hick::run_pipeline_multi_stage(&[("test.hick", src)], 3)
+    let result = hick::run_pipeline_multi_stage(&[("test.hick", src)], &[], 3)
         .await
         .unwrap();
 
@@ -1359,4 +1359,223 @@ async fn test_multi_stage_hick_files_removed_from_output() {
         !result.files.contains_key("intermediate.hick"),
         ".hick files should be removed from final output"
     );
+}
+
+// ---------------------------------------------------------------------------
+// Feature tests
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_feature_definition_basic() {
+    // Define features and enable one via param
+    let src = hick_doc(
+        r#"<hick:feature name="auth" description="Authentication support" />
+<hick:file path="config.txt">
+<hick:when test="auth">auth enabled</hick:when>
+<hick:when test="!auth">auth disabled</hick:when>
+</hick:file>"#,
+    );
+
+    // Enable auth feature
+    let result = hick::run_pipeline(
+        &[("test.hick", &src)],
+        &[("features".to_string(), "auth".to_string())],
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(
+        result.files.get("config.txt").unwrap().trim(),
+        "auth enabled"
+    );
+}
+
+#[tokio::test]
+async fn test_feature_not_enabled() {
+    // Define features but don't enable auth
+    let src = hick_doc(
+        r#"<hick:feature name="auth" description="Authentication support" />
+<hick:file path="config.txt">
+<hick:when test="auth">auth enabled</hick:when>
+<hick:when test="!auth">auth disabled</hick:when>
+</hick:file>"#,
+    );
+
+    // Don't enable auth feature
+    let result = hick::run_pipeline(&[("test.hick", &src)], &[]).await.unwrap();
+
+    assert_eq!(
+        result.files.get("config.txt").unwrap().trim(),
+        "auth disabled"
+    );
+}
+
+#[tokio::test]
+async fn test_feature_with_dependencies() {
+    // premium requires auth and billing
+    let src = hick_doc(
+        r#"<hick:feature name="auth" description="Authentication" />
+<hick:feature name="billing" description="Billing" />
+<hick:feature name="premium" description="Premium features" requires="auth billing" />
+<hick:file path="status.txt">
+<hick:when test="auth">auth:yes </hick:when><hick:when test="billing">billing:yes </hick:when><hick:when test="premium">premium:yes</hick:when>
+</hick:file>"#,
+    );
+
+    // Enable only premium - should auto-enable auth and billing
+    let result = hick::run_pipeline(
+        &[("test.hick", &src)],
+        &[("features".to_string(), "premium".to_string())],
+    )
+    .await
+    .unwrap();
+
+    let content = result.files.get("status.txt").unwrap();
+    assert!(content.contains("auth:yes"), "auth should be enabled transitively");
+    assert!(content.contains("billing:yes"), "billing should be enabled transitively");
+    assert!(content.contains("premium:yes"), "premium should be enabled");
+}
+
+#[tokio::test]
+async fn test_feature_multiple_enabled() {
+    // Enable multiple features via comma-separated list
+    let src = hick_doc(
+        r#"<hick:feature name="auth" description="Authentication" />
+<hick:feature name="billing" description="Billing" />
+<hick:file path="status.txt">
+<hick:when test="auth">auth </hick:when><hick:when test="billing">billing</hick:when>
+</hick:file>"#,
+    );
+
+    let result = hick::run_pipeline(
+        &[("test.hick", &src)],
+        &[("features".to_string(), "auth, billing".to_string())],
+    )
+    .await
+    .unwrap();
+
+    let content = result.files.get("status.txt").unwrap();
+    assert!(content.contains("auth"), "auth should be enabled");
+    assert!(content.contains("billing"), "billing should be enabled");
+}
+
+#[tokio::test]
+async fn test_feature_unknown_feature_error() {
+    // Try to enable a feature that isn't defined
+    let src = hick_doc(
+        r#"<hick:feature name="auth" description="Authentication" />
+<hick:file path="out.txt">test</hick:file>"#,
+    );
+
+    let result = hick::run_pipeline(
+        &[("test.hick", &src)],
+        &[("features".to_string(), "nonexistent".to_string())],
+    )
+    .await;
+
+    assert!(result.is_err(), "should error on unknown feature");
+    let err = match result {
+        Err(e) => e.to_string(),
+        Ok(_) => panic!("expected error"),
+    };
+    assert!(err.contains("nonexistent"), "error should mention the unknown feature");
+}
+
+#[tokio::test]
+async fn test_feature_circular_dependency_error() {
+    // Create circular dependency: a -> b -> c -> a
+    let src = hick_doc(
+        r#"<hick:feature name="a" description="Feature A" requires="b" />
+<hick:feature name="b" description="Feature B" requires="c" />
+<hick:feature name="c" description="Feature C" requires="a" />
+<hick:file path="out.txt">test</hick:file>"#,
+    );
+
+    let result = hick::run_pipeline(
+        &[("test.hick", &src)],
+        &[("features".to_string(), "a".to_string())],
+    )
+    .await;
+
+    assert!(result.is_err(), "should error on circular dependency");
+    let err = match result {
+        Err(e) => e.to_string(),
+        Ok(_) => panic!("expected error"),
+    };
+    assert!(
+        err.to_lowercase().contains("circular"),
+        "error should mention circular dependency: {err}"
+    );
+}
+
+#[tokio::test]
+async fn test_feature_with_conditional_file() {
+    // Use features to conditionally include entire files
+    let src = hick_doc(
+        r#"<hick:feature name="auth" description="Authentication" />
+<hick:file path="main.txt">always present</hick:file>
+<hick:when test="auth">
+<hick:file path="auth.txt">auth module</hick:file>
+</hick:when>"#,
+    );
+
+    // Without auth enabled
+    let result = hick::run_pipeline(&[("test.hick", &src)], &[]).await.unwrap();
+    assert!(result.files.contains_key("main.txt"));
+    assert!(!result.files.contains_key("auth.txt"), "auth.txt should not exist without auth feature");
+
+    // With auth enabled
+    let result = hick::run_pipeline(
+        &[("test.hick", &src)],
+        &[("features".to_string(), "auth".to_string())],
+    )
+    .await
+    .unwrap();
+    assert!(result.files.contains_key("main.txt"));
+    assert!(result.files.contains_key("auth.txt"), "auth.txt should exist with auth feature");
+}
+
+#[tokio::test]
+async fn test_feature_with_path_interpolation() {
+    // Combine features with path interpolation
+    let src = hick_doc(
+        r#"<hick:feature name="auth" description="Authentication" />
+<hick:var name="module">core</hick:var>
+<hick:when test="auth">
+<hick:file path="src/{{module}}/auth.txt">auth code</hick:file>
+</hick:when>"#,
+    );
+
+    let result = hick::run_pipeline(
+        &[("test.hick", &src)],
+        &[("features".to_string(), "auth".to_string())],
+    )
+    .await
+    .unwrap();
+
+    assert!(result.files.contains_key("src/core/auth.txt"));
+    assert_eq!(result.files.get("src/core/auth.txt").unwrap(), "auth code");
+}
+
+#[tokio::test]
+async fn test_feature_with_substitution() {
+    // Combine features with substitution
+    let src = hick_doc(
+        r#"<hick:feature name="auth" description="Authentication" />
+<hick:substitute name="app_name" pattern="MyApp" value="TestProject" variants="true" />
+<hick:when test="auth">
+<hick:file path="auth.txt">MyApp auth module for my_app users</hick:file>
+</hick:when>"#,
+    );
+
+    let result = hick::run_pipeline(
+        &[("test.hick", &src)],
+        &[("features".to_string(), "auth".to_string())],
+    )
+    .await
+    .unwrap();
+
+    let content = result.files.get("auth.txt").unwrap();
+    assert!(content.contains("TestProject"), "should substitute PascalCase");
+    assert!(content.contains("test_project"), "should substitute snake_case");
 }
