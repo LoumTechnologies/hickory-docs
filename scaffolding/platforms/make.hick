@@ -123,13 +123,13 @@ apple-ios-build:
 	cd apple && xcodebuild -scheme <hick:val name="project_name" /> -destination 'generic/platform=iOS Simulator' build
 
 apple-macos-build:
-	cd apple && xcodebuild -scheme <hick:val name="project_name" /> -destination 'platform=macOS' build
+	cd apple && xcodebuild -scheme <hick:val name="project_name" />-macOS build
 
 apple-ios-test:
 	cd apple && xcodebuild -scheme <hick:val name="project_name" /> -destination 'generic/platform=iOS Simulator' test
 
 apple-macos-test:
-	cd apple && xcodebuild -scheme <hick:val name="project_name" /> -destination 'platform=macOS' test
+	cd apple && xcodebuild -scheme <hick:val name="project_name" />-macOS test
 
 apple-open:
 	cd apple && open <hick:val name="project_name" />.xcodeproj
@@ -145,19 +145,19 @@ apple-test: apple-ios-test apple-macos-test
 # ============================================================================
 
 android-build:
-	cd android && ./gradlew assembleDebug
+	cd android && gradle assembleDebug --no-daemon
 
 android-release:
-	cd android && ./gradlew assembleRelease
+	cd android && gradle assembleRelease --no-daemon
 
 android-test:
-	cd android && ./gradlew test
+	cd android && gradle test --no-daemon
 
 android-lint:
-	cd android && ./gradlew lint
+	cd android && gradle lint --no-daemon
 
 android-clean:
-	cd android && ./gradlew clean
+	cd android && gradle clean --no-daemon
 </hick:when>
 <hick:when test="avalonia">
 
@@ -190,6 +190,7 @@ web-install:
 	cd web && npm install
 
 web-build:
+	cd web && [ -d node_modules ] || npm install
 	cd web && npm run build
 
 web-dev:
@@ -214,6 +215,7 @@ extension-install:
 	cd browser-extension && npm install
 
 extension-build:
+	cd browser-extension && [ -d node_modules ] || npm install
 	cd browser-extension && npm run build
 
 extension-dev:

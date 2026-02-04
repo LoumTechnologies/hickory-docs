@@ -23,7 +23,8 @@ navigation, though a simple SPA might not need it—remove if unused:
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "echo 'No tests configured yet'"
   },
   "dependencies": {
     "react": "^18.3.1",
@@ -118,6 +119,15 @@ build tooling. The project references pattern ensures proper build ordering:
     "noUncheckedSideEffectImports": true
   },
   "include": ["src"]
+}
+</hick:file>
+
+<hick:file path="web/src/vite-env.d.ts" doc-hidden="true">/// &lt;reference types="vite/client" /&gt;
+
+// CSS module declarations
+declare module '*.css' {
+  const content: { [className: string]: string };
+  export default content;
 }
 </hick:file>
 
