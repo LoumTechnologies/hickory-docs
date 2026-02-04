@@ -11,6 +11,14 @@ path = "src/lib.rs"
 name = "hick"
 path = "src/main.rs"
 
+[[bin]]
+name = "hick-equiv"
+path = "src/bin/hick-equiv.rs"
+
+[[bin]]
+name = "hick-compact"
+path = "src/bin/hick-compact.rs"
+
 [dependencies]
 container = { path = "../container" }
 c2w = { path = "../c2w" }

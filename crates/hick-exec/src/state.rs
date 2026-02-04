@@ -2,11 +2,35 @@
 //! cross-document references. Adapted from HickoryDocs `xml.rs`.
 
 use std::collections::HashMap;
+use std::sync::atomic::AtomicUsize;
 use std::sync::Mutex;
 
 use crate::node::{Context, InsertionPoint, Node, converge_to_string};
 use hick_condition::VariableResolver;
 use std::sync::Arc;
+
+// ---------------------------------------------------------------------------
+// Content Block (for class-based selectors)
+// ---------------------------------------------------------------------------
+
+/// Content block with metadata for class-based selection.
+///
+/// Supports both ID-based (`#id`) and class-based (`.class`) selectors.
+/// Class-based selectors concatenate content from all matching elements
+/// in document order.
+#[derive(Debug, Clone)]
+pub struct ContentBlock {
+    /// Optional unique identifier for `#id` selector.
+    pub id: Option<String>,
+    /// Class names for `.class` selector (can match multiple blocks).
+    pub classes: Vec<String>,
+    /// The content of this block.
+    pub content: String,
+    /// Document order for deterministic concatenation.
+    pub order: usize,
+    /// Whether this is a cut block (conceptually consumed but still available).
+    pub is_cut: bool,
+}
 
 // ---------------------------------------------------------------------------
 // Substitution Definition
@@ -48,10 +72,14 @@ pub struct MultiDocumentState {
     element_outputs: Mutex<HashMap<usize, Arc<InsertionPoint>>>,
     /// File-path-keyed insertion points (for `<hick:file>`).
     file_outputs: Mutex<HashMap<String, Arc<InsertionPoint>>>,
-    /// Copy blocks: id → content.
+    /// Copy blocks: id → content (legacy format for backwards compatibility).
     copy_blocks: Mutex<HashMap<String, String>>,
     /// Cut blocks: id → content (removed from output).
     cut_blocks: Mutex<HashMap<String, String>>,
+    /// Content blocks: unified storage for copy/cut with class support.
+    content_blocks: Mutex<Vec<ContentBlock>>,
+    /// Counter for document order of content blocks.
+    content_order_counter: AtomicUsize,
     /// Variables: name → value.
     variables: Mutex<HashMap<String, String>>,
     /// Substitution definitions: name → definition.
@@ -73,6 +101,8 @@ impl Default for MultiDocumentState {
             file_outputs: Mutex::new(HashMap::new()),
             copy_blocks: Mutex::new(HashMap::new()),
             cut_blocks: Mutex::new(HashMap::new()),
+            content_blocks: Mutex::new(Vec::new()),
+            content_order_counter: AtomicUsize::new(0),
             variables: Mutex::new(HashMap::new()),
             substitutions: Mutex::new(HashMap::new()),
             features: Mutex::new(HashMap::new()),
@@ -96,19 +126,82 @@ impl MultiDocumentState {
         self.element_outputs.lock().unwrap().get(&key).cloned()
     }
 
-    /// Register a `<hick:copy>` block.
+    /// Register a `<hick:copy>` block with optional class attribute.
+    ///
+    /// If `class` is provided (space-separated class names), the content can
+    /// be selected via `.classname` selector which concatenates all matching
+    /// blocks in document order.
     pub fn register_copy(&self, id: String, content: String) {
-        self.copy_blocks.lock().unwrap().insert(id, content);
+        self.register_copy_with_class(id, None, content);
+    }
+
+    /// Register a `<hick:copy>` block with class support.
+    pub fn register_copy_with_class(&self, id: String, class: Option<&str>, content: String) {
+        // Legacy storage for backwards compatibility
+        if !id.is_empty() {
+            self.copy_blocks.lock().unwrap().insert(id.clone(), content.clone());
+        }
+
+        // New unified storage with class support
+        let order = self.content_order_counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let classes: Vec<String> = class
+            .map(|c| c.split_whitespace().map(|s| s.to_string()).collect())
+            .unwrap_or_default();
+
+        let block = ContentBlock {
+            id: if id.is_empty() { None } else { Some(id) },
+            classes,
+            content,
+            order,
+            is_cut: false,
+        };
+
+        self.content_blocks.lock().unwrap().push(block);
     }
 
     /// Register a `<hick:cut>` block.
     pub fn register_cut(&self, id: String, content: String) {
-        self.cut_blocks.lock().unwrap().insert(id, content);
+        self.register_cut_with_class(id, None, content);
+    }
+
+    /// Register a `<hick:cut>` block with class support.
+    pub fn register_cut_with_class(&self, id: String, class: Option<&str>, content: String) {
+        // Legacy storage for backwards compatibility
+        if !id.is_empty() {
+            self.cut_blocks.lock().unwrap().insert(id.clone(), content.clone());
+        }
+
+        // New unified storage with class support
+        let order = self.content_order_counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let classes: Vec<String> = class
+            .map(|c| c.split_whitespace().map(|s| s.to_string()).collect())
+            .unwrap_or_default();
+
+        let block = ContentBlock {
+            id: if id.is_empty() { None } else { Some(id) },
+            classes,
+            content,
+            order,
+            is_cut: true,
+        };
+
+        self.content_blocks.lock().unwrap().push(block);
     }
 
     /// Resolve a `<hick:paste select="...">` selector.
-    /// Supports `#id` (CSS) and tries cut blocks first, then copy blocks.
+    ///
+    /// Supports two selector types:
+    /// - `#id` - CSS ID selector, returns single matching block
+    /// - `.class` - CSS class selector, concatenates all matching blocks in document order
     pub fn resolve_paste(&self, selector: &str) -> Option<String> {
+        let selector = selector.trim();
+
+        // Handle class selector (.classname)
+        if let Some(class_name) = selector.strip_prefix('.') {
+            return self.resolve_class_selector(class_name);
+        }
+
+        // Handle ID selector (#id) - legacy path
         let id = selector.trim_start_matches('#');
 
         // Check cut blocks first (they're consumed but available via paste)
@@ -122,6 +215,28 @@ impl MultiDocumentState {
         }
 
         None
+    }
+
+    /// Resolve a class selector, concatenating all matching blocks in document order.
+    fn resolve_class_selector(&self, class_name: &str) -> Option<String> {
+        let blocks = self.content_blocks.lock().unwrap();
+
+        // Find all blocks that have this class
+        let mut matching: Vec<&ContentBlock> = blocks
+            .iter()
+            .filter(|b| b.classes.iter().any(|c| c == class_name))
+            .collect();
+
+        if matching.is_empty() {
+            return None;
+        }
+
+        // Sort by document order
+        matching.sort_by_key(|b| b.order);
+
+        // Concatenate content
+        let result: String = matching.iter().map(|b| b.content.as_str()).collect();
+        Some(result)
     }
 
     /// Get all file outputs, converging each to a string.
@@ -291,5 +406,95 @@ mod tests {
         assert_eq!(subs[0].pattern, "FavoriteApp");
         assert_eq!(subs[0].value, "MyProject");
         assert!(subs[0].variants);
+    }
+
+    // ---------------------------------------------------------------------------
+    // Class-based selector tests
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn class_selector_single_block() {
+        let state = MultiDocumentState::default();
+        state.register_copy_with_class("".to_string(), Some("imports"), "import foo;".to_string());
+
+        let resolved = state.resolve_paste(".imports");
+        assert_eq!(resolved, Some("import foo;".to_string()));
+    }
+
+    #[test]
+    fn class_selector_multiple_blocks_concatenated() {
+        let state = MultiDocumentState::default();
+        state.register_copy_with_class("".to_string(), Some("imports"), "import foo;".to_string());
+        state.register_copy_with_class("".to_string(), Some("imports"), "import bar;".to_string());
+        state.register_copy_with_class("".to_string(), Some("imports"), "import baz;".to_string());
+
+        let resolved = state.resolve_paste(".imports");
+        assert_eq!(resolved, Some("import foo;import bar;import baz;".to_string()));
+    }
+
+    #[test]
+    fn class_selector_preserves_document_order() {
+        let state = MultiDocumentState::default();
+        state.register_copy_with_class("".to_string(), Some("items"), "first".to_string());
+        state.register_copy_with_class("".to_string(), Some("other"), "other".to_string());
+        state.register_copy_with_class("".to_string(), Some("items"), "second".to_string());
+
+        let resolved = state.resolve_paste(".items");
+        assert_eq!(resolved, Some("firstsecond".to_string()));
+    }
+
+    #[test]
+    fn class_selector_multiple_classes_on_block() {
+        let state = MultiDocumentState::default();
+        state.register_copy_with_class("".to_string(), Some("imports deps"), "import shared;".to_string());
+        state.register_copy_with_class("".to_string(), Some("imports"), "import local;".to_string());
+
+        // Both selectors should find the shared import
+        let imports = state.resolve_paste(".imports");
+        assert_eq!(imports, Some("import shared;import local;".to_string()));
+
+        let deps = state.resolve_paste(".deps");
+        assert_eq!(deps, Some("import shared;".to_string()));
+    }
+
+    #[test]
+    fn class_selector_with_id() {
+        let state = MultiDocumentState::default();
+        state.register_copy_with_class("header".to_string(), Some("sections"), "# Header".to_string());
+
+        // Should be accessible by both ID and class
+        let by_id = state.resolve_paste("#header");
+        assert_eq!(by_id, Some("# Header".to_string()));
+
+        let by_class = state.resolve_paste(".sections");
+        assert_eq!(by_class, Some("# Header".to_string()));
+    }
+
+    #[test]
+    fn class_selector_cut_blocks() {
+        let state = MultiDocumentState::default();
+        state.register_cut_with_class("".to_string(), Some("secrets"), "secret1;".to_string());
+        state.register_cut_with_class("".to_string(), Some("secrets"), "secret2;".to_string());
+
+        let resolved = state.resolve_paste(".secrets");
+        assert_eq!(resolved, Some("secret1;secret2;".to_string()));
+    }
+
+    #[test]
+    fn class_selector_missing_returns_none() {
+        let state = MultiDocumentState::default();
+        state.register_copy_with_class("".to_string(), Some("imports"), "import foo;".to_string());
+
+        let resolved = state.resolve_paste(".nonexistent");
+        assert_eq!(resolved, None);
+    }
+
+    #[test]
+    fn id_selector_still_works_without_class() {
+        let state = MultiDocumentState::default();
+        state.register_copy("version".to_string(), "1.0.0".to_string());
+
+        let resolved = state.resolve_paste("#version");
+        assert_eq!(resolved, Some("1.0.0".to_string()));
     }
 }
