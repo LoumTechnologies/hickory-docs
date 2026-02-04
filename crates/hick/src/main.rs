@@ -40,6 +40,17 @@ enum Command {
 
     /// Interactive REPL: explore containers interactively and record a session transcript.
     Repl(ReplArgs),
+
+    /// Initialize AI agent instructions for the project.
+    ///
+    /// Creates `.agents/hick.md` with embedded instructions and wires a reference
+    /// to CLAUDE.md or AGENTS.md if present.
+    Init(InitArgs),
+
+    /// Validate AI agent configuration.
+    ///
+    /// Checks that `.agents/hick.md` exists, content matches, and references are wired.
+    Validate(ValidateArgs),
 }
 
 #[derive(clap::Args)]
@@ -169,6 +180,28 @@ struct ReplArgs {
     verbose: bool,
 }
 
+#[derive(clap::Args)]
+struct InitArgs {
+    /// Project directory (defaults to current directory).
+    #[arg(long)]
+    project_dir: Option<PathBuf>,
+
+    /// Skip creating agent instruction files.
+    #[arg(long)]
+    no_agents: bool,
+}
+
+#[derive(clap::Args)]
+struct ValidateArgs {
+    /// Project directory (defaults to current directory).
+    #[arg(long)]
+    project_dir: Option<PathBuf>,
+
+    /// Automatically fix validation issues.
+    #[arg(long)]
+    fix: bool,
+}
+
 // ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
@@ -194,7 +227,7 @@ fn parse_cli() -> Cli {
     let first_positional = raw_args.iter().skip(1).find(|a| !a.starts_with('-'));
 
     let is_subcommand =
-        first_positional.is_some_and(|a| matches!(a.as_str(), "run" | "up" | "repl" | "help"));
+        first_positional.is_some_and(|a| matches!(a.as_str(), "run" | "up" | "repl" | "init" | "validate" | "help"));
 
     if is_subcommand {
         Cli::parse()
@@ -259,6 +292,55 @@ async fn main() -> Result<()> {
             }
 
             hick::watch::run_watch(&args.files, &config, &params, args.dry_run, images_dir).await
+        }
+        Command::Init(args) => {
+            let project_dir = args
+                .project_dir
+                .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
+
+            let config = hick::agents::InitConfig {
+                project_dir: project_dir.clone(),
+                no_agents: args.no_agents,
+            };
+
+            let result = hick::agents::init_agents(&config)?;
+
+            if result.agents_file_created {
+                println!("Created .agents/hick.md");
+            }
+            if let Some(ref path) = result.reference_added_to {
+                println!("Added reference to {}", path.display());
+            }
+            if !result.agents_file_created && result.reference_added_to.is_none() {
+                println!("Nothing to do (--no-agents specified or already initialized)");
+            }
+
+            Ok(())
+        }
+        Command::Validate(args) => {
+            let project_dir = args
+                .project_dir
+                .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
+
+            let config = hick::agents::ValidateConfig {
+                project_dir,
+                fix: args.fix,
+            };
+
+            let issues = hick::agents::validate_agents(&config)?;
+
+            if issues.is_empty() {
+                println!("Agent configuration is valid");
+                Ok(())
+            } else {
+                for issue in &issues {
+                    eprintln!("Error: {issue}");
+                }
+                if !args.fix {
+                    eprintln!("\nRun with --fix to automatically resolve these issues");
+                }
+                bail!("Validation failed with {} issue(s)", issues.len())
+            }
         }
     }
 }
