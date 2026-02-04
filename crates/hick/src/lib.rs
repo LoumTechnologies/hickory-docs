@@ -1624,3 +1624,78 @@ pub fn expand_tilde(path: &Path) -> PathBuf {
     }
     path.to_path_buf()
 }
+
+// ---------------------------------------------------------------------------
+// Feature extraction (for generate-matrix)
+// ---------------------------------------------------------------------------
+
+/// Extracted feature definition for external use.
+#[derive(Debug, Clone)]
+pub struct ExtractedFeatureDef {
+    pub name: String,
+    pub description: String,
+    pub requires: Vec<String>,
+}
+
+/// Extract feature definitions from hick sources without running the pipeline.
+///
+/// This is useful for tools that need to inspect features without executing
+/// containers (e.g., the generate-matrix command).
+pub fn extract_feature_definitions(
+    sources: &[(&str, &str)],
+) -> Result<HashMap<String, ExtractedFeatureDef>> {
+    let mut features: HashMap<String, ExtractedFeatureDef> = HashMap::new();
+
+    for (name, source) in sources {
+        let mut doc = hick_lang::parse(source)
+            .map_err(|e| anyhow::anyhow!("parse error in {name}: {e}"))?;
+
+        // Resolve includes
+        let base_dir = std::path::Path::new(name)
+            .parent()
+            .unwrap_or(std::path::Path::new("."));
+        let mut seen = std::collections::HashSet::new();
+        if let Ok(canonical) = std::fs::canonicalize(name) {
+            seen.insert(canonical);
+        }
+        hick_lang::resolve_includes(&mut doc, base_dir, &mut seen)
+            .map_err(|e| anyhow::anyhow!("include error in {name}: {e}"))?;
+
+        // Extract features from nodes
+        extract_features_from_nodes(&doc.nodes, &mut features);
+    }
+
+    Ok(features)
+}
+
+/// Recursively extract feature definitions from nodes.
+fn extract_features_from_nodes(
+    nodes: &[HickNode],
+    features: &mut HashMap<String, ExtractedFeatureDef>,
+) {
+    for node in nodes {
+        if let HickNode::Tag(tag) = node {
+            if tag.name == "feature" {
+                let name = tag_attr(tag, "name").unwrap_or_default();
+                let description = tag_attr(tag, "description").unwrap_or_default();
+                let requires_str = tag_attr(tag, "requires").unwrap_or_default();
+                let requires: Vec<String> = requires_str
+                    .split_whitespace()
+                    .filter(|s| !s.is_empty())
+                    .map(|s| s.to_string())
+                    .collect();
+
+                features.insert(
+                    name.clone(),
+                    ExtractedFeatureDef {
+                        name,
+                        description,
+                        requires,
+                    },
+                );
+            }
+            // Recurse into children
+            extract_features_from_nodes(&tag.children, features);
+        }
+    }
+}

@@ -220,6 +220,140 @@ The activity serves as the entry point and host for Compose UI. `enableEdgeToEdg
 makes the app draw behind system bars for a modern look. The `Scaffold` provides
 Material 3 structure with proper inset handling:
 
+<hick:when test="rust-frontend-lib">
+<hick:file path="android/app/src/main/kotlin/{{bundle_id:path}}/MainActivity.kt">package <hick:val name="bundle_id" />
+
+import android.os.Bundle
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.tooling.preview.Preview
+import androidx.compose.ui.unit.dp
+import <hick:val name="bundle_id" />.ui.theme.<hick:val name="project_name" />Theme
+
+class MainActivity : ComponentActivity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
+        setContent {
+            <hick:val name="project_name" />Theme {
+                Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
+                    MainScreen(modifier = Modifier.padding(innerPadding))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun MainScreen(modifier: Modifier = Modifier) {
+    var name by remember { mutableStateOf("") }
+    var greeting by remember { mutableStateOf(greet("")) }
+    var fibN by remember { mutableIntStateOf(10) }
+    var fibResult by remember { mutableLongStateOf(fibonacci(10u)) }
+
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .padding(16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text(
+            text = "Welcome to <hick:val name="project_name" />",
+            style = MaterialTheme.typography.headlineLarge
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            text = "Powered by Rust Core Library",
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+
+        Spacer(modifier = Modifier.height(32.dp))
+        HorizontalDivider()
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Greeting Demo
+        Text(
+            text = "Greeting",
+            style = MaterialTheme.typography.titleMedium
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        OutlinedTextField(
+            value = name,
+            onValueChange = {
+                name = it
+                greeting = greet(it)
+            },
+            label = { Text("Enter your name") },
+            modifier = Modifier.fillMaxWidth()
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            text = greeting,
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.primary
+        )
+
+        Spacer(modifier = Modifier.height(24.dp))
+        HorizontalDivider()
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Fibonacci Demo
+        Text(
+            text = "Fibonacci Calculator",
+            style = MaterialTheme.typography.titleMedium
+        )
+        Spacer(modifier = Modifier.height(8.dp))
+
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            OutlinedTextField(
+                value = fibN.toString(),
+                onValueChange = {
+                    fibN = it.toIntOrNull() ?: 0
+                },
+                label = { Text("n") },
+                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                modifier = Modifier.width(100.dp)
+            )
+            Button(onClick = {
+                fibResult = fibonacci(fibN.toUInt())
+            }) {
+                Text("Calculate")
+            }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+        Text(
+            text = "fib($fibN) = $fibResult",
+            style = MaterialTheme.typography.bodyLarge,
+            fontFamily = FontFamily.Monospace,
+            color = MaterialTheme.colorScheme.primary
+        )
+    }
+}
+
+@Preview(showBackground = true)
+@Composable
+fun MainScreenPreview() {
+    <hick:val name="project_name" />Theme {
+        MainScreen()
+    }
+}
+</hick:file>
+</hick:when>
+<hick:when test="!rust-frontend-lib">
 <hick:file path="android/app/src/main/kotlin/{{bundle_id:path}}/MainActivity.kt">package <hick:val name="bundle_id" />
 
 import android.os.Bundle
@@ -279,6 +413,7 @@ fun MainScreenPreview() {
     }
 }
 </hick:file>
+</hick:when>
 
 ### Theme System
 
@@ -425,6 +560,30 @@ val Typography = Typography(
         android:strokeColor="#FFFFFF"/>
 </vector>
 </hick:file>
+
+<hick:when test="rust-frontend-lib">
+### Core Library Integration
+
+When using the core library, UniFFI generates Kotlin bindings that expose the Rust
+functions via JNI. The bindings are placed in the core/ package:
+
+<hick:file path="android/app/src/main/kotlin/{{bundle_id:path}}/core/.gitkeep"># UniFFI-generated Kotlin bindings
+# Run ../../rust-lib/build-native.sh to generate Kotlin bindings
+# Then copy them here:
+#   cp core/bindings/kotlin/*.kt android/app/src/main/kotlin/<bundle_id:path>/core/
+#
+# Also copy the native library to jniLibs:
+#   mkdir -p android/app/src/main/jniLibs/arm64-v8a
+#   cp core/target/aarch64-linux-android/release/lib<project>_core.so android/app/src/main/jniLibs/arm64-v8a/
+</hick:file>
+
+<hick:file path="android/app/src/main/jniLibs/.gitkeep"># Native libraries directory
+# Place compiled .so files here for each architecture:
+# - arm64-v8a/   (64-bit ARM)
+# - armeabi-v7a/ (32-bit ARM)
+# - x86_64/      (64-bit x86 for emulators)
+</hick:file>
+</hick:when>
 
 </hick:when>
 </hick:doc>

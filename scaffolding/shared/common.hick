@@ -173,6 +173,40 @@ jobs:
           cd backend
           cargo test
 </hick:when>
+<hick:when test="rust-frontend-lib">
+  rust-frontend-lib:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Install wasm-pack
+        run: cargo install wasm-pack
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust-lib
+
+      - name: Build Rust Library (Native)
+        run: |
+          cd rust-lib
+          cargo build --release
+
+      - name: Test Rust Library
+        run: |
+          cd rust-lib
+          cargo test
+
+      - name: Build Rust Library (WASM)
+        run: |
+          cd rust-lib
+          wasm-pack build --target bundler --out-dir pkg
+</hick:when>
 </hick:file>
 </hick:when>
 
