@@ -1,0 +1,14 @@
+# Project Scaffolding Configuration
+# Usage: hick --param project_name=MyProject --features swiftui,backend
+
+files:
+  - main.hick
+  - platforms/*.hick
+  - shared/*.hick
+
+vars:
+  project_name: "MyProject"
+  bundle_id: "com.example.myproject"
+  organization: "Example Inc"
+
+output-dir: output/

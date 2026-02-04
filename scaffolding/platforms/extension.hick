@@ -1,0 +1,383 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Browser Extension Template
+  Generates a cross-browser extension with React TypeScript
+-->
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
+
+<!-- Only generate when extension feature is enabled -->
+<hick:when test="extension">
+
+<!-- ================================================================== -->
+<!-- Browser Extension Project Structure                                -->
+<!-- ================================================================== -->
+
+<!-- package.json -->
+<hick:file path="extension/package.json">{
+  "name": "my-project-extension",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b &amp;&amp; vite build",
+    "lint": "eslint .",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@crxjs/vite-plugin": "^2.0.0-beta.25",
+    "@eslint/js": "^9.15.0",
+    "@types/chrome": "^0.0.268",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "eslint": "^9.15.0",
+    "eslint-plugin-react-hooks": "^5.0.0",
+    "eslint-plugin-react-refresh": "^0.4.14",
+    "globals": "^15.12.0",
+    "typescript": "~5.6.2",
+    "typescript-eslint": "^8.15.0",
+    "vite": "^6.0.1"
+  }
+}
+</hick:file>
+
+<!-- Manifest V3 -->
+<hick:file path="extension/manifest.json">{
+  "manifest_version": 3,
+  "name": "MyProject",
+  "description": "MyProject browser extension",
+  "version": "0.0.1",
+  "icons": {
+    "16": "icons/icon16.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_popup": "index.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    }
+  },
+  "permissions": [
+    "storage"
+  ],
+  "background": {
+    "service_worker": "src/background.ts",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["&lt;all_urls&gt;"],
+      "js": ["src/content.ts"],
+      "run_at": "document_idle"
+    }
+  ]
+}
+</hick:file>
+
+<!-- Vite config for extension -->
+<hick:file path="extension/vite.config.ts">import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+import { crx } from '@crxjs/vite-plugin'
+import manifest from './manifest.json'
+
+export default defineConfig({
+  plugins: [
+    react(),
+    crx({ manifest }),
+  ],
+  build: {
+    rollupOptions: {
+      input: {
+        popup: 'index.html',
+      },
+    },
+  },
+})
+</hick:file>
+
+<!-- TypeScript configs -->
+<hick:file path="extension/tsconfig.json">{
+  "files": [],
+  "references": [
+    { "path": "./tsconfig.app.json" },
+    { "path": "./tsconfig.node.json" }
+  ]
+}
+</hick:file>
+
+<hick:file path="extension/tsconfig.app.json">{
+  "compilerOptions": {
+    "target": "ES2020",
+    "useDefineForClassFields": true,
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "skipLibCheck": true,
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "isolatedModules": true,
+    "moduleDetection": "force",
+    "noEmit": true,
+    "jsx": "react-jsx",
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedSideEffectImports": true,
+    "types": ["chrome"]
+  },
+  "include": ["src"]
+}
+</hick:file>
+
+<hick:file path="extension/tsconfig.node.json">{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2023"],
+    "module": "ESNext",
+    "skipLibCheck": true,
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "moduleDetection": "force",
+    "noEmit": true,
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedSideEffectImports": true
+  },
+  "include": ["vite.config.ts", "manifest.json"]
+}
+</hick:file>
+
+<!-- ESLint config -->
+<hick:file path="extension/eslint.config.js">import js from '@eslint/js'
+import globals from 'globals'
+import reactHooks from 'eslint-plugin-react-hooks'
+import reactRefresh from 'eslint-plugin-react-refresh'
+import tseslint from 'typescript-eslint'
+
+export default tseslint.config(
+  { ignores: ['dist'] },
+  {
+    extends: [js.configs.recommended, ...tseslint.configs.recommended],
+    files: ['**/*.{ts,tsx}'],
+    languageOptions: {
+      ecmaVersion: 2020,
+      globals: { ...globals.browser, chrome: 'readonly' },
+    },
+    plugins: {
+      'react-hooks': reactHooks,
+      'react-refresh': reactRefresh,
+    },
+    rules: {
+      ...reactHooks.configs.recommended.rules,
+      'react-refresh/only-export-components': [
+        'warn',
+        { allowConstantExport: true },
+      ],
+    },
+  },
+)
+</hick:file>
+
+<!-- index.html (popup) -->
+<hick:file path="extension/index.html">&lt;!DOCTYPE html&gt;
+&lt;html lang="en"&gt;
+  &lt;head&gt;
+    &lt;meta charset="UTF-8" /&gt;
+    &lt;meta name="viewport" content="width=device-width, initial-scale=1.0" /&gt;
+    &lt;title&gt;MyProject&lt;/title&gt;
+  &lt;/head&gt;
+  &lt;body&gt;
+    &lt;div id="root"&gt;&lt;/div&gt;
+    &lt;script type="module" src="/src/popup/main.tsx"&gt;&lt;/script&gt;
+  &lt;/body&gt;
+&lt;/html&gt;
+</hick:file>
+
+<!-- Popup entry point -->
+<hick:file path="extension/src/popup/main.tsx">import { StrictMode } from 'react'
+import { createRoot } from 'react-dom/client'
+import './index.css'
+import Popup from './Popup.tsx'
+
+createRoot(document.getElementById('root')!).render(
+  &lt;StrictMode&gt;
+    &lt;Popup /&gt;
+  &lt;/StrictMode&gt;,
+)
+</hick:file>
+
+<!-- Popup component -->
+<hick:file path="extension/src/popup/Popup.tsx">import { useState, useEffect } from 'react'
+import './Popup.css'
+
+function Popup() {
+  const [count, setCount] = useState(0)
+
+  useEffect(() =&gt; {
+    // Load count from storage on mount
+    chrome.storage.local.get(['count'], (result) =&gt; {
+      if (result.count !== undefined) {
+        setCount(result.count)
+      }
+    })
+  }, [])
+
+  const handleClick = () =&gt; {
+    const newCount = count + 1
+    setCount(newCount)
+    // Persist to storage
+    chrome.storage.local.set({ count: newCount })
+  }
+
+  return (
+    &lt;div className="popup"&gt;
+      &lt;header className="popup-header"&gt;
+        &lt;h1&gt;<hick:val name="project_name" />&lt;/h1&gt;
+      &lt;/header&gt;
+      &lt;main className="popup-main"&gt;
+        &lt;p&gt;Welcome to the extension!&lt;/p&gt;
+        &lt;button onClick={handleClick}&gt;
+          Clicked {count} times
+        &lt;/button&gt;
+      &lt;/main&gt;
+    &lt;/div&gt;
+  )
+}
+
+export default Popup
+</hick:file>
+
+<!-- Popup styles -->
+<hick:file path="extension/src/popup/index.css">:root {
+  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+  color-scheme: light dark;
+  color: rgba(255, 255, 255, 0.87);
+  background-color: #242424;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+}
+
+#root {
+  width: 320px;
+  padding: 1rem;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    color: #213547;
+    background-color: #ffffff;
+  }
+}
+</hick:file>
+
+<hick:file path="extension/src/popup/Popup.css">.popup {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.popup-header h1 {
+  font-size: 1.5rem;
+  margin: 0 0 1rem;
+}
+
+.popup-main {
+  text-align: center;
+}
+
+.popup-main p {
+  margin: 0 0 1rem;
+  color: #888;
+}
+
+button {
+  border-radius: 8px;
+  border: 1px solid transparent;
+  padding: 0.6em 1.2em;
+  font-size: 1em;
+  font-weight: 500;
+  font-family: inherit;
+  background-color: #1a1a1a;
+  cursor: pointer;
+  transition: border-color 0.25s;
+}
+
+button:hover {
+  border-color: #646cff;
+}
+
+@media (prefers-color-scheme: light) {
+  button {
+    background-color: #f9f9f9;
+  }
+}
+</hick:file>
+
+<!-- Background service worker -->
+<hick:file path="extension/src/background.ts">// Background service worker for MyProject extension
+
+chrome.runtime.onInstalled.addListener(() =&gt; {
+  console.log('MyProject extension installed')
+  // Initialize storage with default values
+  chrome.storage.local.set({ count: 0 })
+})
+
+// Listen for messages from content scripts or popup
+chrome.runtime.onMessage.addListener((message, _sender, sendResponse) =&gt; {
+  if (message.type === 'GET_COUNT') {
+    chrome.storage.local.get(['count'], (result) =&gt; {
+      sendResponse({ count: result.count ?? 0 })
+    })
+    return true // Required for async sendResponse
+  }
+})
+
+export {}
+</hick:file>
+
+<!-- Content script -->
+<hick:file path="extension/src/content.ts">// Content script for MyProject extension
+// This runs in the context of web pages
+
+console.log('MyProject content script loaded')
+
+// Example: Listen for messages from background
+chrome.runtime.onMessage.addListener((message, _sender, sendResponse) =&gt; {
+  if (message.type === 'PING') {
+    sendResponse({ status: 'pong' })
+  }
+})
+
+export {}
+</hick:file>
+
+<!-- Icons placeholder -->
+<hick:file path="extension/icons/.gitkeep"># Place extension icons here:
+# - icon16.png (16x16)
+# - icon48.png (48x48)
+# - icon128.png (128x128)
+</hick:file>
+
+</hick:when>
+</hick:doc>

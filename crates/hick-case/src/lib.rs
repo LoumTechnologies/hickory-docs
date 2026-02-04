@@ -147,6 +147,13 @@ pub fn to_uppercase(s: &str) -> String {
     detect_words(s).concat().to_uppercase()
 }
 
+/// Convert dots to slashes for filesystem paths (e.g., "com.example.app" -> "com/example/app")
+///
+/// This is useful for converting Java/Kotlin package names to directory paths.
+pub fn to_path(s: &str) -> String {
+    s.replace('.', "/")
+}
+
 /// Apply a named case transformation.
 ///
 /// Supported variants:
@@ -158,6 +165,7 @@ pub fn to_uppercase(s: &str) -> String {
 /// - "title", "titlecase", "title_case" -> Title Case
 /// - "lower", "lowercase" -> lowercase
 /// - "upper", "uppercase" -> UPPERCASE
+/// - "path" -> convert dots to slashes (e.g., "com.example.app" -> "com/example/app")
 pub fn apply_case_variant(s: &str, variant: &str) -> Option<String> {
     let variant_lower = variant.to_lowercase().replace(['-', '_'], "");
     match variant_lower.as_str() {
@@ -171,6 +179,7 @@ pub fn apply_case_variant(s: &str, variant: &str) -> Option<String> {
         "title" | "titlecase" => Some(to_title_case(s)),
         "lower" | "lowercase" => Some(to_lowercase(s)),
         "upper" | "uppercase" => Some(to_uppercase(s)),
+        "path" => Some(to_path(s)),
         _ => None,
     }
 }
@@ -362,9 +371,20 @@ mod tests {
             Some("FavoriteApp".to_string())
         );
         assert_eq!(
+            apply_case_variant("com.example.app", "path"),
+            Some("com/example/app".to_string())
+        );
+        assert_eq!(
             apply_case_variant("test", "unknown_variant"),
             None
         );
+    }
+
+    #[test]
+    fn test_to_path() {
+        assert_eq!(to_path("com.example.app"), "com/example/app");
+        assert_eq!(to_path("com.example"), "com/example");
+        assert_eq!(to_path("app"), "app");
     }
 
     // -------------------------------------------------------------------------

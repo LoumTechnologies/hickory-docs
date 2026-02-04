@@ -1,0 +1,221 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Cross-Platform Project Scaffolding
+
+  This template generates a multi-platform project with:
+  - SwiftUI (iOS, iPadOS, macOS)
+  - Jetpack Compose (Android)
+  - Avalonia (Windows, macOS, Linux)
+  - React TypeScript SPA
+  - Browser Extension (React TypeScript)
+  - Rust Backend
+
+  All platforms are hidden behind feature flags.
+
+  Usage:
+    hick --param project_name=MyApp --features swiftui,backend scaffolding/
+    hick --param project_name=MyApp --features all scaffolding/
+-->
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
+
+<!-- ================================================================== -->
+<!-- Variables                                                          -->
+<!-- ================================================================== -->
+
+<!-- Project metadata (can be overridden via --param) -->
+<hick:var name="project_name">MyProject</hick:var>
+<hick:var name="bundle_id">com.example.myproject</hick:var>
+<hick:var name="organization">Example Inc</hick:var>
+<hick:var name="min_ios_version">17.0</hick:var>
+<hick:var name="min_android_sdk">26</hick:var>
+<hick:var name="target_android_sdk">34</hick:var>
+<hick:var name="dotnet_version">8.0</hick:var>
+<hick:var name="rust_edition">2024</hick:var>
+<hick:var name="node_version">20</hick:var>
+
+<!-- ================================================================== -->
+<!-- Feature Definitions                                                -->
+<!-- ================================================================== -->
+
+<!-- Core platform features -->
+<hick:feature name="swiftui" description="SwiftUI app for iOS, iPadOS, and macOS" />
+<hick:feature name="compose" description="Jetpack Compose app for Android" />
+<hick:feature name="avalonia" description="Avalonia app for Windows, macOS, and Linux" />
+<hick:feature name="spa" description="React TypeScript single-page application" />
+<hick:feature name="extension" description="Browser extension with React TypeScript" />
+<hick:feature name="backend" description="Rust backend API server" />
+
+<!-- Convenience meta-feature -->
+<hick:feature name="all" description="Enable all platforms" requires="swiftui compose avalonia spa extension backend" />
+
+<!-- Platform groupings -->
+<hick:feature name="mobile" description="Mobile platforms" requires="swiftui compose" />
+<hick:feature name="desktop" description="Desktop platforms" requires="swiftui avalonia" />
+<hick:feature name="web" description="Web platforms" requires="spa extension" />
+
+<!-- ================================================================== -->
+<!-- Substitution Rules                                                 -->
+<!-- ================================================================== -->
+
+<!-- Project name substitution with case variants -->
+<hick:substitute name="project_name" pattern="MyProject" value="{{project_name}}" variants="true" />
+
+<!-- ================================================================== -->
+<!-- Shared Content Blocks                                              -->
+<!-- ================================================================== -->
+
+<hick:cut id="license-header">MIT License
+
+Copyright (c) 2024 <hick:val name="organization" />
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.</hick:cut>
+
+<hick:cut id="gitignore-common"># IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build outputs
+dist/
+build/
+out/
+</hick:cut>
+
+<!-- ================================================================== -->
+<!-- Root Project Files                                                 -->
+<!-- ================================================================== -->
+
+<hick:file path="LICENSE"><hick:paste select="#license-header" /></hick:file>
+
+<hick:file path="README.md"># <hick:val name="project_name" />
+
+A cross-platform application by <hick:val name="organization" />.
+
+## Platforms
+
+<hick:when test="swiftui">
+### Apple Platforms (SwiftUI)
+- iOS <hick:val name="min_ios_version" />+
+- iPadOS <hick:val name="min_ios_version" />+
+- macOS <hick:val name="min_ios_version" />+
+
+```bash
+cd apple
+open <hick:val name="project_name" />.xcodeproj
+```
+</hick:when>
+<hick:when test="compose">
+### Android (Jetpack Compose)
+- Minimum SDK: <hick:val name="min_android_sdk" />
+- Target SDK: <hick:val name="target_android_sdk" />
+
+```bash
+cd android
+./gradlew assembleDebug
+```
+</hick:when>
+<hick:when test="avalonia">
+### Desktop (Avalonia)
+- Windows
+- macOS
+- Linux
+
+```bash
+cd desktop
+dotnet run
+```
+</hick:when>
+<hick:when test="spa">
+### Web Application (React)
+
+```bash
+cd web
+npm install
+npm run dev
+```
+</hick:when>
+<hick:when test="extension">
+### Browser Extension
+
+```bash
+cd extension
+npm install
+npm run build
+# Load dist/ as unpacked extension in your browser
+```
+</hick:when>
+<hick:when test="backend">
+### Backend (Rust)
+
+```bash
+cd backend
+cargo run
+```
+</hick:when>
+
+## License
+
+MIT License - see [LICENSE](LICENSE) for details.
+</hick:file>
+
+<hick:file path=".gitignore"><hick:paste select="#gitignore-common" />
+<hick:when test="swiftui">
+# Apple
+*.xcuserstate
+xcuserdata/
+DerivedData/
+*.ipa
+*.dSYM.zip
+*.dSYM
+</hick:when>
+<hick:when test="compose">
+# Android
+*.apk
+*.aab
+*.ap_
+local.properties
+.gradle/
+</hick:when>
+<hick:when test="avalonia">
+# .NET
+bin/
+obj/
+*.user
+*.suo
+</hick:when>
+<hick:when test="spa || extension">
+# Node
+node_modules/
+.env.local
+.env.*.local
+</hick:when>
+<hick:when test="backend">
+# Rust
+target/
+Cargo.lock
+</hick:when>
+</hick:file>
+
+</hick:doc>
