@@ -59,6 +59,7 @@ mod tests {
             children: vec![],
             self_closing: true,
             source_line: 1,
+            source_column: 0,
         }
     }
 
