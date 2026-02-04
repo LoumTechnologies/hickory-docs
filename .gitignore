@@ -17,3 +17,6 @@ docs/hick-guide.md
 
 # Hick cache
 .hick-cache/
+
+# Scaffolding output
+scaffolding/output/

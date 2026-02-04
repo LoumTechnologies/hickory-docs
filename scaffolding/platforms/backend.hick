@@ -14,7 +14,7 @@
 
 <!-- Cargo.toml -->
 <hick:file path="backend/Cargo.toml">[package]
-name = "my-project-backend"
+name = "<hick:val name="project_name" />-backend"
 version = "0.1.0"
 edition = "<hick:val name="rust_edition" />"
 
@@ -36,10 +36,10 @@ axum-test = "16"
 
 <!-- Main entry point -->
 <hick:file path="backend/src/main.rs">use anyhow::Result;
-use my_project_backend::run;
+use <hick:val name="project_name" />_backend::run;
 
 #[tokio::main]
-async fn main() -&gt; Result&lt;()&gt; {
+async fn main() -> Result<()> {
     run().await
 }
 </hick:file>
@@ -55,12 +55,12 @@ use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
-pub async fn run() -&gt; Result&lt;()&gt; {
+pub async fn run() -> Result<()> {
     // Initialize tracing
     tracing_subscriber::registry()
         .with(
             tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "my_project_backend=debug,tower_http=debug".into()),
+                .unwrap_or_else(|_| "<hick:val name="project_name" />_backend=debug,tower_http=debug".into()),
         )
         .with(tracing_subscriber::fmt::layer())
         .init();
@@ -78,7 +78,7 @@ pub async fn run() -&gt; Result&lt;()&gt; {
     Ok(())
 }
 
-pub fn create_router() -&gt; Router {
+pub fn create_router() -> Router {
     let cors = CorsLayer::new()
         .allow_origin(Any)
         .allow_methods(Any)
@@ -96,7 +96,7 @@ pub fn create_router() -&gt; Router {
 
 use axum::Router;
 
-pub fn routes() -&gt; Router {
+pub fn routes() -> Router {
     Router::new()
         .merge(health::routes())
 }
@@ -106,28 +106,28 @@ pub fn routes() -&gt; Router {
 <hick:file path="backend/src/api/health.rs">use axum::{routing::get, Json, Router};
 use serde::Serialize;
 
-pub fn routes() -&gt; Router {
+pub fn routes() -> Router {
     Router::new()
         .route("/health", get(health_check))
         .route("/api/status", get(api_status))
 }
 
-async fn health_check() -&gt; &amp;'static str {
+async fn health_check() -> &'static str {
     "OK"
 }
 
 #[derive(Serialize)]
 struct StatusResponse {
-    status: &amp;'static str,
-    version: &amp;'static str,
-    name: &amp;'static str,
+    status: &'static str,
+    version: &'static str,
+    name: &'static str,
 }
 
-async fn api_status() -&gt; Json&lt;StatusResponse&gt; {
+async fn api_status() -> Json<StatusResponse> {
     Json(StatusResponse {
         status: "healthy",
         version: env!("CARGO_PKG_VERSION"),
-        name: "MyProject Backend",
+        name: "<hick:val name="project_name" /> Backend",
     })
 }
 </hick:file>
@@ -154,11 +154,11 @@ pub enum AppError {
 }
 
 impl IntoResponse for AppError {
-    fn into_response(self) -&gt; Response {
-        let (status, message) = match &amp;self {
-            AppError::NotFound(msg) =&gt; (StatusCode::NOT_FOUND, msg.clone()),
-            AppError::BadRequest(msg) =&gt; (StatusCode::BAD_REQUEST, msg.clone()),
-            AppError::Internal(msg) =&gt; (StatusCode::INTERNAL_SERVER_ERROR, msg.clone()),
+    fn into_response(self) -> Response {
+        let (status, message) = match &self {
+            AppError::NotFound(msg) => (StatusCode::NOT_FOUND, msg.clone()),
+            AppError::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg.clone()),
+            AppError::Internal(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg.clone()),
         };
 
         let body = Json(json!({
@@ -169,8 +169,8 @@ impl IntoResponse for AppError {
     }
 }
 
-impl From&lt;anyhow::Error&gt; for AppError {
-    fn from(err: anyhow::Error) -&gt; Self {
+impl From<anyhow::Error> for AppError {
+    fn from(err: anyhow::Error) -> Self {
         AppError::Internal(err.to_string())
     }
 }
@@ -178,7 +178,7 @@ impl From&lt;anyhow::Error&gt; for AppError {
 
 <!-- Tests -->
 <hick:file path="backend/tests/api_tests.rs">use axum_test::TestServer;
-use my_project_backend::create_router;
+use <hick:val name="project_name" />_backend::create_router;
 
 #[tokio::test]
 async fn test_health_check() {
@@ -200,7 +200,7 @@ async fn test_api_status() {
 
     let json: serde_json::Value = response.json();
     assert_eq!(json["status"], "healthy");
-    assert_eq!(json["name"], "MyProject Backend");
+    assert_eq!(json["name"], "<hick:val name="project_name" /> Backend");
 }
 </hick:file>
 

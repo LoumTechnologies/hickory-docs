@@ -27,6 +27,7 @@
 <hick:var name="bundle_id">com.example.myproject</hick:var>
 <hick:var name="organization">Example Inc</hick:var>
 <hick:var name="min_ios_version">17.0</hick:var>
+<hick:var name="min_macos_version">14.0</hick:var>
 <hick:var name="min_android_sdk">26</hick:var>
 <hick:var name="target_android_sdk">34</hick:var>
 <hick:var name="dotnet_version">8.0</hick:var>
@@ -119,7 +120,7 @@ A cross-platform application by <hick:val name="organization" />.
 ### Apple Platforms (SwiftUI)
 - iOS <hick:val name="min_ios_version" />+
 - iPadOS <hick:val name="min_ios_version" />+
-- macOS <hick:val name="min_ios_version" />+
+- macOS <hick:val name="min_macos_version" />+
 
 ```bash
 cd apple
@@ -160,7 +161,7 @@ npm run dev
 ### Browser Extension
 
 ```bash
-cd extension
+cd browser-extension
 npm install
 npm run build
 # Load dist/ as unpacked extension in your browser
