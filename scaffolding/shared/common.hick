@@ -1,14 +1,16 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!--
-  Shared content blocks used across platform templates
--->
 <hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
 
-<!-- ================================================================== -->
-<!-- Reusable Content Blocks                                            -->
-<!-- ================================================================== -->
+## Shared Configuration
 
-<!-- Editor config for consistent formatting -->
+These files are shared across all platforms.
+
+### EditorConfig
+
+EditorConfig ensures consistent formatting across different editors and IDEs.
+This is especially important for cross-platform projects where team members
+may use different tools:
+
 <hick:copy id="editorconfig"># EditorConfig helps maintain consistent coding styles
 root = true
 
@@ -36,10 +38,18 @@ indent_size = 4
 indent_style = tab
 </hick:copy>
 
-<!-- Common development config file -->
 <hick:file path=".editorconfig"><hick:paste select="#editorconfig" /></hick:file>
 
-<!-- CI workflow for GitHub Actions -->
+Language-specific indentation:
+- **2 spaces** — JavaScript, TypeScript, JSON, YAML (web ecosystem standard)
+- **4 spaces** — Rust, Swift, Kotlin, Java, C# (native ecosystem standard)
+- **Tabs** — Makefiles (required by make)
+
+### GitHub Actions CI
+
+The CI workflow runs builds and tests for all enabled platforms. Each platform
+gets its own job for parallel execution:
+
 <hick:when test="swiftui || compose || avalonia || spa || extension || backend">
 <hick:file path=".github/workflows/ci.yml">name: CI
 
@@ -165,5 +175,10 @@ jobs:
 </hick:when>
 </hick:file>
 </hick:when>
+
+CI configuration highlights:
+- **Parallel jobs** — Each platform builds independently
+- **Caching** — npm and Rust dependencies are cached for faster builds
+- **Platform-appropriate runners** — macOS for Apple, Ubuntu for others
 
 </hick:doc>

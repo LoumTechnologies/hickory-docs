@@ -1,18 +1,21 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!--
-  Jetpack Compose Platform Template
-  Generates Android app using Jetpack Compose
--->
 <hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
 
-<!-- Only generate when compose feature is enabled -->
 <hick:when test="compose">
 
-<!-- ================================================================== -->
-<!-- Android Project Structure                                          -->
-<!-- ================================================================== -->
+## Jetpack Compose (Android)
 
-<!-- Root build.gradle.kts -->
+The Android platform uses [Jetpack Compose](https://developer.android.com/jetpack/compose),
+Google's modern toolkit for building native Android UI. Compose uses Kotlin and a
+declarative paradigm similar to SwiftUI, making it easier to share UI patterns across
+mobile platforms.
+
+### Gradle Build System
+
+Android uses Gradle with the Kotlin DSL for build configuration. The root `build.gradle.kts`
+declares plugins but doesn't apply them—this is the recommended pattern for multi-module
+projects:
+
 <hick:file path="android/build.gradle.kts">// Top-level build file
 plugins {
     alias(libs.plugins.android.application) apply false
@@ -21,7 +24,10 @@ plugins {
 }
 </hick:file>
 
-<!-- Settings -->
+The `settings.gradle.kts` configures repository resolution. We use `FAIL_ON_PROJECT_REPOS`
+to ensure all dependencies come from the central repository declarations, preventing
+inconsistent builds:
+
 <hick:file path="android/settings.gradle.kts">pluginManagement {
     repositories {
         google {
@@ -47,8 +53,7 @@ rootProject.name = "<hick:val name="project_name" />"
 include(":app")
 </hick:file>
 
-<!-- Gradle properties -->
-<hick:file path="android/gradle.properties"># Project-wide Gradle settings.
+<hick:file path="android/gradle.properties" doc-hidden="true"># Project-wide Gradle settings.
 
 # AndroidX package structure to make it clearer which packages are bundled with the
 # Android operating system, and which are packaged with your app's APK
@@ -67,8 +72,7 @@ android.nonTransitiveRClass=true
 org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
 </hick:file>
 
-<!-- Gradle wrapper properties -->
-<hick:file path="android/gradle/wrapper/gradle-wrapper.properties">distributionBase=GRADLE_USER_HOME
+<hick:file path="android/gradle/wrapper/gradle-wrapper.properties" doc-hidden="true">distributionBase=GRADLE_USER_HOME
 distributionPath=wrapper/dists
 distributionUrl=https\://services.gradle.org/distributions/gradle-8.5-bin.zip
 networkTimeout=10000
@@ -77,7 +81,12 @@ zipStoreBase=GRADLE_USER_HOME
 zipStorePath=wrapper/dists
 </hick:file>
 
-<!-- Version catalog -->
+### Version Catalog
+
+Gradle's version catalog (`libs.versions.toml`) centralizes dependency versions. This
+is the modern approach that replaces `buildSrc` or `ext` variables, providing better
+IDE support and type-safe accessors:
+
 <hick:file path="android/gradle/libs.versions.toml">[versions]
 agp = "8.2.2"
 kotlin = "2.0.0"
@@ -103,7 +112,13 @@ kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
 kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 </hick:file>
 
-<!-- App build.gradle.kts -->
+### App Module Configuration
+
+The app-level `build.gradle.kts` configures the Android application. Key choices:
+- **Compose BOM** — Bill of Materials ensures all Compose libraries use compatible versions
+- **Java 17** — Required for modern Android development with Compose
+- **No minify in debug** — Faster debug builds; enable for release
+
 <hick:file path="android/app/build.gradle.kts">plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -158,8 +173,7 @@ dependencies {
 }
 </hick:file>
 
-<!-- ProGuard rules -->
-<hick:file path="android/app/proguard-rules.pro"># Add project specific ProGuard rules here.
+<hick:file path="android/app/proguard-rules.pro" doc-hidden="true"># Add project specific ProGuard rules here.
 # By default, the flags in this file are appended to flags specified
 # in /sdk/tools/proguard/proguard-android.txt
 
@@ -171,7 +185,11 @@ dependencies {
 #-keepattributes SourceFile,LineNumberTable
 </hick:file>
 
-<!-- Android Manifest -->
+### Android Manifest
+
+The manifest declares the app's components and metadata. We use a theme without an
+action bar since Compose handles all UI rendering:
+
 <hick:file path="android/app/src/main/AndroidManifest.xml"><?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
@@ -196,7 +214,12 @@ dependencies {
 </manifest>
 </hick:file>
 
-<!-- MainActivity -->
+### MainActivity
+
+The activity serves as the entry point and host for Compose UI. `enableEdgeToEdge()`
+makes the app draw behind system bars for a modern look. The `Scaffold` provides
+Material 3 structure with proper inset handling:
+
 <hick:file path="android/app/src/main/kotlin/{{bundle_id:path}}/MainActivity.kt">package <hick:val name="bundle_id" />
 
 import android.os.Bundle
@@ -257,7 +280,11 @@ fun MainScreenPreview() {
 }
 </hick:file>
 
-<!-- Theme -->
+### Theme System
+
+Material 3 theming with dynamic color support. On Android 12+, the app can use colors
+derived from the user's wallpaper for a personalized feel:
+
 <hick:file path="android/app/src/main/kotlin/{{bundle_id:path}}/ui/theme/Theme.kt">package <hick:val name="bundle_id" />.ui.theme
 
 import android.os.Build
@@ -301,7 +328,7 @@ fun <hick:val name="project_name" />Theme(
 }
 </hick:file>
 
-<hick:file path="android/app/src/main/kotlin/{{bundle_id:path}}/ui/theme/Color.kt">package <hick:val name="bundle_id" />.ui.theme
+<hick:file path="android/app/src/main/kotlin/{{bundle_id:path}}/ui/theme/Color.kt" doc-hidden="true">package <hick:val name="bundle_id" />.ui.theme
 
 import androidx.compose.ui.graphics.Color
 
@@ -314,7 +341,7 @@ val PurpleGrey40 = Color(0xFF625b71)
 val Pink40 = Color(0xFF7D5260)
 </hick:file>
 
-<hick:file path="android/app/src/main/kotlin/{{bundle_id:path}}/ui/theme/Type.kt">package <hick:val name="bundle_id" />.ui.theme
+<hick:file path="android/app/src/main/kotlin/{{bundle_id:path}}/ui/theme/Type.kt" doc-hidden="true">package <hick:val name="bundle_id" />.ui.theme
 
 import androidx.compose.material3.Typography
 import androidx.compose.ui.text.TextStyle
@@ -347,41 +374,39 @@ val Typography = Typography(
 )
 </hick:file>
 
-<!-- Resources -->
-<hick:file path="android/app/src/main/res/values/strings.xml"><?xml version="1.0" encoding="utf-8"?>
+<hick:file path="android/app/src/main/res/values/strings.xml" doc-hidden="true"><?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name"><hick:val name="project_name" /></string>
 </resources>
 </hick:file>
 
-<hick:file path="android/app/src/main/res/values/themes.xml"><?xml version="1.0" encoding="utf-8"?>
+<hick:file path="android/app/src/main/res/values/themes.xml" doc-hidden="true"><?xml version="1.0" encoding="utf-8"?>
 <resources>
     <style name="Theme.<hick:val name="project_name" />" parent="android:Theme.Material.Light.NoActionBar" />
 </resources>
 </hick:file>
 
-<hick:file path="android/app/src/main/res/values/colors.xml"><?xml version="1.0" encoding="utf-8"?>
+<hick:file path="android/app/src/main/res/values/colors.xml" doc-hidden="true"><?xml version="1.0" encoding="utf-8"?>
 <resources>
     <color name="ic_launcher_background">#6750A4</color>
 </resources>
 </hick:file>
 
-<!-- App Icons (Adaptive) -->
-<hick:file path="android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml"><?xml version="1.0" encoding="utf-8"?>
+<hick:file path="android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml" doc-hidden="true"><?xml version="1.0" encoding="utf-8"?>
 <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
     <background android:drawable="@color/ic_launcher_background"/>
     <foreground android:drawable="@drawable/ic_launcher_foreground"/>
 </adaptive-icon>
 </hick:file>
 
-<hick:file path="android/app/src/main/res/mipmap-anydpi-v26/ic_launcher_round.xml"><?xml version="1.0" encoding="utf-8"?>
+<hick:file path="android/app/src/main/res/mipmap-anydpi-v26/ic_launcher_round.xml" doc-hidden="true"><?xml version="1.0" encoding="utf-8"?>
 <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
     <background android:drawable="@color/ic_launcher_background"/>
     <foreground android:drawable="@drawable/ic_launcher_foreground"/>
 </adaptive-icon>
 </hick:file>
 
-<hick:file path="android/app/src/main/res/drawable/ic_launcher_foreground.xml"><?xml version="1.0" encoding="utf-8"?>
+<hick:file path="android/app/src/main/res/drawable/ic_launcher_foreground.xml" doc-hidden="true"><?xml version="1.0" encoding="utf-8"?>
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
