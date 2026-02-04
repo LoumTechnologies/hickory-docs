@@ -37,6 +37,8 @@ pub struct HickTag {
     pub self_closing: bool,
     /// 1-based line number where the opening tag starts.
     pub source_line: usize,
+    /// 0-based column number where the opening tag starts (for dedenting content).
+    pub source_column: usize,
 }
 
 impl HickTag {
@@ -305,6 +307,8 @@ struct Parser<'a> {
     input: &'a str,
     pos: usize,
     line: usize,
+    /// 0-based column position in current line.
+    col: usize,
     /// The detected namespace prefix (e.g. `"hick"`, `"h"`).
     prefix: String,
     /// Opening tag marker, e.g. `"<hick:"`.
@@ -322,6 +326,7 @@ impl<'a> Parser<'a> {
             input,
             pos: 0,
             line: 1,
+            col: 0,
             prefix,
             open_marker,
             close_marker,
@@ -348,10 +353,17 @@ impl<'a> Parser<'a> {
         }
     }
 
-    /// Advance `n` bytes, tracking line numbers.
+    /// Advance `n` bytes, tracking line and column numbers.
     fn advance(&mut self, n: usize) {
         let slice = &self.input[self.pos..self.pos + n];
-        self.line += slice.chars().filter(|&c| c == '\n').count();
+        for ch in slice.chars() {
+            if ch == '\n' {
+                self.line += 1;
+                self.col = 0;
+            } else {
+                self.col += 1;
+            }
+        }
         self.pos += n;
     }
 
@@ -479,6 +491,7 @@ impl<'a> Parser<'a> {
     /// Parse an opening tag. Cursor must be at the opening marker.
     fn parse_open_tag(&mut self) -> Result<HickTag, ParseError> {
         let tag_line = self.line;
+        let tag_col = self.col;
 
         // Skip the opening marker (e.g. `<hick:` or `<h:`)
         self.advance(self.open_marker.len());
@@ -491,6 +504,7 @@ impl<'a> Parser<'a> {
                 break;
             }
             self.pos += 1;
+            self.col += 1;
         }
         let name = self.input[name_start..self.pos].to_string();
         if name.is_empty() {
@@ -499,10 +513,6 @@ impl<'a> Parser<'a> {
                 message: format!("empty tag name after <{}:", self.prefix),
             });
         }
-
-        // Update line count for name
-        let name_slice = &self.input[name_start..self.pos];
-        self.line += name_slice.chars().filter(|&c| c == '\n').count();
 
         // Parse attributes
         let mut attributes = Vec::new();
@@ -560,6 +570,7 @@ impl<'a> Parser<'a> {
             children: Vec::new(),
             self_closing,
             source_line: tag_line,
+            source_column: tag_col,
         })
     }
 
@@ -682,6 +693,63 @@ impl fmt::Display for HickTag {
         }
         Ok(())
     }
+}
+
+// ---------------------------------------------------------------------------
+// Content dedenting
+// ---------------------------------------------------------------------------
+
+/// Dedent text content by removing up to `max_indent` leading spaces from each line.
+///
+/// This is used to normalize content within hick elements. When an element is indented
+/// in the source file, its content typically has the same indentation which should be
+/// stripped for the output.
+///
+/// The function handles the common case where content starts with a newline (the opening
+/// tag is on its own line), stripping that leading newline as well.
+///
+/// # Examples
+///
+/// ```
+/// use hick_lang::dedent;
+///
+/// let text = "\n    def hello():\n        print('hi')";
+/// let result = dedent(text, 4);
+/// assert_eq!(result, "def hello():\n    print('hi')");
+/// ```
+pub fn dedent(text: &str, max_indent: usize) -> String {
+    if max_indent == 0 {
+        return text.to_string();
+    }
+
+    let mut result = String::with_capacity(text.len());
+    let mut first = true;
+
+    // Handle content that starts with a newline (opening tag on its own line)
+    let text_trimmed = if text.starts_with('\n') {
+        &text[1..]
+    } else {
+        text
+    };
+
+    for line in text_trimmed.lines() {
+        if !first {
+            result.push('\n');
+        }
+        first = false;
+
+        // Count leading spaces
+        let leading_spaces = line.chars().take_while(|&c| c == ' ').count();
+        let strip = leading_spaces.min(max_indent);
+        result.push_str(&line[strip..]);
+    }
+
+    // Preserve trailing newline if original had one
+    if text_trimmed.ends_with('\n') && !result.ends_with('\n') {
+        result.push('\n');
+    }
+
+    result
 }
 
 // ---------------------------------------------------------------------------
@@ -1187,5 +1255,90 @@ echo hello
 </h:doc>"#;
         let err = parse(src).unwrap_err();
         assert!(matches!(err, ParseError::UnexpectedClose { .. }));
+    }
+
+    // Source column tracking tests
+    #[test]
+    fn source_column_at_line_start() {
+        let src = r#"<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
+<hick:file path="test.txt">content</hick:file>
+</hick:doc>"#;
+        let doc = parse(src).unwrap();
+        let files = doc.find_tags("file");
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].source_column, 0);
+    }
+
+    #[test]
+    fn source_column_indented() {
+        let src = r#"<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
+    <hick:file path="test.txt">content</hick:file>
+</hick:doc>"#;
+        let doc = parse(src).unwrap();
+        let files = doc.find_tags("file");
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].source_column, 4);
+    }
+
+    #[test]
+    fn source_column_nested() {
+        let src = r#"<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
+    <hick:when test="true">
+        <hick:file path="test.txt">content</hick:file>
+    </hick:when>
+</hick:doc>"#;
+        let doc = parse(src).unwrap();
+        // find_tags is non-recursive, so we need to search inside the when tag
+        let whens = doc.find_tags("when");
+        assert_eq!(whens.len(), 1);
+        let files: Vec<_> = whens[0].child_tags().filter(|t| t.name == "file").collect();
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].source_column, 8);
+    }
+
+    // Dedent tests
+    #[test]
+    fn dedent_no_indent() {
+        let text = "line1\nline2\nline3";
+        assert_eq!(dedent(text, 4), "line1\nline2\nline3");
+    }
+
+    #[test]
+    fn dedent_uniform_indent() {
+        let text = "    line1\n    line2\n    line3";
+        assert_eq!(dedent(text, 4), "line1\nline2\nline3");
+    }
+
+    #[test]
+    fn dedent_partial_strip() {
+        let text = "    line1\n        line2\n    line3";
+        assert_eq!(dedent(text, 4), "line1\n    line2\nline3");
+    }
+
+    #[test]
+    fn dedent_leading_newline() {
+        let text = "\n    def hello():\n        print('hi')";
+        assert_eq!(dedent(text, 4), "def hello():\n    print('hi')");
+    }
+
+    #[test]
+    fn dedent_trailing_newline() {
+        let text = "    line1\n    line2\n";
+        assert_eq!(dedent(text, 4), "line1\nline2\n");
+    }
+
+    #[test]
+    fn dedent_zero_indent() {
+        let text = "    line1\n    line2";
+        assert_eq!(dedent(text, 0), "    line1\n    line2");
+    }
+
+    #[test]
+    fn dedent_more_than_available() {
+        let text = "  line1\n  line2";
+        assert_eq!(dedent(text, 8), "line1\nline2");
     }
 }

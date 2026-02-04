@@ -86,6 +86,7 @@ mod tests {
             children,
             self_closing: false,
             source_line: 1,
+            source_column: 0,
         }
     }
 

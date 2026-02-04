@@ -30,7 +30,7 @@ use hick_exec::node::{InsertionPoint, StringNode};
 use hick_exec::state::{FeatureInfo, MultiDocumentState, SubstitutionDef};
 
 use hick_feature::{FeatureDef, FeatureRegistry, FeatureSet};
-use hick_lang::{HickDocument, HickNode, HickTag};
+use hick_lang::{dedent, HickDocument, HickNode, HickTag};
 use hick_token::{ContainerCapabilities, NetworkRule, TokenAuthority};
 
 use hick_case::{apply_case_variant, generate_case_variants};
@@ -145,21 +145,26 @@ fn extension_to_language(path: &str) -> &'static str {
 /// Process document nodes for weave output.
 ///
 /// Iterates through nodes and emits:
-/// - `HickNode::Text` → prose (with substitutions applied)
+/// - `HickNode::Text` → prose (with substitutions applied, dedented)
 /// - `<hick:file>` → heading + fenced code block (unless `doc-hidden="true"`)
 /// - `<hick:val>` → resolved variable value
 /// - `<hick:when>` → recursively process children (already filtered)
+///
+/// The `indent` parameter specifies how many leading spaces to strip from prose
+/// text (typically 0 for top-level content, or the parent tag's source_column).
 fn process_weave_content(
     nodes: &[HickNode],
     weave_ip: &Arc<InsertionPoint>,
     transcripts: &HashMap<String, Vec<ExecTranscriptEntry>>,
     state: &MultiDocumentState,
+    indent: usize,
 ) {
     for node in nodes {
         match node {
             HickNode::Text(text) => {
-                // Apply substitutions to prose text
-                let substituted = apply_substitutions(text, state);
+                // Dedent and apply substitutions to prose text
+                let dedented = dedent(text, indent);
+                let substituted = apply_substitutions(&dedented, state);
                 weave_ip.add(Arc::new(StringNode::new(substituted)));
             }
             HickNode::Tag(tag) => {
@@ -194,8 +199,8 @@ fn process_weave_tag(
                 // Emit opening code fence
                 weave_ip.add(Arc::new(StringNode::new(format!("```{language}\n"))));
 
-                // Process file content (same as regular file processing but to weave output)
-                process_file_children_to_weave(&tag.children, weave_ip, transcripts, state);
+                // Process file content with dedenting based on file tag's indentation
+                process_file_children_to_weave(&tag.children, weave_ip, transcripts, state, tag.source_column);
 
                 // Emit closing code fence
                 weave_ip.add(Arc::new(StringNode::new("```\n".to_string())));
@@ -209,7 +214,8 @@ fn process_weave_tag(
         }
         "when" => {
             // When tags have already been filtered, so just process children
-            process_weave_content(&tag.children, weave_ip, transcripts, state);
+            // Use the when tag's indentation for dedenting child content
+            process_weave_content(&tag.children, weave_ip, transcripts, state, tag.source_column);
         }
         // Skip other tags (var, copy, cut, substitute, feature, exclude, etc.)
         // These are structural and don't produce weave output
@@ -218,16 +224,22 @@ fn process_weave_tag(
 }
 
 /// Process file children for weave output (similar to process_file_children but outputs to weave).
+///
+/// The `indent` parameter specifies how many leading spaces to strip from each
+/// line of text content (typically the source_column of the parent file tag).
 fn process_file_children_to_weave(
     children: &[HickNode],
     weave_ip: &Arc<InsertionPoint>,
     transcripts: &HashMap<String, Vec<ExecTranscriptEntry>>,
     state: &MultiDocumentState,
+    indent: usize,
 ) {
     for child in children {
         match child {
             HickNode::Text(text) => {
-                let substituted = apply_substitutions(text, state);
+                // Dedent and apply substitutions to text content
+                let dedented = dedent(text, indent);
+                let substituted = apply_substitutions(&dedented, state);
                 weave_ip.add(Arc::new(StringNode::new(substituted)));
             }
             HickNode::Tag(child_tag) if child_tag.name == "exec" => {
@@ -244,7 +256,9 @@ fn process_file_children_to_weave(
             HickNode::Tag(child_tag) if child_tag.name == "paste" => {
                 let selector = tag_attr(child_tag, "select").unwrap_or_default();
                 if let Some(content) = state.resolve_paste(&selector) {
-                    let substituted = apply_substitutions(&content, state);
+                    // Dedent and apply substitutions to pasted content
+                    let dedented = dedent(&content, indent);
+                    let substituted = apply_substitutions(&dedented, state);
                     weave_ip.add(Arc::new(StringNode::new(substituted)));
                 }
             }
@@ -274,8 +288,9 @@ fn process_weave_output(
         let weave_ip = Arc::new(InsertionPoint::new());
 
         // Process all document nodes for weave output
+        // Use 0 indent for top-level content (direct children of <hick:doc>)
         for (_, doc) in documents {
-            process_weave_content(&doc.nodes, &weave_ip, transcripts, state);
+            process_weave_content(&doc.nodes, &weave_ip, transcripts, state, 0);
         }
 
         weave_ip.close();
@@ -498,7 +513,7 @@ pub async fn run_pipeline_with_authority(
             let path = interpolate_path(&raw_path, &state);
             let file_ip = Arc::new(InsertionPoint::new());
 
-            process_file_children(&tag.children, &file_ip, &transcripts, &state);
+            process_file_children(&tag.children, &file_ip, &transcripts, &state, tag.source_column);
 
             file_ip.close();
             state.add_file_output(path, file_ip);
@@ -931,7 +946,7 @@ pub async fn run_pipeline_live(
             let path = interpolate_path(&raw_path, &state);
             let file_ip = Arc::new(InsertionPoint::new());
 
-            process_file_children(&tag.children, &file_ip, &transcripts, &state);
+            process_file_children(&tag.children, &file_ip, &transcripts, &state, tag.source_column);
 
             file_ip.close();
             state.add_file_output(path, file_ip);
@@ -1322,17 +1337,22 @@ fn apply_substitutions(text: &str, state: &MultiDocumentState) -> String {
 /// Process children of a `<hick:file>` tag, adding rendered content to the
 /// insertion point. Handles text nodes, exec transcript rendering (with
 /// `show` attribute), paste resolution, and val interpolation.
+///
+/// The `indent` parameter specifies how many leading spaces to strip from each
+/// line of text content (typically the source_column of the parent tag).
 fn process_file_children(
     children: &[HickNode],
     file_ip: &Arc<InsertionPoint>,
     transcripts: &HashMap<String, Vec<ExecTranscriptEntry>>,
     state: &MultiDocumentState,
+    indent: usize,
 ) {
     for child in children {
         match child {
             HickNode::Text(text) => {
-                // Apply substitutions to text content
-                let substituted = apply_substitutions(text, state);
+                // Dedent and apply substitutions to text content
+                let dedented = dedent(text, indent);
+                let substituted = apply_substitutions(&dedented, state);
                 file_ip.add(Arc::new(StringNode::new(substituted)));
             }
             HickNode::Tag(child_tag) if child_tag.name == "exec" => {
@@ -1353,8 +1373,9 @@ fn process_file_children(
             HickNode::Tag(child_tag) if child_tag.name == "paste" => {
                 let selector = tag_attr(child_tag, "select").unwrap_or_default();
                 if let Some(content) = state.resolve_paste(&selector) {
-                    // Apply substitutions to pasted content
-                    let substituted = apply_substitutions(&content, state);
+                    // Dedent and apply substitutions to pasted content
+                    let dedented = dedent(&content, indent);
+                    let substituted = apply_substitutions(&dedented, state);
                     file_ip.add(Arc::new(StringNode::new(substituted)));
                 } else {
                     warn!("Paste selector '{selector}' not found");
