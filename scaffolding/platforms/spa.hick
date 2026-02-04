@@ -28,7 +28,8 @@ navigation, though a simple SPA might not need it—remove if unused:
   "dependencies": {
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "react-router-dom": "^6.22.0"
+    "react-router-dom": "^6.22.0"<hick:when test="rust-frontend-lib">,
+    "<hick:val name="project_name" />-core": "file:../rust-lib/pkg"</hick:when>
   },
   "devDependencies": {
     "@eslint/js": "^9.15.0",
@@ -41,7 +42,9 @@ navigation, though a simple SPA might not need it—remove if unused:
     "globals": "^15.12.0",
     "typescript": "~5.6.2",
     "typescript-eslint": "^8.15.0",
-    "vite": "^6.0.1"
+    "vite": "^6.0.1"<hick:when test="rust-frontend-lib">,
+    "vite-plugin-wasm": "^3.3.0",
+    "vite-plugin-top-level-await": "^1.4.4"</hick:when>
   }
 }
 </hick:file>
@@ -51,6 +54,26 @@ navigation, though a simple SPA might not need it—remove if unused:
 Vite requires minimal configuration. The React plugin enables JSX transformation
 and Fast Refresh for instant updates during development:
 
+<hick:when test="rust-frontend-lib">
+<hick:file path="web/vite.config.ts">import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+import wasm from 'vite-plugin-wasm'
+import topLevelAwait from 'vite-plugin-top-level-await'
+
+// https://vite.dev/config/
+export default defineConfig({
+  plugins: [
+    react(),
+    wasm(),
+    topLevelAwait(),
+  ],
+  optimizeDeps: {
+    exclude: ['<hick:val name="project_name" />-core'],
+  },
+})
+</hick:file>
+</hick:when>
+<hick:when test="!rust-frontend-lib">
 <hick:file path="web/vite.config.ts">import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 
@@ -59,6 +82,7 @@ export default defineConfig({
   plugins: [react()],
 })
 </hick:file>
+</hick:when>
 
 ### TypeScript Configuration
 
@@ -196,6 +220,84 @@ createRoot(document.getElementById('root')!).render(
 The App component demonstrates basic React patterns—state management with hooks
 and event handling:
 
+<hick:when test="rust-frontend-lib">
+<hick:file path="web/src/App.tsx">import { useState, useEffect } from 'react'
+import './App.css'
+import { useCore } from './hooks/useCore'
+
+function App() {
+  const [count, setCount] = useState(0)
+  const [name, setName] = useState('')
+  const { isReady, greet, fibonacci, processData } = useCore()
+  const [greeting, setGreeting] = useState('')
+  const [fibResult, setFibResult] = useState<bigint | null>(null)
+
+  useEffect(() => {
+    if (isReady && name) {
+      setGreeting(greet(name))
+    } else if (isReady) {
+      setGreeting(greet(''))
+    }
+  }, [isReady, name, greet])
+
+  const handleFibonacci = () => {
+    if (isReady) {
+      setFibResult(fibonacci(count))
+    }
+  }
+
+  return (
+    <div className="app">
+      <header className="app-header">
+        <h1><hick:val name="project_name" /></h1>
+      </header>
+      <main className="app-main">
+        <p className="welcome">Welcome to <hick:val name="project_name" /></p>
+        <p className="subtitle">Your cross-platform app starts here</p>
+
+        <section className="core-demo">
+          <h2>Rust Core Library Demo</h2>
+          {!isReady ? (
+            <p className="loading">Loading WASM module...</p>
+          ) : (
+            <>
+              <div className="demo-section">
+                <h3>Greeting</h3>
+                <input
+                  type="text"
+                  placeholder="Enter your name"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                />
+                <p className="result">{greeting}</p>
+              </div>
+
+              <div className="demo-section">
+                <h3>Fibonacci Calculator</h3>
+                <div className="card">
+                  <button onClick={() => setCount((c) => c + 1)}>
+                    n = {count}
+                  </button>
+                  <button onClick={handleFibonacci}>
+                    Calculate
+                  </button>
+                </div>
+                {fibResult !== null && (
+                  <p className="result">fib({count}) = {fibResult.toString()}</p>
+                )}
+              </div>
+            </>
+          )}
+        </section>
+      </main>
+    </div>
+  )
+}
+
+export default App
+</hick:file>
+</hick:when>
+<hick:when test="!rust-frontend-lib">
 <hick:file path="web/src/App.tsx">import { useState } from 'react'
 import './App.css'
 
@@ -222,6 +324,64 @@ function App() {
 
 export default App
 </hick:file>
+</hick:when>
+
+<hick:when test="rust-frontend-lib">
+### Core Library Hook
+
+A React hook that initializes and exposes the WASM module:
+
+<hick:file path="web/src/hooks/useCore.ts">import { useState, useEffect, useCallback } from 'react'
+import init, { greet as wasmGreet, fibonacci as wasmFibonacci, process_data as wasmProcessData } from '<hick:val name="project_name" />-core'
+
+interface ProcessDataResult {
+  sum: number
+  count: number
+  average: number
+  sorted: number[]
+  error?: string
+}
+
+export function useCore() {
+  const [isReady, setIsReady] = useState(false)
+
+  useEffect(() => {
+    init().then(() => {
+      setIsReady(true)
+    }).catch((err) => {
+      console.error('Failed to initialize WASM module:', err)
+    })
+  }, [])
+
+  const greet = useCallback((name: string): string => {
+    if (!isReady) return ''
+    return wasmGreet(name)
+  }, [isReady])
+
+  const fibonacci = useCallback((n: number): bigint => {
+    if (!isReady) return BigInt(0)
+    return wasmFibonacci(n)
+  }, [isReady])
+
+  const processData = useCallback((values: number[]): ProcessDataResult | null => {
+    if (!isReady) return null
+    try {
+      const result = wasmProcessData(JSON.stringify({ values }))
+      return JSON.parse(result)
+    } catch {
+      return null
+    }
+  }, [isReady])
+
+  return {
+    isReady,
+    greet,
+    fibonacci,
+    processData,
+  }
+}
+</hick:file>
+</hick:when>
 
 ### Styles
 
@@ -299,6 +459,8 @@ body {
 
 .card {
   padding: 2em;
+  display: flex;
+  gap: 1rem;
 }
 
 button {
@@ -323,6 +485,67 @@ button:focus-visible {
 @media (prefers-color-scheme: light) {
   button {
     background-color: #f9f9f9;
+  }
+}
+
+.core-demo {
+  margin-top: 2rem;
+  padding: 2rem;
+  border: 1px solid #333;
+  border-radius: 8px;
+  max-width: 400px;
+}
+
+.core-demo h2 {
+  margin-top: 0;
+  font-size: 1.5rem;
+  color: #646cff;
+}
+
+.demo-section {
+  margin-bottom: 1.5rem;
+}
+
+.demo-section h3 {
+  font-size: 1rem;
+  margin-bottom: 0.5rem;
+}
+
+.demo-section input {
+  padding: 0.5em;
+  border-radius: 4px;
+  border: 1px solid #333;
+  background-color: #1a1a1a;
+  color: inherit;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.demo-section .result {
+  margin-top: 0.5rem;
+  padding: 0.5rem;
+  background-color: #2a2a2a;
+  border-radius: 4px;
+  font-family: monospace;
+}
+
+.loading {
+  color: #888;
+  font-style: italic;
+}
+
+@media (prefers-color-scheme: light) {
+  .core-demo {
+    border-color: #ddd;
+  }
+
+  .demo-section input {
+    background-color: #fff;
+    border-color: #ddd;
+  }
+
+  .demo-section .result {
+    background-color: #f5f5f5;
   }
 }
 </hick:file>

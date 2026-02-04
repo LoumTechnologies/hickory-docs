@@ -51,6 +51,12 @@ enum Command {
     ///
     /// Checks that `.agents/hick.md` exists, content matches, and references are wired.
     Validate(ValidateArgs),
+
+    /// Generate all combinations of features to separate folders.
+    ///
+    /// Creates a matrix of all feature combinations and generates each to a
+    /// separate output directory. Optionally runs verification commands.
+    GenerateMatrix(GenerateMatrixArgs),
 }
 
 #[derive(clap::Args)]
@@ -202,6 +208,69 @@ struct ValidateArgs {
     fix: bool,
 }
 
+#[derive(clap::Args)]
+struct GenerateMatrixArgs {
+    /// `.hick` files or directory to process.
+    files: Vec<PathBuf>,
+
+    /// Path to config file (default: auto-discover `_hick.yml`).
+    #[arg(long)]
+    config: Option<PathBuf>,
+
+    /// Set a variable: --param key=value
+    #[arg(long = "param", value_parser = parse_param)]
+    params: Vec<(String, String)>,
+
+    /// Output base directory for generated feature combinations.
+    /// Each combination gets a subdirectory named after its features.
+    #[arg(long, default_value = "matrix")]
+    output_dir: PathBuf,
+
+    /// Only include these features (comma-separated).
+    /// If not specified, uses all leaf features (non-meta features).
+    #[arg(long)]
+    include_features: Option<String>,
+
+    /// Exclude these features from combinations (comma-separated).
+    #[arg(long)]
+    exclude_features: Option<String>,
+
+    /// Command to run for verification after each combination.
+    /// The command is run in the output directory. Use {{features}} for
+    /// the comma-separated list of enabled features.
+    #[arg(long)]
+    verify: Option<String>,
+
+    /// Timeout for verification commands in seconds.
+    #[arg(long, default_value = "300")]
+    verify_timeout: u64,
+
+    /// Continue on verification failure instead of stopping.
+    #[arg(long)]
+    continue_on_error: bool,
+
+    /// Only generate combinations that include at least one of these features.
+    /// Useful to avoid generating the empty combination.
+    #[arg(long)]
+    require_any: Option<String>,
+
+    /// Maximum number of features in a combination (0 = unlimited).
+    #[arg(long, default_value = "0")]
+    max_combination_size: usize,
+
+    /// Generate only single-feature combinations (shortcut for --max-combination-size 1).
+    #[arg(long)]
+    singles_only: bool,
+
+    /// Dry run: show what would be generated without actually generating.
+    #[arg(long)]
+    dry_run: bool,
+
+    /// Enable verbose output.
+    #[arg(short, long)]
+    verbose: bool,
+}
+
 // ---------------------------------------------------------------------------
 // Main
 // ---------------------------------------------------------------------------
@@ -227,7 +296,7 @@ fn parse_cli() -> Cli {
     let first_positional = raw_args.iter().skip(1).find(|a| !a.starts_with('-'));
 
     let is_subcommand =
-        first_positional.is_some_and(|a| matches!(a.as_str(), "run" | "up" | "repl" | "init" | "validate" | "help"));
+        first_positional.is_some_and(|a| matches!(a.as_str(), "run" | "up" | "repl" | "init" | "validate" | "generate-matrix" | "help"));
 
     if is_subcommand {
         Cli::parse()
@@ -341,6 +410,10 @@ async fn main() -> Result<()> {
                 }
                 bail!("Validation failed with {} issue(s)", issues.len())
             }
+        }
+        Command::GenerateMatrix(args) => {
+            init_logger(args.verbose);
+            run_generate_matrix(args).await
         }
     }
 }
@@ -673,6 +746,351 @@ async fn run_single_shot(cli: RunArgs) -> Result<()> {
     );
 
     Ok(())
+}
+
+/// Run the generate-matrix command: generate all feature combinations.
+async fn run_generate_matrix(cli: GenerateMatrixArgs) -> Result<()> {
+    use std::collections::HashSet;
+    use std::process::Command as ProcessCommand;
+
+    let start_time = Instant::now();
+
+    // Expand CLI file arguments
+    let (expanded_files, dir_config) = if !cli.files.is_empty() {
+        let mut all_files = Vec::new();
+        let mut found_config = None;
+        for path in &cli.files {
+            let (files, cfg) = expand_path_arg(path)?;
+            all_files.extend(files);
+            if cfg.is_some() {
+                found_config = cfg;
+            }
+        }
+        (all_files, found_config)
+    } else {
+        (Vec::new(), None)
+    };
+
+    // Discover config file
+    let config_path = cli
+        .config
+        .clone()
+        .or(dir_config)
+        .or_else(|| find_config(&std::env::current_dir().unwrap_or_default()));
+
+    let config = if let Some(ref path) = config_path {
+        info!("Using config: {}", path.display());
+        HickConfig::load(path)?
+    } else {
+        HickConfig::default()
+    };
+
+    let config_dir = config_path
+        .as_ref()
+        .and_then(|p| p.parent())
+        .unwrap_or(Path::new("."));
+
+    // Resolve files
+    let files = if !expanded_files.is_empty() {
+        expanded_files
+    } else {
+        config.resolve_files(config_dir)?
+    };
+
+    if files.is_empty() {
+        bail!("No .hick files specified");
+    }
+
+    // Read all input files
+    let mut file_contents = Vec::new();
+    for path in &files {
+        let source = std::fs::read_to_string(path)
+            .with_context(|| format!("failed to read {}", path.display()))?;
+        file_contents.push((path.display().to_string(), source));
+    }
+
+    // Build sources slice for feature extraction
+    let sources: Vec<(&str, &str)> = file_contents
+        .iter()
+        .map(|(name, content)| (name.as_str(), content.as_str()))
+        .collect();
+
+    // Extract feature definitions from the hick files
+    let feature_defs = hick::extract_feature_definitions(&sources)?;
+
+    // Identify leaf features (those that are not meta-features)
+    // A leaf feature is one that doesn't have any `requires` attributes
+    let leaf_features: Vec<String> = feature_defs
+        .iter()
+        .filter(|(_, def)| def.requires.is_empty())
+        .map(|(name, _)| name.clone())
+        .collect();
+
+    let meta_features: Vec<String> = feature_defs
+        .iter()
+        .filter(|(_, def)| !def.requires.is_empty())
+        .map(|(name, _)| name.clone())
+        .collect();
+
+    info!(
+        "Found {} features: {} leaf, {} meta",
+        feature_defs.len(),
+        leaf_features.len(),
+        meta_features.len()
+    );
+
+    // Determine which features to use for combinations
+    let mut features_to_combine: Vec<String> = if let Some(ref include) = cli.include_features {
+        include
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect()
+    } else {
+        leaf_features.clone()
+    };
+
+    // Apply exclusions
+    if let Some(ref exclude) = cli.exclude_features {
+        let exclusions: HashSet<String> = exclude
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .collect();
+        features_to_combine.retain(|f| !exclusions.contains(f));
+    }
+
+    // Sort for consistent ordering
+    features_to_combine.sort();
+
+    info!("Generating combinations for features: {:?}", features_to_combine);
+
+    // Generate power set of feature combinations
+    let max_size = if cli.singles_only {
+        1
+    } else if cli.max_combination_size > 0 {
+        cli.max_combination_size
+    } else {
+        features_to_combine.len()
+    };
+
+    let mut combinations: Vec<Vec<String>> = Vec::new();
+    generate_combinations(&features_to_combine, max_size, &mut combinations);
+
+    // Filter out empty combination if require_any is specified
+    if let Some(ref require_any) = cli.require_any {
+        let required: HashSet<String> = require_any
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .collect();
+        combinations.retain(|combo| combo.iter().any(|f| required.contains(f)));
+    } else {
+        // By default, skip the empty combination
+        combinations.retain(|combo| !combo.is_empty());
+    }
+
+    info!(
+        "Generated {} feature combinations (max size: {})",
+        combinations.len(),
+        max_size
+    );
+
+    if cli.dry_run {
+        println!("Feature combinations (dry run):\n");
+        for combo in &combinations {
+            let name = if combo.is_empty() {
+                "none".to_string()
+            } else {
+                combo.join("-")
+            };
+            println!("  {}/", name);
+        }
+        println!("\nTotal: {} combinations", combinations.len());
+        return Ok(());
+    }
+
+    // Create output directory
+    std::fs::create_dir_all(&cli.output_dir)
+        .with_context(|| format!("failed to create output directory: {}", cli.output_dir.display()))?;
+
+    // Merge config vars with CLI params
+    let mut base_params: Vec<(String, String)> = config
+        .vars
+        .iter()
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect();
+    for (k, v) in &cli.params {
+        base_params.retain(|(pk, _)| pk != k);
+        base_params.push((k.clone(), v.clone()));
+    }
+
+    // Track results
+    let mut successful = 0usize;
+    let mut failed = 0usize;
+    let mut failures: Vec<(String, String)> = Vec::new();
+
+    // Generate each combination
+    for (i, combo) in combinations.iter().enumerate() {
+        let combo_name = if combo.is_empty() {
+            "none".to_string()
+        } else {
+            combo.join("-")
+        };
+
+        let combo_dir = cli.output_dir.join(&combo_name);
+        let features_str = combo.join(",");
+
+        println!(
+            "[{}/{}] Generating: {} -> {}",
+            i + 1,
+            combinations.len(),
+            if features_str.is_empty() { "(none)" } else { &features_str },
+            combo_dir.display()
+        );
+
+        // Build params for this combination
+        let mut params = base_params.clone();
+        params.retain(|(pk, _)| pk != "features");
+        if !combo.is_empty() {
+            params.push(("features".to_string(), features_str.clone()));
+        }
+
+        // Run the pipeline for this combination
+        let result = hick::run_pipeline(&sources, &params).await;
+
+        match result {
+            Ok(pipeline_result) => {
+                // Write outputs
+                std::fs::create_dir_all(&combo_dir)?;
+
+                for (path, content) in &pipeline_result.files {
+                    let full_path = combo_dir.join(path);
+                    if let Some(parent) = full_path.parent() {
+                        std::fs::create_dir_all(parent)?;
+                    }
+                    std::fs::write(&full_path, content)?;
+                }
+
+                info!(
+                    "  Generated {} files",
+                    pipeline_result.files.len()
+                );
+
+                // Run verification if specified
+                if let Some(ref verify_cmd) = cli.verify {
+                    let cmd_with_features = verify_cmd.replace("{{features}}", &features_str);
+                    let cmd_with_dir = cmd_with_features.replace("{{dir}}", &combo_dir.to_string_lossy());
+
+                    debug!("Running verification: {}", cmd_with_dir);
+
+                    let verify_result = ProcessCommand::new("sh")
+                        .arg("-c")
+                        .arg(&cmd_with_dir)
+                        .current_dir(&combo_dir)
+                        .output();
+
+                    match verify_result {
+                        Ok(output) => {
+                            if output.status.success() {
+                                info!("  Verification passed");
+                                successful += 1;
+                            } else {
+                                let stderr = String::from_utf8_lossy(&output.stderr);
+                                let stdout = String::from_utf8_lossy(&output.stdout);
+                                let error_msg = format!(
+                                    "exit code: {:?}\nstdout: {}\nstderr: {}",
+                                    output.status.code(),
+                                    stdout,
+                                    stderr
+                                );
+                                eprintln!("  Verification FAILED: exit code {:?}", output.status.code());
+                                failed += 1;
+                                failures.push((combo_name.clone(), error_msg));
+
+                                if !cli.continue_on_error {
+                                    bail!(
+                                        "Verification failed for combination '{}'. Use --continue-on-error to proceed.",
+                                        combo_name
+                                    );
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            let error_msg = format!("failed to run command: {}", e);
+                            eprintln!("  Verification FAILED: {}", error_msg);
+                            failed += 1;
+                            failures.push((combo_name.clone(), error_msg));
+
+                            if !cli.continue_on_error {
+                                bail!(
+                                    "Verification failed for combination '{}': {}. Use --continue-on-error to proceed.",
+                                    combo_name,
+                                    e
+                                );
+                            }
+                        }
+                    }
+                } else {
+                    successful += 1;
+                }
+            }
+            Err(e) => {
+                let error_msg = format!("{}", e);
+                eprintln!("  Generation FAILED: {}", error_msg);
+                failed += 1;
+                failures.push((combo_name.clone(), error_msg));
+
+                if !cli.continue_on_error {
+                    bail!(
+                        "Generation failed for combination '{}': {}. Use --continue-on-error to proceed.",
+                        combo_name,
+                        e
+                    );
+                }
+            }
+        }
+    }
+
+    // Print summary
+    let elapsed = start_time.elapsed();
+    println!("\n--- Summary ---");
+    println!("Total combinations: {}", combinations.len());
+    println!("Successful: {}", successful);
+    println!("Failed: {}", failed);
+    println!("Time: {}", hick::fmt_duration(elapsed));
+
+    if !failures.is_empty() {
+        println!("\nFailures:");
+        for (name, error) in &failures {
+            println!("  {} - {}", name, error.lines().next().unwrap_or("unknown error"));
+        }
+    }
+
+    if failed > 0 {
+        bail!("{} combination(s) failed", failed);
+    }
+
+    Ok(())
+}
+
+/// Generate all combinations of features up to max_size.
+fn generate_combinations(
+    features: &[String],
+    max_size: usize,
+    result: &mut Vec<Vec<String>>,
+) {
+    let n = features.len();
+    // Power set: iterate through all 2^n combinations
+    for mask in 0..(1usize << n) {
+        let mut combo: Vec<String> = Vec::new();
+        for (i, feature) in features.iter().enumerate() {
+            if mask & (1 << i) != 0 {
+                combo.push(feature.clone());
+            }
+        }
+        if combo.len() <= max_size {
+            result.push(combo);
+        }
+    }
 }
 
 /// Remove files and directories from `output_dir` that are not in `expected_paths`.

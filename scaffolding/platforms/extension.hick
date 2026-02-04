@@ -26,7 +26,8 @@ Similar to the web SPA, but with additional Chrome types and the CRXJS plugin:
   },
   "dependencies": {
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1"<hick:when test="rust-frontend-lib">,
+    "<hick:val name="project_name" />-core": "file:../rust-lib/pkg"</hick:when>
   },
   "devDependencies": {
     "@crxjs/vite-plugin": "^2.0.0-beta.25",
@@ -41,7 +42,9 @@ Similar to the web SPA, but with additional Chrome types and the CRXJS plugin:
     "globals": "^15.12.0",
     "typescript": "~5.6.2",
     "typescript-eslint": "^8.15.0",
-    "vite": "^6.0.1"
+    "vite": "^6.0.1"<hick:when test="rust-frontend-lib">,
+    "vite-plugin-wasm": "^3.3.0",
+    "vite-plugin-top-level-await": "^1.4.4"</hick:when>
   }
 }
 </hick:file>
@@ -94,6 +97,35 @@ Manifest V3 is required for Chrome and recommended for Firefox. Key sections:
 The CRXJS plugin handles manifest processing, hot reload in development, and
 proper bundling for production. It reads the manifest directly:
 
+<hick:when test="rust-frontend-lib">
+<hick:file path="browser-extension/vite.config.ts">import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+import { crx } from '@crxjs/vite-plugin'
+import wasm from 'vite-plugin-wasm'
+import topLevelAwait from 'vite-plugin-top-level-await'
+import manifest from './manifest.json'
+
+export default defineConfig({
+  plugins: [
+    react(),
+    wasm(),
+    topLevelAwait(),
+    crx({ manifest }),
+  ],
+  optimizeDeps: {
+    exclude: ['<hick:val name="project_name" />-core'],
+  },
+  build: {
+    rollupOptions: {
+      input: {
+        popup: 'index.html',
+      },
+    },
+  },
+})
+</hick:file>
+</hick:when>
+<hick:when test="!rust-frontend-lib">
 <hick:file path="browser-extension/vite.config.ts">import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { crx } from '@crxjs/vite-plugin'
@@ -113,6 +145,7 @@ export default defineConfig({
   },
 })
 </hick:file>
+</hick:when>
 
 ### TypeScript Configuration
 
@@ -237,6 +270,67 @@ createRoot(document.getElementById('root')!).render(
 The Popup component demonstrates Chrome storage API usage. Data persists across
 browser sessions and syncs if the user is signed into Chrome:
 
+<hick:when test="rust-frontend-lib">
+<hick:file path="browser-extension/src/popup/Popup.tsx">import { useState, useEffect } from 'react'
+import './Popup.css'
+import { useCore } from '../hooks/useCore'
+
+function Popup() {
+  const [count, setCount] = useState(0)
+  const { isReady, greet, fibonacci } = useCore()
+  const [greeting, setGreeting] = useState('')
+
+  useEffect(() => {
+    // Load count from storage on mount
+    chrome.storage.local.get(['count'], (result) => {
+      if (result.count !== undefined) {
+        setCount(result.count)
+      }
+    })
+  }, [])
+
+  useEffect(() => {
+    if (isReady) {
+      setGreeting(greet('Extension User'))
+    }
+  }, [isReady, greet])
+
+  const handleClick = () => {
+    const newCount = count + 1
+    setCount(newCount)
+    // Persist to storage
+    chrome.storage.local.set({ count: newCount })
+  }
+
+  const fibResult = isReady ? fibonacci(count) : null
+
+  return (
+    <div className="popup">
+      <header className="popup-header">
+        <h1><hick:val name="project_name" /></h1>
+      </header>
+      <main className="popup-main">
+        {!isReady ? (
+          <p className="loading">Loading...</p>
+        ) : (
+          <>
+            <p className="greeting">{greeting}</p>
+            <button onClick={handleClick}>
+              n = {count}
+            </button>
+            <p className="fib-result">fib({count}) = {fibResult?.toString() ?? '...'}</p>
+            <p className="powered-by">Powered by Rust + WASM</p>
+          </>
+        )}
+      </main>
+    </div>
+  )
+}
+
+export default Popup
+</hick:file>
+</hick:when>
+<hick:when test="!rust-frontend-lib">
 <hick:file path="browser-extension/src/popup/Popup.tsx">import { useState, useEffect } from 'react'
 import './Popup.css'
 
@@ -276,6 +370,7 @@ function Popup() {
 
 export default Popup
 </hick:file>
+</hick:when>
 
 <hick:file path="browser-extension/src/popup/index.css" doc-hidden="true">:root {
   font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
@@ -328,6 +423,29 @@ body {
   color: #888;
 }
 
+.popup-main .greeting {
+  color: #646cff;
+  font-weight: 500;
+}
+
+.popup-main .fib-result {
+  font-family: monospace;
+  background-color: #2a2a2a;
+  padding: 0.5rem;
+  border-radius: 4px;
+}
+
+.popup-main .powered-by {
+  font-size: 0.75rem;
+  color: #666;
+  margin-top: 1rem;
+}
+
+.loading {
+  color: #888;
+  font-style: italic;
+}
+
 button {
   border-radius: 8px;
   border: 1px solid transparent;
@@ -348,8 +466,60 @@ button:hover {
   button {
     background-color: #f9f9f9;
   }
+  .popup-main .fib-result {
+    background-color: #f5f5f5;
+  }
 }
 </hick:file>
+
+<hick:when test="rust-frontend-lib">
+### Core Library Hook
+
+A React hook that initializes and exposes the WASM module for the extension:
+
+<hick:file path="browser-extension/src/hooks/useCore.ts">import { useState, useEffect, useCallback } from 'react'
+import init, { greet as wasmGreet, fibonacci as wasmFibonacci, process_data as wasmProcessData } from '<hick:val name="project_name" />-core'
+
+export function useCore() {
+  const [isReady, setIsReady] = useState(false)
+
+  useEffect(() => {
+    init().then(() => {
+      setIsReady(true)
+    }).catch((err) => {
+      console.error('Failed to initialize WASM module:', err)
+    })
+  }, [])
+
+  const greet = useCallback((name: string): string => {
+    if (!isReady) return ''
+    return wasmGreet(name)
+  }, [isReady])
+
+  const fibonacci = useCallback((n: number): bigint => {
+    if (!isReady) return BigInt(0)
+    return wasmFibonacci(n)
+  }, [isReady])
+
+  const processData = useCallback((values: number[]) => {
+    if (!isReady) return null
+    try {
+      const result = wasmProcessData(JSON.stringify({ values }))
+      return JSON.parse(result)
+    } catch {
+      return null
+    }
+  }, [isReady])
+
+  return {
+    isReady,
+    greet,
+    fibonacci,
+    processData,
+  }
+}
+</hick:file>
+</hick:when>
 
 ### Background Service Worker
 

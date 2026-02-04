@@ -70,13 +70,20 @@ Features control which platforms are generated. They can be combined freely.
 <hick:feature name="spa" description="React TypeScript single-page application" />
 <hick:feature name="extension" description="Browser extension with React TypeScript" />
 <hick:feature name="backend" description="Rust backend API server" />
+<hick:feature name="rust-frontend-lib" description="Shared Rust library for frontends (WASM + FFI bindings)" />
+
+**Build systems:**
+
+<hick:feature name="just" description="Generate justfile for build automation (just command runner)" />
+<hick:feature name="make" description="Generate Makefile for build automation (GNU make)" />
 
 **Meta-features** for convenience:
 
-<hick:feature name="all" description="Enable all platforms" requires="swiftui compose avalonia spa extension backend" />
+<hick:feature name="all" description="Enable all platforms" requires="swiftui compose avalonia spa extension backend rust-frontend-lib" />
 <hick:feature name="mobile" description="Mobile platforms" requires="swiftui compose" />
 <hick:feature name="desktop" description="Desktop platforms" requires="swiftui avalonia" />
 <hick:feature name="web" description="Web platforms" requires="spa extension" />
+<hick:feature name="native" description="Native platforms with Rust library" requires="swiftui compose avalonia rust-frontend-lib" />
 
 | Feature | Description |
 |---------|-------------|
@@ -86,10 +93,14 @@ Features control which platforms are generated. They can be combined freely.
 | `spa` | React TypeScript web app |
 | `extension` | Browser extension |
 | `backend` | Rust API server |
-| `all` | All of the above |
+| `rust-frontend-lib` | Shared Rust library (WASM + FFI) |
+| `just` | Justfile for build automation |
+| `make` | Makefile for build automation |
+| `all` | All platforms (not build systems) |
 | `mobile` | SwiftUI + Compose |
 | `desktop` | SwiftUI + Avalonia |
 | `web` | SPA + Extension |
+| `native` | Native platforms + Rust library |
 
 ---
 
@@ -235,6 +246,23 @@ cd backend
 cargo run
 ```
 </hick:when>
+<hick:when test="rust-frontend-lib">
+### Rust Frontend Library
+
+The shared Rust library contains business logic compiled to multiple targets.
+
+**Build for WebAssembly:**
+```bash
+cd rust-lib
+./build-wasm.sh
+```
+
+**Build for Native FFI:**
+```bash
+cd rust-lib
+./build-native.sh
+```
+</hick:when>
 
 ## License
 
@@ -277,10 +305,19 @@ node_modules/
 .env.local
 .env.*.local
 </hick:when>
-<hick:when test="backend">
+<hick:when test="backend || rust-frontend-lib">
 # Rust
 target/
 Cargo.lock
+</hick:when>
+<hick:when test="rust-frontend-lib">
+# WASM build outputs
+rust-lib/pkg/
+rust-lib/pkg-web/
+# Generated FFI bindings
+rust-lib/bindings/swift/
+rust-lib/bindings/kotlin/
+rust-lib/bindings/csharp/
 </hick:when>
 </hick:file>
 
@@ -298,5 +335,10 @@ See the individual platform documentation:
 - [SPA Platform](platforms/spa.hick) — React + Vite web application
 - [Extension Platform](platforms/extension.hick) — Browser extension
 - [Backend Platform](platforms/backend.hick) — Rust Axum server
+- [Rust Frontend Library](platforms/rust-frontend-lib.hick) — Shared Rust library with WASM + FFI
+
+Build system templates:
+- [Just Build System](platforms/just.hick) — Justfile for task automation
+- [Make Build System](platforms/make.hick) — Makefile for task automation
 
 </hick:doc>

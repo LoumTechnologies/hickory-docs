@@ -158,6 +158,79 @@ The main window demonstrates Avalonia's XAML syntax with data binding. Note the
 `x:DataType` attribute enabling compiled bindings—this catches binding errors at
 compile time rather than runtime:
 
+<hick:when test="rust-frontend-lib">
+<hick:file path="desktop/{{project_name}}/Views/MainWindow.axaml"><Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:<hick:val name="project_name" />.ViewModels"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
+        x:Class="<hick:val name="project_name" />.Views.MainWindow"
+        x:DataType="vm:MainWindowViewModel"
+        Title="<hick:val name="project_name" />"
+        Width="800"
+        Height="600">
+
+    <Design.DataContext>
+        <vm:MainWindowViewModel/>
+    </Design.DataContext>
+
+    <Grid RowDefinitions="Auto,*">
+        <TextBlock Grid.Row="0"
+                   Text="<hick:val name="project_name" />"
+                   FontSize="24"
+                   FontWeight="Bold"
+                   Margin="20"
+                   HorizontalAlignment="Center"/>
+
+        <StackPanel Grid.Row="1"
+                    VerticalAlignment="Center"
+                    HorizontalAlignment="Center"
+                    Spacing="16">
+            <TextBlock Text="{Binding Greeting}"
+                       FontSize="32"
+                       HorizontalAlignment="Center"
+                       Foreground="#646cff"/>
+            <TextBlock Text="Powered by Rust Core Library"
+                       Foreground="Gray"
+                       HorizontalAlignment="Center"/>
+
+            <Separator Margin="0,16"/>
+
+            <TextBlock Text="Greeting Demo"
+                       FontWeight="Bold"
+                       HorizontalAlignment="Center"/>
+            <TextBox Text="{Binding Name}"
+                     Watermark="Enter your name"
+                     Width="250"
+                     HorizontalAlignment="Center"/>
+
+            <Separator Margin="0,16"/>
+
+            <TextBlock Text="Fibonacci Calculator"
+                       FontWeight="Bold"
+                       HorizontalAlignment="Center"/>
+            <StackPanel Orientation="Horizontal"
+                        HorizontalAlignment="Center"
+                        Spacing="8">
+                <NumericUpDown Value="{Binding FibN}"
+                               Minimum="0"
+                               Maximum="50"
+                               Width="100"/>
+                <Button Content="Calculate"
+                        Command="{Binding CalculateFibCommand}"/>
+            </StackPanel>
+            <TextBlock Text="{Binding FibResult}"
+                       FontFamily="Consolas,Menlo,monospace"
+                       HorizontalAlignment="Center"
+                       Foreground="#646cff"/>
+        </StackPanel>
+    </Grid>
+
+</Window>
+</hick:file>
+</hick:when>
+<hick:when test="!rust-frontend-lib">
 <hick:file path="desktop/{{project_name}}/Views/MainWindow.axaml"><Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:<hick:val name="project_name" />.ViewModels"
@@ -202,6 +275,7 @@ compile time rather than runtime:
 
 </Window>
 </hick:file>
+</hick:when>
 
 <hick:file path="desktop/{{project_name}}/Views/MainWindow.axaml.cs">using Avalonia.Controls;
 
@@ -222,6 +296,53 @@ The CommunityToolkit.Mvvm package uses source generators to eliminate MVVM boile
 The `[ObservableProperty]` attribute generates the full property with change notification,
 and `[RelayCommand]` creates an `ICommand` implementation from a method:
 
+<hick:when test="rust-frontend-lib">
+<hick:file path="desktop/{{project_name}}/ViewModels/MainWindowViewModel.cs">using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
+using <hick:val name="project_name" />.Core;
+
+namespace <hick:val name="project_name" />.ViewModels;
+
+public partial class MainWindowViewModel : ViewModelBase
+{
+    [ObservableProperty]
+    private string _greeting = string.Empty;
+
+    [ObservableProperty]
+    private string _name = string.Empty;
+
+    [ObservableProperty]
+    private int _fibN = 10;
+
+    [ObservableProperty]
+    private string _fibResult = string.Empty;
+
+    public MainWindowViewModel()
+    {
+        UpdateGreeting();
+        CalculateFib();
+    }
+
+    partial void OnNameChanged(string value)
+    {
+        UpdateGreeting();
+    }
+
+    private void UpdateGreeting()
+    {
+        Greeting = CoreLibrary.Greet(Name);
+    }
+
+    [RelayCommand]
+    private void CalculateFib()
+    {
+        var result = CoreLibrary.Fibonacci((uint)FibN);
+        FibResult = $"fib({FibN}) = {result}";
+    }
+}
+</hick:file>
+</hick:when>
+<hick:when test="!rust-frontend-lib">
 <hick:file path="desktop/{{project_name}}/ViewModels/MainWindowViewModel.cs">using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 
@@ -242,6 +363,7 @@ public partial class MainWindowViewModel : ViewModelBase
     }
 }
 </hick:file>
+</hick:when>
 
 <hick:file path="desktop/{{project_name}}/ViewModels/ViewModelBase.cs">using CommunityToolkit.Mvvm.ComponentModel;
 
@@ -254,6 +376,98 @@ public class ViewModelBase : ObservableObject
 
 <hick:file path="desktop/{{project_name}}/Assets/.gitkeep" doc-hidden="true"># This folder contains application assets
 </hick:file>
+
+<hick:when test="rust-frontend-lib">
+### Core Library Integration
+
+When using the core library, UniFFI generates C# bindings that expose the Rust
+functions via P/Invoke. The bindings use the NativeLibrary API for cross-platform
+loading:
+
+<hick:file path="desktop/{{project_name}}/Core/CoreLibrary.cs">using System.Runtime.InteropServices;
+
+namespace <hick:val name="project_name" />.Core;
+
+/// <summary>
+/// C# wrapper for the Rust core library.
+/// Uses P/Invoke to call native functions.
+/// </summary>
+public static class CoreLibrary
+{
+    private const string LibName = "<hick:val name="project_name" />_core";
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
+    private static extern IntPtr <hick:val name="project_name" />_core_greet(
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string name);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
+    private static extern ulong <hick:val name="project_name" />_core_fibonacci(uint n);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
+    private static extern IntPtr <hick:val name="project_name" />_core_process_data(
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string jsonInput);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
+    private static extern void <hick:val name="project_name" />_core_free_string(IntPtr ptr);
+
+    /// <summary>
+    /// Generate a personalized greeting.
+    /// </summary>
+    /// <param name="name">The name to greet (empty for default greeting)</param>
+    /// <returns>A greeting string</returns>
+    public static string Greet(string name)
+    {
+        var ptr = <hick:val name="project_name" />_core_greet(name ?? string.Empty);
+        try
+        {
+            return Marshal.PtrToStringUTF8(ptr) ?? "Hello, World!";
+        }
+        finally
+        {
+            <hick:val name="project_name" />_core_free_string(ptr);
+        }
+    }
+
+    /// <summary>
+    /// Calculate the nth Fibonacci number.
+    /// </summary>
+    /// <param name="n">The index (0-based) of the Fibonacci number</param>
+    /// <returns>The nth Fibonacci number</returns>
+    public static ulong Fibonacci(uint n)
+    {
+        return <hick:val name="project_name" />_core_fibonacci(n);
+    }
+
+    /// <summary>
+    /// Process JSON data and return computed statistics.
+    /// </summary>
+    /// <param name="jsonInput">JSON string with { values: number[] }</param>
+    /// <returns>JSON string with { sum, count, average, sorted }</returns>
+    public static string ProcessData(string jsonInput)
+    {
+        var ptr = <hick:val name="project_name" />_core_process_data(jsonInput);
+        try
+        {
+            return Marshal.PtrToStringUTF8(ptr) ?? "{}";
+        }
+        finally
+        {
+            <hick:val name="project_name" />_core_free_string(ptr);
+        }
+    }
+}
+</hick:file>
+
+<hick:file path="desktop/{{project_name}}/Core/.gitkeep"># UniFFI-generated C# bindings directory
+# Run ../rust-lib/build-native.sh to generate C# bindings
+#
+# Place native libraries in the runtimes folder:
+# - runtimes/win-x64/native/<hick:val name="project_name" />_core.dll
+# - runtimes/osx-x64/native/lib<hick:val name="project_name" />_core.dylib
+# - runtimes/osx-arm64/native/lib<hick:val name="project_name" />_core.dylib
+# - runtimes/linux-x64/native/lib<hick:val name="project_name" />_core.so
+</hick:file>
+</hick:when>
 
 </hick:when>
 </hick:doc>

@@ -1,0 +1,406 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
+
+<hick:when test="rust-frontend-lib">
+
+## Rust Frontend Library
+
+This library contains shared business logic written in Rust that compiles to multiple targets:
+- **WebAssembly** — For React SPA and browser extensions via wasm-bindgen
+- **Native FFI** — For SwiftUI, Android, and Avalonia via UniFFI
+
+This architecture allows you to write performance-critical or security-sensitive code once
+in Rust and share it across all platforms with type-safe bindings.
+
+### Project Configuration
+
+The Cargo.toml configures both WASM and FFI targets. The `crate-type` includes both
+`cdylib` (for WASM/FFI) and `lib` (for Rust consumers like the backend):
+
+<hick:file path="rust-lib/Cargo.toml">[package]
+name = "<hick:val name="project_name" />-core"
+version = "0.1.0"
+edition = "<hick:val name="rust_edition" />"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "<hick:val name="project_name" />_core"
+
+[dependencies]
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Error handling
+thiserror = "2"
+
+# WASM support (only included for wasm32 target)
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+js-sys = "0.3"
+web-sys = { version = "0.3", features = ["console"] }
+
+# UniFFI for native FFI bindings (excluded from wasm32)
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+uniffi = { version = "0.29" }
+
+[target.'cfg(not(target_arch = "wasm32"))'.build-dependencies]
+uniffi = { version = "0.29", features = ["build"] }
+
+[features]
+default = []
+</hick:file>
+
+### Rust Toolchain
+
+We use nightly Rust for the latest features:
+
+<hick:file path="rust-lib/rust-toolchain.toml">[toolchain]
+channel = "nightly"
+targets = ["wasm32-unknown-unknown"]
+</hick:file>
+
+### Build Script
+
+The build script generates UniFFI bindings for native targets:
+
+<hick:file path="rust-lib/build.rs">#[cfg(not(target_arch = "wasm32"))]
+fn main() {
+    uniffi::generate_scaffolding("src/core.udl").unwrap();
+}
+
+#[cfg(target_arch = "wasm32")]
+fn main() {
+    // No build script needed for WASM
+}
+</hick:file>
+
+### UniFFI Interface Definition
+
+The `.udl` file defines the FFI interface that UniFFI uses to generate bindings for
+Swift, Kotlin, and C#:
+
+<hick:file path="rust-lib/src/core.udl">namespace <hick:val name="project_name" />_core {
+    string greet(string name);
+    u64 fibonacci(u32 n);
+    string process_data(string json_input);
+};
+
+[Error]
+enum CoreError {
+    "InvalidInput",
+    "ProcessingFailed",
+};
+
+dictionary GreetingResult {
+    string message;
+    u64 timestamp;
+};
+</hick:file>
+
+### Core Library Implementation
+
+The main library file contains the shared business logic. Functions are exposed to both
+WASM (via wasm-bindgen) and native platforms (via UniFFI):
+
+<hick:file path="rust-lib/src/lib.rs">//! <hick:val name="project_name" /> Core Library
+//!
+//! Shared business logic that compiles to WebAssembly and native FFI bindings.
+
+mod error;
+
+pub use error::CoreError;
+
+use serde::{Deserialize, Serialize};
+
+// Include UniFFI scaffolding for native targets
+#[cfg(not(target_arch = "wasm32"))]
+uniffi::include_scaffolding!("<hick:val name="project_name" />_core");
+
+// WASM bindings
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen::prelude::*;
+
+/// Result type for greeting operations
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GreetingResult {
+    pub message: String,
+    pub timestamp: u64,
+}
+
+/// Generate a personalized greeting
+///
+/// # Arguments
+/// * `name` - The name to greet
+///
+/// # Returns
+/// A greeting string
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
+pub fn greet(name: &str) -> String {
+    if name.is_empty() {
+        "Hello, World!".to_string()
+    } else {
+        format!("Hello, {}!", name)
+    }
+}
+
+/// Calculate the nth Fibonacci number
+///
+/// Uses an iterative approach for efficiency.
+///
+/// # Arguments
+/// * `n` - The index of the Fibonacci number to calculate
+///
+/// # Returns
+/// The nth Fibonacci number
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
+pub fn fibonacci(n: u32) -> u64 {
+    match n {
+        0 => 0,
+        1 => 1,
+        _ => {
+            let mut a = 0u64;
+            let mut b = 1u64;
+            for _ in 2..=n {
+                let temp = a + b;
+                a = b;
+                b = temp;
+            }
+            b
+        }
+    }
+}
+
+/// Process JSON input and return transformed JSON output
+///
+/// This demonstrates more complex data handling across the FFI boundary.
+///
+/// # Arguments
+/// * `json_input` - A JSON string containing input data
+///
+/// # Returns
+/// A JSON string with processed results
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
+pub fn process_data(json_input: &str) -> String {
+    #[derive(Deserialize)]
+    struct Input {
+        values: Vec<i32>,
+    }
+
+    #[derive(Serialize)]
+    struct Output {
+        sum: i64,
+        count: usize,
+        average: f64,
+        sorted: Vec<i32>,
+    }
+
+    let result: Result<Output, _> = (|| {
+        let input: Input = serde_json::from_str(json_input)?;
+        let sum: i64 = input.values.iter().map(|&x| x as i64).sum();
+        let count = input.values.len();
+        let average = if count > 0 {
+            sum as f64 / count as f64
+        } else {
+            0.0
+        };
+        let mut sorted = input.values.clone();
+        sorted.sort();
+
+        Ok(Output {
+            sum,
+            count,
+            average,
+            sorted,
+        })
+    })();
+
+    match result {
+        Ok(output) => serde_json::to_string(&output).unwrap_or_else(|_| "{}".to_string()),
+        Err(_) => r#"{"error": "Failed to process input"}"#.to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_greet_with_name() {
+        assert_eq!(greet("Alice"), "Hello, Alice!");
+    }
+
+    #[test]
+    fn test_greet_empty_name() {
+        assert_eq!(greet(""), "Hello, World!");
+    }
+
+    #[test]
+    fn test_fibonacci() {
+        assert_eq!(fibonacci(0), 0);
+        assert_eq!(fibonacci(1), 1);
+        assert_eq!(fibonacci(10), 55);
+        assert_eq!(fibonacci(20), 6765);
+    }
+
+    #[test]
+    fn test_process_data() {
+        let input = r#"{"values": [3, 1, 4, 1, 5, 9, 2, 6]}"#;
+        let output = process_data(input);
+        let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
+
+        assert_eq!(parsed["sum"], 31);
+        assert_eq!(parsed["count"], 8);
+        assert_eq!(parsed["sorted"], serde_json::json!([1, 1, 2, 3, 4, 5, 6, 9]));
+    }
+}
+</hick:file>
+
+### Error Types
+
+Error handling that works across FFI boundaries:
+
+<hick:file path="rust-lib/src/error.rs">//! Error types for the core library
+
+use thiserror::Error;
+
+/// Errors that can occur in core library operations
+#[derive(Error, Debug)]
+pub enum CoreError {
+    #[error("Invalid input: {0}")]
+    InvalidInput(String),
+
+    #[error("Processing failed: {0}")]
+    ProcessingFailed(String),
+}
+</hick:file>
+
+### WASM-Specific TypeScript Bindings
+
+For web platforms, we provide TypeScript type definitions. These are generated by
+wasm-bindgen but we include a manual declaration file for better IDE support:
+
+<hick:file path="rust-lib/pkg/types.d.ts">// TypeScript declarations for <hick:val name="project_name" />-core WASM module
+// These augment the auto-generated wasm-bindgen types
+
+declare module '<hick:val name="project_name" />-core' {
+  /**
+   * Initialize the WASM module
+   * Must be called before using any other functions
+   */
+  export default function init(): Promise<void>;
+
+  /**
+   * Generate a personalized greeting
+   * @param name - The name to greet (empty string returns default greeting)
+   * @returns A greeting string
+   */
+  export function greet(name: string): string;
+
+  /**
+   * Calculate the nth Fibonacci number
+   * @param n - The index (0-based) of the Fibonacci number
+   * @returns The nth Fibonacci number as a bigint
+   */
+  export function fibonacci(n: number): bigint;
+
+  /**
+   * Process JSON data and return computed statistics
+   * @param jsonInput - JSON string with { values: number[] }
+   * @returns JSON string with { sum, count, average, sorted }
+   */
+  export function process_data(jsonInput: string): string;
+}
+</hick:file>
+
+### Build Scripts
+
+Scripts to build the core library for different targets:
+
+<hick:file path="rust-lib/build-wasm.sh">#!/bin/bash
+# Build WASM package for web platforms
+# Requires: wasm-pack (cargo install wasm-pack)
+
+set -e
+
+echo "Building <hick:val name="project_name" />-core for WebAssembly..."
+
+# Build with wasm-pack for bundler target (works with Vite)
+wasm-pack build --target bundler --out-dir pkg
+
+# Also build for web target (can be loaded directly in browser)
+wasm-pack build --target web --out-dir pkg-web
+
+echo "WASM build complete!"
+echo "  - Bundler output: pkg/"
+echo "  - Web output: pkg-web/"
+</hick:file>
+
+<hick:file path="rust-lib/build-native.sh">#!/bin/bash
+# Build native libraries and generate FFI bindings
+# Requires: uniffi-bindgen (cargo install uniffi_bindgen)
+
+set -e
+
+echo "Building <hick:val name="project_name" />-core for native platforms..."
+
+# Build the native library
+cargo build --release
+
+# Generate Swift bindings
+echo "Generating Swift bindings..."
+cargo run --bin uniffi-bindgen generate --library target/release/lib<hick:val name="project_name" />_core.dylib --language swift --out-dir bindings/swift 2>/dev/null || \
+cargo run --bin uniffi-bindgen generate --library target/release/lib<hick:val name="project_name" />_core.so --language swift --out-dir bindings/swift 2>/dev/null || \
+echo "Swift binding generation requires macOS or Linux"
+
+# Generate Kotlin bindings
+echo "Generating Kotlin bindings..."
+cargo run --bin uniffi-bindgen generate --library target/release/lib<hick:val name="project_name" />_core.dylib --language kotlin --out-dir bindings/kotlin 2>/dev/null || \
+cargo run --bin uniffi-bindgen generate --library target/release/lib<hick:val name="project_name" />_core.so --language kotlin --out-dir bindings/kotlin 2>/dev/null || \
+echo "Kotlin binding generation requires macOS or Linux"
+
+# Generate C# bindings
+echo "Generating C# bindings..."
+cargo run --bin uniffi-bindgen generate --library target/release/lib<hick:val name="project_name" />_core.dylib --language csharp --out-dir bindings/csharp 2>/dev/null || \
+cargo run --bin uniffi-bindgen generate --library target/release/lib<hick:val name="project_name" />_core.so --language csharp --out-dir bindings/csharp 2>/dev/null || \
+echo "C# binding generation requires macOS or Linux"
+
+echo "Native build complete!"
+echo "Bindings generated in: bindings/"
+</hick:file>
+
+### UniFFI Bindgen Binary
+
+A helper binary for generating bindings:
+
+<hick:file path="rust-lib/src/bin/uniffi-bindgen.rs">//! UniFFI binding generator binary
+//!
+//! Run with: cargo run --bin uniffi-bindgen -- generate ...
+
+fn main() {
+    #[cfg(not(target_arch = "wasm32"))]
+    uniffi::uniffi_bindgen_main();
+
+    #[cfg(target_arch = "wasm32")]
+    panic!("uniffi-bindgen cannot run on wasm32 target");
+}
+</hick:file>
+
+### Directory Structure
+
+Create placeholder directories for generated bindings:
+
+<hick:file path="rust-lib/bindings/.gitkeep"># Generated FFI bindings directory
+# Run build-native.sh to generate bindings for:
+# - swift/   - Swift bindings for iOS/macOS
+# - kotlin/  - Kotlin bindings for Android
+# - csharp/  - C# bindings for Avalonia/.NET
+</hick:file>
+
+<hick:file path="rust-lib/pkg/.gitkeep"># WASM package output directory
+# Run build-wasm.sh to generate the wasm-bindgen package
+</hick:file>
+
+</hick:when>
+</hick:doc>

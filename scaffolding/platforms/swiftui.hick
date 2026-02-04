@@ -31,6 +31,89 @@ struct <hick:val name="project_name" />App: App {
 The content view uses a NavigationStack for proper navigation behavior. This is
 the starting point for your app's UI:
 
+<hick:when test="rust-frontend-lib">
+<hick:file path="apple/{{project_name}}/ContentView.swift">import SwiftUI
+
+struct ContentView: View {
+    @State private var name: String = ""
+    @State private var greeting: String = ""
+    @State private var fibN: Int = 10
+    @State private var fibResult: UInt64 = 0
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 20) {
+                Image(systemName: "gear.badge.checkmark")
+                    .font(.system(size: 60))
+                    .foregroundStyle(.blue)
+
+                Text("Welcome to <hick:val name="project_name" />")
+                    .font(.largeTitle)
+                    .fontWeight(.bold)
+
+                Text("Powered by Rust Core Library")
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+
+                Divider()
+
+                // Greeting Demo
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Greeting")
+                        .font(.headline)
+
+                    TextField("Enter your name", text: $name)
+                        .textFieldStyle(.roundedBorder)
+                        .onChange(of: name) { _, newValue in
+                            greeting = greet(name: newValue)
+                        }
+
+                    if !greeting.isEmpty {
+                        Text(greeting)
+                            .font(.body)
+                            .foregroundStyle(.green)
+                    }
+                }
+                .padding(.horizontal)
+
+                Divider()
+
+                // Fibonacci Demo
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Fibonacci Calculator")
+                        .font(.headline)
+
+                    Stepper("n = \(fibN)", value: $fibN, in: 0...50)
+
+                    Button("Calculate") {
+                        fibResult = fibonacci(n: UInt32(fibN))
+                    }
+                    .buttonStyle(.borderedProminent)
+
+                    Text("fib(\(fibN)) = \(fibResult)")
+                        .font(.system(.body, design: .monospaced))
+                        .foregroundStyle(.blue)
+                }
+                .padding(.horizontal)
+
+                Spacer()
+            }
+            .padding()
+            .navigationTitle("<hick:val name="project_name" />")
+            .onAppear {
+                greeting = greet(name: "")
+                fibResult = fibonacci(n: UInt32(fibN))
+            }
+        }
+    }
+}
+
+#Preview {
+    ContentView()
+}
+</hick:file>
+</hick:when>
+<hick:when test="!rust-frontend-lib">
 <hick:file path="apple/{{project_name}}/ContentView.swift">import SwiftUI
 
 struct ContentView: View {
@@ -59,6 +142,7 @@ struct ContentView: View {
     ContentView()
 }
 </hick:file>
+</hick:when>
 
 ### Asset Catalogs
 
@@ -267,6 +351,40 @@ Key configuration choices:
 
 A convenience script to bootstrap the Apple platform:
 
+<hick:when test="rust-frontend-lib">
+<hick:file path="apple/setup.sh">#!/bin/bash
+# Setup script for <hick:val name="project_name" /> Apple platforms
+# Requires: Homebrew, xcodegen
+
+set -e
+
+echo "Setting up <hick:val name="project_name" /> for Apple platforms..."
+
+# Check for xcodegen
+if ! command -v xcodegen &> /dev/null; then
+    echo "Installing xcodegen..."
+    brew install xcodegen
+fi
+
+# Build core library and generate Swift bindings
+echo "Building core library..."
+cd ../rust-lib
+./build-native.sh
+cd ../apple
+
+# Copy Swift bindings
+echo "Copying Swift bindings..."
+mkdir -p <hick:val name="project_name" />/Core
+cp ../rust-lib/bindings/swift/*.swift <hick:val name="project_name" />/Core/ 2>/dev/null || echo "Note: Run build-native.sh in core/ to generate Swift bindings"
+
+# Generate Xcode project
+echo "Generating Xcode project..."
+xcodegen generate
+
+echo "Done! Open <hick:val name="project_name" />.xcodeproj in Xcode."
+</hick:file>
+</hick:when>
+<hick:when test="!rust-frontend-lib">
 <hick:file path="apple/setup.sh">#!/bin/bash
 # Setup script for <hick:val name="project_name" /> Apple platforms
 # Requires: Homebrew, xcodegen
@@ -287,6 +405,21 @@ xcodegen generate
 
 echo "Done! Open <hick:val name="project_name" />.xcodeproj in Xcode."
 </hick:file>
+</hick:when>
+
+<hick:when test="rust-frontend-lib">
+### Core Library Integration
+
+When using the core library, UniFFI generates Swift bindings that expose the Rust
+functions. The bindings are placed in the Core/ directory:
+
+<hick:file path="apple/{{project_name}}/Core/.gitkeep"># UniFFI-generated Swift bindings
+# Run ../rust-lib/build-native.sh to generate:
+# - <hick:val name="project_name" />_core.swift
+#
+# Then run ./setup.sh to copy bindings and regenerate the Xcode project
+</hick:file>
+</hick:when>
 
 </hick:when>
 </hick:doc>
