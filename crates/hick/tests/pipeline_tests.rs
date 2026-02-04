@@ -1880,3 +1880,241 @@ async fn test_exclude_conditional() {
     assert!(result.files.contains_key("app.rs"));
     assert!(result.files.contains_key("debug.dev"), "should keep .dev files in dev mode");
 }
+
+// ---------------------------------------------------------------------------
+// Weave (literate programming) tests
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_weave_basic_output() {
+    // Basic weave output with prose and code
+    let src = r#"<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="TEMPLATE.md">
+
+# My Template
+
+This template generates a Rust project.
+
+<hick:file path="src/main.rs">
+fn main() {
+    println!("Hello!");
+}
+</hick:file>
+
+The main function prints a greeting.
+
+</hick:doc>"#;
+
+    let result = hick::run_pipeline(&[("test.hick", &src)], &[]).await.unwrap();
+
+    // Should produce both the weave file and the actual code file
+    assert!(result.files.contains_key("TEMPLATE.md"), "weave output should exist");
+    assert!(result.files.contains_key("src/main.rs"), "code file should exist");
+
+    let weave = result.files.get("TEMPLATE.md").unwrap();
+    assert!(weave.contains("# My Template"), "weave should contain title");
+    assert!(weave.contains("This template generates a Rust project."), "weave should contain prose");
+    assert!(weave.contains("### `src/main.rs`"), "weave should contain file heading");
+    assert!(weave.contains("```rust"), "weave should have rust code fence");
+    assert!(weave.contains("fn main()"), "weave should contain code");
+    assert!(weave.contains("The main function prints a greeting."), "weave should contain trailing prose");
+}
+
+#[tokio::test]
+async fn test_weave_doc_hidden() {
+    // doc-hidden attribute excludes files from weave
+    let src = r#"<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="README.md">
+
+# My Project
+
+<hick:file path="src/main.rs">
+fn main() {}
+</hick:file>
+
+<hick:file path=".gitignore" doc-hidden="true">
+target/
+</hick:file>
+
+</hick:doc>"#;
+
+    let result = hick::run_pipeline(&[("test.hick", &src)], &[]).await.unwrap();
+
+    // Both files should be generated
+    assert!(result.files.contains_key("src/main.rs"));
+    assert!(result.files.contains_key(".gitignore"));
+
+    let weave = result.files.get("README.md").unwrap();
+    assert!(weave.contains("### `src/main.rs`"), "visible file should appear in weave");
+    assert!(!weave.contains(".gitignore"), "doc-hidden file should NOT appear in weave");
+}
+
+#[tokio::test]
+async fn test_weave_variable_interpolation() {
+    // Variable interpolation in prose
+    let src = r#"<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="DOCS.md">
+<hick:var name="project_name">MyApp</hick:var>
+<hick:var name="version">1.0.0</hick:var>
+
+# <hick:val name="project_name" />
+
+Version: <hick:val name="version" />
+
+<hick:file path="VERSION">
+<hick:val name="version" />
+</hick:file>
+
+</hick:doc>"#;
+
+    let result = hick::run_pipeline(&[("test.hick", &src)], &[]).await.unwrap();
+
+    let weave = result.files.get("DOCS.md").unwrap();
+    assert!(weave.contains("# MyApp"), "val in prose should be interpolated");
+    assert!(weave.contains("Version: 1.0.0"), "val in prose should be interpolated");
+}
+
+#[tokio::test]
+async fn test_weave_conditional_prose() {
+    // Conditional prose with <hick:when>
+    let src = r#"<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="README.md">
+<hick:var name="auth">1</hick:var>
+
+# My App
+
+<hick:when test="auth">
+## Authentication
+
+This app includes authentication support.
+</hick:when>
+
+<hick:when test="!auth">
+No authentication included.
+</hick:when>
+
+<hick:file path="app.rs">
+// app code
+</hick:file>
+
+</hick:doc>"#;
+
+    let result = hick::run_pipeline(&[("test.hick", &src)], &[]).await.unwrap();
+
+    let weave = result.files.get("README.md").unwrap();
+    assert!(weave.contains("## Authentication"), "conditional true content should appear");
+    assert!(weave.contains("authentication support"), "conditional true content should appear");
+    assert!(!weave.contains("No authentication included"), "conditional false content should NOT appear");
+}
+
+#[tokio::test]
+async fn test_weave_language_detection() {
+    // Language detection for various file types
+    let src = r#"<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="LANGS.md">
+
+<hick:file path="app.swift">
+import Foundation
+</hick:file>
+
+<hick:file path="main.py">
+print("hello")
+</hick:file>
+
+<hick:file path="config.json">
+{}
+</hick:file>
+
+<hick:file path="style.css">
+body {}
+</hick:file>
+
+</hick:doc>"#;
+
+    let result = hick::run_pipeline(&[("test.hick", &src)], &[]).await.unwrap();
+
+    let weave = result.files.get("LANGS.md").unwrap();
+    assert!(weave.contains("```swift"), "should detect swift");
+    assert!(weave.contains("```python"), "should detect python");
+    assert!(weave.contains("```json"), "should detect json");
+    assert!(weave.contains("```css"), "should detect css");
+}
+
+#[tokio::test]
+async fn test_weave_no_attribute_no_output() {
+    // No weave output when weave attribute is absent
+    let src = r#"<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
+
+Some prose here.
+
+<hick:file path="out.txt">content</hick:file>
+
+</hick:doc>"#;
+
+    let result = hick::run_pipeline(&[("test.hick", &src)], &[]).await.unwrap();
+
+    // Should only have the code file, no weave output
+    assert_eq!(result.files.len(), 1, "should only have code file");
+    assert!(result.files.contains_key("out.txt"));
+}
+
+#[tokio::test]
+async fn test_weave_with_substitution() {
+    // Substitution should apply to weave prose
+    let src = r#"<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="README.md">
+<hick:substitute name="app" pattern="FavoriteApp" value="MyProject" />
+
+# FavoriteApp
+
+Welcome to FavoriteApp!
+
+<hick:file path="app.rs">
+// FavoriteApp code
+</hick:file>
+
+</hick:doc>"#;
+
+    let result = hick::run_pipeline(&[("test.hick", &src)], &[]).await.unwrap();
+
+    let weave = result.files.get("README.md").unwrap();
+    assert!(weave.contains("# MyProject"), "substitution should apply to prose");
+    assert!(weave.contains("Welcome to MyProject"), "substitution should apply to prose");
+    assert!(weave.contains("// MyProject code"), "substitution should apply to code in weave");
+}
+
+#[tokio::test]
+async fn test_weave_multi_file() {
+    // Multiple files in one weave output
+    let src = r#"<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="TEMPLATE.md">
+
+# Multi-file Template
+
+## Rust Code
+
+<hick:file path="src/lib.rs">
+pub fn greet() {}
+</hick:file>
+
+## Configuration
+
+<hick:file path="Cargo.toml">
+[package]
+name = "example"
+</hick:file>
+
+</hick:doc>"#;
+
+    let result = hick::run_pipeline(&[("test.hick", &src)], &[]).await.unwrap();
+
+    let weave = result.files.get("TEMPLATE.md").unwrap();
+    assert!(weave.contains("# Multi-file Template"), "should have title");
+    assert!(weave.contains("## Rust Code"), "should have section headings");
+    assert!(weave.contains("## Configuration"), "should have section headings");
+    assert!(weave.contains("### `src/lib.rs`"), "should have file heading");
+    assert!(weave.contains("### `Cargo.toml`"), "should have file heading");
+    assert!(weave.contains("```rust"), "should have rust fence");
+    assert!(weave.contains("```toml"), "should have toml fence");
+}

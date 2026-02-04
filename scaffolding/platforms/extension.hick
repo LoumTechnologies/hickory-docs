@@ -1,18 +1,18 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!--
-  Browser Extension Template
-  Generates a cross-browser extension with React TypeScript
--->
 <hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
 
-<!-- Only generate when extension feature is enabled -->
 <hick:when test="extension">
 
-<!-- ================================================================== -->
-<!-- Browser Extension Project Structure                                -->
-<!-- ================================================================== -->
+## Browser Extension
 
-<!-- package.json -->
+The browser extension uses React with the Manifest V3 API, which works in both
+Chrome and Firefox. We use [@crxjs/vite-plugin](https://crxjs.dev/vite-plugin) to
+integrate Vite's development experience with extension building.
+
+### Package Configuration
+
+Similar to the web SPA, but with additional Chrome types and the CRXJS plugin:
+
 <hick:file path="browser-extension/package.json">{
   "name": "<hick:val name="project_name" />-extension",
   "private": true,
@@ -20,7 +20,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "tsc -b &amp;&amp; vite build",
     "lint": "eslint .",
     "preview": "vite preview"
   },
@@ -46,7 +46,14 @@
 }
 </hick:file>
 
-<!-- Manifest V3 -->
+### Extension Manifest
+
+Manifest V3 is required for Chrome and recommended for Firefox. Key sections:
+- **action** — Defines the popup UI
+- **permissions** — Storage for persisting data across sessions
+- **background** — Service worker for event handling
+- **content_scripts** — Injected into web pages
+
 <hick:file path="browser-extension/manifest.json">{
   "manifest_version": 3,
   "name": "<hick:val name="project_name" />",
@@ -82,7 +89,11 @@
 }
 </hick:file>
 
-<!-- Vite config for extension -->
+### Vite Configuration
+
+The CRXJS plugin handles manifest processing, hot reload in development, and
+proper bundling for production. It reads the manifest directly:
+
 <hick:file path="browser-extension/vite.config.ts">import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { crx } from '@crxjs/vite-plugin'
@@ -103,7 +114,10 @@ export default defineConfig({
 })
 </hick:file>
 
-<!-- TypeScript configs -->
+### TypeScript Configuration
+
+The app config includes Chrome types for extension API autocompletion:
+
 <hick:file path="browser-extension/tsconfig.json">{
   "files": [],
   "references": [
@@ -137,7 +151,7 @@ export default defineConfig({
 }
 </hick:file>
 
-<hick:file path="browser-extension/tsconfig.node.json">{
+<hick:file path="browser-extension/tsconfig.node.json" doc-hidden="true">{
   "compilerOptions": {
     "target": "ES2022",
     "lib": ["ES2023"],
@@ -159,8 +173,7 @@ export default defineConfig({
 }
 </hick:file>
 
-<!-- ESLint config -->
-<hick:file path="browser-extension/eslint.config.js">import js from '@eslint/js'
+<hick:file path="browser-extension/eslint.config.js" doc-hidden="true">import js from '@eslint/js'
 import globals from 'globals'
 import reactHooks from 'eslint-plugin-react-hooks'
 import reactRefresh from 'eslint-plugin-react-refresh'
@@ -190,7 +203,11 @@ export default tseslint.config(
 )
 </hick:file>
 
-<!-- index.html (popup) -->
+### Popup UI
+
+The popup is the main user interface, shown when clicking the extension icon.
+It's a standard React app with a fixed width appropriate for popups:
+
 <hick:file path="browser-extension/index.html"><!DOCTYPE html>
 <html lang="en">
   <head>
@@ -205,20 +222,21 @@ export default tseslint.config(
 </html>
 </hick:file>
 
-<!-- Popup entry point -->
 <hick:file path="browser-extension/src/popup/main.tsx">import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import Popup from './Popup.tsx'
 
 createRoot(document.getElementById('root')!).render(
-  <StrictMode>
-    <Popup />
-  </StrictMode>,
+  &lt;StrictMode&gt;
+    &lt;Popup /&gt;
+  &lt;/StrictMode&gt;,
 )
 </hick:file>
 
-<!-- Popup component -->
+The Popup component demonstrates Chrome storage API usage. Data persists across
+browser sessions and syncs if the user is signed into Chrome:
+
 <hick:file path="browser-extension/src/popup/Popup.tsx">import { useState, useEffect } from 'react'
 import './Popup.css'
 
@@ -242,25 +260,24 @@ function Popup() {
   }
 
   return (
-    <div className="popup">
-      <header className="popup-header">
-        <h1><hick:val name="project_name" /></h1>
-      </header>
-      <main className="popup-main">
-        <p>Welcome to the extension!</p>
-        <button onClick={handleClick}>
+    &lt;div className="popup"&gt;
+      &lt;header className="popup-header"&gt;
+        &lt;h1&gt;<hick:val name="project_name" />&lt;/h1&gt;
+      &lt;/header&gt;
+      &lt;main className="popup-main"&gt;
+        &lt;p&gt;Welcome to the extension!&lt;/p&gt;
+        &lt;button onClick={handleClick}&gt;
           Clicked {count} times
-        </button>
-      </main>
-    </div>
+        &lt;/button&gt;
+      &lt;/main&gt;
+    &lt;/div&gt;
   )
 }
 
 export default Popup
 </hick:file>
 
-<!-- Popup styles -->
-<hick:file path="browser-extension/src/popup/index.css">:root {
+<hick:file path="browser-extension/src/popup/index.css" doc-hidden="true">:root {
   font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
   line-height: 1.5;
   font-weight: 400;
@@ -291,7 +308,7 @@ body {
 }
 </hick:file>
 
-<hick:file path="browser-extension/src/popup/Popup.css">.popup {
+<hick:file path="browser-extension/src/popup/Popup.css" doc-hidden="true">.popup {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -334,7 +351,11 @@ button:hover {
 }
 </hick:file>
 
-<!-- Background service worker -->
+### Background Service Worker
+
+The service worker runs in the background and handles extension lifecycle events.
+In Manifest V3, it's event-driven and doesn't persist—use `chrome.storage` for state:
+
 <hick:file path="browser-extension/src/background.ts">// Background service worker for <hick:val name="project_name" /> extension
 
 chrome.runtime.onInstalled.addListener(() => {
@@ -356,7 +377,12 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 export {}
 </hick:file>
 
-<!-- Content script -->
+### Content Script
+
+Content scripts run in the context of web pages. They can read and modify the DOM
+but are isolated from the page's JavaScript. Communication with background uses
+message passing:
+
 <hick:file path="browser-extension/src/content.ts">// Content script for <hick:val name="project_name" /> extension
 // This runs in the context of web pages
 
@@ -372,8 +398,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 export {}
 </hick:file>
 
-<!-- Icons placeholder -->
-<hick:file path="browser-extension/icons/.gitkeep"># Place extension icons here:
+<hick:file path="browser-extension/icons/.gitkeep" doc-hidden="true"># Place extension icons here:
 # - icon16.png (16x16)
 # - icon48.png (48x48)
 # - icon128.png (128x128)

@@ -1,28 +1,39 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!--
-  Cross-Platform Project Scaffolding
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="TEMPLATE.md">
 
-  This template generates a multi-platform project with:
-  - SwiftUI (iOS, iPadOS, macOS)
-  - Jetpack Compose (Android)
-  - Avalonia (Windows, macOS, Linux)
-  - React TypeScript SPA
-  - Browser Extension (React TypeScript)
-  - Rust Backend
+# Cross-Platform Project Scaffolding
 
-  All platforms are hidden behind feature flags.
+This template generates a multi-platform project with a consistent structure across:
 
-  Usage:
-    hick --param project_name=MyApp --features swiftui,backend scaffolding/
-    hick --param project_name=MyApp --features all scaffolding/
--->
-<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
+- **SwiftUI** — iOS, iPadOS, and macOS using Apple's declarative UI framework
+- **Jetpack Compose** — Android with Kotlin and modern declarative UI
+- **Avalonia** — Cross-platform desktop (Windows, macOS, Linux) with .NET
+- **React SPA** — Single-page web application with TypeScript
+- **Browser Extension** — Chrome/Firefox extension with React TypeScript
+- **Rust Backend** — API server using Axum for high performance
 
-<!-- ================================================================== -->
-<!-- Variables                                                          -->
-<!-- ================================================================== -->
+Each platform is behind a feature flag, so you only generate what you need.
 
-<!-- Project metadata (can be overridden via --param) -->
+## Usage
+
+Generate a project with specific platforms:
+
+```bash
+hick --param project_name=MyApp --features swiftui,backend scaffolding/
+```
+
+Generate all platforms:
+
+```bash
+hick --param project_name=MyApp --features all scaffolding/
+```
+
+---
+
+## Configuration Variables
+
+These variables control project metadata and can be overridden via `--param`:
+
 <hick:var name="project_name">MyProject</hick:var>
 <hick:var name="bundle_id">com.example.myproject</hick:var>
 <hick:var name="organization">Example Inc</hick:var>
@@ -34,11 +45,25 @@
 <hick:var name="rust_edition">2024</hick:var>
 <hick:var name="node_version">20</hick:var>
 
-<!-- ================================================================== -->
-<!-- Feature Definitions                                                -->
-<!-- ================================================================== -->
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `project_name` | <hick:val name="project_name" /> | Project name (used in file paths, class names) |
+| `bundle_id` | <hick:val name="bundle_id" /> | Reverse-domain bundle identifier |
+| `organization` | <hick:val name="organization" /> | Company/organization name for copyright |
+| `min_ios_version` | <hick:val name="min_ios_version" /> | Minimum iOS deployment target |
+| `min_macos_version` | <hick:val name="min_macos_version" /> | Minimum macOS deployment target |
+| `min_android_sdk` | <hick:val name="min_android_sdk" /> | Minimum Android SDK level |
+| `target_android_sdk` | <hick:val name="target_android_sdk" /> | Target Android SDK level |
+| `dotnet_version` | <hick:val name="dotnet_version" /> | .NET version for Avalonia |
+| `rust_edition` | <hick:val name="rust_edition" /> | Rust edition year |
+| `node_version` | <hick:val name="node_version" /> | Node.js version for web projects |
 
-<!-- Core platform features -->
+---
+
+## Feature Definitions
+
+Features control which platforms are generated. They can be combined freely.
+
 <hick:feature name="swiftui" description="SwiftUI app for iOS, iPadOS, and macOS" />
 <hick:feature name="compose" description="Jetpack Compose app for Android" />
 <hick:feature name="avalonia" description="Avalonia app for Windows, macOS, and Linux" />
@@ -46,24 +71,46 @@
 <hick:feature name="extension" description="Browser extension with React TypeScript" />
 <hick:feature name="backend" description="Rust backend API server" />
 
-<!-- Convenience meta-feature -->
-<hick:feature name="all" description="Enable all platforms" requires="swiftui compose avalonia spa extension backend" />
+**Meta-features** for convenience:
 
-<!-- Platform groupings -->
+<hick:feature name="all" description="Enable all platforms" requires="swiftui compose avalonia spa extension backend" />
 <hick:feature name="mobile" description="Mobile platforms" requires="swiftui compose" />
 <hick:feature name="desktop" description="Desktop platforms" requires="swiftui avalonia" />
 <hick:feature name="web" description="Web platforms" requires="spa extension" />
 
-<!-- ================================================================== -->
-<!-- Substitution Rules                                                 -->
-<!-- ================================================================== -->
+| Feature | Description |
+|---------|-------------|
+| `swiftui` | iOS, iPadOS, macOS with SwiftUI |
+| `compose` | Android with Jetpack Compose |
+| `avalonia` | Desktop with Avalonia (.NET) |
+| `spa` | React TypeScript web app |
+| `extension` | Browser extension |
+| `backend` | Rust API server |
+| `all` | All of the above |
+| `mobile` | SwiftUI + Compose |
+| `desktop` | SwiftUI + Avalonia |
+| `web` | SPA + Extension |
 
-<!-- Project name substitution with case variants -->
+---
+
+## Substitution Rules
+
+The project name is substituted throughout all generated files using case variants:
+
 <hick:substitute name="project_name" pattern="MyProject" value="{{project_name}}" variants="true" />
 
-<!-- ================================================================== -->
-<!-- Shared Content Blocks                                              -->
-<!-- ================================================================== -->
+This means `MyProject`, `myProject`, `my_project`, `MY_PROJECT`, and `my-project`
+in the template files will all be replaced with the corresponding case variant of
+your chosen project name.
+
+---
+
+## Shared Content Blocks
+
+### License
+
+We use MIT License by default. This cut block is referenced elsewhere without
+appearing directly in any file output:
 
 <hick:cut id="license-header">MIT License
 
@@ -87,6 +134,10 @@ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.</hick:cut>
 
+### Common Gitignore Patterns
+
+These patterns are shared across all platforms:
+
 <hick:cut id="gitignore-common"># IDE
 .idea/
 .vscode/
@@ -104,11 +155,20 @@ build/
 out/
 </hick:cut>
 
-<!-- ================================================================== -->
-<!-- Root Project Files                                                 -->
-<!-- ================================================================== -->
+---
+
+## Root Project Files
+
+### LICENSE
+
+The license file at the project root:
 
 <hick:file path="LICENSE"><hick:paste select="#license-header" /></hick:file>
+
+### README.md
+
+The main README is dynamically generated based on which features are enabled,
+so users always see accurate platform-specific instructions:
 
 <hick:file path="README.md"># <hick:val name="project_name" />
 
@@ -181,6 +241,11 @@ cargo run
 MIT License - see [LICENSE](LICENSE) for details.
 </hick:file>
 
+### .gitignore
+
+The gitignore combines common patterns with platform-specific ones based on
+enabled features:
+
 <hick:file path=".gitignore"><hick:paste select="#gitignore-common" />
 <hick:when test="swiftui">
 # Apple
@@ -218,5 +283,20 @@ target/
 Cargo.lock
 </hick:when>
 </hick:file>
+
+---
+
+## Platform Templates
+
+The platform-specific files are defined in separate `.hick` files for maintainability.
+Each platform template is guarded by its feature flag.
+
+See the individual platform documentation:
+- [SwiftUI Platform](platforms/swiftui.hick) — Apple platforms with XcodeGen
+- [Compose Platform](platforms/compose.hick) — Android with Kotlin DSL Gradle
+- [Avalonia Platform](platforms/avalonia.hick) — .NET cross-platform desktop
+- [SPA Platform](platforms/spa.hick) — React + Vite web application
+- [Extension Platform](platforms/extension.hick) — Browser extension
+- [Backend Platform](platforms/backend.hick) — Rust Axum server
 
 </hick:doc>

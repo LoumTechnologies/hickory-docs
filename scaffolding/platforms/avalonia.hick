@@ -1,19 +1,21 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!--
-  Avalonia Platform Template
-  Generates cross-platform desktop app for Windows, macOS, and Linux
--->
 <hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
 
-<!-- Only generate when avalonia feature is enabled -->
 <hick:when test="avalonia">
 
-<!-- ================================================================== -->
-<!-- Avalonia Project Structure                                         -->
-<!-- ================================================================== -->
+## Avalonia (Cross-Platform Desktop)
 
-<!-- Solution file -->
-<hick:file path="desktop/{{project_name}}.sln">Microsoft Visual Studio Solution File, Format Version 12.00
+[Avalonia](https://avaloniaui.net/) is a cross-platform UI framework for .NET that
+runs on Windows, macOS, and Linux from a single codebase. It uses XAML for declarative
+UI with a syntax similar to WPF, making it familiar to .NET desktop developers.
+
+### Solution Structure
+
+The solution file ties the project together for Visual Studio and Rider. We use a
+simple single-project structure, but this can be expanded to include shared libraries
+or platform-specific projects:
+
+<hick:file path="desktop/{{project_name}}.sln" doc-hidden="true">Microsoft Visual Studio Solution File, Format Version 12.00
 # Visual Studio Version 17
 VisualStudioVersion = 17.0.31903.59
 MinimumVisualStudioVersion = 10.0.40219.1
@@ -33,7 +35,14 @@ Global
 EndGlobal
 </hick:file>
 
-<!-- Project file -->
+### Project Configuration
+
+The `.csproj` file configures the application. Key choices:
+- **WinExe output** — Creates a Windows GUI application (no console window)
+- **Compiled bindings** — Better performance and compile-time checking for data binding
+- **Inter font** — A clean, modern typeface optimized for UI
+- **CommunityToolkit.Mvvm** — Source generators for MVVM pattern with minimal boilerplate
+
 <hick:file path="desktop/{{project_name}}/{{project_name}}.csproj"><Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
@@ -61,8 +70,7 @@ EndGlobal
 </Project>
 </hick:file>
 
-<!-- App manifest for Windows -->
-<hick:file path="desktop/{{project_name}}/app.manifest"><?xml version="1.0" encoding="utf-8"?>
+<hick:file path="desktop/{{project_name}}/app.manifest" doc-hidden="true"><?xml version="1.0" encoding="utf-8"?>
 <assembly manifestVersion="1.0" xmlns="urn:schemas-microsoft-com:asm.v1">
   <assemblyIdentity version="1.0.0.0" name="<hick:val name="project_name" />.Desktop"/>
   <trustInfo xmlns="urn:schemas-microsoft-com:asm.v2">
@@ -75,7 +83,11 @@ EndGlobal
 </assembly>
 </hick:file>
 
-<!-- Program.cs entry point -->
+### Entry Point
+
+The program entry point initializes Avalonia with platform detection. The builder
+pattern configures fonts, logging, and platform-specific settings:
+
 <hick:file path="desktop/{{project_name}}/Program.cs">using System;
 using Avalonia;
 
@@ -95,7 +107,11 @@ sealed class Program
 }
 </hick:file>
 
-<!-- App.axaml -->
+### Application Class
+
+The `App` class sets up the application lifecycle and creates the main window.
+Avalonia uses AXAML (a XAML variant) for markup with code-behind files:
+
 <hick:file path="desktop/{{project_name}}/App.axaml"><Application xmlns="https://github.com/avaloniaui"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              x:Class="<hick:val name="project_name" />.App"
@@ -136,7 +152,12 @@ public partial class App : Application
 }
 </hick:file>
 
-<!-- MainWindow.axaml -->
+### Main Window
+
+The main window demonstrates Avalonia's XAML syntax with data binding. Note the
+`x:DataType` attribute enabling compiled bindings—this catches binding errors at
+compile time rather than runtime:
+
 <hick:file path="desktop/{{project_name}}/Views/MainWindow.axaml"><Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:<hick:val name="project_name" />.ViewModels"
@@ -195,7 +216,12 @@ public partial class MainWindow : Window
 }
 </hick:file>
 
-<!-- MainWindowViewModel -->
+### ViewModel with Source Generators
+
+The CommunityToolkit.Mvvm package uses source generators to eliminate MVVM boilerplate.
+The `[ObservableProperty]` attribute generates the full property with change notification,
+and `[RelayCommand]` creates an `ICommand` implementation from a method:
+
 <hick:file path="desktop/{{project_name}}/ViewModels/MainWindowViewModel.cs">using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 
@@ -226,8 +252,7 @@ public class ViewModelBase : ObservableObject
 }
 </hick:file>
 
-<!-- Assets folder marker -->
-<hick:file path="desktop/{{project_name}}/Assets/.gitkeep"># This folder contains application assets
+<hick:file path="desktop/{{project_name}}/Assets/.gitkeep" doc-hidden="true"># This folder contains application assets
 </hick:file>
 
 </hick:when>

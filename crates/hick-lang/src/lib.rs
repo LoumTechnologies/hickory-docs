@@ -82,6 +82,9 @@ pub struct HickDocument {
     pub source: String,
     /// The XML namespace prefix used in this document (e.g. `"hick"`, `"h"`).
     pub prefix: String,
+    /// Path for weave output (literate programming documentation).
+    /// Set from the `weave` attribute on the root `<hick:doc>` element.
+    pub weave_path: Option<String>,
 }
 
 impl HickDocument {
@@ -370,6 +373,9 @@ impl<'a> Parser<'a> {
             return Err(ParseError::MissingRoot);
         }
 
+        // Extract weave path from the doc tag attributes
+        let weave_path = tag.get_attribute("weave").map(|s| s.to_string());
+
         // Parse children until </PREFIX:doc>
         let nodes = self.parse_children("doc", tag.source_line)?;
 
@@ -377,6 +383,7 @@ impl<'a> Parser<'a> {
             nodes,
             source: self.input.to_string(),
             prefix: self.prefix.clone(),
+            weave_path,
         })
     }
 
@@ -692,6 +699,7 @@ mod tests {
 </hick:doc>"#;
         let doc = parse(src).unwrap();
         assert_eq!(doc.prefix, "hick");
+        assert!(doc.weave_path.is_none());
         assert!(
             doc.nodes.is_empty()
                 || doc
@@ -699,6 +707,25 @@ mod tests {
                     .iter()
                     .all(|n| matches!(n, HickNode::Text(t) if t.trim().is_empty()))
         );
+    }
+
+    #[test]
+    fn parse_weave_attribute() {
+        let src = r#"<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="TEMPLATE.md">
+<hick:file path="out.txt">content</hick:file>
+</hick:doc>"#;
+        let doc = parse(src).unwrap();
+        assert_eq!(doc.weave_path, Some("TEMPLATE.md".to_string()));
+    }
+
+    #[test]
+    fn parse_weave_attribute_with_path() {
+        let src = r#"<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="docs/README.md">
+</hick:doc>"#;
+        let doc = parse(src).unwrap();
+        assert_eq!(doc.weave_path, Some("docs/README.md".to_string()));
     }
 
     #[test]

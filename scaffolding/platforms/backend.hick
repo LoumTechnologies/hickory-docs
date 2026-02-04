@@ -1,18 +1,18 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!--
-  Rust Backend Template
-  Generates a Rust API server using Axum
--->
 <hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
 
-<!-- Only generate when backend feature is enabled -->
 <hick:when test="backend">
 
-<!-- ================================================================== -->
-<!-- Rust Backend Project Structure                                     -->
-<!-- ================================================================== -->
+## Rust Backend (Axum)
 
-<!-- Cargo.toml -->
+The backend uses [Axum](https://github.com/tokio-rs/axum), a modern Rust web framework
+built on top of Tokio. Axum provides excellent performance, type safety, and ergonomic
+handler composition through tower middleware.
+
+### Project Configuration
+
+The Cargo.toml defines our dependencies with a focus on the async ecosystem:
+
 <hick:file path="backend/Cargo.toml">[package]
 name = "<hick:val name="project_name" />-backend"
 version = "0.1.0"
@@ -34,7 +34,17 @@ thiserror = "2"
 axum-test = "16"
 </hick:file>
 
-<!-- Main entry point -->
+Key dependencies:
+- **axum** — The web framework, providing routing and extraction
+- **tokio** — Async runtime with full features for timers, I/O, etc.
+- **tower-http** — Middleware for CORS and request tracing
+- **tracing** — Structured logging that works well with async code
+- **thiserror** — Derive macro for clean error types
+
+### Entry Point
+
+The main binary simply delegates to the library, keeping the entry point minimal:
+
 <hick:file path="backend/src/main.rs">use anyhow::Result;
 use <hick:val name="project_name" />_backend::run;
 
@@ -44,7 +54,11 @@ async fn main() -> Result<()> {
 }
 </hick:file>
 
-<!-- Library entry point -->
+### Library Core
+
+The library exposes the `run()` function and `create_router()` for testing. This
+separation allows integration tests to create servers without running main().
+
 <hick:file path="backend/src/lib.rs">pub mod api;
 pub mod error;
 
@@ -91,7 +105,14 @@ pub fn create_router() -> Router {
 }
 </hick:file>
 
-<!-- API routes -->
+The CORS layer is permissive for development. In production, you'd configure
+`allow_origin` with specific domains.
+
+### API Module Structure
+
+Routes are organized in the `api` module. As the app grows, add new route modules
+here (e.g., `users.rs`, `items.rs`) and merge them in `mod.rs`:
+
 <hick:file path="backend/src/api/mod.rs">mod health;
 
 use axum::Router;
@@ -102,7 +123,10 @@ pub fn routes() -> Router {
 }
 </hick:file>
 
-<!-- Health check endpoint -->
+### Health Check Endpoints
+
+Every API should have health endpoints for load balancers and monitoring:
+
 <hick:file path="backend/src/api/health.rs">use axum::{routing::get, Json, Router};
 use serde::Serialize;
 
@@ -132,7 +156,13 @@ async fn api_status() -> Json<StatusResponse> {
 }
 </hick:file>
 
-<!-- Error handling -->
+- `/health` — Simple text response for basic liveness checks
+- `/api/status` — JSON with version info for richer monitoring
+
+### Error Handling
+
+A centralized error type that implements `IntoResponse` for consistent API errors:
+
 <hick:file path="backend/src/error.rs">use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
@@ -176,7 +206,13 @@ impl From<anyhow::Error> for AppError {
 }
 </hick:file>
 
-<!-- Tests -->
+Handlers can return `Result<T, AppError>` and Axum will automatically convert
+errors to appropriate HTTP responses.
+
+### Integration Tests
+
+Tests use `axum-test` for ergonomic HTTP assertions:
+
 <hick:file path="backend/tests/api_tests.rs">use axum_test::TestServer;
 use <hick:val name="project_name" />_backend::create_router;
 
@@ -204,8 +240,11 @@ async fn test_api_status() {
 }
 </hick:file>
 
-<!-- Rust toolchain -->
-<hick:file path="backend/rust-toolchain.toml">[toolchain]
+### Toolchain Configuration
+
+We use Rust nightly for access to latest features:
+
+<hick:file path="backend/rust-toolchain.toml" doc-hidden="true">[toolchain]
 channel = "nightly"
 </hick:file>
 

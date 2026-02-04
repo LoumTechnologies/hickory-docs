@@ -1,18 +1,18 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!--
-  SwiftUI Platform Template
-  Generates iOS, iPadOS, and macOS app using SwiftUI with XcodeGen
-
-  After generation, run: cd apple && xcodegen generate
--->
 <hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
 
-<!-- Only generate when swiftui feature is enabled -->
 <hick:when test="swiftui">
 
-<!-- ================================================================== -->
-<!-- SwiftUI App Structure                                              -->
-<!-- ================================================================== -->
+## SwiftUI (Apple Platforms)
+
+The Apple platform uses SwiftUI for iOS, iPadOS, and macOS with shared code.
+We use [XcodeGen](https://github.com/yonaskolb/XcodeGen) to generate the Xcode
+project from a YAML specification, keeping the project file out of version control.
+
+### App Entry Point
+
+The `@main` struct defines the app's scene structure. SwiftUI's declarative syntax
+means this single file works across all Apple platforms:
 
 <hick:file path="apple/{{project_name}}/{{project_name}}App.swift">import SwiftUI
 
@@ -25,6 +25,11 @@ struct <hick:val name="project_name" />App: App {
     }
 }
 </hick:file>
+
+### Main View
+
+The content view uses a NavigationStack for proper navigation behavior. This is
+the starting point for your app's UI:
 
 <hick:file path="apple/{{project_name}}/ContentView.swift">import SwiftUI
 
@@ -55,7 +60,12 @@ struct ContentView: View {
 }
 </hick:file>
 
-<hick:file path="apple/{{project_name}}/Assets.xcassets/Contents.json">{
+### Asset Catalogs
+
+Xcode requires asset catalogs for colors and icons. These JSON manifests are
+boilerplate but necessary:
+
+<hick:file path="apple/{{project_name}}/Assets.xcassets/Contents.json" doc-hidden="true">{
   "info" : {
     "author" : "xcode",
     "version" : 1
@@ -63,7 +73,7 @@ struct ContentView: View {
 }
 </hick:file>
 
-<hick:file path="apple/{{project_name}}/Assets.xcassets/AccentColor.colorset/Contents.json">{
+<hick:file path="apple/{{project_name}}/Assets.xcassets/AccentColor.colorset/Contents.json" doc-hidden="true">{
   "colors" : [
     {
       "idiom" : "universal"
@@ -76,7 +86,7 @@ struct ContentView: View {
 }
 </hick:file>
 
-<hick:file path="apple/{{project_name}}/Assets.xcassets/AppIcon.appiconset/Contents.json">{
+<hick:file path="apple/{{project_name}}/Assets.xcassets/AppIcon.appiconset/Contents.json" doc-hidden="true">{
   "images" : [
     {
       "idiom" : "universal",
@@ -141,7 +151,11 @@ struct ContentView: View {
 }
 </hick:file>
 
-<!-- XcodeGen project specification -->
+### XcodeGen Project Specification
+
+Instead of a `.xcodeproj` that causes merge conflicts, we use XcodeGen. Run
+`xcodegen generate` to create the Xcode project from this YAML:
+
 <hick:file path="apple/project.yml">name: <hick:val name="project_name" />
 options:
   bundleIdPrefix: <hick:val name="bundle_id" />
@@ -243,7 +257,16 @@ schemes:
       config: Release
 </hick:file>
 
-<!-- Setup script for Apple platform -->
+Key configuration choices:
+- **Automatic code signing** — Xcode manages certificates
+- **Generated Info.plist** — No manual plist file needed
+- **Whole module optimization** — Better release performance
+- **Separate iOS and macOS targets** — Clean separation while sharing code
+
+### Setup Script
+
+A convenience script to bootstrap the Apple platform:
+
 <hick:file path="apple/setup.sh">#!/bin/bash
 # Setup script for <hick:val name="project_name" /> Apple platforms
 # Requires: Homebrew, xcodegen
