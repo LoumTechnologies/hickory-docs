@@ -114,6 +114,17 @@ impl FeatureRegistry {
         self.features.values()
     }
 
+    /// Get all features as (name, definition) pairs, sorted by name.
+    pub fn all_features(&self) -> impl Iterator<Item = (&str, &FeatureDef)> {
+        let mut entries: Vec<_> = self
+            .features
+            .iter()
+            .map(|(k, v)| (k.as_str(), v))
+            .collect();
+        entries.sort_by_key(|(k, _)| *k);
+        entries.into_iter()
+    }
+
     /// Get all feature names.
     pub fn names(&self) -> impl Iterator<Item = &str> {
         self.features.keys().map(|s| s.as_str())

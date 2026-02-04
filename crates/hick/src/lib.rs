@@ -814,7 +814,14 @@ fn process_features(documents: &[&hick_lang::HickDocument], state: &MultiDocumen
 
     // Validate feature registry (checks for circular deps and unknown deps)
     if let Err(e) = feature_registry.validate() {
-        return Err(anyhow::anyhow!("Feature validation error: {e}"));
+        let available = feature_registry
+            .all_features()
+            .map(|(name, def)| format!("  {} - {}", name, def.description))
+            .collect::<Vec<_>>()
+            .join("\n");
+        return Err(anyhow::anyhow!(
+            "Feature validation error: {e}\n\nAvailable features:\n{available}"
+        ));
     }
 
     // Process enabled features (from --features param or "features" var)
@@ -830,7 +837,14 @@ fn process_features(documents: &[&hick_lang::HickDocument], state: &MultiDocumen
                 }
             }
             Err(e) => {
-                return Err(anyhow::anyhow!("Feature error: {e}"));
+                let available = feature_registry
+                    .all_features()
+                    .map(|(name, def)| format!("  {} - {}", name, def.description))
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                return Err(anyhow::anyhow!(
+                    "Feature error: {e}\n\nAvailable features:\n{available}"
+                ));
             }
         }
     }

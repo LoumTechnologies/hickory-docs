@@ -269,14 +269,78 @@ fn init_logger(verbose: bool) {
         .init();
 }
 
+/// Expand a CLI argument into a list of `.hick` files.
+///
+/// - If `path` is a file, return it directly.
+/// - If `path` is a directory with `_hick.yml`, use that config to resolve files.
+/// - If `path` is a directory without config, expand `**/*.hick`.
+fn expand_path_arg(path: &Path) -> Result<(Vec<PathBuf>, Option<PathBuf>)> {
+    if path.is_file() {
+        return Ok((vec![path.to_path_buf()], None));
+    }
+
+    if path.is_dir() {
+        let config_path = path.join("_hick.yml");
+        if config_path.is_file() {
+            let config = HickConfig::load(&config_path)?;
+            let files = config.resolve_files(path)?;
+            return Ok((files, Some(config_path)));
+        }
+
+        // No config file: expand **/*.hick
+        let pattern = path.join("**/*.hick");
+        let pattern_str = pattern.to_string_lossy();
+        let mut matches: Vec<PathBuf> = glob::glob(&pattern_str)
+            .with_context(|| format!("invalid glob pattern: {}", pattern_str))?
+            .filter_map(|r| r.ok())
+            .collect();
+        matches.sort();
+        if matches.is_empty() {
+            bail!(
+                "No .hick files found in '{}'\n\n\
+                 To fix this, either:\n  \
+                 1. Create a _hick.yml config file listing your .hick files\n  \
+                 2. Add .hick files to the directory\n  \
+                 3. Specify files directly: hick run file1.hick file2.hick",
+                path.display()
+            );
+        }
+        return Ok((matches, None));
+    }
+
+    bail!(
+        "Path '{}' does not exist\n\n\
+         Check that the path is correct and try again.\n\
+         Use 'hick --help' to see usage information.",
+        path.display()
+    );
+}
+
 /// Run the pipeline once and write outputs.
 async fn run_single_shot(cli: RunArgs) -> Result<()> {
     let pipeline_start = Instant::now();
 
-    // Discover config file
+    // Expand CLI file arguments (supporting directories)
+    let (expanded_files, dir_config) = if !cli.files.is_empty() {
+        let mut all_files = Vec::new();
+        let mut found_config = None;
+        for path in &cli.files {
+            let (files, cfg) = expand_path_arg(path)?;
+            all_files.extend(files);
+            if cfg.is_some() {
+                found_config = cfg;
+            }
+        }
+        (all_files, found_config)
+    } else {
+        (Vec::new(), None)
+    };
+
+    // Discover config file: CLI --config > directory config > auto-discover
     let config_path = cli
         .config
         .clone()
+        .or(dir_config)
         .or_else(|| find_config(&std::env::current_dir().unwrap_or_default()));
 
     let config = if let Some(ref path) = config_path {
@@ -291,15 +355,22 @@ async fn run_single_shot(cli: RunArgs) -> Result<()> {
         .and_then(|p| p.parent())
         .unwrap_or(Path::new("."));
 
-    // Resolve files: CLI args take precedence, then config
-    let files = if !cli.files.is_empty() {
-        cli.files.clone()
+    // Resolve files: expanded CLI args take precedence, then config
+    let files = if !expanded_files.is_empty() {
+        expanded_files
     } else {
         config.resolve_files(config_dir)?
     };
 
     if files.is_empty() {
-        bail!("No .hick files specified. Provide files as arguments or create a _hick.yml.");
+        bail!(
+            "No .hick files specified\n\n\
+             Usage:\n  \
+             hick run <file.hick>         Run a single file\n  \
+             hick run <directory>         Run all .hick files in directory\n  \
+             hick run                     Use _hick.yml config if present\n\n\
+             Create a _hick.yml file to define default files and variables."
+        );
     }
 
     // Merge config vars with CLI params (CLI wins)

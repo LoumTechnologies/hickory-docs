@@ -1,0 +1,234 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Avalonia Platform Template
+  Generates cross-platform desktop app for Windows, macOS, and Linux
+-->
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
+
+<!-- Only generate when avalonia feature is enabled -->
+<hick:when test="avalonia">
+
+<!-- ================================================================== -->
+<!-- Avalonia Project Structure                                         -->
+<!-- ================================================================== -->
+
+<!-- Solution file -->
+<hick:file path="desktop/{{project_name}}.sln">Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "MyProject", "MyProject\MyProject.csproj", "{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+EndGlobal
+</hick:file>
+
+<!-- Project file -->
+<hick:file path="desktop/{{project_name}}/{{project_name}}.csproj">&lt;Project Sdk="Microsoft.NET.Sdk"&gt;
+
+  &lt;PropertyGroup&gt;
+    &lt;OutputType&gt;WinExe&lt;/OutputType&gt;
+    &lt;TargetFramework&gt;net<hick:val name="dotnet_version" />&lt;/TargetFramework&gt;
+    &lt;Nullable&gt;enable&lt;/Nullable&gt;
+    &lt;ImplicitUsings&gt;enable&lt;/ImplicitUsings&gt;
+    &lt;BuiltInComInteropSupport&gt;true&lt;/BuiltInComInteropSupport&gt;
+    &lt;ApplicationManifest&gt;app.manifest&lt;/ApplicationManifest&gt;
+    &lt;AvaloniaUseCompiledBindingsByDefault&gt;true&lt;/AvaloniaUseCompiledBindingsByDefault&gt;
+  &lt;/PropertyGroup&gt;
+
+  &lt;ItemGroup&gt;
+    &lt;PackageReference Include="Avalonia" Version="11.1.0" /&gt;
+    &lt;PackageReference Include="Avalonia.Desktop" Version="11.1.0" /&gt;
+    &lt;PackageReference Include="Avalonia.Themes.Fluent" Version="11.1.0" /&gt;
+    &lt;PackageReference Include="Avalonia.Fonts.Inter" Version="11.1.0" /&gt;
+    &lt;PackageReference Include="CommunityToolkit.Mvvm" Version="8.2.2" /&gt;
+  &lt;/ItemGroup&gt;
+
+  &lt;ItemGroup&gt;
+    &lt;AvaloniaResource Include="Assets\**" /&gt;
+  &lt;/ItemGroup&gt;
+
+&lt;/Project&gt;
+</hick:file>
+
+<!-- App manifest for Windows -->
+<hick:file path="desktop/{{project_name}}/app.manifest">&lt;?xml version="1.0" encoding="utf-8"?&gt;
+&lt;assembly manifestVersion="1.0" xmlns="urn:schemas-microsoft-com:asm.v1"&gt;
+  &lt;assemblyIdentity version="1.0.0.0" name="MyProject.Desktop"/&gt;
+  &lt;trustInfo xmlns="urn:schemas-microsoft-com:asm.v2"&gt;
+    &lt;security&gt;
+      &lt;requestedPrivileges xmlns="urn:schemas-microsoft-com:asm.v3"&gt;
+        &lt;requestedExecutionLevel level="asInvoker" uiAccess="false"/&gt;
+      &lt;/requestedPrivileges&gt;
+    &lt;/security&gt;
+  &lt;/trustInfo&gt;
+&lt;/assembly&gt;
+</hick:file>
+
+<!-- Program.cs entry point -->
+<hick:file path="desktop/{{project_name}}/Program.cs">using System;
+using Avalonia;
+
+namespace MyProject;
+
+sealed class Program
+{
+    [STAThread]
+    public static void Main(string[] args) =&gt; BuildAvaloniaApp()
+        .StartWithClassicDesktopLifetime(args);
+
+    public static AppBuilder BuildAvaloniaApp()
+        =&gt; AppBuilder.Configure&lt;App&gt;()
+            .UsePlatformDetect()
+            .WithInterFont()
+            .LogToTrace();
+}
+</hick:file>
+
+<!-- App.axaml -->
+<hick:file path="desktop/{{project_name}}/App.axaml">&lt;Application xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="MyProject.App"
+             RequestedThemeVariant="Default"&gt;
+    &lt;Application.Styles&gt;
+        &lt;FluentTheme /&gt;
+    &lt;/Application.Styles&gt;
+&lt;/Application&gt;
+</hick:file>
+
+<hick:file path="desktop/{{project_name}}/App.axaml.cs">using Avalonia;
+using Avalonia.Controls.ApplicationLifetimes;
+using Avalonia.Markup.Xaml;
+using MyProject.ViewModels;
+using MyProject.Views;
+
+namespace MyProject;
+
+public partial class App : Application
+{
+    public override void Initialize()
+    {
+        AvaloniaXamlLoader.Load(this);
+    }
+
+    public override void OnFrameworkInitializationCompleted()
+    {
+        if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
+        {
+            desktop.MainWindow = new MainWindow
+            {
+                DataContext = new MainWindowViewModel()
+            };
+        }
+
+        base.OnFrameworkInitializationCompleted();
+    }
+}
+</hick:file>
+
+<!-- MainWindow.axaml -->
+<hick:file path="desktop/{{project_name}}/Views/MainWindow.axaml">&lt;Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:MyProject.ViewModels"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
+        x:Class="MyProject.Views.MainWindow"
+        x:DataType="vm:MainWindowViewModel"
+        Title="MyProject"
+        Width="800"
+        Height="600"&gt;
+
+    &lt;Design.DataContext&gt;
+        &lt;vm:MainWindowViewModel/&gt;
+    &lt;/Design.DataContext&gt;
+
+    &lt;Grid RowDefinitions="Auto,*"&gt;
+        &lt;TextBlock Grid.Row="0"
+                   Text="MyProject"
+                   FontSize="24"
+                   FontWeight="Bold"
+                   Margin="20"
+                   HorizontalAlignment="Center"/&gt;
+
+        &lt;StackPanel Grid.Row="1"
+                    VerticalAlignment="Center"
+                    HorizontalAlignment="Center"
+                    Spacing="16"&gt;
+            &lt;TextBlock Text="{Binding Greeting}"
+                       FontSize="32"
+                       HorizontalAlignment="Center"/&gt;
+            &lt;TextBlock Text="Your cross-platform app starts here"
+                       Foreground="Gray"
+                       HorizontalAlignment="Center"/&gt;
+            &lt;Button Content="Click me!"
+                    Command="{Binding ClickCommand}"
+                    HorizontalAlignment="Center"/&gt;
+            &lt;TextBlock Text="{Binding ClickCount, StringFormat='Clicked {0} times'}"
+                       HorizontalAlignment="Center"/&gt;
+        &lt;/StackPanel&gt;
+    &lt;/Grid&gt;
+
+&lt;/Window&gt;
+</hick:file>
+
+<hick:file path="desktop/{{project_name}}/Views/MainWindow.axaml.cs">using Avalonia.Controls;
+
+namespace MyProject.Views;
+
+public partial class MainWindow : Window
+{
+    public MainWindow()
+    {
+        InitializeComponent();
+    }
+}
+</hick:file>
+
+<!-- MainWindowViewModel -->
+<hick:file path="desktop/{{project_name}}/ViewModels/MainWindowViewModel.cs">using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
+
+namespace MyProject.ViewModels;
+
+public partial class MainWindowViewModel : ViewModelBase
+{
+    [ObservableProperty]
+    private string _greeting = "Welcome to <hick:val name="project_name" />!";
+
+    [ObservableProperty]
+    private int _clickCount;
+
+    [RelayCommand]
+    private void Click()
+    {
+        ClickCount++;
+    }
+}
+</hick:file>
+
+<hick:file path="desktop/{{project_name}}/ViewModels/ViewModelBase.cs">using CommunityToolkit.Mvvm.ComponentModel;
+
+namespace MyProject.ViewModels;
+
+public class ViewModelBase : ObservableObject
+{
+}
+</hick:file>
+
+<!-- Assets folder marker -->
+<hick:file path="desktop/{{project_name}}/Assets/.gitkeep"># This folder contains application assets
+</hick:file>
+
+</hick:when>
+</hick:doc>

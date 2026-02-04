@@ -1,0 +1,169 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Shared content blocks used across platform templates
+-->
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
+
+<!-- ================================================================== -->
+<!-- Reusable Content Blocks                                            -->
+<!-- ================================================================== -->
+
+<!-- Editor config for consistent formatting -->
+<hick:copy id="editorconfig"># EditorConfig helps maintain consistent coding styles
+root = true
+
+[*]
+indent_style = space
+indent_size = 2
+end_of_line = lf
+charset = utf-8
+trim_trailing_whitespace = true
+insert_final_newline = true
+
+[*.md]
+trim_trailing_whitespace = false
+
+[*.{rs,swift}]
+indent_size = 4
+
+[*.{kt,java}]
+indent_size = 4
+
+[*.cs]
+indent_size = 4
+
+[Makefile]
+indent_style = tab
+</hick:copy>
+
+<!-- Common development config file -->
+<hick:file path=".editorconfig"><hick:paste select="#editorconfig" /></hick:file>
+
+<!-- CI workflow for GitHub Actions -->
+<hick:when test="swiftui || compose || avalonia || spa || extension || backend">
+<hick:file path=".github/workflows/ci.yml">name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+<hick:when test="swiftui">
+  apple:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build iOS
+        run: |
+          cd apple
+          xcodebuild -scheme MyProject -destination 'platform=iOS Simulator,name=iPhone 15' build
+
+      - name: Build macOS
+        run: |
+          cd apple
+          xcodebuild -scheme MyProject -destination 'platform=macOS' build
+</hick:when>
+<hick:when test="compose">
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
+      - name: Build Android
+        run: |
+          cd android
+          ./gradlew assembleDebug
+</hick:when>
+<hick:when test="avalonia">
+  desktop:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '<hick:val name="dotnet_version" />'
+
+      - name: Build Desktop
+        run: |
+          cd desktop
+          dotnet build
+</hick:when>
+<hick:when test="spa">
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '<hick:val name="node_version" />'
+          cache: 'npm'
+          cache-dependency-path: web/package-lock.json
+
+      - name: Build Web
+        run: |
+          cd web
+          npm ci
+          npm run build
+          npm run lint
+</hick:when>
+<hick:when test="extension">
+  extension:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '<hick:val name="node_version" />'
+          cache: 'npm'
+          cache-dependency-path: extension/package-lock.json
+
+      - name: Build Extension
+        run: |
+          cd extension
+          npm ci
+          npm run build
+          npm run lint
+</hick:when>
+<hick:when test="backend">
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: Cache Rust
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: backend
+
+      - name: Build Backend
+        run: |
+          cd backend
+          cargo build
+
+      - name: Test Backend
+        run: |
+          cd backend
+          cargo test
+</hick:when>
+</hick:file>
+</hick:when>
+
+</hick:doc>
