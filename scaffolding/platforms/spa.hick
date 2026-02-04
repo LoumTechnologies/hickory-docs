@@ -21,7 +21,7 @@ navigation, though a simple SPA might not need it—remove if unused:
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b &amp;&amp; vite build",
+    "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview"
   },
@@ -185,11 +185,11 @@ import './index.css'
 import App from './App.tsx'
 
 createRoot(document.getElementById('root')!).render(
-  &lt;StrictMode&gt;
-    &lt;BrowserRouter&gt;
-      &lt;App /&gt;
-    &lt;/BrowserRouter&gt;
-  &lt;/StrictMode&gt;,
+  <StrictMode>
+    <BrowserRouter>
+      <App />
+    </BrowserRouter>
+  </StrictMode>,
 )
 </hick:file>
 
@@ -203,20 +203,20 @@ function App() {
   const [count, setCount] = useState(0)
 
   return (
-    &lt;div className="app"&gt;
-      &lt;header className="app-header"&gt;
-        &lt;h1&gt;<hick:val name="project_name" />&lt;/h1&gt;
-      &lt;/header&gt;
-      &lt;main className="app-main"&gt;
-        &lt;p className="welcome"&gt;Welcome to <hick:val name="project_name" />&lt;/p&gt;
-        &lt;p className="subtitle"&gt;Your cross-platform app starts here&lt;/p&gt;
-        &lt;div className="card"&gt;
-          &lt;button onClick={() =&gt; setCount((count) =&gt; count + 1)}&gt;
+    <div className="app">
+      <header className="app-header">
+        <h1><hick:val name="project_name" /></h1>
+      </header>
+      <main className="app-main">
+        <p className="welcome">Welcome to <hick:val name="project_name" /></p>
+        <p className="subtitle">Your cross-platform app starts here</p>
+        <div className="card">
+          <button onClick={() => setCount((count) => count + 1)}>
             count is {count}
-          &lt;/button&gt;
-        &lt;/div&gt;
-      &lt;/main&gt;
-    &lt;/div&gt;
+          </button>
+        </div>
+      </main>
+    </div>
   )
 }
 

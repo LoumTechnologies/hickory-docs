@@ -20,7 +20,7 @@ Similar to the web SPA, but with additional Chrome types and the CRXJS plugin:
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b &amp;&amp; vite build",
+    "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview"
   },
@@ -228,9 +228,9 @@ import './index.css'
 import Popup from './Popup.tsx'
 
 createRoot(document.getElementById('root')!).render(
-  &lt;StrictMode&gt;
-    &lt;Popup /&gt;
-  &lt;/StrictMode&gt;,
+  <StrictMode>
+    <Popup />
+  </StrictMode>,
 )
 </hick:file>
 
@@ -260,17 +260,17 @@ function Popup() {
   }
 
   return (
-    &lt;div className="popup"&gt;
-      &lt;header className="popup-header"&gt;
-        &lt;h1&gt;<hick:val name="project_name" />&lt;/h1&gt;
-      &lt;/header&gt;
-      &lt;main className="popup-main"&gt;
-        &lt;p&gt;Welcome to the extension!&lt;/p&gt;
-        &lt;button onClick={handleClick}&gt;
+    <div className="popup">
+      <header className="popup-header">
+        <h1><hick:val name="project_name" /></h1>
+      </header>
+      <main className="popup-main">
+        <p>Welcome to the extension!</p>
+        <button onClick={handleClick}>
           Clicked {count} times
-        &lt;/button&gt;
-      &lt;/main&gt;
-    &lt;/div&gt;
+        </button>
+      </main>
+    </div>
   )
 }
 
