@@ -71,6 +71,10 @@ struct RunArgs {
     #[arg(long)]
     features: Option<String>,
 
+    /// Output directory for generated files (overrides config `output-dir`).
+    #[arg(long)]
+    output_dir: Option<PathBuf>,
+
     /// Dry-run mode: produce placeholder strings instead of running containers.
     #[arg(long)]
     dry_run: bool,
@@ -407,10 +411,12 @@ async fn run_single_shot(cli: RunArgs) -> Result<()> {
         .unwrap_or_else(|| PathBuf::from("~/.config/hick/secrets"));
     let secrets_dir = hick::expand_tilde(&secrets_dir);
 
-    let output_dir = config
+    // Resolve output directory: CLI flag > config value > current directory
+    let output_dir = cli
         .output_dir
         .as_ref()
-        .map(|d| config_dir.join(d))
+        .cloned()
+        .or_else(|| config.output_dir.as_ref().map(|d| config_dir.join(d)))
         .unwrap_or_else(|| PathBuf::from("."));
 
     // Set up secrets provider

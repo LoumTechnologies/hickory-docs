@@ -13,14 +13,14 @@
 <!-- ================================================================== -->
 
 <!-- package.json -->
-<hick:file path="extension/package.json">{
-  "name": "my-project-extension",
+<hick:file path="browser-extension/package.json">{
+  "name": "<hick:val name="project_name" />-extension",
   "private": true,
   "version": "0.0.1",
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b &amp;&amp; vite build",
+    "build": "tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview"
   },
@@ -47,10 +47,10 @@
 </hick:file>
 
 <!-- Manifest V3 -->
-<hick:file path="extension/manifest.json">{
+<hick:file path="browser-extension/manifest.json">{
   "manifest_version": 3,
-  "name": "MyProject",
-  "description": "MyProject browser extension",
+  "name": "<hick:val name="project_name" />",
+  "description": "<hick:val name="project_name" /> browser extension",
   "version": "0.0.1",
   "icons": {
     "16": "icons/icon16.png",
@@ -74,7 +74,7 @@
   },
   "content_scripts": [
     {
-      "matches": ["&lt;all_urls&gt;"],
+      "matches": ["<all_urls>"],
       "js": ["src/content.ts"],
       "run_at": "document_idle"
     }
@@ -83,7 +83,7 @@
 </hick:file>
 
 <!-- Vite config for extension -->
-<hick:file path="extension/vite.config.ts">import { defineConfig } from 'vite'
+<hick:file path="browser-extension/vite.config.ts">import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { crx } from '@crxjs/vite-plugin'
 import manifest from './manifest.json'
@@ -104,7 +104,7 @@ export default defineConfig({
 </hick:file>
 
 <!-- TypeScript configs -->
-<hick:file path="extension/tsconfig.json">{
+<hick:file path="browser-extension/tsconfig.json">{
   "files": [],
   "references": [
     { "path": "./tsconfig.app.json" },
@@ -113,7 +113,7 @@ export default defineConfig({
 }
 </hick:file>
 
-<hick:file path="extension/tsconfig.app.json">{
+<hick:file path="browser-extension/tsconfig.app.json">{
   "compilerOptions": {
     "target": "ES2020",
     "useDefineForClassFields": true,
@@ -137,7 +137,7 @@ export default defineConfig({
 }
 </hick:file>
 
-<hick:file path="extension/tsconfig.node.json">{
+<hick:file path="browser-extension/tsconfig.node.json">{
   "compilerOptions": {
     "target": "ES2022",
     "lib": ["ES2023"],
@@ -160,7 +160,7 @@ export default defineConfig({
 </hick:file>
 
 <!-- ESLint config -->
-<hick:file path="extension/eslint.config.js">import js from '@eslint/js'
+<hick:file path="browser-extension/eslint.config.js">import js from '@eslint/js'
 import globals from 'globals'
 import reactHooks from 'eslint-plugin-react-hooks'
 import reactRefresh from 'eslint-plugin-react-refresh'
@@ -191,50 +191,50 @@ export default tseslint.config(
 </hick:file>
 
 <!-- index.html (popup) -->
-<hick:file path="extension/index.html">&lt;!DOCTYPE html&gt;
-&lt;html lang="en"&gt;
-  &lt;head&gt;
-    &lt;meta charset="UTF-8" /&gt;
-    &lt;meta name="viewport" content="width=device-width, initial-scale=1.0" /&gt;
-    &lt;title&gt;MyProject&lt;/title&gt;
-  &lt;/head&gt;
-  &lt;body&gt;
-    &lt;div id="root"&gt;&lt;/div&gt;
-    &lt;script type="module" src="/src/popup/main.tsx"&gt;&lt;/script&gt;
-  &lt;/body&gt;
-&lt;/html&gt;
+<hick:file path="browser-extension/index.html"><!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title><hick:val name="project_name" /></title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/popup/main.tsx"></script>
+  </body>
+</html>
 </hick:file>
 
 <!-- Popup entry point -->
-<hick:file path="extension/src/popup/main.tsx">import { StrictMode } from 'react'
+<hick:file path="browser-extension/src/popup/main.tsx">import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import Popup from './Popup.tsx'
 
 createRoot(document.getElementById('root')!).render(
-  &lt;StrictMode&gt;
-    &lt;Popup /&gt;
-  &lt;/StrictMode&gt;,
+  <StrictMode>
+    <Popup />
+  </StrictMode>,
 )
 </hick:file>
 
 <!-- Popup component -->
-<hick:file path="extension/src/popup/Popup.tsx">import { useState, useEffect } from 'react'
+<hick:file path="browser-extension/src/popup/Popup.tsx">import { useState, useEffect } from 'react'
 import './Popup.css'
 
 function Popup() {
   const [count, setCount] = useState(0)
 
-  useEffect(() =&gt; {
+  useEffect(() => {
     // Load count from storage on mount
-    chrome.storage.local.get(['count'], (result) =&gt; {
+    chrome.storage.local.get(['count'], (result) => {
       if (result.count !== undefined) {
         setCount(result.count)
       }
     })
   }, [])
 
-  const handleClick = () =&gt; {
+  const handleClick = () => {
     const newCount = count + 1
     setCount(newCount)
     // Persist to storage
@@ -242,17 +242,17 @@ function Popup() {
   }
 
   return (
-    &lt;div className="popup"&gt;
-      &lt;header className="popup-header"&gt;
-        &lt;h1&gt;<hick:val name="project_name" />&lt;/h1&gt;
-      &lt;/header&gt;
-      &lt;main className="popup-main"&gt;
-        &lt;p&gt;Welcome to the extension!&lt;/p&gt;
-        &lt;button onClick={handleClick}&gt;
+    <div className="popup">
+      <header className="popup-header">
+        <h1><hick:val name="project_name" /></h1>
+      </header>
+      <main className="popup-main">
+        <p>Welcome to the extension!</p>
+        <button onClick={handleClick}>
           Clicked {count} times
-        &lt;/button&gt;
-      &lt;/main&gt;
-    &lt;/div&gt;
+        </button>
+      </main>
+    </div>
   )
 }
 
@@ -260,7 +260,7 @@ export default Popup
 </hick:file>
 
 <!-- Popup styles -->
-<hick:file path="extension/src/popup/index.css">:root {
+<hick:file path="browser-extension/src/popup/index.css">:root {
   font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
   line-height: 1.5;
   font-weight: 400;
@@ -291,7 +291,7 @@ body {
 }
 </hick:file>
 
-<hick:file path="extension/src/popup/Popup.css">.popup {
+<hick:file path="browser-extension/src/popup/Popup.css">.popup {
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -335,18 +335,18 @@ button:hover {
 </hick:file>
 
 <!-- Background service worker -->
-<hick:file path="extension/src/background.ts">// Background service worker for MyProject extension
+<hick:file path="browser-extension/src/background.ts">// Background service worker for <hick:val name="project_name" /> extension
 
-chrome.runtime.onInstalled.addListener(() =&gt; {
-  console.log('MyProject extension installed')
+chrome.runtime.onInstalled.addListener(() => {
+  console.log('<hick:val name="project_name" /> extension installed')
   // Initialize storage with default values
   chrome.storage.local.set({ count: 0 })
 })
 
 // Listen for messages from content scripts or popup
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) =&gt; {
+chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.type === 'GET_COUNT') {
-    chrome.storage.local.get(['count'], (result) =&gt; {
+    chrome.storage.local.get(['count'], (result) => {
       sendResponse({ count: result.count ?? 0 })
     })
     return true // Required for async sendResponse
@@ -357,13 +357,13 @@ export {}
 </hick:file>
 
 <!-- Content script -->
-<hick:file path="extension/src/content.ts">// Content script for MyProject extension
+<hick:file path="browser-extension/src/content.ts">// Content script for <hick:val name="project_name" /> extension
 // This runs in the context of web pages
 
-console.log('MyProject content script loaded')
+console.log('<hick:val name="project_name" /> content script loaded')
 
 // Example: Listen for messages from background
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) =&gt; {
+chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message.type === 'PING') {
     sendResponse({ status: 'pong' })
   }
@@ -373,7 +373,7 @@ export {}
 </hick:file>
 
 <!-- Icons placeholder -->
-<hick:file path="extension/icons/.gitkeep"># Place extension icons here:
+<hick:file path="browser-extension/icons/.gitkeep"># Place extension icons here:
 # - icon16.png (16x16)
 # - icon48.png (48x48)
 # - icon128.png (128x128)

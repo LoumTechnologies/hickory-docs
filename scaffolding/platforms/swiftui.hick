@@ -1,7 +1,9 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
   SwiftUI Platform Template
-  Generates iOS, iPadOS, and macOS app using SwiftUI
+  Generates iOS, iPadOS, and macOS app using SwiftUI with XcodeGen
+
+  After generation, run: cd apple && xcodegen generate
 -->
 <hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
 
@@ -15,7 +17,7 @@
 <hick:file path="apple/{{project_name}}/{{project_name}}App.swift">import SwiftUI
 
 @main
-struct MyProjectApp: App {
+struct <hick:val name="project_name" />App: App {
     var body: some Scene {
         WindowGroup {
             ContentView()
@@ -139,300 +141,128 @@ struct ContentView: View {
 }
 </hick:file>
 
-<!-- Xcode Project -->
-<hick:file path="apple/{{project_name}}.xcodeproj/project.pbxproj">// !$*UTF8*$!
-{
-	archiveVersion = 1;
-	classes = {
-	};
-	objectVersion = 56;
-	objects = {
+<!-- XcodeGen project specification -->
+<hick:file path="apple/project.yml">name: <hick:val name="project_name" />
+options:
+  bundleIdPrefix: <hick:val name="bundle_id" />
+  deploymentTarget:
+    iOS: "<hick:val name="min_ios_version" />"
+    macOS: "<hick:val name="min_macos_version" />"
+  xcodeVersion: "15.0"
+  generateEmptyDirectories: true
 
-/* Begin PBXBuildFile section */
-		00000001 /* MyProjectApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00000011 /* MyProjectApp.swift */; };
-		00000002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 00000012 /* ContentView.swift */; };
-		00000003 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 00000013 /* Assets.xcassets */; };
-/* End PBXBuildFile section */
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    CODE_SIGN_STYLE: Automatic
+    ENABLE_PREVIEWS: YES
 
-/* Begin PBXFileReference section */
-		00000010 /* MyProject.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = MyProject.app; sourceTree = BUILT_PRODUCTS_DIR; };
-		00000011 /* MyProjectApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MyProjectApp.swift; sourceTree = "&lt;group&gt;"; };
-		00000012 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "&lt;group&gt;"; };
-		00000013 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "&lt;group&gt;"; };
-/* End PBXFileReference section */
+targets:
+  <hick:val name="project_name" />:
+    type: application
+    platform: iOS
+    deploymentTarget:
+      iOS: "<hick:val name="min_ios_version" />"
+    sources:
+      - path: <hick:val name="project_name" />
+        excludes:
+          - "**/.DS_Store"
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: <hick:val name="bundle_id" />
+        INFOPLIST_KEY_CFBundleDisplayName: <hick:val name="project_name" />
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
+        INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents: YES
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
+        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        GENERATE_INFOPLIST_FILE: YES
+      configs:
+        Debug:
+          SWIFT_OPTIMIZATION_LEVEL: "-Onone"
+          SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG
+        Release:
+          SWIFT_OPTIMIZATION_LEVEL: "-O"
+          SWIFT_COMPILATION_MODE: wholemodule
 
-/* Begin PBXFrameworksBuildPhase section */
-		0000000D /* Frameworks */ = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-/* End PBXFrameworksBuildPhase section */
+  <hick:val name="project_name" />-macOS:
+    type: application
+    platform: macOS
+    deploymentTarget:
+      macOS: "<hick:val name="min_macos_version" />"
+    sources:
+      - path: <hick:val name="project_name" />
+        excludes:
+          - "**/.DS_Store"
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: <hick:val name="bundle_id" />
+        INFOPLIST_KEY_CFBundleDisplayName: <hick:val name="project_name" />
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        GENERATE_INFOPLIST_FILE: YES
+      configs:
+        Debug:
+          SWIFT_OPTIMIZATION_LEVEL: "-Onone"
+          SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG
+        Release:
+          SWIFT_OPTIMIZATION_LEVEL: "-O"
+          SWIFT_COMPILATION_MODE: wholemodule
 
-/* Begin PBXGroup section */
-		00000007 = {
-			isa = PBXGroup;
-			children = (
-				00000014 /* MyProject */,
-				00000020 /* Products */,
-			);
-			sourceTree = "&lt;group&gt;";
-		};
-		00000014 /* MyProject */ = {
-			isa = PBXGroup;
-			children = (
-				00000011 /* MyProjectApp.swift */,
-				00000012 /* ContentView.swift */,
-				00000013 /* Assets.xcassets */,
-			);
-			path = MyProject;
-			sourceTree = "&lt;group&gt;";
-		};
-		00000020 /* Products */ = {
-			isa = PBXGroup;
-			children = (
-				00000010 /* MyProject.app */,
-			);
-			name = Products;
-			sourceTree = "&lt;group&gt;";
-		};
-/* End PBXGroup section */
+schemes:
+  <hick:val name="project_name" />:
+    build:
+      targets:
+        <hick:val name="project_name" />: all
+    run:
+      config: Debug
+    test:
+      config: Debug
+    profile:
+      config: Release
+    analyze:
+      config: Debug
+    archive:
+      config: Release
 
-/* Begin PBXNativeTarget section */
-		0000000F /* MyProject */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = 0000001E /* Build configuration list for PBXNativeTarget "MyProject" */;
-			buildPhases = (
-				0000000C /* Sources */,
-				0000000D /* Frameworks */,
-				0000000E /* Resources */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-			);
-			name = MyProject;
-			productName = MyProject;
-			productReference = 00000010 /* MyProject.app */;
-			productType = "com.apple.product-type.application";
-		};
-/* End PBXNativeTarget section */
+  <hick:val name="project_name" />-macOS:
+    build:
+      targets:
+        <hick:val name="project_name" />-macOS: all
+    run:
+      config: Debug
+    test:
+      config: Debug
+    profile:
+      config: Release
+    analyze:
+      config: Debug
+    archive:
+      config: Release
+</hick:file>
 
-/* Begin PBXProject section */
-		00000008 /* Project object */ = {
-			isa = PBXProject;
-			attributes = {
-				BuildIndependentTargetsInParallel = 1;
-				LastSwiftUpdateCheck = 1500;
-				LastUpgradeCheck = 1500;
-				TargetAttributes = {
-					0000000F = {
-						CreatedOnToolsVersion = 15.0;
-					};
-				};
-			};
-			buildConfigurationList = 0000000B /* Build configuration list for PBXProject "MyProject" */;
-			compatibilityVersion = "Xcode 14.0";
-			developmentRegion = en;
-			hasScannedForEncodings = 0;
-			knownRegions = (
-				en,
-				Base,
-			);
-			mainGroup = 00000007;
-			productRefGroup = 00000020 /* Products */;
-			projectDirPath = "";
-			projectRoot = "";
-			targets = (
-				0000000F /* MyProject */,
-			);
-		};
-/* End PBXProject section */
+<!-- Setup script for Apple platform -->
+<hick:file path="apple/setup.sh">#!/bin/bash
+# Setup script for <hick:val name="project_name" /> Apple platforms
+# Requires: Homebrew, xcodegen
 
-/* Begin PBXResourcesBuildPhase section */
-		0000000E /* Resources */ = {
-			isa = PBXResourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				00000003 /* Assets.xcassets in Resources */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-/* End PBXResourcesBuildPhase section */
+set -e
 
-/* Begin PBXSourcesBuildPhase section */
-		0000000C /* Sources */ = {
-			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				00000002 /* ContentView.swift in Sources */,
-				00000001 /* MyProjectApp.swift in Sources */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-/* End PBXSourcesBuildPhase section */
+echo "Setting up <hick:val name="project_name" /> for Apple platforms..."
 
-/* Begin XCBuildConfiguration section */
-		0000001C /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				ALWAYS_SEARCH_USER_PATHS = NO;
-				CLANG_ANALYZER_NONNULL = YES;
-				CLANG_ENABLE_MODULES = YES;
-				CLANG_ENABLE_OBJC_ARC = YES;
-				CODE_SIGN_STYLE = Automatic;
-				COPY_PHASE_STRIP = NO;
-				DEBUG_INFORMATION_FORMAT = dwarf;
-				ENABLE_STRICT_OBJC_MSGSEND = YES;
-				ENABLE_TESTABILITY = YES;
-				GCC_DYNAMIC_NO_PIC = NO;
-				GCC_NO_COMMON_BLOCKS = YES;
-				GCC_OPTIMIZATION_LEVEL = 0;
-				GCC_PREPROCESSOR_DEFINITIONS = (
-					"DEBUG=1",
-					"$(inherited)",
-				);
-				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
-				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
-				GCC_WARN_UNDECLARED_SELECTOR = YES;
-				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
-				GCC_WARN_UNUSED_FUNCTION = YES;
-				GCC_WARN_UNUSED_VARIABLE = YES;
-				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
-				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
-				MTL_FAST_MATH = YES;
-				ONLY_ACTIVE_ARCH = YES;
-				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
-				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
-			};
-			name = Debug;
-		};
-		0000001D /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				ALWAYS_SEARCH_USER_PATHS = NO;
-				CLANG_ANALYZER_NONNULL = YES;
-				CLANG_ENABLE_MODULES = YES;
-				CLANG_ENABLE_OBJC_ARC = YES;
-				CODE_SIGN_STYLE = Automatic;
-				COPY_PHASE_STRIP = NO;
-				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
-				ENABLE_NS_ASSERTIONS = NO;
-				ENABLE_STRICT_OBJC_MSGSEND = YES;
-				GCC_NO_COMMON_BLOCKS = YES;
-				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
-				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
-				GCC_WARN_UNDECLARED_SELECTOR = YES;
-				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
-				GCC_WARN_UNUSED_FUNCTION = YES;
-				GCC_WARN_UNUSED_VARIABLE = YES;
-				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
-				MTL_ENABLE_DEBUG_INFO = NO;
-				MTL_FAST_MATH = YES;
-				SWIFT_COMPILATION_MODE = wholemodule;
-				SWIFT_OPTIMIZATION_LEVEL = "-O";
-			};
-			name = Release;
-		};
-		0000001F /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CODE_SIGN_ENTITLEMENTS = "";
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_ASSET_PATHS = "";
-				ENABLE_PREVIEWS = YES;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = MyProject;
-				INFOPLIST_KEY_LSApplicationCategoryType = "";
-				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
-				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
-				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				IPHONEOS_DEPLOYMENT_TARGET = <hick:val name="min_ios_version" />;
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/Frameworks",
-				);
-				MACOSX_DEPLOYMENT_TARGET = <hick:val name="min_ios_version" />;
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "<hick:val name="bundle_id" />";
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
-				SUPPORTS_MACCATALYST = NO;
-				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
-				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
-			};
-			name = Debug;
-		};
-		00000020 /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
-				CODE_SIGN_ENTITLEMENTS = "";
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_ASSET_PATHS = "";
-				ENABLE_PREVIEWS = YES;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_CFBundleDisplayName = MyProject;
-				INFOPLIST_KEY_LSApplicationCategoryType = "";
-				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
-				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
-				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
-				IPHONEOS_DEPLOYMENT_TARGET = <hick:val name="min_ios_version" />;
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/Frameworks",
-				);
-				MACOSX_DEPLOYMENT_TARGET = <hick:val name="min_ios_version" />;
-				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = "<hick:val name="bundle_id" />";
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
-				SUPPORTS_MACCATALYST = NO;
-				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = NO;
-				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
-			};
-			name = Release;
-		};
-/* End XCBuildConfiguration section */
+# Check for xcodegen
+if ! command -v xcodegen &> /dev/null; then
+    echo "Installing xcodegen..."
+    brew install xcodegen
+fi
 
-/* Begin XCConfigurationList section */
-		0000000B /* Build configuration list for PBXProject "MyProject" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				0000001C /* Debug */,
-				0000001D /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
-		0000001E /* Build configuration list for PBXNativeTarget "MyProject" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				0000001F /* Debug */,
-				00000020 /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
-/* End XCConfigurationList section */
-	};
-	rootObject = 00000008 /* Project object */;
-}
+# Generate Xcode project
+echo "Generating Xcode project..."
+xcodegen generate
+
+echo "Done! Open <hick:val name="project_name" />.xcodeproj in Xcode."
 </hick:file>
 
 </hick:when>

@@ -1041,6 +1041,49 @@ fn apply_exclusions(
         .collect()
 }
 
+/// Resolve {{variable}} and {{variable:variant}} references in a string.
+/// Returns the string with all variables replaced by their values.
+fn resolve_value_variables(text: &str, state: &MultiDocumentState) -> String {
+    let mut result = text.to_string();
+    let mut start = 0;
+
+    while let Some(open_pos) = result[start..].find("{{") {
+        let open_pos = start + open_pos;
+        if let Some(close_pos) = result[open_pos..].find("}}") {
+            let close_pos = open_pos + close_pos;
+            let placeholder = &result[open_pos + 2..close_pos];
+
+            // Check for variant syntax: variable:variant
+            let (var_name, variant) = if let Some(colon_pos) = placeholder.find(':') {
+                (
+                    placeholder[..colon_pos].trim(),
+                    Some(placeholder[colon_pos + 1..].trim()),
+                )
+            } else {
+                (placeholder.trim(), None)
+            };
+
+            // Resolve the variable
+            if let Some(value) = state.resolve_var(var_name) {
+                let resolved = if let Some(variant_name) = variant {
+                    apply_case_variant(&value, variant_name).unwrap_or(value)
+                } else {
+                    value
+                };
+                result = format!("{}{}{}", &result[..open_pos], resolved, &result[close_pos + 2..]);
+                start = open_pos + resolved.len();
+            } else {
+                // Variable not found, leave as-is
+                start = close_pos + 2;
+            }
+        } else {
+            start = open_pos + 2;
+        }
+    }
+
+    result
+}
+
 /// Apply all registered substitutions to text content.
 ///
 /// When a substitution has `variants=true`, it generates all case variants
@@ -1055,13 +1098,16 @@ fn apply_substitutions(text: &str, state: &MultiDocumentState) -> String {
     // Collect all pattern -> value pairs, expanding variants
     let mut replacements: Vec<(String, String)> = Vec::new();
     for sub in &substitutions {
+        // Resolve any {{variable}} references in the substitution value
+        let resolved_value = resolve_value_variables(&sub.value, state);
+
         if sub.variants {
             // Generate all case variants
-            let variants = generate_case_variants(&sub.pattern, &sub.value);
+            let variants = generate_case_variants(&sub.pattern, &resolved_value);
             replacements.extend(variants);
         } else {
             // Just the single pattern -> value
-            replacements.push((sub.pattern.clone(), sub.value.clone()));
+            replacements.push((sub.pattern.clone(), resolved_value));
         }
     }
 
