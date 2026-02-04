@@ -22,7 +22,8 @@ Similar to the web SPA, but with additional Chrome types and the CRXJS plugin:
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "echo 'No tests configured yet'"
   },
   "dependencies": {
     "react": "^18.3.1",
@@ -62,18 +63,8 @@ Manifest V3 is required for Chrome and recommended for Firefox. Key sections:
   "name": "<hick:val name="project_name" />",
   "description": "<hick:val name="project_name" /> browser extension",
   "version": "0.0.1",
-  "icons": {
-    "16": "icons/icon16.png",
-    "48": "icons/icon48.png",
-    "128": "icons/icon128.png"
-  },
   "action": {
-    "default_popup": "index.html",
-    "default_icon": {
-      "16": "icons/icon16.png",
-      "48": "icons/icon48.png",
-      "128": "icons/icon128.png"
-    }
+    "default_popup": "index.html"
   },
   "permissions": [
     "storage"
@@ -84,13 +75,22 @@ Manifest V3 is required for Chrome and recommended for Firefox. Key sections:
   },
   "content_scripts": [
     {
-      "matches": ["<all_urls>"],
+      "matches": ["*://*/*"],
       "js": ["src/content.ts"],
       "run_at": "document_idle"
     }
   ]
 }
 </hick:file>
+
+**Note:** Add extension icons before publishing:
+
+1. Create `icons/icon16.png`, `icons/icon48.png`, `icons/icon128.png`
+2. Update `manifest.json` to include:
+   ```json
+   "icons": { "16": "icons/icon16.png", "48": "icons/icon48.png", "128": "icons/icon128.png" },
+   "action": { "default_popup": "index.html", "default_icon": { "16": "icons/icon16.png", "48": "icons/icon48.png", "128": "icons/icon128.png" } }
+   ```
 
 ### Vite Configuration
 
@@ -181,6 +181,15 @@ The app config includes Chrome types for extension API autocompletion:
     "types": ["chrome"]
   },
   "include": ["src"]
+}
+</hick:file>
+
+<hick:file path="browser-extension/src/vite-env.d.ts" doc-hidden="true">/// &lt;reference types="vite/client" /&gt;
+
+// CSS module declarations
+declare module '*.css' {
+  const content: { [className: string]: string };
+  export default content;
 }
 </hick:file>
 

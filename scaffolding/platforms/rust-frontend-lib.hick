@@ -43,10 +43,14 @@ web-sys = { version = "0.3", features = ["console"] }
 
 # UniFFI for native FFI bindings (excluded from wasm32)
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-uniffi = { version = "0.29" }
+uniffi = { version = "0.29", features = ["cli"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.build-dependencies]
 uniffi = { version = "0.29", features = ["build"] }
+
+[[bin]]
+name = "uniffi-bindgen"
+path = "src/bin/uniffi-bindgen.rs"
 
 [features]
 default = []
@@ -116,7 +120,7 @@ use serde::{Deserialize, Serialize};
 
 // Include UniFFI scaffolding for native targets
 #[cfg(not(target_arch = "wasm32"))]
-uniffi::include_scaffolding!("<hick:val name="project_name" />_core");
+uniffi::include_scaffolding!("core");
 
 // WASM bindings
 #[cfg(target_arch = "wasm32")]
@@ -137,7 +141,7 @@ pub struct GreetingResult {
 /// # Returns
 /// A greeting string
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
-pub fn greet(name: &str) -> String {
+pub fn greet(name: String) -> String {
     if name.is_empty() {
         "Hello, World!".to_string()
     } else {
@@ -182,7 +186,8 @@ pub fn fibonacci(n: u32) -> u64 {
 /// # Returns
 /// A JSON string with processed results
 #[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
-pub fn process_data(json_input: &str) -> String {
+pub fn process_data(json_input: String) -> String {
+    let json_input = json_input.as_str();
     #[derive(Deserialize)]
     struct Input {
         values: Vec<i32>,
@@ -196,7 +201,7 @@ pub fn process_data(json_input: &str) -> String {
         sorted: Vec<i32>,
     }
 
-    let result: Result<Output, _> = (|| {
+    let result: Result<Output, serde_json::Error> = (|| {
         let input: Input = serde_json::from_str(json_input)?;
         let sum: i64 = input.values.iter().map(|&x| x as i64).sum();
         let count = input.values.len();
@@ -228,12 +233,12 @@ mod tests {
 
     #[test]
     fn test_greet_with_name() {
-        assert_eq!(greet("Alice"), "Hello, Alice!");
+        assert_eq!(greet("Alice".to_string()), "Hello, Alice!");
     }
 
     #[test]
     fn test_greet_empty_name() {
-        assert_eq!(greet(""), "Hello, World!");
+        assert_eq!(greet(String::new()), "Hello, World!");
     }
 
     #[test]
@@ -246,7 +251,7 @@ mod tests {
 
     #[test]
     fn test_process_data() {
-        let input = r#"{"values": [3, 1, 4, 1, 5, 9, 2, 6]}"#;
+        let input = r#"{"values": [3, 1, 4, 1, 5, 9, 2, 6]}"#.to_string();
         let output = process_data(input);
         let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
 

@@ -41,7 +41,7 @@ apple-ios-build:
 
 # Build macOS app
 apple-macos-build:
-    cd apple && xcodebuild -scheme <hick:val name="project_name" /> -destination 'platform=macOS' build
+    cd apple && xcodebuild -scheme <hick:val name="project_name" />-macOS build
 
 # Run iOS tests
 apple-ios-test:
@@ -49,7 +49,7 @@ apple-ios-test:
 
 # Run macOS tests
 apple-macos-test:
-    cd apple && xcodebuild -scheme <hick:val name="project_name" /> -destination 'platform=macOS' test
+    cd apple && xcodebuild -scheme <hick:val name="project_name" />-macOS test
 
 # Open Xcode project
 apple-open:
@@ -69,23 +69,23 @@ apple-test: apple-ios-test apple-macos-test
 
 # Build Android debug APK
 android-build:
-    cd android && ./gradlew assembleDebug
+    cd android && gradle assembleDebug --no-daemon
 
 # Build Android release APK
 android-release:
-    cd android && ./gradlew assembleRelease
+    cd android && gradle assembleRelease --no-daemon
 
 # Run Android tests
 android-test:
-    cd android && ./gradlew test
+    cd android && gradle test --no-daemon
 
 # Run Android lint
 android-lint:
-    cd android && ./gradlew lint
+    cd android && gradle lint --no-daemon
 
 # Clean Android build
 android-clean:
-    cd android && ./gradlew clean
+    cd android && gradle clean --no-daemon
 </hick:when>
 <hick:when test="avalonia">
 
@@ -135,8 +135,9 @@ desktop-clean:
 web-install:
     cd web && npm install
 
-# Build web application
+# Build web application (installs deps if needed)
 web-build:
+    cd web && [ -d node_modules ] || npm install
     cd web && npm run build
 
 # Run web development server
@@ -165,8 +166,9 @@ web-preview:
 extension-install:
     cd browser-extension && npm install
 
-# Build extension
+# Build extension (installs deps if needed)
 extension-build:
+    cd browser-extension && [ -d node_modules ] || npm install
     cd browser-extension && npm run build
 
 # Build extension for development (with watch)
