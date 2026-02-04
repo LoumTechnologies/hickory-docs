@@ -5,7 +5,9 @@
 //! and file output collection — all without touching the filesystem.
 
 pub mod cache;
+pub mod compact;
 pub mod config;
+pub mod equiv;
 pub mod executor;
 pub mod pool;
 pub mod repl;
@@ -268,13 +270,15 @@ pub async fn run_pipeline_with_authority(
             match tag.name.as_str() {
                 "copy" => {
                     let id = tag_attr(tag, "id").unwrap_or_default();
+                    let class = tag_attr(tag, "class");
                     let content = collect_text_children(tag);
-                    state.register_copy(id, content);
+                    state.register_copy_with_class(id, class.as_deref(), content);
                 }
                 "cut" => {
                     let id = tag_attr(tag, "id").unwrap_or_default();
+                    let class = tag_attr(tag, "class");
                     let content = collect_text_children(tag);
-                    state.register_cut(id, content);
+                    state.register_cut_with_class(id, class.as_deref(), content);
                 }
                 "substitute" => {
                     let name = tag_attr(tag, "name").unwrap_or_default();
@@ -692,13 +696,15 @@ pub async fn run_pipeline_live(
             match tag.name.as_str() {
                 "copy" => {
                     let id = tag_attr(tag, "id").unwrap_or_default();
+                    let class = tag_attr(tag, "class");
                     let content = collect_text_children(tag);
-                    state.register_copy(id, content);
+                    state.register_copy_with_class(id, class.as_deref(), content);
                 }
                 "cut" => {
                     let id = tag_attr(tag, "id").unwrap_or_default();
+                    let class = tag_attr(tag, "class");
                     let content = collect_text_children(tag);
-                    state.register_cut(id, content);
+                    state.register_cut_with_class(id, class.as_deref(), content);
                 }
                 "substitute" => {
                     let name = tag_attr(tag, "name").unwrap_or_default();

@@ -2750,6 +2750,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "hick-handlers"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "hick-exec",
+ "hick-lang",
+ "log",
+ "tokio",
+]
+
+[[package]]
 name = "hick-lang"
 version = "0.1.0"
 dependencies = [

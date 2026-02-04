@@ -173,6 +173,171 @@ async fn test_copy_paste_across_documents() {
 }
 
 // ---------------------------------------------------------------------------
+// Class-based selector tests
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_class_selector_single_block() {
+    let src = hick_doc(concat!(
+        r#"<hick:copy class="imports">import foo;</hick:copy>"#,
+        "\n",
+        r#"<hick:file path="out.txt"><hick:paste select=".imports" /></hick:file>"#,
+    ));
+    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+        .await
+        .unwrap();
+    assert_eq!(result.files.get("out.txt").unwrap(), "import foo;");
+}
+
+#[tokio::test]
+async fn test_class_selector_multiple_blocks() {
+    let src = hick_doc(concat!(
+        r#"<hick:copy class="imports">import foo;</hick:copy>"#,
+        "\n",
+        r#"<hick:copy class="imports">import bar;</hick:copy>"#,
+        "\n",
+        r#"<hick:copy class="imports">import baz;</hick:copy>"#,
+        "\n",
+        r#"<hick:file path="out.txt"><hick:paste select=".imports" /></hick:file>"#,
+    ));
+    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+        .await
+        .unwrap();
+    assert_eq!(
+        result.files.get("out.txt").unwrap(),
+        "import foo;import bar;import baz;"
+    );
+}
+
+#[tokio::test]
+async fn test_class_selector_with_newlines() {
+    let src = hick_doc(concat!(
+        r#"<hick:copy class="imports">import foo;
+</hick:copy>"#,
+        "\n",
+        r#"<hick:copy class="imports">import bar;
+</hick:copy>"#,
+        "\n",
+        r#"<hick:file path="out.txt"><hick:paste select=".imports" /></hick:file>"#,
+    ));
+    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+        .await
+        .unwrap();
+    assert_eq!(
+        result.files.get("out.txt").unwrap(),
+        "import foo;\nimport bar;\n"
+    );
+}
+
+#[tokio::test]
+async fn test_class_selector_interleaved_with_id() {
+    let src = hick_doc(concat!(
+        r#"<hick:copy id="header" class="sections"># Header
+</hick:copy>"#,
+        "\n",
+        r#"<hick:copy class="sections">## Section 1
+</hick:copy>"#,
+        "\n",
+        r#"<hick:copy class="sections">## Section 2
+</hick:copy>"#,
+        "\n",
+        r##"<hick:file path="by-class.md"><hick:paste select=".sections" /></hick:file>"##,
+        "\n",
+        r##"<hick:file path="by-id.md"><hick:paste select="#header" /></hick:file>"##,
+    ));
+    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+        .await
+        .unwrap();
+    // Class selector gets all three sections
+    assert_eq!(
+        result.files.get("by-class.md").unwrap(),
+        "# Header\n## Section 1\n## Section 2\n"
+    );
+    // ID selector gets only the header
+    assert_eq!(result.files.get("by-id.md").unwrap(), "# Header\n");
+}
+
+#[tokio::test]
+async fn test_class_selector_multiple_classes() {
+    let src = hick_doc(concat!(
+        r#"<hick:copy class="imports deps">import shared;</hick:copy>"#,
+        "\n",
+        r#"<hick:copy class="imports">import local;</hick:copy>"#,
+        "\n",
+        r#"<hick:file path="imports.txt"><hick:paste select=".imports" /></hick:file>"#,
+        "\n",
+        r#"<hick:file path="deps.txt"><hick:paste select=".deps" /></hick:file>"#,
+    ));
+    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+        .await
+        .unwrap();
+    assert_eq!(
+        result.files.get("imports.txt").unwrap(),
+        "import shared;import local;"
+    );
+    assert_eq!(result.files.get("deps.txt").unwrap(), "import shared;");
+}
+
+#[tokio::test]
+async fn test_class_selector_cut_blocks() {
+    let src = hick_doc(concat!(
+        r#"<hick:cut class="secrets">SECRET1;</hick:cut>"#,
+        "\n",
+        r#"<hick:cut class="secrets">SECRET2;</hick:cut>"#,
+        "\n",
+        r#"<hick:file path="out.txt"><hick:paste select=".secrets" /></hick:file>"#,
+    ));
+    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+        .await
+        .unwrap();
+    assert_eq!(result.files.get("out.txt").unwrap(), "SECRET1;SECRET2;");
+}
+
+#[tokio::test]
+async fn test_class_selector_missing() {
+    let src = hick_doc(concat!(
+        r#"<hick:copy class="imports">import foo;</hick:copy>"#,
+        "\n",
+        r#"<hick:file path="out.txt">before<hick:paste select=".nonexistent" />after</hick:file>"#,
+    ));
+    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+        .await
+        .unwrap();
+    // Missing class selector produces no output (like missing ID)
+    assert_eq!(result.files.get("out.txt").unwrap(), "beforeafter");
+}
+
+#[tokio::test]
+async fn test_class_selector_across_documents() {
+    let doc1 = hick_doc(r#"<hick:copy class="chunks">chunk1;</hick:copy>"#);
+    let doc2 = hick_doc(r#"<hick:copy class="chunks">chunk2;</hick:copy>"#);
+    let doc3 = hick_doc(r#"<hick:file path="out.txt"><hick:paste select=".chunks" /></hick:file>"#);
+    let result = hick::run_pipeline(
+        &[("doc1.hick", &doc1), ("doc2.hick", &doc2), ("doc3.hick", &doc3)],
+        &[],
+    )
+    .await
+    .unwrap();
+    assert_eq!(result.files.get("out.txt").unwrap(), "chunk1;chunk2;");
+}
+
+#[tokio::test]
+async fn test_class_selector_with_substitution() {
+    let src = hick_doc(concat!(
+        r#"<hick:substitute name="project" pattern="FavoriteApp" value="MyProject" />"#,
+        "\n",
+        r#"<hick:copy class="imports">import FavoriteApp;</hick:copy>"#,
+        "\n",
+        r#"<hick:file path="out.txt"><hick:paste select=".imports" /></hick:file>"#,
+    ));
+    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+        .await
+        .unwrap();
+    // Substitution should apply to pasted content
+    assert_eq!(result.files.get("out.txt").unwrap(), "import MyProject;");
+}
+
+// ---------------------------------------------------------------------------
 // Variable / parameter tests
 // ---------------------------------------------------------------------------
 
