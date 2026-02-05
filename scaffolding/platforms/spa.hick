@@ -122,7 +122,7 @@ build tooling. The project references pattern ensures proper build ordering:
 }
 </hick:file>
 
-<hick:file path="web/src/vite-env.d.ts" doc-hidden="true">/// &lt;reference types="vite/client" /&gt;
+<hick:file path="web/src/vite-env.d.ts" doc-hidden="true">/// <reference types="vite/client" />
 
 // CSS module declarations
 declare module '*.css' {
@@ -234,14 +234,17 @@ and event handling:
 <hick:file path="web/src/App.tsx">import { useState, useEffect } from 'react'
 import './App.css'
 import { useCore } from './hooks/useCore'
-
+<hick:when test="sqlite">import { useTodos } from './hooks/useTodos'
+import { TodoList } from './components/TodoList'
+</hick:when>
 function App() {
   const [count, setCount] = useState(0)
   const [name, setName] = useState('')
-  const { isReady, greet, fibonacci, processData } = useCore()
+  const { isReady, greet, fibonacci<hick:when test="sqlite">, db</hick:when> } = useCore()
   const [greeting, setGreeting] = useState('')
   const [fibResult, setFibResult] = useState<bigint | null>(null)
-
+<hick:when test="sqlite">  const { todos, addTodo, toggleTodo, deleteTodo } = useTodos(db)
+</hick:when>
   useEffect(() => {
     if (isReady && name) {
       setGreeting(greet(name))
@@ -296,6 +299,18 @@ function App() {
                   <p className="result">fib({count}) = {fibResult.toString()}</p>
                 )}
               </div>
+<hick:when test="sqlite">
+              <div className="demo-section">
+                <h3>SQLite Todo List</h3>
+                <p className="sqlite-info">Data persisted in SQLite (in-memory on web)</p>
+                <TodoList
+                  todos={todos}
+                  onAdd={addTodo}
+                  onToggle={toggleTodo}
+                  onDelete={deleteTodo}
+                />
+              </div>
+</hick:when>
             </>
           )}
         </section>
@@ -342,7 +357,7 @@ export default App
 A React hook that initializes and exposes the WASM module:
 
 <hick:file path="web/src/hooks/useCore.ts">import { useState, useEffect, useCallback } from 'react'
-import init, { greet as wasmGreet, fibonacci as wasmFibonacci, process_data as wasmProcessData } from '<hick:val name="project_name" />-core'
+import init, { greet as wasmGreet, fibonacci as wasmFibonacci, process_data as wasmProcessData<hick:when test="sqlite">, open_database, type Database, type TodoItem</hick:when> } from '<hick:val name="project_name" />-core'
 
 interface ProcessDataResult {
   sum: number
@@ -354,10 +369,15 @@ interface ProcessDataResult {
 
 export function useCore() {
   const [isReady, setIsReady] = useState(false)
-
+<hick:when test="sqlite">  const [db, setDb] = useState<Database | null>(null)
+</hick:when>
   useEffect(() => {
     init().then(() => {
       setIsReady(true)
+<hick:when test="sqlite">      // Open database after WASM is ready
+      const database = open_database(':memory:')
+      setDb(database)
+</hick:when>
     }).catch((err) => {
       console.error('Failed to initialize WASM module:', err)
     })
@@ -388,6 +408,241 @@ export function useCore() {
     greet,
     fibonacci,
     processData,
+<hick:when test="sqlite">    db,
+</hick:when>
+  }
+}
+<hick:when test="sqlite">
+// Re-export types for convenience
+export type { Database, TodoItem }
+</hick:when>
+</hick:file>
+</hick:when>
+<hick:when test="sqlite">
+### Todo List Hook
+
+A React hook that provides todo list functionality using the SQLite-backed database:
+
+<hick:file path="web/src/hooks/useTodos.ts">import { useState, useEffect, useCallback } from 'react'
+import type { Database, TodoItem } from './useCore'
+
+export function useTodos(db: Database | null) {
+  const [todos, setTodos] = useState<TodoItem[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  // Load todos from database (parses JSON response)
+  const refresh = useCallback(() => {
+    if (!db) return
+    try {
+      const json = db.list_todos()
+      const items: TodoItem[] = JSON.parse(json)
+      setTodos(items)
+      setError(null)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to load todos')
+    } finally {
+      setLoading(false)
+    }
+  }, [db])
+
+  useEffect(() => {
+    if (db) {
+      refresh()
+    }
+  }, [db, refresh])
+
+  const addTodo = useCallback((title: string) => {
+    if (!db || !title.trim()) return
+    try {
+      db.create_todo(title.trim()) // Returns JSON, but we just refresh
+      refresh()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to create todo')
+    }
+  }, [db, refresh])
+
+  const toggleTodo = useCallback((id: string) => {
+    if (!db) return
+    try {
+      const todoJson = db.get_todo(id)
+      if (todoJson) {
+        const todo: TodoItem = JSON.parse(todoJson)
+        db.update_todo(id, null, !todo.completed)
+        refresh()
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to update todo')
+    }
+  }, [db, refresh])
+
+  const deleteTodo = useCallback((id: string) => {
+    if (!db) return
+    try {
+      db.delete_todo(id)
+      refresh()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to delete todo')
+    }
+  }, [db, refresh])
+
+  return {
+    todos,
+    loading,
+    error,
+    addTodo,
+    toggleTodo,
+    deleteTodo,
+    refresh,
+  }
+}
+</hick:file>
+
+### Todo List Component
+
+A reusable todo list component that demonstrates SQLite CRUD operations:
+
+<hick:file path="web/src/components/TodoList.tsx">import { useState } from 'react'
+import type { TodoItem } from '../hooks/useCore'
+import './TodoList.css'
+
+interface TodoListProps {
+  todos: TodoItem[]
+  onAdd: (title: string) => void
+  onToggle: (id: string) => void
+  onDelete: (id: string) => void
+}
+
+export function TodoList({ todos, onAdd, onToggle, onDelete }: TodoListProps) {
+  const [newTodo, setNewTodo] = useState('')
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (newTodo.trim()) {
+      onAdd(newTodo)
+      setNewTodo('')
+    }
+  }
+
+  return (
+    <div className="todo-list">
+      <form onSubmit={handleSubmit} className="todo-form">
+        <input
+          type="text"
+          value={newTodo}
+          onChange={(e) => setNewTodo(e.target.value)}
+          placeholder="Add a new todo..."
+          className="todo-input"
+        />
+        <button type="submit" className="todo-add-btn">Add</button>
+      </form>
+
+      <ul className="todos">
+        {todos.map((todo) => (
+          <li key={todo.id} className={`todo-item ${todo.completed ? 'completed' : ''}`}>
+            <input
+              type="checkbox"
+              checked={todo.completed}
+              onChange={() => onToggle(todo.id)}
+              className="todo-checkbox"
+            />
+            <span className="todo-title">{todo.title}</span>
+            <button onClick={() => onDelete(todo.id)} className="todo-delete-btn">
+              &times;
+            </button>
+          </li>
+        ))}
+        {todos.length === 0 && (
+          <li className="todo-empty">No todos yet. Add one above!</li>
+        )}
+      </ul>
+    </div>
+  )
+}
+</hick:file>
+
+<hick:file path="web/src/components/TodoList.css" doc-hidden="true">.todo-list {
+  width: 100%;
+  max-width: 400px;
+  margin: 1rem auto;
+}
+
+.todo-form {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.todo-input {
+  flex: 1;
+  padding: 0.5rem;
+  border-radius: 4px;
+  border: 1px solid #333;
+  background-color: #1a1a1a;
+  color: inherit;
+}
+
+.todo-add-btn {
+  padding: 0.5rem 1rem;
+}
+
+.todos {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.todo-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  border-bottom: 1px solid #333;
+}
+
+.todo-item.completed .todo-title {
+  text-decoration: line-through;
+  opacity: 0.6;
+}
+
+.todo-checkbox {
+  width: 1.2rem;
+  height: 1.2rem;
+  cursor: pointer;
+}
+
+.todo-title {
+  flex: 1;
+  text-align: left;
+}
+
+.todo-delete-btn {
+  background: transparent;
+  border: none;
+  color: #ff6b6b;
+  font-size: 1.5rem;
+  cursor: pointer;
+  padding: 0 0.5rem;
+}
+
+.todo-delete-btn:hover {
+  color: #ff4444;
+}
+
+.todo-empty {
+  padding: 1rem;
+  color: #888;
+  font-style: italic;
+  text-align: center;
+}
+
+@media (prefers-color-scheme: light) {
+  .todo-input {
+    background-color: #fff;
+    border-color: #ddd;
+  }
+  .todo-item {
+    border-bottom-color: #eee;
   }
 }
 </hick:file>
@@ -542,6 +797,12 @@ button:focus-visible {
 .loading {
   color: #888;
   font-style: italic;
+}
+
+.sqlite-info {
+  font-size: 0.85rem;
+  color: #888;
+  margin-bottom: 0.5rem;
 }
 
 @media (prefers-color-scheme: light) {

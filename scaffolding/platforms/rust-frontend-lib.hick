@@ -33,6 +33,11 @@ serde_json = "1"
 
 # Error handling
 thiserror = "2"
+<hick:when test="sqlite">
+# SQLite (common dependencies)
+uuid = { version = "1", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+</hick:when>
 
 # WASM support (only included for wasm32 target)
 [target.'cfg(target_arch = "wasm32")'.dependencies]
@@ -44,6 +49,8 @@ web-sys = { version = "0.3", features = ["console"] }
 # UniFFI for native FFI bindings (excluded from wasm32)
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 uniffi = { version = "0.29", features = ["cli"] }
+<hick:when test="sqlite">rusqlite = { version = "0.32", features = ["bundled"] }
+</hick:when>
 
 [target.'cfg(not(target_arch = "wasm32"))'.build-dependencies]
 uniffi = { version = "0.29", features = ["build"] }
@@ -89,6 +96,11 @@ Swift, Kotlin, and C#:
     string greet(string name);
     u64 fibonacci(u32 n);
     string process_data(string json_input);
+<hick:when test="sqlite">
+    // Database operations
+    [Throws=DatabaseError]
+    Database open_database(string path);
+</hick:when>
 };
 
 [Error]
@@ -101,6 +113,43 @@ dictionary GreetingResult {
     string message;
     u64 timestamp;
 };
+<hick:when test="sqlite">
+[Error]
+enum DatabaseError {
+    "ConnectionFailed",
+    "QueryFailed",
+    "NotFound",
+    "InvalidData",
+};
+
+dictionary TodoItem {
+    string id;
+    string title;
+    boolean completed;
+    string created_at;
+};
+
+interface Database {
+    // Todo CRUD operations - returns JSON for cross-platform compatibility
+    [Throws=DatabaseError]
+    string create_todo(string title);
+
+    [Throws=DatabaseError]
+    string list_todos();
+
+    [Throws=DatabaseError]
+    string? get_todo(string id);
+
+    [Throws=DatabaseError]
+    string update_todo(string id, string? title, boolean? completed);
+
+    [Throws=DatabaseError]
+    void delete_todo(string id);
+
+    // Close database connection
+    void close();
+};
+</hick:when>
 </hick:file>
 
 ### Core Library Implementation
@@ -113,8 +162,11 @@ WASM (via wasm-bindgen) and native platforms (via UniFFI):
 //! Shared business logic that compiles to WebAssembly and native FFI bindings.
 
 mod error;
-
+<hick:when test="sqlite">mod database;
+</hick:when>
 pub use error::CoreError;
+<hick:when test="sqlite">pub use database::{Database, DatabaseError, TodoItem, open_database};
+</hick:when>
 
 use serde::{Deserialize, Serialize};
 
@@ -281,6 +333,359 @@ pub enum CoreError {
 }
 </hick:file>
 
+<hick:when test="sqlite">
+### Database Module
+
+The database module provides SQLite-backed storage for native platforms. On WASM,
+it uses in-memory storage since there's no native file system access.
+
+<hick:file path="rust-lib/src/database.rs">//! Database module with SQLite support for native platforms
+//!
+//! On WASM, this uses in-memory storage as a fallback.
+
+use serde::{Deserialize, Serialize};
+use thiserror::Error;
+use uuid::Uuid;
+use chrono::Utc;
+use std::sync::Arc;
+
+#[cfg(not(target_arch = "wasm32"))]
+use rusqlite::{Connection, params};
+#[cfg(not(target_arch = "wasm32"))]
+use std::sync::Mutex;
+
+#[cfg(target_arch = "wasm32")]
+use std::sync::RwLock;
+#[cfg(target_arch = "wasm32")]
+use std::collections::HashMap;
+
+/// Database errors
+#[derive(Error, Debug)]
+pub enum DatabaseError {
+    #[error("Connection failed: {0}")]
+    ConnectionFailed(String),
+
+    #[error("Query failed: {0}")]
+    QueryFailed(String),
+
+    #[error("Not found")]
+    NotFound,
+
+    #[error("Invalid data: {0}")]
+    InvalidData(String),
+}
+
+/// A todo item stored in the database
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TodoItem {
+    pub id: String,
+    pub title: String,
+    pub completed: bool,
+    pub created_at: String,
+}
+
+// ============================================================================
+// Native Implementation (SQLite)
+// ============================================================================
+
+#[cfg(not(target_arch = "wasm32"))]
+pub struct Database {
+    conn: Arc<Mutex<Connection>>,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl Database {
+    fn new(conn: Connection) -> Self {
+        Self {
+            conn: Arc::new(Mutex::new(conn)),
+        }
+    }
+
+    /// Create a new todo item (returns JSON string)
+    pub fn create_todo(&self, title: String) -> Result<String, DatabaseError> {
+        let id = Uuid::new_v4().to_string();
+        let created_at = Utc::now().to_rfc3339();
+
+        let conn = self.conn.lock().map_err(|e| DatabaseError::QueryFailed(e.to_string()))?;
+        conn.execute(
+            "INSERT INTO todos (id, title, completed, created_at) VALUES (?1, ?2, ?3, ?4)",
+            params![id, title, false, created_at],
+        ).map_err(|e| DatabaseError::QueryFailed(e.to_string()))?;
+
+        let item = TodoItem {
+            id,
+            title,
+            completed: false,
+            created_at,
+        };
+        serde_json::to_string(&item).map_err(|e| DatabaseError::InvalidData(e.to_string()))
+    }
+
+    /// List all todos (returns JSON array string)
+    pub fn list_todos(&self) -> Result<String, DatabaseError> {
+        let conn = self.conn.lock().map_err(|e| DatabaseError::QueryFailed(e.to_string()))?;
+        let mut stmt = conn
+            .prepare("SELECT id, title, completed, created_at FROM todos ORDER BY created_at DESC")
+            .map_err(|e| DatabaseError::QueryFailed(e.to_string()))?;
+
+        let rows = stmt
+            .query_map([], |row| {
+                Ok(TodoItem {
+                    id: row.get(0)?,
+                    title: row.get(1)?,
+                    completed: row.get(2)?,
+                    created_at: row.get(3)?,
+                })
+            })
+            .map_err(|e| DatabaseError::QueryFailed(e.to_string()))?;
+
+        let mut todos = Vec::new();
+        for row in rows {
+            todos.push(row.map_err(|e| DatabaseError::QueryFailed(e.to_string()))?);
+        }
+        serde_json::to_string(&todos).map_err(|e| DatabaseError::InvalidData(e.to_string()))
+    }
+
+    /// Get a specific todo by ID (returns JSON string or None)
+    pub fn get_todo(&self, id: String) -> Result<Option<String>, DatabaseError> {
+        let conn = self.conn.lock().map_err(|e| DatabaseError::QueryFailed(e.to_string()))?;
+        let mut stmt = conn
+            .prepare("SELECT id, title, completed, created_at FROM todos WHERE id = ?1")
+            .map_err(|e| DatabaseError::QueryFailed(e.to_string()))?;
+
+        let mut rows = stmt
+            .query_map(params![id], |row| {
+                Ok(TodoItem {
+                    id: row.get(0)?,
+                    title: row.get(1)?,
+                    completed: row.get(2)?,
+                    created_at: row.get(3)?,
+                })
+            })
+            .map_err(|e| DatabaseError::QueryFailed(e.to_string()))?;
+
+        match rows.next() {
+            Some(row) => {
+                let item = row.map_err(|e| DatabaseError::QueryFailed(e.to_string()))?;
+                let json = serde_json::to_string(&item).map_err(|e| DatabaseError::InvalidData(e.to_string()))?;
+                Ok(Some(json))
+            },
+            None => Ok(None),
+        }
+    }
+
+    /// Internal: Get a specific todo by ID as struct (for update operations)
+    fn get_todo_internal(&self, id: String) -> Result<Option<TodoItem>, DatabaseError> {
+        let conn = self.conn.lock().map_err(|e| DatabaseError::QueryFailed(e.to_string()))?;
+        let mut stmt = conn
+            .prepare("SELECT id, title, completed, created_at FROM todos WHERE id = ?1")
+            .map_err(|e| DatabaseError::QueryFailed(e.to_string()))?;
+
+        let mut rows = stmt
+            .query_map(params![id], |row| {
+                Ok(TodoItem {
+                    id: row.get(0)?,
+                    title: row.get(1)?,
+                    completed: row.get(2)?,
+                    created_at: row.get(3)?,
+                })
+            })
+            .map_err(|e| DatabaseError::QueryFailed(e.to_string()))?;
+
+        match rows.next() {
+            Some(row) => Ok(Some(row.map_err(|e| DatabaseError::QueryFailed(e.to_string()))?)),
+            None => Ok(None),
+        }
+    }
+
+    /// Update a todo item (returns JSON string)
+    pub fn update_todo(
+        &self,
+        id: String,
+        title: Option<String>,
+        completed: Option<bool>,
+    ) -> Result<String, DatabaseError> {
+        let existing = self.get_todo_internal(id.clone())?.ok_or(DatabaseError::NotFound)?;
+
+        let new_title = title.unwrap_or(existing.title);
+        let new_completed = completed.unwrap_or(existing.completed);
+
+        let conn = self.conn.lock().map_err(|e| DatabaseError::QueryFailed(e.to_string()))?;
+        conn.execute(
+            "UPDATE todos SET title = ?1, completed = ?2 WHERE id = ?3",
+            params![new_title, new_completed, id],
+        ).map_err(|e| DatabaseError::QueryFailed(e.to_string()))?;
+
+        let item = TodoItem {
+            id,
+            title: new_title,
+            completed: new_completed,
+            created_at: existing.created_at,
+        };
+        serde_json::to_string(&item).map_err(|e| DatabaseError::InvalidData(e.to_string()))
+    }
+
+    /// Delete a todo item
+    pub fn delete_todo(&self, id: String) -> Result<(), DatabaseError> {
+        let conn = self.conn.lock().map_err(|e| DatabaseError::QueryFailed(e.to_string()))?;
+        let rows = conn
+            .execute("DELETE FROM todos WHERE id = ?1", params![id])
+            .map_err(|e| DatabaseError::QueryFailed(e.to_string()))?;
+
+        if rows == 0 {
+            return Err(DatabaseError::NotFound);
+        }
+        Ok(())
+    }
+
+    /// Close the database connection
+    pub fn close(&self) {
+        // Connection is closed when dropped
+    }
+}
+
+/// Open a database connection
+#[cfg(not(target_arch = "wasm32"))]
+pub fn open_database(path: String) -> Result<Arc<Database>, DatabaseError> {
+    let conn = Connection::open(&path)
+        .map_err(|e| DatabaseError::ConnectionFailed(e.to_string()))?;
+
+    // Create tables if they don't exist
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS todos (
+            id TEXT PRIMARY KEY,
+            title TEXT NOT NULL,
+            completed INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL
+        )",
+        [],
+    ).map_err(|e| DatabaseError::QueryFailed(e.to_string()))?;
+
+    Ok(Arc::new(Database::new(conn)))
+}
+
+// ============================================================================
+// WASM Implementation (In-Memory)
+// ============================================================================
+
+#[cfg(target_arch = "wasm32")]
+pub struct Database {
+    todos: Arc<RwLock<HashMap<String, TodoItem>>>,
+}
+
+#[cfg(target_arch = "wasm32")]
+impl Database {
+    fn new() -> Self {
+        Self {
+            todos: Arc::new(RwLock::new(HashMap::new())),
+        }
+    }
+
+    pub fn create_todo(&self, title: String) -> Result<String, DatabaseError> {
+        let id = Uuid::new_v4().to_string();
+        let created_at = Utc::now().to_rfc3339();
+
+        let item = TodoItem {
+            id: id.clone(),
+            title,
+            completed: false,
+            created_at,
+        };
+
+        let mut todos = self.todos.write().map_err(|e| DatabaseError::QueryFailed(e.to_string()))?;
+        todos.insert(id, item.clone());
+        serde_json::to_string(&item).map_err(|e| DatabaseError::InvalidData(e.to_string()))
+    }
+
+    pub fn list_todos(&self) -> Result<String, DatabaseError> {
+        let todos = self.todos.read().map_err(|e| DatabaseError::QueryFailed(e.to_string()))?;
+        let mut list: Vec<TodoItem> = todos.values().cloned().collect();
+        list.sort_by(|a, b| b.created_at.cmp(&a.created_at));
+        serde_json::to_string(&list).map_err(|e| DatabaseError::InvalidData(e.to_string()))
+    }
+
+    pub fn get_todo(&self, id: String) -> Result<Option<String>, DatabaseError> {
+        let todos = self.todos.read().map_err(|e| DatabaseError::QueryFailed(e.to_string()))?;
+        match todos.get(&id) {
+            Some(item) => {
+                let json = serde_json::to_string(item).map_err(|e| DatabaseError::InvalidData(e.to_string()))?;
+                Ok(Some(json))
+            },
+            None => Ok(None),
+        }
+    }
+
+    pub fn update_todo(
+        &self,
+        id: String,
+        title: Option<String>,
+        completed: Option<bool>,
+    ) -> Result<String, DatabaseError> {
+        let mut todos = self.todos.write().map_err(|e| DatabaseError::QueryFailed(e.to_string()))?;
+        let item = todos.get_mut(&id).ok_or(DatabaseError::NotFound)?;
+
+        if let Some(t) = title {
+            item.title = t;
+        }
+        if let Some(c) = completed {
+            item.completed = c;
+        }
+        serde_json::to_string(item).map_err(|e| DatabaseError::InvalidData(e.to_string()))
+    }
+
+    pub fn delete_todo(&self, id: String) -> Result<(), DatabaseError> {
+        let mut todos = self.todos.write().map_err(|e| DatabaseError::QueryFailed(e.to_string()))?;
+        if todos.remove(&id).is_none() {
+            return Err(DatabaseError::NotFound);
+        }
+        Ok(())
+    }
+
+    pub fn close(&self) {
+        // No-op for in-memory storage
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+pub fn open_database(_path: String) -> Result<Arc<Database>, DatabaseError> {
+    // WASM uses in-memory storage (path is ignored)
+    Ok(Arc::new(Database::new()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_todo_crud() {
+        let db = open_database(":memory:".to_string()).unwrap();
+
+        // Create
+        let todo_json = db.create_todo("Test task".to_string()).unwrap();
+        let todo: TodoItem = serde_json::from_str(&todo_json).unwrap();
+        assert_eq!(todo.title, "Test task");
+        assert!(!todo.completed);
+
+        // Read
+        let todos_json = db.list_todos().unwrap();
+        let todos: Vec<TodoItem> = serde_json::from_str(&todos_json).unwrap();
+        assert_eq!(todos.len(), 1);
+
+        // Update
+        let updated_json = db.update_todo(todo.id.clone(), None, Some(true)).unwrap();
+        let updated: TodoItem = serde_json::from_str(&updated_json).unwrap();
+        assert!(updated.completed);
+
+        // Delete
+        db.delete_todo(todo.id).unwrap();
+        let todos_json = db.list_todos().unwrap();
+        let todos: Vec<TodoItem> = serde_json::from_str(&todos_json).unwrap();
+        assert_eq!(todos.len(), 0);
+    }
+}
+</hick:file>
+</hick:when>
+
 ### WASM-Specific TypeScript Bindings
 
 For web platforms, we provide TypeScript type definitions. These are generated by
@@ -316,6 +721,41 @@ declare module '<hick:val name="project_name" />-core' {
    * @returns JSON string with { sum, count, average, sorted }
    */
   export function process_data(jsonInput: string): string;
+<hick:when test="sqlite">
+  /**
+   * Open a database connection
+   * @param path - Database path (ignored on WASM, uses in-memory)
+   * @returns A Database instance
+   */
+  export function open_database(path: string): Database;
+
+  /**
+   * A todo item
+   */
+  export interface TodoItem {
+    id: string;
+    title: string;
+    completed: boolean;
+    created_at: string;
+  }
+
+  /**
+   * Database interface for CRUD operations
+   * Note: Methods return JSON strings that need to be parsed
+   */
+  export interface Database {
+    /** Creates a todo and returns JSON string of TodoItem */
+    create_todo(title: string): string;
+    /** Returns JSON string of TodoItem[] */
+    list_todos(): string;
+    /** Returns JSON string of TodoItem or null */
+    get_todo(id: string): string | null;
+    /** Updates a todo and returns JSON string of TodoItem */
+    update_todo(id: string, title: string | null, completed: boolean | null): string;
+    delete_todo(id: string): void;
+    close(): void;
+  }
+</hick:when>
 }
 </hick:file>
 

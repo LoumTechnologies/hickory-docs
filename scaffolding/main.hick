@@ -71,6 +71,7 @@ Features control which platforms are generated. They can be combined freely.
 <hick:feature name="extension" description="Browser extension with React TypeScript" />
 <hick:feature name="backend" description="Rust backend API server" />
 <hick:feature name="rust-frontend-lib" description="Shared Rust library for frontends (WASM + FFI bindings)" />
+<hick:feature name="sqlite" description="SQLite database support in Rust library" requires="rust-frontend-lib" />
 
 **Build systems:**
 
@@ -94,6 +95,7 @@ Features control which platforms are generated. They can be combined freely.
 | `extension` | Browser extension |
 | `backend` | Rust API server |
 | `rust-frontend-lib` | Shared Rust library (WASM + FFI) |
+| `sqlite` | SQLite database in Rust library (requires rust-frontend-lib) |
 | `just` | Justfile for build automation |
 | `make` | Makefile for build automation |
 | `all` | All platforms (not build systems) |
