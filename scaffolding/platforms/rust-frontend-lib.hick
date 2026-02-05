@@ -35,7 +35,6 @@ serde_json = "1"
 thiserror = "2"
 <hick:when test="sqlite">
 # SQLite (common dependencies)
-uuid = { version = "1", features = ["v4", "serde"] }
 chrono = { version = "0.4", features = ["serde"] }
 </hick:when>
 
@@ -45,11 +44,16 @@ wasm-bindgen = "0.2"
 wasm-bindgen-futures = "0.4"
 js-sys = "0.3"
 web-sys = { version = "0.3", features = ["console"] }
+getrandom = { version = "0.3", features = ["wasm_js"] }
+<hick:when test="sqlite">sqlite-wasm-rs = { version = "0.4", default-features = false, features = ["precompiled"] }
+uuid = { version = "1", features = ["v4", "serde", "js"] }
+</hick:when>
 
 # UniFFI for native FFI bindings (excluded from wasm32)
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 uniffi = { version = "0.29", features = ["cli"] }
 <hick:when test="sqlite">rusqlite = { version = "0.32", features = ["bundled"] }
+uuid = { version = "1", features = ["v4", "serde"] }
 </hick:when>
 
 [target.'cfg(not(target_arch = "wasm32"))'.build-dependencies]
@@ -336,12 +340,14 @@ pub enum CoreError {
 <hick:when test="sqlite">
 ### Database Module
 
-The database module provides SQLite-backed storage for native platforms. On WASM,
-it uses in-memory storage since there's no native file system access.
+The database module provides SQLite-backed storage for all platforms:
+- Native: Uses rusqlite with bundled SQLite
+- WASM: Uses sqlite-wasm-rs with precompiled SQLite for WebAssembly
 
-<hick:file path="rust-lib/src/database.rs">//! Database module with SQLite support for native platforms
+<hick:file path="rust-lib/src/database.rs">//! Database module with SQLite support for all platforms
 //!
-//! On WASM, this uses in-memory storage as a fallback.
+//! - Native: Uses rusqlite with bundled SQLite
+//! - WASM: Uses sqlite-wasm-rs with precompiled SQLite
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -355,9 +361,11 @@ use rusqlite::{Connection, params};
 use std::sync::Mutex;
 
 #[cfg(target_arch = "wasm32")]
-use std::sync::RwLock;
+use sqlite_wasm_rs as ffi;
 #[cfg(target_arch = "wasm32")]
-use std::collections::HashMap;
+use std::ffi::CString;
+#[cfg(target_arch = "wasm32")]
+use std::cell::RefCell;
 
 /// Database errors
 #[derive(Error, Debug)]
@@ -565,54 +573,161 @@ pub fn open_database(path: String) -> Result<Arc<Database>, DatabaseError> {
 }
 
 // ============================================================================
-// WASM Implementation (In-Memory)
+// WASM Implementation (sqlite-wasm-rs)
 // ============================================================================
 
 #[cfg(target_arch = "wasm32")]
 pub struct Database {
-    todos: Arc<RwLock<HashMap<String, TodoItem>>>,
+    db: RefCell<*mut ffi::sqlite3>,
 }
+
+// Safety: Database is only used single-threaded in WASM
+#[cfg(target_arch = "wasm32")]
+unsafe impl Send for Database {}
+#[cfg(target_arch = "wasm32")]
+unsafe impl Sync for Database {}
 
 #[cfg(target_arch = "wasm32")]
 impl Database {
-    fn new() -> Self {
-        Self {
-            todos: Arc::new(RwLock::new(HashMap::new())),
+    fn new(db: *mut ffi::sqlite3) -> Self {
+        Self { db: RefCell::new(db) }
+    }
+
+    fn exec(&self, sql: &str) -> Result<(), DatabaseError> {
+        let c_sql = CString::new(sql).map_err(|e| DatabaseError::InvalidData(e.to_string()))?;
+        let db = *self.db.borrow();
+        let ret = unsafe {
+            ffi::sqlite3_exec(db, c_sql.as_ptr(), None, std::ptr::null_mut(), std::ptr::null_mut())
+        };
+        if ret != ffi::SQLITE_OK {
+            return Err(DatabaseError::QueryFailed(format!("sqlite error: {}", ret)));
         }
+        Ok(())
     }
 
     pub fn create_todo(&self, title: String) -> Result<String, DatabaseError> {
         let id = Uuid::new_v4().to_string();
         let created_at = Utc::now().to_rfc3339();
 
+        let sql = format!(
+            "INSERT INTO todos (id, title, completed, created_at) VALUES ('{}', '{}', 0, '{}')",
+            id.replace("'", "''"),
+            title.replace("'", "''"),
+            created_at.replace("'", "''")
+        );
+        self.exec(&sql)?;
+
         let item = TodoItem {
-            id: id.clone(),
+            id,
             title,
             completed: false,
             created_at,
         };
-
-        let mut todos = self.todos.write().map_err(|e| DatabaseError::QueryFailed(e.to_string()))?;
-        todos.insert(id, item.clone());
         serde_json::to_string(&item).map_err(|e| DatabaseError::InvalidData(e.to_string()))
     }
 
     pub fn list_todos(&self) -> Result<String, DatabaseError> {
-        let todos = self.todos.read().map_err(|e| DatabaseError::QueryFailed(e.to_string()))?;
-        let mut list: Vec<TodoItem> = todos.values().cloned().collect();
-        list.sort_by(|a, b| b.created_at.cmp(&a.created_at));
-        serde_json::to_string(&list).map_err(|e| DatabaseError::InvalidData(e.to_string()))
+        let db = *self.db.borrow();
+        let sql = CString::new("SELECT id, title, completed, created_at FROM todos ORDER BY created_at DESC")
+            .map_err(|e| DatabaseError::InvalidData(e.to_string()))?;
+
+        let mut stmt: *mut ffi::sqlite3_stmt = std::ptr::null_mut();
+        let ret = unsafe {
+            ffi::sqlite3_prepare_v2(db, sql.as_ptr(), -1, &mut stmt, std::ptr::null_mut())
+        };
+        if ret != ffi::SQLITE_OK {
+            return Err(DatabaseError::QueryFailed(format!("prepare error: {}", ret)));
+        }
+
+        let mut todos = Vec::new();
+        loop {
+            let step = unsafe { ffi::sqlite3_step(stmt) };
+            if step == ffi::SQLITE_DONE {
+                break;
+            }
+            if step != ffi::SQLITE_ROW {
+                unsafe { ffi::sqlite3_finalize(stmt); }
+                return Err(DatabaseError::QueryFailed(format!("step error: {}", step)));
+            }
+
+            let id = unsafe {
+                let ptr = ffi::sqlite3_column_text(stmt, 0);
+                if ptr.is_null() { String::new() } else {
+                    std::ffi::CStr::from_ptr(ptr as *const i8).to_string_lossy().into_owned()
+                }
+            };
+            let title = unsafe {
+                let ptr = ffi::sqlite3_column_text(stmt, 1);
+                if ptr.is_null() { String::new() } else {
+                    std::ffi::CStr::from_ptr(ptr as *const i8).to_string_lossy().into_owned()
+                }
+            };
+            let completed = unsafe { ffi::sqlite3_column_int(stmt, 2) != 0 };
+            let created_at = unsafe {
+                let ptr = ffi::sqlite3_column_text(stmt, 3);
+                if ptr.is_null() { String::new() } else {
+                    std::ffi::CStr::from_ptr(ptr as *const i8).to_string_lossy().into_owned()
+                }
+            };
+
+            todos.push(TodoItem { id, title, completed, created_at });
+        }
+        unsafe { ffi::sqlite3_finalize(stmt); }
+
+        serde_json::to_string(&todos).map_err(|e| DatabaseError::InvalidData(e.to_string()))
     }
 
     pub fn get_todo(&self, id: String) -> Result<Option<String>, DatabaseError> {
-        let todos = self.todos.read().map_err(|e| DatabaseError::QueryFailed(e.to_string()))?;
-        match todos.get(&id) {
-            Some(item) => {
-                let json = serde_json::to_string(item).map_err(|e| DatabaseError::InvalidData(e.to_string()))?;
-                Ok(Some(json))
-            },
-            None => Ok(None),
+        let db = *self.db.borrow();
+        let sql = CString::new("SELECT id, title, completed, created_at FROM todos WHERE id = ?")
+            .map_err(|e| DatabaseError::InvalidData(e.to_string()))?;
+
+        let mut stmt: *mut ffi::sqlite3_stmt = std::ptr::null_mut();
+        let ret = unsafe {
+            ffi::sqlite3_prepare_v2(db, sql.as_ptr(), -1, &mut stmt, std::ptr::null_mut())
+        };
+        if ret != ffi::SQLITE_OK {
+            return Err(DatabaseError::QueryFailed(format!("prepare error: {}", ret)));
         }
+
+        let c_id = CString::new(id).map_err(|e| DatabaseError::InvalidData(e.to_string()))?;
+        unsafe { ffi::sqlite3_bind_text(stmt, 1, c_id.as_ptr(), -1, ffi::SQLITE_TRANSIENT()); }
+
+        let step = unsafe { ffi::sqlite3_step(stmt) };
+        if step == ffi::SQLITE_DONE {
+            unsafe { ffi::sqlite3_finalize(stmt); }
+            return Ok(None);
+        }
+        if step != ffi::SQLITE_ROW {
+            unsafe { ffi::sqlite3_finalize(stmt); }
+            return Err(DatabaseError::QueryFailed(format!("step error: {}", step)));
+        }
+
+        let item = TodoItem {
+            id: unsafe {
+                let ptr = ffi::sqlite3_column_text(stmt, 0);
+                if ptr.is_null() { String::new() } else {
+                    std::ffi::CStr::from_ptr(ptr as *const i8).to_string_lossy().into_owned()
+                }
+            },
+            title: unsafe {
+                let ptr = ffi::sqlite3_column_text(stmt, 1);
+                if ptr.is_null() { String::new() } else {
+                    std::ffi::CStr::from_ptr(ptr as *const i8).to_string_lossy().into_owned()
+                }
+            },
+            completed: unsafe { ffi::sqlite3_column_int(stmt, 2) != 0 },
+            created_at: unsafe {
+                let ptr = ffi::sqlite3_column_text(stmt, 3);
+                if ptr.is_null() { String::new() } else {
+                    std::ffi::CStr::from_ptr(ptr as *const i8).to_string_lossy().into_owned()
+                }
+            },
+        };
+        unsafe { ffi::sqlite3_finalize(stmt); }
+
+        let json = serde_json::to_string(&item).map_err(|e| DatabaseError::InvalidData(e.to_string()))?;
+        Ok(Some(json))
     }
 
     pub fn update_todo(
@@ -621,35 +736,85 @@ impl Database {
         title: Option<String>,
         completed: Option<bool>,
     ) -> Result<String, DatabaseError> {
-        let mut todos = self.todos.write().map_err(|e| DatabaseError::QueryFailed(e.to_string()))?;
-        let item = todos.get_mut(&id).ok_or(DatabaseError::NotFound)?;
+        // First get the existing todo
+        let existing_json = self.get_todo(id.clone())?.ok_or(DatabaseError::NotFound)?;
+        let existing: TodoItem = serde_json::from_str(&existing_json)
+            .map_err(|e| DatabaseError::InvalidData(e.to_string()))?;
 
-        if let Some(t) = title {
-            item.title = t;
-        }
-        if let Some(c) = completed {
-            item.completed = c;
-        }
-        serde_json::to_string(item).map_err(|e| DatabaseError::InvalidData(e.to_string()))
+        let new_title = title.unwrap_or(existing.title);
+        let new_completed = completed.unwrap_or(existing.completed);
+
+        let sql = format!(
+            "UPDATE todos SET title = '{}', completed = {} WHERE id = '{}'",
+            new_title.replace("'", "''"),
+            if new_completed { 1 } else { 0 },
+            id.replace("'", "''")
+        );
+        self.exec(&sql)?;
+
+        let item = TodoItem {
+            id,
+            title: new_title,
+            completed: new_completed,
+            created_at: existing.created_at,
+        };
+        serde_json::to_string(&item).map_err(|e| DatabaseError::InvalidData(e.to_string()))
     }
 
     pub fn delete_todo(&self, id: String) -> Result<(), DatabaseError> {
-        let mut todos = self.todos.write().map_err(|e| DatabaseError::QueryFailed(e.to_string()))?;
-        if todos.remove(&id).is_none() {
-            return Err(DatabaseError::NotFound);
-        }
+        let sql = format!("DELETE FROM todos WHERE id = '{}'", id.replace("'", "''"));
+        self.exec(&sql)?;
+        // Note: We don't check if the row existed, matching rusqlite behavior
         Ok(())
     }
 
     pub fn close(&self) {
-        // No-op for in-memory storage
+        let db = *self.db.borrow();
+        if !db.is_null() {
+            unsafe { ffi::sqlite3_close(db); }
+        }
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+impl Drop for Database {
+    fn drop(&mut self) {
+        self.close();
     }
 }
 
 #[cfg(target_arch = "wasm32")]
 pub fn open_database(_path: String) -> Result<Arc<Database>, DatabaseError> {
-    // WASM uses in-memory storage (path is ignored)
-    Ok(Arc::new(Database::new()))
+    // WASM uses in-memory SQLite database
+    let c_path = CString::new(":memory:").unwrap();
+    let mut db: *mut ffi::sqlite3 = std::ptr::null_mut();
+
+    let ret = unsafe {
+        ffi::sqlite3_open_v2(
+            c_path.as_ptr(),
+            &mut db,
+            ffi::SQLITE_OPEN_READWRITE | ffi::SQLITE_OPEN_CREATE,
+            std::ptr::null()
+        )
+    };
+
+    if ret != ffi::SQLITE_OK {
+        return Err(DatabaseError::ConnectionFailed(format!("sqlite open error: {}", ret)));
+    }
+
+    let database = Database::new(db);
+
+    // Create tables
+    database.exec(
+        "CREATE TABLE IF NOT EXISTS todos (
+            id TEXT PRIMARY KEY,
+            title TEXT NOT NULL,
+            completed INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL
+        )"
+    )?;
+
+    Ok(Arc::new(database))
 }
 
 #[cfg(test)]
