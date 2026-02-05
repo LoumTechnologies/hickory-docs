@@ -275,6 +275,10 @@ struct GenerateMatrixArgs {
     /// Number of parallel jobs (0 = auto-detect from CPU count).
     #[arg(short = 'j', long, default_value = "0")]
     jobs: usize,
+
+    /// Skip confirmation prompt for embedded verify commands.
+    #[arg(short = 'y', long)]
+    yes: bool,
 }
 
 // ---------------------------------------------------------------------------
@@ -1237,6 +1241,9 @@ async fn run_generate_matrix(cli: GenerateMatrixArgs) -> Result<()> {
     // Extract feature definitions from the hick files
     let feature_defs = hick::extract_feature_definitions(&sources)?;
 
+    // Extract embedded verify commands from the hick files
+    let embedded_verify = hick::extract_verify_commands(&sources)?;
+
     // Identify leaf features (those that are not meta-features)
     // A leaf feature is one that doesn't have any `requires` attributes
     let leaf_features: Vec<String> = feature_defs
@@ -1354,6 +1361,36 @@ async fn run_generate_matrix(cli: GenerateMatrixArgs) -> Result<()> {
         max_size
     );
 
+    // Confirm embedded verify commands (security: these come from files, not CLI)
+    if !embedded_verify.is_empty() && !cli.dry_run {
+        println!("Embedded verify commands found in hick files:\n");
+        for (i, cmd) in embedded_verify.iter().enumerate() {
+            let desc = cmd.description.as_deref().unwrap_or("");
+            if desc.is_empty() {
+                println!("  {}. {}", i + 1, cmd.command);
+            } else {
+                println!("  {}. {} — {}", i + 1, cmd.command, desc);
+            }
+            println!("     (from {}:{})", cmd.source_file, cmd.source_line);
+        }
+        println!();
+
+        if !cli.yes {
+            if !is_tty {
+                anyhow::bail!(
+                    "embedded verify commands require --yes in non-interactive mode"
+                );
+            }
+            eprint!("Run these commands? [y/N] ");
+            let mut answer = String::new();
+            std::io::stdin().read_line(&mut answer)?;
+            if !answer.trim().eq_ignore_ascii_case("y") {
+                println!("Aborted.");
+                return Ok(());
+            }
+        }
+    }
+
     if cli.dry_run {
         println!("Feature combinations (dry run):\n");
         for combo in &combinations {
@@ -1365,6 +1402,22 @@ async fn run_generate_matrix(cli: GenerateMatrixArgs) -> Result<()> {
             println!("  {}/", name);
         }
         println!("\nTotal: {} combinations", combinations.len());
+
+        if !embedded_verify.is_empty() || !cli.verify.is_empty() {
+            println!("\nVerify commands:");
+            for cmd in &embedded_verify {
+                let desc = cmd.description.as_deref().unwrap_or("");
+                if desc.is_empty() {
+                    println!("  [embedded] {}", cmd.command);
+                } else {
+                    println!("  [embedded] {} — {}", cmd.command, desc);
+                }
+            }
+            for v in &cli.verify {
+                println!("  [cli]      {}", v);
+            }
+        }
+
         return Ok(());
     }
 
@@ -1394,11 +1447,12 @@ async fn run_generate_matrix(cli: GenerateMatrixArgs) -> Result<()> {
 
     info!("Running with {} parallel job(s)", jobs);
 
-    // Parse verify commands once before the loop
-    let verify_cmds: Vec<VerifyCommand> = cli.verify
+    // Parse verify commands once before the loop: embedded first, then CLI
+    let mut verify_cmds: Vec<VerifyCommand> = embedded_verify
         .iter()
-        .map(|s| VerifyCommand::parse(s))
+        .map(|ev| VerifyCommand::parse(&ev.command))
         .collect();
+    verify_cmds.extend(cli.verify.iter().map(|s| VerifyCommand::parse(s)));
 
     // Wrap shared data in Arc for parallel access
     let file_contents = Arc::new(file_contents);
@@ -2139,5 +2193,36 @@ mod tests {
         assert_eq!(cmd.command, "cargo build");
         // Empty AnyOf should never match
         assert!(!cmd.should_run(&["spa".to_string()]));
+    }
+
+    // Embedded verify command round-trip tests
+
+    #[test]
+    fn embedded_verify_roundtrips_through_parse() {
+        // Simulate what happens: extract command string from hick file, then parse it
+        let embedded_cmds = vec![
+            "[backend] cargo test",
+            "[spa+backend] npm run e2e",
+            "cargo check",
+        ];
+
+        let parsed: Vec<VerifyCommand> = embedded_cmds
+            .iter()
+            .map(|s| VerifyCommand::parse(s))
+            .collect();
+
+        // Conditional command
+        assert_eq!(parsed[0].command, "cargo test");
+        assert!(parsed[0].should_run(&["backend".to_string()]));
+        assert!(!parsed[0].should_run(&["spa".to_string()]));
+
+        // AND condition
+        assert_eq!(parsed[1].command, "npm run e2e");
+        assert!(parsed[1].should_run(&["spa".to_string(), "backend".to_string()]));
+        assert!(!parsed[1].should_run(&["spa".to_string()]));
+
+        // Unconditional
+        assert_eq!(parsed[2].command, "cargo check");
+        assert!(parsed[2].should_run(&[]));
     }
 }

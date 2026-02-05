@@ -90,6 +90,15 @@ Features control which platforms are generated. They can be combined freely.
 <hick:feature name="web" description="Web platforms" requires="spa extension" />
 <hick:feature name="native" description="Native platforms with Rust library" requires="swiftui compose avalonia rust-frontend-lib" />
 
+**Verify commands** run after each matrix combination to catch scaffolding errors:
+
+<hick:verify command="[backend] cargo check --manifest-path backend/Cargo.toml" description="Verify backend compiles" />
+<hick:verify command="[rust-frontend-lib] cargo check --manifest-path rust-lib/Cargo.toml" description="Verify Rust library compiles" />
+<hick:verify command="[spa] test -f web/package.json" description="Verify SPA scaffolded" />
+<hick:verify command="[extension] test -f browser-extension/package.json" description="Verify extension scaffolded" />
+<hick:verify command="[compose] test -f android/build.gradle.kts" description="Verify Android scaffolded" />
+<hick:verify command="[avalonia] test -f desktop/Desktop.sln" description="Verify .NET solution exists" />
+
 | Feature | Description |
 |---------|-------------|
 | `swiftui` | iOS, iPadOS, macOS with SwiftUI |
