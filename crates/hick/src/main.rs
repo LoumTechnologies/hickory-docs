@@ -952,17 +952,227 @@ fn analyze_feature_timing(
     results
 }
 
+/// Shared state for real-time progress display.
+struct MatrixProgress {
+    completed: std::sync::atomic::AtomicUsize,
+    total: usize,
+    failed: std::sync::atomic::AtomicUsize,
+    cumulative_ms: std::sync::atomic::AtomicU64,
+    timings: tokio::sync::Mutex<Vec<ComboTiming>>,
+    all_features: Vec<String>,
+    current_combo: tokio::sync::Mutex<String>,
+}
+
+impl MatrixProgress {
+    fn new(total: usize, all_features: Vec<String>) -> Self {
+        Self {
+            completed: std::sync::atomic::AtomicUsize::new(0),
+            total,
+            failed: std::sync::atomic::AtomicUsize::new(0),
+            cumulative_ms: std::sync::atomic::AtomicU64::new(0),
+            timings: tokio::sync::Mutex::new(Vec::new()),
+            all_features,
+            current_combo: tokio::sync::Mutex::new(String::new()),
+        }
+    }
+
+    async fn record_success(&self, combo: &[String], duration: std::time::Duration) {
+        use std::sync::atomic::Ordering;
+        self.completed.fetch_add(1, Ordering::Relaxed);
+        self.cumulative_ms
+            .fetch_add(duration.as_millis() as u64, Ordering::Relaxed);
+        self.timings.lock().await.push(ComboTiming {
+            features: combo.to_vec(),
+            duration_secs: duration.as_secs_f64(),
+        });
+    }
+
+    fn record_failure(&self) {
+        use std::sync::atomic::Ordering;
+        self.completed.fetch_add(1, Ordering::Relaxed);
+        self.failed.fetch_add(1, Ordering::Relaxed);
+    }
+
+    async fn set_current(&self, name: &str) {
+        *self.current_combo.lock().await = name.to_string();
+    }
+
+    async fn get_display_state(&self) -> (usize, usize, usize, u64, String, Vec<ComboTiming>) {
+        use std::sync::atomic::Ordering;
+        let completed = self.completed.load(Ordering::Relaxed);
+        let failed = self.failed.load(Ordering::Relaxed);
+        let cumulative_ms = self.cumulative_ms.load(Ordering::Relaxed);
+        let current = self.current_combo.lock().await.clone();
+        let timings = self.timings.lock().await.clone();
+        (completed, self.total, failed, cumulative_ms, current, timings)
+    }
+}
+
+/// Format bytes as human-readable size.
+fn fmt_bytes(bytes: u64) -> String {
+    const KB: u64 = 1024;
+    const MB: u64 = KB * 1024;
+    const GB: u64 = MB * 1024;
+    if bytes >= GB {
+        format!("{:.1}GB", bytes as f64 / GB as f64)
+    } else if bytes >= MB {
+        format!("{:.0}MB", bytes as f64 / MB as f64)
+    } else if bytes >= KB {
+        format!("{:.0}KB", bytes as f64 / KB as f64)
+    } else {
+        format!("{}B", bytes)
+    }
+}
+
+/// Render the real-time progress display.
+fn render_progress(
+    completed: usize,
+    total: usize,
+    failed: usize,
+    cumulative_ms: u64,
+    current: &str,
+    timings: &[ComboTiming],
+    all_features: &[String],
+    cpu_usage: f32,
+    mem_bytes: u64,
+    is_tty: bool,
+) {
+    use std::io::Write;
+    use std::time::Duration;
+
+    if total == 0 {
+        return;
+    }
+
+    let pct = (completed as f64 / total as f64) * 100.0;
+    let avg_ms = if completed > 0 {
+        cumulative_ms / completed as u64
+    } else {
+        0
+    };
+    let remaining = total.saturating_sub(completed);
+    let eta_ms = avg_ms * remaining as u64;
+    let eta = hick::fmt_duration(Duration::from_millis(eta_ms));
+
+    // Progress bar (20 chars wide)
+    let bar_width = 20;
+    let filled = ((pct / 100.0) * bar_width as f64) as usize;
+    let bar: String = "█".repeat(filled) + &"░".repeat(bar_width - filled);
+
+    // Build the status line
+    let status = if failed > 0 {
+        format!(
+            "\x1b[2K\rMatrix: {:>5.1}% {} {}/{} ({} failed)  cpu:{:>3.0}%  mem:{}  eta:{}  {}",
+            pct,
+            bar,
+            completed,
+            total,
+            failed,
+            cpu_usage,
+            fmt_bytes(mem_bytes),
+            eta,
+            if current.len() > 20 {
+                format!("{}...", &current[..17])
+            } else {
+                current.to_string()
+            }
+        )
+    } else {
+        format!(
+            "\x1b[2K\rMatrix: {:>5.1}% {} {}/{}  cpu:{:>3.0}%  mem:{}  eta:{}  {}",
+            pct,
+            bar,
+            completed,
+            total,
+            cpu_usage,
+            fmt_bytes(mem_bytes),
+            eta,
+            if current.len() > 20 {
+                format!("{}...", &current[..17])
+            } else {
+                current.to_string()
+            }
+        )
+    };
+
+    // Feature impact line (only if we have enough data)
+    let impact_line = if timings.len() >= all_features.len().max(3) && !all_features.is_empty() {
+        let impacts = analyze_feature_timing(all_features, timings);
+        let top_impacts: Vec<String> = impacts
+            .iter()
+            .take(3)
+            .filter(|(_, coef)| *coef > 0.01) // Only show significant impacts
+            .map(|(feat, coef)| {
+                format!(
+                    "{} +{}",
+                    if feat.len() > 12 {
+                        format!("{}…", &feat[..11])
+                    } else {
+                        feat.clone()
+                    },
+                    hick::fmt_duration(Duration::from_secs_f64(*coef))
+                )
+            })
+            .collect();
+        if !top_impacts.is_empty() {
+            format!("\n\x1b[2K  slowest: {}", top_impacts.join(", "))
+        } else {
+            String::new()
+        }
+    } else if !timings.is_empty() && timings.len() < all_features.len().max(3) {
+        format!(
+            "\n\x1b[2K  gathering data... ({}/{})",
+            timings.len(),
+            all_features.len().max(3)
+        )
+    } else {
+        String::new()
+    };
+
+    if is_tty {
+        // Move cursor up if we have a second line
+        let line_count = if impact_line.is_empty() { 1 } else { 2 };
+        if line_count == 2 {
+            print!("\x1b[2A"); // Move up 2 lines
+        } else {
+            print!("\x1b[1A"); // Move up 1 line
+        }
+        print!("{}{}", status, impact_line);
+        if line_count == 2 {
+            println!(); // Ensure we're on the line after the second line
+        }
+        println!();
+        let _ = std::io::stdout().flush();
+    } else {
+        // Non-TTY: just print completion updates
+        if completed == total || completed % 10 == 0 {
+            println!(
+                "Matrix: {:.1}% {}/{}  eta:{}",
+                pct, completed, total, eta
+            );
+        }
+    }
+}
+
 /// Run the generate-matrix command: generate all feature combinations.
 async fn run_generate_matrix(cli: GenerateMatrixArgs) -> Result<()> {
     use futures::stream::{self, StreamExt};
     use std::collections::HashSet;
+    use std::io::IsTerminal;
     use std::process::Command as ProcessCommand;
-    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;
     use std::time::Duration;
-    use tokio::sync::Mutex;
+    use sysinfo::System;
 
     let start_time = Instant::now();
+    let is_tty = std::io::stdout().is_terminal();
+
+    // Suppress INFO logs during matrix generation unless --verbose
+    // This prevents noisy DAG validation messages from cluttering the UI
+    if !cli.verbose {
+        log::set_max_level(log::LevelFilter::Warn);
+    }
 
     // Expand CLI file arguments
     let (expanded_files, dir_config) = if !cli.files.is_empty() {
@@ -1198,23 +1408,72 @@ async fn run_generate_matrix(cli: GenerateMatrixArgs) -> Result<()> {
     let continue_on_error = cli.continue_on_error;
     let total_combinations = combinations.len();
 
-    // Atomic counter for progress display
-    let completed_count = Arc::new(AtomicUsize::new(0));
-
     // Flag to signal cancellation on first failure (when !continue_on_error)
     let cancelled = Arc::new(AtomicBool::new(false));
 
     // Collect failures for final report
-    let failures = Arc::new(Mutex::new(Vec::<(String, String)>::new()));
-
-    // Collect timing data for each combination (for ETA and regression analysis)
-    let timings = Arc::new(Mutex::new(Vec::<ComboTiming>::new()));
-
-    // Track cumulative elapsed time for ETA calculation
-    let cumulative_duration_ms = Arc::new(std::sync::atomic::AtomicU64::new(0));
+    let failures = Arc::new(tokio::sync::Mutex::new(Vec::<(String, String)>::new()));
 
     // Clone features list for regression analysis
     let all_features_for_analysis: Vec<String> = features_to_combine.clone();
+
+    // Create shared progress state
+    let progress = Arc::new(MatrixProgress::new(
+        total_combinations,
+        all_features_for_analysis.clone(),
+    ));
+
+    // Spawn background task to update progress display with CPU/RAM info
+    let progress_for_display = progress.clone();
+    let display_cancelled = cancelled.clone();
+    let display_handle = tokio::spawn(async move {
+        let mut sys = System::new();
+        let pid = sysinfo::get_current_pid().ok();
+
+        // Print initial blank lines for progress display
+        if is_tty {
+            println!();
+            println!();
+        }
+
+        loop {
+            // Refresh system info
+            sys.refresh_all();
+
+            // Get process-specific CPU and memory
+            let (cpu_usage, mem_bytes) = if let Some(pid) = pid {
+                if let Some(proc) = sys.process(pid) {
+                    (proc.cpu_usage(), proc.memory())
+                } else {
+                    (0.0, 0)
+                }
+            } else {
+                (0.0, 0)
+            };
+
+            let (completed, total, failed, cumulative_ms, current, timings) =
+                progress_for_display.get_display_state().await;
+
+            render_progress(
+                completed,
+                total,
+                failed,
+                cumulative_ms,
+                &current,
+                &timings,
+                &progress_for_display.all_features,
+                cpu_usage,
+                mem_bytes,
+                is_tty,
+            );
+
+            if completed >= total || display_cancelled.load(Ordering::Relaxed) {
+                break;
+            }
+
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    });
 
     // Process combinations in parallel
     let results: Vec<Result<String, ()>> = stream::iter(combinations.into_iter().enumerate())
@@ -1223,11 +1482,9 @@ async fn run_generate_matrix(cli: GenerateMatrixArgs) -> Result<()> {
             let base_params = base_params.clone();
             let output_dir = output_dir.clone();
             let verify_cmds = verify_cmds.clone();
-            let completed_count = completed_count.clone();
             let cancelled = cancelled.clone();
             let failures = failures.clone();
-            let timings = timings.clone();
-            let cumulative_duration_ms = cumulative_duration_ms.clone();
+            let progress = progress.clone();
 
             async move {
                 // Check if we should skip due to earlier failure
@@ -1243,6 +1500,9 @@ async fn run_generate_matrix(cli: GenerateMatrixArgs) -> Result<()> {
                 } else {
                     combo.join("-")
                 };
+
+                // Update current combo for display
+                progress.set_current(&combo_name).await;
 
                 let combo_dir = output_dir.join(&combo_name);
                 let features_str = combo.join(",");
@@ -1265,32 +1525,14 @@ async fn run_generate_matrix(cli: GenerateMatrixArgs) -> Result<()> {
 
                 // Run the pipeline for this combination
                 let result = hick::run_pipeline(&sources, &params).await;
-
-                let completed = completed_count.fetch_add(1, Ordering::Relaxed) + 1;
-
-                // Calculate timing for this iteration
                 let combo_elapsed = combo_start.elapsed();
-                let combo_ms = combo_elapsed.as_millis() as u64;
-
-                // Update cumulative duration and calculate averages
-                let total_ms = cumulative_duration_ms.fetch_add(combo_ms, Ordering::Relaxed) + combo_ms;
-                let avg_ms = total_ms / completed as u64;
-
-                // Calculate progress percentage and ETA
-                let progress_pct = (completed as f64 / total_combinations as f64) * 100.0;
-                let remaining = total_combinations - completed;
-                let eta_ms = avg_ms * remaining as u64;
-                let eta_duration = Duration::from_millis(eta_ms);
 
                 match result {
                     Ok(pipeline_result) => {
                         // Write outputs
                         if let Err(e) = std::fs::create_dir_all(&combo_dir) {
                             let error_msg = format!("failed to create directory: {}", e);
-                            eprintln!(
-                                "[{}/{}] {} FAILED: {}",
-                                completed, total_combinations, combo_name, error_msg
-                            );
+                            progress.record_failure();
                             failures.lock().await.push((combo_name.clone(), error_msg));
                             if !continue_on_error {
                                 cancelled.store(true, Ordering::Relaxed);
@@ -1305,10 +1547,7 @@ async fn run_generate_matrix(cli: GenerateMatrixArgs) -> Result<()> {
                             }
                             if let Err(e) = std::fs::write(&full_path, content) {
                                 let error_msg = format!("failed to write {}: {}", path, e);
-                                eprintln!(
-                                    "[{}/{}] {} FAILED: {}",
-                                    completed, total_combinations, combo_name, error_msg
-                                );
+                                progress.record_failure();
                                 failures.lock().await.push((combo_name.clone(), error_msg));
                                 if !continue_on_error {
                                     cancelled.store(true, Ordering::Relaxed);
@@ -1349,13 +1588,7 @@ async fn run_generate_matrix(cli: GenerateMatrixArgs) -> Result<()> {
                                             stdout,
                                             stderr
                                         );
-                                        eprintln!(
-                                            "[{}/{}] {} FAILED: verification exit code {:?}",
-                                            completed,
-                                            total_combinations,
-                                            combo_name,
-                                            output.status.code()
-                                        );
+                                        progress.record_failure();
                                         failures.lock().await.push((combo_name.clone(), error_msg));
                                         if !continue_on_error {
                                             cancelled.store(true, Ordering::Relaxed);
@@ -1365,10 +1598,7 @@ async fn run_generate_matrix(cli: GenerateMatrixArgs) -> Result<()> {
                                 }
                                 Ok(Err(e)) => {
                                     let error_msg = format!("failed to run command: {}", e);
-                                    eprintln!(
-                                        "[{}/{}] {} FAILED: {}",
-                                        completed, total_combinations, combo_name, error_msg
-                                    );
+                                    progress.record_failure();
                                     failures.lock().await.push((combo_name.clone(), error_msg));
                                     if !continue_on_error {
                                         cancelled.store(true, Ordering::Relaxed);
@@ -1377,10 +1607,7 @@ async fn run_generate_matrix(cli: GenerateMatrixArgs) -> Result<()> {
                                 }
                                 Err(e) => {
                                     let error_msg = format!("task join error: {}", e);
-                                    eprintln!(
-                                        "[{}/{}] {} FAILED: {}",
-                                        completed, total_combinations, combo_name, error_msg
-                                    );
+                                    progress.record_failure();
                                     failures.lock().await.push((combo_name.clone(), error_msg));
                                     if !continue_on_error {
                                         cancelled.store(true, Ordering::Relaxed);
@@ -1390,38 +1617,13 @@ async fn run_generate_matrix(cli: GenerateMatrixArgs) -> Result<()> {
                             }
                         }
 
-                        // Record timing for this combination
-                        timings.lock().await.push(ComboTiming {
-                            features: combo.clone(),
-                            duration_secs: combo_elapsed.as_secs_f64(),
-                        });
-
-                        // Format progress with percentage, time/iter, and ETA
-                        println!(
-                            "[{}/{}] ({:>5.1}%) {} OK  [took: {}, avg: {}, ETA: {}]",
-                            completed,
-                            total_combinations,
-                            progress_pct,
-                            combo_name,
-                            hick::fmt_duration(combo_elapsed),
-                            hick::fmt_duration(Duration::from_millis(avg_ms)),
-                            hick::fmt_duration(eta_duration),
-                        );
+                        // Record success with timing
+                        progress.record_success(&combo, combo_elapsed).await;
                         Ok(combo_name)
                     }
                     Err(e) => {
                         let error_msg = format!("{}", e);
-                        eprintln!(
-                            "[{}/{}] ({:>5.1}%) {} FAILED: {}  [took: {}, avg: {}, ETA: {}]",
-                            completed,
-                            total_combinations,
-                            progress_pct,
-                            combo_name,
-                            error_msg,
-                            hick::fmt_duration(combo_elapsed),
-                            hick::fmt_duration(Duration::from_millis(avg_ms)),
-                            hick::fmt_duration(eta_duration),
-                        );
+                        progress.record_failure();
                         failures.lock().await.push((combo_name, error_msg));
                         if !continue_on_error {
                             cancelled.store(true, Ordering::Relaxed);
@@ -1435,6 +1637,9 @@ async fn run_generate_matrix(cli: GenerateMatrixArgs) -> Result<()> {
         .collect()
         .await;
 
+    // Wait for display task to finish
+    let _ = display_handle.await;
+
     // Count results
     let successful = results.iter().filter(|r| r.is_ok()).count();
     let failed = results.iter().filter(|r| r.is_err()).count();
@@ -1445,15 +1650,20 @@ async fn run_generate_matrix(cli: GenerateMatrixArgs) -> Result<()> {
             tokio::runtime::Handle::current().block_on(async { arc.lock().await.clone() })
         });
 
-    // Extract timings for analysis
-    let timings_data = Arc::try_unwrap(timings)
-        .map(|mutex| mutex.into_inner())
+    // Extract timings for analysis from progress state
+    let timings_data = Arc::try_unwrap(progress)
+        .map(|p| {
+            tokio::runtime::Handle::current().block_on(async { p.timings.into_inner() })
+        })
         .unwrap_or_else(|arc| {
-            tokio::runtime::Handle::current().block_on(async { arc.lock().await.clone() })
+            tokio::runtime::Handle::current().block_on(async { arc.timings.lock().await.clone() })
         });
 
-    // Print summary
+    // Clear progress lines and print summary
     let elapsed = start_time.elapsed();
+    if is_tty {
+        print!("\x1b[2K\r"); // Clear the progress line
+    }
     println!("\n--- Summary ---");
     println!("Total combinations: {}", total_combinations);
     println!("Parallel jobs: {}", jobs);
