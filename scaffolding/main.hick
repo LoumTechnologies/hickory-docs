@@ -72,6 +72,8 @@ Features control which platforms are generated. They can be combined freely.
 <hick:feature name="backend" description="Rust backend API server" />
 <hick:feature name="rust-frontend-lib" description="Shared Rust library for frontends (WASM + FFI bindings)" />
 <hick:feature name="sqlite" description="SQLite database support in Rust library" requires="rust-frontend-lib" />
+<hick:feature name="iroh" description="Iroh peer-to-peer networking in Rust library" requires="rust-frontend-lib" />
+<hick:feature name="iroh-relay" description="Iroh relay server for NAT traversal and peer discovery" />
 
 **Build systems:**
 
@@ -96,6 +98,8 @@ Features control which platforms are generated. They can be combined freely.
 | `backend` | Rust API server |
 | `rust-frontend-lib` | Shared Rust library (WASM + FFI) |
 | `sqlite` | SQLite database in Rust library (requires rust-frontend-lib) |
+| `iroh` | Iroh P2P networking in Rust library (requires rust-frontend-lib) |
+| `iroh-relay` | Iroh relay server for NAT traversal |
 | `just` | Justfile for build automation |
 | `make` | Makefile for build automation |
 | `all` | All platforms (not build systems) |
@@ -248,6 +252,23 @@ cd backend
 cargo run
 ```
 </hick:when>
+<hick:when test="iroh-relay">
+### Iroh Relay Server
+
+The relay server enables NAT traversal and peer discovery for Iroh networking.
+
+```bash
+cd iroh-relay
+cargo run
+```
+
+**Docker:**
+```bash
+cd iroh-relay
+docker build -t <hick:val name="project_name" />-iroh-relay .
+docker run -p 3478:3478 -p 443:443 <hick:val name="project_name" />-iroh-relay
+```
+</hick:when>
 <hick:when test="rust-frontend-lib">
 ### Rust Frontend Library
 
@@ -307,7 +328,7 @@ node_modules/
 .env.local
 .env.*.local
 </hick:when>
-<hick:when test="backend || rust-frontend-lib">
+<hick:when test="backend || rust-frontend-lib || iroh-relay">
 # Rust
 target/
 Cargo.lock
@@ -338,6 +359,7 @@ See the individual platform documentation:
 - [Extension Platform](platforms/extension.hick) — Browser extension
 - [Backend Platform](platforms/backend.hick) — Rust Axum server
 - [Rust Frontend Library](platforms/rust-frontend-lib.hick) — Shared Rust library with WASM + FFI
+- [Iroh Relay](platforms/iroh-relay.hick) — Iroh relay server for P2P networking
 
 Build system templates:
 - [Just Build System](platforms/just.hick) — Justfile for task automation
