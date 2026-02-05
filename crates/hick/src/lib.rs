@@ -1635,6 +1635,10 @@ pub struct ExtractedFeatureDef {
     pub name: String,
     pub description: String,
     pub requires: Vec<String>,
+    /// Features that conflict with this one (mutually exclusive).
+    pub conflicts_with: Vec<String>,
+    /// Exclusive group name - only one feature from each group can be enabled.
+    pub exclusive_group: Option<String>,
 }
 
 /// Extract feature definitions from hick sources without running the pipeline.
@@ -1678,6 +1682,8 @@ fn extract_features_from_nodes(
             if tag.name == "feature" {
                 let name = tag_attr(tag, "name").unwrap_or_default();
                 let description = tag_attr(tag, "description").unwrap_or_default();
+
+                // Parse space-separated list of required features
                 let requires_str = tag_attr(tag, "requires").unwrap_or_default();
                 let requires: Vec<String> = requires_str
                     .split_whitespace()
@@ -1685,12 +1691,27 @@ fn extract_features_from_nodes(
                     .map(|s| s.to_string())
                     .collect();
 
+                // Parse space-separated list of conflicting features
+                let conflicts_str = tag_attr(tag, "conflicts_with").unwrap_or_default();
+                let conflicts_with: Vec<String> = conflicts_str
+                    .split_whitespace()
+                    .filter(|s| !s.is_empty())
+                    .map(|s| s.to_string())
+                    .collect();
+
+                // Parse optional exclusive group
+                let exclusive_group = tag_attr(tag, "exclusive_group")
+                    .filter(|s| !s.is_empty())
+                    .map(|s| s.to_string());
+
                 features.insert(
                     name.clone(),
                     ExtractedFeatureDef {
                         name,
                         description,
                         requires,
+                        conflicts_with,
+                        exclusive_group,
                     },
                 );
             }

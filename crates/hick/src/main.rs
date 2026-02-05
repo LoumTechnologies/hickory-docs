@@ -896,6 +896,47 @@ async fn run_generate_matrix(cli: GenerateMatrixArgs) -> Result<()> {
         combinations.retain(|combo| !combo.is_empty());
     }
 
+    // Filter out combinations with conflicting features
+    let pre_filter_count = combinations.len();
+    combinations.retain(|combo| {
+        // Check for pairwise conflicts
+        for (i, a) in combo.iter().enumerate() {
+            for b in combo.iter().skip(i + 1) {
+                // Check explicit conflicts_with (either direction)
+                if let Some(def_a) = feature_defs.get(a) {
+                    if def_a.conflicts_with.iter().any(|c| c == b) {
+                        return false;
+                    }
+                }
+                if let Some(def_b) = feature_defs.get(b) {
+                    if def_b.conflicts_with.iter().any(|c| c == a) {
+                        return false;
+                    }
+                }
+
+                // Check exclusive groups
+                if let (Some(def_a), Some(def_b)) = (feature_defs.get(a), feature_defs.get(b)) {
+                    if let (Some(group_a), Some(group_b)) =
+                        (&def_a.exclusive_group, &def_b.exclusive_group)
+                    {
+                        if group_a == group_b {
+                            return false;
+                        }
+                    }
+                }
+            }
+        }
+        true
+    });
+
+    let filtered_count = pre_filter_count - combinations.len();
+    if filtered_count > 0 {
+        info!(
+            "Filtered out {} combinations due to feature conflicts",
+            filtered_count
+        );
+    }
+
     info!(
         "Generated {} feature combinations (max size: {})",
         combinations.len(),
