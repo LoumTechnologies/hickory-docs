@@ -2229,16 +2229,120 @@ Add to core.udl after the decentralized-auth section:
 </hick:when>
 
 <hick:when test="event-sourcing">
-### Event Sourcing Module
+### Event Sourcing Architecture
 
-The event sourcing module provides an event-driven architecture where all domain changes are
-captured as immutable events with automatic conflict resolution.
+This module implements an event sourcing architecture that enables a sliding scale between
+heavy servers/thin clients and thin servers/heavy clients. All domain changes are event-driven.
 
-**Key concepts:**
-- **Events** - Immutable records of state changes with metadata
-- **Aggregate Roots** - Domain objects that group related events
-- **Snapshots** - Compressed event history for efficient sync
-- **CRDT Resolution** - Automatic conflict handling for offline edits
+**Benefits:**
+- Reduce cloud costs by moving computation to clients
+- Maximize offline functionality with local-first data
+- Minimize frontend code duplication via shared Rust library
+
+#### Core Design Principles
+
+- **Event sourcing for all domain objects** — State is derived from an append-only event log
+- **E2E encryption for sensitive entities** — Combined with `decentralized-auth` feature
+- **Server responsibilities minimized** — Auth, ferrying/storing encrypted data, push notifications
+- **SQLite for local storage** — Clients maintain a local subset of data
+- **File contents separate from events** — Large files stored out-of-band, still encrypted
+
+#### File Uploads
+
+File uploads are handled asynchronously outside the event stream:
+1. Command event requests a signed URL from the server
+2. Client uploads file directly to object storage
+3. Event references the file by its content hash
+
+This approach works with any object storage provider and keeps the event stream lightweight.
+
+#### Snapshots
+
+Events are organized by aggregate root. Snapshot events compress history for new clients:
+- The unencrypted `is_snapshot` flag lets the server identify snapshot boundaries
+- Server can discard pre-snapshot events (optionally retained for audit)
+- New clients receive only the latest snapshot plus subsequent events
+
+#### Conflict Resolution
+
+Each event includes `previous_event_ids` for conflict detection:
+- Concurrent offline edits produce events with the same previous ID
+- Conflicts are resolved via CRDT (default: last-write-wins)
+- Some entities can surface conflicts in UI for manual resolution
+- Merge events reference multiple previous IDs
+
+**Supported strategies:**
+| Strategy | Behavior |
+|----------|----------|
+| `LastWriteWins` | Latest timestamp wins (default) |
+| `FirstWriteWins` | Earliest timestamp wins |
+| `Merge` | Custom merge function (requires application logic) |
+| `Manual` | Surface conflict to UI for user resolution |
+
+#### Branching
+
+The optional `branch` property enables advanced workflows:
+- **Dry runs** — Test changes before committing to main
+- **Review/approve workflows** — Changes reviewed before merge
+- **Merge operations** — Combine branch events into main timeline
+
+Merge events are unencrypted so the server knows which events to send to which clients.
+
+#### Local Storage Architecture
+
+- **SQLite** — Structured data storage with full query capability
+- **Device filesystem** — Cached files from cloud storage
+- **Cloud storage** — Assume users have more files than fit on device
+- **Encryption** — Files always encrypted before upload
+
+#### Bulk Import/Export
+
+Parquet files support admin bulk operations across all entities, enabling:
+- Data migration between systems
+- Backup and restore
+- Analytics and reporting
+
+#### Server Responsibilities
+
+The server acts as a relay for encrypted data:
+- Ferry events between devices and users (based on org membership)
+- Store encrypted event streams
+- Provide events since last snapshot by entity ID
+- Push notifications for real-time sync
+
+#### End-to-End Encryption Integration
+
+When combined with the `decentralized-auth` feature:
+
+**Password = Private Key:**
+- Client decrypts server's challenge (encrypted with user's public key)
+- Key never leaves device
+
+**Device-to-Device Sync:**
+1. Exchange public keys
+2. Verify identity via challenge/response
+3. Send events encrypted with recipient's public key
+
+**Partial Encryption:**
+- Not all entities need E2E encryption
+- Allows password reset with partial data loss
+- E2E only for sensitive data where loss on reset is acceptable
+
+#### Event Properties
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `timestamp` | `u64` | Unix timestamp in milliseconds |
+| `site_id` | `String` | Device/client identifier, part of event ID |
+| `lamport_timestamp` | `u64` | Logical clock sequence number |
+| `previous_event_ids` | `Vec<String>` | For conflict detection; multiple IDs for merges |
+| `author_ids` | `Vec<String>` | User(s) who authored; `[human, LLM]` for AI-assisted |
+| `branch` | `Option<String>` | Optional branch for dry runs/workflows |
+| `is_snapshot` | `bool` | Whether this event compresses history |
+
+---
+
+### Implementation
 
 <hick:file path="rust-lib/src/events.rs">//! Event sourcing module
 //!
