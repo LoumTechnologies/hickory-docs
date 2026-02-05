@@ -1006,7 +1006,39 @@ Useful flags:
 | `--exclude-features X,Y` | Exclude these features from combinations |
 | `--verify "cmd"` | Run verification command for each combination |
 | `--continue-on-error` | Continue if a combination fails |
+| `-y`, `--yes` | Skip confirmation prompt for embedded verify commands |
 | `--dry-run` | Show combinations without generating |
+
+### Embedded verify commands
+
+Instead of passing `--verify` on every invocation, embed verify commands
+directly in hick files:
+
+```xml
+<hick:verify command="cargo check" description="Verify project compiles" />
+<hick:verify command="[backend] cargo test" description="Run backend tests" />
+<hick:verify command="[spa+backend] npm run e2e" description="E2E tests" />
+```
+
+| Attribute | Required | Description |
+|-----------|----------|-------------|
+| `command` | Yes | Command string in `[condition] command` format (same as `--verify`) |
+| `description` | No | Human-readable label shown in confirmation prompt |
+
+**Security:** Because embedded commands come from files that may be
+untrusted, the CLI prompts for confirmation before running them:
+
+| Scenario | Behaviour |
+|----------|-----------|
+| Embedded cmds, TTY, no `--yes` | Show commands, prompt `Run these commands? [y/N]` |
+| Embedded cmds, TTY, `--yes` | Show commands, proceed without prompt |
+| Embedded cmds, no TTY, no `--yes` | Error: "requires `--yes` in non-interactive mode" |
+| Embedded cmds, no TTY, `--yes` | Show commands, proceed |
+| No embedded cmds | No prompt regardless |
+| Only CLI `--verify` | No prompt (user explicitly typed them) |
+| `--dry-run` | Show commands in dry-run output, no prompt |
+
+Embedded verify commands run first, followed by any CLI `--verify` commands.
 
 ---
 
@@ -1117,6 +1149,7 @@ secrets:
 | `<hick:attenuate>` | No | `doc` | Add restrictions to a container |
 | `<hick:confirm>` | Yes | `doc` | Pause for user approval (planned) |
 | `<hick:feature>` | Yes | `doc` | Define a feature flag |
+| `<hick:verify>` | Yes | `doc` | Embedded verify command for generate-matrix |
 | `<hick:when>` | No | `doc`, `file` | Conditional content based on features |
 
 ## Attribute Reference Summary
@@ -1136,8 +1169,9 @@ secrets:
 | `file-read` | `allow` | File path pattern |
 | `file-write` | `allow` | File path pattern |
 | `message` | `confirm` | Display message string |
-| `description` | `feature` | Human-readable feature description |
+| `description` | `feature`, `verify` | Human-readable description |
 | `requires` | `feature` | Space-separated list of dependent features |
 | `conflicts_with` | `feature` | Space-separated list of conflicting features |
 | `exclusive_group` | `feature` | Group name (only one from group can be enabled) |
+| `command` | `verify` | Command string in `[condition] command` format |
 | `test` | `when` | Feature expression to evaluate |

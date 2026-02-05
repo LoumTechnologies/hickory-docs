@@ -1720,3 +1720,184 @@ fn extract_features_from_nodes(
         }
     }
 }
+
+// ---------------------------------------------------------------------------
+// Verify command extraction (for generate-matrix)
+// ---------------------------------------------------------------------------
+
+/// Extracted verify command from a `<hick:verify>` element.
+#[derive(Debug, Clone)]
+pub struct ExtractedVerifyCommand {
+    pub command: String,
+    pub description: Option<String>,
+    pub source_file: String,
+    pub source_line: usize,
+}
+
+/// Extract verify commands from hick sources without running the pipeline.
+pub fn extract_verify_commands(
+    sources: &[(&str, &str)],
+) -> Result<Vec<ExtractedVerifyCommand>> {
+    let mut commands = Vec::new();
+
+    for (name, source) in sources {
+        let mut doc = hick_lang::parse(source)
+            .map_err(|e| anyhow::anyhow!("parse error in {name}: {e}"))?;
+
+        // Resolve includes
+        let base_dir = std::path::Path::new(name)
+            .parent()
+            .unwrap_or(std::path::Path::new("."));
+        let mut seen = std::collections::HashSet::new();
+        if let Ok(canonical) = std::fs::canonicalize(name) {
+            seen.insert(canonical);
+        }
+        hick_lang::resolve_includes(&mut doc, base_dir, &mut seen)
+            .map_err(|e| anyhow::anyhow!("include error in {name}: {e}"))?;
+
+        extract_verify_from_nodes(&doc.nodes, name, &mut commands);
+    }
+
+    Ok(commands)
+}
+
+/// Recursively extract verify commands from nodes.
+fn extract_verify_from_nodes(
+    nodes: &[HickNode],
+    source_file: &str,
+    commands: &mut Vec<ExtractedVerifyCommand>,
+) {
+    for node in nodes {
+        if let HickNode::Tag(tag) = node {
+            if tag.name == "verify" {
+                if let Some(cmd) = tag_attr(tag, "command") {
+                    if !cmd.trim().is_empty() {
+                        let description = tag_attr(tag, "description")
+                            .filter(|s| !s.trim().is_empty());
+                        commands.push(ExtractedVerifyCommand {
+                            command: cmd,
+                            description,
+                            source_file: source_file.to_string(),
+                            source_line: tag.source_line,
+                        });
+                    }
+                }
+            }
+            // Recurse into children
+            extract_verify_from_nodes(&tag.children, source_file, commands);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn extract_single_verify_command() {
+        let source = r#"<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
+<hick:verify command="cargo check" />
+</hick:doc>"#;
+        let sources = vec![("test.hick", source)];
+        let cmds = extract_verify_commands(&sources).unwrap();
+        assert_eq!(cmds.len(), 1);
+        assert_eq!(cmds[0].command, "cargo check");
+        assert!(cmds[0].description.is_none());
+        assert_eq!(cmds[0].source_file, "test.hick");
+    }
+
+    #[test]
+    fn extract_verify_with_condition_and_description() {
+        let source = r#"<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
+<hick:verify command="[backend] cargo test" description="Run backend tests" />
+</hick:doc>"#;
+        let sources = vec![("test.hick", source)];
+        let cmds = extract_verify_commands(&sources).unwrap();
+        assert_eq!(cmds.len(), 1);
+        assert_eq!(cmds[0].command, "[backend] cargo test");
+        assert_eq!(cmds[0].description.as_deref(), Some("Run backend tests"));
+    }
+
+    #[test]
+    fn extract_multiple_verify_commands() {
+        let source = r#"<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
+<hick:verify command="cargo check" description="Compile check" />
+<hick:verify command="[spa] npm test" description="SPA tests" />
+<hick:verify command="[spa+backend] npm run e2e" description="E2E tests" />
+</hick:doc>"#;
+        let sources = vec![("test.hick", source)];
+        let cmds = extract_verify_commands(&sources).unwrap();
+        assert_eq!(cmds.len(), 3);
+        assert_eq!(cmds[0].command, "cargo check");
+        assert_eq!(cmds[1].command, "[spa] npm test");
+        assert_eq!(cmds[2].command, "[spa+backend] npm run e2e");
+    }
+
+    #[test]
+    fn extract_verify_from_multiple_sources() {
+        let source1 = r#"<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
+<hick:verify command="cargo check" />
+</hick:doc>"#;
+        let source2 = r#"<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
+<hick:verify command="npm test" />
+</hick:doc>"#;
+        let sources = vec![("a.hick", source1), ("b.hick", source2)];
+        let cmds = extract_verify_commands(&sources).unwrap();
+        assert_eq!(cmds.len(), 2);
+        assert_eq!(cmds[0].source_file, "a.hick");
+        assert_eq!(cmds[1].source_file, "b.hick");
+    }
+
+    #[test]
+    fn extract_verify_skips_empty_command() {
+        let source = r#"<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
+<hick:verify command="" />
+<hick:verify command="  " />
+<hick:verify command="cargo check" />
+</hick:doc>"#;
+        let sources = vec![("test.hick", source)];
+        let cmds = extract_verify_commands(&sources).unwrap();
+        assert_eq!(cmds.len(), 1);
+        assert_eq!(cmds[0].command, "cargo check");
+    }
+
+    #[test]
+    fn extract_verify_skips_missing_command_attr() {
+        let source = r#"<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
+<hick:verify description="No command attribute" />
+<hick:verify command="cargo check" />
+</hick:doc>"#;
+        let sources = vec![("test.hick", source)];
+        let cmds = extract_verify_commands(&sources).unwrap();
+        assert_eq!(cmds.len(), 1);
+    }
+
+    #[test]
+    fn extract_verify_nested_inside_other_elements() {
+        let source = r#"<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
+<hick:when test="backend">
+<hick:verify command="cargo test" description="Nested verify" />
+</hick:when>
+</hick:doc>"#;
+        let sources = vec![("test.hick", source)];
+        let cmds = extract_verify_commands(&sources).unwrap();
+        assert_eq!(cmds.len(), 1);
+        assert_eq!(cmds[0].command, "cargo test");
+        assert_eq!(cmds[0].description.as_deref(), Some("Nested verify"));
+    }
+
+    #[test]
+    fn extract_verify_preserves_source_line() {
+        let source = r#"<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
+
+<hick:feature name="backend" description="Backend" />
+
+<hick:verify command="cargo check" />
+</hick:doc>"#;
+        let sources = vec![("test.hick", source)];
+        let cmds = extract_verify_commands(&sources).unwrap();
+        assert_eq!(cmds.len(), 1);
+        // The verify tag is on line 5
+        assert_eq!(cmds[0].source_line, 5);
+    }
+}
