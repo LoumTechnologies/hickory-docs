@@ -202,6 +202,62 @@ Split large documents into modules:
 <hick:include path="./components/auth.hick" />
 ```
 
+## IMPORTANT: Always Verify with generate-matrix
+
+**After making ANY changes to `.hick` files, you MUST run `hick generate-matrix` to verify all feature combinations work correctly.**
+
+```bash
+# Basic verification - generates all combinations and checks they parse
+hick generate-matrix ./path/to/hick/files/
+
+# With custom verification command (recommended)
+hick generate-matrix --verify "cargo check" ./path/to/hick/files/
+
+# Continue checking all combinations even if some fail
+hick generate-matrix --verify "npm run build" --continue-on-error ./project/
+
+# Run verifications in parallel for speed
+hick generate-matrix -j 8 --verify "make test" ./templates/
+```
+
+### Why This Matters
+
+A `.hick` file may work fine with one feature combination but fail with others. The `generate-matrix` command:
+
+1. Generates all valid feature combinations (respecting `conflicts_with` and `exclusive_group`)
+2. Produces output for each combination in separate directories
+3. Optionally runs a verification command against each generated output
+
+### Custom Verify Commands
+
+The `--verify` flag accepts any shell command. Use template variables for dynamic paths:
+
+- `{{features}}` — comma-separated list of enabled features
+- `{{dir}}` — path to the generated output directory
+
+Examples:
+
+```bash
+# Check Rust code compiles
+hick generate-matrix --verify "cargo check --manifest-path {{dir}}/Cargo.toml" ./
+
+# Run TypeScript type checking
+hick generate-matrix --verify "cd {{dir}} && npx tsc --noEmit" ./
+
+# Validate JSON/YAML configs
+hick generate-matrix --verify "cd {{dir}} && yamllint ." ./
+
+# Custom script
+hick generate-matrix --verify "./scripts/validate.sh {{dir}} {{features}}" ./
+```
+
+### Recommended Workflow
+
+1. Make changes to `.hick` files
+2. Run `hick generate-matrix --verify "your-check-command" ./`
+3. Fix any failures
+4. Commit only after all combinations pass
+
 ## Common Commands
 
 ```bash
