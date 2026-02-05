@@ -95,6 +95,7 @@ Features control which platforms are generated. They can be combined freely.
 <hick:verify command="[rust-frontend-lib] cargo check --manifest-path rust-lib/Cargo.toml" description="Verify Rust library compiles" />
 <hick:verify command="[spa] test -f web/package.json" description="Verify SPA scaffolded" />
 <hick:verify command="[extension] test -f browser-extension/package.json" description="Verify extension scaffolded" />
+<hick:verify command="[swiftui] test -f apple/project.yml" description="Verify SwiftUI scaffolded" />
 <hick:verify command="[compose] test -f android/build.gradle.kts" description="Verify Android scaffolded" />
 <hick:verify command="[avalonia] test -f desktop/Desktop.sln" description="Verify .NET solution exists" />
 
