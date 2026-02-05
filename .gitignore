@@ -20,3 +20,6 @@ docs/hick-guide.md
 
 # Scaffolding output
 scaffolding/output/
+
+# Auto-generated agent docs
+.agents/
