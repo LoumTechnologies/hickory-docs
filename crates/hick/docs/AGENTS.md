@@ -145,6 +145,25 @@ Define and use feature flags:
 
 Enable features via CLI: `hick --features auth,oauth`
 
+#### Feature Mutual Exclusivity
+
+Use `conflicts_with` for arbitrary pairwise conflicts:
+
+```xml
+<hick:feature name="oidc" description="OIDC auth" conflicts_with="p2p-auth" />
+<hick:feature name="p2p-auth" description="P2P auth" conflicts_with="oidc" />
+```
+
+Use `exclusive_group` for "pick one of N" scenarios:
+
+```xml
+<hick:feature name="postgres" description="PostgreSQL" exclusive_group="database" />
+<hick:feature name="sqlite" description="SQLite" exclusive_group="database" />
+<hick:feature name="mysql" description="MySQL" exclusive_group="database" />
+```
+
+Features in the same exclusive group or with explicit conflicts cannot be enabled together. The `generate-matrix` command automatically filters out invalid combinations.
+
 ### Volumes
 
 Share data between containers:

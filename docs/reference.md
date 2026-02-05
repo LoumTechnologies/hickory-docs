@@ -30,7 +30,8 @@ produce documentation without starting any containers.
 15. [Execution Modes](#15-execution-modes)
 16. [Namespace Prefix Trick](#16-namespace-prefix-trick)
 17. [Complete Example](#17-complete-example)
-18. [Planned Features](#18-planned-features)
+18. [Features](#18-features)
+19. [Planned Features](#19-planned-features)
 
 ---
 
@@ -897,7 +898,119 @@ of each other.
 
 ---
 
-## 18. Planned Features
+## 18. Features
+
+Features are named, optional capabilities that control conditional content and
+code generation. They support dependencies, mutual exclusivity, and can be
+combined in matrices for multi-variant builds.
+
+### Defining features
+
+```xml
+<hick:feature name="auth" description="Authentication support" />
+<hick:feature name="oauth" description="OAuth provider" requires="auth" />
+```
+
+### Attributes
+
+| Attribute | Required | Description |
+|-----------|----------|-------------|
+| `name` | Yes | Unique feature identifier |
+| `description` | Yes | Human-readable description |
+| `requires` | No | Space-separated list of features this depends on |
+| `conflicts_with` | No | Space-separated list of features this conflicts with |
+| `exclusive_group` | No | Group name; only one feature from each group can be enabled |
+
+### Dependencies with `requires`
+
+When a feature is enabled, all features in its `requires` list are
+automatically enabled too:
+
+```xml
+<hick:feature name="auth" description="Authentication" />
+<hick:feature name="oauth" description="OAuth" requires="auth" />
+<hick:feature name="premium" description="Premium" requires="auth billing" />
+```
+
+Enabling `premium` automatically enables `auth` and `billing`.
+
+### Mutual exclusivity with `conflicts_with`
+
+Use `conflicts_with` for arbitrary pairwise conflicts:
+
+```xml
+<hick:feature name="oidc" description="OIDC auth" conflicts_with="p2p-auth" />
+<hick:feature name="p2p-auth" description="P2P auth" conflicts_with="oidc" />
+```
+
+Specifying the conflict on either side is sufficient, though declaring it on
+both is recommended for clarity.
+
+### Mutual exclusivity with `exclusive_group`
+
+Use `exclusive_group` for "pick one of N" scenarios:
+
+```xml
+<hick:feature name="postgres" description="PostgreSQL" exclusive_group="database" />
+<hick:feature name="sqlite" description="SQLite" exclusive_group="database" />
+<hick:feature name="mysql" description="MySQL" exclusive_group="database" />
+```
+
+Only one feature from each exclusive group can be enabled at a time.
+
+### Using features
+
+Enable features via CLI:
+
+```bash
+hick --features auth,oauth docs/project.hick
+```
+
+Use features in conditional content:
+
+```xml
+<hick:when test="auth">
+    Auth-specific content
+</hick:when>
+
+<hick:file path="config.json" when="oauth">
+    OAuth-only file
+</hick:file>
+```
+
+### Matrix generation
+
+The `generate-matrix` command creates all valid feature combinations:
+
+```bash
+hick generate-matrix --verify "cargo check" ./scaffolding/
+```
+
+This command:
+
+1. Extracts all features from the hick files
+2. Generates the power set of feature combinations
+3. Filters out combinations with conflicting features (via `conflicts_with` or
+   `exclusive_group`)
+4. Generates each valid combination to a separate directory
+5. Optionally runs verification commands
+
+Useful flags:
+
+| Flag | Description |
+|------|-------------|
+| `--jobs N` / `-j N` | Run N combinations in parallel (0 = auto-detect CPU count) |
+| `--singles-only` | Only generate single-feature combinations |
+| `--max-combination-size N` | Limit combinations to at most N features |
+| `--include-features X,Y` | Only use these features for combinations |
+| `--exclude-features X,Y` | Exclude these features from combinations |
+| `--verify "cmd"` | Run verification command for each combination |
+| `--continue-on-error` | Continue if a combination fails |
+| `--dry-run` | Show combinations without generating |
+
+---
+
+## 19. Planned Features
 
 These features are designed but not yet implemented.
 
@@ -1003,12 +1116,14 @@ secrets:
 | `<hick:fork>` | No | `doc` | Clone a container's state |
 | `<hick:attenuate>` | No | `doc` | Add restrictions to a container |
 | `<hick:confirm>` | Yes | `doc` | Pause for user approval (planned) |
+| `<hick:feature>` | Yes | `doc` | Define a feature flag |
+| `<hick:when>` | No | `doc`, `file` | Conditional content based on features |
 
 ## Attribute Reference Summary
 
 | Attribute | Tags | Values |
 |-----------|------|--------|
-| `name` | `container`, `volume`, `secret` | Identifier string |
+| `name` | `container`, `volume`, `secret`, `feature` | Identifier string |
 | `image` | `container`, `exec` | OCI image name (e.g., `alpine:3.20`) |
 | `container` | `exec`, `attenuate` | Container name reference |
 | `path` | `file` | Output file path |
@@ -1021,3 +1136,8 @@ secrets:
 | `file-read` | `allow` | File path pattern |
 | `file-write` | `allow` | File path pattern |
 | `message` | `confirm` | Display message string |
+| `description` | `feature` | Human-readable feature description |
+| `requires` | `feature` | Space-separated list of dependent features |
+| `conflicts_with` | `feature` | Space-separated list of conflicting features |
+| `exclusive_group` | `feature` | Group name (only one from group can be enabled) |
+| `test` | `when` | Feature expression to evaluate |

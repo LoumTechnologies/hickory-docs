@@ -51,6 +51,10 @@ pub struct FeatureDef {
     pub description: String,
     /// Names of features this feature requires.
     pub requires: Vec<String>,
+    /// Names of features this feature conflicts with (mutually exclusive).
+    pub conflicts_with: Vec<String>,
+    /// Optional exclusive group name. Only one feature from each group can be enabled.
+    pub exclusive_group: Option<String>,
 }
 
 impl FeatureDef {
@@ -60,12 +64,26 @@ impl FeatureDef {
             name: name.into(),
             description: description.into(),
             requires: Vec::new(),
+            conflicts_with: Vec::new(),
+            exclusive_group: None,
         }
     }
 
     /// Add a required feature.
     pub fn with_requires(mut self, required: impl Into<String>) -> Self {
         self.requires.push(required.into());
+        self
+    }
+
+    /// Add a conflicting feature (mutually exclusive).
+    pub fn with_conflicts(mut self, conflicting: impl Into<String>) -> Self {
+        self.conflicts_with.push(conflicting.into());
+        self
+    }
+
+    /// Set the exclusive group (only one feature from each group can be enabled).
+    pub fn with_exclusive_group(mut self, group: impl Into<String>) -> Self {
+        self.exclusive_group = Some(group.into());
         self
     }
 }
@@ -84,6 +102,16 @@ pub enum FeatureError {
 
     #[error("feature '{feature}' requires unknown feature '{required}'")]
     UnknownDependency { feature: String, required: String },
+
+    #[error("feature '{feature}' conflicts with '{conflicting}' - both cannot be enabled")]
+    ConflictingFeatures { feature: String, conflicting: String },
+
+    #[error("features '{feature1}' and '{feature2}' are in exclusive group '{group}' - only one can be enabled")]
+    ExclusiveGroupViolation {
+        feature1: String,
+        feature2: String,
+        group: String,
+    },
 }
 
 /// Registry of all defined features.
@@ -213,6 +241,109 @@ impl FeatureRegistry {
             }
         }
     }
+
+    /// Check if two features conflict with each other.
+    ///
+    /// Returns true if:
+    /// - Either feature explicitly lists the other in `conflicts_with`
+    /// - Both features belong to the same exclusive group
+    pub fn features_conflict(&self, a: &str, b: &str) -> bool {
+        if a == b {
+            return false;
+        }
+
+        let def_a = self.features.get(a);
+        let def_b = self.features.get(b);
+
+        // Check explicit conflicts (either direction)
+        if let Some(def) = def_a {
+            if def.conflicts_with.iter().any(|c| c == b) {
+                return true;
+            }
+        }
+        if let Some(def) = def_b {
+            if def.conflicts_with.iter().any(|c| c == a) {
+                return true;
+            }
+        }
+
+        // Check exclusive groups
+        if let (Some(def_a), Some(def_b)) = (def_a, def_b) {
+            if let (Some(group_a), Some(group_b)) = (&def_a.exclusive_group, &def_b.exclusive_group)
+            {
+                if group_a == group_b {
+                    return true;
+                }
+            }
+        }
+
+        false
+    }
+
+    /// Check a set of feature names for any conflicts.
+    ///
+    /// Returns `Ok(())` if there are no conflicts, or an error describing the first conflict found.
+    pub fn check_conflicts(&self, features: &[&str]) -> Result<(), FeatureError> {
+        // Check pairwise for explicit conflicts and exclusive groups
+        for (i, &a) in features.iter().enumerate() {
+            for &b in features.iter().skip(i + 1) {
+                let def_a = self.features.get(a);
+                let def_b = self.features.get(b);
+
+                // Check explicit conflicts
+                if let Some(def) = def_a {
+                    if def.conflicts_with.iter().any(|c| c == b) {
+                        return Err(FeatureError::ConflictingFeatures {
+                            feature: a.to_string(),
+                            conflicting: b.to_string(),
+                        });
+                    }
+                }
+                if let Some(def) = def_b {
+                    if def.conflicts_with.iter().any(|c| c == a) {
+                        return Err(FeatureError::ConflictingFeatures {
+                            feature: b.to_string(),
+                            conflicting: a.to_string(),
+                        });
+                    }
+                }
+
+                // Check exclusive groups
+                if let (Some(def_a), Some(def_b)) = (def_a, def_b) {
+                    if let (Some(group_a), Some(group_b)) =
+                        (&def_a.exclusive_group, &def_b.exclusive_group)
+                    {
+                        if group_a == group_b {
+                            return Err(FeatureError::ExclusiveGroupViolation {
+                                feature1: a.to_string(),
+                                feature2: b.to_string(),
+                                group: group_a.clone(),
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Get all features in a given exclusive group.
+    pub fn features_in_group(&self, group: &str) -> Vec<&str> {
+        self.features
+            .values()
+            .filter(|def| def.exclusive_group.as_deref() == Some(group))
+            .map(|def| def.name.as_str())
+            .collect()
+    }
+
+    /// Get all exclusive group names.
+    pub fn exclusive_groups(&self) -> HashSet<&str> {
+        self.features
+            .values()
+            .filter_map(|def| def.exclusive_group.as_deref())
+            .collect()
+    }
 }
 
 /// A set of enabled features.
@@ -278,6 +409,9 @@ impl FeatureSet {
 
     /// Validate that all enabled features are defined and their dependencies are satisfied.
     /// Returns an expanded feature set that includes all transitive dependencies.
+    ///
+    /// Also validates that no conflicting features are enabled (via `conflicts_with` or
+    /// `exclusive_group`).
     pub fn validate_and_expand(
         &self,
         registry: &FeatureRegistry,
@@ -298,6 +432,10 @@ impl FeatureSet {
             let deps = registry.transitive_requirements(name);
             expanded.extend(deps);
         }
+
+        // Check for conflicts in the expanded set
+        let expanded_vec: Vec<&str> = expanded.iter().map(|s| s.as_str()).collect();
+        registry.check_conflicts(&expanded_vec)?;
 
         Ok(FeatureSet { enabled: expanded })
     }
@@ -520,5 +658,143 @@ mod tests {
         // Enable both premium and auth
         let set = FeatureSet::from_names(["premium", "auth"]);
         assert!(set.validate_dependencies(&registry).is_ok());
+    }
+
+    // -------------------------------------------------------------------------
+    // Conflict tests
+    // -------------------------------------------------------------------------
+
+    #[test]
+    fn conflicts_with_detected() {
+        let mut registry = FeatureRegistry::new();
+        registry.register(
+            FeatureDef::new("oidc", "OIDC authentication").with_conflicts("p2p-auth"),
+        );
+        registry.register(
+            FeatureDef::new("p2p-auth", "P2P authentication").with_conflicts("oidc"),
+        );
+
+        // Both enabled should fail
+        let set = FeatureSet::from_names(["oidc", "p2p-auth"]);
+        let err = set.validate_and_expand(&registry).unwrap_err();
+        assert!(matches!(err, FeatureError::ConflictingFeatures { .. }));
+    }
+
+    #[test]
+    fn conflicts_with_one_direction() {
+        let mut registry = FeatureRegistry::new();
+        // Only oidc declares conflict, but it should still be detected
+        registry.register(
+            FeatureDef::new("oidc", "OIDC authentication").with_conflicts("p2p-auth"),
+        );
+        registry.register(FeatureDef::new("p2p-auth", "P2P authentication"));
+
+        let set = FeatureSet::from_names(["oidc", "p2p-auth"]);
+        let err = set.validate_and_expand(&registry).unwrap_err();
+        assert!(matches!(err, FeatureError::ConflictingFeatures { .. }));
+    }
+
+    #[test]
+    fn conflicts_with_ok_when_separate() {
+        let mut registry = FeatureRegistry::new();
+        registry.register(
+            FeatureDef::new("oidc", "OIDC authentication").with_conflicts("p2p-auth"),
+        );
+        registry.register(FeatureDef::new("p2p-auth", "P2P authentication"));
+
+        // Only one enabled should be fine
+        let set = FeatureSet::from_names(["oidc"]);
+        assert!(set.validate_and_expand(&registry).is_ok());
+    }
+
+    #[test]
+    fn exclusive_group_detected() {
+        let mut registry = FeatureRegistry::new();
+        registry.register(
+            FeatureDef::new("oidc", "OIDC auth").with_exclusive_group("auth-strategy"),
+        );
+        registry.register(
+            FeatureDef::new("p2p-auth", "P2P auth").with_exclusive_group("auth-strategy"),
+        );
+        registry.register(
+            FeatureDef::new("local-auth", "Local auth").with_exclusive_group("auth-strategy"),
+        );
+
+        // Two from same group should fail
+        let set = FeatureSet::from_names(["oidc", "p2p-auth"]);
+        let err = set.validate_and_expand(&registry).unwrap_err();
+        assert!(matches!(
+            err,
+            FeatureError::ExclusiveGroupViolation { group, .. } if group == "auth-strategy"
+        ));
+    }
+
+    #[test]
+    fn exclusive_group_ok_when_one() {
+        let mut registry = FeatureRegistry::new();
+        registry.register(
+            FeatureDef::new("oidc", "OIDC auth").with_exclusive_group("auth-strategy"),
+        );
+        registry.register(
+            FeatureDef::new("p2p-auth", "P2P auth").with_exclusive_group("auth-strategy"),
+        );
+
+        // Only one from group is fine
+        let set = FeatureSet::from_names(["oidc"]);
+        assert!(set.validate_and_expand(&registry).is_ok());
+    }
+
+    #[test]
+    fn exclusive_group_different_groups_ok() {
+        let mut registry = FeatureRegistry::new();
+        registry.register(
+            FeatureDef::new("oidc", "OIDC auth").with_exclusive_group("auth-strategy"),
+        );
+        registry.register(
+            FeatureDef::new("postgres", "PostgreSQL").with_exclusive_group("database"),
+        );
+        registry.register(
+            FeatureDef::new("sqlite", "SQLite").with_exclusive_group("database"),
+        );
+
+        // One from each group is fine
+        let set = FeatureSet::from_names(["oidc", "postgres"]);
+        assert!(set.validate_and_expand(&registry).is_ok());
+    }
+
+    #[test]
+    fn features_conflict_helper() {
+        let mut registry = FeatureRegistry::new();
+        registry.register(
+            FeatureDef::new("oidc", "OIDC auth")
+                .with_conflicts("p2p-auth")
+                .with_exclusive_group("auth"),
+        );
+        registry.register(
+            FeatureDef::new("p2p-auth", "P2P auth").with_exclusive_group("auth"),
+        );
+        registry.register(FeatureDef::new("billing", "Billing"));
+
+        assert!(registry.features_conflict("oidc", "p2p-auth"));
+        assert!(registry.features_conflict("p2p-auth", "oidc")); // symmetric
+        assert!(!registry.features_conflict("oidc", "billing"));
+        assert!(!registry.features_conflict("oidc", "oidc")); // same feature doesn't conflict
+    }
+
+    #[test]
+    fn features_in_group() {
+        let mut registry = FeatureRegistry::new();
+        registry.register(
+            FeatureDef::new("oidc", "OIDC auth").with_exclusive_group("auth-strategy"),
+        );
+        registry.register(
+            FeatureDef::new("p2p-auth", "P2P auth").with_exclusive_group("auth-strategy"),
+        );
+        registry.register(FeatureDef::new("billing", "Billing"));
+
+        let auth_features = registry.features_in_group("auth-strategy");
+        assert_eq!(auth_features.len(), 2);
+        assert!(auth_features.contains(&"oidc"));
+        assert!(auth_features.contains(&"p2p-auth"));
     }
 }
