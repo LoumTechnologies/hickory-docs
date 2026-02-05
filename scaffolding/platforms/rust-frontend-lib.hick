@@ -169,6 +169,10 @@ Swift, Kotlin, and C#:
     [Throws=AuthError]
     AuthenticatedPeer verify_peer_response(string expected_challenge, string response_token);
 </hick:when>
+<hick:when test="event-sourcing">
+    // Event sourcing operations
+    EventStore create_event_store(string site_id, ConflictStrategy conflict_strategy);
+</hick:when>
 };
 
 [Error]
@@ -288,6 +292,95 @@ dictionary AuthenticatedPeer {
     sequence<string> capabilities;
 };
 </hick:when>
+<hick:when test="event-sourcing">
+[Enum]
+interface ConflictStrategy {
+    LastWriteWins();
+    FirstWriteWins();
+    Merge();
+    Manual();
+};
+
+[Error]
+enum EventError {
+    "NotFound",
+    "Conflict",
+    "InvalidEvent",
+    "StorageError",
+    "SerializationError",
+};
+
+dictionary EventMetadata {
+    u64 timestamp;
+    string site_id;
+    u64 lamport_timestamp;
+    sequence<string> previous_event_ids;
+    sequence<string> author_ids;
+    string? branch;
+    boolean is_snapshot;
+};
+
+dictionary Event {
+    string id;
+    string aggregate_id;
+    string aggregate_type;
+    string event_type;
+    string payload;
+    EventMetadata metadata;
+};
+
+dictionary ConflictInfo {
+    sequence<Event> conflicting_events;
+    string common_ancestor;
+    boolean auto_resolved;
+    string? winner_id;
+};
+
+interface EventStore {
+    // Get the site ID for this store
+    string site_id();
+
+    // Get the current lamport timestamp
+    u64 current_lamport();
+
+    // Append an event to an aggregate
+    [Throws=EventError]
+    Event append(string aggregate_id, string aggregate_type, string event_type, string payload, sequence<string> author_ids);
+
+    // Append an event to a branch
+    [Throws=EventError]
+    Event append_to_branch(string aggregate_id, string aggregate_type, string event_type, string payload, sequence<string> author_ids, string branch);
+
+    // Create a snapshot for an aggregate
+    [Throws=EventError]
+    Event create_snapshot(string aggregate_id, string aggregate_type, string state_payload, sequence<string> author_ids);
+
+    // Receive an event from another site (returns conflict info if detected)
+    [Throws=EventError]
+    ConflictInfo? receive(Event event);
+
+    // Get events since the last snapshot
+    sequence<Event> get_events_since_snapshot(string aggregate_id);
+
+    // Get all events for an aggregate
+    sequence<Event> get_all_events(string aggregate_id);
+
+    // Get events for a specific branch
+    sequence<Event> get_branch_events(string aggregate_id, string branch);
+
+    // Merge a branch into main
+    [Throws=EventError]
+    Event merge_branch(string aggregate_id, string aggregate_type, string branch, sequence<string> author_ids);
+
+    // Export events as JSON
+    [Throws=EventError]
+    string export_events(string aggregate_id, u64? since_lamport);
+
+    // Import events from JSON
+    [Throws=EventError]
+    sequence<ConflictInfo?> import_events(string events_json);
+};
+</hick:when>
 <hick:when test="sqlite">
 dictionary TodoItem {
     string id;
@@ -336,6 +429,8 @@ mod networking;
 </hick:when>
 <hick:when test="decentralized-auth">mod auth;
 </hick:when>
+<hick:when test="event-sourcing">mod events;
+</hick:when>
 pub use error::CoreError;
 <hick:when test="sqlite">pub use database::{Database, DatabaseError, TodoItem, open_database};
 </hick:when>
@@ -346,6 +441,11 @@ pub use networking::{IrohNode, IrohError, NodeInfo, create_iroh_node, get_node_i
     Identity, AuthError, AuthTokenClaims, VerifiedToken,
     create_identity, load_identity, load_or_create_identity, save_identity,
     verify_auth_token, generate_challenge, verify_challenge,
+};
+</hick:when>
+<hick:when test="event-sourcing">pub use events::{
+    Event, EventMetadata, EventError, EventStore, ConflictStrategy, ConflictInfo,
+    create_event_store,
 };
 </hick:when>
 <hick:when test="decentralized-auth && iroh">#[cfg(not(target_arch = "wasm32"))]
@@ -2128,6 +2228,756 @@ The UniFFI interface for the combined features:
 Add to core.udl after the decentralized-auth section:
 </hick:when>
 
+<hick:when test="event-sourcing">
+### Event Sourcing Module
+
+The event sourcing module provides an event-driven architecture where all domain changes are
+captured as immutable events with automatic conflict resolution.
+
+**Key concepts:**
+- **Events** - Immutable records of state changes with metadata
+- **Aggregate Roots** - Domain objects that group related events
+- **Snapshots** - Compressed event history for efficient sync
+- **CRDT Resolution** - Automatic conflict handling for offline edits
+
+<hick:file path="rust-lib/src/events.rs">//! Event sourcing module
+//!
+//! Provides event-driven architecture with:
+//! - Immutable event records with causal ordering
+//! - Aggregate root management
+//! - Snapshot compression
+//! - CRDT-based conflict resolution
+
+use serde::{Deserialize, Serialize};
+use thiserror::Error;
+use uuid::Uuid;
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
+
+#[cfg(not(target_arch = "wasm32"))]
+use std::sync::Mutex;
+#[cfg(target_arch = "wasm32")]
+use std::cell::RefCell;
+
+/// Errors that can occur in event sourcing operations
+#[derive(Error, Debug)]
+pub enum EventError {
+    #[error("Event not found: {0}")]
+    NotFound(String),
+
+    #[error("Conflict detected: {0}")]
+    Conflict(String),
+
+    #[error("Invalid event: {0}")]
+    InvalidEvent(String),
+
+    #[error("Storage error: {0}")]
+    StorageError(String),
+
+    #[error("Serialization error: {0}")]
+    SerializationError(String),
+}
+
+/// Event metadata for causal ordering and conflict detection
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EventMetadata {
+    /// When the event occurred (Unix timestamp milliseconds)
+    pub timestamp: u64,
+    /// Device/client identifier
+    pub site_id: String,
+    /// Logical clock sequence number
+    pub lamport_timestamp: u64,
+    /// Previous event ID(s) for conflict detection
+    pub previous_event_ids: Vec<String>,
+    /// User(s) who authored the event (supports human + LLM co-authorship)
+    pub author_ids: Vec<String>,
+    /// Optional branch for dry runs or review workflows
+    pub branch: Option<String>,
+    /// Whether this event is a snapshot that compresses history
+    pub is_snapshot: bool,
+}
+
+/// A domain event with typed payload
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Event {
+    /// Unique event identifier (site_id + lamport_timestamp)
+    pub id: String,
+    /// The aggregate root this event belongs to
+    pub aggregate_id: String,
+    /// The type of aggregate (e.g., "user", "document", "task")
+    pub aggregate_type: String,
+    /// Event type name (e.g., "created", "updated", "deleted")
+    pub event_type: String,
+    /// Event payload as JSON
+    pub payload: String,
+    /// Event metadata
+    pub metadata: EventMetadata,
+}
+
+impl Event {
+    /// Create a new event
+    pub fn new(
+        aggregate_id: String,
+        aggregate_type: String,
+        event_type: String,
+        payload: String,
+        site_id: String,
+        lamport_timestamp: u64,
+        previous_event_ids: Vec<String>,
+        author_ids: Vec<String>,
+    ) -> Self {
+        let id = format!("{}-{}", site_id, lamport_timestamp);
+        Self {
+            id,
+            aggregate_id,
+            aggregate_type,
+            event_type,
+            payload,
+            metadata: EventMetadata {
+                timestamp: current_timestamp_ms(),
+                site_id,
+                lamport_timestamp,
+                previous_event_ids,
+                author_ids,
+                branch: None,
+                is_snapshot: false,
+            },
+        }
+    }
+
+    /// Create a snapshot event that compresses history
+    pub fn snapshot(
+        aggregate_id: String,
+        aggregate_type: String,
+        state_payload: String,
+        site_id: String,
+        lamport_timestamp: u64,
+        previous_event_ids: Vec<String>,
+        author_ids: Vec<String>,
+    ) -> Self {
+        let mut event = Self::new(
+            aggregate_id,
+            aggregate_type,
+            "snapshot".to_string(),
+            state_payload,
+            site_id,
+            lamport_timestamp,
+            previous_event_ids,
+            author_ids,
+        );
+        event.metadata.is_snapshot = true;
+        event
+    }
+
+    /// Set the branch for this event
+    pub fn with_branch(mut self, branch: String) -> Self {
+        self.metadata.branch = Some(branch);
+        self
+    }
+}
+
+/// Conflict resolution strategy
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+pub enum ConflictStrategy {
+    /// Last write wins based on timestamp
+    LastWriteWins,
+    /// First write wins based on timestamp
+    FirstWriteWins,
+    /// Merge concurrent changes (requires custom merge function)
+    Merge,
+    /// Surface conflict to UI for manual resolution
+    Manual,
+}
+
+impl Default for ConflictStrategy {
+    fn default() -> Self {
+        Self::LastWriteWins
+    }
+}
+
+/// Result of conflict detection
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConflictInfo {
+    /// The conflicting events (same previous_event_id)
+    pub conflicting_events: Vec<Event>,
+    /// The common ancestor event ID
+    pub common_ancestor: String,
+    /// Whether the conflict was auto-resolved
+    pub auto_resolved: bool,
+    /// The winning event ID (if auto-resolved)
+    pub winner_id: Option<String>,
+}
+
+/// A local event store for managing events
+#[cfg(not(target_arch = "wasm32"))]
+pub struct EventStore {
+    /// In-memory event storage (keyed by aggregate_id)
+    events: Arc<Mutex<HashMap<String, Vec<Event>>>>,
+    /// Current lamport timestamp for this site
+    lamport_clock: Arc<Mutex<u64>>,
+    /// This site's identifier
+    site_id: String,
+    /// Conflict resolution strategy
+    conflict_strategy: ConflictStrategy,
+}
+
+#[cfg(target_arch = "wasm32")]
+pub struct EventStore {
+    events: RefCell<HashMap<String, Vec<Event>>>,
+    lamport_clock: RefCell<u64>,
+    site_id: String,
+    conflict_strategy: ConflictStrategy,
+}
+
+// Safety: EventStore is only used single-threaded in WASM
+#[cfg(target_arch = "wasm32")]
+unsafe impl Send for EventStore {}
+#[cfg(target_arch = "wasm32")]
+unsafe impl Sync for EventStore {}
+
+impl EventStore {
+    /// Get the current lamport timestamp and increment it
+    fn next_lamport(&self) -> u64 {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let mut clock = self.lamport_clock.lock().unwrap();
+            let current = *clock;
+            *clock += 1;
+            current
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            let mut clock = self.lamport_clock.borrow_mut();
+            let current = *clock;
+            *clock += 1;
+            current
+        }
+    }
+
+    /// Update lamport clock based on received event
+    fn update_lamport(&self, received_timestamp: u64) {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let mut clock = self.lamport_clock.lock().unwrap();
+            *clock = (*clock).max(received_timestamp) + 1;
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            let mut clock = self.lamport_clock.borrow_mut();
+            *clock = (*clock).max(received_timestamp) + 1;
+        }
+    }
+
+    /// Get all events for an aggregate
+    fn get_events_internal(&self, aggregate_id: &str) -> Vec<Event> {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let events = self.events.lock().unwrap();
+            events.get(aggregate_id).cloned().unwrap_or_default()
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            let events = self.events.borrow();
+            events.get(aggregate_id).cloned().unwrap_or_default()
+        }
+    }
+
+    /// Store an event
+    fn store_event_internal(&self, event: Event) {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let mut events = self.events.lock().unwrap();
+            events.entry(event.aggregate_id.clone()).or_default().push(event);
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            let mut events = self.events.borrow_mut();
+            events.entry(event.aggregate_id.clone()).or_default().push(event);
+        }
+    }
+
+    /// Get the site ID
+    pub fn site_id(&self) -> String {
+        self.site_id.clone()
+    }
+
+    /// Get the current lamport timestamp (without incrementing)
+    pub fn current_lamport(&self) -> u64 {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            *self.lamport_clock.lock().unwrap()
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            *self.lamport_clock.borrow()
+        }
+    }
+
+    /// Append a new event to an aggregate
+    pub fn append(
+        &self,
+        aggregate_id: String,
+        aggregate_type: String,
+        event_type: String,
+        payload: String,
+        author_ids: Vec<String>,
+    ) -> Result<Event, EventError> {
+        let events = self.get_events_internal(&aggregate_id);
+        let previous_ids: Vec<String> = events
+            .iter()
+            .filter(|e| e.metadata.branch.is_none()) // Only main branch events
+            .rev()
+            .take(1)
+            .map(|e| e.id.clone())
+            .collect();
+
+        let lamport = self.next_lamport();
+        let event = Event::new(
+            aggregate_id,
+            aggregate_type,
+            event_type,
+            payload,
+            self.site_id.clone(),
+            lamport,
+            previous_ids,
+            author_ids,
+        );
+
+        self.store_event_internal(event.clone());
+        Ok(event)
+    }
+
+    /// Append an event to a specific branch
+    pub fn append_to_branch(
+        &self,
+        aggregate_id: String,
+        aggregate_type: String,
+        event_type: String,
+        payload: String,
+        author_ids: Vec<String>,
+        branch: String,
+    ) -> Result<Event, EventError> {
+        let events = self.get_events_internal(&aggregate_id);
+        let previous_ids: Vec<String> = events
+            .iter()
+            .filter(|e| e.metadata.branch.as_ref() == Some(&branch))
+            .rev()
+            .take(1)
+            .map(|e| e.id.clone())
+            .collect();
+
+        let lamport = self.next_lamport();
+        let event = Event::new(
+            aggregate_id,
+            aggregate_type,
+            event_type,
+            payload,
+            self.site_id.clone(),
+            lamport,
+            previous_ids,
+            author_ids,
+        ).with_branch(branch);
+
+        self.store_event_internal(event.clone());
+        Ok(event)
+    }
+
+    /// Create a snapshot for an aggregate
+    pub fn create_snapshot(
+        &self,
+        aggregate_id: String,
+        aggregate_type: String,
+        state_payload: String,
+        author_ids: Vec<String>,
+    ) -> Result<Event, EventError> {
+        let events = self.get_events_internal(&aggregate_id);
+        let previous_ids: Vec<String> = events
+            .iter()
+            .filter(|e| e.metadata.branch.is_none())
+            .map(|e| e.id.clone())
+            .collect();
+
+        let lamport = self.next_lamport();
+        let event = Event::snapshot(
+            aggregate_id,
+            aggregate_type,
+            state_payload,
+            self.site_id.clone(),
+            lamport,
+            previous_ids,
+            author_ids,
+        );
+
+        self.store_event_internal(event.clone());
+        Ok(event)
+    }
+
+    /// Receive an event from another site
+    pub fn receive(&self, event: Event) -> Result<Option<ConflictInfo>, EventError> {
+        // Update lamport clock
+        self.update_lamport(event.metadata.lamport_timestamp);
+
+        // Check for conflicts (events with same previous_event_id)
+        let existing = self.get_events_internal(&event.aggregate_id);
+        let conflicts: Vec<Event> = existing
+            .iter()
+            .filter(|e| {
+                // Check if any previous IDs overlap
+                e.metadata.previous_event_ids.iter()
+                    .any(|pid| event.metadata.previous_event_ids.contains(pid))
+                    && e.id != event.id
+            })
+            .cloned()
+            .collect();
+
+        if !conflicts.is_empty() {
+            let common_ancestor = event.metadata.previous_event_ids
+                .first()
+                .cloned()
+                .unwrap_or_default();
+
+            let mut all_conflicts = conflicts.clone();
+            all_conflicts.push(event.clone());
+
+            let conflict_info = self.resolve_conflicts(&all_conflicts, &common_ancestor)?;
+            self.store_event_internal(event);
+            return Ok(Some(conflict_info));
+        }
+
+        self.store_event_internal(event);
+        Ok(None)
+    }
+
+    /// Resolve conflicts between events
+    fn resolve_conflicts(&self, events: &[Event], common_ancestor: &str) -> Result<ConflictInfo, EventError> {
+        let (auto_resolved, winner_id) = match self.conflict_strategy {
+            ConflictStrategy::LastWriteWins => {
+                let winner = events.iter()
+                    .max_by_key(|e| e.metadata.timestamp)
+                    .map(|e| e.id.clone());
+                (true, winner)
+            }
+            ConflictStrategy::FirstWriteWins => {
+                let winner = events.iter()
+                    .min_by_key(|e| e.metadata.timestamp)
+                    .map(|e| e.id.clone());
+                (true, winner)
+            }
+            ConflictStrategy::Merge | ConflictStrategy::Manual => {
+                (false, None)
+            }
+        };
+
+        Ok(ConflictInfo {
+            conflicting_events: events.to_vec(),
+            common_ancestor: common_ancestor.to_string(),
+            auto_resolved,
+            winner_id,
+        })
+    }
+
+    /// Get all events for an aggregate since the last snapshot
+    pub fn get_events_since_snapshot(&self, aggregate_id: String) -> Vec<Event> {
+        let events = self.get_events_internal(&aggregate_id);
+
+        // Find the last snapshot
+        let last_snapshot_idx = events.iter()
+            .rposition(|e| e.metadata.is_snapshot);
+
+        match last_snapshot_idx {
+            Some(idx) => events[idx..].to_vec(),
+            None => events,
+        }
+    }
+
+    /// Get all events for an aggregate (full history)
+    pub fn get_all_events(&self, aggregate_id: String) -> Vec<Event> {
+        self.get_events_internal(&aggregate_id)
+    }
+
+    /// Get events for a specific branch
+    pub fn get_branch_events(&self, aggregate_id: String, branch: String) -> Vec<Event> {
+        self.get_events_internal(&aggregate_id)
+            .into_iter()
+            .filter(|e| e.metadata.branch.as_ref() == Some(&branch))
+            .collect()
+    }
+
+    /// Merge a branch into main
+    pub fn merge_branch(
+        &self,
+        aggregate_id: String,
+        aggregate_type: String,
+        branch: String,
+        author_ids: Vec<String>,
+    ) -> Result<Event, EventError> {
+        let branch_events = self.get_branch_events(aggregate_id.clone(), branch.clone());
+        if branch_events.is_empty() {
+            return Err(EventError::NotFound(format!("Branch '{}' has no events", branch)));
+        }
+
+        // Create a merge event that references both main and branch
+        let main_events = self.get_events_internal(&aggregate_id);
+        let mut previous_ids: Vec<String> = main_events
+            .iter()
+            .filter(|e| e.metadata.branch.is_none())
+            .rev()
+            .take(1)
+            .map(|e| e.id.clone())
+            .collect();
+
+        // Add the last branch event
+        if let Some(last_branch) = branch_events.last() {
+            previous_ids.push(last_branch.id.clone());
+        }
+
+        let lamport = self.next_lamport();
+        let event = Event::new(
+            aggregate_id,
+            aggregate_type,
+            "branch_merged".to_string(),
+            serde_json::json!({ "merged_branch": branch }).to_string(),
+            self.site_id.clone(),
+            lamport,
+            previous_ids,
+            author_ids,
+        );
+
+        self.store_event_internal(event.clone());
+        Ok(event)
+    }
+
+    /// Export events as JSON for sync
+    pub fn export_events(&self, aggregate_id: String, since_lamport: Option<u64>) -> Result<String, EventError> {
+        let events = self.get_events_internal(&aggregate_id);
+        let filtered: Vec<&Event> = match since_lamport {
+            Some(lamport) => events.iter()
+                .filter(|e| e.metadata.lamport_timestamp > lamport)
+                .collect(),
+            None => events.iter().collect(),
+        };
+
+        serde_json::to_string(&filtered)
+            .map_err(|e| EventError::SerializationError(e.to_string()))
+    }
+
+    /// Import events from JSON
+    pub fn import_events(&self, events_json: String) -> Result<Vec<Option<ConflictInfo>>, EventError> {
+        let events: Vec<Event> = serde_json::from_str(&events_json)
+            .map_err(|e| EventError::SerializationError(e.to_string()))?;
+
+        let mut conflicts = Vec::new();
+        for event in events {
+            conflicts.push(self.receive(event)?);
+        }
+
+        Ok(conflicts)
+    }
+}
+
+/// Create a new event store
+pub fn create_event_store(site_id: String, conflict_strategy: ConflictStrategy) -> Arc<EventStore> {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        Arc::new(EventStore {
+            events: Arc::new(Mutex::new(HashMap::new())),
+            lamport_clock: Arc::new(Mutex::new(0)),
+            site_id,
+            conflict_strategy,
+        })
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        Arc::new(EventStore {
+            events: RefCell::new(HashMap::new()),
+            lamport_clock: RefCell::new(0),
+            site_id,
+            conflict_strategy,
+        })
+    }
+}
+
+/// Get current timestamp in milliseconds
+fn current_timestamp_ms() -> u64 {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        js_sys::Date::now() as u64
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_append_event() {
+        let store = create_event_store("site1".to_string(), ConflictStrategy::LastWriteWins);
+
+        let event = store.append(
+            "agg-123".to_string(),
+            "task".to_string(),
+            "created".to_string(),
+            r#"{"title":"Test"}"#.to_string(),
+            vec!["user-1".to_string()],
+        ).unwrap();
+
+        assert_eq!(event.aggregate_id, "agg-123");
+        assert_eq!(event.event_type, "created");
+        assert!(!event.metadata.is_snapshot);
+    }
+
+    #[test]
+    fn test_snapshot() {
+        let store = create_event_store("site1".to_string(), ConflictStrategy::LastWriteWins);
+
+        // Add some events
+        store.append(
+            "agg-123".to_string(),
+            "task".to_string(),
+            "created".to_string(),
+            r#"{"title":"Test"}"#.to_string(),
+            vec!["user-1".to_string()],
+        ).unwrap();
+
+        store.append(
+            "agg-123".to_string(),
+            "task".to_string(),
+            "updated".to_string(),
+            r#"{"title":"Updated"}"#.to_string(),
+            vec!["user-1".to_string()],
+        ).unwrap();
+
+        // Create snapshot
+        let snapshot = store.create_snapshot(
+            "agg-123".to_string(),
+            "task".to_string(),
+            r#"{"title":"Updated","completed":false}"#.to_string(),
+            vec!["user-1".to_string()],
+        ).unwrap();
+
+        assert!(snapshot.metadata.is_snapshot);
+
+        // Get events since snapshot
+        let events = store.get_events_since_snapshot("agg-123".to_string());
+        assert_eq!(events.len(), 1);
+        assert!(events[0].metadata.is_snapshot);
+    }
+
+    #[test]
+    fn test_conflict_detection() {
+        let store1 = create_event_store("site1".to_string(), ConflictStrategy::LastWriteWins);
+        let store2 = create_event_store("site2".to_string(), ConflictStrategy::LastWriteWins);
+
+        // Both sites create events with same previous
+        let event1 = store1.append(
+            "agg-123".to_string(),
+            "task".to_string(),
+            "created".to_string(),
+            r#"{"title":"From Site 1"}"#.to_string(),
+            vec!["user-1".to_string()],
+        ).unwrap();
+
+        // Site 2 receives the initial event
+        store2.receive(event1.clone()).unwrap();
+
+        // Both sites make concurrent edits (same previous event)
+        let edit1 = store1.append(
+            "agg-123".to_string(),
+            "task".to_string(),
+            "updated".to_string(),
+            r#"{"title":"Edit from Site 1"}"#.to_string(),
+            vec!["user-1".to_string()],
+        ).unwrap();
+
+        let edit2 = store2.append(
+            "agg-123".to_string(),
+            "task".to_string(),
+            "updated".to_string(),
+            r#"{"title":"Edit from Site 2"}"#.to_string(),
+            vec!["user-2".to_string()],
+        ).unwrap();
+
+        // Site 1 receives Site 2's edit - conflict!
+        let conflict = store1.receive(edit2).unwrap();
+        assert!(conflict.is_some());
+        let info = conflict.unwrap();
+        assert!(info.auto_resolved);
+        assert!(info.winner_id.is_some());
+    }
+
+    #[test]
+    fn test_branch_and_merge() {
+        let store = create_event_store("site1".to_string(), ConflictStrategy::LastWriteWins);
+
+        // Create initial event
+        store.append(
+            "agg-123".to_string(),
+            "task".to_string(),
+            "created".to_string(),
+            r#"{"title":"Test"}"#.to_string(),
+            vec!["user-1".to_string()],
+        ).unwrap();
+
+        // Create branch event
+        store.append_to_branch(
+            "agg-123".to_string(),
+            "task".to_string(),
+            "updated".to_string(),
+            r#"{"title":"Draft Edit"}"#.to_string(),
+            vec!["user-1".to_string()],
+            "draft".to_string(),
+        ).unwrap();
+
+        // Get branch events
+        let branch_events = store.get_branch_events("agg-123".to_string(), "draft".to_string());
+        assert_eq!(branch_events.len(), 1);
+
+        // Merge branch
+        let merge = store.merge_branch(
+            "agg-123".to_string(),
+            "task".to_string(),
+            "draft".to_string(),
+            vec!["user-1".to_string()],
+        ).unwrap();
+
+        assert_eq!(merge.event_type, "branch_merged");
+        assert_eq!(merge.metadata.previous_event_ids.len(), 2);
+    }
+
+    #[test]
+    fn test_export_import() {
+        let store1 = create_event_store("site1".to_string(), ConflictStrategy::LastWriteWins);
+        let store2 = create_event_store("site2".to_string(), ConflictStrategy::LastWriteWins);
+
+        // Add events to store1
+        store1.append(
+            "agg-123".to_string(),
+            "task".to_string(),
+            "created".to_string(),
+            r#"{"title":"Test"}"#.to_string(),
+            vec!["user-1".to_string()],
+        ).unwrap();
+
+        // Export and import to store2
+        let json = store1.export_events("agg-123".to_string(), None).unwrap();
+        let conflicts = store2.import_events(json).unwrap();
+
+        assert!(conflicts.iter().all(|c| c.is_none())); // No conflicts
+
+        let events = store2.get_all_events("agg-123".to_string());
+        assert_eq!(events.len(), 1);
+    }
+}
+</hick:file>
+</hick:when>
+
 ### WASM-Specific TypeScript Bindings
 
 For web platforms, we provide TypeScript type definitions. These are generated by
@@ -2247,6 +3097,88 @@ declare module '<hick:val name="project_name" />-core' {
     create_token(claims: AuthTokenClaims): string;
     /** Sign a challenge for authentication */
     sign_challenge(challenge: string): string;
+  }
+</hick:when>
+<hick:when test="event-sourcing">
+  /**
+   * Create a new event store
+   * @param siteId - Unique identifier for this device/client
+   * @param conflictStrategy - Strategy for resolving conflicts
+   */
+  export function create_event_store(siteId: string, conflictStrategy: ConflictStrategy): EventStore;
+
+  /**
+   * Conflict resolution strategy
+   */
+  export type ConflictStrategy =
+    | { type: 'LastWriteWins' }
+    | { type: 'FirstWriteWins' }
+    | { type: 'Merge' }
+    | { type: 'Manual' };
+
+  /**
+   * Event metadata for causal ordering
+   */
+  export interface EventMetadata {
+    timestamp: number;
+    site_id: string;
+    lamport_timestamp: number;
+    previous_event_ids: string[];
+    author_ids: string[];
+    branch?: string;
+    is_snapshot: boolean;
+  }
+
+  /**
+   * A domain event
+   */
+  export interface Event {
+    id: string;
+    aggregate_id: string;
+    aggregate_type: string;
+    event_type: string;
+    payload: string;
+    metadata: EventMetadata;
+  }
+
+  /**
+   * Information about detected conflicts
+   */
+  export interface ConflictInfo {
+    conflicting_events: Event[];
+    common_ancestor: string;
+    auto_resolved: boolean;
+    winner_id?: string;
+  }
+
+  /**
+   * Event store for managing domain events
+   */
+  export interface EventStore {
+    /** Get this store's site ID */
+    site_id(): string;
+    /** Get current lamport timestamp */
+    current_lamport(): number;
+    /** Append an event to an aggregate */
+    append(aggregateId: string, aggregateType: string, eventType: string, payload: string, authorIds: string[]): Event;
+    /** Append an event to a branch */
+    append_to_branch(aggregateId: string, aggregateType: string, eventType: string, payload: string, authorIds: string[], branch: string): Event;
+    /** Create a snapshot */
+    create_snapshot(aggregateId: string, aggregateType: string, statePayload: string, authorIds: string[]): Event;
+    /** Receive an event from another site */
+    receive(event: Event): ConflictInfo | null;
+    /** Get events since last snapshot */
+    get_events_since_snapshot(aggregateId: string): Event[];
+    /** Get all events */
+    get_all_events(aggregateId: string): Event[];
+    /** Get branch events */
+    get_branch_events(aggregateId: string, branch: string): Event[];
+    /** Merge a branch */
+    merge_branch(aggregateId: string, aggregateType: string, branch: string, authorIds: string[]): Event;
+    /** Export events as JSON */
+    export_events(aggregateId: string, sinceLamport?: number): string;
+    /** Import events from JSON */
+    import_events(eventsJson: string): (ConflictInfo | null)[];
   }
 </hick:when>
 <hick:when test="sqlite">
