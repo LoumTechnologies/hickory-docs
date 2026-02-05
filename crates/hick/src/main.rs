@@ -269,6 +269,10 @@ struct GenerateMatrixArgs {
     /// Enable verbose output.
     #[arg(short, long)]
     verbose: bool,
+
+    /// Number of parallel jobs (0 = auto-detect from CPU count).
+    #[arg(short = 'j', long, default_value = "0")]
+    jobs: usize,
 }
 
 // ---------------------------------------------------------------------------
@@ -750,8 +754,12 @@ async fn run_single_shot(cli: RunArgs) -> Result<()> {
 
 /// Run the generate-matrix command: generate all feature combinations.
 async fn run_generate_matrix(cli: GenerateMatrixArgs) -> Result<()> {
+    use futures::stream::{self, StreamExt};
     use std::collections::HashSet;
     use std::process::Command as ProcessCommand;
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    use std::sync::Arc;
+    use tokio::sync::Mutex;
 
     let start_time = Instant::now();
 
@@ -923,137 +931,230 @@ async fn run_generate_matrix(cli: GenerateMatrixArgs) -> Result<()> {
         base_params.push((k.clone(), v.clone()));
     }
 
-    // Track results
-    let mut successful = 0usize;
-    let mut failed = 0usize;
-    let mut failures: Vec<(String, String)> = Vec::new();
+    // Determine parallelism
+    let jobs = if cli.jobs == 0 {
+        std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(1)
+    } else {
+        cli.jobs
+    };
 
-    // Generate each combination
-    for (i, combo) in combinations.iter().enumerate() {
-        let combo_name = if combo.is_empty() {
-            "none".to_string()
-        } else {
-            combo.join("-")
-        };
+    info!("Running with {} parallel job(s)", jobs);
 
-        let combo_dir = cli.output_dir.join(&combo_name);
-        let features_str = combo.join(",");
+    // Wrap shared data in Arc for parallel access
+    let file_contents = Arc::new(file_contents);
+    let base_params = Arc::new(base_params);
+    let output_dir = Arc::new(cli.output_dir.clone());
+    let verify_cmd = Arc::new(cli.verify.clone());
+    let continue_on_error = cli.continue_on_error;
+    let total_combinations = combinations.len();
 
-        println!(
-            "[{}/{}] Generating: {} -> {}",
-            i + 1,
-            combinations.len(),
-            if features_str.is_empty() { "(none)" } else { &features_str },
-            combo_dir.display()
-        );
+    // Atomic counter for progress display
+    let completed_count = Arc::new(AtomicUsize::new(0));
 
-        // Build params for this combination
-        let mut params = base_params.clone();
-        params.retain(|(pk, _)| pk != "features");
-        if !combo.is_empty() {
-            params.push(("features".to_string(), features_str.clone()));
-        }
+    // Flag to signal cancellation on first failure (when !continue_on_error)
+    let cancelled = Arc::new(AtomicBool::new(false));
 
-        // Run the pipeline for this combination
-        let result = hick::run_pipeline(&sources, &params).await;
+    // Collect failures for final report
+    let failures = Arc::new(Mutex::new(Vec::<(String, String)>::new()));
 
-        match result {
-            Ok(pipeline_result) => {
-                // Write outputs
-                std::fs::create_dir_all(&combo_dir)?;
+    // Process combinations in parallel
+    let results: Vec<Result<String, ()>> = stream::iter(combinations.into_iter().enumerate())
+        .map(|(_i, combo)| {
+            let file_contents = file_contents.clone();
+            let base_params = base_params.clone();
+            let output_dir = output_dir.clone();
+            let verify_cmd = verify_cmd.clone();
+            let completed_count = completed_count.clone();
+            let cancelled = cancelled.clone();
+            let failures = failures.clone();
 
-                for (path, content) in &pipeline_result.files {
-                    let full_path = combo_dir.join(path);
-                    if let Some(parent) = full_path.parent() {
-                        std::fs::create_dir_all(parent)?;
-                    }
-                    std::fs::write(&full_path, content)?;
+            async move {
+                // Check if we should skip due to earlier failure
+                if cancelled.load(Ordering::Relaxed) {
+                    return Err(());
                 }
 
-                info!(
-                    "  Generated {} files",
-                    pipeline_result.files.len()
-                );
+                let combo_name = if combo.is_empty() {
+                    "none".to_string()
+                } else {
+                    combo.join("-")
+                };
 
-                // Run verification if specified
-                if let Some(ref verify_cmd) = cli.verify {
-                    let cmd_with_features = verify_cmd.replace("{{features}}", &features_str);
-                    let cmd_with_dir = cmd_with_features.replace("{{dir}}", &combo_dir.to_string_lossy());
+                let combo_dir = output_dir.join(&combo_name);
+                let features_str = combo.join(",");
 
-                    debug!("Running verification: {}", cmd_with_dir);
+                // Build sources from file_contents
+                let sources: Vec<(&str, &str)> = file_contents
+                    .iter()
+                    .map(|(name, content)| (name.as_str(), content.as_str()))
+                    .collect();
 
-                    let verify_result = ProcessCommand::new("sh")
-                        .arg("-c")
-                        .arg(&cmd_with_dir)
-                        .current_dir(&combo_dir)
-                        .output();
+                // Build params for this combination
+                let mut params: Vec<(String, String)> = base_params
+                    .iter()
+                    .filter(|(pk, _)| pk != "features")
+                    .cloned()
+                    .collect();
+                if !combo.is_empty() {
+                    params.push(("features".to_string(), features_str.clone()));
+                }
 
-                    match verify_result {
-                        Ok(output) => {
-                            if output.status.success() {
-                                info!("  Verification passed");
-                                successful += 1;
-                            } else {
-                                let stderr = String::from_utf8_lossy(&output.stderr);
-                                let stdout = String::from_utf8_lossy(&output.stdout);
-                                let error_msg = format!(
-                                    "exit code: {:?}\nstdout: {}\nstderr: {}",
-                                    output.status.code(),
-                                    stdout,
-                                    stderr
+                // Run the pipeline for this combination
+                let result = hick::run_pipeline(&sources, &params).await;
+
+                let completed = completed_count.fetch_add(1, Ordering::Relaxed) + 1;
+
+                match result {
+                    Ok(pipeline_result) => {
+                        // Write outputs
+                        if let Err(e) = std::fs::create_dir_all(&combo_dir) {
+                            let error_msg = format!("failed to create directory: {}", e);
+                            eprintln!(
+                                "[{}/{}] {} FAILED: {}",
+                                completed, total_combinations, combo_name, error_msg
+                            );
+                            failures.lock().await.push((combo_name.clone(), error_msg));
+                            if !continue_on_error {
+                                cancelled.store(true, Ordering::Relaxed);
+                            }
+                            return Err(());
+                        }
+
+                        for (path, content) in &pipeline_result.files {
+                            let full_path = combo_dir.join(path);
+                            if let Some(parent) = full_path.parent() {
+                                let _ = std::fs::create_dir_all(parent);
+                            }
+                            if let Err(e) = std::fs::write(&full_path, content) {
+                                let error_msg = format!("failed to write {}: {}", path, e);
+                                eprintln!(
+                                    "[{}/{}] {} FAILED: {}",
+                                    completed, total_combinations, combo_name, error_msg
                                 );
-                                eprintln!("  Verification FAILED: exit code {:?}", output.status.code());
-                                failed += 1;
-                                failures.push((combo_name.clone(), error_msg));
+                                failures.lock().await.push((combo_name.clone(), error_msg));
+                                if !continue_on_error {
+                                    cancelled.store(true, Ordering::Relaxed);
+                                }
+                                return Err(());
+                            }
+                        }
 
-                                if !cli.continue_on_error {
-                                    bail!(
-                                        "Verification failed for combination '{}'. Use --continue-on-error to proceed.",
-                                        combo_name
+                        // Run verification if specified
+                        if let Some(ref verify) = *verify_cmd {
+                            let cmd_with_features = verify.replace("{{features}}", &features_str);
+                            let cmd_with_dir =
+                                cmd_with_features.replace("{{dir}}", &combo_dir.to_string_lossy());
+
+                            let combo_dir_for_verify = combo_dir.clone();
+                            let verify_result = tokio::task::spawn_blocking(move || {
+                                ProcessCommand::new("sh")
+                                    .arg("-c")
+                                    .arg(&cmd_with_dir)
+                                    .current_dir(&combo_dir_for_verify)
+                                    .output()
+                            })
+                            .await;
+
+                            match verify_result {
+                                Ok(Ok(output)) => {
+                                    if output.status.success() {
+                                        println!(
+                                            "[{}/{}] {} OK",
+                                            completed, total_combinations, combo_name
+                                        );
+                                        return Ok(combo_name);
+                                    } else {
+                                        let stderr = String::from_utf8_lossy(&output.stderr);
+                                        let stdout = String::from_utf8_lossy(&output.stdout);
+                                        let error_msg = format!(
+                                            "exit code: {:?}\nstdout: {}\nstderr: {}",
+                                            output.status.code(),
+                                            stdout,
+                                            stderr
+                                        );
+                                        eprintln!(
+                                            "[{}/{}] {} FAILED: verification exit code {:?}",
+                                            completed,
+                                            total_combinations,
+                                            combo_name,
+                                            output.status.code()
+                                        );
+                                        failures.lock().await.push((combo_name.clone(), error_msg));
+                                        if !continue_on_error {
+                                            cancelled.store(true, Ordering::Relaxed);
+                                        }
+                                        return Err(());
+                                    }
+                                }
+                                Ok(Err(e)) => {
+                                    let error_msg = format!("failed to run command: {}", e);
+                                    eprintln!(
+                                        "[{}/{}] {} FAILED: {}",
+                                        completed, total_combinations, combo_name, error_msg
                                     );
+                                    failures.lock().await.push((combo_name.clone(), error_msg));
+                                    if !continue_on_error {
+                                        cancelled.store(true, Ordering::Relaxed);
+                                    }
+                                    return Err(());
+                                }
+                                Err(e) => {
+                                    let error_msg = format!("task join error: {}", e);
+                                    eprintln!(
+                                        "[{}/{}] {} FAILED: {}",
+                                        completed, total_combinations, combo_name, error_msg
+                                    );
+                                    failures.lock().await.push((combo_name.clone(), error_msg));
+                                    if !continue_on_error {
+                                        cancelled.store(true, Ordering::Relaxed);
+                                    }
+                                    return Err(());
                                 }
                             }
                         }
-                        Err(e) => {
-                            let error_msg = format!("failed to run command: {}", e);
-                            eprintln!("  Verification FAILED: {}", error_msg);
-                            failed += 1;
-                            failures.push((combo_name.clone(), error_msg));
 
-                            if !cli.continue_on_error {
-                                bail!(
-                                    "Verification failed for combination '{}': {}. Use --continue-on-error to proceed.",
-                                    combo_name,
-                                    e
-                                );
-                            }
-                        }
+                        println!(
+                            "[{}/{}] {} OK",
+                            completed, total_combinations, combo_name
+                        );
+                        Ok(combo_name)
                     }
-                } else {
-                    successful += 1;
+                    Err(e) => {
+                        let error_msg = format!("{}", e);
+                        eprintln!(
+                            "[{}/{}] {} FAILED: {}",
+                            completed, total_combinations, combo_name, error_msg
+                        );
+                        failures.lock().await.push((combo_name, error_msg));
+                        if !continue_on_error {
+                            cancelled.store(true, Ordering::Relaxed);
+                        }
+                        Err(())
+                    }
                 }
             }
-            Err(e) => {
-                let error_msg = format!("{}", e);
-                eprintln!("  Generation FAILED: {}", error_msg);
-                failed += 1;
-                failures.push((combo_name.clone(), error_msg));
+        })
+        .buffer_unordered(jobs)
+        .collect()
+        .await;
 
-                if !cli.continue_on_error {
-                    bail!(
-                        "Generation failed for combination '{}': {}. Use --continue-on-error to proceed.",
-                        combo_name,
-                        e
-                    );
-                }
-            }
-        }
-    }
+    // Count results
+    let successful = results.iter().filter(|r| r.is_ok()).count();
+    let failed = results.iter().filter(|r| r.is_err()).count();
+    let failures = Arc::try_unwrap(failures)
+        .map(|mutex| mutex.into_inner())
+        .unwrap_or_else(|arc| {
+            // This shouldn't happen since we're the only owner after collect()
+            tokio::runtime::Handle::current().block_on(async { arc.lock().await.clone() })
+        });
 
     // Print summary
     let elapsed = start_time.elapsed();
     println!("\n--- Summary ---");
-    println!("Total combinations: {}", combinations.len());
+    println!("Total combinations: {}", total_combinations);
+    println!("Parallel jobs: {}", jobs);
     println!("Successful: {}", successful);
     println!("Failed: {}", failed);
     println!("Time: {}", hick::fmt_duration(elapsed));

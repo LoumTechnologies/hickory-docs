@@ -55,6 +55,7 @@ hick-store = { version = "0.1.0", path = "../hick-store" }
 hick-merge = { version = "0.1.0", path = "../hick-merge" }
 notify = "7"
 rustyline = "14"
+futures = "0.3"
 
 [dev-dependencies]
 hick-store = { path = "../hick-store" }
