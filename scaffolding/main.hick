@@ -77,10 +77,9 @@ Features control which platforms are generated. They can be combined freely.
 <hick:feature name="event-sourcing" description="Event sourcing with CRDT conflict resolution and snapshot support" requires="rust-frontend-lib sqlite" />
 <hick:feature name="iroh-relay" description="Iroh relay server for NAT traversal and peer discovery" />
 
-**Build systems:**
+**Build system:**
 
 <hick:feature name="just" description="Generate justfile for build automation (just command runner)" />
-<hick:feature name="make" description="Generate Makefile for build automation (GNU make)" />
 
 **Meta-features** for convenience:
 
@@ -114,7 +113,6 @@ Features control which platforms are generated. They can be combined freely.
 | `event-sourcing` | Event sourcing with CRDT conflict resolution (requires rust-frontend-lib, sqlite) |
 | `iroh-relay` | Iroh relay server for NAT traversal |
 | `just` | Justfile for build automation |
-| `make` | Makefile for build automation |
 | `all` | All platforms (not build systems) |
 | `mobile` | SwiftUI + Compose |
 | `desktop` | SwiftUI + Avalonia |
@@ -420,8 +418,7 @@ See the individual platform documentation:
 - [Rust Frontend Library](platforms/rust-frontend-lib.hick) — Shared Rust library with WASM + FFI
 - [Iroh Relay](platforms/iroh-relay.hick) — Iroh relay server for P2P networking
 
-Build system templates:
+Build system template:
 - [Just Build System](platforms/just.hick) — Justfile for task automation
-- [Make Build System](platforms/make.hick) — Makefile for task automation
 
 </hick:doc>
