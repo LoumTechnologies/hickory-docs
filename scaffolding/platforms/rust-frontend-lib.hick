@@ -37,6 +37,10 @@ thiserror = "2"
 # SQLite (common dependencies)
 chrono = { version = "0.4", features = ["serde"] }
 </hick:when>
+<hick:when test="iroh">
+# Iroh P2P networking (common dependencies)
+iroh-base = "0.31"
+</hick:when>
 
 # WASM support (only included for wasm32 target)
 [target.'cfg(target_arch = "wasm32")'.dependencies]
@@ -54,6 +58,11 @@ uuid = { version = "1", features = ["v4", "serde", "js"] }
 uniffi = { version = "0.29", features = ["cli"] }
 <hick:when test="sqlite">rusqlite = { version = "0.32", features = ["bundled"] }
 uuid = { version = "1", features = ["v4", "serde"] }
+</hick:when>
+<hick:when test="iroh">iroh = "0.31"
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "macros"] }
+rand = "0.8"
+url = "2"
 </hick:when>
 
 [target.'cfg(not(target_arch = "wasm32"))'.build-dependencies]
@@ -105,6 +114,13 @@ Swift, Kotlin, and C#:
     [Throws=DatabaseError]
     Database open_database(string path);
 </hick:when>
+<hick:when test="iroh">
+    // Iroh networking operations
+    [Throws=IrohError]
+    IrohNode create_iroh_node(string? relay_url);
+
+    string get_node_id([ByRef] IrohNode node);
+</hick:when>
 };
 
 [Error]
@@ -125,7 +141,47 @@ enum DatabaseError {
     "NotFound",
     "InvalidData",
 };
+</hick:when>
+<hick:when test="iroh">
+[Error]
+enum IrohError {
+    "InitFailed",
+    "ConnectionFailed",
+    "InvalidNodeId",
+    "SendFailed",
+    "ReceiveFailed",
+};
 
+dictionary NodeInfo {
+    string node_id;
+    string? relay_url;
+    sequence<string> direct_addresses;
+};
+
+interface IrohNode {
+    // Get this node's public identifier
+    string node_id();
+
+    // Get the relay URL this node is connected to
+    string? relay_url();
+
+    // Get node addressing info for sharing with peers
+    [Throws=IrohError]
+    NodeInfo node_info();
+
+    // Connect to a peer by their node ID
+    [Throws=IrohError]
+    void connect(string node_id, string? relay_url);
+
+    // Send data to a connected peer
+    [Throws=IrohError]
+    void send(string node_id, string alpn, bytes data);
+
+    // Shutdown the node
+    void shutdown();
+};
+</hick:when>
+<hick:when test="sqlite">
 dictionary TodoItem {
     string id;
     string title;
@@ -168,8 +224,14 @@ WASM (via wasm-bindgen) and native platforms (via UniFFI):
 mod error;
 <hick:when test="sqlite">mod database;
 </hick:when>
+<hick:when test="iroh">#[cfg(not(target_arch = "wasm32"))]
+mod networking;
+</hick:when>
 pub use error::CoreError;
 <hick:when test="sqlite">pub use database::{Database, DatabaseError, TodoItem, open_database};
+</hick:when>
+<hick:when test="iroh">#[cfg(not(target_arch = "wasm32"))]
+pub use networking::{IrohNode, IrohError, NodeInfo, create_iroh_node, get_node_id};
 </hick:when>
 
 use serde::{Deserialize, Serialize};
@@ -846,6 +908,219 @@ mod tests {
         let todos_json = db.list_todos().unwrap();
         let todos: Vec<TodoItem> = serde_json::from_str(&todos_json).unwrap();
         assert_eq!(todos.len(), 0);
+    }
+}
+</hick:file>
+</hick:when>
+
+<hick:when test="iroh">
+### Networking Module (Iroh)
+
+The networking module provides peer-to-peer connectivity using Iroh. This is only
+available on native platforms (not WASM) due to Iroh's networking requirements.
+
+<hick:file path="rust-lib/src/networking.rs">//! Iroh P2P networking module
+//!
+//! Provides peer-to-peer connectivity using Iroh for native platforms.
+//! Iroh handles NAT traversal, hole punching, and relay fallback automatically.
+
+use std::sync::Arc;
+use thiserror::Error;
+use iroh::{Endpoint, NodeAddr, NodeId, SecretKey};
+use iroh_base::key::PublicKey;
+use tokio::runtime::Runtime;
+use std::str::FromStr;
+
+/// Errors that can occur in Iroh networking operations
+#[derive(Error, Debug)]
+pub enum IrohError {
+    #[error("Initialization failed: {0}")]
+    InitFailed(String),
+
+    #[error("Connection failed: {0}")]
+    ConnectionFailed(String),
+
+    #[error("Invalid node ID: {0}")]
+    InvalidNodeId(String),
+
+    #[error("Send failed: {0}")]
+    SendFailed(String),
+
+    #[error("Receive failed: {0}")]
+    ReceiveFailed(String),
+}
+
+/// Information about a node for sharing with peers
+#[derive(Debug, Clone)]
+pub struct NodeInfo {
+    pub node_id: String,
+    pub relay_url: Option<String>,
+    pub direct_addresses: Vec<String>,
+}
+
+/// An Iroh networking node
+pub struct IrohNode {
+    endpoint: Endpoint,
+    runtime: Arc<Runtime>,
+    secret_key: SecretKey,
+}
+
+impl IrohNode {
+    /// Get this node's public identifier (NodeId)
+    pub fn node_id(&self) -> String {
+        self.endpoint.node_id().to_string()
+    }
+
+    /// Get the relay URL this node is connected to
+    pub fn relay_url(&self) -> Option<String> {
+        self.runtime.block_on(async {
+            self.endpoint.home_relay().map(|url| url.to_string())
+        })
+    }
+
+    /// Get node addressing info for sharing with peers
+    pub fn node_info(&self) -> Result<NodeInfo, IrohError> {
+        self.runtime.block_on(async {
+            let node_addr = self.endpoint.node_addr().await
+                .map_err(|e| IrohError::InitFailed(e.to_string()))?;
+
+            Ok(NodeInfo {
+                node_id: node_addr.node_id.to_string(),
+                relay_url: node_addr.relay_url.map(|u| u.to_string()),
+                direct_addresses: node_addr.direct_addresses
+                    .iter()
+                    .map(|a| a.to_string())
+                    .collect(),
+            })
+        })
+    }
+
+    /// Connect to a peer by their node ID
+    pub fn connect(&self, node_id: String, relay_url: Option<String>) -> Result<(), IrohError> {
+        let node_id = NodeId::from_str(&node_id)
+            .map_err(|e| IrohError::InvalidNodeId(e.to_string()))?;
+
+        let relay_url = relay_url
+            .map(|url| url.parse())
+            .transpose()
+            .map_err(|e: url::ParseError| IrohError::ConnectionFailed(e.to_string()))?;
+
+        let node_addr = NodeAddr {
+            node_id,
+            relay_url,
+            direct_addresses: Default::default(),
+        };
+
+        self.runtime.block_on(async {
+            // Use a default ALPN for the connection
+            let alpn = b"<hick:val name="project_name" />/1";
+            self.endpoint.connect(node_addr, alpn)
+                .await
+                .map_err(|e| IrohError::ConnectionFailed(e.to_string()))?;
+            Ok(())
+        })
+    }
+
+    /// Send data to a connected peer
+    pub fn send(&self, node_id: String, alpn: String, data: Vec<u8>) -> Result<(), IrohError> {
+        let node_id = NodeId::from_str(&node_id)
+            .map_err(|e| IrohError::InvalidNodeId(e.to_string()))?;
+
+        let node_addr = NodeAddr {
+            node_id,
+            relay_url: None,
+            direct_addresses: Default::default(),
+        };
+
+        self.runtime.block_on(async {
+            let conn = self.endpoint.connect(node_addr, alpn.as_bytes())
+                .await
+                .map_err(|e| IrohError::ConnectionFailed(e.to_string()))?;
+
+            let mut send_stream = conn.open_uni()
+                .await
+                .map_err(|e| IrohError::SendFailed(e.to_string()))?;
+
+            send_stream.write_all(&data)
+                .await
+                .map_err(|e| IrohError::SendFailed(e.to_string()))?;
+
+            send_stream.finish()
+                .map_err(|e| IrohError::SendFailed(e.to_string()))?;
+
+            Ok(())
+        })
+    }
+
+    /// Shutdown the node
+    pub fn shutdown(&self) {
+        self.runtime.block_on(async {
+            self.endpoint.close().await;
+        });
+    }
+}
+
+/// Create a new Iroh node
+///
+/// # Arguments
+/// * `relay_url` - Optional custom relay server URL. If None, uses Iroh's default relays.
+pub fn create_iroh_node(relay_url: Option<String>) -> Result<Arc<IrohNode>, IrohError> {
+    let runtime = Runtime::new()
+        .map_err(|e| IrohError::InitFailed(e.to_string()))?;
+
+    let secret_key = SecretKey::generate(rand::rngs::OsRng);
+
+    let endpoint = runtime.block_on(async {
+        let mut builder = Endpoint::builder()
+            .secret_key(secret_key.clone());
+
+        // If a custom relay URL is provided, configure it
+        if let Some(url) = relay_url {
+            let relay_url: iroh::RelayUrl = url.parse()
+                .map_err(|e: url::ParseError| IrohError::InitFailed(e.to_string()))?;
+            builder = builder.relay_mode(iroh::RelayMode::Custom(
+                iroh::RelayMap::from_iter([iroh::RelayNode {
+                    url: relay_url,
+                    quic: None,
+                }])
+            ));
+        }
+
+        builder.bind()
+            .await
+            .map_err(|e| IrohError::InitFailed(e.to_string()))
+    })?;
+
+    Ok(Arc::new(IrohNode {
+        endpoint,
+        runtime: Arc::new(runtime),
+        secret_key,
+    }))
+}
+
+/// Get the node ID from an IrohNode (convenience function for FFI)
+pub fn get_node_id(node: &IrohNode) -> String {
+    node.node_id()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_create_node() {
+        let node = create_iroh_node(None).expect("should create node");
+        let node_id = node.node_id();
+        assert!(!node_id.is_empty());
+        node.shutdown();
+    }
+
+    #[test]
+    fn test_node_info() {
+        let node = create_iroh_node(None).expect("should create node");
+        let info = node.node_info().expect("should get node info");
+        assert!(!info.node_id.is_empty());
+        node.shutdown();
     }
 }
 </hick:file>
