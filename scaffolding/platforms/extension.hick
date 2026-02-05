@@ -184,7 +184,7 @@ The app config includes Chrome types for extension API autocompletion:
 }
 </hick:file>
 
-<hick:file path="browser-extension/src/vite-env.d.ts" doc-hidden="true">/// &lt;reference types="vite/client" /&gt;
+<hick:file path="browser-extension/src/vite-env.d.ts" doc-hidden="true">/// <reference types="vite/client" />
 
 // CSS module declarations
 declare module '*.css' {
@@ -283,14 +283,16 @@ browser sessions and syncs if the user is signed into Chrome:
 <hick:file path="browser-extension/src/popup/Popup.tsx">import { useState, useEffect } from 'react'
 import './Popup.css'
 import { useCore } from '../hooks/useCore'
-
+<hick:when test="sqlite">import { useTodos } from '../hooks/useTodos'
+</hick:when>
 function Popup() {
   const [count, setCount] = useState(0)
-  const { isReady, greet, fibonacci } = useCore()
+  const { isReady, greet, fibonacci<hick:when test="sqlite">, db</hick:when> } = useCore()
   const [greeting, setGreeting] = useState('')
-
+<hick:when test="sqlite">  const { todos, addTodo, toggleTodo, deleteTodo } = useTodos(db)
+  const [newTodo, setNewTodo] = useState('')
+</hick:when>
   useEffect(() => {
-    // Load count from storage on mount
     chrome.storage.local.get(['count'], (result) => {
       if (result.count !== undefined) {
         setCount(result.count)
@@ -307,10 +309,17 @@ function Popup() {
   const handleClick = () => {
     const newCount = count + 1
     setCount(newCount)
-    // Persist to storage
     chrome.storage.local.set({ count: newCount })
   }
-
+<hick:when test="sqlite">
+  const handleAddTodo = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (newTodo.trim()) {
+      addTodo(newTodo)
+      setNewTodo('')
+    }
+  }
+</hick:when>
   const fibResult = isReady ? fibonacci(count) : null
 
   return (
@@ -324,10 +333,35 @@ function Popup() {
         ) : (
           <>
             <p className="greeting">{greeting}</p>
-            <button onClick={handleClick}>
-              n = {count}
-            </button>
+            <button onClick={handleClick}>n = {count}</button>
             <p className="fib-result">fib({count}) = {fibResult?.toString() ?? '...'}</p>
+<hick:when test="sqlite">
+            <div className="todo-section">
+              <h3>Todos (SQLite)</h3>
+              <form onSubmit={handleAddTodo} className="todo-form">
+                <input
+                  type="text"
+                  value={newTodo}
+                  onChange={(e) => setNewTodo(e.target.value)}
+                  placeholder="Add todo..."
+                />
+                <button type="submit">+</button>
+              </form>
+              <ul className="todo-list">
+                {todos.map((todo) => (
+                  <li key={todo.id} className={todo.completed ? 'completed' : ''}>
+                    <input
+                      type="checkbox"
+                      checked={todo.completed}
+                      onChange={() => toggleTodo(todo.id)}
+                    />
+                    <span>{todo.title}</span>
+                    <button onClick={() => deleteTodo(todo.id)}>&times;</button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+</hick:when>
             <p className="powered-by">Powered by Rust + WASM</p>
           </>
         )}
@@ -479,6 +513,72 @@ button:hover {
     background-color: #f5f5f5;
   }
 }
+
+.todo-section {
+  margin-top: 1rem;
+  text-align: left;
+  width: 100%;
+}
+
+.todo-section h3 {
+  font-size: 0.9rem;
+  margin: 0 0 0.5rem;
+  color: #646cff;
+}
+
+.todo-form {
+  display: flex;
+  gap: 0.25rem;
+  margin-bottom: 0.5rem;
+}
+
+.todo-form input {
+  flex: 1;
+  padding: 0.3rem;
+  border: 1px solid #333;
+  border-radius: 4px;
+  background: #1a1a1a;
+  color: inherit;
+  font-size: 0.85rem;
+}
+
+.todo-form button {
+  padding: 0.3rem 0.6rem;
+  font-size: 1rem;
+}
+
+.todo-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  max-height: 150px;
+  overflow-y: auto;
+}
+
+.todo-list li {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.25rem 0;
+  font-size: 0.85rem;
+}
+
+.todo-list li.completed span {
+  text-decoration: line-through;
+  opacity: 0.5;
+}
+
+.todo-list li span {
+  flex: 1;
+}
+
+.todo-list li button {
+  padding: 0 0.4rem;
+  font-size: 1rem;
+  background: transparent;
+  border: none;
+  color: #ff6b6b;
+}
 </hick:file>
 
 <hick:when test="rust-frontend-lib">
@@ -487,14 +587,18 @@ button:hover {
 A React hook that initializes and exposes the WASM module for the extension:
 
 <hick:file path="browser-extension/src/hooks/useCore.ts">import { useState, useEffect, useCallback } from 'react'
-import init, { greet as wasmGreet, fibonacci as wasmFibonacci, process_data as wasmProcessData } from '<hick:val name="project_name" />-core'
+import init, { greet as wasmGreet, fibonacci as wasmFibonacci, process_data as wasmProcessData<hick:when test="sqlite">, open_database, type Database, type TodoItem</hick:when> } from '<hick:val name="project_name" />-core'
 
 export function useCore() {
   const [isReady, setIsReady] = useState(false)
-
+<hick:when test="sqlite">  const [db, setDb] = useState<Database | null>(null)
+</hick:when>
   useEffect(() => {
     init().then(() => {
       setIsReady(true)
+<hick:when test="sqlite">      const database = open_database(':memory:')
+      setDb(database)
+</hick:when>
     }).catch((err) => {
       console.error('Failed to initialize WASM module:', err)
     })
@@ -525,9 +629,63 @@ export function useCore() {
     greet,
     fibonacci,
     processData,
+<hick:when test="sqlite">    db,
+</hick:when>
   }
 }
+<hick:when test="sqlite">
+export type { Database, TodoItem }
+</hick:when>
 </hick:file>
+<hick:when test="sqlite">
+### Todo List Hook
+
+<hick:file path="browser-extension/src/hooks/useTodos.ts">import { useState, useEffect, useCallback } from 'react'
+import type { Database, TodoItem } from './useCore'
+
+export function useTodos(db: Database | null) {
+  const [todos, setTodos] = useState<TodoItem[]>([])
+
+  const refresh = useCallback(() => {
+    if (!db) return
+    try {
+      const json = db.list_todos()
+      setTodos(JSON.parse(json) as TodoItem[])
+    } catch (e) {
+      console.error('Failed to load todos:', e)
+    }
+  }, [db])
+
+  useEffect(() => {
+    if (db) refresh()
+  }, [db, refresh])
+
+  const addTodo = useCallback((title: string) => {
+    if (!db || !title.trim()) return
+    db.create_todo(title.trim())
+    refresh()
+  }, [db, refresh])
+
+  const toggleTodo = useCallback((id: string) => {
+    if (!db) return
+    const todoJson = db.get_todo(id)
+    if (todoJson) {
+      const todo: TodoItem = JSON.parse(todoJson)
+      db.update_todo(id, null, !todo.completed)
+      refresh()
+    }
+  }, [db, refresh])
+
+  const deleteTodo = useCallback((id: string) => {
+    if (!db) return
+    db.delete_todo(id)
+    refresh()
+  }, [db, refresh])
+
+  return { todos, addTodo, toggleTodo, deleteTodo }
+}
+</hick:file>
+</hick:when>
 </hick:when>
 
 ### Background Service Worker
