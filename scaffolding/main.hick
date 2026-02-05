@@ -74,6 +74,7 @@ Features control which platforms are generated. They can be combined freely.
 <hick:feature name="sqlite" description="SQLite database support in Rust library" requires="rust-frontend-lib" />
 <hick:feature name="iroh" description="Iroh peer-to-peer networking in Rust library" requires="rust-frontend-lib" />
 <hick:feature name="decentralized-auth" description="Decentralized identity and authentication using ed25519 key pairs" requires="rust-frontend-lib" />
+<hick:feature name="event-sourcing" description="Event sourcing with CRDT conflict resolution and snapshot support" requires="rust-frontend-lib sqlite" />
 <hick:feature name="iroh-relay" description="Iroh relay server for NAT traversal and peer discovery" />
 
 **Build systems:**
@@ -101,6 +102,7 @@ Features control which platforms are generated. They can be combined freely.
 | `sqlite` | SQLite database in Rust library (requires rust-frontend-lib) |
 | `iroh` | Iroh P2P networking in Rust library (requires rust-frontend-lib) |
 | `decentralized-auth` | Decentralized identity and authentication (requires rust-frontend-lib) |
+| `event-sourcing` | Event sourcing with CRDT conflict resolution (requires rust-frontend-lib, sqlite) |
 | `iroh-relay` | Iroh relay server for NAT traversal |
 | `just` | Justfile for build automation |
 | `make` | Makefile for build automation |
@@ -304,6 +306,29 @@ The project includes offline-first, peer-to-peer authentication using Ed25519 ke
 **Identity is stored at:**
 - Native: `~/.config/<hick:val name="project_name" />/identity.age`
 - WASM: `localStorage` key `<hick:val name="project_name" />_identity`
+</hick:when>
+<hick:when test="event-sourcing">
+### Event Sourcing
+
+All domain changes are captured as immutable events with automatic conflict resolution.
+
+**Features:**
+- Event-driven architecture with aggregate roots
+- CRDT-based conflict resolution (last-write-wins default)
+- Snapshot compression for efficient sync
+- Lamport timestamps for causal ordering
+- Multi-author event support (human + LLM collaboration)
+- Optional branching for dry runs and review workflows
+<hick:when test="iroh">- P2P event sync when combined with Iroh
+</hick:when>
+**Event properties:**
+- `timestamp` - When the event occurred
+- `site_id` - Device/client identifier
+- `lamport_timestamp` - Logical clock sequence
+- `previous_event_id` - For conflict detection
+- `author_ids` - User(s) who authored the event
+- `branch` (optional) - For dry runs/review workflows
+- `is_snapshot` - Compresses event history
 </hick:when>
 
 ## License
