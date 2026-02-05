@@ -235,11 +235,13 @@ struct GenerateMatrixArgs {
     #[arg(long)]
     exclude_features: Option<String>,
 
-    /// Command to run for verification after each combination.
-    /// The command is run in the output directory. Use {{features}} for
-    /// the comma-separated list of enabled features.
+    /// Commands to run for verification after each combination.
+    /// Commands run in the output directory. Use {{features}} for the
+    /// comma-separated list of enabled features, {{dir}} for the directory.
+    /// Prefix with [feature] to run only when feature is enabled.
+    /// Use [f1,f2] for OR (any), [f1+f2] for AND (all).
     #[arg(long)]
-    verify: Option<String>,
+    verify: Vec<String>,
 
     /// Timeout for verification commands in seconds.
     #[arg(long, default_value = "300")]
@@ -752,6 +754,91 @@ async fn run_single_shot(cli: RunArgs) -> Result<()> {
     Ok(())
 }
 
+// ---------------------------------------------------------------------------
+// Verify Command Parsing
+// ---------------------------------------------------------------------------
+
+/// A verify command with optional feature condition.
+struct VerifyCommand {
+    command: String,
+    condition: VerifyCondition,
+}
+
+/// Condition for when a verify command should run.
+enum VerifyCondition {
+    /// Always run this command.
+    Always,
+    /// Run if ANY of these features are present (OR logic).
+    AnyOf(Vec<String>),
+    /// Run if ALL of these features are present (AND logic).
+    AllOf(Vec<String>),
+}
+
+impl VerifyCommand {
+    /// Parse "[condition] command" syntax.
+    ///
+    /// Examples:
+    /// - `"cargo build"` → Always run
+    /// - `"[rust-frontend-lib] cargo build"` → Run if rust-frontend-lib enabled
+    /// - `"[spa,extension] npm test"` → Run if spa OR extension enabled (comma = OR)
+    /// - `"[spa|extension] npm test"` → Run if spa OR extension enabled (pipe = OR)
+    /// - `"[spa+backend] npm run e2e"` → Run if spa AND backend enabled
+    fn parse(input: &str) -> Self {
+        let input = input.trim();
+        if input.starts_with('[') {
+            if let Some(end) = input.find(']') {
+                let condition_str = &input[1..end];
+                let command = input[end + 1..].trim().to_string();
+
+                if condition_str.contains('+') {
+                    // AND logic
+                    let features: Vec<String> = condition_str
+                        .split('+')
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty())
+                        .collect();
+                    return Self {
+                        command,
+                        condition: VerifyCondition::AllOf(features),
+                    };
+                } else {
+                    // OR logic (comma or pipe separated)
+                    let features: Vec<String> = condition_str
+                        .split(|c| c == ',' || c == '|')
+                        .map(|s| s.trim().to_string())
+                        .filter(|s| !s.is_empty())
+                        .collect();
+                    return Self {
+                        command,
+                        condition: VerifyCondition::AnyOf(features),
+                    };
+                }
+            }
+        }
+        Self {
+            command: input.to_string(),
+            condition: VerifyCondition::Always,
+        }
+    }
+
+    /// Check if this command should run for the given feature combination.
+    fn should_run(&self, enabled_features: &[String]) -> bool {
+        match &self.condition {
+            VerifyCondition::Always => true,
+            VerifyCondition::AnyOf(required) => {
+                required.iter().any(|f| enabled_features.contains(f))
+            }
+            VerifyCondition::AllOf(required) => {
+                required.iter().all(|f| enabled_features.contains(f))
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Generate Matrix
+// ---------------------------------------------------------------------------
+
 /// Run the generate-matrix command: generate all feature combinations.
 async fn run_generate_matrix(cli: GenerateMatrixArgs) -> Result<()> {
     use futures::stream::{self, StreamExt};
@@ -983,11 +1070,17 @@ async fn run_generate_matrix(cli: GenerateMatrixArgs) -> Result<()> {
 
     info!("Running with {} parallel job(s)", jobs);
 
+    // Parse verify commands once before the loop
+    let verify_cmds: Vec<VerifyCommand> = cli.verify
+        .iter()
+        .map(|s| VerifyCommand::parse(s))
+        .collect();
+
     // Wrap shared data in Arc for parallel access
     let file_contents = Arc::new(file_contents);
     let base_params = Arc::new(base_params);
     let output_dir = Arc::new(cli.output_dir.clone());
-    let verify_cmd = Arc::new(cli.verify.clone());
+    let verify_cmds = Arc::new(verify_cmds);
     let continue_on_error = cli.continue_on_error;
     let total_combinations = combinations.len();
 
@@ -1006,7 +1099,7 @@ async fn run_generate_matrix(cli: GenerateMatrixArgs) -> Result<()> {
             let file_contents = file_contents.clone();
             let base_params = base_params.clone();
             let output_dir = output_dir.clone();
-            let verify_cmd = verify_cmd.clone();
+            let verify_cmds = verify_cmds.clone();
             let completed_count = completed_count.clone();
             let cancelled = cancelled.clone();
             let failures = failures.clone();
@@ -1082,9 +1175,14 @@ async fn run_generate_matrix(cli: GenerateMatrixArgs) -> Result<()> {
                             }
                         }
 
-                        // Run verification if specified
-                        if let Some(ref verify) = *verify_cmd {
-                            let cmd_with_features = verify.replace("{{features}}", &features_str);
+                        // Run verification commands
+                        for verify in verify_cmds.iter() {
+                            // Skip commands whose conditions don't match this combo
+                            if !verify.should_run(&combo) {
+                                continue;
+                            }
+
+                            let cmd_with_features = verify.command.replace("{{features}}", &features_str);
                             let cmd_with_dir =
                                 cmd_with_features.replace("{{dir}}", &combo_dir.to_string_lossy());
 
@@ -1100,13 +1198,7 @@ async fn run_generate_matrix(cli: GenerateMatrixArgs) -> Result<()> {
 
                             match verify_result {
                                 Ok(Ok(output)) => {
-                                    if output.status.success() {
-                                        println!(
-                                            "[{}/{}] {} OK",
-                                            completed, total_combinations, combo_name
-                                        );
-                                        return Ok(combo_name);
-                                    } else {
+                                    if !output.status.success() {
                                         let stderr = String::from_utf8_lossy(&output.stderr);
                                         let stdout = String::from_utf8_lossy(&output.stdout);
                                         let error_msg = format!(
@@ -1513,5 +1605,107 @@ mod tests {
         let expected = std::collections::HashSet::new();
         clean_stale_outputs(&dir, &expected).unwrap();
         // Should not panic
+    }
+
+    // VerifyCommand tests
+
+    #[test]
+    fn verify_command_parse_unconditional() {
+        let cmd = VerifyCommand::parse("cargo build");
+        assert_eq!(cmd.command, "cargo build");
+        assert!(matches!(cmd.condition, VerifyCondition::Always));
+        assert!(cmd.should_run(&[]));
+        assert!(cmd.should_run(&["spa".to_string()]));
+    }
+
+    #[test]
+    fn verify_command_parse_single_feature() {
+        let cmd = VerifyCommand::parse("[rust-frontend-lib] cargo check");
+        assert_eq!(cmd.command, "cargo check");
+        assert!(matches!(cmd.condition, VerifyCondition::AnyOf(_)));
+
+        // Should run when feature is enabled
+        assert!(cmd.should_run(&["rust-frontend-lib".to_string()]));
+        assert!(cmd.should_run(&["other".to_string(), "rust-frontend-lib".to_string()]));
+
+        // Should not run when feature is disabled
+        assert!(!cmd.should_run(&[]));
+        assert!(!cmd.should_run(&["spa".to_string()]));
+    }
+
+    #[test]
+    fn verify_command_parse_or_comma() {
+        let cmd = VerifyCommand::parse("[spa,extension] npm test");
+        assert_eq!(cmd.command, "npm test");
+        if let VerifyCondition::AnyOf(features) = &cmd.condition {
+            assert_eq!(features, &["spa", "extension"]);
+        } else {
+            panic!("Expected AnyOf condition");
+        }
+
+        // Should run if ANY of the features is enabled
+        assert!(cmd.should_run(&["spa".to_string()]));
+        assert!(cmd.should_run(&["extension".to_string()]));
+        assert!(cmd.should_run(&["spa".to_string(), "extension".to_string()]));
+
+        // Should not run if none are enabled
+        assert!(!cmd.should_run(&[]));
+        assert!(!cmd.should_run(&["backend".to_string()]));
+    }
+
+    #[test]
+    fn verify_command_parse_or_pipe() {
+        let cmd = VerifyCommand::parse("[spa|extension] npm test");
+        assert_eq!(cmd.command, "npm test");
+        if let VerifyCondition::AnyOf(features) = &cmd.condition {
+            assert_eq!(features, &["spa", "extension"]);
+        } else {
+            panic!("Expected AnyOf condition");
+        }
+    }
+
+    #[test]
+    fn verify_command_parse_and() {
+        let cmd = VerifyCommand::parse("[spa+backend] npm run e2e");
+        assert_eq!(cmd.command, "npm run e2e");
+        if let VerifyCondition::AllOf(features) = &cmd.condition {
+            assert_eq!(features, &["spa", "backend"]);
+        } else {
+            panic!("Expected AllOf condition");
+        }
+
+        // Should run only if ALL features are enabled
+        assert!(cmd.should_run(&["spa".to_string(), "backend".to_string()]));
+        assert!(cmd.should_run(&["spa".to_string(), "backend".to_string(), "other".to_string()]));
+
+        // Should not run if any are missing
+        assert!(!cmd.should_run(&["spa".to_string()]));
+        assert!(!cmd.should_run(&["backend".to_string()]));
+        assert!(!cmd.should_run(&[]));
+    }
+
+    #[test]
+    fn verify_command_parse_whitespace_handling() {
+        // Spaces around features
+        let cmd = VerifyCommand::parse("[ spa , extension ] npm test");
+        assert_eq!(cmd.command, "npm test");
+        if let VerifyCondition::AnyOf(features) = &cmd.condition {
+            assert_eq!(features, &["spa", "extension"]);
+        } else {
+            panic!("Expected AnyOf condition");
+        }
+
+        // Leading/trailing whitespace
+        let cmd2 = VerifyCommand::parse("  cargo build  ");
+        assert_eq!(cmd2.command, "cargo build");
+    }
+
+    #[test]
+    fn verify_command_parse_empty_brackets() {
+        // Edge case: empty brackets should result in empty AnyOf
+        let cmd = VerifyCommand::parse("[] cargo build");
+        assert_eq!(cmd.command, "cargo build");
+        // Empty AnyOf should never match
+        assert!(!cmd.should_run(&["spa".to_string()]));
     }
 }

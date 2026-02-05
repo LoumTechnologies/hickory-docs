@@ -230,7 +230,7 @@ A `.hick` file may work fine with one feature combination but fail with others. 
 
 ### Custom Verify Commands
 
-The `--verify` flag accepts any shell command. Use template variables for dynamic paths:
+The `--verify` flag accepts any shell command. You can specify multiple `--verify` flags, and each command runs in sequence. Use template variables for dynamic paths:
 
 - `{{features}}` — comma-separated list of enabled features
 - `{{dir}}` — path to the generated output directory
@@ -249,7 +249,51 @@ hick generate-matrix --verify "cd {{dir}} && yamllint ." ./
 
 # Custom script
 hick generate-matrix --verify "./scripts/validate.sh {{dir}} {{features}}" ./
+
+# Multiple verify commands (all run in sequence)
+hick generate-matrix \
+  --verify "cargo check" \
+  --verify "cargo test" \
+  --verify "cargo clippy" ./
 ```
+
+### Conditional Verify Commands
+
+Prefix a verify command with `[feature]` to run it only when specific features are enabled. This is useful when different feature combinations require different verification steps.
+
+**Syntax:**
+
+- `--verify "command"` — Always runs
+- `--verify "[feature] command"` — Runs only if `feature` is enabled
+- `--verify "[f1,f2] command"` or `--verify "[f1|f2] command"` — Runs if ANY of these features enabled (OR logic)
+- `--verify "[f1+f2] command"` — Runs if ALL of these features enabled (AND logic)
+
+**Examples:**
+
+```bash
+# Always echo the features
+hick generate-matrix --verify "echo 'Generated: {{features}}'" ./
+
+# Only run cargo check when rust-frontend-lib is enabled
+hick generate-matrix --verify "[rust-frontend-lib] cargo check" ./
+
+# Run npm test if spa OR extension is enabled
+hick generate-matrix --verify "[spa,extension] npm test" ./
+
+# Run e2e tests only when BOTH spa AND backend are enabled
+hick generate-matrix --verify "[spa+backend] npm run e2e" ./
+
+# Full example with multiple conditional verifies
+hick generate-matrix . \
+  --verify "echo 'Checking {{features}}'" \
+  --verify "[rust-frontend-lib] cargo check" \
+  --verify "[spa,extension] npm run lint" \
+  --verify "[spa,extension] npm test" \
+  --verify "[backend] cargo test --package backend" \
+  --verify "[spa+backend] npm run e2e"
+```
+
+This allows you to define feature-specific verification without running irrelevant checks for combinations that don't include those features.
 
 ### Recommended Workflow
 
