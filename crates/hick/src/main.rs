@@ -839,6 +839,119 @@ impl VerifyCommand {
 // Generate Matrix
 // ---------------------------------------------------------------------------
 
+/// Data for tracking timing of each combination (for linear regression).
+#[derive(Clone)]
+struct ComboTiming {
+    features: Vec<String>,
+    duration_secs: f64,
+}
+
+/// Simple linear regression to identify which features contribute most to runtime.
+/// Uses ordinary least squares with feature indicator variables.
+fn analyze_feature_timing(
+    all_features: &[String],
+    timings: &[ComboTiming],
+) -> Vec<(String, f64)> {
+    if timings.is_empty() || all_features.is_empty() {
+        return vec![];
+    }
+
+    let n = timings.len();
+    let m = all_features.len();
+
+    // Build design matrix X (n x m+1) with intercept column
+    // X[i][0] = 1 (intercept)
+    // X[i][j+1] = 1 if feature j is present in combo i, else 0
+    let mut x: Vec<Vec<f64>> = vec![vec![0.0; m + 1]; n];
+    let mut y: Vec<f64> = vec![0.0; n];
+
+    for (i, timing) in timings.iter().enumerate() {
+        x[i][0] = 1.0; // intercept
+        for (j, feat) in all_features.iter().enumerate() {
+            if timing.features.contains(feat) {
+                x[i][j + 1] = 1.0;
+            }
+        }
+        y[i] = timing.duration_secs;
+    }
+
+    // Compute X^T * X
+    let mut xtx: Vec<Vec<f64>> = vec![vec![0.0; m + 1]; m + 1];
+    for i in 0..=m {
+        for j in 0..=m {
+            for k in 0..n {
+                xtx[i][j] += x[k][i] * x[k][j];
+            }
+        }
+    }
+
+    // Compute X^T * y
+    let mut xty: Vec<f64> = vec![0.0; m + 1];
+    for i in 0..=m {
+        for k in 0..n {
+            xty[i] += x[k][i] * y[k];
+        }
+    }
+
+    // Solve (X^T * X) * beta = X^T * y using Gaussian elimination
+    // Augment matrix [xtx | xty]
+    let mut aug: Vec<Vec<f64>> = vec![vec![0.0; m + 2]; m + 1];
+    for i in 0..=m {
+        for j in 0..=m {
+            aug[i][j] = xtx[i][j];
+        }
+        aug[i][m + 1] = xty[i];
+    }
+
+    // Forward elimination with partial pivoting
+    for col in 0..=m {
+        // Find pivot
+        let mut max_row = col;
+        for row in (col + 1)..=m {
+            if aug[row][col].abs() > aug[max_row][col].abs() {
+                max_row = row;
+            }
+        }
+        aug.swap(col, max_row);
+
+        let pivot = aug[col][col];
+        if pivot.abs() < 1e-10 {
+            continue; // Skip singular column
+        }
+
+        // Eliminate below
+        for row in (col + 1)..=m {
+            let factor = aug[row][col] / pivot;
+            for j in col..=(m + 1) {
+                aug[row][j] -= factor * aug[col][j];
+            }
+        }
+    }
+
+    // Back substitution
+    let mut beta: Vec<f64> = vec![0.0; m + 1];
+    for i in (0..=m).rev() {
+        let mut sum = aug[i][m + 1];
+        for j in (i + 1)..=m {
+            sum -= aug[i][j] * beta[j];
+        }
+        if aug[i][i].abs() > 1e-10 {
+            beta[i] = sum / aug[i][i];
+        }
+    }
+
+    // Return feature coefficients (skip intercept at index 0)
+    let mut results: Vec<(String, f64)> = all_features
+        .iter()
+        .enumerate()
+        .map(|(i, feat)| (feat.clone(), beta[i + 1]))
+        .collect();
+
+    // Sort by coefficient (descending) to show slowest features first
+    results.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+    results
+}
+
 /// Run the generate-matrix command: generate all feature combinations.
 async fn run_generate_matrix(cli: GenerateMatrixArgs) -> Result<()> {
     use futures::stream::{self, StreamExt};
@@ -846,6 +959,7 @@ async fn run_generate_matrix(cli: GenerateMatrixArgs) -> Result<()> {
     use std::process::Command as ProcessCommand;
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     use std::sync::Arc;
+    use std::time::Duration;
     use tokio::sync::Mutex;
 
     let start_time = Instant::now();
@@ -1093,6 +1207,15 @@ async fn run_generate_matrix(cli: GenerateMatrixArgs) -> Result<()> {
     // Collect failures for final report
     let failures = Arc::new(Mutex::new(Vec::<(String, String)>::new()));
 
+    // Collect timing data for each combination (for ETA and regression analysis)
+    let timings = Arc::new(Mutex::new(Vec::<ComboTiming>::new()));
+
+    // Track cumulative elapsed time for ETA calculation
+    let cumulative_duration_ms = Arc::new(std::sync::atomic::AtomicU64::new(0));
+
+    // Clone features list for regression analysis
+    let all_features_for_analysis: Vec<String> = features_to_combine.clone();
+
     // Process combinations in parallel
     let results: Vec<Result<String, ()>> = stream::iter(combinations.into_iter().enumerate())
         .map(|(_i, combo)| {
@@ -1103,12 +1226,17 @@ async fn run_generate_matrix(cli: GenerateMatrixArgs) -> Result<()> {
             let completed_count = completed_count.clone();
             let cancelled = cancelled.clone();
             let failures = failures.clone();
+            let timings = timings.clone();
+            let cumulative_duration_ms = cumulative_duration_ms.clone();
 
             async move {
                 // Check if we should skip due to earlier failure
                 if cancelled.load(Ordering::Relaxed) {
                     return Err(());
                 }
+
+                // Start timing this combination
+                let combo_start = Instant::now();
 
                 let combo_name = if combo.is_empty() {
                     "none".to_string()
@@ -1139,6 +1267,20 @@ async fn run_generate_matrix(cli: GenerateMatrixArgs) -> Result<()> {
                 let result = hick::run_pipeline(&sources, &params).await;
 
                 let completed = completed_count.fetch_add(1, Ordering::Relaxed) + 1;
+
+                // Calculate timing for this iteration
+                let combo_elapsed = combo_start.elapsed();
+                let combo_ms = combo_elapsed.as_millis() as u64;
+
+                // Update cumulative duration and calculate averages
+                let total_ms = cumulative_duration_ms.fetch_add(combo_ms, Ordering::Relaxed) + combo_ms;
+                let avg_ms = total_ms / completed as u64;
+
+                // Calculate progress percentage and ETA
+                let progress_pct = (completed as f64 / total_combinations as f64) * 100.0;
+                let remaining = total_combinations - completed;
+                let eta_ms = avg_ms * remaining as u64;
+                let eta_duration = Duration::from_millis(eta_ms);
 
                 match result {
                     Ok(pipeline_result) => {
@@ -1248,17 +1390,37 @@ async fn run_generate_matrix(cli: GenerateMatrixArgs) -> Result<()> {
                             }
                         }
 
+                        // Record timing for this combination
+                        timings.lock().await.push(ComboTiming {
+                            features: combo.clone(),
+                            duration_secs: combo_elapsed.as_secs_f64(),
+                        });
+
+                        // Format progress with percentage, time/iter, and ETA
                         println!(
-                            "[{}/{}] {} OK",
-                            completed, total_combinations, combo_name
+                            "[{}/{}] ({:>5.1}%) {} OK  [took: {}, avg: {}, ETA: {}]",
+                            completed,
+                            total_combinations,
+                            progress_pct,
+                            combo_name,
+                            hick::fmt_duration(combo_elapsed),
+                            hick::fmt_duration(Duration::from_millis(avg_ms)),
+                            hick::fmt_duration(eta_duration),
                         );
                         Ok(combo_name)
                     }
                     Err(e) => {
                         let error_msg = format!("{}", e);
                         eprintln!(
-                            "[{}/{}] {} FAILED: {}",
-                            completed, total_combinations, combo_name, error_msg
+                            "[{}/{}] ({:>5.1}%) {} FAILED: {}  [took: {}, avg: {}, ETA: {}]",
+                            completed,
+                            total_combinations,
+                            progress_pct,
+                            combo_name,
+                            error_msg,
+                            hick::fmt_duration(combo_elapsed),
+                            hick::fmt_duration(Duration::from_millis(avg_ms)),
+                            hick::fmt_duration(eta_duration),
                         );
                         failures.lock().await.push((combo_name, error_msg));
                         if !continue_on_error {
@@ -1283,6 +1445,13 @@ async fn run_generate_matrix(cli: GenerateMatrixArgs) -> Result<()> {
             tokio::runtime::Handle::current().block_on(async { arc.lock().await.clone() })
         });
 
+    // Extract timings for analysis
+    let timings_data = Arc::try_unwrap(timings)
+        .map(|mutex| mutex.into_inner())
+        .unwrap_or_else(|arc| {
+            tokio::runtime::Handle::current().block_on(async { arc.lock().await.clone() })
+        });
+
     // Print summary
     let elapsed = start_time.elapsed();
     println!("\n--- Summary ---");
@@ -1290,7 +1459,60 @@ async fn run_generate_matrix(cli: GenerateMatrixArgs) -> Result<()> {
     println!("Parallel jobs: {}", jobs);
     println!("Successful: {}", successful);
     println!("Failed: {}", failed);
-    println!("Time: {}", hick::fmt_duration(elapsed));
+    println!("Total time: {}", hick::fmt_duration(elapsed));
+
+    // Calculate timing statistics
+    if !timings_data.is_empty() {
+        let total_combo_time: f64 = timings_data.iter().map(|t| t.duration_secs).sum();
+        let avg_time = total_combo_time / timings_data.len() as f64;
+        let min_time = timings_data
+            .iter()
+            .map(|t| t.duration_secs)
+            .fold(f64::INFINITY, f64::min);
+        let max_time = timings_data
+            .iter()
+            .map(|t| t.duration_secs)
+            .fold(f64::NEG_INFINITY, f64::max);
+
+        println!("\n--- Timing Statistics ---");
+        println!(
+            "Average time per combination: {}",
+            hick::fmt_duration(Duration::from_secs_f64(avg_time))
+        );
+        println!(
+            "Min time: {}",
+            hick::fmt_duration(Duration::from_secs_f64(min_time))
+        );
+        println!(
+            "Max time: {}",
+            hick::fmt_duration(Duration::from_secs_f64(max_time))
+        );
+        println!(
+            "Sum of all iteration times: {}",
+            hick::fmt_duration(Duration::from_secs_f64(total_combo_time))
+        );
+
+        // Run linear regression to identify slow features
+        if !all_features_for_analysis.is_empty() && timings_data.len() >= 2 {
+            let feature_impacts = analyze_feature_timing(&all_features_for_analysis, &timings_data);
+
+            if !feature_impacts.is_empty() {
+                println!("\n--- Feature Time Impact (Linear Regression) ---");
+                println!("Estimated additional time per feature (sorted by impact):");
+                for (feat, coef) in &feature_impacts {
+                    let sign = if *coef >= 0.0 { "+" } else { "" };
+                    println!(
+                        "  {:20} {}{}",
+                        feat,
+                        sign,
+                        hick::fmt_duration(Duration::from_secs_f64(coef.abs()))
+                    );
+                }
+                // Show baseline (intercept would be at index 0 in beta, but we don't expose it)
+                // The regression already filters and sorts by impact
+            }
+        }
+    }
 
     if !failures.is_empty() {
         println!("\nFailures:");
