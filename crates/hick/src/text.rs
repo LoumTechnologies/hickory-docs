@@ -1,0 +1,198 @@
+//! Text substitution and interpolation.
+//!
+//! Pure(ish) text transformation functions used by both the pipeline core
+//! and the weave renderer: variable interpolation, substitution application,
+//! exclusion filtering.
+
+use std::collections::HashMap;
+
+use hick_case::{apply_case_variant, generate_case_variants};
+use hick_exec::state::MultiDocumentState;
+use log::{debug, warn};
+
+/// Interpolate variables in a file path using `{{variable}}` or `{{variable:variant}}` syntax.
+///
+/// Examples:
+/// - `Sources/{{project_name}}/App.swift` with project_name="MyApp" -> `Sources/MyApp/App.swift`
+/// - `{{project_name:snake_case}}.rs` with project_name="MyApp" -> `my_app.rs`
+pub(crate) fn interpolate_path(path: &str, state: &MultiDocumentState) -> String {
+    let mut result = path.to_string();
+    let mut start = 0;
+
+    while let Some(open_pos) = result[start..].find("{{") {
+        let open_pos = start + open_pos;
+        if let Some(close_pos) = result[open_pos..].find("}}") {
+            let close_pos = open_pos + close_pos;
+            let placeholder = &result[open_pos + 2..close_pos];
+
+            // Check for variant syntax: variable:variant
+            let (var_name, variant) = if let Some(colon_pos) = placeholder.find(':') {
+                (
+                    placeholder[..colon_pos].trim(),
+                    Some(placeholder[colon_pos + 1..].trim()),
+                )
+            } else {
+                (placeholder.trim(), None)
+            };
+
+            // Resolve the variable
+            let resolved = if let Some(value) = state.resolve_var(var_name) {
+                if let Some(variant_name) = variant {
+                    // Apply case transformation
+                    apply_case_variant(&value, variant_name).unwrap_or(value)
+                } else {
+                    value
+                }
+            } else {
+                // Variable not found, leave placeholder as-is
+                warn!("Path variable '{var_name}' not found");
+                start = close_pos + 2;
+                continue;
+            };
+
+            // Replace the placeholder with the resolved value
+            result = format!("{}{}{}", &result[..open_pos], resolved, &result[close_pos + 2..]);
+            start = open_pos + resolved.len();
+        } else {
+            // No closing }}, move past this {{
+            start = open_pos + 2;
+        }
+    }
+
+    // Also apply regular substitutions to the path
+    apply_substitutions(&result, state)
+}
+
+/// Filter out files that match any exclusion pattern.
+///
+/// Patterns use glob syntax:
+/// - `*` matches any sequence of characters (except `/`)
+/// - `**` matches any sequence of characters (including `/`)
+/// - `?` matches any single character
+///
+/// Examples:
+/// - `*.template-only` — exclude files ending with `.template-only`
+/// - `docs/internal/**` — exclude everything under `docs/internal/`
+/// - `TEMPLATE_README.md` — exclude a specific file
+pub(crate) fn apply_exclusions(
+    files: HashMap<String, String>,
+    patterns: &[String],
+) -> HashMap<String, String> {
+    if patterns.is_empty() {
+        return files;
+    }
+
+    // Compile glob patterns
+    let compiled_patterns: Vec<glob::Pattern> = patterns
+        .iter()
+        .filter_map(|p| {
+            match glob::Pattern::new(p) {
+                Ok(pattern) => Some(pattern),
+                Err(e) => {
+                    warn!("Invalid exclusion pattern '{}': {}", p, e);
+                    None
+                }
+            }
+        })
+        .collect();
+
+    if compiled_patterns.is_empty() {
+        return files;
+    }
+
+    // Filter out files matching any exclusion pattern
+    files
+        .into_iter()
+        .filter(|(path, _)| {
+            let excluded = compiled_patterns.iter().any(|pattern| pattern.matches(path));
+            if excluded {
+                debug!("Excluding file: {}", path);
+            }
+            !excluded
+        })
+        .collect()
+}
+
+/// Resolve {{variable}} and {{variable:variant}} references in a string.
+/// Returns the string with all variables replaced by their values.
+fn resolve_value_variables(text: &str, state: &MultiDocumentState) -> String {
+    let mut result = text.to_string();
+    let mut start = 0;
+
+    while let Some(open_pos) = result[start..].find("{{") {
+        let open_pos = start + open_pos;
+        if let Some(close_pos) = result[open_pos..].find("}}") {
+            let close_pos = open_pos + close_pos;
+            let placeholder = &result[open_pos + 2..close_pos];
+
+            // Check for variant syntax: variable:variant
+            let (var_name, variant) = if let Some(colon_pos) = placeholder.find(':') {
+                (
+                    placeholder[..colon_pos].trim(),
+                    Some(placeholder[colon_pos + 1..].trim()),
+                )
+            } else {
+                (placeholder.trim(), None)
+            };
+
+            // Resolve the variable
+            if let Some(value) = state.resolve_var(var_name) {
+                let resolved = if let Some(variant_name) = variant {
+                    apply_case_variant(&value, variant_name).unwrap_or(value)
+                } else {
+                    value
+                };
+                result = format!("{}{}{}", &result[..open_pos], resolved, &result[close_pos + 2..]);
+                start = open_pos + resolved.len();
+            } else {
+                // Variable not found, leave as-is
+                start = close_pos + 2;
+            }
+        } else {
+            start = open_pos + 2;
+        }
+    }
+
+    result
+}
+
+/// Apply all registered substitutions to text content.
+///
+/// When a substitution has `variants=true`, it generates all case variants
+/// (PascalCase, snake_case, etc.) of both the pattern and value, and applies
+/// them. Patterns are applied longest-first to avoid partial replacements.
+pub(crate) fn apply_substitutions(text: &str, state: &MultiDocumentState) -> String {
+    let substitutions = state.get_substitutions();
+    if substitutions.is_empty() {
+        return text.to_string();
+    }
+
+    // Collect all pattern -> value pairs, expanding variants
+    let mut replacements: Vec<(String, String)> = Vec::new();
+    for sub in &substitutions {
+        // Resolve any {{variable}} references in the substitution value
+        let resolved_value = resolve_value_variables(&sub.value, state);
+
+        if sub.variants {
+            // Generate all case variants
+            let variants = generate_case_variants(&sub.pattern, &resolved_value);
+            replacements.extend(variants);
+        } else {
+            // Just the single pattern -> value
+            replacements.push((sub.pattern.clone(), resolved_value));
+        }
+    }
+
+    // Sort by pattern length descending (longest first to avoid partial matches)
+    replacements.sort_by(|a, b| b.0.len().cmp(&a.0.len()));
+
+    // Apply all replacements
+    let mut result = text.to_string();
+    for (pattern, value) in &replacements {
+        if !pattern.is_empty() {
+            result = result.replace(pattern, value);
+        }
+    }
+
+    result
+}
