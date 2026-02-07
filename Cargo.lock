@@ -2737,6 +2737,7 @@ version = "0.1.0"
 dependencies = [
  "futures",
  "hick-condition",
+ "hick-flow",
  "hick-lang",
  "log",
  "thiserror 2.0.18",
@@ -2750,6 +2751,17 @@ name = "hick-feature"
 version = "0.1.0"
 dependencies = [
  "thiserror 2.0.18",
+]
+
+[[package]]
+name = "hick-flow"
+version = "0.1.0"
+dependencies = [
+ "futures",
+ "log",
+ "tokio",
+ "tokio-stream",
+ "tokio-util",
 ]
 
 [[package]]

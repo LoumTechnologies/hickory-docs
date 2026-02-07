@@ -1,0 +1,14 @@
+[package]
+name = "hick-flow"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+futures = "0.3"
+tokio = { version = "1", features = ["sync", "rt", "macros"] }
+tokio-stream = "0.1"
+tokio-util = "0.7"
+log = "0.4"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
