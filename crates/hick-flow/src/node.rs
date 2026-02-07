@@ -5,6 +5,7 @@
 //! - `StringNode`: leaf node holding literal text
 //! - `SeparatorNode`: marker wrapper for separator detection
 
+use std::any::Any;
 use std::io;
 use std::path::PathBuf;
 use std::pin::Pin;
@@ -48,6 +49,15 @@ pub trait Node: Send + Sync {
     fn id_bytes(&self) -> Vec<u8> {
         let addr = (self as *const _ as *const ()).addr() as u128;
         addr.to_le_bytes().to_vec()
+    }
+
+    /// Downcast hook: returns `self` as `&dyn Any` for type-based dispatch.
+    ///
+    /// Override this in concrete node types that need to be identified by
+    /// downstream consumers (e.g. `RecordChangeNode` in hick-live).
+    /// The default returns `None`, meaning the node cannot be downcast.
+    fn as_any(&self) -> Option<&dyn Any> {
+        None
     }
 }
 

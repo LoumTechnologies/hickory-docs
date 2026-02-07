@@ -206,6 +206,7 @@ fn prepare_pipeline<'a>(
 fn create_tag_registry() -> TagRegistry {
     let mut registry = TagRegistry::new();
     hick_handlers::handlers::register_builtins(&mut registry);
+    hick_live::handlers::register_live_builtins(&mut registry);
     registry
 }
 
