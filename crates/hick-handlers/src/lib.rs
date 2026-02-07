@@ -105,6 +105,37 @@ pub struct ProcessingContext<'a> {
 
     /// Number of leading spaces to strip when dedenting content.
     pub indent: usize,
+
+    /// Optional reference to the tag registry for recursive child processing.
+    pub registry: Option<&'a TagRegistry>,
+
+    /// Optional extension context for passing opaque handles (e.g. executor).
+    pub context: Option<&'a hick_exec::node::Context>,
+}
+
+impl<'a> ProcessingContext<'a> {
+    /// Process a child tag through the registry, returning the first Node result.
+    pub fn process_child(&self, child_tag: &HickTag) -> Option<Arc<dyn Node>> {
+        let registry = self.registry?;
+        let handler = registry.find(&child_tag.name)?;
+        match handler.process(child_tag, self) {
+            Ok(TagResult::Node(n)) => Some(n),
+            _ => None,
+        }
+    }
+
+    /// Process all child tags, returning the first one that produces a Node.
+    pub fn first_child_node(&self, tag: &HickTag) -> Option<Arc<dyn Node>> {
+        use hick_lang::HickNode;
+        for child in &tag.children {
+            if let HickNode::Tag(child_tag) = child {
+                if let Some(node) = self.process_child(child_tag) {
+                    return Some(node);
+                }
+            }
+        }
+        None
+    }
 }
 
 /// A transcript entry for container execution.

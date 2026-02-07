@@ -125,6 +125,8 @@ fn process_weave_tag(
                         state,
                         transcripts,
                         indent: 0,
+                        registry: Some(registry),
+                        context: None,
                     };
                     match handler.process(tag, &ctx) {
                         Ok(TagResult::Node(n)) => weave_ip.add(n),
@@ -158,6 +160,8 @@ fn process_file_children_to_weave(
         state,
         transcripts,
         indent,
+        registry: Some(registry),
+        context: None,
     };
 
     for child in children {

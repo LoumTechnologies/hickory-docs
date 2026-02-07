@@ -8,6 +8,7 @@ hick-exec = { path = "../hick-exec" }
 hick-lang = { path = "../hick-lang" }
 anyhow = "1"
 log = "0.4"
+futures = "0.3.31"
 
 [dev-dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }

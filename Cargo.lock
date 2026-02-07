@@ -3111,6 +3111,7 @@ name = "hick-handlers"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "futures",
  "hick-exec",
  "hick-lang",
  "log",

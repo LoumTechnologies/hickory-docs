@@ -235,10 +235,87 @@ async fn process_pipeline_outputs(
     documents: &[(&str, HickDocument)],
     state: &Arc<MultiDocumentState>,
     transcripts: &HashMap<String, Vec<ExecTranscriptEntry>>,
+    max_rounds: usize,
 ) -> HashMap<String, FileContent> {
     let registry = create_tag_registry();
     let handler_transcripts = convert_transcripts(transcripts);
 
+    // --- Round 0: process the original documents (identical to previous behavior) ---
+    process_documents_round(documents, state, &handler_transcripts, &registry);
+
+    // Process weave output if enabled
+    weave::process_weave_output(documents, &handler_transcripts, state, &registry);
+
+    // --- Rounds 1..max_rounds: re-evaluate .hick files produced by containers ---
+    if max_rounds > 1 {
+        let mut prev_hick_paths: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+        for round in 1..max_rounds {
+            let files = state.get_files().await;
+
+            // Find new .hick files in output
+            let hick_sources: Vec<(String, String)> = files
+                .iter()
+                .filter(|(path, _)| path.ends_with(".hick"))
+                .filter_map(|(path, content)| {
+                    if let FileContent::Text(s) = content {
+                        Some((path.clone(), s.clone()))
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+
+            // Check convergence: no new .hick files
+            let current_paths: std::collections::HashSet<String> =
+                hick_sources.iter().map(|(p, _)| p.clone()).collect();
+            if current_paths.is_subset(&prev_hick_paths) {
+                info!("Pipeline converged after {round} rounds (no new .hick files)");
+                break;
+            }
+            prev_hick_paths = current_paths;
+
+            if hick_sources.is_empty() {
+                break;
+            }
+
+            // Parse new .hick sources and process them
+            let mut new_documents = Vec::new();
+            for (path, source) in &hick_sources {
+                match hick_lang::parse(source) {
+                    Ok(doc) => {
+                        info!("Round {round}: processing generated .hick file: {path}");
+                        new_documents.push((path.as_str(), doc));
+                    }
+                    Err(e) => {
+                        warn!("Round {round}: failed to parse generated .hick file {path}: {e}");
+                    }
+                }
+            }
+
+            if new_documents.is_empty() {
+                break;
+            }
+
+            // Process the new documents through declaration + content phases
+            process_documents_round(&new_documents, state, &handler_transcripts, &registry);
+        }
+    }
+
+    // Converge file outputs
+    let files = state.get_files().await;
+
+    // Apply exclusion patterns
+    apply_exclusions(files, &state.get_exclusion_patterns())
+}
+
+/// Process a batch of documents through declaration and content phases.
+fn process_documents_round(
+    documents: &[(&str, HickDocument)],
+    state: &Arc<MultiDocumentState>,
+    handler_transcripts: &HashMap<String, Vec<TranscriptEntry>>,
+    registry: &TagRegistry,
+) {
     let all_nodes: Vec<&HickNode> = documents
         .iter()
         .flat_map(|(_, doc)| doc.nodes.iter())
@@ -247,8 +324,10 @@ async fn process_pipeline_outputs(
     // Declaration phase: process copy/cut/substitute/exclude via handlers
     let decl_ctx = ProcessingContext {
         state,
-        transcripts: &handler_transcripts,
+        transcripts: handler_transcripts,
         indent: 0,
+        registry: Some(registry),
+        context: None,
     };
     for node in &all_nodes {
         if let HickNode::Tag(tag) = node {
@@ -269,7 +348,7 @@ async fn process_pipeline_outputs(
             let path = interpolate_path(&raw_path, state);
             let raw_ip = Arc::new(InsertionPoint::new());
 
-            process_file_children(&tag.children, &raw_ip, &handler_transcripts, state, tag.source_column, &registry);
+            process_file_children(&tag.children, &raw_ip, handler_transcripts, state, tag.source_column, registry);
 
             raw_ip.close();
 
@@ -286,15 +365,6 @@ async fn process_pipeline_outputs(
             state.add_file_output(path, file_ip);
         }
     }
-
-    // Process weave output if enabled
-    weave::process_weave_output(documents, &handler_transcripts, state, &registry);
-
-    // Converge file outputs
-    let files = state.get_files().await;
-
-    // Apply exclusion patterns
-    apply_exclusions(files, &state.get_exclusion_patterns())
 }
 
 // ---------------------------------------------------------------------------
@@ -359,7 +429,7 @@ pub async fn run_pipeline_with_authority(
         .iter()
         .map(|(n, d)| (*n, d.clone()))
         .collect();
-    let files = process_pipeline_outputs(&documents_ref, &state, &transcripts).await;
+    let files = process_pipeline_outputs(&documents_ref, &state, &transcripts, 1).await;
 
     Ok(PipelineResult {
         files,
@@ -381,6 +451,10 @@ pub struct PipelineConfig {
     pub images_dir: PathBuf,
     /// Working directory for resolving relative paths in volume declarations.
     pub working_dir: Option<PathBuf>,
+    /// Maximum pipeline rounds. `1` (default) preserves single-pass behavior.
+    /// Higher values enable reactive re-evaluation of paste selectors that
+    /// reference content from container-generated `.hick` files.
+    pub max_rounds: usize,
 }
 
 /// Run the pipeline with real container execution.
@@ -532,9 +606,47 @@ pub async fn run_pipeline_live(
                 }
             }
 
-            executor
-                .execute(&exec_info.container, &exec_info.command)
-                .await?;
+            // Evaluate stdin children if present
+            let stdin_content = if !exec_info.stdin_children.is_empty() {
+                let stdin_registry = create_tag_registry();
+                let current_transcripts = convert_transcripts(executor.transcripts());
+                let mut parts = Vec::new();
+                for child in &exec_info.stdin_children {
+                    match child {
+                        hick_lang::HickNode::Text(t) => parts.push(t.clone()),
+                        hick_lang::HickNode::Tag(child_tag) => {
+                            if let Some(handler) = stdin_registry.find(&child_tag.name) {
+                                let child_ctx = ProcessingContext {
+                                    state: &state,
+                                    transcripts: &current_transcripts,
+                                    indent: 0,
+                                    registry: Some(&stdin_registry),
+                                    context: None,
+                                };
+                                if let Ok(TagResult::Node(n)) = handler.process(child_tag, &child_ctx) {
+                                    if let Some(s) = n.as_string_value() {
+                                        parts.push(s.to_string());
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                let joined = parts.join("");
+                if joined.is_empty() { None } else { Some(joined) }
+            } else {
+                None
+            };
+
+            if let Some(stdin_data) = &stdin_content {
+                executor
+                    .execute_with_stdin(&exec_info.container, &exec_info.command, stdin_data)
+                    .await?;
+            } else {
+                executor
+                    .execute(&exec_info.container, &exec_info.command)
+                    .await?;
+            }
 
             // Store result in cache after successful execution
             if let Some(cc) = cache_config {
@@ -626,7 +738,7 @@ pub async fn run_pipeline_live(
         .iter()
         .map(|(n, d)| (*n, d.clone()))
         .collect();
-    let mut files = process_pipeline_outputs(&documents_ref, &state, &transcripts).await;
+    let mut files = process_pipeline_outputs(&documents_ref, &state, &transcripts, config.max_rounds).await;
 
     // Merge volume output files into the result
     files.extend(volume_files);
@@ -829,6 +941,8 @@ fn process_file_children(
         state,
         transcripts,
         indent,
+        registry: Some(registry),
+        context: None,
     };
 
     for child in children {

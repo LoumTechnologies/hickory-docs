@@ -82,6 +82,9 @@ pub struct ExecInfo {
     pub command: String,
     /// Source line number.
     pub source_line: usize,
+    /// Child elements to evaluate as stdin content for the command.
+    /// Empty when the exec tag has only text children (command text).
+    pub stdin_children: Vec<HickNode>,
 }
 
 /// The validated information-flow DAG.
@@ -449,6 +452,15 @@ fn extract_exec_info(tag: &HickTag, index: usize) -> ExecInfo {
 
     let command = tag.text_content();
 
+    // Collect non-command child tags (paste, val, etc.) as stdin sources.
+    // Command text is extracted separately via text_content() above.
+    let stdin_children: Vec<HickNode> = tag
+        .children
+        .iter()
+        .filter(|child| matches!(child, HickNode::Tag(t) if t.name != "copy" && t.name != "cut"))
+        .cloned()
+        .collect();
+
     ExecInfo {
         id: ExecId(index),
         container,
@@ -458,6 +470,7 @@ fn extract_exec_info(tag: &HickTag, index: usize) -> ExecInfo {
         consumes_paste,
         command,
         source_line: tag.source_line,
+        stdin_children,
     }
 }
 

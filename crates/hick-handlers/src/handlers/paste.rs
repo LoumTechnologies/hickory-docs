@@ -3,11 +3,58 @@
 use std::sync::Arc;
 
 use anyhow::Result;
-use hick_exec::node::StringNode;
+use hick_exec::node::{BoxStream, Context, Node, NodeTrace, NodeValue, StringNode};
 use hick_lang::{HickTag, dedent};
 use log::warn;
 
 use crate::{ProcessingContext, ProcessingPhase, TagHandler, TagResult, tag_attr};
+
+// ---------------------------------------------------------------------------
+// PasteNode — provenance wrapper
+// ---------------------------------------------------------------------------
+
+/// Provenance wrapper around `StringNode` for paste output.
+///
+/// Carries the selector used to resolve the paste, enabling trace-based
+/// identification of where content originated.
+pub(crate) struct PasteNode {
+    inner: StringNode,
+    selector: String,
+}
+
+impl PasteNode {
+    pub fn new(content: impl Into<String>, selector: impl Into<String>) -> Self {
+        Self {
+            inner: StringNode::new(content),
+            selector: selector.into(),
+        }
+    }
+}
+
+impl std::fmt::Debug for PasteNode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "PasteNode(select={:?})", self.selector)
+    }
+}
+
+impl Node for PasteNode {
+    fn as_string_value(&self) -> Option<&str> {
+        self.inner.as_string_value()
+    }
+
+    fn node_value(&self) -> NodeValue {
+        self.inner.node_value()
+    }
+
+    fn get_stream(self: Arc<Self>, _context: Context) -> BoxStream<Vec<NodeTrace>> {
+        let trace = vec![NodeTrace::new(self as Arc<dyn Node>)];
+        Box::pin(futures::stream::once(async move { trace }))
+    }
+}
+
+// ---------------------------------------------------------------------------
+// PasteHandler
+// ---------------------------------------------------------------------------
 
 /// Handler for `<hick:paste>` tags.
 ///
@@ -33,9 +80,22 @@ impl TagHandler for PasteHandler {
     fn process(&self, tag: &HickTag, ctx: &ProcessingContext) -> Result<TagResult> {
         let selector = tag_attr(tag, "select").unwrap_or_default();
 
+        // Try node-based resolution first (supports reactive streaming)
+        if let Some(node) = ctx.state.resolve_paste_node(&selector) {
+            // If the node has a direct string value and we need to dedent, wrap it
+            if ctx.indent > 0 {
+                if let Some(s) = node.as_string_value() {
+                    let dedented = dedent(s, ctx.indent);
+                    return Ok(TagResult::Node(Arc::new(PasteNode::new(dedented, &selector))));
+                }
+            }
+            return Ok(TagResult::Node(node));
+        }
+
+        // Fallback to string-based resolution (backward compat)
         if let Some(content) = ctx.state.resolve_paste(&selector) {
             let dedented = dedent(&content, ctx.indent);
-            Ok(TagResult::Node(Arc::new(StringNode::new(dedented))))
+            Ok(TagResult::Node(Arc::new(PasteNode::new(dedented, &selector))))
         } else {
             warn!("Paste selector '{}' not found", selector);
             Ok(TagResult::Declaration)
@@ -65,6 +125,8 @@ mod tests {
             state,
             transcripts,
             indent: 0,
+            registry: None,
+            context: None,
         }
     }
 

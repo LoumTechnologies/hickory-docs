@@ -237,6 +237,7 @@ async fn run_pipeline_and_merge(
         let pipeline_config = crate::PipelineConfig {
             images_dir: images_dir.to_path_buf(),
             working_dir: None,
+            max_rounds: 1,
         };
         let result = crate::run_pipeline_live(&sources, &pipeline_config, params, None, pool).await?;
         let files: HashMap<String, Vec<u8>> = result

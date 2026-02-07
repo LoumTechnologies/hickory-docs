@@ -74,6 +74,8 @@ mod tests {
             state,
             transcripts,
             indent: 0,
+            registry: None,
+            context: None,
         }
     }
 
