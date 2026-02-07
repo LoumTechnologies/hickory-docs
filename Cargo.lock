@@ -2688,6 +2688,7 @@ dependencies = [
  "hick-condition",
  "hick-exec",
  "hick-feature",
+ "hick-handlers",
  "hick-lang",
  "hick-merge",
  "hick-secrets",

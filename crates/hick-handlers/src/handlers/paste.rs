@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use hick_exec::node::StringNode;
-use hick_lang::HickTag;
+use hick_lang::{HickTag, dedent};
 use log::warn;
 
 use crate::{ProcessingContext, ProcessingPhase, TagHandler, TagResult, tag_attr};
@@ -19,29 +19,24 @@ use crate::{ProcessingContext, ProcessingPhase, TagHandler, TagResult, tag_attr}
 /// - `select` - Required CSS-like selector:
 ///   - `#id` - Paste content from block with matching ID
 ///   - `.class` - Concatenate content from all blocks with matching class (in document order)
-///
-/// # Example
-///
-/// ```xml
-/// <hick:paste select="#version" />
-/// <hick:paste select=".imports" />
-/// ```
 pub struct PasteHandler;
 
 impl TagHandler for PasteHandler {
-    fn name(&self) -> &str {
+    fn tag_name(&self) -> &str {
         "paste"
     }
 
     fn phase(&self) -> ProcessingPhase {
-        ProcessingPhase::Main
+        ProcessingPhase::Content
     }
 
     fn process(&self, tag: &HickTag, ctx: &ProcessingContext) -> Result<TagResult> {
         let selector = tag_attr(tag, "select").unwrap_or_default();
 
         if let Some(content) = ctx.state.resolve_paste(&selector) {
-            Ok(TagResult::Node(Arc::new(StringNode::new(content))))
+            let dedented = dedent(&content, ctx.indent);
+            let substituted = (ctx.apply_substitutions)(&dedented);
+            Ok(TagResult::Node(Arc::new(StringNode::new(substituted))))
         } else {
             warn!("Paste selector '{}' not found", selector);
             Ok(TagResult::Declaration)
@@ -66,18 +61,22 @@ mod tests {
         }
     }
 
+    fn make_ctx<'a>(state: &'a Arc<MultiDocumentState>, transcripts: &'a HashMap<String, Vec<crate::TranscriptEntry>>) -> ProcessingContext<'a> {
+        ProcessingContext {
+            state,
+            transcripts,
+            indent: 0,
+            apply_substitutions: &|s: &str| s.to_string(),
+        }
+    }
+
     #[test]
     fn paste_handler_resolves_id() {
         let state = Arc::new(MultiDocumentState::default());
         state.register_copy("ver".to_string(), "1.0.0".to_string());
 
         let transcripts = HashMap::new();
-        let ctx = ProcessingContext {
-            state: &state,
-            transcripts: &transcripts,
-            parent_ip: None,
-            document_name: "test.hick",
-        };
+        let ctx = make_ctx(&state, &transcripts);
 
         let tag = make_tag("paste", vec![("select".to_string(), "#ver".to_string())]);
 
@@ -99,12 +98,7 @@ mod tests {
         state.register_copy_with_class("".to_string(), Some("items"), "b;".to_string());
 
         let transcripts = HashMap::new();
-        let ctx = ProcessingContext {
-            state: &state,
-            transcripts: &transcripts,
-            parent_ip: None,
-            document_name: "test.hick",
-        };
+        let ctx = make_ctx(&state, &transcripts);
 
         let tag = make_tag("paste", vec![("select".to_string(), ".items".to_string())]);
 
@@ -123,12 +117,7 @@ mod tests {
     fn paste_handler_missing_returns_declaration() {
         let state = Arc::new(MultiDocumentState::default());
         let transcripts = HashMap::new();
-        let ctx = ProcessingContext {
-            state: &state,
-            transcripts: &transcripts,
-            parent_ip: None,
-            document_name: "test.hick",
-        };
+        let ctx = make_ctx(&state, &transcripts);
 
         let tag = make_tag("paste", vec![("select".to_string(), "#missing".to_string())]);
 

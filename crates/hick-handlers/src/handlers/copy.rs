@@ -16,18 +16,10 @@ use crate::{
 ///
 /// - `id` - Optional unique identifier for `#id` selector
 /// - `class` - Optional space-separated class names for `.class` selector
-///
-/// # Example
-///
-/// ```xml
-/// <hick:copy id="version">1.0.0</hick:copy>
-/// <hick:copy class="imports">import foo;</hick:copy>
-/// <hick:copy id="header" class="sections">...</hick:copy>
-/// ```
 pub struct CopyHandler;
 
 impl TagHandler for CopyHandler {
-    fn name(&self) -> &str {
+    fn tag_name(&self) -> &str {
         "copy"
     }
 
@@ -53,7 +45,7 @@ impl TagHandler for CopyHandler {
 pub struct CutHandler;
 
 impl TagHandler for CutHandler {
-    fn name(&self) -> &str {
+    fn tag_name(&self) -> &str {
         "cut"
     }
 
@@ -90,16 +82,20 @@ mod tests {
         }
     }
 
+    fn make_ctx<'a>(state: &'a Arc<MultiDocumentState>, transcripts: &'a HashMap<String, Vec<crate::TranscriptEntry>>) -> ProcessingContext<'a> {
+        ProcessingContext {
+            state,
+            transcripts,
+            indent: 0,
+            apply_substitutions: &|s: &str| s.to_string(),
+        }
+    }
+
     #[test]
     fn copy_handler_registers_content() {
         let state = Arc::new(MultiDocumentState::default());
         let transcripts = HashMap::new();
-        let ctx = ProcessingContext {
-            state: &state,
-            transcripts: &transcripts,
-            parent_ip: None,
-            document_name: "test.hick",
-        };
+        let ctx = make_ctx(&state, &transcripts);
 
         let tag = make_tag(
             "copy",
@@ -118,12 +114,7 @@ mod tests {
     fn copy_handler_with_class() {
         let state = Arc::new(MultiDocumentState::default());
         let transcripts = HashMap::new();
-        let ctx = ProcessingContext {
-            state: &state,
-            transcripts: &transcripts,
-            parent_ip: None,
-            document_name: "test.hick",
-        };
+        let ctx = make_ctx(&state, &transcripts);
 
         let tag = make_tag(
             "copy",

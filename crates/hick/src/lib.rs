@@ -30,7 +30,8 @@ use rand::RngCore;
 
 use hick_exec::dag;
 use hick_exec::node::{InsertionPoint, StringNode};
-use hick_exec::state::{FeatureInfo, MultiDocumentState, SubstitutionDef};
+use hick_exec::state::{FeatureInfo, MultiDocumentState};
+use hick_handlers::{ProcessingContext, ProcessingPhase, TagRegistry, TagResult, TranscriptEntry};
 
 use hick_feature::{FeatureDef, FeatureRegistry, FeatureSet};
 use hick_lang::{dedent, HickDocument, HickNode, HickTag};
@@ -39,48 +40,6 @@ use hick_token::{ContainerCapabilities, NetworkRule, TokenAuthority};
 use hick_condition::Condition;
 use crate::executor::{ContainerExecutor, ContainerResourceStats, ExecTranscriptEntry};
 use crate::pool::SharedPool;
-
-// ---------------------------------------------------------------------------
-// Exec output control
-// ---------------------------------------------------------------------------
-
-/// Controls which parts of an exec transcript are rendered in file output.
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum ExecShow {
-    /// Show commands and output (default).
-    All,
-    /// Show commands only.
-    Command,
-    /// Show output only.
-    Output,
-    /// Show nothing (side-effect only).
-    None,
-}
-
-pub(crate) fn parse_exec_show(tag: &HickTag) -> ExecShow {
-    match tag_attr(tag, "show").as_deref() {
-        Some("command") => ExecShow::Command,
-        Some("output") => ExecShow::Output,
-        Some("none") => ExecShow::None,
-        _ => ExecShow::All,
-    }
-}
-
-pub(crate) fn render_transcript(entries: &[ExecTranscriptEntry], show: ExecShow) -> String {
-    let mut out = String::new();
-    for entry in entries {
-        if matches!(show, ExecShow::All | ExecShow::Command) {
-            for cmd in &entry.commands {
-                out.push_str(&format!("$ {cmd}\n"));
-            }
-        }
-        if matches!(show, ExecShow::All | ExecShow::Output) && !entry.output.is_empty() {
-            out.push_str(&entry.output);
-            out.push('\n');
-        }
-    }
-    out
-}
 
 // ---------------------------------------------------------------------------
 // Pipeline result
@@ -243,6 +202,32 @@ fn prepare_pipeline<'a>(
     })
 }
 
+/// Create the tag registry with all built-in handlers.
+fn create_tag_registry() -> TagRegistry {
+    let mut registry = TagRegistry::new();
+    hick_handlers::handlers::register_builtins(&mut registry);
+    registry
+}
+
+/// Convert executor transcript entries to handler transcript entries.
+fn convert_transcripts(
+    exec_transcripts: &HashMap<String, Vec<ExecTranscriptEntry>>,
+) -> HashMap<String, Vec<TranscriptEntry>> {
+    exec_transcripts
+        .iter()
+        .map(|(k, entries)| {
+            let converted: Vec<TranscriptEntry> = entries
+                .iter()
+                .map(|e| TranscriptEntry {
+                    commands: e.commands.clone(),
+                    output: e.output.clone(),
+                })
+                .collect();
+            (k.clone(), converted)
+        })
+        .collect()
+}
+
 /// Shared epilogue: register copy/cut/substitute/exclude blocks, process
 /// file outputs, weave output, and converge files with exclusion filtering.
 async fn process_pipeline_outputs(
@@ -250,52 +235,28 @@ async fn process_pipeline_outputs(
     state: &Arc<MultiDocumentState>,
     transcripts: &HashMap<String, Vec<ExecTranscriptEntry>>,
 ) -> HashMap<String, String> {
+    let registry = create_tag_registry();
+    let handler_transcripts = convert_transcripts(transcripts);
+
     let all_nodes: Vec<&HickNode> = documents
         .iter()
         .flat_map(|(_, doc)| doc.nodes.iter())
         .collect();
 
-    // Process copy/cut/substitute blocks
+    // Declaration phase: process copy/cut/substitute/exclude via handlers
+    let decl_apply_subs = |text: &str| apply_substitutions(text, state);
+    let decl_ctx = ProcessingContext {
+        state,
+        transcripts: &handler_transcripts,
+        indent: 0,
+        apply_substitutions: &decl_apply_subs,
+    };
     for node in &all_nodes {
         if let HickNode::Tag(tag) = node {
-            match tag.name.as_str() {
-                "copy" => {
-                    let id = tag_attr(tag, "id").unwrap_or_default();
-                    let class = tag_attr(tag, "class");
-                    let content = collect_text_children(tag);
-                    state.register_copy_with_class(id, class.as_deref(), content);
+            if let Some(handler) = registry.find(&tag.name) {
+                if handler.phase() == ProcessingPhase::Declaration {
+                    let _ = handler.process(tag, &decl_ctx);
                 }
-                "cut" => {
-                    let id = tag_attr(tag, "id").unwrap_or_default();
-                    let class = tag_attr(tag, "class");
-                    let content = collect_text_children(tag);
-                    state.register_cut_with_class(id, class.as_deref(), content);
-                }
-                "substitute" => {
-                    let name = tag_attr(tag, "name").unwrap_or_default();
-                    let pattern = tag_attr(tag, "pattern").unwrap_or_default();
-                    let value = tag_attr(tag, "value")
-                        .or_else(|| state.resolve_var(&name))
-                        .unwrap_or_default();
-                    let variants = tag_attr(tag, "variants")
-                        .map(|v| v == "true" || v == "1")
-                        .unwrap_or(false);
-                    state.register_substitution(
-                        name,
-                        SubstitutionDef {
-                            pattern,
-                            value,
-                            variants,
-                        },
-                    );
-                }
-                "exclude" => {
-                    let pattern = tag_attr(tag, "pattern").unwrap_or_default();
-                    if !pattern.is_empty() {
-                        state.register_exclusion(pattern);
-                    }
-                }
-                _ => {}
             }
         }
     }
@@ -309,7 +270,7 @@ async fn process_pipeline_outputs(
             let path = interpolate_path(&raw_path, state);
             let file_ip = Arc::new(InsertionPoint::new());
 
-            process_file_children(&tag.children, &file_ip, transcripts, state, tag.source_column);
+            process_file_children(&tag.children, &file_ip, &handler_transcripts, state, tag.source_column, &registry);
 
             file_ip.close();
             state.add_file_output(path, file_ip);
@@ -317,7 +278,7 @@ async fn process_pipeline_outputs(
     }
 
     // Process weave output if enabled
-    weave::process_weave_output(documents, transcripts, state);
+    weave::process_weave_output(documents, &handler_transcripts, state, &registry);
 
     // Converge file outputs
     let files = state.get_files().await;
@@ -841,61 +802,50 @@ fn filter_conditionals(nodes: &mut Vec<HickNode>, state: &MultiDocumentState) {
 use text::{apply_exclusions, apply_substitutions, interpolate_path};
 
 /// Process children of a `<hick:file>` tag, adding rendered content to the
-/// insertion point. Handles text nodes, exec transcript rendering (with
-/// `show` attribute), paste resolution, and val interpolation.
+/// insertion point. Delegates content tags (exec, paste, val) to the handler
+/// registry.
 ///
 /// The `indent` parameter specifies how many leading spaces to strip from each
 /// line of text content (typically the source_column of the parent tag).
 fn process_file_children(
     children: &[HickNode],
     file_ip: &Arc<InsertionPoint>,
-    transcripts: &HashMap<String, Vec<ExecTranscriptEntry>>,
-    state: &MultiDocumentState,
+    transcripts: &HashMap<String, Vec<TranscriptEntry>>,
+    state: &Arc<MultiDocumentState>,
     indent: usize,
+    registry: &TagRegistry,
 ) {
+    let apply_subs = |text: &str| apply_substitutions(text, state);
+    let ctx = ProcessingContext {
+        state,
+        transcripts,
+        indent,
+        apply_substitutions: &apply_subs,
+    };
+
     for child in children {
         match child {
             HickNode::Text(text) => {
-                // Dedent and apply substitutions to text content
                 let dedented = dedent(text, indent);
                 let substituted = apply_substitutions(&dedented, state);
                 file_ip.add(Arc::new(StringNode::new(substituted)));
             }
-            HickNode::Tag(child_tag) if child_tag.name == "exec" => {
-                let container_name = tag_attr(child_tag, "container").unwrap_or_default();
-                let show = parse_exec_show(child_tag);
-
-                if show == ExecShow::None {
-                    // Side-effect only, render nothing
-                } else if let Some(entries) = transcripts.get(&container_name) {
-                    let rendered = render_transcript(entries, show);
-                    file_ip.add(Arc::new(StringNode::new(rendered)));
-                } else {
-                    file_ip.add(Arc::new(StringNode::new(format!(
-                        "[no transcript for container '{container_name}']"
-                    ))));
+            HickNode::Tag(child_tag) => {
+                if let Some(handler) = registry.find(&child_tag.name) {
+                    match handler.process(child_tag, &ctx) {
+                        Ok(TagResult::Node(n)) => file_ip.add(n),
+                        Ok(TagResult::Nodes(ns)) => {
+                            for n in ns {
+                                file_ip.add(n);
+                            }
+                        }
+                        Ok(TagResult::Declaration) => {}
+                        Err(e) => {
+                            warn!("Handler error for <{}>: {}", child_tag.name, e);
+                        }
+                    }
                 }
             }
-            HickNode::Tag(child_tag) if child_tag.name == "paste" => {
-                let selector = tag_attr(child_tag, "select").unwrap_or_default();
-                if let Some(content) = state.resolve_paste(&selector) {
-                    // Dedent and apply substitutions to pasted content
-                    let dedented = dedent(&content, indent);
-                    let substituted = apply_substitutions(&dedented, state);
-                    file_ip.add(Arc::new(StringNode::new(substituted)));
-                } else {
-                    warn!("Paste selector '{selector}' not found");
-                }
-            }
-            HickNode::Tag(child_tag) if child_tag.name == "val" => {
-                let var_name = tag_attr(child_tag, "name").unwrap_or_default();
-                if let Some(value) = state.resolve_var(&var_name) {
-                    file_ip.add(Arc::new(StringNode::new(value)));
-                } else {
-                    warn!("Variable '{var_name}' not found");
-                }
-            }
-            _ => {}
         }
     }
 }
