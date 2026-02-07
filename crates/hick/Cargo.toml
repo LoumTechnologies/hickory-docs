@@ -29,6 +29,7 @@ hick-api = { path = "../hick-api" }
 hick-case = { path = "../hick-case" }
 hick-condition = { path = "../hick-condition" }
 hick-exec = { path = "../hick-exec" }
+hick-handlers = { path = "../hick-handlers" }
 hick-feature = { path = "../hick-feature" }
 hick-lang = { path = "../hick-lang" }
 hick-secrets = { path = "../hick-secrets" }

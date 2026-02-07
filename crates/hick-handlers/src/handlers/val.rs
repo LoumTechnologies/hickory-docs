@@ -16,22 +16,15 @@ use crate::{ProcessingContext, ProcessingPhase, TagHandler, TagResult, tag_attr}
 /// # Attributes
 ///
 /// - `name` - Required variable name to output
-///
-/// # Example
-///
-/// ```xml
-/// <hick:var name="version">1.0.0</hick:var>
-/// <hick:val name="version" />  <!-- outputs: 1.0.0 -->
-/// ```
 pub struct ValHandler;
 
 impl TagHandler for ValHandler {
-    fn name(&self) -> &str {
+    fn tag_name(&self) -> &str {
         "val"
     }
 
     fn phase(&self) -> ProcessingPhase {
-        ProcessingPhase::Main
+        ProcessingPhase::Content
     }
 
     fn process(&self, tag: &HickTag, ctx: &ProcessingContext) -> Result<TagResult> {
@@ -63,18 +56,22 @@ mod tests {
         }
     }
 
+    fn make_ctx<'a>(state: &'a Arc<MultiDocumentState>, transcripts: &'a HashMap<String, Vec<crate::TranscriptEntry>>) -> ProcessingContext<'a> {
+        ProcessingContext {
+            state,
+            transcripts,
+            indent: 0,
+            apply_substitutions: &|s: &str| s.to_string(),
+        }
+    }
+
     #[test]
     fn val_handler_resolves_variable() {
         let state = Arc::new(MultiDocumentState::default());
         state.register_var("version".to_string(), "2.0.0".to_string());
 
         let transcripts = HashMap::new();
-        let ctx = ProcessingContext {
-            state: &state,
-            transcripts: &transcripts,
-            parent_ip: None,
-            document_name: "test.hick",
-        };
+        let ctx = make_ctx(&state, &transcripts);
 
         let tag = make_tag("val", vec![("name".to_string(), "version".to_string())]);
 
@@ -93,12 +90,7 @@ mod tests {
     fn val_handler_missing_returns_declaration() {
         let state = Arc::new(MultiDocumentState::default());
         let transcripts = HashMap::new();
-        let ctx = ProcessingContext {
-            state: &state,
-            transcripts: &transcripts,
-            parent_ip: None,
-            document_name: "test.hick",
-        };
+        let ctx = make_ctx(&state, &transcripts);
 
         let tag = make_tag("val", vec![("name".to_string(), "missing".to_string())]);
 

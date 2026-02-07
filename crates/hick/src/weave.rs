@@ -11,9 +11,10 @@ use hick_exec::node::{InsertionPoint, StringNode};
 use hick_exec::state::MultiDocumentState;
 use hick_lang::{HickDocument, HickNode, dedent};
 
-use crate::executor::ExecTranscriptEntry;
+use hick_handlers::{ProcessingContext, ProcessingPhase, TagRegistry, TagResult, TranscriptEntry};
+
 use crate::text::{apply_substitutions, interpolate_path};
-use crate::{ExecShow, parse_exec_show, render_transcript, tag_attr};
+use crate::tag_attr;
 
 /// Map file extension to markdown code fence language identifier.
 fn extension_to_language(path: &str) -> &'static str {
@@ -55,17 +56,15 @@ fn extension_to_language(path: &str) -> &'static str {
 /// Iterates through nodes and emits:
 /// - `HickNode::Text` → prose (with substitutions applied, dedented)
 /// - `<hick:file>` → heading + fenced code block (unless `doc-hidden="true"`)
-/// - `<hick:val>` → resolved variable value
+/// - `<hick:val>` → resolved variable value (via registry)
 /// - `<hick:when>` → recursively process children (already filtered)
-///
-/// The `indent` parameter specifies how many leading spaces to strip from prose
-/// text (typically 0 for top-level content, or the parent tag's source_column).
 fn process_weave_content(
     nodes: &[HickNode],
     weave_ip: &Arc<InsertionPoint>,
-    transcripts: &HashMap<String, Vec<ExecTranscriptEntry>>,
-    state: &MultiDocumentState,
+    transcripts: &HashMap<String, Vec<TranscriptEntry>>,
+    state: &Arc<MultiDocumentState>,
     indent: usize,
+    registry: &TagRegistry,
 ) {
     for node in nodes {
         match node {
@@ -76,7 +75,7 @@ fn process_weave_content(
                 weave_ip.add(Arc::new(StringNode::new(substituted)));
             }
             HickNode::Tag(tag) => {
-                process_weave_tag(tag, weave_ip, transcripts, state);
+                process_weave_tag(tag, weave_ip, transcripts, state, registry);
             }
         }
     }
@@ -86,8 +85,9 @@ fn process_weave_content(
 fn process_weave_tag(
     tag: &hick_lang::HickTag,
     weave_ip: &Arc<InsertionPoint>,
-    transcripts: &HashMap<String, Vec<ExecTranscriptEntry>>,
-    state: &MultiDocumentState,
+    transcripts: &HashMap<String, Vec<TranscriptEntry>>,
+    state: &Arc<MultiDocumentState>,
+    registry: &TagRegistry,
 ) {
     match tag.name.as_str() {
         "file" => {
@@ -108,26 +108,41 @@ fn process_weave_tag(
                 weave_ip.add(Arc::new(StringNode::new(format!("```{language}\n"))));
 
                 // Process file content with dedenting based on file tag's indentation
-                process_file_children_to_weave(&tag.children, weave_ip, transcripts, state, tag.source_column);
+                process_file_children_to_weave(&tag.children, weave_ip, transcripts, state, tag.source_column, registry);
 
                 // Emit closing code fence
                 weave_ip.add(Arc::new(StringNode::new("```\n".to_string())));
             }
         }
-        "val" => {
-            let var_name = tag_attr(tag, "name").unwrap_or_default();
-            if let Some(value) = state.resolve_var(&var_name) {
-                weave_ip.add(Arc::new(StringNode::new(value)));
-            }
-        }
         "when" => {
             // When tags have already been filtered, so just process children
             // Use the when tag's indentation for dedenting child content
-            process_weave_content(&tag.children, weave_ip, transcripts, state, tag.source_column);
+            process_weave_content(&tag.children, weave_ip, transcripts, state, tag.source_column, registry);
         }
-        // Skip other tags (var, copy, cut, substitute, feature, exclude, etc.)
-        // These are structural and don't produce weave output
-        _ => {}
+        _ => {
+            // Delegate to registry for content handlers (val, etc.)
+            if let Some(handler) = registry.find(&tag.name) {
+                if handler.phase() == ProcessingPhase::Content {
+                    let apply_subs = |text: &str| apply_substitutions(text, state);
+                    let ctx = ProcessingContext {
+                        state,
+                        transcripts,
+                        indent: 0,
+                        apply_substitutions: &apply_subs,
+                    };
+                    match handler.process(tag, &ctx) {
+                        Ok(TagResult::Node(n)) => weave_ip.add(n),
+                        Ok(TagResult::Nodes(ns)) => {
+                            for n in ns {
+                                weave_ip.add(n);
+                            }
+                        }
+                        _ => {}
+                    }
+                }
+            }
+            // Skip declaration-phase tags (var, copy, cut, substitute, etc.)
+        }
     }
 }
 
@@ -138,10 +153,19 @@ fn process_weave_tag(
 fn process_file_children_to_weave(
     children: &[HickNode],
     weave_ip: &Arc<InsertionPoint>,
-    transcripts: &HashMap<String, Vec<ExecTranscriptEntry>>,
-    state: &MultiDocumentState,
+    transcripts: &HashMap<String, Vec<TranscriptEntry>>,
+    state: &Arc<MultiDocumentState>,
     indent: usize,
+    registry: &TagRegistry,
 ) {
+    let apply_subs = |text: &str| apply_substitutions(text, state);
+    let ctx = ProcessingContext {
+        state,
+        transcripts,
+        indent,
+        apply_substitutions: &apply_subs,
+    };
+
     for child in children {
         match child {
             HickNode::Text(text) => {
@@ -150,33 +174,19 @@ fn process_file_children_to_weave(
                 let substituted = apply_substitutions(&dedented, state);
                 weave_ip.add(Arc::new(StringNode::new(substituted)));
             }
-            HickNode::Tag(child_tag) if child_tag.name == "exec" => {
-                let container_name = tag_attr(child_tag, "container").unwrap_or_default();
-                let show = parse_exec_show(child_tag);
-
-                if show != ExecShow::None {
-                    if let Some(entries) = transcripts.get(&container_name) {
-                        let rendered = render_transcript(entries, show);
-                        weave_ip.add(Arc::new(StringNode::new(rendered)));
+            HickNode::Tag(child_tag) => {
+                if let Some(handler) = registry.find(&child_tag.name) {
+                    match handler.process(child_tag, &ctx) {
+                        Ok(TagResult::Node(n)) => weave_ip.add(n),
+                        Ok(TagResult::Nodes(ns)) => {
+                            for n in ns {
+                                weave_ip.add(n);
+                            }
+                        }
+                        _ => {}
                     }
                 }
             }
-            HickNode::Tag(child_tag) if child_tag.name == "paste" => {
-                let selector = tag_attr(child_tag, "select").unwrap_or_default();
-                if let Some(content) = state.resolve_paste(&selector) {
-                    // Dedent and apply substitutions to pasted content
-                    let dedented = dedent(&content, indent);
-                    let substituted = apply_substitutions(&dedented, state);
-                    weave_ip.add(Arc::new(StringNode::new(substituted)));
-                }
-            }
-            HickNode::Tag(child_tag) if child_tag.name == "val" => {
-                let var_name = tag_attr(child_tag, "name").unwrap_or_default();
-                if let Some(value) = state.resolve_var(&var_name) {
-                    weave_ip.add(Arc::new(StringNode::new(value)));
-                }
-            }
-            _ => {}
         }
     }
 }
@@ -184,8 +194,9 @@ fn process_file_children_to_weave(
 /// Process weave output for all documents if weave is enabled.
 pub(crate) fn process_weave_output(
     documents: &[(&str, HickDocument)],
-    transcripts: &HashMap<String, Vec<ExecTranscriptEntry>>,
-    state: &MultiDocumentState,
+    transcripts: &HashMap<String, Vec<TranscriptEntry>>,
+    state: &Arc<MultiDocumentState>,
+    registry: &TagRegistry,
 ) {
     // Find the weave path (use the first document that has one)
     let weave_path = documents
@@ -198,7 +209,7 @@ pub(crate) fn process_weave_output(
         // Process all document nodes for weave output
         // Use 0 indent for top-level content (direct children of <hick:doc>)
         for (_, doc) in documents {
-            process_weave_content(&doc.nodes, &weave_ip, transcripts, state, 0);
+            process_weave_content(&doc.nodes, &weave_ip, transcripts, state, 0, registry);
         }
 
         weave_ip.close();

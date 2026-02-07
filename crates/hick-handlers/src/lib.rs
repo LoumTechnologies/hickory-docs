@@ -12,7 +12,8 @@
 //! struct MyCustomHandler;
 //!
 //! impl TagHandler for MyCustomHandler {
-//!     fn name(&self) -> &str { "my-custom" }
+//!     fn tag_name(&self) -> &str { "my-custom" }
+//!     fn phase(&self) -> ProcessingPhase { ProcessingPhase::Content }
 //!
 //!     fn process(&self, tag: &HickTag, ctx: &ProcessingContext) -> anyhow::Result<TagResult> {
 //!         // Custom processing logic
@@ -25,13 +26,12 @@
 //! ```
 
 pub mod handlers;
-pub mod transform;
 
 use std::collections::HashMap;
 use std::sync::Arc;
 
 use anyhow::Result;
-use hick_exec::node::{InsertionPoint, Node};
+use hick_exec::node::Node;
 use hick_exec::state::MultiDocumentState;
 use hick_lang::HickTag;
 
@@ -45,56 +45,32 @@ use hick_lang::HickTag;
 /// - Output nodes for file content
 /// - Side-effect declarations (variables, substitutions, etc.)
 /// - Multiple nodes
-/// - Signals to process children
 pub trait TagHandler: Send + Sync {
     /// The tag name this handler processes (without namespace prefix).
-    fn name(&self) -> &str;
+    fn tag_name(&self) -> &str;
+
+    /// The processing phase this handler runs in.
+    fn phase(&self) -> ProcessingPhase;
 
     /// Process the tag and return a result.
     fn process(&self, tag: &HickTag, ctx: &ProcessingContext) -> Result<TagResult>;
-
-    /// Handler priority (higher runs first). Default is 0.
-    fn priority(&self) -> i32 {
-        0
-    }
-
-    /// Whether this handler produces a transformation of its children.
-    fn is_transformation(&self) -> bool {
-        false
-    }
-
-    /// Optional phase for multi-pass processing.
-    /// Handlers are grouped by phase and all handlers in a phase run before
-    /// moving to the next phase.
-    fn phase(&self) -> ProcessingPhase {
-        ProcessingPhase::Main
-    }
 }
 
 // ---------------------------------------------------------------------------
 // Processing Phases
 // ---------------------------------------------------------------------------
 
-/// Processing phases for multi-pass tag handling.
+/// Processing phases for tag handling.
 ///
 /// Tags are processed in phase order:
-/// 1. Variables - Scan and register variables
-/// 2. Features - Process feature definitions
-/// 3. Conditional - Filter based on conditions
-/// 4. Declaration - Register copy/cut/substitute/etc.
-/// 5. Main - Process file outputs and other content
+/// 1. Declaration - Register copy/cut/substitute/exclude (side-effect only)
+/// 2. Content - Produce file output nodes (exec, paste, val)
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum ProcessingPhase {
-    /// Variable scanning (first pass).
-    Variables = 0,
-    /// Feature registration.
-    Features = 1,
-    /// Conditional filtering.
-    Conditional = 2,
-    /// Declaration processing (copy, cut, substitute, etc.).
-    Declaration = 3,
-    /// Main content processing (file, exec, etc.).
-    Main = 4,
+    /// Declaration processing (copy, cut, substitute, exclude).
+    Declaration = 0,
+    /// Content processing (exec, paste, val).
+    Content = 1,
 }
 
 // ---------------------------------------------------------------------------
@@ -113,15 +89,6 @@ pub enum TagResult {
 
     /// Produces multiple output nodes.
     Nodes(Vec<Arc<dyn Node>>),
-
-    /// Signal to recursively process children.
-    ProcessChildren,
-
-    /// Signal to skip this tag entirely (filtered by condition).
-    Skip,
-
-    /// Signal to unwrap children (promote to parent level).
-    UnwrapChildren,
 }
 
 // ---------------------------------------------------------------------------
@@ -136,11 +103,11 @@ pub struct ProcessingContext<'a> {
     /// Execution transcripts for containers (container name -> entries).
     pub transcripts: &'a HashMap<String, Vec<TranscriptEntry>>,
 
-    /// The parent insertion point (for adding output).
-    pub parent_ip: Option<&'a Arc<InsertionPoint>>,
+    /// Number of leading spaces to strip when dedenting content.
+    pub indent: usize,
 
-    /// Current document name.
-    pub document_name: &'a str,
+    /// Callback to apply substitutions to text content.
+    pub apply_substitutions: &'a dyn Fn(&str) -> String,
 }
 
 /// A transcript entry for container execution.
@@ -153,14 +120,56 @@ pub struct TranscriptEntry {
 }
 
 // ---------------------------------------------------------------------------
+// Exec output control
+// ---------------------------------------------------------------------------
+
+/// Controls which parts of an exec transcript are rendered in file output.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ExecShow {
+    /// Show commands and output (default).
+    All,
+    /// Show commands only.
+    Command,
+    /// Show output only.
+    Output,
+    /// Show nothing (side-effect only).
+    None,
+}
+
+/// Parse the `show` attribute of an `<exec>` tag into an `ExecShow`.
+pub fn parse_exec_show(tag: &HickTag) -> ExecShow {
+    match tag_attr(tag, "show").as_deref() {
+        Some("command") => ExecShow::Command,
+        Some("output") => ExecShow::Output,
+        Some("none") => ExecShow::None,
+        _ => ExecShow::All,
+    }
+}
+
+/// Render transcript entries according to the `show` mode.
+pub fn render_transcript(entries: &[TranscriptEntry], show: ExecShow) -> String {
+    let mut out = String::new();
+    for entry in entries {
+        if matches!(show, ExecShow::All | ExecShow::Command) {
+            for cmd in &entry.commands {
+                out.push_str(&format!("$ {cmd}\n"));
+            }
+        }
+        if matches!(show, ExecShow::All | ExecShow::Output) && !entry.output.is_empty() {
+            out.push_str(&entry.output);
+            out.push('\n');
+        }
+    }
+    out
+}
+
+// ---------------------------------------------------------------------------
 // Tag Registry
 // ---------------------------------------------------------------------------
 
 /// Registry for tag handlers.
 ///
 /// Handlers are stored by name and can be looked up during tag processing.
-/// Multiple handlers can be registered for the same tag; they are sorted by
-/// priority (highest first) and the first matching handler is used.
 pub struct TagRegistry {
     handlers: Vec<Box<dyn TagHandler>>,
     by_name: HashMap<String, Vec<usize>>,
@@ -183,58 +192,18 @@ impl TagRegistry {
 
     /// Register a handler.
     pub fn register(&mut self, handler: Box<dyn TagHandler>) {
-        let name = handler.name().to_string();
+        let name = handler.tag_name().to_string();
         let idx = self.handlers.len();
         self.handlers.push(handler);
-
         self.by_name.entry(name).or_default().push(idx);
-
-        // Sort handlers for this name by priority (descending)
-        if let Some(indices) = self.by_name.get_mut(self.handlers[idx].name()) {
-            indices.sort_by(|&a, &b| {
-                self.handlers[b]
-                    .priority()
-                    .cmp(&self.handlers[a].priority())
-            });
-        }
     }
 
-    /// Find the highest-priority handler for a tag name.
+    /// Find the handler for a tag name.
     pub fn find(&self, name: &str) -> Option<&dyn TagHandler> {
         self.by_name
             .get(name)
             .and_then(|indices| indices.first())
             .map(|&idx| self.handlers[idx].as_ref())
-    }
-
-    /// Get all handlers for a tag name, sorted by priority (highest first).
-    pub fn find_all(&self, name: &str) -> Vec<&dyn TagHandler> {
-        self.by_name
-            .get(name)
-            .map(|indices| {
-                indices
-                    .iter()
-                    .map(|&idx| self.handlers[idx].as_ref())
-                    .collect()
-            })
-            .unwrap_or_default()
-    }
-
-    /// Get all handlers in a specific phase, sorted by priority.
-    pub fn handlers_in_phase(&self, phase: ProcessingPhase) -> Vec<&dyn TagHandler> {
-        let mut result: Vec<_> = self
-            .handlers
-            .iter()
-            .filter(|h| h.phase() == phase)
-            .map(|h| h.as_ref())
-            .collect();
-        result.sort_by(|a, b| b.priority().cmp(&a.priority()));
-        result
-    }
-
-    /// Get all registered handler names.
-    pub fn names(&self) -> Vec<&str> {
-        self.by_name.keys().map(|s| s.as_str()).collect()
     }
 
     /// Check if a handler is registered for a name.
@@ -276,21 +245,20 @@ mod tests {
     use super::*;
 
     struct TestHandler {
-        name: String,
-        priority: i32,
+        tag_name: String,
     }
 
     impl TagHandler for TestHandler {
-        fn name(&self) -> &str {
-            &self.name
+        fn tag_name(&self) -> &str {
+            &self.tag_name
+        }
+
+        fn phase(&self) -> ProcessingPhase {
+            ProcessingPhase::Declaration
         }
 
         fn process(&self, _tag: &HickTag, _ctx: &ProcessingContext) -> Result<TagResult> {
             Ok(TagResult::Declaration)
-        }
-
-        fn priority(&self) -> i32 {
-            self.priority
         }
     }
 
@@ -298,8 +266,7 @@ mod tests {
     fn registry_finds_handler() {
         let mut registry = TagRegistry::new();
         registry.register(Box::new(TestHandler {
-            name: "test".to_string(),
-            priority: 0,
+            tag_name: "test".to_string(),
         }));
 
         assert!(registry.find("test").is_some());
@@ -307,35 +274,10 @@ mod tests {
     }
 
     #[test]
-    fn registry_priority_ordering() {
-        let mut registry = TagRegistry::new();
-        registry.register(Box::new(TestHandler {
-            name: "test".to_string(),
-            priority: 1,
-        }));
-        registry.register(Box::new(TestHandler {
-            name: "test".to_string(),
-            priority: 10,
-        }));
-        registry.register(Box::new(TestHandler {
-            name: "test".to_string(),
-            priority: 5,
-        }));
-
-        let handlers = registry.find_all("test");
-        assert_eq!(handlers.len(), 3);
-        // Should be sorted by priority descending: 10, 5, 1
-        assert_eq!(handlers[0].priority(), 10);
-        assert_eq!(handlers[1].priority(), 5);
-        assert_eq!(handlers[2].priority(), 1);
-    }
-
-    #[test]
     fn registry_has_handler() {
         let mut registry = TagRegistry::new();
         registry.register(Box::new(TestHandler {
-            name: "copy".to_string(),
-            priority: 0,
+            tag_name: "copy".to_string(),
         }));
 
         assert!(registry.has_handler("copy"));
