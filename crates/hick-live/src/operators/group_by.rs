@@ -186,6 +186,10 @@ impl Node for GroupByNode {
     fn node_value(&self) -> NodeValue {
         NodeValue::None
     }
+
+    fn as_any(&self) -> Option<&dyn std::any::Any> {
+        Some(self)
+    }
 }
 
 #[cfg(test)]

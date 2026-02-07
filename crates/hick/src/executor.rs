@@ -706,6 +706,26 @@ impl ContainerExecutor {
         Ok(result)
     }
 
+    /// Execute a command with stdin data piped to the container.
+    ///
+    /// Writes the stdin content to a temporary file in the container,
+    /// then executes the command with stdin redirected from that file.
+    /// This avoids raw pipe-based stdin which can interleave with shell
+    /// echoes and marker detection.
+    pub async fn execute_with_stdin(
+        &mut self,
+        name: &str,
+        command: &str,
+        stdin_data: &str,
+    ) -> Result<String> {
+        // Write stdin to a temp file, then redirect it
+        let escaped = stdin_data.replace('\'', "'\\''");
+        let setup_cmd = format!(
+            "printf '%s' '{escaped}' > /tmp/.hick_stdin && {command} < /tmp/.hick_stdin && rm -f /tmp/.hick_stdin"
+        );
+        self.execute(name, &setup_cmd).await
+    }
+
     /// Create a mount point directory inside a running container.
     pub async fn create_mount_point(&mut self, name: &str, mount_path: &str) -> Result<()> {
         let rc = self

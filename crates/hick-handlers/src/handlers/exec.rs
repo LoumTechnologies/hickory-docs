@@ -3,13 +3,60 @@
 use std::sync::Arc;
 
 use anyhow::Result;
-use hick_exec::node::StringNode;
+use hick_exec::node::{BoxStream, Context, Node, NodeTrace, NodeValue, StringNode};
 use hick_lang::HickTag;
 
 use crate::{
     ExecShow, ProcessingContext, ProcessingPhase, TagHandler, TagResult,
     parse_exec_show, render_transcript, tag_attr,
 };
+
+// ---------------------------------------------------------------------------
+// ExecNode — provenance wrapper
+// ---------------------------------------------------------------------------
+
+/// Provenance wrapper around `StringNode` for exec transcript output.
+///
+/// Carries the container name, enabling trace-based identification of
+/// which container produced the output.
+pub(crate) struct ExecNode {
+    inner: StringNode,
+    container: String,
+}
+
+impl ExecNode {
+    pub fn new(content: impl Into<String>, container: impl Into<String>) -> Self {
+        Self {
+            inner: StringNode::new(content),
+            container: container.into(),
+        }
+    }
+}
+
+impl std::fmt::Debug for ExecNode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "ExecNode(container={:?})", self.container)
+    }
+}
+
+impl Node for ExecNode {
+    fn as_string_value(&self) -> Option<&str> {
+        self.inner.as_string_value()
+    }
+
+    fn node_value(&self) -> NodeValue {
+        self.inner.node_value()
+    }
+
+    fn get_stream(self: Arc<Self>, _context: Context) -> BoxStream<Vec<NodeTrace>> {
+        let trace = vec![NodeTrace::new(self as Arc<dyn Node>)];
+        Box::pin(futures::stream::once(async move { trace }))
+    }
+}
+
+// ---------------------------------------------------------------------------
+// ExecHandler
+// ---------------------------------------------------------------------------
 
 /// Handler for `<hick:exec>` tags.
 ///
@@ -40,11 +87,12 @@ impl TagHandler for ExecHandler {
 
         if let Some(entries) = ctx.transcripts.get(&container_name) {
             let rendered = render_transcript(entries, show);
-            Ok(TagResult::Node(Arc::new(StringNode::new(rendered))))
+            Ok(TagResult::Node(Arc::new(ExecNode::new(rendered, &container_name))))
         } else {
-            Ok(TagResult::Node(Arc::new(StringNode::new(format!(
-                "[no transcript for container '{container_name}']"
-            )))))
+            Ok(TagResult::Node(Arc::new(ExecNode::new(
+                format!("[no transcript for container '{container_name}']"),
+                &container_name,
+            ))))
         }
     }
 }
@@ -83,6 +131,8 @@ mod tests {
             state: &state,
             transcripts: &transcripts,
             indent: 0,
+            registry: None,
+            context: None,
         };
 
         let tag = make_tag(
@@ -110,6 +160,8 @@ mod tests {
             state: &state,
             transcripts: &transcripts,
             indent: 0,
+            registry: None,
+            context: None,
         };
 
         let tag = make_tag(
@@ -134,6 +186,8 @@ mod tests {
             state: &state,
             transcripts: &transcripts,
             indent: 0,
+            registry: None,
+            context: None,
         };
 
         let tag = make_tag(
@@ -171,6 +225,8 @@ mod tests {
             state: &state,
             transcripts: &transcripts,
             indent: 0,
+            registry: None,
+            context: None,
         };
 
         let tag = make_tag(

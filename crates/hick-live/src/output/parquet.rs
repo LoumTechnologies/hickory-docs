@@ -117,6 +117,10 @@ impl Node for ParquetFileNode {
     fn node_value(&self) -> NodeValue {
         NodeValue::None
     }
+
+    fn as_any(&self) -> Option<&dyn std::any::Any> {
+        Some(self)
+    }
 }
 
 /// Write a sequence of RecordBatches to a parquet file.

@@ -3,11 +3,58 @@
 use std::sync::Arc;
 
 use anyhow::Result;
-use hick_exec::node::StringNode;
+use hick_exec::node::{BoxStream, Context, Node, NodeTrace, NodeValue, StringNode};
 use hick_lang::HickTag;
 use log::warn;
 
 use crate::{ProcessingContext, ProcessingPhase, TagHandler, TagResult, tag_attr};
+
+// ---------------------------------------------------------------------------
+// ValNode — provenance wrapper
+// ---------------------------------------------------------------------------
+
+/// Provenance wrapper around `StringNode` for variable output.
+///
+/// Carries the variable name, enabling trace-based identification of
+/// where the value originated.
+pub(crate) struct ValNode {
+    inner: StringNode,
+    var_name: String,
+}
+
+impl ValNode {
+    pub fn new(value: impl Into<String>, var_name: impl Into<String>) -> Self {
+        Self {
+            inner: StringNode::new(value),
+            var_name: var_name.into(),
+        }
+    }
+}
+
+impl std::fmt::Debug for ValNode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "ValNode(var={:?})", self.var_name)
+    }
+}
+
+impl Node for ValNode {
+    fn as_string_value(&self) -> Option<&str> {
+        self.inner.as_string_value()
+    }
+
+    fn node_value(&self) -> NodeValue {
+        self.inner.node_value()
+    }
+
+    fn get_stream(self: Arc<Self>, _context: Context) -> BoxStream<Vec<NodeTrace>> {
+        let trace = vec![NodeTrace::new(self as Arc<dyn Node>)];
+        Box::pin(futures::stream::once(async move { trace }))
+    }
+}
+
+// ---------------------------------------------------------------------------
+// ValHandler
+// ---------------------------------------------------------------------------
 
 /// Handler for `<hick:val>` tags.
 ///
@@ -31,7 +78,7 @@ impl TagHandler for ValHandler {
         let var_name = tag_attr(tag, "name").unwrap_or_default();
 
         if let Some(value) = ctx.state.resolve_var(&var_name) {
-            Ok(TagResult::Node(Arc::new(StringNode::new(value))))
+            Ok(TagResult::Node(Arc::new(ValNode::new(value, &var_name))))
         } else {
             warn!("Variable '{}' not found", var_name);
             Ok(TagResult::Declaration)
@@ -61,6 +108,8 @@ mod tests {
             state,
             transcripts,
             indent: 0,
+            registry: None,
+            context: None,
         }
     }
 

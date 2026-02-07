@@ -33,6 +33,27 @@ pub struct ContentBlock {
 }
 
 // ---------------------------------------------------------------------------
+// Node Content Block (for node-based copy/paste storage)
+// ---------------------------------------------------------------------------
+
+/// Node-based content block for reactive paste resolution.
+///
+/// Stores `Arc<dyn Node>` instead of String, allowing paste to return
+/// the stored node directly for streaming.
+pub struct NodeContentBlock {
+    /// Optional unique identifier for `#id` selector.
+    pub id: Option<String>,
+    /// Class names for `.class` selector.
+    pub classes: Vec<String>,
+    /// The node holding this block's content.
+    pub node: Arc<dyn Node>,
+    /// Document order for deterministic concatenation.
+    pub order: usize,
+    /// Whether this is a cut block.
+    pub is_cut: bool,
+}
+
+// ---------------------------------------------------------------------------
 // Substitution Definition
 // ---------------------------------------------------------------------------
 
@@ -78,6 +99,8 @@ pub struct MultiDocumentState {
     cut_blocks: Mutex<HashMap<String, String>>,
     /// Content blocks: unified storage for copy/cut with class support.
     content_blocks: Mutex<Vec<ContentBlock>>,
+    /// Node-based content blocks: stores Arc<dyn Node> for reactive paste.
+    node_content_blocks: Mutex<Vec<NodeContentBlock>>,
     /// Counter for document order of content blocks.
     content_order_counter: AtomicUsize,
     /// Variables: name → value.
@@ -102,6 +125,7 @@ impl Default for MultiDocumentState {
             copy_blocks: Mutex::new(HashMap::new()),
             cut_blocks: Mutex::new(HashMap::new()),
             content_blocks: Mutex::new(Vec::new()),
+            node_content_blocks: Mutex::new(Vec::new()),
             content_order_counter: AtomicUsize::new(0),
             variables: Mutex::new(HashMap::new()),
             substitutions: Mutex::new(HashMap::new()),
@@ -237,6 +261,123 @@ impl MultiDocumentState {
         // Concatenate content
         let result: String = matching.iter().map(|b| b.content.as_str()).collect();
         Some(result)
+    }
+
+    // -----------------------------------------------------------------------
+    // Node-based copy/paste storage
+    // -----------------------------------------------------------------------
+
+    /// Register a copy block as a node (for reactive paste).
+    ///
+    /// The `string_fallback` provides the converged string content for backward
+    /// compat with string-based `resolve_paste()`.
+    pub fn register_copy_node(
+        &self,
+        id: String,
+        class: Option<&str>,
+        node: Arc<dyn Node>,
+        string_fallback: String,
+    ) {
+        self.register_node_block(id, class, node, string_fallback, false);
+    }
+
+    /// Register a cut block as a node (for reactive paste).
+    pub fn register_cut_node(
+        &self,
+        id: String,
+        class: Option<&str>,
+        node: Arc<dyn Node>,
+        string_fallback: String,
+    ) {
+        self.register_node_block(id, class, node, string_fallback, true);
+    }
+
+    /// Internal helper for registering both node-based and string-based storage.
+    fn register_node_block(
+        &self,
+        id: String,
+        class: Option<&str>,
+        node: Arc<dyn Node>,
+        string_fallback: String,
+        is_cut: bool,
+    ) {
+        let order = self.content_order_counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let classes: Vec<String> = class
+            .map(|c| c.split_whitespace().map(|s| s.to_string()).collect())
+            .unwrap_or_default();
+
+        // Store in node-based storage
+        let node_block = NodeContentBlock {
+            id: if id.is_empty() { None } else { Some(id.clone()) },
+            classes: classes.clone(),
+            node,
+            order,
+            is_cut,
+        };
+        self.node_content_blocks.lock().unwrap().push(node_block);
+
+        // Also populate string-based storage for backward compat
+        if !id.is_empty() {
+            if is_cut {
+                self.cut_blocks.lock().unwrap().insert(id.clone(), string_fallback.clone());
+            } else {
+                self.copy_blocks.lock().unwrap().insert(id.clone(), string_fallback.clone());
+            }
+        }
+        let block = ContentBlock {
+            id: if id.is_empty() { None } else { Some(id) },
+            classes,
+            content: string_fallback,
+            order,
+            is_cut,
+        };
+        self.content_blocks.lock().unwrap().push(block);
+    }
+
+    /// Resolve a paste selector to a node.
+    ///
+    /// For `#id` selectors, returns the single matching node.
+    /// For `.class` selectors, wraps matching nodes in an `InsertionPoint`.
+    pub fn resolve_paste_node(&self, selector: &str) -> Option<Arc<dyn Node>> {
+        let selector = selector.trim();
+
+        if let Some(class_name) = selector.strip_prefix('.') {
+            return self.resolve_class_node_selector(class_name);
+        }
+
+        let id = selector.trim_start_matches('#');
+        let blocks = self.node_content_blocks.lock().unwrap();
+        blocks
+            .iter()
+            .find(|b| b.id.as_deref() == Some(id))
+            .map(|b| b.node.clone())
+    }
+
+    /// Resolve a class selector to a node, wrapping multiple matches in an InsertionPoint.
+    fn resolve_class_node_selector(&self, class_name: &str) -> Option<Arc<dyn Node>> {
+        let blocks = self.node_content_blocks.lock().unwrap();
+
+        let mut matching: Vec<&NodeContentBlock> = blocks
+            .iter()
+            .filter(|b| b.classes.iter().any(|c| c == class_name))
+            .collect();
+
+        if matching.is_empty() {
+            return None;
+        }
+
+        matching.sort_by_key(|b| b.order);
+
+        if matching.len() == 1 {
+            return Some(matching[0].node.clone());
+        }
+
+        let ip = Arc::new(InsertionPoint::new());
+        for block in &matching {
+            ip.add(block.node.clone());
+        }
+        ip.close();
+        Some(ip as Arc<dyn Node>)
     }
 
     /// Get all file outputs, converging each to text or binary content.

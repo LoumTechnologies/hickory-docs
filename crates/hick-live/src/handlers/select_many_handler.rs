@@ -6,7 +6,10 @@ use hick_lang::HickTag;
 
 /// Handler for `<hick:select-many>` tags.
 ///
-/// Placeholder: recognises the tag so the pipeline doesn't skip it.
+/// Placeholder: `SelectManyNode` requires a programmatic `InnerFn` closure
+/// that cannot be expressed via XML attributes alone. This handler is
+/// registered so the pipeline recognises the tag. A real implementation
+/// would require an expression language or a companion config mechanism.
 pub struct SelectManyHandler;
 
 impl TagHandler for SelectManyHandler {
@@ -19,7 +22,7 @@ impl TagHandler for SelectManyHandler {
     }
 
     fn process(&self, _tag: &HickTag, _ctx: &ProcessingContext) -> Result<TagResult> {
-        log::debug!("select-many handler");
+        log::debug!("select-many handler: no XML-level implementation yet");
         Ok(TagResult::Declaration)
     }
 }

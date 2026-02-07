@@ -12,6 +12,7 @@ pub mod output;
 pub mod schema;
 pub mod sources;
 
+pub use changes::strict::make_strict;
 pub use changes::{ChangeStream, ChangeType, RecordChange};
 pub use node::{NodeExt, RecordChangeNode, StreamingStructuredDataNode};
 pub use schema::LiveSchema;

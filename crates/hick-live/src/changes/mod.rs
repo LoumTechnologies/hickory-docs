@@ -3,6 +3,8 @@
 //! Mirrors LiveLinq's `CollectionChangeType` pattern: Add and Remove only.
 //! Updates are expressed as Remove + Add (same as the C# original).
 
+pub mod strict;
+
 use std::pin::Pin;
 use std::sync::Arc;
 

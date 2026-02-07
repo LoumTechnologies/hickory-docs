@@ -112,6 +112,10 @@ impl Node for StreamingStructuredDataNode {
         NodeValue::None
     }
 
+    fn as_any(&self) -> Option<&dyn Any> {
+        Some(self)
+    }
+
     fn id_bytes(&self) -> Vec<u8> {
         if let Some(id) = &self.stable_id {
             return id.as_bytes().to_vec();

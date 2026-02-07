@@ -570,6 +570,7 @@ async fn run_single_shot(cli: RunArgs) -> Result<()> {
         let pipeline_config = hick::PipelineConfig {
             images_dir,
             working_dir: None,
+            max_rounds: 1,
         };
         hick::run_pipeline_live(&sources, &pipeline_config, &params, cc.as_ref(), None).await?
     };
