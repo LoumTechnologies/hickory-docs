@@ -7,7 +7,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use hick_exec::node::{InsertionPoint, StringNode};
+use hick_exec::node::{InsertionPoint, Node, StringNode, TransformNode};
 use hick_exec::state::MultiDocumentState;
 use hick_lang::{HickDocument, HickNode, dedent};
 
@@ -69,10 +69,8 @@ fn process_weave_content(
     for node in nodes {
         match node {
             HickNode::Text(text) => {
-                // Dedent and apply substitutions to prose text
                 let dedented = dedent(text, indent);
-                let substituted = apply_substitutions(&dedented, state);
-                weave_ip.add(Arc::new(StringNode::new(substituted)));
+                weave_ip.add(Arc::new(StringNode::new(dedented)));
             }
             HickNode::Tag(tag) => {
                 process_weave_tag(tag, weave_ip, transcripts, state, registry);
@@ -123,12 +121,10 @@ fn process_weave_tag(
             // Delegate to registry for content handlers (val, etc.)
             if let Some(handler) = registry.find(&tag.name) {
                 if handler.phase() == ProcessingPhase::Content {
-                    let apply_subs = |text: &str| apply_substitutions(text, state);
                     let ctx = ProcessingContext {
                         state,
                         transcripts,
                         indent: 0,
-                        apply_substitutions: &apply_subs,
                     };
                     match handler.process(tag, &ctx) {
                         Ok(TagResult::Node(n)) => weave_ip.add(n),
@@ -158,21 +154,17 @@ fn process_file_children_to_weave(
     indent: usize,
     registry: &TagRegistry,
 ) {
-    let apply_subs = |text: &str| apply_substitutions(text, state);
     let ctx = ProcessingContext {
         state,
         transcripts,
         indent,
-        apply_substitutions: &apply_subs,
     };
 
     for child in children {
         match child {
             HickNode::Text(text) => {
-                // Dedent and apply substitutions to text content
                 let dedented = dedent(text, indent);
-                let substituted = apply_substitutions(&dedented, state);
-                weave_ip.add(Arc::new(StringNode::new(substituted)));
+                weave_ip.add(Arc::new(StringNode::new(dedented)));
             }
             HickNode::Tag(child_tag) => {
                 if let Some(handler) = registry.find(&child_tag.name) {
@@ -204,14 +196,25 @@ pub(crate) fn process_weave_output(
         .find_map(|(_, doc)| doc.weave_path.as_ref());
 
     if let Some(weave_path) = weave_path {
-        let weave_ip = Arc::new(InsertionPoint::new());
+        let raw_ip = Arc::new(InsertionPoint::new());
 
         // Process all document nodes for weave output
         // Use 0 indent for top-level content (direct children of <hick:doc>)
         for (_, doc) in documents {
-            process_weave_content(&doc.nodes, &weave_ip, transcripts, state, 0, registry);
+            process_weave_content(&doc.nodes, &raw_ip, transcripts, state, 0, registry);
         }
 
+        raw_ip.close();
+
+        let subs_state = state.clone();
+        let transform: Arc<dyn Node> = Arc::new(TransformNode::new(
+            raw_ip,
+            move |text| apply_substitutions(text, &subs_state),
+            "substitute",
+        ));
+
+        let weave_ip = Arc::new(InsertionPoint::new());
+        weave_ip.add(transform);
         weave_ip.close();
         state.add_file_output(weave_path.clone(), weave_ip);
     }

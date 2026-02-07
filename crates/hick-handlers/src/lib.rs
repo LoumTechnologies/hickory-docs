@@ -105,9 +105,6 @@ pub struct ProcessingContext<'a> {
 
     /// Number of leading spaces to strip when dedenting content.
     pub indent: usize,
-
-    /// Callback to apply substitutions to text content.
-    pub apply_substitutions: &'a dyn Fn(&str) -> String,
 }
 
 /// A transcript entry for container execution.
