@@ -29,7 +29,7 @@ use log::{debug, info, warn};
 use rand::RngCore;
 
 use hick_exec::dag;
-use hick_exec::node::{FileContent, InsertionPoint, StringNode};
+use hick_exec::node::{FileContent, InsertionPoint, Node, StringNode, TransformNode};
 use hick_exec::state::{FeatureInfo, MultiDocumentState};
 use hick_handlers::{ProcessingContext, ProcessingPhase, TagRegistry, TagResult, TranscriptEntry};
 
@@ -245,12 +245,10 @@ async fn process_pipeline_outputs(
         .collect();
 
     // Declaration phase: process copy/cut/substitute/exclude via handlers
-    let decl_apply_subs = |text: &str| apply_substitutions(text, state);
     let decl_ctx = ProcessingContext {
         state,
         transcripts: &handler_transcripts,
         indent: 0,
-        apply_substitutions: &decl_apply_subs,
     };
     for node in &all_nodes {
         if let HickNode::Tag(tag) = node {
@@ -269,10 +267,21 @@ async fn process_pipeline_outputs(
         {
             let raw_path = tag_attr(tag, "path").unwrap_or_default();
             let path = interpolate_path(&raw_path, state);
+            let raw_ip = Arc::new(InsertionPoint::new());
+
+            process_file_children(&tag.children, &raw_ip, &handler_transcripts, state, tag.source_column, &registry);
+
+            raw_ip.close();
+
+            let subs_state = state.clone();
+            let transform: Arc<dyn Node> = Arc::new(TransformNode::new(
+                raw_ip,
+                move |text| apply_substitutions(text, &subs_state),
+                "substitute",
+            ));
+
             let file_ip = Arc::new(InsertionPoint::new());
-
-            process_file_children(&tag.children, &file_ip, &handler_transcripts, state, tag.source_column, &registry);
-
+            file_ip.add(transform);
             file_ip.close();
             state.add_file_output(path, file_ip);
         }
@@ -816,20 +825,17 @@ fn process_file_children(
     indent: usize,
     registry: &TagRegistry,
 ) {
-    let apply_subs = |text: &str| apply_substitutions(text, state);
     let ctx = ProcessingContext {
         state,
         transcripts,
         indent,
-        apply_substitutions: &apply_subs,
     };
 
     for child in children {
         match child {
             HickNode::Text(text) => {
                 let dedented = dedent(text, indent);
-                let substituted = apply_substitutions(&dedented, state);
-                file_ip.add(Arc::new(StringNode::new(substituted)));
+                file_ip.add(Arc::new(StringNode::new(dedented)));
             }
             HickNode::Tag(child_tag) => {
                 if let Some(handler) = registry.find(&child_tag.name) {

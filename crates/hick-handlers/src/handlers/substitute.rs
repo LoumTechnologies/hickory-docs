@@ -74,7 +74,6 @@ mod tests {
             state,
             transcripts,
             indent: 0,
-            apply_substitutions: &|s: &str| s.to_string(),
         }
     }
 
