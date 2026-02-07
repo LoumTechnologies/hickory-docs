@@ -35,8 +35,7 @@ impl TagHandler for PasteHandler {
 
         if let Some(content) = ctx.state.resolve_paste(&selector) {
             let dedented = dedent(&content, ctx.indent);
-            let substituted = (ctx.apply_substitutions)(&dedented);
-            Ok(TagResult::Node(Arc::new(StringNode::new(substituted))))
+            Ok(TagResult::Node(Arc::new(StringNode::new(dedented))))
         } else {
             warn!("Paste selector '{}' not found", selector);
             Ok(TagResult::Declaration)
@@ -66,7 +65,6 @@ mod tests {
             state,
             transcripts,
             indent: 0,
-            apply_substitutions: &|s: &str| s.to_string(),
         }
     }
 

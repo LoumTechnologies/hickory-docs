@@ -2,7 +2,7 @@
 
 pub use hick_flow::{
     BinaryData, BinaryNode, BoxStream, Context, FileContent, InsertionPoint, Node, NodeTrace,
-    NodeValue, SeparatorNode, StringNode, converge, converge_to_string,
+    NodeValue, SeparatorNode, StringNode, TransformNode, converge, converge_to_string,
 };
 
 // Keep Operation accessible within this crate (hick-flow re-exports it as pub(crate)).
