@@ -21,5 +21,8 @@ docs/hick-guide.md
 # Scaffolding output
 scaffolding/output/
 
+# Generated matrix output
+matrix/
+
 # Auto-generated agent docs
 .agents/
