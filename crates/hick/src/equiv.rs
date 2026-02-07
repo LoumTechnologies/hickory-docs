@@ -171,8 +171,8 @@ pub enum DiffKind {
 
 /// Compare two sets of output files.
 pub fn compare_outputs(
-    files1: &HashMap<String, String>,
-    files2: &HashMap<String, String>,
+    files1: &HashMap<String, hick_exec::node::FileContent>,
+    files2: &HashMap<String, hick_exec::node::FileContent>,
 ) -> Vec<OutputDiff> {
     let mut diffs = Vec::new();
 
@@ -200,12 +200,15 @@ pub fn compare_outputs(
         let content1 = files1.get(*path).unwrap();
         let content2 = files2.get(*path).unwrap();
 
-        if content1 != content2 {
+        let s1 = content1.to_string();
+        let s2 = content2.to_string();
+
+        if s1 != s2 {
             diffs.push(OutputDiff {
                 path: (*path).clone(),
                 kind: DiffKind::ContentDiffers {
-                    first_content: content1.clone(),
-                    second_content: content2.clone(),
+                    first_content: s1,
+                    second_content: s2,
                 },
             });
         }
@@ -373,11 +376,12 @@ mod tests {
 
     #[test]
     fn compare_identical_outputs() {
+        use hick_exec::node::FileContent;
         let mut files1 = HashMap::new();
-        files1.insert("a.txt".to_string(), "content".to_string());
+        files1.insert("a.txt".to_string(), FileContent::Text("content".to_string()));
 
         let mut files2 = HashMap::new();
-        files2.insert("a.txt".to_string(), "content".to_string());
+        files2.insert("a.txt".to_string(), FileContent::Text("content".to_string()));
 
         let diffs = compare_outputs(&files1, &files2);
         assert!(diffs.is_empty());
@@ -385,13 +389,14 @@ mod tests {
 
     #[test]
     fn compare_different_outputs() {
+        use hick_exec::node::FileContent;
         let mut files1 = HashMap::new();
-        files1.insert("a.txt".to_string(), "content1".to_string());
-        files1.insert("b.txt".to_string(), "only in first".to_string());
+        files1.insert("a.txt".to_string(), FileContent::Text("content1".to_string()));
+        files1.insert("b.txt".to_string(), FileContent::Text("only in first".to_string()));
 
         let mut files2 = HashMap::new();
-        files2.insert("a.txt".to_string(), "content2".to_string());
-        files2.insert("c.txt".to_string(), "only in second".to_string());
+        files2.insert("a.txt".to_string(), FileContent::Text("content2".to_string()));
+        files2.insert("c.txt".to_string(), FileContent::Text("only in second".to_string()));
 
         let diffs = compare_outputs(&files1, &files2);
         assert_eq!(diffs.len(), 3);

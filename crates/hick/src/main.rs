@@ -589,13 +589,27 @@ async fn run_single_shot(cli: RunArgs) -> Result<()> {
         };
 
         // Check if file already exists with same content
-        let needs_write = if full_path.is_file() {
-            match std::fs::read_to_string(&full_path) {
-                Ok(existing) => existing != *content,
-                Err(_) => true, // Can't read, so write it
+        let needs_write = match content {
+            hick_exec::node::FileContent::Text(s) => {
+                if full_path.is_file() {
+                    match std::fs::read_to_string(&full_path) {
+                        Ok(existing) => existing != *s,
+                        Err(_) => true,
+                    }
+                } else {
+                    true
+                }
             }
-        } else {
-            true // File doesn't exist
+            hick_exec::node::FileContent::Binary(data) => {
+                if full_path.is_file() {
+                    match std::fs::read(&full_path) {
+                        Ok(existing) => existing != data.to_bytes().unwrap_or_default(),
+                        Err(_) => true,
+                    }
+                } else {
+                    true
+                }
+            }
         };
 
         if needs_write {
@@ -605,7 +619,12 @@ async fn run_single_shot(cli: RunArgs) -> Result<()> {
             {
                 std::fs::create_dir_all(parent)?;
             }
-            std::fs::write(&full_path, content)?;
+            match content {
+                hick_exec::node::FileContent::Text(s) => std::fs::write(&full_path, s)?,
+                hick_exec::node::FileContent::Binary(data) => {
+                    std::fs::write(&full_path, data.to_bytes()?)?;
+                }
+            }
             debug!("  {} bytes written", content.len());
             files_written += 1;
         } else {

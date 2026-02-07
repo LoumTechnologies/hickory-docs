@@ -7,6 +7,7 @@
 use std::collections::HashMap;
 
 use hick_case::{apply_case_variant, generate_case_variants};
+use hick_exec::node::FileContent;
 use hick_exec::state::MultiDocumentState;
 use log::{debug, warn};
 
@@ -75,9 +76,9 @@ pub(crate) fn interpolate_path(path: &str, state: &MultiDocumentState) -> String
 /// - `docs/internal/**` — exclude everything under `docs/internal/`
 /// - `TEMPLATE_README.md` — exclude a specific file
 pub(crate) fn apply_exclusions(
-    files: HashMap<String, String>,
+    files: HashMap<String, FileContent>,
     patterns: &[String],
-) -> HashMap<String, String> {
+) -> HashMap<String, FileContent> {
     if patterns.is_empty() {
         return files;
     }
