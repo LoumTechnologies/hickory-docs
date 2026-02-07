@@ -29,7 +29,7 @@ use log::{debug, info, warn};
 use rand::RngCore;
 
 use hick_exec::dag;
-use hick_exec::node::{InsertionPoint, StringNode};
+use hick_exec::node::{FileContent, InsertionPoint, StringNode};
 use hick_exec::state::{FeatureInfo, MultiDocumentState};
 use hick_handlers::{ProcessingContext, ProcessingPhase, TagRegistry, TagResult, TranscriptEntry};
 
@@ -48,7 +48,7 @@ use crate::pool::SharedPool;
 /// The output of a hick pipeline run.
 pub struct PipelineResult {
     /// File path -> rendered content for each `<hick:file>` tag.
-    pub files: HashMap<String, String>,
+    pub files: HashMap<String, FileContent>,
     /// Container name -> parsed capabilities for each `<hick:container>` tag.
     pub containers: HashMap<String, ContainerCapabilities>,
     /// Volume name -> list of containers that contributed to its final state.
@@ -234,7 +234,7 @@ async fn process_pipeline_outputs(
     documents: &[(&str, HickDocument)],
     state: &Arc<MultiDocumentState>,
     transcripts: &HashMap<String, Vec<ExecTranscriptEntry>>,
-) -> HashMap<String, String> {
+) -> HashMap<String, FileContent> {
     let registry = create_tag_registry();
     let handler_transcripts = convert_transcripts(transcripts);
 
@@ -575,7 +575,7 @@ pub async fn run_pipeline_live(
     }
 
     // Flush output volumes into pipeline result files
-    let mut volume_files: HashMap<String, String> = HashMap::new();
+    let mut volume_files: HashMap<String, FileContent> = HashMap::new();
     for (vol_name, vol_decl) in &all_volume_decls {
         let output_prefix = match &vol_decl.kind {
             hick_exec::volume::VolumeKind::Output { path } => Some(path.as_str()),
@@ -601,7 +601,7 @@ pub async fn run_pipeline_live(
                         }
                     )
                 };
-                volume_files.insert(output_path, content);
+                volume_files.insert(output_path, FileContent::Text(content));
             }
         }
     }
@@ -858,7 +858,7 @@ fn process_file_children(
 #[derive(Debug)]
 pub struct MultiStagePipelineResult {
     /// Combined file outputs from all stages (later stages override earlier).
-    pub files: HashMap<String, String>,
+    pub files: HashMap<String, FileContent>,
     /// Provenance for each output file.
     pub provenance: HashMap<String, hick_store::FileProvenance>,
 }
@@ -875,7 +875,7 @@ pub async fn run_pipeline_multi_stage(
     params: &[(String, String)],
     max_stages: usize,
 ) -> Result<MultiStagePipelineResult> {
-    let mut all_files: HashMap<String, String> = HashMap::new();
+    let mut all_files: HashMap<String, FileContent> = HashMap::new();
     let mut provenance: HashMap<String, hick_store::FileProvenance> = HashMap::new();
 
     // Build owned sources for first stage
@@ -897,11 +897,19 @@ pub async fn run_pipeline_multi_stage(
 
         // Separate .hick outputs from regular outputs
         let mut hick_files: Vec<(String, String)> = Vec::new();
-        let mut regular_files: HashMap<String, String> = HashMap::new();
+        let mut regular_files: HashMap<String, FileContent> = HashMap::new();
 
         for (path, content) in result.files {
             if path.ends_with(".hick") {
-                hick_files.push((path, content));
+                // .hick files must be text to feed as sources to next stage
+                let text = match content {
+                    FileContent::Text(s) => s,
+                    FileContent::Binary(_) => {
+                        warn!("Binary .hick file '{}' skipped", path);
+                        continue;
+                    }
+                };
+                hick_files.push((path, text));
             } else {
                 regular_files.insert(path, content);
             }

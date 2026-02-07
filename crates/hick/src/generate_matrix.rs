@@ -939,7 +939,13 @@ pub async fn run(cli: GenerateMatrixArgs) -> Result<()> {
                             if let Some(parent) = full_path.parent() {
                                 let _ = std::fs::create_dir_all(parent);
                             }
-                            if let Err(e) = std::fs::write(&full_path, content) {
+                            let write_result = match content {
+                                hick_exec::node::FileContent::Text(s) => std::fs::write(&full_path, s),
+                                hick_exec::node::FileContent::Binary(d) => {
+                                    std::fs::write(&full_path, d.to_bytes().unwrap_or_default())
+                                }
+                            };
+                            if let Err(e) = write_result {
                                 let error_msg = format!("failed to write {}: {}", path, e);
                                 progress.record_failure();
                                 failures.lock().await.push((combo_name.clone(), error_msg));

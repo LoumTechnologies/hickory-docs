@@ -13,7 +13,10 @@ pub mod transform;
 
 pub use combine_latest::DynamicCombineLatest;
 pub use context::Context;
-pub use converge::converge_to_string;
+pub use converge::{converge, converge_to_string};
 pub use insertion_point::InsertionPoint;
-pub use node::{BoxStream, Node, NodeTrace, SeparatorNode, StringNode};
+pub use node::{
+    BinaryData, BinaryNode, BoxStream, FileContent, Node, NodeTrace, NodeValue, SeparatorNode,
+    StringNode,
+};
 pub use transform::TransformNode;

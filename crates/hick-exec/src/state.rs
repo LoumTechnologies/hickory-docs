@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::sync::atomic::AtomicUsize;
 use std::sync::Mutex;
 
-use crate::node::{Context, InsertionPoint, Node, converge_to_string};
+use crate::node::{Context, FileContent, InsertionPoint, Node, converge};
 use hick_condition::VariableResolver;
 use std::sync::Arc;
 
@@ -239,15 +239,18 @@ impl MultiDocumentState {
         Some(result)
     }
 
-    /// Get all file outputs, converging each to a string.
-    pub async fn get_files(&self) -> HashMap<String, String> {
+    /// Get all file outputs, converging each to text or binary content.
+    pub async fn get_files(&self) -> HashMap<String, FileContent> {
         let outputs = self.file_outputs.lock().unwrap().clone();
         let mut result = HashMap::new();
 
         for (path, insertion_point) in outputs {
             let contents =
-                converge_to_string(insertion_point as Arc<dyn Node>, Context::default()).await;
-            result.insert(path, contents.unwrap_or_default());
+                converge(insertion_point as Arc<dyn Node>, Context::default()).await;
+            result.insert(
+                path,
+                contents.unwrap_or_else(|| FileContent::Text(String::new())),
+            );
         }
 
         result
@@ -378,7 +381,7 @@ mod tests {
         state.add_file_output("test.txt".to_string(), ip);
 
         let files = state.get_files().await;
-        assert_eq!(files.get("test.txt").unwrap(), "hello world");
+        assert_eq!(*files.get("test.txt").unwrap(), *"hello world");
     }
 
     #[test]

@@ -1,8 +1,8 @@
 //! Node trait and core node types — re-exported from `hick-flow`.
 
 pub use hick_flow::{
-    BoxStream, Context, InsertionPoint, Node, NodeTrace, SeparatorNode, StringNode,
-    converge_to_string,
+    BinaryData, BinaryNode, BoxStream, Context, FileContent, InsertionPoint, Node, NodeTrace,
+    NodeValue, SeparatorNode, StringNode, converge, converge_to_string,
 };
 
 // Keep Operation accessible within this crate (hick-flow re-exports it as pub(crate)).

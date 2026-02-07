@@ -219,7 +219,13 @@ async fn run_pipeline_and_merge(
         let files: HashMap<String, Vec<u8>> = pipeline_result
             .files
             .iter()
-            .map(|(k, v)| (k.clone(), v.as_bytes().to_vec()))
+            .map(|(k, v)| {
+                let bytes = match v {
+                    hick_exec::node::FileContent::Text(s) => s.as_bytes().to_vec(),
+                    hick_exec::node::FileContent::Binary(d) => d.to_bytes().unwrap_or_default(),
+                };
+                (k.clone(), bytes)
+            })
             .collect();
         (
             files,
@@ -236,7 +242,13 @@ async fn run_pipeline_and_merge(
         let files: HashMap<String, Vec<u8>> = result
             .files
             .iter()
-            .map(|(k, v)| (k.clone(), v.as_bytes().to_vec()))
+            .map(|(k, v)| {
+                let bytes = match v {
+                    hick_exec::node::FileContent::Text(s) => s.as_bytes().to_vec(),
+                    hick_exec::node::FileContent::Binary(d) => d.to_bytes().unwrap_or_default(),
+                };
+                (k.clone(), bytes)
+            })
             .collect();
         let provenance: HashMap<String, FileProvenance> = result
             .files

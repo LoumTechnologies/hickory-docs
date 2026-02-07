@@ -5,6 +5,8 @@
 //! - `StringNode`: leaf node holding literal text
 //! - `SeparatorNode`: marker wrapper for separator detection
 
+use std::io;
+use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
 
@@ -32,6 +34,14 @@ pub trait Node: Send + Sync {
     /// Extract string value if this is a `StringNode`.
     fn as_string_value(&self) -> Option<&str> {
         None
+    }
+
+    /// Typed value for convergence. Defaults to wrapping `as_string_value()`.
+    fn node_value(&self) -> NodeValue {
+        match self.as_string_value() {
+            Some(s) => NodeValue::Text(s.to_string()),
+            None => NodeValue::None,
+        }
     }
 
     /// Per-node identifier in bytes. Defaults to address-based.
@@ -91,6 +101,176 @@ impl NodeTrace {
 }
 
 // ---------------------------------------------------------------------------
+// NodeValue / BinaryData / FileContent
+// ---------------------------------------------------------------------------
+
+/// What a leaf node holds. Used by `converge()` to decide output format.
+#[non_exhaustive]
+pub enum NodeValue {
+    Text(String),
+    Binary(BinaryData),
+    None,
+}
+
+/// Binary payload — either held in memory or spilled to a temp file.
+pub enum BinaryData {
+    Inline(Vec<u8>),
+    TempFile(PathBuf),
+}
+
+impl BinaryData {
+    /// Materialise the bytes (reads from disk for `TempFile`).
+    pub fn to_bytes(&self) -> io::Result<Vec<u8>> {
+        match self {
+            BinaryData::Inline(v) => Ok(v.clone()),
+            BinaryData::TempFile(p) => std::fs::read(p),
+        }
+    }
+
+    pub fn len(&self) -> usize {
+        match self {
+            BinaryData::Inline(v) => v.len(),
+            BinaryData::TempFile(p) => std::fs::metadata(p).map(|m| m.len() as usize).unwrap_or(0),
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+}
+
+/// Converged output of a file — text or binary.
+pub enum FileContent {
+    Text(String),
+    Binary(BinaryData),
+}
+
+impl FileContent {
+    pub fn len(&self) -> usize {
+        match self {
+            FileContent::Text(s) => s.len(),
+            FileContent::Binary(d) => d.len(),
+        }
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// Return text content if this is a text file.
+    pub fn as_text(&self) -> Option<&str> {
+        match self {
+            FileContent::Text(s) => Some(s),
+            FileContent::Binary(_) => None,
+        }
+    }
+
+    /// Check if this text content contains a substring. Returns false for binary.
+    pub fn contains(&self, pat: &str) -> bool {
+        match self {
+            FileContent::Text(s) => s.contains(pat),
+            FileContent::Binary(_) => false,
+        }
+    }
+
+    /// Trim whitespace from text content. Returns self for binary.
+    pub fn trim(&self) -> &str {
+        match self {
+            FileContent::Text(s) => s.trim(),
+            FileContent::Binary(_) => "",
+        }
+    }
+}
+
+impl PartialEq<str> for FileContent {
+    fn eq(&self, other: &str) -> bool {
+        match self {
+            FileContent::Text(s) => s == other,
+            FileContent::Binary(_) => false,
+        }
+    }
+}
+
+impl PartialEq<&str> for FileContent {
+    fn eq(&self, other: &&str) -> bool {
+        self == *other
+    }
+}
+
+impl std::fmt::Display for FileContent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            FileContent::Text(s) => f.write_str(s),
+            FileContent::Binary(d) => write!(f, "<binary {} bytes>", d.len()),
+        }
+    }
+}
+
+impl std::fmt::Debug for FileContent {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            FileContent::Text(s) => write!(f, "FileContent::Text({:?})", s),
+            FileContent::Binary(d) => write!(f, "FileContent::Binary({} bytes)", d.len()),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// BinaryNode
+// ---------------------------------------------------------------------------
+
+/// Leaf node holding binary data (images, archives, etc.).
+pub struct BinaryNode {
+    data: BinaryData,
+    mime_type: Option<String>,
+    stable_id: Option<Vec<u8>>,
+}
+
+impl BinaryNode {
+    pub fn new(data: BinaryData) -> Self {
+        Self { data, mime_type: None, stable_id: None }
+    }
+
+    pub fn new_with_mime(data: BinaryData, mime: impl Into<String>) -> Self {
+        Self { data, mime_type: Some(mime.into()), stable_id: None }
+    }
+
+    pub fn new_with_id(data: BinaryData, mime: Option<String>, id: Vec<u8>) -> Self {
+        Self { data, mime_type: mime, stable_id: Some(id) }
+    }
+
+    pub fn mime_type(&self) -> Option<&str> {
+        self.mime_type.as_deref()
+    }
+
+    pub fn data(&self) -> &BinaryData {
+        &self.data
+    }
+}
+
+impl Node for BinaryNode {
+    fn node_value(&self) -> NodeValue {
+        match &self.data {
+            BinaryData::Inline(v) => NodeValue::Binary(BinaryData::Inline(v.clone())),
+            BinaryData::TempFile(p) => NodeValue::Binary(BinaryData::TempFile(p.clone())),
+        }
+    }
+
+    fn get_stream(self: Arc<Self>, _context: Context) -> BoxStream<Vec<NodeTrace>> {
+        let item = vec![NodeTrace::new(self as Arc<dyn Node>)];
+        Box::pin(futures::stream::once(async move { item }))
+    }
+
+    fn id_bytes(&self) -> Vec<u8> {
+        if let Some(b) = &self.stable_id {
+            return b.clone();
+        }
+        let addr = (self as *const BinaryNode as *const ()).addr() as u128;
+        addr.to_le_bytes().to_vec()
+    }
+}
+
+// ---------------------------------------------------------------------------
 // StringNode
 // ---------------------------------------------------------------------------
 
@@ -123,6 +303,10 @@ impl StringNode {
 impl Node for StringNode {
     fn as_string_value(&self) -> Option<&str> {
         Some(self.value())
+    }
+
+    fn node_value(&self) -> NodeValue {
+        NodeValue::Text(self.value.clone())
     }
 
     fn get_stream(self: Arc<Self>, _context: Context) -> BoxStream<Vec<NodeTrace>> {

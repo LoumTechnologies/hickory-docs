@@ -351,8 +351,8 @@ mod tests {
 
         // Note: The compacted version may have slight whitespace differences in non-content areas,
         // but the actual pasted content should be the same.
-        let content1 = result1.files.get("out.txt").unwrap();
-        let content2 = result2.files.get("out.txt").unwrap();
+        let content1 = result1.files.get("out.txt").unwrap().as_text().unwrap();
+        let content2 = result2.files.get("out.txt").unwrap().as_text().unwrap();
 
         // Trim for comparison since whitespace around file content may differ
         assert_eq!(content1.trim(), content2.trim());
