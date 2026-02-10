@@ -1,3 +1,63 @@
+//! Embeddable reactive XML document engine.
+//!
+//! hick-grove implements the structured messages pattern: multi-namespace XML
+//! messages are parsed, applied to a Yrs CRDT document, and the resulting
+//! change events are dispatched to namespace-specific handlers that project
+//! state into external stores (SQLite, search indices, etc.).
+//!
+//! # Architecture
+//!
+//! ```text
+//! XML message ──► MessageParser ──► Yrs Doc (CRDT)
+//!                                       │
+//!                                  YrsBridge (observe_deep)
+//!                                       │
+//!                                  Dispatcher ──► NamespaceHandler(s)
+//!                                                      │
+//!                                                 Side effects
+//!                                              (DB writes, logs, …)
+//! ```
+//!
+//! # Key types
+//!
+//! - [`GroveEngine`] — top-level entry point that owns the document store and
+//!   handler registry.
+//! - [`command::GroveCommand`] — either a structured XML message or a raw Yrs
+//!   binary update.
+//! - [`plugin::NamespaceHandler`] — trait for event-driven handlers keyed by
+//!   namespace URI.
+//! - [`plugin::NamespaceRegistry`] — registry mapping namespace URIs to handlers.
+//! - [`node_bridge::YrsElementNode`] — bridges a Yrs element into hick-flow's
+//!   reactive [`Node`](hick_flow::Node) system via `tokio::sync::watch`.
+//!
+//! # Example
+//!
+//! ```rust,ignore
+//! use std::sync::Arc;
+//! use hick_grove::{GroveConfig, GroveEngine};
+//! use hick_grove::namespace::NamespaceUri;
+//! use hick_grove::plugin::NamespaceRegistry;
+//! use hick_grove::command::GroveCommand;
+//!
+//! let registry = NamespaceRegistry::new();
+//! // registry.register(Arc::new(my_handler));
+//!
+//! let engine = GroveEngine::new(GroveConfig { registry });
+//!
+//! let doc_id = engine.create_document(vec![
+//!     ("task".into(), NamespaceUri::new("https://example.com/vocab/task#")),
+//! ]).await;
+//!
+//! let result = engine.process_command(GroveCommand::StructuredMessage {
+//!     doc_id: doc_id.clone(),
+//!     xml: r#"<msg xmlns:task="https://example.com/vocab/task#">
+//!               <task:create id="t-1" description="Buy milk"/>
+//!             </msg>"#.into(),
+//! }).await?;
+//!
+//! println!("{} events dispatched", result.events_dispatched);
+//! ```
+
 pub mod command;
 pub mod dispatcher;
 pub mod doc_store;
