@@ -1,0 +1,10 @@
+packages:
+  - name: docker
+    check: docker --version
+    install: "Install Docker Desktop from https://docker.com"
+  - name: rust-nightly
+    check: rustup show active-toolchain | grep nightly
+    install: "rustup default nightly"
+  - name: cargo-watch
+    check: cargo watch --version
+    install: "cargo install cargo-watch"

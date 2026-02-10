@@ -681,7 +681,10 @@ CMD ["/app/blue-iron-cube"]
 
 ### Docker Compose
 
-<hick:file path="docker-compose.yml">services:
+<hick:file path="docker-compose.yml">x-devenv:
+  version: "1"
+
+services:
   backend:
     build:
       context: ./backend
@@ -705,11 +708,96 @@ CMD ["/app/blue-iron-cube"]
       healthTimeout: 60
       projectPath: ./backend
       command: cargo run
+      developerUrl: /health
+<hick:when test="spa">
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    ports:
+      - "${WEB_PORT:-5173}:5173"
+    depends_on:
+      - backend
+    environment:
+      - VITE_API_URL=http://backend:3000
+    x-devenv:
+      portEnvVar: WEB_PORT
+      healthCheck: /
+      projectPath: ./web
+      command: "npm run dev"
+      developerUrl: /
+</hick:when>
 </hick:file>
 
 ### Environment
 
 <hick:file path=".env.example">BACKEND_PORT=3000
+<hick:when test="spa">WEB_PORT=5173
+</hick:when></hick:file>
+
+### Host Prerequisites
+
+<hick:file path="devenv-packages.yml">packages:
+  - name: docker
+    check: docker --version
+    install: "Install Docker Desktop from https://docker.com"
+  - name: rust-nightly
+    check: rustup show active-toolchain | grep nightly
+    install: "rustup default nightly"
+  - name: cargo-watch
+    check: cargo watch --version
+    install: "cargo install cargo-watch"
+<hick:when test="spa">  - name: node
+    check: node --version
+    install: "Install Node.js from https://nodejs.org"
+</hick:when><hick:when test="extension">  - name: node
+    check: node --version
+    install: "Install Node.js from https://nodejs.org"
+</hick:when><hick:when test="avalonia">  - name: dotnet
+    check: dotnet --version
+    install: "Install .NET SDK from https://dotnet.microsoft.com"
+</hick:when><hick:when test="swiftui">  - name: xcodegen
+    check: xcodegen --version
+    install: "brew install xcodegen"
+</hick:when><hick:when test="compose">  - name: android-sdk
+    check: sdkmanager --version
+    install: "Install Android Studio from https://developer.android.com/studio"
+</hick:when></hick:file>
+
+### App Launchers
+
+<hick:file path=".devenv/launchers.yml">launchers:
+<hick:when test="swiftui">  - name: "iOS App"
+    type: ios
+    scheme: "<hick:val name="url_scheme" />"
+    simulator: "iPhone 16 Pro"
+</hick:when><hick:when test="compose">  - name: "Android App"
+    type: android
+    package: "<hick:val name="bundle_id" />"
+</hick:when><hick:when test="spa">  - name: "Web Dashboard"
+    type: web
+    url: "http://localhost:${WEB_PORT:-5173}"
+  - name: "Mobile QR"
+    type: qr
+    url: "http://localhost:${WEB_PORT:-5173}"
+</hick:when></hick:file>
+
+### Devcontainer
+
+<hick:file path=".devcontainer/devcontainer.json">{
+  "name": "<hick:val name="project_name" />",
+  "dockerComposeFile": "../docker-compose.yml",
+  "service": "backend",
+  "workspaceFolder": "/app",
+  "forwardPorts": [3000<hick:when test="spa">, 5173</hick:when>],
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "rust-lang.rust-analyzer"
+      ]
+    }
+  }
+}
 </hick:file>
 
 </hick:doc>

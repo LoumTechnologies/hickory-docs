@@ -62,7 +62,7 @@ targets:
 
 ### App Entry Point
 
-<hick:file path="apple/<hick:val name="project_name" />/<hick:val name="project_name" />App.swift">import SwiftUI
+<hick:file path="apple/{{project_name}}/{{project_name}}App.swift">import SwiftUI
 
 @main
 struct <hick:val name="project_name" />App: App {
@@ -78,7 +78,7 @@ struct <hick:val name="project_name" />App: App {
 
 ### API Layer
 
-<hick:file path="apple/<hick:val name="project_name" />/API/APIClient.swift">import Foundation
+<hick:file path="apple/{{project_name}}/API/APIClient.swift">import Foundation
 
 actor APIClient {
     static let shared = APIClient()
@@ -149,7 +149,7 @@ actor APIClient {
 }
 </hick:file>
 
-<hick:file path="apple/<hick:val name="project_name" />/API/APIError.swift">import Foundation
+<hick:file path="apple/{{project_name}}/API/APIError.swift">import Foundation
 
 enum APIError: LocalizedError {
     case invalidResponse
@@ -174,7 +174,7 @@ enum APIError: LocalizedError {
 ### Models
 
 <hick:when test="customers">
-<hick:file path="apple/<hick:val name="project_name" />/Models/Customer.swift">import Foundation
+<hick:file path="apple/{{project_name}}/Models/Customer.swift">import Foundation
 
 struct Customer: Codable, Identifiable, Sendable {
     let id: String
@@ -208,7 +208,7 @@ struct CreateCustomer: Codable, Sendable {
 </hick:when>
 
 <hick:when test="jobs">
-<hick:file path="apple/<hick:val name="project_name" />/Models/Job.swift">import Foundation
+<hick:file path="apple/{{project_name}}/Models/Job.swift">import Foundation
 
 struct Job: Codable, Identifiable, Sendable {
     let id: String
@@ -269,7 +269,7 @@ struct JobCostBreakdown: Codable, Sendable {
 </hick:when>
 
 <hick:when test="payments">
-<hick:file path="apple/<hick:val name="project_name" />/Models/Payment.swift">import Foundation
+<hick:file path="apple/{{project_name}}/Models/Payment.swift">import Foundation
 
 struct Payment: Codable, Identifiable, Sendable {
     let id: String
@@ -303,7 +303,7 @@ struct CreatePayment: Codable, Sendable {
 </hick:when>
 
 <hick:when test="crew">
-<hick:file path="apple/<hick:val name="project_name" />/Models/CrewMember.swift">import Foundation
+<hick:file path="apple/{{project_name}}/Models/CrewMember.swift">import Foundation
 
 struct CrewMember: Codable, Identifiable, Sendable {
     let id: String
@@ -343,7 +343,7 @@ struct CreateTimeEntry: Codable, Sendable {
 </hick:when>
 
 <hick:when test="inventory">
-<hick:file path="apple/<hick:val name="project_name" />/Models/InventoryItem.swift">import Foundation
+<hick:file path="apple/{{project_name}}/Models/InventoryItem.swift">import Foundation
 
 struct InventoryItem: Codable, Identifiable, Sendable {
     let id: String
@@ -369,7 +369,7 @@ struct InventoryItem: Codable, Identifiable, Sendable {
 </hick:when>
 
 <hick:when test="fleet">
-<hick:file path="apple/<hick:val name="project_name" />/Models/FleetAsset.swift">import Foundation
+<hick:file path="apple/{{project_name}}/Models/FleetAsset.swift">import Foundation
 
 struct Vehicle: Codable, Identifiable, Sendable {
     let id: String
@@ -408,7 +408,7 @@ struct Equipment: Codable, Identifiable, Sendable {
 </hick:when>
 
 <hick:when test="overhead">
-<hick:file path="apple/<hick:val name="project_name" />/Models/Overhead.swift">import Foundation
+<hick:file path="apple/{{project_name}}/Models/Overhead.swift">import Foundation
 
 struct OverheadCategory: Codable, Identifiable, Sendable {
     let id: String
@@ -430,7 +430,7 @@ struct RecoveryRateReport: Codable, Sendable {
 </hick:when>
 
 <hick:when test="estimating">
-<hick:file path="apple/<hick:val name="project_name" />/Models/Estimate.swift">import Foundation
+<hick:file path="apple/{{project_name}}/Models/Estimate.swift">import Foundation
 
 struct Estimate: Codable, Identifiable, Sendable {
     let id: String
@@ -474,7 +474,7 @@ struct EstimateRequest: Codable, Sendable {
 </hick:when>
 
 <hick:when test="crm">
-<hick:file path="apple/<hick:val name="project_name" />/Models/CRM.swift">import Foundation
+<hick:file path="apple/{{project_name}}/Models/CRM.swift">import Foundation
 
 struct Lead: Codable, Identifiable, Sendable {
     let id: String
@@ -521,7 +521,7 @@ struct FollowUp: Codable, Identifiable, Sendable {
 </hick:when>
 
 <hick:when test="sops">
-<hick:file path="apple/<hick:val name="project_name" />/Models/Procedure.swift">import Foundation
+<hick:file path="apple/{{project_name}}/Models/Procedure.swift">import Foundation
 
 struct Procedure: Codable, Identifiable, Sendable {
     let id: String
@@ -572,7 +572,7 @@ struct ProcedureWithSteps: Codable, Sendable {
 ### Services
 
 <hick:when test="customers">
-<hick:file path="apple/<hick:val name="project_name" />/Services/CustomerService.swift">import Foundation
+<hick:file path="apple/{{project_name}}/Services/CustomerService.swift">import Foundation
 
 @Observable
 final class CustomerService: Sendable {
@@ -594,7 +594,7 @@ final class CustomerService: Sendable {
 </hick:when>
 
 <hick:when test="jobs">
-<hick:file path="apple/<hick:val name="project_name" />/Services/JobService.swift">import Foundation
+<hick:file path="apple/{{project_name}}/Services/JobService.swift">import Foundation
 
 @Observable
 final class JobService: Sendable {
@@ -618,7 +618,7 @@ private struct EmptyBody: Codable {}
 </hick:when>
 
 <hick:when test="crew">
-<hick:file path="apple/<hick:val name="project_name" />/Services/CrewService.swift">import Foundation
+<hick:file path="apple/{{project_name}}/Services/CrewService.swift">import Foundation
 
 @Observable
 final class CrewService: Sendable {
@@ -640,7 +640,7 @@ final class CrewService: Sendable {
 </hick:when>
 
 <hick:when test="payments">
-<hick:file path="apple/<hick:val name="project_name" />/Services/PaymentService.swift">import Foundation
+<hick:file path="apple/{{project_name}}/Services/PaymentService.swift">import Foundation
 
 @Observable
 final class PaymentService: Sendable {
@@ -658,7 +658,7 @@ final class PaymentService: Sendable {
 </hick:when>
 
 <hick:when test="inventory">
-<hick:file path="apple/<hick:val name="project_name" />/Services/InventoryService.swift">import Foundation
+<hick:file path="apple/{{project_name}}/Services/InventoryService.swift">import Foundation
 
 @Observable
 final class InventoryService: Sendable {
@@ -676,7 +676,7 @@ final class InventoryService: Sendable {
 </hick:when>
 
 <hick:when test="fleet">
-<hick:file path="apple/<hick:val name="project_name" />/Services/FleetService.swift">import Foundation
+<hick:file path="apple/{{project_name}}/Services/FleetService.swift">import Foundation
 
 @Observable
 final class FleetService: Sendable {
@@ -694,7 +694,7 @@ final class FleetService: Sendable {
 </hick:when>
 
 <hick:when test="overhead">
-<hick:file path="apple/<hick:val name="project_name" />/Services/OverheadService.swift">import Foundation
+<hick:file path="apple/{{project_name}}/Services/OverheadService.swift">import Foundation
 
 @Observable
 final class OverheadService: Sendable {
@@ -712,7 +712,7 @@ final class OverheadService: Sendable {
 </hick:when>
 
 <hick:when test="estimating">
-<hick:file path="apple/<hick:val name="project_name" />/Services/EstimateService.swift">import Foundation
+<hick:file path="apple/{{project_name}}/Services/EstimateService.swift">import Foundation
 
 @Observable
 final class EstimateService: Sendable {
@@ -726,7 +726,7 @@ final class EstimateService: Sendable {
 </hick:when>
 
 <hick:when test="crm">
-<hick:file path="apple/<hick:val name="project_name" />/Services/CRMService.swift">import Foundation
+<hick:file path="apple/{{project_name}}/Services/CRMService.swift">import Foundation
 
 @Observable
 final class CRMService: Sendable {
@@ -746,7 +746,7 @@ final class CRMService: Sendable {
 </hick:when>
 
 <hick:when test="sops">
-<hick:file path="apple/<hick:val name="project_name" />/Services/SOPService.swift">import Foundation
+<hick:file path="apple/{{project_name}}/Services/SOPService.swift">import Foundation
 
 @Observable
 final class SOPService: Sendable {
@@ -769,7 +769,7 @@ final class SOPService: Sendable {
 
 #### Content View (Tab Bar)
 
-<hick:file path="apple/<hick:val name="project_name" />/ContentView.swift">import SwiftUI
+<hick:file path="apple/{{project_name}}/ContentView.swift">import SwiftUI
 
 struct ContentView: View {
     var body: some View {
@@ -864,7 +864,7 @@ struct MoreView: View {
 #### Customer Views
 
 <hick:when test="customers">
-<hick:file path="apple/<hick:val name="project_name" />/Views/Customers/CustomerListView.swift">import SwiftUI
+<hick:file path="apple/{{project_name}}/Views/Customers/CustomerListView.swift">import SwiftUI
 
 struct CustomerListView: View {
     @State private var customers: [Customer] = []
@@ -935,7 +935,7 @@ struct CustomerListView: View {
 }
 </hick:file>
 
-<hick:file path="apple/<hick:val name="project_name" />/Views/Customers/CustomerDetailView.swift">import SwiftUI
+<hick:file path="apple/{{project_name}}/Views/Customers/CustomerDetailView.swift">import SwiftUI
 
 struct CustomerDetailView: View {
     let customer: Customer
@@ -971,7 +971,7 @@ struct CustomerDetailView: View {
 }
 </hick:file>
 
-<hick:file path="apple/<hick:val name="project_name" />/Views/Customers/CustomerFormView.swift">import SwiftUI
+<hick:file path="apple/{{project_name}}/Views/Customers/CustomerFormView.swift">import SwiftUI
 
 struct CustomerFormView: View {
     @Environment(\.dismiss) private var dismiss
@@ -1053,7 +1053,7 @@ struct CustomerFormView: View {
 #### Job Views
 
 <hick:when test="jobs">
-<hick:file path="apple/<hick:val name="project_name" />/Views/Jobs/JobListView.swift">import SwiftUI
+<hick:file path="apple/{{project_name}}/Views/Jobs/JobListView.swift">import SwiftUI
 
 struct JobListView: View {
     @State private var jobs: [Job] = []
@@ -1125,7 +1125,7 @@ struct JobListView: View {
 }
 </hick:file>
 
-<hick:file path="apple/<hick:val name="project_name" />/Views/Jobs/JobDetailView.swift">import SwiftUI
+<hick:file path="apple/{{project_name}}/Views/Jobs/JobDetailView.swift">import SwiftUI
 
 struct JobDetailView: View {
     let job: Job
@@ -1200,7 +1200,7 @@ struct PhaseRow: View {
 }
 </hick:file>
 
-<hick:file path="apple/<hick:val name="project_name" />/Views/Jobs/JobCostView.swift">import SwiftUI
+<hick:file path="apple/{{project_name}}/Views/Jobs/JobCostView.swift">import SwiftUI
 
 struct JobCostView: View {
     let jobId: String
@@ -1251,7 +1251,7 @@ struct JobCostView: View {
 #### Crew Views
 
 <hick:when test="crew">
-<hick:file path="apple/<hick:val name="project_name" />/Views/Crew/CrewListView.swift">import SwiftUI
+<hick:file path="apple/{{project_name}}/Views/Crew/CrewListView.swift">import SwiftUI
 
 struct CrewListView: View {
     @State private var members: [CrewMember] = []
@@ -1305,7 +1305,7 @@ struct CrewListView: View {
 }
 </hick:file>
 
-<hick:file path="apple/<hick:val name="project_name" />/Views/Crew/TimeEntryView.swift">import SwiftUI
+<hick:file path="apple/{{project_name}}/Views/Crew/TimeEntryView.swift">import SwiftUI
 
 struct TimeEntryView: View {
     let crewMember: CrewMember
@@ -1358,7 +1358,7 @@ struct TimeEntryView: View {
 #### Payment Views
 
 <hick:when test="payments">
-<hick:file path="apple/<hick:val name="project_name" />/Views/Payments/PaymentFormView.swift">import SwiftUI
+<hick:file path="apple/{{project_name}}/Views/Payments/PaymentFormView.swift">import SwiftUI
 
 struct PaymentFormView: View {
     @State private var jobId = ""
@@ -1421,7 +1421,7 @@ struct PaymentFormView: View {
 #### Inventory Views
 
 <hick:when test="inventory">
-<hick:file path="apple/<hick:val name="project_name" />/Views/Inventory/InventoryListView.swift">import SwiftUI
+<hick:file path="apple/{{project_name}}/Views/Inventory/InventoryListView.swift">import SwiftUI
 
 struct InventoryListView: View {
     @State private var items: [InventoryItem] = []
@@ -1477,7 +1477,7 @@ struct InventoryListView: View {
 #### Fleet Views
 
 <hick:when test="fleet">
-<hick:file path="apple/<hick:val name="project_name" />/Views/Fleet/FleetListView.swift">import SwiftUI
+<hick:file path="apple/{{project_name}}/Views/Fleet/FleetListView.swift">import SwiftUI
 
 struct FleetListView: View {
     @State private var vehicles: [Vehicle] = []
@@ -1549,7 +1549,7 @@ struct FleetListView: View {
 #### Overhead Views
 
 <hick:when test="overhead">
-<hick:file path="apple/<hick:val name="project_name" />/Views/Overhead/OverheadView.swift">import SwiftUI
+<hick:file path="apple/{{project_name}}/Views/Overhead/OverheadView.swift">import SwiftUI
 
 struct OverheadView: View {
     @State private var categories: [OverheadCategory] = []
@@ -1608,7 +1608,7 @@ struct OverheadView: View {
 #### Estimating Views
 
 <hick:when test="estimating">
-<hick:file path="apple/<hick:val name="project_name" />/Views/Estimating/EstimateFormView.swift">import SwiftUI
+<hick:file path="apple/{{project_name}}/Views/Estimating/EstimateFormView.swift">import SwiftUI
 
 struct EstimateFormView: View {
     @State private var linearFeet = ""
@@ -1691,7 +1691,7 @@ struct EstimateFormView: View {
 }
 </hick:file>
 
-<hick:file path="apple/<hick:val name="project_name" />/Views/Estimating/EstimateResultView.swift">import SwiftUI
+<hick:file path="apple/{{project_name}}/Views/Estimating/EstimateResultView.swift">import SwiftUI
 
 struct EstimateResultView: View {
     let estimate: Estimate
@@ -1743,7 +1743,7 @@ struct EstimateResultView: View {
 #### CRM Views
 
 <hick:when test="crm">
-<hick:file path="apple/<hick:val name="project_name" />/Views/CRM/LeadPipelineView.swift">import SwiftUI
+<hick:file path="apple/{{project_name}}/Views/CRM/LeadPipelineView.swift">import SwiftUI
 
 struct LeadPipelineView: View {
     @State private var leads: [Lead] = []
@@ -1807,7 +1807,7 @@ struct LeadPipelineView: View {
 }
 </hick:file>
 
-<hick:file path="apple/<hick:val name="project_name" />/Views/CRM/LeadDetailView.swift">import SwiftUI
+<hick:file path="apple/{{project_name}}/Views/CRM/LeadDetailView.swift">import SwiftUI
 
 struct LeadDetailView: View {
     let lead: Lead
@@ -1871,7 +1871,7 @@ struct LeadDetailView: View {
 #### SOP Views
 
 <hick:when test="sops">
-<hick:file path="apple/<hick:val name="project_name" />/Views/SOPs/SOPListView.swift">import SwiftUI
+<hick:file path="apple/{{project_name}}/Views/SOPs/SOPListView.swift">import SwiftUI
 
 struct SOPListView: View {
     @State private var procedures: [Procedure] = []
@@ -1923,7 +1923,7 @@ struct SOPListView: View {
 }
 </hick:file>
 
-<hick:file path="apple/<hick:val name="project_name" />/Views/SOPs/SOPDetailView.swift">import SwiftUI
+<hick:file path="apple/{{project_name}}/Views/SOPs/SOPDetailView.swift">import SwiftUI
 
 struct SOPDetailView: View {
     let procedureId: String
@@ -1997,7 +1997,7 @@ struct SOPDetailView: View {
 
 ### Asset Catalogs
 
-<hick:file path="apple/<hick:val name="project_name" />/Assets.xcassets/Contents.json">{
+<hick:file path="apple/{{project_name}}/Assets.xcassets/Contents.json">{
   "info" : {
     "author" : "xcode",
     "version" : 1
@@ -2005,7 +2005,7 @@ struct SOPDetailView: View {
 }
 </hick:file>
 
-<hick:file path="apple/<hick:val name="project_name" />/Assets.xcassets/AccentColor.colorset/Contents.json">{
+<hick:file path="apple/{{project_name}}/Assets.xcassets/AccentColor.colorset/Contents.json">{
   "colors" : [
     {
       "idiom" : "universal"
@@ -2018,7 +2018,7 @@ struct SOPDetailView: View {
 }
 </hick:file>
 
-<hick:file path="apple/<hick:val name="project_name" />/Assets.xcassets/AppIcon.appiconset/Contents.json">{
+<hick:file path="apple/{{project_name}}/Assets.xcassets/AppIcon.appiconset/Contents.json">{
   "images" : [
     {
       "idiom" : "universal",

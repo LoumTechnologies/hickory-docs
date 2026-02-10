@@ -1,3 +1,6 @@
+x-devenv:
+  version: "1"
+
 services:
   backend:
     build:
@@ -22,3 +25,5 @@ services:
       healthTimeout: 60
       projectPath: ./backend
       command: cargo run
+      developerUrl: /health
+
