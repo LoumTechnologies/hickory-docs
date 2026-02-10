@@ -1,0 +1,2059 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
+
+<hick:when test="swiftui">
+
+## SwiftUI iOS App
+
+A field-operations iOS app for <hick:val name="business_name" />. Provides mobile
+access to jobs, customers, crew time tracking, inventory, and CRM — everything a
+field crew or sales rep needs on-site.
+
+---
+
+### Devenv Launcher
+
+<hick:file path=".devenv/launchers.yml">launchers:
+  ios:
+    type: ios-simulator
+    bundleId: <hick:val name="bundle_id" />
+    urlScheme: <hick:val name="url_scheme" />
+    projectPath: ./apple
+    scheme: <hick:val name="project_name" />
+
+  web:
+    type: http
+    url: http://localhost:${BACKEND_PORT:-3000}/health
+    label: Backend Health
+</hick:file>
+
+---
+
+### XcodeGen Project
+
+<hick:file path="apple/project.yml">name: <hick:val name="project_name" />
+options:
+  bundleIdPrefix: <hick:val name="bundle_id" />
+  deploymentTarget:
+    iOS: "<hick:val name="min_ios_version" />"
+  xcodeVersion: "16.0"
+settings:
+  SWIFT_VERSION: "6.0"
+  MARKETING_VERSION: "0.1.0"
+  CURRENT_PROJECT_VERSION: "1"
+targets:
+  <hick:val name="project_name" />:
+    type: application
+    platform: iOS
+    sources:
+      - path: <hick:val name="project_name" />
+    settings:
+      INFOPLIST_VALUES: |
+        CFBundleURLTypes = (
+          {
+            CFBundleURLSchemes = ("<hick:val name="url_scheme" />");
+            CFBundleURLName = "<hick:val name="bundle_id" />";
+          }
+        );
+        UILaunchScreen = {};
+</hick:file>
+
+---
+
+### App Entry Point
+
+<hick:file path="apple/<hick:val name="project_name" />/<hick:val name="project_name" />App.swift">import SwiftUI
+
+@main
+struct <hick:val name="project_name" />App: App {
+    var body: some Scene {
+        WindowGroup {
+            ContentView()
+        }
+    }
+}
+</hick:file>
+
+---
+
+### API Layer
+
+<hick:file path="apple/<hick:val name="project_name" />/API/APIClient.swift">import Foundation
+
+actor APIClient {
+    static let shared = APIClient()
+
+    var baseURL: URL
+
+    private let session: URLSession
+    private let decoder: JSONDecoder
+    private let encoder: JSONEncoder
+
+    init(baseURL: URL = URL(string: "http://localhost:3000")!) {
+        self.baseURL = baseURL
+        self.session = URLSession.shared
+
+        let decoder = JSONDecoder()
+        decoder.keyDecodingStrategy = .convertFromSnakeCase
+        decoder.dateDecodingStrategy = .iso8601
+        self.decoder = decoder
+
+        let encoder = JSONEncoder()
+        encoder.keyEncodingStrategy = .convertToSnakeCase
+        self.encoder = encoder
+    }
+
+    func get&lt;T: Decodable&gt;(_ path: String) async throws -&gt; T {
+        let url = baseURL.appendingPathComponent(path)
+        let (data, response) = try await session.data(from: url)
+        try validateResponse(response)
+        return try decoder.decode(T.self, from: data)
+    }
+
+    func post&lt;Body: Encodable, Response: Decodable&gt;(
+        _ path: String,
+        body: Body
+    ) async throws -&gt; Response {
+        let url = baseURL.appendingPathComponent(path)
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try encoder.encode(body)
+        let (data, response) = try await session.data(for: request)
+        try validateResponse(response)
+        return try decoder.decode(Response.self, from: data)
+    }
+
+    func put&lt;Body: Encodable, Response: Decodable&gt;(
+        _ path: String,
+        body: Body
+    ) async throws -&gt; Response {
+        let url = baseURL.appendingPathComponent(path)
+        var request = URLRequest(url: url)
+        request.httpMethod = "PUT"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try encoder.encode(body)
+        let (data, response) = try await session.data(for: request)
+        try validateResponse(response)
+        return try decoder.decode(Response.self, from: data)
+    }
+
+    private func validateResponse(_ response: URLResponse) throws {
+        guard let http = response as? HTTPURLResponse else {
+            throw APIError.invalidResponse
+        }
+        guard (200...299).contains(http.statusCode) else {
+            throw APIError.httpError(statusCode: http.statusCode)
+        }
+    }
+}
+</hick:file>
+
+<hick:file path="apple/<hick:val name="project_name" />/API/APIError.swift">import Foundation
+
+enum APIError: LocalizedError {
+    case invalidResponse
+    case httpError(statusCode: Int)
+    case decodingError(Error)
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidResponse:
+            return "Invalid server response"
+        case .httpError(let code):
+            return "Server error (HTTP \(code))"
+        case .decodingError(let error):
+            return "Data error: \(error.localizedDescription)"
+        }
+    }
+}
+</hick:file>
+
+---
+
+### Models
+
+<hick:when test="customers">
+<hick:file path="apple/<hick:val name="project_name" />/Models/Customer.swift">import Foundation
+
+struct Customer: Codable, Identifiable, Sendable {
+    let id: String
+    var name: String
+    var phone: String
+    var email: String?
+    var address: String
+    var city: String
+    var state: String
+    var zip: String
+    var referralSource: String?
+    var referredBy: String?
+    var notes: String?
+    let createdAt: String
+    let updatedAt: String
+}
+
+struct CreateCustomer: Codable, Sendable {
+    var name: String
+    var phone: String
+    var email: String?
+    var address: String
+    var city: String
+    var state: String
+    var zip: String
+    var referralSource: String?
+    var referredBy: String?
+    var notes: String?
+}
+</hick:file>
+</hick:when>
+
+<hick:when test="jobs">
+<hick:file path="apple/<hick:val name="project_name" />/Models/Job.swift">import Foundation
+
+struct Job: Codable, Identifiable, Sendable {
+    let id: String
+    let customerId: String
+    var status: String
+    var siteAddress: String
+    var soilType: String
+    var yardGrade: String
+    var siteAccess: String
+    var siteNotes: String?
+    var linearFeetPlanned: String?
+    var linearFeetActual: String?
+    var trenchDepthInches: String?
+    var includesSumpPump: Bool
+    var includesDownspoutTieIn: Bool
+    var numberOfCatchBasins: Int
+    var scheduledDate: String?
+    var startDate: String?
+    var endDate: String?
+    var estimatedCrewHours: String?
+    var actualCrewHours: String?
+    var weatherConditions: String?
+    var groundWasWet: Bool?
+    var completionPct: Int
+    var phaseAssessment: Bool
+    var phaseExcavation: Bool
+    var phasePipeInstall: Bool
+    var phaseBackfill: Bool
+    var phaseRestoration: Bool
+    var phaseWalkthrough: Bool
+    var cancellationReason: String?
+    var quotedPrice: String?
+    var actualRevenue: String?
+    let createdAt: String
+    let updatedAt: String
+
+    var statusDisplay: String {
+        status.replacingOccurrences(of: "_", with: " ").capitalized
+    }
+}
+
+struct JobCostBreakdown: Codable, Sendable {
+    let jobId: String
+    let materialCost: String
+    let laborCost: String
+    let equipmentCost: String
+    let processingFees: String
+    let overheadAllocated: String
+    let directCost: String
+    let trueCost: String
+    let revenue: String
+    let grossMargin: String
+    let trueMargin: String
+    let trueMarginPct: String
+    let completionPct: Int
+}
+</hick:file>
+</hick:when>
+
+<hick:when test="payments">
+<hick:file path="apple/<hick:val name="project_name" />/Models/Payment.swift">import Foundation
+
+struct Payment: Codable, Identifiable, Sendable {
+    let id: String
+    let jobId: String
+    let date: String
+    let amount: String
+    let method: String
+    let processingFeePct: String
+    let processingFeeAmount: String
+    let feeRecovered: Bool
+    let reference: String?
+    let notes: String?
+    let createdAt: String
+
+    var methodDisplay: String {
+        method.replacingOccurrences(of: "_", with: " ").capitalized
+    }
+}
+
+struct CreatePayment: Codable, Sendable {
+    var jobId: String
+    var date: String
+    var amount: String
+    var method: String
+    var processingFeePct: String?
+    var feeRecovered: Bool?
+    var reference: String?
+    var notes: String?
+}
+</hick:file>
+</hick:when>
+
+<hick:when test="crew">
+<hick:file path="apple/<hick:val name="project_name" />/Models/CrewMember.swift">import Foundation
+
+struct CrewMember: Codable, Identifiable, Sendable {
+    let id: String
+    var name: String
+    var role: String
+    var hourlyRate: String
+    var phone: String?
+    var certifications: String?
+    var hireDate: String
+    var active: Bool
+    let createdAt: String
+
+    var roleDisplay: String {
+        role.replacingOccurrences(of: "_", with: " ").capitalized
+    }
+}
+
+struct TimeEntry: Codable, Identifiable, Sendable {
+    let id: String
+    let crewMemberId: String
+    let jobId: String
+    let date: String
+    let hoursRegular: String
+    let hoursOvertime: String
+    let notes: String?
+    let createdAt: String
+}
+
+struct CreateTimeEntry: Codable, Sendable {
+    var jobId: String
+    var date: String
+    var hoursRegular: String
+    var hoursOvertime: String?
+    var notes: String?
+}
+</hick:file>
+</hick:when>
+
+<hick:when test="inventory">
+<hick:file path="apple/<hick:val name="project_name" />/Models/InventoryItem.swift">import Foundation
+
+struct InventoryItem: Codable, Identifiable, Sendable {
+    let id: String
+    var name: String
+    var category: String
+    var unit: String
+    var quantityOnHand: String
+    var reorderPoint: String
+    var unitCost: String
+    var supplier: String?
+    var supplierSku: String?
+    var notes: String?
+    let createdAt: String
+    let updatedAt: String
+
+    var isLowStock: Bool {
+        guard let qty = Decimal(string: quantityOnHand),
+              let reorder = Decimal(string: reorderPoint) else { return false }
+        return qty &lt;= reorder
+    }
+}
+</hick:file>
+</hick:when>
+
+<hick:when test="fleet">
+<hick:file path="apple/<hick:val name="project_name" />/Models/FleetAsset.swift">import Foundation
+
+struct Vehicle: Codable, Identifiable, Sendable {
+    let id: String
+    var vehicleType: String
+    var year: Int
+    var make: String
+    var model: String
+    var licensePlate: String?
+    var vin: String?
+    var status: String
+    var monthlyPayment: String?
+    var insuranceMonthly: String?
+    let createdAt: String
+
+    var displayName: String {
+        "\(year) \(make) \(model)"
+    }
+}
+
+struct Equipment: Codable, Identifiable, Sendable {
+    let id: String
+    var equipmentType: String
+    var make: String
+    var model: String
+    var serialNumber: String?
+    var ownedOrRented: String
+    var dailyRate: String?
+    var status: String
+    let createdAt: String
+
+    var displayName: String {
+        "\(make) \(model)"
+    }
+}
+</hick:file>
+</hick:when>
+
+<hick:when test="overhead">
+<hick:file path="apple/<hick:val name="project_name" />/Models/Overhead.swift">import Foundation
+
+struct OverheadCategory: Codable, Identifiable, Sendable {
+    let id: String
+    var name: String
+    var frequency: String
+    var monthlyBudget: String
+    var notes: String?
+    let createdAt: String
+}
+
+struct RecoveryRateReport: Codable, Sendable {
+    let totalOverheadIncurred: String
+    let totalOverheadAllocated: String
+    let recoveryRatePct: String
+    let monthlyBudget: String
+    let avgOverheadPerJob: String
+}
+</hick:file>
+</hick:when>
+
+<hick:when test="estimating">
+<hick:file path="apple/<hick:val name="project_name" />/Models/Estimate.swift">import Foundation
+
+struct Estimate: Codable, Identifiable, Sendable {
+    let id: String
+    let customerId: String?
+    let linearFeet: String
+    let trenchDepthInches: String
+    let soilType: String
+    let yardGrade: String
+    let siteAccess: String
+    let includesSumpPump: Bool
+    let includesDownspoutTieIn: Bool
+    let numberOfCatchBasins: Int
+    let predictedMaterialCost: String
+    let predictedLaborCost: String
+    let predictedEquipmentCost: String
+    let predictedDirectCost: String
+    let predictedOverhead: String
+    let predictedTotalCost: String
+    let predictedCrewHours: String
+    let desiredMarginPct: String
+    let quotedPrice: String
+    let modelVersion: Int
+    let confidenceNote: String
+    let sampleSize: Int
+    let createdAt: String
+}
+
+struct EstimateRequest: Codable, Sendable {
+    var customerId: String?
+    var linearFeet: String
+    var trenchDepthInches: String
+    var soilType: String
+    var yardGrade: String
+    var siteAccess: String
+    var includesSumpPump: Bool?
+    var includesDownspoutTieIn: Bool?
+    var numberOfCatchBasins: Int?
+    var desiredMarginPct: String
+}
+</hick:file>
+</hick:when>
+
+<hick:when test="crm">
+<hick:file path="apple/<hick:val name="project_name" />/Models/CRM.swift">import Foundation
+
+struct Lead: Codable, Identifiable, Sendable {
+    let id: String
+    let customerId: String
+    var status: String
+    var source: String
+    var estimatedValue: String?
+    var jobId: String?
+    var assignedTo: String?
+    var lostReason: String?
+    var lostToCompetitor: String?
+    let createdAt: String
+    let updatedAt: String
+
+    var statusDisplay: String {
+        status.replacingOccurrences(of: "_", with: " ").capitalized
+    }
+}
+
+struct Interaction: Codable, Identifiable, Sendable {
+    let id: String
+    let customerId: String
+    let leadId: String?
+    let date: String
+    let interactionType: String
+    let direction: String
+    let summary: String
+    let durationMinutes: Int?
+    let createdAt: String
+}
+
+struct FollowUp: Codable, Identifiable, Sendable {
+    let id: String
+    let customerId: String
+    let leadId: String?
+    let dueDate: String
+    let action: String
+    let notes: String?
+    let completed: Bool
+    let completedAt: String?
+    let createdAt: String
+}
+</hick:file>
+</hick:when>
+
+<hick:when test="sops">
+<hick:file path="apple/<hick:val name="project_name" />/Models/Procedure.swift">import Foundation
+
+struct Procedure: Codable, Identifiable, Sendable {
+    let id: String
+    var title: String
+    var category: String
+    var version: Int
+    var description: String?
+    var estimatedDurationMinutes: Int?
+    var requiredRoles: String?
+    var requiredEquipment: String?
+    var requiredMaterials: String?
+    var safetyNotes: String?
+    var active: Bool
+    let createdAt: String
+    let updatedAt: String
+}
+
+struct ProcedureStep: Codable, Identifiable, Sendable {
+    let id: String
+    let procedureId: String
+    let stepNumber: Int
+    let instruction: String
+    let isCheckpoint: Bool
+    let notes: String?
+}
+
+struct ProcedureWithSteps: Codable, Sendable {
+    let id: String
+    let title: String
+    let category: String
+    let version: Int
+    let description: String?
+    let estimatedDurationMinutes: Int?
+    let requiredRoles: String?
+    let requiredEquipment: String?
+    let requiredMaterials: String?
+    let safetyNotes: String?
+    let active: Bool
+    let createdAt: String
+    let updatedAt: String
+    let steps: [ProcedureStep]
+}
+</hick:file>
+</hick:when>
+
+---
+
+### Services
+
+<hick:when test="customers">
+<hick:file path="apple/<hick:val name="project_name" />/Services/CustomerService.swift">import Foundation
+
+@Observable
+final class CustomerService: Sendable {
+    private let api = APIClient.shared
+
+    func list() async throws -&gt; [Customer] {
+        try await api.get("/api/customers")
+    }
+
+    func get(id: String) async throws -&gt; Customer {
+        try await api.get("/api/customers/\(id)")
+    }
+
+    func create(_ customer: CreateCustomer) async throws -&gt; Customer {
+        try await api.post("/api/customers", body: customer)
+    }
+}
+</hick:file>
+</hick:when>
+
+<hick:when test="jobs">
+<hick:file path="apple/<hick:val name="project_name" />/Services/JobService.swift">import Foundation
+
+@Observable
+final class JobService: Sendable {
+    private let api = APIClient.shared
+
+    func list() async throws -&gt; [Job] {
+        try await api.get("/api/jobs")
+    }
+
+    func getCosts(jobId: String) async throws -&gt; JobCostBreakdown {
+        try await api.get("/api/jobs/\(jobId)/costs")
+    }
+
+    func completeJob(jobId: String) async throws {
+        let _: [String: String] = try await api.post("/api/jobs/\(jobId)/complete", body: EmptyBody())
+    }
+}
+
+private struct EmptyBody: Codable {}
+</hick:file>
+</hick:when>
+
+<hick:when test="crew">
+<hick:file path="apple/<hick:val name="project_name" />/Services/CrewService.swift">import Foundation
+
+@Observable
+final class CrewService: Sendable {
+    private let api = APIClient.shared
+
+    func list() async throws -&gt; [CrewMember] {
+        try await api.get("/api/crew")
+    }
+
+    func logTime(crewId: String, entry: CreateTimeEntry) async throws {
+        let _: [String: String] = try await api.post("/api/crew/\(crewId)/time-entries", body: entry)
+    }
+
+    func timeEntries(crewId: String) async throws -&gt; [TimeEntry] {
+        try await api.get("/api/crew/\(crewId)/time-entries")
+    }
+}
+</hick:file>
+</hick:when>
+
+<hick:when test="payments">
+<hick:file path="apple/<hick:val name="project_name" />/Services/PaymentService.swift">import Foundation
+
+@Observable
+final class PaymentService: Sendable {
+    private let api = APIClient.shared
+
+    func record(_ payment: CreatePayment) async throws -&gt; Payment {
+        try await api.post("/api/payments", body: payment)
+    }
+
+    func get(id: String) async throws -&gt; Payment {
+        try await api.get("/api/payments/\(id)")
+    }
+}
+</hick:file>
+</hick:when>
+
+<hick:when test="inventory">
+<hick:file path="apple/<hick:val name="project_name" />/Services/InventoryService.swift">import Foundation
+
+@Observable
+final class InventoryService: Sendable {
+    private let api = APIClient.shared
+
+    func list() async throws -&gt; [InventoryItem] {
+        try await api.get("/api/inventory")
+    }
+
+    func lowStock() async throws -&gt; [InventoryItem] {
+        try await api.get("/api/inventory/low-stock")
+    }
+}
+</hick:file>
+</hick:when>
+
+<hick:when test="fleet">
+<hick:file path="apple/<hick:val name="project_name" />/Services/FleetService.swift">import Foundation
+
+@Observable
+final class FleetService: Sendable {
+    private let api = APIClient.shared
+
+    func listVehicles() async throws -&gt; [Vehicle] {
+        try await api.get("/api/fleet/vehicles")
+    }
+
+    func listEquipment() async throws -&gt; [Equipment] {
+        try await api.get("/api/fleet/equipment")
+    }
+}
+</hick:file>
+</hick:when>
+
+<hick:when test="overhead">
+<hick:file path="apple/<hick:val name="project_name" />/Services/OverheadService.swift">import Foundation
+
+@Observable
+final class OverheadService: Sendable {
+    private let api = APIClient.shared
+
+    func categories() async throws -&gt; [OverheadCategory] {
+        try await api.get("/api/overhead/categories")
+    }
+
+    func recoveryRate() async throws -&gt; RecoveryRateReport {
+        try await api.get("/api/overhead/recovery-rate")
+    }
+}
+</hick:file>
+</hick:when>
+
+<hick:when test="estimating">
+<hick:file path="apple/<hick:val name="project_name" />/Services/EstimateService.swift">import Foundation
+
+@Observable
+final class EstimateService: Sendable {
+    private let api = APIClient.shared
+
+    func create(_ request: EstimateRequest) async throws -&gt; Estimate {
+        try await api.post("/api/estimates", body: request)
+    }
+}
+</hick:file>
+</hick:when>
+
+<hick:when test="crm">
+<hick:file path="apple/<hick:val name="project_name" />/Services/CRMService.swift">import Foundation
+
+@Observable
+final class CRMService: Sendable {
+    private let api = APIClient.shared
+
+    func listLeads(status: String? = nil) async throws -&gt; [Lead] {
+        let path = status != nil ? "/api/crm/leads?status=\(status!)" : "/api/crm/leads"
+        return try await api.get(path)
+    }
+
+    func updateLead(id: String, status: String) async throws {
+        struct Update: Codable { let status: String }
+        let _: [String: String] = try await api.put("/api/crm/leads/\(id)", body: Update(status: status))
+    }
+}
+</hick:file>
+</hick:when>
+
+<hick:when test="sops">
+<hick:file path="apple/<hick:val name="project_name" />/Services/SOPService.swift">import Foundation
+
+@Observable
+final class SOPService: Sendable {
+    private let api = APIClient.shared
+
+    func list() async throws -&gt; [Procedure] {
+        try await api.get("/api/sops")
+    }
+
+    func get(id: String) async throws -&gt; ProcedureWithSteps {
+        try await api.get("/api/sops/\(id)")
+    }
+}
+</hick:file>
+</hick:when>
+
+---
+
+### Views
+
+#### Content View (Tab Bar)
+
+<hick:file path="apple/<hick:val name="project_name" />/ContentView.swift">import SwiftUI
+
+struct ContentView: View {
+    var body: some View {
+        TabView {
+<hick:when test="jobs">
+            JobListView()
+                .tabItem {
+                    Label("Jobs", systemImage: "hammer.fill")
+                }
+</hick:when>
+<hick:when test="customers">
+            CustomerListView()
+                .tabItem {
+                    Label("Customers", systemImage: "person.2.fill")
+                }
+</hick:when>
+<hick:when test="crew">
+            CrewListView()
+                .tabItem {
+                    Label("Crew", systemImage: "person.3.fill")
+                }
+</hick:when>
+<hick:when test="crm">
+            LeadPipelineView()
+                .tabItem {
+                    Label("CRM", systemImage: "chart.bar.fill")
+                }
+</hick:when>
+            MoreView()
+                .tabItem {
+                    Label("More", systemImage: "ellipsis")
+                }
+        }
+    }
+}
+
+struct MoreView: View {
+    var body: some View {
+        NavigationStack {
+            List {
+<hick:when test="inventory">
+                NavigationLink {
+                    InventoryListView()
+                } label: {
+                    Label("Inventory", systemImage: "shippingbox.fill")
+                }
+</hick:when>
+<hick:when test="fleet">
+                NavigationLink {
+                    FleetListView()
+                } label: {
+                    Label("Fleet", systemImage: "truck.box.fill")
+                }
+</hick:when>
+<hick:when test="payments">
+                NavigationLink {
+                    PaymentFormView()
+                } label: {
+                    Label("Payments", systemImage: "creditcard.fill")
+                }
+</hick:when>
+<hick:when test="overhead">
+                NavigationLink {
+                    OverheadView()
+                } label: {
+                    Label("Overhead", systemImage: "chart.pie.fill")
+                }
+</hick:when>
+<hick:when test="estimating">
+                NavigationLink {
+                    EstimateFormView()
+                } label: {
+                    Label("Estimating", systemImage: "function")
+                }
+</hick:when>
+<hick:when test="sops">
+                NavigationLink {
+                    SOPListView()
+                } label: {
+                    Label("SOPs", systemImage: "list.clipboard.fill")
+                }
+</hick:when>
+            }
+            .navigationTitle("More")
+        }
+    }
+}
+</hick:file>
+
+---
+
+#### Customer Views
+
+<hick:when test="customers">
+<hick:file path="apple/<hick:val name="project_name" />/Views/Customers/CustomerListView.swift">import SwiftUI
+
+struct CustomerListView: View {
+    @State private var customers: [Customer] = []
+    @State private var isLoading = true
+    @State private var error: String?
+    @State private var searchText = ""
+    @State private var showingAddForm = false
+
+    var filtered: [Customer] {
+        if searchText.isEmpty { return customers }
+        return customers.filter {
+            $0.name.localizedCaseInsensitiveContains(searchText) ||
+            $0.phone.contains(searchText) ||
+            $0.city.localizedCaseInsensitiveContains(searchText)
+        }
+    }
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if isLoading {
+                    ProgressView("Loading customers...")
+                } else if let error {
+                    ContentUnavailableView("Error", systemImage: "exclamationmark.triangle", description: Text(error))
+                } else if filtered.isEmpty {
+                    ContentUnavailableView.search
+                } else {
+                    List(filtered) { customer in
+                        NavigationLink {
+                            CustomerDetailView(customer: customer)
+                        } label: {
+                            VStack(alignment: .leading) {
+                                Text(customer.name).font(.headline)
+                                Text(customer.phone).font(.subheadline).foregroundStyle(.secondary)
+                                Text("\(customer.city), \(customer.state) \(customer.zip)")
+                                    .font(.caption).foregroundStyle(.tertiary)
+                            }
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Customers")
+            .searchable(text: $searchText, prompt: "Search by name, phone, city")
+            .toolbar {
+                Button {
+                    showingAddForm = true
+                } label: {
+                    Image(systemName: "plus")
+                }
+            }
+            .sheet(isPresented: $showingAddForm) {
+                CustomerFormView { await load() }
+            }
+            .task { await load() }
+        }
+    }
+
+    private func load() async {
+        isLoading = true
+        error = nil
+        do {
+            customers = try await CustomerService().list()
+        } catch {
+            self.error = error.localizedDescription
+        }
+        isLoading = false
+    }
+}
+</hick:file>
+
+<hick:file path="apple/<hick:val name="project_name" />/Views/Customers/CustomerDetailView.swift">import SwiftUI
+
+struct CustomerDetailView: View {
+    let customer: Customer
+
+    var body: some View {
+        List {
+            Section("Contact") {
+                LabeledContent("Phone", value: customer.phone)
+                if let email = customer.email {
+                    LabeledContent("Email", value: email)
+                }
+            }
+            Section("Address") {
+                Text(customer.address)
+                Text("\(customer.city), \(customer.state) \(customer.zip)")
+            }
+            if let source = customer.referralSource {
+                Section("Referral") {
+                    LabeledContent("Source", value: source)
+                    if let by = customer.referredBy {
+                        LabeledContent("Referred by", value: by)
+                    }
+                }
+            }
+            if let notes = customer.notes {
+                Section("Notes") {
+                    Text(notes)
+                }
+            }
+        }
+        .navigationTitle(customer.name)
+    }
+}
+</hick:file>
+
+<hick:file path="apple/<hick:val name="project_name" />/Views/Customers/CustomerFormView.swift">import SwiftUI
+
+struct CustomerFormView: View {
+    @Environment(\.dismiss) private var dismiss
+    var onSave: () async -&gt; Void
+
+    @State private var name = ""
+    @State private var phone = ""
+    @State private var email = ""
+    @State private var address = ""
+    @State private var city = ""
+    @State private var state = ""
+    @State private var zip = ""
+    @State private var referralSource = ""
+    @State private var notes = ""
+    @State private var isSaving = false
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Contact") {
+                    TextField("Name", text: $name)
+                    TextField("Phone", text: $phone)
+                        .keyboardType(.phonePad)
+                    TextField("Email", text: $email)
+                        .keyboardType(.emailAddress)
+                        .textInputAutocapitalization(.never)
+                }
+                Section("Address") {
+                    TextField("Street", text: $address)
+                    TextField("City", text: $city)
+                    TextField("State", text: $state)
+                    TextField("Zip", text: $zip)
+                        .keyboardType(.numberPad)
+                }
+                Section("Other") {
+                    TextField("Referral source", text: $referralSource)
+                    TextField("Notes", text: $notes, axis: .vertical)
+                        .lineLimit(3...6)
+                }
+            }
+            .navigationTitle("New Customer")
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        Task { await save() }
+                    }
+                    .disabled(name.isEmpty || phone.isEmpty || address.isEmpty || isSaving)
+                }
+            }
+        }
+    }
+
+    private func save() async {
+        isSaving = true
+        let input = CreateCustomer(
+            name: name, phone: phone,
+            email: email.isEmpty ? nil : email,
+            address: address, city: city, state: state, zip: zip,
+            referralSource: referralSource.isEmpty ? nil : referralSource,
+            notes: notes.isEmpty ? nil : notes
+        )
+        do {
+            _ = try await CustomerService().create(input)
+            await onSave()
+            dismiss()
+        } catch {
+            isSaving = false
+        }
+    }
+}
+</hick:file>
+</hick:when>
+
+---
+
+#### Job Views
+
+<hick:when test="jobs">
+<hick:file path="apple/<hick:val name="project_name" />/Views/Jobs/JobListView.swift">import SwiftUI
+
+struct JobListView: View {
+    @State private var jobs: [Job] = []
+    @State private var isLoading = true
+    @State private var error: String?
+    @State private var filterStatus: String?
+
+    let statuses = ["lead", "scheduled", "in_progress", "completed", "invoiced"]
+
+    var filtered: [Job] {
+        guard let status = filterStatus else { return jobs }
+        return jobs.filter { $0.status == status }
+    }
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if isLoading {
+                    ProgressView("Loading jobs...")
+                } else if let error {
+                    ContentUnavailableView("Error", systemImage: "exclamationmark.triangle", description: Text(error))
+                } else if filtered.isEmpty {
+                    ContentUnavailableView("No Jobs", systemImage: "hammer", description: Text("No jobs match this filter."))
+                } else {
+                    List(filtered) { job in
+                        NavigationLink {
+                            JobDetailView(job: job)
+                        } label: {
+                            HStack {
+                                VStack(alignment: .leading) {
+                                    Text(job.siteAddress).font(.headline)
+                                    Text(job.statusDisplay).font(.subheadline).foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                Text("\(job.completionPct)%")
+                                    .font(.caption)
+                                    .foregroundStyle(job.completionPct == 100 ? .green : .orange)
+                            }
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Jobs")
+            .toolbar {
+                Menu {
+                    Button("All") { filterStatus = nil }
+                    ForEach(statuses, id: \.self) { s in
+                        Button(s.replacingOccurrences(of: "_", with: " ").capitalized) {
+                            filterStatus = s
+                        }
+                    }
+                } label: {
+                    Image(systemName: "line.3.horizontal.decrease.circle")
+                }
+            }
+            .task { await load() }
+        }
+    }
+
+    private func load() async {
+        isLoading = true
+        do {
+            jobs = try await JobService().list()
+        } catch {
+            self.error = error.localizedDescription
+        }
+        isLoading = false
+    }
+}
+</hick:file>
+
+<hick:file path="apple/<hick:val name="project_name" />/Views/Jobs/JobDetailView.swift">import SwiftUI
+
+struct JobDetailView: View {
+    let job: Job
+    @State private var costs: JobCostBreakdown?
+
+    var body: some View {
+        List {
+            Section("Status") {
+                LabeledContent("Status", value: job.statusDisplay)
+                LabeledContent("Completion", value: "\(job.completionPct)%")
+                ProgressView(value: Double(job.completionPct), total: 100)
+            }
+            Section("Site") {
+                LabeledContent("Address", value: job.siteAddress)
+                LabeledContent("Soil", value: job.soilType)
+                LabeledContent("Grade", value: job.yardGrade)
+                LabeledContent("Access", value: job.siteAccess)
+            }
+            Section("Scope") {
+                if let lf = job.linearFeetPlanned {
+                    LabeledContent("Linear feet (planned)", value: lf)
+                }
+                if let depth = job.trenchDepthInches {
+                    LabeledContent("Trench depth (in)", value: depth)
+                }
+                LabeledContent("Sump pump", value: job.includesSumpPump ? "Yes" : "No")
+                LabeledContent("Downspout tie-in", value: job.includesDownspoutTieIn ? "Yes" : "No")
+                LabeledContent("Catch basins", value: "\(job.numberOfCatchBasins)")
+            }
+            Section("Phases") {
+                PhaseRow(name: "Assessment", done: job.phaseAssessment)
+                PhaseRow(name: "Excavation", done: job.phaseExcavation)
+                PhaseRow(name: "Pipe Install", done: job.phasePipeInstall)
+                PhaseRow(name: "Backfill", done: job.phaseBackfill)
+                PhaseRow(name: "Restoration", done: job.phaseRestoration)
+                PhaseRow(name: "Walkthrough", done: job.phaseWalkthrough)
+            }
+            if let costs {
+                Section("Costs") {
+                    LabeledContent("Material", value: "$\(costs.materialCost)")
+                    LabeledContent("Labor", value: "$\(costs.laborCost)")
+                    LabeledContent("Equipment", value: "$\(costs.equipmentCost)")
+                    LabeledContent("Processing fees", value: "$\(costs.processingFees)")
+                    LabeledContent("Overhead", value: "$\(costs.overheadAllocated)")
+                    LabeledContent("True cost", value: "$\(costs.trueCost)")
+                        .font(.headline)
+                    LabeledContent("Revenue", value: "$\(costs.revenue)")
+                    LabeledContent("True margin", value: "\(costs.trueMarginPct)%")
+                }
+            }
+        }
+        .navigationTitle("Job Details")
+        .task { await loadCosts() }
+    }
+
+    private func loadCosts() async {
+        costs = try? await JobService().getCosts(jobId: job.id)
+    }
+}
+
+struct PhaseRow: View {
+    let name: String
+    let done: Bool
+
+    var body: some View {
+        HStack {
+            Image(systemName: done ? "checkmark.circle.fill" : "circle")
+                .foregroundStyle(done ? .green : .secondary)
+            Text(name)
+        }
+    }
+}
+</hick:file>
+
+<hick:file path="apple/<hick:val name="project_name" />/Views/Jobs/JobCostView.swift">import SwiftUI
+
+struct JobCostView: View {
+    let jobId: String
+    @State private var costs: JobCostBreakdown?
+    @State private var isLoading = true
+
+    var body: some View {
+        Group {
+            if isLoading {
+                ProgressView()
+            } else if let costs {
+                List {
+                    Section("Direct Costs") {
+                        LabeledContent("Material", value: "$\(costs.materialCost)")
+                        LabeledContent("Labor", value: "$\(costs.laborCost)")
+                        LabeledContent("Equipment", value: "$\(costs.equipmentCost)")
+                    }
+                    Section("Additional") {
+                        LabeledContent("Processing fees", value: "$\(costs.processingFees)")
+                        LabeledContent("Overhead allocated", value: "$\(costs.overheadAllocated)")
+                    }
+                    Section("Summary") {
+                        LabeledContent("Direct cost", value: "$\(costs.directCost)")
+                        LabeledContent("True cost", value: "$\(costs.trueCost)")
+                            .font(.headline)
+                        LabeledContent("Revenue", value: "$\(costs.revenue)")
+                        LabeledContent("Gross margin", value: "$\(costs.grossMargin)")
+                        LabeledContent("True margin", value: "$\(costs.trueMargin)")
+                        LabeledContent("True margin %", value: "\(costs.trueMarginPct)%")
+                    }
+                }
+            } else {
+                ContentUnavailableView("No cost data", systemImage: "dollarsign.circle")
+            }
+        }
+        .navigationTitle("Cost Breakdown")
+        .task {
+            costs = try? await JobService().getCosts(jobId: jobId)
+            isLoading = false
+        }
+    }
+}
+</hick:file>
+</hick:when>
+
+---
+
+#### Crew Views
+
+<hick:when test="crew">
+<hick:file path="apple/<hick:val name="project_name" />/Views/Crew/CrewListView.swift">import SwiftUI
+
+struct CrewListView: View {
+    @State private var members: [CrewMember] = []
+    @State private var isLoading = true
+    @State private var error: String?
+    @State private var selectedMember: CrewMember?
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if isLoading {
+                    ProgressView("Loading crew...")
+                } else if let error {
+                    ContentUnavailableView("Error", systemImage: "exclamationmark.triangle", description: Text(error))
+                } else {
+                    List(members) { member in
+                        NavigationLink {
+                            TimeEntryView(crewMember: member)
+                        } label: {
+                            HStack {
+                                VStack(alignment: .leading) {
+                                    Text(member.name).font(.headline)
+                                    Text(member.roleDisplay).font(.subheadline).foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                Text("$\(member.hourlyRate)/hr")
+                                    .font(.caption)
+                                    .foregroundStyle(.green)
+                                Circle()
+                                    .fill(member.active ? .green : .gray)
+                                    .frame(width: 8)
+                            }
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Crew")
+            .task { await load() }
+        }
+    }
+
+    private func load() async {
+        isLoading = true
+        do {
+            members = try await CrewService().list()
+        } catch {
+            self.error = error.localizedDescription
+        }
+        isLoading = false
+    }
+}
+</hick:file>
+
+<hick:file path="apple/<hick:val name="project_name" />/Views/Crew/TimeEntryView.swift">import SwiftUI
+
+struct TimeEntryView: View {
+    let crewMember: CrewMember
+    @State private var entries: [TimeEntry] = []
+    @State private var isLoading = true
+
+    var body: some View {
+        Group {
+            if isLoading {
+                ProgressView()
+            } else if entries.isEmpty {
+                ContentUnavailableView("No Time Entries", systemImage: "clock", description: Text("No hours logged yet."))
+            } else {
+                List(entries) { entry in
+                    VStack(alignment: .leading) {
+                        HStack {
+                            Text(entry.date).font(.headline)
+                            Spacer()
+                            Text("Job: \(entry.jobId)")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        HStack {
+                            Label("\(entry.hoursRegular)h regular", systemImage: "clock")
+                            if entry.hoursOvertime != "0" {
+                                Label("\(entry.hoursOvertime)h OT", systemImage: "clock.badge.exclamationmark")
+                                    .foregroundStyle(.orange)
+                            }
+                        }
+                        .font(.subheadline)
+                        if let notes = entry.notes {
+                            Text(notes).font(.caption).foregroundStyle(.tertiary)
+                        }
+                    }
+                }
+            }
+        }
+        .navigationTitle("\(crewMember.name) — Hours")
+        .task {
+            entries = (try? await CrewService().timeEntries(crewId: crewMember.id)) ?? []
+            isLoading = false
+        }
+    }
+}
+</hick:file>
+</hick:when>
+
+---
+
+#### Payment Views
+
+<hick:when test="payments">
+<hick:file path="apple/<hick:val name="project_name" />/Views/Payments/PaymentFormView.swift">import SwiftUI
+
+struct PaymentFormView: View {
+    @State private var jobId = ""
+    @State private var amount = ""
+    @State private var method = "cash"
+    @State private var reference = ""
+    @State private var isSaving = false
+    @State private var lastPayment: Payment?
+
+    let methods = ["cash", "check", "credit_card", "debit_card", "ach", "financing"]
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Payment Details") {
+                    TextField("Job ID", text: $jobId)
+                    TextField("Amount", text: $amount)
+                        .keyboardType(.decimalPad)
+                    Picker("Method", selection: $method) {
+                        ForEach(methods, id: \.self) { m in
+                            Text(m.replacingOccurrences(of: "_", with: " ").capitalized).tag(m)
+                        }
+                    }
+                    TextField("Reference (optional)", text: $reference)
+                }
+                Section {
+                    Button("Record Payment") {
+                        Task { await save() }
+                    }
+                    .disabled(jobId.isEmpty || amount.isEmpty || isSaving)
+                }
+                if let payment = lastPayment {
+                    Section("Last Recorded") {
+                        LabeledContent("ID", value: payment.id)
+                        LabeledContent("Amount", value: "$\(payment.amount)")
+                        LabeledContent("Fee", value: "$\(payment.processingFeeAmount)")
+                    }
+                }
+            }
+            .navigationTitle("Record Payment")
+        }
+    }
+
+    private func save() async {
+        isSaving = true
+        let today = ISO8601DateFormatter().string(from: Date()).prefix(10)
+        let input = CreatePayment(
+            jobId: jobId, date: String(today), amount: amount, method: method,
+            reference: reference.isEmpty ? nil : reference
+        )
+        lastPayment = try? await PaymentService().record(input)
+        isSaving = false
+    }
+}
+</hick:file>
+</hick:when>
+
+---
+
+#### Inventory Views
+
+<hick:when test="inventory">
+<hick:file path="apple/<hick:val name="project_name" />/Views/Inventory/InventoryListView.swift">import SwiftUI
+
+struct InventoryListView: View {
+    @State private var items: [InventoryItem] = []
+    @State private var isLoading = true
+    @State private var showLowStockOnly = false
+
+    var displayed: [InventoryItem] {
+        showLowStockOnly ? items.filter { $0.isLowStock } : items
+    }
+
+    var body: some View {
+        Group {
+            if isLoading {
+                ProgressView("Loading inventory...")
+            } else {
+                List(displayed) { item in
+                    HStack {
+                        VStack(alignment: .leading) {
+                            Text(item.name).font(.headline)
+                            Text("\(item.category) — \(item.unit)").font(.caption).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        VStack(alignment: .trailing) {
+                            Text(item.quantityOnHand)
+                                .font(.title3)
+                                .foregroundStyle(item.isLowStock ? .red : .primary)
+                            Text("$\(item.unitCost)/\(item.unit)")
+                                .font(.caption).foregroundStyle(.secondary)
+                        }
+                    }
+                }
+            }
+        }
+        .navigationTitle("Inventory")
+        .toolbar {
+            Toggle("Low Stock", isOn: $showLowStockOnly)
+                .toggleStyle(.button)
+        }
+        .task { await load() }
+    }
+
+    private func load() async {
+        isLoading = true
+        items = (try? await InventoryService().list()) ?? []
+        isLoading = false
+    }
+}
+</hick:file>
+</hick:when>
+
+---
+
+#### Fleet Views
+
+<hick:when test="fleet">
+<hick:file path="apple/<hick:val name="project_name" />/Views/Fleet/FleetListView.swift">import SwiftUI
+
+struct FleetListView: View {
+    @State private var vehicles: [Vehicle] = []
+    @State private var equipment: [Equipment] = []
+    @State private var isLoading = true
+
+    var body: some View {
+        Group {
+            if isLoading {
+                ProgressView("Loading fleet...")
+            } else {
+                List {
+                    if !vehicles.isEmpty {
+                        Section("Vehicles") {
+                            ForEach(vehicles) { v in
+                                HStack {
+                                    VStack(alignment: .leading) {
+                                        Text(v.displayName).font(.headline)
+                                        Text(v.vehicleType).font(.caption).foregroundStyle(.secondary)
+                                    }
+                                    Spacer()
+                                    Text(v.status.capitalized)
+                                        .font(.caption)
+                                        .padding(.horizontal, 8)
+                                        .padding(.vertical, 2)
+                                        .background(v.status == "active" ? .green.opacity(0.2) : .gray.opacity(0.2))
+                                        .clipShape(Capsule())
+                                }
+                            }
+                        }
+                    }
+                    if !equipment.isEmpty {
+                        Section("Equipment") {
+                            ForEach(equipment) { e in
+                                HStack {
+                                    VStack(alignment: .leading) {
+                                        Text(e.displayName).font(.headline)
+                                        Text(e.equipmentType.replacingOccurrences(of: "_", with: " ").capitalized)
+                                            .font(.caption).foregroundStyle(.secondary)
+                                    }
+                                    Spacer()
+                                    Text(e.ownedOrRented.capitalized)
+                                        .font(.caption).foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        .navigationTitle("Fleet")
+        .task { await load() }
+    }
+
+    private func load() async {
+        isLoading = true
+        async let v = FleetService().listVehicles()
+        async let e = FleetService().listEquipment()
+        vehicles = (try? await v) ?? []
+        equipment = (try? await e) ?? []
+        isLoading = false
+    }
+}
+</hick:file>
+</hick:when>
+
+---
+
+#### Overhead Views
+
+<hick:when test="overhead">
+<hick:file path="apple/<hick:val name="project_name" />/Views/Overhead/OverheadView.swift">import SwiftUI
+
+struct OverheadView: View {
+    @State private var categories: [OverheadCategory] = []
+    @State private var report: RecoveryRateReport?
+    @State private var isLoading = true
+
+    var body: some View {
+        Group {
+            if isLoading {
+                ProgressView()
+            } else {
+                List {
+                    if let report {
+                        Section("Recovery Rate") {
+                            LabeledContent("Rate", value: "\(report.recoveryRatePct)%")
+                            LabeledContent("Incurred", value: "$\(report.totalOverheadIncurred)")
+                            LabeledContent("Allocated", value: "$\(report.totalOverheadAllocated)")
+                            LabeledContent("Monthly budget", value: "$\(report.monthlyBudget)")
+                            LabeledContent("Avg per job", value: "$\(report.avgOverheadPerJob)")
+                        }
+                    }
+                    Section("Categories") {
+                        ForEach(categories) { cat in
+                            HStack {
+                                VStack(alignment: .leading) {
+                                    Text(cat.name).font(.headline)
+                                    Text(cat.frequency).font(.caption).foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                Text("$\(cat.monthlyBudget)/mo").foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        .navigationTitle("Overhead")
+        .task { await load() }
+    }
+
+    private func load() async {
+        isLoading = true
+        let service = OverheadService()
+        async let cats = service.categories()
+        async let rate = service.recoveryRate()
+        categories = (try? await cats) ?? []
+        report = try? await rate
+        isLoading = false
+    }
+}
+</hick:file>
+</hick:when>
+
+---
+
+#### Estimating Views
+
+<hick:when test="estimating">
+<hick:file path="apple/<hick:val name="project_name" />/Views/Estimating/EstimateFormView.swift">import SwiftUI
+
+struct EstimateFormView: View {
+    @State private var linearFeet = ""
+    @State private var trenchDepth = ""
+    @State private var soilType = "mixed"
+    @State private var yardGrade = "flat"
+    @State private var siteAccess = "easy"
+    @State private var sumpPump = false
+    @State private var downspout = false
+    @State private var catchBasins = 0
+    @State private var marginPct = "25"
+    @State private var result: Estimate?
+    @State private var isCalculating = false
+
+    let soilTypes = ["clay", "sand", "loam", "rocky", "mixed"]
+    let grades = ["flat", "slight", "moderate", "steep"]
+    let accessLevels = ["easy", "moderate", "difficult", "hand_carry_only"]
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Job Parameters") {
+                    TextField("Linear feet", text: $linearFeet)
+                        .keyboardType(.decimalPad)
+                    TextField("Trench depth (inches)", text: $trenchDepth)
+                        .keyboardType(.decimalPad)
+                    Picker("Soil type", selection: $soilType) {
+                        ForEach(soilTypes, id: \.self) { Text($0.capitalized).tag($0) }
+                    }
+                    Picker("Yard grade", selection: $yardGrade) {
+                        ForEach(grades, id: \.self) { Text($0.capitalized).tag($0) }
+                    }
+                    Picker("Site access", selection: $siteAccess) {
+                        ForEach(accessLevels, id: \.self) {
+                            Text($0.replacingOccurrences(of: "_", with: " ").capitalized).tag($0)
+                        }
+                    }
+                }
+                Section("Options") {
+                    Toggle("Sump pump", isOn: $sumpPump)
+                    Toggle("Downspout tie-in", isOn: $downspout)
+                    Stepper("Catch basins: \(catchBasins)", value: $catchBasins, in: 0...20)
+                }
+                Section("Pricing") {
+                    TextField("Target margin %", text: $marginPct)
+                        .keyboardType(.decimalPad)
+                }
+                Section {
+                    Button("Generate Estimate") {
+                        Task { await generate() }
+                    }
+                    .disabled(linearFeet.isEmpty || trenchDepth.isEmpty || isCalculating)
+                }
+                if let result {
+                    NavigationLink("View Result") {
+                        EstimateResultView(estimate: result)
+                    }
+                }
+            }
+            .navigationTitle("New Estimate")
+        }
+    }
+
+    private func generate() async {
+        isCalculating = true
+        let request = EstimateRequest(
+            linearFeet: linearFeet,
+            trenchDepthInches: trenchDepth,
+            soilType: soilType,
+            yardGrade: yardGrade,
+            siteAccess: siteAccess,
+            includesSumpPump: sumpPump,
+            includesDownspoutTieIn: downspout,
+            numberOfCatchBasins: catchBasins,
+            desiredMarginPct: marginPct
+        )
+        result = try? await EstimateService().create(request)
+        isCalculating = false
+    }
+}
+</hick:file>
+
+<hick:file path="apple/<hick:val name="project_name" />/Views/Estimating/EstimateResultView.swift">import SwiftUI
+
+struct EstimateResultView: View {
+    let estimate: Estimate
+
+    var body: some View {
+        List {
+            Section("Quote") {
+                LabeledContent("Quoted Price", value: "$\(estimate.quotedPrice)")
+                    .font(.title2)
+                LabeledContent("Target margin", value: "\(estimate.desiredMarginPct)%")
+            }
+            Section("Predicted Costs") {
+                LabeledContent("Materials", value: "$\(estimate.predictedMaterialCost)")
+                LabeledContent("Labor", value: "$\(estimate.predictedLaborCost)")
+                LabeledContent("Equipment", value: "$\(estimate.predictedEquipmentCost)")
+                LabeledContent("Direct cost", value: "$\(estimate.predictedDirectCost)")
+                LabeledContent("Overhead", value: "$\(estimate.predictedOverhead)")
+                LabeledContent("Total cost", value: "$\(estimate.predictedTotalCost)")
+            }
+            Section("Scheduling") {
+                LabeledContent("Estimated crew hours", value: estimate.predictedCrewHours)
+            }
+            Section("Model") {
+                LabeledContent("Version", value: "\(estimate.modelVersion)")
+                LabeledContent("Sample size", value: "\(estimate.sampleSize)")
+                Text(estimate.confidenceNote)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+            Section("Job Details") {
+                LabeledContent("Linear feet", value: estimate.linearFeet)
+                LabeledContent("Trench depth", value: "\(estimate.trenchDepthInches) in")
+                LabeledContent("Soil", value: estimate.soilType)
+                LabeledContent("Grade", value: estimate.yardGrade)
+                LabeledContent("Access", value: estimate.siteAccess)
+                LabeledContent("Sump pump", value: estimate.includesSumpPump ? "Yes" : "No")
+                LabeledContent("Downspout tie-in", value: estimate.includesDownspoutTieIn ? "Yes" : "No")
+                LabeledContent("Catch basins", value: "\(estimate.numberOfCatchBasins)")
+            }
+        }
+        .navigationTitle("Estimate")
+    }
+}
+</hick:file>
+</hick:when>
+
+---
+
+#### CRM Views
+
+<hick:when test="crm">
+<hick:file path="apple/<hick:val name="project_name" />/Views/CRM/LeadPipelineView.swift">import SwiftUI
+
+struct LeadPipelineView: View {
+    @State private var leads: [Lead] = []
+    @State private var isLoading = true
+    @State private var error: String?
+
+    let stages = ["new_lead", "contacted", "site_visit_scheduled", "site_visit_completed",
+                  "estimate_sent", "negotiating", "won", "lost"]
+
+    var body: some View {
+        NavigationStack {
+            Group {
+                if isLoading {
+                    ProgressView("Loading pipeline...")
+                } else if let error {
+                    ContentUnavailableView("Error", systemImage: "exclamationmark.triangle", description: Text(error))
+                } else {
+                    List {
+                        ForEach(stages, id: \.self) { stage in
+                            let stageLeads = leads.filter { $0.status == stage }
+                            if !stageLeads.isEmpty {
+                                Section(stage.replacingOccurrences(of: "_", with: " ").capitalized) {
+                                    ForEach(stageLeads) { lead in
+                                        NavigationLink {
+                                            LeadDetailView(lead: lead)
+                                        } label: {
+                                            VStack(alignment: .leading) {
+                                                Text("Customer: \(lead.customerId)")
+                                                    .font(.headline)
+                                                HStack {
+                                                    Text(lead.source).font(.caption)
+                                                    if let value = lead.estimatedValue {
+                                                        Spacer()
+                                                        Text("$\(value)").font(.caption).foregroundStyle(.green)
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            .navigationTitle("Lead Pipeline")
+            .task { await load() }
+            .refreshable { await load() }
+        }
+    }
+
+    private func load() async {
+        isLoading = true
+        do {
+            leads = try await CRMService().listLeads()
+        } catch {
+            self.error = error.localizedDescription
+        }
+        isLoading = false
+    }
+}
+</hick:file>
+
+<hick:file path="apple/<hick:val name="project_name" />/Views/CRM/LeadDetailView.swift">import SwiftUI
+
+struct LeadDetailView: View {
+    let lead: Lead
+    @State private var isUpdating = false
+
+    let nextStage: [String: String] = [
+        "new_lead": "contacted",
+        "contacted": "site_visit_scheduled",
+        "site_visit_scheduled": "site_visit_completed",
+        "site_visit_completed": "estimate_sent",
+        "estimate_sent": "negotiating",
+        "negotiating": "won",
+    ]
+
+    var body: some View {
+        List {
+            Section("Lead Info") {
+                LabeledContent("Status", value: lead.statusDisplay)
+                LabeledContent("Source", value: lead.source)
+                LabeledContent("Customer", value: lead.customerId)
+                if let value = lead.estimatedValue {
+                    LabeledContent("Estimated value", value: "$\(value)")
+                }
+                if let assignee = lead.assignedTo {
+                    LabeledContent("Assigned to", value: assignee)
+                }
+            }
+            if let next = nextStage[lead.status] {
+                Section {
+                    Button("Advance to \(next.replacingOccurrences(of: "_", with: " ").capitalized)") {
+                        Task { await advance(to: next) }
+                    }
+                    .disabled(isUpdating)
+                }
+            }
+            if lead.status == "lost" {
+                Section("Lost Details") {
+                    if let reason = lead.lostReason {
+                        LabeledContent("Reason", value: reason)
+                    }
+                    if let competitor = lead.lostToCompetitor {
+                        LabeledContent("Lost to", value: competitor)
+                    }
+                }
+            }
+        }
+        .navigationTitle("Lead Details")
+    }
+
+    private func advance(to status: String) async {
+        isUpdating = true
+        try? await CRMService().updateLead(id: lead.id, status: status)
+        isUpdating = false
+    }
+}
+</hick:file>
+</hick:when>
+
+---
+
+#### SOP Views
+
+<hick:when test="sops">
+<hick:file path="apple/<hick:val name="project_name" />/Views/SOPs/SOPListView.swift">import SwiftUI
+
+struct SOPListView: View {
+    @State private var procedures: [Procedure] = []
+    @State private var isLoading = true
+
+    var grouped: [String: [Procedure]] {
+        Dictionary(grouping: procedures, by: { $0.category })
+    }
+
+    var body: some View {
+        Group {
+            if isLoading {
+                ProgressView("Loading procedures...")
+            } else if procedures.isEmpty {
+                ContentUnavailableView("No SOPs", systemImage: "list.clipboard", description: Text("No procedures have been created yet."))
+            } else {
+                List {
+                    ForEach(grouped.keys.sorted(), id: \.self) { category in
+                        Section(category.replacingOccurrences(of: "_", with: " ").capitalized) {
+                            ForEach(grouped[category]!) { proc in
+                                NavigationLink {
+                                    SOPDetailView(procedureId: proc.id)
+                                } label: {
+                                    VStack(alignment: .leading) {
+                                        Text(proc.title).font(.headline)
+                                        HStack {
+                                            Text("v\(proc.version)").font(.caption)
+                                            if let mins = proc.estimatedDurationMinutes {
+                                                Text("~\(mins) min").font(.caption).foregroundStyle(.secondary)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        .navigationTitle("SOPs")
+        .task { await load() }
+    }
+
+    private func load() async {
+        isLoading = true
+        procedures = (try? await SOPService().list()) ?? []
+        isLoading = false
+    }
+}
+</hick:file>
+
+<hick:file path="apple/<hick:val name="project_name" />/Views/SOPs/SOPDetailView.swift">import SwiftUI
+
+struct SOPDetailView: View {
+    let procedureId: String
+    @State private var procedure: ProcedureWithSteps?
+    @State private var isLoading = true
+
+    var body: some View {
+        Group {
+            if isLoading {
+                ProgressView()
+            } else if let procedure {
+                List {
+                    if let desc = procedure.description {
+                        Section("Description") {
+                            Text(desc)
+                        }
+                    }
+                    if let safety = procedure.safetyNotes {
+                        Section("Safety") {
+                            Label(safety, systemImage: "exclamationmark.triangle.fill")
+                                .foregroundStyle(.orange)
+                        }
+                    }
+                    Section("Requirements") {
+                        if let roles = procedure.requiredRoles {
+                            LabeledContent("Roles", value: roles)
+                        }
+                        if let equipment = procedure.requiredEquipment {
+                            LabeledContent("Equipment", value: equipment)
+                        }
+                        if let materials = procedure.requiredMaterials {
+                            LabeledContent("Materials", value: materials)
+                        }
+                    }
+                    Section("Steps") {
+                        ForEach(procedure.steps) { step in
+                            HStack(alignment: .top) {
+                                Text("\(step.stepNumber).")
+                                    .font(.headline)
+                                    .frame(width: 30, alignment: .trailing)
+                                VStack(alignment: .leading) {
+                                    Text(step.instruction)
+                                    if step.isCheckpoint {
+                                        Label("Checkpoint — requires sign-off", systemImage: "checkmark.seal.fill")
+                                            .font(.caption)
+                                            .foregroundStyle(.blue)
+                                    }
+                                    if let notes = step.notes {
+                                        Text(notes).font(.caption).foregroundStyle(.secondary)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            } else {
+                ContentUnavailableView("Not Found", systemImage: "doc.questionmark")
+            }
+        }
+        .navigationTitle(procedure?.title ?? "Procedure")
+        .task {
+            procedure = try? await SOPService().get(id: procedureId)
+            isLoading = false
+        }
+    }
+}
+</hick:file>
+</hick:when>
+
+---
+
+### Asset Catalogs
+
+<hick:file path="apple/<hick:val name="project_name" />/Assets.xcassets/Contents.json">{
+  "info" : {
+    "author" : "xcode",
+    "version" : 1
+  }
+}
+</hick:file>
+
+<hick:file path="apple/<hick:val name="project_name" />/Assets.xcassets/AccentColor.colorset/Contents.json">{
+  "colors" : [
+    {
+      "idiom" : "universal"
+    }
+  ],
+  "info" : {
+    "author" : "xcode",
+    "version" : 1
+  }
+}
+</hick:file>
+
+<hick:file path="apple/<hick:val name="project_name" />/Assets.xcassets/AppIcon.appiconset/Contents.json">{
+  "images" : [
+    {
+      "idiom" : "universal",
+      "platform" : "ios",
+      "size" : "1024x1024"
+    }
+  ],
+  "info" : {
+    "author" : "xcode",
+    "version" : 1
+  }
+}
+</hick:file>
+
+---
+
+### Setup Script
+
+<hick:file path="apple/setup.sh">#!/bin/bash
+set -euo pipefail
+
+echo "Setting up <hick:val name="project_name" /> iOS project..."
+
+# Check for xcodegen
+if ! command -v xcodegen &amp;&gt; /dev/null; then
+    echo "xcodegen not found. Installing via Homebrew..."
+    brew install xcodegen
+fi
+
+# Generate Xcode project
+echo "Generating Xcode project..."
+xcodegen generate
+
+echo "Done! Open <hick:val name="project_name" />.xcodeproj in Xcode."
+</hick:file>
+
+</hick:when>
+</hick:doc>

@@ -1,0 +1,228 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
+
+<hick:when test="customers">
+
+## Customers
+
+Every job starts with a customer. Customers are the first entity created and are
+referenced by jobs, estimates, and invoices. Referral tracking matters because
+word-of-mouth is the primary growth channel for drain installation.
+
+### Data Model
+
+<hick:file path="backend/src/customers/mod.rs">mod model;
+mod routes;
+
+pub use routes::routes;
+pub use model::Customer;
+</hick:file>
+
+<hick:file path="backend/src/customers/model.rs">use chrono::NaiveDateTime;
+use serde::{Deserialize, Serialize};
+
+/// A customer who has or may have french drain work done.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Customer {
+    pub id: String,
+    pub name: String,
+    pub phone: String,
+    pub email: Option&lt;String&gt;,
+    pub address: String,
+    pub city: String,
+    pub state: String,
+    pub zip: String,
+    /// How did they find us? "referral", "google", "yard_sign", "repeat", etc.
+    pub referral_source: Option&lt;String&gt;,
+    /// If referred, who referred them? (customer ID or free text)
+    pub referred_by: Option&lt;String&gt;,
+    pub notes: Option&lt;String&gt;,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateCustomer {
+    pub name: String,
+    pub phone: String,
+    pub email: Option&lt;String&gt;,
+    pub address: String,
+    pub city: String,
+    pub state: String,
+    pub zip: String,
+    pub referral_source: Option&lt;String&gt;,
+    pub referred_by: Option&lt;String&gt;,
+    pub notes: Option&lt;String&gt;,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateCustomer {
+    pub name: Option&lt;String&gt;,
+    pub phone: Option&lt;String&gt;,
+    pub email: Option&lt;String&gt;,
+    pub address: Option&lt;String&gt;,
+    pub city: Option&lt;String&gt;,
+    pub state: Option&lt;String&gt;,
+    pub zip: Option&lt;String&gt;,
+    pub referral_source: Option&lt;String&gt;,
+    pub referred_by: Option&lt;String&gt;,
+    pub notes: Option&lt;String&gt;,
+}
+</hick:file>
+
+### API Routes
+
+<hick:file path="backend/src/customers/routes.rs">use std::sync::Arc;
+use axum::{
+    extract::{Path, State},
+    routing::{get, post, put},
+    Json, Router,
+};
+use crate::{AppState, error::AppError, types::new_id};
+use super::model::{CreateCustomer, Customer, UpdateCustomer};
+
+pub fn routes() -> Router&lt;Arc&lt;AppState&gt;&gt; {
+    Router::new()
+        .route("/api/customers", get(list_customers).post(create_customer))
+        .route("/api/customers/:id", get(get_customer).put(update_customer))
+}
+
+async fn list_customers(
+    State(state): State&lt;Arc&lt;AppState&gt;&gt;,
+) -> Result&lt;Json&lt;Vec&lt;Customer&gt;&gt;, AppError&gt; {
+    let conn = state.db.conn();
+    let mut stmt = conn.prepare(
+        "SELECT id, name, phone, email, address, city, state, zip,
+                referral_source, referred_by, notes, created_at, updated_at
+         FROM customers ORDER BY name"
+    )?;
+    let customers = stmt.query_map([], |row| {
+        Ok(Customer {
+            id: row.get(0)?,
+            name: row.get(1)?,
+            phone: row.get(2)?,
+            email: row.get(3)?,
+            address: row.get(4)?,
+            city: row.get(5)?,
+            state: row.get(6)?,
+            zip: row.get(7)?,
+            referral_source: row.get(8)?,
+            referred_by: row.get(9)?,
+            notes: row.get(10)?,
+            created_at: row.get(11)?,
+            updated_at: row.get(12)?,
+        })
+    })?.collect::&lt;Result&lt;Vec&lt;_&gt;, _&gt;&gt;()?;
+    Ok(Json(customers))
+}
+
+async fn create_customer(
+    State(state): State&lt;Arc&lt;AppState&gt;&gt;,
+    Json(input): Json&lt;CreateCustomer&gt;,
+) -> Result&lt;Json&lt;Customer&gt;, AppError&gt; {
+    let id = new_id("cust");
+    let conn = state.db.conn();
+    conn.execute(
+        "INSERT INTO customers (id, name, phone, email, address, city, state, zip,
+                                referral_source, referred_by, notes)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+        rusqlite::params![
+            id, input.name, input.phone, input.email,
+            input.address, input.city, input.state, input.zip,
+            input.referral_source, input.referred_by, input.notes,
+        ],
+    )?;
+    let customer = get_customer_by_id(&amp;conn, &amp;id)?;
+    Ok(Json(customer))
+}
+
+async fn get_customer(
+    State(state): State&lt;Arc&lt;AppState&gt;&gt;,
+    Path(id): Path&lt;String&gt;,
+) -> Result&lt;Json&lt;Customer&gt;, AppError&gt; {
+    let conn = state.db.conn();
+    let customer = get_customer_by_id(&amp;conn, &amp;id)?;
+    Ok(Json(customer))
+}
+
+async fn update_customer(
+    State(state): State&lt;Arc&lt;AppState&gt;&gt;,
+    Path(id): Path&lt;String&gt;,
+    Json(input): Json&lt;UpdateCustomer&gt;,
+) -> Result&lt;Json&lt;Customer&gt;, AppError&gt; {
+    let conn = state.db.conn();
+    // Verify exists
+    get_customer_by_id(&amp;conn, &amp;id)?;
+    conn.execute(
+        "UPDATE customers SET
+            name = COALESCE(?2, name),
+            phone = COALESCE(?3, phone),
+            email = COALESCE(?4, email),
+            address = COALESCE(?5, address),
+            city = COALESCE(?6, city),
+            state = COALESCE(?7, state),
+            zip = COALESCE(?8, zip),
+            referral_source = COALESCE(?9, referral_source),
+            referred_by = COALESCE(?10, referred_by),
+            notes = COALESCE(?11, notes),
+            updated_at = datetime('now')
+         WHERE id = ?1",
+        rusqlite::params![
+            id, input.name, input.phone, input.email,
+            input.address, input.city, input.state, input.zip,
+            input.referral_source, input.referred_by, input.notes,
+        ],
+    )?;
+    let customer = get_customer_by_id(&amp;conn, &amp;id)?;
+    Ok(Json(customer))
+}
+
+fn get_customer_by_id(conn: &amp;rusqlite::Connection, id: &amp;str) -> Result&lt;Customer, AppError&gt; {
+    conn.query_row(
+        "SELECT id, name, phone, email, address, city, state, zip,
+                referral_source, referred_by, notes, created_at, updated_at
+         FROM customers WHERE id = ?1",
+        [id],
+        |row| Ok(Customer {
+            id: row.get(0)?,
+            name: row.get(1)?,
+            phone: row.get(2)?,
+            email: row.get(3)?,
+            address: row.get(4)?,
+            city: row.get(5)?,
+            state: row.get(6)?,
+            zip: row.get(7)?,
+            referral_source: row.get(8)?,
+            referred_by: row.get(9)?,
+            notes: row.get(10)?,
+            created_at: row.get(11)?,
+            updated_at: row.get(12)?,
+        }),
+    ).map_err(|_| AppError::NotFound(format!("Customer {} not found", id)))
+}
+</hick:file>
+
+### Migration
+
+<hick:file path="backend/migrations/001_customers.sql">CREATE TABLE IF NOT EXISTS customers (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    phone TEXT NOT NULL,
+    email TEXT,
+    address TEXT NOT NULL,
+    city TEXT NOT NULL,
+    state TEXT NOT NULL,
+    zip TEXT NOT NULL,
+    referral_source TEXT,
+    referred_by TEXT,
+    notes TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX idx_customers_name ON customers(name);
+CREATE INDEX idx_customers_referral ON customers(referral_source);
+</hick:file>
+
+</hick:when>
+</hick:doc>

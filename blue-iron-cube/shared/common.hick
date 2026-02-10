@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
+
+## Shared Configuration
+
+### EditorConfig
+
+<hick:file path=".editorconfig">root = true
+
+[*]
+indent_style = space
+indent_size = 4
+end_of_line = lf
+charset = utf-8
+trim_trailing_whitespace = true
+insert_final_newline = true
+
+[*.{yml,yaml,toml}]
+indent_size = 2
+
+[*.sql]
+indent_size = 4
+</hick:file>
+
+</hick:doc>

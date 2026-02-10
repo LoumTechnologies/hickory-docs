@@ -1,0 +1,285 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
+
+<hick:when test="inventory">
+
+## Inventory
+
+French drain installation uses a consistent set of materials. Tracking inventory
+serves two purposes:
+1. Know when to reorder (prevent job delays from stockouts)
+2. Track actual material cost per job (feed into estimating model)
+
+**Common french drain materials:**
+- Corrugated drain pipe (4" perforated, 4" solid)
+- Gravel/aggregate (washed #57 stone, pea gravel)
+- Filter fabric (landscape fabric, filter sock)
+- Fittings (couplers, tees, elbows, end caps, pop-up emitters)
+- Catch basins and grates
+- Sump pumps and check valves
+- PVC pipe (for sump discharge)
+- Concrete/mortar (for basin installation)
+- Sod/seed (for restoration)
+
+### Data Model
+
+<hick:file path="backend/src/inventory/mod.rs">mod model;
+mod routes;
+
+pub use routes::routes;
+pub use model::{InventoryItem, InventoryTransaction};
+</hick:file>
+
+<hick:file path="backend/src/inventory/model.rs">use chrono::NaiveDateTime;
+use rust_decimal::Decimal;
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InventoryItem {
+    pub id: String,
+    pub name: String,
+    pub category: String,       // pipe, gravel, fabric, fitting, pump, restoration
+    pub unit: String,            // feet, tons, sq_ft, each, bags
+    pub quantity_on_hand: Decimal,
+    pub reorder_point: Decimal,
+    pub unit_cost: Decimal,      // last known cost per unit
+    pub supplier: Option&lt;String&gt;,
+    pub supplier_sku: Option&lt;String&gt;,
+    pub notes: Option&lt;String&gt;,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum TransactionType {
+    Purchase,    // stock received from supplier
+    Usage,       // material used on a job
+    Adjustment,  // manual correction (damage, count correction)
+    Return,      // returned to supplier
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InventoryTransaction {
+    pub id: String,
+    pub item_id: String,
+    pub transaction_type: String,
+    pub quantity: Decimal,       // positive for in, negative for out
+    pub unit_cost: Option&lt;Decimal&gt;,
+    pub job_id: Option&lt;String&gt;,  // set when type=usage
+    pub notes: Option&lt;String&gt;,
+    pub created_at: NaiveDateTime,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateItem {
+    pub name: String,
+    pub category: String,
+    pub unit: String,
+    pub reorder_point: Decimal,
+    pub unit_cost: Decimal,
+    pub supplier: Option&lt;String&gt;,
+    pub supplier_sku: Option&lt;String&gt;,
+    pub notes: Option&lt;String&gt;,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ReceiveStock {
+    pub quantity: Decimal,
+    pub unit_cost: Decimal,
+    pub notes: Option&lt;String&gt;,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UseStock {
+    pub quantity: Decimal,
+    pub job_id: String,
+    pub notes: Option&lt;String&gt;,
+}
+</hick:file>
+
+### Routes
+
+<hick:file path="backend/src/inventory/routes.rs">use std::sync::Arc;
+use axum::{
+    extract::{Path, State},
+    routing::{get, post},
+    Json, Router,
+};
+use rust_decimal::prelude::ToPrimitive;
+use crate::{AppState, error::AppError, types::{new_id, get_decimal, get_decimal_opt}};
+use super::model::*;
+
+pub fn routes() -> Router&lt;Arc&lt;AppState&gt;&gt; {
+    Router::new()
+        .route("/api/inventory", get(list_items).post(add_item))
+        .route("/api/inventory/low-stock", get(low_stock))
+        .route("/api/inventory/:id/receive", post(receive_stock))
+        .route("/api/inventory/:id/use", post(use_stock))
+}
+
+async fn list_items(
+    State(state): State&lt;Arc&lt;AppState&gt;&gt;,
+) -> Result&lt;Json&lt;Vec&lt;InventoryItem&gt;&gt;, AppError&gt; {
+    let conn = state.db.conn();
+    let mut stmt = conn.prepare(
+        "SELECT id, name, category, unit, quantity_on_hand, reorder_point,
+                unit_cost, supplier, supplier_sku, notes, created_at, updated_at
+         FROM inventory_items ORDER BY category, name"
+    )?;
+    let items = stmt.query_map([], |row| {
+        Ok(InventoryItem {
+            id: row.get(0)?,
+            name: row.get(1)?,
+            category: row.get(2)?,
+            unit: row.get(3)?,
+            quantity_on_hand: get_decimal(row, 4)?,
+            reorder_point: get_decimal(row, 5)?,
+            unit_cost: get_decimal(row, 6)?,
+            supplier: row.get(7)?,
+            supplier_sku: row.get(8)?,
+            notes: row.get(9)?,
+            created_at: row.get(10)?,
+            updated_at: row.get(11)?,
+        })
+    })?.collect::&lt;Result&lt;Vec&lt;_&gt;, _&gt;&gt;()?;
+    Ok(Json(items))
+}
+
+async fn add_item(
+    State(state): State&lt;Arc&lt;AppState&gt;&gt;,
+    Json(input): Json&lt;CreateItem&gt;,
+) -> Result&lt;Json&lt;serde_json::Value&gt;, AppError&gt; {
+    let id = new_id("inv");
+    let conn = state.db.conn();
+    conn.execute(
+        "INSERT INTO inventory_items (id, name, category, unit, quantity_on_hand, reorder_point, unit_cost, supplier, supplier_sku, notes)
+         VALUES (?1, ?2, ?3, ?4, 0, ?5, ?6, ?7, ?8, ?9)",
+        rusqlite::params![id, input.name, input.category, input.unit, input.reorder_point.to_f64().unwrap_or(0.0), input.unit_cost.to_f64().unwrap_or(0.0), input.supplier, input.supplier_sku, input.notes],
+    )?;
+    Ok(Json(serde_json::json!({ "id": id })))
+}
+
+async fn low_stock(
+    State(state): State&lt;Arc&lt;AppState&gt;&gt;,
+) -> Result&lt;Json&lt;Vec&lt;InventoryItem&gt;&gt;, AppError&gt; {
+    let conn = state.db.conn();
+    let mut stmt = conn.prepare(
+        "SELECT id, name, category, unit, quantity_on_hand, reorder_point,
+                unit_cost, supplier, supplier_sku, notes, created_at, updated_at
+         FROM inventory_items
+         WHERE quantity_on_hand &lt;= reorder_point
+         ORDER BY (quantity_on_hand - reorder_point)"
+    )?;
+    let items = stmt.query_map([], |row| {
+        Ok(InventoryItem {
+            id: row.get(0)?,
+            name: row.get(1)?,
+            category: row.get(2)?,
+            unit: row.get(3)?,
+            quantity_on_hand: get_decimal(row, 4)?,
+            reorder_point: get_decimal(row, 5)?,
+            unit_cost: get_decimal(row, 6)?,
+            supplier: row.get(7)?,
+            supplier_sku: row.get(8)?,
+            notes: row.get(9)?,
+            created_at: row.get(10)?,
+            updated_at: row.get(11)?,
+        })
+    })?.collect::&lt;Result&lt;Vec&lt;_&gt;, _&gt;&gt;()?;
+    Ok(Json(items))
+}
+
+async fn receive_stock(
+    State(state): State&lt;Arc&lt;AppState&gt;&gt;,
+    Path(item_id): Path&lt;String&gt;,
+    Json(input): Json&lt;ReceiveStock&gt;,
+) -> Result&lt;Json&lt;serde_json::Value&gt;, AppError&gt; {
+    let id = new_id("txn");
+    let conn = state.db.conn();
+    conn.execute(
+        "INSERT INTO inventory_transactions (id, item_id, transaction_type, quantity, unit_cost, notes)
+         VALUES (?1, ?2, 'purchase', ?3, ?4, ?5)",
+        rusqlite::params![id, item_id, input.quantity.to_f64().unwrap_or(0.0), input.unit_cost.to_f64().unwrap_or(0.0), input.notes],
+    )?;
+    conn.execute(
+        "UPDATE inventory_items SET quantity_on_hand = quantity_on_hand + ?2, unit_cost = ?3, updated_at = datetime('now')
+         WHERE id = ?1",
+        rusqlite::params![item_id, input.quantity.to_f64().unwrap_or(0.0), input.unit_cost.to_f64().unwrap_or(0.0)],
+    )?;
+    Ok(Json(serde_json::json!({ "id": id })))
+}
+
+async fn use_stock(
+    State(state): State&lt;Arc&lt;AppState&gt;&gt;,
+    Path(item_id): Path&lt;String&gt;,
+    Json(input): Json&lt;UseStock&gt;,
+) -> Result&lt;Json&lt;serde_json::Value&gt;, AppError&gt; {
+    let id = new_id("txn");
+    let conn = state.db.conn();
+
+    // Record the transaction
+    conn.execute(
+        "INSERT INTO inventory_transactions (id, item_id, transaction_type, quantity, job_id, notes)
+         VALUES (?1, ?2, 'usage', ?3, ?4, ?5)",
+        rusqlite::params![id, item_id, -input.quantity.to_f64().unwrap_or(0.0), input.job_id, input.notes],
+    )?;
+    conn.execute(
+        "UPDATE inventory_items SET quantity_on_hand = quantity_on_hand - ?2, updated_at = datetime('now')
+         WHERE id = ?1",
+        rusqlite::params![item_id, input.quantity.to_f64().unwrap_or(0.0)],
+    )?;
+
+    // Auto-create material line item on the job
+    let (name, unit_cost, unit): (String, f64, String) = conn.query_row(
+        "SELECT name, unit_cost, unit FROM inventory_items WHERE id = ?1",
+        [&amp;item_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+    )?;
+    let qty_f64 = input.quantity.to_f64().unwrap_or(0.0);
+    let total: f64 = qty_f64 * unit_cost;
+    let li_id = new_id("li");
+    conn.execute(
+        "INSERT INTO job_line_items (id, job_id, category, description, quantity, unit, unit_cost, total_cost)
+         VALUES (?1, ?2, 'material', ?3, ?4, ?5, ?6, ?7)",
+        rusqlite::params![li_id, input.job_id, name, qty_f64, unit, unit_cost, total],
+    )?;
+
+    Ok(Json(serde_json::json!({ "id": id, "material_cost": total })))
+}
+</hick:file>
+
+### Migration
+
+<hick:file path="backend/migrations/004_inventory.sql">CREATE TABLE IF NOT EXISTS inventory_items (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    category TEXT NOT NULL,
+    unit TEXT NOT NULL,
+    quantity_on_hand REAL NOT NULL DEFAULT 0,
+    reorder_point REAL NOT NULL DEFAULT 0,
+    unit_cost REAL NOT NULL DEFAULT 0,
+    supplier TEXT,
+    supplier_sku TEXT,
+    notes TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS inventory_transactions (
+    id TEXT PRIMARY KEY,
+    item_id TEXT NOT NULL REFERENCES inventory_items(id),
+    transaction_type TEXT NOT NULL CHECK(transaction_type IN ('purchase', 'usage', 'adjustment', 'return')),
+    quantity REAL NOT NULL,
+    unit_cost REAL,
+    job_id TEXT,
+    notes TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX idx_inv_txn_item ON inventory_transactions(item_id);
+CREATE INDEX idx_inv_txn_job ON inventory_transactions(job_id);
+CREATE INDEX idx_inv_category ON inventory_items(category);
+</hick:file>
+
+</hick:when>
+</hick:doc>

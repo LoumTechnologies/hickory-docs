@@ -1,0 +1,338 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
+
+<hick:when test="overhead">
+
+## Overhead Recovery
+
+This is the domain the business owner cares about most. Overhead recovery answers
+the question: "Am I charging enough per job to cover my fixed costs?"
+
+**How overhead recovery works:**
+1. Define overhead categories (insurance, rent, vehicle payments, marketing, etc.)
+2. Record actual overhead expenses as they occur
+3. At the end of each period (weekly/monthly), allocate overhead to completed jobs
+4. Compare allocated overhead to actual overhead to compute the recovery rate
+
+**Allocation methods:**
+- **Per-job equal split** — total overhead / number of jobs (simplest)
+- **Revenue-weighted** — proportional to each job's revenue (most common)
+- **Labor-hour-weighted** — proportional to labor hours (best for this business)
+
+A recovery rate below 100% means jobs are underpriced. The estimating model uses
+the target recovery rate when computing quoted prices.
+
+### Data Model
+
+<hick:file path="backend/src/overhead/mod.rs">mod model;
+mod routes;
+
+pub use routes::routes;
+pub use model::{OverheadCategory, OverheadEntry};
+</hick:file>
+
+<hick:file path="backend/src/overhead/model.rs">use chrono::{NaiveDate, NaiveDateTime};
+use rust_decimal::Decimal;
+use serde::{Deserialize, Serialize};
+
+/// A category of overhead expense.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OverheadCategory {
+    pub id: String,
+    pub name: String,
+    /// How often this cost recurs: monthly, annual, per_job, one_time
+    pub frequency: String,
+    /// Expected monthly amount (for budgeting). Annual costs are divided by 12.
+    pub monthly_budget: Decimal,
+    pub notes: Option&lt;String&gt;,
+    pub created_at: NaiveDateTime,
+}
+
+/// An actual overhead expense incurred.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OverheadEntry {
+    pub id: String,
+    pub category_id: String,
+    pub date: NaiveDate,
+    pub amount: Decimal,
+    pub description: Option&lt;String&gt;,
+    pub created_at: NaiveDateTime,
+}
+
+/// Result of allocating overhead to jobs for a period.
+#[derive(Debug, Serialize)]
+pub struct AllocationResult {
+    pub period_start: NaiveDate,
+    pub period_end: NaiveDate,
+    pub total_overhead: Decimal,
+    pub jobs_in_period: i64,
+    pub allocation_method: String,
+    pub allocations: Vec&lt;JobAllocation&gt;,
+    pub recovery_rate: Decimal,
+}
+
+#[derive(Debug, Serialize)]
+pub struct JobAllocation {
+    pub job_id: String,
+    pub allocated_amount: Decimal,
+}
+
+/// Overall overhead recovery health.
+#[derive(Debug, Serialize)]
+pub struct RecoveryRateReport {
+    /// Total overhead incurred (all time)
+    pub total_overhead_incurred: Decimal,
+    /// Total overhead allocated to jobs
+    pub total_overhead_allocated: Decimal,
+    /// allocated / incurred * 100
+    pub recovery_rate_pct: Decimal,
+    /// Monthly budget total
+    pub monthly_budget: Decimal,
+    /// Overhead per job (average)
+    pub avg_overhead_per_job: Decimal,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateCategory {
+    pub name: String,
+    pub frequency: String,
+    pub monthly_budget: Decimal,
+    pub notes: Option&lt;String&gt;,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateEntry {
+    pub category_id: String,
+    pub date: NaiveDate,
+    pub amount: Decimal,
+    pub description: Option&lt;String&gt;,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct AllocateRequest {
+    pub period_start: NaiveDate,
+    pub period_end: NaiveDate,
+    /// "equal", "revenue_weighted", or "labor_hour_weighted"
+    pub method: String,
+}
+</hick:file>
+
+### Routes
+
+<hick:file path="backend/src/overhead/routes.rs">use std::sync::Arc;
+use axum::{
+    extract::State,
+    routing::{get, post},
+    Json, Router,
+};
+use rust_decimal::Decimal;
+use rust_decimal::prelude::ToPrimitive;
+use crate::{AppState, error::AppError, types::{new_id, get_decimal, get_decimal_opt}};
+use super::model::*;
+
+pub fn routes() -> Router&lt;Arc&lt;AppState&gt;&gt; {
+    Router::new()
+        .route("/api/overhead/categories", get(list_categories).post(add_category))
+        .route("/api/overhead/entries", post(add_entry))
+        .route("/api/overhead/recovery-rate", get(recovery_rate))
+        .route("/api/overhead/allocate", post(allocate))
+}
+
+async fn list_categories(
+    State(state): State&lt;Arc&lt;AppState&gt;&gt;,
+) -> Result&lt;Json&lt;Vec&lt;OverheadCategory&gt;&gt;, AppError&gt; {
+    let conn = state.db.conn();
+    let mut stmt = conn.prepare(
+        "SELECT id, name, frequency, monthly_budget, notes, created_at
+         FROM overhead_categories ORDER BY name"
+    )?;
+    let cats = stmt.query_map([], |row| {
+        Ok(OverheadCategory {
+            id: row.get(0)?,
+            name: row.get(1)?,
+            frequency: row.get(2)?,
+            monthly_budget: get_decimal(row, 3)?,
+            notes: row.get(4)?,
+            created_at: row.get(5)?,
+        })
+    })?.collect::&lt;Result&lt;Vec&lt;_&gt;, _&gt;&gt;()?;
+    Ok(Json(cats))
+}
+
+async fn add_category(
+    State(state): State&lt;Arc&lt;AppState&gt;&gt;,
+    Json(input): Json&lt;CreateCategory&gt;,
+) -> Result&lt;Json&lt;serde_json::Value&gt;, AppError&gt; {
+    let id = new_id("ohcat");
+    let conn = state.db.conn();
+    conn.execute(
+        "INSERT INTO overhead_categories (id, name, frequency, monthly_budget, notes)
+         VALUES (?1, ?2, ?3, ?4, ?5)",
+        rusqlite::params![id, input.name, input.frequency, input.monthly_budget.to_f64().unwrap_or(0.0), input.notes],
+    )?;
+    Ok(Json(serde_json::json!({ "id": id })))
+}
+
+async fn add_entry(
+    State(state): State&lt;Arc&lt;AppState&gt;&gt;,
+    Json(input): Json&lt;CreateEntry&gt;,
+) -> Result&lt;Json&lt;serde_json::Value&gt;, AppError&gt; {
+    let id = new_id("oh");
+    let conn = state.db.conn();
+    conn.execute(
+        "INSERT INTO overhead_entries (id, category_id, date, amount, description)
+         VALUES (?1, ?2, ?3, ?4, ?5)",
+        rusqlite::params![id, input.category_id, input.date, input.amount.to_f64().unwrap_or(0.0), input.description],
+    )?;
+    Ok(Json(serde_json::json!({ "id": id })))
+}
+
+async fn recovery_rate(
+    State(state): State&lt;Arc&lt;AppState&gt;&gt;,
+) -> Result&lt;Json&lt;RecoveryRateReport&gt;, AppError&gt; {
+    let conn = state.db.conn();
+
+    let total_incurred: Decimal = conn.query_row(
+        "SELECT COALESCE(SUM(amount), 0) FROM overhead_entries", [], |r| get_decimal(r, 0),
+    )?;
+    let total_allocated: Decimal = conn.query_row(
+        "SELECT COALESCE(SUM(total_cost), 0) FROM job_line_items WHERE category = 'overhead'",
+        [], |r| get_decimal(r, 0),
+    )?;
+    let monthly_budget: Decimal = conn.query_row(
+        "SELECT COALESCE(SUM(monthly_budget), 0) FROM overhead_categories", [], |r| get_decimal(r, 0),
+    )?;
+    let job_count: i64 = conn.query_row(
+        "SELECT COUNT(DISTINCT job_id) FROM job_line_items WHERE category = 'overhead'",
+        [], |r| r.get(0),
+    )?;
+
+    let recovery_pct = if total_incurred > Decimal::ZERO {
+        total_allocated / total_incurred * Decimal::from(100)
+    } else {
+        Decimal::ZERO
+    };
+    let avg_per_job = if job_count > 0 {
+        total_allocated / Decimal::from(job_count)
+    } else {
+        Decimal::ZERO
+    };
+
+    Ok(Json(RecoveryRateReport {
+        total_overhead_incurred: total_incurred,
+        total_overhead_allocated: total_allocated,
+        recovery_rate_pct: recovery_pct,
+        monthly_budget,
+        avg_overhead_per_job: avg_per_job,
+    }))
+}
+
+async fn allocate(
+    State(state): State&lt;Arc&lt;AppState&gt;&gt;,
+    Json(input): Json&lt;AllocateRequest&gt;,
+) -> Result&lt;Json&lt;AllocationResult&gt;, AppError&gt; {
+    let conn = state.db.conn();
+
+    // Sum overhead entries in the period
+    let total_overhead: Decimal = conn.query_row(
+        "SELECT COALESCE(SUM(amount), 0) FROM overhead_entries WHERE date BETWEEN ?1 AND ?2",
+        rusqlite::params![input.period_start, input.period_end], |r| get_decimal(r, 0),
+    )?;
+
+    // Find completed jobs in the period
+    let mut stmt = conn.prepare(
+        "SELECT id FROM jobs WHERE status IN ('completed', 'invoiced') AND end_date BETWEEN ?1 AND ?2"
+    )?;
+    let job_ids: Vec&lt;String&gt; = stmt.query_map(
+        rusqlite::params![input.period_start, input.period_end],
+        |row| row.get(0),
+    )?.collect::&lt;Result&lt;Vec&lt;_&gt;, _&gt;&gt;()?;
+
+    let job_count = job_ids.len() as i64;
+    if job_count == 0 {
+        return Ok(Json(AllocationResult {
+            period_start: input.period_start,
+            period_end: input.period_end,
+            total_overhead,
+            jobs_in_period: 0,
+            allocation_method: input.method.clone(),
+            allocations: vec![],
+            recovery_rate: Decimal::ZERO,
+        }));
+    }
+
+    // Simple equal-split allocation (other methods follow same pattern)
+    let per_job = total_overhead / Decimal::from(job_count);
+    let mut allocations = Vec::new();
+
+    for job_id in &amp;job_ids {
+        let li_id = new_id("li");
+        conn.execute(
+            "INSERT INTO job_line_items (id, job_id, category, description, quantity, unit, unit_cost, total_cost)
+             VALUES (?1, ?2, 'overhead', 'Overhead allocation', 1, 'allocation', ?3, ?3)",
+            rusqlite::params![li_id, job_id, per_job.to_f64().unwrap_or(0.0)],
+        )?;
+        allocations.push(JobAllocation {
+            job_id: job_id.clone(),
+            allocated_amount: per_job,
+        });
+    }
+
+    let allocated = per_job * Decimal::from(job_count);
+    let recovery = if total_overhead > Decimal::ZERO {
+        allocated / total_overhead * Decimal::from(100)
+    } else {
+        Decimal::from(100)
+    };
+
+    Ok(Json(AllocationResult {
+        period_start: input.period_start,
+        period_end: input.period_end,
+        total_overhead,
+        jobs_in_period: job_count,
+        allocation_method: input.method,
+        allocations,
+        recovery_rate: recovery,
+    }))
+}
+</hick:file>
+
+### Migration
+
+<hick:file path="backend/migrations/006_overhead.sql">CREATE TABLE IF NOT EXISTS overhead_categories (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    frequency TEXT NOT NULL CHECK(frequency IN ('monthly', 'annual', 'per_job', 'one_time')),
+    monthly_budget REAL NOT NULL DEFAULT 0,
+    notes TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS overhead_entries (
+    id TEXT PRIMARY KEY,
+    category_id TEXT NOT NULL REFERENCES overhead_categories(id),
+    date TEXT NOT NULL,
+    amount REAL NOT NULL,
+    description TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX idx_overhead_entries_date ON overhead_entries(date);
+CREATE INDEX idx_overhead_entries_cat ON overhead_entries(category_id);
+
+-- Seed common overhead categories for a drain installation business
+INSERT INTO overhead_categories (id, name, frequency, monthly_budget, notes) VALUES
+    ('ohcat-insurance', 'General Liability Insurance', 'monthly', 500, 'GL insurance premium'),
+    ('ohcat-vehicle-ins', 'Vehicle Insurance', 'monthly', 300, 'Commercial auto policy'),
+    ('ohcat-workers-comp', 'Workers Compensation', 'monthly', 400, 'Workers comp premium'),
+    ('ohcat-rent', 'Shop/Yard Rent', 'monthly', 800, 'Equipment storage yard'),
+    ('ohcat-truck-payment', 'Truck Payments', 'monthly', 600, 'Fleet financing'),
+    ('ohcat-phone', 'Phone/Internet', 'monthly', 150, 'Business phone and internet'),
+    ('ohcat-accounting', 'Accounting/Bookkeeping', 'monthly', 200, 'Monthly bookkeeping service'),
+    ('ohcat-marketing', 'Marketing/Advertising', 'monthly', 300, 'Google ads, yard signs, etc.'),
+    ('ohcat-licenses', 'Licenses and Permits', 'annual', 50, 'Business license, contractor license'),
+    ('ohcat-software', 'Software/Subscriptions', 'monthly', 100, 'Business software');
+</hick:file>
+
+</hick:when>
+</hick:doc>

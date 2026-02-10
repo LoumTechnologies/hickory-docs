@@ -1,0 +1,758 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
+
+<hick:when test="avalonia">
+
+## Avalonia Desktop App
+
+A desktop management app for <hick:val name="business_name" />. Provides office-optimized
+views for managing all business domains with a sidebar navigation layout.
+
+---
+
+### Solution Structure
+
+<hick:file path="desktop/<hick:val name="project_name" />.sln" doc-hidden="true">Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "<hick:val name="project_name" />", "<hick:val name="project_name" />\<hick:val name="project_name" />.csproj", "{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+EndGlobal
+</hick:file>
+
+### Project Configuration
+
+<hick:file path="desktop/<hick:val name="project_name" />/<hick:val name="project_name" />.csproj">&lt;Project Sdk="Microsoft.NET.Sdk"&gt;
+
+  &lt;PropertyGroup&gt;
+    &lt;OutputType&gt;WinExe&lt;/OutputType&gt;
+    &lt;TargetFramework&gt;net<hick:val name="dotnet_version" />&lt;/TargetFramework&gt;
+    &lt;Nullable&gt;enable&lt;/Nullable&gt;
+    &lt;ImplicitUsings&gt;enable&lt;/ImplicitUsings&gt;
+    &lt;BuiltInComInteropSupport&gt;true&lt;/BuiltInComInteropSupport&gt;
+    &lt;ApplicationManifest&gt;app.manifest&lt;/ApplicationManifest&gt;
+    &lt;AvaloniaUseCompiledBindingsByDefault&gt;true&lt;/AvaloniaUseCompiledBindingsByDefault&gt;
+  &lt;/PropertyGroup&gt;
+
+  &lt;ItemGroup&gt;
+    &lt;PackageReference Include="Avalonia" Version="11.1.0" /&gt;
+    &lt;PackageReference Include="Avalonia.Desktop" Version="11.1.0" /&gt;
+    &lt;PackageReference Include="Avalonia.Themes.Fluent" Version="11.1.0" /&gt;
+    &lt;PackageReference Include="Avalonia.Fonts.Inter" Version="11.1.0" /&gt;
+    &lt;PackageReference Include="CommunityToolkit.Mvvm" Version="8.2.2" /&gt;
+  &lt;/ItemGroup&gt;
+
+  &lt;ItemGroup&gt;
+    &lt;AvaloniaResource Include="Assets\**" /&gt;
+  &lt;/ItemGroup&gt;
+
+&lt;/Project&gt;
+</hick:file>
+
+<hick:file path="desktop/<hick:val name="project_name" />/app.manifest" doc-hidden="true">&lt;?xml version="1.0" encoding="utf-8"?&gt;
+&lt;assembly manifestVersion="1.0" xmlns="urn:schemas-microsoft-com:asm.v1"&gt;
+  &lt;assemblyIdentity version="1.0.0.0" name="<hick:val name="project_name" />.Desktop"/&gt;
+  &lt;trustInfo xmlns="urn:schemas-microsoft-com:asm.v2"&gt;
+    &lt;security&gt;
+      &lt;requestedPrivileges xmlns="urn:schemas-microsoft-com:asm.v3"&gt;
+        &lt;requestedExecutionLevel level="asInvoker" uiAccess="false"/&gt;
+      &lt;/requestedPrivileges&gt;
+    &lt;/security&gt;
+  &lt;/trustInfo&gt;
+&lt;/assembly&gt;
+</hick:file>
+
+---
+
+### Entry Point
+
+<hick:file path="desktop/<hick:val name="project_name" />/Program.cs">using System;
+using Avalonia;
+
+namespace <hick:val name="project_name" />;
+
+sealed class Program
+{
+    [STAThread]
+    public static void Main(string[] args) =&gt; BuildAvaloniaApp()
+        .StartWithClassicDesktopLifetime(args);
+
+    public static AppBuilder BuildAvaloniaApp()
+        =&gt; AppBuilder.Configure&lt;App&gt;()
+            .UsePlatformDetect()
+            .WithInterFont()
+            .LogToTrace();
+}
+</hick:file>
+
+### Application Class
+
+<hick:file path="desktop/<hick:val name="project_name" />/App.axaml">&lt;Application xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="<hick:val name="project_name" />.App"
+             RequestedThemeVariant="Default"&gt;
+    &lt;Application.Styles&gt;
+        &lt;FluentTheme /&gt;
+    &lt;/Application.Styles&gt;
+&lt;/Application&gt;
+</hick:file>
+
+<hick:file path="desktop/<hick:val name="project_name" />/App.axaml.cs">using Avalonia;
+using Avalonia.Controls.ApplicationLifetimes;
+using Avalonia.Markup.Xaml;
+using <hick:val name="project_name" />.ViewModels;
+using <hick:val name="project_name" />.Views;
+
+namespace <hick:val name="project_name" />;
+
+public partial class App : Application
+{
+    public override void Initialize()
+    {
+        AvaloniaXamlLoader.Load(this);
+    }
+
+    public override void OnFrameworkInitializationCompleted()
+    {
+        if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
+        {
+            desktop.MainWindow = new MainWindow
+            {
+                DataContext = new MainWindowViewModel()
+            };
+        }
+
+        base.OnFrameworkInitializationCompleted();
+    }
+}
+</hick:file>
+
+---
+
+### API Client
+
+<hick:file path="desktop/<hick:val name="project_name" />/Services/ApiClient.cs">using System.Net.Http;
+using System.Net.Http.Json;
+using System.Text.Json;
+
+namespace <hick:val name="project_name" />.Services;
+
+public static class ApiClient
+{
+    private static readonly HttpClient Http = new()
+    {
+        BaseAddress = new Uri("http://localhost:3000")
+    };
+
+    private static readonly JsonSerializerOptions JsonOptions = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
+        PropertyNameCaseInsensitive = true,
+    };
+
+    public static async Task&lt;T?&gt; GetAsync&lt;T&gt;(string path)
+    {
+        var response = await Http.GetAsync(path);
+        response.EnsureSuccessStatusCode();
+        return await response.Content.ReadFromJsonAsync&lt;T&gt;(JsonOptions);
+    }
+
+    public static async Task&lt;TResponse?&gt; PostAsync&lt;TBody, TResponse&gt;(string path, TBody body)
+    {
+        var response = await Http.PostAsJsonAsync(path, body, JsonOptions);
+        response.EnsureSuccessStatusCode();
+        return await response.Content.ReadFromJsonAsync&lt;TResponse&gt;(JsonOptions);
+    }
+
+    public static async Task&lt;TResponse?&gt; PutAsync&lt;TBody, TResponse&gt;(string path, TBody body)
+    {
+        var response = await Http.PutAsJsonAsync(path, body, JsonOptions);
+        response.EnsureSuccessStatusCode();
+        return await response.Content.ReadFromJsonAsync&lt;TResponse&gt;(JsonOptions);
+    }
+}
+</hick:file>
+
+---
+
+### Models
+
+<hick:when test="customers">
+<hick:file path="desktop/<hick:val name="project_name" />/Models/Customer.cs">namespace <hick:val name="project_name" />.Models;
+
+public record Customer(
+    string Id, string Name, string Phone, string? Email,
+    string Address, string City, string State, string Zip,
+    string? ReferralSource, string? ReferredBy, string? Notes,
+    string CreatedAt, string UpdatedAt);
+
+public record CreateCustomer(
+    string Name, string Phone, string? Email,
+    string Address, string City, string State, string Zip,
+    string? ReferralSource, string? ReferredBy, string? Notes);
+</hick:file>
+</hick:when>
+
+<hick:when test="jobs">
+<hick:file path="desktop/<hick:val name="project_name" />/Models/Job.cs">namespace <hick:val name="project_name" />.Models;
+
+public record Job(
+    string Id, string CustomerId, string Status, string SiteAddress,
+    string SoilType, string YardGrade, string SiteAccess, string? SiteNotes,
+    string? LinearFeetPlanned, string? LinearFeetActual, string? TrenchDepthInches,
+    bool IncludesSumpPump, bool IncludesDownspoutTieIn, int NumberOfCatchBasins,
+    string? ScheduledDate, string? StartDate, string? EndDate,
+    string? EstimatedCrewHours, string? ActualCrewHours,
+    string? WeatherConditions, bool? GroundWasWet,
+    int CompletionPct,
+    bool PhaseAssessment, bool PhaseExcavation, bool PhasePipeInstall,
+    bool PhaseBackfill, bool PhaseRestoration, bool PhaseWalkthrough,
+    string? CancellationReason, string? QuotedPrice, string? ActualRevenue,
+    string CreatedAt, string UpdatedAt)
+{
+    public string StatusDisplay =&gt; Status.Replace("_", " ");
+}
+
+public record JobCostBreakdown(
+    string JobId, string MaterialCost, string LaborCost, string EquipmentCost,
+    string ProcessingFees, string OverheadAllocated, string DirectCost,
+    string TrueCost, string Revenue, string GrossMargin,
+    string TrueMargin, string TrueMarginPct, int CompletionPct);
+</hick:file>
+</hick:when>
+
+<hick:when test="payments">
+<hick:file path="desktop/<hick:val name="project_name" />/Models/Payment.cs">namespace <hick:val name="project_name" />.Models;
+
+public record Payment(
+    string Id, string JobId, string Date, string Amount, string Method,
+    string ProcessingFeePct, string ProcessingFeeAmount, bool FeeRecovered,
+    string? Reference, string? Notes, string CreatedAt);
+
+public record CreatePayment(
+    string JobId, string Date, string Amount, string Method,
+    string? ProcessingFeePct, bool? FeeRecovered,
+    string? Reference, string? Notes);
+</hick:file>
+</hick:when>
+
+<hick:when test="crew">
+<hick:file path="desktop/<hick:val name="project_name" />/Models/CrewMember.cs">namespace <hick:val name="project_name" />.Models;
+
+public record CrewMember(
+    string Id, string Name, string Role, string HourlyRate,
+    string? Phone, string? Certifications, string HireDate,
+    bool Active, string CreatedAt)
+{
+    public string RoleDisplay =&gt; Role.Replace("_", " ");
+}
+
+public record TimeEntry(
+    string Id, string CrewMemberId, string JobId, string Date,
+    string HoursRegular, string HoursOvertime, string? Notes, string CreatedAt);
+</hick:file>
+</hick:when>
+
+<hick:when test="inventory">
+<hick:file path="desktop/<hick:val name="project_name" />/Models/InventoryItem.cs">namespace <hick:val name="project_name" />.Models;
+
+public record InventoryItem(
+    string Id, string Name, string Category, string Unit,
+    string QuantityOnHand, string ReorderPoint, string UnitCost,
+    string? Supplier, string? SupplierSku, string? Notes,
+    string CreatedAt, string UpdatedAt)
+{
+    public bool IsLowStock
+    {
+        get
+        {
+            if (!double.TryParse(QuantityOnHand, out var qty)) return false;
+            if (!double.TryParse(ReorderPoint, out var reorder)) return false;
+            return qty &lt;= reorder;
+        }
+    }
+}
+</hick:file>
+</hick:when>
+
+<hick:when test="fleet">
+<hick:file path="desktop/<hick:val name="project_name" />/Models/FleetAsset.cs">namespace <hick:val name="project_name" />.Models;
+
+public record Vehicle(
+    string Id, string VehicleType, int Year, string Make, string Model,
+    string? LicensePlate, string? Vin, string Status,
+    string? MonthlyPayment, string? InsuranceMonthly, string CreatedAt)
+{
+    public string DisplayName =&gt; $"{Year} {Make} {Model}";
+}
+
+public record Equipment(
+    string Id, string EquipmentType, string Make, string Model,
+    string? SerialNumber, string OwnedOrRented, string? DailyRate,
+    string Status, string CreatedAt)
+{
+    public string DisplayName =&gt; $"{Make} {Model}";
+}
+</hick:file>
+</hick:when>
+
+<hick:when test="overhead">
+<hick:file path="desktop/<hick:val name="project_name" />/Models/Overhead.cs">namespace <hick:val name="project_name" />.Models;
+
+public record OverheadCategory(
+    string Id, string Name, string Frequency, string MonthlyBudget,
+    string? Notes, string CreatedAt);
+
+public record RecoveryRateReport(
+    string TotalOverheadIncurred, string TotalOverheadAllocated,
+    string RecoveryRatePct, string MonthlyBudget, string AvgOverheadPerJob);
+</hick:file>
+</hick:when>
+
+<hick:when test="estimating">
+<hick:file path="desktop/<hick:val name="project_name" />/Models/Estimate.cs">namespace <hick:val name="project_name" />.Models;
+
+public record Estimate(
+    string Id, string? CustomerId, string LinearFeet, string TrenchDepthInches,
+    string SoilType, string YardGrade, string SiteAccess,
+    bool IncludesSumpPump, bool IncludesDownspoutTieIn, int NumberOfCatchBasins,
+    string PredictedMaterialCost, string PredictedLaborCost, string PredictedEquipmentCost,
+    string PredictedDirectCost, string PredictedOverhead, string PredictedTotalCost,
+    string PredictedCrewHours, string DesiredMarginPct, string QuotedPrice,
+    int ModelVersion, string ConfidenceNote, int SampleSize, string CreatedAt);
+
+public record EstimateRequest(
+    string? CustomerId, string LinearFeet, string TrenchDepthInches,
+    string SoilType, string YardGrade, string SiteAccess,
+    bool? IncludesSumpPump, bool? IncludesDownspoutTieIn,
+    int? NumberOfCatchBasins, string DesiredMarginPct);
+</hick:file>
+</hick:when>
+
+<hick:when test="crm">
+<hick:file path="desktop/<hick:val name="project_name" />/Models/CRM.cs">namespace <hick:val name="project_name" />.Models;
+
+public record Lead(
+    string Id, string CustomerId, string Status, string Source,
+    string? EstimatedValue, string? JobId, string? AssignedTo,
+    string? LostReason, string? LostToCompetitor,
+    string CreatedAt, string UpdatedAt)
+{
+    public string StatusDisplay =&gt; Status.Replace("_", " ");
+}
+
+public record Interaction(
+    string Id, string CustomerId, string? LeadId, string Date,
+    string InteractionType, string Direction, string Summary,
+    int? DurationMinutes, string CreatedAt);
+
+public record FollowUp(
+    string Id, string CustomerId, string? LeadId, string DueDate,
+    string Action, string? Notes, bool Completed,
+    string? CompletedAt, string CreatedAt);
+</hick:file>
+</hick:when>
+
+<hick:when test="sops">
+<hick:file path="desktop/<hick:val name="project_name" />/Models/Procedure.cs">namespace <hick:val name="project_name" />.Models;
+
+public record Procedure(
+    string Id, string Title, string Category, int Version,
+    string? Description, int? EstimatedDurationMinutes,
+    string? RequiredRoles, string? RequiredEquipment, string? RequiredMaterials,
+    string? SafetyNotes, bool Active, string CreatedAt, string UpdatedAt);
+
+public record ProcedureStep(
+    string Id, string ProcedureId, int StepNumber,
+    string Instruction, bool IsCheckpoint, string? Notes);
+
+public record ProcedureWithSteps(
+    string Id, string Title, string Category, int Version,
+    string? Description, int? EstimatedDurationMinutes,
+    string? RequiredRoles, string? RequiredEquipment, string? RequiredMaterials,
+    string? SafetyNotes, bool Active, string CreatedAt, string UpdatedAt,
+    List&lt;ProcedureStep&gt; Steps);
+</hick:file>
+</hick:when>
+
+---
+
+### ViewModels
+
+<hick:file path="desktop/<hick:val name="project_name" />/ViewModels/ViewModelBase.cs">using CommunityToolkit.Mvvm.ComponentModel;
+
+namespace <hick:val name="project_name" />.ViewModels;
+
+public class ViewModelBase : ObservableObject
+{
+}
+</hick:file>
+
+<hick:file path="desktop/<hick:val name="project_name" />/ViewModels/MainWindowViewModel.cs">using System.Collections.ObjectModel;
+using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
+
+namespace <hick:val name="project_name" />.ViewModels;
+
+public partial class MainWindowViewModel : ViewModelBase
+{
+    [ObservableProperty]
+    private string _currentView = "Welcome";
+
+    [ObservableProperty]
+    private ViewModelBase? _currentPage;
+
+    public ObservableCollection&lt;NavItem&gt; NavItems { get; } = new()
+    {
+<hick:when test="jobs">        new("Jobs", "jobs"),
+</hick:when>
+<hick:when test="customers">        new("Customers", "customers"),
+</hick:when>
+<hick:when test="crew">        new("Crew", "crew"),
+</hick:when>
+<hick:when test="payments">        new("Payments", "payments"),
+</hick:when>
+<hick:when test="inventory">        new("Inventory", "inventory"),
+</hick:when>
+<hick:when test="fleet">        new("Fleet", "fleet"),
+</hick:when>
+<hick:when test="overhead">        new("Overhead", "overhead"),
+</hick:when>
+<hick:when test="estimating">        new("Estimating", "estimating"),
+</hick:when>
+<hick:when test="crm">        new("CRM", "crm"),
+</hick:when>
+<hick:when test="sops">        new("SOPs", "sops"),
+</hick:when>
+    };
+
+    [RelayCommand]
+    private void Navigate(string view)
+    {
+        CurrentView = view;
+        CurrentPage = view switch
+        {
+<hick:when test="jobs">            "jobs" =&gt; new JobListViewModel(),
+</hick:when>
+<hick:when test="customers">            "customers" =&gt; new CustomerListViewModel(),
+</hick:when>
+<hick:when test="crew">            "crew" =&gt; new CrewListViewModel(),
+</hick:when>
+<hick:when test="inventory">            "inventory" =&gt; new InventoryListViewModel(),
+</hick:when>
+<hick:when test="fleet">            "fleet" =&gt; new FleetListViewModel(),
+</hick:when>
+<hick:when test="overhead">            "overhead" =&gt; new OverheadViewModel(),
+</hick:when>
+<hick:when test="crm">            "crm" =&gt; new LeadPipelineViewModel(),
+</hick:when>
+<hick:when test="sops">            "sops" =&gt; new SOPListViewModel(),
+</hick:when>
+            _ =&gt; null,
+        };
+    }
+}
+
+public record NavItem(string Label, string Key);
+</hick:file>
+
+<hick:when test="jobs">
+<hick:file path="desktop/<hick:val name="project_name" />/ViewModels/JobListViewModel.cs">using System.Collections.ObjectModel;
+using CommunityToolkit.Mvvm.ComponentModel;
+using <hick:val name="project_name" />.Models;
+using <hick:val name="project_name" />.Services;
+
+namespace <hick:val name="project_name" />.ViewModels;
+
+public partial class JobListViewModel : ViewModelBase
+{
+    [ObservableProperty] private bool _isLoading = true;
+    public ObservableCollection&lt;Job&gt; Jobs { get; } = new();
+
+    public JobListViewModel() =&gt; _ = LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        var jobs = await ApiClient.GetAsync&lt;List&lt;Job&gt;&gt;("/api/jobs");
+        if (jobs != null)
+            foreach (var j in jobs) Jobs.Add(j);
+        IsLoading = false;
+    }
+}
+</hick:file>
+</hick:when>
+
+<hick:when test="customers">
+<hick:file path="desktop/<hick:val name="project_name" />/ViewModels/CustomerListViewModel.cs">using System.Collections.ObjectModel;
+using CommunityToolkit.Mvvm.ComponentModel;
+using <hick:val name="project_name" />.Models;
+using <hick:val name="project_name" />.Services;
+
+namespace <hick:val name="project_name" />.ViewModels;
+
+public partial class CustomerListViewModel : ViewModelBase
+{
+    [ObservableProperty] private bool _isLoading = true;
+    public ObservableCollection&lt;Customer&gt; Customers { get; } = new();
+
+    public CustomerListViewModel() =&gt; _ = LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        var customers = await ApiClient.GetAsync&lt;List&lt;Customer&gt;&gt;("/api/customers");
+        if (customers != null)
+            foreach (var c in customers) Customers.Add(c);
+        IsLoading = false;
+    }
+}
+</hick:file>
+</hick:when>
+
+<hick:when test="crew">
+<hick:file path="desktop/<hick:val name="project_name" />/ViewModels/CrewListViewModel.cs">using System.Collections.ObjectModel;
+using CommunityToolkit.Mvvm.ComponentModel;
+using <hick:val name="project_name" />.Models;
+using <hick:val name="project_name" />.Services;
+
+namespace <hick:val name="project_name" />.ViewModels;
+
+public partial class CrewListViewModel : ViewModelBase
+{
+    [ObservableProperty] private bool _isLoading = true;
+    public ObservableCollection&lt;CrewMember&gt; Members { get; } = new();
+
+    public CrewListViewModel() =&gt; _ = LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        var members = await ApiClient.GetAsync&lt;List&lt;CrewMember&gt;&gt;("/api/crew");
+        if (members != null)
+            foreach (var m in members) Members.Add(m);
+        IsLoading = false;
+    }
+}
+</hick:file>
+</hick:when>
+
+<hick:when test="inventory">
+<hick:file path="desktop/<hick:val name="project_name" />/ViewModels/InventoryListViewModel.cs">using System.Collections.ObjectModel;
+using CommunityToolkit.Mvvm.ComponentModel;
+using <hick:val name="project_name" />.Models;
+using <hick:val name="project_name" />.Services;
+
+namespace <hick:val name="project_name" />.ViewModels;
+
+public partial class InventoryListViewModel : ViewModelBase
+{
+    [ObservableProperty] private bool _isLoading = true;
+    public ObservableCollection&lt;InventoryItem&gt; Items { get; } = new();
+
+    public InventoryListViewModel() =&gt; _ = LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        var items = await ApiClient.GetAsync&lt;List&lt;InventoryItem&gt;&gt;("/api/inventory");
+        if (items != null)
+            foreach (var i in items) Items.Add(i);
+        IsLoading = false;
+    }
+}
+</hick:file>
+</hick:when>
+
+<hick:when test="fleet">
+<hick:file path="desktop/<hick:val name="project_name" />/ViewModels/FleetListViewModel.cs">using System.Collections.ObjectModel;
+using CommunityToolkit.Mvvm.ComponentModel;
+using <hick:val name="project_name" />.Models;
+using <hick:val name="project_name" />.Services;
+
+namespace <hick:val name="project_name" />.ViewModels;
+
+public partial class FleetListViewModel : ViewModelBase
+{
+    [ObservableProperty] private bool _isLoading = true;
+    public ObservableCollection&lt;Vehicle&gt; Vehicles { get; } = new();
+    public ObservableCollection&lt;Equipment&gt; Equipment { get; } = new();
+
+    public FleetListViewModel() =&gt; _ = LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        var vehicles = await ApiClient.GetAsync&lt;List&lt;Vehicle&gt;&gt;("/api/fleet/vehicles");
+        var equipment = await ApiClient.GetAsync&lt;List&lt;Equipment&gt;&gt;("/api/fleet/equipment");
+        if (vehicles != null) foreach (var v in vehicles) Vehicles.Add(v);
+        if (equipment != null) foreach (var e in equipment) Equipment.Add(e);
+        IsLoading = false;
+    }
+}
+</hick:file>
+</hick:when>
+
+<hick:when test="overhead">
+<hick:file path="desktop/<hick:val name="project_name" />/ViewModels/OverheadViewModel.cs">using System.Collections.ObjectModel;
+using CommunityToolkit.Mvvm.ComponentModel;
+using <hick:val name="project_name" />.Models;
+using <hick:val name="project_name" />.Services;
+
+namespace <hick:val name="project_name" />.ViewModels;
+
+public partial class OverheadViewModel : ViewModelBase
+{
+    [ObservableProperty] private bool _isLoading = true;
+    [ObservableProperty] private RecoveryRateReport? _report;
+    public ObservableCollection&lt;OverheadCategory&gt; Categories { get; } = new();
+
+    public OverheadViewModel() =&gt; _ = LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        var cats = await ApiClient.GetAsync&lt;List&lt;OverheadCategory&gt;&gt;("/api/overhead/categories");
+        Report = await ApiClient.GetAsync&lt;RecoveryRateReport&gt;("/api/overhead/recovery-rate");
+        if (cats != null) foreach (var c in cats) Categories.Add(c);
+        IsLoading = false;
+    }
+}
+</hick:file>
+</hick:when>
+
+<hick:when test="crm">
+<hick:file path="desktop/<hick:val name="project_name" />/ViewModels/LeadPipelineViewModel.cs">using System.Collections.ObjectModel;
+using CommunityToolkit.Mvvm.ComponentModel;
+using <hick:val name="project_name" />.Models;
+using <hick:val name="project_name" />.Services;
+
+namespace <hick:val name="project_name" />.ViewModels;
+
+public partial class LeadPipelineViewModel : ViewModelBase
+{
+    [ObservableProperty] private bool _isLoading = true;
+    public ObservableCollection&lt;Lead&gt; Leads { get; } = new();
+
+    public LeadPipelineViewModel() =&gt; _ = LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        var leads = await ApiClient.GetAsync&lt;List&lt;Lead&gt;&gt;("/api/crm/leads");
+        if (leads != null) foreach (var l in leads) Leads.Add(l);
+        IsLoading = false;
+    }
+}
+</hick:file>
+</hick:when>
+
+<hick:when test="sops">
+<hick:file path="desktop/<hick:val name="project_name" />/ViewModels/SOPListViewModel.cs">using System.Collections.ObjectModel;
+using CommunityToolkit.Mvvm.ComponentModel;
+using <hick:val name="project_name" />.Models;
+using <hick:val name="project_name" />.Services;
+
+namespace <hick:val name="project_name" />.ViewModels;
+
+public partial class SOPListViewModel : ViewModelBase
+{
+    [ObservableProperty] private bool _isLoading = true;
+    public ObservableCollection&lt;Procedure&gt; Procedures { get; } = new();
+
+    public SOPListViewModel() =&gt; _ = LoadAsync();
+
+    private async Task LoadAsync()
+    {
+        var procs = await ApiClient.GetAsync&lt;List&lt;Procedure&gt;&gt;("/api/sops");
+        if (procs != null) foreach (var p in procs) Procedures.Add(p);
+        IsLoading = false;
+    }
+}
+</hick:file>
+</hick:when>
+
+---
+
+### Views
+
+<hick:file path="desktop/<hick:val name="project_name" />/Views/MainWindow.axaml">&lt;Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:<hick:val name="project_name" />.ViewModels"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d" d:DesignWidth="1024" d:DesignHeight="768"
+        x:Class="<hick:val name="project_name" />.Views.MainWindow"
+        x:DataType="vm:MainWindowViewModel"
+        Title="<hick:val name="project_name" />"
+        Width="1024"
+        Height="768"&gt;
+
+    &lt;Design.DataContext&gt;
+        &lt;vm:MainWindowViewModel/&gt;
+    &lt;/Design.DataContext&gt;
+
+    &lt;Grid ColumnDefinitions="220,*"&gt;
+        &lt;!-- Sidebar --&gt;
+        &lt;Border Grid.Column="0" Background="#1a1a2e" Padding="16"&gt;
+            &lt;StackPanel Spacing="4"&gt;
+                &lt;TextBlock Text="<hick:val name="project_name" />"
+                           FontSize="18" FontWeight="Bold"
+                           Foreground="#646cff"
+                           Margin="0,0,0,16"/&gt;
+                &lt;ItemsControl ItemsSource="{Binding NavItems}"&gt;
+                    &lt;ItemsControl.ItemTemplate&gt;
+                        &lt;DataTemplate x:DataType="vm:NavItem"&gt;
+                            &lt;Button Content="{Binding Label}"
+                                    Command="{Binding $parent[Window].((vm:MainWindowViewModel)DataContext).NavigateCommand}"
+                                    CommandParameter="{Binding Key}"
+                                    HorizontalAlignment="Stretch"
+                                    HorizontalContentAlignment="Left"
+                                    Margin="0,2"/&gt;
+                        &lt;/DataTemplate&gt;
+                    &lt;/ItemsControl.ItemTemplate&gt;
+                &lt;/ItemsControl&gt;
+            &lt;/StackPanel&gt;
+        &lt;/Border&gt;
+
+        &lt;!-- Content --&gt;
+        &lt;ContentControl Grid.Column="1"
+                        Content="{Binding CurrentPage}"
+                        Margin="24"&gt;
+            &lt;ContentControl.ContentTemplate&gt;
+                &lt;DataTemplate&gt;
+                    &lt;TextBlock Text="Select a section from the sidebar"
+                               VerticalAlignment="Center"
+                               HorizontalAlignment="Center"
+                               Foreground="Gray"/&gt;
+                &lt;/DataTemplate&gt;
+            &lt;/ContentControl.ContentTemplate&gt;
+        &lt;/ContentControl&gt;
+    &lt;/Grid&gt;
+
+&lt;/Window&gt;
+</hick:file>
+
+<hick:file path="desktop/<hick:val name="project_name" />/Views/MainWindow.axaml.cs">using Avalonia.Controls;
+
+namespace <hick:val name="project_name" />.Views;
+
+public partial class MainWindow : Window
+{
+    public MainWindow()
+    {
+        InitializeComponent();
+    }
+}
+</hick:file>
+
+<hick:file path="desktop/<hick:val name="project_name" />/Assets/.gitkeep" doc-hidden="true"># Application assets
+</hick:file>
+
+</hick:when>
+</hick:doc>

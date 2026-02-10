@@ -1,0 +1,296 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
+
+<hick:when test="sops">
+
+## Standard Operating Procedures
+
+SOPs are the franchise-readiness backbone. Every repeatable process gets documented
+as a numbered, versioned procedure with discrete steps. When a procedure changes,
+the version increments so the old version is preserved for audit.
+
+**Key SOPs for a french drain installer:**
+- Pre-job site assessment
+- Trench layout and marking (call 811, locate utilities)
+- Excavation procedure (by equipment type)
+- Pipe installation and grading
+- Backfill and compaction
+- Sod/lawn restoration
+- Sump pump installation
+- Catch basin installation
+- Post-job cleanup and inspection
+- Customer walkthrough and sign-off
+- Equipment daily pre-use inspection
+- End-of-day equipment maintenance
+- Vehicle loading checklist
+- New employee onboarding
+- Safety incident reporting
+
+### Data Model
+
+<hick:file path="backend/src/sops/mod.rs">mod model;
+mod routes;
+
+pub use routes::routes;
+pub use model::{Procedure, ProcedureStep};
+</hick:file>
+
+<hick:file path="backend/src/sops/model.rs">use chrono::NaiveDateTime;
+use serde::{Deserialize, Serialize};
+
+/// A standard operating procedure.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Procedure {
+    pub id: String,
+    pub title: String,
+    /// Category: site_assessment, excavation, installation, restoration, equipment,
+    /// safety, admin, customer
+    pub category: String,
+    pub version: i32,
+    pub description: Option&lt;String&gt;,
+    pub estimated_duration_minutes: Option&lt;i32&gt;,
+    pub required_roles: Option&lt;String&gt;,       // comma-separated roles
+    pub required_equipment: Option&lt;String&gt;,    // comma-separated equipment
+    pub required_materials: Option&lt;String&gt;,    // comma-separated materials
+    pub safety_notes: Option&lt;String&gt;,
+    pub active: bool,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
+}
+
+/// An individual step within a procedure.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProcedureStep {
+    pub id: String,
+    pub procedure_id: String,
+    pub step_number: i32,
+    pub instruction: String,
+    pub is_checkpoint: bool,  // requires explicit sign-off
+    pub notes: Option&lt;String&gt;,
+}
+
+/// A procedure with its steps included.
+#[derive(Debug, Serialize)]
+pub struct ProcedureWithSteps {
+    #[serde(flatten)]
+    pub procedure: Procedure,
+    pub steps: Vec&lt;ProcedureStep&gt;,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateProcedure {
+    pub title: String,
+    pub category: String,
+    pub description: Option&lt;String&gt;,
+    pub estimated_duration_minutes: Option&lt;i32&gt;,
+    pub required_roles: Option&lt;String&gt;,
+    pub required_equipment: Option&lt;String&gt;,
+    pub required_materials: Option&lt;String&gt;,
+    pub safety_notes: Option&lt;String&gt;,
+    pub steps: Vec&lt;CreateStep&gt;,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateStep {
+    pub instruction: String,
+    pub is_checkpoint: Option&lt;bool&gt;,
+    pub notes: Option&lt;String&gt;,
+}
+</hick:file>
+
+### Routes
+
+<hick:file path="backend/src/sops/routes.rs">use std::sync::Arc;
+use axum::{
+    extract::{Path, State},
+    routing::{get, post, put},
+    Json, Router,
+};
+use crate::{AppState, error::AppError, types::new_id};
+use super::model::*;
+
+pub fn routes() -> Router&lt;Arc&lt;AppState&gt;&gt; {
+    Router::new()
+        .route("/api/sops", get(list_procedures).post(create_procedure))
+        .route("/api/sops/:id", get(get_procedure).put(update_procedure))
+}
+
+async fn list_procedures(
+    State(state): State&lt;Arc&lt;AppState&gt;&gt;,
+) -> Result&lt;Json&lt;Vec&lt;Procedure&gt;&gt;, AppError&gt; {
+    let conn = state.db.conn();
+    let mut stmt = conn.prepare(
+        "SELECT id, title, category, version, description, estimated_duration_minutes,
+                required_roles, required_equipment, required_materials, safety_notes,
+                active, created_at, updated_at
+         FROM procedures WHERE active = 1 ORDER BY category, title"
+    )?;
+    let procs = stmt.query_map([], |row| {
+        Ok(Procedure {
+            id: row.get(0)?,
+            title: row.get(1)?,
+            category: row.get(2)?,
+            version: row.get(3)?,
+            description: row.get(4)?,
+            estimated_duration_minutes: row.get(5)?,
+            required_roles: row.get(6)?,
+            required_equipment: row.get(7)?,
+            required_materials: row.get(8)?,
+            safety_notes: row.get(9)?,
+            active: row.get(10)?,
+            created_at: row.get(11)?,
+            updated_at: row.get(12)?,
+        })
+    })?.collect::&lt;Result&lt;Vec&lt;_&gt;, _&gt;&gt;()?;
+    Ok(Json(procs))
+}
+
+async fn create_procedure(
+    State(state): State&lt;Arc&lt;AppState&gt;&gt;,
+    Json(input): Json&lt;CreateProcedure&gt;,
+) -> Result&lt;Json&lt;serde_json::Value&gt;, AppError&gt; {
+    let id = new_id("sop");
+    let conn = state.db.conn();
+    conn.execute(
+        "INSERT INTO procedures (id, title, category, version, description, estimated_duration_minutes,
+                                 required_roles, required_equipment, required_materials, safety_notes)
+         VALUES (?1, ?2, ?3, 1, ?4, ?5, ?6, ?7, ?8, ?9)",
+        rusqlite::params![
+            id, input.title, input.category, input.description,
+            input.estimated_duration_minutes, input.required_roles,
+            input.required_equipment, input.required_materials, input.safety_notes,
+        ],
+    )?;
+
+    for (i, step) in input.steps.iter().enumerate() {
+        let step_id = new_id("step");
+        conn.execute(
+            "INSERT INTO procedure_steps (id, procedure_id, step_number, instruction, is_checkpoint, notes)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            rusqlite::params![step_id, id, (i + 1) as i32, step.instruction, step.is_checkpoint.unwrap_or(false), step.notes],
+        )?;
+    }
+
+    Ok(Json(serde_json::json!({ "id": id, "version": 1, "steps_created": input.steps.len() })))
+}
+
+async fn get_procedure(
+    State(state): State&lt;Arc&lt;AppState&gt;&gt;,
+    Path(id): Path&lt;String&gt;,
+) -> Result&lt;Json&lt;ProcedureWithSteps&gt;, AppError&gt; {
+    let conn = state.db.conn();
+    let procedure = conn.query_row(
+        "SELECT id, title, category, version, description, estimated_duration_minutes,
+                required_roles, required_equipment, required_materials, safety_notes,
+                active, created_at, updated_at
+         FROM procedures WHERE id = ?1",
+        [&amp;id],
+        |row| Ok(Procedure {
+            id: row.get(0)?,
+            title: row.get(1)?,
+            category: row.get(2)?,
+            version: row.get(3)?,
+            description: row.get(4)?,
+            estimated_duration_minutes: row.get(5)?,
+            required_roles: row.get(6)?,
+            required_equipment: row.get(7)?,
+            required_materials: row.get(8)?,
+            safety_notes: row.get(9)?,
+            active: row.get(10)?,
+            created_at: row.get(11)?,
+            updated_at: row.get(12)?,
+        }),
+    ).map_err(|_| AppError::NotFound(format!("Procedure {} not found", id)))?;
+
+    let mut stmt = conn.prepare(
+        "SELECT id, procedure_id, step_number, instruction, is_checkpoint, notes
+         FROM procedure_steps WHERE procedure_id = ?1 ORDER BY step_number"
+    )?;
+    let steps = stmt.query_map([&amp;id], |row| {
+        Ok(ProcedureStep {
+            id: row.get(0)?,
+            procedure_id: row.get(1)?,
+            step_number: row.get(2)?,
+            instruction: row.get(3)?,
+            is_checkpoint: row.get(4)?,
+            notes: row.get(5)?,
+        })
+    })?.collect::&lt;Result&lt;Vec&lt;_&gt;, _&gt;&gt;()?;
+
+    Ok(Json(ProcedureWithSteps { procedure, steps }))
+}
+
+async fn update_procedure(
+    State(state): State&lt;Arc&lt;AppState&gt;&gt;,
+    Path(id): Path&lt;String&gt;,
+    Json(input): Json&lt;CreateProcedure&gt;,
+) -> Result&lt;Json&lt;serde_json::Value&gt;, AppError&gt; {
+    let conn = state.db.conn();
+
+    // Bump version, replace steps
+    let current_version: i32 = conn.query_row(
+        "SELECT version FROM procedures WHERE id = ?1",
+        [&amp;id], |r| r.get(0),
+    ).map_err(|_| AppError::NotFound(format!("Procedure {} not found", id)))?;
+
+    let new_version = current_version + 1;
+    conn.execute(
+        "UPDATE procedures SET title=?2, category=?3, version=?4, description=?5,
+                estimated_duration_minutes=?6, required_roles=?7, required_equipment=?8,
+                required_materials=?9, safety_notes=?10, updated_at=datetime('now')
+         WHERE id = ?1",
+        rusqlite::params![
+            id, input.title, input.category, new_version, input.description,
+            input.estimated_duration_minutes, input.required_roles,
+            input.required_equipment, input.required_materials, input.safety_notes,
+        ],
+    )?;
+
+    // Replace steps
+    conn.execute("DELETE FROM procedure_steps WHERE procedure_id = ?1", [&amp;id])?;
+    for (i, step) in input.steps.iter().enumerate() {
+        let step_id = new_id("step");
+        conn.execute(
+            "INSERT INTO procedure_steps (id, procedure_id, step_number, instruction, is_checkpoint, notes)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            rusqlite::params![step_id, id, (i + 1) as i32, step.instruction, step.is_checkpoint.unwrap_or(false), step.notes],
+        )?;
+    }
+
+    Ok(Json(serde_json::json!({ "id": id, "version": new_version })))
+}
+</hick:file>
+
+### Migration
+
+<hick:file path="backend/migrations/008_sops.sql">CREATE TABLE IF NOT EXISTS procedures (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    category TEXT NOT NULL,
+    version INTEGER NOT NULL DEFAULT 1,
+    description TEXT,
+    estimated_duration_minutes INTEGER,
+    required_roles TEXT,
+    required_equipment TEXT,
+    required_materials TEXT,
+    safety_notes TEXT,
+    active BOOLEAN NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS procedure_steps (
+    id TEXT PRIMARY KEY,
+    procedure_id TEXT NOT NULL REFERENCES procedures(id),
+    step_number INTEGER NOT NULL,
+    instruction TEXT NOT NULL,
+    is_checkpoint BOOLEAN NOT NULL DEFAULT 0,
+    notes TEXT
+);
+
+CREATE INDEX idx_procedures_category ON procedures(category);
+CREATE INDEX idx_steps_procedure ON procedure_steps(procedure_id);
+</hick:file>
+
+</hick:when>
+</hick:doc>
