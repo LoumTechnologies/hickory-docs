@@ -313,7 +313,11 @@ async fn test_class_selector_across_documents() {
     let doc2 = hick_doc(r#"<hick:copy class="chunks">chunk2;</hick:copy>"#);
     let doc3 = hick_doc(r#"<hick:file path="out.txt"><hick:paste select=".chunks" /></hick:file>"#);
     let result = hick::run_pipeline(
-        &[("doc1.hick", &doc1), ("doc2.hick", &doc2), ("doc3.hick", &doc3)],
+        &[
+            ("doc1.hick", &doc1),
+            ("doc2.hick", &doc2),
+            ("doc3.hick", &doc3),
+        ],
         &[],
     )
     .await
@@ -1060,7 +1064,10 @@ async fn test_when_and_condition_one_missing() {
         !content.contains("premium features"),
         "auth && billing should be false when billing missing: {content}"
     );
-    assert!(content.contains("basic"), "basic content should appear: {content}");
+    assert!(
+        content.contains("basic"),
+        "basic content should appear: {content}"
+    );
 }
 
 #[tokio::test]
@@ -1097,7 +1104,10 @@ async fn test_when_or_condition_both_missing() {
         !content.contains("has access"),
         "auth || admin should be false when both missing: {content}"
     );
-    assert!(content.contains("denied"), "denied content should appear: {content}");
+    assert!(
+        content.contains("denied"),
+        "denied content should appear: {content}"
+    );
 }
 
 #[tokio::test]
@@ -1567,7 +1577,9 @@ async fn test_feature_not_enabled() {
     );
 
     // Don't enable auth feature
-    let result = hick::run_pipeline(&[("test.hick", &src)], &[]).await.unwrap();
+    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+        .await
+        .unwrap();
 
     assert_eq!(
         result.files.get("config.txt").unwrap().trim(),
@@ -1596,8 +1608,14 @@ async fn test_feature_with_dependencies() {
     .unwrap();
 
     let content = result.files.get("status.txt").unwrap();
-    assert!(content.contains("auth:yes"), "auth should be enabled transitively");
-    assert!(content.contains("billing:yes"), "billing should be enabled transitively");
+    assert!(
+        content.contains("auth:yes"),
+        "auth should be enabled transitively"
+    );
+    assert!(
+        content.contains("billing:yes"),
+        "billing should be enabled transitively"
+    );
     assert!(content.contains("premium:yes"), "premium should be enabled");
 }
 
@@ -1643,7 +1661,10 @@ async fn test_feature_unknown_feature_error() {
         Err(e) => e.to_string(),
         Ok(_) => panic!("expected error"),
     };
-    assert!(err.contains("nonexistent"), "error should mention the unknown feature");
+    assert!(
+        err.contains("nonexistent"),
+        "error should mention the unknown feature"
+    );
 }
 
 #[tokio::test]
@@ -1685,9 +1706,14 @@ async fn test_feature_with_conditional_file() {
     );
 
     // Without auth enabled
-    let result = hick::run_pipeline(&[("test.hick", &src)], &[]).await.unwrap();
+    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+        .await
+        .unwrap();
     assert!(result.files.contains_key("main.txt"));
-    assert!(!result.files.contains_key("auth.txt"), "auth.txt should not exist without auth feature");
+    assert!(
+        !result.files.contains_key("auth.txt"),
+        "auth.txt should not exist without auth feature"
+    );
 
     // With auth enabled
     let result = hick::run_pipeline(
@@ -1697,7 +1723,10 @@ async fn test_feature_with_conditional_file() {
     .await
     .unwrap();
     assert!(result.files.contains_key("main.txt"));
-    assert!(result.files.contains_key("auth.txt"), "auth.txt should exist with auth feature");
+    assert!(
+        result.files.contains_key("auth.txt"),
+        "auth.txt should exist with auth feature"
+    );
 }
 
 #[tokio::test]
@@ -1741,8 +1770,14 @@ async fn test_feature_with_substitution() {
     .unwrap();
 
     let content = result.files.get("auth.txt").unwrap();
-    assert!(content.contains("TestProject"), "should substitute PascalCase");
-    assert!(content.contains("test_project"), "should substitute snake_case");
+    assert!(
+        content.contains("TestProject"),
+        "should substitute PascalCase"
+    );
+    assert!(
+        content.contains("test_project"),
+        "should substitute snake_case"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -1759,10 +1794,18 @@ async fn test_exclude_basic() {
 <hick:file path="src/main.rs">code</hick:file>"#,
     );
 
-    let result = hick::run_pipeline(&[("test.hick", &src)], &[]).await.unwrap();
+    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+        .await
+        .unwrap();
 
-    assert!(result.files.contains_key("README.md"), "README.md should exist");
-    assert!(result.files.contains_key("src/main.rs"), "src/main.rs should exist");
+    assert!(
+        result.files.contains_key("README.md"),
+        "README.md should exist"
+    );
+    assert!(
+        result.files.contains_key("src/main.rs"),
+        "src/main.rs should exist"
+    );
     assert!(
         !result.files.contains_key("TEMPLATE_README.md"),
         "TEMPLATE_README.md should be excluded"
@@ -1779,7 +1822,9 @@ async fn test_exclude_glob_extension() {
 <hick:file path="setup.template-only">setup instructions</hick:file>"#,
     );
 
-    let result = hick::run_pipeline(&[("test.hick", &src)], &[]).await.unwrap();
+    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+        .await
+        .unwrap();
 
     assert!(result.files.contains_key("config.json"));
     assert!(!result.files.contains_key("notes.template-only"));
@@ -1797,7 +1842,9 @@ async fn test_exclude_glob_directory() {
 <hick:file path="src/main.rs">code</hick:file>"#,
     );
 
-    let result = hick::run_pipeline(&[("test.hick", &src)], &[]).await.unwrap();
+    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+        .await
+        .unwrap();
 
     assert!(result.files.contains_key("docs/readme.md"));
     assert!(result.files.contains_key("src/main.rs"));
@@ -1819,7 +1866,9 @@ async fn test_exclude_multiple_patterns() {
 <hick:file path="config.md">real config</hick:file>"#,
     );
 
-    let result = hick::run_pipeline(&[("test.hick", &src)], &[]).await.unwrap();
+    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+        .await
+        .unwrap();
 
     assert!(result.files.contains_key("main.rs"));
     assert!(result.files.contains_key("config.md"));
@@ -1866,9 +1915,14 @@ async fn test_exclude_conditional() {
     );
 
     // Without dev feature - debug.dev should be excluded
-    let result = hick::run_pipeline(&[("test.hick", &src)], &[]).await.unwrap();
+    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+        .await
+        .unwrap();
     assert!(result.files.contains_key("app.rs"));
-    assert!(!result.files.contains_key("debug.dev"), "should exclude .dev files in production");
+    assert!(
+        !result.files.contains_key("debug.dev"),
+        "should exclude .dev files in production"
+    );
 
     // With dev feature - debug.dev should be kept
     let result = hick::run_pipeline(
@@ -1878,7 +1932,10 @@ async fn test_exclude_conditional() {
     .await
     .unwrap();
     assert!(result.files.contains_key("app.rs"));
-    assert!(result.files.contains_key("debug.dev"), "should keep .dev files in dev mode");
+    assert!(
+        result.files.contains_key("debug.dev"),
+        "should keep .dev files in dev mode"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -1905,19 +1962,42 @@ The main function prints a greeting.
 
 </hick:doc>"#;
 
-    let result = hick::run_pipeline(&[("test.hick", &src)], &[]).await.unwrap();
+    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+        .await
+        .unwrap();
 
     // Should produce both the weave file and the actual code file
-    assert!(result.files.contains_key("TEMPLATE.md"), "weave output should exist");
-    assert!(result.files.contains_key("src/main.rs"), "code file should exist");
+    assert!(
+        result.files.contains_key("TEMPLATE.md"),
+        "weave output should exist"
+    );
+    assert!(
+        result.files.contains_key("src/main.rs"),
+        "code file should exist"
+    );
 
     let weave = result.files.get("TEMPLATE.md").unwrap();
-    assert!(weave.contains("# My Template"), "weave should contain title");
-    assert!(weave.contains("This template generates a Rust project."), "weave should contain prose");
-    assert!(weave.contains("### `src/main.rs`"), "weave should contain file heading");
-    assert!(weave.contains("```rust"), "weave should have rust code fence");
+    assert!(
+        weave.contains("# My Template"),
+        "weave should contain title"
+    );
+    assert!(
+        weave.contains("This template generates a Rust project."),
+        "weave should contain prose"
+    );
+    assert!(
+        weave.contains("### `src/main.rs`"),
+        "weave should contain file heading"
+    );
+    assert!(
+        weave.contains("```rust"),
+        "weave should have rust code fence"
+    );
     assert!(weave.contains("fn main()"), "weave should contain code");
-    assert!(weave.contains("The main function prints a greeting."), "weave should contain trailing prose");
+    assert!(
+        weave.contains("The main function prints a greeting."),
+        "weave should contain trailing prose"
+    );
 }
 
 #[tokio::test]
@@ -1938,15 +2018,23 @@ target/
 
 </hick:doc>"#;
 
-    let result = hick::run_pipeline(&[("test.hick", &src)], &[]).await.unwrap();
+    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+        .await
+        .unwrap();
 
     // Both files should be generated
     assert!(result.files.contains_key("src/main.rs"));
     assert!(result.files.contains_key(".gitignore"));
 
     let weave = result.files.get("README.md").unwrap();
-    assert!(weave.contains("### `src/main.rs`"), "visible file should appear in weave");
-    assert!(!weave.contains(".gitignore"), "doc-hidden file should NOT appear in weave");
+    assert!(
+        weave.contains("### `src/main.rs`"),
+        "visible file should appear in weave"
+    );
+    assert!(
+        !weave.contains(".gitignore"),
+        "doc-hidden file should NOT appear in weave"
+    );
 }
 
 #[tokio::test]
@@ -1967,11 +2055,19 @@ Version: <hick:val name="version" />
 
 </hick:doc>"#;
 
-    let result = hick::run_pipeline(&[("test.hick", &src)], &[]).await.unwrap();
+    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+        .await
+        .unwrap();
 
     let weave = result.files.get("DOCS.md").unwrap();
-    assert!(weave.contains("# MyApp"), "val in prose should be interpolated");
-    assert!(weave.contains("Version: 1.0.0"), "val in prose should be interpolated");
+    assert!(
+        weave.contains("# MyApp"),
+        "val in prose should be interpolated"
+    );
+    assert!(
+        weave.contains("Version: 1.0.0"),
+        "val in prose should be interpolated"
+    );
 }
 
 #[tokio::test]
@@ -1999,12 +2095,23 @@ No authentication included.
 
 </hick:doc>"#;
 
-    let result = hick::run_pipeline(&[("test.hick", &src)], &[]).await.unwrap();
+    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+        .await
+        .unwrap();
 
     let weave = result.files.get("README.md").unwrap();
-    assert!(weave.contains("## Authentication"), "conditional true content should appear");
-    assert!(weave.contains("authentication support"), "conditional true content should appear");
-    assert!(!weave.contains("No authentication included"), "conditional false content should NOT appear");
+    assert!(
+        weave.contains("## Authentication"),
+        "conditional true content should appear"
+    );
+    assert!(
+        weave.contains("authentication support"),
+        "conditional true content should appear"
+    );
+    assert!(
+        !weave.contains("No authentication included"),
+        "conditional false content should NOT appear"
+    );
 }
 
 #[tokio::test]
@@ -2031,7 +2138,9 @@ body {}
 
 </hick:doc>"#;
 
-    let result = hick::run_pipeline(&[("test.hick", &src)], &[]).await.unwrap();
+    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+        .await
+        .unwrap();
 
     let weave = result.files.get("LANGS.md").unwrap();
     assert!(weave.contains("```swift"), "should detect swift");
@@ -2052,7 +2161,9 @@ Some prose here.
 
 </hick:doc>"#;
 
-    let result = hick::run_pipeline(&[("test.hick", &src)], &[]).await.unwrap();
+    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+        .await
+        .unwrap();
 
     // Should only have the code file, no weave output
     assert_eq!(result.files.len(), 1, "should only have code file");
@@ -2076,12 +2187,23 @@ Welcome to FavoriteApp!
 
 </hick:doc>"#;
 
-    let result = hick::run_pipeline(&[("test.hick", &src)], &[]).await.unwrap();
+    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+        .await
+        .unwrap();
 
     let weave = result.files.get("README.md").unwrap();
-    assert!(weave.contains("# MyProject"), "substitution should apply to prose");
-    assert!(weave.contains("Welcome to MyProject"), "substitution should apply to prose");
-    assert!(weave.contains("// MyProject code"), "substitution should apply to code in weave");
+    assert!(
+        weave.contains("# MyProject"),
+        "substitution should apply to prose"
+    );
+    assert!(
+        weave.contains("Welcome to MyProject"),
+        "substitution should apply to prose"
+    );
+    assert!(
+        weave.contains("// MyProject code"),
+        "substitution should apply to code in weave"
+    );
 }
 
 #[tokio::test]
@@ -2107,14 +2229,28 @@ name = "example"
 
 </hick:doc>"#;
 
-    let result = hick::run_pipeline(&[("test.hick", &src)], &[]).await.unwrap();
+    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+        .await
+        .unwrap();
 
     let weave = result.files.get("TEMPLATE.md").unwrap();
     assert!(weave.contains("# Multi-file Template"), "should have title");
-    assert!(weave.contains("## Rust Code"), "should have section headings");
-    assert!(weave.contains("## Configuration"), "should have section headings");
-    assert!(weave.contains("### `src/lib.rs`"), "should have file heading");
-    assert!(weave.contains("### `Cargo.toml`"), "should have file heading");
+    assert!(
+        weave.contains("## Rust Code"),
+        "should have section headings"
+    );
+    assert!(
+        weave.contains("## Configuration"),
+        "should have section headings"
+    );
+    assert!(
+        weave.contains("### `src/lib.rs`"),
+        "should have file heading"
+    );
+    assert!(
+        weave.contains("### `Cargo.toml`"),
+        "should have file heading"
+    );
     assert!(weave.contains("```rust"), "should have rust fence");
     assert!(weave.contains("```toml"), "should have toml fence");
 }

@@ -235,8 +235,12 @@ fn parse_cli() -> Cli {
     // Check if the first non-flag argument is a known subcommand
     let first_positional = raw_args.iter().skip(1).find(|a| !a.starts_with('-'));
 
-    let is_subcommand =
-        first_positional.is_some_and(|a| matches!(a.as_str(), "run" | "up" | "repl" | "init" | "validate" | "generate-matrix" | "help"));
+    let is_subcommand = first_positional.is_some_and(|a| {
+        matches!(
+            a.as_str(),
+            "run" | "up" | "repl" | "init" | "validate" | "generate-matrix" | "help"
+        )
+    });
 
     if is_subcommand {
         Cli::parse()

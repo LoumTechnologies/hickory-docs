@@ -53,8 +53,5 @@ pub(crate) fn infer_schema(source: &Arc<dyn hick_flow::Node>) -> LiveSchema {
         }
     }
     // Fallback: empty schema
-    LiveSchema::new_strict(
-        Arc::new(arrow::datatypes::Schema::empty()),
-        vec![],
-    )
+    LiveSchema::new_strict(Arc::new(arrow::datatypes::Schema::empty()), vec![])
 }

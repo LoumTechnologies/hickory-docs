@@ -3,12 +3,12 @@
 use std::sync::Arc;
 
 use anyhow::Result;
-use hick_exec::node::{BoxStream, Context, Node, NodeTrace, NodeValue, StringNode};
+use hick_exec::node::{BoxStream, Context, Node, NodeTrace, NodeValue, SourceOrigin, StringNode};
 use hick_lang::HickTag;
 
 use crate::{
-    ExecShow, ProcessingContext, ProcessingPhase, TagHandler, TagResult,
-    parse_exec_show, render_transcript, tag_attr,
+    ExecShow, ProcessingContext, ProcessingPhase, TagHandler, TagResult, parse_exec_show,
+    render_transcript, tag_attr,
 };
 
 // ---------------------------------------------------------------------------
@@ -22,13 +22,19 @@ use crate::{
 pub(crate) struct ExecNode {
     inner: StringNode,
     container: String,
+    origin: SourceOrigin,
 }
 
 impl ExecNode {
-    pub fn new(content: impl Into<String>, container: impl Into<String>) -> Self {
+    pub fn new(content: impl Into<String>, container: impl Into<String>, tag_line: usize) -> Self {
+        let c: String = container.into();
         Self {
             inner: StringNode::new(content),
-            container: container.into(),
+            origin: SourceOrigin::Exec {
+                container: Arc::from(c.as_str()),
+                tag_line,
+            },
+            container: c,
         }
     }
 }
@@ -46,6 +52,10 @@ impl Node for ExecNode {
 
     fn node_value(&self) -> NodeValue {
         self.inner.node_value()
+    }
+
+    fn source_origin(&self) -> Option<&SourceOrigin> {
+        Some(&self.origin)
     }
 
     fn get_stream(self: Arc<Self>, _context: Context) -> BoxStream<Vec<NodeTrace>> {
@@ -87,11 +97,16 @@ impl TagHandler for ExecHandler {
 
         if let Some(entries) = ctx.transcripts.get(&container_name) {
             let rendered = render_transcript(entries, show);
-            Ok(TagResult::Node(Arc::new(ExecNode::new(rendered, &container_name))))
+            Ok(TagResult::Node(Arc::new(ExecNode::new(
+                rendered,
+                &container_name,
+                tag.source_line,
+            ))))
         } else {
             Ok(TagResult::Node(Arc::new(ExecNode::new(
                 format!("[no transcript for container '{container_name}']"),
                 &container_name,
+                tag.source_line,
             ))))
         }
     }
@@ -112,6 +127,7 @@ mod tests {
             self_closing: true,
             source_line: 1,
             source_column: 0,
+            source_span: None,
         }
     }
 
@@ -133,6 +149,7 @@ mod tests {
             indent: 0,
             registry: None,
             context: None,
+            source_file: None,
         };
 
         let tag = make_tag(
@@ -162,6 +179,7 @@ mod tests {
             indent: 0,
             registry: None,
             context: None,
+            source_file: None,
         };
 
         let tag = make_tag(
@@ -188,6 +206,7 @@ mod tests {
             indent: 0,
             registry: None,
             context: None,
+            source_file: None,
         };
 
         let tag = make_tag(
@@ -227,6 +246,7 @@ mod tests {
             indent: 0,
             registry: None,
             context: None,
+            source_file: None,
         };
 
         let tag = make_tag(

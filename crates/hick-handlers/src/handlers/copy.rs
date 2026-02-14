@@ -28,7 +28,7 @@ fn resolve_content_node(tag: &HickTag, ctx: &ProcessingContext) -> (Arc<dyn Node
     let mut string_parts = Vec::new();
     for child in &tag.children {
         match child {
-            HickNode::Text(t) => {
+            HickNode::Text(t, _) => {
                 if !t.is_empty() {
                     ip.add(Arc::new(StringNode::new(t.clone())));
                     string_parts.push(t.clone());
@@ -73,7 +73,8 @@ impl TagHandler for CopyHandler {
         let class = tag_attr(tag, "class");
 
         let (node, string_fallback) = resolve_content_node(tag, ctx);
-        ctx.state.register_copy_node(id, class.as_deref(), node, string_fallback);
+        ctx.state
+            .register_copy_node(id, class.as_deref(), node, string_fallback);
 
         Ok(TagResult::Declaration)
     }
@@ -99,7 +100,8 @@ impl TagHandler for CutHandler {
         let class = tag_attr(tag, "class");
 
         let (node, string_fallback) = resolve_content_node(tag, ctx);
-        ctx.state.register_cut_node(id, class.as_deref(), node, string_fallback);
+        ctx.state
+            .register_cut_node(id, class.as_deref(), node, string_fallback);
 
         Ok(TagResult::Declaration)
     }
@@ -108,13 +110,17 @@ impl TagHandler for CutHandler {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{TagRegistry, TranscriptEntry};
     use crate::handlers::{ExecHandler, ValHandler};
+    use crate::{TagRegistry, TranscriptEntry};
     use hick_exec::state::MultiDocumentState;
     use std::collections::HashMap;
     use std::sync::Arc;
 
-    fn make_tag(name: &str, attrs: Vec<(String, String)>, children: Vec<hick_lang::HickNode>) -> HickTag {
+    fn make_tag(
+        name: &str,
+        attrs: Vec<(String, String)>,
+        children: Vec<hick_lang::HickNode>,
+    ) -> HickTag {
         HickTag {
             name: name.to_string(),
             attributes: attrs,
@@ -122,16 +128,21 @@ mod tests {
             self_closing: false,
             source_line: 1,
             source_column: 0,
+            source_span: None,
         }
     }
 
-    fn make_ctx<'a>(state: &'a Arc<MultiDocumentState>, transcripts: &'a HashMap<String, Vec<TranscriptEntry>>) -> ProcessingContext<'a> {
+    fn make_ctx<'a>(
+        state: &'a Arc<MultiDocumentState>,
+        transcripts: &'a HashMap<String, Vec<TranscriptEntry>>,
+    ) -> ProcessingContext<'a> {
         ProcessingContext {
             state,
             transcripts,
             indent: 0,
             registry: None,
             context: None,
+            source_file: None,
         }
     }
 
@@ -146,6 +157,7 @@ mod tests {
             indent: 0,
             registry: Some(registry),
             context: None,
+            source_file: None,
         }
     }
 
@@ -158,7 +170,7 @@ mod tests {
         let tag = make_tag(
             "copy",
             vec![("id".to_string(), "ver".to_string())],
-            vec![hick_lang::HickNode::Text("1.0.0".to_string())],
+            vec![hick_lang::HickNode::Text("1.0.0".to_string(), None)],
         );
 
         let handler = CopyHandler;
@@ -177,13 +189,16 @@ mod tests {
         let tag = make_tag(
             "copy",
             vec![("class".to_string(), "imports".to_string())],
-            vec![hick_lang::HickNode::Text("import foo;".to_string())],
+            vec![hick_lang::HickNode::Text("import foo;".to_string(), None)],
         );
 
         let handler = CopyHandler;
         handler.process(&tag, &ctx).unwrap();
 
-        assert_eq!(state.resolve_paste(".imports"), Some("import foo;".to_string()));
+        assert_eq!(
+            state.resolve_paste(".imports"),
+            Some("import foo;".to_string())
+        );
     }
 
     #[test]
@@ -216,6 +231,7 @@ mod tests {
             self_closing: true,
             source_line: 2,
             source_column: 0,
+            source_span: None,
         };
 
         let tag = make_tag(
@@ -254,6 +270,7 @@ mod tests {
             self_closing: true,
             source_line: 2,
             source_column: 0,
+            source_span: None,
         };
 
         let tag = make_tag(
@@ -283,13 +300,16 @@ mod tests {
         let tag = make_tag(
             "copy",
             vec![("id".to_string(), "greeting".to_string())],
-            vec![hick_lang::HickNode::Text("Hello literal".to_string())],
+            vec![hick_lang::HickNode::Text("Hello literal".to_string(), None)],
         );
 
         let handler = CopyHandler;
         handler.process(&tag, &ctx).unwrap();
 
-        assert_eq!(state.resolve_paste("#greeting"), Some("Hello literal".to_string()));
+        assert_eq!(
+            state.resolve_paste("#greeting"),
+            Some("Hello literal".to_string())
+        );
     }
 
     #[test]
@@ -319,6 +339,7 @@ mod tests {
             self_closing: true,
             source_line: 2,
             source_column: 0,
+            source_span: None,
         };
 
         let tag = make_tag(

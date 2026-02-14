@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use anyhow::Result;
-use hick_exec::node::{BoxStream, Context, Node, NodeTrace, NodeValue, StringNode};
+use hick_exec::node::{BoxStream, Context, Node, NodeTrace, NodeValue, SourceOrigin, StringNode};
 use hick_lang::{HickTag, dedent};
 use log::warn;
 
@@ -20,13 +20,18 @@ use crate::{ProcessingContext, ProcessingPhase, TagHandler, TagResult, tag_attr}
 pub(crate) struct PasteNode {
     inner: StringNode,
     selector: String,
+    origin: SourceOrigin,
 }
 
 impl PasteNode {
     pub fn new(content: impl Into<String>, selector: impl Into<String>) -> Self {
+        let sel: String = selector.into();
         Self {
             inner: StringNode::new(content),
-            selector: selector.into(),
+            origin: SourceOrigin::Paste {
+                selector: Arc::from(sel.as_str()),
+            },
+            selector: sel,
         }
     }
 }
@@ -44,6 +49,10 @@ impl Node for PasteNode {
 
     fn node_value(&self) -> NodeValue {
         self.inner.node_value()
+    }
+
+    fn source_origin(&self) -> Option<&SourceOrigin> {
+        Some(&self.origin)
     }
 
     fn get_stream(self: Arc<Self>, _context: Context) -> BoxStream<Vec<NodeTrace>> {
@@ -83,11 +92,13 @@ impl TagHandler for PasteHandler {
         // Try node-based resolution first (supports reactive streaming)
         if let Some(node) = ctx.state.resolve_paste_node(&selector) {
             // If the node has a direct string value and we need to dedent, wrap it
-            if ctx.indent > 0 {
-                if let Some(s) = node.as_string_value() {
-                    let dedented = dedent(s, ctx.indent);
-                    return Ok(TagResult::Node(Arc::new(PasteNode::new(dedented, &selector))));
-                }
+            if ctx.indent > 0
+                && let Some(s) = node.as_string_value()
+            {
+                let dedented = dedent(s, ctx.indent);
+                return Ok(TagResult::Node(Arc::new(PasteNode::new(
+                    dedented, &selector,
+                ))));
             }
             return Ok(TagResult::Node(node));
         }
@@ -95,7 +106,9 @@ impl TagHandler for PasteHandler {
         // Fallback to string-based resolution (backward compat)
         if let Some(content) = ctx.state.resolve_paste(&selector) {
             let dedented = dedent(&content, ctx.indent);
-            Ok(TagResult::Node(Arc::new(PasteNode::new(dedented, &selector))))
+            Ok(TagResult::Node(Arc::new(PasteNode::new(
+                dedented, &selector,
+            ))))
         } else {
             warn!("Paste selector '{}' not found", selector);
             Ok(TagResult::Declaration)
@@ -117,16 +130,21 @@ mod tests {
             self_closing: true,
             source_line: 1,
             source_column: 0,
+            source_span: None,
         }
     }
 
-    fn make_ctx<'a>(state: &'a Arc<MultiDocumentState>, transcripts: &'a HashMap<String, Vec<crate::TranscriptEntry>>) -> ProcessingContext<'a> {
+    fn make_ctx<'a>(
+        state: &'a Arc<MultiDocumentState>,
+        transcripts: &'a HashMap<String, Vec<crate::TranscriptEntry>>,
+    ) -> ProcessingContext<'a> {
         ProcessingContext {
             state,
             transcripts,
             indent: 0,
             registry: None,
             context: None,
+            source_file: None,
         }
     }
 
@@ -179,7 +197,10 @@ mod tests {
         let transcripts = HashMap::new();
         let ctx = make_ctx(&state, &transcripts);
 
-        let tag = make_tag("paste", vec![("select".to_string(), "#missing".to_string())]);
+        let tag = make_tag(
+            "paste",
+            vec![("select".to_string(), "#missing".to_string())],
+        );
 
         let handler = PasteHandler;
         let result = handler.process(&tag, &ctx).unwrap();

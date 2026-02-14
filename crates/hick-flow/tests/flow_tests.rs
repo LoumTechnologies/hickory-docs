@@ -520,9 +520,7 @@ fn context_multiple_extension_types() {
 
 #[test]
 fn context_extension_overwrite() {
-    let ctx = Context::new()
-        .with_extension(1u32)
-        .with_extension(2u32);
+    let ctx = Context::new().with_extension(1u32).with_extension(2u32);
     assert_eq!(*ctx.get_extension::<u32>().unwrap(), 2);
 }
 
@@ -581,11 +579,8 @@ async fn transform_records_in_trace() {
     children.add(Arc::new(StringNode::new("test")));
     children.close();
 
-    let xform: Arc<dyn Node> = Arc::new(TransformNode::new(
-        children,
-        |s| s.to_uppercase(),
-        "upper",
-    ));
+    let xform: Arc<dyn Node> =
+        Arc::new(TransformNode::new(children, |s| s.to_uppercase(), "upper"));
     let mut stream = xform.get_stream(Context::default());
     let batch = stream.next().await.unwrap();
     assert!(!batch.is_empty());
@@ -623,11 +618,8 @@ async fn transform_identity() {
     children.add(Arc::new(StringNode::new("unchanged")));
     children.close();
 
-    let xform: Arc<dyn Node> = Arc::new(TransformNode::new(
-        children,
-        |s| s.to_string(),
-        "identity",
-    ));
+    let xform: Arc<dyn Node> =
+        Arc::new(TransformNode::new(children, |s| s.to_string(), "identity"));
     let result = converge_to_string(xform, Context::default()).await;
     assert_eq!(result.unwrap(), "unchanged");
 }
@@ -637,11 +629,8 @@ async fn transform_empty_children() {
     let children = Arc::new(InsertionPoint::new());
     children.close();
 
-    let xform: Arc<dyn Node> = Arc::new(TransformNode::new(
-        children,
-        |s| s.to_uppercase(),
-        "upper",
-    ));
+    let xform: Arc<dyn Node> =
+        Arc::new(TransformNode::new(children, |s| s.to_uppercase(), "upper"));
     let result = converge_to_string(xform, Context::default()).await;
     assert_eq!(result.unwrap(), "");
 }
@@ -654,11 +643,8 @@ async fn transform_with_separator() {
     children.add(Arc::new(StringNode::new("b")));
     children.close();
 
-    let xform: Arc<dyn Node> = Arc::new(TransformNode::new(
-        children,
-        |s| s.to_uppercase(),
-        "upper",
-    ));
+    let xform: Arc<dyn Node> =
+        Arc::new(TransformNode::new(children, |s| s.to_uppercase(), "upper"));
     let result = converge_to_string(xform, Context::default()).await;
     assert_eq!(result.unwrap(), "A, B");
 }
@@ -671,11 +657,8 @@ async fn transform_multiple_children() {
     children.add(Arc::new(StringNode::new("world")));
     children.close();
 
-    let xform: Arc<dyn Node> = Arc::new(TransformNode::new(
-        children,
-        |s| s.to_uppercase(),
-        "upper",
-    ));
+    let xform: Arc<dyn Node> =
+        Arc::new(TransformNode::new(children, |s| s.to_uppercase(), "upper"));
     let result = converge_to_string(xform, Context::default()).await;
     assert_eq!(result.unwrap(), "HELLO WORLD");
 }
@@ -744,11 +727,8 @@ async fn converge_with_transform() {
     children.add(Arc::new(StringNode::new("hello")));
     children.close();
 
-    let xform: Arc<dyn Node> = Arc::new(TransformNode::new(
-        children,
-        |s| format!("<<{s}>>"),
-        "wrap",
-    ));
+    let xform: Arc<dyn Node> =
+        Arc::new(TransformNode::new(children, |s| format!("<<{s}>>"), "wrap"));
     let result = converge_to_string(xform, Context::default()).await;
     assert_eq!(result.unwrap(), "<<hello>>");
 }
@@ -876,4 +856,189 @@ async fn integration_context_extension_flow() {
     let node: Arc<dyn Node> = Arc::new(StringNode::new("test"));
     let result = converge_to_string(node, ctx).await;
     assert_eq!(result.unwrap(), "test");
+}
+
+// ===========================================================================
+// SpanNode tests
+// ===========================================================================
+
+#[test]
+fn span_node_has_string_value() {
+    use hick_flow::{SourceOrigin, SpanNode};
+    let node = SpanNode::new("hello", SourceOrigin::Synthetic);
+    assert_eq!(node.as_string_value(), Some("hello"));
+    assert_eq!(node.value(), "hello");
+}
+
+#[test]
+fn span_node_returns_source_origin() {
+    use hick_flow::{SourceOrigin, SpanNode};
+    use hick_lang::SourceSpan;
+
+    let span = SourceSpan::new(10, 20, 3, 5);
+    let origin = SourceOrigin::Literal {
+        file: Arc::from("test.hick"),
+        span,
+    };
+    let node = SpanNode::new("some text", origin);
+    let retrieved = node.source_origin().expect("should have origin");
+    match retrieved {
+        SourceOrigin::Literal { file, span } => {
+            assert_eq!(&**file, "test.hick");
+            assert_eq!(span.start, 10);
+            assert_eq!(span.end, 20);
+            assert_eq!(span.start_line, 3);
+            assert_eq!(span.start_col, 5);
+        }
+        _ => panic!("Expected Literal origin"),
+    }
+}
+
+#[tokio::test]
+async fn span_node_converges_like_string_node() {
+    use hick_flow::{SourceOrigin, SpanNode};
+    let span_node: Arc<dyn Node> = Arc::new(SpanNode::new("hello world", SourceOrigin::Synthetic));
+    let result = converge_to_string(span_node, Context::default()).await;
+    assert_eq!(result.unwrap(), "hello world");
+}
+
+#[tokio::test]
+async fn span_node_in_insertion_point() {
+    use hick_flow::{SourceOrigin, SpanNode};
+    use hick_lang::SourceSpan;
+
+    let ip = Arc::new(InsertionPoint::new());
+    ip.add(Arc::new(SpanNode::new(
+        "hello ",
+        SourceOrigin::Literal {
+            file: Arc::from("test.hick"),
+            span: SourceSpan::new(0, 6, 1, 0),
+        },
+    )));
+    ip.add(Arc::new(SpanNode::new(
+        "world",
+        SourceOrigin::Literal {
+            file: Arc::from("test.hick"),
+            span: SourceSpan::new(6, 11, 1, 6),
+        },
+    )));
+    ip.close();
+    let result = converge_to_string(ip, Context::default()).await;
+    assert_eq!(result.unwrap(), "hello world");
+}
+
+// ---------------------------------------------------------------------------
+// converge_with_provenance tests
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn converge_with_provenance_tracks_span_nodes() {
+    use hick_flow::{SourceOrigin, SpanNode, converge_with_provenance};
+    use hick_lang::SourceSpan;
+
+    let ip = Arc::new(InsertionPoint::new());
+    ip.add(Arc::new(SpanNode::new(
+        "hello ",
+        SourceOrigin::Literal {
+            file: Arc::from("a.hick"),
+            span: SourceSpan::new(0, 6, 1, 0),
+        },
+    )));
+    ip.add(Arc::new(SpanNode::new(
+        "world",
+        SourceOrigin::Paste {
+            selector: Arc::from("#ver"),
+        },
+    )));
+    ip.close();
+
+    let (text, map) = converge_with_provenance(ip, Context::default())
+        .await
+        .unwrap();
+    assert_eq!(text, "hello world");
+    assert_eq!(map.len(), 2);
+
+    let spans = map.spans();
+    assert_eq!(spans[0].output_start, 0);
+    assert_eq!(spans[0].output_end, 6);
+    match &spans[0].origin {
+        SourceOrigin::Literal { file, .. } => assert_eq!(&**file, "a.hick"),
+        other => panic!("Expected Literal, got {:?}", other),
+    }
+
+    assert_eq!(spans[1].output_start, 6);
+    assert_eq!(spans[1].output_end, 11);
+    match &spans[1].origin {
+        SourceOrigin::Paste { selector } => assert_eq!(&**selector, "#ver"),
+        other => panic!("Expected Paste, got {:?}", other),
+    }
+}
+
+#[tokio::test]
+async fn converge_with_provenance_plain_string_nodes_get_synthetic() {
+    use hick_flow::{SourceOrigin, converge_with_provenance};
+
+    let ip = Arc::new(InsertionPoint::new());
+    ip.add(Arc::new(StringNode::new("abc")));
+    ip.add(Arc::new(StringNode::new("def")));
+    ip.close();
+
+    let (text, map) = converge_with_provenance(ip, Context::default())
+        .await
+        .unwrap();
+    assert_eq!(text, "abcdef");
+    assert_eq!(map.len(), 2);
+
+    // Plain StringNodes have no source_origin, so they default to Synthetic
+    for span in map.spans() {
+        match &span.origin {
+            SourceOrigin::Synthetic => {}
+            other => panic!("Expected Synthetic, got {:?}", other),
+        }
+    }
+}
+
+#[tokio::test]
+async fn converge_with_provenance_mixed_nodes() {
+    use hick_flow::{SourceOrigin, SpanNode, converge_with_provenance};
+    use hick_lang::SourceSpan;
+
+    let ip = Arc::new(InsertionPoint::new());
+    ip.add(Arc::new(StringNode::new("pre-")));
+    ip.add(Arc::new(SpanNode::new(
+        "tracked",
+        SourceOrigin::Literal {
+            file: Arc::from("src.hick"),
+            span: SourceSpan::new(10, 17, 2, 0),
+        },
+    )));
+    ip.add(Arc::new(StringNode::new("-post")));
+    ip.close();
+
+    let (text, map) = converge_with_provenance(ip, Context::default())
+        .await
+        .unwrap();
+    assert_eq!(text, "pre-tracked-post");
+    assert_eq!(map.len(), 3);
+
+    let spans = map.spans();
+    // "pre-" at [0,4) — Synthetic
+    assert_eq!(spans[0].output_start, 0);
+    assert_eq!(spans[0].output_end, 4);
+    match &spans[0].origin {
+        SourceOrigin::Synthetic => {}
+        other => panic!("Expected Synthetic, got {:?}", other),
+    }
+
+    // "tracked" at [4,11) — Literal
+    assert_eq!(spans[1].output_start, 4);
+    assert_eq!(spans[1].output_end, 11);
+    match &spans[1].origin {
+        SourceOrigin::Literal { file, .. } => assert_eq!(&**file, "src.hick"),
+        other => panic!("Expected Literal, got {:?}", other),
+    }
+
+    // "-post" at [11,16) — Synthetic
+    assert_eq!(spans[2].output_start, 11);
+    assert_eq!(spans[2].output_end, 16);
 }

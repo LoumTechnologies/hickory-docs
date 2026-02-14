@@ -7,8 +7,8 @@ use std::any::Any;
 use std::sync::Arc;
 
 use futures::StreamExt;
-use hick_flow::node::{BoxStream, Node, NodeTrace, NodeValue};
 use hick_flow::Context;
+use hick_flow::node::{BoxStream, Node, NodeTrace, NodeValue};
 
 use crate::changes::{ChangeStream, RecordChange};
 use crate::schema::LiveSchema;

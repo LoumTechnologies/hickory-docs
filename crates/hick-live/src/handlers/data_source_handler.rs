@@ -41,8 +41,9 @@ impl TagHandler for DataSourceHandler {
 
         match source_type.as_str() {
             "csv" => {
-                let path = tag_attr(tag, "path")
-                    .ok_or_else(|| anyhow::anyhow!("data-source type=csv requires a path attribute"))?;
+                let path = tag_attr(tag, "path").ok_or_else(|| {
+                    anyhow::anyhow!("data-source type=csv requires a path attribute")
+                })?;
                 let source = Arc::new(CsvSource::new(live_schema.clone(), path));
                 let node = StreamingStructuredDataNode::new(live_schema, source);
                 Ok(TagResult::Node(Arc::new(node)))
@@ -68,25 +69,25 @@ fn parse_schema(tag: &HickTag) -> Result<Schema> {
 
     let mut fields = Vec::new();
     for child in &tag.children {
-        if let HickNode::Tag(child_tag) = child {
-            if child_tag.name == "column" {
-                let name = tag_attr(child_tag, "name")
-                    .ok_or_else(|| anyhow::anyhow!("column requires a name attribute"))?;
-                let data_type = match tag_attr(child_tag, "type").as_deref() {
-                    Some("int32") | Some("i32") => DataType::Int32,
-                    Some("int64") | Some("i64") => DataType::Int64,
-                    Some("utf8") | Some("string") | Some("text") => DataType::Utf8,
-                    Some("float32") | Some("f32") => DataType::Float32,
-                    Some("float64") | Some("f64") => DataType::Float64,
-                    Some("bool") | Some("boolean") => DataType::Boolean,
-                    Some(other) => bail!("Unknown column type: {other}"),
-                    None => DataType::Utf8, // default to string
-                };
-                let nullable = tag_attr(child_tag, "nullable")
-                    .map(|v| v == "true")
-                    .unwrap_or(true);
-                fields.push(Field::new(name, data_type, nullable));
-            }
+        if let HickNode::Tag(child_tag) = child
+            && child_tag.name == "column"
+        {
+            let name = tag_attr(child_tag, "name")
+                .ok_or_else(|| anyhow::anyhow!("column requires a name attribute"))?;
+            let data_type = match tag_attr(child_tag, "type").as_deref() {
+                Some("int32") | Some("i32") => DataType::Int32,
+                Some("int64") | Some("i64") => DataType::Int64,
+                Some("utf8") | Some("string") | Some("text") => DataType::Utf8,
+                Some("float32") | Some("f32") => DataType::Float32,
+                Some("float64") | Some("f64") => DataType::Float64,
+                Some("bool") | Some("boolean") => DataType::Boolean,
+                Some(other) => bail!("Unknown column type: {other}"),
+                None => DataType::Utf8, // default to string
+            };
+            let nullable = tag_attr(child_tag, "nullable")
+                .map(|v| v == "true")
+                .unwrap_or(true);
+            fields.push(Field::new(name, data_type, nullable));
         }
     }
 
@@ -103,14 +104,12 @@ fn parse_key_columns(tag: &HickTag) -> Vec<String> {
 
     let mut keys = Vec::new();
     for child in &tag.children {
-        if let HickNode::Tag(child_tag) = child {
-            if child_tag.name == "column" {
-                if tag_attr(child_tag, "key").as_deref() == Some("true") {
-                    if let Some(name) = tag_attr(child_tag, "name") {
-                        keys.push(name);
-                    }
-                }
-            }
+        if let HickNode::Tag(child_tag) = child
+            && child_tag.name == "column"
+            && tag_attr(child_tag, "key").as_deref() == Some("true")
+            && let Some(name) = tag_attr(child_tag, "name")
+        {
+            keys.push(name);
         }
     }
     keys
@@ -123,13 +122,17 @@ mod tests {
     use hick_lang::{HickNode, HickTag};
     use std::collections::HashMap;
 
-    fn make_ctx<'a>(state: &'a Arc<MultiDocumentState>, transcripts: &'a HashMap<String, Vec<hick_handlers::TranscriptEntry>>) -> ProcessingContext<'a> {
+    fn make_ctx<'a>(
+        state: &'a Arc<MultiDocumentState>,
+        transcripts: &'a HashMap<String, Vec<hick_handlers::TranscriptEntry>>,
+    ) -> ProcessingContext<'a> {
         ProcessingContext {
             state,
             transcripts,
             indent: 0,
             registry: None,
             context: None,
+            source_file: None,
         }
     }
 
@@ -148,6 +151,7 @@ mod tests {
             self_closing: true,
             source_line: 1,
             source_column: 0,
+            source_span: None,
         })
     }
 
@@ -175,6 +179,7 @@ mod tests {
             self_closing: false,
             source_line: 1,
             source_column: 0,
+            source_span: None,
         };
 
         let handler = DataSourceHandler;
@@ -198,6 +203,7 @@ mod tests {
             self_closing: false,
             source_line: 1,
             source_column: 0,
+            source_span: None,
         };
 
         let handler = DataSourceHandler;
@@ -218,6 +224,7 @@ mod tests {
             self_closing: false,
             source_line: 1,
             source_column: 0,
+            source_span: None,
         };
 
         let handler = DataSourceHandler;

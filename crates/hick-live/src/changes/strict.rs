@@ -123,9 +123,9 @@ fn remove_from_buffer(
             }
             let n = batch.num_rows();
             let mut keep = vec![true; n];
-            for i in 0..n {
+            for (i, k) in keep.iter_mut().enumerate().take(n) {
                 if !removed && row_key(batch, key_col_indices, i) == key {
-                    keep[i] = false;
+                    *k = false;
                     removed = true;
                 }
             }
@@ -175,10 +175,10 @@ fn lookup_and_remove(
 
         // Extract found rows
         let found_bool = BooleanArray::from(found_mask);
-        if let Ok(found) = filter_record_batch(batch, &found_bool) {
-            if found.num_rows() > 0 {
-                found_batches.push(found);
-            }
+        if let Ok(found) = filter_record_batch(batch, &found_bool)
+            && found.num_rows() > 0
+        {
+            found_batches.push(found);
         }
 
         // Remove found rows from buffer
@@ -204,8 +204,8 @@ mod tests {
     use super::*;
     use arrow::array::{Int32Array, StringArray};
     use arrow::datatypes::{Field, Schema};
-    use futures::stream;
     use futures::StreamExt;
+    use futures::stream;
 
     fn test_schema() -> (Arc<Schema>, LiveSchema) {
         let arrow = Arc::new(Schema::new(vec![
@@ -232,11 +232,8 @@ mod tests {
 
     /// Key-only batch (simulating a non-strict Remove).
     fn key_only_batch(ids: &[i32]) -> RecordBatch {
-        let schema = Arc::new(Schema::new(vec![
-            Field::new("id", DataType::Int32, false),
-        ]));
-        RecordBatch::try_new(schema, vec![Arc::new(Int32Array::from(ids.to_vec()))])
-            .unwrap()
+        let schema = Arc::new(Schema::new(vec![Field::new("id", DataType::Int32, false)]));
+        RecordBatch::try_new(schema, vec![Arc::new(Int32Array::from(ids.to_vec()))]).unwrap()
     }
 
     #[tokio::test]

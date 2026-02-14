@@ -73,8 +73,7 @@ impl RecordChange {
         let mut fields: Vec<Arc<Field>> = self.records.schema().fields().iter().cloned().collect();
         fields.push(Arc::new(Field::new("_change_type", DataType::Utf8, false)));
 
-        let mut columns: Vec<Arc<dyn arrow::array::Array>> =
-            self.records.columns().iter().cloned().collect();
+        let mut columns: Vec<Arc<dyn arrow::array::Array>> = self.records.columns().to_vec();
         columns.push(change_col);
 
         let schema = Arc::new(Schema::new(fields));

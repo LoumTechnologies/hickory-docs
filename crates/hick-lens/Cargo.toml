@@ -1,0 +1,17 @@
+[package]
+name = "hick-lens"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+hick-flow = { path = "../hick-flow" }
+hick-lang = { path = "../hick-lang" }
+tree-sitter = "0.26"
+tree-sitter-rust = "0.24"
+tree-sitter-typescript = "0.23"
+tree-sitter-python = "0.25"
+serde = { version = "1", features = ["derive"] }
+thiserror = "2"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

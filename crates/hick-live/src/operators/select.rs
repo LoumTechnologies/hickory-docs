@@ -7,8 +7,8 @@ use std::sync::Arc;
 
 use arrow::record_batch::RecordBatch;
 use futures::StreamExt;
-use hick_flow::node::{BoxStream, Node, NodeTrace, NodeValue};
 use hick_flow::Context;
+use hick_flow::node::{BoxStream, Node, NodeTrace, NodeValue};
 
 use crate::changes::RecordChange;
 use crate::node::{NodeExt, RecordChangeNode};
@@ -78,8 +78,7 @@ impl Node for SelectNode {
                         let projected = projection(&change.records);
                         let new_change =
                             RecordChange::new(change.change_type, projected, change.is_strict);
-                        let new_node: Arc<dyn Node> =
-                            Arc::new(RecordChangeNode::new(new_change));
+                        let new_node: Arc<dyn Node> = Arc::new(RecordChangeNode::new(new_change));
                         trace.transform(new_node, me.clone())
                     } else {
                         trace.add_to_trace(me.clone())
@@ -101,9 +100,9 @@ impl Node for SelectNode {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::StreamingStructuredDataNode;
     use crate::changes::ChangeType;
     use crate::sources::memory::MemorySource;
-    use crate::StreamingStructuredDataNode;
     use arrow::array::{Int32Array, StringArray};
     use arrow::datatypes::{DataType, Field, Schema};
     use futures::StreamExt;

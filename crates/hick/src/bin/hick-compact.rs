@@ -64,14 +64,23 @@ async fn run() -> Result<()> {
     if args.verify {
         eprintln!("Verifying equivalence...");
 
-        let result = hick::equiv::check_equivalence(&source, &compacted, args.max_verify_combinations).await?;
+        let result =
+            hick::equiv::check_equivalence(&source, &compacted, args.max_verify_combinations)
+                .await?;
 
         if !result.equivalent {
             eprintln!("ERROR: Compacted document is NOT equivalent to original!");
             eprintln!("Failing combinations: {}", result.failures.len());
 
             for (params, diffs) in &result.failures {
-                eprintln!("\n  Features: {}", if params.features.is_empty() { "(none)" } else { &params.features });
+                eprintln!(
+                    "\n  Features: {}",
+                    if params.features.is_empty() {
+                        "(none)"
+                    } else {
+                        &params.features
+                    }
+                );
                 for diff in diffs {
                     eprintln!("    {}", hick::equiv::format_diff(diff));
                 }
@@ -80,7 +89,10 @@ async fn run() -> Result<()> {
             return Err(anyhow::anyhow!("Compaction verification failed"));
         }
 
-        eprintln!("Verified equivalent ({} combinations tested)", result.combinations_tested);
+        eprintln!(
+            "Verified equivalent ({} combinations tested)",
+            result.combinations_tested
+        );
     }
 
     // Output

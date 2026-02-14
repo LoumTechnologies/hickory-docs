@@ -12,8 +12,34 @@ use std::pin::Pin;
 use std::sync::Arc;
 
 use futures::{Stream, StreamExt};
+use hick_lang::SourceSpan;
 
 use crate::context::Context;
+
+// ---------------------------------------------------------------------------
+// SourceOrigin — provenance metadata
+// ---------------------------------------------------------------------------
+
+/// Describes where a node's content originated.
+///
+/// Used for character-level provenance tracking: mapping generated output
+/// back to source `.hick` file positions or other origins.
+#[derive(Debug, Clone)]
+pub enum SourceOrigin {
+    /// Literal text from a `.hick` source file.
+    Literal { file: Arc<str>, span: SourceSpan },
+    /// Output from a container exec.
+    Exec {
+        container: Arc<str>,
+        tag_line: usize,
+    },
+    /// Content resolved via a paste selector.
+    Paste { selector: Arc<str> },
+    /// Value of a variable.
+    Variable { name: Arc<str> },
+    /// Programmatically constructed, no source.
+    Synthetic,
+}
 
 /// Type alias for boxed streams.
 pub type BoxStream<T> = Pin<Box<dyn Stream<Item = T> + Send + 'static>>;
@@ -57,6 +83,13 @@ pub trait Node: Send + Sync {
     /// downstream consumers (e.g. `RecordChangeNode` in hick-live).
     /// The default returns `None`, meaning the node cannot be downcast.
     fn as_any(&self) -> Option<&dyn Any> {
+        None
+    }
+
+    /// Provenance metadata: where this node's content originated.
+    ///
+    /// Returns `None` for nodes that don't carry provenance (default).
+    fn source_origin(&self) -> Option<&SourceOrigin> {
         None
     }
 }
@@ -238,15 +271,27 @@ pub struct BinaryNode {
 
 impl BinaryNode {
     pub fn new(data: BinaryData) -> Self {
-        Self { data, mime_type: None, stable_id: None }
+        Self {
+            data,
+            mime_type: None,
+            stable_id: None,
+        }
     }
 
     pub fn new_with_mime(data: BinaryData, mime: impl Into<String>) -> Self {
-        Self { data, mime_type: Some(mime.into()), stable_id: None }
+        Self {
+            data,
+            mime_type: Some(mime.into()),
+            stable_id: None,
+        }
     }
 
     pub fn new_with_id(data: BinaryData, mime: Option<String>, id: Vec<u8>) -> Self {
-        Self { data, mime_type: mime, stable_id: Some(id) }
+        Self {
+            data,
+            mime_type: mime,
+            stable_id: Some(id),
+        }
     }
 
     pub fn mime_type(&self) -> Option<&str> {
@@ -330,6 +375,55 @@ impl Node for StringNode {
         }
         let addr = (self as *const StringNode as *const ()).addr() as u128;
         addr.to_le_bytes().to_vec()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// SpanNode — string with provenance
+// ---------------------------------------------------------------------------
+
+/// Terminal node holding a string value plus provenance metadata.
+///
+/// Like `StringNode` but also carries a [`SourceOrigin`] describing where
+/// the content came from (literal source span, exec output, paste, etc.).
+pub struct SpanNode {
+    value: String,
+    origin: SourceOrigin,
+}
+
+impl SpanNode {
+    pub fn new(value: impl Into<String>, origin: SourceOrigin) -> Self {
+        Self {
+            value: value.into(),
+            origin,
+        }
+    }
+
+    pub fn value(&self) -> &str {
+        &self.value
+    }
+
+    pub fn origin(&self) -> &SourceOrigin {
+        &self.origin
+    }
+}
+
+impl Node for SpanNode {
+    fn as_string_value(&self) -> Option<&str> {
+        Some(&self.value)
+    }
+
+    fn node_value(&self) -> NodeValue {
+        NodeValue::Text(self.value.clone())
+    }
+
+    fn source_origin(&self) -> Option<&SourceOrigin> {
+        Some(&self.origin)
+    }
+
+    fn get_stream(self: Arc<Self>, _context: Context) -> BoxStream<Vec<NodeTrace>> {
+        let item = vec![NodeTrace::new(self as Arc<dyn Node>)];
+        Box::pin(futures::stream::once(async move { item }))
     }
 }
 

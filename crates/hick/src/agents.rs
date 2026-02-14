@@ -56,7 +56,10 @@ impl std::fmt::Display for ValidationIssue {
                 write!(f, ".agents/hick.md content differs from embedded version")
             }
             ValidationIssue::ReferenceMissing => {
-                write!(f, "no reference to .agents/hick.md found in CLAUDE.md or AGENTS.md")
+                write!(
+                    f,
+                    "no reference to .agents/hick.md found in CLAUDE.md or AGENTS.md"
+                )
             }
         }
     }
@@ -140,26 +143,27 @@ pub fn init_agents(config: &InitConfig) -> Result<InitResult> {
         .with_context(|| format!("failed to write: {}", agents_file.display()))?;
 
     // Wire reference to instruction file
-    let reference_added_to = if let Some(instruction_file) = find_instruction_file(&config.project_dir) {
-        let existing = fs::read_to_string(&instruction_file)
-            .with_context(|| format!("failed to read: {}", instruction_file.display()))?;
+    let reference_added_to =
+        if let Some(instruction_file) = find_instruction_file(&config.project_dir) {
+            let existing = fs::read_to_string(&instruction_file)
+                .with_context(|| format!("failed to read: {}", instruction_file.display()))?;
 
-        if !has_hick_reference(&existing) {
-            // Add reference at the end
-            let updated = if existing.ends_with('\n') {
-                format!("{}\n{}\n", existing.trim_end(), REFERENCE_LINE)
+            if !has_hick_reference(&existing) {
+                // Add reference at the end
+                let updated = if existing.ends_with('\n') {
+                    format!("{}\n{}\n", existing.trim_end(), REFERENCE_LINE)
+                } else {
+                    format!("{}\n\n{}\n", existing, REFERENCE_LINE)
+                };
+                fs::write(&instruction_file, updated)
+                    .with_context(|| format!("failed to update: {}", instruction_file.display()))?;
+                Some(instruction_file)
             } else {
-                format!("{}\n\n{}\n", existing, REFERENCE_LINE)
-            };
-            fs::write(&instruction_file, updated)
-                .with_context(|| format!("failed to update: {}", instruction_file.display()))?;
-            Some(instruction_file)
+                None // Already has reference
+            }
         } else {
-            None // Already has reference
-        }
-    } else {
-        None
-    };
+            None
+        };
 
     Ok(InitResult {
         agents_file_created: true,
@@ -229,12 +233,11 @@ pub fn validate_agents(config: &ValidateConfig) -> Result<Vec<ValidationIssue>> 
 fn check_instruction_files_for_reference(project_dir: &Path) -> bool {
     for filename in ["CLAUDE.md", "AGENTS.md"] {
         let path = project_dir.join(filename);
-        if path.is_file() {
-            if let Ok(content) = fs::read_to_string(&path) {
-                if has_hick_reference(&content) {
-                    return true;
-                }
-            }
+        if path.is_file()
+            && let Ok(content) = fs::read_to_string(&path)
+            && has_hick_reference(&content)
+        {
+            return true;
         }
     }
     false
@@ -285,10 +288,7 @@ mod tests {
 
         let result = init_agents(&config).unwrap();
         assert!(result.agents_file_created);
-        assert_eq!(
-            result.reference_added_to,
-            Some(dir.join("CLAUDE.md"))
-        );
+        assert_eq!(result.reference_added_to, Some(dir.join("CLAUDE.md")));
 
         let claude_content = fs::read_to_string(dir.join("CLAUDE.md")).unwrap();
         assert!(claude_content.contains(".agents/hick.md"));
@@ -308,10 +308,7 @@ mod tests {
         };
 
         let result = init_agents(&config).unwrap();
-        assert_eq!(
-            result.reference_added_to,
-            Some(dir.join("CLAUDE.md"))
-        );
+        assert_eq!(result.reference_added_to, Some(dir.join("CLAUDE.md")));
 
         // AGENTS.md should not be modified
         let agents_content = fs::read_to_string(dir.join("AGENTS.md")).unwrap();
@@ -376,7 +373,11 @@ mod tests {
         let dir = temp_dir();
         fs::create_dir_all(dir.join(".agents")).unwrap();
         fs::write(dir.join(".agents/hick.md"), "# Wrong content\n").unwrap();
-        fs::write(dir.join("CLAUDE.md"), "See [.agents/hick.md](.agents/hick.md)\n").unwrap();
+        fs::write(
+            dir.join("CLAUDE.md"),
+            "See [.agents/hick.md](.agents/hick.md)\n",
+        )
+        .unwrap();
 
         let config = ValidateConfig {
             project_dir: dir.clone(),

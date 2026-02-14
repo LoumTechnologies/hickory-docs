@@ -13,8 +13,8 @@ use hick_lang::{HickDocument, HickNode, dedent};
 
 use hick_handlers::{ProcessingContext, ProcessingPhase, TagRegistry, TagResult, TranscriptEntry};
 
-use crate::text::{apply_substitutions, interpolate_path};
 use crate::tag_attr;
+use crate::text::{apply_substitutions, interpolate_path};
 
 /// Map file extension to markdown code fence language identifier.
 fn extension_to_language(path: &str) -> &'static str {
@@ -68,7 +68,7 @@ fn process_weave_content(
 ) {
     for node in nodes {
         match node {
-            HickNode::Text(text) => {
+            HickNode::Text(text, _) => {
                 let dedented = dedent(text, indent);
                 weave_ip.add(Arc::new(StringNode::new(dedented)));
             }
@@ -106,7 +106,14 @@ fn process_weave_tag(
                 weave_ip.add(Arc::new(StringNode::new(format!("```{language}\n"))));
 
                 // Process file content with dedenting based on file tag's indentation
-                process_file_children_to_weave(&tag.children, weave_ip, transcripts, state, tag.source_column, registry);
+                process_file_children_to_weave(
+                    &tag.children,
+                    weave_ip,
+                    transcripts,
+                    state,
+                    tag.source_column,
+                    registry,
+                );
 
                 // Emit closing code fence
                 weave_ip.add(Arc::new(StringNode::new("```\n".to_string())));
@@ -115,28 +122,36 @@ fn process_weave_tag(
         "when" => {
             // When tags have already been filtered, so just process children
             // Use the when tag's indentation for dedenting child content
-            process_weave_content(&tag.children, weave_ip, transcripts, state, tag.source_column, registry);
+            process_weave_content(
+                &tag.children,
+                weave_ip,
+                transcripts,
+                state,
+                tag.source_column,
+                registry,
+            );
         }
         _ => {
             // Delegate to registry for content handlers (val, etc.)
-            if let Some(handler) = registry.find(&tag.name) {
-                if handler.phase() == ProcessingPhase::Content {
-                    let ctx = ProcessingContext {
-                        state,
-                        transcripts,
-                        indent: 0,
-                        registry: Some(registry),
-                        context: None,
-                    };
-                    match handler.process(tag, &ctx) {
-                        Ok(TagResult::Node(n)) => weave_ip.add(n),
-                        Ok(TagResult::Nodes(ns)) => {
-                            for n in ns {
-                                weave_ip.add(n);
-                            }
+            if let Some(handler) = registry.find(&tag.name)
+                && handler.phase() == ProcessingPhase::Content
+            {
+                let ctx = ProcessingContext {
+                    state,
+                    transcripts,
+                    indent: 0,
+                    registry: Some(registry),
+                    context: None,
+                    source_file: None,
+                };
+                match handler.process(tag, &ctx) {
+                    Ok(TagResult::Node(n)) => weave_ip.add(n),
+                    Ok(TagResult::Nodes(ns)) => {
+                        for n in ns {
+                            weave_ip.add(n);
                         }
-                        _ => {}
                     }
+                    _ => {}
                 }
             }
             // Skip declaration-phase tags (var, copy, cut, substitute, etc.)
@@ -162,11 +177,12 @@ fn process_file_children_to_weave(
         indent,
         registry: Some(registry),
         context: None,
+        source_file: None,
     };
 
     for child in children {
         match child {
-            HickNode::Text(text) => {
+            HickNode::Text(text, _) => {
                 let dedented = dedent(text, indent);
                 weave_ip.add(Arc::new(StringNode::new(dedented)));
             }

@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use anyhow::Result;
-use hick_exec::node::{BoxStream, Context, Node, NodeTrace, NodeValue, StringNode};
+use hick_exec::node::{BoxStream, Context, Node, NodeTrace, NodeValue, SourceOrigin, StringNode};
 use hick_lang::HickTag;
 use log::warn;
 
@@ -20,13 +20,18 @@ use crate::{ProcessingContext, ProcessingPhase, TagHandler, TagResult, tag_attr}
 pub(crate) struct ValNode {
     inner: StringNode,
     var_name: String,
+    origin: SourceOrigin,
 }
 
 impl ValNode {
     pub fn new(value: impl Into<String>, var_name: impl Into<String>) -> Self {
+        let n: String = var_name.into();
         Self {
             inner: StringNode::new(value),
-            var_name: var_name.into(),
+            origin: SourceOrigin::Variable {
+                name: Arc::from(n.as_str()),
+            },
+            var_name: n,
         }
     }
 }
@@ -44,6 +49,10 @@ impl Node for ValNode {
 
     fn node_value(&self) -> NodeValue {
         self.inner.node_value()
+    }
+
+    fn source_origin(&self) -> Option<&SourceOrigin> {
+        Some(&self.origin)
     }
 
     fn get_stream(self: Arc<Self>, _context: Context) -> BoxStream<Vec<NodeTrace>> {
@@ -100,16 +109,21 @@ mod tests {
             self_closing: true,
             source_line: 1,
             source_column: 0,
+            source_span: None,
         }
     }
 
-    fn make_ctx<'a>(state: &'a Arc<MultiDocumentState>, transcripts: &'a HashMap<String, Vec<crate::TranscriptEntry>>) -> ProcessingContext<'a> {
+    fn make_ctx<'a>(
+        state: &'a Arc<MultiDocumentState>,
+        transcripts: &'a HashMap<String, Vec<crate::TranscriptEntry>>,
+    ) -> ProcessingContext<'a> {
         ProcessingContext {
             state,
             transcripts,
             indent: 0,
             registry: None,
             context: None,
+            source_file: None,
         }
     }
 

@@ -104,9 +104,14 @@ pub enum FeatureError {
     UnknownDependency { feature: String, required: String },
 
     #[error("feature '{feature}' conflicts with '{conflicting}' - both cannot be enabled")]
-    ConflictingFeatures { feature: String, conflicting: String },
+    ConflictingFeatures {
+        feature: String,
+        conflicting: String,
+    },
 
-    #[error("features '{feature1}' and '{feature2}' are in exclusive group '{group}' - only one can be enabled")]
+    #[error(
+        "features '{feature1}' and '{feature2}' are in exclusive group '{group}' - only one can be enabled"
+    )]
     ExclusiveGroupViolation {
         feature1: String,
         feature2: String,
@@ -144,11 +149,7 @@ impl FeatureRegistry {
 
     /// Get all features as (name, definition) pairs, sorted by name.
     pub fn all_features(&self) -> impl Iterator<Item = (&str, &FeatureDef)> {
-        let mut entries: Vec<_> = self
-            .features
-            .iter()
-            .map(|(k, v)| (k.as_str(), v))
-            .collect();
+        let mut entries: Vec<_> = self.features.iter().map(|(k, v)| (k.as_str(), v)).collect();
         entries.sort_by_key(|(k, _)| *k);
         entries.into_iter()
     }
@@ -256,25 +257,23 @@ impl FeatureRegistry {
         let def_b = self.features.get(b);
 
         // Check explicit conflicts (either direction)
-        if let Some(def) = def_a {
-            if def.conflicts_with.iter().any(|c| c == b) {
-                return true;
-            }
+        if let Some(def) = def_a
+            && def.conflicts_with.iter().any(|c| c == b)
+        {
+            return true;
         }
-        if let Some(def) = def_b {
-            if def.conflicts_with.iter().any(|c| c == a) {
-                return true;
-            }
+        if let Some(def) = def_b
+            && def.conflicts_with.iter().any(|c| c == a)
+        {
+            return true;
         }
 
         // Check exclusive groups
-        if let (Some(def_a), Some(def_b)) = (def_a, def_b) {
-            if let (Some(group_a), Some(group_b)) = (&def_a.exclusive_group, &def_b.exclusive_group)
-            {
-                if group_a == group_b {
-                    return true;
-                }
-            }
+        if let (Some(def_a), Some(def_b)) = (def_a, def_b)
+            && let (Some(group_a), Some(group_b)) = (&def_a.exclusive_group, &def_b.exclusive_group)
+            && group_a == group_b
+        {
+            return true;
         }
 
         false
@@ -291,36 +290,34 @@ impl FeatureRegistry {
                 let def_b = self.features.get(b);
 
                 // Check explicit conflicts
-                if let Some(def) = def_a {
-                    if def.conflicts_with.iter().any(|c| c == b) {
-                        return Err(FeatureError::ConflictingFeatures {
-                            feature: a.to_string(),
-                            conflicting: b.to_string(),
-                        });
-                    }
+                if let Some(def) = def_a
+                    && def.conflicts_with.iter().any(|c| c == b)
+                {
+                    return Err(FeatureError::ConflictingFeatures {
+                        feature: a.to_string(),
+                        conflicting: b.to_string(),
+                    });
                 }
-                if let Some(def) = def_b {
-                    if def.conflicts_with.iter().any(|c| c == a) {
-                        return Err(FeatureError::ConflictingFeatures {
-                            feature: b.to_string(),
-                            conflicting: a.to_string(),
-                        });
-                    }
+                if let Some(def) = def_b
+                    && def.conflicts_with.iter().any(|c| c == a)
+                {
+                    return Err(FeatureError::ConflictingFeatures {
+                        feature: b.to_string(),
+                        conflicting: a.to_string(),
+                    });
                 }
 
                 // Check exclusive groups
-                if let (Some(def_a), Some(def_b)) = (def_a, def_b) {
-                    if let (Some(group_a), Some(group_b)) =
+                if let (Some(def_a), Some(def_b)) = (def_a, def_b)
+                    && let (Some(group_a), Some(group_b)) =
                         (&def_a.exclusive_group, &def_b.exclusive_group)
-                    {
-                        if group_a == group_b {
-                            return Err(FeatureError::ExclusiveGroupViolation {
-                                feature1: a.to_string(),
-                                feature2: b.to_string(),
-                                group: group_a.clone(),
-                            });
-                        }
-                    }
+                    && group_a == group_b
+                {
+                    return Err(FeatureError::ExclusiveGroupViolation {
+                        feature1: a.to_string(),
+                        feature2: b.to_string(),
+                        group: group_a.clone(),
+                    });
                 }
             }
         }
@@ -497,9 +494,7 @@ mod tests {
     #[test]
     fn registry_validate_unknown_dependency() {
         let mut registry = FeatureRegistry::new();
-        registry.register(
-            FeatureDef::new("premium", "Premium features").with_requires("billing"),
-        );
+        registry.register(FeatureDef::new("premium", "Premium features").with_requires("billing"));
 
         let err = registry.validate().unwrap_err();
         assert!(matches!(
@@ -667,12 +662,9 @@ mod tests {
     #[test]
     fn conflicts_with_detected() {
         let mut registry = FeatureRegistry::new();
-        registry.register(
-            FeatureDef::new("oidc", "OIDC authentication").with_conflicts("p2p-auth"),
-        );
-        registry.register(
-            FeatureDef::new("p2p-auth", "P2P authentication").with_conflicts("oidc"),
-        );
+        registry
+            .register(FeatureDef::new("oidc", "OIDC authentication").with_conflicts("p2p-auth"));
+        registry.register(FeatureDef::new("p2p-auth", "P2P authentication").with_conflicts("oidc"));
 
         // Both enabled should fail
         let set = FeatureSet::from_names(["oidc", "p2p-auth"]);
@@ -684,9 +676,8 @@ mod tests {
     fn conflicts_with_one_direction() {
         let mut registry = FeatureRegistry::new();
         // Only oidc declares conflict, but it should still be detected
-        registry.register(
-            FeatureDef::new("oidc", "OIDC authentication").with_conflicts("p2p-auth"),
-        );
+        registry
+            .register(FeatureDef::new("oidc", "OIDC authentication").with_conflicts("p2p-auth"));
         registry.register(FeatureDef::new("p2p-auth", "P2P authentication"));
 
         let set = FeatureSet::from_names(["oidc", "p2p-auth"]);
@@ -697,9 +688,8 @@ mod tests {
     #[test]
     fn conflicts_with_ok_when_separate() {
         let mut registry = FeatureRegistry::new();
-        registry.register(
-            FeatureDef::new("oidc", "OIDC authentication").with_conflicts("p2p-auth"),
-        );
+        registry
+            .register(FeatureDef::new("oidc", "OIDC authentication").with_conflicts("p2p-auth"));
         registry.register(FeatureDef::new("p2p-auth", "P2P authentication"));
 
         // Only one enabled should be fine
@@ -710,9 +700,8 @@ mod tests {
     #[test]
     fn exclusive_group_detected() {
         let mut registry = FeatureRegistry::new();
-        registry.register(
-            FeatureDef::new("oidc", "OIDC auth").with_exclusive_group("auth-strategy"),
-        );
+        registry
+            .register(FeatureDef::new("oidc", "OIDC auth").with_exclusive_group("auth-strategy"));
         registry.register(
             FeatureDef::new("p2p-auth", "P2P auth").with_exclusive_group("auth-strategy"),
         );
@@ -732,9 +721,8 @@ mod tests {
     #[test]
     fn exclusive_group_ok_when_one() {
         let mut registry = FeatureRegistry::new();
-        registry.register(
-            FeatureDef::new("oidc", "OIDC auth").with_exclusive_group("auth-strategy"),
-        );
+        registry
+            .register(FeatureDef::new("oidc", "OIDC auth").with_exclusive_group("auth-strategy"));
         registry.register(
             FeatureDef::new("p2p-auth", "P2P auth").with_exclusive_group("auth-strategy"),
         );
@@ -747,15 +735,11 @@ mod tests {
     #[test]
     fn exclusive_group_different_groups_ok() {
         let mut registry = FeatureRegistry::new();
-        registry.register(
-            FeatureDef::new("oidc", "OIDC auth").with_exclusive_group("auth-strategy"),
-        );
-        registry.register(
-            FeatureDef::new("postgres", "PostgreSQL").with_exclusive_group("database"),
-        );
-        registry.register(
-            FeatureDef::new("sqlite", "SQLite").with_exclusive_group("database"),
-        );
+        registry
+            .register(FeatureDef::new("oidc", "OIDC auth").with_exclusive_group("auth-strategy"));
+        registry
+            .register(FeatureDef::new("postgres", "PostgreSQL").with_exclusive_group("database"));
+        registry.register(FeatureDef::new("sqlite", "SQLite").with_exclusive_group("database"));
 
         // One from each group is fine
         let set = FeatureSet::from_names(["oidc", "postgres"]);
@@ -770,9 +754,7 @@ mod tests {
                 .with_conflicts("p2p-auth")
                 .with_exclusive_group("auth"),
         );
-        registry.register(
-            FeatureDef::new("p2p-auth", "P2P auth").with_exclusive_group("auth"),
-        );
+        registry.register(FeatureDef::new("p2p-auth", "P2P auth").with_exclusive_group("auth"));
         registry.register(FeatureDef::new("billing", "Billing"));
 
         assert!(registry.features_conflict("oidc", "p2p-auth"));
@@ -784,9 +766,8 @@ mod tests {
     #[test]
     fn features_in_group() {
         let mut registry = FeatureRegistry::new();
-        registry.register(
-            FeatureDef::new("oidc", "OIDC auth").with_exclusive_group("auth-strategy"),
-        );
+        registry
+            .register(FeatureDef::new("oidc", "OIDC auth").with_exclusive_group("auth-strategy"));
         registry.register(
             FeatureDef::new("p2p-auth", "P2P auth").with_exclusive_group("auth-strategy"),
         );

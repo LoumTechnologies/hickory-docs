@@ -8,8 +8,8 @@ use std::sync::Arc;
 
 use arrow::record_batch::RecordBatch;
 use futures::StreamExt;
-use hick_flow::node::{BoxStream, Node, NodeTrace, NodeValue};
 use hick_flow::Context;
+use hick_flow::node::{BoxStream, Node, NodeTrace, NodeValue};
 
 use crate::changes::{ChangeStream, ChangeType, RecordChange};
 use crate::node::{NodeExt, RecordChangeNode};
@@ -57,8 +57,7 @@ impl Node for SelectManyNode {
                             ChangeType::Add => {
                                 // For Add events, invoke inner_fn and collect all output
                                 let inner_stream = inner_fn(&change.records);
-                                let inner_changes: Vec<RecordChange> =
-                                    inner_stream.collect().await;
+                                let inner_changes: Vec<RecordChange> = inner_stream.collect().await;
                                 for inner_change in inner_changes {
                                     let new_node: Arc<dyn Node> =
                                         Arc::new(RecordChangeNode::new(inner_change));
@@ -99,12 +98,12 @@ impl Node for SelectManyNode {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::sources::memory::MemorySource;
     use crate::StreamingStructuredDataNode;
+    use crate::sources::memory::MemorySource;
     use arrow::array::{Int32Array, StringArray};
     use arrow::datatypes::{DataType, Field, Schema};
-    use futures::stream;
     use futures::StreamExt;
+    use futures::stream;
 
     fn input_schema() -> (Arc<Schema>, LiveSchema) {
         let arrow = Arc::new(Schema::new(vec![
@@ -138,7 +137,10 @@ mod tests {
     async fn select_many_expands_rows() {
         let (_, live) = input_schema();
 
-        let source = Arc::new(MemorySource::new(live.clone(), input_batch(&[1, 2], &[2, 1])));
+        let source = Arc::new(MemorySource::new(
+            live.clone(),
+            input_batch(&[1, 2], &[2, 1]),
+        ));
         let data_node = Arc::new(StreamingStructuredDataNode::new(live.clone(), source));
 
         let out_schema = output_arrow_schema();

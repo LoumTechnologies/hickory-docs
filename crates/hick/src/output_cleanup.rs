@@ -34,7 +34,13 @@ pub fn clean_stale_outputs(output_dir: &Path, expected_paths: &HashSet<PathBuf>)
     let mut stale_files: Vec<PathBuf> = Vec::new();
     let mut stale_dirs: Vec<PathBuf> = Vec::new();
 
-    collect_files_recursive(output_dir, output_dir, &mut stale_files, expected_paths, &managed_dirs)?;
+    collect_files_recursive(
+        output_dir,
+        output_dir,
+        &mut stale_files,
+        expected_paths,
+        &managed_dirs,
+    )?;
 
     // Delete stale files
     for file in &stale_files {
@@ -48,13 +54,15 @@ pub fn clean_stale_outputs(output_dir: &Path, expected_paths: &HashSet<PathBuf>)
     collect_empty_dirs_recursive(output_dir, &mut stale_dirs)?;
 
     // Delete empty directories (deepest first)
-    stale_dirs.sort_by(|a, b| b.components().count().cmp(&a.components().count()));
+    stale_dirs.sort_by_key(|b| std::cmp::Reverse(b.components().count()));
     for dir in &stale_dirs {
         // Double-check it's still empty and within output_dir
         if dir.starts_with(output_dir)
             && dir != output_dir
             && dir.is_dir()
-            && std::fs::read_dir(dir).map(|mut d| d.next().is_none()).unwrap_or(false)
+            && std::fs::read_dir(dir)
+                .map(|mut d| d.next().is_none())
+                .unwrap_or(false)
         {
             info!("Removing empty directory: {}", dir.display());
             if let Err(e) = std::fs::remove_dir(dir) {
@@ -105,10 +113,10 @@ fn collect_files_recursive(
             collect_files_recursive(&path, base, stale, expected, managed_dirs)?;
         } else if path.is_file() && is_managed {
             // Only consider files in managed directories
-            if let Ok(rel) = path.strip_prefix(base) {
-                if !expected.contains(rel) {
-                    stale.push(path);
-                }
+            if let Ok(rel) = path.strip_prefix(base)
+                && !expected.contains(rel)
+            {
+                stale.push(path);
             }
         }
     }
@@ -207,7 +215,11 @@ mod tests {
         std::fs::create_dir_all(dir.join("apple/MyProject.xcodeproj")).unwrap();
         std::fs::write(dir.join("apple/MyProject/ContentView.swift"), "keep").unwrap();
         std::fs::write(dir.join("apple/MyProject/OldFile.swift"), "stale").unwrap();
-        std::fs::write(dir.join("apple/MyProject.xcodeproj/project.pbxproj"), "xcodegen").unwrap();
+        std::fs::write(
+            dir.join("apple/MyProject.xcodeproj/project.pbxproj"),
+            "xcodegen",
+        )
+        .unwrap();
 
         let mut expected = HashSet::new();
         expected.insert(PathBuf::from("apple/MyProject/ContentView.swift"));
@@ -219,7 +231,10 @@ mod tests {
         // Stale file in same directory should be removed
         assert!(!dir.join("apple/MyProject/OldFile.swift").exists());
         // xcodegen file should NOT be removed (different directory, not managed by hick)
-        assert!(dir.join("apple/MyProject.xcodeproj/project.pbxproj").exists());
+        assert!(
+            dir.join("apple/MyProject.xcodeproj/project.pbxproj")
+                .exists()
+        );
 
         let _ = std::fs::remove_dir_all(&dir);
     }

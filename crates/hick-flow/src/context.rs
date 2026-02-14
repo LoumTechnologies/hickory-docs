@@ -22,8 +22,7 @@ impl Context {
 
     /// Return a new context with the given extension added.
     pub fn with_extension<T: Send + Sync + 'static>(mut self, value: T) -> Self {
-        self.extensions
-            .insert(TypeId::of::<T>(), Arc::new(value));
+        self.extensions.insert(TypeId::of::<T>(), Arc::new(value));
         self
     }
 

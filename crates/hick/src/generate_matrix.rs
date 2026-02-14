@@ -121,34 +121,34 @@ impl VerifyCommand {
     /// - `"[spa+backend] npm run e2e"` → Run if spa AND backend enabled
     fn parse(input: &str) -> Self {
         let input = input.trim();
-        if input.starts_with('[') {
-            if let Some(end) = input.find(']') {
-                let condition_str = &input[1..end];
-                let command = input[end + 1..].trim().to_string();
+        if input.starts_with('[')
+            && let Some(end) = input.find(']')
+        {
+            let condition_str = &input[1..end];
+            let command = input[end + 1..].trim().to_string();
 
-                if condition_str.contains('+') {
-                    // AND logic
-                    let features: Vec<String> = condition_str
-                        .split('+')
-                        .map(|s| s.trim().to_string())
-                        .filter(|s| !s.is_empty())
-                        .collect();
-                    return Self {
-                        command,
-                        condition: VerifyCondition::AllOf(features),
-                    };
-                } else {
-                    // OR logic (comma or pipe separated)
-                    let features: Vec<String> = condition_str
-                        .split(|c| c == ',' || c == '|')
-                        .map(|s| s.trim().to_string())
-                        .filter(|s| !s.is_empty())
-                        .collect();
-                    return Self {
-                        command,
-                        condition: VerifyCondition::AnyOf(features),
-                    };
-                }
+            if condition_str.contains('+') {
+                // AND logic
+                let features: Vec<String> = condition_str
+                    .split('+')
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect();
+                return Self {
+                    command,
+                    condition: VerifyCondition::AllOf(features),
+                };
+            } else {
+                // OR logic (comma or pipe separated)
+                let features: Vec<String> = condition_str
+                    .split([',', '|'])
+                    .map(|s| s.trim().to_string())
+                    .filter(|s| !s.is_empty())
+                    .collect();
+                return Self {
+                    command,
+                    condition: VerifyCondition::AnyOf(features),
+                };
             }
         }
         Self {
@@ -184,10 +184,8 @@ struct ComboTiming {
 
 /// Simple linear regression to identify which features contribute most to runtime.
 /// Uses ordinary least squares with feature indicator variables.
-fn analyze_feature_timing(
-    all_features: &[String],
-    timings: &[ComboTiming],
-) -> Vec<(String, f64)> {
+#[allow(clippy::needless_range_loop)]
+fn analyze_feature_timing(all_features: &[String], timings: &[ComboTiming]) -> Vec<(String, f64)> {
     if timings.is_empty() || all_features.is_empty() {
         return vec![];
     }
@@ -215,8 +213,8 @@ fn analyze_feature_timing(
     let mut xtx: Vec<Vec<f64>> = vec![vec![0.0; m + 1]; m + 1];
     for i in 0..=m {
         for j in 0..=m {
-            for k in 0..n {
-                xtx[i][j] += x[k][i] * x[k][j];
+            for xk in x.iter().take(n) {
+                xtx[i][j] += xk[i] * xk[j];
             }
         }
     }
@@ -344,7 +342,14 @@ impl MatrixProgress {
         let cumulative_ms = self.cumulative_ms.load(Ordering::Relaxed);
         let current = self.current_combo.lock().await.clone();
         let timings = self.timings.lock().await.clone();
-        (completed, self.total, failed, cumulative_ms, current, timings)
+        (
+            completed,
+            self.total,
+            failed,
+            cumulative_ms,
+            current,
+            timings,
+        )
     }
 }
 
@@ -365,6 +370,7 @@ fn fmt_bytes(bytes: u64) -> String {
 }
 
 /// Render the real-time progress display.
+#[allow(clippy::too_many_arguments)]
 fn render_progress(
     completed: usize,
     total: usize,
@@ -485,11 +491,8 @@ fn render_progress(
         let _ = std::io::stdout().flush();
     } else {
         // Non-TTY: just print completion updates
-        if completed == total || completed % 10 == 0 {
-            println!(
-                "Matrix: {:.1}% {}/{}  eta:{}",
-                pct, completed, total, eta
-            );
+        if completed == total || completed.is_multiple_of(10) {
+            println!("Matrix: {:.1}% {}/{}  eta:{}", pct, completed, total, eta);
         }
     }
 }
@@ -504,8 +507,8 @@ pub async fn run(cli: GenerateMatrixArgs) -> Result<()> {
     use std::collections::HashSet;
     use std::io::IsTerminal;
     use std::process::Command as ProcessCommand;
-    use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
     use std::time::Duration;
     use sysinfo::System;
 
@@ -618,17 +621,18 @@ pub async fn run(cli: GenerateMatrixArgs) -> Result<()> {
 
     // Apply exclusions
     if let Some(ref exclude) = cli.exclude_features {
-        let exclusions: HashSet<String> = exclude
-            .split(',')
-            .map(|s| s.trim().to_string())
-            .collect();
+        let exclusions: HashSet<String> =
+            exclude.split(',').map(|s| s.trim().to_string()).collect();
         features_to_combine.retain(|f| !exclusions.contains(f));
     }
 
     // Sort for consistent ordering
     features_to_combine.sort();
 
-    info!("Generating combinations for features: {:?}", features_to_combine);
+    info!(
+        "Generating combinations for features: {:?}",
+        features_to_combine
+    );
 
     // Generate power set of feature combinations
     let max_size = if cli.singles_only {
@@ -661,26 +665,24 @@ pub async fn run(cli: GenerateMatrixArgs) -> Result<()> {
         for (i, a) in combo.iter().enumerate() {
             for b in combo.iter().skip(i + 1) {
                 // Check explicit conflicts_with (either direction)
-                if let Some(def_a) = feature_defs.get(a) {
-                    if def_a.conflicts_with.iter().any(|c| c == b) {
-                        return false;
-                    }
+                if let Some(def_a) = feature_defs.get(a)
+                    && def_a.conflicts_with.iter().any(|c| c == b)
+                {
+                    return false;
                 }
-                if let Some(def_b) = feature_defs.get(b) {
-                    if def_b.conflicts_with.iter().any(|c| c == a) {
-                        return false;
-                    }
+                if let Some(def_b) = feature_defs.get(b)
+                    && def_b.conflicts_with.iter().any(|c| c == a)
+                {
+                    return false;
                 }
 
                 // Check exclusive groups
-                if let (Some(def_a), Some(def_b)) = (feature_defs.get(a), feature_defs.get(b)) {
-                    if let (Some(group_a), Some(group_b)) =
+                if let (Some(def_a), Some(def_b)) = (feature_defs.get(a), feature_defs.get(b))
+                    && let (Some(group_a), Some(group_b)) =
                         (&def_a.exclusive_group, &def_b.exclusive_group)
-                    {
-                        if group_a == group_b {
-                            return false;
-                        }
-                    }
+                    && group_a == group_b
+                {
+                    return false;
                 }
             }
         }
@@ -717,9 +719,7 @@ pub async fn run(cli: GenerateMatrixArgs) -> Result<()> {
 
         if !cli.yes {
             if !is_tty {
-                anyhow::bail!(
-                    "embedded verify commands require --yes in non-interactive mode"
-                );
+                anyhow::bail!("embedded verify commands require --yes in non-interactive mode");
             }
             eprint!("Run these commands? [y/N] ");
             let mut answer = String::new();
@@ -762,8 +762,12 @@ pub async fn run(cli: GenerateMatrixArgs) -> Result<()> {
     }
 
     // Create output directory
-    std::fs::create_dir_all(&cli.output_dir)
-        .with_context(|| format!("failed to create output directory: {}", cli.output_dir.display()))?;
+    std::fs::create_dir_all(&cli.output_dir).with_context(|| {
+        format!(
+            "failed to create output directory: {}",
+            cli.output_dir.display()
+        )
+    })?;
 
     // Merge config vars with CLI params
     let mut base_params: Vec<(String, String)> = config
@@ -940,7 +944,9 @@ pub async fn run(cli: GenerateMatrixArgs) -> Result<()> {
                                 let _ = std::fs::create_dir_all(parent);
                             }
                             let write_result = match content {
-                                hick_exec::node::FileContent::Text(s) => std::fs::write(&full_path, s),
+                                hick_exec::node::FileContent::Text(s) => {
+                                    std::fs::write(&full_path, s)
+                                }
                                 hick_exec::node::FileContent::Binary(d) => {
                                     std::fs::write(&full_path, d.to_bytes().unwrap_or_default())
                                 }
@@ -963,7 +969,8 @@ pub async fn run(cli: GenerateMatrixArgs) -> Result<()> {
                                 continue;
                             }
 
-                            let cmd_with_features = verify.command.replace("{{features}}", &features_str);
+                            let cmd_with_features =
+                                verify.command.replace("{{features}}", &features_str);
                             let cmd_with_dir =
                                 cmd_with_features.replace("{{dir}}", &combo_dir.to_string_lossy());
 
@@ -1120,7 +1127,11 @@ pub async fn run(cli: GenerateMatrixArgs) -> Result<()> {
     if !failures.is_empty() {
         println!("\nFailures:");
         for (name, error) in &failures {
-            println!("  {} - {}", name, error.lines().next().unwrap_or("unknown error"));
+            println!(
+                "  {} - {}",
+                name,
+                error.lines().next().unwrap_or("unknown error")
+            );
         }
     }
 
@@ -1132,11 +1143,7 @@ pub async fn run(cli: GenerateMatrixArgs) -> Result<()> {
 }
 
 /// Generate all combinations of features up to max_size.
-fn generate_combinations(
-    features: &[String],
-    max_size: usize,
-    result: &mut Vec<Vec<String>>,
-) {
+fn generate_combinations(features: &[String], max_size: usize, result: &mut Vec<Vec<String>>) {
     let n = features.len();
     // Power set: iterate through all 2^n combinations
     for mask in 0..(1usize << n) {
@@ -1223,7 +1230,11 @@ mod tests {
 
         // Should run only if ALL features are enabled
         assert!(cmd.should_run(&["spa".to_string(), "backend".to_string()]));
-        assert!(cmd.should_run(&["spa".to_string(), "backend".to_string(), "other".to_string()]));
+        assert!(cmd.should_run(&[
+            "spa".to_string(),
+            "backend".to_string(),
+            "other".to_string()
+        ]));
 
         // Should not run if any are missing
         assert!(!cmd.should_run(&["spa".to_string()]));

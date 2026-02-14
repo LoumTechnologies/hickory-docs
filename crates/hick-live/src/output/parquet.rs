@@ -11,8 +11,8 @@ use arrow::compute::filter_record_batch;
 use arrow::datatypes::{DataType, Int32Type, Int64Type};
 use arrow::record_batch::RecordBatch;
 use futures::StreamExt;
-use hick_flow::node::{BoxStream, Node, NodeTrace, NodeValue};
 use hick_flow::Context;
+use hick_flow::node::{BoxStream, Node, NodeTrace, NodeValue};
 use parquet::arrow::ArrowWriter;
 use parquet::file::properties::WriterProperties;
 
@@ -170,9 +170,9 @@ fn remove_rows(state: &mut Vec<RecordBatch>, to_remove: &RecordBatch, schema: &L
             }
             let n = batch.num_rows();
             let mut keep = vec![true; n];
-            for i in 0..n {
+            for (i, k) in keep.iter_mut().enumerate().take(n) {
                 if !removed && row_key(batch, &key_col_indices, i) == key {
-                    keep[i] = false;
+                    *k = false;
                     removed = true;
                 }
             }
@@ -244,9 +244,9 @@ pub fn read_parquet(path: &str) -> anyhow::Result<Vec<RecordBatch>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::StreamingStructuredDataNode;
     use crate::changes::RecordChange;
     use crate::sources::memory::MemorySource;
-    use crate::StreamingStructuredDataNode;
     use arrow::array::{Int32Array, StringArray};
     use arrow::datatypes::{Field, Schema};
 
@@ -279,7 +279,10 @@ mod tests {
         let path = dir.path().join("events.parquet");
 
         let (_, live) = test_schema();
-        let source = Arc::new(MemorySource::new(live.clone(), test_batch(&[1, 2], &["a", "b"])));
+        let source = Arc::new(MemorySource::new(
+            live.clone(),
+            test_batch(&[1, 2], &["a", "b"]),
+        ));
         source.push(RecordChange::remove_strict(test_batch(&[1], &["a"])));
         let data_node = Arc::new(StreamingStructuredDataNode::new(live.clone(), source));
 
@@ -299,7 +302,12 @@ mod tests {
         assert_eq!(total_rows, 3); // 2 add + 1 remove
 
         // Check _change_type column exists
-        assert!(batches[0].schema().column_with_name("_change_type").is_some());
+        assert!(
+            batches[0]
+                .schema()
+                .column_with_name("_change_type")
+                .is_some()
+        );
     }
 
     #[tokio::test]
@@ -308,7 +316,10 @@ mod tests {
         let path = dir.path().join("materialized.parquet");
 
         let (_, live) = test_schema();
-        let source = Arc::new(MemorySource::new(live.clone(), test_batch(&[1, 2, 3], &["a", "b", "c"])));
+        let source = Arc::new(MemorySource::new(
+            live.clone(),
+            test_batch(&[1, 2, 3], &["a", "b", "c"]),
+        ));
         source.push(RecordChange::remove_strict(test_batch(&[2], &["b"])));
         let data_node = Arc::new(StreamingStructuredDataNode::new(live.clone(), source));
 
@@ -328,6 +339,11 @@ mod tests {
         assert_eq!(total_rows, 2);
 
         // No _change_type column in materialized mode
-        assert!(batches[0].schema().column_with_name("_change_type").is_none());
+        assert!(
+            batches[0]
+                .schema()
+                .column_with_name("_change_type")
+                .is_none()
+        );
     }
 }

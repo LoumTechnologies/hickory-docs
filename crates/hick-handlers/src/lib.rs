@@ -111,6 +111,9 @@ pub struct ProcessingContext<'a> {
 
     /// Optional extension context for passing opaque handles (e.g. executor).
     pub context: Option<&'a hick_exec::node::Context>,
+
+    /// Source file name for provenance tracking.
+    pub source_file: Option<Arc<str>>,
 }
 
 impl<'a> ProcessingContext<'a> {
@@ -128,10 +131,10 @@ impl<'a> ProcessingContext<'a> {
     pub fn first_child_node(&self, tag: &HickTag) -> Option<Arc<dyn Node>> {
         use hick_lang::HickNode;
         for child in &tag.children {
-            if let HickNode::Tag(child_tag) = child {
-                if let Some(node) = self.process_child(child_tag) {
-                    return Some(node);
-                }
+            if let HickNode::Tag(child_tag) = child
+                && let Some(node) = self.process_child(child_tag)
+            {
+                return Some(node);
             }
         }
         None
@@ -257,7 +260,7 @@ pub fn collect_text_children(tag: &HickTag) -> String {
     use hick_lang::HickNode;
     let mut result = String::new();
     for child in &tag.children {
-        if let HickNode::Text(text) = child {
+        if let HickNode::Text(text, _) = child {
             result.push_str(text);
         }
     }

@@ -48,16 +48,21 @@ mod tests {
             self_closing: true,
             source_line: 1,
             source_column: 0,
+            source_span: None,
         }
     }
 
-    fn make_ctx<'a>(state: &'a Arc<MultiDocumentState>, transcripts: &'a HashMap<String, Vec<crate::TranscriptEntry>>) -> ProcessingContext<'a> {
+    fn make_ctx<'a>(
+        state: &'a Arc<MultiDocumentState>,
+        transcripts: &'a HashMap<String, Vec<crate::TranscriptEntry>>,
+    ) -> ProcessingContext<'a> {
         ProcessingContext {
             state,
             transcripts,
             indent: 0,
             registry: None,
             context: None,
+            source_file: None,
         }
     }
 

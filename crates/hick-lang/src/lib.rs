@@ -14,13 +14,53 @@ use std::fmt;
 pub const HICK_NAMESPACE: &str = "http://www.hickorydocs.com/1.0";
 
 // ---------------------------------------------------------------------------
+// Source spans
+// ---------------------------------------------------------------------------
+
+/// Byte-level source location for provenance tracking.
+///
+/// Tracks where a piece of text or tag originated in the `.hick` source file.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SourceSpan {
+    /// Byte offset of the first character (inclusive).
+    pub start: usize,
+    /// Byte offset past the last character (exclusive).
+    pub end: usize,
+    /// 1-based line number where the span starts.
+    pub start_line: usize,
+    /// 0-based column number where the span starts.
+    pub start_col: usize,
+}
+
+impl SourceSpan {
+    pub fn new(start: usize, end: usize, start_line: usize, start_col: usize) -> Self {
+        Self {
+            start,
+            end,
+            start_line,
+            start_col,
+        }
+    }
+
+    /// Length of the span in bytes.
+    pub fn len(&self) -> usize {
+        self.end - self.start
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.start == self.end
+    }
+}
+
+// ---------------------------------------------------------------------------
 // AST
 // ---------------------------------------------------------------------------
 
 /// A node in the hick document tree.
 #[derive(Debug, Clone, PartialEq)]
 pub enum HickNode {
-    Text(String),
+    /// Raw text content with optional source span.
+    Text(String, Option<SourceSpan>),
     Tag(HickTag),
 }
 
@@ -39,6 +79,8 @@ pub struct HickTag {
     pub source_line: usize,
     /// 0-based column number where the opening tag starts (for dedenting content).
     pub source_column: usize,
+    /// Byte-level span covering the opening tag (from `<` to closing `>`).
+    pub source_span: Option<SourceSpan>,
 }
 
 impl HickTag {
@@ -54,7 +96,7 @@ impl HickTag {
     pub fn child_tags(&self) -> impl Iterator<Item = &HickTag> {
         self.children.iter().filter_map(|n| match n {
             HickNode::Tag(t) => Some(t),
-            HickNode::Text(_) => None,
+            HickNode::Text(..) => None,
         })
     }
 
@@ -69,7 +111,7 @@ impl HickTag {
 fn collect_text(nodes: &[HickNode], out: &mut String) {
     for node in nodes {
         match node {
-            HickNode::Text(t) => out.push_str(t),
+            HickNode::Text(t, _) => out.push_str(t),
             HickNode::Tag(tag) => collect_text(&tag.children, out),
         }
     }
@@ -94,7 +136,7 @@ impl HickDocument {
     pub fn tags(&self) -> impl Iterator<Item = &HickTag> {
         self.nodes.iter().filter_map(|n| match n {
             HickNode::Tag(t) => Some(t),
-            HickNode::Text(_) => None,
+            HickNode::Text(..) => None,
         })
     }
 
@@ -407,6 +449,8 @@ impl<'a> Parser<'a> {
     ) -> Result<Vec<HickNode>, ParseError> {
         let mut nodes = Vec::new();
         let mut text_start = self.pos;
+        let mut text_start_line = self.line;
+        let mut text_start_col = self.col;
 
         loop {
             if self.is_eof() {
@@ -446,7 +490,12 @@ impl<'a> Parser<'a> {
                     if self.input[abs..].starts_with(&self.close_marker) {
                         // Flush text before this closing tag
                         if abs > text_start {
-                            nodes.push(HickNode::Text(self.input[text_start..abs].to_string()));
+                            let span =
+                                SourceSpan::new(text_start, abs, text_start_line, text_start_col);
+                            nodes.push(HickNode::Text(
+                                self.input[text_start..abs].to_string(),
+                                Some(span),
+                            ));
                         }
                         self.advance(offset);
 
@@ -466,7 +515,12 @@ impl<'a> Parser<'a> {
                     // It's an opening tag
                     // Flush text before this tag
                     if abs > text_start {
-                        nodes.push(HickNode::Text(self.input[text_start..abs].to_string()));
+                        let span =
+                            SourceSpan::new(text_start, abs, text_start_line, text_start_col);
+                        nodes.push(HickNode::Text(
+                            self.input[text_start..abs].to_string(),
+                            Some(span),
+                        ));
                     }
                     self.advance(offset);
 
@@ -483,6 +537,8 @@ impl<'a> Parser<'a> {
                     }
 
                     text_start = self.pos;
+                    text_start_line = self.line;
+                    text_start_col = self.col;
                 }
             }
         }
@@ -492,6 +548,7 @@ impl<'a> Parser<'a> {
     fn parse_open_tag(&mut self) -> Result<HickTag, ParseError> {
         let tag_line = self.line;
         let tag_col = self.col;
+        let tag_start_offset = self.pos;
 
         // Skip the opening marker (e.g. `<hick:` or `<h:`)
         self.advance(self.open_marker.len());
@@ -564,6 +621,7 @@ impl<'a> Parser<'a> {
             attributes.push((attr_name, attr_value));
         }
 
+        let tag_end_offset = self.pos;
         Ok(HickTag {
             name,
             attributes,
@@ -571,6 +629,12 @@ impl<'a> Parser<'a> {
             self_closing,
             source_line: tag_line,
             source_column: tag_col,
+            source_span: Some(SourceSpan::new(
+                tag_start_offset,
+                tag_end_offset,
+                tag_line,
+                tag_col,
+            )),
         })
     }
 
@@ -726,8 +790,8 @@ pub fn dedent(text: &str, max_indent: usize) -> String {
     let mut first = true;
 
     // Handle content that starts with a newline (opening tag on its own line)
-    let text_trimmed = if text.starts_with('\n') {
-        &text[1..]
+    let text_trimmed = if let Some(stripped) = text.strip_prefix('\n') {
+        stripped
     } else {
         text
     };
@@ -773,7 +837,7 @@ mod tests {
                 || doc
                     .nodes
                     .iter()
-                    .all(|n| matches!(n, HickNode::Text(t) if t.trim().is_empty()))
+                    .all(|n| matches!(n, HickNode::Text(t, _) if t.trim().is_empty()))
         );
     }
 
@@ -807,7 +871,7 @@ This has & and < and > without escaping.
             .nodes
             .iter()
             .filter_map(|n| match n {
-                HickNode::Text(t) => Some(t.as_str()),
+                HickNode::Text(t, _) => Some(t.as_str()),
                 _ => None,
             })
             .collect();
@@ -1340,5 +1404,68 @@ echo hello
     fn dedent_more_than_available() {
         let text = "  line1\n  line2";
         assert_eq!(dedent(text, 8), "line1\nline2");
+    }
+
+    // Source span tests
+    #[test]
+    fn text_nodes_have_spans() {
+        let src = r#"<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
+hello world
+</hick:doc>"#;
+        let doc = parse(src).unwrap();
+        let text_nodes: Vec<_> = doc
+            .nodes
+            .iter()
+            .filter_map(|n| match n {
+                HickNode::Text(t, span) => Some((t.as_str(), *span)),
+                _ => None,
+            })
+            .collect();
+        assert!(!text_nodes.is_empty(), "should have at least one text node");
+        let (text, span) = &text_nodes[0];
+        assert!(text.contains("hello world"));
+        let span = span.expect("text node should have a span");
+        assert!(span.start < span.end, "span should be non-empty");
+        // Verify the span references the correct bytes in the source
+        assert_eq!(&src[span.start..span.end], *text);
+    }
+
+    #[test]
+    fn tag_has_source_span() {
+        let src = r#"<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
+<hick:file path="test.txt">content</hick:file>
+</hick:doc>"#;
+        let doc = parse(src).unwrap();
+        let files = doc.find_tags("file");
+        assert_eq!(files.len(), 1);
+        let span = files[0].source_span.expect("tag should have a source span");
+        // The span should cover from '<' to '>' of the opening tag
+        let tag_text = &src[span.start..span.end];
+        assert!(
+            tag_text.starts_with("<hick:file"),
+            "span should start with opening tag, got: {tag_text}"
+        );
+        assert!(
+            tag_text.ends_with(">"),
+            "span should end with >, got: {tag_text}"
+        );
+    }
+
+    #[test]
+    fn self_closing_tag_span() {
+        let src = r#"<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
+<hick:allow network="github.com:443" />
+</hick:doc>"#;
+        let doc = parse(src).unwrap();
+        let allows = doc.find_tags("allow");
+        let span = allows[0]
+            .source_span
+            .expect("self-closing tag should have span");
+        let tag_text = &src[span.start..span.end];
+        assert!(tag_text.starts_with("<hick:allow"));
+        assert!(tag_text.ends_with("/>"));
     }
 }

@@ -29,17 +29,20 @@ use log::{debug, info, warn};
 use rand::RngCore;
 
 use hick_exec::dag;
-use hick_exec::node::{FileContent, InsertionPoint, Node, StringNode, TransformNode};
+use hick_exec::node::{
+    FileContent, InsertionPoint, Node, ProvenanceMap, ProvenanceTransformNode, SourceOrigin,
+    SpanNode, StringNode, TransformSegment, TransformSegmentOrigin,
+};
 use hick_exec::state::{FeatureInfo, MultiDocumentState};
 use hick_handlers::{ProcessingContext, ProcessingPhase, TagRegistry, TagResult, TranscriptEntry};
 
 use hick_feature::{FeatureDef, FeatureRegistry, FeatureSet};
-use hick_lang::{dedent, HickDocument, HickNode, HickTag};
+use hick_lang::{HickDocument, HickNode, HickTag, dedent};
 use hick_token::{ContainerCapabilities, NetworkRule, TokenAuthority};
 
-use hick_condition::Condition;
 use crate::executor::{ContainerExecutor, ContainerResourceStats, ExecTranscriptEntry};
 use crate::pool::SharedPool;
+use hick_condition::Condition;
 
 // ---------------------------------------------------------------------------
 // Pipeline result
@@ -49,6 +52,9 @@ use crate::pool::SharedPool;
 pub struct PipelineResult {
     /// File path -> rendered content for each `<hick:file>` tag.
     pub files: HashMap<String, FileContent>,
+    /// File path -> character-level provenance map for each `<hick:file>` output.
+    /// Maps output byte ranges back to their source `.hick` file positions.
+    pub provenance_maps: HashMap<String, ProvenanceMap>,
     /// Container name -> parsed capabilities for each `<hick:container>` tag.
     pub containers: HashMap<String, ContainerCapabilities>,
     /// Volume name -> list of containers that contributed to its final state.
@@ -63,7 +69,6 @@ pub struct PipelineResult {
     /// Zero when no pool is used or in dry-run mode.
     pub pool_boot_time_saved: Duration,
 }
-
 
 // ---------------------------------------------------------------------------
 // Pipeline setup (shared between dry-run and live)
@@ -134,7 +139,10 @@ fn prepare_pipeline<'a>(
     for (name, doc) in &documents {
         let dag_result = hick_exec::dag::build_dag(doc)
             .map_err(|e| anyhow::anyhow!("DAG validation failed in {name}: {e}"))?;
-        info!("DAG validated for {name}: {} exec nodes", dag_result.execs.len());
+        info!(
+            "DAG validated for {name}: {} exec nodes",
+            dag_result.execs.len()
+        );
     }
 
     // Collect all nodes across documents (after filtering)
@@ -236,7 +244,7 @@ async fn process_pipeline_outputs(
     state: &Arc<MultiDocumentState>,
     transcripts: &HashMap<String, Vec<ExecTranscriptEntry>>,
     max_rounds: usize,
-) -> HashMap<String, FileContent> {
+) -> (HashMap<String, FileContent>, HashMap<String, ProvenanceMap>) {
     let registry = create_tag_registry();
     let handler_transcripts = convert_transcripts(transcripts);
 
@@ -248,7 +256,8 @@ async fn process_pipeline_outputs(
 
     // --- Rounds 1..max_rounds: re-evaluate .hick files produced by containers ---
     if max_rounds > 1 {
-        let mut prev_hick_paths: std::collections::HashSet<String> = std::collections::HashSet::new();
+        let mut prev_hick_paths: std::collections::HashSet<String> =
+            std::collections::HashSet::new();
 
         for round in 1..max_rounds {
             let files = state.get_files().await;
@@ -302,11 +311,23 @@ async fn process_pipeline_outputs(
         }
     }
 
-    // Converge file outputs
-    let files = state.get_files().await;
+    // Converge file outputs with provenance
+    let files_with_prov = state.get_files_with_provenance().await;
+
+    let mut files = HashMap::new();
+    let mut provenance_maps = HashMap::new();
+    for (path, (content, prov_map)) in files_with_prov {
+        files.insert(path.clone(), content);
+        provenance_maps.insert(path, prov_map);
+    }
 
     // Apply exclusion patterns
-    apply_exclusions(files, &state.get_exclusion_patterns())
+    let files = apply_exclusions(files, &state.get_exclusion_patterns());
+
+    // Remove provenance maps for excluded files
+    provenance_maps.retain(|path, _| files.contains_key(path));
+
+    (files, provenance_maps)
 }
 
 /// Process a batch of documents through declaration and content phases.
@@ -328,41 +349,52 @@ fn process_documents_round(
         indent: 0,
         registry: Some(registry),
         context: None,
+        source_file: None,
     };
     for node in &all_nodes {
-        if let HickNode::Tag(tag) = node {
-            if let Some(handler) = registry.find(&tag.name) {
-                if handler.phase() == ProcessingPhase::Declaration {
-                    let _ = handler.process(tag, &decl_ctx);
-                }
-            }
+        if let HickNode::Tag(tag) = node
+            && let Some(handler) = registry.find(&tag.name)
+            && handler.phase() == ProcessingPhase::Declaration
+        {
+            let _ = handler.process(tag, &decl_ctx);
         }
     }
 
     // Process file outputs
-    for node in &all_nodes {
-        if let HickNode::Tag(tag) = node
-            && tag.name == "file"
-        {
-            let raw_path = tag_attr(tag, "path").unwrap_or_default();
-            let path = interpolate_path(&raw_path, state);
-            let raw_ip = Arc::new(InsertionPoint::new());
+    for (doc_name, doc) in documents {
+        let source_file: Arc<str> = Arc::from(*doc_name);
+        for node in &doc.nodes {
+            if let HickNode::Tag(tag) = node
+                && tag.name == "file"
+            {
+                let raw_path = tag_attr(tag, "path").unwrap_or_default();
+                let path = interpolate_path(&raw_path, state);
+                let raw_ip = Arc::new(InsertionPoint::new());
 
-            process_file_children(&tag.children, &raw_ip, handler_transcripts, state, tag.source_column, registry);
+                process_file_children(
+                    &tag.children,
+                    &raw_ip,
+                    handler_transcripts,
+                    state,
+                    tag.source_column,
+                    registry,
+                    Some(&source_file),
+                );
 
-            raw_ip.close();
+                raw_ip.close();
 
-            let subs_state = state.clone();
-            let transform: Arc<dyn Node> = Arc::new(TransformNode::new(
-                raw_ip,
-                move |text| apply_substitutions(text, &subs_state),
-                "substitute",
-            ));
+                let subs_state = state.clone();
+                let transform: Arc<dyn Node> = Arc::new(ProvenanceTransformNode::new(
+                    raw_ip,
+                    move |text| apply_substitutions_segmented_to_transform(text, &subs_state),
+                    "substitute",
+                ));
 
-            let file_ip = Arc::new(InsertionPoint::new());
-            file_ip.add(transform);
-            file_ip.close();
-            state.add_file_output(path, file_ip);
+                let file_ip = Arc::new(InsertionPoint::new());
+                file_ip.add(transform);
+                file_ip.close();
+                state.add_file_output(path, file_ip);
+            }
         }
     }
 }
@@ -400,7 +432,12 @@ pub async fn run_pipeline_with_authority(
     params: &[(String, String)],
 ) -> Result<PipelineResult> {
     let prepared = prepare_pipeline(sources, authority, params)?;
-    let PreparedPipeline { documents, state, container_defs, .. } = prepared;
+    let PreparedPipeline {
+        documents,
+        state,
+        container_defs,
+        ..
+    } = prepared;
 
     // Build dry-run transcripts: collect commands per container in DAG order
     let mut transcripts: HashMap<String, Vec<ExecTranscriptEntry>> = HashMap::new();
@@ -425,14 +462,14 @@ pub async fn run_pipeline_with_authority(
         }
     }
 
-    let documents_ref: Vec<(&str, HickDocument)> = documents
-        .iter()
-        .map(|(n, d)| (*n, d.clone()))
-        .collect();
-    let files = process_pipeline_outputs(&documents_ref, &state, &transcripts, 1).await;
+    let documents_ref: Vec<(&str, HickDocument)> =
+        documents.iter().map(|(n, d)| (*n, d.clone())).collect();
+    let (files, provenance_maps) =
+        process_pipeline_outputs(&documents_ref, &state, &transcripts, 1).await;
 
     Ok(PipelineResult {
         files,
+        provenance_maps,
         containers: container_defs,
         volume_provenance: HashMap::new(),
         resource_stats: HashMap::new(),
@@ -477,7 +514,12 @@ pub async fn run_pipeline_live(
     let authority = Arc::new(TokenAuthority::new(&root_key));
 
     let prepared = prepare_pipeline(sources, &authority, params)?;
-    let PreparedPipeline { documents, state, container_defs, fork_registrations } = prepared;
+    let PreparedPipeline {
+        documents,
+        state,
+        container_defs,
+        fork_registrations,
+    } = prepared;
 
     // Build DAGs, run execs in containers (with optional caching)
     let mut executor = if let Some(pool) = pool {
@@ -613,7 +655,7 @@ pub async fn run_pipeline_live(
                 let mut parts = Vec::new();
                 for child in &exec_info.stdin_children {
                     match child {
-                        hick_lang::HickNode::Text(t) => parts.push(t.clone()),
+                        hick_lang::HickNode::Text(t, _) => parts.push(t.clone()),
                         hick_lang::HickNode::Tag(child_tag) => {
                             if let Some(handler) = stdin_registry.find(&child_tag.name) {
                                 let child_ctx = ProcessingContext {
@@ -622,18 +664,24 @@ pub async fn run_pipeline_live(
                                     indent: 0,
                                     registry: Some(&stdin_registry),
                                     context: None,
+                                    source_file: None,
                                 };
-                                if let Ok(TagResult::Node(n)) = handler.process(child_tag, &child_ctx) {
-                                    if let Some(s) = n.as_string_value() {
-                                        parts.push(s.to_string());
-                                    }
+                                if let Ok(TagResult::Node(n)) =
+                                    handler.process(child_tag, &child_ctx)
+                                    && let Some(s) = n.as_string_value()
+                                {
+                                    parts.push(s.to_string());
                                 }
                             }
                         }
                     }
                 }
                 let joined = parts.join("");
-                if joined.is_empty() { None } else { Some(joined) }
+                if joined.is_empty() {
+                    None
+                } else {
+                    Some(joined)
+                }
             } else {
                 None
             };
@@ -734,17 +782,17 @@ pub async fn run_pipeline_live(
     executor.shutdown().await;
     let resource_stats = executor.resource_stats().clone();
 
-    let documents_ref: Vec<(&str, HickDocument)> = documents
-        .iter()
-        .map(|(n, d)| (*n, d.clone()))
-        .collect();
-    let mut files = process_pipeline_outputs(&documents_ref, &state, &transcripts, config.max_rounds).await;
+    let documents_ref: Vec<(&str, HickDocument)> =
+        documents.iter().map(|(n, d)| (*n, d.clone())).collect();
+    let (mut files, provenance_maps) =
+        process_pipeline_outputs(&documents_ref, &state, &transcripts, config.max_rounds).await;
 
     // Merge volume output files into the result
     files.extend(volume_files);
 
     Ok(PipelineResult {
         files,
+        provenance_maps,
         containers: container_defs,
         volume_provenance,
         resource_stats,
@@ -782,7 +830,10 @@ fn scan_and_register_vars(nodes: &[HickNode], state: &MultiDocumentState) {
 /// This scans for `<hick:feature>` tags, validates dependencies, and enables
 /// features based on the `features` parameter. Enabled features are set as
 /// variables so they can be used in `when` conditions.
-fn process_features(documents: &[&hick_lang::HickDocument], state: &MultiDocumentState) -> Result<()> {
+fn process_features(
+    documents: &[&hick_lang::HickDocument],
+    state: &MultiDocumentState,
+) -> Result<()> {
     // Collect feature definitions from all documents
     let mut feature_registry = FeatureRegistry::new();
 
@@ -836,7 +887,11 @@ fn process_features(documents: &[&hick_lang::HickDocument], state: &MultiDocumen
 }
 
 /// First pass: just scan to register features with state (immutable registry).
-fn scan_and_register_features(nodes: &[HickNode], _registry: &FeatureRegistry, _state: &MultiDocumentState) {
+fn scan_and_register_features(
+    nodes: &[HickNode],
+    _registry: &FeatureRegistry,
+    _state: &MultiDocumentState,
+) {
     // This pass just ensures we find all feature tags
     for node in nodes {
         if let HickNode::Tag(tag) = node {
@@ -846,7 +901,11 @@ fn scan_and_register_features(nodes: &[HickNode], _registry: &FeatureRegistry, _
 }
 
 /// Second pass: collect feature definitions into the registry.
-fn collect_feature_defs(nodes: &[HickNode], registry: &mut FeatureRegistry, state: &MultiDocumentState) {
+fn collect_feature_defs(
+    nodes: &[HickNode],
+    registry: &mut FeatureRegistry,
+    state: &MultiDocumentState,
+) {
     for node in nodes {
         if let HickNode::Tag(tag) = node {
             if tag.name == "feature" {
@@ -921,7 +980,26 @@ fn filter_conditionals(nodes: &mut Vec<HickNode>, state: &MultiDocumentState) {
 // File output helpers
 // ---------------------------------------------------------------------------
 
-use text::{apply_exclusions, apply_substitutions, interpolate_path};
+use text::{apply_exclusions, apply_substitutions_segmented, interpolate_path};
+
+/// Bridge from `text::TransformSegment` to `hick_flow::TransformSegment`.
+fn apply_substitutions_segmented_to_transform(
+    text: &str,
+    state: &MultiDocumentState,
+) -> Vec<TransformSegment> {
+    apply_substitutions_segmented(text, state)
+        .into_iter()
+        .map(|seg| TransformSegment {
+            text: seg.text,
+            origin: match seg.origin {
+                text::SegmentOrigin::Passthrough => TransformSegmentOrigin::Passthrough,
+                text::SegmentOrigin::Substituted { pattern, .. } => {
+                    TransformSegmentOrigin::Substituted { pattern }
+                }
+            },
+        })
+        .collect()
+}
 
 /// Process children of a `<hick:file>` tag, adding rendered content to the
 /// insertion point. Delegates content tags (exec, paste, val) to the handler
@@ -936,6 +1014,7 @@ fn process_file_children(
     state: &Arc<MultiDocumentState>,
     indent: usize,
     registry: &TagRegistry,
+    source_file: Option<&Arc<str>>,
 ) {
     let ctx = ProcessingContext {
         state,
@@ -943,13 +1022,22 @@ fn process_file_children(
         indent,
         registry: Some(registry),
         context: None,
+        source_file: source_file.cloned(),
     };
 
     for child in children {
         match child {
-            HickNode::Text(text) => {
+            HickNode::Text(text, span) => {
                 let dedented = dedent(text, indent);
-                file_ip.add(Arc::new(StringNode::new(dedented)));
+                if let (Some(span), Some(source_file)) = (span, ctx.source_file.as_ref()) {
+                    let origin = SourceOrigin::Literal {
+                        file: source_file.clone(),
+                        span: *span,
+                    };
+                    file_ip.add(Arc::new(SpanNode::new(dedented, origin)));
+                } else {
+                    file_ip.add(Arc::new(StringNode::new(dedented)));
+                }
             }
             HickNode::Tag(child_tag) => {
                 if let Some(handler) = registry.find(&child_tag.name) {
@@ -1176,7 +1264,7 @@ pub fn build_fork_capabilities(tag: &HickTag) -> Option<ContainerCapabilities> {
 pub fn collect_text_children(tag: &HickTag) -> String {
     let mut result = String::new();
     for child in &tag.children {
-        if let HickNode::Text(text) = child {
+        if let HickNode::Text(text, _) = child {
             result.push_str(text);
         }
     }
@@ -1235,8 +1323,8 @@ pub fn extract_feature_definitions(
     let mut features: HashMap<String, ExtractedFeatureDef> = HashMap::new();
 
     for (name, source) in sources {
-        let mut doc = hick_lang::parse(source)
-            .map_err(|e| anyhow::anyhow!("parse error in {name}: {e}"))?;
+        let mut doc =
+            hick_lang::parse(source).map_err(|e| anyhow::anyhow!("parse error in {name}: {e}"))?;
 
         // Resolve includes
         let base_dir = std::path::Path::new(name)
@@ -1319,14 +1407,12 @@ pub struct ExtractedVerifyCommand {
 }
 
 /// Extract verify commands from hick sources without running the pipeline.
-pub fn extract_verify_commands(
-    sources: &[(&str, &str)],
-) -> Result<Vec<ExtractedVerifyCommand>> {
+pub fn extract_verify_commands(sources: &[(&str, &str)]) -> Result<Vec<ExtractedVerifyCommand>> {
     let mut commands = Vec::new();
 
     for (name, source) in sources {
-        let mut doc = hick_lang::parse(source)
-            .map_err(|e| anyhow::anyhow!("parse error in {name}: {e}"))?;
+        let mut doc =
+            hick_lang::parse(source).map_err(|e| anyhow::anyhow!("parse error in {name}: {e}"))?;
 
         // Resolve includes
         let base_dir = std::path::Path::new(name)
@@ -1353,19 +1439,17 @@ fn extract_verify_from_nodes(
 ) {
     for node in nodes {
         if let HickNode::Tag(tag) = node {
-            if tag.name == "verify" {
-                if let Some(cmd) = tag_attr(tag, "command") {
-                    if !cmd.trim().is_empty() {
-                        let description = tag_attr(tag, "description")
-                            .filter(|s| !s.trim().is_empty());
-                        commands.push(ExtractedVerifyCommand {
-                            command: cmd,
-                            description,
-                            source_file: source_file.to_string(),
-                            source_line: tag.source_line,
-                        });
-                    }
-                }
+            if tag.name == "verify"
+                && let Some(cmd) = tag_attr(tag, "command")
+                && !cmd.trim().is_empty()
+            {
+                let description = tag_attr(tag, "description").filter(|s| !s.trim().is_empty());
+                commands.push(ExtractedVerifyCommand {
+                    command: cmd,
+                    description,
+                    source_file: source_file.to_string(),
+                    source_line: tag.source_line,
+                });
             }
             // Recurse into children
             extract_verify_from_nodes(&tag.children, source_file, commands);

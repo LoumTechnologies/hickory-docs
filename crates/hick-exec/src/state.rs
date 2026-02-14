@@ -2,10 +2,12 @@
 //! cross-document references. Adapted from HickoryDocs `xml.rs`.
 
 use std::collections::HashMap;
-use std::sync::atomic::AtomicUsize;
 use std::sync::Mutex;
+use std::sync::atomic::AtomicUsize;
 
-use crate::node::{Context, FileContent, InsertionPoint, Node, converge};
+use crate::node::{
+    Context, FileContent, InsertionPoint, Node, ProvenanceMap, converge, converge_with_provenance,
+};
 use hick_condition::VariableResolver;
 use std::sync::Arc;
 
@@ -163,11 +165,16 @@ impl MultiDocumentState {
     pub fn register_copy_with_class(&self, id: String, class: Option<&str>, content: String) {
         // Legacy storage for backwards compatibility
         if !id.is_empty() {
-            self.copy_blocks.lock().unwrap().insert(id.clone(), content.clone());
+            self.copy_blocks
+                .lock()
+                .unwrap()
+                .insert(id.clone(), content.clone());
         }
 
         // New unified storage with class support
-        let order = self.content_order_counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let order = self
+            .content_order_counter
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         let classes: Vec<String> = class
             .map(|c| c.split_whitespace().map(|s| s.to_string()).collect())
             .unwrap_or_default();
@@ -192,11 +199,16 @@ impl MultiDocumentState {
     pub fn register_cut_with_class(&self, id: String, class: Option<&str>, content: String) {
         // Legacy storage for backwards compatibility
         if !id.is_empty() {
-            self.cut_blocks.lock().unwrap().insert(id.clone(), content.clone());
+            self.cut_blocks
+                .lock()
+                .unwrap()
+                .insert(id.clone(), content.clone());
         }
 
         // New unified storage with class support
-        let order = self.content_order_counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let order = self
+            .content_order_counter
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         let classes: Vec<String> = class
             .map(|c| c.split_whitespace().map(|s| s.to_string()).collect())
             .unwrap_or_default();
@@ -301,14 +313,20 @@ impl MultiDocumentState {
         string_fallback: String,
         is_cut: bool,
     ) {
-        let order = self.content_order_counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let order = self
+            .content_order_counter
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         let classes: Vec<String> = class
             .map(|c| c.split_whitespace().map(|s| s.to_string()).collect())
             .unwrap_or_default();
 
         // Store in node-based storage
         let node_block = NodeContentBlock {
-            id: if id.is_empty() { None } else { Some(id.clone()) },
+            id: if id.is_empty() {
+                None
+            } else {
+                Some(id.clone())
+            },
             classes: classes.clone(),
             node,
             order,
@@ -319,9 +337,15 @@ impl MultiDocumentState {
         // Also populate string-based storage for backward compat
         if !id.is_empty() {
             if is_cut {
-                self.cut_blocks.lock().unwrap().insert(id.clone(), string_fallback.clone());
+                self.cut_blocks
+                    .lock()
+                    .unwrap()
+                    .insert(id.clone(), string_fallback.clone());
             } else {
-                self.copy_blocks.lock().unwrap().insert(id.clone(), string_fallback.clone());
+                self.copy_blocks
+                    .lock()
+                    .unwrap()
+                    .insert(id.clone(), string_fallback.clone());
             }
         }
         let block = ContentBlock {
@@ -386,12 +410,37 @@ impl MultiDocumentState {
         let mut result = HashMap::new();
 
         for (path, insertion_point) in outputs {
-            let contents =
-                converge(insertion_point as Arc<dyn Node>, Context::default()).await;
+            let contents = converge(insertion_point as Arc<dyn Node>, Context::default()).await;
             result.insert(
                 path,
                 contents.unwrap_or_else(|| FileContent::Text(String::new())),
             );
+        }
+
+        result
+    }
+
+    /// Get all file outputs with provenance maps, converging each to text content.
+    ///
+    /// For each `<hick:file>` output, returns the converged text and a
+    /// [`ProvenanceMap`] mapping output byte ranges back to source origins.
+    pub async fn get_files_with_provenance(&self) -> HashMap<String, (FileContent, ProvenanceMap)> {
+        let outputs = self.file_outputs.lock().unwrap().clone();
+        let mut result = HashMap::new();
+
+        for (path, insertion_point) in outputs {
+            let ip_node: std::sync::Arc<dyn Node> = insertion_point;
+            match converge_with_provenance(ip_node.clone(), Context::default()).await {
+                Some((text, prov_map)) => {
+                    result.insert(path, (FileContent::Text(text), prov_map));
+                }
+                None => {
+                    result.insert(
+                        path,
+                        (FileContent::Text(String::new()), ProvenanceMap::new()),
+                    );
+                }
+            }
         }
 
         result
@@ -421,12 +470,20 @@ impl MultiDocumentState {
 
     /// Get all substitution definitions.
     pub fn get_substitutions(&self) -> Vec<SubstitutionDef> {
-        self.substitutions.lock().unwrap().values().cloned().collect()
+        self.substitutions
+            .lock()
+            .unwrap()
+            .values()
+            .cloned()
+            .collect()
     }
 
     /// Register a `<hick:feature>` definition.
     pub fn register_feature(&self, info: FeatureInfo) {
-        self.features.lock().unwrap().insert(info.name.clone(), info);
+        self.features
+            .lock()
+            .unwrap()
+            .insert(info.name.clone(), info);
     }
 
     /// Get all feature definitions.
@@ -452,7 +509,12 @@ impl MultiDocumentState {
 
     /// Get all enabled feature names.
     pub fn get_enabled_features(&self) -> Vec<String> {
-        self.enabled_features.lock().unwrap().iter().cloned().collect()
+        self.enabled_features
+            .lock()
+            .unwrap()
+            .iter()
+            .cloned()
+            .collect()
     }
 
     /// Register an exclusion pattern (glob pattern for files to exclude from output).
@@ -573,7 +635,10 @@ mod tests {
         state.register_copy_with_class("".to_string(), Some("imports"), "import baz;".to_string());
 
         let resolved = state.resolve_paste(".imports");
-        assert_eq!(resolved, Some("import foo;import bar;import baz;".to_string()));
+        assert_eq!(
+            resolved,
+            Some("import foo;import bar;import baz;".to_string())
+        );
     }
 
     #[test]
@@ -590,8 +655,16 @@ mod tests {
     #[test]
     fn class_selector_multiple_classes_on_block() {
         let state = MultiDocumentState::default();
-        state.register_copy_with_class("".to_string(), Some("imports deps"), "import shared;".to_string());
-        state.register_copy_with_class("".to_string(), Some("imports"), "import local;".to_string());
+        state.register_copy_with_class(
+            "".to_string(),
+            Some("imports deps"),
+            "import shared;".to_string(),
+        );
+        state.register_copy_with_class(
+            "".to_string(),
+            Some("imports"),
+            "import local;".to_string(),
+        );
 
         // Both selectors should find the shared import
         let imports = state.resolve_paste(".imports");
@@ -604,7 +677,11 @@ mod tests {
     #[test]
     fn class_selector_with_id() {
         let state = MultiDocumentState::default();
-        state.register_copy_with_class("header".to_string(), Some("sections"), "# Header".to_string());
+        state.register_copy_with_class(
+            "header".to_string(),
+            Some("sections"),
+            "# Header".to_string(),
+        );
 
         // Should be accessible by both ID and class
         let by_id = state.resolve_paste("#header");

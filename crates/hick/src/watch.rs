@@ -183,6 +183,7 @@ async fn create_store(config: &StoreConfig, project_dir: &Path) -> Result<Arc<dy
 }
 
 /// Run the pipeline, merge with previous state, and write outputs.
+#[allow(clippy::too_many_arguments)]
 async fn run_pipeline_and_merge(
     files: &[PathBuf],
     config: &StoreConfig,
@@ -215,7 +216,8 @@ async fn run_pipeline_and_merge(
 
     // Run pipeline (live with pool, or dry-run multi-stage)
     let (pipeline_files, pipeline_provenance, pool_hits, pool_boot_time_saved) = if dry_run {
-        let pipeline_result = crate::run_pipeline_multi_stage(&sources, params, config.max_stages).await?;
+        let pipeline_result =
+            crate::run_pipeline_multi_stage(&sources, params, config.max_stages).await?;
         let files: HashMap<String, Vec<u8>> = pipeline_result
             .files
             .iter()
@@ -239,7 +241,8 @@ async fn run_pipeline_and_merge(
             working_dir: None,
             max_rounds: 1,
         };
-        let result = crate::run_pipeline_live(&sources, &pipeline_config, params, None, pool).await?;
+        let result =
+            crate::run_pipeline_live(&sources, &pipeline_config, params, None, pool).await?;
         let files: HashMap<String, Vec<u8>> = result
             .files
             .iter()

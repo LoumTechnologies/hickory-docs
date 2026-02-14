@@ -45,10 +45,8 @@ impl ChangeSource for CsvSource {
         // Read the entire CSV file into batches and emit as a single Add
         match read_csv(&path, &arrow_schema) {
             Ok(batches) => {
-                let events: Vec<RecordChange> = batches
-                    .into_iter()
-                    .map(RecordChange::add)
-                    .collect();
+                let events: Vec<RecordChange> =
+                    batches.into_iter().map(RecordChange::add).collect();
                 Box::pin(stream::iter(events))
             }
             Err(e) => {
@@ -64,10 +62,7 @@ fn read_csv(
     schema: &Arc<Schema>,
 ) -> Result<Vec<arrow::record_batch::RecordBatch>, arrow::error::ArrowError> {
     let file = std::fs::File::open(path).map_err(|e| {
-        arrow::error::ArrowError::IoError(
-            format!("opening {}: {}", path.display(), e),
-            e,
-        )
+        arrow::error::ArrowError::IoError(format!("opening {}: {}", path.display(), e), e)
     })?;
     let reader = ReaderBuilder::new(schema.clone())
         .with_header(true)

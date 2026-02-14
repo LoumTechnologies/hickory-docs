@@ -27,7 +27,8 @@ impl TagHandler for SelectHandler {
         let columns_str = tag_attr(tag, "columns")
             .ok_or_else(|| anyhow::anyhow!("select requires a columns attribute"))?;
 
-        let source = ctx.first_child_node(tag)
+        let source = ctx
+            .first_child_node(tag)
             .ok_or_else(|| anyhow::anyhow!("select requires a child source node"))?;
 
         let input_schema = super::infer_schema(&source);

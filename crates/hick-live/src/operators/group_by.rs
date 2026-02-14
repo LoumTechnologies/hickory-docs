@@ -12,8 +12,8 @@ use arrow::compute::filter_record_batch;
 use arrow::datatypes::{DataType, Int32Type, Int64Type};
 use arrow::record_batch::RecordBatch;
 use futures::StreamExt;
-use hick_flow::node::{BoxStream, Node, NodeTrace, NodeValue};
 use hick_flow::Context;
+use hick_flow::node::{BoxStream, Node, NodeTrace, NodeValue};
 
 use crate::changes::{ChangeType, RecordChange};
 use crate::node::{NodeExt, RecordChangeNode};
@@ -150,8 +150,7 @@ impl Node for GroupByNode {
 
             for trace in traces {
                 if let Some(change) = trace.final_result().as_record_change() {
-                    let partitions =
-                        partition_by_group(&change.records, group_col_indices);
+                    let partitions = partition_by_group(&change.records, group_col_indices);
 
                     for (key, sub_batch) in partitions {
                         let mut counts = group_row_counts.lock().unwrap();
@@ -166,13 +165,9 @@ impl Node for GroupByNode {
                             }
                         }
 
-                        let new_change = RecordChange::new(
-                            change.change_type,
-                            sub_batch,
-                            change.is_strict,
-                        );
-                        let new_node: Arc<dyn Node> =
-                            Arc::new(RecordChangeNode::new(new_change));
+                        let new_change =
+                            RecordChange::new(change.change_type, sub_batch, change.is_strict);
+                        let new_node: Arc<dyn Node> = Arc::new(RecordChangeNode::new(new_change));
                         result_traces.push(trace.transform(new_node, me.clone()));
                     }
                 } else {
@@ -195,8 +190,8 @@ impl Node for GroupByNode {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::sources::memory::MemorySource;
     use crate::StreamingStructuredDataNode;
+    use crate::sources::memory::MemorySource;
     use arrow::array::{Int32Array, StringArray};
     use arrow::datatypes::{DataType, Field, Schema};
     use futures::StreamExt;
@@ -211,11 +206,7 @@ mod tests {
         (arrow, live)
     }
 
-    fn test_batch(
-        regions: &[&str],
-        ids: &[i32],
-        values: &[Option<i32>],
-    ) -> RecordBatch {
+    fn test_batch(regions: &[&str], ids: &[i32], values: &[Option<i32>]) -> RecordBatch {
         let (schema, _) = test_schema();
         RecordBatch::try_new(
             schema,
@@ -243,11 +234,7 @@ mod tests {
         let source = Arc::new(MemorySource::new(live.clone(), batch));
         let data_node = Arc::new(StreamingStructuredDataNode::new(live.clone(), source));
 
-        let group_node = Arc::new(GroupByNode::new(
-            data_node,
-            vec!["region".into()],
-            &live,
-        ));
+        let group_node = Arc::new(GroupByNode::new(data_node, vec!["region".into()], &live));
 
         let events: Vec<_> = group_node.get_stream(Context::default()).collect().await;
         assert_eq!(events.len(), 1);
@@ -271,11 +258,7 @@ mod tests {
     async fn group_by_handles_removes() {
         let (_, live) = test_schema();
 
-        let batch = test_batch(
-            &["us", "eu"],
-            &[1, 2],
-            &[Some(10), Some(20)],
-        );
+        let batch = test_batch(&["us", "eu"], &[1, 2], &[Some(10), Some(20)]);
 
         let source = Arc::new(MemorySource::new(live.clone(), batch));
         source.push(RecordChange::remove_strict(test_batch(
@@ -285,11 +268,7 @@ mod tests {
         )));
         let data_node = Arc::new(StreamingStructuredDataNode::new(live.clone(), source));
 
-        let group_node = Arc::new(GroupByNode::new(
-            data_node,
-            vec!["region".into()],
-            &live,
-        ));
+        let group_node = Arc::new(GroupByNode::new(data_node, vec!["region".into()], &live));
 
         let events: Vec<_> = group_node.get_stream(Context::default()).collect().await;
         assert_eq!(events.len(), 2); // initial add + remove

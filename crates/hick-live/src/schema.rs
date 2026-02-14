@@ -42,7 +42,9 @@ impl LiveSchema {
 
     /// Check whether the given column names are all present in the schema.
     pub fn has_columns(&self, names: &[&str]) -> bool {
-        names.iter().all(|name| self.arrow_schema.column_with_name(name).is_some())
+        names
+            .iter()
+            .all(|name| self.arrow_schema.column_with_name(name).is_some())
     }
 
     /// Return the schema that results from projecting only the given columns.

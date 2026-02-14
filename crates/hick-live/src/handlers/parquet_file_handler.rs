@@ -31,7 +31,8 @@ impl TagHandler for ParquetFileHandler {
             _ => ParquetMode::Events,
         };
 
-        let source = ctx.first_child_node(tag)
+        let source = ctx
+            .first_child_node(tag)
             .ok_or_else(|| anyhow::anyhow!("parquet-file requires a child source node"))?;
 
         let schema = super::infer_schema(&source);

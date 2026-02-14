@@ -37,7 +37,8 @@ impl TagHandler for WhereHandler {
         let expr = tag_attr(tag, "expr")
             .ok_or_else(|| anyhow::anyhow!("where requires an expr attribute"))?;
 
-        let source = ctx.first_child_node(tag)
+        let source = ctx
+            .first_child_node(tag)
             .ok_or_else(|| anyhow::anyhow!("where requires a child source node"))?;
 
         let schema = super::infer_schema(&source);

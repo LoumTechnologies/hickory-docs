@@ -72,10 +72,7 @@ async fn run() -> Result<bool> {
     // Run equivalence check
     let result = hick::equiv::check_equivalence(&source1, &source2, args.max_combinations).await?;
 
-    eprintln!(
-        "Tested {} feature combinations",
-        result.combinations_tested
-    );
+    eprintln!("Tested {} feature combinations", result.combinations_tested);
 
     if result.equivalent {
         eprintln!("Documents are semantically equivalent.");
@@ -87,7 +84,14 @@ async fn run() -> Result<bool> {
         );
 
         for (params, diffs) in &result.failures {
-            eprintln!("\n  Features: {}", if params.features.is_empty() { "(none)" } else { &params.features });
+            eprintln!(
+                "\n  Features: {}",
+                if params.features.is_empty() {
+                    "(none)"
+                } else {
+                    &params.features
+                }
+            );
 
             for diff in diffs {
                 if args.verbose {

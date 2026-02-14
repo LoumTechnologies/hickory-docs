@@ -9,8 +9,8 @@ use arrow::array::BooleanArray;
 use arrow::compute::filter_record_batch;
 use arrow::record_batch::RecordBatch;
 use futures::StreamExt;
-use hick_flow::node::{BoxStream, Node, NodeTrace, NodeValue};
 use hick_flow::Context;
+use hick_flow::node::{BoxStream, Node, NodeTrace, NodeValue};
 
 use crate::changes::RecordChange;
 use crate::node::{NodeExt, RecordChangeNode};
@@ -95,9 +95,9 @@ impl Node for WhereNode {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::StreamingStructuredDataNode;
     use crate::changes::ChangeType;
     use crate::sources::memory::MemorySource;
-    use crate::StreamingStructuredDataNode;
     use arrow::array::{AsArray, Int32Array, StringArray};
     use arrow::datatypes::{DataType, Field, Schema};
     use futures::StreamExt;
@@ -137,7 +137,9 @@ mod tests {
 
         // Filter: id > 1
         let predicate: Predicate = Arc::new(|batch| {
-            let ids = batch.column(0).as_primitive::<arrow::datatypes::Int32Type>();
+            let ids = batch
+                .column(0)
+                .as_primitive::<arrow::datatypes::Int32Type>();
             BooleanArray::from(ids.iter().map(|v| v.map(|x| x > 1)).collect::<Vec<_>>())
         });
 
@@ -152,7 +154,10 @@ mod tests {
         assert_eq!(change.change_type, ChangeType::Add);
         assert_eq!(change.num_rows(), 2);
 
-        let ids = change.records.column(0).as_primitive::<arrow::datatypes::Int32Type>();
+        let ids = change
+            .records
+            .column(0)
+            .as_primitive::<arrow::datatypes::Int32Type>();
         assert_eq!(ids.value(0), 2);
         assert_eq!(ids.value(1), 3);
     }
@@ -171,7 +176,9 @@ mod tests {
 
         // Filter: id > 10 (nothing matches)
         let predicate: Predicate = Arc::new(|batch| {
-            let ids = batch.column(0).as_primitive::<arrow::datatypes::Int32Type>();
+            let ids = batch
+                .column(0)
+                .as_primitive::<arrow::datatypes::Int32Type>();
             BooleanArray::from(ids.iter().map(|v| v.map(|x| x > 10)).collect::<Vec<_>>())
         });
 
@@ -195,7 +202,9 @@ mod tests {
 
         // Filter: id == 1
         let predicate: Predicate = Arc::new(|batch| {
-            let ids = batch.column(0).as_primitive::<arrow::datatypes::Int32Type>();
+            let ids = batch
+                .column(0)
+                .as_primitive::<arrow::datatypes::Int32Type>();
             BooleanArray::from(ids.iter().map(|v| v.map(|x| x == 1)).collect::<Vec<_>>())
         });
 

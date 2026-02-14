@@ -37,8 +37,7 @@ pub struct HickConfiguration {
 
 /// Extract configuration (features and variables) from a hick source.
 pub fn extract_configuration(source: &str) -> Result<HickConfiguration> {
-    let doc = hick_lang::parse(source)
-        .map_err(|e| anyhow::anyhow!("parse error: {e}"))?;
+    let doc = hick_lang::parse(source).map_err(|e| anyhow::anyhow!("parse error: {e}"))?;
 
     let mut config = HickConfiguration::default();
     extract_from_nodes(&doc.nodes, &mut config);
@@ -51,22 +50,37 @@ fn extract_from_nodes(nodes: &[HickNode], config: &mut HickConfiguration) {
         if let HickNode::Tag(tag) = node {
             match tag.name.as_str() {
                 "feature" => {
-                    if let Some(name) = tag.attributes.iter().find(|(k, _)| k == "name").map(|(_, v)| v.clone()) {
-                        if !config.features.contains(&name) {
-                            config.features.push(name);
-                        }
+                    if let Some(name) = tag
+                        .attributes
+                        .iter()
+                        .find(|(k, _)| k == "name")
+                        .map(|(_, v)| v.clone())
+                        && !config.features.contains(&name)
+                    {
+                        config.features.push(name);
                     }
                 }
                 "var" => {
-                    if let Some(name) = tag.attributes.iter().find(|(k, _)| k == "name").map(|(_, v)| v.clone()) {
+                    if let Some(name) = tag
+                        .attributes
+                        .iter()
+                        .find(|(k, _)| k == "name")
+                        .map(|(_, v)| v.clone())
+                    {
                         // Get default value from text children
-                        let default_value: String = tag.children.iter()
+                        let default_value: String = tag
+                            .children
+                            .iter()
                             .filter_map(|c| match c {
-                                HickNode::Text(t) => Some(t.as_str()),
+                                HickNode::Text(t, _) => Some(t.as_str()),
                                 _ => None,
                             })
                             .collect();
-                        let default = if default_value.is_empty() { None } else { Some(default_value) };
+                        let default = if default_value.is_empty() {
+                            None
+                        } else {
+                            Some(default_value)
+                        };
 
                         if !config.variables.iter().any(|(n, _)| n == &name) {
                             config.variables.push((name, default));
@@ -284,7 +298,10 @@ pub fn format_diff(diff: &OutputDiff) -> String {
         DiffKind::OnlyInSecond => {
             format!("+ {} (only in second document)", diff.path)
         }
-        DiffKind::ContentDiffers { first_content, second_content } => {
+        DiffKind::ContentDiffers {
+            first_content,
+            second_content,
+        } => {
             let mut output = format!("~ {} (content differs)\n", diff.path);
 
             // Simple line-by-line diff
@@ -348,8 +365,14 @@ mod tests {
 
         let config = extract_configuration(&src).unwrap();
         assert_eq!(config.variables.len(), 2);
-        assert_eq!(config.variables[0], ("version".to_string(), Some("1.0.0".to_string())));
-        assert_eq!(config.variables[1], ("name".to_string(), Some("MyApp".to_string())));
+        assert_eq!(
+            config.variables[0],
+            ("version".to_string(), Some("1.0.0".to_string()))
+        );
+        assert_eq!(
+            config.variables[1],
+            ("name".to_string(), Some("MyApp".to_string()))
+        );
     }
 
     #[test]
@@ -364,9 +387,7 @@ mod tests {
         // 2^2 = 4 combinations: {}, {a}, {b}, {a,b}
         assert_eq!(combinations.len(), 4);
 
-        let feature_sets: HashSet<_> = combinations.iter()
-            .map(|p| p.features.clone())
-            .collect();
+        let feature_sets: HashSet<_> = combinations.iter().map(|p| p.features.clone()).collect();
 
         assert!(feature_sets.contains(""));
         assert!(feature_sets.contains("a"));
@@ -378,10 +399,16 @@ mod tests {
     fn compare_identical_outputs() {
         use hick_exec::node::FileContent;
         let mut files1 = HashMap::new();
-        files1.insert("a.txt".to_string(), FileContent::Text("content".to_string()));
+        files1.insert(
+            "a.txt".to_string(),
+            FileContent::Text("content".to_string()),
+        );
 
         let mut files2 = HashMap::new();
-        files2.insert("a.txt".to_string(), FileContent::Text("content".to_string()));
+        files2.insert(
+            "a.txt".to_string(),
+            FileContent::Text("content".to_string()),
+        );
 
         let diffs = compare_outputs(&files1, &files2);
         assert!(diffs.is_empty());
@@ -391,12 +418,24 @@ mod tests {
     fn compare_different_outputs() {
         use hick_exec::node::FileContent;
         let mut files1 = HashMap::new();
-        files1.insert("a.txt".to_string(), FileContent::Text("content1".to_string()));
-        files1.insert("b.txt".to_string(), FileContent::Text("only in first".to_string()));
+        files1.insert(
+            "a.txt".to_string(),
+            FileContent::Text("content1".to_string()),
+        );
+        files1.insert(
+            "b.txt".to_string(),
+            FileContent::Text("only in first".to_string()),
+        );
 
         let mut files2 = HashMap::new();
-        files2.insert("a.txt".to_string(), FileContent::Text("content2".to_string()));
-        files2.insert("c.txt".to_string(), FileContent::Text("only in second".to_string()));
+        files2.insert(
+            "a.txt".to_string(),
+            FileContent::Text("content2".to_string()),
+        );
+        files2.insert(
+            "c.txt".to_string(),
+            FileContent::Text("only in second".to_string()),
+        );
 
         let diffs = compare_outputs(&files1, &files2);
         assert_eq!(diffs.len(), 3);

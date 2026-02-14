@@ -50,8 +50,7 @@ struct ContentBlockInfo {
 ///
 /// Returns the compacted document source as a string.
 pub fn compact_document(source: &str) -> Result<String> {
-    let doc = hick_lang::parse(source)
-        .map_err(|e| anyhow::anyhow!("parse error: {e}"))?;
+    let doc = hick_lang::parse(source).map_err(|e| anyhow::anyhow!("parse error: {e}"))?;
 
     // Extract content blocks
     let blocks = extract_content_blocks(&doc.nodes);
@@ -68,37 +67,41 @@ pub fn compact_document(source: &str) -> Result<String> {
 /// Extract content blocks from document nodes.
 fn extract_content_blocks(nodes: &[HickNode]) -> Vec<ContentBlockInfo> {
     let mut blocks = Vec::new();
-    let mut index = 0;
 
-    for node in nodes {
-        if let HickNode::Tag(tag) = node {
-            if tag.name == "copy" || tag.name == "cut" {
-                let id = tag.attributes.iter()
-                    .find(|(k, _)| k == "id")
-                    .map(|(_, v)| v.clone());
+    for (index, node) in nodes.iter().enumerate() {
+        if let HickNode::Tag(tag) = node
+            && (tag.name == "copy" || tag.name == "cut")
+        {
+            let id = tag
+                .attributes
+                .iter()
+                .find(|(k, _)| k == "id")
+                .map(|(_, v)| v.clone());
 
-                let classes: Vec<String> = tag.attributes.iter()
-                    .find(|(k, _)| k == "class")
-                    .map(|(_, v)| v.split_whitespace().map(|s| s.to_string()).collect())
-                    .unwrap_or_default();
+            let classes: Vec<String> = tag
+                .attributes
+                .iter()
+                .find(|(k, _)| k == "class")
+                .map(|(_, v)| v.split_whitespace().map(|s| s.to_string()).collect())
+                .unwrap_or_default();
 
-                let content: String = tag.children.iter()
-                    .filter_map(|c| match c {
-                        HickNode::Text(t) => Some(t.as_str()),
-                        _ => None,
-                    })
-                    .collect();
+            let content: String = tag
+                .children
+                .iter()
+                .filter_map(|c| match c {
+                    HickNode::Text(t, _) => Some(t.as_str()),
+                    _ => None,
+                })
+                .collect();
 
-                blocks.push(ContentBlockInfo {
-                    index,
-                    id,
-                    classes,
-                    content,
-                    tag_name: tag.name.clone(),
-                });
-            }
+            blocks.push(ContentBlockInfo {
+                index,
+                id,
+                classes,
+                content,
+                tag_name: tag.name.clone(),
+            });
         }
-        index += 1;
     }
 
     blocks
@@ -114,8 +117,11 @@ fn group_by_class(blocks: &[ContentBlockInfo]) -> HashMap<String, Vec<&ContentBl
         }
 
         // Blocks with only ID go into a special group
-        if block.classes.is_empty() && block.id.is_some() {
-            groups.entry(format!("__id__{}", block.id.as_ref().unwrap()))
+        if block.classes.is_empty()
+            && let Some(id) = &block.id
+        {
+            groups
+                .entry(format!("__id__{}", id))
                 .or_default()
                 .push(block);
         }
@@ -125,7 +131,10 @@ fn group_by_class(blocks: &[ContentBlockInfo]) -> HashMap<String, Vec<&ContentBl
 }
 
 /// Build compacted document source.
-fn build_compacted_document(doc: &HickDocument, groups: &HashMap<String, Vec<&ContentBlockInfo>>) -> String {
+fn build_compacted_document(
+    doc: &HickDocument,
+    groups: &HashMap<String, Vec<&ContentBlockInfo>>,
+) -> String {
     // For simplicity, we'll emit merged blocks followed by non-content nodes
     // A more sophisticated implementation would preserve document structure
 
@@ -150,9 +159,7 @@ fn build_compacted_document(doc: &HickDocument, groups: &HashMap<String, Vec<&Co
             }
         } else if blocks.len() > 1 {
             // Multiple blocks with same class - merge them
-            let merged_content: String = blocks.iter()
-                .map(|b| b.content.as_str())
-                .collect();
+            let merged_content: String = blocks.iter().map(|b| b.content.as_str()).collect();
 
             // Use the first block's tag name and ID (if any)
             let first = blocks[0];
@@ -181,11 +188,12 @@ fn build_compacted_document(doc: &HickDocument, groups: &HashMap<String, Vec<&Co
 
     // Emit non-content nodes (file, exec, etc.)
     for node in &doc.nodes {
-        if let HickNode::Tag(tag) = node {
-            if tag.name != "copy" && tag.name != "cut" {
-                output.push('\n');
-                emit_node(&mut output, node, 0);
-            }
+        if let HickNode::Tag(tag) = node
+            && tag.name != "copy"
+            && tag.name != "cut"
+        {
+            output.push('\n');
+            emit_node(&mut output, node, 0);
         }
     }
 
@@ -220,7 +228,7 @@ fn emit_node(output: &mut String, node: &HickNode, indent: usize) {
     let indent_str = "  ".repeat(indent);
 
     match node {
-        HickNode::Text(text) => {
+        HickNode::Text(text, _) => {
             output.push_str(&escape_xml(text));
         }
         HickNode::Tag(tag) => {
@@ -346,8 +354,12 @@ mod tests {
         let compacted = compact_document(&src).unwrap();
 
         // Both should produce the same output
-        let result1 = crate::run_pipeline(&[("orig.hick", &src)], &[]).await.unwrap();
-        let result2 = crate::run_pipeline(&[("compact.hick", &compacted)], &[]).await.unwrap();
+        let result1 = crate::run_pipeline(&[("orig.hick", &src)], &[])
+            .await
+            .unwrap();
+        let result2 = crate::run_pipeline(&[("compact.hick", &compacted)], &[])
+            .await
+            .unwrap();
 
         // Note: The compacted version may have slight whitespace differences in non-content areas,
         // but the actual pasted content should be the same.

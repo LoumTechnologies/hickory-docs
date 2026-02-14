@@ -172,9 +172,7 @@ pub fn apply_case_variant(s: &str, variant: &str) -> Option<String> {
         "pascal" | "pascalcase" => Some(to_pascal_case(s)),
         "camel" | "camelcase" => Some(to_camel_case(s)),
         "snake" | "snakecase" => Some(to_snake_case(s)),
-        "screaming" | "screamingsnake" | "screamingsnakecase" => {
-            Some(to_screaming_snake_case(s))
-        }
+        "screaming" | "screamingsnake" | "screamingsnakecase" => Some(to_screaming_snake_case(s)),
         "kebab" | "kebabcase" => Some(to_kebab_case(s)),
         "title" | "titlecase" => Some(to_title_case(s)),
         "lower" | "lowercase" => Some(to_lowercase(s)),
@@ -216,9 +214,7 @@ pub fn generate_case_variants(pattern: &str, value: &str) -> Vec<(String, String
 
         // Only add if different from original and not already present
         if transformed_pattern != pattern
-            && !variants
-                .iter()
-                .any(|(p, _)| p == &transformed_pattern)
+            && !variants.iter().any(|(p, _)| p == &transformed_pattern)
         {
             variants.push((transformed_pattern, transformed_value));
         }
@@ -374,10 +370,7 @@ mod tests {
             apply_case_variant("com.example.app", "path"),
             Some("com/example/app".to_string())
         );
-        assert_eq!(
-            apply_case_variant("test", "unknown_variant"),
-            None
-        );
+        assert_eq!(apply_case_variant("test", "unknown_variant"), None);
     }
 
     #[test]
