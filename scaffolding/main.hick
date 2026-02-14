@@ -97,7 +97,7 @@ Features control which platforms are generated. They can be combined freely.
 <hick:verify command="[extension] test -f browser-extension/package.json" description="Verify extension scaffolded" />
 <hick:verify command="[swiftui] test -f apple/project.yml" description="Verify SwiftUI scaffolded" />
 <hick:verify command="[compose] test -f android/build.gradle.kts" description="Verify Android scaffolded" />
-<hick:verify command="[avalonia] test -f desktop/Desktop.sln" description="Verify .NET solution exists" />
+<hick:verify command="[avalonia] test -f desktop/MyProject.sln" description="Verify .NET solution exists" />
 
 | Feature | Description |
 |---------|-------------|

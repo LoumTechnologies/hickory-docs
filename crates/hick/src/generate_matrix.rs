@@ -1043,21 +1043,16 @@ pub async fn run(cli: GenerateMatrixArgs) -> Result<()> {
     // Count results
     let successful = results.iter().filter(|r| r.is_ok()).count();
     let failed = results.iter().filter(|r| r.is_err()).count();
-    let failures = Arc::try_unwrap(failures)
-        .map(|mutex| mutex.into_inner())
-        .unwrap_or_else(|arc| {
-            // This shouldn't happen since we're the only owner after collect()
-            tokio::runtime::Handle::current().block_on(async { arc.lock().await.clone() })
-        });
+    let failures = match Arc::try_unwrap(failures) {
+        Ok(mutex) => mutex.into_inner(),
+        Err(arc) => arc.lock().await.clone(),
+    };
 
     // Extract timings for analysis from progress state
-    let timings_data = Arc::try_unwrap(progress)
-        .map(|p| {
-            tokio::runtime::Handle::current().block_on(async { p.timings.into_inner() })
-        })
-        .unwrap_or_else(|arc| {
-            tokio::runtime::Handle::current().block_on(async { arc.timings.lock().await.clone() })
-        });
+    let timings_data = match Arc::try_unwrap(progress) {
+        Ok(p) => p.timings.into_inner(),
+        Err(arc) => arc.timings.lock().await.clone(),
+    };
 
     // Clear progress lines and print summary
     let elapsed = start_time.elapsed();
