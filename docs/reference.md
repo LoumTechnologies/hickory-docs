@@ -31,7 +31,16 @@ produce documentation without starting any containers.
 16. [Namespace Prefix Trick](#16-namespace-prefix-trick)
 17. [Complete Example](#17-complete-example)
 18. [Features](#18-features)
-19. [Planned Features](#19-planned-features)
+19. [Variables and Parameters](#19-variables-and-parameters)
+20. [Conditional Content](#20-conditional-content)
+21. [Text Substitution](#21-text-substitution)
+22. [Exclude Patterns](#22-exclude-patterns)
+23. [File Includes](#23-file-includes)
+24. [Literate Programming (Weave)](#24-literate-programming-weave)
+25. [Execution Caching](#25-execution-caching)
+26. [Project Configuration](#26-project-configuration)
+27. [Watch Mode](#27-watch-mode)
+28. [Provenance Tracking](#28-provenance-tracking)
 
 ---
 
@@ -215,6 +224,8 @@ curl --version
 | `container` | Yes | Name of the container to execute in |
 | `image` | No | Container image. Creates the container implicitly if not yet declared |
 | `mount` | No | Volume mounts in `volume-name:/mount/path` format. Comma-separated for multiple |
+| `show` | No | Control what is rendered in file outputs: `all` (default), `command`, `output`, `none` |
+| `when` | No | Condition expression; exec is skipped if the condition evaluates to false |
 
 ### Content
 
@@ -579,24 +590,77 @@ Each token encodes:
 ## 13. CLI Reference
 
 ```
-hick [OPTIONS] <FILES...>
+hick [SUBCOMMAND] [OPTIONS] [FILES...]
 ```
 
-### Arguments
+When invoked with no subcommand, bare `.hick` files default to `run`. When
+invoked with no arguments at all, the REPL starts.
 
-| Argument | Description |
-|----------|-------------|
-| `<FILES...>` | One or more `.hick` files to process (required) |
+### Subcommands
 
-### Options
+| Subcommand | Description |
+|------------|-------------|
+| `run` | Run the pipeline once (default when files are given) |
+| `up` | Watch mode: re-run pipeline on file changes with merge-aware snapshots |
+| `repl` | Interactive REPL: explore containers and record a session transcript |
+| `generate-matrix` | Generate all valid feature combinations to separate output directories |
+| `init` | Initialize AI agent instructions for the project |
+| `validate` | Validate AI agent configuration |
+
+### `run` options
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--config <PATH>` | auto-discover `_hick.yml` | Path to config file |
+| `--key-file <PATH>` | `~/.config/hick/key.txt` | Age identity file for decrypting secrets |
+| `--secrets-dir <PATH>` | `~/.config/hick/secrets` | Directory containing age-encrypted secret files |
+| `--images-dir <PATH>` | | Directory containing pre-converted `.wasm` container images |
+| `--param <KEY=VALUE>` | | Set a variable (repeatable) |
+| `--features <LIST>` | | Enable features (comma-separated) |
+| `--output-dir <PATH>` | | Output directory for generated files (overrides config) |
+| `--dry-run` | `false` | Produce placeholder transcripts instead of running containers |
+| `--cache` | `false` | Cache execution results; reuse on subsequent runs when inputs match |
+| `--freeze` | `false` | Require all exec results to be cached, never re-execute |
+| `--clear-cache` | `false` | Clear the cache directory before running |
+| `-v`, `--verbose` | `false` | Enable verbose (debug-level) logging |
+
+### `up` options
 
 | Option | Default | Description |
 |--------|---------|-------------|
 | `--key-file <PATH>` | `~/.config/hick/key.txt` | Age identity file for decrypting secrets |
 | `--secrets-dir <PATH>` | `~/.config/hick/secrets` | Directory containing age-encrypted secret files |
-| `--images-dir <PATH>` | `crates/c2w/converted_images` | Directory containing pre-converted `.wasm` container images |
-| `--dry-run` | `false` | Produce placeholder transcripts instead of running containers |
-| `-v`, `--verbose` | `false` | Enable verbose (debug-level) logging |
+| `--images-dir <PATH>` | | Directory containing pre-converted `.wasm` container images |
+| `--param <KEY=VALUE>` | | Set a variable (repeatable) |
+| `--features <LIST>` | | Enable features (comma-separated) |
+| `--dry-run` | `false` | Produce placeholder transcripts |
+| `--store <BACKEND>` | `auto` | Store backend: `auto`, `git`, or `builtin` |
+| `--merge-api <URL>` | | LLM merge API URL for intelligent conflict resolution |
+| `--branch <NAME>` | `main` | Branch name for snapshot tracking |
+| `--max-stages <N>` | `3` | Maximum number of multi-stage pipeline passes |
+| `-v`, `--verbose` | `false` | Enable verbose logging |
+
+### `generate-matrix` options
+
+| Option | Description |
+|--------|-------------|
+| `--jobs N` / `-j N` | Run N combinations in parallel (0 = auto-detect CPU count) |
+| `--singles-only` | Only generate single-feature combinations |
+| `--max-combination-size N` | Limit combinations to at most N features |
+| `--include-features X,Y` | Only use these features for combinations |
+| `--exclude-features X,Y` | Exclude these features from combinations |
+| `--verify "cmd"` | Run verification command for each combination |
+| `--continue-on-error` | Continue if a combination fails |
+| `-y`, `--yes` | Skip confirmation prompt for embedded verify commands |
+| `--dry-run` | Show combinations without generating |
+
+### `repl` options
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--images-dir <PATH>` | | Directory containing pre-converted `.wasm` container images |
+| `--output <PATH>` | `session.hick` | Output transcript file |
+| `-v`, `--verbose` | `false` | Enable verbose logging |
 
 ### Examples
 
@@ -607,8 +671,17 @@ hick --dry-run docs/guide.hick
 # Live execution with default settings
 hick docs/guide.hick
 
-# Multiple files processed in sequence (shared state)
-hick docs/setup.hick docs/build.hick docs/deploy.hick
+# Set variables and features
+hick --param env=prod --features auth,oauth docs/project.hick
+
+# Watch mode: re-run on file changes
+hick up docs/guide.hick
+
+# Generate all feature combinations and verify each
+hick generate-matrix --verify "cargo check" ./scaffolding/
+
+# REPL mode (no arguments)
+hick
 
 # Custom secrets and images directories
 hick --key-file /etc/hick/key.txt \
@@ -616,8 +689,11 @@ hick --key-file /etc/hick/key.txt \
      --images-dir /opt/wasm-images \
      docs/deploy.hick
 
-# Verbose logging for debugging
-hick -v docs/guide.hick
+# Cache execution results for faster re-runs
+hick --cache docs/guide.hick
+
+# Freeze mode (fail if any exec is not cached)
+hick --freeze docs/guide.hick
 ```
 
 ### Environment variables
@@ -1042,74 +1118,290 @@ Embedded verify commands run first, followed by any CLI `--verify` commands.
 
 ---
 
-## 19. Planned Features
+## 19. Variables and Parameters
 
-These features are designed but not yet implemented.
+Document-level variables allow parameterising `.hick` files. Variables can be
+set in the document itself and overridden from the CLI.
 
-### Variables and parameters
-
-Document-level variables with CLI override:
+### Declaring variables
 
 ```xml
 <hick:var name="python_version">3.12</hick:var>
+<hick:var name="project_name">MyApp</hick:var>
+```
 
+Variable text content becomes the variable's value. Variables are scanned
+and registered **before** conditional filtering, so declarations inside
+`<hick:when>` blocks are available for condition evaluation.
+
+### Referencing variables
+
+Use `<hick:val>` to output a variable's value:
+
+```xml
 <hick:file path="setup.md">
 Python version: <hick:val name="python_version" />
+Project: <hick:val name="project_name" />
 </hick:file>
 ```
 
-CLI override: `hick --param python_version=3.13 docs/guide.hick`
+Variables can also be referenced in file paths and substitution values using
+double-brace syntax with optional case variants:
 
-### Conditional content
+```
+{{python_version}}
+{{project_name:snake_case}}
+{{project_name:PascalCase}}
+```
 
-Skip content based on variable values:
+### CLI override
+
+```bash
+hick --param python_version=3.13 --param project_name=OtherApp docs/guide.hick
+```
+
+CLI `--param` values take precedence over in-document `<hick:var>` defaults.
+
+### `<hick:var>` attributes
+
+| Attribute | Required | Description |
+|-----------|----------|-------------|
+| `name` | Yes | Variable identifier |
+
+### `<hick:val>` attributes
+
+| Attribute | Required | Description |
+|-----------|----------|-------------|
+| `name` | Yes | Variable name to output |
+
+If the variable is not defined, a warning is logged and nothing is rendered.
+
+---
+
+## 20. Conditional Content
+
+Content can be conditionally included or excluded based on variable values
+and feature flags.
+
+### The `<hick:when>` tag
+
+```xml
+<hick:when test="auth">
+  Authentication setup here — only included if "auth" is truthy.
+</hick:when>
+
+<hick:when test="env=prod">
+  Production-only content.
+</hick:when>
+
+<hick:when test="!debug">
+  Included when "debug" is NOT set.
+</hick:when>
+```
+
+When the condition is true, the children are promoted to the parent level
+(the `<hick:when>` wrapper is removed). When false, the entire tag and its
+children are removed.
+
+### The `when` attribute
+
+Any tag can carry a `when` attribute. If the condition evaluates to false,
+the entire tag is removed:
 
 ```xml
 <hick:exec container="deploy" when="env=prod">
 ./deploy-prod.sh
 </hick:exec>
 
-<hick:when test="env=prod">
-Production-only content here.
-</hick:when>
+<hick:file path="config.json" when="oauth">
+  OAuth-only file
+</hick:file>
 ```
 
-Condition syntax: `when="var"`, `when="var=value"`, `when="var!=value"`,
-`when="!var"`.
+### Condition syntax
 
-### Exec output control
+| Format | Meaning |
+|--------|---------|
+| `when="var"` | True if `var` is defined and non-empty |
+| `when="var=value"` | True if `var` equals `value` |
+| `when="var!=value"` | True if `var` does not equal `value` |
+| `when="!var"` | True if `var` is not defined or empty |
 
-Control what is rendered in file outputs:
+Features are automatically available as variables — `when="auth"` is true
+when the `auth` feature is enabled.
+
+### Attributes
+
+| Attribute | Required | Description |
+|-----------|----------|-------------|
+| `test` | Yes (on `<hick:when>`) | Condition expression |
+| `when` | No (on any tag) | Condition expression |
+
+---
+
+## 21. Text Substitution
+
+The `<hick:substitute>` tag registers a text replacement that applies to
+all file and weave output. Substitutions are applied **after** file content
+is assembled.
+
+### Basic substitution
 
 ```xml
-<hick:exec container="demo" show="command">make build</hick:exec>
-<hick:exec container="demo" show="output">cat result.txt</hick:exec>
-<hick:exec container="demo" show="none">rm -rf /tmp/cache</hick:exec>
+<hick:substitute name="project" pattern="MyTemplate" value="MyApp" />
 ```
 
-Values: `all` (default), `command`, `output`, `none`.
+Every occurrence of `MyTemplate` in any output file is replaced with `MyApp`.
 
-### File includes
+### Case variants
 
-Include content from other `.hick` files:
+When `variants="true"`, both the pattern and value are expanded into all
+case forms (PascalCase, camelCase, snake_case, SCREAMING_SNAKE_CASE, etc.):
+
+```xml
+<hick:substitute name="codename" pattern="BlueIronCube" value="ProjectX" variants="true" />
+```
+
+This generates replacements for `BlueIronCube` → `ProjectX`,
+`blueIronCube` → `projectX`, `blue_iron_cube` → `project_x`, etc.
+
+### Variable fallback
+
+If `value` is omitted, the substitution resolves `name` as a variable:
+
+```xml
+<hick:var name="app_name">MyApplication</hick:var>
+<hick:substitute name="app_name" pattern="AppTemplate" />
+<!-- Uses the value of app_name variable -->
+```
+
+### Attributes
+
+| Attribute | Required | Description |
+|-----------|----------|-------------|
+| `name` | Yes | Substitution identifier (also fallback variable name) |
+| `pattern` | Yes | Literal text to search for |
+| `value` | No | Replacement text; falls back to resolving `name` as a variable |
+| `variants` | No | When `"true"`, generates all case variants of pattern and value |
+
+Patterns are applied longest-first to avoid partial replacements. Empty
+patterns are silently ignored.
+
+---
+
+## 22. Exclude Patterns
+
+The `<hick:exclude>` tag registers a glob pattern for files to exclude from
+pipeline output. Exclusions are applied at the very end, after all file
+outputs are generated.
+
+```xml
+<hick:exclude pattern="*.template-only" />
+<hick:exclude pattern="docs/internal/**" />
+<hick:exclude pattern="TEMPLATE_README.md" />
+```
+
+### Attributes
+
+| Attribute | Required | Description |
+|-----------|----------|-------------|
+| `pattern` | Yes | Glob pattern (`*`, `**`, `?` wildcards) |
+
+Multiple `<hick:exclude>` tags accumulate. Empty patterns are silently
+ignored. Invalid patterns are logged as warnings but do not fail the
+pipeline.
+
+---
+
+## 23. File Includes
+
+The `<hick:include>` tag splices the contents of another `.hick` file into
+the current document at parse time.
 
 ```xml
 <hick:include file="fragments/setup.hick" />
+<hick:include file="../common/vars.hick" />
 ```
 
-### Caching and freeze
+### Attributes
 
-Cache exec results based on a hash of the command, image, and capabilities:
+| Attribute | Required | Description |
+|-----------|----------|-------------|
+| `file` | Yes | Relative path to the `.hick` file to include |
+
+### Behaviour
+
+- Resolved **during parsing**, before conditional filtering or processing.
+- The path is resolved relative to the including file's directory.
+- The included file's top-level nodes are spliced into the parent at the
+  tag's position (the `<hick:include>` tag itself is removed).
+- Recursive includes are supported.
+- Circular includes are detected and produce an error.
+
+---
+
+## 24. Literate Programming (Weave)
+
+The `weave` attribute on `<hick:doc>` enables literate programming output.
+When set, hick generates a markdown documentation file alongside the regular
+output files.
+
+```xml
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="GUIDE.md">
+  This prose goes directly into GUIDE.md.
+
+  <hick:file path="setup.sh">
+  #!/bin/bash
+  echo "setup"
+  </hick:file>
+</hick:doc>
+```
+
+### Weave output rules
+
+- **Text nodes** → prose (with substitutions and dedenting applied)
+- **`<hick:file>` tags** → markdown heading + fenced code block with
+  language detection based on file extension
+- **`<hick:file doc-hidden="true">`** → excluded from weave output
+  (processed normally for file output)
+- **`<hick:val>` tags** → variable value resolved inline
+- **`<hick:when>` tags** → children processed recursively (already filtered)
+
+### Language detection for code fences
+
+File extensions are mapped to markdown fence identifiers: `.rs` → `rust`,
+`.ts`/`.tsx` → `typescript`, `.py` → `python`, `.swift` → `swift`,
+`.kt` → `kotlin`, `.cs` → `csharp`, `.go` → `go`, `.json` → `json`,
+`.yaml` → `yaml`, `.toml` → `toml`, `.sh` → `bash`, `.sql` → `sql`,
+and many more.
+
+---
+
+## 25. Execution Caching
+
+Exec results can be cached to avoid re-running containers when inputs have
+not changed.
 
 ```bash
-hick --cache docs/guide.hick    # Use cache on hash match
-hick --freeze docs/guide.hick   # Fail if cache is missing
-hick --clear-cache docs/guide.hick  # Clear cache and run fresh
+hick --cache docs/guide.hick          # Use cache on hash match
+hick --freeze docs/guide.hick         # Fail if any exec is not cached
+hick --clear-cache docs/guide.hick    # Clear cache and run fresh
 ```
 
-### Project configuration
+The cache key is computed from the command text, container image, and
+capability rules. When `--cache` is enabled and a matching cached result
+exists, the cached transcript is used instead of running the container.
 
-A `_hick.yml` file at the project root for default settings:
+`--freeze` mode is stricter: it requires every exec result to already be
+cached and will fail with an error if any is missing. This is useful for
+CI/CD pipelines where you want deterministic builds without network access.
+
+---
+
+## 26. Project Configuration
+
+A `_hick.yml` file at the project root provides default settings so they
+do not need to be repeated on every CLI invocation.
 
 ```yaml
 files:
@@ -1128,6 +1420,72 @@ secrets:
   secrets-dir: ~/.config/hick/secrets
 ```
 
+The config file is auto-discovered by walking up from the current directory.
+Use `--config <PATH>` to specify an explicit path. CLI options override
+config file values.
+
+---
+
+## 27. Watch Mode
+
+The `up` subcommand watches `.hick` files for changes and re-runs the
+pipeline automatically, with merge-aware snapshots to handle concurrent
+edits.
+
+```bash
+hick up docs/guide.hick
+```
+
+Watch mode supports the same `--param`, `--features`, and `--dry-run`
+options as `run`. Additional options:
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `--store <BACKEND>` | `auto` | Store backend: `auto`, `git`, or `builtin` |
+| `--merge-api <URL>` | | LLM merge API URL for intelligent conflict resolution |
+| `--branch <NAME>` | `main` | Branch name for snapshot tracking |
+| `--max-stages <N>` | `3` | Maximum number of multi-stage pipeline passes |
+
+---
+
+## 28. Provenance Tracking
+
+Hick tracks the origin of every character in generated output, mapping it
+back to the `.hick` source position that produced it. This is used by
+[hick-lens](lens-reference.md) and [hick-mcp](mcp-reference.md) to enable
+AI agents to navigate and edit `.hick` files structurally.
+
+### Source spans
+
+Every text node and tag in the AST carries a `SourceSpan` recording its
+byte offset, line, and column in the source file. These spans flow through
+the reactive pipeline via `SpanNode` wrappers.
+
+### Origin types
+
+| Origin | Description |
+|--------|-------------|
+| `Literal` | Direct text from a `.hick` source file, with exact byte range |
+| `Exec` | Output from a container execution |
+| `Paste` | Content inserted via `<hick:paste>` |
+| `Variable` | Value of a `<hick:val>` reference |
+| `Substitution` | Text modified by `<hick:substitute>` |
+| `Synthetic` | Programmatically generated (no source mapping) |
+
+### Provenance map
+
+After convergence, a `ProvenanceMap` records the mapping from output byte
+ranges to source origins. This enables:
+
+- **hick-lens**: tree-sitter AST analysis of output files, with structural
+  selectors (`fn main`, `struct Config`) mapped back to `.hick` source
+  positions for targeted edits
+- **hick-mcp**: MCP server exposing provenance-aware query, structure,
+  and replace tools for AI coding agents
+
+See [Lens Reference](lens-reference.md) and [MCP Reference](mcp-reference.md)
+for details.
+
 ---
 
 ## Tag Reference Summary
@@ -1144,25 +1502,31 @@ secrets:
 | `<hick:file>` | No | `doc` | Declare an output file |
 | `<hick:copy>` | No | `doc`, `exec` | Store content (visible in output) |
 | `<hick:cut>` | No | `doc` | Store content (hidden from output) |
-| `<hick:paste>` | Yes | `file`, `exec` | Insert stored content by id |
+| `<hick:paste>` | Yes | `file`, `exec` | Insert stored content by id or class |
 | `<hick:fork>` | No | `doc` | Clone a container's state |
 | `<hick:attenuate>` | No | `doc` | Add restrictions to a container |
 | `<hick:confirm>` | Yes | `doc` | Pause for user approval (planned) |
 | `<hick:feature>` | Yes | `doc` | Define a feature flag |
 | `<hick:verify>` | Yes | `doc` | Embedded verify command for generate-matrix |
-| `<hick:when>` | No | `doc`, `file` | Conditional content based on features |
+| `<hick:when>` | No | `doc`, `file` | Conditional content based on variables/features |
+| `<hick:var>` | No | `doc` | Declare a variable with a default value |
+| `<hick:val>` | Yes | `file` | Output a variable's value |
+| `<hick:substitute>` | Yes | `doc` | Register a text substitution |
+| `<hick:exclude>` | Yes | `doc` | Register a glob pattern for output exclusion |
+| `<hick:include>` | Yes | any | Splice another `.hick` file's contents (resolved at parse time) |
 
 ## Attribute Reference Summary
 
 | Attribute | Tags | Values |
 |-----------|------|--------|
-| `name` | `container`, `volume`, `secret`, `feature` | Identifier string |
+| `name` | `container`, `volume`, `secret`, `feature`, `var`, `val`, `substitute` | Identifier string |
 | `image` | `container`, `exec` | OCI image name (e.g., `alpine:3.20`) |
 | `container` | `exec`, `attenuate` | Container name reference |
 | `path` | `file` | Output file path |
 | `mount` | `exec` | `volume:mountpoint` (comma-separated) |
 | `id` | `copy`, `cut` | Unique content identifier |
-| `select` | `paste` | CSS `#id` selector |
+| `class` | `copy`, `cut` | Space-separated CSS class names |
+| `select` | `paste` | CSS `#id` or `.class` selector |
 | `from` | `fork`, `secret` | Source container name or secret name |
 | `to` | `fork` | Target container name |
 | `network` | `allow`, `deny` | `host:port`, `*:port`, `host:*`, or `*` |
@@ -1174,4 +1538,12 @@ secrets:
 | `conflicts_with` | `feature` | Space-separated list of conflicting features |
 | `exclusive_group` | `feature` | Group name (only one from group can be enabled) |
 | `command` | `verify` | Command string in `[condition] command` format |
-| `test` | `when` | Feature expression to evaluate |
+| `test` | `when` | Condition expression to evaluate |
+| `when` | any tag | Condition expression (tag removed if false) |
+| `show` | `exec` | Output control: `all`, `command`, `output`, `none` |
+| `pattern` | `substitute`, `exclude` | Text pattern or glob pattern |
+| `value` | `substitute` | Replacement text |
+| `variants` | `substitute` | `"true"` to generate case variants |
+| `file` | `include` | Relative path to `.hick` file to include |
+| `weave` | `doc` | Output path for literate programming markdown |
+| `doc-hidden` | `file` | `"true"` to exclude from weave output |

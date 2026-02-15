@@ -368,3 +368,29 @@ project/
 ├── generated/          # Output directory
 └── .hick-cache/        # Execution cache
 ```
+
+## MCP Server (hick-mcp)
+
+For deeper integration, the `hick-mcp` binary exposes hick operations as MCP
+tools over stdio. This enables AI coding agents to:
+
+- **Run pipelines** (`hick_run`) and cache results
+- **Query output structure** (`hick_structure`) — list functions, structs, classes with line ranges
+- **Search by selector** (`hick_query`) — e.g. `fn main`, `struct Config`, `.imports`
+- **Inspect provenance** (`hick_provenance`) — see which `.hick` source positions produced a given output range
+- **Preview output** (`hick_preview`) — get full rendered content of any output file
+- **Compute edits** (`hick_replace`) — determine which `.hick` source byte ranges to edit when modifying a structural element
+
+Add to your MCP configuration:
+
+```json
+{
+  "mcpServers": {
+    "hick": {
+      "command": "hick-mcp"
+    }
+  }
+}
+```
+
+See the [MCP Reference](../../../docs/mcp-reference.md) for full tool documentation.
