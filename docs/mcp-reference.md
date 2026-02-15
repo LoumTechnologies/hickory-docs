@@ -15,26 +15,29 @@ executing `.hick` files.
 1. [Overview](#1-overview)
 2. [Running the Server](#2-running-the-server)
 3. [ServerState](#3-serverstate)
-4. [Tools: Exec](#4-tools-exec)
+4. [Tools: Pipeline](#4-tools-pipeline)
 5. [Tools: Lens (Read)](#5-tools-lens-read)
 6. [Tools: Lens (Write)](#6-tools-lens-write)
-7. [Typical Workflow](#7-typical-workflow)
+7. [Tools: Container](#7-tools-container)
+8. [Typical Workflow](#8-typical-workflow)
 
 ---
 
 ## 1. Overview
 
 The server implements the MCP protocol (version `2025-03-26`) using the `rmcp`
-crate. It exposes six tools grouped into three categories:
+crate. It exposes seven tools grouped into four categories:
 
 | Category | Tools | Purpose |
 |----------|-------|---------|
-| Exec | `hick_run`, `hick_preview` | Run the hick pipeline and preview output files |
+| Pipeline | `hick_run`, `hick_preview` | Run the hick pipeline and preview output files |
 | Lens (read) | `hick_query`, `hick_structure`, `hick_provenance` | Explore output structure and provenance |
 | Lens (write) | `hick_replace` | Compute source edits to modify `.hick` files |
+| Container | `hick_exec` | Run shell commands in sandboxed WASM Linux containers |
 
 All state is held in `ServerState`, an async-safe cache that stores source
-files, pipeline outputs, provenance maps, and tree-sitter AST mappings.
+files, pipeline outputs, provenance maps, tree-sitter AST mappings, and
+container executor state.
 
 ---
 
@@ -46,8 +49,20 @@ The server communicates over stdio. Stdout is reserved for the MCP protocol;
 logging goes to stderr.
 
 ```bash
+# Lens and pipeline tools only
 hick-mcp
+
+# With container execution enabled
+hick-mcp --images-dir /path/to/wasm-images
 ```
+
+### CLI Arguments
+
+| Flag | Required | Default | Description |
+|------|----------|---------|-------------|
+| `--images-dir` | no | -- | Directory containing `.wasm` container images. Enables `hick_exec` |
+| `--workdir` | no | CWD | Working directory to mount in containers at `/workspace` |
+| `--default-image` | no | `alpine` | Default container image name |
 
 ### Claude Code Integration
 
@@ -57,11 +72,15 @@ Add to your MCP configuration (`.claude/mcp.json` or similar):
 {
   "mcpServers": {
     "hick": {
-      "command": "hick-mcp"
+      "command": "hick-mcp",
+      "args": ["--images-dir", "/path/to/wasm-images"]
     }
   }
 }
 ```
+
+See [Claude Code Setup](claude-code-setup.md) for full configuration
+instructions including sandboxed-only execution.
 
 ### Server Info
 
@@ -109,7 +128,7 @@ Thread-safe cached state for the MCP server. Backed by
 
 ---
 
-## 4. Tools: Exec
+## 4. Tools: Pipeline
 
 ### hick_run
 
@@ -312,7 +331,62 @@ Edit [EXACT]: app.hick bytes [100-114]
 
 ---
 
-## 7. Typical Workflow
+## 7. Tools: Container
+
+### hick_exec
+
+Run a shell command in a sandboxed WASM Linux container. Requires the server to
+be started with `--images-dir`.
+
+The host working directory is mounted at `/workspace` inside the container.
+Containers persist across calls within a session, preserving installed packages,
+environment variables, and filesystem state.
+
+**Parameters:**
+
+| Field | Type | Required | Default | Description |
+|-------|------|----------|---------|-------------|
+| `command` | `String` | yes | -- | Shell command to run |
+| `image` | `String` | no | server default | Container image name |
+| `container` | `String` | no | `"workspace"` | Container name for session persistence |
+| `timeout` | `u64` | no | 120 | Timeout in seconds |
+
+**Response:** The captured stdout/stderr output from the command.
+
+**Example call:**
+
+```json
+{
+  "tool": "hick_exec",
+  "arguments": {
+    "command": "cargo test --workspace",
+    "timeout": 300
+  }
+}
+```
+
+**Example response:**
+
+```
+   Compiling my-crate v0.1.0
+    Finished test [unoptimized + debuginfo] target(s)
+     Running unittests src/lib.rs
+test result: ok. 12 passed; 0 failed; 0 ignored
+```
+
+**Session persistence:**
+
+Containers remain running between calls. To use separate environments:
+
+```json
+{"tool": "hick_exec", "arguments": {"command": "apk add nodejs npm", "container": "frontend"}}
+{"tool": "hick_exec", "arguments": {"command": "npm test", "container": "frontend"}}
+{"tool": "hick_exec", "arguments": {"command": "cargo build", "container": "backend"}}
+```
+
+---
+
+## 8. Typical Workflow
 
 A typical interaction with hick-mcp follows this sequence:
 

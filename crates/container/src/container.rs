@@ -1,4 +1,5 @@
 use std::io;
+use std::path::PathBuf;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -94,6 +95,9 @@ pub struct ContainerConfig {
     pub bridge: Option<Arc<RwLock<NetworkBridge>>>,
     /// Receiver for frames routed from other containers via the bridge.
     pub bridge_rx: Option<mpsc::Receiver<Vec<u8>>>,
+    /// Host directories to preopened in the WASI context.
+    /// Each entry is `(host_path, guest_path)`.
+    pub preopened_dirs: Vec<(PathBuf, String)>,
 }
 
 impl ContainerConfig {
@@ -108,6 +112,7 @@ impl ContainerConfig {
             network_config: None,
             bridge: None,
             bridge_rx: None,
+            preopened_dirs: Vec::new(),
         }
     }
 }
@@ -142,6 +147,7 @@ impl Container {
         let network_config = config.network_config;
         let bridge = config.bridge;
         let bridge_rx = config.bridge_rx;
+        let preopened_dirs = config.preopened_dirs;
 
         // Create OS pipe pairs for stdin, stdout, stderr.
         let (host_stdin, wasi_stdin) = stdin_pipe()?;
@@ -157,6 +163,18 @@ impl Container {
             .stdin(Box::new(wasi_stdin))
             .stdout(Box::new(wasi_stdout))
             .stderr(Box::new(wasi_stderr));
+
+        // Add preopened host directories
+        for (host_path, guest_path) in &preopened_dirs {
+            let dir =
+                cap_std::fs::Dir::open_ambient_dir(host_path, cap_std::ambient_authority())?;
+            builder.preopened_dir(dir, guest_path)?;
+            debug!(
+                "[container] Preopened dir: {} -> {}",
+                host_path.display(),
+                guest_path
+            );
+        }
 
         // Set up networking if enabled
         let mut network_shutdown = None;

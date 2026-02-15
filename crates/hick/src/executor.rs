@@ -193,6 +193,8 @@ pub struct ContainerExecutor {
     module_cache: HashMap<String, Vec<u8>>,
     /// Per-container resource stats, populated during [`shutdown`].
     stats: HashMap<String, ContainerResourceStats>,
+    /// Host directories to preopen in every container's WASI context.
+    preopened_dirs: Vec<(PathBuf, String)>,
     /// Optional pool for adopting pre-warmed containers.
     pool: Option<SharedPool>,
     /// Number of containers adopted from the pool (vs fresh boot).
@@ -221,10 +223,19 @@ impl ContainerExecutor {
             fork_defs: HashMap::new(),
             module_cache: HashMap::new(),
             stats: HashMap::new(),
+            preopened_dirs: Vec::new(),
             pool: None,
             pool_hits: 0,
             pool_boot_time_saved: Duration::ZERO,
         })
+    }
+
+    /// Set host directories to preopen in every container's WASI context.
+    ///
+    /// Each entry is `(host_path, guest_path)`. These directories will be
+    /// passed through to the WASI context builder when starting containers.
+    pub fn set_preopened_dirs(&mut self, dirs: Vec<(PathBuf, String)>) {
+        self.preopened_dirs = dirs;
     }
 
     /// Create an executor backed by a shared container pool.
@@ -253,6 +264,7 @@ impl ContainerExecutor {
             fork_defs: HashMap::new(),
             module_cache,
             stats: HashMap::new(),
+            preopened_dirs: Vec::new(),
             pool: Some(pool),
             pool_hits: 0,
             pool_boot_time_saved: Duration::ZERO,
@@ -381,6 +393,7 @@ impl ContainerExecutor {
         config.network_config = Some(net_cfg.clone());
         config.bridge = Some(self.bridge.clone());
         config.bridge_rx = Some(bridge_rx);
+        config.preopened_dirs = self.preopened_dirs.clone();
 
         let boot_start = Instant::now();
         let container = Container::start(config)

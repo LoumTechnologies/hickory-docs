@@ -79,6 +79,18 @@ pub struct PreviewParams {
     pub file: String,
 }
 
+#[derive(Debug, Deserialize, JsonSchema)]
+pub struct ExecParams {
+    #[schemars(description = "Shell command to run in the container")]
+    pub command: String,
+    #[schemars(description = "Container image (default: server's configured default)")]
+    pub image: Option<String>,
+    #[schemars(description = "Container name for session persistence (default: 'workspace')")]
+    pub container: Option<String>,
+    #[schemars(description = "Timeout in seconds (default: 120)")]
+    pub timeout: Option<u64>,
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -379,6 +391,36 @@ impl HickMcpServer {
 
         Ok(text_result(content))
     }
+
+    // -----------------------------------------------------------------------
+    // Container exec tools
+    // -----------------------------------------------------------------------
+
+    #[tool(
+        description = "Run a shell command in a sandboxed WASM Linux container. The host working directory is mounted at /workspace. Containers persist across calls, preserving installed packages and environment."
+    )]
+    async fn hick_exec(
+        &self,
+        Parameters(params): Parameters<ExecParams>,
+    ) -> Result<CallToolResult, ErrorData> {
+        if !self.state.exec_enabled().await {
+            return Err(err_internal(
+                "Container execution not configured. Start hick-mcp with --images-dir to enable hick_exec.",
+            ));
+        }
+
+        let container = params.container.as_deref().unwrap_or("workspace");
+        let default_image = self.state.default_image().await;
+        let image = params.image.as_deref().unwrap_or(&default_image);
+
+        let output = self
+            .state
+            .exec_command(container, &params.command, image, params.timeout)
+            .await
+            .map_err(|e| err_internal(format!("Exec error: {e}")))?;
+
+        Ok(text_result(output))
+    }
 }
 
 #[tool_handler]
@@ -388,8 +430,10 @@ impl ServerHandler for HickMcpServer {
             protocol_version: ProtocolVersion::V_2025_03_26,
             instructions: Some(
                 "Hick MCP server: query generated output structure, map back to .hick sources, \
-                 compute source edits, and run pipelines. Use hick_run first to load sources, \
-                 then use hick_query/hick_structure/hick_provenance to explore output."
+                 compute source edits, run pipelines, and execute commands in sandboxed WASM \
+                 containers. Use hick_run to load .hick sources, hick_query/hick_structure/\
+                 hick_provenance to explore output, and hick_exec to run shell commands in \
+                 isolated Linux containers with the working directory mounted at /workspace."
                     .into(),
             ),
             capabilities: ServerCapabilities::builder().enable_tools().build(),

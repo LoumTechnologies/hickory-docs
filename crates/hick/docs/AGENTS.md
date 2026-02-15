@@ -393,4 +393,21 @@ Add to your MCP configuration:
 }
 ```
 
+### Sandboxed Command Execution (hick_exec)
+
+When started with `--images-dir`, hick-mcp also provides the `hick_exec` tool
+for running arbitrary shell commands inside WASM Linux containers:
+
+```json
+{"tool": "hick_exec", "arguments": {"command": "cargo test", "timeout": 300}}
+```
+
+The host working directory is mounted at `/workspace` in the container.
+Containers persist across calls, so installed packages and environment state
+are preserved within a session. Use the `container` parameter to manage
+multiple isolated environments.
+
+See [Claude Code Setup](../../../docs/claude-code-setup.md) for instructions on
+configuring Claude Code to use sandboxed execution exclusively.
+
 See the [MCP Reference](../../../docs/mcp-reference.md) for full tool documentation.

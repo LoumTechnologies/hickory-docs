@@ -1,15 +1,25 @@
 //! Server state: caches parsed .hick documents, pipeline results, provenance maps,
-//! and tree-sitter trees.
+//! tree-sitter trees, and manages container execution.
 
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use tokio::sync::Mutex;
 
+use hick::executor::ContainerExecutor;
 use hick_exec::node::FileContent;
 use hick_flow::provenance::ProvenanceMap;
 use hick_lens::language::Language;
 use hick_lens::mapping::AstMapping;
+
+/// Configuration for container execution.
+#[derive(Clone)]
+pub struct ExecConfig {
+    pub images_dir: PathBuf,
+    pub workdir: PathBuf,
+    pub default_image: String,
+}
 
 /// Cached state for the MCP server.
 #[derive(Clone)]
@@ -28,6 +38,10 @@ struct Inner {
     ast_mappings: HashMap<String, AstMapping>,
     /// Summary of last run (file count, etc.).
     run_summary: Option<RunSummary>,
+    /// Container executor for sandboxed command execution.
+    executor: Option<ContainerExecutor>,
+    /// Exec configuration (if container execution is enabled).
+    exec_config: Option<ExecConfig>,
 }
 
 /// Summary info from a pipeline run.
@@ -52,9 +66,100 @@ impl ServerState {
                 provenance_maps: HashMap::new(),
                 ast_mappings: HashMap::new(),
                 run_summary: None,
+                executor: None,
+                exec_config: None,
             })),
         }
     }
+
+    /// Create a new server state with container execution enabled.
+    pub fn with_exec_config(config: ExecConfig) -> Self {
+        Self {
+            inner: Arc::new(Mutex::new(Inner {
+                sources: HashMap::new(),
+                files: HashMap::new(),
+                provenance_maps: HashMap::new(),
+                ast_mappings: HashMap::new(),
+                run_summary: None,
+                executor: None,
+                exec_config: Some(config),
+            })),
+        }
+    }
+
+    /// Get the default container image name.
+    pub async fn default_image(&self) -> String {
+        let inner = self.inner.lock().await;
+        inner
+            .exec_config
+            .as_ref()
+            .map(|c| c.default_image.clone())
+            .unwrap_or_else(|| "alpine".to_string())
+    }
+
+    /// Whether container execution is configured.
+    pub async fn exec_enabled(&self) -> bool {
+        let inner = self.inner.lock().await;
+        inner.exec_config.is_some()
+    }
+
+    /// Ensure a named container is started and booted.
+    ///
+    /// Creates the `ContainerExecutor` lazily on first call, configuring it
+    /// with preopened dirs to mount the working directory at `/workspace`.
+    pub async fn ensure_container(&self, name: &str, image: &str) -> anyhow::Result<()> {
+        let mut inner = self.inner.lock().await;
+        let config = inner
+            .exec_config
+            .as_ref()
+            .ok_or_else(|| anyhow::anyhow!("Container execution not configured (missing --images-dir)"))?
+            .clone();
+
+        if inner.executor.is_none() {
+            let mut executor =
+                ContainerExecutor::new(config.images_dir.clone(), HashMap::new())?;
+            executor.set_preopened_dirs(vec![(
+                config.workdir.clone(),
+                "/workspace".to_string(),
+            )]);
+            inner.executor = Some(executor);
+        }
+
+        let executor = inner.executor.as_mut().unwrap();
+        executor.ensure_started(name, image).await
+    }
+
+    /// Execute a command in a container and return captured output.
+    ///
+    /// Ensures the container is booted first. If a timeout is specified,
+    /// the command is wrapped with a `timeout` shell command.
+    pub async fn exec_command(
+        &self,
+        container: &str,
+        command: &str,
+        image: &str,
+        timeout: Option<u64>,
+    ) -> anyhow::Result<String> {
+        self.ensure_container(container, image).await?;
+
+        let mut inner = self.inner.lock().await;
+        let executor = inner
+            .executor
+            .as_mut()
+            .ok_or_else(|| anyhow::anyhow!("executor not initialized"))?;
+
+        let cmd = if let Some(secs) = timeout {
+            format!("cd /workspace && timeout {secs} sh -c {}", shell_escape(command))
+        } else {
+            format!("cd /workspace && {command}")
+        };
+
+        executor.execute(container, &cmd).await
+    }
+
+    // -----------------------------------------------------------------------
+    // Pipeline / lens state methods (unchanged)
+    // -----------------------------------------------------------------------
 
     /// Load .hick source files.
     pub async fn load_sources(&self, sources: Vec<(String, String)>) {
@@ -169,4 +274,9 @@ impl ServerState {
             _ => None,
         })
     }
+}
+
+/// Shell-escape a string for use in `sh -c '...'`.
+fn shell_escape(s: &str) -> String {
+    format!("'{}'", s.replace('\'', "'\\''"))
 }

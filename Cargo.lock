@@ -3373,11 +3373,13 @@ name = "hick-mcp"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "clap",
  "hick",
  "hick-exec",
  "hick-flow",
  "hick-lang",
  "hick-lens",
+ "log",
  "rmcp",
  "schemars",
  "serde",
