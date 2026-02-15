@@ -166,8 +166,7 @@ impl Container {
 
         // Add preopened host directories
         for (host_path, guest_path) in &preopened_dirs {
-            let dir =
-                cap_std::fs::Dir::open_ambient_dir(host_path, cap_std::ambient_authority())?;
+            let dir = cap_std::fs::Dir::open_ambient_dir(host_path, cap_std::ambient_authority())?;
             builder.preopened_dir(dir, guest_path)?;
             debug!(
                 "[container] Preopened dir: {} -> {}",

@@ -9,11 +9,17 @@
 //! - [`hick_agent_core::HickEditFormat`] — Hick XML pipeline and edit operations
 
 pub mod agent;
+pub mod backing;
+pub mod file_io;
 pub mod llm;
 pub mod llm_openai;
 pub mod llm_xai;
+pub mod react_loop;
+pub mod state;
+pub mod tools;
 
 pub use agent::{Agent, AgentConfig};
 pub use llm::LlmClient;
 pub use llm_openai::OpenAiClient;
 pub use llm_xai::XaiClient;
+pub use react_loop::ReactLoop;

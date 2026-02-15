@@ -3311,11 +3311,15 @@ dependencies = [
  "async-trait",
  "clap",
  "env_logger",
+ "glob",
  "hick-agent-core",
+ "hick-lens",
  "log",
  "serde",
  "serde_json",
+ "serde_yaml",
  "tokio",
+ "walkdir",
 ]
 
 [[package]]

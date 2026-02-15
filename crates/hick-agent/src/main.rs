@@ -7,7 +7,7 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand, ValueEnum};
-use hick_agent::{Agent, AgentConfig, LlmClient, OpenAiClient, XaiClient};
+use hick_agent::{Agent, AgentConfig, LlmClient, OpenAiClient, ReactLoop, XaiClient};
 
 #[derive(Parser)]
 #[command(name = "hick-agent")]
@@ -68,11 +68,13 @@ async fn main() -> Result<()> {
                 LlmProvider::Openai => Box::new(OpenAiClient::new()),
                 LlmProvider::Xai => Box::new(XaiClient::new()),
             };
-            let mut agent = Agent::new(config, llm);
+            let agent = Agent::new(config.clone(), llm);
+            let output_dir = std::env::var("HICK_OUTPUT_DIR").ok();
+            let mut loop_ = ReactLoop::new(agent, config.project_dir.clone(), output_dir);
 
-            println!("hick-agent: AI coding agent");
-            println!("  Project: {}", agent.config().project_dir.display());
-            println!("  Images:  {}", agent.config().images_dir.display());
+            println!("hick-agent: AI coding agent (ReAct loop)");
+            println!("  Project: {}", config.project_dir.display());
+            println!("  Images:  {}", loop_.agent.config().images_dir.display());
             println!();
             println!("Enter your request (or 'quit' to exit):");
 
@@ -87,7 +89,7 @@ async fn main() -> Result<()> {
                     break;
                 }
 
-                match agent.run_turn(input, None, None).await {
+                match loop_.run(input).await {
                     Ok(response) => println!("{}\n", response),
                     Err(e) => eprintln!("Error: {e}"),
                 }

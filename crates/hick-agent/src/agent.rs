@@ -5,7 +5,10 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use hick_agent_core::{CommandExecutor, HickEditFormat, HickEditService, QueryMatch, SourceEdit, WasmSandboxConfig, WasmSandboxExecutor};
+use hick_agent_core::{
+    CommandExecutor, HickEditFormat, HickEditService, QueryMatch, SourceEdit, WasmSandboxConfig,
+    WasmSandboxExecutor,
+};
 
 use crate::llm::LlmClient;
 
@@ -74,10 +77,7 @@ impl Agent {
         sources: &[(String, String)],
         params: &[(String, String)],
     ) -> anyhow::Result<HashMap<String, String>> {
-        let output = self
-            .edit_service
-            .run_pipeline(sources, params)
-            .await?;
+        let output = self.edit_service.run_pipeline(sources, params).await?;
         Ok(output.files)
     }
 
@@ -111,6 +111,23 @@ impl Agent {
         self.edit_service.structure(file).await
     }
 
+    /// Get provenance for a line range in an output file.
+    pub async fn provenance(
+        &self,
+        file: &str,
+        start_line: usize,
+        end_line: usize,
+    ) -> anyhow::Result<String> {
+        self.edit_service
+            .provenance(file, start_line, end_line)
+            .await
+    }
+
+    /// Call the LLM with messages (for ReAct loop).
+    pub async fn llm_complete(&self, messages: Vec<Message>) -> anyhow::Result<String> {
+        self.llm.complete(messages).await
+    }
+
     /// Compute source edits for a selector replacement.
     pub async fn compute_edits(
         &self,
@@ -118,7 +135,9 @@ impl Agent {
         selector: &str,
         new_content: &str,
     ) -> anyhow::Result<Vec<SourceEdit>> {
-        self.edit_service.compute_edits(file, selector, new_content).await
+        self.edit_service
+            .compute_edits(file, selector, new_content)
+            .await
     }
 
     /// Apply edits to source files.

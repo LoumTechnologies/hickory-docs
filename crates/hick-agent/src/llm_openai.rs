@@ -1,11 +1,11 @@
 //! OpenAI API implementation of the LLM client.
 
-use async_trait::async_trait;
 use async_openai::types::{
     ChatCompletionRequestAssistantMessageArgs, ChatCompletionRequestMessage,
     ChatCompletionRequestSystemMessageArgs, ChatCompletionRequestUserMessageArgs,
     CreateChatCompletionRequestArgs,
 };
+use async_trait::async_trait;
 
 use crate::llm::{LlmClient, Message, Role};
 

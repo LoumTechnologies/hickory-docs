@@ -112,16 +112,14 @@ impl ServerState {
         let config = inner
             .exec_config
             .as_ref()
-            .ok_or_else(|| anyhow::anyhow!("Container execution not configured (missing --images-dir)"))?
+            .ok_or_else(|| {
+                anyhow::anyhow!("Container execution not configured (missing --images-dir)")
+            })?
             .clone();
 
         if inner.executor.is_none() {
-            let mut executor =
-                ContainerExecutor::new(config.images_dir.clone(), HashMap::new())?;
-            executor.set_preopened_dirs(vec![(
-                config.workdir.clone(),
-                "/workspace".to_string(),
-            )]);
+            let mut executor = ContainerExecutor::new(config.images_dir.clone(), HashMap::new())?;
+            executor.set_preopened_dirs(vec![(config.workdir.clone(), "/workspace".to_string())]);
             inner.executor = Some(executor);
         }
 
@@ -149,7 +147,10 @@ impl ServerState {
             .ok_or_else(|| anyhow::anyhow!("executor not initialized"))?;
 
         let cmd = if let Some(secs) = timeout {
-            format!("cd /workspace && timeout {secs} sh -c {}", shell_escape(command))
+            format!(
+                "cd /workspace && timeout {secs} sh -c {}",
+                shell_escape(command)
+            )
         } else {
             format!("cd /workspace && {command}")
         };

@@ -52,8 +52,12 @@ pub trait HickEditFormat: Send + Sync {
     async fn query(&self, selector: &str, file: Option<&str>) -> anyhow::Result<Vec<QueryMatch>>;
 
     /// Get provenance for a line range in an output file.
-    async fn provenance(&self, file: &str, start_line: usize, end_line: usize)
-        -> anyhow::Result<String>;
+    async fn provenance(
+        &self,
+        file: &str,
+        start_line: usize,
+        end_line: usize,
+    ) -> anyhow::Result<String>;
 
     /// Compute source edits to replace a selector match with new content.
     async fn compute_edits(
@@ -120,12 +124,12 @@ impl HickEditService {
     ) -> HashMap<String, AstMapping> {
         let mut mappings = HashMap::new();
         for (path, content) in files {
-            if let FileContent::Text(text) = content {
-                if let Some(lang) = Language::from_path(path) {
-                    let prov = provenance_maps.get(path).cloned().unwrap_or_default();
-                    if let Ok(mapping) = AstMapping::build(text, prov, lang) {
-                        mappings.insert(path.clone(), mapping);
-                    }
+            if let FileContent::Text(text) = content
+                && let Some(lang) = Language::from_path(path)
+            {
+                let prov = provenance_maps.get(path).cloned().unwrap_or_default();
+                if let Ok(mapping) = AstMapping::build(text, prov, lang) {
+                    mappings.insert(path.clone(), mapping);
                 }
             }
         }
@@ -162,7 +166,10 @@ impl HickEditFormat for HickEditService {
 
         let ast_mappings = Self::build_ast_mappings(&result.files, &result.provenance_maps);
 
-        self.sources = sources.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+        self.sources = sources
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
         self.files = result.files;
         self.provenance_maps = result.provenance_maps.clone();
         self.ast_mappings = ast_mappings.clone();
@@ -182,16 +189,20 @@ impl HickEditFormat for HickEditService {
         Ok(hick_lens::annotate::structure_summary(mapping, None))
     }
 
-    async fn query(&self, selector: &str, file_filter: Option<&str>) -> anyhow::Result<Vec<QueryMatch>> {
-        let sel = Selector::parse(selector)
-            .map_err(|e| anyhow::anyhow!("Invalid selector: {e}"))?;
+    async fn query(
+        &self,
+        selector: &str,
+        file_filter: Option<&str>,
+    ) -> anyhow::Result<Vec<QueryMatch>> {
+        let sel =
+            Selector::parse(selector).map_err(|e| anyhow::anyhow!("Invalid selector: {e}"))?;
 
         let mut results = Vec::new();
         for (path, mapping) in &self.ast_mappings {
-            if let Some(f) = file_filter {
-                if path != f {
-                    continue;
-                }
+            if let Some(f) = file_filter
+                && path != f
+            {
+                continue;
             }
 
             let matches = sel.query(mapping);
@@ -238,10 +249,7 @@ impl HickEditFormat for HickEditService {
         }
 
         let start_line_0 = start_line.saturating_sub(1);
-        let end_byte = line_starts
-            .get(end_line)
-            .copied()
-            .unwrap_or(content.len());
+        let end_byte = line_starts.get(end_line).copied().unwrap_or(content.len());
         let start_byte = line_starts.get(start_line_0).copied().unwrap_or(0);
 
         let spans = prov.spans_in_range(start_byte, end_byte);
@@ -255,8 +263,8 @@ impl HickEditFormat for HickEditService {
 
         let mut lines = Vec::new();
         for span in &spans {
-            let text_slice = &content
-                [span.output_start.min(content.len())..span.output_end.min(content.len())];
+            let text_slice =
+                &content[span.output_start.min(content.len())..span.output_end.min(content.len())];
             let preview = if text_slice.len() > 80 {
                 format!("{}...", &text_slice[..77])
             } else {
@@ -281,8 +289,8 @@ impl HickEditFormat for HickEditService {
             .get(file)
             .ok_or_else(|| anyhow::anyhow!("No AST mapping for '{}'", file))?;
 
-        let sel = Selector::parse(selector)
-            .map_err(|e| anyhow::anyhow!("Invalid selector: {e}"))?;
+        let sel =
+            Selector::parse(selector).map_err(|e| anyhow::anyhow!("Invalid selector: {e}"))?;
 
         let matches = sel.query(mapping);
         if matches.is_empty() {
@@ -311,7 +319,9 @@ impl HickEditFormat for HickEditService {
     ) -> HashMap<String, String> {
         let mut result = sources.clone();
         for (file, file_edits) in &group_edits_by_file(edits) {
-            let Some(content) = result.get(file) else { continue };
+            let Some(content) = result.get(file) else {
+                continue;
+            };
             let mut content = content.clone();
             // Sort descending by start so indices stay valid
             let mut sorted: Vec<_> = file_edits.iter().collect();
@@ -331,10 +341,7 @@ impl HickEditFormat for HickEditService {
 fn group_edits_by_file(edits: &[SourceEdit]) -> HashMap<String, Vec<&SourceEdit>> {
     let mut by_file: HashMap<String, Vec<&SourceEdit>> = HashMap::new();
     for e in edits {
-        by_file
-            .entry(e.file.to_string())
-            .or_default()
-            .push(e);
+        by_file.entry(e.file.to_string()).or_default().push(e);
     }
     by_file
 }

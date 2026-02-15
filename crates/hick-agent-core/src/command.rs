@@ -73,10 +73,7 @@ impl WasmSandboxExecutor {
     /// Ensure the underlying executor is initialized and the container is booted.
     async fn ensure_ready(&mut self, container: &str, image: &str) -> anyhow::Result<()> {
         if self.executor.is_none() {
-            let executor = ContainerExecutor::new(
-                self.config.images_dir.clone(),
-                HashMap::new(),
-            )?;
+            let executor = ContainerExecutor::new(self.config.images_dir.clone(), HashMap::new())?;
             let mut exec = executor;
             exec.set_preopened_dirs(vec![(
                 self.config.workdir.clone(),

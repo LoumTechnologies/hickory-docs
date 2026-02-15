@@ -3,13 +3,13 @@
 //! Uses the xAI API (https://api.x.ai), which is OpenAI-compatible.
 //! Set `XAI_API_KEY` for authentication. Default model is `grok-beta`.
 
-use async_trait::async_trait;
+use async_openai::config::OpenAIConfig;
 use async_openai::types::{
     ChatCompletionRequestAssistantMessageArgs, ChatCompletionRequestMessage,
     ChatCompletionRequestSystemMessageArgs, ChatCompletionRequestUserMessageArgs,
     CreateChatCompletionRequestArgs,
 };
-use async_openai::config::OpenAIConfig;
+use async_trait::async_trait;
 
 use crate::llm::{LlmClient, Message, Role};
 

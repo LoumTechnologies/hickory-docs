@@ -14,7 +14,10 @@ use hick_mcp::server::HickMcpServer;
 use hick_mcp::state::{ExecConfig, ServerState};
 
 #[derive(Parser)]
-#[command(name = "hick-mcp", about = "MCP server for hick lens, exec, and container operations")]
+#[command(
+    name = "hick-mcp",
+    about = "MCP server for hick lens, exec, and container operations"
+)]
 struct Args {
     /// Directory containing pre-converted .wasm container images.
     /// Required to enable the hick_exec tool.
@@ -57,7 +60,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             default_image: args.default_image,
         })
     } else {
-        tracing::info!("Starting hick-mcp server (container execution disabled, pass --images-dir to enable)");
+        tracing::info!(
+            "Starting hick-mcp server (container execution disabled, pass --images-dir to enable)"
+        );
         ServerState::new()
     };
 
