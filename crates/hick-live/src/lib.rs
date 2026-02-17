@@ -9,6 +9,7 @@ pub mod handlers;
 pub mod node;
 pub mod operators;
 pub mod output;
+pub mod request;
 pub mod schema;
 pub mod sources;
 

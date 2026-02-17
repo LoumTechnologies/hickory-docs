@@ -170,6 +170,134 @@ impl SecretRule {
 }
 
 // ---------------------------------------------------------------------------
+// Extended rule types
+// ---------------------------------------------------------------------------
+
+/// Data access rule: controls which data classification patterns are accessible.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DataAccessRule {
+    pub pattern: String,
+}
+
+impl DataAccessRule {
+    pub fn to_caveat(&self) -> String {
+        format!("data-access = {}", self.pattern)
+    }
+
+    pub fn from_caveat(caveat: &str) -> Option<Self> {
+        let pattern = caveat.strip_prefix("data-access = ")?;
+        Some(Self {
+            pattern: pattern.to_string(),
+        })
+    }
+}
+
+/// API sink rule: controls which sink types are accessible.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ApiSinkRule {
+    pub sink_type: String,
+}
+
+impl ApiSinkRule {
+    pub fn to_caveat(&self) -> String {
+        format!("api-sink = {}", self.sink_type)
+    }
+
+    pub fn from_caveat(caveat: &str) -> Option<Self> {
+        let sink_type = caveat.strip_prefix("api-sink = ")?;
+        Some(Self {
+            sink_type: sink_type.to_string(),
+        })
+    }
+}
+
+/// Purpose rule: constrains data usage to a specific context and purpose.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PurposeRule {
+    pub context: String,
+    pub purpose: String,
+}
+
+impl PurposeRule {
+    pub fn to_caveat(&self) -> String {
+        format!("purpose = {}:{}", self.context, self.purpose)
+    }
+
+    pub fn from_caveat(caveat: &str) -> Option<Self> {
+        let rest = caveat.strip_prefix("purpose = ")?;
+        let (context, purpose) = rest.split_once(':')?;
+        Some(Self {
+            context: context.to_string(),
+            purpose: purpose.to_string(),
+        })
+    }
+}
+
+/// Expiration rule: token is invalid after this timestamp.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExpiresRule {
+    pub expires_at: String,
+}
+
+impl ExpiresRule {
+    pub fn to_caveat(&self) -> String {
+        format!("expires-at = {}", self.expires_at)
+    }
+
+    pub fn from_caveat(caveat: &str) -> Option<Self> {
+        let ts = caveat.strip_prefix("expires-at = ")?;
+        Some(Self {
+            expires_at: ts.to_string(),
+        })
+    }
+}
+
+/// Max calls rule: limits the number of calls to a specific sink.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MaxCallsRule {
+    pub sink_type: String,
+    pub max_calls: u64,
+}
+
+impl MaxCallsRule {
+    pub fn to_caveat(&self) -> String {
+        format!("max-calls = {}:{}", self.sink_type, self.max_calls)
+    }
+
+    pub fn from_caveat(caveat: &str) -> Option<Self> {
+        let rest = caveat.strip_prefix("max-calls = ")?;
+        let (sink_type, n) = rest.rsplit_once(':')?;
+        let max_calls = n.parse().ok()?;
+        Some(Self {
+            sink_type: sink_type.to_string(),
+            max_calls,
+        })
+    }
+}
+
+/// Recipient rule: constrains the recipient for a sink.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RecipientRule {
+    pub sink_type: String,
+    pub recipient: String,
+}
+
+impl RecipientRule {
+    pub fn to_caveat(&self) -> String {
+        format!("recipient = {}:{}", self.sink_type, self.recipient)
+    }
+
+    pub fn from_caveat(caveat: &str) -> Option<Self> {
+        let rest = caveat.strip_prefix("recipient = ")?;
+        let (sink_type, recipient) = rest.split_once(':')?;
+        Some(Self {
+            sink_type: sink_type.to_string(),
+            recipient: recipient.to_string(),
+        })
+    }
+}
+
+// ---------------------------------------------------------------------------
 // ContainerCapabilities
 // ---------------------------------------------------------------------------
 
@@ -180,6 +308,12 @@ pub struct ContainerCapabilities {
     pub file_rules: Vec<FileRule>,
     pub secret_rules: Vec<SecretRule>,
     pub volume_rules: Vec<VolumeRule>,
+    pub data_access_rules: Vec<DataAccessRule>,
+    pub api_sink_rules: Vec<ApiSinkRule>,
+    pub purpose_rules: Vec<PurposeRule>,
+    pub expires_rules: Vec<ExpiresRule>,
+    pub max_calls_rules: Vec<MaxCallsRule>,
+    pub recipient_rules: Vec<RecipientRule>,
 }
 
 impl ContainerCapabilities {
@@ -225,6 +359,251 @@ impl ContainerCapabilities {
         self
     }
 
+    pub fn allow_data_access(mut self, pattern: &str) -> Self {
+        self.data_access_rules.push(DataAccessRule {
+            pattern: pattern.to_string(),
+        });
+        self
+    }
+
+    pub fn allow_api_sink(mut self, sink_type: &str) -> Self {
+        self.api_sink_rules.push(ApiSinkRule {
+            sink_type: sink_type.to_string(),
+        });
+        self
+    }
+
+    pub fn with_purpose(mut self, context: &str, purpose: &str) -> Self {
+        self.purpose_rules.push(PurposeRule {
+            context: context.to_string(),
+            purpose: purpose.to_string(),
+        });
+        self
+    }
+
+    pub fn with_expires(mut self, expires_at: &str) -> Self {
+        self.expires_rules.push(ExpiresRule {
+            expires_at: expires_at.to_string(),
+        });
+        self
+    }
+
+    pub fn with_max_calls(mut self, sink_type: &str, max_calls: u64) -> Self {
+        self.max_calls_rules.push(MaxCallsRule {
+            sink_type: sink_type.to_string(),
+            max_calls,
+        });
+        self
+    }
+
+    pub fn with_recipient(mut self, sink_type: &str, recipient: &str) -> Self {
+        self.recipient_rules.push(RecipientRule {
+            sink_type: sink_type.to_string(),
+            recipient: recipient.to_string(),
+        });
+        self
+    }
+
+    /// Intersect two capability sets, producing the most restrictive combination.
+    ///
+    /// For attenuation: the result only contains capabilities present in both sets.
+    /// - Network: keep only Allow rules present in both; preserve DenyAll from either
+    /// - File/Volume: keep only rules present in both (intersection of allowed paths)
+    /// - Secret: keep only secrets present in both
+    pub fn intersect(&self, restrictor: &ContainerCapabilities) -> ContainerCapabilities {
+        let network_rules = {
+            let mut rules = Vec::new();
+            // Preserve DenyAll from either side
+            let has_deny_self = self
+                .network_rules
+                .iter()
+                .any(|r| matches!(r, NetworkRule::DenyAll));
+            let has_deny_other = restrictor
+                .network_rules
+                .iter()
+                .any(|r| matches!(r, NetworkRule::DenyAll));
+            if has_deny_self || has_deny_other {
+                rules.push(NetworkRule::DenyAll);
+            }
+            // Keep only Allow rules present in both
+            for rule in &self.network_rules {
+                if let NetworkRule::Allow { .. } = rule {
+                    if restrictor.network_rules.contains(rule) && !rules.contains(rule) {
+                        rules.push(rule.clone());
+                    }
+                }
+            }
+            rules
+        };
+
+        let file_rules = self
+            .file_rules
+            .iter()
+            .filter(|r| restrictor.file_rules.contains(r))
+            .cloned()
+            .collect();
+
+        let secret_rules = self
+            .secret_rules
+            .iter()
+            .filter(|r| restrictor.secret_rules.contains(r))
+            .cloned()
+            .collect();
+
+        let volume_rules = self
+            .volume_rules
+            .iter()
+            .filter(|r| restrictor.volume_rules.contains(r))
+            .cloned()
+            .collect();
+
+        let data_access_rules = self
+            .data_access_rules
+            .iter()
+            .filter(|r| restrictor.data_access_rules.contains(r))
+            .cloned()
+            .collect();
+
+        let api_sink_rules = self
+            .api_sink_rules
+            .iter()
+            .filter(|r| restrictor.api_sink_rules.contains(r))
+            .cloned()
+            .collect();
+
+        let purpose_rules = self
+            .purpose_rules
+            .iter()
+            .filter(|r| restrictor.purpose_rules.contains(r))
+            .cloned()
+            .collect();
+
+        // Expires: keep the most restrictive (earliest) from both
+        let mut expires_rules = self.expires_rules.clone();
+        expires_rules.extend(restrictor.expires_rules.clone());
+
+        // MaxCalls: keep all from both (each is additive restriction)
+        let mut max_calls_rules = self.max_calls_rules.clone();
+        for r in &restrictor.max_calls_rules {
+            if !max_calls_rules.contains(r) {
+                max_calls_rules.push(r.clone());
+            }
+        }
+
+        // Recipient: keep all from both
+        let mut recipient_rules = self.recipient_rules.clone();
+        for r in &restrictor.recipient_rules {
+            if !recipient_rules.contains(r) {
+                recipient_rules.push(r.clone());
+            }
+        }
+
+        ContainerCapabilities {
+            network_rules,
+            file_rules,
+            secret_rules,
+            volume_rules,
+            data_access_rules,
+            api_sink_rules,
+            purpose_rules,
+            expires_rules,
+            max_calls_rules,
+            recipient_rules,
+        }
+    }
+
+    /// Merge additional restrictions onto these capabilities (union of rules).
+    ///
+    /// Unlike `intersect` (which takes the most restrictive common subset),
+    /// `merge` adds all rules from `additional` onto `self`. This is the correct
+    /// operation for fork attenuation where fork children add caveats on top of
+    /// inherited source capabilities.
+    pub fn merge(&self, additional: &ContainerCapabilities) -> ContainerCapabilities {
+        let mut caps = self.clone();
+
+        for r in &additional.network_rules {
+            if !caps.network_rules.contains(r) {
+                caps.network_rules.push(r.clone());
+            }
+        }
+        for r in &additional.file_rules {
+            if !caps.file_rules.contains(r) {
+                caps.file_rules.push(r.clone());
+            }
+        }
+        for r in &additional.secret_rules {
+            if !caps.secret_rules.contains(r) {
+                caps.secret_rules.push(r.clone());
+            }
+        }
+        for r in &additional.volume_rules {
+            if !caps.volume_rules.contains(r) {
+                caps.volume_rules.push(r.clone());
+            }
+        }
+        for r in &additional.data_access_rules {
+            if !caps.data_access_rules.contains(r) {
+                caps.data_access_rules.push(r.clone());
+            }
+        }
+        for r in &additional.api_sink_rules {
+            if !caps.api_sink_rules.contains(r) {
+                caps.api_sink_rules.push(r.clone());
+            }
+        }
+        for r in &additional.purpose_rules {
+            if !caps.purpose_rules.contains(r) {
+                caps.purpose_rules.push(r.clone());
+            }
+        }
+        for r in &additional.expires_rules {
+            if !caps.expires_rules.contains(r) {
+                caps.expires_rules.push(r.clone());
+            }
+        }
+        for r in &additional.max_calls_rules {
+            if !caps.max_calls_rules.contains(r) {
+                caps.max_calls_rules.push(r.clone());
+            }
+        }
+        for r in &additional.recipient_rules {
+            if !caps.recipient_rules.contains(r) {
+                caps.recipient_rules.push(r.clone());
+            }
+        }
+
+        caps
+    }
+
+    /// Build capabilities from a list of caveat strings.
+    pub fn from_caveats(caveats: &[String]) -> Self {
+        let mut caps = Self::new();
+        for caveat in caveats {
+            if let Some(r) = NetworkRule::from_caveat(caveat) {
+                caps.network_rules.push(r);
+            } else if let Some(r) = FileRule::from_caveat(caveat) {
+                caps.file_rules.push(r);
+            } else if let Some(r) = SecretRule::from_caveat(caveat) {
+                caps.secret_rules.push(r);
+            } else if let Some(r) = VolumeRule::from_caveat(caveat) {
+                caps.volume_rules.push(r);
+            } else if let Some(r) = DataAccessRule::from_caveat(caveat) {
+                caps.data_access_rules.push(r);
+            } else if let Some(r) = ApiSinkRule::from_caveat(caveat) {
+                caps.api_sink_rules.push(r);
+            } else if let Some(r) = PurposeRule::from_caveat(caveat) {
+                caps.purpose_rules.push(r);
+            } else if let Some(r) = ExpiresRule::from_caveat(caveat) {
+                caps.expires_rules.push(r);
+            } else if let Some(r) = MaxCallsRule::from_caveat(caveat) {
+                caps.max_calls_rules.push(r);
+            } else if let Some(r) = RecipientRule::from_caveat(caveat) {
+                caps.recipient_rules.push(r);
+            }
+        }
+        caps
+    }
+
     /// Convert all capabilities to caveat strings.
     pub fn to_caveats(&self) -> Vec<String> {
         let mut caveats = Vec::new();
@@ -238,6 +617,24 @@ impl ContainerCapabilities {
             caveats.push(rule.to_caveat());
         }
         for rule in &self.volume_rules {
+            caveats.push(rule.to_caveat());
+        }
+        for rule in &self.data_access_rules {
+            caveats.push(rule.to_caveat());
+        }
+        for rule in &self.api_sink_rules {
+            caveats.push(rule.to_caveat());
+        }
+        for rule in &self.purpose_rules {
+            caveats.push(rule.to_caveat());
+        }
+        for rule in &self.expires_rules {
+            caveats.push(rule.to_caveat());
+        }
+        for rule in &self.max_calls_rules {
+            caveats.push(rule.to_caveat());
+        }
+        for rule in &self.recipient_rules {
             caveats.push(rule.to_caveat());
         }
         caveats
@@ -327,6 +724,64 @@ impl ContainerCapabilities {
             VolumeAccess::Write(pattern) => path_matches(path, pattern),
             _ => false,
         })
+    }
+
+    /// Check if data access to the given classification pattern is allowed.
+    /// If no data access rules are defined, access is allowed by default.
+    pub fn check_data_access(&self, pattern: &str) -> bool {
+        if self.data_access_rules.is_empty() {
+            return true;
+        }
+        self.data_access_rules.iter().any(|r| r.pattern == pattern)
+    }
+
+    /// Check if the given API sink type is allowed.
+    /// If no API sink rules are defined, no sinks are allowed.
+    pub fn check_api_sink(&self, sink_type: &str) -> bool {
+        if self.api_sink_rules.is_empty() {
+            return false;
+        }
+        self.api_sink_rules.iter().any(|r| r.sink_type == sink_type)
+    }
+
+    /// Check if the token has expired given the current time (ISO 8601).
+    pub fn check_expires(&self, now: &str) -> bool {
+        if self.expires_rules.is_empty() {
+            return true;
+        }
+        let now_dt = match chrono::DateTime::parse_from_rfc3339(now) {
+            Ok(dt) => dt,
+            Err(_) => return false,
+        };
+        self.expires_rules.iter().all(|r| {
+            match chrono::DateTime::parse_from_rfc3339(&r.expires_at) {
+                Ok(exp) => now_dt < exp,
+                Err(_) => false,
+            }
+        })
+    }
+
+    /// Check if the max calls limit for a sink has been reached.
+    pub fn check_max_calls(&self, sink_type: &str, current_count: u64) -> bool {
+        for rule in &self.max_calls_rules {
+            if rule.sink_type == sink_type && current_count >= rule.max_calls {
+                return false;
+            }
+        }
+        true
+    }
+
+    /// Check if the recipient matches any recipient constraints for the sink.
+    pub fn check_recipient(&self, sink_type: &str, recipient: &str) -> bool {
+        let relevant: Vec<_> = self
+            .recipient_rules
+            .iter()
+            .filter(|r| r.sink_type == sink_type)
+            .collect();
+        if relevant.is_empty() {
+            return true;
+        }
+        relevant.iter().any(|r| r.recipient == recipient)
     }
 }
 
@@ -424,6 +879,12 @@ fn verify_hick_caveat(caveat: &ByteString) -> bool {
         || FileRule::from_caveat(s).is_some()
         || SecretRule::from_caveat(s).is_some()
         || VolumeRule::from_caveat(s).is_some()
+        || DataAccessRule::from_caveat(s).is_some()
+        || ApiSinkRule::from_caveat(s).is_some()
+        || PurposeRule::from_caveat(s).is_some()
+        || ExpiresRule::from_caveat(s).is_some()
+        || MaxCallsRule::from_caveat(s).is_some()
+        || RecipientRule::from_caveat(s).is_some()
 }
 
 // ---------------------------------------------------------------------------
@@ -454,14 +915,8 @@ impl CapabilityToken {
             new_macaroon.add_first_party_caveat(caveat.into());
         }
 
-        // Merge capabilities: attenuated = original + additional restrictions
-        let mut merged = self.capabilities.clone();
-        merged
-            .network_rules
-            .extend(additional.network_rules.clone());
-        merged.file_rules.extend(additional.file_rules.clone());
-        merged.secret_rules.extend(additional.secret_rules.clone());
-        merged.volume_rules.extend(additional.volume_rules.clone());
+        // Merge additional restrictions: attenuation adds caveats on top
+        let merged = self.capabilities.merge(additional);
 
         Ok(CapabilityToken {
             macaroon: new_macaroon,
@@ -672,5 +1127,188 @@ mod tests {
         let caveats = caps.to_caveats();
         assert!(caveats.contains(&"volume-read = shared:**".to_string()));
         assert!(caveats.contains(&"volume-write = shared:output/**".to_string()));
+    }
+
+    #[test]
+    fn intersect_network_rules() {
+        let a = ContainerCapabilities::new()
+            .allow_network("github.com", "443")
+            .allow_network("pypi.org", "443")
+            .deny_all_network();
+        let b = ContainerCapabilities::new()
+            .allow_network("github.com", "443")
+            .deny_all_network();
+
+        let result = a.intersect(&b);
+        // Only github.com:443 is in both; DenyAll preserved
+        assert!(result.check_network("github.com", 443));
+        assert!(!result.check_network("pypi.org", 443));
+    }
+
+    #[test]
+    fn intersect_file_rules() {
+        let a = ContainerCapabilities::new()
+            .allow_file_read("/input/*")
+            .allow_file_write("/output/*");
+        let b = ContainerCapabilities::new().allow_file_read("/input/*");
+
+        let result = a.intersect(&b);
+        assert!(result.check_file_read("/input/data.txt"));
+        // /output/* write only in a, not b → removed
+        assert!(!result.check_file_write("/output/report.html"));
+    }
+
+    #[test]
+    fn intersect_secrets() {
+        let a = ContainerCapabilities::new()
+            .with_secret("TOKEN", "my-token")
+            .with_secret("KEY", "my-key");
+        let b = ContainerCapabilities::new().with_secret("TOKEN", "my-token");
+
+        let result = a.intersect(&b);
+        assert_eq!(result.secret_rules.len(), 1);
+        assert_eq!(result.secret_rules[0].env_var, "TOKEN");
+    }
+
+    #[test]
+    fn attenuate_merges_restrictions() {
+        let authority = test_authority();
+        let caps = ContainerCapabilities::new()
+            .allow_network("github.com", "443")
+            .allow_network("pypi.org", "443")
+            .allow_file_read("/input/*");
+
+        let token = authority.mint("sandbox", &caps).unwrap();
+
+        // Attenuate: add deny-all (original allows still in effect)
+        let restrictor = ContainerCapabilities::new().deny_all_network();
+
+        let attenuated = token.attenuate(&restrictor).unwrap();
+        authority.verify(&attenuated).unwrap();
+
+        // Original allows preserved, but non-whitelisted blocked by deny-all
+        assert!(attenuated.capabilities().check_network("github.com", 443));
+        assert!(attenuated.capabilities().check_network("pypi.org", 443));
+        assert!(!attenuated.capabilities().check_network("evil.com", 80));
+    }
+
+    #[test]
+    fn intersect_produces_common_subset() {
+        let source = ContainerCapabilities::new()
+            .allow_network("github.com", "443")
+            .allow_network("pypi.org", "443")
+            .deny_all_network()
+            .allow_file_write("/output/*");
+
+        let restrictor = ContainerCapabilities::new()
+            .allow_network("github.com", "443")
+            .deny_all_network();
+
+        let result = source.intersect(&restrictor);
+
+        assert!(result.check_network("github.com", 443));
+        assert!(!result.check_network("pypi.org", 443));
+        // file_write not in restrictor → removed
+        assert!(result.file_rules.is_empty());
+    }
+
+    #[test]
+    fn extended_caveat_roundtrip() {
+        let da = DataAccessRule {
+            pattern: "secret:ssn".into(),
+        };
+        let caveat = da.to_caveat();
+        assert_eq!(caveat, "data-access = secret:ssn");
+        assert_eq!(DataAccessRule::from_caveat(&caveat).unwrap(), da);
+
+        let sink = ApiSinkRule {
+            sink_type: "email".into(),
+        };
+        let caveat = sink.to_caveat();
+        assert_eq!(caveat, "api-sink = email");
+        assert_eq!(ApiSinkRule::from_caveat(&caveat).unwrap(), sink);
+
+        let purpose = PurposeRule {
+            context: "email".into(),
+            purpose: "recipient".into(),
+        };
+        let caveat = purpose.to_caveat();
+        assert_eq!(caveat, "purpose = email:recipient");
+        assert_eq!(PurposeRule::from_caveat(&caveat).unwrap(), purpose);
+
+        let expires = ExpiresRule {
+            expires_at: "2026-02-17T15:00:00Z".into(),
+        };
+        let caveat = expires.to_caveat();
+        assert_eq!(caveat, "expires-at = 2026-02-17T15:00:00Z");
+        assert_eq!(ExpiresRule::from_caveat(&caveat).unwrap(), expires);
+
+        let max = MaxCallsRule {
+            sink_type: "email".into(),
+            max_calls: 1,
+        };
+        let caveat = max.to_caveat();
+        assert_eq!(caveat, "max-calls = email:1");
+        assert_eq!(MaxCallsRule::from_caveat(&caveat).unwrap(), max);
+
+        let recip = RecipientRule {
+            sink_type: "email".into(),
+            recipient: "alice@co.com".into(),
+        };
+        let caveat = recip.to_caveat();
+        assert_eq!(caveat, "recipient = email:alice@co.com");
+        assert_eq!(RecipientRule::from_caveat(&caveat).unwrap(), recip);
+    }
+
+    #[test]
+    fn extended_caps_check_methods() {
+        let caps = ContainerCapabilities::new()
+            .allow_data_access("public:*")
+            .allow_api_sink("email")
+            .with_expires("2026-12-31T23:59:59Z")
+            .with_max_calls("email", 2)
+            .with_recipient("email", "alice@co.com");
+
+        assert!(caps.check_data_access("public:*"));
+        assert!(!caps.check_data_access("secret:ssn"));
+
+        assert!(caps.check_api_sink("email"));
+        assert!(!caps.check_api_sink("slack"));
+
+        // Before expiry
+        assert!(caps.check_expires("2026-06-01T00:00:00Z"));
+        // After expiry
+        assert!(!caps.check_expires("2027-01-01T00:00:00Z"));
+
+        // Max calls: 0 < 2 ok, 1 < 2 ok, 2 >= 2 fail
+        assert!(caps.check_max_calls("email", 0));
+        assert!(caps.check_max_calls("email", 1));
+        assert!(!caps.check_max_calls("email", 2));
+
+        assert!(caps.check_recipient("email", "alice@co.com"));
+        assert!(!caps.check_recipient("email", "bob@co.com"));
+        // No recipient rules for slack → allowed
+        assert!(caps.check_recipient("slack", "anyone"));
+    }
+
+    #[test]
+    fn extended_token_mint_and_verify() {
+        let authority = test_authority();
+        let caps = ContainerCapabilities::new()
+            .allow_api_sink("email")
+            .allow_data_access("public:*")
+            .with_expires("2026-12-31T23:59:59Z")
+            .with_max_calls("email", 5)
+            .with_recipient("email", "alice@co.com");
+
+        let token = authority.mint("worker", &caps).unwrap();
+        authority.verify(&token).unwrap();
+
+        let caveats = caps.to_caveats();
+        assert!(caveats.contains(&"api-sink = email".to_string()));
+        assert!(caveats.contains(&"data-access = public:*".to_string()));
+        assert!(caveats.contains(&"expires-at = 2026-12-31T23:59:59Z".to_string()));
+        assert!(caveats.contains(&"max-calls = email:5".to_string()));
+        assert!(caveats.contains(&"recipient = email:alice@co.com".to_string()));
     }
 }

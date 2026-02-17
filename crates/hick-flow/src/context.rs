@@ -26,6 +26,11 @@ impl Context {
         self
     }
 
+    /// Add an extension to an existing context.
+    pub fn set_extension<T: Send + Sync + 'static>(&mut self, value: T) {
+        self.extensions.insert(TypeId::of::<T>(), Arc::new(value));
+    }
+
     /// Retrieve a previously stored extension by type.
     pub fn get_extension<T: Send + Sync + 'static>(&self) -> Option<Arc<T>> {
         self.extensions

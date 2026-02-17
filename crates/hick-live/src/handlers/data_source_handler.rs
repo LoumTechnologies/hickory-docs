@@ -7,6 +7,8 @@ use arrow::datatypes::{DataType, Field, Schema};
 use hick_handlers::{ProcessingContext, ProcessingPhase, TagHandler, TagResult, tag_attr};
 use hick_lang::HickTag;
 
+use hick_classify::{Classification, ColumnClassifications};
+
 use crate::node::StreamingStructuredDataNode;
 use crate::schema::LiveSchema;
 use crate::sources::csv::CsvSource;
@@ -37,7 +39,9 @@ impl TagHandler for DataSourceHandler {
 
         let schema = parse_schema(tag)?;
         let key_columns = parse_key_columns(tag);
-        let live_schema = LiveSchema::new_strict(Arc::new(schema.clone()), key_columns);
+        let classifications = parse_classifications(tag);
+        let live_schema = LiveSchema::new_strict(Arc::new(schema.clone()), key_columns)
+            .with_classifications(classifications);
 
         match source_type.as_str() {
             "csv" => {
@@ -96,6 +100,25 @@ fn parse_schema(tag: &HickTag) -> Result<Schema> {
     }
 
     Ok(Schema::new(fields))
+}
+
+/// Parse classification attributes from child `<hick:column>` tags.
+fn parse_classifications(tag: &HickTag) -> ColumnClassifications {
+    use hick_lang::HickNode;
+
+    let mut cls = ColumnClassifications::new();
+    for child in &tag.children {
+        if let HickNode::Tag(child_tag) = child
+            && child_tag.name == "column"
+            && let Some(name) = tag_attr(child_tag, "name")
+            && let Some(cls_str) = tag_attr(child_tag, "classification")
+        {
+            if let Ok(classification) = Classification::from_json_string(&cls_str) {
+                cls.set(&name, classification);
+            }
+        }
+    }
+    cls
 }
 
 /// Parse key columns from child `<hick:column key="true">` tags.

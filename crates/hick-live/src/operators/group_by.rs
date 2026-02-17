@@ -41,6 +41,7 @@ impl GroupByNode {
             arrow_schema: input_schema.arrow_schema.clone(),
             key_columns: group_columns.clone(),
             is_strict: input_schema.is_strict,
+            classifications: input_schema.classifications.clone(),
         };
         Self {
             source,

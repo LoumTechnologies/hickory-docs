@@ -175,13 +175,11 @@ fn prepare_pipeline<'a>(
             let additional_caps = build_fork_capabilities(tag);
 
             if let Some(source_caps) = container_defs.get(&from) {
-                let mut forked_caps = source_caps.clone();
-                if let Some(extra) = &additional_caps {
-                    forked_caps
-                        .network_rules
-                        .extend(extra.network_rules.clone());
-                    forked_caps.file_rules.extend(extra.file_rules.clone());
-                }
+                let forked_caps = if let Some(extra) = &additional_caps {
+                    source_caps.merge(extra)
+                } else {
+                    source_caps.clone()
+                };
                 debug!("Fork '{from}' -> '{to}': {:?}", forked_caps);
                 container_defs.insert(to.clone(), forked_caps);
             } else {

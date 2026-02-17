@@ -3,6 +3,7 @@
 use std::sync::Arc;
 
 use arrow::datatypes::Schema;
+use hick_classify::ColumnClassifications;
 
 /// Schema for a live (incrementally-updating) collection.
 ///
@@ -19,6 +20,8 @@ pub struct LiveSchema {
     /// Whether this stream guarantees strict Remove events
     /// (i.e., Remove events carry full row data, not just keys).
     pub is_strict: bool,
+    /// Per-column data classification labels.
+    pub classifications: ColumnClassifications,
 }
 
 impl LiveSchema {
@@ -28,6 +31,7 @@ impl LiveSchema {
             arrow_schema,
             key_columns,
             is_strict: true,
+            classifications: ColumnClassifications::new(),
         }
     }
 
@@ -37,7 +41,14 @@ impl LiveSchema {
             arrow_schema,
             key_columns,
             is_strict: false,
+            classifications: ColumnClassifications::new(),
         }
+    }
+
+    /// Builder: set classifications.
+    pub fn with_classifications(mut self, classifications: ColumnClassifications) -> Self {
+        self.classifications = classifications;
+        self
     }
 
     /// Check whether the given column names are all present in the schema.
@@ -68,6 +79,7 @@ impl LiveSchema {
             arrow_schema: Arc::new(Schema::new(fields)),
             key_columns: projected_keys,
             is_strict: self.is_strict && keys_survive,
+            classifications: self.classifications.project(columns),
         }
     }
 }

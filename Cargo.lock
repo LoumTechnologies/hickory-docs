@@ -239,6 +239,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "arrayref"
+version = "0.3.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "76a2e8124351fda1ef8aaaa3bbd7ebbcb486bbcd4225aca0aa0d84bb2db8fecb"
+
+[[package]]
+name = "arrayvec"
+version = "0.7.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7c02d123df017efcdfbd739ef81735b36c5ba83ec3c59c80a9d7ecc718f92e50"
+
+[[package]]
 name = "arrow"
 version = "54.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1163,6 +1175,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "blake3"
+version = "1.8.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2468ef7d57b3fb7e16b576e8377cdbde2320c60e1491e961d11da40fc4f02a2d"
+dependencies = [
+ "arrayref",
+ "arrayvec",
+ "cc",
+ "cfg-if",
+ "constant_time_eq 0.4.2",
+ "cpufeatures",
+]
+
+[[package]]
 name = "block-buffer"
 version = "0.10.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1679,6 +1705,12 @@ name = "constant_time_eq"
 version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7c74b8349d32d297c9134b8c88677813a227df8f779daa29bfc29c183fe3dca6"
+
+[[package]]
+name = "constant_time_eq"
+version = "0.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3d52eff69cd5e647efe296129160853a42795992097e8af39800e1060caeea9b"
 
 [[package]]
 name = "container"
@@ -3353,6 +3385,19 @@ name = "hick-case"
 version = "0.1.0"
 
 [[package]]
+name = "hick-classify"
+version = "0.1.0"
+dependencies = [
+ "arrow",
+ "blake3",
+ "parquet",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "hick-condition"
 version = "0.1.0"
 
@@ -3464,13 +3509,20 @@ dependencies = [
  "anyhow",
  "arrow",
  "async-stream",
+ "async-trait",
+ "blake3",
  "futures",
+ "hick-classify",
  "hick-exec",
  "hick-flow",
  "hick-handlers",
  "hick-lang",
+ "hick-sink",
+ "hick-token",
  "log",
  "parquet",
+ "serde",
+ "serde_json",
  "tempfile",
  "tokio",
 ]
@@ -3514,11 +3566,60 @@ dependencies = [
 ]
 
 [[package]]
+name = "hick-plan-runner"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "env_logger",
+ "futures",
+ "hick-classify",
+ "hick-exec",
+ "hick-flow",
+ "hick-handlers",
+ "hick-lang",
+ "hick-live",
+ "hick-policy",
+ "hick-sink",
+ "hick-token",
+ "log",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "hick-policy"
+version = "0.1.0"
+dependencies = [
+ "hick-classify",
+ "log",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+]
+
+[[package]]
 name = "hick-secrets"
 version = "0.1.0"
 dependencies = [
  "age",
  "async-trait",
+ "thiserror 2.0.18",
+ "tokio",
+]
+
+[[package]]
+name = "hick-sink"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "hick-classify",
+ "hick-token",
+ "log",
+ "serde",
+ "serde_json",
  "thiserror 2.0.18",
  "tokio",
 ]
@@ -3544,6 +3645,8 @@ dependencies = [
 name = "hick-token"
 version = "0.1.0"
 dependencies = [
+ "chrono",
+ "hick-classify",
  "macaroon",
  "thiserror 2.0.18",
 ]
@@ -9099,7 +9202,7 @@ dependencies = [
  "aes",
  "arbitrary",
  "bzip2",
- "constant_time_eq",
+ "constant_time_eq 0.3.1",
  "crc32fast",
  "crossbeam-utils",
  "deflate64",
