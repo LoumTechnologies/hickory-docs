@@ -177,7 +177,7 @@ mod tests {
         let result = handler.process(&tag, &ctx).unwrap();
         assert!(matches!(result, TagResult::Declaration));
 
-        assert_eq!(state.resolve_paste("#ver"), Some("1.0.0".to_string()));
+        assert_eq!(state.resolve_paste("#ver", None), Some("1.0.0".to_string()));
     }
 
     #[test]
@@ -196,7 +196,7 @@ mod tests {
         handler.process(&tag, &ctx).unwrap();
 
         assert_eq!(
-            state.resolve_paste(".imports"),
+            state.resolve_paste(".imports", None),
             Some("import foo;".to_string())
         );
     }
@@ -244,7 +244,7 @@ mod tests {
         handler.process(&tag, &ctx).unwrap();
 
         assert_eq!(
-            state.resolve_paste("#setup-output"),
+            state.resolve_paste("#setup-output", None),
             Some("hello\n".to_string()),
         );
     }
@@ -282,7 +282,7 @@ mod tests {
         let handler = CopyHandler;
         handler.process(&tag, &ctx).unwrap();
 
-        assert_eq!(state.resolve_paste("#ver"), Some("3.0.0".to_string()));
+        assert_eq!(state.resolve_paste("#ver", None), Some("3.0.0".to_string()));
     }
 
     #[test]
@@ -307,7 +307,7 @@ mod tests {
         handler.process(&tag, &ctx).unwrap();
 
         assert_eq!(
-            state.resolve_paste("#greeting"),
+            state.resolve_paste("#greeting", None),
             Some("Hello literal".to_string())
         );
     }
@@ -352,7 +352,7 @@ mod tests {
         handler.process(&tag, &ctx).unwrap();
 
         assert_eq!(
-            state.resolve_paste("#date-output"),
+            state.resolve_paste("#date-output", None),
             Some("2024-01-01\n".to_string()),
         );
     }

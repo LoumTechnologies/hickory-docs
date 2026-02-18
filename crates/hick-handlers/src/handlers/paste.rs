@@ -75,6 +75,9 @@ impl Node for PasteNode {
 /// - `select` - Required CSS-like selector:
 ///   - `#id` - Paste content from block with matching ID
 ///   - `.class` - Concatenate content from all blocks with matching class (in document order)
+/// - `separator` - Optional string inserted between blocks for class selectors
+/// - `min` - Optional minimum number of matching blocks (error if fewer)
+/// - `max` - Optional maximum number of matching blocks (error if more)
 pub struct PasteHandler;
 
 impl TagHandler for PasteHandler {
@@ -88,9 +91,37 @@ impl TagHandler for PasteHandler {
 
     fn process(&self, tag: &HickTag, ctx: &ProcessingContext) -> Result<TagResult> {
         let selector = tag_attr(tag, "select").unwrap_or_default();
+        let separator = tag_attr(tag, "separator");
+        let min: Option<usize> = tag_attr(tag, "min").and_then(|v| v.parse().ok());
+        let max: Option<usize> = tag_attr(tag, "max").and_then(|v| v.parse().ok());
+
+        // Validate min/max constraints
+        let count = ctx.state.count_paste_matches(&selector);
+        if let Some(min_val) = min {
+            if count < min_val {
+                anyhow::bail!(
+                    "Paste selector '{}' matched {} block(s), but min={} required",
+                    selector,
+                    count,
+                    min_val,
+                );
+            }
+        }
+        if let Some(max_val) = max {
+            if count > max_val {
+                anyhow::bail!(
+                    "Paste selector '{}' matched {} block(s), but max={} allowed",
+                    selector,
+                    count,
+                    max_val,
+                );
+            }
+        }
+
+        let sep = separator.as_deref();
 
         // Try node-based resolution first (supports reactive streaming)
-        if let Some(node) = ctx.state.resolve_paste_node(&selector) {
+        if let Some(node) = ctx.state.resolve_paste_node(&selector, sep) {
             // If the node has a direct string value and we need to dedent, wrap it
             if ctx.indent > 0
                 && let Some(s) = node.as_string_value()
@@ -104,7 +135,7 @@ impl TagHandler for PasteHandler {
         }
 
         // Fallback to string-based resolution (backward compat)
-        if let Some(content) = ctx.state.resolve_paste(&selector) {
+        if let Some(content) = ctx.state.resolve_paste(&selector, sep) {
             let dedented = dedent(&content, ctx.indent);
             Ok(TagResult::Node(Arc::new(PasteNode::new(
                 dedented, &selector,
@@ -206,5 +237,211 @@ mod tests {
         let result = handler.process(&tag, &ctx).unwrap();
 
         assert!(matches!(result, TagResult::Declaration));
+    }
+
+    // -----------------------------------------------------------------------
+    // Separator tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn paste_handler_separator() {
+        let state = Arc::new(MultiDocumentState::default());
+        state.register_copy_with_class("".to_string(), Some("items"), "a".to_string());
+        state.register_copy_with_class("".to_string(), Some("items"), "b".to_string());
+        state.register_copy_with_class("".to_string(), Some("items"), "c".to_string());
+
+        let transcripts = HashMap::new();
+        let ctx = make_ctx(&state, &transcripts);
+
+        let tag = make_tag(
+            "paste",
+            vec![
+                ("select".to_string(), ".items".to_string()),
+                ("separator".to_string(), ", ".to_string()),
+            ],
+        );
+
+        let handler = PasteHandler;
+        let result = handler.process(&tag, &ctx).unwrap();
+
+        match result {
+            TagResult::Node(node) => {
+                assert_eq!(node.as_string_value(), Some("a, b, c"));
+            }
+            _ => panic!("Expected Node result"),
+        }
+    }
+
+    #[test]
+    fn paste_handler_separator_newline() {
+        let state = Arc::new(MultiDocumentState::default());
+        state.register_copy_with_class("".to_string(), Some("deps"), "serde".to_string());
+        state.register_copy_with_class("".to_string(), Some("deps"), "tokio".to_string());
+
+        let transcripts = HashMap::new();
+        let ctx = make_ctx(&state, &transcripts);
+
+        let tag = make_tag(
+            "paste",
+            vec![
+                ("select".to_string(), ".deps".to_string()),
+                ("separator".to_string(), "\n".to_string()),
+            ],
+        );
+
+        let handler = PasteHandler;
+        let result = handler.process(&tag, &ctx).unwrap();
+
+        match result {
+            TagResult::Node(node) => {
+                assert_eq!(node.as_string_value(), Some("serde\ntokio"));
+            }
+            _ => panic!("Expected Node result"),
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Min/max tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn paste_handler_min_satisfied() {
+        let state = Arc::new(MultiDocumentState::default());
+        state.register_copy_with_class("".to_string(), Some("routes"), "GET /".to_string());
+
+        let transcripts = HashMap::new();
+        let ctx = make_ctx(&state, &transcripts);
+
+        let tag = make_tag(
+            "paste",
+            vec![
+                ("select".to_string(), ".routes".to_string()),
+                ("min".to_string(), "1".to_string()),
+            ],
+        );
+
+        let handler = PasteHandler;
+        let result = handler.process(&tag, &ctx);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn paste_handler_min_violated() {
+        let state = Arc::new(MultiDocumentState::default());
+        // No blocks registered for .routes
+
+        let transcripts = HashMap::new();
+        let ctx = make_ctx(&state, &transcripts);
+
+        let tag = make_tag(
+            "paste",
+            vec![
+                ("select".to_string(), ".routes".to_string()),
+                ("min".to_string(), "1".to_string()),
+            ],
+        );
+
+        let handler = PasteHandler;
+        match handler.process(&tag, &ctx) {
+            Err(e) => {
+                let msg = e.to_string();
+                assert!(msg.contains("min=1"), "Error should mention min: {msg}");
+            }
+            Ok(_) => panic!("Expected error with min=1 and 0 blocks"),
+        }
+    }
+
+    #[test]
+    fn paste_handler_max_satisfied() {
+        let state = Arc::new(MultiDocumentState::default());
+        state.register_copy("cfg".to_string(), "value".to_string());
+
+        let transcripts = HashMap::new();
+        let ctx = make_ctx(&state, &transcripts);
+
+        let tag = make_tag(
+            "paste",
+            vec![
+                ("select".to_string(), "#cfg".to_string()),
+                ("min".to_string(), "1".to_string()),
+                ("max".to_string(), "1".to_string()),
+            ],
+        );
+
+        let handler = PasteHandler;
+        let result = handler.process(&tag, &ctx);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn paste_handler_max_violated() {
+        let state = Arc::new(MultiDocumentState::default());
+        state.register_copy_with_class("".to_string(), Some("plugins"), "a".to_string());
+        state.register_copy_with_class("".to_string(), Some("plugins"), "b".to_string());
+        state.register_copy_with_class("".to_string(), Some("plugins"), "c".to_string());
+
+        let transcripts = HashMap::new();
+        let ctx = make_ctx(&state, &transcripts);
+
+        let tag = make_tag(
+            "paste",
+            vec![
+                ("select".to_string(), ".plugins".to_string()),
+                ("max".to_string(), "2".to_string()),
+            ],
+        );
+
+        let handler = PasteHandler;
+        match handler.process(&tag, &ctx) {
+            Err(e) => {
+                let msg = e.to_string();
+                assert!(msg.contains("max=2"), "Error should mention max: {msg}");
+            }
+            Ok(_) => panic!("Expected error with max=2 and 3 blocks"),
+        }
+    }
+
+    #[test]
+    fn paste_handler_min_zero_allows_missing() {
+        let state = Arc::new(MultiDocumentState::default());
+
+        let transcripts = HashMap::new();
+        let ctx = make_ctx(&state, &transcripts);
+
+        // min=0 explicitly allows no matches (same as no min)
+        let tag = make_tag(
+            "paste",
+            vec![
+                ("select".to_string(), ".optional".to_string()),
+                ("min".to_string(), "0".to_string()),
+            ],
+        );
+
+        let handler = PasteHandler;
+        let result = handler.process(&tag, &ctx);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn paste_handler_id_min_required() {
+        let state = Arc::new(MultiDocumentState::default());
+        // No block registered for #db-config
+
+        let transcripts = HashMap::new();
+        let ctx = make_ctx(&state, &transcripts);
+
+        let tag = make_tag(
+            "paste",
+            vec![
+                ("select".to_string(), "#db-config".to_string()),
+                ("min".to_string(), "1".to_string()),
+            ],
+        );
+
+        let handler = PasteHandler;
+        assert!(
+            handler.process(&tag, &ctx).is_err(),
+            "Expected error with min=1 and missing #db-config",
+        );
     }
 }

@@ -391,10 +391,12 @@ This text is available to paste but not in the output.
 
 ### Paste
 
-Inserts previously stored content by id selector. Self-closing tag.
+Inserts previously stored content by id or class selector. Self-closing tag.
 
 ```xml
 <hick:paste select="#version" />
+<hick:paste select=".dependencies" separator="\n" />
+<hick:paste select=".routes" min="1" />
 ```
 
 ### Attributes
@@ -409,7 +411,15 @@ Inserts previously stored content by id selector. Self-closing tag.
 
 | Attribute | Required | Description |
 |-----------|----------|-------------|
-| `select` | Yes | CSS-style `#id` selector referencing a copy or cut block |
+| `select` | Yes | CSS-style `#id` or `.class` selector referencing copy or cut blocks |
+| `separator` | No | String inserted between blocks for `.class` selectors |
+| `min` | No | Minimum number of matching blocks required (error if fewer) |
+| `max` | No | Maximum number of matching blocks allowed (error if more) |
+
+The `min` and `max` attributes enable contract enforcement:
+- `min="1"` makes the paste required (build fails if no matching block exists)
+- `min="1" max="1"` requires exactly one match
+- Applied before content resolution; errors abort the build
 
 ### Resolution
 
@@ -418,8 +428,9 @@ Paste resolves in this order:
 1. Cut blocks (checked first)
 2. Copy blocks
 
-If no matching block is found, a warning is logged and the paste produces
-empty output.
+If no matching block is found and no `min` constraint is set, a warning is
+logged and the paste produces empty output. If `min` is set and the count is
+below the minimum, the build fails with an error.
 
 ### Cross-document scope
 
@@ -1527,6 +1538,9 @@ for details.
 | `id` | `copy`, `cut` | Unique content identifier |
 | `class` | `copy`, `cut` | Space-separated CSS class names |
 | `select` | `paste` | CSS `#id` or `.class` selector |
+| `separator` | `paste` | String inserted between blocks for `.class` selectors |
+| `min` | `paste` | Minimum number of matching blocks required |
+| `max` | `paste` | Maximum number of matching blocks allowed |
 | `from` | `fork`, `secret` | Source container name or secret name |
 | `to` | `fork` | Target container name |
 | `network` | `allow`, `deny` | `host:port`, `*:port`, `host:*`, or `*` |
