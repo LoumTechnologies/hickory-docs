@@ -12,6 +12,7 @@ use log::info;
 use hick::config::{HickConfig, find_config};
 
 use crate::expand_path_arg;
+use crate::visual_regression::{self, VisualRegressionConfig};
 
 // ---------------------------------------------------------------------------
 // CLI
@@ -88,6 +89,18 @@ pub struct GenerateMatrixArgs {
     /// Skip confirmation prompt for embedded verify commands.
     #[arg(short = 'y', long)]
     pub yes: bool,
+
+    /// Screenshot capture command for visual regression (e.g., "devenv-pilot screenshot {{output}}")
+    #[arg(long)]
+    pub screenshot: Option<String>,
+
+    /// Update baseline screenshots from current run
+    #[arg(long)]
+    pub update_baselines: bool,
+
+    /// Pixel diff threshold for visual regression (0.0-1.0, default: 0.01)
+    #[arg(long, default_value_t = 0.01)]
+    pub screenshot_threshold: f64,
 }
 
 // ---------------------------------------------------------------------------
@@ -798,11 +811,23 @@ pub async fn run(cli: GenerateMatrixArgs) -> Result<()> {
         .collect();
     verify_cmds.extend(cli.verify.iter().map(|s| VerifyCommand::parse(s)));
 
+    // Set up visual regression config if --screenshot is provided
+    let vr_config = cli.screenshot.as_ref().map(|capture_cmd| {
+        VisualRegressionConfig {
+            baseline_dir: cli.output_dir.join(".baselines"),
+            output_dir: cli.output_dir.join(".screenshots"),
+            diff_dir: cli.output_dir.join(".diffs"),
+            threshold: cli.screenshot_threshold,
+            capture_command: Some(capture_cmd.clone()),
+        }
+    });
+
     // Wrap shared data in Arc for parallel access
     let file_contents = Arc::new(file_contents);
     let base_params = Arc::new(base_params);
     let output_dir = Arc::new(cli.output_dir.clone());
     let verify_cmds = Arc::new(verify_cmds);
+    let vr_config = Arc::new(vr_config);
     let continue_on_error = cli.continue_on_error;
     let total_combinations = combinations.len();
 
@@ -811,6 +836,11 @@ pub async fn run(cli: GenerateMatrixArgs) -> Result<()> {
 
     // Collect failures for final report
     let failures = Arc::new(tokio::sync::Mutex::new(Vec::<(String, String)>::new()));
+
+    // Collect visual regression results
+    let vr_results = Arc::new(tokio::sync::Mutex::new(
+        Vec::<visual_regression::ComparisonResult>::new(),
+    ));
 
     // Clone features list for regression analysis
     let all_features_for_analysis: Vec<String> = features_to_combine.clone();
@@ -880,6 +910,8 @@ pub async fn run(cli: GenerateMatrixArgs) -> Result<()> {
             let base_params = base_params.clone();
             let output_dir = output_dir.clone();
             let verify_cmds = verify_cmds.clone();
+            let vr_config = vr_config.clone();
+            let vr_results = vr_results.clone();
             let cancelled = cancelled.clone();
             let failures = failures.clone();
             let progress = progress.clone();
@@ -1024,6 +1056,81 @@ pub async fn run(cli: GenerateMatrixArgs) -> Result<()> {
                             }
                         }
 
+                        // Run visual regression if configured
+                        if let Some(ref vr_cfg) = *vr_config {
+                            let capture_cmd = vr_cfg
+                                .capture_command
+                                .as_deref()
+                                .unwrap_or("echo 'no capture command'");
+                            match visual_regression::capture_screenshot(
+                                vr_cfg,
+                                &combo_name,
+                                capture_cmd,
+                                &combo_dir,
+                            ) {
+                                Ok(screenshot_path) => {
+                                    match visual_regression::compare_screenshot(
+                                        vr_cfg,
+                                        &combo_name,
+                                        &screenshot_path,
+                                    ) {
+                                        Ok(Some(comparison)) => {
+                                            if !comparison.passed {
+                                                let error_msg = format!(
+                                                    "visual regression failed: diff ratio {:.4} exceeds threshold {:.4}",
+                                                    comparison.pixel_diff_ratio, vr_cfg.threshold
+                                                );
+                                                if !continue_on_error {
+                                                    progress.record_failure();
+                                                    failures
+                                                        .lock()
+                                                        .await
+                                                        .push((combo_name.clone(), error_msg));
+                                                    cancelled.store(true, Ordering::Relaxed);
+                                                    vr_results.lock().await.push(comparison);
+                                                    return Err(());
+                                                }
+                                            }
+                                            vr_results.lock().await.push(comparison);
+                                        }
+                                        Ok(None) => {
+                                            // First run, baseline created
+                                            info!(
+                                                "Created baseline screenshot for {}",
+                                                combo_name
+                                            );
+                                        }
+                                        Err(e) => {
+                                            let error_msg =
+                                                format!("screenshot comparison failed: {}", e);
+                                            progress.record_failure();
+                                            failures
+                                                .lock()
+                                                .await
+                                                .push((combo_name.clone(), error_msg));
+                                            if !continue_on_error {
+                                                cancelled.store(true, Ordering::Relaxed);
+                                            }
+                                            return Err(());
+                                        }
+                                    }
+                                }
+                                Err(e) => {
+                                    let error_msg =
+                                        format!("screenshot capture failed: {}", e);
+                                    progress.record_failure();
+                                    failures
+                                        .lock()
+                                        .await
+                                        .push((combo_name.clone(), error_msg));
+                                    if !continue_on_error {
+                                        cancelled.store(true, Ordering::Relaxed);
+                                    }
+                                    return Err(());
+                                }
+                            }
+                        }
+
                         // Record success with timing
                         progress.record_success(&combo, combo_elapsed).await;
                         Ok(combo_name)
@@ -1132,6 +1239,32 @@ pub async fn run(cli: GenerateMatrixArgs) -> Result<()> {
                 name,
                 error.lines().next().unwrap_or("unknown error")
             );
+        }
+    }
+
+    // Visual regression summary
+    let vr_results_data = match Arc::try_unwrap(vr_results) {
+        Ok(mutex) => mutex.into_inner(),
+        Err(arc) => arc.lock().await.clone(),
+    };
+    if !vr_results_data.is_empty() {
+        println!("\n--- Visual Regression ---");
+        println!("{}", visual_regression::summary_report(&vr_results_data));
+    }
+
+    // Handle --update-baselines
+    if cli.update_baselines {
+        if let Some(ref vr_cfg) = *vr_config {
+            let combo_names: Vec<String> = results
+                .iter()
+                .filter_map(|r| r.as_ref().ok().cloned())
+                .collect();
+            match visual_regression::update_baselines(vr_cfg, &combo_names) {
+                Ok(n) => println!("\nUpdated {} baseline screenshot(s)", n),
+                Err(e) => eprintln!("\nWarning: failed to update baselines: {}", e),
+            }
+        } else {
+            eprintln!("\nWarning: --update-baselines requires --screenshot");
         }
     }
 

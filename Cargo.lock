@@ -3403,6 +3403,7 @@ dependencies = [
  "sha2",
  "sysinfo",
  "tar",
+ "tempfile",
  "thiserror 2.0.18",
  "tokio",
  "wasmtime 41.0.1",
