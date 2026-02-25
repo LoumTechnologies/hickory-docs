@@ -62,3 +62,4 @@ sysinfo = "0.38.0"
 
 [dev-dependencies]
 hick-store = { path = "../hick-store" }
+tempfile = "3"

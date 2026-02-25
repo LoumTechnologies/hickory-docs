@@ -9,6 +9,7 @@
 
 mod generate_matrix;
 mod output_cleanup;
+mod visual_regression;
 
 use std::path::{Path, PathBuf};
 use std::time::Instant;
