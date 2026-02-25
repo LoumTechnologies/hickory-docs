@@ -24,9 +24,11 @@ const SYSTEM_PROMPT: &str = r#"You are an AI coding agent for projects using Hic
 
 ## How you work
 
-You accomplish tasks by writing Python scripts. Put your code in ```python code blocks. Each code block is written to a file and executed with `python3`. You see the stdout and stderr as your observation, then decide what to do next.
+You accomplish tasks by writing Python scripts. Write ONE ```python code block per response, then STOP and wait for the real execution output. Do NOT predict or guess what the output will be — the system runs your script and shows you the actual stdout/stderr.
 
 When you're done (no more scripts to run), write your final answer as plain text without any ```python blocks.
+
+IMPORTANT: Only write ONE code block per response. Never write multiple code blocks. Never write "Observation:" or fake output — you will receive the real output automatically.
 
 ## Available tools
 
@@ -36,31 +38,28 @@ When you're done (no more scripts to run), write your final answer as plain text
 - Install packages with `subprocess.run(['pip', 'install', ...])`
 
 ### Hickory SDK (structural code operations)
-```python
-from hickory import hick
+The hickory SDK is pre-installed. Usage:
+  from hickory import hick
+  hick.query(selector, file=path)      — find elements (fn, struct, class, #id, .class)
+  hick.structure(path)                  — structural summary of a generated file
+  hick.provenance(path, start, end)    — which .hick source generated these lines
+  hick.edit(selector, new_code, file=path) — compute source edits
+  hick.apply(edits)                     — apply edits to .hick source files
 
-# Find elements in generated output (fn, struct, class, #id, .class)
-matches = hick.query('fn main', file='src/main.rs')
+## Hick XML format
 
-# Get structural summary of a generated file
-summary = hick.structure('src/main.rs')
+.hick files use this format:
+  <hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
+    <hick:file path="output/path.py">
+  file content here
+    </hick:file>
+  </hick:doc>
 
-# Get provenance: which .hick source generated these lines?
-info = hick.provenance('src/main.rs', start_line=10, end_line=20)
-
-# Compute source edits (maps output changes back to .hick source)
-edits = hick.edit('fn greet', new_code, file='src/lib.rs')
-
-# Apply edits to .hick source files
-hick.apply(edits)
-```
-
-### Shell commands (one-time operations)
-```python
-import subprocess
-subprocess.run('cargo test', shell=True, check=True)
-subprocess.run('npm install', shell=True, check=True)
-```
+Key elements:
+- Root element: `<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">`
+- File output: `<hick:file path="relative/path">content</hick:file>`
+- Variables: `<hick:var name="x">value</hick:var>` and `<hick:paste select="$x"/>`
+- Shell exec: `<hick:exec container="default">command</hick:exec>`
 
 ## Key concepts
 
@@ -70,54 +69,10 @@ subprocess.run('npm install', shell=True, check=True)
 
 3. **`<hick:exec>` vs `subprocess.run()`:**
    - Use `subprocess.run()` for one-time tasks: running tests, installing deps, checking status
-   - Use `<hick:exec container="...">` in .hick files for recurring code generation (OpenAPI, protobuf, etc.)
+   - Use `<hick:exec container="...">` in .hick files for recurring code generation
    - Rule: if the command's output becomes part of generated code, put it in a `<hick:exec>` block
 
-4. **Print your results.** Your script's stdout is what you see as observation. Use `print()` to report findings, file contents, command output, etc.
-
-## Example workflow
-
-User: "Add a greeting function to src/lib.rs"
-
-```python
-# First, understand the current structure
-from hickory import hick
-summary = hick.structure('src/lib.rs')
-print(summary)
-```
-
-Observation: [structural summary]
-
-```python
-# Find where to add the function, check provenance
-from hickory import hick
-info = hick.provenance('src/lib.rs', start_line=1, end_line=5)
-print(info)
-```
-
-Observation: [provenance showing which .hick file generates this]
-
-```python
-# Read the .hick source and add the function
-content = open('main.hick').read()
-# ... modify content ...
-with open('main.hick', 'w') as f:
-    f.write(new_content)
-print("Updated main.hick with greeting function")
-```
-
-Observation: Updated main.hick with greeting function
-
-```python
-# Verify the pipeline output
-import subprocess
-result = subprocess.run('cargo test', shell=True, capture_output=True, text=True)
-print(result.stdout)
-if result.returncode != 0:
-    print("STDERR:", result.stderr)
-```
-
-The greeting function has been added. The pipeline regenerated src/lib.rs with the new `greet()` function, and all tests pass.
+4. **Print your results.** Your script's stdout is what you see as observation. Use `print()` to report findings.
 "#;
 
 /// ReAct loop runner — script-first model.
@@ -232,12 +187,16 @@ impl ReactLoop {
                     content: response.clone(),
                 });
 
-                let scripts = extract_python_blocks(&response);
+                let all_scripts = extract_python_blocks(&response);
 
-                if scripts.is_empty() {
+                if all_scripts.is_empty() {
                     // No code blocks → final answer
                     return Ok(AgentState::to_done(response.trim().to_string()));
                 }
+
+                // Only execute the first code block per turn to prevent
+                // the LLM from hallucinating observations for later blocks.
+                let scripts = vec![all_scripts.into_iter().next().unwrap()];
 
                 // Extract the non-code-block text as "thought"
                 let thought = extract_thought(&response);
