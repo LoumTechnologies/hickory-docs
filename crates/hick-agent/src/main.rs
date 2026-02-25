@@ -249,20 +249,39 @@ async fn main() -> Result<()> {
             println!();
             println!("Enter your request (or 'quit' to exit):");
 
-            let mut buffer = String::new();
+            use tokio::io::AsyncBufReadExt;
+            let stdin = tokio::io::BufReader::new(tokio::io::stdin());
+            let mut lines = stdin.lines();
+
             loop {
-                buffer.clear();
-                if std::io::stdin().read_line(&mut buffer).is_err() || buffer.is_empty() {
-                    break;
+                let line: String = tokio::select! {
+                    result = lines.next_line() => {
+                        match result {
+                            Ok(Some(line)) => line,
+                            _ => break,
+                        }
+                    }
+                    _ = tokio::signal::ctrl_c() => break,
+                };
+
+                let input = line.trim();
+                if input.is_empty() {
+                    continue;
                 }
-                let input = buffer.trim();
                 if input.eq_ignore_ascii_case("quit") || input.eq_ignore_ascii_case("exit") {
                     break;
                 }
 
-                match loop_.run(input).await {
-                    Ok(response) => println!("{}\n", response),
-                    Err(e) => eprintln!("Error: {e}"),
+                tokio::select! {
+                    result = loop_.run(input) => {
+                        match result {
+                            Ok(response) => println!("{}\n", response),
+                            Err(e) => eprintln!("Error: {e}"),
+                        }
+                    }
+                    _ = tokio::signal::ctrl_c() => {
+                        eprintln!("\nInterrupted. Enter next request or 'quit' to exit.");
+                    }
                 }
             }
 
