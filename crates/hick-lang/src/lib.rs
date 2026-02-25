@@ -21,6 +21,7 @@ pub const HICK_NAMESPACE: &str = "http://www.hickorydocs.com/1.0";
 ///
 /// Tracks where a piece of text or tag originated in the `.hick` source file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct SourceSpan {
     /// Byte offset of the first character (inclusive).
     pub start: usize,

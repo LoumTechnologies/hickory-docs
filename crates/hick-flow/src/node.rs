@@ -25,6 +25,8 @@ use crate::context::Context;
 /// Used for character-level provenance tracking: mapping generated output
 /// back to source `.hick` file positions or other origins.
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(feature = "serde", serde(tag = "type"))]
 pub enum SourceOrigin {
     /// Literal text from a `.hick` source file.
     Literal { file: Arc<str>, span: SourceSpan },

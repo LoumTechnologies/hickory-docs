@@ -1,0 +1,17 @@
+[package]
+name = "hick-query-edit"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "hick-query-edit"
+path = "src/main.rs"
+
+[dependencies]
+hick-lang = { path = "../hick-lang", features = ["serde"] }
+hick-lens = { path = "../hick-lens" }
+hick-flow = { path = "../hick-flow", features = ["serde"] }
+serde = { version = "1", features = ["derive", "rc"] }
+serde_json = "1"
+clap = { version = "4", features = ["derive"] }
+thiserror = "2"

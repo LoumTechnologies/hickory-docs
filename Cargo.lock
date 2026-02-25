@@ -3434,6 +3434,8 @@ dependencies = [
  "futures",
  "hick-lang",
  "log",
+ "serde",
+ "serde_json",
  "tokio",
  "tokio-stream",
  "tokio-util",
@@ -3488,6 +3490,7 @@ dependencies = [
 name = "hick-lang"
 version = "0.1.0"
 dependencies = [
+ "serde",
  "thiserror 2.0.18",
 ]
 
@@ -3602,6 +3605,19 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
+]
+
+[[package]]
+name = "hick-query-edit"
+version = "0.1.0"
+dependencies = [
+ "clap",
+ "hick-flow",
+ "hick-lang",
+ "hick-lens",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.18",
 ]
 
 [[package]]

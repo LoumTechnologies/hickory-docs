@@ -5,5 +5,9 @@ edition = "2024"
 
 [dependencies]
 thiserror = "2"
+serde = { version = "1", features = ["derive"], optional = true }
+
+[features]
+serde = ["dep:serde"]
 
 [dev-dependencies]

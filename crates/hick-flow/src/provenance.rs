@@ -8,6 +8,7 @@ use crate::node::SourceOrigin;
 
 /// A single span in the output mapped to a source origin.
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct ProvenanceSpan {
     /// Start byte offset in the output (inclusive).
     pub output_start: usize,
@@ -22,6 +23,7 @@ pub struct ProvenanceSpan {
 /// Built by [`converge_with_provenance()`](crate::converge::converge_with_provenance)
 /// during file convergence. Spans are stored in output-order and do not overlap.
 #[derive(Debug, Clone, Default)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct ProvenanceMap {
     spans: Vec<ProvenanceSpan>,
 }
@@ -136,5 +138,65 @@ mod tests {
         let overlapping = map.spans_in_range(5, 10);
         assert_eq!(overlapping.len(), 1); // only the middle span
         assert_eq!(overlapping[0].output_start, 5);
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn serde_round_trip() {
+        let mut map = ProvenanceMap::new();
+        map.push(ProvenanceSpan {
+            output_start: 0,
+            output_end: 42,
+            origin: SourceOrigin::Literal {
+                file: Arc::from("main.hick"),
+                span: SourceSpan::new(100, 142, 5, 2),
+            },
+        });
+        map.push(ProvenanceSpan {
+            output_start: 42,
+            output_end: 60,
+            origin: SourceOrigin::Exec {
+                container: Arc::from("codegen"),
+                tag_line: 10,
+            },
+        });
+        map.push(ProvenanceSpan {
+            output_start: 60,
+            output_end: 70,
+            origin: SourceOrigin::Paste {
+                selector: Arc::from("#ver"),
+            },
+        });
+        map.push(ProvenanceSpan {
+            output_start: 70,
+            output_end: 80,
+            origin: SourceOrigin::Variable {
+                name: Arc::from("version"),
+            },
+        });
+        map.push(ProvenanceSpan {
+            output_start: 80,
+            output_end: 90,
+            origin: SourceOrigin::Synthetic,
+        });
+
+        let json = serde_json::to_string(&map).unwrap();
+        let map2: ProvenanceMap = serde_json::from_str(&json).unwrap();
+
+        assert_eq!(map2.len(), 5);
+        assert_eq!(map2.spans()[0].output_start, 0);
+        assert_eq!(map2.spans()[0].output_end, 42);
+        match &map2.spans()[0].origin {
+            SourceOrigin::Literal { file, span } => {
+                assert_eq!(file.as_ref(), "main.hick");
+                assert_eq!(span.start, 100);
+                assert_eq!(span.end, 142);
+            }
+            other => panic!("Expected Literal, got {:?}", other),
+        }
+        match &map2.spans()[4].origin {
+            SourceOrigin::Synthetic => {}
+            other => panic!("Expected Synthetic, got {:?}", other),
+        }
     }
 }
