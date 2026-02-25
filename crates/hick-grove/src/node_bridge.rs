@@ -4,6 +4,17 @@ use std::sync::Arc;
 use hick_flow::{BoxStream, Context, Node, NodeTrace, StringNode};
 use tokio::sync::watch;
 
+use crate::namespace::NamespaceUri;
+
+/// Identity of a namespace-qualified element, used to subscribe to specific
+/// elements in the reactive node bridge.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct ElementIdentity {
+    pub namespace_uri: NamespaceUri,
+    pub local_name: String,
+    pub id: String,
+}
+
 /// A snapshot of a Yrs XML element's state, used as the value emitted by `YrsElementNode`.
 #[derive(Clone, Debug)]
 pub struct ElementSnapshot {

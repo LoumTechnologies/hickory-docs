@@ -145,7 +145,7 @@ impl NamespaceHandler for TasksHandler {
             ElementEvent::Created {
                 local_name,
                 attributes,
-                text_content: _,
+                ..
             } => match local_name.as_str() {
                 "create" => {
                     let id = attr_value(attributes, "id").unwrap_or_default();

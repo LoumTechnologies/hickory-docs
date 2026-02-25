@@ -259,11 +259,7 @@ impl MultiDocumentState {
     /// Resolve a class selector, concatenating all matching blocks in document order.
     ///
     /// An optional `separator` is inserted between blocks.
-    fn resolve_class_selector(
-        &self,
-        class_name: &str,
-        separator: Option<&str>,
-    ) -> Option<String> {
+    fn resolve_class_selector(&self, class_name: &str, separator: Option<&str>) -> Option<String> {
         let blocks = self.content_blocks.lock().unwrap();
 
         // Find all blocks that have this class
@@ -455,11 +451,7 @@ impl MultiDocumentState {
             let id = selector.trim_start_matches('#');
             let has_cut = self.cut_blocks.lock().unwrap().contains_key(id);
             let has_copy = self.copy_blocks.lock().unwrap().contains_key(id);
-            if has_cut || has_copy {
-                1
-            } else {
-                0
-            }
+            if has_cut || has_copy { 1 } else { 0 }
         }
     }
 

@@ -41,7 +41,7 @@ async fn test_doc_store_missing_doc() {
 
 #[tokio::test]
 async fn test_yrs_bridge_fires_events() {
-    use hick_grove::yrs_bridge::YrsBridge;
+    use hick_grove::yrs_bridge::{ElementCache, YrsBridge};
     use tokio::sync::mpsc;
     use yrs::{Doc, Text, Transact, WriteTxn, Xml, XmlFragment, XmlFragmentRef};
 
@@ -50,7 +50,7 @@ async fn test_yrs_bridge_fires_events() {
     ns.insert("task".to_string(), NamespaceUri::new(TASK_NS));
 
     let (tx, mut rx) = mpsc::unbounded_channel();
-    let _bridge = YrsBridge::attach(&doc, ns, tx);
+    let _bridge = YrsBridge::attach(&doc, ns, tx, ElementCache::new());
 
     // Apply a transaction that inserts a namespaced element
     {
@@ -474,6 +474,326 @@ async fn test_yrs_element_node_current_snapshot() {
 
     let snap = node.current_snapshot();
     assert_eq!(snap.local_name, "test");
+}
+
+// -----------------------------------------------------------------------
+// Phase 7: ElementEvent::Removed + Reactive node bridge
+// -----------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_yrs_bridge_fires_removed_event() {
+    use hick_grove::yrs_bridge::{ElementCache, YrsBridge};
+    use tokio::sync::mpsc;
+    use yrs::{Doc, Transact, WriteTxn, Xml, XmlFragment, XmlFragmentRef};
+
+    let doc = Doc::new();
+    let mut ns = HashMap::new();
+    ns.insert("task".to_string(), NamespaceUri::new(TASK_NS));
+
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    let _bridge = YrsBridge::attach(&doc, ns, tx, ElementCache::new());
+
+    // Insert an element
+    {
+        let mut txn = doc.transact_mut();
+        let root: XmlFragmentRef = txn.get_or_insert_xml_fragment("root");
+        let elem = root.insert(&mut txn, 0, yrs::XmlElementPrelim::empty("task:create"));
+        elem.insert_attribute(&mut txn, "id", "task-1");
+        elem.insert_attribute(&mut txn, "description", "Buy groceries");
+    }
+
+    // Drain creation events
+    while rx.try_recv().is_ok() {}
+
+    // Now remove the element
+    {
+        let mut txn = doc.transact_mut();
+        let root: XmlFragmentRef = txn.get_or_insert_xml_fragment("root");
+        root.remove_range(&mut txn, 0, 1);
+    }
+
+    // Should have a Removed event
+    let mut events = Vec::new();
+    while let Ok(ev) = rx.try_recv() {
+        events.push(ev);
+    }
+
+    let removed = events.iter().find(|e| {
+        matches!(
+            &e.event,
+            ElementEvent::Removed { local_name, .. } if local_name == "create"
+        )
+    });
+    assert!(
+        removed.is_some(),
+        "Should have received a Removed event; got: {:?}",
+        events
+    );
+    assert_eq!(removed.unwrap().namespace_uri.as_str(), TASK_NS);
+
+    if let ElementEvent::Removed {
+        local_name,
+        attributes,
+        element_id,
+    } = &removed.unwrap().event
+    {
+        assert_eq!(local_name, "create");
+        assert!(attributes.iter().any(|(k, v)| k == "id" && v == "task-1"));
+        assert!(
+            attributes
+                .iter()
+                .any(|(k, v)| k == "description" && v == "Buy groceries")
+        );
+        assert_eq!(element_id.as_deref(), Some("task-1"));
+    }
+}
+
+#[tokio::test]
+async fn test_engine_removal_dispatches_to_handler() {
+    let handler = Arc::new(RecordingHandler::new(TASK_NS));
+    let handler_clone = handler.clone();
+
+    let mut registry = NamespaceRegistry::new();
+    registry.register(handler);
+
+    let engine = GroveEngine::new(GroveConfig { registry });
+
+    let doc_id = engine
+        .create_document(vec![("task".to_string(), NamespaceUri::new(TASK_NS))])
+        .await;
+
+    // First, create an element
+    let xml = r#"<message xmlns:task="https://example.com/vocab/task#">
+        <task:create id="task-1" description="Buy milk">created a task</task:create>
+    </message>"#;
+
+    engine
+        .process_command(GroveCommand::StructuredMessage {
+            doc_id: doc_id.clone(),
+            xml: xml.to_string(),
+        })
+        .await
+        .unwrap();
+
+    // Verify Created event
+    let events = handler_clone.recorded_events();
+    assert!(
+        events.iter().any(
+            |e| matches!(e, ElementEvent::Created { local_name, .. } if local_name == "create")
+        )
+    );
+
+    // Now remove the element directly via yrs
+    let meta = engine.doc_store().get(&doc_id).unwrap();
+    {
+        use yrs::{Transact, WriteTxn, XmlFragment};
+
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+        let _bridge = hick_grove::yrs_bridge::YrsBridge::attach(
+            &meta.doc,
+            meta.namespaces.clone(),
+            tx,
+            meta.element_cache.clone(),
+        );
+
+        {
+            let mut txn = meta.doc.transact_mut();
+            let root: yrs::XmlFragmentRef = txn.get_or_insert_xml_fragment("root");
+            // The root has: message element -> task:create element
+            // Remove the message element (index 0 of root)
+            root.remove_range(&mut txn, 0, 1);
+        }
+
+        let mut dispatcher =
+            hick_grove::dispatcher::Dispatcher::new(engine.registry().clone(), rx, doc_id.clone());
+        dispatcher.drain_pending();
+    }
+
+    // Handler should now have both Created and Removed
+    let events = handler_clone.recorded_events();
+    let removed = events
+        .iter()
+        .find(|e| matches!(e, ElementEvent::Removed { .. }));
+    assert!(
+        removed.is_some(),
+        "Handler should have received a Removed event; all events: {:?}",
+        events
+    );
+}
+
+#[tokio::test]
+async fn test_reactive_handler_create_update_remove() {
+    use hick_grove::namespace::NamespaceUri;
+    use hick_grove::node_bridge::ElementIdentity;
+    use hick_grove::plugin::{ElementEvent, HandlerContext, NamespaceHandler};
+    use hick_grove::reactive_handler::ReactiveNamespaceHandler;
+
+    let ns = NamespaceUri::new(TASK_NS);
+    let handler = ReactiveNamespaceHandler::new(ns.clone());
+    let ctx = HandlerContext {
+        doc_id: hick_grove::namespace::DocId::from_string("doc-test"),
+    };
+
+    let identity = ElementIdentity {
+        namespace_uri: ns.clone(),
+        local_name: "create".to_string(),
+        id: "task-1".to_string(),
+    };
+
+    let node = handler.subscribe(identity.clone());
+    assert!(handler.is_subscribed(&identity));
+
+    // Initial snapshot is empty
+    let snap = node.current_snapshot();
+    assert_eq!(snap.local_name, "create");
+    assert!(snap.attributes.is_empty());
+
+    // Send Created event
+    handler
+        .handle_event(
+            &ElementEvent::Created {
+                local_name: "create".to_string(),
+                attributes: vec![
+                    ("id".to_string(), "task-1".to_string()),
+                    ("description".to_string(), "Buy milk".to_string()),
+                ],
+                text_content: "created a task".to_string(),
+                element_id: Some("task-1".to_string()),
+            },
+            &ctx,
+        )
+        .unwrap();
+
+    let snap = node.current_snapshot();
+    assert_eq!(snap.attributes.len(), 2);
+    assert_eq!(snap.text_content, "created a task");
+
+    // Send AttributeChanged event
+    handler
+        .handle_event(
+            &ElementEvent::AttributeChanged {
+                local_name: "create".to_string(),
+                attr_name: "description".to_string(),
+                old: Some("Buy milk".to_string()),
+                new: Some("Buy eggs".to_string()),
+                element_id: Some("task-1".to_string()),
+            },
+            &ctx,
+        )
+        .unwrap();
+
+    let snap = node.current_snapshot();
+    let desc = snap
+        .attributes
+        .iter()
+        .find(|(k, _)| k == "description")
+        .unwrap();
+    assert_eq!(desc.1, "Buy eggs");
+
+    // Send TextChanged event
+    handler
+        .handle_event(
+            &ElementEvent::TextChanged {
+                local_name: "create".to_string(),
+                new_text: "updated task".to_string(),
+                element_id: Some("task-1".to_string()),
+            },
+            &ctx,
+        )
+        .unwrap();
+
+    let snap = node.current_snapshot();
+    assert_eq!(snap.text_content, "updated task");
+
+    // Send Removed event — should drop the subscription
+    handler
+        .handle_event(
+            &ElementEvent::Removed {
+                local_name: "create".to_string(),
+                attributes: vec![],
+                element_id: Some("task-1".to_string()),
+            },
+            &ctx,
+        )
+        .unwrap();
+
+    assert!(!handler.is_subscribed(&identity));
+}
+
+#[tokio::test]
+async fn test_reactive_handler_identity_isolation() {
+    use hick_grove::namespace::NamespaceUri;
+    use hick_grove::node_bridge::ElementIdentity;
+    use hick_grove::plugin::{ElementEvent, HandlerContext, NamespaceHandler};
+    use hick_grove::reactive_handler::ReactiveNamespaceHandler;
+
+    let ns = NamespaceUri::new(TASK_NS);
+    let handler = ReactiveNamespaceHandler::new(ns.clone());
+    let ctx = HandlerContext {
+        doc_id: hick_grove::namespace::DocId::from_string("doc-test"),
+    };
+
+    let id1 = ElementIdentity {
+        namespace_uri: ns.clone(),
+        local_name: "create".to_string(),
+        id: "task-1".to_string(),
+    };
+    let id2 = ElementIdentity {
+        namespace_uri: ns.clone(),
+        local_name: "create".to_string(),
+        id: "task-2".to_string(),
+    };
+
+    let node1 = handler.subscribe(id1.clone());
+    let _node2 = handler.subscribe(id2.clone());
+
+    // Fire Created for task-2 only
+    handler
+        .handle_event(
+            &ElementEvent::Created {
+                local_name: "create".to_string(),
+                attributes: vec![
+                    ("id".to_string(), "task-2".to_string()),
+                    ("description".to_string(), "Task two".to_string()),
+                ],
+                text_content: "".to_string(),
+                element_id: Some("task-2".to_string()),
+            },
+            &ctx,
+        )
+        .unwrap();
+
+    // node1 should still have empty attributes (no event matched task-1)
+    let snap1 = node1.current_snapshot();
+    assert!(
+        snap1.attributes.is_empty(),
+        "task-1 node should not have received task-2's event"
+    );
+
+    // Fire Created for task-1
+    handler
+        .handle_event(
+            &ElementEvent::Created {
+                local_name: "create".to_string(),
+                attributes: vec![
+                    ("id".to_string(), "task-1".to_string()),
+                    ("description".to_string(), "Task one".to_string()),
+                ],
+                text_content: "".to_string(),
+                element_id: Some("task-1".to_string()),
+            },
+            &ctx,
+        )
+        .unwrap();
+
+    let snap1 = node1.current_snapshot();
+    assert_eq!(snap1.attributes.len(), 2);
+    let desc = snap1
+        .attributes
+        .iter()
+        .find(|(k, _)| k == "description")
+        .unwrap();
+    assert_eq!(desc.1, "Task one");
 }
 
 // -----------------------------------------------------------------------

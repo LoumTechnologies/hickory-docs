@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use tokio::sync::mpsc;
 use yrs::types::Events;
@@ -18,6 +18,39 @@ pub struct YrsChangeEvent {
     pub event: ElementEvent,
 }
 
+/// Cached metadata for an element, populated on `Created` events.
+#[derive(Clone, Debug)]
+struct CachedElement {
+    namespace_uri: NamespaceUri,
+    local_name: String,
+    attributes: Vec<(String, String)>,
+    element_id: Option<String>,
+}
+
+/// Cache key: "qualified_tag:id_attr" (or just "qualified_tag:" if no id).
+fn cache_key(qualified_tag: &str, id: Option<&str>) -> String {
+    format!("{}:{}", qualified_tag, id.unwrap_or(""))
+}
+
+/// Shared element metadata cache used for removal detection.
+///
+/// Persists across `YrsBridge` instances so that removals in a later
+/// transaction can reference metadata from earlier creations.
+#[derive(Clone)]
+pub struct ElementCache(Arc<Mutex<HashMap<String, CachedElement>>>);
+
+impl ElementCache {
+    pub fn new() -> Self {
+        Self(Arc::new(Mutex::new(HashMap::new())))
+    }
+}
+
+impl Default for ElementCache {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 /// Registers `observe_deep` on a Yrs document's root XmlFragment and pushes
 /// namespace-resolved events into a tokio mpsc channel.
 pub struct YrsBridge {
@@ -33,6 +66,7 @@ impl YrsBridge {
         doc: &Doc,
         namespace_map: HashMap<String, NamespaceUri>,
         tx: mpsc::UnboundedSender<YrsChangeEvent>,
+        element_cache: ElementCache,
     ) -> Self {
         let mut init_txn = doc.transact_mut();
         let root: XmlFragmentRef = init_txn.get_or_insert_xml_fragment("root");
@@ -42,7 +76,7 @@ impl YrsBridge {
 
         let sub = root.observe_deep(move |txn, events: &Events| {
             for event in events.iter() {
-                let change_events = resolve_event(txn, event, &ns_map);
+                let change_events = resolve_event(txn, event, &ns_map, &element_cache);
                 for ce in change_events {
                     let _ = tx.send(ce);
                 }
@@ -58,6 +92,7 @@ fn resolve_event(
     txn: &TransactionMut<'_>,
     event: &yrs::types::Event,
     namespace_map: &HashMap<String, NamespaceUri>,
+    element_cache: &ElementCache,
 ) -> Vec<YrsChangeEvent> {
     use yrs::types::Event;
 
@@ -65,13 +100,14 @@ fn resolve_event(
 
     match event {
         Event::XmlFragment(xml_event) => {
-            // XmlEvent fires for both XmlFragmentRef and XmlElementRef targets.
             let target = xml_event.target();
             match target {
                 XmlOut::Element(elem) => {
                     // Attribute changes on this element
                     let tag = elem.tag().to_string();
                     if let Some((ns_uri, local)) = resolve_tag(&tag, namespace_map) {
+                        let element_id = read_id_attr(txn, &elem);
+
                         let keys = xml_event.keys(txn);
                         for (attr_name, change) in keys.iter() {
                             match change {
@@ -83,6 +119,7 @@ fn resolve_event(
                                             attr_name: attr_name.to_string(),
                                             old: None,
                                             new: Some(out_to_string(new_val)),
+                                            element_id: element_id.clone(),
                                         },
                                     });
                                 }
@@ -94,6 +131,7 @@ fn resolve_event(
                                             attr_name: attr_name.to_string(),
                                             old: Some(out_to_string(old_val)),
                                             new: Some(out_to_string(new_val)),
+                                            element_id: element_id.clone(),
                                         },
                                     });
                                 }
@@ -105,30 +143,77 @@ fn resolve_event(
                                             attr_name: attr_name.to_string(),
                                             old: Some(out_to_string(old_val)),
                                             new: None,
+                                            element_id: element_id.clone(),
                                         },
                                     });
                                 }
                             }
                         }
 
-                        // Child additions (new elements inserted under this element)
+                        // Child additions and removals
+                        let mut has_removals = false;
                         for delta in xml_event.delta(txn) {
-                            if let yrs::types::Change::Added(values) = delta {
-                                for value in values {
-                                    process_added_out(txn, value, namespace_map, &mut results);
+                            match delta {
+                                yrs::types::Change::Added(values) => {
+                                    for value in values {
+                                        process_added_out(
+                                            txn,
+                                            value,
+                                            namespace_map,
+                                            element_cache,
+                                            &mut results,
+                                        );
+                                    }
                                 }
+                                yrs::types::Change::Removed(_) => {
+                                    has_removals = true;
+                                }
+                                _ => {}
                             }
+                        }
+
+                        if has_removals {
+                            detect_removals(
+                                txn,
+                                ChildSource::Element(&elem),
+                                namespace_map,
+                                element_cache,
+                                &mut results,
+                            );
                         }
                     }
                 }
-                XmlOut::Fragment(_frag) => {
-                    // Root fragment — child additions
+                XmlOut::Fragment(frag) => {
+                    // Root fragment — child additions and removals
+                    let mut has_removals = false;
                     for delta in xml_event.delta(txn) {
-                        if let yrs::types::Change::Added(values) = delta {
-                            for value in values {
-                                process_added_out(txn, value, namespace_map, &mut results);
+                        match delta {
+                            yrs::types::Change::Added(values) => {
+                                for value in values {
+                                    process_added_out(
+                                        txn,
+                                        value,
+                                        namespace_map,
+                                        element_cache,
+                                        &mut results,
+                                    );
+                                }
                             }
+                            yrs::types::Change::Removed(_) => {
+                                has_removals = true;
+                            }
+                            _ => {}
                         }
+                    }
+
+                    if has_removals {
+                        detect_removals(
+                            txn,
+                            ChildSource::Fragment(&frag),
+                            namespace_map,
+                            element_cache,
+                            &mut results,
+                        );
                     }
                 }
                 XmlOut::Text(_) => {}
@@ -141,12 +226,14 @@ fn resolve_event(
             {
                 let tag = xml_elem.tag().to_string();
                 if let Some((ns_uri, local)) = resolve_tag(&tag, namespace_map) {
+                    let element_id = read_id_attr(txn, &xml_elem);
                     let new_text = target.get_string(txn);
                     results.push(YrsChangeEvent {
                         namespace_uri: ns_uri,
                         event: ElementEvent::TextChanged {
                             local_name: local,
                             new_text,
+                            element_id,
                         },
                     });
                 }
@@ -158,12 +245,75 @@ fn resolve_event(
     results
 }
 
+/// Abstracts over fragment vs element for child enumeration.
+enum ChildSource<'a> {
+    Fragment(&'a XmlFragmentRef),
+    Element(&'a XmlElementRef),
+}
+
+/// Detect removed children by diffing the element cache against current children.
+fn detect_removals(
+    txn: &TransactionMut<'_>,
+    parent: ChildSource<'_>,
+    namespace_map: &HashMap<String, NamespaceUri>,
+    element_cache: &ElementCache,
+    results: &mut Vec<YrsChangeEvent>,
+) {
+    // Build set of current child keys
+    let mut current_keys = std::collections::HashSet::new();
+    let child_count = match &parent {
+        ChildSource::Fragment(frag) => XmlFragment::len(*frag, txn),
+        ChildSource::Element(elem) => XmlFragment::len(*elem, txn),
+    };
+
+    for i in 0..child_count {
+        let child = match &parent {
+            ChildSource::Fragment(frag) => XmlFragment::get(*frag, txn, i),
+            ChildSource::Element(elem) => XmlFragment::get(*elem, txn, i),
+        };
+        if let Some(XmlOut::Element(child_elem)) = child {
+            let tag = child_elem.tag().to_string();
+            let id = read_id_attr(txn, &child_elem);
+            let key = cache_key(&tag, id.as_deref());
+            current_keys.insert(key);
+        }
+    }
+
+    // Diff against cache — anything NOT in current children was removed
+    let mut cache = element_cache.0.lock().unwrap();
+    let removed_keys: Vec<String> = cache
+        .keys()
+        .filter(|k| !current_keys.contains(k.as_str()))
+        .cloned()
+        .collect();
+
+    for key in removed_keys {
+        if let Some(cached) = cache.remove(&key) {
+            // Verify this element's namespace is one we know about
+            if namespace_map
+                .values()
+                .any(|uri| *uri == cached.namespace_uri)
+            {
+                results.push(YrsChangeEvent {
+                    namespace_uri: cached.namespace_uri,
+                    event: ElementEvent::Removed {
+                        local_name: cached.local_name,
+                        attributes: cached.attributes,
+                        element_id: cached.element_id,
+                    },
+                });
+            }
+        }
+    }
+}
+
 /// Process an added child output from a delta. Recurses into children to
 /// find namespace-qualified elements at any depth.
 fn process_added_out(
     txn: &TransactionMut<'_>,
     value: &yrs::Out,
     namespace_map: &HashMap<String, NamespaceUri>,
+    element_cache: &ElementCache,
     results: &mut Vec<YrsChangeEvent>,
 ) {
     if let yrs::Out::YXmlElement(elem) = value {
@@ -175,6 +325,22 @@ fn process_added_out(
             }
 
             let text_content = collect_text(txn, elem);
+            let element_id = attr_value(&attrs, "id");
+
+            // Insert into cache
+            {
+                let key = cache_key(&tag, element_id.as_deref());
+                let mut cache = element_cache.0.lock().unwrap();
+                cache.insert(
+                    key,
+                    CachedElement {
+                        namespace_uri: ns_uri.clone(),
+                        local_name: local.clone(),
+                        attributes: attrs.clone(),
+                        element_id: element_id.clone(),
+                    },
+                );
+            }
 
             results.push(YrsChangeEvent {
                 namespace_uri: ns_uri,
@@ -182,6 +348,7 @@ fn process_added_out(
                     local_name: local,
                     attributes: attrs,
                     text_content,
+                    element_id,
                 },
             });
         }
@@ -189,7 +356,7 @@ fn process_added_out(
         // Recurse into children regardless of whether this element matched
         for i in 0..XmlFragment::len(elem, txn) {
             if let Some(XmlOut::Element(child)) = XmlFragment::get(elem, txn, i) {
-                process_added_element(txn, &child, namespace_map, results);
+                process_added_element(txn, &child, namespace_map, element_cache, results);
             }
         }
     }
@@ -200,6 +367,7 @@ fn process_added_element(
     txn: &TransactionMut<'_>,
     elem: &XmlElementRef,
     namespace_map: &HashMap<String, NamespaceUri>,
+    element_cache: &ElementCache,
     results: &mut Vec<YrsChangeEvent>,
 ) {
     let tag = elem.tag().to_string();
@@ -210,6 +378,22 @@ fn process_added_element(
         }
 
         let text_content = collect_text(txn, elem);
+        let element_id = attr_value(&attrs, "id");
+
+        // Insert into cache
+        {
+            let key = cache_key(&tag, element_id.as_deref());
+            let mut cache = element_cache.0.lock().unwrap();
+            cache.insert(
+                key,
+                CachedElement {
+                    namespace_uri: ns_uri.clone(),
+                    local_name: local.clone(),
+                    attributes: attrs.clone(),
+                    element_id: element_id.clone(),
+                },
+            );
+        }
 
         results.push(YrsChangeEvent {
             namespace_uri: ns_uri,
@@ -217,6 +401,7 @@ fn process_added_element(
                 local_name: local,
                 attributes: attrs,
                 text_content,
+                element_id,
             },
         });
     }
@@ -224,9 +409,19 @@ fn process_added_element(
     // Recurse into children
     for i in 0..XmlFragment::len(elem, txn) {
         if let Some(XmlOut::Element(child)) = XmlFragment::get(elem, txn, i) {
-            process_added_element(txn, &child, namespace_map, results);
+            process_added_element(txn, &child, namespace_map, element_cache, results);
         }
     }
+}
+
+/// Read the `id` attribute from a Yrs element.
+fn read_id_attr(txn: &TransactionMut<'_>, elem: &XmlElementRef) -> Option<String> {
+    elem.get_attribute(txn, "id")
+}
+
+/// Get an attribute value from a list of (key, value) pairs.
+fn attr_value(attrs: &[(String, String)], key: &str) -> Option<String> {
+    attrs.iter().find(|(k, _)| k == key).map(|(_, v)| v.clone())
 }
 
 /// Collect all text content from an XmlElement (immediate text children).

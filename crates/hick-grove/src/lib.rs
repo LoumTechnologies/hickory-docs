@@ -66,6 +66,7 @@ pub mod namespace;
 pub mod node_bridge;
 pub mod plugin;
 pub mod plugins;
+pub mod reactive_handler;
 pub mod yrs_bridge;
 
 use std::collections::HashMap;
@@ -133,7 +134,12 @@ impl GroveEngine {
 
         // Attach bridge with a fresh channel to capture events from this txn
         let (tx, rx) = mpsc::unbounded_channel();
-        let _bridge = YrsBridge::attach(&meta.doc, meta.namespaces.clone(), tx);
+        let _bridge = YrsBridge::attach(
+            &meta.doc,
+            meta.namespaces.clone(),
+            tx,
+            meta.element_cache.clone(),
+        );
 
         // Apply parsed message to the Yrs document
         let mut txn = meta.doc.transact_mut();
@@ -160,7 +166,12 @@ impl GroveEngine {
             .ok_or_else(|| anyhow::anyhow!("Document not found: {}", doc_id))?;
 
         let (tx, rx) = mpsc::unbounded_channel();
-        let _bridge = YrsBridge::attach(&meta.doc, meta.namespaces.clone(), tx);
+        let _bridge = YrsBridge::attach(
+            &meta.doc,
+            meta.namespaces.clone(),
+            tx,
+            meta.element_cache.clone(),
+        );
 
         let mut txn = meta.doc.transact_mut();
         txn.apply_update(Update::decode_v1(update)?)?;

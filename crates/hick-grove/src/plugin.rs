@@ -10,20 +10,24 @@ pub enum ElementEvent {
         local_name: String,
         attributes: Vec<(String, String)>,
         text_content: String,
+        element_id: Option<String>,
     },
     AttributeChanged {
         local_name: String,
         attr_name: String,
         old: Option<String>,
         new: Option<String>,
+        element_id: Option<String>,
     },
     TextChanged {
         local_name: String,
         new_text: String,
+        element_id: Option<String>,
     },
     Removed {
         local_name: String,
         attributes: Vec<(String, String)>,
+        element_id: Option<String>,
     },
 }
 
