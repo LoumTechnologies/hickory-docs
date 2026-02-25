@@ -8,14 +8,18 @@
 //! 5. Returns observation to LLM for next turn
 //!
 //! If no code block in the LLM response → treat as final answer.
+//!
+//! The loop communicates with the UI exclusively through [`AgentEvent`]s,
+//! never touching stdout/stderr directly.
 
-use std::io::Write as _;
 use std::path::PathBuf;
 
 use futures::StreamExt;
+use tokio::sync::{Notify, mpsc};
 
 use crate::agent::Agent;
 use crate::context;
+use crate::events::AgentEvent;
 use crate::llm::{Message, Role};
 use crate::state::AgentState;
 use crate::tools::{ScriptResult, extract_python_blocks};
@@ -76,11 +80,14 @@ Key elements:
 "#;
 
 /// ReAct loop runner — script-first model.
+///
+/// Communicates with the UI through event channels, never printing directly.
 pub struct ReactLoop {
     pub agent: Agent,
     pub project_dir: PathBuf,
     max_turns: usize,
-    /// Whether to stream LLM output to stdout.
+    /// Whether to use streaming LLM output (sends many small Token events)
+    /// vs. a single complete call (sends one large Token event).
     pub stream_output: bool,
 }
 
@@ -146,40 +153,72 @@ impl ReactLoop {
         }
     }
 
-    /// Execute all scripts sequentially and collect results.
-    async fn execute_scripts(&self, scripts: Vec<String>) -> Vec<ScriptResult> {
-        let mut results = Vec::with_capacity(scripts.len());
-        for (i, script) in scripts.iter().enumerate() {
-            let result = self.execute_script(script, i).await;
-            results.push(result);
-        }
-        results
-    }
-
     /// Run one full ReAct turn: get LLM response, execute scripts, return new state.
-    pub async fn step(
+    ///
+    /// All output goes through the `events` channel; nothing is printed.
+    async fn step(
         &self,
         state: AgentState,
         messages: &mut Vec<Message>,
+        events: &mpsc::UnboundedSender<AgentEvent>,
+        interrupt: &Notify,
     ) -> anyhow::Result<AgentState> {
         match state {
             AgentState::Thinking { .. } => {
+                events.send(AgentEvent::Thinking).ok();
+
                 let response = if self.stream_output {
                     let mut stream = self.agent.llm_stream(messages.clone()).await?;
                     let mut full = String::new();
-                    while let Some(chunk) = stream.next().await {
-                        let chunk = chunk?;
-                        if !chunk.delta.is_empty() {
-                            print!("{}", chunk.delta);
-                            std::io::stdout().flush().ok();
-                            full.push_str(&chunk.delta);
+
+                    // Pin the interrupt future so it survives across loop iterations.
+                    let interrupt_fut = interrupt.notified();
+                    tokio::pin!(interrupt_fut);
+
+                    loop {
+                        tokio::select! {
+                            biased;
+                            _ = &mut interrupt_fut => {
+                                events.send(AgentEvent::Interrupted).ok();
+                                return Ok(AgentState::to_done("(interrupted)".into()));
+                            }
+                            chunk = stream.next() => {
+                                match chunk {
+                                    Some(Ok(chunk)) => {
+                                        if !chunk.delta.is_empty() {
+                                            events.send(AgentEvent::Token(chunk.delta.clone())).ok();
+                                            full.push_str(&chunk.delta);
+                                        }
+                                    }
+                                    Some(Err(e)) => return Err(e),
+                                    None => break,
+                                }
+                            }
                         }
                     }
-                    println!();
                     full
                 } else {
-                    self.agent.llm_complete(messages.clone()).await?
+                    // Non-streaming: race the complete call against interrupt.
+                    let interrupt_fut = interrupt.notified();
+                    tokio::pin!(interrupt_fut);
+
+                    tokio::select! {
+                        biased;
+                        _ = &mut interrupt_fut => {
+                            events.send(AgentEvent::Interrupted).ok();
+                            return Ok(AgentState::to_done("(interrupted)".into()));
+                        }
+                        result = self.agent.llm_complete(messages.clone()) => {
+                            let response = result?;
+                            events.send(AgentEvent::Token(response.clone())).ok();
+                            response
+                        }
+                    }
                 };
+
+                events
+                    .send(AgentEvent::ResponseComplete(response.clone()))
+                    .ok();
 
                 // Add assistant message to history
                 messages.push(Message {
@@ -204,7 +243,20 @@ impl ReactLoop {
                 Ok(AgentState::to_executing(scripts, thought))
             }
             AgentState::Executing { scripts, .. } => {
-                let results = self.execute_scripts(scripts).await;
+                let mut results = Vec::with_capacity(scripts.len());
+
+                for (i, script) in scripts.iter().enumerate() {
+                    events
+                        .send(AgentEvent::ScriptStarted {
+                            code: script.clone(),
+                        })
+                        .ok();
+                    let result = self.execute_script(script, i).await;
+                    events
+                        .send(AgentEvent::ScriptFinished(result.clone()))
+                        .ok();
+                    results.push(result);
+                }
 
                 // Format observation for the LLM
                 let observation = results
@@ -231,8 +283,16 @@ impl ReactLoop {
         }
     }
 
-    /// Run the full loop until done or max turns.
-    pub async fn run(&self, user_message: &str) -> anyhow::Result<String> {
+    /// Run the full ReAct loop until done or max turns.
+    ///
+    /// Emits [`AgentEvent`]s on the channel and checks `interrupt` for
+    /// user-requested cancellation.
+    pub async fn run(
+        &self,
+        user_message: &str,
+        events: &mpsc::UnboundedSender<AgentEvent>,
+        interrupt: &Notify,
+    ) -> anyhow::Result<()> {
         // Load standards-based agent context (AGENTS.md, .agents/, CLAUDE.md)
         let agent_context = context::load_agent_context(&self.project_dir);
         let system = if agent_context.is_empty() {
@@ -260,7 +320,7 @@ impl ReactLoop {
         let mut turns = 0;
 
         while !state.is_terminal() && turns < self.max_turns {
-            state = self.step(state, &mut messages).await?;
+            state = self.step(state, &mut messages, events, interrupt).await?;
             turns += 1;
 
             if let AgentState::Observing { .. } = state {
@@ -271,9 +331,19 @@ impl ReactLoop {
         }
 
         match state {
-            AgentState::Done { message } => Ok(message),
-            AgentState::Error { message } => Err(anyhow::anyhow!("Agent error: {message}")),
-            _ => Err(anyhow::anyhow!("Max turns ({}) exceeded", self.max_turns)),
+            AgentState::Done { message } => {
+                events.send(AgentEvent::Done(message)).ok();
+                Ok(())
+            }
+            AgentState::Error { message } => {
+                events.send(AgentEvent::Error(message.clone())).ok();
+                Err(anyhow::anyhow!("Agent error: {message}"))
+            }
+            _ => {
+                let msg = format!("Max turns ({}) exceeded", self.max_turns);
+                events.send(AgentEvent::Error(msg.clone())).ok();
+                Err(anyhow::anyhow!("{msg}"))
+            }
         }
     }
 }

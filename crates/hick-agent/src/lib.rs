@@ -8,6 +8,7 @@
 pub mod agent;
 pub mod backing;
 pub mod context;
+pub mod events;
 pub mod file_io;
 pub mod llm;
 pub mod llm_anthropic;
@@ -19,8 +20,10 @@ pub mod react_loop;
 pub mod reverse_provenance;
 pub mod state;
 pub mod tools;
+pub mod tui;
 
 pub use agent::{Agent, AgentConfig};
+pub use events::{AgentCommand, AgentEvent};
 pub use llm::{ChatChunk, LlmClient};
 pub use llm_anthropic::AnthropicClient;
 #[cfg(feature = "local")]

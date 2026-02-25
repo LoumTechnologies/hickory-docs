@@ -3,16 +3,25 @@
 //! Script-first model: the LLM writes Python scripts, which are executed
 //! and their output returned as observations. The Hick pipeline runs
 //! transparently via a file watcher.
+//!
+//! The binary wires up the core [`ReactLoop`] to a ratatui TUI via
+//! event channels, keeping all rendering in the TUI and all logic in
+//! the core.
 
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand, ValueEnum};
+use tokio::sync::{Notify, mpsc};
+
 #[cfg(feature = "local")]
 use hick_agent::LocalLlmClient;
 use hick_agent::{
-    Agent, AgentConfig, AnthropicClient, LlmClient, OpenAiCompatClient, PipelineWatcher, ReactLoop,
+    Agent, AgentCommand, AgentConfig, AgentEvent, AnthropicClient, LlmClient, OpenAiCompatClient,
+    PipelineWatcher, ReactLoop,
 };
+use hick_agent::tui::run_tui;
 
 #[derive(Parser)]
 #[command(name = "hick-agent")]
@@ -184,6 +193,25 @@ fn build_llm_client(
     }
 }
 
+/// Background task that waits for user messages and drives the react loop.
+async fn agent_task(
+    react_loop: ReactLoop,
+    events: mpsc::UnboundedSender<AgentEvent>,
+    mut commands: mpsc::UnboundedReceiver<AgentCommand>,
+    interrupt: Arc<Notify>,
+) {
+    while let Some(cmd) = commands.recv().await {
+        match cmd {
+            AgentCommand::Message(msg) => {
+                if let Err(e) = react_loop.run(&msg, &events, &interrupt).await {
+                    events.send(AgentEvent::Error(e.to_string())).ok();
+                }
+            }
+            AgentCommand::Quit => break,
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     dotenvy::dotenv().ok();
@@ -220,72 +248,61 @@ async fn main() -> Result<()> {
                 project_dir: config.project_dir.clone(),
             };
             let llm = build_llm_client(provider, model, api_base, api_key, local_opts)?;
+
+            let provider_name = llm.provider_name().to_string();
+            let model_name = llm.model_name().to_string();
+
             let agent = Agent::new(config.clone(), llm);
             let output_dir = std::env::var("HICK_OUTPUT_DIR").ok();
-            let mut loop_ = ReactLoop::new(agent, config.project_dir.clone());
-            loop_.stream_output = !no_stream;
+            let mut react_loop = ReactLoop::new(agent, config.project_dir.clone());
+            react_loop.stream_output = !no_stream;
 
-            // Start the transparent pipeline watcher in the background
+            // Channels between core and TUI
+            let (event_tx, event_rx) = mpsc::unbounded_channel::<AgentEvent>();
+            let (cmd_tx, cmd_rx) = mpsc::unbounded_channel::<AgentCommand>();
+            let interrupt = Arc::new(Notify::new());
+
+            // Start the transparent pipeline watcher
             let watcher =
-                std::sync::Arc::new(PipelineWatcher::new(config.project_dir.clone(), output_dir));
-            let watcher_handle = {
-                let watcher = std::sync::Arc::clone(&watcher);
-                tokio::spawn(async move {
+                Arc::new(PipelineWatcher::new(config.project_dir.clone(), output_dir));
+            let event_tx_watcher = event_tx.clone();
+            tokio::spawn({
+                let watcher = Arc::clone(&watcher);
+                async move {
                     if let Err(e) = watcher.watch_loop().await {
-                        eprintln!("Pipeline watcher error: {e}");
+                        event_tx_watcher
+                            .send(AgentEvent::Error(format!("Pipeline watcher: {e}")))
+                            .ok();
                     }
-                })
-            };
+                }
+            });
 
-            // Copy the Python SDK into .hick/sdk/ so scripts can import it
+            // Copy the Python SDK into .hick/sdk/
             setup_sdk(&config.project_dir);
 
-            println!("hick-agent: AI coding agent (script-first)");
-            println!("  Project:  {}", config.project_dir.display());
-            println!("  Provider: {}", loop_.agent.provider_name());
-            println!("  Model:    {}", loop_.agent.model_name());
-            println!("  Stream:   {}", !no_stream);
-            println!("  Pipeline: watching .hick files");
-            println!();
-            println!("Enter your request (or 'quit' to exit):");
+            // Send startup info as events
+            event_tx
+                .send(AgentEvent::Info(format!(
+                    "Project: {}",
+                    config.project_dir.display()
+                )))
+                .ok();
+            event_tx
+                .send(AgentEvent::Info("Pipeline: watching .hick files".into()))
+                .ok();
 
-            use tokio::io::AsyncBufReadExt;
-            let stdin = tokio::io::BufReader::new(tokio::io::stdin());
-            let mut lines = stdin.lines();
+            let provider_info = format!("{provider_name} / {model_name}");
 
-            loop {
-                let line: String = tokio::select! {
-                    result = lines.next_line() => {
-                        match result {
-                            Ok(Some(line)) => line,
-                            _ => break,
-                        }
-                    }
-                    _ = tokio::signal::ctrl_c() => break,
-                };
+            // Spawn the agent task
+            let interrupt_agent = Arc::clone(&interrupt);
+            tokio::spawn(agent_task(react_loop, event_tx, cmd_rx, interrupt_agent));
 
-                let input = line.trim();
-                if input.is_empty() {
-                    continue;
-                }
-                if input.eq_ignore_ascii_case("quit") || input.eq_ignore_ascii_case("exit") {
-                    break;
-                }
-
-                tokio::select! {
-                    result = loop_.run(input) => {
-                        match result {
-                            Ok(response) => println!("{}\n", response),
-                            Err(e) => eprintln!("Error: {e}"),
-                        }
-                    }
-                    _ = tokio::signal::ctrl_c() => {
-                        eprintln!("\nInterrupted. Enter next request or 'quit' to exit.");
-                    }
-                }
-            }
-
-            watcher_handle.abort();
+            // Run the TUI on a blocking thread (the agent runs on tokio workers)
+            let interrupt_tui = Arc::clone(&interrupt);
+            tokio::task::spawn_blocking(move || {
+                run_tui(event_rx, cmd_tx, interrupt_tui, provider_info)
+            })
+            .await??;
         }
     }
 
