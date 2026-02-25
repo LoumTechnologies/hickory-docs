@@ -34,6 +34,7 @@ serde_yaml = "0.9"
 sha2 = "0.10"
 walkdir = "2"
 hick-lang = { version = "0.1.0", path = "../hick-lang" }
+dotenvy = "0.15.7"
 
 # Metal auto-enabled on macOS; CUDA opt-in via `local-cuda` feature
 [target.'cfg(target_os = "macos")'.dependencies]

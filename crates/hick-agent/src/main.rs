@@ -186,6 +186,7 @@ fn build_llm_client(
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    dotenvy::dotenv().ok();
     env_logger::init();
 
     let cli = Cli::parse();
