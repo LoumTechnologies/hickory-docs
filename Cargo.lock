@@ -3348,6 +3348,7 @@ dependencies = [
  "glob",
  "hick-agent-core",
  "hick-flow",
+ "hick-lang",
  "log",
  "notify",
  "reqwest",

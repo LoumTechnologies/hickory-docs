@@ -28,6 +28,7 @@ notify = "7"
 serde_yaml = "0.9"
 sha2 = "0.10"
 walkdir = "2"
+hick-lang = { version = "0.1.0", path = "../hick-lang" }
 
 [dev-dependencies]
 tempfile = "3"

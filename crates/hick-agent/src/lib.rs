@@ -14,6 +14,7 @@ pub mod llm_anthropic;
 pub mod llm_openai_compat;
 pub mod pipeline_watcher;
 pub mod react_loop;
+pub mod reverse_provenance;
 pub mod state;
 pub mod tools;
 

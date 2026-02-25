@@ -1,10 +1,14 @@
-//! Transparent pipeline: watch `.hick` files, auto-rerun pipeline, write provenance.
+//! Transparent pipeline: watch `.hick` files and output files.
 //!
 //! The agent never explicitly calls the pipeline. When `.hick` files change,
 //! the watcher re-runs the pipeline and writes:
 //! - Output files to the project directory
 //! - Provenance JSON to `.hick/provenance/<file>.json`
 //! - State metadata to `.hick/pipeline.state`
+//!
+//! When *output* files are edited (by the agent or a user in their IDE),
+//! reverse provenance maps the changes back to `.hick` source, applies them,
+//! and reruns the pipeline to verify the round-trip.
 //!
 //! A lock file (`.hick/pipeline.lock`) is held during each run.
 
@@ -14,6 +18,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
+use hick_flow::provenance::ProvenanceMap;
 use log::{debug, error, info, warn};
 use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use sha2::{Digest, Sha256};
@@ -21,7 +26,10 @@ use tokio::sync::{Mutex, Notify};
 
 use hick_agent_core::{HickEditFormat, HickEditService, PipelineOutput};
 
-use crate::file_io::load_hick_sources;
+use crate::file_io::{load_hick_sources, write_hick_sources};
+use crate::reverse_provenance::{
+    ReverseResult, VerifyResult, apply_reverse_edits, diff_output, reverse_map, verify_round_trip,
+};
 
 // ---------------------------------------------------------------------------
 // Pipeline state file
@@ -42,7 +50,8 @@ pub struct PipelineState {
 // PipelineWatcher
 // ---------------------------------------------------------------------------
 
-/// Watches `.hick` files and transparently reruns the pipeline.
+/// Watches `.hick` files and output files, transparently reruns the pipeline,
+/// and applies reverse provenance when output files are edited.
 pub struct PipelineWatcher {
     project_dir: PathBuf,
     output_dir: Option<String>,
@@ -51,6 +60,11 @@ pub struct PipelineWatcher {
     run_complete: Arc<Notify>,
     /// Last known state (for staleness detection).
     state: Arc<Mutex<Option<PipelineState>>>,
+    /// Cached output file content from the last pipeline run.
+    /// Used for diff detection when output files are edited.
+    last_output: Arc<Mutex<HashMap<String, String>>>,
+    /// Cached provenance maps from the last pipeline run.
+    last_provenance: Arc<Mutex<HashMap<String, ProvenanceMap>>>,
 }
 
 impl PipelineWatcher {
@@ -61,6 +75,8 @@ impl PipelineWatcher {
             edit_service: Arc::new(Mutex::new(HickEditService::new())),
             run_complete: Arc::new(Notify::new()),
             state: Arc::new(Mutex::new(None)),
+            last_output: Arc::new(Mutex::new(HashMap::new())),
+            last_provenance: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -109,10 +125,10 @@ impl PipelineWatcher {
             notify::Config::default().with_poll_interval(Duration::from_millis(100)),
         )?;
 
-        // Watch the project directory for .hick file changes
+        // Watch the project directory for all file changes
         watcher.watch(&self.project_dir, RecursiveMode::Recursive)?;
         info!(
-            "Pipeline watcher: watching {} for .hick changes",
+            "Pipeline watcher: watching {} for .hick and output changes",
             self.project_dir.display()
         );
 
@@ -125,29 +141,65 @@ impl PipelineWatcher {
                 _ = tokio::signal::ctrl_c() => break,
             };
 
-            if !is_hick_change(&event) {
+            let is_change = matches!(
+                event.kind,
+                EventKind::Any | EventKind::Modify(_) | EventKind::Create(_) | EventKind::Remove(_)
+            );
+            if !is_change {
                 continue;
             }
 
-            debug!("Pipeline watcher: .hick change detected: {:?}", event.paths);
+            // Classify the event: .hick source change or output file change?
+            let hick_change = is_hick_change(&event);
+            let output_change = self.is_output_change(&event).await;
+
+            if !hick_change && !output_change {
+                continue;
+            }
 
             // Debounce: drain events for 200ms
             let debounce = Duration::from_millis(200);
             while let Ok(Some(_)) = tokio::time::timeout(debounce, rx.recv()).await {}
 
-            // Check if sources actually changed (avoid spurious reruns)
-            if !self.is_stale().await {
-                debug!("Pipeline watcher: sources unchanged, skipping rerun");
-                continue;
-            }
-
-            info!("Pipeline watcher: rerunning pipeline");
-            match self.run_once().await {
-                Ok(output) => {
-                    info!("Pipeline watcher: produced {} files", output.files.len());
+            if hick_change {
+                // .hick source changed → forward pipeline rerun
+                if !self.is_stale().await {
+                    debug!("Pipeline watcher: sources unchanged, skipping rerun");
+                    continue;
                 }
-                Err(e) => {
-                    error!("Pipeline watcher: rerun failed: {e}");
+                info!("Pipeline watcher: rerunning pipeline (.hick change)");
+                match self.run_once().await {
+                    Ok(output) => {
+                        info!("Pipeline watcher: produced {} files", output.files.len());
+                    }
+                    Err(e) => {
+                        error!("Pipeline watcher: rerun failed: {e}");
+                    }
+                }
+            } else if output_change {
+                // Output file changed → reverse provenance
+                let changed_files = self.detect_output_changes(&event).await;
+                for (rel_path, new_content) in changed_files {
+                    info!("Pipeline watcher: output edit detected in {rel_path}");
+                    match self.handle_output_edit(&rel_path, &new_content).await {
+                        Ok(result) => {
+                            if result.is_fully_reversible() {
+                                info!(
+                                    "Pipeline watcher: reverse-applied {} edits from {rel_path}",
+                                    result.edits.len()
+                                );
+                            } else if !result.errors.is_empty() {
+                                for err in &result.errors {
+                                    warn!("Reverse provenance: {}", err.message);
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            error!(
+                                "Pipeline watcher: reverse provenance failed for {rel_path}: {e}"
+                            );
+                        }
+                    }
                 }
             }
         }
@@ -184,6 +236,138 @@ impl PipelineWatcher {
     }
 
     // -----------------------------------------------------------------------
+    // Reverse provenance: output file edits → .hick source edits
+    // -----------------------------------------------------------------------
+
+    /// Handle an edit to an output file by reverse-mapping it to .hick source.
+    ///
+    /// 1. Diff old (cached) vs new content
+    /// 2. Look up provenance spans
+    /// 3. Compute reverse edits (or errors for non-reversible regions)
+    /// 4. Apply reversible edits to .hick source files
+    /// 5. Rerun pipeline and verify round-trip
+    pub async fn handle_output_edit(
+        &self,
+        output_file: &str,
+        new_content: &str,
+    ) -> Result<ReverseResult> {
+        // Step 1: Get old content from cache
+        let old_content = {
+            let cache = self.last_output.lock().await;
+            cache.get(output_file).cloned()
+        };
+        let old_content = old_content
+            .ok_or_else(|| anyhow::anyhow!("No cached content for {output_file} — cannot diff"))?;
+
+        // Step 2: Get provenance map
+        let provenance = {
+            let prov_cache = self.last_provenance.lock().await;
+            prov_cache.get(output_file).cloned()
+        };
+        let provenance = provenance.ok_or_else(|| {
+            anyhow::anyhow!("No provenance data for {output_file} — cannot reverse-map")
+        })?;
+
+        // Step 3: Diff
+        let changes = diff_output(&old_content, new_content);
+        if changes.is_empty() {
+            return Ok(ReverseResult {
+                edits: Vec::new(),
+                errors: Vec::new(),
+            });
+        }
+
+        // Step 4: Reverse map
+        let result = reverse_map(output_file, &changes, &provenance);
+
+        if result.edits.is_empty() {
+            // Nothing reversible — just return errors
+            return Ok(result);
+        }
+
+        // Step 5: Apply reverse edits to .hick source
+        let sources = load_hick_sources(&self.project_dir)?;
+        let updated_sources = apply_reverse_edits(&sources, &result.edits);
+        write_hick_sources(&self.project_dir, &updated_sources)?;
+        info!(
+            "Pipeline watcher: applied {} reverse edits to .hick source",
+            result.edits.len()
+        );
+
+        // Step 6: Rerun pipeline and verify round-trip
+        match self.run_once().await {
+            Ok(output) => {
+                let verify = verify_round_trip(output_file, new_content, &output.files);
+                match verify {
+                    VerifyResult::Match => {
+                        info!("Pipeline watcher: round-trip verification passed for {output_file}");
+                    }
+                    VerifyResult::Mismatch {
+                        expected_len,
+                        actual_len,
+                        first_diff_byte,
+                    } => {
+                        warn!(
+                            "Pipeline watcher: round-trip mismatch for {output_file} \
+                             (expected {expected_len} bytes, got {actual_len}, \
+                             first diff at byte {:?})",
+                            first_diff_byte
+                        );
+                    }
+                    VerifyResult::PipelineError(msg) => {
+                        error!("Pipeline watcher: round-trip error for {output_file}: {msg}");
+                    }
+                }
+            }
+            Err(e) => {
+                error!("Pipeline watcher: rerun after reverse edit failed: {e}");
+            }
+        }
+
+        Ok(result)
+    }
+
+    /// Check if an event affects a known output file.
+    async fn is_output_change(&self, event: &notify::Event) -> bool {
+        let cache = self.last_output.lock().await;
+        if cache.is_empty() {
+            return false;
+        }
+        let base = self.output_base();
+        event.paths.iter().any(|p| {
+            p.strip_prefix(&base)
+                .ok()
+                .and_then(|rel| rel.to_str())
+                .map(|rel| {
+                    let normalized = rel.replace('\\', "/");
+                    cache.contains_key(&normalized)
+                })
+                .unwrap_or(false)
+        })
+    }
+
+    /// Detect which output files changed and read their new content.
+    async fn detect_output_changes(&self, event: &notify::Event) -> Vec<(String, String)> {
+        let cache = self.last_output.lock().await;
+        let base = self.output_base();
+        let mut changed = Vec::new();
+
+        for path in &event.paths {
+            if let Some(rel) = path.strip_prefix(&base).ok().and_then(|r| r.to_str()) {
+                let normalized = rel.replace('\\', "/");
+                if cache.contains_key(&normalized)
+                    && let Ok(new_content) = std::fs::read_to_string(path)
+                    && cache.get(&normalized).is_none_or(|old| old != &new_content)
+                {
+                    changed.push((normalized, new_content));
+                }
+            }
+        }
+
+        changed
+    }
+
+    // -----------------------------------------------------------------------
     // Internal
     // -----------------------------------------------------------------------
 
@@ -193,6 +377,13 @@ impl PipelineWatcher {
 
     fn provenance_dir(&self) -> PathBuf {
         self.hick_dir().join("provenance")
+    }
+
+    fn output_base(&self) -> PathBuf {
+        match &self.output_dir {
+            Some(d) => self.project_dir.join(d),
+            None => self.project_dir.clone(),
+        }
     }
 
     async fn run_pipeline_inner(&self) -> Result<PipelineOutput> {
@@ -212,10 +403,7 @@ impl PipelineWatcher {
         drop(svc);
 
         // Write output files
-        let base = match &self.output_dir {
-            Some(d) => self.project_dir.join(d),
-            None => self.project_dir.clone(),
-        };
+        let base = self.output_base();
         for (rel_path, content) in &output.files {
             let full = base.join(rel_path);
             if let Some(parent) = full.parent() {
@@ -223,6 +411,10 @@ impl PipelineWatcher {
             }
             std::fs::write(&full, content)?;
         }
+
+        // Cache output content and provenance for reverse provenance
+        *self.last_output.lock().await = output.files.clone();
+        *self.last_provenance.lock().await = output.provenance_maps.clone();
 
         // Write provenance JSON
         self.write_provenance(&output)?;
@@ -330,7 +522,6 @@ fn chrono_now() -> String {
     let duration = SystemTime::now()
         .duration_since(SystemTime::UNIX_EPOCH)
         .unwrap_or_default();
-    // Simple unix timestamp as ISO-ish string
     let secs = duration.as_secs();
     format!("{secs}")
 }
@@ -408,5 +599,51 @@ mod tests {
             watcher.provenance_dir(),
             PathBuf::from("/workspace/.hick/provenance")
         );
+    }
+
+    #[tokio::test]
+    async fn is_output_change_empty_cache() {
+        let dir = TempDir::new().unwrap();
+        let watcher = PipelineWatcher::new(dir.path().to_path_buf(), None);
+        let event = notify::Event {
+            kind: EventKind::Modify(notify::event::ModifyKind::Data(
+                notify::event::DataChange::Content,
+            )),
+            paths: vec![dir.path().join("src/main.rs")],
+            attrs: Default::default(),
+        };
+        // No cached output → not an output change
+        assert!(!watcher.is_output_change(&event).await);
+    }
+
+    #[tokio::test]
+    async fn is_output_change_with_cached_file() {
+        let dir = TempDir::new().unwrap();
+        let watcher = PipelineWatcher::new(dir.path().to_path_buf(), None);
+
+        // Populate cache
+        {
+            let mut cache = watcher.last_output.lock().await;
+            cache.insert("src/main.rs".to_string(), "old content".to_string());
+        }
+
+        let event = notify::Event {
+            kind: EventKind::Modify(notify::event::ModifyKind::Data(
+                notify::event::DataChange::Content,
+            )),
+            paths: vec![dir.path().join("src/main.rs")],
+            attrs: Default::default(),
+        };
+        assert!(watcher.is_output_change(&event).await);
+
+        // Non-output file should not match
+        let event2 = notify::Event {
+            kind: EventKind::Modify(notify::event::ModifyKind::Data(
+                notify::event::DataChange::Content,
+            )),
+            paths: vec![dir.path().join("untracked.txt")],
+            attrs: Default::default(),
+        };
+        assert!(!watcher.is_output_change(&event2).await);
     }
 }
