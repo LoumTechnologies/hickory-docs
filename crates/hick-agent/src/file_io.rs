@@ -8,6 +8,7 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use hick_agent_core::{HickEditFormat, HickEditService, SourceEdit};
+use hick_flow::provenance::ProvenanceMap;
 
 /// Load all .hick files from a project directory.
 /// Uses _hick.yml if present, otherwise discovers *.hick recursively.
@@ -101,6 +102,24 @@ pub fn write_generated_files(
         }
         std::fs::write(&full, content)?;
     }
+    Ok(())
+}
+
+/// Write provenance maps as JSON to `.hick/provenance/`.
+pub fn write_provenance_maps(
+    project_dir: &Path,
+    provenance_maps: &HashMap<String, ProvenanceMap>,
+) -> anyhow::Result<()> {
+    let prov_dir = project_dir.join(".hick").join("provenance");
+    std::fs::create_dir_all(&prov_dir)?;
+
+    for (file_path, prov_map) in provenance_maps {
+        let safe_name = file_path.replace('/', "__");
+        let json_path = prov_dir.join(format!("{safe_name}.json"));
+        let json = serde_json::to_string_pretty(prov_map)?;
+        std::fs::write(&json_path, json)?;
+    }
+
     Ok(())
 }
 

@@ -7,7 +7,9 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand, ValueEnum};
-use hick_agent::{Agent, AgentConfig, AnthropicClient, LlmClient, OpenAiCompatClient, ReactLoop};
+use hick_agent::{
+    Agent, AgentConfig, AnthropicClient, LlmClient, OpenAiCompatClient, PipelineWatcher, ReactLoop,
+};
 
 #[derive(Parser)]
 #[command(name = "hick-agent")]
@@ -141,8 +143,22 @@ async fn main() -> Result<()> {
             let llm = build_llm_client(provider, model, api_base, api_key)?;
             let agent = Agent::new(config.clone(), llm);
             let output_dir = std::env::var("HICK_OUTPUT_DIR").ok();
-            let mut loop_ = ReactLoop::new(agent, config.project_dir.clone(), output_dir);
+            let mut loop_ = ReactLoop::new(agent, config.project_dir.clone(), output_dir.clone());
             loop_.stream_output = !no_stream;
+
+            // Start the transparent pipeline watcher in the background
+            let watcher = std::sync::Arc::new(PipelineWatcher::new(
+                config.project_dir.clone(),
+                output_dir,
+            ));
+            let watcher_handle = {
+                let watcher = std::sync::Arc::clone(&watcher);
+                tokio::spawn(async move {
+                    if let Err(e) = watcher.watch_loop().await {
+                        eprintln!("Pipeline watcher error: {e}");
+                    }
+                })
+            };
 
             println!("hick-agent: AI coding agent (ReAct loop)");
             println!("  Project:  {}", config.project_dir.display());
@@ -150,6 +166,7 @@ async fn main() -> Result<()> {
             println!("  Model:    {}", loop_.agent.model_name());
             println!("  Images:   {}", loop_.agent.config().images_dir.display());
             println!("  Stream:   {}", !no_stream);
+            println!("  Pipeline: watching .hick files");
             println!();
             println!("Enter your request (or 'quit' to exit):");
 
@@ -169,6 +186,8 @@ async fn main() -> Result<()> {
                     Err(e) => eprintln!("Error: {e}"),
                 }
             }
+
+            watcher_handle.abort();
         }
     }
 

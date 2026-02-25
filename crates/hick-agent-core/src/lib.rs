@@ -10,4 +10,4 @@ pub mod command;
 pub mod edit_format;
 
 pub use command::{CommandExecutor, WasmSandboxConfig, WasmSandboxExecutor};
-pub use edit_format::{HickEditFormat, HickEditService, QueryMatch, SourceEdit};
+pub use edit_format::{HickEditFormat, HickEditService, PipelineOutput, QueryMatch, SourceEdit};
