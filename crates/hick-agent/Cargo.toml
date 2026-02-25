@@ -2,7 +2,7 @@
 name = "hick-agent"
 version = "0.1.0"
 edition = "2024"
-description = "AI command-line coding agent using Hick XML edit format and WASM sandbox execution"
+description = "AI command-line coding agent — script-first model with transparent Hick pipeline"
 
 [[bin]]
 name = "hick-agent"
@@ -10,7 +10,6 @@ path = "src/main.rs"
 
 [dependencies]
 hick-agent-core = { path = "../hick-agent-core" }
-hick-lens = { path = "../hick-lens" }
 async-openai = "0.28"
 async-trait = "0.1"
 anyhow = "1"

@@ -1,6 +1,6 @@
-//! Strongly-typed state machine for the ReAct agent loop.
+//! Strongly-typed state machine for the script-first ReAct agent loop.
 
-use crate::tools::{ToolCall, ToolResult};
+use crate::tools::ScriptResult;
 
 /// State of the agent in the ReAct loop.
 #[derive(Debug, Clone)]
@@ -11,16 +11,16 @@ pub enum AgentState {
     /// Waiting for LLM response.
     Thinking { messages_sent: usize },
 
-    /// LLM returned tool call(s). Ready to execute.
-    Acting {
-        tool_calls: Vec<ToolCall>,
+    /// LLM returned Python script(s) in code blocks. Ready to execute.
+    Executing {
+        scripts: Vec<String>,
         thought: Option<String>,
     },
 
-    /// Tool(s) executed. Ready to send results back to LLM.
-    Observing { results: Vec<ToolResult> },
+    /// Script(s) executed. Ready to send results back to LLM.
+    Observing { results: Vec<ScriptResult> },
 
-    /// Agent produced final answer.
+    /// Agent produced final answer (no code blocks in response).
     Done { message: String },
 
     /// Error occurred.
@@ -33,25 +33,22 @@ impl AgentState {
     }
 
     /// Transition: Idle/Observing -> Thinking (send to LLM)
-    pub fn to_thinking(self, messages_sent: usize) -> Self {
+    pub fn to_thinking(messages_sent: usize) -> Self {
         AgentState::Thinking { messages_sent }
     }
 
-    /// Transition: Thinking -> Acting (LLM returned tool calls)
-    pub fn to_acting(tool_calls: Vec<ToolCall>, thought: Option<String>) -> Self {
-        AgentState::Acting {
-            tool_calls,
-            thought,
-        }
+    /// Transition: Thinking -> Executing (LLM returned Python code blocks)
+    pub fn to_executing(scripts: Vec<String>, thought: Option<String>) -> Self {
+        AgentState::Executing { scripts, thought }
     }
 
-    /// Transition: Thinking -> Done (LLM returned final answer)
+    /// Transition: Thinking -> Done (LLM returned final answer, no code blocks)
     pub fn to_done(message: String) -> Self {
         AgentState::Done { message }
     }
 
-    /// Transition: Acting -> Observing (tools executed)
-    pub fn to_observing(results: Vec<ToolResult>) -> Self {
+    /// Transition: Executing -> Observing (scripts executed)
+    pub fn to_observing(results: Vec<ScriptResult>) -> Self {
         AgentState::Observing { results }
     }
 

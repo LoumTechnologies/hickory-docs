@@ -1,12 +1,9 @@
 //! AI command-line coding agent.
 //!
-//! Uses Hick XML as the edit format and Hick WASM containers for sandboxed
-//! command execution. All operations run in-process except for third-party
-//! MCP servers (if configured).
-//!
-//! The agent is cleanly separated from:
-//! - [`hick_agent_core::CommandExecutor`] — Sandboxed command execution
-//! - [`hick_agent_core::HickEditFormat`] — Hick XML pipeline and edit operations
+//! Uses a script-first model: the LLM writes Python scripts in code blocks,
+//! which are executed and their output returned as observations. The Hick
+//! pipeline runs transparently via the PipelineWatcher, and structural
+//! operations are available to scripts via the `hickory` Python SDK.
 
 pub mod agent;
 pub mod backing;

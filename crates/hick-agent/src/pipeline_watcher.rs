@@ -144,10 +144,7 @@ impl PipelineWatcher {
             info!("Pipeline watcher: rerunning pipeline");
             match self.run_once().await {
                 Ok(output) => {
-                    info!(
-                        "Pipeline watcher: produced {} files",
-                        output.files.len()
-                    );
+                    info!("Pipeline watcher: produced {} files", output.files.len());
                 }
                 Err(e) => {
                     error!("Pipeline watcher: rerun failed: {e}");
@@ -252,8 +249,8 @@ impl PipelineWatcher {
         for (file_path, prov_map) in &output.provenance_maps {
             let safe_name = file_path.replace('/', "__");
             let json_path = prov_dir.join(format!("{safe_name}.json"));
-            let json = serde_json::to_string_pretty(prov_map)
-                .context("failed to serialize provenance")?;
+            let json =
+                serde_json::to_string_pretty(prov_map).context("failed to serialize provenance")?;
             std::fs::write(&json_path, json)?;
             debug!("Wrote provenance: {}", json_path.display());
         }
@@ -341,7 +338,6 @@ fn chrono_now() -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fs;
     use tempfile::TempDir;
 
     #[test]

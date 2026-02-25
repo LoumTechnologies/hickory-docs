@@ -1,7 +1,8 @@
 //! hick-agent: AI command-line coding agent.
 //!
-//! Uses Hick XML as the edit format and Hick WASM containers for sandboxed
-//! command execution. All operations run in-process.
+//! Script-first model: the LLM writes Python scripts, which are executed
+//! and their output returned as observations. The Hick pipeline runs
+//! transparently via a file watcher.
 
 use std::path::PathBuf;
 
@@ -13,7 +14,7 @@ use hick_agent::{
 
 #[derive(Parser)]
 #[command(name = "hick-agent")]
-#[command(about = "AI coding agent using Hick XML edit format and WASM sandbox")]
+#[command(about = "AI coding agent using Hick XML — script-first model")]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
@@ -47,7 +48,12 @@ enum Commands {
         #[arg(long, default_value = "alpine")]
         default_image: String,
         /// LLM provider
-        #[arg(long, value_enum, default_value = "openai", env = "HICK_AGENT_PROVIDER")]
+        #[arg(
+            long,
+            value_enum,
+            default_value = "openai",
+            env = "HICK_AGENT_PROVIDER"
+        )]
         provider: Provider,
         /// Model name (defaults to provider's recommended model)
         #[arg(long, env = "HICK_AGENT_MODEL")]
@@ -74,8 +80,8 @@ fn build_llm_client(
         Provider::Openai => {
             let model = model.unwrap_or_else(|| "gpt-4o".into());
             if let Some(base) = api_base {
-                let key = api_key
-                    .unwrap_or_else(|| std::env::var("OPENAI_API_KEY").unwrap_or_default());
+                let key =
+                    api_key.unwrap_or_else(|| std::env::var("OPENAI_API_KEY").unwrap_or_default());
                 Ok(Box::new(OpenAiCompatClient::custom(
                     base, key, model, "openai",
                 )))
@@ -103,8 +109,9 @@ fn build_llm_client(
             }
         }
         Provider::OpenaiCompat => {
-            let base = api_base
-                .ok_or_else(|| anyhow::anyhow!("--api-base is required for openai-compat provider"))?;
+            let base = api_base.ok_or_else(|| {
+                anyhow::anyhow!("--api-base is required for openai-compat provider")
+            })?;
             let key = api_key.unwrap_or_default();
             let model = model.unwrap_or_else(|| "default".into());
             Ok(Box::new(OpenAiCompatClient::custom(
@@ -143,14 +150,12 @@ async fn main() -> Result<()> {
             let llm = build_llm_client(provider, model, api_base, api_key)?;
             let agent = Agent::new(config.clone(), llm);
             let output_dir = std::env::var("HICK_OUTPUT_DIR").ok();
-            let mut loop_ = ReactLoop::new(agent, config.project_dir.clone(), output_dir.clone());
+            let mut loop_ = ReactLoop::new(agent, config.project_dir.clone());
             loop_.stream_output = !no_stream;
 
             // Start the transparent pipeline watcher in the background
-            let watcher = std::sync::Arc::new(PipelineWatcher::new(
-                config.project_dir.clone(),
-                output_dir,
-            ));
+            let watcher =
+                std::sync::Arc::new(PipelineWatcher::new(config.project_dir.clone(), output_dir));
             let watcher_handle = {
                 let watcher = std::sync::Arc::clone(&watcher);
                 tokio::spawn(async move {
@@ -160,11 +165,13 @@ async fn main() -> Result<()> {
                 })
             };
 
-            println!("hick-agent: AI coding agent (ReAct loop)");
+            // Copy the Python SDK into .hick/sdk/ so scripts can import it
+            setup_sdk(&config.project_dir);
+
+            println!("hick-agent: AI coding agent (script-first)");
             println!("  Project:  {}", config.project_dir.display());
             println!("  Provider: {}", loop_.agent.provider_name());
             println!("  Model:    {}", loop_.agent.model_name());
-            println!("  Images:   {}", loop_.agent.config().images_dir.display());
             println!("  Stream:   {}", !no_stream);
             println!("  Pipeline: watching .hick files");
             println!();
@@ -192,4 +199,38 @@ async fn main() -> Result<()> {
     }
 
     Ok(())
+}
+
+/// Copy the bundled Python SDK into the project's `.hick/sdk/` directory
+/// so that Python scripts can `from hickory import hick`.
+fn setup_sdk(project_dir: &std::path::Path) {
+    let sdk_dest = project_dir.join(".hick").join("sdk").join("hickory");
+    if sdk_dest.join("__init__.py").exists() {
+        return; // Already set up
+    }
+
+    // The SDK source is bundled alongside the hick-agent binary
+    let sdk_source = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("sdk")
+        .join("hickory");
+
+    if !sdk_source.exists() {
+        // Fallback: try relative to project dir (development mode)
+        return;
+    }
+
+    if let Err(e) = std::fs::create_dir_all(&sdk_dest) {
+        eprintln!("Warning: could not create SDK dir: {e}");
+        return;
+    }
+
+    for entry in ["__init__.py", "client.py"] {
+        let src = sdk_source.join(entry);
+        let dst = sdk_dest.join(entry);
+        if src.exists()
+            && let Err(e) = std::fs::copy(&src, &dst)
+        {
+            eprintln!("Warning: could not copy SDK file {entry}: {e}");
+        }
+    }
 }

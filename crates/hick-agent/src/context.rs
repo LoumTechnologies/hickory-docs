@@ -29,10 +29,10 @@ pub fn load_agent_context(project_dir: &Path) -> String {
     // Load standard files from project root
     for (filename, label) in CONTEXT_FILES {
         let path = project_dir.join(filename);
-        if path.is_file() {
-            if let Ok(content) = std::fs::read_to_string(&path) {
-                parts.push(format!("# {label} ({filename})\n\n{content}"));
-            }
+        if path.is_file()
+            && let Ok(content) = std::fs::read_to_string(&path)
+        {
+            parts.push(format!("# {label} ({filename})\n\n{content}"));
         }
     }
 
