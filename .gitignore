@@ -26,3 +26,20 @@ matrix/
 
 # Auto-generated agent docs
 .agents/
+
+# devenv state and data
+.devenv/
+dev-data/
+dev-backups/
+
+# Environment (keep .env.example)
+.env
+.env.local
+
+# TLS certificates (if using tunnels)
+*.ts.net.crt
+*.ts.net.key
+
+# Frontend
+crates/wrist-flick/web/node_modules/
+crates/wrist-flick/web/dist/

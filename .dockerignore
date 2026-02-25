@@ -1,0 +1,15 @@
+target/
+.git/
+.devenv/
+dev-data/
+dev-backups/
+node_modules/
+dist/
+*.wasm
+*.cwasm
+.DS_Store
+.idea/
+.agents/
+scaffolding/output/
+matrix/
+python/**/__pycache__/
