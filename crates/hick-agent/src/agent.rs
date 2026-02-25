@@ -4,15 +4,15 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::pin::Pin;
 
+use futures::Stream;
 use hick_agent_core::{
     CommandExecutor, HickEditFormat, HickEditService, QueryMatch, SourceEdit, WasmSandboxConfig,
     WasmSandboxExecutor,
 };
 
-use crate::llm::LlmClient;
-
-use crate::llm::{Message, Role};
+use crate::llm::{ChatChunk, LlmClient, Message, Role};
 
 /// Configuration for the coding agent.
 #[derive(Clone)]
@@ -126,6 +126,24 @@ impl Agent {
     /// Call the LLM with messages (for ReAct loop).
     pub async fn llm_complete(&self, messages: Vec<Message>) -> anyhow::Result<String> {
         self.llm.complete(messages).await
+    }
+
+    /// Stream a chat completion (for ReAct loop with real-time output).
+    pub async fn llm_stream(
+        &self,
+        messages: Vec<Message>,
+    ) -> anyhow::Result<Pin<Box<dyn Stream<Item = anyhow::Result<ChatChunk>> + Send>>> {
+        self.llm.complete_stream(messages).await
+    }
+
+    /// Provider name (for display).
+    pub fn provider_name(&self) -> &str {
+        self.llm.provider_name()
+    }
+
+    /// Model name (for display).
+    pub fn model_name(&self) -> &str {
+        self.llm.model_name()
     }
 
     /// Compute source edits for a selector replacement.

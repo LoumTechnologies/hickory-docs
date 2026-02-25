@@ -129,6 +129,14 @@ fn find_matching_brace(s: &str) -> Option<usize> {
     None
 }
 
+impl ToolCall {
+    /// Whether this tool only performs filesystem I/O and can run in parallel
+    /// without needing agent state.
+    pub fn is_filesystem_only(&self) -> bool {
+        matches!(self, ToolCall::ReadFile { .. } | ToolCall::ListDir { .. })
+    }
+}
+
 /// Check if the response indicates the agent is done (no tool calls, or explicit Done).
 pub fn extract_final_message(text: &str) -> Option<String> {
     let calls = parse_tool_calls(text);

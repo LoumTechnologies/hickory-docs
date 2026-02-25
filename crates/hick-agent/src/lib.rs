@@ -10,16 +10,17 @@
 
 pub mod agent;
 pub mod backing;
+pub mod context;
 pub mod file_io;
 pub mod llm;
-pub mod llm_openai;
-pub mod llm_xai;
+pub mod llm_anthropic;
+pub mod llm_openai_compat;
 pub mod react_loop;
 pub mod state;
 pub mod tools;
 
 pub use agent::{Agent, AgentConfig};
-pub use llm::LlmClient;
-pub use llm_openai::OpenAiClient;
-pub use llm_xai::XaiClient;
+pub use llm::{ChatChunk, LlmClient};
+pub use llm_anthropic::AnthropicClient;
+pub use llm_openai_compat::OpenAiCompatClient;
 pub use react_loop::ReactLoop;

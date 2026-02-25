@@ -7,7 +7,7 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand, ValueEnum};
-use hick_agent::{Agent, AgentConfig, LlmClient, OpenAiClient, ReactLoop, XaiClient};
+use hick_agent::{Agent, AgentConfig, AnthropicClient, LlmClient, OpenAiCompatClient, ReactLoop};
 
 #[derive(Parser)]
 #[command(name = "hick-agent")]
@@ -18,12 +18,17 @@ struct Cli {
 }
 
 #[derive(Clone, Copy, Default, ValueEnum)]
-enum LlmProvider {
+enum Provider {
     /// OpenAI API (OPENAI_API_KEY)
     #[default]
     Openai,
-    /// xAI API (XAI_API_KEY)
+    /// Anthropic Claude API (ANTHROPIC_API_KEY)
+    Anthropic,
+    /// xAI/Grok API (XAI_API_KEY)
     Xai,
+    /// Custom OpenAI-compatible endpoint (requires --api-base)
+    #[value(name = "openai-compat")]
+    OpenaiCompat,
 }
 
 #[derive(Subcommand)]
@@ -39,10 +44,75 @@ enum Commands {
         /// Default container image
         #[arg(long, default_value = "alpine")]
         default_image: String,
-        /// LLM provider: openai (default) or xai
-        #[arg(long, value_enum, default_value = "openai")]
-        llm: LlmProvider,
+        /// LLM provider
+        #[arg(long, value_enum, default_value = "openai", env = "HICK_AGENT_PROVIDER")]
+        provider: Provider,
+        /// Model name (defaults to provider's recommended model)
+        #[arg(long, env = "HICK_AGENT_MODEL")]
+        model: Option<String>,
+        /// API base URL (for openai-compat, or to override a provider's default)
+        #[arg(long, env = "HICK_AGENT_API_BASE")]
+        api_base: Option<String>,
+        /// API key (overrides provider-specific env vars like OPENAI_API_KEY)
+        #[arg(long, env = "HICK_AGENT_API_KEY")]
+        api_key: Option<String>,
+        /// Disable streaming output
+        #[arg(long)]
+        no_stream: bool,
     },
+}
+
+fn build_llm_client(
+    provider: Provider,
+    model: Option<String>,
+    api_base: Option<String>,
+    api_key: Option<String>,
+) -> Result<Box<dyn LlmClient>> {
+    match provider {
+        Provider::Openai => {
+            let model = model.unwrap_or_else(|| "gpt-4o".into());
+            if let Some(base) = api_base {
+                let key = api_key
+                    .unwrap_or_else(|| std::env::var("OPENAI_API_KEY").unwrap_or_default());
+                Ok(Box::new(OpenAiCompatClient::custom(
+                    base, key, model, "openai",
+                )))
+            } else {
+                Ok(Box::new(OpenAiCompatClient::openai(model)))
+            }
+        }
+        Provider::Anthropic => {
+            let model = model.unwrap_or_else(|| "claude-sonnet-4-5-20250929".into());
+            let key =
+                api_key.unwrap_or_else(|| std::env::var("ANTHROPIC_API_KEY").unwrap_or_default());
+            Ok(Box::new(AnthropicClient::with_config(model, key)))
+        }
+        Provider::Xai => {
+            let model = model.unwrap_or_else(|| "grok-2".into());
+            if let Some(key) = api_key {
+                Ok(Box::new(OpenAiCompatClient::custom(
+                    "https://api.x.ai/v1",
+                    key,
+                    model,
+                    "xai",
+                )))
+            } else {
+                Ok(Box::new(OpenAiCompatClient::xai(model)))
+            }
+        }
+        Provider::OpenaiCompat => {
+            let base = api_base
+                .ok_or_else(|| anyhow::anyhow!("--api-base is required for openai-compat provider"))?;
+            let key = api_key.unwrap_or_default();
+            let model = model.unwrap_or_else(|| "default".into());
+            Ok(Box::new(OpenAiCompatClient::custom(
+                base,
+                key,
+                model,
+                "openai-compat",
+            )))
+        }
+    }
 }
 
 #[tokio::main]
@@ -56,7 +126,11 @@ async fn main() -> Result<()> {
             project_dir,
             images_dir,
             default_image,
-            llm,
+            provider,
+            model,
+            api_base,
+            api_key,
+            no_stream,
         } => {
             let config = AgentConfig {
                 project_dir: project_dir.unwrap_or_else(|| std::env::current_dir().unwrap()),
@@ -64,17 +138,18 @@ async fn main() -> Result<()> {
                 default_image,
             };
 
-            let llm: Box<dyn LlmClient> = match llm {
-                LlmProvider::Openai => Box::new(OpenAiClient::new()),
-                LlmProvider::Xai => Box::new(XaiClient::new()),
-            };
+            let llm = build_llm_client(provider, model, api_base, api_key)?;
             let agent = Agent::new(config.clone(), llm);
             let output_dir = std::env::var("HICK_OUTPUT_DIR").ok();
             let mut loop_ = ReactLoop::new(agent, config.project_dir.clone(), output_dir);
+            loop_.stream_output = !no_stream;
 
             println!("hick-agent: AI coding agent (ReAct loop)");
-            println!("  Project: {}", config.project_dir.display());
-            println!("  Images:  {}", loop_.agent.config().images_dir.display());
+            println!("  Project:  {}", config.project_dir.display());
+            println!("  Provider: {}", loop_.agent.provider_name());
+            println!("  Model:    {}", loop_.agent.model_name());
+            println!("  Images:   {}", loop_.agent.config().images_dir.display());
+            println!("  Stream:   {}", !no_stream);
             println!();
             println!("Enter your request (or 'quit' to exit):");
 

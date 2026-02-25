@@ -1,8 +1,12 @@
 //! ReAct loop: orchestrate LLM and tool execution.
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::io::Write as _;
+use std::path::{Path, PathBuf};
 
+use futures::StreamExt;
+
+use crate::context;
 use crate::file_io::{load_hick_sources, write_generated_files, write_hick_sources};
 use crate::llm::{Message, Role};
 use crate::state::AgentState;
@@ -43,6 +47,8 @@ pub struct ReactLoop {
     output_dir: Option<String>,
     hick_sources: HashMap<String, String>,
     max_turns: usize,
+    /// Whether to stream LLM output to stdout.
+    pub stream_output: bool,
 }
 
 impl ReactLoop {
@@ -53,6 +59,7 @@ impl ReactLoop {
             output_dir,
             hick_sources: HashMap::new(),
             max_turns: 50,
+            stream_output: true,
         }
     }
 
@@ -75,7 +82,7 @@ impl ReactLoop {
         self.agent.run_pipeline(&sources, params).await
     }
 
-    /// Execute a single tool call.
+    /// Execute a single tool call that requires agent state.
     pub async fn execute_tool(&mut self, call: ToolCall) -> ToolResult {
         match call {
             ToolCall::RunPipeline { params } => {
@@ -246,6 +253,48 @@ impl ReactLoop {
         }
     }
 
+    /// Execute a batch of tool calls, running filesystem-only ones in parallel.
+    async fn execute_tools(&mut self, tool_calls: Vec<ToolCall>) -> Vec<ToolResult> {
+        let mut fs_tasks = Vec::new();
+        let mut sequential_calls = Vec::new();
+        let mut indexed_results: Vec<(usize, ToolResult)> = Vec::new();
+
+        for (idx, call) in tool_calls.into_iter().enumerate() {
+            if call.is_filesystem_only() {
+                fs_tasks.push((idx, call));
+            } else {
+                sequential_calls.push((idx, call));
+            }
+        }
+
+        // Run filesystem-only tools in parallel
+        if !fs_tasks.is_empty() {
+            let mut set = tokio::task::JoinSet::new();
+            for (idx, call) in fs_tasks {
+                let dir = self.project_dir.clone();
+                set.spawn(async move { (idx, execute_fs_tool(call, &dir).await) });
+            }
+            while let Some(result) = set.join_next().await {
+                match result {
+                    Ok(pair) => indexed_results.push(pair),
+                    Err(e) => {
+                        indexed_results.push((usize::MAX, ToolResult::err("join", format!("{e}"))))
+                    }
+                }
+            }
+        }
+
+        // Run remaining tools sequentially (they need agent state)
+        for (idx, call) in sequential_calls {
+            let result = self.execute_tool(call).await;
+            indexed_results.push((idx, result));
+        }
+
+        // Sort by original index to preserve tool call ordering
+        indexed_results.sort_by_key(|(idx, _)| *idx);
+        indexed_results.into_iter().map(|(_, r)| r).collect()
+    }
+
     /// Run one full ReAct turn: get LLM response, execute tools, return new state.
     pub async fn step(
         &mut self,
@@ -254,7 +303,23 @@ impl ReactLoop {
     ) -> anyhow::Result<AgentState> {
         match state {
             AgentState::Thinking { .. } => {
-                let response = self.agent.llm_complete(messages.clone()).await?;
+                let response = if self.stream_output {
+                    let mut stream = self.agent.llm_stream(messages.clone()).await?;
+                    let mut full = String::new();
+                    while let Some(chunk) = stream.next().await {
+                        let chunk = chunk?;
+                        if !chunk.delta.is_empty() {
+                            print!("{}", chunk.delta);
+                            std::io::stdout().flush().ok();
+                            full.push_str(&chunk.delta);
+                        }
+                    }
+                    println!();
+                    full
+                } else {
+                    self.agent.llm_complete(messages.clone()).await?
+                };
+
                 let tool_calls = parse_tool_calls(&response);
 
                 if tool_calls.is_empty() {
@@ -287,13 +352,22 @@ impl ReactLoop {
                 Ok(AgentState::to_acting(tool_calls, thought))
             }
             AgentState::Acting { tool_calls, .. } => {
-                let mut results = Vec::new();
-                for call in tool_calls {
-                    let result = self.execute_tool(call).await;
-                    if result.tool == "done" {
-                        return Ok(AgentState::to_done(result.output));
+                // Check for done before executing
+                for call in &tool_calls {
+                    if let ToolCall::Done { message } = call {
+                        return Ok(AgentState::to_done(
+                            message.clone().unwrap_or_default(),
+                        ));
                     }
-                    results.push(result);
+                }
+
+                let results = self.execute_tools(tool_calls).await;
+
+                // Check if any tool result is "done"
+                for r in &results {
+                    if r.tool == "done" {
+                        return Ok(AgentState::to_done(r.output.clone()));
+                    }
                 }
 
                 let results_text = results
@@ -329,10 +403,18 @@ impl ReactLoop {
     pub async fn run(&mut self, user_message: &str) -> anyhow::Result<String> {
         self.load_sources()?;
 
+        // Load standards-based agent context (AGENTS.md, .agents/, CLAUDE.md)
+        let agent_context = context::load_agent_context(&self.project_dir);
+        let system = if agent_context.is_empty() {
+            SYSTEM_PROMPT.to_string()
+        } else {
+            format!("{SYSTEM_PROMPT}\n\n---\n\n{agent_context}")
+        };
+
         let mut messages = vec![
             Message {
                 role: Role::System,
-                content: SYSTEM_PROMPT.to_string(),
+                content: system,
             },
             Message {
                 role: Role::User,
@@ -364,6 +446,34 @@ impl ReactLoop {
             AgentState::Error { message } => Err(anyhow::anyhow!("Agent error: {message}")),
             _ => Err(anyhow::anyhow!("Max turns ({}) exceeded", self.max_turns)),
         }
+    }
+}
+
+/// Execute a filesystem-only tool without needing agent state.
+/// These can safely run in parallel via tokio tasks.
+async fn execute_fs_tool(call: ToolCall, project_dir: &Path) -> ToolResult {
+    match call {
+        ToolCall::ReadFile { path } => {
+            let full = project_dir.join(&path);
+            match tokio::fs::read_to_string(&full).await {
+                Ok(c) => ToolResult::ok("read_file", c),
+                Err(e) => ToolResult::err("read_file", format!("{e}")),
+            }
+        }
+        ToolCall::ListDir { path } => {
+            let full = project_dir.join(&path);
+            match tokio::fs::read_dir(&full).await {
+                Ok(mut entries) => {
+                    let mut names = Vec::new();
+                    while let Ok(Some(entry)) = entries.next_entry().await {
+                        names.push(entry.file_name().to_string_lossy().to_string());
+                    }
+                    ToolResult::ok("list_dir", names.join("\n"))
+                }
+                Err(e) => ToolResult::err("list_dir", format!("{e}")),
+            }
+        }
+        _ => ToolResult::err("internal", "not a filesystem tool"),
     }
 }
 
