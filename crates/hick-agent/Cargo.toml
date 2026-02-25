@@ -8,6 +8,11 @@ description = "AI command-line coding agent — script-first model with transpar
 name = "hick-agent"
 path = "src/main.rs"
 
+[features]
+default = []
+local = ["dep:llama-cpp-2"]
+local-cuda = ["local", "llama-cpp-2/cuda"]
+
 [dependencies]
 hick-agent-core = { path = "../hick-agent-core" }
 async-openai = "0.28"
@@ -29,6 +34,13 @@ serde_yaml = "0.9"
 sha2 = "0.10"
 walkdir = "2"
 hick-lang = { version = "0.1.0", path = "../hick-lang" }
+
+# Metal auto-enabled on macOS; CUDA opt-in via `local-cuda` feature
+[target.'cfg(target_os = "macos")'.dependencies]
+llama-cpp-2 = { version = "0.1", optional = true, features = ["metal"] }
+
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+llama-cpp-2 = { version = "0.1", optional = true }
 
 [dev-dependencies]
 tempfile = "3"

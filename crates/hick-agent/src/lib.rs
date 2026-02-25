@@ -11,6 +11,8 @@ pub mod context;
 pub mod file_io;
 pub mod llm;
 pub mod llm_anthropic;
+#[cfg(feature = "local")]
+pub mod llm_local;
 pub mod llm_openai_compat;
 pub mod pipeline_watcher;
 pub mod react_loop;
@@ -21,6 +23,8 @@ pub mod tools;
 pub use agent::{Agent, AgentConfig};
 pub use llm::{ChatChunk, LlmClient};
 pub use llm_anthropic::AnthropicClient;
+#[cfg(feature = "local")]
+pub use llm_local::LocalLlmClient;
 pub use llm_openai_compat::OpenAiCompatClient;
 pub use pipeline_watcher::PipelineWatcher;
 pub use react_loop::ReactLoop;

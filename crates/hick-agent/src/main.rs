@@ -8,6 +8,8 @@ use std::path::PathBuf;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand, ValueEnum};
+#[cfg(feature = "local")]
+use hick_agent::LocalLlmClient;
 use hick_agent::{
     Agent, AgentConfig, AnthropicClient, LlmClient, OpenAiCompatClient, PipelineWatcher, ReactLoop,
 };
@@ -32,6 +34,8 @@ enum Provider {
     /// Custom OpenAI-compatible endpoint (requires --api-base)
     #[value(name = "openai-compat")]
     OpenaiCompat,
+    /// Local GGUF model via llama.cpp (requires --model-path, build with --features local)
+    Local,
 }
 
 #[derive(Subcommand)]
@@ -64,10 +68,31 @@ enum Commands {
         /// API key (overrides provider-specific env vars like OPENAI_API_KEY)
         #[arg(long, env = "HICK_AGENT_API_KEY")]
         api_key: Option<String>,
+        /// Path to a local GGUF model file (for --provider local)
+        #[arg(long, env = "HICK_AGENT_MODEL_PATH")]
+        model_path: Option<PathBuf>,
+        /// GPU layers to offload (auto-calibrates if omitted; 0 = CPU only, 1000 = all)
+        #[arg(long, env = "HICK_AGENT_GPU_LAYERS")]
+        n_gpu_layers: Option<u32>,
+        /// Context window size in tokens (for --provider local)
+        #[arg(long, default_value = "4096", env = "HICK_AGENT_CTX")]
+        n_ctx: u32,
+        /// Maximum tokens to generate per response (for --provider local)
+        #[arg(long, default_value = "4096", env = "HICK_AGENT_MAX_TOKENS")]
+        max_tokens: u32,
         /// Disable streaming output
         #[arg(long)]
         no_stream: bool,
     },
+}
+
+#[allow(dead_code)] // Fields read only when `local` feature is enabled
+struct LocalOpts {
+    model_path: Option<PathBuf>,
+    n_gpu_layers: Option<u32>,
+    n_ctx: u32,
+    max_tokens: u32,
+    project_dir: PathBuf,
 }
 
 fn build_llm_client(
@@ -75,6 +100,7 @@ fn build_llm_client(
     model: Option<String>,
     api_base: Option<String>,
     api_key: Option<String>,
+    local_opts: LocalOpts,
 ) -> Result<Box<dyn LlmClient>> {
     match provider {
         Provider::Openai => {
@@ -121,6 +147,40 @@ fn build_llm_client(
                 "openai-compat",
             )))
         }
+        Provider::Local => {
+            #[cfg(feature = "local")]
+            {
+                let path = local_opts.model_path.ok_or_else(|| {
+                    anyhow::anyhow!(
+                        "--model-path is required for the local provider\n\
+                         Example: --provider local --model-path ./model.gguf"
+                    )
+                })?;
+                match local_opts.n_gpu_layers {
+                    Some(layers) => Ok(Box::new(LocalLlmClient::load(
+                        path,
+                        layers,
+                        local_opts.n_ctx,
+                        local_opts.max_tokens,
+                    )?)),
+                    None => Ok(Box::new(LocalLlmClient::load_auto(
+                        path,
+                        local_opts.n_ctx,
+                        local_opts.max_tokens,
+                        &local_opts.project_dir,
+                    )?)),
+                }
+            }
+            #[cfg(not(feature = "local"))]
+            {
+                let _ = local_opts;
+                anyhow::bail!(
+                    "Local provider requires the 'local' feature.\n\
+                     Build with: cargo build -p hick-agent --features local\n\
+                     For NVIDIA GPU: --features local-cuda"
+                )
+            }
+        }
     }
 }
 
@@ -139,6 +199,10 @@ async fn main() -> Result<()> {
             model,
             api_base,
             api_key,
+            model_path,
+            n_gpu_layers,
+            n_ctx,
+            max_tokens,
             no_stream,
         } => {
             let config = AgentConfig {
@@ -147,7 +211,14 @@ async fn main() -> Result<()> {
                 default_image,
             };
 
-            let llm = build_llm_client(provider, model, api_base, api_key)?;
+            let local_opts = LocalOpts {
+                model_path,
+                n_gpu_layers,
+                n_ctx,
+                max_tokens,
+                project_dir: config.project_dir.clone(),
+            };
+            let llm = build_llm_client(provider, model, api_base, api_key, local_opts)?;
             let agent = Agent::new(config.clone(), llm);
             let output_dir = std::env::var("HICK_OUTPUT_DIR").ok();
             let mut loop_ = ReactLoop::new(agent, config.project_dir.clone());
