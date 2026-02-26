@@ -8,6 +8,16 @@ use std::path::PathBuf;
 
 use async_trait::async_trait;
 use hick::executor::ContainerExecutor;
+use hick_token::ContainerCapabilities;
+
+/// Structured output from a sandboxed command execution.
+#[derive(Debug, Clone)]
+pub struct CommandOutput {
+    /// Combined stdout/stderr output from the command.
+    pub output: String,
+    /// Exit code if available (parsed from shell `echo $?` wrapper).
+    pub exit_code: Option<i32>,
+}
 
 /// Executes shell commands in a sandboxed environment.
 ///
@@ -28,7 +38,7 @@ pub trait CommandExecutor: Send + Sync {
         command: &str,
         image: &str,
         timeout: Option<u64>,
-    ) -> anyhow::Result<String>;
+    ) -> anyhow::Result<CommandOutput>;
 }
 
 /// Configuration for WASM sandbox execution.
@@ -40,6 +50,8 @@ pub struct WasmSandboxConfig {
     pub workdir: PathBuf,
     /// Default container image when not specified.
     pub default_image: String,
+    /// Capability restrictions for the sandbox container.
+    pub capabilities: ContainerCapabilities,
 }
 
 impl Default for WasmSandboxConfig {
@@ -48,6 +60,7 @@ impl Default for WasmSandboxConfig {
             images_dir: PathBuf::from("."),
             workdir: std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
             default_image: "alpine".to_string(),
+            capabilities: ContainerCapabilities::default(),
         }
     }
 }
@@ -73,8 +86,9 @@ impl WasmSandboxExecutor {
     /// Ensure the underlying executor is initialized and the container is booted.
     async fn ensure_ready(&mut self, container: &str, image: &str) -> anyhow::Result<()> {
         if self.executor.is_none() {
-            let executor = ContainerExecutor::new(self.config.images_dir.clone(), HashMap::new())?;
-            let mut exec = executor;
+            let mut caps_map = HashMap::new();
+            caps_map.insert(container.to_string(), self.config.capabilities.clone());
+            let mut exec = ContainerExecutor::new(self.config.images_dir.clone(), caps_map)?;
             exec.set_preopened_dirs(vec![(
                 self.config.workdir.clone(),
                 "/workspace".to_string(),
@@ -99,7 +113,7 @@ impl CommandExecutor for WasmSandboxExecutor {
         command: &str,
         image: &str,
         timeout: Option<u64>,
-    ) -> anyhow::Result<String> {
+    ) -> anyhow::Result<CommandOutput> {
         self.ensure_ready(container, image).await?;
 
         let exec = self
@@ -107,15 +121,30 @@ impl CommandExecutor for WasmSandboxExecutor {
             .as_mut()
             .ok_or_else(|| anyhow::anyhow!("executor not initialized"))?;
 
-        let cmd = if let Some(secs) = timeout {
+        // Wrap the command to capture its exit code on a separate line.
+        let inner = if let Some(secs) = timeout {
             format!(
                 "cd /workspace && timeout {secs} sh -c {}",
                 Self::shell_escape(command)
             )
         } else {
-            format!("cd /workspace && {command}")
+            format!("cd /workspace && sh -c {}", Self::shell_escape(command))
         };
 
-        exec.execute(container, &cmd).await
+        let wrapped = format!("{inner}\necho \"===EXIT_CODE===$?===\"");
+        let raw = exec.execute(container, &wrapped).await?;
+
+        // Parse exit code from the trailing marker.
+        let (output, exit_code) = if let Some(idx) = raw.find("===EXIT_CODE===") {
+            let before = raw[..idx].to_string();
+            let after = &raw[idx + "===EXIT_CODE===".len()..];
+            let code_str = after.trim_end_matches("===").trim();
+            let code = code_str.parse::<i32>().ok();
+            (before, code)
+        } else {
+            (raw, None)
+        };
+
+        Ok(CommandOutput { output, exit_code })
     }
 }

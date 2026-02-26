@@ -19,6 +19,8 @@ pub mod network_filter;
 pub mod pipeline_watcher;
 pub mod react_loop;
 pub mod reverse_provenance;
+pub mod security_config;
+pub mod sink_guard;
 pub mod state;
 pub mod tools;
 pub mod tui;

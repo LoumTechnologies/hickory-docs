@@ -15,7 +15,9 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand, ValueEnum};
-use tokio::sync::{Notify, mpsc};
+use hick_agent_core::{CommandExecutor, WasmSandboxConfig, WasmSandboxExecutor};
+use hick_token::TokenAuthority;
+use tokio::sync::{Mutex, Notify, mpsc};
 
 #[cfg(feature = "local")]
 use hick_agent::LocalLlmClient;
@@ -24,6 +26,7 @@ use hick_agent::{
     NetworkApprovalRequest, NetworkFilter, OpenAiCompatClient, PipelineWatcher, ReactLoop,
 };
 use hick_agent::network_filter::extract_host_from_url;
+use hick_agent::security_config::AgentSecurityConfig;
 use hick_agent::tui::run_tui;
 
 #[derive(Parser)]
@@ -382,15 +385,28 @@ async fn main() -> Result<()> {
             let (cmd_tx, cmd_rx) = mpsc::unbounded_channel::<AgentCommand>();
             let interrupt = Arc::new(Notify::new());
 
-            // Network filter: load from .hick/network-rules.toml if it exists
+            // Load agent security configuration (used for both sandbox and network filter).
+            let security_config_path = config
+                .project_dir
+                .join(".hick")
+                .join("agent-security.toml");
+            let security_config = AgentSecurityConfig::load_or_default(&security_config_path)?;
+            let sandbox_caps = security_config.to_capabilities();
+
+            // Network filter for LLM API calls.
+            // Priority: explicit network-rules.toml > derived from agent-security.toml > none.
             let (approval_tx, approval_rx) =
                 mpsc::unbounded_channel::<NetworkApprovalRequest>();
             let filter_config_path = config
                 .project_dir
                 .join(".hick")
                 .join("network-rules.toml");
+            let host = endpoint_host_for_provider(provider, &api_base);
             let llm: Box<dyn LlmClient> =
-                if filter_config_path.exists() && !matches!(provider, Provider::Local) {
+                if matches!(provider, Provider::Local) {
+                    drop(approval_tx);
+                    llm
+                } else if filter_config_path.exists() {
                     let filter = Arc::new(
                         NetworkFilter::load(&filter_config_path, approval_tx).map_err(|e| {
                             anyhow::anyhow!(
@@ -399,10 +415,24 @@ async fn main() -> Result<()> {
                             )
                         })?,
                     );
-                    let host = endpoint_host_for_provider(provider, &api_base);
                     event_tx
                         .send(AgentEvent::Info(format!(
                             "Network filter: active ({} rules, default {})",
+                            filter.rule_count(),
+                            filter.default_action_name(),
+                        )))
+                        .ok();
+                    Box::new(FilteredLlmClient::new(llm, filter, host))
+                } else if security_config.deny_all_network {
+                    // Derive filter from agent-security.toml capabilities.
+                    let filter = Arc::new(NetworkFilter::from_capabilities(
+                        &sandbox_caps,
+                        Some(&host),
+                        approval_tx,
+                    ));
+                    event_tx
+                        .send(AgentEvent::Info(format!(
+                            "Network filter: derived from security config ({} rules, default {})",
                             filter.rule_count(),
                             filter.default_action_name(),
                         )))
@@ -416,9 +446,90 @@ async fn main() -> Result<()> {
             let provider_name = llm.provider_name().to_string();
             let model_name = llm.model_name().to_string();
 
-            let agent = Agent::new(config.clone(), llm);
+            // Create token authority with a random per-session key and mint
+            // a root capability token for this session.
+            let session_key: [u8; 32] = rand::random();
+            let token_authority = Arc::new(TokenAuthority::new(&session_key));
+            let session_token = Arc::new(
+                token_authority
+                    .mint("agent-session", &sandbox_caps)
+                    .map_err(|e| anyhow::anyhow!("Failed to mint session token: {e}"))?,
+            );
+
+            let agent = Agent::new(config.clone(), llm)
+                .with_security(token_authority, session_token);
             let output_dir = std::env::var("HICK_OUTPUT_DIR").ok();
-            let mut react_loop = ReactLoop::new(agent, config.project_dir.clone());
+
+            let caps_summary = if security_config.deny_all_network {
+                format!(
+                    "deny-all + {} allowed hosts",
+                    security_config.allowed_hosts.len()
+                )
+            } else {
+                "permissive (no deny-all)".to_string()
+            };
+
+            // Build the WASM sandbox executor for running scripts.
+            let sandbox_executor: Option<Arc<Mutex<dyn CommandExecutor>>> =
+                if config.images_dir.join(&config.default_image).with_extension("wasm").exists()
+                    || config.images_dir.join("alpine.wasm").exists()
+                {
+                    let sandbox_config = WasmSandboxConfig {
+                        images_dir: config.images_dir.clone(),
+                        workdir: config.project_dir.clone(),
+                        default_image: config.default_image.clone(),
+                        capabilities: sandbox_caps,
+                    };
+                    match WasmSandboxExecutor::new(sandbox_config) {
+                        exec => {
+                            event_tx
+                                .send(AgentEvent::Info(format!(
+                                    "Sandbox: WASM container enabled ({caps_summary})"
+                                )))
+                                .ok();
+                            Some(Arc::new(Mutex::new(exec)))
+                        }
+                    }
+                } else {
+                    event_tx
+                        .send(AgentEvent::Info(
+                            "Sandbox: disabled (no WASM images found, using host execution)"
+                                .into(),
+                        ))
+                        .ok();
+                    None
+                };
+
+            let mut react_loop = if let Some(executor) = sandbox_executor {
+                ReactLoop::new(agent, config.project_dir.clone())
+                    .with_executor(executor, config.default_image.clone())
+            } else {
+                ReactLoop::new(agent, config.project_dir.clone())
+            };
+
+            // Wire up policy evaluator if configured.
+            if let Some(ref policy_path) = security_config.policy_script {
+                let resolved = config.project_dir.join(policy_path);
+                if resolved.exists() {
+                    react_loop = react_loop.with_policy(
+                        hick_policy::PolicyEvaluator::new(resolved.to_str().unwrap_or(policy_path)),
+                    );
+                    event_tx
+                        .send(AgentEvent::Info(format!(
+                            "Policy: active ({})",
+                            resolved.display()
+                        )))
+                        .ok();
+                } else {
+                    event_tx
+                        .send(AgentEvent::Info(format!(
+                            "Policy: script not found ({}), skipping",
+                            resolved.display()
+                        )))
+                        .ok();
+                }
+            }
+
             react_loop.stream_output = !no_stream;
 
             // Start the transparent pipeline watcher

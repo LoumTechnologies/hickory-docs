@@ -28,6 +28,13 @@ pub enum AgentEvent {
     Interrupted,
     /// An error occurred.
     Error(String),
+    /// Data classification label applied to agent output.
+    DataClassification {
+        source: String,
+        classification: String,
+    },
+    /// A security rule blocked an operation.
+    SecurityViolation { description: String },
 }
 
 /// Commands sent from the UI to the agent core.

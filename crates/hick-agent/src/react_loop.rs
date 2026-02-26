@@ -13,9 +13,12 @@
 //! never touching stdout/stderr directly.
 
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use futures::StreamExt;
-use tokio::sync::{Notify, mpsc};
+use hick_agent_core::CommandExecutor;
+use hick_policy::PolicyEvaluator;
+use tokio::sync::{Mutex, Notify, mpsc};
 
 use crate::agent::Agent;
 use crate::context;
@@ -89,6 +92,13 @@ pub struct ReactLoop {
     /// Whether to use streaming LLM output (sends many small Token events)
     /// vs. a single complete call (sends one large Token event).
     pub stream_output: bool,
+    /// Sandboxed command executor for running scripts in WASM containers.
+    /// `None` falls back to direct host execution (legacy/unsandboxed mode).
+    executor: Option<Arc<Mutex<dyn CommandExecutor>>>,
+    /// Container image to use for sandbox execution.
+    sandbox_image: String,
+    /// Optional policy evaluator for pre-execution checks.
+    policy_evaluator: Option<PolicyEvaluator>,
 }
 
 impl ReactLoop {
@@ -98,10 +108,34 @@ impl ReactLoop {
             project_dir,
             max_turns: 50,
             stream_output: true,
+            executor: None,
+            sandbox_image: "alpine".to_string(),
+            policy_evaluator: None,
         }
     }
 
+    /// Set the sandboxed command executor for running scripts.
+    pub fn with_executor(
+        mut self,
+        executor: Arc<Mutex<dyn CommandExecutor>>,
+        image: String,
+    ) -> Self {
+        self.executor = Some(executor);
+        self.sandbox_image = image;
+        self
+    }
+
+    /// Set the policy evaluator for pre-execution script checks.
+    pub fn with_policy(mut self, evaluator: PolicyEvaluator) -> Self {
+        self.policy_evaluator = Some(evaluator);
+        self
+    }
+
     /// Execute a Python script and capture results.
+    ///
+    /// When a sandbox executor is configured, writes the script to the
+    /// workspace and runs it inside a WASM container. Otherwise falls back
+    /// to direct host execution.
     async fn execute_script(&self, script: &str, index: usize) -> ScriptResult {
         let tmp_dir = self.project_dir.join(".hick").join("tmp");
         if let Err(e) = std::fs::create_dir_all(&tmp_dir) {
@@ -121,35 +155,58 @@ impl ReactLoop {
             };
         }
 
-        // Set PYTHONPATH so `from hickory import hick` works
-        let sdk_path = self.project_dir.join(".hick").join("sdk");
-
-        match tokio::process::Command::new("python3")
-            .arg(&script_path)
-            .current_dir(&self.project_dir)
-            .env("PYTHONPATH", &sdk_path)
-            .env("WORKSPACE", &self.project_dir)
-            .stdout(std::process::Stdio::piped())
-            .stderr(std::process::Stdio::piped())
-            .spawn()
-        {
-            Ok(child) => match child.wait_with_output().await {
-                Ok(output) => ScriptResult {
-                    stdout: String::from_utf8_lossy(&output.stdout).to_string(),
-                    stderr: String::from_utf8_lossy(&output.stderr).to_string(),
-                    exit_code: output.status.code(),
+        if let Some(ref executor) = self.executor {
+            // Sandboxed execution: run inside WASM container.
+            // The project dir is mounted at /workspace inside the container.
+            let cmd = format!(
+                "PYTHONPATH=/workspace/.hick/sdk WORKSPACE=/workspace python3 /workspace/.hick/tmp/script_{index}.py"
+            );
+            let mut exec = executor.lock().await;
+            match exec
+                .execute("agent-sandbox", &cmd, &self.sandbox_image, Some(300))
+                .await
+            {
+                Ok(result) => ScriptResult {
+                    stdout: result.output.clone(),
+                    stderr: String::new(),
+                    exit_code: result.exit_code,
                 },
                 Err(e) => ScriptResult {
                     stdout: String::new(),
-                    stderr: format!("Script execution failed: {e}"),
+                    stderr: format!("Sandbox execution failed: {e}"),
                     exit_code: None,
                 },
-            },
-            Err(e) => ScriptResult {
-                stdout: String::new(),
-                stderr: format!("Failed to spawn python3: {e}"),
-                exit_code: None,
-            },
+            }
+        } else {
+            // Unsandboxed fallback: direct host execution.
+            let sdk_path = self.project_dir.join(".hick").join("sdk");
+            match tokio::process::Command::new("python3")
+                .arg(&script_path)
+                .current_dir(&self.project_dir)
+                .env("PYTHONPATH", &sdk_path)
+                .env("WORKSPACE", &self.project_dir)
+                .stdout(std::process::Stdio::piped())
+                .stderr(std::process::Stdio::piped())
+                .spawn()
+            {
+                Ok(child) => match child.wait_with_output().await {
+                    Ok(output) => ScriptResult {
+                        stdout: String::from_utf8_lossy(&output.stdout).to_string(),
+                        stderr: String::from_utf8_lossy(&output.stderr).to_string(),
+                        exit_code: output.status.code(),
+                    },
+                    Err(e) => ScriptResult {
+                        stdout: String::new(),
+                        stderr: format!("Script execution failed: {e}"),
+                        exit_code: None,
+                    },
+                },
+                Err(e) => ScriptResult {
+                    stdout: String::new(),
+                    stderr: format!("Failed to spawn python3: {e}"),
+                    exit_code: None,
+                },
+            }
         }
     }
 
@@ -246,6 +303,54 @@ impl ReactLoop {
                 let mut results = Vec::with_capacity(scripts.len());
 
                 for (i, script) in scripts.iter().enumerate() {
+                    // Policy check: evaluate script before execution.
+                    if let Some(ref evaluator) = self.policy_evaluator {
+                        let input = hick_policy::FlowPolicyInput {
+                            column_classifications: serde_json::json!({}),
+                            sink_type: "script-execution".to_string(),
+                            slot_name: format!("script_{i}"),
+                            data_classification: serde_json::json!(["agent-generated"]),
+                            token_caveats: vec![],
+                        };
+                        match evaluator.evaluate_flow(&input).await {
+                            Ok(hick_policy::PolicyDecision::Allow) => {}
+                            Ok(hick_policy::PolicyDecision::Deny { reason }) => {
+                                events
+                                    .send(AgentEvent::SecurityViolation {
+                                        description: format!(
+                                            "Policy denied script execution: {reason}"
+                                        ),
+                                    })
+                                    .ok();
+                                results.push(ScriptResult {
+                                    stdout: String::new(),
+                                    stderr: format!(
+                                        "Policy denied execution: {reason}"
+                                    ),
+                                    exit_code: Some(1),
+                                });
+                                continue;
+                            }
+                            Err(e) => {
+                                events
+                                    .send(AgentEvent::SecurityViolation {
+                                        description: format!(
+                                            "Policy evaluation error: {e}"
+                                        ),
+                                    })
+                                    .ok();
+                                results.push(ScriptResult {
+                                    stdout: String::new(),
+                                    stderr: format!(
+                                        "Policy evaluation failed: {e}"
+                                    ),
+                                    exit_code: Some(1),
+                                });
+                                continue;
+                            }
+                        }
+                    }
+
                     events
                         .send(AgentEvent::ScriptStarted {
                             code: script.clone(),

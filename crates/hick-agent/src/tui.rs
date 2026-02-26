@@ -197,6 +197,18 @@ impl App {
                 self.push_line(LineKind::Error, &msg);
                 self.busy = false;
             }
+            AgentEvent::DataClassification {
+                source,
+                classification,
+            } => {
+                self.push_line(
+                    LineKind::Info,
+                    &format!("Classification [{source}]: {classification}"),
+                );
+            }
+            AgentEvent::SecurityViolation { description } => {
+                self.push_line(LineKind::Error, &format!("SECURITY: {description}"));
+            }
         }
     }
 

@@ -7,8 +7,10 @@
 
 use std::path::PathBuf;
 use std::pin::Pin;
+use std::sync::Arc;
 
 use futures::Stream;
+use hick_token::{CapabilityToken, TokenAuthority};
 
 use crate::llm::{ChatChunk, LlmClient, Message};
 
@@ -42,17 +44,47 @@ impl Default for AgentConfig {
 pub struct Agent {
     config: AgentConfig,
     llm: Box<dyn LlmClient>,
+    /// Token authority for minting and verifying capability tokens.
+    token_authority: Option<Arc<TokenAuthority>>,
+    /// Root capability token for this agent session.
+    session_token: Option<Arc<CapabilityToken>>,
 }
 
 impl Agent {
     /// Create a new agent with the given configuration and LLM client.
     pub fn new(config: AgentConfig, llm: Box<dyn LlmClient>) -> Self {
-        Self { config, llm }
+        Self {
+            config,
+            llm,
+            token_authority: None,
+            session_token: None,
+        }
+    }
+
+    /// Set the token authority and session token for capability enforcement.
+    pub fn with_security(
+        mut self,
+        authority: Arc<TokenAuthority>,
+        token: Arc<CapabilityToken>,
+    ) -> Self {
+        self.token_authority = Some(authority);
+        self.session_token = Some(token);
+        self
     }
 
     /// Get the agent configuration.
     pub fn config(&self) -> &AgentConfig {
         &self.config
+    }
+
+    /// Get the token authority (if configured).
+    pub fn token_authority(&self) -> Option<&Arc<TokenAuthority>> {
+        self.token_authority.as_ref()
+    }
+
+    /// Get the session capability token (if configured).
+    pub fn session_token(&self) -> Option<&Arc<CapabilityToken>> {
+        self.session_token.as_ref()
     }
 
     /// Call the LLM with messages (full response).

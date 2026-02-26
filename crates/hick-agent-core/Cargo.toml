@@ -9,6 +9,7 @@ hick = { path = "../hick" }
 hick-lens = { path = "../hick-lens" }
 hick-flow = { path = "../hick-flow", features = ["serde"] }
 hick-exec = { path = "../hick-exec" }
+hick-token = { path = "../hick-token" }
 async-trait = "0.1"
 anyhow = "1"
 tokio = { version = "1", features = ["sync", "fs"] }

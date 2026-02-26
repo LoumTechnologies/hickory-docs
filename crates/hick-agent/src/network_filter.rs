@@ -17,6 +17,8 @@ use futures::Stream;
 use serde::Deserialize;
 use tokio::sync::{mpsc, oneshot};
 
+use hick_token::ContainerCapabilities;
+
 use crate::llm::{ChatChunk, LlmClient, Message};
 
 /// Verdict for a filtered network request.
@@ -131,6 +133,53 @@ impl NetworkFilter {
     /// Create a filter that allows everything (used when no config file exists).
     pub fn allow_all(approval_tx: mpsc::UnboundedSender<NetworkApprovalRequest>) -> Self {
         Self::new(NetworkFilterConfig::default(), approval_tx)
+    }
+
+    /// Derive a network filter from [`ContainerCapabilities`].
+    ///
+    /// Translates capability network rules into filter rules and optionally
+    /// adds an extra allowed host (e.g. the LLM provider's API endpoint).
+    pub fn from_capabilities(
+        capabilities: &ContainerCapabilities,
+        extra_allow: Option<&str>,
+        approval_tx: mpsc::UnboundedSender<NetworkApprovalRequest>,
+    ) -> Self {
+        let has_deny_all = capabilities
+            .network_rules
+            .iter()
+            .any(|r| matches!(r, hick_token::NetworkRule::DenyAll));
+
+        let default = if has_deny_all {
+            RuleAction::Block
+        } else {
+            RuleAction::Allow
+        };
+
+        let mut rules = Vec::new();
+
+        // Add explicit allows from capabilities.
+        for rule in &capabilities.network_rules {
+            if let hick_token::NetworkRule::Allow { host, .. } = rule {
+                rules.push(NetworkRule {
+                    pattern: host.clone(),
+                    action: RuleAction::Allow,
+                });
+            }
+        }
+
+        // Add the extra allowed host (e.g. LLM API endpoint).
+        if let Some(host) = extra_allow {
+            rules.push(NetworkRule {
+                pattern: host.to_string(),
+                action: RuleAction::Allow,
+            });
+        }
+
+        let config = NetworkFilterConfig {
+            default,
+            rules,
+        };
+        Self::new(config, approval_tx)
     }
 
     /// Number of configured rules.
