@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-wasmtime = "41.0.0"
+wasmtime.workspace = true
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-util", "net", "sync", "time"] }
 anyhow = "1"
 wasi-common = { version = "41.0.1", features = ["tokio"] }

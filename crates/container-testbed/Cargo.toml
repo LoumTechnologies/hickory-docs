@@ -8,7 +8,7 @@ container = { path = "../container" }
 net-config = { path = "../net-config" }
 connection-filter = { path = "../connection-filter" }
 bridge = { path = "../bridge" }
-wasmtime = "41.0.0"
+wasmtime.workspace = true
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-util", "sync", "time"] }
 async-trait = "0.1"
 anyhow = "1"

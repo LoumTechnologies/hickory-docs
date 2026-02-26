@@ -7,7 +7,7 @@ publish = false
 [dependencies]
 container = { path = "../container" }
 c2w = { path = "../c2w" }
-wasmtime = "41.0.0"
+wasmtime.workspace = true
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-util", "time"] }
 anyhow = "1"
 clap = { version = "4", features = ["derive"] }

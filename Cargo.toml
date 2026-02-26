@@ -2,3 +2,12 @@
 resolver = "3"
 members = ["crates/*"]
 exclude = ["crates/container2wasm", "matrix"]
+
+[workspace.dependencies]
+wasmtime = { version = "41.0.0", default-features = false, features = [
+    "async", "cache", "cranelift", "runtime", "std", "threads", "wat",
+    "profiling", "parallel-compilation", "pooling-allocator",
+    "demangle", "addr2line", "coredump", "debug-builtins",
+    "gc", "gc-drc", "gc-null",
+    "component-model", "component-model-async",
+] }
