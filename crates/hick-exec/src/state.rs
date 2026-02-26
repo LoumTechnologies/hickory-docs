@@ -423,10 +423,10 @@ impl MultiDocumentState {
 
         let ip = Arc::new(InsertionPoint::new());
         for (i, block) in matching.iter().enumerate() {
-            if i > 0 {
-                if let Some(sep) = separator {
-                    ip.add(Arc::new(StringNode::new(sep)) as Arc<dyn Node>);
-                }
+            if i > 0
+                && let Some(sep) = separator
+            {
+                ip.add(Arc::new(StringNode::new(sep)) as Arc<dyn Node>);
             }
             ip.add(block.node.clone());
         }

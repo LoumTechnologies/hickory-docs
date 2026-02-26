@@ -1,6 +1,6 @@
 //! Strongly-typed state machine for the script-first ReAct agent loop.
 
-use crate::tools::ScriptResult;
+use crate::tools::{CodeBlock, ScriptResult};
 
 /// State of the agent in the ReAct loop.
 #[derive(Debug, Clone)]
@@ -11,9 +11,9 @@ pub enum AgentState {
     /// Waiting for LLM response.
     Thinking { messages_sent: usize },
 
-    /// LLM returned Python script(s) in code blocks. Ready to execute.
+    /// LLM returned code block(s). Ready to execute.
     Executing {
-        scripts: Vec<String>,
+        blocks: Vec<CodeBlock>,
         thought: Option<String>,
     },
 
@@ -37,9 +37,9 @@ impl AgentState {
         AgentState::Thinking { messages_sent }
     }
 
-    /// Transition: Thinking -> Executing (LLM returned Python code blocks)
-    pub fn to_executing(scripts: Vec<String>, thought: Option<String>) -> Self {
-        AgentState::Executing { scripts, thought }
+    /// Transition: Thinking -> Executing (LLM returned code blocks)
+    pub fn to_executing(blocks: Vec<CodeBlock>, thought: Option<String>) -> Self {
+        AgentState::Executing { blocks, thought }
     }
 
     /// Transition: Thinking -> Done (LLM returned final answer, no code blocks)

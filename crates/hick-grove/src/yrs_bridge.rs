@@ -106,7 +106,7 @@ fn resolve_event(
                     // Attribute changes on this element
                     let tag = elem.tag().to_string();
                     if let Some((ns_uri, local)) = resolve_tag(&tag, namespace_map) {
-                        let element_id = read_id_attr(txn, &elem);
+                        let element_id = read_id_attr(txn, elem);
 
                         let keys = xml_event.keys(txn);
                         for (attr_name, change) in keys.iter() {
@@ -175,7 +175,7 @@ fn resolve_event(
                         if has_removals {
                             detect_removals(
                                 txn,
-                                ChildSource::Element(&elem),
+                                ChildSource::Element(elem),
                                 namespace_map,
                                 element_cache,
                                 &mut results,
@@ -209,7 +209,7 @@ fn resolve_event(
                     if has_removals {
                         detect_removals(
                             txn,
-                            ChildSource::Fragment(&frag),
+                            ChildSource::Fragment(frag),
                             namespace_map,
                             element_cache,
                             &mut results,

@@ -812,15 +812,16 @@ pub async fn run(cli: GenerateMatrixArgs) -> Result<()> {
     verify_cmds.extend(cli.verify.iter().map(|s| VerifyCommand::parse(s)));
 
     // Set up visual regression config if --screenshot is provided
-    let vr_config = cli.screenshot.as_ref().map(|capture_cmd| {
-        VisualRegressionConfig {
+    let vr_config = cli
+        .screenshot
+        .as_ref()
+        .map(|capture_cmd| VisualRegressionConfig {
             baseline_dir: cli.output_dir.join(".baselines"),
             output_dir: cli.output_dir.join(".screenshots"),
             diff_dir: cli.output_dir.join(".diffs"),
             threshold: cli.screenshot_threshold,
             capture_command: Some(capture_cmd.clone()),
-        }
-    });
+        });
 
     // Wrap shared data in Arc for parallel access
     let file_contents = Arc::new(file_contents);
@@ -838,9 +839,9 @@ pub async fn run(cli: GenerateMatrixArgs) -> Result<()> {
     let failures = Arc::new(tokio::sync::Mutex::new(Vec::<(String, String)>::new()));
 
     // Collect visual regression results
-    let vr_results = Arc::new(tokio::sync::Mutex::new(
-        Vec::<visual_regression::ComparisonResult>::new(),
-    ));
+    let vr_results = Arc::new(tokio::sync::Mutex::new(Vec::<
+        visual_regression::ComparisonResult,
+    >::new()));
 
     // Clone features list for regression analysis
     let all_features_for_analysis: Vec<String> = features_to_combine.clone();

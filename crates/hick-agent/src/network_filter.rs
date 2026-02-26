@@ -175,10 +175,7 @@ impl NetworkFilter {
             });
         }
 
-        let config = NetworkFilterConfig {
-            default,
-            rules,
-        };
+        let config = NetworkFilterConfig { default, rules };
         Self::new(config, approval_tx)
     }
 
@@ -231,10 +228,7 @@ impl NetworkFilter {
     }
 
     fn cache_verdict(&self, host: &str, verdict: NetworkVerdict) {
-        self.cache
-            .lock()
-            .unwrap()
-            .insert(host.to_string(), verdict);
+        self.cache.lock().unwrap().insert(host.to_string(), verdict);
     }
 
     async fn prompt_user(&self, host: &str) -> NetworkVerdict {

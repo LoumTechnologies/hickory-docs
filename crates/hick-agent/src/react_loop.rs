@@ -1,9 +1,10 @@
-//! Script-first ReAct loop: LLM writes Python scripts, we execute them.
+//! Script-first ReAct loop: LLM writes code, we execute it in a sandbox.
 //!
-//! The LLM produces Python code in fenced code blocks. The react loop:
-//! 1. Extracts ```python ... ``` blocks from the LLM response
-//! 2. Writes each script to `.hick/tmp/script_N.py`
-//! 3. Executes via `python3 .hick/tmp/script_N.py`
+//! The LLM produces code in fenced markdown blocks (Python, C#, TypeScript).
+//! The react loop:
+//! 1. Extracts code blocks from the LLM response
+//! 2. Writes each script to `.hick/tmp/script_N.{py,csx,ts}`
+//! 3. Executes inside a WASM container via [`CommandExecutor`]
 //! 4. Captures stdout/stderr as observation
 //! 5. Returns observation to LLM for next turn
 //!
@@ -25,27 +26,38 @@ use crate::context;
 use crate::events::AgentEvent;
 use crate::llm::{Message, Role};
 use crate::state::AgentState;
-use crate::tools::{ScriptResult, extract_python_blocks};
+use crate::tools::{CodeBlock, Language, ScriptResult, extract_code_blocks};
 
 const SYSTEM_PROMPT: &str = r#"You are an AI coding agent for projects using Hick (hickory docs) — an XML format for defining containers, file outputs, and code generation.
 
 ## How you work
 
-You accomplish tasks by writing Python scripts. Write ONE ```python code block per response, then STOP and wait for the real execution output. Do NOT predict or guess what the output will be — the system runs your script and shows you the actual stdout/stderr.
+You accomplish tasks by writing code. Write ONE fenced code block per response, then STOP and wait for the real execution output. Do NOT predict or guess what the output will be — the system runs your code and shows you the actual stdout/stderr.
 
-When you're done (no more scripts to run), write your final answer as plain text without any ```python blocks.
+Supported languages: ```python, ```csharp (or ```cs), ```typescript (or ```ts).
+
+When you're done (no more code to run), write your final answer as plain text without any code blocks.
 
 IMPORTANT: Only write ONE code block per response. Never write multiple code blocks. Never write "Observation:" or fake output — you will receive the real output automatically.
 
-## Available tools
+## Available languages
 
-### Native Python
+### Python
 - Read/write files with `open()`, `os`, `pathlib`
 - Run shell commands with `subprocess.run()`
-- Install packages with `subprocess.run(['pip', 'install', ...])`
+- Install packages: `subprocess.run(['pip', 'install', ...])`
+- Hickory SDK: `from hickory import hick` (pre-installed, Python only)
 
-### Hickory SDK (structural code operations)
-The hickory SDK is pre-installed. Usage:
+### C# (dotnet-script)
+- Write C# script files (.csx) — no Main() or class wrapper needed
+- Install NuGet packages: `#r "nuget: Newtonsoft.Json, 13.0.3"`
+- Full .NET SDK available for `dotnet` commands
+
+### TypeScript (tsx)
+- Write TypeScript with full type checking
+- Install npm packages: run a Python or shell step first with `npm install`
+
+## Hickory SDK (Python only)
   from hickory import hick
   hick.query(selector, file=path)      — find elements (fn, struct, class, #id, .class)
   hick.structure(path)                  — structural summary of a generated file
@@ -74,12 +86,12 @@ Key elements:
 
 2. **Edit .hick source, not output files.** Use the hickory SDK to map output locations back to .hick source, or edit .hick files directly.
 
-3. **`<hick:exec>` vs `subprocess.run()`:**
-   - Use `subprocess.run()` for one-time tasks: running tests, installing deps, checking status
+3. **`<hick:exec>` vs one-off commands:**
+   - Use one-off scripts for: running tests, installing deps, checking status
    - Use `<hick:exec container="...">` in .hick files for recurring code generation
    - Rule: if the command's output becomes part of generated code, put it in a `<hick:exec>` block
 
-4. **Print your results.** Your script's stdout is what you see as observation. Use `print()` to report findings.
+4. **Print your results.** Your script's stdout is what you see as observation. Use print/Console.WriteLine/console.log to report findings.
 "#;
 
 /// ReAct loop runner — script-first model.
@@ -131,12 +143,12 @@ impl ReactLoop {
         self
     }
 
-    /// Execute a Python script and capture results.
+    /// Execute a code block inside the sandbox container.
     ///
-    /// When a sandbox executor is configured, writes the script to the
-    /// workspace and runs it inside a WASM container. Otherwise falls back
-    /// to direct host execution.
-    async fn execute_script(&self, script: &str, index: usize) -> ScriptResult {
+    /// Writes the script to `.hick/tmp/script_N.{ext}` on the host (which is
+    /// mounted at `/workspace` inside the container), then runs the
+    /// language-appropriate command via [`CommandExecutor`].
+    async fn execute_code_block(&self, block: &CodeBlock, index: usize) -> ScriptResult {
         let tmp_dir = self.project_dir.join(".hick").join("tmp");
         if let Err(e) = std::fs::create_dir_all(&tmp_dir) {
             return ScriptResult {
@@ -146,8 +158,9 @@ impl ReactLoop {
             };
         }
 
-        let script_path = tmp_dir.join(format!("script_{index}.py"));
-        if let Err(e) = std::fs::write(&script_path, script) {
+        let filename = format!("script_{index}.{}", block.language.extension());
+        let script_path = tmp_dir.join(&filename);
+        if let Err(e) = std::fs::write(&script_path, &block.code) {
             return ScriptResult {
                 stdout: String::new(),
                 stderr: format!("Failed to write script: {e}"),
@@ -155,12 +168,18 @@ impl ReactLoop {
             };
         }
 
+        let container_script_path = format!("/workspace/.hick/tmp/{filename}");
+
         if let Some(ref executor) = self.executor {
-            // Sandboxed execution: run inside WASM container.
-            // The project dir is mounted at /workspace inside the container.
-            let cmd = format!(
-                "PYTHONPATH=/workspace/.hick/sdk WORKSPACE=/workspace python3 /workspace/.hick/tmp/script_{index}.py"
-            );
+            // Build the run command with any language-specific env vars.
+            let run_cmd = block.language.run_command(&container_script_path);
+            let cmd = match block.language {
+                Language::Python => {
+                    format!("PYTHONPATH=/workspace/.hick/sdk WORKSPACE=/workspace {run_cmd}")
+                }
+                _ => format!("cd /workspace && {run_cmd}"),
+            };
+
             let mut exec = executor.lock().await;
             match exec
                 .execute("agent-sandbox", &cmd, &self.sandbox_image, Some(300))
@@ -178,7 +197,18 @@ impl ReactLoop {
                 },
             }
         } else {
-            // Unsandboxed fallback: direct host execution.
+            // Unsandboxed fallback: direct host execution (Python only).
+            if block.language != Language::Python {
+                return ScriptResult {
+                    stdout: String::new(),
+                    stderr: format!(
+                        "Unsandboxed execution only supports Python, got {}. \
+                         Configure a sandbox executor for {} support.",
+                        block.language, block.language
+                    ),
+                    exit_code: Some(1),
+                };
+            }
             let sdk_path = self.project_dir.join(".hick").join("sdk");
             match tokio::process::Command::new("python3")
                 .arg(&script_path)
@@ -283,26 +313,26 @@ impl ReactLoop {
                     content: response.clone(),
                 });
 
-                let all_scripts = extract_python_blocks(&response);
+                let all_blocks = extract_code_blocks(&response);
 
-                if all_scripts.is_empty() {
+                if all_blocks.is_empty() {
                     // No code blocks → final answer
                     return Ok(AgentState::to_done(response.trim().to_string()));
                 }
 
                 // Only execute the first code block per turn to prevent
                 // the LLM from hallucinating observations for later blocks.
-                let scripts = vec![all_scripts.into_iter().next().unwrap()];
+                let blocks = vec![all_blocks.into_iter().next().unwrap()];
 
                 // Extract the non-code-block text as "thought"
                 let thought = extract_thought(&response);
 
-                Ok(AgentState::to_executing(scripts, thought))
+                Ok(AgentState::to_executing(blocks, thought))
             }
-            AgentState::Executing { scripts, .. } => {
-                let mut results = Vec::with_capacity(scripts.len());
+            AgentState::Executing { blocks, .. } => {
+                let mut results = Vec::with_capacity(blocks.len());
 
-                for (i, script) in scripts.iter().enumerate() {
+                for (i, block) in blocks.iter().enumerate() {
                     // Policy check: evaluate script before execution.
                     if let Some(ref evaluator) = self.policy_evaluator {
                         let input = hick_policy::FlowPolicyInput {
@@ -324,9 +354,7 @@ impl ReactLoop {
                                     .ok();
                                 results.push(ScriptResult {
                                     stdout: String::new(),
-                                    stderr: format!(
-                                        "Policy denied execution: {reason}"
-                                    ),
+                                    stderr: format!("Policy denied execution: {reason}"),
                                     exit_code: Some(1),
                                 });
                                 continue;
@@ -334,16 +362,12 @@ impl ReactLoop {
                             Err(e) => {
                                 events
                                     .send(AgentEvent::SecurityViolation {
-                                        description: format!(
-                                            "Policy evaluation error: {e}"
-                                        ),
+                                        description: format!("Policy evaluation error: {e}"),
                                     })
                                     .ok();
                                 results.push(ScriptResult {
                                     stdout: String::new(),
-                                    stderr: format!(
-                                        "Policy evaluation failed: {e}"
-                                    ),
+                                    stderr: format!("Policy evaluation failed: {e}"),
                                     exit_code: Some(1),
                                 });
                                 continue;
@@ -353,13 +377,11 @@ impl ReactLoop {
 
                     events
                         .send(AgentEvent::ScriptStarted {
-                            code: script.clone(),
+                            code: block.code.clone(),
                         })
                         .ok();
-                    let result = self.execute_script(script, i).await;
-                    events
-                        .send(AgentEvent::ScriptFinished(result.clone()))
-                        .ok();
+                    let result = self.execute_code_block(block, i).await;
+                    events.send(AgentEvent::ScriptFinished(result.clone())).ok();
                     results.push(result);
                 }
 
@@ -453,14 +475,14 @@ impl ReactLoop {
     }
 }
 
-/// Extract the "thought" text from a response — everything before/between code blocks.
+/// Extract the "thought" text from a response — everything before the first code block.
 fn extract_thought(response: &str) -> Option<String> {
-    let text: String = response
-        .split("```python")
-        .next()
-        .unwrap_or("")
-        .trim()
-        .to_string();
+    // Find the earliest ``` fence and take everything before it.
+    let text = if let Some(pos) = response.find("```") {
+        response[..pos].trim().to_string()
+    } else {
+        response.trim().to_string()
+    };
 
     if text.is_empty() { None } else { Some(text) }
 }

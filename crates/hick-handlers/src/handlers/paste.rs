@@ -97,25 +97,25 @@ impl TagHandler for PasteHandler {
 
         // Validate min/max constraints
         let count = ctx.state.count_paste_matches(&selector);
-        if let Some(min_val) = min {
-            if count < min_val {
-                anyhow::bail!(
-                    "Paste selector '{}' matched {} block(s), but min={} required",
-                    selector,
-                    count,
-                    min_val,
-                );
-            }
+        if let Some(min_val) = min
+            && count < min_val
+        {
+            anyhow::bail!(
+                "Paste selector '{}' matched {} block(s), but min={} required",
+                selector,
+                count,
+                min_val,
+            );
         }
-        if let Some(max_val) = max {
-            if count > max_val {
-                anyhow::bail!(
-                    "Paste selector '{}' matched {} block(s), but max={} allowed",
-                    selector,
-                    count,
-                    max_val,
-                );
-            }
+        if let Some(max_val) = max
+            && count > max_val
+        {
+            anyhow::bail!(
+                "Paste selector '{}' matched {} block(s), but max={} allowed",
+                selector,
+                count,
+                max_val,
+            );
         }
 
         let sep = separator.as_deref();

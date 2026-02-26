@@ -1,11 +1,58 @@
-//! Python script extraction and execution for the script-first ReAct loop.
+//! Code block extraction and execution for the script-first ReAct loop.
 //!
-//! The LLM writes Python scripts in markdown code blocks. This module
-//! extracts those code blocks and provides types for script execution results.
+//! The LLM writes code in fenced markdown blocks (Python, C#, TypeScript).
+//! This module extracts those code blocks and provides types for execution results.
+
+use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
-/// Result of executing a Python script.
+/// Languages the agent can execute inside the sandbox container.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Language {
+    Python,
+    CSharp,
+    TypeScript,
+}
+
+impl Language {
+    /// File extension used when writing the script to disk.
+    pub fn extension(&self) -> &'static str {
+        match self {
+            Language::Python => "py",
+            Language::CSharp => "csx",
+            Language::TypeScript => "ts",
+        }
+    }
+
+    /// Shell command to execute a script file at the given path inside the container.
+    pub fn run_command(&self, script_path: &str) -> String {
+        match self {
+            Language::Python => format!("python3 {script_path}"),
+            Language::CSharp => format!("dotnet-script {script_path}"),
+            Language::TypeScript => format!("npx tsx {script_path}"),
+        }
+    }
+}
+
+impl fmt::Display for Language {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Language::Python => write!(f, "python"),
+            Language::CSharp => write!(f, "csharp"),
+            Language::TypeScript => write!(f, "typescript"),
+        }
+    }
+}
+
+/// A code block extracted from an LLM response.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CodeBlock {
+    pub language: Language,
+    pub code: String,
+}
+
+/// Result of executing a script.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScriptResult {
     pub stdout: String,
@@ -40,34 +87,50 @@ impl ScriptResult {
     }
 }
 
-/// Extract Python code blocks from an LLM response.
+/// Fence tag → Language mapping. Order matters: first match wins when
+/// multiple patterns share a prefix (e.g. "```cs" before "```c").
+const FENCE_TAGS: &[(&str, Language)] = &[
+    ("python", Language::Python),
+    ("csharp", Language::CSharp),
+    ("cs", Language::CSharp),
+    ("typescript", Language::TypeScript),
+    ("ts", Language::TypeScript),
+];
+
+/// Extract code blocks from an LLM response.
 ///
-/// Looks for fenced code blocks tagged as `python`:
+/// Finds fenced code blocks tagged with a supported language:
 /// ````markdown
 /// ```python
 /// print("hello")
 /// ```
 /// ````
 ///
-/// Returns the content of each block (without the fence markers).
-pub fn extract_python_blocks(text: &str) -> Vec<String> {
+/// Supports: `python`, `csharp`/`cs`, `typescript`/`ts`.
+/// Returns blocks in document order.
+pub fn extract_code_blocks(text: &str) -> Vec<CodeBlock> {
     let mut blocks = Vec::new();
     let mut remaining = text;
 
-    while let Some(start) = find_python_fence(remaining) {
-        let after_fence = &remaining[start..];
-        // Find the closing ```
+    while let Some((content_start, language)) = find_next_fence(remaining) {
+        let after_fence = &remaining[content_start..];
         if let Some(end) = after_fence.find("\n```") {
             let code = &after_fence[..end];
             if !code.trim().is_empty() {
-                blocks.push(code.to_string());
+                blocks.push(CodeBlock {
+                    language,
+                    code: code.to_string(),
+                });
             }
             remaining = &after_fence[end + 4..];
         } else {
             // Unclosed block — take the rest
             let code = after_fence;
             if !code.trim().is_empty() {
-                blocks.push(code.to_string());
+                blocks.push(CodeBlock {
+                    language,
+                    code: code.to_string(),
+                });
             }
             break;
         }
@@ -76,68 +139,159 @@ pub fn extract_python_blocks(text: &str) -> Vec<String> {
     blocks
 }
 
-/// Find the start of a ```python code block, returning the index of the first
-/// character after the opening fence line (i.e. the code content start).
-fn find_python_fence(text: &str) -> Option<usize> {
-    // Match ```python or ``` python (with optional whitespace)
-    let patterns = [
-        "```python\n",
-        "```python\r\n",
-        "``` python\n",
-        "``` python\r\n",
-    ];
-    for pattern in patterns {
-        if let Some(pos) = text.find(pattern) {
-            return Some(pos + pattern.len());
+/// Backward-compatible wrapper: extract only Python blocks as raw strings.
+pub fn extract_python_blocks(text: &str) -> Vec<String> {
+    extract_code_blocks(text)
+        .into_iter()
+        .filter(|b| b.language == Language::Python)
+        .map(|b| b.code)
+        .collect()
+}
+
+/// Find the next fenced code block with a supported language tag.
+/// Returns `(content_start_index, Language)` where `content_start_index` is
+/// the byte offset into `text` where the code content begins (after the fence line).
+fn find_next_fence(text: &str) -> Option<(usize, Language)> {
+    let mut best: Option<(usize, usize, Language)> = None; // (fence_pos, content_start, lang)
+
+    for &(tag, language) in FENCE_TAGS {
+        // Match ```<tag>\n and ```<tag>\r\n and ``` <tag>\n etc.
+        for sep in ["", " "] {
+            for eol in ["\n", "\r\n"] {
+                let pattern = format!("```{sep}{tag}{eol}");
+                if let Some(pos) = text.find(&pattern) {
+                    let content_start = pos + pattern.len();
+                    if best.is_none() || pos < best.unwrap().0 {
+                        best = Some((pos, content_start, language));
+                    }
+                }
+            }
         }
     }
-    None
+
+    best.map(|(_, content_start, lang)| (content_start, lang))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
+    // -- extract_code_blocks tests --
+
     #[test]
-    fn extract_single_block() {
+    fn extract_single_python_block() {
         let text = "Some text\n```python\nprint('hello')\n```\nMore text";
-        let blocks = extract_python_blocks(text);
+        let blocks = extract_code_blocks(text);
         assert_eq!(blocks.len(), 1);
-        assert_eq!(blocks[0], "print('hello')");
+        assert_eq!(blocks[0].language, Language::Python);
+        assert_eq!(blocks[0].code, "print('hello')");
     }
 
     #[test]
-    fn extract_multiple_blocks() {
-        let text = "First:\n```python\nprint(1)\n```\nSecond:\n```python\nprint(2)\n```\n";
-        let blocks = extract_python_blocks(text);
-        assert_eq!(blocks.len(), 2);
-        assert_eq!(blocks[0], "print(1)");
-        assert_eq!(blocks[1], "print(2)");
+    fn extract_csharp_block() {
+        let text = "Here:\n```csharp\nConsole.WriteLine(\"hi\");\n```\n";
+        let blocks = extract_code_blocks(text);
+        assert_eq!(blocks.len(), 1);
+        assert_eq!(blocks[0].language, Language::CSharp);
+        assert_eq!(blocks[0].code, "Console.WriteLine(\"hi\");");
+    }
+
+    #[test]
+    fn extract_cs_alias() {
+        let text = "```cs\nvar x = 1;\n```";
+        let blocks = extract_code_blocks(text);
+        assert_eq!(blocks.len(), 1);
+        assert_eq!(blocks[0].language, Language::CSharp);
+    }
+
+    #[test]
+    fn extract_typescript_block() {
+        let text = "```typescript\nconst x: number = 42;\nconsole.log(x);\n```";
+        let blocks = extract_code_blocks(text);
+        assert_eq!(blocks.len(), 1);
+        assert_eq!(blocks[0].language, Language::TypeScript);
+        assert!(blocks[0].code.contains("const x: number = 42;"));
+    }
+
+    #[test]
+    fn extract_ts_alias() {
+        let text = "```ts\nconsole.log('hi')\n```";
+        let blocks = extract_code_blocks(text);
+        assert_eq!(blocks.len(), 1);
+        assert_eq!(blocks[0].language, Language::TypeScript);
+    }
+
+    #[test]
+    fn extract_multiple_languages() {
+        let text = "Py:\n```python\nprint(1)\n```\nC#:\n```csharp\nConsole.Write(2);\n```\nTS:\n```typescript\nconsole.log(3)\n```\n";
+        let blocks = extract_code_blocks(text);
+        assert_eq!(blocks.len(), 3);
+        assert_eq!(blocks[0].language, Language::Python);
+        assert_eq!(blocks[1].language, Language::CSharp);
+        assert_eq!(blocks[2].language, Language::TypeScript);
     }
 
     #[test]
     fn no_blocks() {
         let text = "Just plain text with no code blocks.";
-        let blocks = extract_python_blocks(text);
+        let blocks = extract_code_blocks(text);
         assert!(blocks.is_empty());
     }
 
     #[test]
-    fn non_python_blocks_ignored() {
+    fn unsupported_language_ignored() {
         let text = "```rust\nfn main() {}\n```\n```python\nprint('hi')\n```";
-        let blocks = extract_python_blocks(text);
+        let blocks = extract_code_blocks(text);
         assert_eq!(blocks.len(), 1);
-        assert_eq!(blocks[0], "print('hi')");
+        assert_eq!(blocks[0].language, Language::Python);
+        assert_eq!(blocks[0].code, "print('hi')");
     }
 
     #[test]
     fn multiline_block() {
         let text = "```python\nimport os\nfor f in os.listdir('.'):\n    print(f)\n```";
+        let blocks = extract_code_blocks(text);
+        assert_eq!(blocks.len(), 1);
+        assert!(blocks[0].code.contains("import os"));
+        assert!(blocks[0].code.contains("print(f)"));
+    }
+
+    // -- extract_python_blocks backward compatibility --
+
+    #[test]
+    fn python_blocks_filters_to_python_only() {
+        let text = "```python\nprint(1)\n```\n```csharp\nConsole.Write(2);\n```\n";
         let blocks = extract_python_blocks(text);
         assert_eq!(blocks.len(), 1);
-        assert!(blocks[0].contains("import os"));
-        assert!(blocks[0].contains("print(f)"));
+        assert_eq!(blocks[0], "print(1)");
     }
+
+    // -- Language helper tests --
+
+    #[test]
+    fn language_extensions() {
+        assert_eq!(Language::Python.extension(), "py");
+        assert_eq!(Language::CSharp.extension(), "csx");
+        assert_eq!(Language::TypeScript.extension(), "ts");
+    }
+
+    #[test]
+    fn language_run_commands() {
+        assert_eq!(
+            Language::Python.run_command("/tmp/s.py"),
+            "python3 /tmp/s.py"
+        );
+        assert_eq!(
+            Language::CSharp.run_command("/tmp/s.csx"),
+            "dotnet-script /tmp/s.csx"
+        );
+        assert_eq!(
+            Language::TypeScript.run_command("/tmp/s.ts"),
+            "npx tsx /tmp/s.ts"
+        );
+    }
+
+    // -- ScriptResult tests --
 
     #[test]
     fn script_result_observation_format() {

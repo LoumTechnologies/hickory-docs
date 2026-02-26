@@ -188,10 +188,10 @@ impl SinkValidator {
         }
 
         // Check recipient constraints
-        if let Some(recip) = recipient {
-            if !capabilities.check_recipient(&sink_def.sink_type, recip) {
-                return Err(SinkError::RecipientNotAllowed(recip.to_string()));
-            }
+        if let Some(recip) = recipient
+            && !capabilities.check_recipient(&sink_def.sink_type, recip)
+        {
+            return Err(SinkError::RecipientNotAllowed(recip.to_string()));
         }
 
         // Check slot classification policies
