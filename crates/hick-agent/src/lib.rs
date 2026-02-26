@@ -15,6 +15,7 @@ pub mod llm_anthropic;
 #[cfg(feature = "local")]
 pub mod llm_local;
 pub mod llm_openai_compat;
+pub mod network_filter;
 pub mod pipeline_watcher;
 pub mod react_loop;
 pub mod reverse_provenance;
@@ -29,5 +30,6 @@ pub use llm_anthropic::AnthropicClient;
 #[cfg(feature = "local")]
 pub use llm_local::LocalLlmClient;
 pub use llm_openai_compat::OpenAiCompatClient;
+pub use network_filter::{FilteredLlmClient, NetworkApprovalRequest, NetworkFilter};
 pub use pipeline_watcher::PipelineWatcher;
 pub use react_loop::ReactLoop;

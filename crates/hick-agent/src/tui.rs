@@ -19,9 +19,10 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
 use ratatui::{Frame, Terminal};
-use tokio::sync::{Notify, mpsc};
+use tokio::sync::{Notify, mpsc, oneshot};
 
 use crate::events::{AgentCommand, AgentEvent};
+use crate::network_filter::{NetworkApprovalRequest, NetworkVerdict};
 
 // ── Styled output model ────────────────────────────────────────────
 
@@ -53,6 +54,8 @@ struct App {
     thinking_shown: bool,
     provider_info: String,
     should_quit: bool,
+    /// Pending network approval prompt — awaiting y/n from the user.
+    pending_approval: Option<oneshot::Sender<NetworkVerdict>>,
 }
 
 impl App {
@@ -68,6 +71,7 @@ impl App {
             thinking_shown: false,
             provider_info,
             should_quit: false,
+            pending_approval: None,
         }
     }
 
@@ -203,6 +207,36 @@ impl App {
         interrupt: &Arc<Notify>,
     ) {
         if key.kind != KeyEventKind::Press {
+            return;
+        }
+
+        // Handle pending network approval prompts first
+        if self.pending_approval.is_some() {
+            match (key.modifiers, key.code) {
+                (m, KeyCode::Char('c')) if m.contains(KeyModifiers::CONTROL) => {
+                    // Drop the approval sender (filter fails open)
+                    self.pending_approval.take();
+                    if self.busy {
+                        interrupt.notify_one();
+                    } else {
+                        cmd_tx.send(AgentCommand::Quit).ok();
+                        self.should_quit = true;
+                    }
+                }
+                (_, KeyCode::Char('y')) | (_, KeyCode::Char('Y')) => {
+                    if let Some(tx) = self.pending_approval.take() {
+                        tx.send(NetworkVerdict::Allow).ok();
+                        self.push_line(LineKind::Info, "[network] Allowed");
+                    }
+                }
+                (_, KeyCode::Char('n')) | (_, KeyCode::Char('N')) => {
+                    if let Some(tx) = self.pending_approval.take() {
+                        tx.send(NetworkVerdict::Block).ok();
+                        self.push_line(LineKind::Info, "[network] Blocked");
+                    }
+                }
+                _ => {} // Ignore other keys during approval
+            }
             return;
         }
 
@@ -352,13 +386,17 @@ impl App {
         frame.render_widget(output, chunks[1]);
 
         // Input area
-        let input_display = if self.busy {
+        let input_display = if self.pending_approval.is_some() {
+            "\u{26a0} Network approval required \u{2014} y to allow, n to block".to_string()
+        } else if self.busy {
             "\u{25cf} Agent is working... (Ctrl+C to interrupt)".to_string()
         } else {
             format!("> {}", self.input)
         };
 
-        let input_style = if self.busy {
+        let input_style = if self.pending_approval.is_some() {
+            Style::default().fg(Color::Yellow)
+        } else if self.busy {
             Style::default().fg(Color::DarkGray)
         } else {
             Style::default().fg(Color::Cyan)
@@ -386,14 +424,15 @@ impl App {
 
 /// Run the ratatui TUI. Blocks until the user quits.
 ///
-/// This function takes ownership of the event/command channels and the
-/// interrupt signal. It should be called from a blocking context (e.g.
-/// `tokio::task::spawn_blocking`).
+/// This function takes ownership of the event/command channels, the interrupt
+/// signal, and an optional network approval channel. It should be called from
+/// a blocking context (e.g. `tokio::task::spawn_blocking`).
 pub fn run_tui(
     mut event_rx: mpsc::UnboundedReceiver<AgentEvent>,
     cmd_tx: mpsc::UnboundedSender<AgentCommand>,
     interrupt: Arc<Notify>,
     provider_info: String,
+    mut approval_rx: mpsc::UnboundedReceiver<NetworkApprovalRequest>,
 ) -> anyhow::Result<()> {
     // Setup terminal
     enable_raw_mode()?;
@@ -421,6 +460,17 @@ pub fn run_tui(
             // Drain all pending agent events
             while let Ok(agent_event) = event_rx.try_recv() {
                 app.handle_agent_event(agent_event);
+            }
+
+            // Check for network approval requests (only accept one at a time)
+            if app.pending_approval.is_none() {
+                if let Ok(approval) = approval_rx.try_recv() {
+                    app.push_line(
+                        LineKind::Info,
+                        &format!("[network] Request to {} \u{2014} allow? (y/n)", approval.host),
+                    );
+                    app.pending_approval = Some(approval.response_tx);
+                }
             }
         }
         Ok(())

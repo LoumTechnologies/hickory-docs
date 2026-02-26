@@ -20,9 +20,10 @@ use tokio::sync::{Notify, mpsc};
 #[cfg(feature = "local")]
 use hick_agent::LocalLlmClient;
 use hick_agent::{
-    Agent, AgentCommand, AgentConfig, AgentEvent, AnthropicClient, LlmClient, OpenAiCompatClient,
-    PipelineWatcher, ReactLoop,
+    Agent, AgentCommand, AgentConfig, AgentEvent, AnthropicClient, FilteredLlmClient, LlmClient,
+    NetworkApprovalRequest, NetworkFilter, OpenAiCompatClient, PipelineWatcher, ReactLoop,
 };
+use hick_agent::network_filter::extract_host_from_url;
 use hick_agent::tui::run_tui;
 
 #[derive(Parser)]
@@ -296,6 +297,21 @@ fn build_llm_client(
     }
 }
 
+/// Determine the API endpoint host for a given provider and optional base URL.
+fn endpoint_host_for_provider(provider: Provider, api_base: &Option<String>) -> String {
+    if let Some(base) = api_base {
+        extract_host_from_url(base).unwrap_or_else(|| "unknown".to_string())
+    } else {
+        match provider {
+            Provider::Anthropic => "api.anthropic.com".to_string(),
+            Provider::Openai => "api.openai.com".to_string(),
+            Provider::Xai => "api.x.ai".to_string(),
+            Provider::OpenaiCompat => "unknown".to_string(),
+            Provider::Local => "localhost".to_string(),
+        }
+    }
+}
+
 /// Background task that waits for user messages and drives the react loop.
 async fn agent_task(
     react_loop: ReactLoop,
@@ -359,7 +375,43 @@ async fn main() -> Result<()> {
                 max_tokens,
                 project_dir: config.project_dir.clone(),
             };
-            let llm = build_llm_client(provider, model, api_base, api_key, local_opts)?;
+            let llm = build_llm_client(provider, model, api_base.clone(), api_key, local_opts)?;
+
+            // Channels between core and TUI
+            let (event_tx, event_rx) = mpsc::unbounded_channel::<AgentEvent>();
+            let (cmd_tx, cmd_rx) = mpsc::unbounded_channel::<AgentCommand>();
+            let interrupt = Arc::new(Notify::new());
+
+            // Network filter: load from .hick/network-rules.toml if it exists
+            let (approval_tx, approval_rx) =
+                mpsc::unbounded_channel::<NetworkApprovalRequest>();
+            let filter_config_path = config
+                .project_dir
+                .join(".hick")
+                .join("network-rules.toml");
+            let llm: Box<dyn LlmClient> =
+                if filter_config_path.exists() && !matches!(provider, Provider::Local) {
+                    let filter = Arc::new(
+                        NetworkFilter::load(&filter_config_path, approval_tx).map_err(|e| {
+                            anyhow::anyhow!(
+                                "Failed to load network rules from {}: {e}",
+                                filter_config_path.display()
+                            )
+                        })?,
+                    );
+                    let host = endpoint_host_for_provider(provider, &api_base);
+                    event_tx
+                        .send(AgentEvent::Info(format!(
+                            "Network filter: active ({} rules, default {})",
+                            filter.rule_count(),
+                            filter.default_action_name(),
+                        )))
+                        .ok();
+                    Box::new(FilteredLlmClient::new(llm, filter, host))
+                } else {
+                    drop(approval_tx);
+                    llm
+                };
 
             let provider_name = llm.provider_name().to_string();
             let model_name = llm.model_name().to_string();
@@ -368,11 +420,6 @@ async fn main() -> Result<()> {
             let output_dir = std::env::var("HICK_OUTPUT_DIR").ok();
             let mut react_loop = ReactLoop::new(agent, config.project_dir.clone());
             react_loop.stream_output = !no_stream;
-
-            // Channels between core and TUI
-            let (event_tx, event_rx) = mpsc::unbounded_channel::<AgentEvent>();
-            let (cmd_tx, cmd_rx) = mpsc::unbounded_channel::<AgentCommand>();
-            let interrupt = Arc::new(Notify::new());
 
             // Start the transparent pipeline watcher
             let watcher =
@@ -412,7 +459,7 @@ async fn main() -> Result<()> {
             // Run the TUI on a blocking thread (the agent runs on tokio workers)
             let interrupt_tui = Arc::clone(&interrupt);
             tokio::task::spawn_blocking(move || {
-                run_tui(event_rx, cmd_tx, interrupt_tui, provider_info)
+                run_tui(event_rx, cmd_tx, interrupt_tui, provider_info, approval_rx)
             })
             .await??;
         }
