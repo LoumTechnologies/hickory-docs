@@ -8,6 +8,8 @@
 //! event channels, keeping all rendering in the TUI and all logic in
 //! the core.
 
+use std::fmt;
+use std::io::Write as _;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -31,10 +33,9 @@ struct Cli {
     command: Commands,
 }
 
-#[derive(Clone, Copy, Default, ValueEnum)]
+#[derive(Clone, Copy, ValueEnum)]
 enum Provider {
     /// OpenAI API (OPENAI_API_KEY)
-    #[default]
     Openai,
     /// Anthropic Claude API (ANTHROPIC_API_KEY)
     Anthropic,
@@ -60,14 +61,9 @@ enum Commands {
         /// Default container image
         #[arg(long, default_value = "alpine")]
         default_image: String,
-        /// LLM provider
-        #[arg(
-            long,
-            value_enum,
-            default_value = "openai",
-            env = "HICK_AGENT_PROVIDER"
-        )]
-        provider: Provider,
+        /// LLM provider (auto-detected from API keys if omitted)
+        #[arg(long, value_enum, env = "HICK_AGENT_PROVIDER")]
+        provider: Option<Provider>,
         /// Model name (defaults to provider's recommended model)
         #[arg(long, env = "HICK_AGENT_MODEL")]
         model: Option<String>,
@@ -102,6 +98,113 @@ struct LocalOpts {
     n_ctx: u32,
     max_tokens: u32,
     project_dir: PathBuf,
+}
+
+impl fmt::Display for Provider {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Provider::Openai => write!(f, "OpenAI"),
+            Provider::Anthropic => write!(f, "Anthropic"),
+            Provider::Xai => write!(f, "xAI"),
+            Provider::OpenaiCompat => write!(f, "OpenAI-compatible"),
+            Provider::Local => write!(f, "Local"),
+        }
+    }
+}
+
+struct DetectedProvider {
+    provider: Provider,
+    env_var: &'static str,
+    default_model: &'static str,
+}
+
+/// Scan environment for known API keys and return all detected providers.
+fn detect_providers() -> Vec<DetectedProvider> {
+    let mut found = vec![];
+    let candidates: &[(&str, Provider, &str)] = &[
+        ("ANTHROPIC_API_KEY", Provider::Anthropic, "claude-sonnet-4-5-20250929"),
+        ("OPENAI_API_KEY", Provider::Openai, "gpt-4o"),
+        ("XAI_API_KEY", Provider::Xai, "grok-2"),
+    ];
+    for &(env_var, provider, default_model) in candidates {
+        if std::env::var(env_var)
+            .ok()
+            .filter(|k| !k.is_empty())
+            .is_some()
+        {
+            found.push(DetectedProvider {
+                provider,
+                env_var,
+                default_model,
+            });
+        }
+    }
+    found
+}
+
+/// Prompt the user to confirm or select a provider from detected API keys.
+/// Called before the TUI starts, so stdin/stdout are available.
+fn prompt_provider_selection(detected: Vec<DetectedProvider>) -> Result<Provider> {
+    if detected.is_empty() {
+        anyhow::bail!(
+            "No LLM provider specified and no API keys found in environment.\n\n\
+             Set one of the following environment variables:\n\
+             \x20 ANTHROPIC_API_KEY  — Anthropic Claude\n\
+             \x20 OPENAI_API_KEY     — OpenAI\n\
+             \x20 XAI_API_KEY        — xAI / Grok\n\n\
+             Or specify a provider explicitly:\n\
+             \x20 hick-agent run --provider anthropic\n\
+             \x20 hick-agent run --provider local --model-path ./model.gguf"
+        );
+    }
+
+    if detected.len() == 1 {
+        let d = &detected[0];
+        print!(
+            "Detected {} ({}). Use {} / {}? [Y/n] ",
+            d.env_var, d.provider, d.provider, d.default_model,
+        );
+        std::io::stdout().flush()?;
+
+        let mut input = String::new();
+        std::io::stdin().read_line(&mut input)?;
+        let input = input.trim().to_lowercase();
+        if input.is_empty() || input == "y" || input == "yes" {
+            return Ok(d.provider);
+        }
+        anyhow::bail!("Cancelled. Use --provider to specify a provider explicitly.");
+    }
+
+    // Multiple providers detected — let the user choose
+    println!("Multiple API keys detected:");
+    for (i, d) in detected.iter().enumerate() {
+        println!(
+            "  [{}] {} — {} ({})",
+            i + 1,
+            d.provider,
+            d.env_var,
+            d.default_model,
+        );
+    }
+    print!("Select provider [1-{}]: ", detected.len());
+    std::io::stdout().flush()?;
+
+    let mut input = String::new();
+    std::io::stdin().read_line(&mut input)?;
+    let input = input.trim();
+
+    if input.is_empty() {
+        anyhow::bail!("No selection made. Use --provider to specify a provider explicitly.");
+    }
+
+    let idx: usize = input
+        .parse()
+        .map_err(|_| anyhow::anyhow!("Invalid selection: {input}"))?;
+    if idx < 1 || idx > detected.len() {
+        anyhow::bail!("Selection out of range: {idx}");
+    }
+
+    Ok(detected[idx - 1].provider)
 }
 
 fn build_llm_client(
@@ -238,6 +341,15 @@ async fn main() -> Result<()> {
                 project_dir: project_dir.unwrap_or_else(|| std::env::current_dir().unwrap()),
                 images_dir: images_dir.unwrap_or_else(|| PathBuf::from(".")),
                 default_image,
+            };
+
+            // Resolve provider: explicit flag/env, or auto-detect from API keys
+            let provider = match provider {
+                Some(p) => p,
+                None => {
+                    let detected = detect_providers();
+                    prompt_provider_selection(detected)?
+                }
             };
 
             let local_opts = LocalOpts {
