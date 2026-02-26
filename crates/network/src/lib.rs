@@ -1,3 +1,5 @@
+pub mod auth_injector;
+pub mod auth_rules;
 pub mod bridge;
 pub mod codec;
 pub mod connection_filter;
@@ -11,3 +13,6 @@ pub mod net_config;
 pub mod network_loop;
 pub mod tcp_nat;
 pub mod tcp_proxy;
+pub mod tls_ca;
+pub mod tls_relay;
+pub mod tls_sni;

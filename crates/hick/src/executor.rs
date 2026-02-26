@@ -20,6 +20,7 @@ use container::{Container, ContainerConfig, ContainerStats, create_async_engine}
 use hick_token::ContainerCapabilities;
 use net_config::NetworkConfig;
 
+use crate::auth::AuthStack;
 use crate::pool::SharedPool;
 
 // ---------------------------------------------------------------------------
@@ -201,6 +202,8 @@ pub struct ContainerExecutor {
     pool_hits: usize,
     /// Total boot time saved by adopting pre-warmed containers from the pool.
     pool_boot_time_saved: Duration,
+    /// Optional auth injection stack for transparent credential management.
+    auth: Option<Arc<AuthStack>>,
 }
 
 impl ContainerExecutor {
@@ -227,7 +230,13 @@ impl ContainerExecutor {
             pool: None,
             pool_hits: 0,
             pool_boot_time_saved: Duration::ZERO,
+            auth: None,
         })
+    }
+
+    /// Set the auth injection stack for transparent credential management.
+    pub fn set_auth(&mut self, auth: Arc<AuthStack>) {
+        self.auth = Some(auth);
     }
 
     /// Set host directories to preopen in every container's WASI context.
@@ -268,6 +277,7 @@ impl ContainerExecutor {
             pool: Some(pool),
             pool_hits: 0,
             pool_boot_time_saved: Duration::ZERO,
+            auth: None,
         })
     }
 
@@ -395,6 +405,15 @@ impl ContainerExecutor {
         config.bridge_rx = Some(bridge_rx);
         config.preopened_dirs = self.preopened_dirs.clone();
 
+        // Wire auth injection into the container's network stack.
+        if let Some(ref auth) = self.auth {
+            config.http_filter = Some(auth.http_filter.clone());
+            config.tls_intercept = Some(network::network_loop::TlsInterceptConfig {
+                ca: auth.tls_intercept.ca.clone(),
+                intercept_hosts: auth.tls_intercept.intercept_hosts.clone(),
+            });
+        }
+
         let boot_start = Instant::now();
         let container = Container::start(config)
             .await
@@ -420,6 +439,36 @@ impl ContainerExecutor {
         self.wait_for_boot(name)
             .await
             .with_context(|| format!("container '{name}' failed to boot"))?;
+
+        // After boot: inject CA certificate and placeholder env vars.
+        if let Some(ref auth) = self.auth {
+            // Clone data before mutably borrowing self for replay_command.
+            let ca_pem = auth.ca_cert_pem.clone();
+            let env_vars = auth.container_env.clone();
+
+            // Inject CA cert into the container's trust store.
+            let ca_inject_cmd = format!(
+                "cat >> /etc/ssl/certs/ca-certificates.crt << 'HICK_CA_CERT'\n{ca_pem}\nHICK_CA_CERT"
+            );
+            self.replay_command(name, &ca_inject_cmd).await
+                .with_context(|| format!("failed to inject CA cert into container '{name}'"))?;
+
+            // Set SSL_CERT_FILE so libraries pick up the updated trust store.
+            self.replay_command(name, "export SSL_CERT_FILE=/etc/ssl/certs/ca-certificates.crt").await
+                .with_context(|| format!("failed to set SSL_CERT_FILE in container '{name}'"))?;
+
+            // Inject placeholder env vars so API client libraries don't fail on missing keys.
+            for (var_name, var_value) in &env_vars {
+                let cmd = format!("export {var_name}={var_value}");
+                self.replay_command(name, &cmd).await
+                    .with_context(|| format!("failed to set {var_name} in container '{name}'"))?;
+            }
+
+            info!(
+                "Auth injection: injected CA cert + {} env vars into container '{name}'",
+                env_vars.len()
+            );
+        }
 
         let boot_duration = boot_start.elapsed();
         let rc = self.containers.get_mut(name).unwrap();

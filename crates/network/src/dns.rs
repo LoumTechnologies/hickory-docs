@@ -159,6 +159,95 @@ pub fn build_a_response(query: &[u8], ip: std::net::Ipv4Addr) -> Option<Vec<u8>>
     Some(resp)
 }
 
+/// Extract the queried domain and resolved IPv4 address from a DNS A-record response.
+///
+/// Parses the QNAME from the question section and the first A-record RDATA
+/// from the answer section. Returns `None` if the response is malformed,
+/// has no answers, or has no A records.
+pub fn parse_a_response(response: &[u8]) -> Option<(String, std::net::Ipv4Addr)> {
+    const HEADER_LEN: usize = 12;
+    if response.len() < HEADER_LEN {
+        return None;
+    }
+
+    // Check QR=1 (response)
+    if response[2] & 0x80 == 0 {
+        return None;
+    }
+
+    let ancount = u16::from_be_bytes([response[6], response[7]]);
+    if ancount == 0 {
+        return None;
+    }
+
+    // Parse QNAME from question section
+    let domain = parse_query_domain(response)?;
+
+    // Skip question section to reach answers
+    let mut pos = HEADER_LEN;
+    // Skip QNAME
+    loop {
+        if pos >= response.len() {
+            return None;
+        }
+        let label_len = response[pos] as usize;
+        pos += 1;
+        if label_len == 0 {
+            break;
+        }
+        pos += label_len;
+    }
+    // Skip QTYPE + QCLASS
+    pos += 4;
+
+    // Parse first A record from answers
+    for _ in 0..ancount {
+        if pos + 2 > response.len() {
+            return None;
+        }
+
+        // Skip NAME (may be pointer or labels)
+        if response[pos] & 0xC0 == 0xC0 {
+            pos += 2; // pointer
+        } else {
+            loop {
+                if pos >= response.len() {
+                    return None;
+                }
+                let len = response[pos] as usize;
+                pos += 1;
+                if len == 0 {
+                    break;
+                }
+                pos += len;
+            }
+        }
+
+        // TYPE(2) + CLASS(2) + TTL(4) + RDLENGTH(2)
+        if pos + 10 > response.len() {
+            return None;
+        }
+        let rtype = u16::from_be_bytes([response[pos], response[pos + 1]]);
+        let rdlen = u16::from_be_bytes([response[pos + 8], response[pos + 9]]) as usize;
+        pos += 10;
+
+        if rtype == 1 && rdlen == 4 && pos + 4 <= response.len() {
+            // A record
+            let ip = std::net::Ipv4Addr::new(
+                response[pos],
+                response[pos + 1],
+                response[pos + 2],
+                response[pos + 3],
+            );
+            return Some((domain, ip));
+        }
+
+        pos += rdlen;
+    }
+
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -24,6 +24,24 @@ use crate::interface::VirtualNetwork;
 use crate::net_config::NetworkConfig;
 use crate::tcp_nat::{IngressResult, TcpNat};
 use crate::tcp_proxy::{ProxyAction, TcpProxy};
+use crate::tls_ca::HickCa;
+
+/// Configuration for TLS interception (MITM) of HTTPS connections.
+///
+/// When present, connections to hosts in `intercept_hosts` are intercepted
+/// with a per-host certificate signed by the ephemeral CA.
+pub struct TlsInterceptConfig {
+    /// Ephemeral CA for issuing per-host certificates.
+    pub ca: Arc<HickCa>,
+    /// Set of hostnames to intercept (exact match).
+    pub intercept_hosts: std::collections::HashSet<String>,
+}
+
+/// Shared DNS hostname cache mapping resolved IPv4 addresses back to hostnames.
+///
+/// Populated by DNS responses so that TCP connections can look up the hostname
+/// for TLS interception decisions.
+type DnsHostnameCache = Arc<RwLock<HashMap<std::net::Ipv4Addr, String>>>;
 
 /// Channel message from real socket relay tasks back to the network loop.
 #[derive(Debug)]
@@ -302,6 +320,7 @@ fn rewrite_dst_mac(frame: &mut [u8], mac: &[u8; 6]) {
 /// - Outbound frame interception: frames destined for a bridged IP are
 ///   routed through the bridge instead of the wire
 /// - Internal DNS resolution for container names
+#[allow(clippy::too_many_arguments)]
 pub async fn run_network_bridged<S>(
     stream: S,
     mut shutdown: watch::Receiver<bool>,
@@ -309,6 +328,8 @@ pub async fn run_network_bridged<S>(
     config: NetworkConfig,
     bridge: Arc<RwLock<NetworkBridge>>,
     mut bridge_rx: mpsc::Receiver<Vec<u8>>,
+    http_filter: Option<Arc<dyn HttpFilter>>,
+    tls_intercept: Option<TlsInterceptConfig>,
 ) where
     S: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
@@ -330,6 +351,9 @@ pub async fn run_network_bridged<S>(
     let resolver = dns::system_resolver();
     let mut poll_interval = tokio::time::interval(Duration::from_millis(1));
     poll_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+
+    // DNS hostname cache for mapping IPs back to hostnames (used by TLS intercept).
+    let dns_hostname_cache: DnsHostnameCache = Arc::new(RwLock::new(HashMap::new()));
 
     debug!("[net] Bridged network loop starting...");
     let mut frame_count = 0u64;
@@ -427,7 +451,7 @@ pub async fn run_network_bridged<S>(
         .await;
 
         // Handle DNS with bridge-aware resolution
-        handle_dns_bridged(&mut net, dns_handle, resolver, &filter, &bridge).await;
+        handle_dns_bridged(&mut net, dns_handle, resolver, &filter, &bridge, &dns_hostname_cache).await;
 
         let outbound = net.poll(now);
         send_outbound_bridged(
@@ -439,7 +463,7 @@ pub async fn run_network_bridged<S>(
         )
         .await;
 
-        // TCP proxy
+        // TCP proxy — three-branch routing: TLS MITM → HTTP filter → passthrough
         let actions = tcp_proxy.poll(&mut net);
         for action in actions {
             match action {
@@ -465,6 +489,43 @@ pub async fn run_network_bridged<S>(
                     let (write_tx, write_rx) = mpsc::channel::<Vec<u8>>(64);
                     real_writers.insert(handle, write_tx);
 
+                    // Look up hostname for this destination IP.
+                    let dest_hostname = {
+                        if let std::net::IpAddr::V4(ipv4) = real_dest.ip() {
+                            dns_hostname_cache.read().await.get(&ipv4).cloned()
+                        } else {
+                            None
+                        }
+                    };
+
+                    // Branch 1: TLS MITM for auth-intercepted hosts.
+                    if let (Some(tls_cfg), Some(hostname)) = (&tls_intercept, &dest_hostname) {
+                        if tls_cfg.intercept_hosts.contains(hostname) {
+                            let ca = tls_cfg.ca.clone();
+                            // Use the http_filter if available, otherwise passthrough.
+                            let hf: Arc<dyn HttpFilter> = match http_filter.as_ref() {
+                                Some(f) => f.clone(),
+                                None => Arc::new(crate::http::PassthroughHttpFilter),
+                            };
+                            tokio::spawn(async move {
+                                crate::tls_relay::tls_mitm_relay(handle, real_dest, tx, write_rx, ca, hf).await;
+                            });
+                            continue;
+                        }
+                    }
+
+                    // Branch 2: HTTP filter for port 80.
+                    if real_dest.port() == 80 {
+                        if let Some(ref hf) = http_filter {
+                            let hf = hf.clone();
+                            tokio::spawn(async move {
+                                http::http_relay_real_socket(handle, real_dest, tx, write_rx, hf).await;
+                            });
+                            continue;
+                        }
+                    }
+
+                    // Branch 3: Plain passthrough.
                     tokio::spawn(async move {
                         relay_real_socket(handle, real_dest, tx, write_rx).await;
                     });
@@ -591,6 +652,7 @@ async fn handle_dns_bridged(
     resolver: std::net::SocketAddr,
     filter: &Arc<dyn ConnectionFilter>,
     bridge: &Arc<RwLock<NetworkBridge>>,
+    dns_hostname_cache: &DnsHostnameCache,
 ) {
     let sock = net.udp_socket(dns_handle);
     let mut queries = Vec::new();
@@ -643,6 +705,12 @@ async fn handle_dns_bridged(
                     "[dns] Got response, {} bytes, sending to {source:?}",
                     response.len()
                 );
+
+                // Populate hostname cache from A-record responses.
+                if let Some((hostname, ip)) = dns::parse_a_response(&response) {
+                    dns_hostname_cache.write().await.insert(ip, hostname);
+                }
+
                 let sock = net.udp_socket(dns_handle);
                 let _ = sock.send_slice(&response, source);
             }

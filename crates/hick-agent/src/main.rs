@@ -394,6 +394,36 @@ async fn main() -> Result<()> {
             let security_config = AgentSecurityConfig::load_or_default(&security_config_path)?;
             let sandbox_caps = security_config.to_capabilities();
 
+            // Load auth injection configuration.
+            let auth_rules_path = config.project_dir.join(".hick").join("auth-rules.toml");
+            let age_key_path = std::env::var("HICK_AGE_KEY")
+                .map(PathBuf::from)
+                .unwrap_or_else(|_| PathBuf::from("/Users/ai/Documents/src/key.txt"));
+            let age_secrets_dir = config.project_dir.join(".hick").join("secrets");
+            let auth_stack = match hick::auth::AuthStack::from_config(
+                &auth_rules_path,
+                &age_key_path,
+                &age_secrets_dir,
+            ) {
+                Ok(Some(stack)) => {
+                    let stack = Arc::new(stack);
+                    event_tx
+                        .send(AgentEvent::Info(format!(
+                            "Auth injection: active ({} env vars)",
+                            stack.container_env.len(),
+                        )))
+                        .ok();
+                    Some(stack)
+                }
+                Ok(None) => None,
+                Err(e) => {
+                    event_tx
+                        .send(AgentEvent::Info(format!("Auth injection: failed to load ({e})")))
+                        .ok();
+                    None
+                }
+            };
+
             // Network filter for LLM API calls.
             // Priority: explicit network-rules.toml > derived from agent-security.toml > none.
             let (approval_tx, approval_rx) = mpsc::unbounded_channel::<NetworkApprovalRequest>();
@@ -478,6 +508,7 @@ async fn main() -> Result<()> {
                     workdir: config.project_dir.clone(),
                     default_image: config.default_image.clone(),
                     capabilities: sandbox_caps,
+                    auth: auth_stack,
                 };
                 match WasmSandboxExecutor::new(sandbox_config) {
                     exec => {

@@ -15,6 +15,7 @@ local-cuda = ["local", "llama-cpp-2/cuda"]
 integration-test = []
 
 [dependencies]
+hick = { path = "../hick" }
 hick-agent-core = { path = "../hick-agent-core" }
 hick-token = { path = "../hick-token" }
 hick-classify = { path = "../hick-classify" }

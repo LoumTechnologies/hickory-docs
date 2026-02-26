@@ -5,8 +5,10 @@
 
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use async_trait::async_trait;
+use hick::auth::AuthStack;
 use hick::executor::ContainerExecutor;
 use hick_token::ContainerCapabilities;
 
@@ -42,7 +44,6 @@ pub trait CommandExecutor: Send + Sync {
 }
 
 /// Configuration for WASM sandbox execution.
-#[derive(Clone)]
 pub struct WasmSandboxConfig {
     /// Directory containing `.wasm` container images.
     pub images_dir: PathBuf,
@@ -52,6 +53,8 @@ pub struct WasmSandboxConfig {
     pub default_image: String,
     /// Capability restrictions for the sandbox container.
     pub capabilities: ContainerCapabilities,
+    /// Optional auth injection stack for transparent credential management.
+    pub auth: Option<Arc<AuthStack>>,
 }
 
 impl Default for WasmSandboxConfig {
@@ -61,6 +64,7 @@ impl Default for WasmSandboxConfig {
             workdir: std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
             default_image: "alpine".to_string(),
             capabilities: ContainerCapabilities::default(),
+            auth: None,
         }
     }
 }
@@ -93,6 +97,9 @@ impl WasmSandboxExecutor {
                 self.config.workdir.clone(),
                 "/workspace".to_string(),
             )]);
+            if let Some(ref auth) = self.config.auth {
+                exec.set_auth(auth.clone());
+            }
             self.executor = Some(exec);
         }
 

@@ -5,6 +5,7 @@
 //! and file output collection — all without touching the filesystem.
 
 pub mod agents;
+pub mod auth;
 pub mod cache;
 pub mod compact;
 pub mod config;

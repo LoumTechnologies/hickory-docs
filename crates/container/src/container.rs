@@ -18,6 +18,7 @@ use bridge::NetworkBridge;
 use connection_filter::{AllowAll, ConnectionFilter};
 use net_config::NetworkConfig;
 use network::http::HttpFilter;
+use network::network_loop::TlsInterceptConfig;
 
 use crate::pipe::{stderr_pipe, stdin_pipe, stdout_pipe};
 
@@ -90,6 +91,7 @@ pub struct ContainerConfig {
     pub networking: bool,
     pub connection_filter: Option<Arc<dyn ConnectionFilter>>,
     pub http_filter: Option<Arc<dyn HttpFilter>>,
+    pub tls_intercept: Option<TlsInterceptConfig>,
     pub network_config: Option<NetworkConfig>,
     /// Shared bridge for inter-container networking.
     pub bridge: Option<Arc<RwLock<NetworkBridge>>>,
@@ -109,6 +111,7 @@ impl ContainerConfig {
             networking: false,
             connection_filter: None,
             http_filter: None,
+            tls_intercept: None,
             network_config: None,
             bridge: None,
             bridge_rx: None,
@@ -144,6 +147,7 @@ impl Container {
         let networking = config.networking;
         let connection_filter = config.connection_filter;
         let http_filter = config.http_filter;
+        let tls_intercept = config.tls_intercept;
         let network_config = config.network_config;
         let bridge = config.bridge;
         let bridge_rx = config.bridge_rx;
@@ -287,6 +291,7 @@ impl Container {
                 shutdown_rx,
                 filter,
                 http_filter,
+                tls_intercept,
                 net_cfg,
                 bridge,
                 bridge_rx,
@@ -463,11 +468,13 @@ impl Drop for Container {
 /// The WASM module has a preopened listener socket on fd=3. When the kernel
 /// starts up and calls sock_accept, it will block waiting for a connection.
 /// We connect from the host side to complete the handshake.
+#[allow(clippy::too_many_arguments)]
 async fn run_network_connect(
     addr: std::net::SocketAddr,
     shutdown: watch::Receiver<bool>,
     filter: Arc<dyn ConnectionFilter>,
     http_filter: Option<Arc<dyn HttpFilter>>,
+    tls_intercept: Option<TlsInterceptConfig>,
     config: NetworkConfig,
     bridge: Option<Arc<RwLock<NetworkBridge>>>,
     bridge_rx: Option<mpsc::Receiver<Vec<u8>>>,
@@ -508,8 +515,17 @@ async fn run_network_connect(
     info!("[network] Starting network loop...");
     match (bridge, bridge_rx) {
         (Some(b), Some(rx)) => {
-            network::network_loop::run_network_bridged(stream, shutdown, filter, config, b, rx)
-                .await;
+            network::network_loop::run_network_bridged(
+                stream,
+                shutdown,
+                filter,
+                config,
+                b,
+                rx,
+                http_filter,
+                tls_intercept,
+            )
+            .await;
         }
         _ => {
             network::network_loop::run_network_with_config(

@@ -3,6 +3,10 @@
 //! Provides a `SecretsProvider` trait with an age-based implementation
 //! using the `age` crate (Rust port of the age encryption tool).
 
+pub mod cache;
+pub mod chain;
+pub mod env;
+
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
