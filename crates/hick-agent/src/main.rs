@@ -23,6 +23,7 @@ use tokio::sync::{Mutex, Notify, mpsc};
 use hick_agent::LocalLlmClient;
 use hick_agent::network_filter::extract_host_from_url;
 use hick_agent::security_config::AgentSecurityConfig;
+use hick_agent::sink_guard::SinkGuard;
 use hick_agent::tui::run_tui;
 use hick_agent::{
     Agent, AgentCommand, AgentConfig, AgentEvent, AnthropicClient, FilteredLlmClient, LlmClient,
@@ -486,6 +487,10 @@ async fn main() -> Result<()> {
                 Agent::new(config.clone(), llm).with_security(token_authority, session_token);
             let output_dir = std::env::var("HICK_OUTPUT_DIR").ok();
 
+            // Create the sink guard for classification-based API call gating.
+            // Uses a clone of sandbox_caps since the original is moved into WasmSandboxConfig.
+            let sink_guard = Arc::new(SinkGuard::new(sandbox_caps.clone(), vec![]));
+
             let caps_summary = if security_config.deny_all_network {
                 format!(
                     "deny-all + {} allowed hosts",
@@ -532,8 +537,10 @@ async fn main() -> Result<()> {
             let mut react_loop = if let Some(executor) = sandbox_executor {
                 ReactLoop::new(agent, config.project_dir.clone())
                     .with_executor(executor, config.default_image.clone())
+                    .with_sink_guard(sink_guard)
             } else {
                 ReactLoop::new(agent, config.project_dir.clone())
+                    .with_sink_guard(sink_guard)
             };
 
             // Wire up policy evaluator if configured.

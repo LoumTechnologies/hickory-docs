@@ -239,8 +239,9 @@ impl NetworkFilter {
         };
 
         if self.approval_tx.send(request).is_err() {
-            // Channel closed (TUI gone) — fail open
-            return NetworkVerdict::Allow;
+            // Channel closed (TUI gone) — fail closed for safety
+            log::warn!("Network approval channel closed; blocking request to {host}");
+            return NetworkVerdict::Block;
         }
 
         match response_rx.await {
@@ -248,8 +249,11 @@ impl NetworkFilter {
                 self.cache_verdict(host, verdict);
                 verdict
             }
-            // Sender dropped (TUI gone) — fail open
-            Err(_) => NetworkVerdict::Allow,
+            // Sender dropped (TUI gone) — fail closed for safety
+            Err(_) => {
+                log::warn!("Network approval response dropped; blocking request to {host}");
+                NetworkVerdict::Block
+            }
         }
     }
 }
@@ -515,7 +519,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn filter_prompt_fails_open_when_channel_closed() {
+    async fn filter_prompt_fails_closed_when_channel_closed() {
         let (tx, rx) = mpsc::unbounded_channel();
         let config = NetworkFilterConfig {
             default: RuleAction::Prompt,
@@ -526,8 +530,8 @@ mod tests {
         // Drop the receiver to simulate TUI gone
         drop(rx);
 
-        // Should fail open (allow)
-        assert_eq!(filter.check("example.com").await, NetworkVerdict::Allow);
+        // Should fail closed (block) for safety
+        assert_eq!(filter.check("example.com").await, NetworkVerdict::Block);
     }
 
     #[test]

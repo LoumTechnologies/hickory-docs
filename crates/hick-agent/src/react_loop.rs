@@ -25,6 +25,7 @@ use crate::agent::Agent;
 use crate::context;
 use crate::events::AgentEvent;
 use crate::llm::{Message, Role};
+use crate::sink_guard::SinkGuard;
 use crate::state::AgentState;
 use crate::tools::{CodeBlock, Language, ScriptResult, extract_code_blocks};
 
@@ -111,6 +112,8 @@ pub struct ReactLoop {
     sandbox_image: String,
     /// Optional policy evaluator for pre-execution checks.
     policy_evaluator: Option<PolicyEvaluator>,
+    /// Optional sink guard for classification-based API call gating.
+    sink_guard: Option<Arc<SinkGuard>>,
 }
 
 impl ReactLoop {
@@ -123,6 +126,7 @@ impl ReactLoop {
             executor: None,
             sandbox_image: "alpine".to_string(),
             policy_evaluator: None,
+            sink_guard: None,
         }
     }
 
@@ -141,6 +145,17 @@ impl ReactLoop {
     pub fn with_policy(mut self, evaluator: PolicyEvaluator) -> Self {
         self.policy_evaluator = Some(evaluator);
         self
+    }
+
+    /// Set the sink guard for classification-based API call gating.
+    pub fn with_sink_guard(mut self, guard: Arc<SinkGuard>) -> Self {
+        self.sink_guard = Some(guard);
+        self
+    }
+
+    /// Get the sink guard (if configured), for SDK API call validation.
+    pub fn sink_guard(&self) -> Option<&Arc<SinkGuard>> {
+        self.sink_guard.as_ref()
     }
 
     /// Execute a code block inside the sandbox container.

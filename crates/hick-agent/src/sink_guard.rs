@@ -83,19 +83,7 @@ impl SinkGuard {
 }
 
 fn chrono_now() -> String {
-    // Use a simple UTC timestamp. In production, use chrono::Utc::now().
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let duration = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default();
-    let secs = duration.as_secs();
-    // Approximate ISO 8601 — sufficient for string comparison in ExpiresRule.
-    let (year, rem) = (1970 + secs / 31557600, secs % 31557600);
-    let (month, rem) = (1 + rem / 2629800, rem % 2629800);
-    let (day, rem) = (1 + rem / 86400, rem % 86400);
-    let (hour, rem) = (rem / 3600, rem % 3600);
-    let (min, sec) = (rem / 60, rem % 60);
-    format!("{year:04}-{month:02}-{day:02}T{hour:02}:{min:02}:{sec:02}Z")
+    chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true)
 }
 
 #[cfg(test)]

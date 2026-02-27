@@ -21,6 +21,7 @@ hick-token = { path = "../hick-token" }
 hick-classify = { path = "../hick-classify" }
 hick-policy = { path = "../hick-policy" }
 hick-sink = { path = "../hick-sink" }
+chrono = "0.4"
 async-openai = "0.28"
 async-trait = "0.1"
 anyhow = "1"
