@@ -6,7 +6,7 @@ mod types;
 
 use std::sync::Mutex;
 
-use drift_signal_core::{AppDriftSignal, DriftSignalConfig};
+use drift_signal_core::{AppDriftSignal, DriftSignalConfig, SyncConfig};
 
 use crate::error::DriftSignalError;
 use crate::types::*;
@@ -16,9 +16,11 @@ use crate::types::*;
 /// UniFFI-exported engine wrapping `AppDriftSignal`.
 ///
 /// All methods acquire a `std::sync::Mutex` lock (blocking, FFI-safe — no async).
+/// Async operations use a dedicated tokio runtime.
 #[derive(uniffi::Object)]
 pub struct FfiDriftSignalEngine {
     inner: Mutex<AppDriftSignal>,
+    runtime: tokio::runtime::Runtime,
 }
 
 #[uniffi::export]
@@ -36,8 +38,11 @@ impl FfiDriftSignalEngine {
             db_path,
         };
         let core = AppDriftSignal::open(config)?;
+        let runtime = tokio::runtime::Runtime::new()
+            .map_err(|e| DriftSignalError::EngineError { message: e.to_string() })?;
         Ok(Self {
             inner: Mutex::new(core),
+            runtime,
         })
     }
 
@@ -45,6 +50,49 @@ impl FfiDriftSignalEngine {
     pub fn device_id(&self) -> Result<String, DriftSignalError> {
         let core = self.inner.lock()?;
         Ok(core.device_id().to_string())
+    }
+
+    // ── Sync ─────────────────────────────────────────────────────────
+
+    /// Start P2P sync. Optionally provide a relay URL for NAT traversal.
+    pub fn start_sync(&self, relay_url: Option<String>) -> Result<(), DriftSignalError> {
+        let mut core = self.inner.lock()?;
+        let mut config = SyncConfig::default();
+        if let Some(url) = relay_url {
+            config = config.with_cloud(url);
+        }
+        self.runtime.block_on(core.start_sync(config))?;
+        Ok(())
+    }
+
+    /// Stop P2P sync and persist final state.
+    pub fn stop_sync(&self) -> Result<(), DriftSignalError> {
+        let mut core = self.inner.lock()?;
+        self.runtime.block_on(core.stop_sync())?;
+        Ok(())
+    }
+
+    /// Get the iroh node ID, if sync is running.
+    pub fn node_id(&self) -> Result<Option<String>, DriftSignalError> {
+        let core = self.inner.lock()?;
+        Ok(core.node_id())
+    }
+
+    /// Get the current connection status.
+    ///
+    /// Returns one of: "offline", "connected".
+    pub fn connection_status(&self) -> Result<String, DriftSignalError> {
+        let core = self.inner.lock()?;
+        Ok(core.connection_status())
+    }
+
+    /// Generate a device link token for pairing a new device.
+    ///
+    /// Display the returned string as a QR code. The other device
+    /// scans it and calls `accept_device_link` with the same string.
+    pub fn generate_link_token(&self) -> Result<String, DriftSignalError> {
+        let core = self.inner.lock()?;
+        Ok(core.generate_link_token())
     }
 
     // ── Chat ────────────────────────────────────────────────────────

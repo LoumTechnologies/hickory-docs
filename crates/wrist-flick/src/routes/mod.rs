@@ -56,8 +56,12 @@ pub fn router() -> Router<AppState> {
         )
         // Sync
         .route("/api/v1/sync/status", get(sync::status))
-        .route("/api/v1/sync/ws", get(sync::ws_handler))
-        .route("/api/v1/sync/state-vector", get(sync::state_vector))
+        .route("/api/v1/sync/start", post(sync::start_sync))
+        .route("/api/v1/sync/stop", post(sync::stop_sync))
+        .route(
+            "/api/v1/sync/link-token",
+            post(sync::generate_link_token),
+        )
         // Health
         .route("/health", get(health::health))
 }

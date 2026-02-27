@@ -245,31 +245,24 @@ async fn test_task_crud() {
 }
 
 #[tokio::test]
-async fn test_sync_endpoints_return_gone() {
+async fn test_sync_status() {
     let app = app().await;
 
-    // State vector returns GONE (replaced by waymark sync)
+    // Sync status returns 200 with offline status (not started)
     let resp = app
-        .clone()
         .oneshot(
             Request::builder()
-                .uri("/api/v1/sync/state-vector")
+                .uri("/api/v1/sync/status")
                 .body(Body::empty())
                 .unwrap(),
         )
         .await
         .unwrap();
-    assert_eq!(resp.status(), StatusCode::GONE);
+    assert_eq!(resp.status(), StatusCode::OK);
 
-    // WebSocket endpoint returns GONE
-    let resp = app
-        .oneshot(
-            Request::builder()
-                .uri("/api/v1/sync/ws")
-                .body(Body::empty())
-                .unwrap(),
-        )
+    let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
         .await
         .unwrap();
-    assert_eq!(resp.status(), StatusCode::GONE);
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(json["status"], "offline");
 }

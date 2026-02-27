@@ -4,6 +4,7 @@ use std::collections::BTreeMap;
 use std::path::Path;
 
 use serde_json::Value;
+use waymark_core::SyncConfig;
 use waymark_sdk::SyncApp;
 
 use crate::capability::dispatcher::AppCapabilityDispatcher;
@@ -233,6 +234,51 @@ impl AppDriftSignal {
     /// List all pending capability invocations.
     pub fn list_pending_invocations(&self) -> anyhow::Result<Vec<InvocationRow>> {
         query::list_pending_invocations(self.sync_app.query_read_model())
+    }
+
+    // ── Sync operations ────────────────────────────────────────────────
+
+    /// Start P2P sync with the given configuration.
+    ///
+    /// Creates an iroh endpoint, joins gossip, and begins periodic
+    /// QUIC reconciliation with known peers.
+    pub async fn start_sync(&mut self, config: SyncConfig) -> anyhow::Result<()> {
+        self.sync_app.start_p2p(config).await?;
+        Ok(())
+    }
+
+    /// Stop the sync engine and persist final state.
+    pub async fn stop_sync(&mut self) -> anyhow::Result<()> {
+        self.sync_app.stop().await?;
+        Ok(())
+    }
+
+    /// Get the iroh node ID, if the sync engine is running.
+    pub fn node_id(&self) -> Option<String> {
+        self.sync_app.node_id()
+    }
+
+    /// Get the current connection status as a string.
+    ///
+    /// Returns one of: "offline", "connected".
+    /// Uses the node_id presence as a synchronous proxy for connection state.
+    pub fn connection_status(&self) -> String {
+        if self.sync_app.node_id().is_some() {
+            "connected".to_string()
+        } else {
+            "offline".to_string()
+        }
+    }
+
+    /// Generate a device link token for pairing a new device.
+    ///
+    /// Display the returned wire string as a QR code. The other device
+    /// scans it and calls `accept_device_link` with the same string.
+    pub fn generate_link_token(&self) -> String {
+        let session_id = format!("dl-{}", uuid::Uuid::now_v7());
+        let secret = uuid::Uuid::now_v7().to_string();
+        let token = waymark_core::DeviceLinkToken::new(session_id, secret);
+        token.to_string()
     }
 
     /// Access the underlying SyncApp for advanced queries or raw commands.

@@ -6,7 +6,7 @@ description = "Unified app core for Drift Signal — multi-frontend agent with w
 
 [dependencies]
 # Waymark infrastructure
-waymark-sdk = { path = "../../../waymark/crates/waymark-sdk", features = ["grove"], default-features = false }
+waymark-sdk = { path = "../../../waymark/crates/waymark-sdk", features = ["grove", "engine"], default-features = false }
 waymark-core = { path = "../../../waymark/crates/waymark-core" }
 waymark-grove = { path = "../../../waymark/crates/waymark-grove" }
 waymark-storage = { path = "../../../waymark/crates/waymark-storage" }

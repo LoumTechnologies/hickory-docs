@@ -21,6 +21,13 @@ struct MainTabView: View {
                 .tabItem {
                     Label("Tasks", systemImage: "checklist")
                 }
+
+            NavigationStack {
+                SyncSettingsView(engine: engine)
+            }
+            .tabItem {
+                Label("Sync", systemImage: "arrow.triangle.2.circlepath")
+            }
         }
     }
 }

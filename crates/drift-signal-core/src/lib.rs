@@ -21,5 +21,6 @@ pub use capability::handlers::FileSystemCapabilityHandler;
 pub use sub_apps::{CapabilitiesSubApp, ChatSubApp, MemorySubApp, TaskSubApp};
 
 // Re-export key waymark types for downstream use
-pub use waymark_core::{EntityId, NamespaceUri, SyncError};
+pub use waymark_core::{DeviceLinkToken, EntityId, NamespaceUri, SyncConfig, SyncError, parse_token};
 pub use waymark_sdk::SyncApp;
+pub use waymark_sdk::engine::{ConnectionStatus, SyncEvent};
