@@ -177,7 +177,7 @@ fn prepare_pipeline<'a>(
 
             if let Some(source_caps) = container_defs.get(&from) {
                 let forked_caps = if let Some(extra) = &additional_caps {
-                    source_caps.merge(extra)
+                    source_caps.merge_caveats(extra)
                 } else {
                     source_caps.clone()
                 };

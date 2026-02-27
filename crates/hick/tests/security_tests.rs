@@ -210,10 +210,10 @@ async fn test_empty_container_allows_all() {
     // No rules -> default allow for network
     assert!(caps.network_rules.is_empty());
     assert!(caps.check_network("anything.com", 9999));
-    // No file rules -> default allow
+    // No file rules -> deny (closed-by-default)
     assert!(caps.file_rules.is_empty());
-    assert!(caps.check_file_read("/any/path"));
-    assert!(caps.check_file_write("/any/path"));
+    assert!(!caps.check_file_read("/any/path"));
+    assert!(!caps.check_file_write("/any/path"));
 }
 
 // ---------------------------------------------------------------------------

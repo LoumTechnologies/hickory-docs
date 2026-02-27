@@ -73,6 +73,16 @@ pub struct PolicyEvaluator {
     pub timeout: Duration,
 }
 
+/// Check that a string is a valid Python identifier (alphanumeric + underscore,
+/// does not start with a digit).
+fn is_valid_python_identifier(name: &str) -> bool {
+    !name.is_empty()
+        && name
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_')
+        && !name.starts_with(|c: char| c.is_ascii_digit())
+}
+
 impl PolicyEvaluator {
     pub fn new(script_path: &str) -> Self {
         Self {
@@ -89,6 +99,10 @@ impl PolicyEvaluator {
     }
 
     pub fn with_function(mut self, name: &str) -> Self {
+        assert!(
+            is_valid_python_identifier(name),
+            "function name must be a valid Python identifier: {name}"
+        );
         self.function_name = name.to_string();
         self
     }
@@ -114,14 +128,24 @@ impl PolicyEvaluator {
     async fn run_python(&self, json_input: &str) -> Result<PolicyDecision, PolicyError> {
         use tokio::process::Command;
 
+        if !is_valid_python_identifier(&self.function_name) {
+            return Err(PolicyError::Subprocess(format!(
+                "invalid function name: {}",
+                self.function_name
+            )));
+        }
+
+        // Pass the script path as sys.argv[1] instead of interpolating into
+        // Python code — eliminates path-based code injection.
         let script = format!(
-            "import json, sys; exec(open('{}').read()); print(json.dumps({}(json.load(sys.stdin))))",
-            self.script_path, self.function_name,
+            "import json, sys; exec(open(sys.argv[1]).read()); print(json.dumps({}(json.load(sys.stdin))))",
+            self.function_name,
         );
 
         let mut child = Command::new(&self.python_path)
             .arg("-c")
             .arg(&script)
+            .arg(&self.script_path)
             .stdin(std::process::Stdio::piped())
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
@@ -244,6 +268,22 @@ def evaluate(data):
 
         let result = evaluator.evaluate_flow(&input).await;
         assert!(matches!(result, Err(PolicyError::InvalidOutput(_))));
+    }
+
+    #[test]
+    fn valid_python_identifier_check() {
+        assert!(is_valid_python_identifier("evaluate"));
+        assert!(is_valid_python_identifier("my_func_2"));
+        assert!(!is_valid_python_identifier(""));
+        assert!(!is_valid_python_identifier("2bad"));
+        assert!(!is_valid_python_identifier("has space"));
+        assert!(!is_valid_python_identifier("inject'; import os; os.system('rm -rf /'); '"));
+    }
+
+    #[test]
+    #[should_panic(expected = "valid Python identifier")]
+    fn with_function_rejects_invalid_name() {
+        PolicyEvaluator::new("/tmp/test.py").with_function("not valid!");
     }
 
     #[tokio::test]

@@ -489,7 +489,8 @@ async fn main() -> Result<()> {
 
             // Create the sink guard for classification-based API call gating.
             // Uses a clone of sandbox_caps since the original is moved into WasmSandboxConfig.
-            let sink_guard = Arc::new(SinkGuard::new(sandbox_caps.clone(), vec![]));
+            let sink_defs = security_config.to_sink_defs();
+            let sink_guard = Arc::new(SinkGuard::new(sandbox_caps.clone(), sink_defs));
 
             let caps_summary = if security_config.deny_all_network {
                 format!(
@@ -546,13 +547,35 @@ async fn main() -> Result<()> {
             // Wire up policy evaluator if configured.
             if let Some(ref policy_path) = security_config.policy_script {
                 let resolved = config.project_dir.join(policy_path);
-                if resolved.exists() {
+                // Validate the policy script path before wiring it up:
+                // - Must exist and be a regular file
+                // - Must end in .py
+                // - Must resolve to within the project directory (prevent traversal)
+                let canonical_project = config.project_dir.canonicalize().unwrap_or_default();
+                let is_valid_policy = resolved.exists()
+                    && resolved.is_file()
+                    && resolved
+                        .extension()
+                        .is_some_and(|ext| ext == "py")
+                    && resolved
+                        .canonicalize()
+                        .ok()
+                        .is_some_and(|p| p.starts_with(&canonical_project));
+
+                if is_valid_policy {
                     react_loop = react_loop.with_policy(hick_policy::PolicyEvaluator::new(
                         resolved.to_str().unwrap_or(policy_path),
                     ));
                     event_tx
                         .send(AgentEvent::Info(format!(
                             "Policy: active ({})",
+                            resolved.display()
+                        )))
+                        .ok();
+                } else if resolved.exists() {
+                    event_tx
+                        .send(AgentEvent::Info(format!(
+                            "Policy: rejected ({}) — must be a .py file within project directory",
                             resolved.display()
                         )))
                         .ok();
