@@ -7,9 +7,10 @@ use serde_json::Value;
 use waymark_sdk::SyncApp;
 
 use crate::capability::dispatcher::AppCapabilityDispatcher;
-use crate::capability::types::{AppCapabilityHandler, AppDeviceCapability};
+use crate::capability::types::{AppCapabilityHandler, AppDeviceCapability, new_pending_queue};
 use crate::query::{
-    self, ConversationRow, MemoryRow, MemorySearchResult, MessageRow, TaskRow,
+    self, ConversationRow, InvocationRow, MemoryRow, MemorySearchResult, MessageRow,
+    RegisteredCapabilityRow, TaskRow,
 };
 use crate::sub_apps::{CapabilitiesSubApp, ChatSubApp, MemorySubApp, TaskSubApp};
 
@@ -32,16 +33,21 @@ pub struct AppDriftSignal {
 
 impl AppDriftSignal {
     /// Open a new Drift Signal instance, registering all sub-apps.
-    pub async fn open(config: DriftSignalConfig) -> anyhow::Result<Self> {
+    pub fn open(config: DriftSignalConfig) -> anyhow::Result<Self> {
+        let pending = new_pending_queue();
+
         let mut sync_app = SyncApp::open(Path::new(&config.db_path), &config.user_id)?;
 
         // Register domain sub-apps
         sync_app.register_sub_app(Box::new(ChatSubApp::new()))?;
         sync_app.register_sub_app(Box::new(MemorySubApp::new()))?;
         sync_app.register_sub_app(Box::new(TaskSubApp::new()))?;
-        sync_app.register_sub_app(Box::new(CapabilitiesSubApp::new()))?;
+        sync_app.register_sub_app(Box::new(CapabilitiesSubApp::new(
+            config.device_id.clone(),
+            pending.clone(),
+        )))?;
 
-        let dispatcher = AppCapabilityDispatcher::new(config.device_id.clone());
+        let dispatcher = AppCapabilityDispatcher::new(config.device_id.clone(), pending);
 
         Ok(Self {
             sync_app,
@@ -50,9 +56,27 @@ impl AppDriftSignal {
         })
     }
 
-    /// Register a local capability handler.
-    pub fn register_capability(&mut self, handler: Box<dyn AppCapabilityHandler>) {
+    /// Register a local capability handler and advertise it in the event stream.
+    pub fn register_capability(
+        &mut self,
+        handler: Box<dyn AppCapabilityHandler>,
+    ) -> anyhow::Result<()> {
+        let cap_id = format!("cap-{}-{}", self.device_id, handler.cap_type());
+        let cap_type = handler.cap_type().to_string();
+        let description = handler.description().to_string();
+
         self.dispatcher.register(handler);
+
+        // Advertise in the event stream so other devices can see it
+        let mut attrs = BTreeMap::new();
+        attrs.insert("id".into(), cap_id);
+        attrs.insert("device_id".into(), self.device_id.clone());
+        attrs.insert("cap_type".into(), cap_type);
+        attrs.insert("description".into(), description);
+        self.sync_app
+            .execute_command("capabilities", "RegisterCapability", &attrs, None)?;
+
+        Ok(())
     }
 
     /// Device ID for this instance.
@@ -163,9 +187,22 @@ impl AppDriftSignal {
 
     // ── Capability operations ────────────────────────────────────────
 
-    /// List capabilities available across all known devices.
+    /// List capabilities available on this device.
     pub fn list_capabilities(&self) -> Vec<AppDeviceCapability> {
         self.dispatcher.local_capabilities()
+    }
+
+    /// List all registered capabilities across all synced devices.
+    pub fn list_registered_capabilities(&self) -> anyhow::Result<Vec<RegisteredCapabilityRow>> {
+        query::list_registered_capabilities(self.sync_app.query_read_model())
+    }
+
+    /// Find which devices offer a specific capability type.
+    pub fn find_capability_providers(
+        &self,
+        cap_type: &str,
+    ) -> anyhow::Result<Vec<RegisteredCapabilityRow>> {
+        query::list_registered_capabilities_by_type(self.sync_app.query_read_model(), cap_type)
     }
 
     /// Invoke a capability, dispatching locally or remotely.
@@ -178,6 +215,24 @@ impl AppDriftSignal {
         self.dispatcher
             .invoke(&mut self.sync_app, cap_type, target, params)
             .await
+    }
+
+    /// Process pending remote invocations queued by sync.
+    ///
+    /// Call this periodically or after receiving sync updates to execute
+    /// capabilities requested by other devices.
+    pub async fn process_pending_invocations(&mut self) -> anyhow::Result<usize> {
+        self.dispatcher.process_pending(&mut self.sync_app).await
+    }
+
+    /// Get the status of a capability invocation.
+    pub fn get_invocation(&self, id: &str) -> anyhow::Result<Option<InvocationRow>> {
+        query::get_invocation(self.sync_app.query_read_model(), id)
+    }
+
+    /// List all pending capability invocations.
+    pub fn list_pending_invocations(&self) -> anyhow::Result<Vec<InvocationRow>> {
+        query::list_pending_invocations(self.sync_app.query_read_model())
     }
 
     /// Access the underlying SyncApp for advanced queries or raw commands.

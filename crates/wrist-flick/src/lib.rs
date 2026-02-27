@@ -23,7 +23,7 @@ pub async fn build_app_state(
         db_path: db_path.unwrap_or("wrist-flick.db").to_string(),
     };
 
-    let core = AppDriftSignal::open(config).await?;
+    let core = AppDriftSignal::open(config)?;
 
     Ok(AppState {
         core: Arc::new(Mutex::new(core)),

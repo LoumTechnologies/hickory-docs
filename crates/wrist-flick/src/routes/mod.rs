@@ -1,3 +1,4 @@
+pub mod capabilities;
 pub mod chat;
 pub mod conversations;
 pub mod health;
@@ -39,6 +40,20 @@ pub fn router() -> Router<AppState> {
         .route("/api/v1/tasks", post(tasks::create))
         .route("/api/v1/tasks/{id}", patch(tasks::update))
         .route("/api/v1/tasks/{id}", delete(tasks::delete_one))
+        // Capabilities
+        .route("/api/v1/capabilities", get(capabilities::list_registered))
+        .route(
+            "/api/v1/capabilities/find/{cap_type}",
+            get(capabilities::find_providers),
+        )
+        .route(
+            "/api/v1/capabilities/invoke",
+            post(capabilities::invoke),
+        )
+        .route(
+            "/api/v1/capabilities/invocations/{id}",
+            get(capabilities::get_invocation),
+        )
         // Sync
         .route("/api/v1/sync/status", get(sync::status))
         .route("/api/v1/sync/ws", get(sync::ws_handler))

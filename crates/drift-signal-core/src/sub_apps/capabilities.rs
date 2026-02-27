@@ -18,25 +18,23 @@ use waymark_core::{
     Migration, NamespaceUri, ProjectionOp, SqlParam, SubApp, TagHandler,
 };
 
-use crate::capability::types::CAPABILITY_NS;
+use crate::capability::types::{PendingInvocation, PendingQueue, CAPABILITY_NS};
 
 // ── Sub-app ──────────────────────────────────────────────────────────
 
 pub struct CapabilitiesSubApp {
     namespace: NamespaceUri,
+    device_id: String,
+    pending: PendingQueue,
 }
 
 impl CapabilitiesSubApp {
-    pub fn new() -> Self {
+    pub fn new(device_id: String, pending: PendingQueue) -> Self {
         Self {
             namespace: NamespaceUri::new(CAPABILITY_NS),
+            device_id,
+            pending,
         }
-    }
-}
-
-impl Default for CapabilitiesSubApp {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
@@ -118,7 +116,13 @@ impl SubApp for CapabilitiesSubApp {
     }
 
     fn tag_handlers(&self) -> Vec<Box<dyn TagHandler>> {
-        vec![Box::new(CapabilityResultLogger)]
+        vec![
+            Box::new(CapabilityResultLogger),
+            Box::new(CapabilityInvokedHandler {
+                device_id: self.device_id.clone(),
+                pending: self.pending.clone(),
+            }),
+        ]
     }
 
     fn migrations(&self) -> Vec<Migration> {
@@ -260,6 +264,54 @@ impl AnyProjection for CapabilityProjection {
             }
             _ => vec![],
         }
+    }
+}
+
+// ── Tag handler: queue remote invocations for local execution ────────
+
+struct CapabilityInvokedHandler {
+    device_id: String,
+    pending: PendingQueue,
+}
+
+impl TagHandler for CapabilityInvokedHandler {
+    fn tag(&self) -> &str {
+        "cap:CapabilityInvoked"
+    }
+
+    fn handle_event(
+        &self,
+        _tag: &str,
+        attrs: &BTreeMap<String, String>,
+        _text: Option<&str>,
+        _ctx: &HandlerContext,
+    ) -> Result<Vec<HandlerEffect>, waymark_core::SyncError> {
+        let target = attrs.get("target_device");
+
+        // Only queue if this device is the target (or no target specified).
+        let for_us = target.is_none_or(|d| d == &self.device_id);
+        if !for_us {
+            return Ok(vec![]);
+        }
+
+        let id = attrs.get("id").cloned().unwrap_or_default();
+        let cap_type = attrs.get("cap_type").cloned().unwrap_or_default();
+        let params_str = attrs.get("params").cloned().unwrap_or_else(|| "{}".into());
+        let params: serde_json::Value =
+            serde_json::from_str(&params_str).unwrap_or(serde_json::Value::Object(Default::default()));
+
+        if let Ok(mut queue) = self.pending.lock() {
+            queue.push_back(PendingInvocation {
+                id,
+                cap_type: cap_type.clone(),
+                params,
+            });
+        }
+
+        Ok(vec![HandlerEffect::Log(format!(
+            "Queued capability invocation for local execution: type={}",
+            cap_type,
+        ))])
     }
 }
 

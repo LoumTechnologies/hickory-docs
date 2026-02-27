@@ -1,7 +1,7 @@
 [workspace]
 resolver = "3"
 members = ["crates/*"]
-exclude = ["crates/container2wasm", "matrix"]
+exclude = ["crates/container2wasm", "crates/drift-signal-ffi", "matrix"]
 
 [workspace.dependencies]
 wasmtime = { version = "41.0.0", default-features = false, features = [

@@ -14,7 +14,10 @@ pub mod query;
 pub mod sub_apps;
 
 pub use app::{AppDriftSignal, DriftSignalConfig};
-pub use capability::{AppCapabilityDispatcher, AppCapabilityHandler, AppDeviceCapability};
+pub use capability::{
+    AppCapabilityDispatcher, AppCapabilityHandler, AppDeviceCapability, new_pending_queue,
+};
+pub use capability::handlers::FileSystemCapabilityHandler;
 pub use sub_apps::{CapabilitiesSubApp, ChatSubApp, MemorySubApp, TaskSubApp};
 
 // Re-export key waymark types for downstream use

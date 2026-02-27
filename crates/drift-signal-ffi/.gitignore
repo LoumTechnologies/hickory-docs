@@ -1,0 +1,8 @@
+# Build artifacts
+target/
+generated/
+DriftSignalFFI.xcframework/
+
+# Xcode
+ios/*.xcodeproj
+ios/build/

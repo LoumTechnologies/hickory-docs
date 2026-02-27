@@ -221,3 +221,113 @@ pub fn get_task(db: &dyn Database, id: &str) -> anyhow::Result<Option<TaskRow>> 
         })
     }))
 }
+
+// ── Capability queries ──────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RegisteredCapabilityRow {
+    pub id: String,
+    pub device_id: String,
+    pub cap_type: String,
+    pub description: String,
+    pub registered_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InvocationRow {
+    pub id: String,
+    pub cap_type: String,
+    pub target_device: Option<String>,
+    pub params: Option<String>,
+    pub status: String,
+    pub result: Option<String>,
+    pub error: Option<String>,
+    pub invoked_at: String,
+    pub completed_at: Option<String>,
+}
+
+pub fn list_registered_capabilities(
+    db: &dyn Database,
+) -> anyhow::Result<Vec<RegisteredCapabilityRow>> {
+    let rows = db.query_all(
+        "SELECT id, device_id, cap_type, description, registered_at FROM cap_registered ORDER BY registered_at DESC",
+        &[],
+    )?;
+    Ok(rows
+        .iter()
+        .filter_map(|r| {
+            Some(RegisteredCapabilityRow {
+                id: r.get_string(0).ok()?,
+                device_id: r.get_string(1).ok()?,
+                cap_type: r.get_string(2).ok()?,
+                description: r.get_string(3).ok()?,
+                registered_at: r.get_string(4).ok()?,
+            })
+        })
+        .collect())
+}
+
+pub fn list_registered_capabilities_by_type(
+    db: &dyn Database,
+    cap_type: &str,
+) -> anyhow::Result<Vec<RegisteredCapabilityRow>> {
+    let rows = db.query_all(
+        "SELECT id, device_id, cap_type, description, registered_at FROM cap_registered WHERE cap_type = ?1 ORDER BY registered_at DESC",
+        &[cap_type.into()],
+    )?;
+    Ok(rows
+        .iter()
+        .filter_map(|r| {
+            Some(RegisteredCapabilityRow {
+                id: r.get_string(0).ok()?,
+                device_id: r.get_string(1).ok()?,
+                cap_type: r.get_string(2).ok()?,
+                description: r.get_string(3).ok()?,
+                registered_at: r.get_string(4).ok()?,
+            })
+        })
+        .collect())
+}
+
+pub fn get_invocation(db: &dyn Database, id: &str) -> anyhow::Result<Option<InvocationRow>> {
+    let row = db.query_opt(
+        "SELECT id, cap_type, target_device, params, status, result, error, invoked_at, completed_at FROM cap_invocations WHERE id = ?1",
+        &[id.into()],
+    )?;
+    Ok(row.and_then(|r| {
+        Some(InvocationRow {
+            id: r.get_string(0).ok()?,
+            cap_type: r.get_string(1).ok()?,
+            target_device: r.get_opt_string(2).ok()?,
+            params: r.get_opt_string(3).ok()?,
+            status: r.get_string(4).ok()?,
+            result: r.get_opt_string(5).ok()?,
+            error: r.get_opt_string(6).ok()?,
+            invoked_at: r.get_string(7).ok()?,
+            completed_at: r.get_opt_string(8).ok()?,
+        })
+    }))
+}
+
+pub fn list_pending_invocations(db: &dyn Database) -> anyhow::Result<Vec<InvocationRow>> {
+    let rows = db.query_all(
+        "SELECT id, cap_type, target_device, params, status, result, error, invoked_at, completed_at FROM cap_invocations WHERE status = 'pending' ORDER BY invoked_at ASC",
+        &[],
+    )?;
+    Ok(rows
+        .iter()
+        .filter_map(|r| {
+            Some(InvocationRow {
+                id: r.get_string(0).ok()?,
+                cap_type: r.get_string(1).ok()?,
+                target_device: r.get_opt_string(2).ok()?,
+                params: r.get_opt_string(3).ok()?,
+                status: r.get_string(4).ok()?,
+                result: r.get_opt_string(5).ok()?,
+                error: r.get_opt_string(6).ok()?,
+                invoked_at: r.get_string(7).ok()?,
+                completed_at: r.get_opt_string(8).ok()?,
+            })
+        })
+        .collect())
+}
