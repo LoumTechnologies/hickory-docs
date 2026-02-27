@@ -223,6 +223,14 @@ impl SinkValidator {
                         });
                     }
                 }
+            } else if !slot.accepted_classifications.is_empty() {
+                // Slot requires classification data but caller omitted it — reject.
+                // Slots with only rejected_classifications can pass without data
+                // (absence of data can't contain a rejected label).
+                return Err(SinkError::ClassificationRejected {
+                    slot: slot.name.clone(),
+                    reason: "slot requires classification data but none was provided".to_string(),
+                });
             }
         }
 
@@ -336,7 +344,11 @@ mod tests {
             .with_expires("2027-01-01T00:00:00Z");
 
         let sink_def = test_sink_def();
-        let slot_cls = HashMap::new();
+        let mut slot_cls = HashMap::new();
+        slot_cls.insert(
+            "to".to_string(),
+            Classification::new(vec![json!({"trust": "internal"})]),
+        );
 
         // First call ok
         assert!(
@@ -372,7 +384,11 @@ mod tests {
             .with_expires("2026-03-01T00:00:00Z");
 
         let sink_def = test_sink_def();
-        let slot_cls = HashMap::new();
+        let mut slot_cls = HashMap::new();
+        slot_cls.insert(
+            "to".to_string(),
+            Classification::new(vec![json!({"trust": "internal"})]),
+        );
 
         // Before expiry
         assert!(
@@ -409,7 +425,11 @@ mod tests {
             .with_expires("2027-01-01T00:00:00Z");
 
         let sink_def = test_sink_def();
-        let slot_cls = HashMap::new();
+        let mut slot_cls = HashMap::new();
+        slot_cls.insert(
+            "to".to_string(),
+            Classification::new(vec![json!({"trust": "internal"})]),
+        );
 
         // Correct recipient
         assert!(
@@ -456,5 +476,62 @@ mod tests {
             ),
             Err(SinkError::SinkNotAllowed(_))
         ));
+    }
+
+    #[test]
+    fn validator_rejects_missing_slot_data_when_accepted_required() {
+        let caps = ContainerCapabilities::new()
+            .allow_api_sink("email")
+            .with_expires("2027-01-01T00:00:00Z");
+
+        let sink_def = test_sink_def();
+        // Omit the "to" slot which has accepted_classifications
+        let slot_cls = HashMap::new();
+
+        let result = SinkValidator::validate_call(
+            &caps,
+            &sink_def,
+            &slot_cls,
+            0,
+            "2026-06-01T00:00:00Z",
+            None,
+        );
+        assert!(matches!(
+            result,
+            Err(SinkError::ClassificationRejected { .. })
+        ));
+    }
+
+    #[test]
+    fn validator_allows_missing_slot_data_when_only_rejected() {
+        let caps = ContainerCapabilities::new()
+            .allow_api_sink("email")
+            .with_expires("2027-01-01T00:00:00Z");
+
+        // Sink with only rejected_classifications (no accepted list)
+        let sink_def = SinkDef {
+            sink_type: "email".to_string(),
+            slots: vec![SinkSlot {
+                name: "body".to_string(),
+                accepted_classifications: vec![],
+                rejected_classifications: vec![Classification::new(vec![
+                    json!({"sensitivity": "secret"}),
+                ])],
+            }],
+            required_capabilities: vec!["api-sink = email".to_string()],
+        };
+
+        // Omit "body" slot data — should pass since only rejected list exists
+        let slot_cls = HashMap::new();
+
+        let result = SinkValidator::validate_call(
+            &caps,
+            &sink_def,
+            &slot_cls,
+            0,
+            "2026-06-01T00:00:00Z",
+            None,
+        );
+        assert!(result.is_ok());
     }
 }

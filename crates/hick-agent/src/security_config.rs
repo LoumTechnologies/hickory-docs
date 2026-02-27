@@ -5,6 +5,8 @@
 
 use std::path::Path;
 
+use hick_classify::Classification;
+use hick_sink::{SinkDef, SinkSlot};
 use hick_token::ContainerCapabilities;
 use serde::Deserialize;
 
@@ -27,6 +29,33 @@ pub struct FileAccessConfig {
     pub read: Vec<String>,
     #[serde(default)]
     pub write: Vec<String>,
+}
+
+/// A slot within a sink definition (TOML-friendly).
+#[derive(Debug, Clone, Deserialize)]
+pub struct SinkSlotConfig {
+    pub name: String,
+    #[serde(default)]
+    pub accepted: Vec<serde_json::Value>,
+    #[serde(default)]
+    pub rejected: Vec<serde_json::Value>,
+}
+
+/// A sink definition entry (TOML-friendly).
+///
+/// ```toml
+/// [[sinks]]
+/// sink_type = "script-execution"
+///
+/// [[sinks.slots]]
+/// name = "code"
+/// rejected = [{"sensitivity": "secret"}]
+/// ```
+#[derive(Debug, Clone, Deserialize)]
+pub struct SinkDefConfig {
+    pub sink_type: String,
+    #[serde(default)]
+    pub slots: Vec<SinkSlotConfig>,
 }
 
 /// Top-level agent security configuration.
@@ -60,6 +89,10 @@ pub struct AgentSecurityConfig {
     /// Relative paths are resolved from the project directory.
     #[serde(default)]
     pub policy_script: Option<String>,
+    /// Sink definitions for API call gating. Defaults to a `script-execution`
+    /// sink that rejects secret-classified data.
+    #[serde(default)]
+    pub sinks: Vec<SinkDefConfig>,
 }
 
 impl Default for AgentSecurityConfig {
@@ -81,6 +114,14 @@ impl Default for AgentSecurityConfig {
                 write: vec!["/workspace/**".to_string()],
             },
             policy_script: None,
+            sinks: vec![SinkDefConfig {
+                sink_type: "script-execution".to_string(),
+                slots: vec![SinkSlotConfig {
+                    name: "code".to_string(),
+                    accepted: vec![],
+                    rejected: vec![serde_json::json!({"sensitivity": "secret"})],
+                }],
+            }],
         }
     }
 }
@@ -95,6 +136,34 @@ impl AgentSecurityConfig {
         } else {
             Ok(Self::default())
         }
+    }
+
+    /// Convert sink configs to [`SinkDef`] instances for the sink guard.
+    pub fn to_sink_defs(&self) -> Vec<SinkDef> {
+        self.sinks
+            .iter()
+            .map(|cfg| SinkDef {
+                sink_type: cfg.sink_type.clone(),
+                slots: cfg
+                    .slots
+                    .iter()
+                    .map(|s| SinkSlot {
+                        name: s.name.clone(),
+                        accepted_classifications: s
+                            .accepted
+                            .iter()
+                            .map(|v| Classification::new(vec![v.clone()]))
+                            .collect(),
+                        rejected_classifications: s
+                            .rejected
+                            .iter()
+                            .map(|v| Classification::new(vec![v.clone()]))
+                            .collect(),
+                    })
+                    .collect(),
+                required_capabilities: vec![format!("api-sink = {}", cfg.sink_type)],
+            })
+            .collect()
     }
 
     /// Convert to [`ContainerCapabilities`] for the sandbox executor.
@@ -177,5 +246,47 @@ deny_all_network = false
         let caps = config.to_capabilities();
         // No deny-all → everything allowed
         assert!(caps.check_network("anything.com", 9999));
+    }
+
+    #[test]
+    fn default_config_has_sink_defs() {
+        let config = AgentSecurityConfig::default();
+        let defs = config.to_sink_defs();
+        assert_eq!(defs.len(), 1);
+        assert_eq!(defs[0].sink_type, "script-execution");
+        assert_eq!(defs[0].slots.len(), 1);
+        assert_eq!(defs[0].slots[0].name, "code");
+        assert!(!defs[0].slots[0].rejected_classifications.is_empty());
+    }
+
+    #[test]
+    fn toml_with_custom_sinks() {
+        let toml_str = r#"
+deny_all_network = true
+
+[[allowed_hosts]]
+host = "example.com"
+port = "443"
+
+[[sinks]]
+sink_type = "email"
+
+[[sinks.slots]]
+name = "to"
+accepted = [{trust = "internal"}]
+
+[[sinks.slots]]
+name = "body"
+rejected = [{sensitivity = "secret"}]
+"#;
+        let config: AgentSecurityConfig = toml::from_str(toml_str).unwrap();
+        let defs = config.to_sink_defs();
+        assert_eq!(defs.len(), 1);
+        assert_eq!(defs[0].sink_type, "email");
+        assert_eq!(defs[0].slots.len(), 2);
+        assert_eq!(defs[0].slots[0].name, "to");
+        assert!(!defs[0].slots[0].accepted_classifications.is_empty());
+        assert_eq!(defs[0].slots[1].name, "body");
+        assert!(!defs[0].slots[1].rejected_classifications.is_empty());
     }
 }

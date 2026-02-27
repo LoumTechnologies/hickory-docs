@@ -513,13 +513,17 @@ impl ContainerCapabilities {
         }
     }
 
-    /// Merge additional restrictions onto these capabilities (union of rules).
+    /// Merge additional caveat-derived rules onto these capabilities (union of rules).
     ///
-    /// Unlike `intersect` (which takes the most restrictive common subset),
-    /// `merge` adds all rules from `additional` onto `self`. This is the correct
-    /// operation for fork attenuation where fork children add caveats on top of
-    /// inherited source capabilities.
-    pub fn merge(&self, additional: &ContainerCapabilities) -> ContainerCapabilities {
+    /// This is used internally by `CapabilityToken::attenuate()` to track the
+    /// union of all caveats in the in-memory capabilities struct. Each caveat is
+    /// an *additional restriction* — the macaroon verifier checks all caveats pass.
+    /// The in-memory capabilities struct is a convenience cache; the macaroon is
+    /// the source of truth for enforcement.
+    ///
+    /// **Do not use this for capability widening** — it must only be called
+    /// alongside macaroon attenuation, which adds corresponding caveats.
+    pub fn merge_caveats(&self, additional: &ContainerCapabilities) -> ContainerCapabilities {
         let mut caps = self.clone();
 
         for r in &additional.network_rules {
@@ -666,10 +670,10 @@ impl ContainerCapabilities {
     }
 
     /// Check if file read is allowed at the given path.
+    /// Denies access when no file rules are defined (closed-by-default).
     pub fn check_file_read(&self, path: &str) -> bool {
-        // If no file rules defined, allow all reads
         if self.file_rules.is_empty() {
-            return true;
+            return false;
         }
         self.file_rules.iter().any(|r| match r {
             FileRule::Read(pattern) => path_matches(path, pattern),
@@ -680,9 +684,10 @@ impl ContainerCapabilities {
     }
 
     /// Check if file write is allowed at the given path.
+    /// Denies access when no file rules are defined (closed-by-default).
     pub fn check_file_write(&self, path: &str) -> bool {
         if self.file_rules.is_empty() {
-            return true;
+            return false;
         }
         self.file_rules.iter().any(|r| match r {
             FileRule::Write(pattern) => path_matches(path, pattern),
@@ -691,8 +696,7 @@ impl ContainerCapabilities {
     }
 
     /// Check if volume read access is allowed.
-    ///
-    /// If no volume rules are defined for the given volume, access is allowed.
+    /// Denies access when no volume rules are defined for the given volume (closed-by-default).
     pub fn check_volume_read(&self, volume: &str, path: &str) -> bool {
         let relevant: Vec<_> = self
             .volume_rules
@@ -700,7 +704,7 @@ impl ContainerCapabilities {
             .filter(|r| r.volume == volume)
             .collect();
         if relevant.is_empty() {
-            return true;
+            return false;
         }
         relevant.iter().any(|r| match &r.access {
             VolumeAccess::Read(pattern) | VolumeAccess::Write(pattern) => {
@@ -710,8 +714,7 @@ impl ContainerCapabilities {
     }
 
     /// Check if volume write access is allowed.
-    ///
-    /// If no volume rules are defined for the given volume, access is allowed.
+    /// Denies access when no volume rules are defined for the given volume (closed-by-default).
     pub fn check_volume_write(&self, volume: &str, path: &str) -> bool {
         let relevant: Vec<_> = self
             .volume_rules
@@ -719,7 +722,7 @@ impl ContainerCapabilities {
             .filter(|r| r.volume == volume)
             .collect();
         if relevant.is_empty() {
-            return true;
+            return false;
         }
         relevant.iter().any(|r| match &r.access {
             VolumeAccess::Write(pattern) => path_matches(path, pattern),
@@ -728,10 +731,10 @@ impl ContainerCapabilities {
     }
 
     /// Check if data access to the given classification pattern is allowed.
-    /// If no data access rules are defined, access is allowed by default.
+    /// Denies access when no data access rules are defined (closed-by-default).
     pub fn check_data_access(&self, pattern: &str) -> bool {
         if self.data_access_rules.is_empty() {
-            return true;
+            return false;
         }
         self.data_access_rules.iter().any(|r| r.pattern == pattern)
     }
@@ -916,8 +919,9 @@ impl CapabilityToken {
             new_macaroon.add_first_party_caveat(caveat.into());
         }
 
-        // Merge additional restrictions: attenuation adds caveats on top
-        let merged = self.capabilities.merge(additional);
+        // Track the union of caveats in the in-memory capabilities struct.
+        // Actual enforcement is via the macaroon verifier checking all caveats.
+        let merged = self.capabilities.merge_caveats(additional);
 
         Ok(CapabilityToken {
             macaroon: new_macaroon,
@@ -1095,10 +1099,10 @@ mod tests {
     }
 
     #[test]
-    fn volume_check_no_rules_allows_all() {
+    fn volume_check_no_rules_denies_all() {
         let caps = ContainerCapabilities::new();
-        assert!(caps.check_volume_read("any-vol", "any/path"));
-        assert!(caps.check_volume_write("any-vol", "any/path"));
+        assert!(!caps.check_volume_read("any-vol", "any/path"));
+        assert!(!caps.check_volume_write("any-vol", "any/path"));
     }
 
     #[test]
@@ -1111,8 +1115,8 @@ mod tests {
         assert!(caps.check_volume_write("project", "Controllers/Home.cs"));
         assert!(!caps.check_volume_write("project", "Models/User.cs"));
 
-        // Different volume has no rules → allowed
-        assert!(caps.check_volume_read("other", "any/path"));
+        // Different volume has no rules → denied (closed-by-default)
+        assert!(!caps.check_volume_read("other", "any/path"));
     }
 
     #[test]
