@@ -4,8 +4,9 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-hick-grove = { path = "../hick-grove", features = ["sqlite-example"] }
-axum = { version = "0.8", features = ["ws"] }
+drift-signal-core = { path = "../drift-signal-core" }
+hick-agent-engine = { path = "../hick-agent-engine" }
+axum = "0.8"
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
@@ -13,15 +14,11 @@ async-openai = "0.28"
 async-trait = "0.1"
 anyhow = "1"
 uuid = { version = "1", features = ["v7"] }
-chrono = { version = "0.4", features = ["serde"] }
-rusqlite = { version = "0.32", features = ["bundled"] }
 log = "0.4"
 env_logger = "0.11"
 clap = { version = "4", features = ["derive", "env"] }
 futures = "0.3"
-tokio-stream = "0.1"
 tower-http = { version = "0.6", features = ["cors"] }
-base64 = "0.22"
 reqwest = { version = "0.12", features = ["json", "stream"] }
 async-stream = "0.3.6"
 bytes = "1.11.1"

@@ -4,7 +4,6 @@ use axum::response::Json;
 use serde::{Deserialize, Serialize};
 
 use crate::app_state::AppState;
-use crate::service::memory::MemoryService;
 
 #[derive(Serialize)]
 pub struct MemoryResponse {
@@ -33,12 +32,10 @@ pub struct SearchResult {
 }
 
 pub async fn list(State(state): State<AppState>) -> Result<Json<Vec<MemoryResponse>>, StatusCode> {
-    let svc = MemoryService::new(
-        state.engine.clone(),
-        state.memory_store.clone(),
-        state.doc_id.clone(),
-    );
-    let memories = svc.list().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let core = state.core.lock().await;
+    let memories = core
+        .list_memories()
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok(Json(
         memories
             .into_iter()
@@ -55,14 +52,9 @@ pub async fn create(
     State(state): State<AppState>,
     Json(req): Json<CreateMemoryRequest>,
 ) -> Result<(StatusCode, Json<MemoryResponse>), StatusCode> {
-    let svc = MemoryService::new(
-        state.engine.clone(),
-        state.memory_store.clone(),
-        state.doc_id.clone(),
-    );
-    let id = svc
-        .create(&req.key, &req.content, None)
-        .await
+    let mut core = state.core.lock().await;
+    let id = core
+        .create_fact(&req.key, &req.content, None)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok((
         StatusCode::CREATED,
@@ -78,13 +70,8 @@ pub async fn delete_one(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<StatusCode, StatusCode> {
-    let svc = MemoryService::new(
-        state.engine.clone(),
-        state.memory_store.clone(),
-        state.doc_id.clone(),
-    );
-    svc.delete(&id)
-        .await
+    let core = state.core.lock().await;
+    core.delete_memory(&id)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok(StatusCode::NO_CONTENT)
 }
@@ -93,13 +80,9 @@ pub async fn search(
     State(state): State<AppState>,
     Query(query): Query<SearchQuery>,
 ) -> Result<Json<Vec<SearchResult>>, StatusCode> {
-    let svc = MemoryService::new(
-        state.engine.clone(),
-        state.memory_store.clone(),
-        state.doc_id.clone(),
-    );
-    let results = svc
-        .search(&query.q)
+    let core = state.core.lock().await;
+    let results = core
+        .search_memories(&query.q)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok(Json(
         results

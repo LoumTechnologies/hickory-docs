@@ -8,7 +8,7 @@ use wrist_flick::llm::MockLlmClient;
 
 async fn app() -> axum::Router {
     let llm = Arc::new(MockLlmClient::new("Hello! I'm your assistant."));
-    let state = wrist_flick::build_app_state(llm).await.unwrap();
+    let state = wrist_flick::build_app_state(llm, None).await.unwrap();
     wrist_flick::build_router(state)
 }
 
@@ -245,9 +245,12 @@ async fn test_task_crud() {
 }
 
 #[tokio::test]
-async fn test_state_vector() {
+async fn test_sync_endpoints_return_gone() {
     let app = app().await;
+
+    // State vector returns GONE (replaced by waymark sync)
     let resp = app
+        .clone()
         .oneshot(
             Request::builder()
                 .uri("/api/v1/sync/state-vector")
@@ -256,10 +259,17 @@ async fn test_state_vector() {
         )
         .await
         .unwrap();
-    assert_eq!(resp.status(), StatusCode::OK);
-    let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+    assert_eq!(resp.status(), StatusCode::GONE);
+
+    // WebSocket endpoint returns GONE
+    let resp = app
+        .oneshot(
+            Request::builder()
+                .uri("/api/v1/sync/ws")
+                .body(Body::empty())
+                .unwrap(),
+        )
         .await
         .unwrap();
-    let sv: serde_json::Value = serde_json::from_slice(&body).unwrap();
-    assert!(sv["state_vector"].as_str().is_some());
+    assert_eq!(resp.status(), StatusCode::GONE);
 }

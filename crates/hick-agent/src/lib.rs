@@ -1,37 +1,38 @@
 //! AI command-line coding agent.
 //!
-//! Uses a script-first model: the LLM writes Python scripts in code blocks,
-//! which are executed and their output returned as observations. The Hick
-//! pipeline runs transparently via the PipelineWatcher, and structural
-//! operations are available to scripts via the `hickory` Python SDK.
+//! This crate is a thin CLI/TUI wrapper around [`hick_agent_engine`], which
+//! contains the core agent logic (ReAct loop, LLM abstraction, security stack).
+//!
+//! All engine modules are re-exported for backward compatibility.
 
-pub mod agent;
-pub mod backing;
-pub mod context;
-pub mod events;
-pub mod file_io;
-pub mod llm;
-pub mod llm_anthropic;
+// Re-export all engine modules
+pub use hick_agent_engine::agent;
+pub use hick_agent_engine::backing;
+pub use hick_agent_engine::context;
+pub use hick_agent_engine::events;
+pub use hick_agent_engine::file_io;
+pub use hick_agent_engine::llm;
+pub use hick_agent_engine::llm_anthropic;
 #[cfg(feature = "local")]
-pub mod llm_local;
-pub mod llm_openai_compat;
-pub mod network_filter;
-pub mod pipeline_watcher;
-pub mod react_loop;
-pub mod reverse_provenance;
-pub mod security_config;
-pub mod sink_guard;
-pub mod state;
-pub mod tools;
+pub use hick_agent_engine::llm_local;
+pub use hick_agent_engine::llm_openai_compat;
+pub use hick_agent_engine::network_filter;
+pub use hick_agent_engine::pipeline_watcher;
+pub use hick_agent_engine::react_loop;
+pub use hick_agent_engine::reverse_provenance;
+pub use hick_agent_engine::security_config;
+pub use hick_agent_engine::sink_guard;
+pub use hick_agent_engine::state;
+pub use hick_agent_engine::tools;
+
+// Re-export key types at crate root (backward compatibility)
+pub use hick_agent_engine::{
+    Agent, AgentCommand, AgentConfig, AgentEvent, AgentSecurityConfig, AnthropicClient, ChatChunk,
+    FilteredLlmClient, LlmClient, NetworkApprovalRequest, NetworkFilter, NetworkVerdict,
+    OpenAiCompatClient, PipelineWatcher, ReactLoop, SinkGuard,
+};
+#[cfg(feature = "local")]
+pub use hick_agent_engine::LocalLlmClient;
+
+// TUI module — unique to the CLI binary
 pub mod tui;
-
-pub use agent::{Agent, AgentConfig};
-pub use events::{AgentCommand, AgentEvent};
-pub use llm::{ChatChunk, LlmClient};
-pub use llm_anthropic::AnthropicClient;
-#[cfg(feature = "local")]
-pub use llm_local::LocalLlmClient;
-pub use llm_openai_compat::OpenAiCompatClient;
-pub use network_filter::{FilteredLlmClient, NetworkApprovalRequest, NetworkFilter};
-pub use pipeline_watcher::PipelineWatcher;
-pub use react_loop::ReactLoop;

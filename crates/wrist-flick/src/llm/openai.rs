@@ -8,7 +8,7 @@ use async_openai::types::{
 use async_trait::async_trait;
 use futures::{Stream, StreamExt};
 
-use super::{ChatChunk, Message, Role, StreamingLlmClient};
+use super::{ChatChunk, LlmClient, Message, Role};
 
 pub struct OpenAiStreamingClient {
     client: async_openai::Client<async_openai::config::OpenAIConfig>,
@@ -53,7 +53,7 @@ fn to_openai_message(m: Message) -> anyhow::Result<ChatCompletionRequestMessage>
 }
 
 #[async_trait]
-impl StreamingLlmClient for OpenAiStreamingClient {
+impl LlmClient for OpenAiStreamingClient {
     async fn complete(&self, messages: Vec<Message>) -> anyhow::Result<String> {
         let api_messages: Vec<ChatCompletionRequestMessage> = messages
             .into_iter()
@@ -108,5 +108,13 @@ impl StreamingLlmClient for OpenAiStreamingClient {
         });
 
         Ok(Box::pin(mapped))
+    }
+
+    fn provider_name(&self) -> &str {
+        "openai"
+    }
+
+    fn model_name(&self) -> &str {
+        &self.model
     }
 }

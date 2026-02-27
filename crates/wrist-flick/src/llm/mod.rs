@@ -1,40 +1,13 @@
 pub mod anthropic;
 pub mod openai;
 
+// Re-export the unified LLM types from the engine crate.
+pub use hick_agent_engine::llm::{ChatChunk, LlmClient, Message, Role};
+
 use std::pin::Pin;
 
 use async_trait::async_trait;
 use futures::Stream;
-use serde::{Deserialize, Serialize};
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Message {
-    pub role: Role,
-    pub content: String,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum Role {
-    System,
-    User,
-    Assistant,
-}
-
-#[derive(Debug, Clone)]
-pub struct ChatChunk {
-    pub delta: String,
-    pub finish_reason: Option<String>,
-}
-
-#[async_trait]
-pub trait StreamingLlmClient: Send + Sync {
-    async fn complete(&self, messages: Vec<Message>) -> anyhow::Result<String>;
-    async fn complete_stream(
-        &self,
-        messages: Vec<Message>,
-    ) -> anyhow::Result<Pin<Box<dyn Stream<Item = anyhow::Result<ChatChunk>> + Send>>>;
-}
 
 /// Mock LLM client for testing.
 pub struct MockLlmClient {
@@ -50,7 +23,7 @@ impl MockLlmClient {
 }
 
 #[async_trait]
-impl StreamingLlmClient for MockLlmClient {
+impl LlmClient for MockLlmClient {
     async fn complete(&self, _messages: Vec<Message>) -> anyhow::Result<String> {
         Ok(self.response.clone())
     }
@@ -67,5 +40,13 @@ impl StreamingLlmClient for MockLlmClient {
             })
         });
         Ok(Box::pin(stream))
+    }
+
+    fn provider_name(&self) -> &str {
+        "mock"
+    }
+
+    fn model_name(&self) -> &str {
+        "mock"
     }
 }

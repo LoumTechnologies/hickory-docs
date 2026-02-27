@@ -21,8 +21,8 @@ use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
 use ratatui::{Frame, Terminal};
 use tokio::sync::{Notify, mpsc, oneshot};
 
-use crate::events::{AgentCommand, AgentEvent};
-use crate::network_filter::{NetworkApprovalRequest, NetworkVerdict};
+use hick_agent_engine::events::{AgentCommand, AgentEvent};
+use hick_agent_engine::network_filter::{NetworkApprovalRequest, NetworkVerdict};
 
 // ── Styled output model ────────────────────────────────────────────
 

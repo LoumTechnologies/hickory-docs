@@ -1,0 +1,25 @@
+[package]
+name = "drift-signal-core"
+version = "0.1.0"
+edition = "2024"
+description = "Unified app core for Drift Signal — multi-frontend agent with waymark sync"
+
+[dependencies]
+# Waymark infrastructure
+waymark-sdk = { path = "../../../waymark/crates/waymark-sdk", features = ["grove"], default-features = false }
+waymark-core = { path = "../../../waymark/crates/waymark-core" }
+waymark-grove = { path = "../../../waymark/crates/waymark-grove" }
+waymark-storage = { path = "../../../waymark/crates/waymark-storage" }
+
+# Agent engine
+hick-agent-engine = { path = "../hick-agent-engine" }
+
+# Foundation
+async-trait = "0.1"
+anyhow = "1"
+chrono = "0.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+uuid = { version = "1", features = ["v7"] }
+log = "0.4"

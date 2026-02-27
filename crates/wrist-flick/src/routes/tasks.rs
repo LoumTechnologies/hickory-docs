@@ -1,10 +1,11 @@
+use std::collections::BTreeMap;
+
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::Json;
 use serde::{Deserialize, Serialize};
 
 use crate::app_state::AppState;
-use crate::service::task::TaskService;
 
 #[derive(Serialize)]
 pub struct TaskResponse {
@@ -27,12 +28,10 @@ pub struct UpdateTaskRequest {
 }
 
 pub async fn list(State(state): State<AppState>) -> Result<Json<Vec<TaskResponse>>, StatusCode> {
-    let svc = TaskService::new(
-        state.engine.clone(),
-        state.task_store.clone(),
-        state.doc_id.clone(),
-    );
-    let tasks = svc.list().map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let core = state.core.lock().await;
+    let tasks = core
+        .list_tasks()
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok(Json(
         tasks
             .into_iter()
@@ -50,14 +49,9 @@ pub async fn create(
     State(state): State<AppState>,
     Json(req): Json<CreateTaskRequest>,
 ) -> Result<(StatusCode, Json<TaskResponse>), StatusCode> {
-    let svc = TaskService::new(
-        state.engine.clone(),
-        state.task_store.clone(),
-        state.doc_id.clone(),
-    );
-    let id = svc
-        .create(&req.description)
-        .await
+    let mut core = state.core.lock().await;
+    let id = core
+        .create_task(&req.description, None)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok((
         StatusCode::CREATED,
@@ -75,22 +69,26 @@ pub async fn update(
     Path(id): Path<String>,
     Json(req): Json<UpdateTaskRequest>,
 ) -> Result<Json<TaskResponse>, StatusCode> {
-    let svc = TaskService::new(
-        state.engine.clone(),
-        state.task_store.clone(),
-        state.doc_id.clone(),
-    );
-    svc.update(
-        &id,
-        req.description.as_deref(),
-        req.status.as_deref(),
-        req.due_date.as_deref(),
-    )
-    .await
-    .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+    let mut core = state.core.lock().await;
 
-    let task = svc
-        .get(&id)
+    // Build UpdateTask command attrs
+    let mut attrs = BTreeMap::new();
+    attrs.insert("id".into(), id.clone());
+    if let Some(d) = &req.description {
+        attrs.insert("description".into(), d.clone());
+    }
+    if let Some(s) = &req.status {
+        attrs.insert("status".into(), s.clone());
+    }
+    if let Some(dd) = &req.due_date {
+        attrs.insert("due_date".into(), dd.clone());
+    }
+    core.sync_app_mut()
+        .execute_command("task", "UpdateTask", &attrs, None)
+        .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
+
+    let task = core
+        .get_task(&id)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?
         .ok_or(StatusCode::NOT_FOUND)?;
 
@@ -106,13 +104,8 @@ pub async fn delete_one(
     State(state): State<AppState>,
     Path(id): Path<String>,
 ) -> Result<StatusCode, StatusCode> {
-    let svc = TaskService::new(
-        state.engine.clone(),
-        state.task_store.clone(),
-        state.doc_id.clone(),
-    );
-    svc.delete(&id)
-        .await
+    let mut core = state.core.lock().await;
+    core.delete_task(&id)
         .map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     Ok(StatusCode::NO_CONTENT)
 }

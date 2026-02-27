@@ -20,15 +20,14 @@ use hick_token::TokenAuthority;
 use tokio::sync::{Mutex, Notify, mpsc};
 
 #[cfg(feature = "local")]
-use hick_agent::LocalLlmClient;
-use hick_agent::network_filter::extract_host_from_url;
-use hick_agent::security_config::AgentSecurityConfig;
-use hick_agent::sink_guard::SinkGuard;
+use hick_agent_engine::LocalLlmClient;
 use hick_agent::tui::run_tui;
-use hick_agent::{
-    Agent, AgentCommand, AgentConfig, AgentEvent, AnthropicClient, FilteredLlmClient, LlmClient,
-    NetworkApprovalRequest, NetworkFilter, OpenAiCompatClient, PipelineWatcher, ReactLoop,
+use hick_agent_engine::{
+    Agent, AgentCommand, AgentConfig, AgentEvent, AgentSecurityConfig, AnthropicClient,
+    FilteredLlmClient, LlmClient, NetworkApprovalRequest, NetworkFilter, OpenAiCompatClient,
+    PipelineWatcher, ReactLoop, SinkGuard,
 };
+use hick_agent_engine::network_filter::extract_host_from_url;
 
 #[derive(Parser)]
 #[command(name = "hick-agent")]
@@ -563,7 +562,7 @@ async fn main() -> Result<()> {
                         .is_some_and(|p| p.starts_with(&canonical_project));
 
                 if is_valid_policy {
-                    react_loop = react_loop.with_policy(hick_policy::PolicyEvaluator::new(
+                    react_loop = react_loop.with_policy(hick_agent_engine::hick_policy::PolicyEvaluator::new(
                         resolved.to_str().unwrap_or(policy_path),
                     ));
                     event_tx

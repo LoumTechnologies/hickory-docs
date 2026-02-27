@@ -3,7 +3,7 @@ use std::sync::Arc;
 use clap::Parser;
 
 use wrist_flick::config::WristFlickConfig;
-use wrist_flick::llm::StreamingLlmClient;
+use wrist_flick::llm::LlmClient;
 use wrist_flick::llm::anthropic::AnthropicStreamingClient;
 use wrist_flick::llm::openai::OpenAiStreamingClient;
 
@@ -13,7 +13,7 @@ async fn main() -> anyhow::Result<()> {
 
     let config = WristFlickConfig::parse();
 
-    let llm: Arc<dyn StreamingLlmClient> = match config.llm.as_str() {
+    let llm: Arc<dyn LlmClient> = match config.llm.as_str() {
         "anthropic" => {
             let model = config
                 .model
@@ -26,7 +26,7 @@ async fn main() -> anyhow::Result<()> {
         }
     };
 
-    let state = wrist_flick::build_app_state(llm).await?;
+    let state = wrist_flick::build_app_state(llm, config.db_path.as_deref()).await?;
     let app = wrist_flick::build_router(state);
 
     let addr = format!("0.0.0.0:{}", config.port);

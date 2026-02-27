@@ -5,7 +5,7 @@ use futures::Stream;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 
-use super::{ChatChunk, Message, Role, StreamingLlmClient};
+use super::{ChatChunk, LlmClient, Message, Role};
 
 pub struct AnthropicStreamingClient {
     client: Client,
@@ -94,7 +94,7 @@ fn build_request(model: &str, messages: Vec<Message>, stream: bool) -> Anthropic
 }
 
 #[async_trait]
-impl StreamingLlmClient for AnthropicStreamingClient {
+impl LlmClient for AnthropicStreamingClient {
     async fn complete(&self, messages: Vec<Message>) -> anyhow::Result<String> {
         let body = build_request(&self.model, messages, false);
 
@@ -150,6 +150,14 @@ impl StreamingLlmClient for AnthropicStreamingClient {
 
         let stream = SseParser::new(byte_stream);
         Ok(Box::pin(stream))
+    }
+
+    fn provider_name(&self) -> &str {
+        "anthropic"
+    }
+
+    fn model_name(&self) -> &str {
+        &self.model
     }
 }
 

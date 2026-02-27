@@ -40,6 +40,7 @@ pub fn router() -> Router<AppState> {
         .route("/api/v1/tasks/{id}", patch(tasks::update))
         .route("/api/v1/tasks/{id}", delete(tasks::delete_one))
         // Sync
+        .route("/api/v1/sync/status", get(sync::status))
         .route("/api/v1/sync/ws", get(sync::ws_handler))
         .route("/api/v1/sync/state-vector", get(sync::state_vector))
         // Health

@@ -10,49 +10,27 @@ path = "src/main.rs"
 
 [features]
 default = []
-local = ["dep:llama-cpp-2"]
-local-cuda = ["local", "llama-cpp-2/cuda"]
-integration-test = []
+local = ["hick-agent-engine/local"]
+local-cuda = ["local", "hick-agent-engine/local-cuda"]
+integration-test = ["hick-agent-engine/integration-test"]
 
 [dependencies]
+# Core engine (extracted)
+hick-agent-engine = { path = "../hick-agent-engine" }
+
+# Dependencies only needed by the CLI binary (main.rs) and TUI (tui.rs)
 hick = { path = "../hick" }
 hick-agent-core = { path = "../hick-agent-core" }
 hick-token = { path = "../hick-token" }
-hick-classify = { path = "../hick-classify" }
-hick-policy = { path = "../hick-policy" }
-hick-sink = { path = "../hick-sink" }
-chrono = "0.4"
-async-openai = "0.28"
-async-trait = "0.1"
 anyhow = "1"
-bytes = "1"
-futures = "0.3"
-reqwest = { version = "0.12", features = ["json", "stream"] }
-tokio = { version = "1", features = ["full"] }
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
 clap = { version = "4", features = ["derive", "env"] }
-env_logger = "0.11"
-glob = "0.3"
-hick-flow = { path = "../hick-flow", features = ["serde"] }
-log = "0.4"
-notify = "7"
-rand = "0.9"
-serde_yaml = "0.9"
-sha2 = "0.10"
-walkdir = "2"
-hick-lang = { version = "0.1.0", path = "../hick-lang" }
 dotenvy = "0.15.7"
+env_logger = "0.11"
+log = "0.4"
+rand = "0.9"
+tokio = { version = "1", features = ["full"] }
 ratatui = "0.30.0"
 crossterm = "0.29.0"
-toml = "1.0.3"
-
-# Metal auto-enabled on macOS; CUDA opt-in via `local-cuda` feature
-[target.'cfg(target_os = "macos")'.dependencies]
-llama-cpp-2 = { version = "0.1", optional = true, features = ["metal"] }
-
-[target.'cfg(not(target_os = "macos"))'.dependencies]
-llama-cpp-2 = { version = "0.1", optional = true }
 
 [dev-dependencies]
 tempfile = "3"
