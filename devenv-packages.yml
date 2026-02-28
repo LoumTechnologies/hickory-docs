@@ -1,0 +1,10 @@
+packages:
+  - name: rust-nightly
+    check: rustc +nightly --version
+    install: "rustup install nightly && rustup default nightly"
+  - name: node-22
+    check: node --version | grep -q 'v2[2-9]'
+    install: "Install Node.js 22+ from https://nodejs.org"
+  - name: npm-deps
+    check: test -d crates/wrist-flick/web/node_modules
+    install: "npm --prefix crates/wrist-flick/web install"
