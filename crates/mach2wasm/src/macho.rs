@@ -1,11 +1,7 @@
 use std::collections::HashMap;
 use std::path::Path;
 
-use goblin::mach::{
-    Mach, MachO, SingleArch,
-    header::MH_EXECUTE,
-    load_command::CommandVariant,
-};
+use goblin::mach::{Mach, MachO, header::MH_EXECUTE};
 
 use crate::error::Error;
 
@@ -51,40 +47,59 @@ pub fn parse(path: &Path) -> Result<ParsedMachO, Error> {
 
 /// Parse a Mach-O from raw bytes.
 pub fn parse_bytes(bytes: Vec<u8>, path: &Path) -> Result<ParsedMachO, Error> {
-    let mach = Mach::parse(&bytes).map_err(|_| Error::NotMachO {
-        path: path.to_path_buf(),
-    })?;
-
-    match mach {
-        Mach::Binary(macho) => parse_single(macho, bytes, path),
-        Mach::Fat(fat) => {
-            // Search for x86_64 slice in universal binary.
-            for (idx, arch) in fat.iter_arches().enumerate() {
-                let arch = arch.map_err(|_| Error::NotMachO {
-                    path: path.to_path_buf(),
-                })?;
-                // CPU_TYPE_X86_64 = 0x01000007
-                if arch.cputype == 0x0100_0007 {
-                    let offset = arch.offset as usize;
-                    let size = arch.size as usize;
-                    let slice_bytes = bytes[offset..offset + size].to_vec();
-                    let macho =
-                        MachO::parse(&slice_bytes, 0).map_err(|_| Error::NotMachO {
-                            path: path.to_path_buf(),
-                        })?;
-                    return parse_single(macho, slice_bytes, path);
+    // Determine if this is a fat binary and find the x86_64 slice offset/size.
+    let slice_range = {
+        let mach = Mach::parse(&bytes).map_err(|_| Error::NotMachO {
+            path: path.to_path_buf(),
+        })?;
+        match mach {
+            Mach::Binary(_) => None, // whole file is the binary
+            Mach::Fat(fat) => {
+                let mut found = None;
+                for arch in fat.iter_arches() {
+                    let arch = arch.map_err(|_| Error::NotMachO {
+                        path: path.to_path_buf(),
+                    })?;
+                    // CPU_TYPE_X86_64 = 0x01000007
+                    if arch.cputype == 0x0100_0007 {
+                        found = Some((arch.offset as usize, arch.size as usize));
+                        break;
+                    }
                 }
-                // Also try by index with SingleArch
-                let _ = idx;
+                match found {
+                    Some(range) => Some(range),
+                    None => {
+                        return Err(Error::NoX86Slice {
+                            path: path.to_path_buf(),
+                        })
+                    }
+                }
             }
-            Err(Error::NoX86Slice {
-                path: path.to_path_buf(),
-            })
         }
+    };
+    // The `Mach` borrow is now dropped. We can move `bytes` freely.
+
+    if let Some((offset, size)) = slice_range {
+        let slice_bytes = bytes[offset..offset + size].to_vec();
+        let macho = MachO::parse(&slice_bytes, 0).map_err(|_| Error::NotMachO {
+            path: path.to_path_buf(),
+        })?;
+        let mut result = extract(&macho, path)?;
+        result.bytes = slice_bytes;
+        Ok(result)
+    } else {
+        let macho = MachO::parse(&bytes, 0).map_err(|_| Error::NotMachO {
+            path: path.to_path_buf(),
+        })?;
+        let mut result = extract(&macho, path)?;
+        result.bytes = bytes;
+        Ok(result)
     }
 }
 
-fn parse_single(macho: MachO<'_>, bytes: Vec<u8>, path: &Path) -> Result<ParsedMachO, Error> {
+/// Extract all relevant data from a parsed MachO into owned types.
+/// The `bytes` field of the result is left empty; the caller fills it in.
+fn extract(macho: &MachO<'_>, path: &Path) -> Result<ParsedMachO, Error> {
     // Validate architecture: must be x86_64 (cputype 0x01000007).
     let cputype = macho.header.cputype;
     if cputype != 0x0100_0007 {
@@ -100,8 +115,12 @@ fn parse_single(macho: MachO<'_>, bytes: Vec<u8>, path: &Path) -> Result<ParsedM
         });
     }
 
-    // Extract entry point from LC_MAIN or LC_UNIXTHREAD.
-    let entry_point = find_entry_point(&macho)?;
+    // Use goblin's pre-extracted entry point.
+    let entry_point = if macho.entry != 0 {
+        macho.entry
+    } else {
+        return Err(Error::NoEntryPoint);
+    };
 
     // Extract code and data sections.
     let mut code_sections = Vec::new();
@@ -109,42 +128,47 @@ fn parse_single(macho: MachO<'_>, bytes: Vec<u8>, path: &Path) -> Result<ParsedM
 
     for segment in &macho.segments {
         let seg_name = segment.name().unwrap_or("??");
-        for (section, section_data) in segment.sections().into_iter().flatten() {
-            let sect_name = section.name().unwrap_or("??");
-            let addr = section.addr;
-            let full_name = format!("{seg_name},{sect_name}");
+        if let Ok(sections) = segment.sections() {
+            for (section, section_data) in &sections {
+                let sect_name = section.name().unwrap_or("??");
+                let addr = section.addr;
+                let full_name = format!("{seg_name},{sect_name}");
 
-            match seg_name {
-                "__TEXT" => {
-                    code_sections.push(CodeSection {
-                        name: full_name,
-                        segment: seg_name.to_string(),
-                        addr,
-                        data: section_data.to_vec(),
-                    });
+                match seg_name {
+                    "__TEXT" => {
+                        code_sections.push(CodeSection {
+                            name: full_name,
+                            segment: seg_name.to_string(),
+                            addr,
+                            data: section_data.to_vec(),
+                        });
+                    }
+                    "__DATA" | "__DATA_CONST" => {
+                        let writable = seg_name == "__DATA";
+                        data_sections.push(DataSection {
+                            name: full_name,
+                            segment: seg_name.to_string(),
+                            addr,
+                            data: section_data.to_vec(),
+                            writable,
+                        });
+                    }
+                    _ => {
+                        // Check for BSS-like sections (zero-filled).
+                        let s_type = section.flags & 0xFF;
+                        if s_type == 1 {
+                            // S_ZEROFILL
+                            let size = section.size as usize;
+                            data_sections.push(DataSection {
+                                name: full_name,
+                                segment: seg_name.to_string(),
+                                addr,
+                                data: vec![0u8; size],
+                                writable: true,
+                            });
+                        }
+                    }
                 }
-                "__DATA" | "__DATA_CONST" => {
-                    let writable = seg_name == "__DATA";
-                    data_sections.push(DataSection {
-                        name: full_name,
-                        segment: seg_name.to_string(),
-                        addr,
-                        data: section_data.to_vec(),
-                        writable,
-                    });
-                }
-                "__BSS" => {
-                    // BSS: zero-filled, writable
-                    let size = section.size as usize;
-                    data_sections.push(DataSection {
-                        name: full_name,
-                        segment: seg_name.to_string(),
-                        addr,
-                        data: vec![0u8; size],
-                        writable: true,
-                    });
-                }
-                _ => {}
             }
         }
     }
@@ -165,28 +189,12 @@ fn parse_single(macho: MachO<'_>, bytes: Vec<u8>, path: &Path) -> Result<ParsedM
         }
     }
 
-    // Extract dylib paths from LC_LOAD_DYLIB.
-    let mut dylib_paths = Vec::new();
-    for cmd in &macho.load_commands {
-        if let CommandVariant::LoadDylib(dylib)
-        | CommandVariant::LoadWeakDylib(dylib)
-        | CommandVariant::ReexportDylib(dylib) = cmd.command
-        {
-            let name_offset = dylib.dylib.name as usize;
-            if let Some(name_bytes) = cmd.data.get(name_offset..) {
-                if let Ok(name) = std::str::from_utf8(
-                    &name_bytes[..name_bytes.iter().position(|&b| b == 0).unwrap_or(name_bytes.len())],
-                ) {
-                    dylib_paths.push(name.to_string());
-                }
-            }
-        }
-    }
-
+    // Use goblin's pre-extracted dylib list.
+    let dylib_paths: Vec<String> = macho.libs.iter().map(|s| s.to_string()).collect();
     let is_static = dylib_paths.is_empty();
 
     Ok(ParsedMachO {
-        bytes,
+        bytes: Vec::new(),
         arch: "x86_64".to_string(),
         entry_point,
         code_sections,
@@ -195,47 +203,6 @@ fn parse_single(macho: MachO<'_>, bytes: Vec<u8>, path: &Path) -> Result<ParsedM
         dylib_paths,
         is_static,
     })
-}
-
-fn find_entry_point(macho: &MachO<'_>) -> Result<u64, Error> {
-    for cmd in &macho.load_commands {
-        match cmd.command {
-            // LC_MAIN (0x80000028)
-            CommandVariant::Main(main_cmd) => {
-                // entryoff is relative to __TEXT segment vmaddr.
-                let text_vmaddr = macho
-                    .segments
-                    .iter()
-                    .find(|s| s.name().unwrap_or("") == "__TEXT")
-                    .map(|s| s.vmaddr)
-                    .unwrap_or(0);
-                return Ok(text_vmaddr + main_cmd.entryoff);
-            }
-            // LC_UNIXTHREAD — entry point in thread state registers.
-            CommandVariant::Unixthread(thread_cmd) => {
-                // For x86_64, the RIP is at offset 16 in the thread state
-                // (after flavor + count fields = 8 bytes, then rax..rbp = 8 regs * 8 bytes before rip).
-                // Thread state: flavor(4) + count(4) + rax(8) + rbx(8) + rcx(8) + rdx(8) +
-                //               rdi(8) + rsi(8) + rbp(8) + rsp(8) + r8-r15(64) + rip(8)
-                // rip is at offset 16*8 + 8 = 136 from start of thread state data.
-                // But the actual layout for x86_64_thread_state: rip is register 16.
-                let data = &cmd.data;
-                // Skip past the cmd header (8 bytes for flavor + count).
-                if data.len() >= 8 + 21 * 8 {
-                    // rip is the 17th register (index 16) in the x86_64 thread state.
-                    let rip_offset = 8 + 16 * 8;
-                    let rip = u64::from_le_bytes(
-                        data[rip_offset..rip_offset + 8].try_into().unwrap(),
-                    );
-                    return Ok(rip);
-                }
-                // Fallback: use the instruction_pointer from goblin if available.
-                return Ok(thread_cmd.instruction_pointer);
-            }
-            _ => {}
-        }
-    }
-    Err(Error::NoEntryPoint)
 }
 
 #[cfg(test)]
@@ -255,6 +222,4 @@ mod tests {
         let result = parse_bytes(vec![], Path::new("empty"));
         assert!(result.is_err());
     }
-
-    // Valid Mach-O parsing is tested via integration tests with fixture binaries.
 }
