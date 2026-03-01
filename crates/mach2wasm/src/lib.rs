@@ -64,13 +64,20 @@ pub fn run(cli: Cli) -> Result<()> {
         syscall_shim::compile_shims(tmp_dir.path(), cli.wasi_sysroot.as_deref())
             .context("shim compilation failed")?;
 
-    // 7. Compile LLVM bitcode → wasm32 object via llc.
+    // 7. Optimize bitcode: strip dead semantic functions (e.g. x87 BCD ops
+    //    that use float80_t and can't be lowered to wasm32).
+    log::info!("optimizing bitcode (stripping dead functions)...");
+    let opt_bc_path = tmp_dir.path().join("lifted_opt.bc");
+    linker::optimize_bc(&bc_path, &opt_bc_path, binary.entry_point)
+        .context("bitcode optimization failed")?;
+
+    // 8. Compile LLVM bitcode → wasm32 object via llc.
     log::info!("compiling LLVM IR → wasm32 object...");
     let lifted_obj = tmp_dir.path().join("lifted.o");
-    linker::compile_bc_to_obj(&bc_path, &lifted_obj, cli.opt_level)
+    linker::compile_bc_to_obj(&opt_bc_path, &lifted_obj, cli.opt_level)
         .context("llc compilation failed")?;
 
-    // 8. Link everything into final .wasm.
+    // 9. Link everything into final .wasm.
     log::info!("linking → {}", cli.output.display());
     linker::link_wasm(
         &lifted_obj,
@@ -121,14 +128,36 @@ fn resolve_semantics_dir(cli: &Cli) -> Result<std::path::PathBuf> {
 
     // Check REMILL_PREFIX env var.
     if let Ok(prefix) = std::env::var("REMILL_PREFIX") {
-        let p = Path::new(&prefix).join("share/remill/semantics");
-        if p.exists() {
-            return Ok(p);
+        let base = Path::new(&prefix).join("share/remill");
+        // Try direct path first, then versioned subdirs (e.g. share/remill/21/semantics).
+        let direct = base.join("semantics");
+        if direct.exists() {
+            return Ok(direct);
+        }
+        // Scan for versioned subdirectories (numerically named).
+        if let Ok(entries) = std::fs::read_dir(&base) {
+            let mut versioned: Vec<_> = entries
+                .filter_map(|e| e.ok())
+                .filter(|e| {
+                    e.file_name()
+                        .to_str()
+                        .is_some_and(|n| n.chars().all(|c| c.is_ascii_digit()))
+                })
+                .collect();
+            // Sort descending so we pick the highest version.
+            versioned.sort_by(|a, b| b.file_name().cmp(&a.file_name()));
+            for entry in versioned {
+                let sem = entry.path().join("semantics");
+                if sem.exists() {
+                    log::info!("Found Remill semantics at {}", sem.display());
+                    return Ok(sem);
+                }
+            }
         }
     }
 
     bail!(
         "Remill semantics directory not found. Set --semantics-dir or REMILL_SEMANTICS_DIR.\n\
-         Expected locations: /usr/local/share/remill/semantics"
+         Expected locations: /usr/local/share/remill/semantics or $REMILL_PREFIX/share/remill/<version>/semantics"
     );
 }

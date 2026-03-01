@@ -24,6 +24,9 @@ pub enum Error {
     #[error("tool not found: {tool} (install it or add to PATH)")]
     ToolNotFound { tool: String },
 
+    #[error("opt (bitcode optimization) failed: {0}")]
+    OptFailed(String),
+
     #[error("llc compilation failed: {0}")]
     LlcFailed(String),
 
