@@ -76,6 +76,7 @@ pub enum OriginDto {
     Exec { container: String, tag_line: usize },
     Paste { selector: String },
     Variable { name: String },
+    Script { tag_line: usize },
     Synthetic,
 }
 
@@ -126,6 +127,9 @@ impl From<&SourceOrigin> for OriginDto {
             },
             SourceOrigin::Variable { name } => OriginDto::Variable {
                 name: name.to_string(),
+            },
+            SourceOrigin::Script { tag_line } => OriginDto::Script {
+                tag_line: *tag_line,
             },
             SourceOrigin::Synthetic => OriginDto::Synthetic,
         }

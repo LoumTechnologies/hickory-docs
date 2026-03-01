@@ -30,6 +30,7 @@ hick-case = { path = "../hick-case" }
 hick-condition = { path = "../hick-condition" }
 hick-exec = { path = "../hick-exec" }
 hick-handlers = { path = "../hick-handlers" }
+hick-shell = { path = "../hick-shell" }
 hick-live = { path = "../hick-live" }
 hick-feature = { path = "../hick-feature" }
 hick-lang = { path = "../hick-lang" }

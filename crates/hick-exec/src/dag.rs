@@ -85,6 +85,11 @@ pub struct ExecInfo {
     /// Child elements to evaluate as stdin content for the command.
     /// Empty when the exec tag has only text children (command text).
     pub stdin_children: Vec<HickNode>,
+    /// True when this exec represents a `<hick:script>` block dispatched
+    /// via the lightweight shell interpreter instead of a container.
+    pub is_script: bool,
+    /// Path to the WASM toolchain directory (only for script blocks).
+    pub toolchain: Option<String>,
 }
 
 /// The validated information-flow DAG.
@@ -210,6 +215,11 @@ pub fn build_dag(doc: &HickDocument) -> Result<FlowDag, DagValidationError> {
                 }
                 "exec" => {
                     let info = extract_exec_info(tag, exec_index);
+                    execs.push(info);
+                    exec_index += 1;
+                }
+                "script" => {
+                    let info = extract_script_info(tag, exec_index);
                     execs.push(info);
                     exec_index += 1;
                 }
@@ -471,6 +481,55 @@ fn extract_exec_info(tag: &HickTag, index: usize) -> ExecInfo {
         command,
         source_line: tag.source_line,
         stdin_children,
+        is_script: false,
+        toolchain: None,
+    }
+}
+
+/// Extract script info from a `<hick:script>` tag.
+///
+/// Script blocks get a synthetic container name (`_script_N`) so they
+/// participate in the DAG without creating container-state edges between
+/// unrelated scripts. Each script is independent unless connected by
+/// explicit volume or copy/paste dependencies.
+fn extract_script_info(tag: &HickTag, index: usize) -> ExecInfo {
+    let container = format!("_script_{index}");
+    let toolchain = tag.get_attribute("toolchain").map(|s| s.to_string());
+
+    let mounts = tag
+        .get_attribute("mount")
+        .map(|m| {
+            m.split(',')
+                .filter_map(|entry| {
+                    let parts: Vec<&str> = entry.trim().splitn(2, ':').collect();
+                    if parts.len() == 2 {
+                        Some((parts[0].to_string(), parts[1].to_string()))
+                    } else {
+                        None
+                    }
+                })
+                .collect()
+        })
+        .unwrap_or_default();
+
+    let mut produces_copy = Vec::new();
+    let mut consumes_paste = Vec::new();
+    scan_copy_paste(&tag.children, &mut produces_copy, &mut consumes_paste);
+
+    let command = tag.text_content();
+
+    ExecInfo {
+        id: ExecId(index),
+        container,
+        image: None,
+        mounts,
+        produces_copy,
+        consumes_paste,
+        command,
+        source_line: tag.source_line,
+        stdin_children: Vec::new(),
+        is_script: true,
+        toolchain,
     }
 }
 
@@ -548,6 +607,10 @@ fn collect_nested_execs(tag: &HickTag, execs: &mut Vec<ExecInfo>, index: &mut us
         if let HickNode::Tag(child_tag) = child {
             if child_tag.name == "exec" {
                 let info = extract_exec_info(child_tag, *index);
+                execs.push(info);
+                *index += 1;
+            } else if child_tag.name == "script" {
+                let info = extract_script_info(child_tag, *index);
                 execs.push(info);
                 *index += 1;
             } else {

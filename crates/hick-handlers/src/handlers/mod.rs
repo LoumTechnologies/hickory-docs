@@ -7,6 +7,7 @@ mod copy;
 mod exclude;
 mod exec;
 mod paste;
+mod script;
 mod substitute;
 mod val;
 
@@ -14,6 +15,7 @@ pub use copy::{CopyHandler, CutHandler};
 pub use exclude::ExcludeHandler;
 pub use exec::ExecHandler;
 pub use paste::PasteHandler;
+pub use script::ScriptHandler;
 pub use substitute::SubstituteHandler;
 pub use val::ValHandler;
 
@@ -26,6 +28,7 @@ pub fn register_builtins(registry: &mut TagRegistry) {
     registry.register(Box::new(ExcludeHandler));
     registry.register(Box::new(ExecHandler));
     registry.register(Box::new(PasteHandler));
+    registry.register(Box::new(ScriptHandler));
     registry.register(Box::new(SubstituteHandler));
     registry.register(Box::new(ValHandler));
 }

@@ -485,6 +485,9 @@ pub async fn run_pipeline_with_authority(
 pub struct PipelineConfig {
     /// Directory containing pre-converted `.wasm` images.
     pub images_dir: PathBuf,
+    /// Directory containing `.wasm` command binaries for `<hick:script>` blocks.
+    /// Each `.wasm` file represents a command available to the shell interpreter.
+    pub toolchain_dir: Option<PathBuf>,
     /// Working directory for resolving relative paths in volume declarations.
     pub working_dir: Option<PathBuf>,
     /// Maximum pipeline rounds. `1` (default) preserves single-pass behavior.
@@ -627,117 +630,158 @@ pub async fn run_pipeline_live(
             }
 
             // Cache miss or caching disabled — execute for real
-            executor.ensure_started(&exec_info.container, image).await?;
+            if exec_info.is_script {
+                // Run via hick-shell lightweight interpreter
+                let toolchain_dir = exec_info
+                    .toolchain
+                    .as_deref()
+                    .map(PathBuf::from)
+                    .or_else(|| config.toolchain_dir.clone())
+                    .unwrap_or_else(|| config.images_dir.clone());
 
-            // Inject volumes before exec (or just create the mount point
-            // for the first writer when the volume is still empty).
-            for (vol_name, mount_path) in &exec_info.mounts {
-                if let Some(tar_data) = volume_store.get(vol_name) {
-                    info!(
-                        "Injecting volume '{vol_name}' into container '{}' at {mount_path}",
-                        exec_info.container
-                    );
-                    executor
-                        .inject_volume(&exec_info.container, mount_path, tar_data)
-                        .await?;
-                } else {
-                    executor
-                        .create_mount_point(&exec_info.container, mount_path)
-                        .await?;
+                let env_vars: HashMap<String, String> = HashMap::new();
+                let preopened_dirs: Vec<(PathBuf, String)> = exec_info
+                    .mounts
+                    .iter()
+                    .map(|(_, mount_path)| {
+                        (PathBuf::from(mount_path), mount_path.clone())
+                    })
+                    .collect();
+
+                let output = hick_shell::run_script(
+                    &exec_info.command,
+                    &toolchain_dir,
+                    &preopened_dirs,
+                    &env_vars,
+                )
+                .map_err(|e| anyhow::anyhow!("script execution failed in '{}': {e}", exec_info.container))?;
+
+                info!(
+                    "Script '{}' exited with code {}",
+                    exec_info.container, output.exit_code
+                );
+
+                executor.inject_transcript_entry(
+                    &exec_info.container,
+                    ExecTranscriptEntry {
+                        commands: vec![exec_info.command.clone()],
+                        output: output.stdout,
+                    },
+                );
+            } else {
+                // Container-based execution
+                executor.ensure_started(&exec_info.container, image).await?;
+
+                // Inject volumes before exec (or just create the mount point
+                // for the first writer when the volume is still empty).
+                for (vol_name, mount_path) in &exec_info.mounts {
+                    if let Some(tar_data) = volume_store.get(vol_name) {
+                        info!(
+                            "Injecting volume '{vol_name}' into container '{}' at {mount_path}",
+                            exec_info.container
+                        );
+                        executor
+                            .inject_volume(&exec_info.container, mount_path, tar_data)
+                            .await?;
+                    } else {
+                        executor
+                            .create_mount_point(&exec_info.container, mount_path)
+                            .await?;
+                    }
                 }
-            }
 
-            // Evaluate stdin children if present
-            let stdin_content = if !exec_info.stdin_children.is_empty() {
-                let stdin_registry = create_tag_registry();
-                let current_transcripts = convert_transcripts(executor.transcripts());
-                let mut parts = Vec::new();
-                for child in &exec_info.stdin_children {
-                    match child {
-                        hick_lang::HickNode::Text(t, _) => parts.push(t.clone()),
-                        hick_lang::HickNode::Tag(child_tag) => {
-                            if let Some(handler) = stdin_registry.find(&child_tag.name) {
-                                let child_ctx = ProcessingContext {
-                                    state: &state,
-                                    transcripts: &current_transcripts,
-                                    indent: 0,
-                                    registry: Some(&stdin_registry),
-                                    context: None,
-                                    source_file: None,
-                                };
-                                if let Ok(TagResult::Node(n)) =
-                                    handler.process(child_tag, &child_ctx)
-                                    && let Some(s) = n.as_string_value()
-                                {
-                                    parts.push(s.to_string());
+                // Evaluate stdin children if present
+                let stdin_content = if !exec_info.stdin_children.is_empty() {
+                    let stdin_registry = create_tag_registry();
+                    let current_transcripts = convert_transcripts(executor.transcripts());
+                    let mut parts = Vec::new();
+                    for child in &exec_info.stdin_children {
+                        match child {
+                            hick_lang::HickNode::Text(t, _) => parts.push(t.clone()),
+                            hick_lang::HickNode::Tag(child_tag) => {
+                                if let Some(handler) = stdin_registry.find(&child_tag.name) {
+                                    let child_ctx = ProcessingContext {
+                                        state: &state,
+                                        transcripts: &current_transcripts,
+                                        indent: 0,
+                                        registry: Some(&stdin_registry),
+                                        context: None,
+                                        source_file: None,
+                                    };
+                                    if let Ok(TagResult::Node(n)) =
+                                        handler.process(child_tag, &child_ctx)
+                                        && let Some(s) = n.as_string_value()
+                                    {
+                                        parts.push(s.to_string());
+                                    }
                                 }
                             }
                         }
                     }
-                }
-                let joined = parts.join("");
-                if joined.is_empty() {
+                    let joined = parts.join("");
+                    if joined.is_empty() {
+                        None
+                    } else {
+                        Some(joined)
+                    }
+                } else {
                     None
-                } else {
-                    Some(joined)
-                }
-            } else {
-                None
-            };
-
-            if let Some(stdin_data) = &stdin_content {
-                executor
-                    .execute_with_stdin(&exec_info.container, &exec_info.command, stdin_data)
-                    .await?;
-            } else {
-                executor
-                    .execute(&exec_info.container, &exec_info.command)
-                    .await?;
-            }
-
-            // Store result in cache after successful execution
-            if let Some(cc) = cache_config {
-                let caps_canonical = cache::canonical_caps(&container_defs, &exec_info.container);
-                let secret_names = cache::secret_names_for(&container_defs, &exec_info.container);
-                let secret_refs: Vec<&str> = secret_names.iter().map(|s| s.as_str()).collect();
-                let key =
-                    cache::exec_cache_key(image, &caps_canonical, &exec_info.command, &secret_refs);
-
-                // Get the last transcript entry that was just added
-                if let Some(entries) = executor.transcripts().get(&exec_info.container)
-                    && let Some(last) = entries.last()
-                {
-                    let cache_entry = cache::ExecCacheEntry {
-                        commands: last.commands.clone(),
-                        output: last.output.clone(),
-                        output_hash: cache::sha256_hex(&last.output),
-                    };
-                    cache::cache_store(cc, &exec_info.container, &key, &cache_entry)?;
-                    info!("Cached exec in '{}': {}…", exec_info.container, &key[..12]);
-                }
-            }
-
-            // Extract volumes after exec (if container has write access)
-            for (vol_name, mount_path) in &exec_info.mounts {
-                let has_write = if let Some(decl) = all_volume_decls.get(vol_name) {
-                    decl.check_write(&exec_info.container, "**") || decl.access_rules.is_empty()
-                } else {
-                    true // no declaration = unrestricted
                 };
 
-                if has_write {
-                    info!(
-                        "Extracting volume '{vol_name}' from container '{}' at {mount_path}",
-                        exec_info.container
-                    );
-                    let tar_data = executor
-                        .extract_volume(&exec_info.container, mount_path)
+                if let Some(stdin_data) = &stdin_content {
+                    executor
+                        .execute_with_stdin(&exec_info.container, &exec_info.command, stdin_data)
                         .await?;
-                    volume_store.update(vol_name, tar_data);
-                    volume_provenance
-                        .entry(vol_name.clone())
-                        .or_default()
-                        .push(exec_info.container.clone());
+                } else {
+                    executor
+                        .execute(&exec_info.container, &exec_info.command)
+                        .await?;
+                }
+
+                // Store result in cache after successful execution
+                if let Some(cc) = cache_config {
+                    let caps_canonical = cache::canonical_caps(&container_defs, &exec_info.container);
+                    let secret_names = cache::secret_names_for(&container_defs, &exec_info.container);
+                    let secret_refs: Vec<&str> = secret_names.iter().map(|s| s.as_str()).collect();
+                    let key =
+                        cache::exec_cache_key(image, &caps_canonical, &exec_info.command, &secret_refs);
+
+                    // Get the last transcript entry that was just added
+                    if let Some(entries) = executor.transcripts().get(&exec_info.container)
+                        && let Some(last) = entries.last()
+                    {
+                        let cache_entry = cache::ExecCacheEntry {
+                            commands: last.commands.clone(),
+                            output: last.output.clone(),
+                            output_hash: cache::sha256_hex(&last.output),
+                        };
+                        cache::cache_store(cc, &exec_info.container, &key, &cache_entry)?;
+                        info!("Cached exec in '{}': {}…", exec_info.container, &key[..12]);
+                    }
+                }
+
+                // Extract volumes after exec (if container has write access)
+                for (vol_name, mount_path) in &exec_info.mounts {
+                    let has_write = if let Some(decl) = all_volume_decls.get(vol_name) {
+                        decl.check_write(&exec_info.container, "**") || decl.access_rules.is_empty()
+                    } else {
+                        true // no declaration = unrestricted
+                    };
+
+                    if has_write {
+                        info!(
+                            "Extracting volume '{vol_name}' from container '{}' at {mount_path}",
+                            exec_info.container
+                        );
+                        let tar_data = executor
+                            .extract_volume(&exec_info.container, mount_path)
+                            .await?;
+                        volume_store.update(vol_name, tar_data);
+                        volume_provenance
+                            .entry(vol_name.clone())
+                            .or_default()
+                            .push(exec_info.container.clone());
+                    }
                 }
             }
         }

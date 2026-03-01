@@ -238,6 +238,7 @@ async fn run_pipeline_and_merge(
     } else {
         let pipeline_config = crate::PipelineConfig {
             images_dir: images_dir.to_path_buf(),
+            toolchain_dir: None,
             working_dir: None,
             max_rounds: 1,
         };

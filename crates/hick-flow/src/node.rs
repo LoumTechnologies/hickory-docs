@@ -39,6 +39,8 @@ pub enum SourceOrigin {
     Paste { selector: Arc<str> },
     /// Value of a variable.
     Variable { name: Arc<str> },
+    /// Output from a shell script execution.
+    Script { tag_line: usize },
     /// Programmatically constructed, no source.
     Synthetic,
 }

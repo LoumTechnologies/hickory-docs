@@ -1,0 +1,8 @@
+[package]
+name = "wasm-test-tool"
+version = "0.1.0"
+edition = "2024"
+
+[[bin]]
+name = "wasm-test-tool"
+path = "src/main.rs"
