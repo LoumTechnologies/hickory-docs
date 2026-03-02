@@ -3,7 +3,6 @@
  */
 
 #include "wasi_helpers.h"
-#include <string.h>
 
 int64_t shim_read(int fd, void *buf, uint64_t count) {
     wasi_iovec_t iov = {
@@ -40,7 +39,7 @@ int shim_open(const char *path, int flags, int mode) {
      * We use it as the base for all path operations.
      */
     wasi_fd_t preopened_dir = 3;
-    uint32_t path_len = (uint32_t)strlen(path);
+    uint32_t path_len = (uint32_t)__builtin_strlen(path);
 
     /* Map POSIX open flags to WASI oflags. */
     uint32_t oflags = 0;

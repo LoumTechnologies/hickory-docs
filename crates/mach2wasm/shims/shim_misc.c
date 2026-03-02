@@ -6,7 +6,6 @@
  */
 
 #include <stdint.h>
-#include <string.h>
 
 int shim_sysctl(const int *name, unsigned int namelen,
                 void *oldp, uint64_t *oldlenp,

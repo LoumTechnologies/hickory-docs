@@ -23,6 +23,16 @@ pub fn compile_shims(
 ) -> Result<Vec<std::path::PathBuf>, Error> {
     let clang = find_clang()?;
 
+    // Write header files first so #include directives resolve during compilation.
+    std::fs::write(
+        out_dir.join("darwin_syscall.h"),
+        include_bytes!("../shims/darwin_syscall.h"),
+    )?;
+    std::fs::write(
+        out_dir.join("wasi_helpers.h"),
+        include_bytes!("../shims/wasi_helpers.h"),
+    )?;
+
     let mut objects = Vec::new();
 
     for (name, source) in SHIM_SOURCES {
@@ -37,6 +47,7 @@ pub fn compile_shims(
             .arg("-c")
             .arg("-O2")
             .arg("-Wall")
+            .arg("-ffreestanding")
             .arg("-I")
             .arg(out_dir);
 
@@ -58,16 +69,6 @@ pub fn compile_shims(
 
         objects.push(obj_path);
     }
-
-    // Also write out the header files so shims can #include them.
-    std::fs::write(
-        out_dir.join("darwin_syscall.h"),
-        include_bytes!("../shims/darwin_syscall.h"),
-    )?;
-    std::fs::write(
-        out_dir.join("wasi_helpers.h"),
-        include_bytes!("../shims/wasi_helpers.h"),
-    )?;
 
     Ok(objects)
 }
