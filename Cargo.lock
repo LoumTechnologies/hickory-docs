@@ -3258,6 +3258,24 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "48c757948c5ede0e46177b7add2e67155f70e33c07fea8284df6576da70b3719"
 
 [[package]]
+name = "elf2wasm"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "cc",
+ "clap",
+ "cmake",
+ "env_logger",
+ "goblin",
+ "log",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "thiserror 2.0.18",
+ "which",
+]
+
+[[package]]
 name = "elliptic-curve"
 version = "0.12.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"

@@ -21,9 +21,15 @@ fn main() {
         // Remill is installed — build the C++ bridge via cmake.
         println!("cargo:warning=Building with Remill from {remill_prefix}");
 
-        let dst = cmake::Config::new("cpp")
-            .define("REMILL_PREFIX", &remill_prefix)
-            .build();
+        let remill_deps_prefix = env::var("REMILL_DEPS_PREFIX")
+            .unwrap_or_default();
+
+        let mut cfg = cmake::Config::new("cpp");
+        cfg.define("REMILL_PREFIX", &remill_prefix);
+        if !remill_deps_prefix.is_empty() {
+            cfg.define("REMILL_DEPS_PREFIX", &remill_deps_prefix);
+        }
+        let dst = cfg.build();
 
         println!("cargo:rustc-link-search=native={}/lib", dst.display());
         println!("cargo:rustc-link-lib=static=remill_bridge");
@@ -34,13 +40,41 @@ fn main() {
         #[cfg(not(target_os = "macos"))]
         println!("cargo:rustc-link-lib=stdc++");
 
-        // Link LLVM and Remill libraries discovered by cmake.
-        // The cmake build handles most of this, but we need to tell
-        // cargo about the link search path.
-        let llvm_lib_dir = PathBuf::from(&remill_prefix).join("lib");
-        if llvm_lib_dir.exists() {
-            println!("cargo:rustc-link-search=native={}", llvm_lib_dir.display());
+        // Link Remill component static libraries.
+        let remill_lib_dir = PathBuf::from(&remill_prefix).join("lib");
+        if remill_lib_dir.exists() {
+            println!("cargo:rustc-link-search=native={}", remill_lib_dir.display());
         }
+        for lib in &[
+            "remill_arch_x86", "remill_arch", "remill_arch_sleigh",
+            "remill_arch_aarch64", "remill_arch_sparc32", "remill_arch_sparc64",
+            "remill_bc", "remill_os", "remill_version",
+            "sla", "slaSupport", "decomp",
+        ] {
+            println!("cargo:rustc-link-lib=static={lib}");
+        }
+
+        // Link XED and glog/gflags from the deps prefix.
+        if !remill_deps_prefix.is_empty() {
+            let deps_lib = PathBuf::from(&remill_deps_prefix).join("lib");
+            if deps_lib.exists() {
+                println!("cargo:rustc-link-search=native={}", deps_lib.display());
+            }
+        }
+        for lib in &["xed", "xed-ild", "glog", "gflags"] {
+            println!("cargo:rustc-link-lib=static={lib}");
+        }
+
+        // Link LLVM shared library.
+        // Use rustc-link-arg to ensure -L comes before -l in the link line.
+        let llvm_prefix = env::var("LLVM_PREFIX")
+            .unwrap_or_else(|_| "/usr/local/Cellar/llvm/21.1.8".to_string());
+        let llvm_lib_dir = PathBuf::from(&llvm_prefix).join("lib");
+        if llvm_lib_dir.exists() {
+            println!("cargo:rustc-link-arg=-L{}", llvm_lib_dir.display());
+            println!("cargo:rustc-link-arg=-Wl,-rpath,{}", llvm_lib_dir.display());
+        }
+        println!("cargo:rustc-link-arg=-lLLVM");
 
         println!("cargo:rustc-cfg=has_remill");
     } else {
