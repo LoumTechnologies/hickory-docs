@@ -21,7 +21,6 @@ path = "src/bin/hick-compact.rs"
 
 [dependencies]
 container = { path = "../container" }
-c2w = { path = "../c2w" }
 connection-filter = { path = "../connection-filter", features = ["capability"] }
 bridge = { path = "../bridge" }
 net-config = { path = "../net-config" }
