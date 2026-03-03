@@ -6,6 +6,10 @@
  *
  * This exposes a minimal API for lifting x86_64 machine code to LLVM IR
  * using Remill's semantic library. Called from Rust via FFI.
+ *
+ * Runtime-parameterized: os_name and syscall_symbol are passed at context
+ * creation rather than being compiled in, allowing a single bridge to
+ * support Darwin, Windows, and Linux binaries.
  */
 
 #ifdef __cplusplus
@@ -21,14 +25,19 @@ typedef void RemillModule;
 /*
  * Create a new Remill lifting context.
  * semantics_dir: path to directory containing Remill's .bc semantics files.
+ * os_name: Remill OS name ("macos", "windows", "linux").
+ * syscall_symbol: name of the external syscall dispatch function
+ *                 (e.g., "__mach2wasm_syscall").
  * Returns NULL on failure.
  */
-RemillContext *remill_context_create(const char *semantics_dir);
+RemillContext *remill_context_create(const char *semantics_dir,
+                                     const char *os_name,
+                                     const char *syscall_symbol);
 
 /* Destroy a lifting context. */
 void remill_context_destroy(RemillContext *ctx);
 
-/* Register a code region (e.g., .text) to be lifted. */
+/* Register a code region (e.g., __TEXT,__text) to be lifted. */
 void remill_add_code_region(RemillContext *ctx,
                             const char *name,
                             uint64_t vaddr,

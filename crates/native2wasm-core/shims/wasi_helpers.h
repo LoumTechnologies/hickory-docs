@@ -2,7 +2,7 @@
 #define WASI_HELPERS_H
 
 /*
- * WASI import declarations for use by NT syscall shims.
+ * WASI import declarations for use by syscall shims.
  *
  * These map to the WASI preview1 ABI which is imported by the WASM module
  * at runtime from the host (wasmtime, wasmer, etc.).

@@ -1,8 +1,9 @@
 /*
- * I/O syscall shims: read, write, open, close, lseek → WASI.
+ * I/O syscall shims: read, write, open, close, lseek, readv, writev → WASI.
  */
 
 #include "wasi_helpers.h"
+#include <string.h>
 
 int64_t shim_read(int fd, void *buf, uint64_t count) {
     wasi_iovec_t iov = {
@@ -88,4 +89,64 @@ int64_t shim_lseek(int fd, int64_t offset, int whence) {
         return -(int64_t)err;
     }
     return (int64_t)newoffset;
+}
+
+/*
+ * Darwin iovec structure (matches BSD struct iovec on x86_64).
+ * iov_base is a pointer (8 bytes on x86_64), iov_len is size_t (8 bytes).
+ * In WASM32, pointers are 4 bytes, so we need to handle the layout difference.
+ */
+struct darwin_iovec {
+    void *iov_base;
+    uint64_t iov_len;
+};
+
+int64_t shim_writev(int fd, const void *iov_ptr, int iovcnt) {
+    if (iovcnt <= 0) return 0;
+
+    /* Process each iovec individually via WASI fd_write. */
+    const struct darwin_iovec *iovs = (const struct darwin_iovec *)iov_ptr;
+    int64_t total = 0;
+
+    for (int i = 0; i < iovcnt; i++) {
+        if (iovs[i].iov_len == 0) continue;
+
+        wasi_ciovec_t ciov = {
+            .buf = (const uint8_t *)iovs[i].iov_base,
+            .buf_len = (uint32_t)iovs[i].iov_len,
+        };
+        uint32_t nwritten = 0;
+        wasi_errno_t err = __wasi_fd_write((wasi_fd_t)fd, &ciov, 1, &nwritten);
+        if (err != WASI_ERRNO_SUCCESS) {
+            return total > 0 ? total : -(int64_t)err;
+        }
+        total += nwritten;
+    }
+
+    return total;
+}
+
+int64_t shim_readv(int fd, const void *iov_ptr, int iovcnt) {
+    if (iovcnt <= 0) return 0;
+
+    const struct darwin_iovec *iovs = (const struct darwin_iovec *)iov_ptr;
+    int64_t total = 0;
+
+    for (int i = 0; i < iovcnt; i++) {
+        if (iovs[i].iov_len == 0) continue;
+
+        wasi_iovec_t iov = {
+            .buf = (uint8_t *)iovs[i].iov_base,
+            .buf_len = (uint32_t)iovs[i].iov_len,
+        };
+        uint32_t nread = 0;
+        wasi_errno_t err = __wasi_fd_read((wasi_fd_t)fd, &iov, 1, &nread);
+        if (err != WASI_ERRNO_SUCCESS) {
+            return total > 0 ? total : -(int64_t)err;
+        }
+        total += nread;
+        if (nread < iovs[i].iov_len) break; /* short read */
+    }
+
+    return total;
 }

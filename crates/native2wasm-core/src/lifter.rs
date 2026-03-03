@@ -2,15 +2,19 @@ use std::ffi::{CStr, CString};
 use std::os::raw::{c_char, c_uchar, c_void};
 use std::path::Path;
 
-use crate::elf::ParsedELF;
-use crate::error::Error;
+use crate::binary::ParsedBinary;
+use crate::error::CoreError;
 
 // Opaque handles returned by C++ bridge.
 type RemillContext = c_void;
 type RemillModule = c_void;
 
 unsafe extern "C" {
-    fn remill_context_create(semantics_dir: *const c_char) -> *mut RemillContext;
+    fn remill_context_create(
+        semantics_dir: *const c_char,
+        os_name: *const c_char,
+        syscall_symbol: *const c_char,
+    ) -> *mut RemillContext;
     fn remill_context_destroy(ctx: *mut RemillContext);
 
     fn remill_add_code_region(
@@ -59,11 +63,11 @@ impl Drop for LiftedModule {
 
 impl LiftedModule {
     /// Write the lifted module as LLVM bitcode (.bc).
-    pub fn write_bc(&self, path: &Path) -> Result<(), Error> {
+    pub fn write_bc(&self, path: &Path) -> Result<(), CoreError> {
         let path_c = path_to_cstring(path);
         let rc = unsafe { remill_write_bc(self.module, path_c.as_ptr()) };
         if rc != 0 {
-            return Err(Error::LiftingFailed(format!(
+            return Err(CoreError::LiftingFailed(format!(
                 "failed to write bitcode to {}",
                 path.display()
             )));
@@ -72,11 +76,11 @@ impl LiftedModule {
     }
 
     /// Write the lifted module as human-readable LLVM IR (.ll).
-    pub fn write_ll(&self, path: &Path) -> Result<(), Error> {
+    pub fn write_ll(&self, path: &Path) -> Result<(), CoreError> {
         let path_c = path_to_cstring(path);
         let rc = unsafe { remill_write_ll(self.module, path_c.as_ptr()) };
         if rc != 0 {
-            return Err(Error::LiftingFailed(format!(
+            return Err(CoreError::LiftingFailed(format!(
                 "failed to write LLVM IR to {}",
                 path.display()
             )));
@@ -85,20 +89,22 @@ impl LiftedModule {
     }
 }
 
-/// Lift a parsed ELF binary to LLVM IR using Remill.
-pub fn lift(binary: &ParsedELF, semantics_dir: &Path) -> Result<LiftedModule, Error> {
+/// Lift a parsed binary to LLVM IR using Remill.
+pub fn lift(binary: &dyn ParsedBinary, semantics_dir: &Path) -> Result<LiftedModule, CoreError> {
     let sem_dir = path_to_cstring(semantics_dir);
+    let os_name = CString::new(binary.os_target().remill_os()).unwrap_or_default();
+    let syscall_sym = CString::new(binary.os_target().syscall_symbol()).unwrap_or_default();
 
     unsafe {
-        let ctx = remill_context_create(sem_dir.as_ptr());
+        let ctx = remill_context_create(sem_dir.as_ptr(), os_name.as_ptr(), syscall_sym.as_ptr());
         if ctx.is_null() {
-            return Err(Error::LiftingFailed(
+            return Err(CoreError::LiftingFailed(
                 "failed to create remill context".into(),
             ));
         }
 
         // Register code regions.
-        for section in &binary.code_sections {
+        for section in binary.code_sections() {
             let name = CString::new(section.name.as_str()).unwrap_or_default();
             remill_add_code_region(
                 ctx,
@@ -110,7 +116,7 @@ pub fn lift(binary: &ParsedELF, semantics_dir: &Path) -> Result<LiftedModule, Er
         }
 
         // Register data sections.
-        for section in &binary.data_sections {
+        for section in binary.data_sections() {
             let name = CString::new(section.name.as_str()).unwrap_or_default();
             remill_add_data_section(
                 ctx,
@@ -123,7 +129,7 @@ pub fn lift(binary: &ParsedELF, semantics_dir: &Path) -> Result<LiftedModule, Er
         }
 
         // Set entry point.
-        remill_set_entry_point(ctx, binary.entry_point);
+        remill_set_entry_point(ctx, binary.entry_point());
 
         // Lift.
         let module = remill_lift(ctx);
@@ -135,7 +141,7 @@ pub fn lift(binary: &ParsedELF, semantics_dir: &Path) -> Result<LiftedModule, Er
                 CStr::from_ptr(err_ptr).to_string_lossy().into_owned()
             };
             remill_context_destroy(ctx);
-            return Err(Error::LiftingFailed(msg));
+            return Err(CoreError::LiftingFailed(msg));
         }
 
         remill_context_destroy(ctx);

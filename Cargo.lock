@@ -3262,17 +3262,13 @@ name = "elf2wasm"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "cc",
  "clap",
- "cmake",
  "env_logger",
  "goblin",
  "log",
- "serde",
- "serde_json",
+ "native2wasm-core",
  "tempfile",
  "thiserror 2.0.18",
- "which",
 ]
 
 [[package]]
@@ -6182,17 +6178,13 @@ name = "mach2wasm"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "cc",
  "clap",
- "cmake",
  "env_logger",
  "goblin",
  "log",
- "serde",
- "serde_json",
+ "native2wasm-core",
  "tempfile",
  "thiserror 2.0.18",
- "which",
 ]
 
 [[package]]
@@ -6374,6 +6366,19 @@ dependencies = [
  "security-framework 2.11.1",
  "security-framework-sys",
  "tempfile",
+]
+
+[[package]]
+name = "native2wasm-core"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "cc",
+ "cmake",
+ "log",
+ "tempfile",
+ "thiserror 2.0.18",
+ "which",
 ]
 
 [[package]]
@@ -7161,17 +7166,13 @@ name = "pe2wasm"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "cc",
  "clap",
- "cmake",
  "env_logger",
  "goblin",
  "log",
- "serde",
- "serde_json",
+ "native2wasm-core",
  "tempfile",
  "thiserror 2.0.18",
- "which",
 ]
 
 [[package]]

@@ -1,9 +1,12 @@
 /*
- * Remill TraceLifter C++ bridge for PE → WASM transpilation.
+ * Remill TraceLifter C++ bridge.
  *
  * Wraps Remill's C++ API behind a C-compatible FFI for consumption by Rust.
  * This file is compiled by cmake as part of the build.rs process, only when
  * Remill is installed on the system.
+ *
+ * Runtime-parameterized: os_name and syscall_symbol are stored in the context
+ * and used during lifting, so a single compiled bridge supports all OS targets.
  */
 
 #include "remill_bridge.h"
@@ -42,6 +45,8 @@ struct DataSectionInfo {
 
 struct RemillContextImpl {
     std::string semantics_dir;
+    std::string os_name;
+    std::string syscall_symbol;
     std::vector<CodeRegion> code_regions;
     std::vector<DataSectionInfo> data_sections;
     uint64_t entry_point = 0;
@@ -54,9 +59,9 @@ struct RemillModuleImpl {
 };
 
 /* Custom memory provider for Remill's TraceManager. */
-class Pe2WasmTraceManager : public remill::TraceManager {
+class Native2WasmTraceManager : public remill::TraceManager {
 public:
-    explicit Pe2WasmTraceManager(const RemillContextImpl *ctx)
+    explicit Native2WasmTraceManager(const RemillContextImpl *ctx)
         : ctx_(ctx) {}
 
     /* Called by TraceLifter to read bytes at a given address. */
@@ -112,9 +117,13 @@ private:
 
 extern "C" {
 
-RemillContext *remill_context_create(const char *semantics_dir) {
+RemillContext *remill_context_create(const char *semantics_dir,
+                                     const char *os_name,
+                                     const char *syscall_symbol) {
     auto ctx = new RemillContextImpl();
     ctx->semantics_dir = semantics_dir ? semantics_dir : "";
+    ctx->os_name = os_name ? os_name : "macos";
+    ctx->syscall_symbol = syscall_symbol ? syscall_symbol : "__mach2wasm_syscall";
     return reinterpret_cast<RemillContext *>(ctx);
 }
 
@@ -162,10 +171,11 @@ RemillModule *remill_lift(RemillContext *ctx_opaque) {
     try {
         auto llvm_ctx = std::make_unique<llvm::LLVMContext>();
 
-        /* Get the x86_64 Windows architecture. */
-        auto arch = remill::Arch::Get(*llvm_ctx, "windows", "amd64");
+        /* Get the x86_64 architecture for the specified OS. */
+        auto arch = remill::Arch::Get(*llvm_ctx, ctx->os_name, "amd64");
         if (!arch) {
-            ctx->last_error = "failed to get x86_64 Windows arch from Remill";
+            ctx->last_error = "failed to get x86_64 " + ctx->os_name +
+                              " arch from Remill";
             return nullptr;
         }
 
@@ -178,7 +188,7 @@ RemillModule *remill_lift(RemillContext *ctx_opaque) {
         }
 
         /* Create the trace manager. */
-        Pe2WasmTraceManager manager(ctx);
+        Native2WasmTraceManager manager(ctx);
 
         /* Create the trace lifter. */
         remill::TraceLifter lifter(arch.get(), &manager);
@@ -208,7 +218,7 @@ RemillModule *remill_lift(RemillContext *ctx_opaque) {
         auto *i64_ty = llvm::Type::getInt64Ty(*llvm_ctx);
         std::vector<llvm::Type *> syscall_args(7, i64_ty);
         auto *syscall_ft = llvm::FunctionType::get(i64_ty, syscall_args, false);
-        sem_module->getOrInsertFunction("__pe2wasm_syscall", syscall_ft);
+        sem_module->getOrInsertFunction(ctx->syscall_symbol, syscall_ft);
 
         /* Verify the module. */
         std::string verify_err;

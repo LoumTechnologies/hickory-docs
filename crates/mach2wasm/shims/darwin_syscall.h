@@ -25,6 +25,7 @@
 #define SYS_DARWIN_MKNOD     14
 #define SYS_DARWIN_CHMOD     15
 #define SYS_DARWIN_CHOWN     16
+#define SYS_DARWIN_BRK       17
 #define SYS_DARWIN_GETPID    20
 #define SYS_DARWIN_SETUID    23
 #define SYS_DARWIN_GETUID    24
@@ -59,6 +60,8 @@
 #define SYS_DARWIN_MMAP     197
 #define SYS_DARWIN_STAT     338
 #define SYS_DARWIN_SYSCTL   202
+#define SYS_DARWIN_READV    120
+#define SYS_DARWIN_WRITEV   121
 #define SYS_DARWIN_ISSETUGID 327
 
 /* Syscall class prefix for BSD syscalls on x86_64. */

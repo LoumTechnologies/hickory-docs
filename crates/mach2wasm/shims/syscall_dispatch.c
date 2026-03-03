@@ -22,6 +22,9 @@ extern int      shim_getpid(void);
 extern int64_t  shim_mmap(void *addr, uint64_t len, int prot, int flags, int fd, int64_t offset);
 extern int      shim_munmap(void *addr, uint64_t len);
 extern int64_t  shim_lseek(int fd, int64_t offset, int whence);
+extern int64_t  shim_readv(int fd, const void *iov, int iovcnt);
+extern int64_t  shim_writev(int fd, const void *iov, int iovcnt);
+extern int64_t  shim_brk(void *addr);
 extern int      shim_sysctl(const int *name, unsigned int namelen,
                             void *oldp, uint64_t *oldlenp,
                             const void *newp, uint64_t newlen);
@@ -62,6 +65,15 @@ int64_t __mach2wasm_syscall(uint64_t syscall_number,
 
         case SYS_DARWIN_LSEEK:
             return shim_lseek((int)arg0, (int64_t)arg1, (int)arg2);
+
+        case SYS_DARWIN_READV:
+            return shim_readv((int)arg0, (const void *)(uintptr_t)arg1, (int)arg2);
+
+        case SYS_DARWIN_WRITEV:
+            return shim_writev((int)arg0, (const void *)(uintptr_t)arg1, (int)arg2);
+
+        case SYS_DARWIN_BRK:
+            return shim_brk((void *)(uintptr_t)arg0);
 
         case SYS_DARWIN_SYSCTL:
             return shim_sysctl((const int *)(uintptr_t)arg0, (unsigned int)arg1,

@@ -36,32 +36,6 @@ fn reject_wrong_machine() {
     assert!(msg.contains("machine=0xaa64") || msg.contains("unsupported"));
 }
 
-/// Verify shim source files are properly embedded (compile-time check).
-#[test]
-fn shim_sources_embedded() {
-    // The syscall_shim module includes shim sources via include_bytes!().
-    // If any source file is missing, this test won't even compile.
-    // We verify at runtime that the compile_shims function exists and is callable
-    // (though it will fail without clang in PATH — we just test the plumbing).
-    let tmp = tempfile::tempdir().unwrap();
-    let result = pe2wasm::syscall_shim::compile_shims(tmp.path(), None);
-    // This will fail if clang is not available, which is fine — we're testing
-    // that the code paths exist and the sources are embedded.
-    match result {
-        Ok(objects) => {
-            assert!(!objects.is_empty(), "should produce at least one object");
-        }
-        Err(e) => {
-            let msg = format!("{e}");
-            // Expected failures: clang not found, or compilation fails.
-            assert!(
-                msg.contains("not found") || msg.contains("compilation failed"),
-                "unexpected error: {msg}"
-            );
-        }
-    }
-}
-
 /// Verify CLI parsing works.
 #[test]
 fn cli_parses_defaults() {
@@ -94,28 +68,20 @@ fn cli_parses_all_flags() {
     assert!(cli.verbose);
 }
 
-/// Test that error types have useful Display implementations.
+/// Test that parse error types have useful Display implementations.
 #[test]
 fn error_display() {
-    use pe2wasm::error::Error;
-    let err = Error::UnsupportedArch {
+    use pe2wasm::pe::ParseError;
+    let err = ParseError::UnsupportedArch {
         arch: "arm64".to_string(),
     };
     let msg = format!("{err}");
     assert!(msg.contains("arm64"));
     assert!(msg.contains("x86_64"));
 
-    let err = Error::ToolNotFound {
-        tool: "llc".to_string(),
-    };
+    let err = ParseError::NoEntryPoint;
     let msg = format!("{err}");
-    assert!(msg.contains("llc"));
-
-    let err = Error::UnsupportedImport {
-        dll: "advapi32.dll".to_string(),
-    };
-    let msg = format!("{err}");
-    assert!(msg.contains("advapi32.dll"));
+    assert!(msg.contains("entry point"));
 }
 
 /// Build a minimal PE binary for testing.

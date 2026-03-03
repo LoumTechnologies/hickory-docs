@@ -1,5 +1,5 @@
 /*
- * Process-related shims: exit, getpid.
+ * Process-related syscall shims: exit, getpid.
  */
 
 #include "wasi_helpers.h"

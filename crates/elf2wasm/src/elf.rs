@@ -6,23 +6,29 @@ use goblin::elf::header::{EM_X86_64, ET_EXEC, ET_DYN};
 use goblin::elf::program_header::PT_LOAD;
 use goblin::elf::section_header::{SHF_EXECINSTR, SHF_WRITE, SHT_NOBITS, SHT_PROGBITS};
 
-use crate::error::Error;
+use native2wasm_core::binary::{CodeSection, DataSection, ParsedBinary};
+use native2wasm_core::target::OsTarget;
 
-/// A parsed code section from the ELF binary.
-#[derive(Debug, Clone)]
-pub struct CodeSection {
-    pub name: String,
-    pub addr: u64,
-    pub data: Vec<u8>,
-}
+/// OS-specific parse error type.
+#[derive(Debug, thiserror::Error)]
+pub enum ParseError {
+    #[error("unsupported architecture: {arch} (only x86_64 is supported)")]
+    UnsupportedArch { arch: String },
 
-/// A parsed data section from the ELF binary.
-#[derive(Debug, Clone)]
-pub struct DataSection {
-    pub name: String,
-    pub addr: u64,
-    pub data: Vec<u8>,
-    pub writable: bool,
+    #[error("not an ELF binary: {path}")]
+    NotELF { path: std::path::PathBuf },
+
+    #[error("not an executable ELF (expected ET_EXEC or ET_DYN): {path}")]
+    NotExecutable { path: std::path::PathBuf },
+
+    #[error("no entry point found in ELF binary")]
+    NoEntryPoint,
+
+    #[error("no code sections found in ELF binary")]
+    NoCodeSections,
+
+    #[error("I/O error: {0}")]
+    Io(#[from] std::io::Error),
 }
 
 /// Parsed representation of an ELF x86_64 binary.
@@ -38,10 +44,48 @@ pub struct ParsedELF {
     pub is_static: bool,
 }
 
+impl ParsedBinary for ParsedELF {
+    fn bytes(&self) -> &[u8] {
+        &self.bytes
+    }
+
+    fn arch(&self) -> &str {
+        &self.arch
+    }
+
+    fn entry_point(&self) -> u64 {
+        self.entry_point
+    }
+
+    fn code_sections(&self) -> &[CodeSection] {
+        &self.code_sections
+    }
+
+    fn data_sections(&self) -> &[DataSection] {
+        &self.data_sections
+    }
+
+    fn symbols(&self) -> &HashMap<u64, String> {
+        &self.symbols
+    }
+
+    fn is_static(&self) -> bool {
+        self.is_static
+    }
+
+    fn dynamic_deps(&self) -> &[String] {
+        &self.shared_libs
+    }
+
+    fn os_target(&self) -> OsTarget {
+        OsTarget::Linux
+    }
+}
+
 /// Parse an ELF file from disk.
-pub fn parse(path: &Path) -> Result<ParsedELF, Error> {
+pub fn parse(path: &Path) -> Result<ParsedELF, ParseError> {
     let bytes = std::fs::read(path).map_err(|e| {
-        Error::Io(std::io::Error::new(
+        ParseError::Io(std::io::Error::new(
             e.kind(),
             format!("{}: {e}", path.display()),
         ))
@@ -50,28 +94,28 @@ pub fn parse(path: &Path) -> Result<ParsedELF, Error> {
 }
 
 /// Parse an ELF from raw bytes.
-pub fn parse_bytes(bytes: Vec<u8>, path: &Path) -> Result<ParsedELF, Error> {
+pub fn parse_bytes(bytes: Vec<u8>, path: &Path) -> Result<ParsedELF, ParseError> {
     // Validate ELF magic: 0x7F 'E' 'L' 'F'.
     if bytes.len() < 4 || bytes[0] != 0x7F || bytes[1] != b'E' || bytes[2] != b'L' || bytes[3] != b'F' {
-        return Err(Error::NotELF {
+        return Err(ParseError::NotELF {
             path: path.to_path_buf(),
         });
     }
 
-    let elf = Elf::parse(&bytes).map_err(|_| Error::NotELF {
+    let elf = Elf::parse(&bytes).map_err(|_| ParseError::NotELF {
         path: path.to_path_buf(),
     })?;
 
     // Validate architecture: must be x86_64 (EM_X86_64 = 0x3E).
     if elf.header.e_machine != EM_X86_64 {
-        return Err(Error::UnsupportedArch {
+        return Err(ParseError::UnsupportedArch {
             arch: format!("e_machine=0x{:04x}", elf.header.e_machine),
         });
     }
 
     // Validate file type: must be executable or position-independent executable.
     if elf.header.e_type != ET_EXEC && elf.header.e_type != ET_DYN {
-        return Err(Error::NotExecutable {
+        return Err(ParseError::NotExecutable {
             path: path.to_path_buf(),
         });
     }
@@ -79,7 +123,7 @@ pub fn parse_bytes(bytes: Vec<u8>, path: &Path) -> Result<ParsedELF, Error> {
     // Entry point.
     let entry_point = elf.header.e_entry;
     if entry_point == 0 {
-        return Err(Error::NoEntryPoint);
+        return Err(ParseError::NoEntryPoint);
     }
 
     // Extract code and data sections.
@@ -147,7 +191,7 @@ pub fn parse_bytes(bytes: Vec<u8>, path: &Path) -> Result<ParsedELF, Error> {
     }
 
     if code_sections.is_empty() {
-        return Err(Error::NoCodeSections);
+        return Err(ParseError::NoCodeSections);
     }
 
     // Extract symbols from the symbol table.
@@ -221,7 +265,7 @@ mod tests {
         let result = parse_bytes(b"not an ELF file".to_vec(), Path::new("fake.bin"));
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(matches!(err, Error::NotELF { .. }));
+        assert!(matches!(err, ParseError::NotELF { .. }));
     }
 
     #[test]

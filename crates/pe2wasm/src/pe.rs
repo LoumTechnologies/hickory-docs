@@ -4,7 +4,8 @@ use std::path::Path;
 use goblin::pe::PE;
 use goblin::pe::section_table::IMAGE_SCN_CNT_CODE;
 
-use crate::error::Error;
+use native2wasm_core::binary::{CodeSection, DataSection, ParsedBinary};
+use native2wasm_core::target::OsTarget;
 
 /// IMAGE_FILE_MACHINE_AMD64
 const MACHINE_AMD64: u16 = 0x8664;
@@ -18,21 +19,26 @@ const IMAGE_SCN_MEM_WRITE: u32 = 0x80000000;
 /// Default image base for 64-bit PE executables.
 const DEFAULT_IMAGE_BASE_64: u64 = 0x0000_0001_4000_0000;
 
-/// A parsed code section from the PE binary.
-#[derive(Debug, Clone)]
-pub struct CodeSection {
-    pub name: String,
-    pub addr: u64,
-    pub data: Vec<u8>,
-}
+/// OS-specific parse error type.
+#[derive(Debug, thiserror::Error)]
+pub enum ParseError {
+    #[error("unsupported architecture: {arch} (only x86_64 is supported)")]
+    UnsupportedArch { arch: String },
 
-/// A parsed data section from the PE binary.
-#[derive(Debug, Clone)]
-pub struct DataSection {
-    pub name: String,
-    pub addr: u64,
-    pub data: Vec<u8>,
-    pub writable: bool,
+    #[error("not a PE binary: {path}")]
+    NotPE { path: std::path::PathBuf },
+
+    #[error("no x86_64 code section found in PE binary: {path}")]
+    NoX86Section { path: std::path::PathBuf },
+
+    #[error("no entry point found in PE binary")]
+    NoEntryPoint,
+
+    #[error("no code sections found in PE binary")]
+    NoCodeSections,
+
+    #[error("I/O error: {0}")]
+    Io(#[from] std::io::Error),
 }
 
 /// Parsed representation of a PE x86_64 binary.
@@ -48,10 +54,48 @@ pub struct ParsedPE {
     pub is_static: bool,
 }
 
+impl ParsedBinary for ParsedPE {
+    fn bytes(&self) -> &[u8] {
+        &self.bytes
+    }
+
+    fn arch(&self) -> &str {
+        &self.arch
+    }
+
+    fn entry_point(&self) -> u64 {
+        self.entry_point
+    }
+
+    fn code_sections(&self) -> &[CodeSection] {
+        &self.code_sections
+    }
+
+    fn data_sections(&self) -> &[DataSection] {
+        &self.data_sections
+    }
+
+    fn symbols(&self) -> &HashMap<u64, String> {
+        &self.symbols
+    }
+
+    fn is_static(&self) -> bool {
+        self.is_static
+    }
+
+    fn dynamic_deps(&self) -> &[String] {
+        &self.import_dlls
+    }
+
+    fn os_target(&self) -> OsTarget {
+        OsTarget::Windows
+    }
+}
+
 /// Parse a PE file from disk.
-pub fn parse(path: &Path) -> Result<ParsedPE, Error> {
+pub fn parse(path: &Path) -> Result<ParsedPE, ParseError> {
     let bytes = std::fs::read(path).map_err(|e| {
-        Error::Io(std::io::Error::new(
+        ParseError::Io(std::io::Error::new(
             e.kind(),
             format!("{}: {e}", path.display()),
         ))
@@ -60,14 +104,14 @@ pub fn parse(path: &Path) -> Result<ParsedPE, Error> {
 }
 
 /// Parse a PE from raw bytes.
-pub fn parse_bytes(bytes: Vec<u8>, path: &Path) -> Result<ParsedPE, Error> {
-    let pe = PE::parse(&bytes).map_err(|_| Error::NotPE {
+pub fn parse_bytes(bytes: Vec<u8>, path: &Path) -> Result<ParsedPE, ParseError> {
+    let pe = PE::parse(&bytes).map_err(|_| ParseError::NotPE {
         path: path.to_path_buf(),
     })?;
 
     // Validate MZ signature.
     if bytes.len() < 2 || bytes[0] != b'M' || bytes[1] != b'Z' {
-        return Err(Error::NotPE {
+        return Err(ParseError::NotPE {
             path: path.to_path_buf(),
         });
     }
@@ -75,7 +119,7 @@ pub fn parse_bytes(bytes: Vec<u8>, path: &Path) -> Result<ParsedPE, Error> {
     // Validate architecture: must be x86_64 (IMAGE_FILE_MACHINE_AMD64).
     let machine = pe.header.coff_header.machine;
     if machine != MACHINE_AMD64 {
-        return Err(Error::UnsupportedArch {
+        return Err(ParseError::UnsupportedArch {
             arch: format!("machine=0x{machine:04x}"),
         });
     }
@@ -94,7 +138,7 @@ pub fn parse_bytes(bytes: Vec<u8>, path: &Path) -> Result<ParsedPE, Error> {
         .unwrap_or(0);
 
     if entry_rva == 0 {
-        return Err(Error::NoEntryPoint);
+        return Err(ParseError::NoEntryPoint);
     }
 
     let entry_point = image_base + entry_rva;
@@ -143,7 +187,7 @@ pub fn parse_bytes(bytes: Vec<u8>, path: &Path) -> Result<ParsedPE, Error> {
     }
 
     if code_sections.is_empty() {
-        return Err(Error::NoCodeSections);
+        return Err(ParseError::NoCodeSections);
     }
 
     // Extract symbols from the export table.
@@ -212,7 +256,7 @@ mod tests {
         let result = parse_bytes(b"not a PE file".to_vec(), Path::new("fake.bin"));
         assert!(result.is_err());
         let err = result.unwrap_err();
-        assert!(matches!(err, Error::NotPE { .. }));
+        assert!(matches!(err, ParseError::NotPE { .. }));
     }
 
     #[test]
