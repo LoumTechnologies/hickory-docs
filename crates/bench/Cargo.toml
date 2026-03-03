@@ -6,7 +6,7 @@ publish = false
 
 [dependencies]
 container = { path = "../container" }
-c2w = { path = "../c2w" }
+c2w = { path = "../../../native2wasm/crates/c2w" }
 wasmtime.workspace = true
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-util", "time"] }
 anyhow = "1"
