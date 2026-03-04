@@ -1,7 +1,7 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::Result;
-use native2wasm_core::target::CpuArch;
+use native2wasm_core::target::{CpuArch, OsTarget};
 
 /// Trait for user-mode emulator providers.
 ///
@@ -10,11 +10,14 @@ use native2wasm_core::target::CpuArch;
 /// - Locate the pre-compiled emulator WASM binary
 /// - Prepare a guest filesystem with the target binary embedded
 pub trait EmulatorProvider: Send + Sync {
-    /// Human-readable name of this emulator (e.g., "blink", "qemu-tci").
+    /// Human-readable name of this emulator (e.g., "blink", "blink-macho").
     fn name(&self) -> &str;
 
     /// CPU architecture this emulator handles.
     fn supported_arch(&self) -> CpuArch;
+
+    /// Guest OS this provider targets (Linux, Darwin, Windows).
+    fn supported_os(&self) -> OsTarget;
 
     /// Path to the pre-compiled emulator WASM binary.
     ///

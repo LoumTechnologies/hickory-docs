@@ -7,7 +7,7 @@ use anyhow::{Context, Result, bail};
 
 use crate::detect::{BinaryFormat, DetectedBinary};
 use emu_core::pipeline::{EmulationConfig, run_emulation};
-use native2wasm_core::target::CpuArch;
+use native2wasm_core::target::{CpuArch, OsTarget};
 use native2wasm_core::pipeline::{PipelineConfig, run_pipeline};
 
 /// Run the AOT transpilation pipeline for the detected binary.
@@ -101,6 +101,11 @@ pub fn run_aot(
 
 /// Run the EMU strategy: user-mode emulation via blink (x86_64) or
 /// QEMU TCI (ARM64, Phase 4).
+///
+/// For x86_64 binaries, selects the appropriate provider based on OS:
+/// - Linux ELF → BlinkProvider (direct blink execution)
+/// - macOS Mach-O → BlinkMachoProvider (blink + Mach-O loader + XNU shims)
+/// - Windows PE → BlinkPeProvider (blink + PE loader + Win32 shims)
 pub fn run_emu(
     input: &Path,
     detected: &DetectedBinary,
@@ -109,10 +114,43 @@ pub fn run_emu(
 ) -> Result<()> {
     let provider: Box<dyn emu_core::provider::EmulatorProvider> = match detected.cpu_arch {
         CpuArch::X86_64 => {
-            if let Some(path) = emulator_path {
-                Box::new(emu_x86::BlinkProvider::with_path(path.to_path_buf()))
-            } else {
-                Box::new(emu_x86::BlinkProvider::new())
+            match (detected.format, detected.os_target) {
+                (BinaryFormat::Elf, OsTarget::Linux) => {
+                    if let Some(path) = emulator_path {
+                        Box::new(emu_x86::BlinkProvider::with_path(path.to_path_buf()))
+                    } else {
+                        Box::new(emu_x86::BlinkProvider::new())
+                    }
+                }
+                (BinaryFormat::MachO, OsTarget::Darwin) => {
+                    log::info!(
+                        "macOS x86_64 EMU: blink + Mach-O loader shim \
+                         (basic POSIX calls only; complex binaries may need --strategy vm)"
+                    );
+                    if let Some(path) = emulator_path {
+                        Box::new(emu_x86::BlinkMachoProvider::with_path(path.to_path_buf()))
+                    } else {
+                        Box::new(emu_x86::BlinkMachoProvider::new())
+                    }
+                }
+                (BinaryFormat::Pe, OsTarget::Windows) => {
+                    log::info!(
+                        "Windows x86_64 EMU: blink + PE loader shim \
+                         (MSVC CRT console only; complex binaries may need --strategy vm)"
+                    );
+                    if let Some(path) = emulator_path {
+                        Box::new(emu_x86::BlinkPeProvider::with_path(path.to_path_buf()))
+                    } else {
+                        Box::new(emu_x86::BlinkPeProvider::new())
+                    }
+                }
+                _ => {
+                    bail!(
+                        "unsupported format/OS combination for x86_64 EMU: {} {}",
+                        detected.format,
+                        detected.os_target,
+                    )
+                }
             }
         }
         CpuArch::AArch64 => {
