@@ -15,9 +15,9 @@ futures = "0.3"
 async-stream = "0.3"
 anyhow = "1"
 log = "0.4"
-hick-classify = { path = "../hick-classify" }
-hick-sink = { path = "../hick-sink" }
-hick-token = { path = "../hick-token" }
+hick-classify.workspace = true
+hick-sink.workspace = true
+hick-token.workspace = true
 blake3 = "1"
 async-trait = "0.1"
 serde = { version = "1", features = ["derive"] }

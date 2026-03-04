@@ -20,22 +20,24 @@ name = "hick-compact"
 path = "src/bin/hick-compact.rs"
 
 [dependencies]
-container = { path = "../container" }
-connection-filter = { path = "../connection-filter", features = ["capability"] }
-bridge = { path = "../bridge" }
-net-config = { path = "../net-config" }
+container.workspace = true
+connection-filter = { workspace = true, features = ["capability"] }
+bridge.workspace = true
+net-config.workspace = true
 hick-api = { path = "../hick-api" }
 hick-case = { path = "../hick-case" }
 hick-condition.workspace = true
 hick-exec.workspace = true
 hick-handlers = { path = "../hick-handlers" }
-hick-shell = { path = "../hick-shell" }
+hick-shell.workspace = true
 hick-live = { path = "../hick-live" }
 hick-feature = { path = "../hick-feature" }
 hick-lang.workspace = true
-hick-secrets = { path = "../hick-secrets" }
-network = { path = "../network" }
-hick-token = { path = "../hick-token" }
+hick-secrets.workspace = true
+network.workspace = true
+hick-token.workspace = true
+hick-store.workspace = true
+hick-merge.workspace = true
 
 wasmtime.workspace = true
 wasmtime-wasi = "41.0.0"
@@ -54,13 +56,10 @@ glob = "0.3.3"
 sha2 = "0.10.9"
 base64 = "0.22"
 tar = "0.4"
-hick-store = { version = "0.1.0", path = "../hick-store" }
-hick-merge = { version = "0.1.0", path = "../hick-merge" }
 notify = "7"
 rustyline = "14"
 futures = "0.3"
 sysinfo = "0.38.0"
 
 [dev-dependencies]
-hick-store = { path = "../hick-store" }
 tempfile = "3"

@@ -1,13 +1,38 @@
 [workspace]
 resolver = "3"
 members = ["crates/*"]
-exclude = ["crates/container2wasm", "crates/drift-signal-ffi", "matrix"]
+exclude = ["matrix"]
 
 [workspace.dependencies]
-hick-lang = { path = "../hick-lang" }
-hick-flow = { path = "../hick-reactive/crates/hick-flow" }
-hick-exec = { path = "../hick-exec/crates/hick-exec" }
-hick-condition = { path = "../hick-exec/crates/hick-condition" }
+# Already-extracted repos
+hick-lang = { version = "0.1", path = "../hick-lang" }
+hick-flow = { version = "0.1", path = "../hick-reactive/crates/hick-flow" }
+hick-exec = { version = "0.1", path = "../hick-exec/crates/hick-exec" }
+hick-condition = { version = "0.1", path = "../hick-exec/crates/hick-condition" }
+
+# hick-security
+hick-classify = { version = "0.1", path = "../hick-security/crates/hick-classify" }
+hick-token = { version = "0.1", path = "../hick-security/crates/hick-token" }
+hick-sink = { version = "0.1", path = "../hick-security/crates/hick-sink" }
+hick-secrets = { version = "0.1", path = "../hick-security/crates/hick-secrets" }
+hick-policy = { version = "0.1", path = "../hick-security/crates/hick-policy" }
+
+# hick-store
+hick-store = { version = "0.1", path = "../hick-store/crates/hick-store" }
+hick-merge = { version = "0.1", path = "../hick-store/crates/hick-merge" }
+
+# wasm-net
+net-config = { version = "0.1", path = "../wasm-net/crates/net-config" }
+bridge = { version = "0.1", path = "../wasm-net/crates/bridge" }
+tcp-nat = { version = "0.1", path = "../wasm-net/crates/tcp-nat" }
+connection-filter = { version = "0.1", path = "../wasm-net/crates/connection-filter" }
+network = { version = "0.1", path = "../wasm-net/crates/network" }
+
+# hick-container
+container = { version = "0.1", path = "../hick-container/crates/container" }
+hick-shell = { version = "0.1", path = "../hick-container/crates/hick-shell" }
+
+# wasmtime
 wasmtime = { version = "41.0.0", default-features = false, features = [
     "async", "cache", "cranelift", "runtime", "std", "threads", "wat",
     "profiling", "parallel-compilation", "pooling-allocator",
