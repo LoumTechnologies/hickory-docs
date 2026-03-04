@@ -4,8 +4,8 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-hick-exec = { path = "../hick-exec" }
-hick-lang = { path = "../hick-lang" }
+hick-exec.workspace = true
+hick-lang.workspace = true
 anyhow = "1"
 log = "0.4"
 futures = "0.3.31"

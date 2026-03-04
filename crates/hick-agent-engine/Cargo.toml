@@ -16,8 +16,8 @@ hick-token = { path = "../hick-token" }
 hick-classify = { path = "../hick-classify" }
 hick-policy = { path = "../hick-policy" }
 hick-sink = { path = "../hick-sink" }
-hick-flow = { path = "../hick-flow", features = ["serde"] }
-hick-lang = { version = "0.1.0", path = "../hick-lang" }
+hick-flow = { workspace = true, features = ["serde"] }
+hick-lang.workspace = true
 chrono = "0.4"
 async-openai = "0.28"
 async-trait = "0.1"

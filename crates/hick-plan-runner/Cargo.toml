@@ -8,11 +8,11 @@ name = "hick-plan-runner"
 path = "src/main.rs"
 
 [dependencies]
-hick-flow = { path = "../hick-flow" }
-hick-exec = { path = "../hick-exec" }
+hick-flow.workspace = true
+hick-exec.workspace = true
 hick-handlers = { path = "../hick-handlers" }
 hick-live = { path = "../hick-live" }
-hick-lang = { path = "../hick-lang" }
+hick-lang.workspace = true
 hick-token = { path = "../hick-token" }
 hick-sink = { path = "../hick-sink" }
 hick-policy = { path = "../hick-policy" }

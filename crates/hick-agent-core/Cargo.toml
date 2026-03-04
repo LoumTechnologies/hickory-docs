@@ -7,8 +7,8 @@ description = "Reusable abstractions for AI coding agents: sandboxed command exe
 [dependencies]
 hick = { path = "../hick" }
 hick-lens = { path = "../hick-lens" }
-hick-flow = { path = "../hick-flow", features = ["serde"] }
-hick-exec = { path = "../hick-exec" }
+hick-flow = { workspace = true, features = ["serde"] }
+hick-exec.workspace = true
 hick-token = { path = "../hick-token" }
 async-trait = "0.1"
 anyhow = "1"

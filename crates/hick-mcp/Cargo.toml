@@ -10,9 +10,9 @@ path = "src/main.rs"
 [dependencies]
 hick = { path = "../hick" }
 hick-lens = { path = "../hick-lens" }
-hick-flow = { path = "../hick-flow" }
-hick-lang = { path = "../hick-lang" }
-hick-exec = { path = "../hick-exec" }
+hick-flow.workspace = true
+hick-lang.workspace = true
+hick-exec.workspace = true
 rmcp = { version = "0.15", features = ["server", "transport-io", "macros"] }
 tokio = { version = "1", features = ["full"] }
 serde = { version = "1", features = ["derive"] }

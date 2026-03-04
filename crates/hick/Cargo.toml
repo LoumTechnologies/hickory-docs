@@ -26,13 +26,13 @@ bridge = { path = "../bridge" }
 net-config = { path = "../net-config" }
 hick-api = { path = "../hick-api" }
 hick-case = { path = "../hick-case" }
-hick-condition = { path = "../hick-condition" }
-hick-exec = { path = "../hick-exec" }
+hick-condition.workspace = true
+hick-exec.workspace = true
 hick-handlers = { path = "../hick-handlers" }
 hick-shell = { path = "../hick-shell" }
 hick-live = { path = "../hick-live" }
 hick-feature = { path = "../hick-feature" }
-hick-lang = { path = "../hick-lang" }
+hick-lang.workspace = true
 hick-secrets = { path = "../hick-secrets" }
 network = { path = "../network" }
 hick-token = { path = "../hick-token" }

@@ -4,10 +4,10 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-hick-flow = { path = "../hick-flow" }
-hick-exec = { path = "../hick-exec" }
+hick-flow.workspace = true
+hick-exec.workspace = true
 hick-handlers = { path = "../hick-handlers" }
-hick-lang = { path = "../hick-lang" }
+hick-lang.workspace = true
 arrow = { version = "54", features = ["prettyprint"] }
 parquet = { version = "54", features = ["arrow"] }
 tokio = { version = "1", features = ["sync", "rt", "macros"] }
