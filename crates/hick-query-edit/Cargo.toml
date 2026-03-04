@@ -2,6 +2,7 @@
 name = "hick-query-edit"
 version = "0.1.0"
 edition = "2024"
+publish = false
 
 [[bin]]
 name = "hick-query-edit"

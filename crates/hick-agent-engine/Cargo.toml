@@ -3,6 +3,7 @@ name = "hick-agent-engine"
 version = "0.1.0"
 edition = "2024"
 description = "Embeddable agent engine — ReAct loop, LLM abstraction, security stack. No TUI/CLI."
+publish = false
 
 [features]
 default = []

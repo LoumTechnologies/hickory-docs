@@ -3,6 +3,7 @@ name = "hick-agent-core"
 version = "0.1.0"
 edition = "2024"
 description = "Reusable abstractions for AI coding agents: sandboxed command execution and Hick XML edit format"
+publish = false
 
 [dependencies]
 hick = { version = "0.1", path = "../../../hickory-docs/crates/hick" }
