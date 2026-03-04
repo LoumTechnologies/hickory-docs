@@ -6,5 +6,5 @@ packages:
     check: node --version | grep -q 'v2[2-9]'
     install: "Install Node.js 22+ from https://nodejs.org"
   - name: npm-deps
-    check: test -d crates/wrist-flick/web/node_modules
-    install: "npm --prefix crates/wrist-flick/web install"
+    check: test -d ../drift-signal/crates/wrist-flick/web/node_modules
+    install: "npm --prefix ../drift-signal/crates/wrist-flick/web install"

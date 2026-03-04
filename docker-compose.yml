@@ -5,7 +5,7 @@ services:
   wrist-flick-api:
     build:
       context: .
-      dockerfile: crates/wrist-flick/Dockerfile
+      dockerfile: ../drift-signal/crates/wrist-flick/Dockerfile
     environment:
       WRIST_FLICK_PORT: "3000"
       WRIST_FLICK_LLM: "${WRIST_FLICK_LLM}"
@@ -21,14 +21,14 @@ services:
       portEnvVar: WRIST_FLICK_API_PORT
       healthCheck: /health
       healthTimeout: 120
-      projectPath: crates/wrist-flick
-      command: "cargo run -p wrist-flick"
+      projectPath: ../drift-signal/crates/wrist-flick
+      command: "cargo run --manifest-path ../drift-signal/Cargo.toml -p wrist-flick"
       developerUrl: /health
 
   wrist-flick-web:
     build:
       context: .
-      dockerfile: crates/wrist-flick/web/Dockerfile
+      dockerfile: ../drift-signal/crates/wrist-flick/web/Dockerfile
     environment:
       VITE_API_URL: "http://localhost:${WRIST_FLICK_API_PORT}"
     ports:
@@ -38,6 +38,6 @@ services:
     x-devenv:
       portEnvVar: WRIST_FLICK_WEB_PORT
       healthCheck: /
-      projectPath: crates/wrist-flick/web
-      command: "npm --prefix crates/wrist-flick/web run dev"
+      projectPath: ../drift-signal/crates/wrist-flick/web
+      command: "npm --prefix ../drift-signal/crates/wrist-flick/web run dev"
       developerUrl: /

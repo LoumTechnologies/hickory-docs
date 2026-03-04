@@ -3,18 +3,18 @@
 
 [services.wrist-flick-api]
 compose_service = "wrist-flick-api"
-project_path = "crates/wrist-flick"
-command = "cargo run -p wrist-flick"
+project_path = "../drift-signal/crates/wrist-flick"
+command = "cargo run --manifest-path ../drift-signal/Cargo.toml -p wrist-flick"
 developer_url = "http://localhost:${WRIST_FLICK_API_PORT}/health"
 
 [services.wrist-flick-web]
 compose_service = "wrist-flick-web"
-project_path = "crates/wrist-flick/web"
-command = "npm --prefix crates/wrist-flick/web run dev"
+project_path = "../drift-signal/crates/wrist-flick/web"
+command = "npm --prefix ../drift-signal/crates/wrist-flick/web run dev"
 developer_url = "http://localhost:${WRIST_FLICK_WEB_PORT}"
 
 [doctor]
 checks = [
-    "cargo check -p wrist-flick",
+    "cargo check --manifest-path ../drift-signal/Cargo.toml -p wrist-flick",
     "node --version",
 ]
