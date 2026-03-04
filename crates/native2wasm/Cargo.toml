@@ -20,3 +20,5 @@ native2wasm-core = { path = "../native2wasm-core" }
 elf2wasm = { path = "../elf2wasm" }
 mach2wasm = { path = "../mach2wasm" }
 pe2wasm = { path = "../pe2wasm" }
+emu-core = { path = "../emu-core" }
+emu-x86 = { path = "../emu-x86" }

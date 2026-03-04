@@ -767,6 +767,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "emu-core"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "dirs 6.0.0",
+ "log",
+ "native2wasm-core",
+ "tempfile",
+ "which",
+]
+
+[[package]]
+name = "emu-x86"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "emu-core",
+ "log",
+ "native2wasm-core",
+ "tempfile",
+]
+
+[[package]]
 name = "encoding_rs"
 version = "0.8.35"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1712,6 +1735,8 @@ dependencies = [
  "anyhow",
  "clap",
  "elf2wasm",
+ "emu-core",
+ "emu-x86",
  "env_logger",
  "goblin",
  "log",

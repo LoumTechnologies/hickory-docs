@@ -6,6 +6,8 @@ use std::path::Path;
 use anyhow::{Context, Result, bail};
 
 use crate::detect::{BinaryFormat, DetectedBinary};
+use emu_core::pipeline::{EmulationConfig, run_emulation};
+use native2wasm_core::target::CpuArch;
 use native2wasm_core::pipeline::{PipelineConfig, run_pipeline};
 
 /// Run the AOT transpilation pipeline for the detected binary.
@@ -97,13 +99,37 @@ pub fn run_aot(
     }
 }
 
-/// Run the EMU strategy (not yet implemented).
+/// Run the EMU strategy: user-mode emulation via blink (x86_64) or
+/// QEMU TCI (ARM64, Phase 4).
 pub fn run_emu(
-    _input: &Path,
-    _detected: &DetectedBinary,
-    _output: &Path,
+    input: &Path,
+    detected: &DetectedBinary,
+    output: &Path,
+    emulator_path: Option<&Path>,
 ) -> Result<()> {
-    bail!("EMU strategy not yet implemented (Phase 2)")
+    let provider: Box<dyn emu_core::provider::EmulatorProvider> = match detected.cpu_arch {
+        CpuArch::X86_64 => {
+            if let Some(path) = emulator_path {
+                Box::new(emu_x86::BlinkProvider::with_path(path.to_path_buf()))
+            } else {
+                Box::new(emu_x86::BlinkProvider::new())
+            }
+        }
+        CpuArch::AArch64 => {
+            bail!(
+                "ARM64 user-mode emulation not yet implemented (Phase 4).\n\
+                 Use --strategy vm for ARM64 dynamic binaries."
+            )
+        }
+    };
+
+    let config = EmulationConfig {
+        input,
+        output,
+        emulator_path,
+    };
+
+    run_emulation(provider.as_ref(), &config)
 }
 
 /// Run the VM strategy (not yet implemented).

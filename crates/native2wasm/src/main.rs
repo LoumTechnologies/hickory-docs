@@ -47,6 +47,10 @@ struct Cli {
     #[arg(long, env = "WASI_SYSROOT")]
     wasi_sysroot: Option<PathBuf>,
 
+    /// Path to pre-compiled emulator WASM (overrides cache for EMU strategy)
+    #[arg(long)]
+    emulator_path: Option<PathBuf>,
+
     /// Verbose logging
     #[arg(short, long)]
     verbose: bool,
@@ -83,7 +87,12 @@ fn main() -> Result<()> {
             cli.semantics_dir.as_deref(),
             cli.wasi_sysroot.as_deref(),
         ),
-        Strategy::Emu => native2wasm::run_emu(&cli.input, &detected, &cli.output),
+        Strategy::Emu => native2wasm::run_emu(
+            &cli.input,
+            &detected,
+            &cli.output,
+            cli.emulator_path.as_deref(),
+        ),
         Strategy::Vm => native2wasm::run_vm(&cli.input, &detected, &cli.output),
         Strategy::Auto => unreachable!("auto should have been resolved"),
     }

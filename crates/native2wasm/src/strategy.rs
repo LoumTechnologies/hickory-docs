@@ -1,6 +1,7 @@
 use std::fmt;
 
-use crate::detect::DetectedBinary;
+use crate::detect::{BinaryFormat, DetectedBinary};
+use native2wasm_core::target::CpuArch;
 
 /// Transpilation strategy.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
@@ -26,25 +27,37 @@ impl fmt::Display for Strategy {
     }
 }
 
+/// Check if EMU strategy is available for the given binary.
+fn emu_available(detected: &DetectedBinary) -> bool {
+    // EMU is available for x86_64 Linux ELF binaries (via blink).
+    detected.format == BinaryFormat::Elf && detected.cpu_arch == CpuArch::X86_64
+}
+
 /// Select the best strategy for a detected binary.
 ///
 /// Auto-selection logic:
-///   1. Static + Remill available → AOT (fastest)
-///   2. Dynamic → EMU (user-mode emulator)
-///   3. EMU unsupported → VM (full VM fallback)
-///
-/// Currently only AOT is implemented (Phase 1).
+///   1. Static → AOT (fastest, Remill lift)
+///   2. Dynamic + EMU available → EMU (user-mode emulator)
+///   3. Otherwise → VM (full VM fallback)
 pub fn select_strategy(detected: &DetectedBinary, requested: Strategy) -> Strategy {
     match requested {
         Strategy::Auto => {
             if detected.is_static {
-                // Static binaries can use AOT (Remill lift).
                 log::info!("auto-selected strategy: AOT (static binary)");
                 Strategy::Aot
+            } else if emu_available(detected) {
+                log::info!(
+                    "auto-selected strategy: EMU (dynamic {} {} binary)",
+                    detected.cpu_arch,
+                    detected.os_target,
+                );
+                Strategy::Emu
             } else {
-                // Dynamic binaries need emulation or VM.
-                // For now, fall back to VM since EMU is not yet implemented.
-                log::info!("auto-selected strategy: VM (dynamic binary, EMU not yet available)");
+                log::info!(
+                    "auto-selected strategy: VM (no EMU support for {} {})",
+                    detected.cpu_arch,
+                    detected.os_target,
+                );
                 Strategy::Vm
             }
         }
