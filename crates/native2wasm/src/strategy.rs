@@ -1,7 +1,7 @@
 use std::fmt;
 
-use crate::detect::DetectedBinary;
-use native2wasm_core::target::CpuArch;
+use crate::detect::{BinaryFormat, DetectedBinary};
+use native2wasm_core::target::{CpuArch, OsTarget};
 
 /// Transpilation strategy.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
@@ -29,11 +29,14 @@ impl fmt::Display for Strategy {
 
 /// Check if EMU strategy is available for the given binary.
 fn emu_available(detected: &DetectedBinary) -> bool {
-    // EMU is available for all x86_64 binaries via blink:
-    //   - Linux ELF: direct blink execution
-    //   - macOS Mach-O: blink + Mach-O loader shim + XNU syscall translation
-    //   - Windows PE: blink + PE loader shim + Win32 API translation
-    detected.cpu_arch == CpuArch::X86_64
+    match detected.cpu_arch {
+        // x86_64: blink handles all formats (Linux, macOS, Windows)
+        CpuArch::X86_64 => true,
+        // ARM64: QEMU TCI handles Linux ELF only
+        CpuArch::AArch64 => {
+            detected.format == BinaryFormat::Elf && detected.os_target == OsTarget::Linux
+        }
+    }
 }
 
 /// Select the best strategy for a detected binary.

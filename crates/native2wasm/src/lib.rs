@@ -99,13 +99,15 @@ pub fn run_aot(
     }
 }
 
-/// Run the EMU strategy: user-mode emulation via blink (x86_64) or
-/// QEMU TCI (ARM64, Phase 4).
+/// Run the EMU strategy: user-mode emulation.
 ///
 /// For x86_64 binaries, selects the appropriate provider based on OS:
 /// - Linux ELF → BlinkProvider (direct blink execution)
 /// - macOS Mach-O → BlinkMachoProvider (blink + Mach-O loader + XNU shims)
 /// - Windows PE → BlinkPeProvider (blink + PE loader + Win32 shims)
+///
+/// For ARM64 binaries:
+/// - Linux ELF → QemuTciProvider (QEMU TCI user-mode emulation)
 pub fn run_emu(
     input: &Path,
     detected: &DetectedBinary,
@@ -154,10 +156,24 @@ pub fn run_emu(
             }
         }
         CpuArch::AArch64 => {
-            bail!(
-                "ARM64 user-mode emulation not yet implemented (Phase 4).\n\
-                 Use --strategy vm for ARM64 dynamic binaries."
-            )
+            match (detected.format, detected.os_target) {
+                (BinaryFormat::Elf, OsTarget::Linux) => {
+                    log::info!("ARM64 EMU: QEMU TCI user-mode emulation");
+                    if let Some(path) = emulator_path {
+                        Box::new(emu_arm64::QemuTciProvider::with_path(path.to_path_buf()))
+                    } else {
+                        Box::new(emu_arm64::QemuTciProvider::new())
+                    }
+                }
+                _ => {
+                    bail!(
+                        "ARM64 EMU only supports Linux ELF binaries. \
+                         Got {} {}. Use --strategy vm for other ARM64 binaries.",
+                        detected.format,
+                        detected.os_target,
+                    )
+                }
+            }
         }
     };
 

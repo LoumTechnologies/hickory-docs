@@ -767,6 +767,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "emu-arm64"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "emu-core",
+ "log",
+ "native2wasm-core",
+ "tempfile",
+]
+
+[[package]]
 name = "emu-core"
 version = "0.1.0"
 dependencies = [
@@ -1735,6 +1746,7 @@ dependencies = [
  "anyhow",
  "clap",
  "elf2wasm",
+ "emu-arm64",
  "emu-core",
  "emu-x86",
  "env_logger",

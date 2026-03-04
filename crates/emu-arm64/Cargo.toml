@@ -1,0 +1,15 @@
+[package]
+name = "emu-arm64"
+version = "0.1.0"
+edition = "2024"
+description = "ARM64 user-mode emulation via QEMU TCI for native2wasm"
+
+[dependencies]
+anyhow = "1"
+log = "0.4"
+
+native2wasm-core = { path = "../native2wasm-core" }
+emu-core = { path = "../emu-core" }
+
+[dev-dependencies]
+tempfile = "3"
