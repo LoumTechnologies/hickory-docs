@@ -5,9 +5,9 @@ edition = "2024"
 
 [dependencies]
 async-trait = "0.1"
-hick-token = { path = "../hick-token" }
+hick-token.workspace = true
 log = "0.4"
-network = { path = "../network" }
+network.workspace = true
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["sync"] }
