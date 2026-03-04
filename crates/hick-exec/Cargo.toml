@@ -2,6 +2,7 @@
 name = "hick-exec"
 version = "0.1.0"
 edition = "2024"
+publish = false
 
 [dependencies]
 hick-condition = { path = "../hick-condition" }
