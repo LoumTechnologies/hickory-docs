@@ -18,7 +18,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 
 /// Default upstream container2wasm version for template compatibility.
 pub const DEFAULT_TEMPLATE_VERSION: &str = "v0.8.3";

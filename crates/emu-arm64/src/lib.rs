@@ -39,7 +39,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 
 use emu_core::cache;
 use emu_core::provider::EmulatorProvider;
@@ -128,16 +128,12 @@ impl EmulatorProvider for QemuTciProvider {
 
     fn prepare_guest_fs(&self, binary: &Path, workdir: &Path) -> Result<PathBuf> {
         let guest_dir = workdir.join("guest");
-        fs::create_dir_all(&guest_dir)
-            .context("failed to create guest directory")?;
+        fs::create_dir_all(&guest_dir).context("failed to create guest directory")?;
 
         // Copy the target binary into the guest filesystem.
         let dest = guest_dir.join("binary");
         fs::copy(binary, &dest)
-            .with_context(|| format!(
-                "failed to copy {} to guest filesystem",
-                binary.display()
-            ))?;
+            .with_context(|| format!("failed to copy {} to guest filesystem", binary.display()))?;
 
         // Make the binary executable (on platforms that support it).
         #[cfg(unix)]
@@ -148,8 +144,7 @@ impl EmulatorProvider for QemuTciProvider {
 
         // Create a minimal /lib directory for ARM64 dynamic linker/libs.
         let lib_dir = guest_dir.join("lib");
-        fs::create_dir_all(&lib_dir)
-            .context("failed to create guest lib directory")?;
+        fs::create_dir_all(&lib_dir).context("failed to create guest lib directory")?;
 
         log::info!(
             "packed ARM64 guest binary: {} -> /guest/binary ({} bytes)",

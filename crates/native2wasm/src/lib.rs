@@ -7,8 +7,8 @@ use anyhow::{Context, Result, bail};
 
 use crate::detect::{BinaryFormat, DetectedBinary};
 use emu_core::pipeline::{EmulationConfig, run_emulation};
-use native2wasm_core::target::{CpuArch, OsTarget};
 use native2wasm_core::pipeline::{PipelineConfig, run_pipeline};
+use native2wasm_core::target::{CpuArch, OsTarget};
 
 /// Run the AOT transpilation pipeline for the detected binary.
 ///
@@ -115,66 +115,62 @@ pub fn run_emu(
     emulator_path: Option<&Path>,
 ) -> Result<()> {
     let provider: Box<dyn emu_core::provider::EmulatorProvider> = match detected.cpu_arch {
-        CpuArch::X86_64 => {
-            match (detected.format, detected.os_target) {
-                (BinaryFormat::Elf, OsTarget::Linux) => {
-                    if let Some(path) = emulator_path {
-                        Box::new(emu_x86::BlinkProvider::with_path(path.to_path_buf()))
-                    } else {
-                        Box::new(emu_x86::BlinkProvider::new())
-                    }
+        CpuArch::X86_64 => match (detected.format, detected.os_target) {
+            (BinaryFormat::Elf, OsTarget::Linux) => {
+                if let Some(path) = emulator_path {
+                    Box::new(emu_x86::BlinkProvider::with_path(path.to_path_buf()))
+                } else {
+                    Box::new(emu_x86::BlinkProvider::new())
                 }
-                (BinaryFormat::MachO, OsTarget::Darwin) => {
-                    log::info!(
-                        "macOS x86_64 EMU: blink + Mach-O loader shim \
+            }
+            (BinaryFormat::MachO, OsTarget::Darwin) => {
+                log::info!(
+                    "macOS x86_64 EMU: blink + Mach-O loader shim \
                          (basic POSIX calls only; complex binaries may need --strategy vm)"
-                    );
-                    if let Some(path) = emulator_path {
-                        Box::new(emu_x86::BlinkMachoProvider::with_path(path.to_path_buf()))
-                    } else {
-                        Box::new(emu_x86::BlinkMachoProvider::new())
-                    }
+                );
+                if let Some(path) = emulator_path {
+                    Box::new(emu_x86::BlinkMachoProvider::with_path(path.to_path_buf()))
+                } else {
+                    Box::new(emu_x86::BlinkMachoProvider::new())
                 }
-                (BinaryFormat::Pe, OsTarget::Windows) => {
-                    log::info!(
-                        "Windows x86_64 EMU: blink + PE loader shim \
+            }
+            (BinaryFormat::Pe, OsTarget::Windows) => {
+                log::info!(
+                    "Windows x86_64 EMU: blink + PE loader shim \
                          (MSVC CRT console only; complex binaries may need --strategy vm)"
-                    );
-                    if let Some(path) = emulator_path {
-                        Box::new(emu_x86::BlinkPeProvider::with_path(path.to_path_buf()))
-                    } else {
-                        Box::new(emu_x86::BlinkPeProvider::new())
-                    }
-                }
-                _ => {
-                    bail!(
-                        "unsupported format/OS combination for x86_64 EMU: {} {}",
-                        detected.format,
-                        detected.os_target,
-                    )
+                );
+                if let Some(path) = emulator_path {
+                    Box::new(emu_x86::BlinkPeProvider::with_path(path.to_path_buf()))
+                } else {
+                    Box::new(emu_x86::BlinkPeProvider::new())
                 }
             }
-        }
-        CpuArch::AArch64 => {
-            match (detected.format, detected.os_target) {
-                (BinaryFormat::Elf, OsTarget::Linux) => {
-                    log::info!("ARM64 EMU: QEMU TCI user-mode emulation");
-                    if let Some(path) = emulator_path {
-                        Box::new(emu_arm64::QemuTciProvider::with_path(path.to_path_buf()))
-                    } else {
-                        Box::new(emu_arm64::QemuTciProvider::new())
-                    }
+            _ => {
+                bail!(
+                    "unsupported format/OS combination for x86_64 EMU: {} {}",
+                    detected.format,
+                    detected.os_target,
+                )
+            }
+        },
+        CpuArch::AArch64 => match (detected.format, detected.os_target) {
+            (BinaryFormat::Elf, OsTarget::Linux) => {
+                log::info!("ARM64 EMU: QEMU TCI user-mode emulation");
+                if let Some(path) = emulator_path {
+                    Box::new(emu_arm64::QemuTciProvider::with_path(path.to_path_buf()))
+                } else {
+                    Box::new(emu_arm64::QemuTciProvider::new())
                 }
-                _ => {
-                    bail!(
-                        "ARM64 EMU only supports Linux ELF binaries. \
+            }
+            _ => {
+                bail!(
+                    "ARM64 EMU only supports Linux ELF binaries. \
                          Got {} {}. Use --strategy vm for other ARM64 binaries.",
-                        detected.format,
-                        detected.os_target,
-                    )
-                }
+                    detected.format,
+                    detected.os_target,
+                )
             }
-        }
+        },
     };
 
     let config = EmulationConfig {
@@ -194,11 +190,7 @@ pub fn run_emu(
 ///
 /// This is the universal fallback — slower than AOT or EMU but works for
 /// any binary.
-pub fn run_vm(
-    input: &Path,
-    detected: &DetectedBinary,
-    output: &Path,
-) -> Result<()> {
+pub fn run_vm(input: &Path, detected: &DetectedBinary, output: &Path) -> Result<()> {
     use std::fs;
     use std::io::Write;
 
@@ -207,7 +199,7 @@ pub fn run_vm(
         "Docker is required for the VM strategy.\n\
          Install Docker or use a different strategy:\n  \
          --strategy aot  (for static binaries)\n  \
-         --strategy emu  (for dynamic x86_64/ARM64 Linux binaries)"
+         --strategy emu  (for dynamic x86_64/ARM64 Linux binaries)",
     )?;
 
     let tmpdir = tempfile::tempdir().context("failed to create temp dir")?;

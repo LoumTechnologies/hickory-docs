@@ -9,12 +9,16 @@ use crate::cli::Cli;
 use native2wasm_core::pipeline::{PipelineConfig, run_pipeline};
 
 /// OS-specific shim sources for Darwin.
-static OS_HEADERS: &[(&str, &[u8])] = &[
-    ("darwin_syscall.h", include_bytes!("../shims/darwin_syscall.h")),
-];
+static OS_HEADERS: &[(&str, &[u8])] = &[(
+    "darwin_syscall.h",
+    include_bytes!("../shims/darwin_syscall.h"),
+)];
 
 static OS_SOURCES: &[(&str, &[u8])] = &[
-    ("syscall_dispatch.c", include_bytes!("../shims/syscall_dispatch.c")),
+    (
+        "syscall_dispatch.c",
+        include_bytes!("../shims/syscall_dispatch.c"),
+    ),
     ("shim_io.c", include_bytes!("../shims/shim_io.c")),
     ("shim_memory.c", include_bytes!("../shims/shim_memory.c")),
     ("shim_misc.c", include_bytes!("../shims/shim_misc.c")),

@@ -26,3 +26,6 @@ emu-core = { path = "../emu-core" }
 emu-x86 = { path = "../emu-x86" }
 emu-arm64 = { path = "../emu-arm64" }
 c2w = { path = "../c2w" }
+
+[dev-dependencies]
+tempfile = "3"

@@ -5,14 +5,11 @@ use crate::error::CoreError;
 
 /// Shared shim source files (wasi_helpers.h, shim_process.c) that are
 /// common across all OS targets.
-static SHARED_HEADERS: &[(&str, &[u8])] = &[
-    ("wasi_helpers.h", include_bytes!("../shims/wasi_helpers.h")),
-];
+static SHARED_HEADERS: &[(&str, &[u8])] =
+    &[("wasi_helpers.h", include_bytes!("../shims/wasi_helpers.h"))];
 
-static SHARED_SOURCES: &[(&str, &[u8])] = &[(
-    "shim_process.c",
-    include_bytes!("../shims/shim_process.c"),
-)];
+static SHARED_SOURCES: &[(&str, &[u8])] =
+    &[("shim_process.c", include_bytes!("../shims/shim_process.c"))];
 
 /// Compile all shim C sources to wasm32-wasi object files in the given output directory.
 ///

@@ -74,7 +74,7 @@ fn detect_bytes(bytes: &[u8], path: &Path) -> anyhow::Result<DetectedBinary> {
         Object::Mach(mach) => {
             match mach {
                 goblin::mach::Mach::Binary(macho) => {
-                    let cpu_arch = cputype_to_arch(macho.header.cputype as u32)?;
+                    let cpu_arch = cputype_to_arch(macho.header.cputype)?;
                     let is_static = macho.libs.is_empty();
                     Ok(DetectedBinary {
                         format: BinaryFormat::MachO,
@@ -88,7 +88,7 @@ fn detect_bytes(bytes: &[u8], path: &Path) -> anyhow::Result<DetectedBinary> {
                     let mut best_arch = None;
                     for arch in fat.iter_arches() {
                         let arch = arch?;
-                        let cputype = arch.cputype as u32;
+                        let cputype = arch.cputype;
                         if cputype == 0x0100_000C {
                             // CPU_TYPE_ARM64
                             best_arch = Some(CpuArch::AArch64);
@@ -123,17 +123,14 @@ fn detect_bytes(bytes: &[u8], path: &Path) -> anyhow::Result<DetectedBinary> {
                 is_static,
             })
         }
-        _ => anyhow::bail!(
-            "unrecognized binary format: {}",
-            path.display()
-        ),
+        _ => anyhow::bail!("unrecognized binary format: {}", path.display()),
     }
 }
 
 fn cputype_to_arch(cputype: u32) -> anyhow::Result<CpuArch> {
     match cputype {
         0x0100_0007 => Ok(CpuArch::X86_64),  // CPU_TYPE_X86_64
-        0x0100_000C => Ok(CpuArch::AArch64),  // CPU_TYPE_ARM64
+        0x0100_000C => Ok(CpuArch::AArch64), // CPU_TYPE_ARM64
         other => anyhow::bail!("unsupported Mach-O cputype: 0x{other:08x}"),
     }
 }

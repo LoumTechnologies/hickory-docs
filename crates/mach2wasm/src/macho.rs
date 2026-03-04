@@ -3,9 +3,7 @@ use std::path::Path;
 
 use goblin::mach::{Mach, MachO, header::MH_EXECUTE};
 
-use native2wasm_core::binary::{
-    CodeSection, DataSection, ParsedBinary,
-};
+use native2wasm_core::binary::{CodeSection, DataSection, ParsedBinary};
 use native2wasm_core::target::{CpuArch, OsTarget};
 
 /// CPU_TYPE_X86_64
@@ -94,7 +92,10 @@ impl ParsedBinary for ParsedMachO {
 /// Parse a Mach-O file from disk.
 pub fn parse(path: &Path) -> Result<ParsedMachO, ParseError> {
     let bytes = std::fs::read(path).map_err(|e| {
-        ParseError::Io(std::io::Error::new(e.kind(), format!("{}: {e}", path.display())))
+        ParseError::Io(std::io::Error::new(
+            e.kind(),
+            format!("{}: {e}", path.display()),
+        ))
     })?;
     parse_bytes(bytes, path)
 }
@@ -116,7 +117,7 @@ pub fn parse_bytes(bytes: Vec<u8>, path: &Path) -> Result<ParsedMachO, ParseErro
                     let arch = arch.map_err(|_| ParseError::NotMachO {
                         path: path.to_path_buf(),
                     })?;
-                    let cputype = arch.cputype as u32;
+                    let cputype = arch.cputype;
                     if cputype == CPU_TYPE_ARM64 {
                         arm64_slice = Some((arch.offset as usize, arch.size as usize));
                     } else if cputype == CPU_TYPE_X86_64 {
@@ -129,7 +130,7 @@ pub fn parse_bytes(bytes: Vec<u8>, path: &Path) -> Result<ParsedMachO, ParseErro
                     None => {
                         return Err(ParseError::NoSupportedSlice {
                             path: path.to_path_buf(),
-                        })
+                        });
                     }
                 }
             }
@@ -159,7 +160,7 @@ pub fn parse_bytes(bytes: Vec<u8>, path: &Path) -> Result<ParsedMachO, ParseErro
 /// The `bytes` field of the result is left empty; the caller fills it in.
 fn extract(macho: &MachO<'_>, path: &Path) -> Result<ParsedMachO, ParseError> {
     // Validate architecture: must be x86_64 or ARM64.
-    let cputype = macho.header.cputype as u32;
+    let cputype = macho.header.cputype;
     let cpu_arch = match cputype {
         CPU_TYPE_X86_64 => CpuArch::X86_64,
         CPU_TYPE_ARM64 => CpuArch::AArch64,
@@ -239,11 +240,9 @@ fn extract(macho: &MachO<'_>, path: &Path) -> Result<ParsedMachO, ParseError> {
     // Extract symbols.
     let mut symbols = HashMap::new();
     if let Some(ref symtab) = macho.symbols {
-        for sym in symtab.iter() {
-            if let Ok((name, nlist)) = sym {
-                if nlist.n_value != 0 {
-                    symbols.insert(nlist.n_value, name.to_string());
-                }
+        for (name, nlist) in symtab.iter().flatten() {
+            if nlist.n_value != 0 {
+                symbols.insert(nlist.n_value, name.to_string());
             }
         }
     }

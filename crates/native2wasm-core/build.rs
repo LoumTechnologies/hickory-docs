@@ -7,8 +7,7 @@ fn main() {
     // compile but `lifter::lift()` will fail at link time unless the bridge
     // symbols are provided. This allows `cargo build` to succeed for
     // non-lifting modules (pipeline config, shim management, etc.).
-    let remill_prefix =
-        env::var("REMILL_PREFIX").unwrap_or_else(|_| "/usr/local".to_string());
+    let remill_prefix = env::var("REMILL_PREFIX").unwrap_or_else(|_| "/usr/local".to_string());
 
     let remill_include = PathBuf::from(&remill_prefix).join("include/remill/Arch/Arch.h");
 
@@ -72,15 +71,12 @@ fn main() {
 
         // Link LLVM shared library.
         // Use rustc-link-arg to ensure -L comes before -l in the link line.
-        let llvm_prefix = env::var("LLVM_PREFIX")
-            .unwrap_or_else(|_| "/usr/local/Cellar/llvm/21.1.8".to_string());
+        let llvm_prefix =
+            env::var("LLVM_PREFIX").unwrap_or_else(|_| "/usr/local/Cellar/llvm/21.1.8".to_string());
         let llvm_lib_dir = PathBuf::from(&llvm_prefix).join("lib");
         if llvm_lib_dir.exists() {
             println!("cargo:rustc-link-arg=-L{}", llvm_lib_dir.display());
-            println!(
-                "cargo:rustc-link-arg=-Wl,-rpath,{}",
-                llvm_lib_dir.display()
-            );
+            println!("cargo:rustc-link-arg=-Wl,-rpath,{}", llvm_lib_dir.display());
         }
         println!("cargo:rustc-link-arg=-lLLVM");
 

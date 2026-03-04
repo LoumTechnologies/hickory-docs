@@ -44,7 +44,7 @@ pub fn resolve_semantics_dir(explicit: Option<&Path>) -> Result<PathBuf> {
                 })
                 .collect();
             // Sort descending so we pick the highest version.
-            versioned.sort_by(|a, b| b.file_name().cmp(&a.file_name()));
+            versioned.sort_by_key(|b| std::cmp::Reverse(b.file_name()));
             for entry in versioned {
                 let sem = entry.path().join("semantics");
                 if sem.exists() {

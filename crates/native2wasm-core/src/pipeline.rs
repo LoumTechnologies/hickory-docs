@@ -45,8 +45,7 @@ pub fn run_pipeline(binary: &dyn ParsedBinary, config: &PipelineConfig) -> Resul
     // 2. Lift native code → LLVM IR via Remill.
     let cpu_arch = binary.cpu_arch();
     log::info!("lifting {} code via Remill...", cpu_arch);
-    let lifted =
-        lifter::lift(binary, &semantics_dir).context("remill lifting failed")?;
+    let lifted = lifter::lift(binary, &semantics_dir).context("remill lifting failed")?;
 
     // 3. If --emit-llvm, write .ll and return early.
     if config.emit_llvm {

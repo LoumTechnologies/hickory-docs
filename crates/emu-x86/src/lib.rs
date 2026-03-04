@@ -32,9 +32,10 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 
 use emu_core::cache;
+use emu_core::loader;
 use emu_core::provider::EmulatorProvider;
 use native2wasm_core::target::{CpuArch, OsTarget};
 
@@ -117,16 +118,12 @@ impl EmulatorProvider for BlinkProvider {
 
     fn prepare_guest_fs(&self, binary: &Path, workdir: &Path) -> Result<PathBuf> {
         let guest_dir = workdir.join("guest");
-        fs::create_dir_all(&guest_dir)
-            .context("failed to create guest directory")?;
+        fs::create_dir_all(&guest_dir).context("failed to create guest directory")?;
 
         // Copy the target binary into the guest filesystem.
         let dest = guest_dir.join("binary");
         fs::copy(binary, &dest)
-            .with_context(|| format!(
-                "failed to copy {} to guest filesystem",
-                binary.display()
-            ))?;
+            .with_context(|| format!("failed to copy {} to guest filesystem", binary.display()))?;
 
         // Make the binary executable (on platforms that support it).
         #[cfg(unix)]
@@ -179,11 +176,15 @@ pub struct BlinkMachoProvider {
 
 impl BlinkMachoProvider {
     pub fn new() -> Self {
-        Self { explicit_path: None }
+        Self {
+            explicit_path: None,
+        }
     }
 
     pub fn with_path(path: PathBuf) -> Self {
-        Self { explicit_path: Some(path) }
+        Self {
+            explicit_path: Some(path),
+        }
     }
 }
 
@@ -238,16 +239,12 @@ impl EmulatorProvider for BlinkMachoProvider {
 
     fn prepare_guest_fs(&self, binary: &Path, workdir: &Path) -> Result<PathBuf> {
         let guest_dir = workdir.join("guest");
-        fs::create_dir_all(&guest_dir)
-            .context("failed to create guest directory")?;
+        fs::create_dir_all(&guest_dir).context("failed to create guest directory")?;
 
         // Place the Mach-O binary for the loader to read.
         let dest = guest_dir.join("binary");
         fs::copy(binary, &dest)
-            .with_context(|| format!(
-                "failed to copy {} to guest filesystem",
-                binary.display()
-            ))?;
+            .with_context(|| format!("failed to copy {} to guest filesystem", binary.display()))?;
 
         #[cfg(unix)]
         {
@@ -255,10 +252,23 @@ impl EmulatorProvider for BlinkMachoProvider {
             let _ = fs::set_permissions(&dest, fs::Permissions::from_mode(0o755));
         }
 
+        // Copy the Mach-O loader shim into the guest filesystem.
+        if let Ok(loader_path) = loader::locate_loader("macho_loader") {
+            let loader_dest = guest_dir.join("loader");
+            fs::copy(&loader_path, &loader_dest)
+                .context("failed to copy macho_loader to guest filesystem")?;
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let _ = fs::set_permissions(&loader_dest, fs::Permissions::from_mode(0o755));
+            }
+        } else {
+            log::warn!("macho_loader not found; run scripts/build-loaders.sh");
+        }
+
         // Create stub library directory.
         let lib_dir = guest_dir.join("lib");
-        fs::create_dir_all(&lib_dir)
-            .context("failed to create guest lib directory")?;
+        fs::create_dir_all(&lib_dir).context("failed to create guest lib directory")?;
 
         // Write the XNU syscall translation map for the loader.
         write_xnu_syscall_map(&guest_dir)?;
@@ -350,7 +360,6 @@ fn write_xnu_syscall_map(guest_dir: &Path) -> Result<()> {
     Ok(())
 }
 
-
 // ---------------------------------------------------------------------------
 // Windows x86_64 emulation provider (blink + PE loader shim)
 // ---------------------------------------------------------------------------
@@ -375,11 +384,15 @@ pub struct BlinkPeProvider {
 
 impl BlinkPeProvider {
     pub fn new() -> Self {
-        Self { explicit_path: None }
+        Self {
+            explicit_path: None,
+        }
     }
 
     pub fn with_path(path: PathBuf) -> Self {
-        Self { explicit_path: Some(path) }
+        Self {
+            explicit_path: Some(path),
+        }
     }
 }
 
@@ -431,16 +444,12 @@ impl EmulatorProvider for BlinkPeProvider {
 
     fn prepare_guest_fs(&self, binary: &Path, workdir: &Path) -> Result<PathBuf> {
         let guest_dir = workdir.join("guest");
-        fs::create_dir_all(&guest_dir)
-            .context("failed to create guest directory")?;
+        fs::create_dir_all(&guest_dir).context("failed to create guest directory")?;
 
         // Place the PE binary for the loader to read.
         let dest = guest_dir.join("binary");
         fs::copy(binary, &dest)
-            .with_context(|| format!(
-                "failed to copy {} to guest filesystem",
-                binary.display()
-            ))?;
+            .with_context(|| format!("failed to copy {} to guest filesystem", binary.display()))?;
 
         #[cfg(unix)]
         {
@@ -448,10 +457,23 @@ impl EmulatorProvider for BlinkPeProvider {
             let _ = fs::set_permissions(&dest, fs::Permissions::from_mode(0o755));
         }
 
+        // Copy the PE loader shim into the guest filesystem.
+        if let Ok(loader_path) = loader::locate_loader("pe_loader") {
+            let loader_dest = guest_dir.join("loader");
+            fs::copy(&loader_path, &loader_dest)
+                .context("failed to copy pe_loader to guest filesystem")?;
+            #[cfg(unix)]
+            {
+                use std::os::unix::fs::PermissionsExt;
+                let _ = fs::set_permissions(&loader_dest, fs::Permissions::from_mode(0o755));
+            }
+        } else {
+            log::warn!("pe_loader not found; run scripts/build-loaders.sh");
+        }
+
         // Create stub DLL directory.
         let dll_dir = guest_dir.join("system32");
-        fs::create_dir_all(&dll_dir)
-            .context("failed to create guest system32 directory")?;
+        fs::create_dir_all(&dll_dir).context("failed to create guest system32 directory")?;
 
         // Write the Win32 API translation map for the loader.
         write_win32_api_map(&guest_dir)?;
@@ -515,7 +537,6 @@ ntdll.dll NtTerminateProcess 60 exit
     fs::write(&map_path, map).context("failed to write Win32 API map")?;
     Ok(())
 }
-
 
 #[cfg(test)]
 mod tests {

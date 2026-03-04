@@ -63,8 +63,7 @@ pub fn optimize_bc(
 /// `p:32:32` makes pointers 32-bit (wasm32's linear memory address space).
 /// `p10:8:8` and `p20:8:8` are wasm-specific address spaces (externref, funcref).
 /// `ni:1:10:20` marks those as non-integral (can't be ptrtoint'd).
-const WASM32_DATALAYOUT: &str =
-    "e-m:e-p:32:32-p10:8:8-p20:8:8-i64:64-n32:64-S128-ni:1:10:20";
+const WASM32_DATALAYOUT: &str = "e-m:e-p:32:32-p10:8:8-p20:8:8-i64:64-n32:64-S128-ni:1:10:20";
 const WASM32_TRIPLE: &str = "wasm32-unknown-wasi";
 
 /// Retarget the LLVM IR module from x86_64 to wasm32-wasi.
@@ -109,19 +108,18 @@ fn inject_start_wrapper(ll_text: &str, entry_point: u64, cpu_arch: CpuArch) -> S
     let mut entry_func_name = None;
 
     for line in ll_text.lines() {
-        if line.starts_with("define ") {
-            if let Some(at_pos) = line.find('@') {
-                if let Some(paren_pos) = line[at_pos..].find('(') {
-                    let name = &line[at_pos..at_pos + paren_pos];
-                    // Match exact or with .N suffix
-                    if name == entry_name_prefix
-                        || (name.starts_with(&entry_name_prefix)
-                            && name[entry_name_prefix.len()..].starts_with('.'))
-                    {
-                        entry_func_name = Some(name.to_string());
-                        break;
-                    }
-                }
+        if line.starts_with("define ")
+            && let Some(at_pos) = line.find('@')
+            && let Some(paren_pos) = line[at_pos..].find('(')
+        {
+            let name = &line[at_pos..at_pos + paren_pos];
+            // Match exact or with .N suffix
+            if name == entry_name_prefix
+                || (name.starts_with(&entry_name_prefix)
+                    && name[entry_name_prefix.len()..].starts_with('.'))
+            {
+                entry_func_name = Some(name.to_string());
+                break;
             }
         }
     }
@@ -140,7 +138,9 @@ fn inject_start_wrapper(ll_text: &str, entry_point: u64, cpu_arch: CpuArch) -> S
     let state_size = cpu_arch.state_struct_size();
     log::info!(
         "Injecting _start wrapper calling {} (State size: {} bytes for {})",
-        entry_func, state_size, cpu_arch
+        entry_func,
+        state_size,
+        cpu_arch
     );
 
     let start_wrapper = format!(
@@ -183,29 +183,28 @@ fn stub_unsupported_arch_functions(ll_text: &str, cpu_arch: CpuArch) -> String {
     let mut in_body = false;
 
     for line in ll_text.lines() {
-        if line.starts_with("define ") && line.ends_with('{') {
-            // Extract the function name: @name(
-            if let Some(at_pos) = line.find('@') {
-                if let Some(paren_pos) = line[at_pos..].find('(') {
-                    let name = &line[at_pos..at_pos + paren_pos];
-                    current_func = Some(name.to_string());
-                    in_body = true;
-                    if has_unsupported_feature(line, cpu_arch) {
-                        unsupported_functions.insert(name.to_string());
-                    }
-                    continue;
-                }
+        if line.starts_with("define ")
+            && line.ends_with('{')
+            && let Some(at_pos) = line.find('@')
+            && let Some(paren_pos) = line[at_pos..].find('(')
+        {
+            let name = &line[at_pos..at_pos + paren_pos];
+            current_func = Some(name.to_string());
+            in_body = true;
+            if has_unsupported_feature(line, cpu_arch) {
+                unsupported_functions.insert(name.to_string());
             }
+            continue;
         }
 
         if in_body {
             if line.trim() == "}" {
                 current_func = None;
                 in_body = false;
-            } else if let Some(ref name) = current_func {
-                if has_unsupported_feature(line, cpu_arch) {
-                    unsupported_functions.insert(name.clone());
-                }
+            } else if let Some(ref name) = current_func
+                && has_unsupported_feature(line, cpu_arch)
+            {
+                unsupported_functions.insert(name.clone());
             }
         }
     }
@@ -244,7 +243,7 @@ fn stub_unsupported_arch_functions(ll_text: &str, cpu_arch: CpuArch) -> String {
                 result.push_str("}\n");
                 // Skip original body
                 let mut brace_depth: i32 = 1;
-                while let Some(body_line) = lines.next() {
+                for body_line in lines.by_ref() {
                     for ch in body_line.chars() {
                         if ch == '{' {
                             brace_depth += 1;

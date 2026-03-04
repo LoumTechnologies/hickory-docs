@@ -12,7 +12,7 @@ use std::fs;
 use std::path::Path;
 use std::process::Command;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 
 use cli::Cli;
 
@@ -110,10 +110,14 @@ pub fn run(cli: Cli) -> Result<()> {
     }
 
     if cli.to_js && !dest_file.is_empty() {
-        bail!("output destination must be a slash-terminated directory path when using \"to-js\" option");
+        bail!(
+            "output destination must be a slash-terminated directory path when using \"to-js\" option"
+        );
     }
     if cli.target_stage.is_some() && !dest_file.is_empty() {
-        bail!("output destination must be a slash-terminated directory path when using \"target-stage\" option");
+        bail!(
+            "output destination must be a slash-terminated directory path when using \"target-stage\" option"
+        );
     }
     if cli.assets.is_some() && legacy {
         bail!("\"assets\" unsupported on docker build as of now; install docker buildx instead");

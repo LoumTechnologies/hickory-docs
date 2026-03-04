@@ -12,7 +12,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 
 use crate::provider::EmulatorProvider;
 
@@ -31,10 +31,7 @@ pub struct EmulationConfig<'a> {
 /// 1. Resolve emulator WASM binary
 /// 2. Prepare guest filesystem
 /// 3. Pack via wasi-vfs into final output
-pub fn run_emulation(
-    provider: &dyn EmulatorProvider,
-    config: &EmulationConfig<'_>,
-) -> Result<()> {
+pub fn run_emulation(provider: &dyn EmulatorProvider, config: &EmulationConfig<'_>) -> Result<()> {
     // 1. Resolve emulator WASM.
     let emulator_wasm = if let Some(explicit) = config.emulator_path {
         if !explicit.exists() {
@@ -47,7 +44,8 @@ pub fn run_emulation(
         explicit.to_path_buf()
     } else {
         log::info!("resolving {} emulator WASM...", provider.name());
-        provider.emulator_wasm()
+        provider
+            .emulator_wasm()
             .with_context(|| format!("failed to resolve {} emulator", provider.name()))?
     };
 
@@ -57,7 +55,8 @@ pub fn run_emulation(
     let workdir = tempfile::tempdir().context("failed to create temp dir")?;
 
     log::info!("preparing guest filesystem...");
-    let guest_dir = provider.prepare_guest_fs(config.input, workdir.path())
+    let guest_dir = provider
+        .prepare_guest_fs(config.input, workdir.path())
         .context("failed to prepare guest filesystem")?;
 
     log::info!("guest filesystem at {}", guest_dir.display());
@@ -66,9 +65,7 @@ pub fn run_emulation(
     pack_with_wasi_vfs(&emulator_wasm, &guest_dir, config.output)
         .context("wasi-vfs packing failed")?;
 
-    let wasm_size = fs::metadata(config.output)
-        .map(|m| m.len())
-        .unwrap_or(0);
+    let wasm_size = fs::metadata(config.output).map(|m| m.len()).unwrap_or(0);
     log::info!(
         "done: {} ({} bytes, strategy=emu/{})",
         config.output.display(),
@@ -85,11 +82,7 @@ pub fn run_emulation(
 /// filesystem into the module's data section. The emulator accesses the
 /// guest binary via WASI filesystem operations, which wasi-vfs intercepts
 /// and serves from the embedded data.
-fn pack_with_wasi_vfs(
-    emulator_wasm: &Path,
-    guest_dir: &Path,
-    output: &Path,
-) -> Result<()> {
+fn pack_with_wasi_vfs(emulator_wasm: &Path, guest_dir: &Path, output: &Path) -> Result<()> {
     let wasi_vfs = find_wasi_vfs()?;
 
     let mut cmd = Command::new(&wasi_vfs);

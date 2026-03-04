@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use goblin::elf::Elf;
-use goblin::elf::header::{EM_X86_64, EM_AARCH64, ET_EXEC, ET_DYN};
+use goblin::elf::header::{EM_AARCH64, EM_X86_64, ET_DYN, ET_EXEC};
 use goblin::elf::program_header::PT_LOAD;
 use goblin::elf::section_header::{SHF_EXECINSTR, SHF_WRITE, SHT_NOBITS, SHT_PROGBITS};
 
@@ -101,7 +101,12 @@ pub fn parse(path: &Path) -> Result<ParsedELF, ParseError> {
 /// Parse an ELF from raw bytes.
 pub fn parse_bytes(bytes: Vec<u8>, path: &Path) -> Result<ParsedELF, ParseError> {
     // Validate ELF magic: 0x7F 'E' 'L' 'F'.
-    if bytes.len() < 4 || bytes[0] != 0x7F || bytes[1] != b'E' || bytes[2] != b'L' || bytes[3] != b'F' {
+    if bytes.len() < 4
+        || bytes[0] != 0x7F
+        || bytes[1] != b'E'
+        || bytes[2] != b'L'
+        || bytes[3] != b'F'
+    {
         return Err(ParseError::NotELF {
             path: path.to_path_buf(),
         });
@@ -149,7 +154,7 @@ pub fn parse_bytes(bytes: Vec<u8>, path: &Path) -> Result<ParsedELF, ParseError>
 
         let flags = sh.sh_flags as u32;
 
-        if flags & SHF_EXECINSTR as u32 != 0 && sh.sh_type == SHT_PROGBITS {
+        if flags & SHF_EXECINSTR != 0 && sh.sh_type == SHT_PROGBITS {
             // Code section (e.g. .text, .init, .fini).
             let data = extract_section_data(&bytes, sh);
             code_sections.push(CodeSection {
@@ -168,7 +173,7 @@ pub fn parse_bytes(bytes: Vec<u8>, path: &Path) -> Result<ParsedELF, ParseError>
             });
         } else if sh.sh_type == SHT_PROGBITS {
             // Data section (.data, .rodata, etc.).
-            let writable = flags & SHF_WRITE as u32 != 0;
+            let writable = flags & SHF_WRITE != 0;
             let data = extract_section_data(&bytes, sh);
             if !data.is_empty() {
                 data_sections.push(DataSection {
@@ -206,31 +211,27 @@ pub fn parse_bytes(bytes: Vec<u8>, path: &Path) -> Result<ParsedELF, ParseError>
     // Extract symbols from the symbol table.
     let mut symbols = HashMap::new();
     for sym in &elf.syms {
-        if sym.st_value != 0 {
-            if let Some(name) = elf.strtab.get_at(sym.st_name) {
-                if !name.is_empty() {
-                    symbols.insert(sym.st_value, name.to_string());
-                }
-            }
+        if sym.st_value != 0
+            && let Some(name) = elf.strtab.get_at(sym.st_name)
+            && !name.is_empty()
+        {
+            symbols.insert(sym.st_value, name.to_string());
         }
     }
     // Also check dynamic symbols.
     for sym in &elf.dynsyms {
-        if sym.st_value != 0 {
-            if let Some(name) = elf.dynstrtab.get_at(sym.st_name) {
-                if !name.is_empty() {
-                    symbols.entry(sym.st_value).or_insert_with(|| name.to_string());
-                }
-            }
+        if sym.st_value != 0
+            && let Some(name) = elf.dynstrtab.get_at(sym.st_name)
+            && !name.is_empty()
+        {
+            symbols
+                .entry(sym.st_value)
+                .or_insert_with(|| name.to_string());
         }
     }
 
     // Collect shared library dependencies (DT_NEEDED entries).
-    let shared_libs: Vec<String> = elf
-        .libraries
-        .iter()
-        .map(|s| s.to_string())
-        .collect();
+    let shared_libs: Vec<String> = elf.libraries.iter().map(|s| s.to_string()).collect();
     let is_static = shared_libs.is_empty();
 
     Ok(ParsedELF {
@@ -247,10 +248,7 @@ pub fn parse_bytes(bytes: Vec<u8>, path: &Path) -> Result<ParsedELF, ParseError>
 }
 
 /// Extract raw section data from the ELF file bytes.
-fn extract_section_data(
-    file_bytes: &[u8],
-    sh: &goblin::elf::SectionHeader,
-) -> Vec<u8> {
+fn extract_section_data(file_bytes: &[u8], sh: &goblin::elf::SectionHeader) -> Vec<u8> {
     let offset = sh.sh_offset as usize;
     let size = sh.sh_size as usize;
 
