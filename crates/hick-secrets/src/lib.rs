@@ -7,8 +7,12 @@ pub mod cache;
 pub mod chain;
 pub mod env;
 
+/// Thread-safe TTL cache for secrets, backed by zeroize-on-drop [`secrecy::SecretString`] values.
 pub use cache::SecretCache;
+/// Composite provider that tries multiple [`SecretsProvider`] backends in order,
+/// falling through on [`SecretsError::NotFound`].
 pub use chain::SecretsProviderChain;
+/// [`SecretsProvider`] that reads secrets from host environment variables.
 pub use env::EnvSecretsProvider;
 
 use std::io::Read;
