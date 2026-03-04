@@ -46,6 +46,7 @@ struct DataSectionInfo {
 struct RemillContextImpl {
     std::string semantics_dir;
     std::string os_name;
+    std::string arch_name;
     std::string syscall_symbol;
     std::vector<CodeRegion> code_regions;
     std::vector<DataSectionInfo> data_sections;
@@ -119,10 +120,12 @@ extern "C" {
 
 RemillContext *remill_context_create(const char *semantics_dir,
                                      const char *os_name,
+                                     const char *arch_name,
                                      const char *syscall_symbol) {
     auto ctx = new RemillContextImpl();
     ctx->semantics_dir = semantics_dir ? semantics_dir : "";
     ctx->os_name = os_name ? os_name : "macos";
+    ctx->arch_name = arch_name ? arch_name : "amd64";
     ctx->syscall_symbol = syscall_symbol ? syscall_symbol : "__mach2wasm_syscall";
     return reinterpret_cast<RemillContext *>(ctx);
 }
@@ -171,11 +174,11 @@ RemillModule *remill_lift(RemillContext *ctx_opaque) {
     try {
         auto llvm_ctx = std::make_unique<llvm::LLVMContext>();
 
-        /* Get the x86_64 architecture for the specified OS. */
-        auto arch = remill::Arch::Get(*llvm_ctx, ctx->os_name, "amd64");
+        /* Get the architecture for the specified OS. */
+        auto arch = remill::Arch::Get(*llvm_ctx, ctx->os_name, ctx->arch_name);
         if (!arch) {
-            ctx->last_error = "failed to get x86_64 " + ctx->os_name +
-                              " arch from Remill";
+            ctx->last_error = "failed to get " + ctx->arch_name + " " +
+                              ctx->os_name + " arch from Remill";
             return nullptr;
         }
 

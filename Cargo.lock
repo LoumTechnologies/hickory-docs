@@ -1706,6 +1706,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "native2wasm"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "clap",
+ "elf2wasm",
+ "env_logger",
+ "goblin",
+ "log",
+ "mach2wasm",
+ "native2wasm-core",
+ "pe2wasm",
+]
+
+[[package]]
 name = "native2wasm-core"
 version = "0.1.0"
 dependencies = [

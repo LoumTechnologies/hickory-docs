@@ -26,12 +26,14 @@ typedef void RemillModule;
  * Create a new Remill lifting context.
  * semantics_dir: path to directory containing Remill's .bc semantics files.
  * os_name: Remill OS name ("macos", "windows", "linux").
+ * arch_name: Remill architecture name ("amd64", "aarch64").
  * syscall_symbol: name of the external syscall dispatch function
  *                 (e.g., "__mach2wasm_syscall").
  * Returns NULL on failure.
  */
 RemillContext *remill_context_create(const char *semantics_dir,
                                      const char *os_name,
+                                     const char *arch_name,
                                      const char *syscall_symbol);
 
 /* Destroy a lifting context. */

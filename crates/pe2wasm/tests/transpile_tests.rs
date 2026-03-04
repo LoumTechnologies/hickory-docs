@@ -24,16 +24,15 @@ fn reject_mz_only() {
     assert!(result.is_err());
 }
 
-/// Test that a minimal PE header with wrong COFF machine type is rejected.
+/// Test that a minimal PE header with unsupported COFF machine type is rejected.
 #[test]
 fn reject_wrong_machine() {
-    // Build a minimal PE with machine type = ARM64 (0xAA64).
-    // This is enough structure for goblin to parse the COFF header.
-    let pe_bytes = build_minimal_pe(0xAA64);
-    let result = pe2wasm::pe::parse_bytes(pe_bytes, Path::new("arm64.exe"));
+    // Build a minimal PE with machine type = i386 (0x014C), unsupported 32-bit.
+    let pe_bytes = build_minimal_pe(0x014C);
+    let result = pe2wasm::pe::parse_bytes(pe_bytes, Path::new("i386.exe"));
     assert!(result.is_err());
     let msg = format!("{}", result.unwrap_err());
-    assert!(msg.contains("machine=0xaa64") || msg.contains("unsupported"));
+    assert!(msg.contains("machine=0x014c") || msg.contains("unsupported"));
 }
 
 /// Verify CLI parsing works.
@@ -77,7 +76,7 @@ fn error_display() {
     };
     let msg = format!("{err}");
     assert!(msg.contains("arm64"));
-    assert!(msg.contains("x86_64"));
+    assert!(msg.contains("supported"));
 
     let err = ParseError::NoEntryPoint;
     let msg = format!("{err}");

@@ -42,8 +42,9 @@ pub fn run_pipeline(binary: &dyn ParsedBinary, config: &PipelineConfig) -> Resul
     // 1. Resolve semantics directory.
     let semantics_dir = semantics::resolve_semantics_dir(config.semantics_dir.as_deref())?;
 
-    // 2. Lift x86_64 → LLVM IR via Remill.
-    log::info!("lifting x86_64 code via Remill...");
+    // 2. Lift native code → LLVM IR via Remill.
+    let cpu_arch = binary.cpu_arch();
+    log::info!("lifting {} code via Remill...", cpu_arch);
     let lifted =
         lifter::lift(binary, &semantics_dir).context("remill lifting failed")?;
 
@@ -74,7 +75,7 @@ pub fn run_pipeline(binary: &dyn ParsedBinary, config: &PipelineConfig) -> Resul
     //    (e.g. x87 BCD ops that use float80_t and can't be lowered to wasm32).
     log::info!("optimizing bitcode (stripping dead functions)...");
     let opt_bc_path = tmp_dir.path().join("lifted_opt.bc");
-    linker::optimize_bc(&bc_path, &opt_bc_path, binary.entry_point())
+    linker::optimize_bc(&bc_path, &opt_bc_path, binary.entry_point(), cpu_arch)
         .context("bitcode optimization failed")?;
 
     // 7. Compile LLVM bitcode → wasm32 object via llc.

@@ -5,10 +5,13 @@ use goblin::pe::PE;
 use goblin::pe::section_table::IMAGE_SCN_CNT_CODE;
 
 use native2wasm_core::binary::{CodeSection, DataSection, ParsedBinary};
-use native2wasm_core::target::OsTarget;
+use native2wasm_core::target::{CpuArch, OsTarget};
 
 /// IMAGE_FILE_MACHINE_AMD64
 const MACHINE_AMD64: u16 = 0x8664;
+
+/// IMAGE_FILE_MACHINE_ARM64
+const MACHINE_ARM64: u16 = 0xAA64;
 
 /// IMAGE_SCN_CNT_UNINITIALIZED_DATA
 const IMAGE_SCN_CNT_UNINITIALIZED_DATA: u32 = 0x00000080;
@@ -22,7 +25,7 @@ const DEFAULT_IMAGE_BASE_64: u64 = 0x0000_0001_4000_0000;
 /// OS-specific parse error type.
 #[derive(Debug, thiserror::Error)]
 pub enum ParseError {
-    #[error("unsupported architecture: {arch} (only x86_64 is supported)")]
+    #[error("unsupported architecture: {arch} (supported: x86_64, ARM64)")]
     UnsupportedArch { arch: String },
 
     #[error("not a PE binary: {path}")]
@@ -41,11 +44,12 @@ pub enum ParseError {
     Io(#[from] std::io::Error),
 }
 
-/// Parsed representation of a PE x86_64 binary.
+/// Parsed representation of a PE binary (x86_64 or ARM64).
 #[derive(Debug)]
 pub struct ParsedPE {
     pub bytes: Vec<u8>,
     pub arch: String,
+    pub cpu_arch: CpuArch,
     pub entry_point: u64,
     pub code_sections: Vec<CodeSection>,
     pub data_sections: Vec<DataSection>,
@@ -61,6 +65,10 @@ impl ParsedBinary for ParsedPE {
 
     fn arch(&self) -> &str {
         &self.arch
+    }
+
+    fn cpu_arch(&self) -> CpuArch {
+        self.cpu_arch
     }
 
     fn entry_point(&self) -> u64 {
@@ -116,13 +124,17 @@ pub fn parse_bytes(bytes: Vec<u8>, path: &Path) -> Result<ParsedPE, ParseError> 
         });
     }
 
-    // Validate architecture: must be x86_64 (IMAGE_FILE_MACHINE_AMD64).
+    // Validate architecture: must be x86_64 or ARM64.
     let machine = pe.header.coff_header.machine;
-    if machine != MACHINE_AMD64 {
-        return Err(ParseError::UnsupportedArch {
-            arch: format!("machine=0x{machine:04x}"),
-        });
-    }
+    let cpu_arch = match machine {
+        MACHINE_AMD64 => CpuArch::X86_64,
+        MACHINE_ARM64 => CpuArch::AArch64,
+        other => {
+            return Err(ParseError::UnsupportedArch {
+                arch: format!("machine=0x{other:04x}"),
+            });
+        }
+    };
 
     // Entry point: RVA + image base.
     let image_base = pe
@@ -211,7 +223,8 @@ pub fn parse_bytes(bytes: Vec<u8>, path: &Path) -> Result<ParsedPE, ParseError> 
 
     Ok(ParsedPE {
         bytes,
-        arch: "x86_64".to_string(),
+        arch: cpu_arch.display_name().to_string(),
+        cpu_arch,
         entry_point,
         code_sections,
         data_sections,

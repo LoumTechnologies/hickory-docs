@@ -20,6 +20,16 @@ static OS_SOURCES: &[(&str, &[u8])] = &[
     ("shim_misc.c", include_bytes!("../shims/shim_misc.c")),
 ];
 
+/// Access OS-specific headers for use by the unified CLI.
+pub fn os_headers() -> &'static [(&'static str, &'static [u8])] {
+    OS_HEADERS
+}
+
+/// Access OS-specific sources for use by the unified CLI.
+pub fn os_sources() -> &'static [(&'static str, &'static [u8])] {
+    OS_SOURCES
+}
+
 /// Run the full CLI pipeline.
 pub fn run(cli: Cli) -> Result<()> {
     // 1. Parse Mach-O.

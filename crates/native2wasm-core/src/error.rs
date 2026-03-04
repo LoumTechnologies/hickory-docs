@@ -1,7 +1,7 @@
 /// Errors produced during native → WASI transpilation.
 #[derive(Debug, thiserror::Error)]
 pub enum CoreError {
-    #[error("unsupported architecture: {arch} (only x86_64 is supported)")]
+    #[error("unsupported architecture: {arch} (supported: x86_64, AArch64)")]
     UnsupportedArch { arch: String },
 
     #[error("no entry point found in binary")]

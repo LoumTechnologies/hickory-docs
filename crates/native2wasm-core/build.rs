@@ -105,8 +105,8 @@ fn main() {
 typedef void RemillContext;
 typedef void RemillModule;
 
-RemillContext *remill_context_create(const char *d, const char *os, const char *sym) {
-    (void)d; (void)os; (void)sym; return NULL;
+RemillContext *remill_context_create(const char *d, const char *os, const char *arch, const char *sym) {
+    (void)d; (void)os; (void)arch; (void)sym; return NULL;
 }
 void remill_context_destroy(RemillContext *c) { (void)c; }
 void remill_add_code_region(RemillContext *c, const char *n, uint64_t v,

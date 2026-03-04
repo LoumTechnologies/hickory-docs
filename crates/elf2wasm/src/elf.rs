@@ -2,17 +2,17 @@ use std::collections::HashMap;
 use std::path::Path;
 
 use goblin::elf::Elf;
-use goblin::elf::header::{EM_X86_64, ET_EXEC, ET_DYN};
+use goblin::elf::header::{EM_X86_64, EM_AARCH64, ET_EXEC, ET_DYN};
 use goblin::elf::program_header::PT_LOAD;
 use goblin::elf::section_header::{SHF_EXECINSTR, SHF_WRITE, SHT_NOBITS, SHT_PROGBITS};
 
 use native2wasm_core::binary::{CodeSection, DataSection, ParsedBinary};
-use native2wasm_core::target::OsTarget;
+use native2wasm_core::target::{CpuArch, OsTarget};
 
 /// OS-specific parse error type.
 #[derive(Debug, thiserror::Error)]
 pub enum ParseError {
-    #[error("unsupported architecture: {arch} (only x86_64 is supported)")]
+    #[error("unsupported architecture: {arch} (supported: x86_64, AArch64)")]
     UnsupportedArch { arch: String },
 
     #[error("not an ELF binary: {path}")]
@@ -31,11 +31,12 @@ pub enum ParseError {
     Io(#[from] std::io::Error),
 }
 
-/// Parsed representation of an ELF x86_64 binary.
+/// Parsed representation of an ELF binary (x86_64 or AArch64).
 #[derive(Debug)]
 pub struct ParsedELF {
     pub bytes: Vec<u8>,
     pub arch: String,
+    pub cpu_arch: CpuArch,
     pub entry_point: u64,
     pub code_sections: Vec<CodeSection>,
     pub data_sections: Vec<DataSection>,
@@ -51,6 +52,10 @@ impl ParsedBinary for ParsedELF {
 
     fn arch(&self) -> &str {
         &self.arch
+    }
+
+    fn cpu_arch(&self) -> CpuArch {
+        self.cpu_arch
     }
 
     fn entry_point(&self) -> u64 {
@@ -106,12 +111,16 @@ pub fn parse_bytes(bytes: Vec<u8>, path: &Path) -> Result<ParsedELF, ParseError>
         path: path.to_path_buf(),
     })?;
 
-    // Validate architecture: must be x86_64 (EM_X86_64 = 0x3E).
-    if elf.header.e_machine != EM_X86_64 {
-        return Err(ParseError::UnsupportedArch {
-            arch: format!("e_machine=0x{:04x}", elf.header.e_machine),
-        });
-    }
+    // Validate architecture: must be x86_64 or AArch64.
+    let cpu_arch = match elf.header.e_machine {
+        EM_X86_64 => CpuArch::X86_64,
+        EM_AARCH64 => CpuArch::AArch64,
+        other => {
+            return Err(ParseError::UnsupportedArch {
+                arch: format!("e_machine=0x{other:04x}"),
+            });
+        }
+    };
 
     // Validate file type: must be executable or position-independent executable.
     if elf.header.e_type != ET_EXEC && elf.header.e_type != ET_DYN {
@@ -226,7 +235,8 @@ pub fn parse_bytes(bytes: Vec<u8>, path: &Path) -> Result<ParsedELF, ParseError>
 
     Ok(ParsedELF {
         bytes,
-        arch: "x86_64".to_string(),
+        arch: cpu_arch.display_name().to_string(),
+        cpu_arch,
         entry_point,
         code_sections,
         data_sections,

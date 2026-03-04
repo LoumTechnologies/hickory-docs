@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::target::OsTarget;
+use crate::target::{CpuArch, OsTarget};
 
 /// A parsed code section from a native binary.
 #[derive(Debug, Clone)]
@@ -26,6 +26,9 @@ pub trait ParsedBinary {
 
     /// Architecture string (e.g., "x86_64").
     fn arch(&self) -> &str;
+
+    /// CPU architecture enum.
+    fn cpu_arch(&self) -> CpuArch;
 
     /// Entry point virtual address.
     fn entry_point(&self) -> u64;

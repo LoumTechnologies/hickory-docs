@@ -13,6 +13,7 @@ unsafe extern "C" {
     fn remill_context_create(
         semantics_dir: *const c_char,
         os_name: *const c_char,
+        arch_name: *const c_char,
         syscall_symbol: *const c_char,
     ) -> *mut RemillContext;
     fn remill_context_destroy(ctx: *mut RemillContext);
@@ -46,7 +47,7 @@ unsafe extern "C" {
     fn remill_get_error(ctx: *mut RemillContext) -> *const c_char;
 }
 
-/// Result of lifting x86_64 code to LLVM IR via Remill.
+/// Result of lifting native code to LLVM IR via Remill.
 pub struct LiftedModule {
     module: *mut RemillModule,
 }
@@ -93,10 +94,16 @@ impl LiftedModule {
 pub fn lift(binary: &dyn ParsedBinary, semantics_dir: &Path) -> Result<LiftedModule, CoreError> {
     let sem_dir = path_to_cstring(semantics_dir);
     let os_name = CString::new(binary.os_target().remill_os()).unwrap_or_default();
+    let arch_name = CString::new(binary.cpu_arch().remill_arch_name()).unwrap_or_default();
     let syscall_sym = CString::new(binary.os_target().syscall_symbol()).unwrap_or_default();
 
     unsafe {
-        let ctx = remill_context_create(sem_dir.as_ptr(), os_name.as_ptr(), syscall_sym.as_ptr());
+        let ctx = remill_context_create(
+            sem_dir.as_ptr(),
+            os_name.as_ptr(),
+            arch_name.as_ptr(),
+            syscall_sym.as_ptr(),
+        );
         if ctx.is_null() {
             return Err(CoreError::LiftingFailed(
                 "failed to create remill context".into(),

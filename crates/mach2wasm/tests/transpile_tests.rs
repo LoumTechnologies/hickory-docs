@@ -75,5 +75,5 @@ fn error_display() {
     };
     let msg = format!("{err}");
     assert!(msg.contains("arm64"));
-    assert!(msg.contains("x86_64"));
+    assert!(msg.contains("supported"));
 }

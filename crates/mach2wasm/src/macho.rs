@@ -6,19 +6,24 @@ use goblin::mach::{Mach, MachO, header::MH_EXECUTE};
 use native2wasm_core::binary::{
     CodeSection, DataSection, ParsedBinary,
 };
-use native2wasm_core::target::OsTarget;
+use native2wasm_core::target::{CpuArch, OsTarget};
+
+/// CPU_TYPE_X86_64
+const CPU_TYPE_X86_64: u32 = 0x0100_0007;
+/// CPU_TYPE_ARM64
+const CPU_TYPE_ARM64: u32 = 0x0100_000C;
 
 /// OS-specific parse error type.
 #[derive(Debug, thiserror::Error)]
 pub enum ParseError {
-    #[error("unsupported architecture: {arch} (only x86_64 is supported)")]
+    #[error("unsupported architecture: {arch} (supported: x86_64, ARM64)")]
     UnsupportedArch { arch: String },
 
     #[error("not a Mach-O binary: {path}")]
     NotMachO { path: std::path::PathBuf },
 
-    #[error("no x86_64 slice found in universal binary: {path}")]
-    NoX86Slice { path: std::path::PathBuf },
+    #[error("no supported slice found in universal binary: {path}")]
+    NoSupportedSlice { path: std::path::PathBuf },
 
     #[error("no entry point found in Mach-O binary")]
     NoEntryPoint,
@@ -30,11 +35,12 @@ pub enum ParseError {
     Io(#[from] std::io::Error),
 }
 
-/// Parsed representation of a Mach-O x86_64 binary.
+/// Parsed representation of a Mach-O binary (x86_64 or ARM64).
 #[derive(Debug)]
 pub struct ParsedMachO {
     pub bytes: Vec<u8>,
     pub arch: String,
+    pub cpu_arch: CpuArch,
     pub entry_point: u64,
     pub code_sections: Vec<CodeSection>,
     pub data_sections: Vec<DataSection>,
@@ -50,6 +56,10 @@ impl ParsedBinary for ParsedMachO {
 
     fn arch(&self) -> &str {
         &self.arch
+    }
+
+    fn cpu_arch(&self) -> CpuArch {
+        self.cpu_arch
     }
 
     fn entry_point(&self) -> u64 {
@@ -91,7 +101,8 @@ pub fn parse(path: &Path) -> Result<ParsedMachO, ParseError> {
 
 /// Parse a Mach-O from raw bytes.
 pub fn parse_bytes(bytes: Vec<u8>, path: &Path) -> Result<ParsedMachO, ParseError> {
-    // Determine if this is a fat binary and find the x86_64 slice offset/size.
+    // Determine if this is a fat binary and find the best slice.
+    // Prefer ARM64 over x86_64 in universal binaries.
     let slice_range = {
         let mach = Mach::parse(&bytes).map_err(|_| ParseError::NotMachO {
             path: path.to_path_buf(),
@@ -99,21 +110,24 @@ pub fn parse_bytes(bytes: Vec<u8>, path: &Path) -> Result<ParsedMachO, ParseErro
         match mach {
             Mach::Binary(_) => None, // whole file is the binary
             Mach::Fat(fat) => {
-                let mut found = None;
+                let mut arm64_slice = None;
+                let mut x86_64_slice = None;
                 for arch in fat.iter_arches() {
                     let arch = arch.map_err(|_| ParseError::NotMachO {
                         path: path.to_path_buf(),
                     })?;
-                    // CPU_TYPE_X86_64 = 0x01000007
-                    if arch.cputype == 0x0100_0007 {
-                        found = Some((arch.offset as usize, arch.size as usize));
-                        break;
+                    let cputype = arch.cputype as u32;
+                    if cputype == CPU_TYPE_ARM64 {
+                        arm64_slice = Some((arch.offset as usize, arch.size as usize));
+                    } else if cputype == CPU_TYPE_X86_64 {
+                        x86_64_slice = Some((arch.offset as usize, arch.size as usize));
                     }
                 }
-                match found {
+                // Prefer ARM64 slice in universal binaries.
+                match arm64_slice.or(x86_64_slice) {
                     Some(range) => Some(range),
                     None => {
-                        return Err(ParseError::NoX86Slice {
+                        return Err(ParseError::NoSupportedSlice {
                             path: path.to_path_buf(),
                         })
                     }
@@ -144,13 +158,17 @@ pub fn parse_bytes(bytes: Vec<u8>, path: &Path) -> Result<ParsedMachO, ParseErro
 /// Extract all relevant data from a parsed MachO into owned types.
 /// The `bytes` field of the result is left empty; the caller fills it in.
 fn extract(macho: &MachO<'_>, path: &Path) -> Result<ParsedMachO, ParseError> {
-    // Validate architecture: must be x86_64 (cputype 0x01000007).
-    let cputype = macho.header.cputype;
-    if cputype != 0x0100_0007 {
-        return Err(ParseError::UnsupportedArch {
-            arch: format!("cputype=0x{cputype:08x}"),
-        });
-    }
+    // Validate architecture: must be x86_64 or ARM64.
+    let cputype = macho.header.cputype as u32;
+    let cpu_arch = match cputype {
+        CPU_TYPE_X86_64 => CpuArch::X86_64,
+        CPU_TYPE_ARM64 => CpuArch::AArch64,
+        other => {
+            return Err(ParseError::UnsupportedArch {
+                arch: format!("cputype=0x{other:08x}"),
+            });
+        }
+    };
 
     // Validate file type.
     if macho.header.filetype != MH_EXECUTE {
@@ -236,7 +254,8 @@ fn extract(macho: &MachO<'_>, path: &Path) -> Result<ParsedMachO, ParseError> {
 
     Ok(ParsedMachO {
         bytes: Vec::new(),
-        arch: "x86_64".to_string(),
+        arch: cpu_arch.display_name().to_string(),
+        cpu_arch,
         entry_point,
         code_sections,
         data_sections,
