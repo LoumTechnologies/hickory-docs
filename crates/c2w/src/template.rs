@@ -59,10 +59,24 @@ pub const RISCV64_LAYOUT: TemplateLayout = TemplateLayout {
     guest_binaries: &["busybox", "init", "runc", "tini", "vmtouch"],
 };
 
+/// Template layout for ARM64/AArch64 (QEMU-WASM emulator).
+///
+/// Uses QEMU compiled to WASM with TCI backend for full-system ARM64
+/// emulation. The kernel is an uncompressed ARM64 Linux Image.
+pub const AARCH64_LAYOUT: TemplateLayout = TemplateLayout {
+    emulator_wasm: "qemu-system-aarch64.wasm",
+    kernel: "Image",
+    boot_iso: None,
+    bios_files: &["QEMU_EFI.fd"],
+    config_file: "qemu.cfg",
+    guest_binaries: &["busybox", "init", "runc", "tini", "vmtouch"],
+};
+
 /// Get the template layout for a given target architecture.
 pub fn layout_for_arch(arch: &str) -> Result<&'static TemplateLayout> {
     match arch {
         "amd64" | "x86_64" => Ok(&AMD64_LAYOUT),
+        "aarch64" | "arm64" => Ok(&AARCH64_LAYOUT),
         "riscv64" => Ok(&RISCV64_LAYOUT),
         _ => bail!("unsupported architecture for template: {}", arch),
     }
@@ -189,6 +203,7 @@ fn extract_template_from_docker(arch: &str, output_dir: &Path) -> Result<()> {
     // Determine which Docker build target to use
     let target_stage = match arch {
         "amd64" | "x86_64" => "bochs-dev-common",
+        "aarch64" | "arm64" => "qemu-aarch64-dev-common",
         "riscv64" => "tinyemu-dev-common",
         _ => bail!("unsupported arch for Docker template extraction: {}", arch),
     };

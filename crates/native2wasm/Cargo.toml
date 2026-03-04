@@ -14,6 +14,8 @@ clap = { version = "4", features = ["derive"] }
 env_logger = "0.11"
 goblin = "0.9"
 log = "0.4"
+tempfile = "3"
+which = "7"
 
 # Internal crates
 native2wasm-core = { path = "../native2wasm-core" }
@@ -23,3 +25,4 @@ pe2wasm = { path = "../pe2wasm" }
 emu-core = { path = "../emu-core" }
 emu-x86 = { path = "../emu-x86" }
 emu-arm64 = { path = "../emu-arm64" }
+c2w = { path = "../c2w" }

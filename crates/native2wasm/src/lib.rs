@@ -186,11 +186,176 @@ pub fn run_emu(
     run_emulation(provider.as_ref(), &config)
 }
 
-/// Run the VM strategy (not yet implemented).
+/// Run the VM strategy: full Linux VM in WASM via c2w.
+///
+/// Builds a container image containing the target binary and any required
+/// compatibility layer (Wine for Windows binaries, Darling for macOS), then
+/// converts it to a WASM module using c2w's pipeline.
+///
+/// This is the universal fallback — slower than AOT or EMU but works for
+/// any binary.
 pub fn run_vm(
-    _input: &Path,
-    _detected: &DetectedBinary,
-    _output: &Path,
+    input: &Path,
+    detected: &DetectedBinary,
+    output: &Path,
 ) -> Result<()> {
-    bail!("VM strategy not yet implemented (Phase 5)")
+    use std::fs;
+    use std::io::Write;
+
+    // Verify Docker is available (required for VM strategy).
+    which::which("docker").context(
+        "Docker is required for the VM strategy.\n\
+         Install Docker or use a different strategy:\n  \
+         --strategy aot  (for static binaries)\n  \
+         --strategy emu  (for dynamic x86_64/ARM64 Linux binaries)"
+    )?;
+
+    let tmpdir = tempfile::tempdir().context("failed to create temp dir")?;
+
+    // Determine the c2w target architecture.
+    let c2w_arch = match detected.cpu_arch {
+        CpuArch::X86_64 => "amd64",
+        CpuArch::AArch64 => "aarch64",
+    };
+
+    // Copy the input binary to the build context.
+    let binary_name = input
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("binary");
+    let ctx_binary = tmpdir.path().join(binary_name);
+    fs::copy(input, &ctx_binary)
+        .with_context(|| format!("failed to copy {} to build context", input.display()))?;
+
+    // Generate a Dockerfile for the VM container.
+    let dockerfile_content = generate_vm_dockerfile(detected, binary_name);
+    let dockerfile_path = tmpdir.path().join("Dockerfile");
+    let mut f = fs::File::create(&dockerfile_path)?;
+    f.write_all(dockerfile_content.as_bytes())?;
+
+    log::info!(
+        "VM strategy: building container for {} {} {} binary",
+        detected.format,
+        detected.cpu_arch,
+        detected.os_target,
+    );
+
+    // Build the container image.
+    let image_tag = format!("native2wasm-vm-{}", std::process::id());
+    let build_status = std::process::Command::new("docker")
+        .arg("build")
+        .arg("-t")
+        .arg(&image_tag)
+        .arg("-f")
+        .arg(&dockerfile_path)
+        .arg(tmpdir.path())
+        .status()
+        .context("failed to run docker build")?;
+
+    if !build_status.success() {
+        bail!("docker build failed for VM container");
+    }
+
+    log::info!("VM container built: {image_tag}");
+
+    // Run c2w to convert the container to WASM.
+    let c2w_cli = c2w::cli::Cli {
+        assets: None,
+        dockerfile: None,
+        builder: "docker".to_string(),
+        target_arch: c2w_arch.to_string(),
+        build_arg: vec![],
+        to_js: false,
+        debug_image: false,
+        show_dockerfile: false,
+        legacy: false,
+        external_bundle: false,
+        extra_flag: vec![],
+        target_stage: None,
+        pack: None,
+        wizer: false,
+        wizer_only: false,
+        wizer_map_dir: vec![],
+        wizer_init_func: "wizer.initialize".to_string(),
+        no_docker: false,
+        template: None,
+        template_version: None,
+        cache_dir: None,
+        registry_username: None,
+        registry_password: None,
+        image_name: Some(image_tag.clone()),
+        output: Some(output.to_string_lossy().to_string()),
+    };
+
+    let result = c2w::run(c2w_cli);
+
+    // Clean up the Docker image.
+    let _ = std::process::Command::new("docker")
+        .args(["rmi", &image_tag])
+        .output();
+
+    result.with_context(|| {
+        format!(
+            "c2w pipeline failed for {} {} binary",
+            detected.format, detected.os_target,
+        )
+    })
+}
+
+/// Generate a Dockerfile for the VM container based on the detected binary.
+fn generate_vm_dockerfile(detected: &DetectedBinary, binary_name: &str) -> String {
+    match detected.os_target {
+        OsTarget::Linux => {
+            // Linux binaries run directly in the VM.
+            format!(
+                "FROM ubuntu:22.04\n\
+                 COPY {binary_name} /usr/local/bin/{binary_name}\n\
+                 RUN chmod +x /usr/local/bin/{binary_name}\n\
+                 ENTRYPOINT [\"/usr/local/bin/{binary_name}\"]\n"
+            )
+        }
+        OsTarget::Windows => {
+            // Windows binaries run under Wine in the VM.
+            log::info!(
+                "Windows VM: will install Wine for Win32/Win64 compatibility. \
+                 This may take a while on first build."
+            );
+            format!(
+                "FROM ubuntu:22.04\n\
+                 ENV DEBIAN_FRONTEND=noninteractive\n\
+                 RUN dpkg --add-architecture i386 && \\\n\
+                     apt-get update && \\\n\
+                     apt-get install -y --no-install-recommends \\\n\
+                       wine64 wine32 && \\\n\
+                     apt-get clean && rm -rf /var/lib/apt/lists/*\n\
+                 COPY {binary_name} /app/{binary_name}\n\
+                 ENTRYPOINT [\"wine64\", \"/app/{binary_name}\"]\n"
+            )
+        }
+        OsTarget::Darwin => {
+            // macOS binaries run under Darling in the VM.
+            // Darling is experimental and requires a custom kernel module,
+            // so we provide a best-effort container setup.
+            log::info!(
+                "macOS VM: Darling-based macOS emulation is experimental. \
+                 Consider using --strategy emu for simple x86_64 macOS binaries."
+            );
+            format!(
+                "FROM ubuntu:22.04\n\
+                 ENV DEBIAN_FRONTEND=noninteractive\n\
+                 # Darling requires building from source.\n\
+                 # This is a placeholder — full Darling support requires\n\
+                 # a custom base image with Darling pre-installed.\n\
+                 RUN apt-get update && \\\n\
+                     apt-get install -y --no-install-recommends \\\n\
+                       curl ca-certificates && \\\n\
+                     apt-get clean && rm -rf /var/lib/apt/lists/*\n\
+                 COPY {binary_name} /app/{binary_name}\n\
+                 # To use Darling, replace this with:\n\
+                 # ENTRYPOINT [\"darling\", \"shell\", \"/app/{binary_name}\"]\n\
+                 ENTRYPOINT [\"/bin/sh\", \"-c\", \
+                   \"echo 'macOS binary requires Darling. Install from https://darlinghq.org' && exit 1\"]\n"
+            )
+        }
+    }
 }

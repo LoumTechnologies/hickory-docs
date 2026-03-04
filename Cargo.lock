@@ -1744,6 +1744,7 @@ name = "native2wasm"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "c2w",
  "clap",
  "elf2wasm",
  "emu-arm64",
@@ -1755,6 +1756,8 @@ dependencies = [
  "mach2wasm",
  "native2wasm-core",
  "pe2wasm",
+ "tempfile",
+ "which",
 ]
 
 [[package]]
