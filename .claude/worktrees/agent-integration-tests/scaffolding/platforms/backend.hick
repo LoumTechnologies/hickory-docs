@@ -1,0 +1,252 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
+
+<hick:when test="backend">
+
+## Rust Backend (Axum)
+
+The backend uses [Axum](https://github.com/tokio-rs/axum), a modern Rust web framework
+built on top of Tokio. Axum provides excellent performance, type safety, and ergonomic
+handler composition through tower middleware.
+
+### Project Configuration
+
+The Cargo.toml defines our dependencies with a focus on the async ecosystem:
+
+<hick:file path="backend/Cargo.toml">[package]
+name = "<hick:val name="project_name" />-backend"
+version = "0.1.0"
+edition = "<hick:val name="rust_edition" />"
+
+[dependencies]
+axum = "0.7"
+tokio = { version = "1", features = ["full"] }
+tower = "0.5"
+tower-http = { version = "0.5", features = ["cors", "trace"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+anyhow = "1"
+thiserror = "2"
+
+[dev-dependencies]
+axum-test = "15"
+</hick:file>
+
+Key dependencies:
+- **axum** — The web framework, providing routing and extraction
+- **tokio** — Async runtime with full features for timers, I/O, etc.
+- **tower-http** — Middleware for CORS and request tracing
+- **tracing** — Structured logging that works well with async code
+- **thiserror** — Derive macro for clean error types
+
+### Entry Point
+
+The main binary simply delegates to the library, keeping the entry point minimal:
+
+<hick:file path="backend/src/main.rs">use anyhow::Result;
+use <hick:val name="project_name" />_backend::run;
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    run().await
+}
+</hick:file>
+
+### Library Core
+
+The library exposes the `run()` function and `create_router()` for testing. This
+separation allows integration tests to create servers without running main().
+
+<hick:file path="backend/src/lib.rs">pub mod api;
+pub mod error;
+
+use anyhow::Result;
+use axum::Router;
+use std::net::SocketAddr;
+use tower_http::cors::{Any, CorsLayer};
+use tower_http::trace::TraceLayer;
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+
+pub async fn run() -> Result<()> {
+    // Initialize tracing
+    tracing_subscriber::registry()
+        .with(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| "<hick:val name="project_name" />_backend=debug,tower_http=debug".into()),
+        )
+        .with(tracing_subscriber::fmt::layer())
+        .init();
+
+    // Build the router
+    let app = create_router();
+
+    // Run the server
+    let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
+    tracing::info!("listening on {}", addr);
+
+    let listener = tokio::net::TcpListener::bind(addr).await?;
+    axum::serve(listener, app).await?;
+
+    Ok(())
+}
+
+pub fn create_router() -> Router {
+    let cors = CorsLayer::new()
+        .allow_origin(Any)
+        .allow_methods(Any)
+        .allow_headers(Any);
+
+    Router::new()
+        .merge(api::routes())
+        .layer(TraceLayer::new_for_http())
+        .layer(cors)
+}
+</hick:file>
+
+The CORS layer is permissive for development. In production, you'd configure
+`allow_origin` with specific domains.
+
+### API Module Structure
+
+Routes are organized in the `api` module. As the app grows, add new route modules
+here (e.g., `users.rs`, `items.rs`) and merge them in `mod.rs`:
+
+<hick:file path="backend/src/api/mod.rs">mod health;
+
+use axum::Router;
+
+pub fn routes() -> Router {
+    Router::new()
+        .merge(health::routes())
+}
+</hick:file>
+
+### Health Check Endpoints
+
+Every API should have health endpoints for load balancers and monitoring:
+
+<hick:file path="backend/src/api/health.rs">use axum::{routing::get, Json, Router};
+use serde::Serialize;
+
+pub fn routes() -> Router {
+    Router::new()
+        .route("/health", get(health_check))
+        .route("/api/status", get(api_status))
+}
+
+async fn health_check() -> &'static str {
+    "OK"
+}
+
+#[derive(Serialize)]
+struct StatusResponse {
+    status: &'static str,
+    version: &'static str,
+    name: &'static str,
+}
+
+async fn api_status() -> Json<StatusResponse> {
+    Json(StatusResponse {
+        status: "healthy",
+        version: env!("CARGO_PKG_VERSION"),
+        name: "<hick:val name="project_name" /> Backend",
+    })
+}
+</hick:file>
+
+- `/health` — Simple text response for basic liveness checks
+- `/api/status` — JSON with version info for richer monitoring
+
+### Error Handling
+
+A centralized error type that implements `IntoResponse` for consistent API errors:
+
+<hick:file path="backend/src/error.rs">use axum::{
+    http::StatusCode,
+    response::{IntoResponse, Response},
+    Json,
+};
+use serde_json::json;
+use thiserror::Error;
+
+#[derive(Error, Debug)]
+pub enum AppError {
+    #[error("Not found: {0}")]
+    NotFound(String),
+
+    #[error("Bad request: {0}")]
+    BadRequest(String),
+
+    #[error("Internal server error: {0}")]
+    Internal(String),
+}
+
+impl IntoResponse for AppError {
+    fn into_response(self) -> Response {
+        let (status, message) = match &self {
+            AppError::NotFound(msg) => (StatusCode::NOT_FOUND, msg.clone()),
+            AppError::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg.clone()),
+            AppError::Internal(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg.clone()),
+        };
+
+        let body = Json(json!({
+            "error": message,
+        }));
+
+        (status, body).into_response()
+    }
+}
+
+impl From<anyhow::Error> for AppError {
+    fn from(err: anyhow::Error) -> Self {
+        AppError::Internal(err.to_string())
+    }
+}
+</hick:file>
+
+Handlers can return `Result<T, AppError>` and Axum will automatically convert
+errors to appropriate HTTP responses.
+
+### Integration Tests
+
+Tests use `axum-test` for ergonomic HTTP assertions:
+
+<hick:file path="backend/tests/api_tests.rs">use axum_test::TestServer;
+use <hick:val name="project_name" />_backend::create_router;
+
+#[tokio::test]
+async fn test_health_check() {
+    let app = create_router();
+    let server = TestServer::new(app).unwrap();
+
+    let response = server.get("/health").await;
+    response.assert_status_ok();
+    response.assert_text("OK");
+}
+
+#[tokio::test]
+async fn test_api_status() {
+    let app = create_router();
+    let server = TestServer::new(app).unwrap();
+
+    let response = server.get("/api/status").await;
+    response.assert_status_ok();
+
+    let json: serde_json::Value = response.json();
+    assert_eq!(json["status"], "healthy");
+    assert_eq!(json["name"], "<hick:val name="project_name" /> Backend");
+}
+</hick:file>
+
+### Toolchain Configuration
+
+We use Rust nightly for access to latest features:
+
+<hick:file path="backend/rust-toolchain.toml" doc-hidden="true">[toolchain]
+channel = "nightly"
+</hick:file>
+
+</hick:when>
+</hick:doc>

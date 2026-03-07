@@ -427,10 +427,11 @@ impl ContainerCapabilities {
             }
             // Keep only Allow rules present in both
             for rule in &self.network_rules {
-                if let NetworkRule::Allow { .. } = rule {
-                    if restrictor.network_rules.contains(rule) && !rules.contains(rule) {
-                        rules.push(rule.clone());
-                    }
+                if let NetworkRule::Allow { .. } = rule
+                    && restrictor.network_rules.contains(rule)
+                    && !rules.contains(rule)
+                {
+                    rules.push(rule.clone());
                 }
             }
             rules

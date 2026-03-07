@@ -1,0 +1,236 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
+
+<hick:when test="crew">
+
+## Crew
+
+Crew management tracks who did what work and for how long. Every hour is logged
+against a specific job so labor cost flows into the job's cost breakdown.
+
+Roles matter for two reasons:
+1. Different roles have different hourly rates
+2. The estimating model needs to know crew composition (e.g., a 2-person crew vs
+   a 3-person crew changes the hours-per-linear-foot ratio)
+
+### Data Model
+
+<hick:file path="backend/src/crew/mod.rs">mod model;
+mod routes;
+
+pub use routes::routes;
+pub use model::{CrewMember, TimeEntry};
+</hick:file>
+
+<hick:file path="backend/src/crew/model.rs">use chrono::{NaiveDate, NaiveDateTime};
+use rust_decimal::Decimal;
+use serde::{Deserialize, Serialize};
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum CrewRole {
+    Foreman,
+    Operator,        // runs mini excavator
+    Laborer,
+    Apprentice,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CrewMember {
+    pub id: String,
+    pub name: String,
+    pub role: String,
+    pub hourly_rate: Decimal,
+    pub phone: Option&lt;String&gt;,
+    pub certifications: Option&lt;String&gt;,  // comma-separated
+    pub hire_date: NaiveDate,
+    pub active: bool,
+    pub created_at: NaiveDateTime,
+}
+
+/// A block of time worked by one crew member on one job.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TimeEntry {
+    pub id: String,
+    pub crew_member_id: String,
+    pub job_id: String,
+    pub date: NaiveDate,
+    pub hours_regular: Decimal,
+    pub hours_overtime: Decimal,
+    pub notes: Option&lt;String&gt;,
+    pub created_at: NaiveDateTime,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateCrewMember {
+    pub name: String,
+    pub role: String,
+    pub hourly_rate: Decimal,
+    pub phone: Option&lt;String&gt;,
+    pub certifications: Option&lt;String&gt;,
+    pub hire_date: NaiveDate,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateTimeEntry {
+    pub job_id: String,
+    pub date: NaiveDate,
+    pub hours_regular: Decimal,
+    pub hours_overtime: Option&lt;Decimal&gt;,
+    pub notes: Option&lt;String&gt;,
+}
+</hick:file>
+
+### Routes
+
+<hick:file path="backend/src/crew/routes.rs">use std::sync::Arc;
+use axum::{
+    extract::{Path, State},
+    routing::{get, post},
+    Json, Router,
+};
+use rust_decimal::Decimal;
+use rust_decimal::prelude::ToPrimitive;
+use crate::{AppState, error::AppError, types::{new_id, get_decimal, get_decimal_opt}};
+use super::model::*;
+
+pub fn routes() -> Router&lt;Arc&lt;AppState&gt;&gt; {
+    Router::new()
+        .route("/api/crew", get(list_crew).post(add_member))
+        .route("/api/crew/:id/time-entries", get(list_time_entries).post(log_time))
+}
+
+async fn list_crew(
+    State(state): State&lt;Arc&lt;AppState&gt;&gt;,
+) -> Result&lt;Json&lt;Vec&lt;CrewMember&gt;&gt;, AppError&gt; {
+    let conn = state.db.conn();
+    let mut stmt = conn.prepare(
+        "SELECT id, name, role, hourly_rate, phone, certifications, hire_date, active, created_at
+         FROM crew_members ORDER BY name"
+    )?;
+    let members = stmt.query_map([], |row| {
+        Ok(CrewMember {
+            id: row.get(0)?,
+            name: row.get(1)?,
+            role: row.get(2)?,
+            hourly_rate: get_decimal(row, 3)?,
+            phone: row.get(4)?,
+            certifications: row.get(5)?,
+            hire_date: row.get(6)?,
+            active: row.get(7)?,
+            created_at: row.get(8)?,
+        })
+    })?.collect::&lt;Result&lt;Vec&lt;_&gt;, _&gt;&gt;()?;
+    Ok(Json(members))
+}
+
+async fn add_member(
+    State(state): State&lt;Arc&lt;AppState&gt;&gt;,
+    Json(input): Json&lt;CreateCrewMember&gt;,
+) -> Result&lt;Json&lt;serde_json::Value&gt;, AppError&gt; {
+    let id = new_id("crew");
+    let conn = state.db.conn();
+    conn.execute(
+        "INSERT INTO crew_members (id, name, role, hourly_rate, phone, certifications, hire_date)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        rusqlite::params![id, input.name, input.role, input.hourly_rate.to_f64().unwrap_or(0.0), input.phone, input.certifications, input.hire_date],
+    )?;
+    Ok(Json(serde_json::json!({ "id": id })))
+}
+
+async fn log_time(
+    State(state): State&lt;Arc&lt;AppState&gt;&gt;,
+    Path(crew_id): Path&lt;String&gt;,
+    Json(input): Json&lt;CreateTimeEntry&gt;,
+) -> Result&lt;Json&lt;serde_json::Value&gt;, AppError&gt; {
+    let id = new_id("time");
+    let overtime = input.hours_overtime.unwrap_or(Decimal::ZERO);
+    let conn = state.db.conn();
+
+    // Look up hourly rate to auto-create a labor line item on the job
+    let hourly_rate: Decimal = conn.query_row(
+        "SELECT hourly_rate FROM crew_members WHERE id = ?1",
+        [&amp;crew_id], |r| get_decimal(r, 0),
+    ).map_err(|_| AppError::NotFound(format!("Crew member {} not found", crew_id)))?;
+
+    let name: String = conn.query_row(
+        "SELECT name FROM crew_members WHERE id = ?1",
+        [&amp;crew_id], |r| r.get(0),
+    )?;
+
+    conn.execute(
+        "INSERT INTO time_entries (id, crew_member_id, job_id, date, hours_regular, hours_overtime, notes)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+        rusqlite::params![id, crew_id, input.job_id, input.date, input.hours_regular.to_f64().unwrap_or(0.0), overtime.to_f64().unwrap_or(0.0), input.notes],
+    )?;
+
+    // Auto-create labor line item on the job
+    let labor_cost = (input.hours_regular * hourly_rate) + (overtime * hourly_rate * Decimal::from(150) / Decimal::from(100));
+    let total_hours = input.hours_regular + overtime;
+    let li_id = new_id("li");
+    conn.execute(
+        "INSERT INTO job_line_items (id, job_id, category, description, quantity, unit, unit_cost, total_cost)
+         VALUES (?1, ?2, 'labor', ?3, ?4, 'hours', ?5, ?6)",
+        rusqlite::params![li_id, input.job_id, format!("Labor: {}", name), total_hours.to_f64().unwrap_or(0.0), hourly_rate.to_f64().unwrap_or(0.0), labor_cost.to_f64().unwrap_or(0.0)],
+    )?;
+
+    Ok(Json(serde_json::json!({ "id": id, "labor_cost": labor_cost })))
+}
+
+async fn list_time_entries(
+    State(state): State&lt;Arc&lt;AppState&gt;&gt;,
+    Path(crew_id): Path&lt;String&gt;,
+) -> Result&lt;Json&lt;Vec&lt;TimeEntry&gt;&gt;, AppError&gt; {
+    let conn = state.db.conn();
+    let mut stmt = conn.prepare(
+        "SELECT id, crew_member_id, job_id, date, hours_regular, hours_overtime, notes, created_at
+         FROM time_entries WHERE crew_member_id = ?1 ORDER BY date DESC"
+    )?;
+    let entries = stmt.query_map([&amp;crew_id], |row| {
+        Ok(TimeEntry {
+            id: row.get(0)?,
+            crew_member_id: row.get(1)?,
+            job_id: row.get(2)?,
+            date: row.get(3)?,
+            hours_regular: get_decimal(row, 4)?,
+            hours_overtime: get_decimal(row, 5)?,
+            notes: row.get(6)?,
+            created_at: row.get(7)?,
+        })
+    })?.collect::&lt;Result&lt;Vec&lt;_&gt;, _&gt;&gt;()?;
+    Ok(Json(entries))
+}
+</hick:file>
+
+### Migration
+
+<hick:file path="backend/migrations/003_crew.sql">CREATE TABLE IF NOT EXISTS crew_members (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    role TEXT NOT NULL,
+    hourly_rate REAL NOT NULL,
+    phone TEXT,
+    certifications TEXT,
+    hire_date TEXT NOT NULL,
+    active BOOLEAN NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS time_entries (
+    id TEXT PRIMARY KEY,
+    crew_member_id TEXT NOT NULL REFERENCES crew_members(id),
+    job_id TEXT NOT NULL,
+    date TEXT NOT NULL,
+    hours_regular REAL NOT NULL,
+    hours_overtime REAL NOT NULL DEFAULT 0,
+    notes TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX idx_time_entries_crew ON time_entries(crew_member_id);
+CREATE INDEX idx_time_entries_job ON time_entries(job_id);
+CREATE INDEX idx_time_entries_date ON time_entries(date);
+</hick:file>
+
+</hick:when>
+</hick:doc>

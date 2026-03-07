@@ -1,0 +1,511 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
+
+<hick:when test="estimating">
+
+## Estimating
+
+The estimating engine is the strategic core of the system. It uses linear
+regression on completed jobs to predict what a new job will cost, then adds the
+desired profit margin to produce a quote.
+
+**Feature vector** (inputs to the regression model):
+- `linear_feet` — length of drain run (strongest predictor)
+- `trench_depth_inches` — deeper = more labor and gravel
+- `soil_type` — one-hot encoded (clay is hardest, sand is easiest)
+- `yard_grade` — one-hot encoded (steep requires more effort)
+- `site_access` — one-hot encoded (hand-carry-only multiplies labor)
+- `includes_sump_pump` — binary (adds fixed cost)
+- `includes_downspout_tie_in` — binary
+- `number_of_catch_basins` — integer
+
+**Target variables** (what we predict):
+- `total_direct_cost` — materials + labor + equipment
+- `total_crew_hours` — for scheduling
+
+**Quoting formula:**
+```
+quoted_price = predicted_direct_cost
+             + (predicted_direct_cost * overhead_rate)
+             + (total * desired_margin_pct)
+```
+
+The model improves with every completed job. After ~20 jobs, predictions should
+be within 15% of actual. After ~50 jobs, within 10%.
+
+### Data Model
+
+<hick:file path="backend/src/estimating/mod.rs">mod model;
+mod regression;
+mod routes;
+
+pub use routes::routes;
+</hick:file>
+
+<hick:file path="backend/src/estimating/model.rs">use chrono::NaiveDateTime;
+use rust_decimal::Decimal;
+use serde::{Deserialize, Serialize};
+
+/// An estimate generated for a potential job.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Estimate {
+    pub id: String,
+    pub customer_id: Option&lt;String&gt;,
+
+    // Input features
+    pub linear_feet: Decimal,
+    pub trench_depth_inches: Decimal,
+    pub soil_type: String,
+    pub yard_grade: String,
+    pub site_access: String,
+    pub includes_sump_pump: bool,
+    pub includes_downspout_tie_in: bool,
+    pub number_of_catch_basins: i32,
+
+    // Predictions
+    pub predicted_material_cost: Decimal,
+    pub predicted_labor_cost: Decimal,
+    pub predicted_equipment_cost: Decimal,
+    pub predicted_direct_cost: Decimal,
+    pub predicted_overhead: Decimal,
+    pub predicted_total_cost: Decimal,
+    pub predicted_crew_hours: Decimal,
+
+    // Quote
+    pub desired_margin_pct: Decimal,
+    pub quoted_price: Decimal,
+
+    // Model metadata
+    pub model_version: i64,
+    pub confidence_note: String,
+    pub sample_size: i64,
+
+    pub created_at: NaiveDateTime,
+}
+
+/// Snapshot of a trained regression model.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ModelStats {
+    pub version: i64,
+    pub trained_at: NaiveDateTime,
+    pub sample_size: i64,
+    pub r_squared: f64,
+    pub mean_absolute_error: f64,
+    pub feature_names: Vec&lt;String&gt;,
+    pub feature_weights: Vec&lt;f64&gt;,
+    pub intercept: f64,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct EstimateRequest {
+    pub customer_id: Option&lt;String&gt;,
+    pub linear_feet: Decimal,
+    pub trench_depth_inches: Decimal,
+    pub soil_type: String,
+    pub yard_grade: String,
+    pub site_access: String,
+    pub includes_sump_pump: Option&lt;bool&gt;,
+    pub includes_downspout_tie_in: Option&lt;bool&gt;,
+    pub number_of_catch_basins: Option&lt;i32&gt;,
+    /// Target profit margin as a percentage (e.g., 25 for 25%)
+    pub desired_margin_pct: Decimal,
+}
+</hick:file>
+
+### Regression Engine
+
+This module builds and applies the linear regression model using the `linfa`
+crate. It queries completed jobs, encodes features, trains the model, and
+stores the weights for prediction.
+
+<hick:file path="backend/src/estimating/regression.rs">use anyhow::Result;
+use ndarray::{Array1, Array2};
+use rusqlite::Connection;
+
+/// Feature names in the order they appear in the feature matrix.
+pub const FEATURE_NAMES: &amp;[&amp;str] = &amp;[
+    "linear_feet",
+    "trench_depth_inches",
+    "soil_clay",
+    "soil_rocky",
+    "soil_sand",
+    "soil_loam",
+    "grade_slight",
+    "grade_moderate",
+    "grade_steep",
+    "access_moderate",
+    "access_difficult",
+    "access_hand_carry",
+    "sump_pump",
+    "downspout_tie_in",
+    "catch_basins",
+];
+
+/// One-hot encode a categorical value.
+fn one_hot(value: &amp;str, categories: &amp;[&amp;str]) -> Vec&lt;f64&gt; {
+    categories.iter().map(|c| if *c == value { 1.0 } else { 0.0 }).collect()
+}
+
+/// Build the feature matrix from completed jobs.
+pub fn build_training_data(conn: &amp;Connection) -> Result&lt;(Array2&lt;f64&gt;, Array1&lt;f64&gt;, i64)&gt; {
+    let mut stmt = conn.prepare(
+        "SELECT j.linear_feet_actual, j.trench_depth_inches, j.soil_type, j.yard_grade,
+                j.site_access, j.includes_sump_pump, j.includes_downspout_tie_in,
+                j.number_of_catch_basins,
+                COALESCE((SELECT SUM(total_cost) FROM job_line_items WHERE job_id = j.id AND category != 'overhead'), 0)
+         FROM jobs j
+         WHERE j.status IN ('completed', 'invoiced')
+           AND j.linear_feet_actual IS NOT NULL"
+    )?;
+
+    let mut features: Vec&lt;Vec&lt;f64&gt;&gt; = Vec::new();
+    let mut targets: Vec&lt;f64&gt; = Vec::new();
+
+    let rows = stmt.query_map([], |row| {
+        let linear_feet: f64 = row.get(0)?;
+        let depth: f64 = row.get(1)?;
+        let soil: String = row.get(2)?;
+        let grade: String = row.get(3)?;
+        let access: String = row.get(4)?;
+        let sump: bool = row.get(5)?;
+        let downspout: bool = row.get(6)?;
+        let basins: i32 = row.get(7)?;
+        let direct_cost: f64 = row.get(8)?;
+
+        let mut feat = vec![linear_feet, depth];
+        feat.extend(one_hot(&amp;soil, &amp;["clay", "rocky", "sand", "loam"]));
+        feat.extend(one_hot(&amp;grade, &amp;["slight", "moderate", "steep"]));
+        feat.extend(one_hot(&amp;access, &amp;["moderate", "difficult", "hand_carry_only"]));
+        feat.push(if sump { 1.0 } else { 0.0 });
+        feat.push(if downspout { 1.0 } else { 0.0 });
+        feat.push(basins as f64);
+
+        Ok((feat, direct_cost))
+    })?;
+
+    for row in rows {
+        let (feat, target) = row?;
+        features.push(feat);
+        targets.push(target);
+    }
+
+    let n = features.len();
+    let p = FEATURE_NAMES.len();
+    let sample_size = n as i64;
+
+    if n &lt; 3 {
+        anyhow::bail!("Need at least 3 completed jobs to train the model, have {}", n);
+    }
+
+    let flat: Vec&lt;f64&gt; = features.into_iter().flatten().collect();
+    let x = Array2::from_shape_vec((n, p), flat)?;
+    let y = Array1::from_vec(targets);
+
+    Ok((x, y, sample_size))
+}
+
+/// Train the model and return weights + intercept.
+pub fn train(conn: &amp;Connection) -> Result&lt;(Vec&lt;f64&gt;, f64, f64, i64)&gt; {
+    use linfa::prelude::*;
+    use linfa_linear::LinearRegression;
+
+    let (x, y, sample_size) = build_training_data(conn)?;
+
+    let dataset = linfa::Dataset::new(x, y);
+    let model = LinearRegression::default().fit(&amp;dataset)?;
+
+    let weights: Vec&lt;f64&gt; = model.params().iter().copied().collect();
+    let intercept = model.intercept();
+
+    // Compute R-squared
+    let predictions = model.predict(dataset.records());
+    let targets = dataset.targets();
+    let ss_res: f64 = predictions.iter().zip(targets.iter())
+        .map(|(p, t)| (p - t).powi(2)).sum();
+    let mean: f64 = targets.mean().unwrap_or(0.0);
+    let ss_tot: f64 = targets.iter().map(|t| (t - mean).powi(2)).sum();
+    let r_squared = if ss_tot > 0.0 { 1.0 - ss_res / ss_tot } else { 0.0 };
+
+    Ok((weights, intercept, r_squared, sample_size))
+}
+
+/// Predict direct cost for given features.
+pub fn predict(weights: &amp;[f64], intercept: f64, features: &amp;[f64]) -> f64 {
+    let dot: f64 = weights.iter().zip(features.iter()).map(|(w, f)| w * f).sum();
+    (dot + intercept).max(0.0)
+}
+</hick:file>
+
+### Routes
+
+<hick:file path="backend/src/estimating/routes.rs">use std::sync::Arc;
+use axum::{
+    extract::{Path, State},
+    routing::{get, post},
+    Json, Router,
+};
+use rust_decimal::Decimal;
+use rust_decimal::prelude::ToPrimitive;
+use crate::{AppState, error::AppError, types::new_id};
+use super::model::*;
+use super::regression;
+
+pub fn routes() -> Router&lt;Arc&lt;AppState&gt;&gt; {
+    Router::new()
+        .route("/api/estimates", post(create_estimate))
+        .route("/api/estimates/model-stats", get(model_stats))
+        .route("/api/estimates/retrain", post(retrain))
+        .route("/api/estimates/:id", get(get_estimate))
+}
+
+async fn create_estimate(
+    State(state): State&lt;Arc&lt;AppState&gt;&gt;,
+    Json(input): Json&lt;EstimateRequest&gt;,
+) -> Result&lt;Json&lt;Estimate&gt;, AppError&gt; {
+    let conn = state.db.conn();
+
+    // Load latest model weights from DB
+    let model = conn.query_row(
+        "SELECT version, weights, intercept, r_squared, sample_size FROM regression_models ORDER BY version DESC LIMIT 1",
+        [],
+        |row| {
+            let weights_json: String = row.get(1)?;
+            let weights: Vec&lt;f64&gt; = serde_json::from_str(&amp;weights_json).unwrap_or_default();
+            Ok((row.get::&lt;_, i64&gt;(0)?, weights, row.get::&lt;_, f64&gt;(2)?, row.get::&lt;_, f64&gt;(3)?, row.get::&lt;_, i64&gt;(4)?))
+        },
+    ).map_err(|_| AppError::BadRequest("No trained model found. POST /api/estimates/retrain first.".into()))?;
+
+    let (version, weights, intercept, r_squared, sample_size) = model;
+
+    // Build feature vector
+    let lf = input.linear_feet.to_f64().unwrap_or(0.0);
+    let depth = input.trench_depth_inches.to_f64().unwrap_or(0.0);
+    let mut features = vec![lf, depth];
+    let soil_cats = ["clay", "rocky", "sand", "loam"];
+    for cat in &amp;soil_cats {
+        features.push(if input.soil_type == *cat { 1.0 } else { 0.0 });
+    }
+    let grade_cats = ["slight", "moderate", "steep"];
+    for cat in &amp;grade_cats {
+        features.push(if input.yard_grade == *cat { 1.0 } else { 0.0 });
+    }
+    let access_cats = ["moderate", "difficult", "hand_carry_only"];
+    for cat in &amp;access_cats {
+        features.push(if input.site_access == *cat { 1.0 } else { 0.0 });
+    }
+    features.push(if input.includes_sump_pump.unwrap_or(false) { 1.0 } else { 0.0 });
+    features.push(if input.includes_downspout_tie_in.unwrap_or(false) { 1.0 } else { 0.0 });
+    features.push(input.number_of_catch_basins.unwrap_or(0) as f64);
+
+    let predicted_direct = regression::predict(&amp;weights, intercept, &amp;features);
+
+    // Estimate cost breakdown (rough split based on industry norms)
+    let material_pct = 0.45;
+    let labor_pct = 0.40;
+    let equipment_pct = 0.15;
+
+    let material = predicted_direct * material_pct;
+    let labor = predicted_direct * labor_pct;
+    let equipment = predicted_direct * equipment_pct;
+
+    // Overhead from recovery rate
+    let overhead_rate: f64 = conn.query_row(
+        "SELECT COALESCE(
+            (SELECT SUM(monthly_budget) FROM overhead_categories) /
+            NULLIF((SELECT AVG(COALESCE(actual_revenue, quoted_price)) FROM jobs WHERE status IN ('completed','invoiced')), 0),
+            0.15
+        )", [], |r| r.get(0),
+    ).unwrap_or(0.15);
+
+    let overhead = predicted_direct * overhead_rate;
+    let total_cost = predicted_direct + overhead;
+    let margin_pct = input.desired_margin_pct.to_f64().unwrap_or(25.0) / 100.0;
+    let quoted_price = total_cost / (1.0 - margin_pct);
+
+    // Estimate crew hours (rough: ~1 hour per 4 linear feet for a 2-person crew)
+    let crew_hours = lf / 4.0;
+
+    let confidence = if sample_size &lt; 10 {
+        format!("Low confidence ({} jobs). Need 20+ for reliable estimates.", sample_size)
+    } else if sample_size &lt; 20 {
+        format!("Moderate confidence ({} jobs, R²={:.2}). Predictions within ~15%.", sample_size, r_squared)
+    } else {
+        format!("Good confidence ({} jobs, R²={:.2}). Predictions within ~10%.", sample_size, r_squared)
+    };
+
+    let id = new_id("est");
+    use rust_decimal::prelude::FromPrimitive;
+    let estimate = Estimate {
+        id: id.clone(),
+        customer_id: input.customer_id,
+        linear_feet: input.linear_feet,
+        trench_depth_inches: input.trench_depth_inches,
+        soil_type: input.soil_type,
+        yard_grade: input.yard_grade,
+        site_access: input.site_access,
+        includes_sump_pump: input.includes_sump_pump.unwrap_or(false),
+        includes_downspout_tie_in: input.includes_downspout_tie_in.unwrap_or(false),
+        number_of_catch_basins: input.number_of_catch_basins.unwrap_or(0),
+        predicted_material_cost: Decimal::from_f64(material).unwrap_or_default(),
+        predicted_labor_cost: Decimal::from_f64(labor).unwrap_or_default(),
+        predicted_equipment_cost: Decimal::from_f64(equipment).unwrap_or_default(),
+        predicted_direct_cost: Decimal::from_f64(predicted_direct).unwrap_or_default(),
+        predicted_overhead: Decimal::from_f64(overhead).unwrap_or_default(),
+        predicted_total_cost: Decimal::from_f64(total_cost).unwrap_or_default(),
+        predicted_crew_hours: Decimal::from_f64(crew_hours).unwrap_or_default(),
+        desired_margin_pct: input.desired_margin_pct,
+        quoted_price: Decimal::from_f64(quoted_price).unwrap_or_default(),
+        model_version: version,
+        confidence_note: confidence,
+        sample_size,
+        created_at: chrono::Utc::now().naive_utc(),
+    };
+
+    // Save the estimate
+    conn.execute(
+        "INSERT INTO estimates (id, customer_id, linear_feet, trench_depth_inches, soil_type,
+            yard_grade, site_access, includes_sump_pump, includes_downspout_tie_in,
+            number_of_catch_basins, predicted_direct_cost, predicted_overhead,
+            predicted_total_cost, predicted_crew_hours, desired_margin_pct, quoted_price,
+            model_version, confidence_note, sample_size)
+         VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19)",
+        rusqlite::params![
+            id, estimate.customer_id,
+            estimate.linear_feet.to_f64().unwrap_or(0.0),
+            estimate.trench_depth_inches.to_f64().unwrap_or(0.0),
+            estimate.soil_type, estimate.yard_grade, estimate.site_access,
+            estimate.includes_sump_pump, estimate.includes_downspout_tie_in,
+            estimate.number_of_catch_basins, predicted_direct, overhead, total_cost,
+            crew_hours, estimate.desired_margin_pct.to_f64().unwrap_or(0.0),
+            quoted_price, version, estimate.confidence_note,
+            sample_size,
+        ],
+    )?;
+
+    Ok(Json(estimate))
+}
+
+async fn get_estimate(
+    State(state): State&lt;Arc&lt;AppState&gt;&gt;,
+    Path(id): Path&lt;String&gt;,
+) -> Result&lt;Json&lt;serde_json::Value&gt;, AppError&gt; {
+    let conn = state.db.conn();
+    let row = conn.query_row(
+        "SELECT id, customer_id, linear_feet, quoted_price, confidence_note, created_at
+         FROM estimates WHERE id = ?1",
+        [&amp;id],
+        |row| Ok(serde_json::json!({
+            "id": row.get::&lt;_, String&gt;(0)?,
+            "customer_id": row.get::&lt;_, Option&lt;String&gt;&gt;(1)?,
+            "linear_feet": row.get::&lt;_, f64&gt;(2)?,
+            "quoted_price": row.get::&lt;_, f64&gt;(3)?,
+            "confidence_note": row.get::&lt;_, String&gt;(4)?,
+            "created_at": row.get::&lt;_, String&gt;(5)?,
+        })),
+    ).map_err(|_| AppError::NotFound(format!("Estimate {} not found", id)))?;
+    Ok(Json(row))
+}
+
+async fn model_stats(
+    State(state): State&lt;Arc&lt;AppState&gt;&gt;,
+) -> Result&lt;Json&lt;ModelStats&gt;, AppError&gt; {
+    let conn = state.db.conn();
+    let stats = conn.query_row(
+        "SELECT version, trained_at, sample_size, r_squared, mae, weights, intercept
+         FROM regression_models ORDER BY version DESC LIMIT 1",
+        [],
+        |row| {
+            let weights_json: String = row.get(5)?;
+            let weights: Vec&lt;f64&gt; = serde_json::from_str(&amp;weights_json).unwrap_or_default();
+            Ok(ModelStats {
+                version: row.get(0)?,
+                trained_at: row.get(1)?,
+                sample_size: row.get(2)?,
+                r_squared: row.get(3)?,
+                mean_absolute_error: row.get(4)?,
+                feature_names: regression::FEATURE_NAMES.iter().map(|s| s.to_string()).collect(),
+                feature_weights: weights,
+                intercept: row.get(6)?,
+            })
+        },
+    ).map_err(|_| AppError::NotFound("No trained model found. POST /api/estimates/retrain first.".into()))?;
+    Ok(Json(stats))
+}
+
+async fn retrain(
+    State(state): State&lt;Arc&lt;AppState&gt;&gt;,
+) -> Result&lt;Json&lt;ModelStats&gt;, AppError&gt; {
+    let conn = state.db.conn();
+    let (weights, intercept, r_squared, sample_size) = regression::train(&amp;conn)
+        .map_err(|e| AppError::BadRequest(e.to_string()))?;
+
+    // Compute MAE on training data
+    let (x, y, _) = regression::build_training_data(&amp;conn)
+        .map_err(|e| AppError::Internal(e.to_string()))?;
+    let mae: f64 = x.outer_iter().zip(y.iter()).map(|(row, target)| {
+        let pred = regression::predict(&amp;weights, intercept, row.as_slice().unwrap());
+        (pred - target).abs()
+    }).sum::&lt;f64&gt;() / sample_size as f64;
+
+    let weights_json = serde_json::to_string(&amp;weights).unwrap();
+    let version: i64 = conn.query_row(
+        "SELECT COALESCE(MAX(version), 0) + 1 FROM regression_models", [], |r| r.get(0),
+    )?;
+
+    conn.execute(
+        "INSERT INTO regression_models (version, sample_size, r_squared, mae, weights, intercept)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        rusqlite::params![version, sample_size, r_squared, mae, weights_json, intercept],
+    )?;
+
+    Ok(Json(ModelStats {
+        version,
+        trained_at: chrono::Utc::now().naive_utc(),
+        sample_size,
+        r_squared,
+        mean_absolute_error: mae,
+        feature_names: regression::FEATURE_NAMES.iter().map(|s| s.to_string()).collect(),
+        feature_weights: weights,
+        intercept,
+    }))
+}
+</hick:file>
+
+### Migration
+
+<hick:file path="backend/migrations/007_estimating.sql">CREATE TABLE IF NOT EXISTS regression_models (
+    version INTEGER PRIMARY KEY,
+    trained_at TEXT NOT NULL DEFAULT (datetime('now')),
+    sample_size INTEGER NOT NULL,
+    r_squared REAL NOT NULL,
+    mae REAL NOT NULL,
+    weights TEXT NOT NULL,  -- JSON array of feature weights
+    intercept REAL NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS estimates (
+    id TEXT PRIMARY KEY,
+    customer_id TEXT,
+    linear_feet REAL NOT NULL,
+    trench_depth_inches REAL NOT NULL,
+    soil_type TEXT NOT NULL,
+    yard_grade TEXT NOT NULL,
+    site_access TEXT NOT NULL,
+    includes_sump_pump BOOLEAN NOT NULL DEFAULT 0,
+    includes_downspout_tie_in BOOLEAN NOT NULL DEFAULT 0,
+    number_of_catch_basins INTEGER NOT NULL DEFAULT 0,
+    predicted_direct_cost REAL NOT NULL,
+    predicted_overhead REAL NOT NULL,
+    predicted_total_cost REAL NOT NULL,
+    predicted_crew_hours REAL NOT NULL,
+    desired_margin_pct REAL NOT NULL,
+    quoted_price REAL NOT NULL,
+    model_version INTEGER NOT NULL,
+    confidence_note TEXT NOT NULL,
+    sample_size INTEGER NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+</hick:file>
+
+</hick:when>
+</hick:doc>

@@ -1,0 +1,745 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
+
+<hick:when test="extension">
+
+## Browser Extension
+
+The browser extension uses React with the Manifest V3 API, which works in both
+Chrome and Firefox. We use [@crxjs/vite-plugin](https://crxjs.dev/vite-plugin) to
+integrate Vite's development experience with extension building.
+
+### Package Configuration
+
+Similar to the web SPA, but with additional Chrome types and the CRXJS plugin:
+
+<hick:file path="browser-extension/package.json">{
+  "name": "<hick:val name="project_name" />-extension",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "lint": "eslint .",
+    "preview": "vite preview",
+    "test": "echo 'No tests configured yet'"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"<hick:when test="rust-frontend-lib">,
+    "<hick:val name="project_name" />-core": "file:../rust-lib/pkg"</hick:when>
+  },
+  "devDependencies": {
+    "@crxjs/vite-plugin": "^2.0.0-beta.25",
+    "@eslint/js": "^9.15.0",
+    "@types/chrome": "^0.0.268",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "eslint": "^9.15.0",
+    "eslint-plugin-react-hooks": "^5.0.0",
+    "eslint-plugin-react-refresh": "^0.4.14",
+    "globals": "^15.12.0",
+    "typescript": "~5.6.2",
+    "typescript-eslint": "^8.15.0",
+    "vite": "^6.0.1"<hick:when test="rust-frontend-lib">,
+    "vite-plugin-wasm": "^3.3.0",
+    "vite-plugin-top-level-await": "^1.4.4"</hick:when>
+  }
+}
+</hick:file>
+
+### Extension Manifest
+
+Manifest V3 is required for Chrome and recommended for Firefox. Key sections:
+- **action** — Defines the popup UI
+- **permissions** — Storage for persisting data across sessions
+- **background** — Service worker for event handling
+- **content_scripts** — Injected into web pages
+
+<hick:file path="browser-extension/manifest.json">{
+  "manifest_version": 3,
+  "name": "<hick:val name="project_name" />",
+  "description": "<hick:val name="project_name" /> browser extension",
+  "version": "0.0.1",
+  "action": {
+    "default_popup": "index.html"
+  },
+  "permissions": [
+    "storage"
+  ],
+  "background": {
+    "service_worker": "src/background.ts",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["*://*/*"],
+      "js": ["src/content.ts"],
+      "run_at": "document_idle"
+    }
+  ]
+}
+</hick:file>
+
+**Note:** Add extension icons before publishing:
+
+1. Create `icons/icon16.png`, `icons/icon48.png`, `icons/icon128.png`
+2. Update `manifest.json` to include:
+   ```json
+   "icons": { "16": "icons/icon16.png", "48": "icons/icon48.png", "128": "icons/icon128.png" },
+   "action": { "default_popup": "index.html", "default_icon": { "16": "icons/icon16.png", "48": "icons/icon48.png", "128": "icons/icon128.png" } }
+   ```
+
+### Vite Configuration
+
+The CRXJS plugin handles manifest processing, hot reload in development, and
+proper bundling for production. It reads the manifest directly:
+
+<hick:when test="rust-frontend-lib">
+<hick:file path="browser-extension/vite.config.ts">import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+import { crx } from '@crxjs/vite-plugin'
+import wasm from 'vite-plugin-wasm'
+import topLevelAwait from 'vite-plugin-top-level-await'
+import manifest from './manifest.json'
+
+export default defineConfig({
+  plugins: [
+    react(),
+    wasm(),
+    topLevelAwait(),
+    crx({ manifest }),
+  ],
+  optimizeDeps: {
+    exclude: ['<hick:val name="project_name" />-core'],
+  },
+  build: {
+    rollupOptions: {
+      input: {
+        popup: 'index.html',
+      },
+    },
+  },
+})
+</hick:file>
+</hick:when>
+<hick:when test="!rust-frontend-lib">
+<hick:file path="browser-extension/vite.config.ts">import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+import { crx } from '@crxjs/vite-plugin'
+import manifest from './manifest.json'
+
+export default defineConfig({
+  plugins: [
+    react(),
+    crx({ manifest }),
+  ],
+  build: {
+    rollupOptions: {
+      input: {
+        popup: 'index.html',
+      },
+    },
+  },
+})
+</hick:file>
+</hick:when>
+
+### TypeScript Configuration
+
+The app config includes Chrome types for extension API autocompletion:
+
+<hick:file path="browser-extension/tsconfig.json">{
+  "files": [],
+  "references": [
+    { "path": "./tsconfig.app.json" },
+    { "path": "./tsconfig.node.json" }
+  ]
+}
+</hick:file>
+
+<hick:file path="browser-extension/tsconfig.app.json">{
+  "compilerOptions": {
+    "target": "ES2020",
+    "useDefineForClassFields": true,
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "skipLibCheck": true,
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "isolatedModules": true,
+    "moduleDetection": "force",
+    "noEmit": true,
+    "jsx": "react-jsx",
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedSideEffectImports": true,
+    "types": ["chrome"]
+  },
+  "include": ["src"]
+}
+</hick:file>
+
+<hick:file path="browser-extension/src/vite-env.d.ts" doc-hidden="true">/// <reference types="vite/client" />
+
+// CSS module declarations
+declare module '*.css' {
+  const content: { [className: string]: string };
+  export default content;
+}
+</hick:file>
+
+<hick:file path="browser-extension/tsconfig.node.json" doc-hidden="true">{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2023"],
+    "module": "ESNext",
+    "skipLibCheck": true,
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "moduleDetection": "force",
+    "noEmit": true,
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedSideEffectImports": true
+  },
+  "include": ["vite.config.ts", "manifest.json"]
+}
+</hick:file>
+
+<hick:file path="browser-extension/eslint.config.js" doc-hidden="true">import js from '@eslint/js'
+import globals from 'globals'
+import reactHooks from 'eslint-plugin-react-hooks'
+import reactRefresh from 'eslint-plugin-react-refresh'
+import tseslint from 'typescript-eslint'
+
+export default tseslint.config(
+  { ignores: ['dist'] },
+  {
+    extends: [js.configs.recommended, ...tseslint.configs.recommended],
+    files: ['**/*.{ts,tsx}'],
+    languageOptions: {
+      ecmaVersion: 2020,
+      globals: { ...globals.browser, chrome: 'readonly' },
+    },
+    plugins: {
+      'react-hooks': reactHooks,
+      'react-refresh': reactRefresh,
+    },
+    rules: {
+      ...reactHooks.configs.recommended.rules,
+      'react-refresh/only-export-components': [
+        'warn',
+        { allowConstantExport: true },
+      ],
+    },
+  },
+)
+</hick:file>
+
+### Popup UI
+
+The popup is the main user interface, shown when clicking the extension icon.
+It's a standard React app with a fixed width appropriate for popups:
+
+<hick:file path="browser-extension/index.html"><!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title><hick:val name="project_name" /></title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/popup/main.tsx"></script>
+  </body>
+</html>
+</hick:file>
+
+<hick:file path="browser-extension/src/popup/main.tsx">import { StrictMode } from 'react'
+import { createRoot } from 'react-dom/client'
+import './index.css'
+import Popup from './Popup.tsx'
+
+createRoot(document.getElementById('root')!).render(
+  <StrictMode>
+    <Popup />
+  </StrictMode>,
+)
+</hick:file>
+
+The Popup component demonstrates Chrome storage API usage. Data persists across
+browser sessions and syncs if the user is signed into Chrome:
+
+<hick:when test="rust-frontend-lib">
+<hick:file path="browser-extension/src/popup/Popup.tsx">import { useState, useEffect } from 'react'
+import './Popup.css'
+import { useCore } from '../hooks/useCore'
+<hick:when test="sqlite">import { useTodos } from '../hooks/useTodos'
+</hick:when>
+function Popup() {
+  const [count, setCount] = useState(0)
+  const { isReady, greet, fibonacci<hick:when test="sqlite">, db</hick:when> } = useCore()
+  const [greeting, setGreeting] = useState('')
+<hick:when test="sqlite">  const { todos, addTodo, toggleTodo, deleteTodo } = useTodos(db)
+  const [newTodo, setNewTodo] = useState('')
+</hick:when>
+  useEffect(() => {
+    chrome.storage.local.get(['count'], (result) => {
+      if (result.count !== undefined) {
+        setCount(result.count)
+      }
+    })
+  }, [])
+
+  useEffect(() => {
+    if (isReady) {
+      setGreeting(greet('Extension User'))
+    }
+  }, [isReady, greet])
+
+  const handleClick = () => {
+    const newCount = count + 1
+    setCount(newCount)
+    chrome.storage.local.set({ count: newCount })
+  }
+<hick:when test="sqlite">
+  const handleAddTodo = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (newTodo.trim()) {
+      addTodo(newTodo)
+      setNewTodo('')
+    }
+  }
+</hick:when>
+  const fibResult = isReady ? fibonacci(count) : null
+
+  return (
+    <div className="popup">
+      <header className="popup-header">
+        <h1><hick:val name="project_name" /></h1>
+      </header>
+      <main className="popup-main">
+        {!isReady ? (
+          <p className="loading">Loading...</p>
+        ) : (
+          <>
+            <p className="greeting">{greeting}</p>
+            <button onClick={handleClick}>n = {count}</button>
+            <p className="fib-result">fib({count}) = {fibResult?.toString() ?? '...'}</p>
+<hick:when test="sqlite">
+            <div className="todo-section">
+              <h3>Todos (SQLite)</h3>
+              <form onSubmit={handleAddTodo} className="todo-form">
+                <input
+                  type="text"
+                  value={newTodo}
+                  onChange={(e) => setNewTodo(e.target.value)}
+                  placeholder="Add todo..."
+                />
+                <button type="submit">+</button>
+              </form>
+              <ul className="todo-list">
+                {todos.map((todo) => (
+                  <li key={todo.id} className={todo.completed ? 'completed' : ''}>
+                    <input
+                      type="checkbox"
+                      checked={todo.completed}
+                      onChange={() => toggleTodo(todo.id)}
+                    />
+                    <span>{todo.title}</span>
+                    <button onClick={() => deleteTodo(todo.id)}>&times;</button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+</hick:when>
+            <p className="powered-by">Powered by Rust + WASM</p>
+          </>
+        )}
+      </main>
+    </div>
+  )
+}
+
+export default Popup
+</hick:file>
+</hick:when>
+<hick:when test="!rust-frontend-lib">
+<hick:file path="browser-extension/src/popup/Popup.tsx">import { useState, useEffect } from 'react'
+import './Popup.css'
+
+function Popup() {
+  const [count, setCount] = useState(0)
+
+  useEffect(() => {
+    // Load count from storage on mount
+    chrome.storage.local.get(['count'], (result) => {
+      if (result.count !== undefined) {
+        setCount(result.count)
+      }
+    })
+  }, [])
+
+  const handleClick = () => {
+    const newCount = count + 1
+    setCount(newCount)
+    // Persist to storage
+    chrome.storage.local.set({ count: newCount })
+  }
+
+  return (
+    <div className="popup">
+      <header className="popup-header">
+        <h1><hick:val name="project_name" /></h1>
+      </header>
+      <main className="popup-main">
+        <p>Welcome to the extension!</p>
+        <button onClick={handleClick}>
+          Clicked {count} times
+        </button>
+      </main>
+    </div>
+  )
+}
+
+export default Popup
+</hick:file>
+</hick:when>
+
+<hick:file path="browser-extension/src/popup/index.css" doc-hidden="true">:root {
+  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+  color-scheme: light dark;
+  color: rgba(255, 255, 255, 0.87);
+  background-color: #242424;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+}
+
+#root {
+  width: 320px;
+  padding: 1rem;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    color: #213547;
+    background-color: #ffffff;
+  }
+}
+</hick:file>
+
+<hick:file path="browser-extension/src/popup/Popup.css" doc-hidden="true">.popup {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.popup-header h1 {
+  font-size: 1.5rem;
+  margin: 0 0 1rem;
+}
+
+.popup-main {
+  text-align: center;
+}
+
+.popup-main p {
+  margin: 0 0 1rem;
+  color: #888;
+}
+
+.popup-main .greeting {
+  color: #646cff;
+  font-weight: 500;
+}
+
+.popup-main .fib-result {
+  font-family: monospace;
+  background-color: #2a2a2a;
+  padding: 0.5rem;
+  border-radius: 4px;
+}
+
+.popup-main .powered-by {
+  font-size: 0.75rem;
+  color: #666;
+  margin-top: 1rem;
+}
+
+.loading {
+  color: #888;
+  font-style: italic;
+}
+
+button {
+  border-radius: 8px;
+  border: 1px solid transparent;
+  padding: 0.6em 1.2em;
+  font-size: 1em;
+  font-weight: 500;
+  font-family: inherit;
+  background-color: #1a1a1a;
+  cursor: pointer;
+  transition: border-color 0.25s;
+}
+
+button:hover {
+  border-color: #646cff;
+}
+
+@media (prefers-color-scheme: light) {
+  button {
+    background-color: #f9f9f9;
+  }
+  .popup-main .fib-result {
+    background-color: #f5f5f5;
+  }
+}
+
+.todo-section {
+  margin-top: 1rem;
+  text-align: left;
+  width: 100%;
+}
+
+.todo-section h3 {
+  font-size: 0.9rem;
+  margin: 0 0 0.5rem;
+  color: #646cff;
+}
+
+.todo-form {
+  display: flex;
+  gap: 0.25rem;
+  margin-bottom: 0.5rem;
+}
+
+.todo-form input {
+  flex: 1;
+  padding: 0.3rem;
+  border: 1px solid #333;
+  border-radius: 4px;
+  background: #1a1a1a;
+  color: inherit;
+  font-size: 0.85rem;
+}
+
+.todo-form button {
+  padding: 0.3rem 0.6rem;
+  font-size: 1rem;
+}
+
+.todo-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  max-height: 150px;
+  overflow-y: auto;
+}
+
+.todo-list li {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.25rem 0;
+  font-size: 0.85rem;
+}
+
+.todo-list li.completed span {
+  text-decoration: line-through;
+  opacity: 0.5;
+}
+
+.todo-list li span {
+  flex: 1;
+}
+
+.todo-list li button {
+  padding: 0 0.4rem;
+  font-size: 1rem;
+  background: transparent;
+  border: none;
+  color: #ff6b6b;
+}
+</hick:file>
+
+<hick:when test="rust-frontend-lib">
+### Core Library Hook
+
+A React hook that initializes and exposes the WASM module for the extension:
+
+<hick:file path="browser-extension/src/hooks/useCore.ts">import { useState, useEffect, useCallback } from 'react'
+import init, { greet as wasmGreet, fibonacci as wasmFibonacci, process_data as wasmProcessData<hick:when test="sqlite">, open_database, type Database, type TodoItem</hick:when> } from '<hick:val name="project_name" />-core'
+
+export function useCore() {
+  const [isReady, setIsReady] = useState(false)
+<hick:when test="sqlite">  const [db, setDb] = useState<Database | null>(null)
+</hick:when>
+  useEffect(() => {
+    init().then(() => {
+      setIsReady(true)
+<hick:when test="sqlite">      const database = open_database(':memory:')
+      setDb(database)
+</hick:when>
+    }).catch((err) => {
+      console.error('Failed to initialize WASM module:', err)
+    })
+  }, [])
+
+  const greet = useCallback((name: string): string => {
+    if (!isReady) return ''
+    return wasmGreet(name)
+  }, [isReady])
+
+  const fibonacci = useCallback((n: number): bigint => {
+    if (!isReady) return BigInt(0)
+    return wasmFibonacci(n)
+  }, [isReady])
+
+  const processData = useCallback((values: number[]) => {
+    if (!isReady) return null
+    try {
+      const result = wasmProcessData(JSON.stringify({ values }))
+      return JSON.parse(result)
+    } catch {
+      return null
+    }
+  }, [isReady])
+
+  return {
+    isReady,
+    greet,
+    fibonacci,
+    processData,
+<hick:when test="sqlite">    db,
+</hick:when>
+  }
+}
+<hick:when test="sqlite">
+export type { Database, TodoItem }
+</hick:when>
+</hick:file>
+<hick:when test="sqlite">
+### Todo List Hook
+
+<hick:file path="browser-extension/src/hooks/useTodos.ts">import { useState, useEffect, useCallback } from 'react'
+import type { Database, TodoItem } from './useCore'
+
+export function useTodos(db: Database | null) {
+  const [todos, setTodos] = useState<TodoItem[]>([])
+
+  const refresh = useCallback(() => {
+    if (!db) return
+    try {
+      const json = db.list_todos()
+      setTodos(JSON.parse(json) as TodoItem[])
+    } catch (e) {
+      console.error('Failed to load todos:', e)
+    }
+  }, [db])
+
+  useEffect(() => {
+    if (db) refresh()
+  }, [db, refresh])
+
+  const addTodo = useCallback((title: string) => {
+    if (!db || !title.trim()) return
+    db.create_todo(title.trim())
+    refresh()
+  }, [db, refresh])
+
+  const toggleTodo = useCallback((id: string) => {
+    if (!db) return
+    const todoJson = db.get_todo(id)
+    if (todoJson) {
+      const todo: TodoItem = JSON.parse(todoJson)
+      db.update_todo(id, null, !todo.completed)
+      refresh()
+    }
+  }, [db, refresh])
+
+  const deleteTodo = useCallback((id: string) => {
+    if (!db) return
+    db.delete_todo(id)
+    refresh()
+  }, [db, refresh])
+
+  return { todos, addTodo, toggleTodo, deleteTodo }
+}
+</hick:file>
+</hick:when>
+</hick:when>
+
+### Background Service Worker
+
+The service worker runs in the background and handles extension lifecycle events.
+In Manifest V3, it's event-driven and doesn't persist—use `chrome.storage` for state:
+
+<hick:file path="browser-extension/src/background.ts">// Background service worker for <hick:val name="project_name" /> extension
+
+chrome.runtime.onInstalled.addListener(() => {
+  console.log('<hick:val name="project_name" /> extension installed')
+  // Initialize storage with default values
+  chrome.storage.local.set({ count: 0 })
+})
+
+// Listen for messages from content scripts or popup
+chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (message.type === 'GET_COUNT') {
+    chrome.storage.local.get(['count'], (result) => {
+      sendResponse({ count: result.count ?? 0 })
+    })
+    return true // Required for async sendResponse
+  }
+})
+
+export {}
+</hick:file>
+
+### Content Script
+
+Content scripts run in the context of web pages. They can read and modify the DOM
+but are isolated from the page's JavaScript. Communication with background uses
+message passing:
+
+<hick:file path="browser-extension/src/content.ts">// Content script for <hick:val name="project_name" /> extension
+// This runs in the context of web pages
+
+console.log('<hick:val name="project_name" /> content script loaded')
+
+// Example: Listen for messages from background
+chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (message.type === 'PING') {
+    sendResponse({ status: 'pong' })
+  }
+})
+
+export {}
+</hick:file>
+
+<hick:file path="browser-extension/icons/.gitkeep" doc-hidden="true"># Place extension icons here:
+# - icon16.png (16x16)
+# - icon48.png (48x48)
+# - icon128.png (128x128)
+</hick:file>
+
+</hick:when>
+</hick:doc>

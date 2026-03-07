@@ -1,0 +1,828 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
+
+<hick:when test="spa">
+
+## React SPA (Web Application)
+
+The web platform uses [React](https://react.dev/) with TypeScript and [Vite](https://vite.dev/)
+as the build tool. Vite provides instant hot module replacement during development
+and optimized production builds with minimal configuration.
+
+### Package Configuration
+
+The `package.json` defines dependencies and scripts. We include React Router for
+navigation, though a simple SPA might not need it—remove if unused:
+
+<hick:file path="web/package.json">{
+  "name": "my-project",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "lint": "eslint .",
+    "preview": "vite preview",
+    "test": "echo 'No tests configured yet'"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.22.0"<hick:when test="rust-frontend-lib">,
+    "<hick:val name="project_name" />-core": "file:../rust-lib/pkg"</hick:when>
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.15.0",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "eslint": "^9.15.0",
+    "eslint-plugin-react-hooks": "^5.0.0",
+    "eslint-plugin-react-refresh": "^0.4.14",
+    "globals": "^15.12.0",
+    "typescript": "~5.6.2",
+    "typescript-eslint": "^8.15.0",
+    "vite": "^6.0.1"<hick:when test="rust-frontend-lib">,
+    "vite-plugin-wasm": "^3.3.0",
+    "vite-plugin-top-level-await": "^1.4.4"</hick:when>
+  }
+}
+</hick:file>
+
+### Vite Configuration
+
+Vite requires minimal configuration. The React plugin enables JSX transformation
+and Fast Refresh for instant updates during development:
+
+<hick:when test="rust-frontend-lib">
+<hick:file path="web/vite.config.ts">import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+import wasm from 'vite-plugin-wasm'
+import topLevelAwait from 'vite-plugin-top-level-await'
+
+// https://vite.dev/config/
+export default defineConfig({
+  plugins: [
+    react(),
+    wasm(),
+    topLevelAwait(),
+  ],
+  optimizeDeps: {
+    exclude: ['<hick:val name="project_name" />-core'],
+  },
+})
+</hick:file>
+</hick:when>
+<hick:when test="!rust-frontend-lib">
+<hick:file path="web/vite.config.ts">import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+
+// https://vite.dev/config/
+export default defineConfig({
+  plugins: [react()],
+})
+</hick:file>
+</hick:when>
+
+### TypeScript Configuration
+
+TypeScript is configured with strict mode and separate configs for app code vs.
+build tooling. The project references pattern ensures proper build ordering:
+
+<hick:file path="web/tsconfig.json">{
+  "files": [],
+  "references": [
+    { "path": "./tsconfig.app.json" },
+    { "path": "./tsconfig.node.json" }
+  ]
+}
+</hick:file>
+
+<hick:file path="web/tsconfig.app.json" doc-hidden="true">{
+  "compilerOptions": {
+    "target": "ES2020",
+    "useDefineForClassFields": true,
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "skipLibCheck": true,
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "isolatedModules": true,
+    "moduleDetection": "force",
+    "noEmit": true,
+    "jsx": "react-jsx",
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedSideEffectImports": true
+  },
+  "include": ["src"]
+}
+</hick:file>
+
+<hick:file path="web/src/vite-env.d.ts" doc-hidden="true">/// <reference types="vite/client" />
+
+// CSS module declarations
+declare module '*.css' {
+  const content: { [className: string]: string };
+  export default content;
+}
+</hick:file>
+
+<hick:file path="web/tsconfig.node.json" doc-hidden="true">{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2023"],
+    "module": "ESNext",
+    "skipLibCheck": true,
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "isolatedModules": true,
+    "moduleDetection": "force",
+    "noEmit": true,
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedSideEffectImports": true
+  },
+  "include": ["vite.config.ts"]
+}
+</hick:file>
+
+### ESLint Configuration
+
+ESLint with the flat config format (ESLint 9+) enforces code quality. The React
+Hooks plugin catches common mistakes like missing dependencies in `useEffect`:
+
+<hick:file path="web/eslint.config.js">import js from '@eslint/js'
+import globals from 'globals'
+import reactHooks from 'eslint-plugin-react-hooks'
+import reactRefresh from 'eslint-plugin-react-refresh'
+import tseslint from 'typescript-eslint'
+
+export default tseslint.config(
+  { ignores: ['dist'] },
+  {
+    extends: [js.configs.recommended, ...tseslint.configs.recommended],
+    files: ['**/*.{ts,tsx}'],
+    languageOptions: {
+      ecmaVersion: 2020,
+      globals: globals.browser,
+    },
+    plugins: {
+      'react-hooks': reactHooks,
+      'react-refresh': reactRefresh,
+    },
+    rules: {
+      ...reactHooks.configs.recommended.rules,
+      'react-refresh/only-export-components': [
+        'warn',
+        { allowConstantExport: true },
+      ],
+    },
+  },
+)
+</hick:file>
+
+### HTML Entry Point
+
+Vite uses `index.html` as the entry point. The script tag with `type="module"`
+enables ES modules directly in the browser during development:
+
+<hick:file path="web/index.html"><!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title><hick:val name="project_name" /></title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
+</hick:file>
+
+### React Application
+
+The main entry point wraps the app in StrictMode (catches common issues) and
+BrowserRouter (enables client-side routing):
+
+<hick:file path="web/src/main.tsx">import { StrictMode } from 'react'
+import { createRoot } from 'react-dom/client'
+import { BrowserRouter } from 'react-router-dom'
+import './index.css'
+import App from './App.tsx'
+
+createRoot(document.getElementById('root')!).render(
+  <StrictMode>
+    <BrowserRouter>
+      <App />
+    </BrowserRouter>
+  </StrictMode>,
+)
+</hick:file>
+
+The App component demonstrates basic React patterns—state management with hooks
+and event handling:
+
+<hick:when test="rust-frontend-lib">
+<hick:file path="web/src/App.tsx">import { useState, useEffect } from 'react'
+import './App.css'
+import { useCore } from './hooks/useCore'
+<hick:when test="sqlite">import { useTodos } from './hooks/useTodos'
+import { TodoList } from './components/TodoList'
+</hick:when>
+function App() {
+  const [count, setCount] = useState(0)
+  const [name, setName] = useState('')
+  const { isReady, greet, fibonacci<hick:when test="sqlite">, db</hick:when> } = useCore()
+  const [greeting, setGreeting] = useState('')
+  const [fibResult, setFibResult] = useState<bigint | null>(null)
+<hick:when test="sqlite">  const { todos, addTodo, toggleTodo, deleteTodo } = useTodos(db)
+</hick:when>
+  useEffect(() => {
+    if (isReady && name) {
+      setGreeting(greet(name))
+    } else if (isReady) {
+      setGreeting(greet(''))
+    }
+  }, [isReady, name, greet])
+
+  const handleFibonacci = () => {
+    if (isReady) {
+      setFibResult(fibonacci(count))
+    }
+  }
+
+  return (
+    <div className="app">
+      <header className="app-header">
+        <h1><hick:val name="project_name" /></h1>
+      </header>
+      <main className="app-main">
+        <p className="welcome">Welcome to <hick:val name="project_name" /></p>
+        <p className="subtitle">Your cross-platform app starts here</p>
+
+        <section className="core-demo">
+          <h2>Rust Core Library Demo</h2>
+          {!isReady ? (
+            <p className="loading">Loading WASM module...</p>
+          ) : (
+            <>
+              <div className="demo-section">
+                <h3>Greeting</h3>
+                <input
+                  type="text"
+                  placeholder="Enter your name"
+                  value={name}
+                  onChange={(e) => setName(e.target.value)}
+                />
+                <p className="result">{greeting}</p>
+              </div>
+
+              <div className="demo-section">
+                <h3>Fibonacci Calculator</h3>
+                <div className="card">
+                  <button onClick={() => setCount((c) => c + 1)}>
+                    n = {count}
+                  </button>
+                  <button onClick={handleFibonacci}>
+                    Calculate
+                  </button>
+                </div>
+                {fibResult !== null && (
+                  <p className="result">fib({count}) = {fibResult.toString()}</p>
+                )}
+              </div>
+<hick:when test="sqlite">
+              <div className="demo-section">
+                <h3>SQLite Todo List</h3>
+                <p className="sqlite-info">Data persisted in SQLite (in-memory on web)</p>
+                <TodoList
+                  todos={todos}
+                  onAdd={addTodo}
+                  onToggle={toggleTodo}
+                  onDelete={deleteTodo}
+                />
+              </div>
+</hick:when>
+            </>
+          )}
+        </section>
+      </main>
+    </div>
+  )
+}
+
+export default App
+</hick:file>
+</hick:when>
+<hick:when test="!rust-frontend-lib">
+<hick:file path="web/src/App.tsx">import { useState } from 'react'
+import './App.css'
+
+function App() {
+  const [count, setCount] = useState(0)
+
+  return (
+    <div className="app">
+      <header className="app-header">
+        <h1><hick:val name="project_name" /></h1>
+      </header>
+      <main className="app-main">
+        <p className="welcome">Welcome to <hick:val name="project_name" /></p>
+        <p className="subtitle">Your cross-platform app starts here</p>
+        <div className="card">
+          <button onClick={() => setCount((count) => count + 1)}>
+            count is {count}
+          </button>
+        </div>
+      </main>
+    </div>
+  )
+}
+
+export default App
+</hick:file>
+</hick:when>
+
+<hick:when test="rust-frontend-lib">
+### Core Library Hook
+
+A React hook that initializes and exposes the WASM module:
+
+<hick:file path="web/src/hooks/useCore.ts">import { useState, useEffect, useCallback } from 'react'
+import init, { greet as wasmGreet, fibonacci as wasmFibonacci, process_data as wasmProcessData<hick:when test="sqlite">, open_database, type Database, type TodoItem</hick:when> } from '<hick:val name="project_name" />-core'
+
+interface ProcessDataResult {
+  sum: number
+  count: number
+  average: number
+  sorted: number[]
+  error?: string
+}
+
+export function useCore() {
+  const [isReady, setIsReady] = useState(false)
+<hick:when test="sqlite">  const [db, setDb] = useState<Database | null>(null)
+</hick:when>
+  useEffect(() => {
+    init().then(() => {
+      setIsReady(true)
+<hick:when test="sqlite">      // Open database after WASM is ready
+      const database = open_database(':memory:')
+      setDb(database)
+</hick:when>
+    }).catch((err) => {
+      console.error('Failed to initialize WASM module:', err)
+    })
+  }, [])
+
+  const greet = useCallback((name: string): string => {
+    if (!isReady) return ''
+    return wasmGreet(name)
+  }, [isReady])
+
+  const fibonacci = useCallback((n: number): bigint => {
+    if (!isReady) return BigInt(0)
+    return wasmFibonacci(n)
+  }, [isReady])
+
+  const processData = useCallback((values: number[]): ProcessDataResult | null => {
+    if (!isReady) return null
+    try {
+      const result = wasmProcessData(JSON.stringify({ values }))
+      return JSON.parse(result)
+    } catch {
+      return null
+    }
+  }, [isReady])
+
+  return {
+    isReady,
+    greet,
+    fibonacci,
+    processData,
+<hick:when test="sqlite">    db,
+</hick:when>
+  }
+}
+<hick:when test="sqlite">
+// Re-export types for convenience
+export type { Database, TodoItem }
+</hick:when>
+</hick:file>
+</hick:when>
+<hick:when test="sqlite">
+### Todo List Hook
+
+A React hook that provides todo list functionality using the SQLite-backed database:
+
+<hick:file path="web/src/hooks/useTodos.ts">import { useState, useEffect, useCallback } from 'react'
+import type { Database, TodoItem } from './useCore'
+
+export function useTodos(db: Database | null) {
+  const [todos, setTodos] = useState<TodoItem[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+
+  // Load todos from database (parses JSON response)
+  const refresh = useCallback(() => {
+    if (!db) return
+    try {
+      const json = db.list_todos()
+      const items: TodoItem[] = JSON.parse(json)
+      setTodos(items)
+      setError(null)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to load todos')
+    } finally {
+      setLoading(false)
+    }
+  }, [db])
+
+  useEffect(() => {
+    if (db) {
+      refresh()
+    }
+  }, [db, refresh])
+
+  const addTodo = useCallback((title: string) => {
+    if (!db || !title.trim()) return
+    try {
+      db.create_todo(title.trim()) // Returns JSON, but we just refresh
+      refresh()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to create todo')
+    }
+  }, [db, refresh])
+
+  const toggleTodo = useCallback((id: string) => {
+    if (!db) return
+    try {
+      const todoJson = db.get_todo(id)
+      if (todoJson) {
+        const todo: TodoItem = JSON.parse(todoJson)
+        db.update_todo(id, null, !todo.completed)
+        refresh()
+      }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to update todo')
+    }
+  }, [db, refresh])
+
+  const deleteTodo = useCallback((id: string) => {
+    if (!db) return
+    try {
+      db.delete_todo(id)
+      refresh()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to delete todo')
+    }
+  }, [db, refresh])
+
+  return {
+    todos,
+    loading,
+    error,
+    addTodo,
+    toggleTodo,
+    deleteTodo,
+    refresh,
+  }
+}
+</hick:file>
+
+### Todo List Component
+
+A reusable todo list component that demonstrates SQLite CRUD operations:
+
+<hick:file path="web/src/components/TodoList.tsx">import { useState } from 'react'
+import type { TodoItem } from '../hooks/useCore'
+import './TodoList.css'
+
+interface TodoListProps {
+  todos: TodoItem[]
+  onAdd: (title: string) => void
+  onToggle: (id: string) => void
+  onDelete: (id: string) => void
+}
+
+export function TodoList({ todos, onAdd, onToggle, onDelete }: TodoListProps) {
+  const [newTodo, setNewTodo] = useState('')
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault()
+    if (newTodo.trim()) {
+      onAdd(newTodo)
+      setNewTodo('')
+    }
+  }
+
+  return (
+    <div className="todo-list">
+      <form onSubmit={handleSubmit} className="todo-form">
+        <input
+          type="text"
+          value={newTodo}
+          onChange={(e) => setNewTodo(e.target.value)}
+          placeholder="Add a new todo..."
+          className="todo-input"
+        />
+        <button type="submit" className="todo-add-btn">Add</button>
+      </form>
+
+      <ul className="todos">
+        {todos.map((todo) => (
+          <li key={todo.id} className={`todo-item ${todo.completed ? 'completed' : ''}`}>
+            <input
+              type="checkbox"
+              checked={todo.completed}
+              onChange={() => onToggle(todo.id)}
+              className="todo-checkbox"
+            />
+            <span className="todo-title">{todo.title}</span>
+            <button onClick={() => onDelete(todo.id)} className="todo-delete-btn">
+              &times;
+            </button>
+          </li>
+        ))}
+        {todos.length === 0 && (
+          <li className="todo-empty">No todos yet. Add one above!</li>
+        )}
+      </ul>
+    </div>
+  )
+}
+</hick:file>
+
+<hick:file path="web/src/components/TodoList.css" doc-hidden="true">.todo-list {
+  width: 100%;
+  max-width: 400px;
+  margin: 1rem auto;
+}
+
+.todo-form {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+}
+
+.todo-input {
+  flex: 1;
+  padding: 0.5rem;
+  border-radius: 4px;
+  border: 1px solid #333;
+  background-color: #1a1a1a;
+  color: inherit;
+}
+
+.todo-add-btn {
+  padding: 0.5rem 1rem;
+}
+
+.todos {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.todo-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.75rem;
+  border-bottom: 1px solid #333;
+}
+
+.todo-item.completed .todo-title {
+  text-decoration: line-through;
+  opacity: 0.6;
+}
+
+.todo-checkbox {
+  width: 1.2rem;
+  height: 1.2rem;
+  cursor: pointer;
+}
+
+.todo-title {
+  flex: 1;
+  text-align: left;
+}
+
+.todo-delete-btn {
+  background: transparent;
+  border: none;
+  color: #ff6b6b;
+  font-size: 1.5rem;
+  cursor: pointer;
+  padding: 0 0.5rem;
+}
+
+.todo-delete-btn:hover {
+  color: #ff4444;
+}
+
+.todo-empty {
+  padding: 1rem;
+  color: #888;
+  font-style: italic;
+  text-align: center;
+}
+
+@media (prefers-color-scheme: light) {
+  .todo-input {
+    background-color: #fff;
+    border-color: #ddd;
+  }
+  .todo-item {
+    border-bottom-color: #eee;
+  }
+}
+</hick:file>
+</hick:when>
+
+### Styles
+
+Global styles set up CSS custom properties for theming and respect system dark
+mode preferences. Component styles are co-located with components:
+
+<hick:file path="web/src/index.css">:root {
+  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+
+  color-scheme: light dark;
+  color: rgba(255, 255, 255, 0.87);
+  background-color: #242424;
+
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  margin: 0;
+  display: flex;
+  place-items: center;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+#root {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 2rem;
+  text-align: center;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    color: #213547;
+    background-color: #ffffff;
+  }
+}
+</hick:file>
+
+<hick:file path="web/src/App.css" doc-hidden="true">.app {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.app-header {
+  margin-bottom: 2rem;
+}
+
+.app-header h1 {
+  font-size: 3rem;
+  margin: 0;
+}
+
+.app-main {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+
+.welcome {
+  font-size: 2rem;
+  margin: 0 0 0.5rem;
+}
+
+.subtitle {
+  color: #888;
+  margin: 0 0 2rem;
+}
+
+.card {
+  padding: 2em;
+  display: flex;
+  gap: 1rem;
+}
+
+button {
+  border-radius: 8px;
+  border: 1px solid transparent;
+  padding: 0.6em 1.2em;
+  font-size: 1em;
+  font-weight: 500;
+  font-family: inherit;
+  background-color: #1a1a1a;
+  cursor: pointer;
+  transition: border-color 0.25s;
+}
+button:hover {
+  border-color: #646cff;
+}
+button:focus,
+button:focus-visible {
+  outline: 4px auto -webkit-focus-ring-color;
+}
+
+@media (prefers-color-scheme: light) {
+  button {
+    background-color: #f9f9f9;
+  }
+}
+
+.core-demo {
+  margin-top: 2rem;
+  padding: 2rem;
+  border: 1px solid #333;
+  border-radius: 8px;
+  max-width: 400px;
+}
+
+.core-demo h2 {
+  margin-top: 0;
+  font-size: 1.5rem;
+  color: #646cff;
+}
+
+.demo-section {
+  margin-bottom: 1.5rem;
+}
+
+.demo-section h3 {
+  font-size: 1rem;
+  margin-bottom: 0.5rem;
+}
+
+.demo-section input {
+  padding: 0.5em;
+  border-radius: 4px;
+  border: 1px solid #333;
+  background-color: #1a1a1a;
+  color: inherit;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.demo-section .result {
+  margin-top: 0.5rem;
+  padding: 0.5rem;
+  background-color: #2a2a2a;
+  border-radius: 4px;
+  font-family: monospace;
+}
+
+.loading {
+  color: #888;
+  font-style: italic;
+}
+
+.sqlite-info {
+  font-size: 0.85rem;
+  color: #888;
+  margin-bottom: 0.5rem;
+}
+
+@media (prefers-color-scheme: light) {
+  .core-demo {
+    border-color: #ddd;
+  }
+
+  .demo-section input {
+    background-color: #fff;
+    border-color: #ddd;
+  }
+
+  .demo-section .result {
+    background-color: #f5f5f5;
+  }
+}
+</hick:file>
+
+<hick:file path="web/public/vite.svg" doc-hidden="true"><svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" aria-hidden="true" role="img" class="iconify iconify--logos" width="31.88" height="32" preserveAspectRatio="xMidYMid meet" viewBox="0 0 256 257"><defs><linearGradient id="IconifyId1813088fe1fbc01fb466" x1="-.828%" x2="57.636%" y1="7.652%" y2="78.411%"><stop offset="0%" stop-color="#41D1FF"></stop><stop offset="100%" stop-color="#BD34FE"></stop></linearGradient><linearGradient id="IconifyId1813088fe1fbc01fb467" x1="43.376%" x2="50.316%" y1="2.242%" y2="89.03%"><stop offset="0%" stop-color="#FFBD4F"></stop><stop offset="100%" stop-color="#FF980E"></stop></linearGradient></defs><path fill="url(#IconifyId1813088fe1fbc01fb466)" d="M255.153 37.938L134.897 252.976c-2.483 4.44-8.862 4.466-11.382.048L.875 37.958c-2.746-4.814 1.371-10.646 6.827-9.67l120.385 21.517a6.537 6.537 0 0 0 2.322-.004l117.867-21.483c5.438-.991 9.574 4.796 6.877 9.62Z"></path><path fill="url(#IconifyId1813088fe1fbc01fb467)" d="M185.432.063L96.44 17.501a3.268 3.268 0 0 0-2.634 3.014l-5.474 92.456a3.268 3.268 0 0 0 3.997 3.378l24.777-5.718c2.318-.535 4.413 1.507 3.936 3.838l-7.361 36.047c-.495 2.426 1.782 4.5 4.151 3.78l15.304-4.649c2.372-.72 4.652 1.36 4.15 3.788l-11.698 56.621c-.732 3.542 3.979 5.473 5.943 2.437l1.313-2.028l72.516-144.72c1.215-2.423-.88-5.186-3.54-4.672l-25.505 4.922c-2.396.462-4.435-1.77-3.759-4.114l16.646-57.705c.677-2.35-1.37-4.583-3.769-4.113Z"></path></svg>
+</hick:file>
+
+</hick:when>
+</hick:doc>

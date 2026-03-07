@@ -1,0 +1,473 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
+
+<hick:when test="avalonia">
+
+## Avalonia (Cross-Platform Desktop)
+
+[Avalonia](https://avaloniaui.net/) is a cross-platform UI framework for .NET that
+runs on Windows, macOS, and Linux from a single codebase. It uses XAML for declarative
+UI with a syntax similar to WPF, making it familiar to .NET desktop developers.
+
+### Solution Structure
+
+The solution file ties the project together for Visual Studio and Rider. We use a
+simple single-project structure, but this can be expanded to include shared libraries
+or platform-specific projects:
+
+<hick:file path="desktop/{{project_name}}.sln" doc-hidden="true">Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "<hick:val name="project_name" />", "<hick:val name="project_name" />\<hick:val name="project_name" />.csproj", "{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A1B2C3D4-E5F6-7890-ABCD-EF1234567890}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+EndGlobal
+</hick:file>
+
+### Project Configuration
+
+The `.csproj` file configures the application. Key choices:
+- **WinExe output** — Creates a Windows GUI application (no console window)
+- **Compiled bindings** — Better performance and compile-time checking for data binding
+- **Inter font** — A clean, modern typeface optimized for UI
+- **CommunityToolkit.Mvvm** — Source generators for MVVM pattern with minimal boilerplate
+
+<hick:file path="desktop/{{project_name}}/{{project_name}}.csproj"><Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net<hick:val name="dotnet_version" /></TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <BuiltInComInteropSupport>true</BuiltInComInteropSupport>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <AvaloniaUseCompiledBindingsByDefault>true</AvaloniaUseCompiledBindingsByDefault>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Avalonia" Version="11.1.0" />
+    <PackageReference Include="Avalonia.Desktop" Version="11.1.0" />
+    <PackageReference Include="Avalonia.Themes.Fluent" Version="11.1.0" />
+    <PackageReference Include="Avalonia.Fonts.Inter" Version="11.1.0" />
+    <PackageReference Include="CommunityToolkit.Mvvm" Version="8.2.2" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <AvaloniaResource Include="Assets\**" />
+  </ItemGroup>
+
+</Project>
+</hick:file>
+
+<hick:file path="desktop/{{project_name}}/app.manifest" doc-hidden="true"><?xml version="1.0" encoding="utf-8"?>
+<assembly manifestVersion="1.0" xmlns="urn:schemas-microsoft-com:asm.v1">
+  <assemblyIdentity version="1.0.0.0" name="<hick:val name="project_name" />.Desktop"/>
+  <trustInfo xmlns="urn:schemas-microsoft-com:asm.v2">
+    <security>
+      <requestedPrivileges xmlns="urn:schemas-microsoft-com:asm.v3">
+        <requestedExecutionLevel level="asInvoker" uiAccess="false"/>
+      </requestedPrivileges>
+    </security>
+  </trustInfo>
+</assembly>
+</hick:file>
+
+### Entry Point
+
+The program entry point initializes Avalonia with platform detection. The builder
+pattern configures fonts, logging, and platform-specific settings:
+
+<hick:file path="desktop/{{project_name}}/Program.cs">using System;
+using Avalonia;
+
+namespace <hick:val name="project_name" />;
+
+sealed class Program
+{
+    [STAThread]
+    public static void Main(string[] args) => BuildAvaloniaApp()
+        .StartWithClassicDesktopLifetime(args);
+
+    public static AppBuilder BuildAvaloniaApp()
+        => AppBuilder.Configure<App>()
+            .UsePlatformDetect()
+            .WithInterFont()
+            .LogToTrace();
+}
+</hick:file>
+
+### Application Class
+
+The `App` class sets up the application lifecycle and creates the main window.
+Avalonia uses AXAML (a XAML variant) for markup with code-behind files:
+
+<hick:file path="desktop/{{project_name}}/App.axaml"><Application xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             x:Class="<hick:val name="project_name" />.App"
+             RequestedThemeVariant="Default">
+    <Application.Styles>
+        <FluentTheme />
+    </Application.Styles>
+</Application>
+</hick:file>
+
+<hick:file path="desktop/{{project_name}}/App.axaml.cs">using Avalonia;
+using Avalonia.Controls.ApplicationLifetimes;
+using Avalonia.Markup.Xaml;
+using <hick:val name="project_name" />.ViewModels;
+using <hick:val name="project_name" />.Views;
+
+namespace <hick:val name="project_name" />;
+
+public partial class App : Application
+{
+    public override void Initialize()
+    {
+        AvaloniaXamlLoader.Load(this);
+    }
+
+    public override void OnFrameworkInitializationCompleted()
+    {
+        if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
+        {
+            desktop.MainWindow = new MainWindow
+            {
+                DataContext = new MainWindowViewModel()
+            };
+        }
+
+        base.OnFrameworkInitializationCompleted();
+    }
+}
+</hick:file>
+
+### Main Window
+
+The main window demonstrates Avalonia's XAML syntax with data binding. Note the
+`x:DataType` attribute enabling compiled bindings—this catches binding errors at
+compile time rather than runtime:
+
+<hick:when test="rust-frontend-lib">
+<hick:file path="desktop/{{project_name}}/Views/MainWindow.axaml"><Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:<hick:val name="project_name" />.ViewModels"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
+        x:Class="<hick:val name="project_name" />.Views.MainWindow"
+        x:DataType="vm:MainWindowViewModel"
+        Title="<hick:val name="project_name" />"
+        Width="800"
+        Height="600">
+
+    <Design.DataContext>
+        <vm:MainWindowViewModel/>
+    </Design.DataContext>
+
+    <Grid RowDefinitions="Auto,*">
+        <TextBlock Grid.Row="0"
+                   Text="<hick:val name="project_name" />"
+                   FontSize="24"
+                   FontWeight="Bold"
+                   Margin="20"
+                   HorizontalAlignment="Center"/>
+
+        <StackPanel Grid.Row="1"
+                    VerticalAlignment="Center"
+                    HorizontalAlignment="Center"
+                    Spacing="16">
+            <TextBlock Text="{Binding Greeting}"
+                       FontSize="32"
+                       HorizontalAlignment="Center"
+                       Foreground="#646cff"/>
+            <TextBlock Text="Powered by Rust Core Library"
+                       Foreground="Gray"
+                       HorizontalAlignment="Center"/>
+
+            <Separator Margin="0,16"/>
+
+            <TextBlock Text="Greeting Demo"
+                       FontWeight="Bold"
+                       HorizontalAlignment="Center"/>
+            <TextBox Text="{Binding Name}"
+                     Watermark="Enter your name"
+                     Width="250"
+                     HorizontalAlignment="Center"/>
+
+            <Separator Margin="0,16"/>
+
+            <TextBlock Text="Fibonacci Calculator"
+                       FontWeight="Bold"
+                       HorizontalAlignment="Center"/>
+            <StackPanel Orientation="Horizontal"
+                        HorizontalAlignment="Center"
+                        Spacing="8">
+                <NumericUpDown Value="{Binding FibN}"
+                               Minimum="0"
+                               Maximum="50"
+                               Width="100"/>
+                <Button Content="Calculate"
+                        Command="{Binding CalculateFibCommand}"/>
+            </StackPanel>
+            <TextBlock Text="{Binding FibResult}"
+                       FontFamily="Consolas,Menlo,monospace"
+                       HorizontalAlignment="Center"
+                       Foreground="#646cff"/>
+        </StackPanel>
+    </Grid>
+
+</Window>
+</hick:file>
+</hick:when>
+<hick:when test="!rust-frontend-lib">
+<hick:file path="desktop/{{project_name}}/Views/MainWindow.axaml"><Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:<hick:val name="project_name" />.ViewModels"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d" d:DesignWidth="800" d:DesignHeight="450"
+        x:Class="<hick:val name="project_name" />.Views.MainWindow"
+        x:DataType="vm:MainWindowViewModel"
+        Title="<hick:val name="project_name" />"
+        Width="800"
+        Height="600">
+
+    <Design.DataContext>
+        <vm:MainWindowViewModel/>
+    </Design.DataContext>
+
+    <Grid RowDefinitions="Auto,*">
+        <TextBlock Grid.Row="0"
+                   Text="<hick:val name="project_name" />"
+                   FontSize="24"
+                   FontWeight="Bold"
+                   Margin="20"
+                   HorizontalAlignment="Center"/>
+
+        <StackPanel Grid.Row="1"
+                    VerticalAlignment="Center"
+                    HorizontalAlignment="Center"
+                    Spacing="16">
+            <TextBlock Text="{Binding Greeting}"
+                       FontSize="32"
+                       HorizontalAlignment="Center"/>
+            <TextBlock Text="Your cross-platform app starts here"
+                       Foreground="Gray"
+                       HorizontalAlignment="Center"/>
+            <Button Content="Click me!"
+                    Command="{Binding ClickCommand}"
+                    HorizontalAlignment="Center"/>
+            <TextBlock Text="{Binding ClickCount, StringFormat='Clicked {0} times'}"
+                       HorizontalAlignment="Center"/>
+        </StackPanel>
+    </Grid>
+
+</Window>
+</hick:file>
+</hick:when>
+
+<hick:file path="desktop/{{project_name}}/Views/MainWindow.axaml.cs">using Avalonia.Controls;
+
+namespace <hick:val name="project_name" />.Views;
+
+public partial class MainWindow : Window
+{
+    public MainWindow()
+    {
+        InitializeComponent();
+    }
+}
+</hick:file>
+
+### ViewModel with Source Generators
+
+The CommunityToolkit.Mvvm package uses source generators to eliminate MVVM boilerplate.
+The `[ObservableProperty]` attribute generates the full property with change notification,
+and `[RelayCommand]` creates an `ICommand` implementation from a method:
+
+<hick:when test="rust-frontend-lib">
+<hick:file path="desktop/{{project_name}}/ViewModels/MainWindowViewModel.cs">using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
+using <hick:val name="project_name" />.Core;
+
+namespace <hick:val name="project_name" />.ViewModels;
+
+public partial class MainWindowViewModel : ViewModelBase
+{
+    [ObservableProperty]
+    private string _greeting = string.Empty;
+
+    [ObservableProperty]
+    private string _name = string.Empty;
+
+    [ObservableProperty]
+    private int _fibN = 10;
+
+    [ObservableProperty]
+    private string _fibResult = string.Empty;
+
+    public MainWindowViewModel()
+    {
+        UpdateGreeting();
+        CalculateFib();
+    }
+
+    partial void OnNameChanged(string value)
+    {
+        UpdateGreeting();
+    }
+
+    private void UpdateGreeting()
+    {
+        Greeting = CoreLibrary.Greet(Name);
+    }
+
+    [RelayCommand]
+    private void CalculateFib()
+    {
+        var result = CoreLibrary.Fibonacci((uint)FibN);
+        FibResult = $"fib({FibN}) = {result}";
+    }
+}
+</hick:file>
+</hick:when>
+<hick:when test="!rust-frontend-lib">
+<hick:file path="desktop/{{project_name}}/ViewModels/MainWindowViewModel.cs">using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
+
+namespace <hick:val name="project_name" />.ViewModels;
+
+public partial class MainWindowViewModel : ViewModelBase
+{
+    [ObservableProperty]
+    private string _greeting = "Welcome to <hick:val name="project_name" />!";
+
+    [ObservableProperty]
+    private int _clickCount;
+
+    [RelayCommand]
+    private void Click()
+    {
+        ClickCount++;
+    }
+}
+</hick:file>
+</hick:when>
+
+<hick:file path="desktop/{{project_name}}/ViewModels/ViewModelBase.cs">using CommunityToolkit.Mvvm.ComponentModel;
+
+namespace <hick:val name="project_name" />.ViewModels;
+
+public class ViewModelBase : ObservableObject
+{
+}
+</hick:file>
+
+<hick:file path="desktop/{{project_name}}/Assets/.gitkeep" doc-hidden="true"># This folder contains application assets
+</hick:file>
+
+<hick:when test="rust-frontend-lib">
+### Core Library Integration
+
+When using the core library, UniFFI generates C# bindings that expose the Rust
+functions via P/Invoke. The bindings use the NativeLibrary API for cross-platform
+loading:
+
+<hick:file path="desktop/{{project_name}}/Core/CoreLibrary.cs">using System.Runtime.InteropServices;
+
+namespace <hick:val name="project_name" />.Core;
+
+/// <summary>
+/// C# wrapper for the Rust core library.
+/// Uses P/Invoke to call native functions.
+/// </summary>
+public static class CoreLibrary
+{
+    private const string LibName = "<hick:val name="project_name" />_core";
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
+    private static extern IntPtr <hick:val name="project_name" />_core_greet(
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string name);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
+    private static extern ulong <hick:val name="project_name" />_core_fibonacci(uint n);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
+    private static extern IntPtr <hick:val name="project_name" />_core_process_data(
+        [MarshalAs(UnmanagedType.LPUTF8Str)] string jsonInput);
+
+    [DllImport(LibName, CallingConvention = CallingConvention.Cdecl)]
+    private static extern void <hick:val name="project_name" />_core_free_string(IntPtr ptr);
+
+    /// <summary>
+    /// Generate a personalized greeting.
+    /// </summary>
+    /// <param name="name">The name to greet (empty for default greeting)</param>
+    /// <returns>A greeting string</returns>
+    public static string Greet(string name)
+    {
+        var ptr = <hick:val name="project_name" />_core_greet(name ?? string.Empty);
+        try
+        {
+            return Marshal.PtrToStringUTF8(ptr) ?? "Hello, World!";
+        }
+        finally
+        {
+            <hick:val name="project_name" />_core_free_string(ptr);
+        }
+    }
+
+    /// <summary>
+    /// Calculate the nth Fibonacci number.
+    /// </summary>
+    /// <param name="n">The index (0-based) of the Fibonacci number</param>
+    /// <returns>The nth Fibonacci number</returns>
+    public static ulong Fibonacci(uint n)
+    {
+        return <hick:val name="project_name" />_core_fibonacci(n);
+    }
+
+    /// <summary>
+    /// Process JSON data and return computed statistics.
+    /// </summary>
+    /// <param name="jsonInput">JSON string with { values: number[] }</param>
+    /// <returns>JSON string with { sum, count, average, sorted }</returns>
+    public static string ProcessData(string jsonInput)
+    {
+        var ptr = <hick:val name="project_name" />_core_process_data(jsonInput);
+        try
+        {
+            return Marshal.PtrToStringUTF8(ptr) ?? "{}";
+        }
+        finally
+        {
+            <hick:val name="project_name" />_core_free_string(ptr);
+        }
+    }
+}
+</hick:file>
+
+<hick:file path="desktop/{{project_name}}/Core/.gitkeep"># UniFFI-generated C# bindings directory
+# Run ../rust-lib/build-native.sh to generate C# bindings
+#
+# Place native libraries in the runtimes folder:
+# - runtimes/win-x64/native/<hick:val name="project_name" />_core.dll
+# - runtimes/osx-x64/native/lib<hick:val name="project_name" />_core.dylib
+# - runtimes/osx-arm64/native/lib<hick:val name="project_name" />_core.dylib
+# - runtimes/linux-x64/native/lib<hick:val name="project_name" />_core.so
+</hick:file>
+</hick:when>
+
+</hick:when>
+</hick:doc>

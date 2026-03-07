@@ -1,0 +1,17 @@
+[package]
+name = "connection-filter"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+arc-swap = "1.8.0"
+async-trait = "0.1"
+hick-token = { path = "../hick-token", optional = true }
+log = { version = "0.4", optional = true }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt", "macros"] }
+
+[features]
+default = []
+capability = ["hick-token", "log"]

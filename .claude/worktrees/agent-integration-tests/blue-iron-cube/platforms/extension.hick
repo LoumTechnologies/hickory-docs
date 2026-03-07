@@ -1,0 +1,1173 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
+
+<hick:when test="extension">
+
+## Browser Extension — Quick Job Lookup
+
+A browser extension for <hick:val name="business_name" /> field crews. Provides a
+compact popup for quick job lookup by address or ID, customer search, and job status
+updates. Uses Manifest V3 with CRXJS Vite plugin and React.
+
+---
+
+### Package Configuration
+
+<hick:file path="browser-extension/package.json">{
+  "name": "<hick:val name="app_name" />-extension",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b &amp;&amp; vite build",
+    "lint": "eslint .",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@crxjs/vite-plugin": "^2.0.0-beta.25",
+    "@eslint/js": "^9.15.0",
+    "@types/chrome": "^0.0.268",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "eslint": "^9.15.0",
+    "eslint-plugin-react-hooks": "^5.0.0",
+    "eslint-plugin-react-refresh": "^0.4.14",
+    "globals": "^15.12.0",
+    "typescript": "~5.6.2",
+    "typescript-eslint": "^8.15.0",
+    "vite": "^6.0.1"
+  }
+}
+</hick:file>
+
+### Extension Manifest
+
+Manifest V3 with storage permission for caching recent lookups:
+
+<hick:file path="browser-extension/manifest.json">{
+  "manifest_version": 3,
+  "name": "<hick:val name="business_name" /> — Quick Lookup",
+  "description": "Quick job and customer lookup for <hick:val name="business_name" /> field crews",
+  "version": "0.0.1",
+  "action": {
+    "default_popup": "index.html"
+  },
+  "permissions": [
+    "storage"
+  ],
+  "background": {
+    "service_worker": "src/background.ts",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["*://*/*"],
+      "js": ["src/content.ts"],
+      "run_at": "document_idle"
+    }
+  ]
+}
+</hick:file>
+
+### Vite Configuration
+
+<hick:file path="browser-extension/vite.config.ts">import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+import { crx } from '@crxjs/vite-plugin'
+import manifest from './manifest.json'
+
+export default defineConfig({
+  plugins: [
+    react(),
+    crx({ manifest }),
+  ],
+  build: {
+    rollupOptions: {
+      input: {
+        popup: 'index.html',
+      },
+    },
+  },
+})
+</hick:file>
+
+### TypeScript Configuration
+
+<hick:file path="browser-extension/tsconfig.json">{
+  "files": [],
+  "references": [
+    { "path": "./tsconfig.app.json" },
+    { "path": "./tsconfig.node.json" }
+  ]
+}
+</hick:file>
+
+<hick:file path="browser-extension/tsconfig.app.json">{
+  "compilerOptions": {
+    "target": "ES2020",
+    "useDefineForClassFields": true,
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "skipLibCheck": true,
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "isolatedModules": true,
+    "moduleDetection": "force",
+    "noEmit": true,
+    "jsx": "react-jsx",
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedSideEffectImports": true,
+    "types": ["chrome"]
+  },
+  "include": ["src"]
+}
+</hick:file>
+
+<hick:file path="browser-extension/src/vite-env.d.ts" doc-hidden="true">/// &lt;reference types="vite/client" /&gt;
+</hick:file>
+
+<hick:file path="browser-extension/tsconfig.node.json" doc-hidden="true">{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2023"],
+    "module": "ESNext",
+    "skipLibCheck": true,
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "moduleDetection": "force",
+    "noEmit": true,
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedSideEffectImports": true
+  },
+  "include": ["vite.config.ts", "manifest.json"]
+}
+</hick:file>
+
+<hick:file path="browser-extension/eslint.config.js" doc-hidden="true">import js from '@eslint/js'
+import globals from 'globals'
+import reactHooks from 'eslint-plugin-react-hooks'
+import reactRefresh from 'eslint-plugin-react-refresh'
+import tseslint from 'typescript-eslint'
+
+export default tseslint.config(
+  { ignores: ['dist'] },
+  {
+    extends: [js.configs.recommended, ...tseslint.configs.recommended],
+    files: ['**/*.{ts,tsx}'],
+    languageOptions: {
+      ecmaVersion: 2020,
+      globals: { ...globals.browser, chrome: 'readonly' },
+    },
+    plugins: {
+      'react-hooks': reactHooks,
+      'react-refresh': reactRefresh,
+    },
+    rules: {
+      ...reactHooks.configs.recommended.rules,
+      'react-refresh/only-export-components': [
+        'warn',
+        { allowConstantExport: true },
+      ],
+    },
+  },
+)
+</hick:file>
+
+---
+
+### API Client
+
+Simplified fetch-based client matching the SPA pattern. The extension connects to the
+same backend API as the web dashboard:
+
+<hick:file path="browser-extension/src/api/client.ts">const API_BASE = 'http://localhost:3000'
+
+function snakeToCamel(str: string): string {
+  return str.replace(/_([a-z])/g, (_, c) =&gt; c.toUpperCase())
+}
+
+function camelToSnake(str: string): string {
+  return str.replace(/[A-Z]/g, (c) =&gt; '_' + c.toLowerCase())
+}
+
+function transformKeys&lt;T&gt;(obj: unknown, fn: (s: string) =&gt; string): T {
+  if (Array.isArray(obj)) return obj.map((v) =&gt; transformKeys(v, fn)) as T
+  if (obj !== null &amp;&amp; typeof obj === 'object') {
+    return Object.fromEntries(
+      Object.entries(obj as Record&lt;string, unknown&gt;).map(([k, v]) =&gt; [
+        fn(k),
+        transformKeys(v, fn),
+      ])
+    ) as T
+  }
+  return obj as T
+}
+
+export async function apiGet&lt;T&gt;(path: string): Promise&lt;T&gt; {
+  const res = await fetch(`${API_BASE}${path}`)
+  if (!res.ok) throw new Error(`GET ${path}: ${res.status}`)
+  const data = await res.json()
+  return transformKeys&lt;T&gt;(data, snakeToCamel)
+}
+
+export async function apiPost&lt;T&gt;(path: string, body: unknown): Promise&lt;T&gt; {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(transformKeys(body, camelToSnake)),
+  })
+  if (!res.ok) throw new Error(`POST ${path}: ${res.status}`)
+  const data = await res.json()
+  return transformKeys&lt;T&gt;(data, snakeToCamel)
+}
+
+export async function apiPut&lt;T&gt;(path: string, body: unknown): Promise&lt;T&gt; {
+  const res = await fetch(`${API_BASE}${path}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(transformKeys(body, camelToSnake)),
+  })
+  if (!res.ok) throw new Error(`PUT ${path}: ${res.status}`)
+  const data = await res.json()
+  return transformKeys&lt;T&gt;(data, snakeToCamel)
+}
+</hick:file>
+
+---
+
+### Types
+
+Simplified type definitions for the two domains the extension covers: jobs and customers.
+
+<hick:when test="customers">
+<hick:file path="browser-extension/src/types/customer.ts">export interface Customer {
+  id: string
+  companyName: string | null
+  firstName: string
+  lastName: string
+  email: string | null
+  phone: string | null
+  address: string | null
+  city: string | null
+  state: string | null
+  zip: string | null
+  notes: string | null
+  createdAt: string
+}
+</hick:file>
+</hick:when>
+
+<hick:when test="jobs">
+<hick:file path="browser-extension/src/types/job.ts">export type JobStatus = 'lead' | 'quoted' | 'scheduled' | 'in_progress' | 'completed' | 'invoiced' | 'paid'
+
+export interface Job {
+  id: string
+  customerId: string
+  title: string
+  description: string | null
+  status: JobStatus
+  address: string
+  city: string
+  state: string
+  zip: string
+  scheduledDate: string | null
+  completedDate: string | null
+  quotedPrice: string | null
+  finalPrice: string | null
+  notes: string | null
+  createdAt: string
+}
+</hick:file>
+</hick:when>
+
+---
+
+### Popup Entry Point
+
+<hick:file path="browser-extension/index.html">&lt;!DOCTYPE html&gt;
+&lt;html lang="en"&gt;
+  &lt;head&gt;
+    &lt;meta charset="UTF-8" /&gt;
+    &lt;meta name="viewport" content="width=device-width, initial-scale=1.0" /&gt;
+    &lt;title&gt;<hick:val name="business_name" /> — Quick Lookup&lt;/title&gt;
+  &lt;/head&gt;
+  &lt;body&gt;
+    &lt;div id="root"&gt;&lt;/div&gt;
+    &lt;script type="module" src="/src/popup/main.tsx"&gt;&lt;/script&gt;
+  &lt;/body&gt;
+&lt;/html&gt;
+</hick:file>
+
+<hick:file path="browser-extension/src/popup/main.tsx">import { StrictMode } from 'react'
+import { createRoot } from 'react-dom/client'
+import './index.css'
+import Popup from './Popup'
+
+createRoot(document.getElementById('root')!).render(
+  &lt;StrictMode&gt;
+    &lt;Popup /&gt;
+  &lt;/StrictMode&gt;,
+)
+</hick:file>
+
+### Popup Component
+
+The main popup provides a tabbed interface with quick job search (by address or ID)
+and customer lookup. Results are cached in `chrome.storage.local` for instant recall:
+
+<hick:file path="browser-extension/src/popup/Popup.tsx">import { useState, useEffect, useCallback } from 'react'
+import './Popup.css'
+<hick:when test="jobs">import { JobSearch } from './JobSearch'</hick:when>
+<hick:when test="customers">import { CustomerSearch } from './CustomerSearch'</hick:when>
+
+type Tab = <hick:when test="jobs">'jobs'</hick:when><hick:when test="jobs customers"> | </hick:when><hick:when test="customers">'customers'</hick:when>
+
+function Popup() {
+  const [tab, setTab] = useState&lt;Tab&gt;(<hick:when test="jobs">'jobs'</hick:when><hick:when test="!jobs">'customers'</hick:when>)
+  const [serverUrl, setServerUrl] = useState('http://localhost:3000')
+  const [showSettings, setShowSettings] = useState(false)
+
+  useEffect(() =&gt; {
+    chrome.storage.local.get(['serverUrl'], (result) =&gt; {
+      if (result.serverUrl) setServerUrl(result.serverUrl)
+    })
+  }, [])
+
+  const saveSettings = useCallback(() =&gt; {
+    chrome.storage.local.set({ serverUrl })
+    setShowSettings(false)
+  }, [serverUrl])
+
+  return (
+    &lt;div className="popup"&gt;
+      &lt;header className="popup-header"&gt;
+        &lt;h1&gt;<hick:val name="business_name" />&lt;/h1&gt;
+        &lt;button className="settings-btn" onClick={() =&gt; setShowSettings(!showSettings)}&gt;
+          &#9881;
+        &lt;/button&gt;
+      &lt;/header&gt;
+
+      {showSettings &amp;&amp; (
+        &lt;div className="settings-panel"&gt;
+          &lt;label&gt;
+            Server URL
+            &lt;input
+              type="text"
+              value={serverUrl}
+              onChange={(e) =&gt; setServerUrl(e.target.value)}
+            /&gt;
+          &lt;/label&gt;
+          &lt;button onClick={saveSettings}&gt;Save&lt;/button&gt;
+        &lt;/div&gt;
+      )}
+
+      &lt;nav className="tab-bar"&gt;
+<hick:when test="jobs">        &lt;button
+          className={tab === 'jobs' ? 'active' : ''}
+          onClick={() =&gt; setTab('jobs')}
+        &gt;
+          Jobs
+        &lt;/button&gt;
+</hick:when>
+<hick:when test="customers">        &lt;button
+          className={tab === 'customers' ? 'active' : ''}
+          onClick={() =&gt; setTab('customers')}
+        &gt;
+          Customers
+        &lt;/button&gt;
+</hick:when>
+      &lt;/nav&gt;
+
+      &lt;main className="popup-main"&gt;
+<hick:when test="jobs">        {tab === 'jobs' &amp;&amp; &lt;JobSearch /&gt;}
+</hick:when>
+<hick:when test="customers">        {tab === 'customers' &amp;&amp; &lt;CustomerSearch /&gt;}
+</hick:when>
+      &lt;/main&gt;
+    &lt;/div&gt;
+  )
+}
+
+export default Popup
+</hick:file>
+
+<hick:when test="jobs">
+### Job Search Panel
+
+Quick-search jobs by address or title. Shows status badge, scheduled date, and price.
+Recent searches are cached for offline access:
+
+<hick:file path="browser-extension/src/popup/JobSearch.tsx">import { useState, useEffect, useCallback } from 'react'
+import { apiGet, apiPut } from '../api/client'
+import type { Job, JobStatus } from '../types/job'
+
+const STATUS_COLORS: Record&lt;JobStatus, string&gt; = {
+  lead: '#94a3b8',
+  quoted: '#a78bfa',
+  scheduled: '#60a5fa',
+  in_progress: '#fbbf24',
+  completed: '#34d399',
+  invoiced: '#f472b6',
+  paid: '#10b981',
+}
+
+const STATUS_LABELS: Record&lt;JobStatus, string&gt; = {
+  lead: 'Lead',
+  quoted: 'Quoted',
+  scheduled: 'Scheduled',
+  in_progress: 'In Progress',
+  completed: 'Completed',
+  invoiced: 'Invoiced',
+  paid: 'Paid',
+}
+
+export function JobSearch() {
+  const [query, setQuery] = useState('')
+  const [jobs, setJobs] = useState&lt;Job[]&gt;([])
+  const [recent, setRecent] = useState&lt;Job[]&gt;([])
+  const [selected, setSelected] = useState&lt;Job | null&gt;(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState&lt;string | null&gt;(null)
+
+  useEffect(() =&gt; {
+    chrome.storage.local.get(['recentJobs'], (result) =&gt; {
+      if (result.recentJobs) setRecent(result.recentJobs)
+    })
+  }, [])
+
+  const search = useCallback(async () =&gt; {
+    if (!query.trim()) return
+    setLoading(true)
+    setError(null)
+    setSelected(null)
+    try {
+      const results = await apiGet&lt;Job[]&gt;(`/jobs?search=${encodeURIComponent(query)}`)
+      setJobs(results)
+      if (results.length === 0) setError('No jobs found')
+    } catch {
+      setError('Could not reach server')
+    } finally {
+      setLoading(false)
+    }
+  }, [query])
+
+  const selectJob = useCallback((job: Job) =&gt; {
+    setSelected(job)
+    const updated = [job, ...recent.filter((j) =&gt; j.id !== job.id)].slice(0, 10)
+    setRecent(updated)
+    chrome.storage.local.set({ recentJobs: updated })
+  }, [recent])
+
+  const updateStatus = useCallback(async (jobId: string, status: JobStatus) =&gt; {
+    try {
+      const updated = await apiPut&lt;Job&gt;(`/jobs/${jobId}`, { status })
+      setSelected(updated)
+      setJobs((prev) =&gt; prev.map((j) =&gt; (j.id === jobId ? updated : j)))
+      setRecent((prev) =&gt; {
+        const list = prev.map((j) =&gt; (j.id === jobId ? updated : j))
+        chrome.storage.local.set({ recentJobs: list })
+        return list
+      })
+    } catch {
+      setError('Failed to update status')
+    }
+  }, [])
+
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) =&gt; {
+    if (e.key === 'Enter') search()
+  }, [search])
+
+  const displayJobs = jobs.length &gt; 0 ? jobs : recent
+
+  return (
+    &lt;div className="search-panel"&gt;
+      &lt;div className="search-bar"&gt;
+        &lt;input
+          type="text"
+          placeholder="Search by address, title, or ID..."
+          value={query}
+          onChange={(e) =&gt; setQuery(e.target.value)}
+          onKeyDown={handleKeyDown}
+          autoFocus
+        /&gt;
+        &lt;button onClick={search} disabled={loading}&gt;
+          {loading ? '...' : 'Go'}
+        &lt;/button&gt;
+      &lt;/div&gt;
+
+      {error &amp;&amp; &lt;p className="error-msg"&gt;{error}&lt;/p&gt;}
+
+      {selected ? (
+        &lt;div className="job-detail"&gt;
+          &lt;button className="back-btn" onClick={() =&gt; setSelected(null)}&gt;&amp;larr; Back&lt;/button&gt;
+          &lt;h3&gt;{selected.title}&lt;/h3&gt;
+          &lt;span className="status-badge" style={{ backgroundColor: STATUS_COLORS[selected.status] }}&gt;
+            {STATUS_LABELS[selected.status]}
+          &lt;/span&gt;
+          &lt;div className="detail-grid"&gt;
+            &lt;div className="detail-row"&gt;
+              &lt;span className="label"&gt;Address&lt;/span&gt;
+              &lt;span&gt;{selected.address}, {selected.city}, {selected.state} {selected.zip}&lt;/span&gt;
+            &lt;/div&gt;
+            {selected.scheduledDate &amp;&amp; (
+              &lt;div className="detail-row"&gt;
+                &lt;span className="label"&gt;Scheduled&lt;/span&gt;
+                &lt;span&gt;{new Date(selected.scheduledDate).toLocaleDateString()}&lt;/span&gt;
+              &lt;/div&gt;
+            )}
+            {selected.quotedPrice &amp;&amp; (
+              &lt;div className="detail-row"&gt;
+                &lt;span className="label"&gt;Quoted&lt;/span&gt;
+                &lt;span&gt;${selected.quotedPrice}&lt;/span&gt;
+              &lt;/div&gt;
+            )}
+            {selected.finalPrice &amp;&amp; (
+              &lt;div className="detail-row"&gt;
+                &lt;span className="label"&gt;Final&lt;/span&gt;
+                &lt;span&gt;${selected.finalPrice}&lt;/span&gt;
+              &lt;/div&gt;
+            )}
+            {selected.description &amp;&amp; (
+              &lt;div className="detail-row"&gt;
+                &lt;span className="label"&gt;Description&lt;/span&gt;
+                &lt;span&gt;{selected.description}&lt;/span&gt;
+              &lt;/div&gt;
+            )}
+            {selected.notes &amp;&amp; (
+              &lt;div className="detail-row"&gt;
+                &lt;span className="label"&gt;Notes&lt;/span&gt;
+                &lt;span&gt;{selected.notes}&lt;/span&gt;
+              &lt;/div&gt;
+            )}
+          &lt;/div&gt;
+          &lt;div className="status-actions"&gt;
+            &lt;span className="label"&gt;Update Status&lt;/span&gt;
+            &lt;div className="status-btns"&gt;
+              {(['scheduled', 'in_progress', 'completed'] as JobStatus[]).map((s) =&gt; (
+                &lt;button
+                  key={s}
+                  className={selected.status === s ? 'active' : ''}
+                  style={{ borderColor: STATUS_COLORS[s] }}
+                  onClick={() =&gt; updateStatus(selected.id, s)}
+                &gt;
+                  {STATUS_LABELS[s]}
+                &lt;/button&gt;
+              ))}
+            &lt;/div&gt;
+          &lt;/div&gt;
+        &lt;/div&gt;
+      ) : (
+        &lt;ul className="result-list"&gt;
+          {displayJobs.length === 0 &amp;&amp; !loading &amp;&amp; (
+            &lt;li className="empty"&gt;{query ? 'Type and press Go' : 'Recent jobs will appear here'}&lt;/li&gt;
+          )}
+          {displayJobs.map((job) =&gt; (
+            &lt;li key={job.id} onClick={() =&gt; selectJob(job)}&gt;
+              &lt;div className="result-row"&gt;
+                &lt;span className="result-title"&gt;{job.title}&lt;/span&gt;
+                &lt;span className="status-dot" style={{ backgroundColor: STATUS_COLORS[job.status] }} /&gt;
+              &lt;/div&gt;
+              &lt;span className="result-sub"&gt;{job.address}, {job.city}&lt;/span&gt;
+            &lt;/li&gt;
+          ))}
+        &lt;/ul&gt;
+      )}
+    &lt;/div&gt;
+  )
+}
+</hick:file>
+</hick:when>
+
+<hick:when test="customers">
+### Customer Search Panel
+
+Quick customer lookup by name, company, or phone. Tap to see contact details:
+
+<hick:file path="browser-extension/src/popup/CustomerSearch.tsx">import { useState, useEffect, useCallback } from 'react'
+import { apiGet } from '../api/client'
+import type { Customer } from '../types/customer'
+
+export function CustomerSearch() {
+  const [query, setQuery] = useState('')
+  const [customers, setCustomers] = useState&lt;Customer[]&gt;([])
+  const [recent, setRecent] = useState&lt;Customer[]&gt;([])
+  const [selected, setSelected] = useState&lt;Customer | null&gt;(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState&lt;string | null&gt;(null)
+
+  useEffect(() =&gt; {
+    chrome.storage.local.get(['recentCustomers'], (result) =&gt; {
+      if (result.recentCustomers) setRecent(result.recentCustomers)
+    })
+  }, [])
+
+  const search = useCallback(async () =&gt; {
+    if (!query.trim()) return
+    setLoading(true)
+    setError(null)
+    setSelected(null)
+    try {
+      const results = await apiGet&lt;Customer[]&gt;(`/customers?search=${encodeURIComponent(query)}`)
+      setCustomers(results)
+      if (results.length === 0) setError('No customers found')
+    } catch {
+      setError('Could not reach server')
+    } finally {
+      setLoading(false)
+    }
+  }, [query])
+
+  const selectCustomer = useCallback((customer: Customer) =&gt; {
+    setSelected(customer)
+    const updated = [customer, ...recent.filter((c) =&gt; c.id !== customer.id)].slice(0, 10)
+    setRecent(updated)
+    chrome.storage.local.set({ recentCustomers: updated })
+  }, [recent])
+
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) =&gt; {
+    if (e.key === 'Enter') search()
+  }, [search])
+
+  const displayCustomers = customers.length &gt; 0 ? customers : recent
+
+  return (
+    &lt;div className="search-panel"&gt;
+      &lt;div className="search-bar"&gt;
+        &lt;input
+          type="text"
+          placeholder="Search by name, company, or phone..."
+          value={query}
+          onChange={(e) =&gt; setQuery(e.target.value)}
+          onKeyDown={handleKeyDown}
+          autoFocus
+        /&gt;
+        &lt;button onClick={search} disabled={loading}&gt;
+          {loading ? '...' : 'Go'}
+        &lt;/button&gt;
+      &lt;/div&gt;
+
+      {error &amp;&amp; &lt;p className="error-msg"&gt;{error}&lt;/p&gt;}
+
+      {selected ? (
+        &lt;div className="customer-detail"&gt;
+          &lt;button className="back-btn" onClick={() =&gt; setSelected(null)}&gt;&amp;larr; Back&lt;/button&gt;
+          &lt;h3&gt;{selected.firstName} {selected.lastName}&lt;/h3&gt;
+          {selected.companyName &amp;&amp; &lt;p className="company"&gt;{selected.companyName}&lt;/p&gt;}
+          &lt;div className="detail-grid"&gt;
+            {selected.phone &amp;&amp; (
+              &lt;div className="detail-row"&gt;
+                &lt;span className="label"&gt;Phone&lt;/span&gt;
+                &lt;a href={`tel:${selected.phone}`}&gt;{selected.phone}&lt;/a&gt;
+              &lt;/div&gt;
+            )}
+            {selected.email &amp;&amp; (
+              &lt;div className="detail-row"&gt;
+                &lt;span className="label"&gt;Email&lt;/span&gt;
+                &lt;a href={`mailto:${selected.email}`}&gt;{selected.email}&lt;/a&gt;
+              &lt;/div&gt;
+            )}
+            {selected.address &amp;&amp; (
+              &lt;div className="detail-row"&gt;
+                &lt;span className="label"&gt;Address&lt;/span&gt;
+                &lt;span&gt;{selected.address}, {selected.city}, {selected.state} {selected.zip}&lt;/span&gt;
+              &lt;/div&gt;
+            )}
+            {selected.notes &amp;&amp; (
+              &lt;div className="detail-row"&gt;
+                &lt;span className="label"&gt;Notes&lt;/span&gt;
+                &lt;span&gt;{selected.notes}&lt;/span&gt;
+              &lt;/div&gt;
+            )}
+          &lt;/div&gt;
+        &lt;/div&gt;
+      ) : (
+        &lt;ul className="result-list"&gt;
+          {displayCustomers.length === 0 &amp;&amp; !loading &amp;&amp; (
+            &lt;li className="empty"&gt;{query ? 'Type and press Go' : 'Recent customers will appear here'}&lt;/li&gt;
+          )}
+          {displayCustomers.map((c) =&gt; (
+            &lt;li key={c.id} onClick={() =&gt; selectCustomer(c)}&gt;
+              &lt;div className="result-row"&gt;
+                &lt;span className="result-title"&gt;{c.firstName} {c.lastName}&lt;/span&gt;
+              &lt;/div&gt;
+              &lt;span className="result-sub"&gt;
+                {c.companyName || c.phone || c.email || 'No details'}
+              &lt;/span&gt;
+            &lt;/li&gt;
+          ))}
+        &lt;/ul&gt;
+      )}
+    &lt;/div&gt;
+  )
+}
+</hick:file>
+</hick:when>
+
+### Popup Styles
+
+Compact 320px layout optimized for the extension popup window:
+
+<hick:file path="browser-extension/src/popup/index.css">:root {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  line-height: 1.4;
+  font-weight: 400;
+  color-scheme: light dark;
+  color: rgba(255, 255, 255, 0.87);
+  background-color: #1a1a2e;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  max-width: 320px;
+}
+
+#root {
+  width: 320px;
+  padding: 0.75rem;
+  box-sizing: border-box;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    color: #1a1a2e;
+    background-color: #f8f9fa;
+  }
+}
+</hick:file>
+
+<hick:file path="browser-extension/src/popup/Popup.css">.popup {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.popup-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.popup-header h1 {
+  font-size: 1rem;
+  margin: 0;
+  font-weight: 600;
+}
+
+.settings-btn {
+  background: none;
+  border: none;
+  font-size: 1.1rem;
+  cursor: pointer;
+  padding: 0.25rem;
+  opacity: 0.6;
+}
+
+.settings-btn:hover {
+  opacity: 1;
+}
+
+.settings-panel {
+  background: rgba(255, 255, 255, 0.05);
+  border-radius: 6px;
+  padding: 0.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.settings-panel label {
+  font-size: 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.settings-panel input {
+  padding: 0.3rem;
+  border: 1px solid #333;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.2);
+  color: inherit;
+  font-size: 0.8rem;
+}
+
+.settings-panel button {
+  align-self: flex-end;
+  padding: 0.25rem 0.75rem;
+  font-size: 0.75rem;
+  border-radius: 4px;
+  border: 1px solid #4a5568;
+  background: #2d3748;
+  color: inherit;
+  cursor: pointer;
+}
+
+.tab-bar {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid #333;
+}
+
+.tab-bar button {
+  flex: 1;
+  padding: 0.4rem;
+  font-size: 0.8rem;
+  font-weight: 500;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: inherit;
+  cursor: pointer;
+  opacity: 0.6;
+  transition: opacity 0.15s, border-color 0.15s;
+}
+
+.tab-bar button.active {
+  opacity: 1;
+  border-bottom-color: #60a5fa;
+}
+
+.tab-bar button:hover {
+  opacity: 0.9;
+}
+
+.popup-main {
+  min-height: 200px;
+  max-height: 400px;
+  overflow-y: auto;
+}
+
+/* Search panel */
+.search-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.search-bar {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.search-bar input {
+  flex: 1;
+  padding: 0.4rem 0.5rem;
+  border: 1px solid #333;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.2);
+  color: inherit;
+  font-size: 0.8rem;
+}
+
+.search-bar input:focus {
+  outline: none;
+  border-color: #60a5fa;
+}
+
+.search-bar button {
+  padding: 0.4rem 0.75rem;
+  border-radius: 6px;
+  border: 1px solid #4a5568;
+  background: #2d3748;
+  color: inherit;
+  font-size: 0.8rem;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.search-bar button:hover:not(:disabled) {
+  background: #4a5568;
+}
+
+.search-bar button:disabled {
+  opacity: 0.5;
+}
+
+.error-msg {
+  margin: 0;
+  padding: 0.3rem 0.5rem;
+  font-size: 0.75rem;
+  color: #f87171;
+  background: rgba(248, 113, 113, 0.1);
+  border-radius: 4px;
+}
+
+/* Result list */
+.result-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.result-list li {
+  padding: 0.5rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  cursor: pointer;
+  border-radius: 4px;
+}
+
+.result-list li:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.result-list li.empty {
+  text-align: center;
+  color: #666;
+  font-size: 0.8rem;
+  cursor: default;
+  padding: 1.5rem 0.5rem;
+}
+
+.result-list li.empty:hover {
+  background: none;
+}
+
+.result-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.result-title {
+  font-size: 0.85rem;
+  font-weight: 500;
+}
+
+.result-sub {
+  font-size: 0.7rem;
+  color: #888;
+  margin-top: 0.1rem;
+  display: block;
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+/* Detail views */
+.job-detail,
+.customer-detail {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.back-btn {
+  background: none;
+  border: none;
+  color: #60a5fa;
+  cursor: pointer;
+  font-size: 0.8rem;
+  padding: 0;
+  align-self: flex-start;
+}
+
+.back-btn:hover {
+  text-decoration: underline;
+}
+
+.job-detail h3,
+.customer-detail h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+.company {
+  margin: 0;
+  font-size: 0.8rem;
+  color: #888;
+}
+
+.status-badge {
+  display: inline-block;
+  padding: 0.15rem 0.5rem;
+  border-radius: 10px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: #fff;
+  align-self: flex-start;
+}
+
+.detail-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.detail-row {
+  display: flex;
+  gap: 0.5rem;
+  font-size: 0.8rem;
+}
+
+.detail-row .label {
+  font-weight: 600;
+  min-width: 70px;
+  color: #888;
+  flex-shrink: 0;
+}
+
+.detail-row a {
+  color: #60a5fa;
+  text-decoration: none;
+}
+
+.detail-row a:hover {
+  text-decoration: underline;
+}
+
+.status-actions {
+  margin-top: 0.25rem;
+  padding-top: 0.5rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.status-actions .label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: #888;
+  margin-bottom: 0.25rem;
+  display: block;
+}
+
+.status-btns {
+  display: flex;
+  gap: 0.25rem;
+}
+
+.status-btns button {
+  flex: 1;
+  padding: 0.3rem;
+  font-size: 0.65rem;
+  font-weight: 500;
+  border-radius: 4px;
+  border: 1px solid #333;
+  background: rgba(0, 0, 0, 0.2);
+  color: inherit;
+  cursor: pointer;
+}
+
+.status-btns button.active {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.status-btns button:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+@media (prefers-color-scheme: light) {
+  .search-bar input {
+    background: #fff;
+    border-color: #d1d5db;
+  }
+
+  .search-bar button {
+    background: #e5e7eb;
+    border-color: #d1d5db;
+    color: #1a1a2e;
+  }
+
+  .settings-panel {
+    background: rgba(0, 0, 0, 0.03);
+  }
+
+  .settings-panel input {
+    background: #fff;
+    border-color: #d1d5db;
+  }
+
+  .settings-panel button {
+    background: #e5e7eb;
+    border-color: #d1d5db;
+    color: #1a1a2e;
+  }
+
+  .result-list li:hover {
+    background: rgba(0, 0, 0, 0.03);
+  }
+
+  .status-btns button {
+    background: #f3f4f6;
+    border-color: #d1d5db;
+  }
+}
+</hick:file>
+
+---
+
+### Background Service Worker
+
+Handles extension lifecycle and message passing between popup and content scripts:
+
+<hick:file path="browser-extension/src/background.ts">// Background service worker for <hick:val name="business_name" /> extension
+
+chrome.runtime.onInstalled.addListener(() =&gt; {
+  console.log('<hick:val name="business_name" /> Quick Lookup extension installed')
+  chrome.storage.local.set({
+    serverUrl: 'http://localhost:3000',
+    recentJobs: [],
+    recentCustomers: [],
+  })
+})
+
+// Relay messages between popup and content script
+chrome.runtime.onMessage.addListener((message, _sender, sendResponse) =&gt; {
+  if (message.type === 'GET_SERVER_URL') {
+    chrome.storage.local.get(['serverUrl'], (result) =&gt; {
+      sendResponse({ serverUrl: result.serverUrl ?? 'http://localhost:3000' })
+    })
+    return true
+  }
+})
+
+export {}
+</hick:file>
+
+### Content Script
+
+Minimal content script for future page-context integrations:
+
+<hick:file path="browser-extension/src/content.ts">// Content script for <hick:val name="business_name" /> Quick Lookup extension
+
+chrome.runtime.onMessage.addListener((message, _sender, sendResponse) =&gt; {
+  if (message.type === 'PING') {
+    sendResponse({ status: 'pong' })
+  }
+})
+
+export {}
+</hick:file>
+
+<hick:file path="browser-extension/icons/.gitkeep" doc-hidden="true"># Place extension icons here:
+# - icon16.png (16x16)
+# - icon48.png (48x48)
+# - icon128.png (128x128)
+</hick:file>
+
+</hick:when>
+</hick:doc>

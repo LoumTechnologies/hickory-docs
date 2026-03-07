@@ -1,0 +1,425 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="TEMPLATE.md">
+
+# Cross-Platform Project Scaffolding
+
+This template generates a multi-platform project with a consistent structure across:
+
+- **SwiftUI** — iOS, iPadOS, and macOS using Apple's declarative UI framework
+- **Jetpack Compose** — Android with Kotlin and modern declarative UI
+- **Avalonia** — Cross-platform desktop (Windows, macOS, Linux) with .NET
+- **React SPA** — Single-page web application with TypeScript
+- **Browser Extension** — Chrome/Firefox extension with React TypeScript
+- **Rust Backend** — API server using Axum for high performance
+
+Each platform is behind a feature flag, so you only generate what you need.
+
+## Usage
+
+Generate a project with specific platforms:
+
+```bash
+hick --param project_name=MyApp --features swiftui,backend scaffolding/
+```
+
+Generate all platforms:
+
+```bash
+hick --param project_name=MyApp --features all scaffolding/
+```
+
+---
+
+## Configuration Variables
+
+These variables control project metadata and can be overridden via `--param`:
+
+<hick:var name="project_name">MyProject</hick:var>
+<hick:var name="bundle_id">com.example.myproject</hick:var>
+<hick:var name="organization">Example Inc</hick:var>
+<hick:var name="min_ios_version">17.0</hick:var>
+<hick:var name="min_macos_version">14.0</hick:var>
+<hick:var name="min_android_sdk">26</hick:var>
+<hick:var name="target_android_sdk">34</hick:var>
+<hick:var name="dotnet_version">8.0</hick:var>
+<hick:var name="rust_edition">2024</hick:var>
+<hick:var name="node_version">20</hick:var>
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `project_name` | <hick:val name="project_name" /> | Project name (used in file paths, class names) |
+| `bundle_id` | <hick:val name="bundle_id" /> | Reverse-domain bundle identifier |
+| `organization` | <hick:val name="organization" /> | Company/organization name for copyright |
+| `min_ios_version` | <hick:val name="min_ios_version" /> | Minimum iOS deployment target |
+| `min_macos_version` | <hick:val name="min_macos_version" /> | Minimum macOS deployment target |
+| `min_android_sdk` | <hick:val name="min_android_sdk" /> | Minimum Android SDK level |
+| `target_android_sdk` | <hick:val name="target_android_sdk" /> | Target Android SDK level |
+| `dotnet_version` | <hick:val name="dotnet_version" /> | .NET version for Avalonia |
+| `rust_edition` | <hick:val name="rust_edition" /> | Rust edition year |
+| `node_version` | <hick:val name="node_version" /> | Node.js version for web projects |
+
+---
+
+## Feature Definitions
+
+Features control which platforms are generated. They can be combined freely.
+
+<hick:feature name="swiftui" description="SwiftUI app for iOS, iPadOS, and macOS" />
+<hick:feature name="compose" description="Jetpack Compose app for Android" />
+<hick:feature name="avalonia" description="Avalonia app for Windows, macOS, and Linux" />
+<hick:feature name="spa" description="React TypeScript single-page application" />
+<hick:feature name="extension" description="Browser extension with React TypeScript" />
+<hick:feature name="backend" description="Rust backend API server" />
+<hick:feature name="rust-frontend-lib" description="Shared Rust library for frontends (WASM + FFI bindings)" />
+<hick:feature name="sqlite" description="SQLite database support in Rust library" requires="rust-frontend-lib" />
+<hick:feature name="iroh" description="Iroh peer-to-peer networking in Rust library" requires="rust-frontend-lib" />
+<hick:feature name="decentralized-auth" description="Decentralized identity and authentication using ed25519 key pairs" requires="rust-frontend-lib" />
+<hick:feature name="event-sourcing" description="Event sourcing with CRDT conflict resolution and snapshot support" requires="rust-frontend-lib sqlite" />
+<hick:feature name="iroh-relay" description="Iroh relay server for NAT traversal and peer discovery" />
+
+**Build system:**
+
+<hick:feature name="just" description="Generate justfile for build automation (just command runner)" />
+
+**Meta-features** for convenience:
+
+<hick:feature name="all" description="Enable all platforms" requires="swiftui compose avalonia spa extension backend rust-frontend-lib" />
+<hick:feature name="mobile" description="Mobile platforms" requires="swiftui compose" />
+<hick:feature name="desktop" description="Desktop platforms" requires="swiftui avalonia" />
+<hick:feature name="web" description="Web platforms" requires="spa extension" />
+<hick:feature name="native" description="Native platforms with Rust library" requires="swiftui compose avalonia rust-frontend-lib" />
+
+**Verify commands** run after each matrix combination to catch scaffolding errors:
+
+<hick:verify command="[backend] cargo check --manifest-path backend/Cargo.toml" description="Verify backend compiles" />
+<hick:verify command="[rust-frontend-lib] cargo check --manifest-path rust-lib/Cargo.toml" description="Verify Rust library compiles" />
+<hick:verify command="[spa] test -f web/package.json" description="Verify SPA scaffolded" />
+<hick:verify command="[extension] test -f browser-extension/package.json" description="Verify extension scaffolded" />
+<hick:verify command="[swiftui] test -f apple/project.yml" description="Verify SwiftUI scaffolded" />
+<hick:verify command="[compose] test -f android/build.gradle.kts" description="Verify Android scaffolded" />
+<hick:verify command="[avalonia] test -f desktop/MyProject.sln" description="Verify .NET solution exists" />
+
+| Feature | Description |
+|---------|-------------|
+| `swiftui` | iOS, iPadOS, macOS with SwiftUI |
+| `compose` | Android with Jetpack Compose |
+| `avalonia` | Desktop with Avalonia (.NET) |
+| `spa` | React TypeScript web app |
+| `extension` | Browser extension |
+| `backend` | Rust API server |
+| `rust-frontend-lib` | Shared Rust library (WASM + FFI) |
+| `sqlite` | SQLite database in Rust library (requires rust-frontend-lib) |
+| `iroh` | Iroh P2P networking in Rust library (requires rust-frontend-lib) |
+| `decentralized-auth` | Decentralized identity and authentication (requires rust-frontend-lib) |
+| `event-sourcing` | Event sourcing with CRDT conflict resolution (requires rust-frontend-lib, sqlite) |
+| `iroh-relay` | Iroh relay server for NAT traversal |
+| `just` | Justfile for build automation |
+| `all` | All platforms (not build systems) |
+| `mobile` | SwiftUI + Compose |
+| `desktop` | SwiftUI + Avalonia |
+| `web` | SPA + Extension |
+| `native` | Native platforms + Rust library |
+
+---
+
+## Substitution Rules
+
+The project name is substituted throughout all generated files using case variants:
+
+<hick:substitute name="project_name" pattern="MyProject" value="{{project_name}}" variants="true" />
+
+This means `MyProject`, `myProject`, `my_project`, `MY_PROJECT`, and `my-project`
+in the template files will all be replaced with the corresponding case variant of
+your chosen project name.
+
+---
+
+## Shared Content Blocks
+
+### License
+
+We use MIT License by default. This cut block is referenced elsewhere without
+appearing directly in any file output:
+
+<hick:cut id="license-header">MIT License
+
+Copyright (c) 2024 <hick:val name="organization" />
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.</hick:cut>
+
+### Common Gitignore Patterns
+
+These patterns are shared across all platforms:
+
+<hick:cut id="gitignore-common"># IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build outputs
+dist/
+build/
+out/
+</hick:cut>
+
+---
+
+## Root Project Files
+
+### LICENSE
+
+The license file at the project root:
+
+<hick:file path="LICENSE"><hick:paste select="#license-header" /></hick:file>
+
+### README.md
+
+The main README is dynamically generated based on which features are enabled,
+so users always see accurate platform-specific instructions:
+
+<hick:file path="README.md"># <hick:val name="project_name" />
+
+A cross-platform application by <hick:val name="organization" />.
+
+## Platforms
+
+<hick:when test="swiftui">
+### Apple Platforms (SwiftUI)
+- iOS <hick:val name="min_ios_version" />+
+- iPadOS <hick:val name="min_ios_version" />+
+- macOS <hick:val name="min_macos_version" />+
+
+```bash
+cd apple
+open <hick:val name="project_name" />.xcodeproj
+```
+</hick:when>
+<hick:when test="compose">
+### Android (Jetpack Compose)
+- Minimum SDK: <hick:val name="min_android_sdk" />
+- Target SDK: <hick:val name="target_android_sdk" />
+
+```bash
+cd android
+./gradlew assembleDebug
+```
+</hick:when>
+<hick:when test="avalonia">
+### Desktop (Avalonia)
+- Windows
+- macOS
+- Linux
+
+```bash
+cd desktop
+dotnet run
+```
+</hick:when>
+<hick:when test="spa">
+### Web Application (React)
+
+```bash
+cd web
+npm install
+npm run dev
+```
+</hick:when>
+<hick:when test="extension">
+### Browser Extension
+
+```bash
+cd browser-extension
+npm install
+npm run build
+# Load dist/ as unpacked extension in your browser
+```
+</hick:when>
+<hick:when test="backend">
+### Backend (Rust)
+
+```bash
+cd backend
+cargo run
+```
+</hick:when>
+<hick:when test="iroh-relay">
+### Iroh Relay Server
+
+The relay server enables NAT traversal and peer discovery for Iroh networking.
+
+```bash
+cd iroh-relay
+cargo run
+```
+
+**Docker:**
+```bash
+cd iroh-relay
+docker build -t <hick:val name="project_name" />-iroh-relay .
+docker run -p 3478:3478 -p 443:443 <hick:val name="project_name" />-iroh-relay
+```
+</hick:when>
+<hick:when test="rust-frontend-lib">
+### Rust Frontend Library
+
+The shared Rust library contains business logic compiled to multiple targets.
+
+**Build for WebAssembly:**
+```bash
+cd rust-lib
+./build-wasm.sh
+```
+
+**Build for Native FFI:**
+```bash
+cd rust-lib
+./build-native.sh
+```
+</hick:when>
+<hick:when test="decentralized-auth">
+### Decentralized Authentication
+
+The project includes offline-first, peer-to-peer authentication using Ed25519 key pairs.
+
+**Features:**
+- Generate ed25519 identity key pairs
+- Create self-verifiable JWT-like auth tokens
+- DID-compatible identifiers (`did:key:z6Mk...`)
+- Challenge-response authentication
+- Encrypted key storage with age
+<hick:when test="iroh">- P2P peer authentication when combined with Iroh
+</hick:when>
+**Identity is stored at:**
+- Native: `~/.config/<hick:val name="project_name" />/identity.age`
+- WASM: `localStorage` key `<hick:val name="project_name" />_identity`
+</hick:when>
+<hick:when test="event-sourcing">
+### Event Sourcing
+
+All domain changes are captured as immutable events with automatic conflict resolution.
+
+**Features:**
+- Event-driven architecture with aggregate roots
+- CRDT-based conflict resolution (last-write-wins default)
+- Snapshot compression for efficient sync
+- Lamport timestamps for causal ordering
+- Multi-author event support (human + LLM collaboration)
+- Optional branching for dry runs and review workflows
+<hick:when test="iroh">- P2P event sync when combined with Iroh
+</hick:when>
+**Event properties:**
+- `timestamp` - When the event occurred
+- `site_id` - Device/client identifier
+- `lamport_timestamp` - Logical clock sequence
+- `previous_event_id` - For conflict detection
+- `author_ids` - User(s) who authored the event
+- `branch` (optional) - For dry runs/review workflows
+- `is_snapshot` - Compresses event history
+</hick:when>
+
+## License
+
+MIT License - see [LICENSE](LICENSE) for details.
+</hick:file>
+
+### .gitignore
+
+The gitignore combines common patterns with platform-specific ones based on
+enabled features:
+
+<hick:file path=".gitignore"><hick:paste select="#gitignore-common" />
+<hick:when test="swiftui">
+# Apple
+*.xcuserstate
+xcuserdata/
+DerivedData/
+*.ipa
+*.dSYM.zip
+*.dSYM
+</hick:when>
+<hick:when test="compose">
+# Android
+*.apk
+*.aab
+*.ap_
+local.properties
+.gradle/
+</hick:when>
+<hick:when test="avalonia">
+# .NET
+bin/
+obj/
+*.user
+*.suo
+</hick:when>
+<hick:when test="spa || extension">
+# Node
+node_modules/
+.env.local
+.env.*.local
+</hick:when>
+<hick:when test="backend || rust-frontend-lib || iroh-relay">
+# Rust
+target/
+Cargo.lock
+</hick:when>
+<hick:when test="rust-frontend-lib">
+# WASM build outputs
+rust-lib/pkg/
+rust-lib/pkg-web/
+# Generated FFI bindings
+rust-lib/bindings/swift/
+rust-lib/bindings/kotlin/
+rust-lib/bindings/csharp/
+</hick:when>
+<hick:when test="decentralized-auth">
+# Identity key files (never commit private keys!)
+*.age
+identity.json
+*.identity
+</hick:when>
+</hick:file>
+
+---
+
+## Platform Templates
+
+The platform-specific files are defined in separate `.hick` files for maintainability.
+Each platform template is guarded by its feature flag.
+
+See the individual platform documentation:
+- [SwiftUI Platform](platforms/swiftui.hick) — Apple platforms with XcodeGen
+- [Compose Platform](platforms/compose.hick) — Android with Kotlin DSL Gradle
+- [Avalonia Platform](platforms/avalonia.hick) — .NET cross-platform desktop
+- [SPA Platform](platforms/spa.hick) — React + Vite web application
+- [Extension Platform](platforms/extension.hick) — Browser extension
+- [Backend Platform](platforms/backend.hick) — Rust Axum server
+- [Rust Frontend Library](platforms/rust-frontend-lib.hick) — Shared Rust library with WASM + FFI
+- [Iroh Relay](platforms/iroh-relay.hick) — Iroh relay server for P2P networking
+
+Build system template:
+- [Just Build System](platforms/just.hick) — Justfile for task automation
+
+</hick:doc>

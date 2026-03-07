@@ -1,0 +1,29 @@
+x-devenv:
+  version: "1"
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "${BACKEND_PORT:-3000}:3000"
+    volumes:
+      - ./dev-data/backend:/app/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    environment:
+      - RUST_LOG=blue_iron_cube=debug,tower_http=debug
+    x-devenv:
+      portEnvVar: BACKEND_PORT
+      healthCheck: /health
+      healthCheckProtocol: http
+      healthTimeout: 60
+      projectPath: ./backend
+      command: cargo run
+      developerUrl: /health
+

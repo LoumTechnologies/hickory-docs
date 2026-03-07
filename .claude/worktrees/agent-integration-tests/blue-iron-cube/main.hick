@@ -1,0 +1,803 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="PLAN.md">
+
+# Blue Iron Cube
+
+**System of Record for French Drain Installation**
+
+Blue Iron Cube is a business operations platform for a french drain installation
+company. It tracks every aspect of a job that affects duration and cost, builds
+a historical dataset, and uses linear regression to predict future job costs
+so the owner can quote with confidence and hit target profit margins.
+
+The system is designed from the start to support franchise standardization:
+every process is captured as a standard operating procedure, every cost is
+tracked for overhead recovery analysis, and every job becomes training data
+for the estimating model.
+
+## Usage
+
+Generate the full system:
+
+```bash
+hick --param business_name="My Drainage Co" --features all blue-iron-cube/
+```
+
+Generate specific domains:
+
+```bash
+hick --param business_name="My Drainage Co" --features jobs,customers,estimating blue-iron-cube/
+```
+
+---
+
+## Configuration Variables
+
+<hick:var name="app_name">blue-iron-cube</hick:var>
+<hick:var name="business_name">Acme Drainage</hick:var>
+<hick:var name="rust_edition">2024</hick:var>
+<hick:var name="bundle_id">com.acmedrainage.blueironcube</hick:var>
+<hick:var name="min_ios_version">17.0</hick:var>
+<hick:var name="url_scheme">blueironcube</hick:var>
+<hick:var name="project_name">BlueIronCube</hick:var>
+<hick:var name="min_android_sdk">26</hick:var>
+<hick:var name="target_android_sdk">35</hick:var>
+<hick:var name="dotnet_version">8.0</hick:var>
+<hick:var name="node_version">20</hick:var>
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `app_name` | <hick:val name="app_name" /> | Application code name (used in paths, crate names) |
+| `business_name` | <hick:val name="business_name" /> | Display name of the business |
+| `rust_edition` | <hick:val name="rust_edition" /> | Rust edition year |
+| `bundle_id` | <hick:val name="bundle_id" /> | iOS app bundle identifier |
+| `min_ios_version` | <hick:val name="min_ios_version" /> | Minimum iOS version |
+| `url_scheme` | <hick:val name="url_scheme" /> | URL scheme for devenv launch |
+| `project_name` | <hick:val name="project_name" /> | Xcode project name (PascalCase) |
+| `min_android_sdk` | <hick:val name="min_android_sdk" /> | Minimum Android SDK version |
+| `target_android_sdk` | <hick:val name="target_android_sdk" /> | Target Android SDK version |
+| `dotnet_version` | <hick:val name="dotnet_version" /> | .NET target framework version |
+| `node_version` | <hick:val name="node_version" /> | Node.js version for web platforms |
+
+---
+
+## Feature Definitions
+
+Each feature represents a business domain. The `jobs` domain is the core that
+most other domains connect to. Enable only what you need.
+
+**Core domains:**
+
+<hick:feature name="customers" description="Customer management — contacts, addresses, referral tracking" />
+<hick:feature name="jobs" description="Job tracking — the central entity connecting all cost and time data, with phase-based partial completion" requires="customers" />
+<hick:feature name="payments" description="Payments and refunds — partial payments, processing fee tracking, balance due, fee recovery" requires="jobs" />
+<hick:feature name="crew" description="Crew management — workers, roles, certifications, time tracking" />
+<hick:feature name="inventory" description="Material inventory — stock levels, usage per job, reorder points" />
+<hick:feature name="fleet" description="Fleet management — vehicles, equipment, maintenance, fuel tracking" />
+<hick:feature name="overhead" description="Overhead recovery — fixed costs, allocation to jobs, recovery rate analysis" />
+
+**Advanced domains:**
+
+<hick:feature name="estimating" description="Cost estimation — linear regression on historical jobs to predict cost and quote price" requires="jobs" />
+<hick:feature name="crm" description="CRM — lead pipeline, interaction logging, follow-ups, lifetime value, conversion tracking" requires="customers" />
+<hick:feature name="sops" description="Standard operating procedures — step-by-step processes for franchise standardization" />
+
+**Platform features:**
+
+<hick:feature name="swiftui" description="SwiftUI iOS app for field operations" />
+<hick:feature name="compose" description="Jetpack Compose Android app for field operations" />
+<hick:feature name="avalonia" description="Avalonia desktop app for office management" />
+<hick:feature name="spa" description="React TypeScript web dashboard" />
+<hick:feature name="extension" description="Browser extension for quick job lookup" />
+
+**Meta-features:**
+
+<hick:feature name="all" description="All domains" requires="customers jobs payments crew inventory fleet overhead estimating crm sops" />
+<hick:feature name="core" description="Essential domains for job tracking" requires="customers jobs payments crew inventory" />
+<hick:feature name="financial" description="All cost-related domains" requires="jobs payments overhead estimating" />
+<hick:feature name="mobile" description="Mobile platforms" requires="swiftui compose" />
+<hick:feature name="desktop" description="Desktop platforms" requires="avalonia" />
+<hick:feature name="web" description="Web platforms" requires="spa extension" />
+<hick:feature name="frontends" description="All frontend platforms" requires="swiftui compose avalonia spa extension" />
+
+| Feature | Description | Requires |
+|---------|-------------|----------|
+| `customers` | Customer contacts and addresses | — |
+| `jobs` | Central job tracking with partial completion | `customers` |
+| `payments` | Payments, refunds, processing fees, balance tracking | `jobs` |
+| `crew` | Workers, roles, time entries | — |
+| `inventory` | Material stock and usage tracking | — |
+| `fleet` | Vehicles, equipment, maintenance | — |
+| `overhead` | Fixed cost tracking and recovery | — |
+| `estimating` | Linear regression cost prediction | `jobs` |
+| `crm` | Lead pipeline, interactions, follow-ups, lifetime value | `customers` |
+| `sops` | Standard operating procedures | — |
+| `swiftui` | SwiftUI iOS field operations app | — |
+| `compose` | Jetpack Compose Android field operations app | — |
+| `avalonia` | Avalonia desktop office management app | — |
+| `spa` | React TypeScript web dashboard | — |
+| `extension` | Browser extension for quick job lookup | — |
+| `all` | Everything | all domains |
+| `core` | Jobs + payments + customers + crew + inventory | |
+| `financial` | Jobs + payments + overhead + estimating | |
+| `mobile` | Mobile platforms | `swiftui compose` |
+| `desktop` | Desktop platforms | `avalonia` |
+| `web` | Web platforms | `spa extension` |
+| `frontends` | All frontend platforms | all platform features |
+
+---
+
+## Substitution Rules
+
+<hick:substitute name="app_name" pattern="blue-iron-cube" value="{{app_name}}" variants="true" />
+
+---
+
+## Verify Commands
+
+<hick:verify command="cargo check --manifest-path backend/Cargo.toml" description="Verify backend compiles" />
+<hick:verify command="test -d backend/migrations" description="Verify migrations directory exists" />
+
+---
+
+## Project Configuration
+
+### Cargo.toml
+
+The backend is a single Rust binary with feature flags matching the domain features:
+
+<hick:file path="backend/Cargo.toml">[package]
+name = "<hick:val name="app_name" />"
+version = "0.1.0"
+edition = "<hick:val name="rust_edition" />"
+
+[dependencies]
+axum = "0.7"
+tokio = { version = "1", features = ["full"] }
+tower = "0.5"
+tower-http = { version = "0.5", features = ["cors", "trace"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+anyhow = "1"
+thiserror = "2"
+chrono = { version = "0.4", features = ["serde"] }
+uuid = { version = "1", features = ["v7", "serde"] }
+rusqlite = { version = "0.32", features = ["bundled", "chrono"] }
+rust_decimal = { version = "1", features = ["serde-str"] }
+<hick:when test="estimating">
+linfa = "0.7"
+linfa-linear = "0.7"
+ndarray = "0.15"
+</hick:when>
+
+[dev-dependencies]
+axum-test = "15"
+</hick:file>
+
+### Entry Point
+
+<hick:file path="backend/src/main.rs">use anyhow::Result;
+use blue_iron_cube::run;
+
+#[tokio::main]
+async fn main() -> Result&lt;()&gt; {
+    run().await
+}
+</hick:file>
+
+### Library Core
+
+<hick:file path="backend/src/lib.rs"><hick:when test="customers">pub mod customers;</hick:when>
+<hick:when test="jobs">pub mod jobs;</hick:when>
+<hick:when test="payments">pub mod payments;</hick:when>
+<hick:when test="crew">pub mod crew;</hick:when>
+<hick:when test="inventory">pub mod inventory;</hick:when>
+<hick:when test="fleet">pub mod fleet;</hick:when>
+<hick:when test="overhead">pub mod overhead;</hick:when>
+<hick:when test="estimating">pub mod estimating;</hick:when>
+<hick:when test="crm">pub mod crm;</hick:when>
+<hick:when test="sops">pub mod sops;</hick:when>
+pub mod db;
+pub mod error;
+pub mod types;
+
+use anyhow::Result;
+use axum::Router;
+use std::net::SocketAddr;
+use std::sync::Arc;
+use tower_http::cors::{Any, CorsLayer};
+use tower_http::trace::TraceLayer;
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+
+pub struct AppState {
+    pub db: db::Database,
+}
+
+pub async fn run() -> Result&lt;()&gt; {
+    tracing_subscriber::registry()
+        .with(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| "blue_iron_cube=debug,tower_http=debug".into()),
+        )
+        .with(tracing_subscriber::fmt::layer())
+        .init();
+
+    let db = db::Database::open("data/<hick:val name="app_name" />.db")?;
+    db.run_migrations()?;
+
+    let state = Arc::new(AppState { db });
+    let app = create_router(state);
+
+    let addr = SocketAddr::from(([0, 0, 0, 0], 3000));
+    tracing::info!("listening on {}", addr);
+
+    let listener = tokio::net::TcpListener::bind(addr).await?;
+    axum::serve(listener, app).await?;
+    Ok(())
+}
+
+async fn health() -> &amp;'static str {
+    "OK"
+}
+
+pub fn create_router(state: Arc&lt;AppState&gt;) -> Router {
+    let cors = CorsLayer::new()
+        .allow_origin(Any)
+        .allow_methods(Any)
+        .allow_headers(Any);
+
+    let mut router = Router::new()
+        .route("/health", axum::routing::get(health));
+<hick:when test="customers">    router = router.merge(customers::routes());</hick:when>
+<hick:when test="jobs">    router = router.merge(jobs::routes());</hick:when>
+<hick:when test="payments">    router = router.merge(payments::routes());</hick:when>
+<hick:when test="crew">    router = router.merge(crew::routes());</hick:when>
+<hick:when test="inventory">    router = router.merge(inventory::routes());</hick:when>
+<hick:when test="fleet">    router = router.merge(fleet::routes());</hick:when>
+<hick:when test="overhead">    router = router.merge(overhead::routes());</hick:when>
+<hick:when test="estimating">    router = router.merge(estimating::routes());</hick:when>
+<hick:when test="crm">    router = router.merge(crm::routes());</hick:when>
+<hick:when test="sops">    router = router.merge(sops::routes());</hick:when>
+
+    router
+        .with_state(state)
+        .layer(TraceLayer::new_for_http())
+        .layer(cors)
+}
+</hick:file>
+
+### Shared Types
+
+<hick:file path="backend/src/types.rs">use rust_decimal::Decimal;
+use rust_decimal::prelude::*;
+use serde::{Deserialize, Serialize};
+
+/// All monetary values are stored as Decimal to avoid floating-point errors.
+pub type Money = Decimal;
+
+/// Standard ID prefix format: "entity-uuid7"
+pub fn new_id(prefix: &amp;str) -> String {
+    format!("{}-{}", prefix, uuid::Uuid::now_v7())
+}
+
+/// Read a Decimal from a rusqlite row column (stored as REAL in SQLite).
+pub fn get_decimal(row: &amp;rusqlite::Row, idx: usize) -> rusqlite::Result&lt;Decimal&gt; {
+    let val: f64 = row.get(idx)?;
+    Ok(Decimal::from_f64(val).unwrap_or_default())
+}
+
+/// Read an optional Decimal from a rusqlite row column.
+pub fn get_decimal_opt(row: &amp;rusqlite::Row, idx: usize) -> rusqlite::Result&lt;Option&lt;Decimal&gt;&gt; {
+    let val: Option&lt;f64&gt; = row.get(idx)?;
+    Ok(val.map(|v| Decimal::from_f64(v).unwrap_or_default()))
+}
+
+/// Soil types encountered during excavation. Affects labor time and equipment needs.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum SoilType {
+    Clay,
+    Sand,
+    Loam,
+    Rocky,
+    Mixed,
+}
+
+/// Yard grade affects difficulty and drainage design.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum YardGrade {
+    Flat,
+    Slight,
+    Moderate,
+    Steep,
+}
+
+/// How accessible is the job site for equipment?
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum SiteAccess {
+    Easy,
+    Moderate,
+    Difficult,
+    HandCarryOnly,
+}
+</hick:file>
+
+### Database Module
+
+<hick:file path="backend/src/db.rs">use anyhow::Result;
+use rusqlite::Connection;
+use std::path::Path;
+use std::sync::Mutex;
+
+pub struct Database {
+    conn: Mutex&lt;Connection&gt;,
+}
+
+impl Database {
+    pub fn open(path: &amp;str) -> Result&lt;Self&gt; {
+        if let Some(parent) = Path::new(path).parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let conn = Connection::open(path)?;
+        conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA foreign_keys=ON;")?;
+        Ok(Self { conn: Mutex::new(conn) })
+    }
+
+    pub fn conn(&amp;self) -> std::sync::MutexGuard&lt;'_, Connection&gt; {
+        self.conn.lock().expect("database lock poisoned")
+    }
+
+    pub fn run_migrations(&amp;self) -> Result&lt;()&gt; {
+        let conn = self.conn();
+        let migration_dir = Path::new("migrations");
+        if !migration_dir.exists() {
+            return Ok(());
+        }
+        conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS _migrations (
+                name TEXT PRIMARY KEY,
+                applied_at TEXT NOT NULL DEFAULT (datetime('now'))
+            )"
+        )?;
+        let mut entries: Vec&lt;_&gt; = std::fs::read_dir(migration_dir)?
+            .filter_map(|e| e.ok())
+            .filter(|e| e.path().extension().map_or(false, |ext| ext == "sql"))
+            .collect();
+        entries.sort_by_key(|e| e.file_name());
+        for entry in entries {
+            let name = entry.file_name().to_string_lossy().to_string();
+            let already_applied: bool = conn.query_row(
+                "SELECT COUNT(*) > 0 FROM _migrations WHERE name = ?1",
+                [&amp;name],
+                |row| row.get(0),
+            )?;
+            if !already_applied {
+                let sql = std::fs::read_to_string(entry.path())?;
+                conn.execute_batch(&amp;sql)?;
+                conn.execute("INSERT INTO _migrations (name) VALUES (?1)", [&amp;name])?;
+                tracing::info!("applied migration: {}", name);
+            }
+        }
+        Ok(())
+    }
+}
+</hick:file>
+
+### Error Handling
+
+<hick:file path="backend/src/error.rs">use axum::{
+    http::StatusCode,
+    response::{IntoResponse, Response},
+    Json,
+};
+use serde_json::json;
+use thiserror::Error;
+
+#[derive(Error, Debug)]
+pub enum AppError {
+    #[error("Not found: {0}")]
+    NotFound(String),
+
+    #[error("Bad request: {0}")]
+    BadRequest(String),
+
+    #[error("Internal error: {0}")]
+    Internal(String),
+}
+
+impl IntoResponse for AppError {
+    fn into_response(self) -> Response {
+        let (status, message) = match &amp;self {
+            AppError::NotFound(msg) => (StatusCode::NOT_FOUND, msg.clone()),
+            AppError::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg.clone()),
+            AppError::Internal(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg.clone()),
+        };
+        (status, Json(json!({ "error": message }))).into_response()
+    }
+}
+
+impl From&lt;anyhow::Error&gt; for AppError {
+    fn from(err: anyhow::Error) -> Self {
+        AppError::Internal(err.to_string())
+    }
+}
+
+impl From&lt;rusqlite::Error&gt; for AppError {
+    fn from(err: rusqlite::Error) -> Self {
+        AppError::Internal(err.to_string())
+    }
+}
+</hick:file>
+
+### Toolchain
+
+<hick:file path="backend/rust-toolchain.toml" doc-hidden="true">[toolchain]
+channel = "nightly"
+</hick:file>
+
+---
+
+## Root Files
+
+### README
+
+<hick:file path="README.md"># <hick:val name="app_name" />
+
+**System of Record for <hick:val name="business_name" />**
+
+A french drain installation business operations platform. Tracks jobs, costs,
+crew, inventory, and equipment to build a data-driven operation ready for
+franchise standardization.
+
+## Quick Start
+
+```bash
+cd backend
+cargo run
+```
+
+The API runs at `http://localhost:3000`. Data is stored in `data/<hick:val name="app_name" />.db`.
+
+## Domains
+
+<hick:when test="customers">
+### Customers
+- `GET /api/customers` — List customers
+- `POST /api/customers` — Create customer
+- `GET /api/customers/:id` — Get customer
+- `PUT /api/customers/:id` — Update customer
+</hick:when>
+<hick:when test="jobs">
+### Jobs
+- `GET /api/jobs` — List jobs (filterable by status, date range)
+- `POST /api/jobs` — Create job
+- `GET /api/jobs/:id` — Get job with all line items
+- `PUT /api/jobs/:id` — Update job
+- `POST /api/jobs/:id/line-items` — Add line item (material, labor, equipment, overhead)
+- `GET /api/jobs/:id/costs` — Cost breakdown including processing fees
+- `POST /api/jobs/:id/phase` — Mark a phase complete (assessment, excavation, pipe_install, backfill, restoration, walkthrough)
+- `POST /api/jobs/:id/complete` — Mark fully complete
+- `POST /api/jobs/:id/cancel` — Cancel or mark partially completed (with reason)
+</hick:when>
+<hick:when test="payments">
+### Payments
+- `POST /api/payments` — Record payment (cash, check, credit card, ACH, financing)
+- `GET /api/payments/:id` — Get payment details
+- `POST /api/refunds` — Issue a refund (partial or full)
+- `GET /api/jobs/:id/payments` — Payment summary: balance due, fees absorbed, refunds
+- `GET /api/payments/processing-fees/summary` — How much lost to credit card fees across all jobs
+</hick:when>
+<hick:when test="crew">
+### Crew
+- `GET /api/crew` — List crew members
+- `POST /api/crew` — Add crew member
+- `POST /api/crew/:id/time-entries` — Log hours against a job
+- `GET /api/crew/:id/time-entries` — Time entry history
+</hick:when>
+<hick:when test="inventory">
+### Inventory
+- `GET /api/inventory` — List materials with current stock
+- `POST /api/inventory` — Add material type
+- `POST /api/inventory/:id/receive` — Record stock received
+- `POST /api/inventory/:id/use` — Record material used on a job
+- `GET /api/inventory/low-stock` — Items below reorder point
+</hick:when>
+<hick:when test="fleet">
+### Fleet
+- `GET /api/fleet/vehicles` — List vehicles
+- `GET /api/fleet/equipment` — List equipment
+- `POST /api/fleet/vehicles` — Add vehicle
+- `POST /api/fleet/equipment` — Add equipment
+- `POST /api/fleet/:id/maintenance` — Log maintenance
+- `POST /api/fleet/:id/fuel` — Log fuel purchase
+- `GET /api/fleet/:id/costs` — Total cost of ownership for an asset
+</hick:when>
+<hick:when test="overhead">
+### Overhead
+- `GET /api/overhead/categories` — List overhead categories
+- `POST /api/overhead/categories` — Add overhead category
+- `POST /api/overhead/entries` — Record overhead expense
+- `GET /api/overhead/recovery-rate` — Current overhead recovery rate
+- `POST /api/overhead/allocate` — Allocate overhead to jobs in a period
+</hick:when>
+<hick:when test="estimating">
+### Estimating
+- `POST /api/estimates` — Generate estimate for a new job
+- `GET /api/estimates/:id` — Get a saved estimate
+- `GET /api/estimates/model-stats` — Current regression model accuracy
+- `POST /api/estimates/retrain` — Retrain model on latest job data
+</hick:when>
+<hick:when test="crm">
+### CRM
+- `GET /api/crm/leads` — List leads (filterable by status)
+- `POST /api/crm/leads` — Create lead
+- `GET /api/crm/leads/:id` — Get lead with customer details
+- `PUT /api/crm/leads/:id` — Update lead status, mark won/lost
+- `GET /api/crm/leads/pipeline` — Pipeline summary (count and value per stage)
+- `POST /api/crm/interactions` — Log a customer interaction (call, email, text, site visit)
+- `GET /api/crm/customers/:id/interactions` — Interaction history for a customer
+- `GET /api/crm/follow-ups` — All pending follow-ups (sorted by due date)
+- `POST /api/crm/follow-ups` — Schedule a follow-up
+- `POST /api/crm/follow-ups/:id/complete` — Mark follow-up done
+- `GET /api/crm/customers/:id/lifetime-value` — Total revenue, referrals, job history
+- `GET /api/crm/conversion-rate` — Win/loss rate overall and by lead source
+</hick:when>
+<hick:when test="sops">
+### Standard Operating Procedures
+- `GET /api/sops` — List procedures
+- `POST /api/sops` — Create procedure
+- `GET /api/sops/:id` — Get procedure with steps
+- `PUT /api/sops/:id` — Update procedure
+</hick:when>
+
+## Architecture
+
+This is a monolithic Rust backend with SQLite. Domains are organized as modules
+with their own routes, models, and database tables. The data model is designed
+so every dollar and every hour on a job is accounted for, enabling accurate
+overhead recovery analysis and predictive estimating.
+
+## License
+
+Proprietary — <hick:val name="business_name" />
+</hick:file>
+
+### .gitignore
+
+<hick:file path=".gitignore"># IDE
+.idea/
+.vscode/
+*.swp
+*~
+
+# Rust
+target/
+Cargo.lock
+
+# Data
+data/
+*.db
+*.db-wal
+*.db-shm
+
+# OS
+.DS_Store
+Thumbs.db
+
+# devenv
+.devenv/
+dev-data/
+dev-backups/
+.env
+*.ts.net.crt
+*.ts.net.key
+
+# Xcode (generated by xcodegen)
+*.xcodeproj
+*.xcworkspace
+DerivedData/
+build/
+xcuserdata/
+
+# Android
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+*.apk
+*.aab
+
+# .NET / Avalonia
+desktop/**/bin/
+desktop/**/obj/
+*.user
+*.suo
+
+# Node / Web
+web/node_modules/
+web/dist/
+browser-extension/node_modules/
+browser-extension/dist/
+</hick:file>
+
+---
+
+## Domain Templates
+
+The domain-specific models, routes, and migrations are defined in separate files:
+
+- [Customers](domains/customers.hick) — Customer contacts and addresses
+- [Jobs](domains/jobs.hick) — Central job tracking with phase-based partial completion
+- [Payments](domains/payments.hick) — Payments, refunds, processing fees, balance tracking
+- [Crew](domains/crew.hick) — Workers, roles, and time entries
+- [Inventory](domains/inventory.hick) — Material stock management
+- [Fleet](domains/fleet.hick) — Vehicles, equipment, maintenance, fuel
+- [Overhead](domains/overhead.hick) — Fixed cost tracking and recovery analysis
+- [Estimating](domains/estimating.hick) — Linear regression cost prediction
+- [CRM](domains/crm.hick) — Lead pipeline, interactions, follow-ups, lifetime value
+- [SOPs](domains/sops.hick) — Standard operating procedures
+
+Shared types and enums are in [common.hick](shared/common.hick).
+
+Platform templates:
+
+- [SwiftUI](platforms/swiftui.hick) — iOS field operations app
+- [Compose](platforms/compose.hick) — Android field operations app
+- [Avalonia](platforms/avalonia.hick) — Desktop office management app
+- [SPA](platforms/spa.hick) — React TypeScript web dashboard
+- [Extension](platforms/extension.hick) — Browser extension for quick job lookup
+
+---
+
+## Infrastructure
+
+### Dockerfile
+
+<hick:file path="backend/Dockerfile">FROM rust:slim-bookworm AS builder
+RUN rustup default nightly
+WORKDIR /app
+COPY Cargo.toml Cargo.lock ./
+RUN mkdir src &amp;&amp; echo "fn main() {}" > src/main.rs &amp;&amp; echo "" > src/lib.rs
+RUN cargo build --release 2>/dev/null || true
+RUN rm -rf src
+COPY src/ src/
+COPY migrations/ migrations/
+RUN touch src/main.rs src/lib.rs
+RUN cargo build --release
+
+FROM debian:bookworm-slim
+RUN apt-get update &amp;&amp; apt-get install -y --no-install-recommends curl &amp;&amp; rm -rf /var/lib/apt/lists/*
+WORKDIR /app
+COPY --from=builder /app/target/release/blue-iron-cube /app/blue-iron-cube
+COPY --from=builder /app/migrations /app/migrations
+RUN mkdir -p /app/data
+EXPOSE 3000
+CMD ["/app/blue-iron-cube"]
+</hick:file>
+
+### Docker Compose
+
+<hick:file path="docker-compose.yml">x-devenv:
+  version: "1"
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "${BACKEND_PORT:-3000}:3000"
+    volumes:
+      - ./dev-data/backend:/app/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    environment:
+      - RUST_LOG=blue_iron_cube=debug,tower_http=debug
+    x-devenv:
+      portEnvVar: BACKEND_PORT
+      healthCheck: /health
+      healthCheckProtocol: http
+      healthTimeout: 60
+      projectPath: ./backend
+      command: cargo run
+      developerUrl: /health
+<hick:when test="spa">
+  web:
+    build:
+      context: ./web
+      dockerfile: Dockerfile
+    ports:
+      - "${WEB_PORT:-5173}:5173"
+    depends_on:
+      - backend
+    environment:
+      - VITE_API_URL=http://backend:3000
+    x-devenv:
+      portEnvVar: WEB_PORT
+      healthCheck: /
+      projectPath: ./web
+      command: "npm run dev"
+      developerUrl: /
+</hick:when>
+</hick:file>
+
+### Environment
+
+<hick:file path=".env.example">BACKEND_PORT=3000
+<hick:when test="spa">WEB_PORT=5173
+</hick:when></hick:file>
+
+### Host Prerequisites
+
+<hick:file path="devenv-packages.yml">packages:
+  - name: docker
+    check: docker --version
+    install: "Install Docker Desktop from https://docker.com"
+  - name: rust-nightly
+    check: rustup show active-toolchain | grep nightly
+    install: "rustup default nightly"
+  - name: cargo-watch
+    check: cargo watch --version
+    install: "cargo install cargo-watch"
+<hick:when test="spa">  - name: node
+    check: node --version
+    install: "Install Node.js from https://nodejs.org"
+</hick:when><hick:when test="extension">  - name: node
+    check: node --version
+    install: "Install Node.js from https://nodejs.org"
+</hick:when><hick:when test="avalonia">  - name: dotnet
+    check: dotnet --version
+    install: "Install .NET SDK from https://dotnet.microsoft.com"
+</hick:when><hick:when test="swiftui">  - name: xcodegen
+    check: xcodegen --version
+    install: "brew install xcodegen"
+</hick:when><hick:when test="compose">  - name: android-sdk
+    check: sdkmanager --version
+    install: "Install Android Studio from https://developer.android.com/studio"
+</hick:when></hick:file>
+
+### App Launchers
+
+<hick:file path=".devenv/launchers.yml">launchers:
+<hick:when test="swiftui">  - name: "iOS App"
+    type: ios
+    scheme: "<hick:val name="url_scheme" />"
+    simulator: "iPhone 16 Pro"
+</hick:when><hick:when test="compose">  - name: "Android App"
+    type: android
+    package: "<hick:val name="bundle_id" />"
+</hick:when><hick:when test="spa">  - name: "Web Dashboard"
+    type: web
+    url: "http://localhost:${WEB_PORT:-5173}"
+  - name: "Mobile QR"
+    type: qr
+    url: "http://localhost:${WEB_PORT:-5173}"
+</hick:when></hick:file>
+
+### Devcontainer
+
+<hick:file path=".devcontainer/devcontainer.json">{
+  "name": "<hick:val name="project_name" />",
+  "dockerComposeFile": "../docker-compose.yml",
+  "service": "backend",
+  "workspaceFolder": "/app",
+  "forwardPorts": [3000<hick:when test="spa">, 5173</hick:when>],
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "rust-lang.rust-analyzer"
+      ]
+    }
+  }
+}
+</hick:file>
+
+</hick:doc>

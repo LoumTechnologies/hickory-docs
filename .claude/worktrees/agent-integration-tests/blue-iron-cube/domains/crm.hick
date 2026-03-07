@@ -1,0 +1,598 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
+
+<hick:when test="crm">
+
+## CRM
+
+As the System of Record, this app needs to track the full customer lifecycle —
+not just "who are they" but "every interaction we've had." The CRM domain adds:
+
+- **Lead pipeline** — track leads from first contact through to won/lost
+- **Interactions** — log every call, email, text, and site visit
+- **Follow-ups** — scheduled reminders so no lead falls through the cracks
+- **Referral tracking** — which customers bring in new business
+- **Lifetime value** — total revenue from a customer across all their jobs
+
+This is separate from the `customers` domain on purpose: `customers` is the
+contact record (name, address, phone), while `crm` is the relationship history.
+A franchise can operate with just `customers`, but the owner who wants to grow
+needs the CRM layer.
+
+### Data Model
+
+<hick:file path="backend/src/crm/mod.rs">mod model;
+mod routes;
+
+pub use routes::routes;
+pub use model::{Lead, Interaction, FollowUp};
+</hick:file>
+
+<hick:file path="backend/src/crm/model.rs">use chrono::{NaiveDate, NaiveDateTime};
+use rust_decimal::Decimal;
+use serde::{Deserialize, Serialize};
+
+/// Pipeline status for a lead. Progression:
+/// new_lead -> contacted -> site_visit_scheduled -> site_visit_completed
+///          -> estimate_sent -> negotiating -> won | lost
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum LeadStatus {
+    NewLead,
+    Contacted,
+    SiteVisitScheduled,
+    SiteVisitCompleted,
+    EstimateSent,
+    Negotiating,
+    Won,
+    Lost,
+}
+
+impl LeadStatus {
+    pub fn as_str(&amp;self) -> &amp;'static str {
+        match self {
+            Self::NewLead => "new_lead",
+            Self::Contacted => "contacted",
+            Self::SiteVisitScheduled => "site_visit_scheduled",
+            Self::SiteVisitCompleted => "site_visit_completed",
+            Self::EstimateSent => "estimate_sent",
+            Self::Negotiating => "negotiating",
+            Self::Won => "won",
+            Self::Lost => "lost",
+        }
+    }
+
+    pub fn from_str(s: &amp;str) -> Self {
+        match s {
+            "new_lead" => Self::NewLead,
+            "contacted" => Self::Contacted,
+            "site_visit_scheduled" => Self::SiteVisitScheduled,
+            "site_visit_completed" => Self::SiteVisitCompleted,
+            "estimate_sent" => Self::EstimateSent,
+            "negotiating" => Self::Negotiating,
+            "won" => Self::Won,
+            "lost" => Self::Lost,
+            _ => Self::NewLead,
+        }
+    }
+}
+
+/// A lead ties a customer to a pipeline stage. One customer can have multiple
+/// leads over time (e.g., they come back for a second project).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Lead {
+    pub id: String,
+    pub customer_id: String,
+    pub status: String,
+    pub source: String,           // google, referral, yard_sign, repeat, home_show, etc.
+    pub estimated_value: Option&lt;Decimal&gt;,
+    pub job_id: Option&lt;String&gt;,   // set when lead converts to a job
+    pub assigned_to: Option&lt;String&gt;,
+    pub lost_reason: Option&lt;String&gt;,
+    pub lost_to_competitor: Option&lt;String&gt;,
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
+}
+
+/// A logged interaction with a customer.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Interaction {
+    pub id: String,
+    pub customer_id: String,
+    pub lead_id: Option&lt;String&gt;,
+    pub date: NaiveDateTime,
+    /// call, email, text, in_person, site_visit, voicemail, social_media
+    pub interaction_type: String,
+    /// inbound (customer initiated) or outbound (we initiated)
+    pub direction: String,
+    pub summary: String,
+    pub duration_minutes: Option&lt;i32&gt;,
+    pub created_at: NaiveDateTime,
+}
+
+/// A scheduled follow-up action.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FollowUp {
+    pub id: String,
+    pub customer_id: String,
+    pub lead_id: Option&lt;String&gt;,
+    pub due_date: NaiveDate,
+    pub action: String,           // call, email, send_estimate, schedule_visit, etc.
+    pub notes: Option&lt;String&gt;,
+    pub completed: bool,
+    pub completed_at: Option&lt;NaiveDateTime&gt;,
+    pub created_at: NaiveDateTime,
+}
+
+/// Customer lifetime value summary.
+#[derive(Debug, Serialize)]
+pub struct CustomerLifetimeValue {
+    pub customer_id: String,
+    pub customer_name: String,
+    pub total_jobs: i64,
+    pub total_revenue: Decimal,
+    pub total_referrals: i64,
+    pub referral_revenue: Decimal,
+    pub first_job_date: Option&lt;String&gt;,
+    pub last_job_date: Option&lt;String&gt;,
+    pub avg_job_value: Decimal,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateLead {
+    pub customer_id: String,
+    pub source: String,
+    pub estimated_value: Option&lt;Decimal&gt;,
+    pub assigned_to: Option&lt;String&gt;,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateLead {
+    pub status: Option&lt;String&gt;,
+    pub estimated_value: Option&lt;Decimal&gt;,
+    pub job_id: Option&lt;String&gt;,
+    pub assigned_to: Option&lt;String&gt;,
+    pub lost_reason: Option&lt;String&gt;,
+    pub lost_to_competitor: Option&lt;String&gt;,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateInteraction {
+    pub customer_id: String,
+    pub lead_id: Option&lt;String&gt;,
+    pub interaction_type: String,
+    pub direction: String,
+    pub summary: String,
+    pub duration_minutes: Option&lt;i32&gt;,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateFollowUp {
+    pub customer_id: String,
+    pub lead_id: Option&lt;String&gt;,
+    pub due_date: NaiveDate,
+    pub action: String,
+    pub notes: Option&lt;String&gt;,
+}
+</hick:file>
+
+### Routes
+
+<hick:file path="backend/src/crm/routes.rs">use std::sync::Arc;
+use axum::{
+    extract::{Path, Query, State},
+    routing::{get, post, put},
+    Json, Router,
+};
+use serde::Deserialize;
+use rust_decimal::prelude::ToPrimitive;
+use crate::{AppState, error::AppError, types::{new_id, get_decimal, get_decimal_opt}};
+use super::model::*;
+
+pub fn routes() -> Router&lt;Arc&lt;AppState&gt;&gt; {
+    Router::new()
+        // Leads
+        .route("/api/crm/leads", get(list_leads).post(create_lead))
+        .route("/api/crm/leads/:id", get(get_lead).put(update_lead))
+        .route("/api/crm/leads/pipeline", get(pipeline_summary))
+        // Interactions
+        .route("/api/crm/interactions", post(log_interaction))
+        .route("/api/crm/customers/:id/interactions", get(customer_interactions))
+        // Follow-ups
+        .route("/api/crm/follow-ups", get(pending_follow_ups).post(create_follow_up))
+        .route("/api/crm/follow-ups/:id/complete", post(complete_follow_up))
+        // Customer value
+        .route("/api/crm/customers/:id/lifetime-value", get(customer_lifetime_value))
+        .route("/api/crm/conversion-rate", get(conversion_rate))
+}
+
+#[derive(Deserialize)]
+struct LeadFilter {
+    status: Option&lt;String&gt;,
+}
+
+async fn list_leads(
+    State(state): State&lt;Arc&lt;AppState&gt;&gt;,
+    Query(filter): Query&lt;LeadFilter&gt;,
+) -> Result&lt;Json&lt;Vec&lt;Lead&gt;&gt;, AppError&gt; {
+    let conn = state.db.conn();
+    let leads = if let Some(status) = &amp;filter.status {
+        let mut stmt = conn.prepare(
+            "SELECT id, customer_id, status, source, estimated_value, job_id,
+                    assigned_to, lost_reason, lost_to_competitor, created_at, updated_at
+             FROM leads WHERE status = ?1 ORDER BY updated_at DESC"
+        )?;
+        stmt.query_map([status], map_lead)?.collect::&lt;Result&lt;Vec&lt;_&gt;, _&gt;&gt;()?
+    } else {
+        let mut stmt = conn.prepare(
+            "SELECT id, customer_id, status, source, estimated_value, job_id,
+                    assigned_to, lost_reason, lost_to_competitor, created_at, updated_at
+             FROM leads ORDER BY updated_at DESC"
+        )?;
+        stmt.query_map([], map_lead)?.collect::&lt;Result&lt;Vec&lt;_&gt;, _&gt;&gt;()?
+    };
+    Ok(Json(leads))
+}
+
+fn map_lead(row: &amp;rusqlite::Row) -> rusqlite::Result&lt;Lead&gt; {
+    Ok(Lead {
+        id: row.get(0)?,
+        customer_id: row.get(1)?,
+        status: row.get(2)?,
+        source: row.get(3)?,
+        estimated_value: get_decimal_opt(row, 4)?,
+        job_id: row.get(5)?,
+        assigned_to: row.get(6)?,
+        lost_reason: row.get(7)?,
+        lost_to_competitor: row.get(8)?,
+        created_at: row.get(9)?,
+        updated_at: row.get(10)?,
+    })
+}
+
+async fn create_lead(
+    State(state): State&lt;Arc&lt;AppState&gt;&gt;,
+    Json(input): Json&lt;CreateLead&gt;,
+) -> Result&lt;Json&lt;serde_json::Value&gt;, AppError&gt; {
+    let id = new_id("lead");
+    let conn = state.db.conn();
+    conn.execute(
+        "INSERT INTO leads (id, customer_id, status, source, estimated_value, assigned_to)
+         VALUES (?1, ?2, 'new_lead', ?3, ?4, ?5)",
+        rusqlite::params![id, input.customer_id, input.source, input.estimated_value.map(|d| d.to_f64().unwrap_or(0.0)), input.assigned_to],
+    )?;
+    Ok(Json(serde_json::json!({ "id": id, "status": "new_lead" })))
+}
+
+async fn get_lead(
+    State(state): State&lt;Arc&lt;AppState&gt;&gt;,
+    Path(id): Path&lt;String&gt;,
+) -> Result&lt;Json&lt;serde_json::Value&gt;, AppError&gt; {
+    let conn = state.db.conn();
+    let lead = conn.query_row(
+        "SELECT l.id, l.customer_id, c.name, l.status, l.source, l.estimated_value,
+                l.job_id, l.assigned_to, l.lost_reason, l.lost_to_competitor,
+                l.created_at, l.updated_at
+         FROM leads l JOIN customers c ON l.customer_id = c.id
+         WHERE l.id = ?1",
+        [&amp;id],
+        |row| Ok(serde_json::json!({
+            "id": row.get::&lt;_, String&gt;(0)?,
+            "customer_id": row.get::&lt;_, String&gt;(1)?,
+            "customer_name": row.get::&lt;_, String&gt;(2)?,
+            "status": row.get::&lt;_, String&gt;(3)?,
+            "source": row.get::&lt;_, String&gt;(4)?,
+            "estimated_value": row.get::&lt;_, Option&lt;f64&gt;&gt;(5)?,
+            "job_id": row.get::&lt;_, Option&lt;String&gt;&gt;(6)?,
+            "assigned_to": row.get::&lt;_, Option&lt;String&gt;&gt;(7)?,
+            "lost_reason": row.get::&lt;_, Option&lt;String&gt;&gt;(8)?,
+            "lost_to_competitor": row.get::&lt;_, Option&lt;String&gt;&gt;(9)?,
+            "created_at": row.get::&lt;_, String&gt;(10)?,
+            "updated_at": row.get::&lt;_, String&gt;(11)?,
+        })),
+    ).map_err(|_| AppError::NotFound(format!("Lead {} not found", id)))?;
+    Ok(Json(lead))
+}
+
+async fn update_lead(
+    State(state): State&lt;Arc&lt;AppState&gt;&gt;,
+    Path(id): Path&lt;String&gt;,
+    Json(input): Json&lt;UpdateLead&gt;,
+) -> Result&lt;Json&lt;serde_json::Value&gt;, AppError&gt; {
+    let conn = state.db.conn();
+    conn.execute(
+        "UPDATE leads SET
+            status = COALESCE(?2, status),
+            estimated_value = COALESCE(?3, estimated_value),
+            job_id = COALESCE(?4, job_id),
+            assigned_to = COALESCE(?5, assigned_to),
+            lost_reason = COALESCE(?6, lost_reason),
+            lost_to_competitor = COALESCE(?7, lost_to_competitor),
+            updated_at = datetime('now')
+         WHERE id = ?1",
+        rusqlite::params![
+            id, input.status, input.estimated_value.map(|d| d.to_f64().unwrap_or(0.0)), input.job_id,
+            input.assigned_to, input.lost_reason, input.lost_to_competitor,
+        ],
+    )?;
+    Ok(Json(serde_json::json!({ "id": id, "updated": true })))
+}
+
+/// Pipeline summary: count of leads per stage.
+async fn pipeline_summary(
+    State(state): State&lt;Arc&lt;AppState&gt;&gt;,
+) -> Result&lt;Json&lt;serde_json::Value&gt;, AppError&gt; {
+    let conn = state.db.conn();
+    let mut stmt = conn.prepare(
+        "SELECT status, COUNT(*), COALESCE(SUM(estimated_value), 0)
+         FROM leads GROUP BY status ORDER BY
+         CASE status
+            WHEN 'new_lead' THEN 1
+            WHEN 'contacted' THEN 2
+            WHEN 'site_visit_scheduled' THEN 3
+            WHEN 'site_visit_completed' THEN 4
+            WHEN 'estimate_sent' THEN 5
+            WHEN 'negotiating' THEN 6
+            WHEN 'won' THEN 7
+            WHEN 'lost' THEN 8
+         END"
+    )?;
+    let stages: Vec&lt;serde_json::Value&gt; = stmt.query_map([], |row| {
+        Ok(serde_json::json!({
+            "status": row.get::&lt;_, String&gt;(0)?,
+            "count": row.get::&lt;_, i64&gt;(1)?,
+            "total_value": row.get::&lt;_, f64&gt;(2)?,
+        }))
+    })?.collect::&lt;Result&lt;Vec&lt;_&gt;, _&gt;&gt;()?;
+    Ok(Json(serde_json::json!({ "stages": stages })))
+}
+
+async fn log_interaction(
+    State(state): State&lt;Arc&lt;AppState&gt;&gt;,
+    Json(input): Json&lt;CreateInteraction&gt;,
+) -> Result&lt;Json&lt;serde_json::Value&gt;, AppError&gt; {
+    let id = new_id("ix");
+    let conn = state.db.conn();
+    conn.execute(
+        "INSERT INTO interactions (id, customer_id, lead_id, date, interaction_type,
+                                   direction, summary, duration_minutes)
+         VALUES (?1, ?2, ?3, datetime('now'), ?4, ?5, ?6, ?7)",
+        rusqlite::params![
+            id, input.customer_id, input.lead_id, input.interaction_type,
+            input.direction, input.summary, input.duration_minutes,
+        ],
+    )?;
+    Ok(Json(serde_json::json!({ "id": id })))
+}
+
+async fn customer_interactions(
+    State(state): State&lt;Arc&lt;AppState&gt;&gt;,
+    Path(customer_id): Path&lt;String&gt;,
+) -> Result&lt;Json&lt;Vec&lt;Interaction&gt;&gt;, AppError&gt; {
+    let conn = state.db.conn();
+    let mut stmt = conn.prepare(
+        "SELECT id, customer_id, lead_id, date, interaction_type, direction,
+                summary, duration_minutes, created_at
+         FROM interactions WHERE customer_id = ?1 ORDER BY date DESC"
+    )?;
+    let interactions = stmt.query_map([&amp;customer_id], |row| {
+        Ok(Interaction {
+            id: row.get(0)?,
+            customer_id: row.get(1)?,
+            lead_id: row.get(2)?,
+            date: row.get(3)?,
+            interaction_type: row.get(4)?,
+            direction: row.get(5)?,
+            summary: row.get(6)?,
+            duration_minutes: row.get(7)?,
+            created_at: row.get(8)?,
+        })
+    })?.collect::&lt;Result&lt;Vec&lt;_&gt;, _&gt;&gt;()?;
+    Ok(Json(interactions))
+}
+
+async fn pending_follow_ups(
+    State(state): State&lt;Arc&lt;AppState&gt;&gt;,
+) -> Result&lt;Json&lt;Vec&lt;serde_json::Value&gt;&gt;, AppError&gt; {
+    let conn = state.db.conn();
+    let mut stmt = conn.prepare(
+        "SELECT f.id, f.customer_id, c.name, c.phone, f.lead_id, f.due_date,
+                f.action, f.notes, f.created_at
+         FROM follow_ups f JOIN customers c ON f.customer_id = c.id
+         WHERE f.completed = 0
+         ORDER BY f.due_date"
+    )?;
+    let follow_ups = stmt.query_map([], |row| {
+        Ok(serde_json::json!({
+            "id": row.get::&lt;_, String&gt;(0)?,
+            "customer_id": row.get::&lt;_, String&gt;(1)?,
+            "customer_name": row.get::&lt;_, String&gt;(2)?,
+            "customer_phone": row.get::&lt;_, String&gt;(3)?,
+            "lead_id": row.get::&lt;_, Option&lt;String&gt;&gt;(4)?,
+            "due_date": row.get::&lt;_, String&gt;(5)?,
+            "action": row.get::&lt;_, String&gt;(6)?,
+            "notes": row.get::&lt;_, Option&lt;String&gt;&gt;(7)?,
+        }))
+    })?.collect::&lt;Result&lt;Vec&lt;_&gt;, _&gt;&gt;()?;
+    Ok(Json(follow_ups))
+}
+
+async fn create_follow_up(
+    State(state): State&lt;Arc&lt;AppState&gt;&gt;,
+    Json(input): Json&lt;CreateFollowUp&gt;,
+) -> Result&lt;Json&lt;serde_json::Value&gt;, AppError&gt; {
+    let id = new_id("fu");
+    let conn = state.db.conn();
+    conn.execute(
+        "INSERT INTO follow_ups (id, customer_id, lead_id, due_date, action, notes)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        rusqlite::params![id, input.customer_id, input.lead_id, input.due_date, input.action, input.notes],
+    )?;
+    Ok(Json(serde_json::json!({ "id": id })))
+}
+
+async fn complete_follow_up(
+    State(state): State&lt;Arc&lt;AppState&gt;&gt;,
+    Path(id): Path&lt;String&gt;,
+) -> Result&lt;Json&lt;serde_json::Value&gt;, AppError&gt; {
+    let conn = state.db.conn();
+    conn.execute(
+        "UPDATE follow_ups SET completed = 1, completed_at = datetime('now') WHERE id = ?1",
+        [&amp;id],
+    )?;
+    Ok(Json(serde_json::json!({ "id": id, "completed": true })))
+}
+
+async fn customer_lifetime_value(
+    State(state): State&lt;Arc&lt;AppState&gt;&gt;,
+    Path(customer_id): Path&lt;String&gt;,
+) -> Result&lt;Json&lt;CustomerLifetimeValue&gt;, AppError&gt; {
+    let conn = state.db.conn();
+
+    let name: String = conn.query_row(
+        "SELECT name FROM customers WHERE id = ?1",
+        [&amp;customer_id], |r| r.get(0),
+    ).map_err(|_| AppError::NotFound(format!("Customer {} not found", customer_id)))?;
+
+    let total_jobs: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM jobs WHERE customer_id = ?1", [&amp;customer_id], |r| r.get(0),
+    )?;
+    let total_revenue: f64 = conn.query_row(
+        "SELECT COALESCE(SUM(COALESCE(actual_revenue, quoted_price, 0)), 0) FROM jobs WHERE customer_id = ?1",
+        [&amp;customer_id], |r| r.get(0),
+    )?;
+    let first_job: Option&lt;String&gt; = conn.query_row(
+        "SELECT MIN(created_at) FROM jobs WHERE customer_id = ?1",
+        [&amp;customer_id], |r| r.get(0),
+    ).ok();
+    let last_job: Option&lt;String&gt; = conn.query_row(
+        "SELECT MAX(created_at) FROM jobs WHERE customer_id = ?1",
+        [&amp;customer_id], |r| r.get(0),
+    ).ok();
+
+    // Count customers who listed this customer as their referrer
+    let referral_count: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM customers WHERE referred_by = ?1", [&amp;customer_id], |r| r.get(0),
+    )?;
+    let referral_revenue: f64 = conn.query_row(
+        "SELECT COALESCE(SUM(COALESCE(j.actual_revenue, j.quoted_price, 0)), 0)
+         FROM jobs j JOIN customers c ON j.customer_id = c.id
+         WHERE c.referred_by = ?1",
+        [&amp;customer_id], |r| r.get(0),
+    )?;
+
+    use rust_decimal::prelude::FromPrimitive;
+    let avg = if total_jobs > 0 { total_revenue / total_jobs as f64 } else { 0.0 };
+
+    Ok(Json(CustomerLifetimeValue {
+        customer_id,
+        customer_name: name,
+        total_jobs,
+        total_revenue: rust_decimal::Decimal::from_f64(total_revenue).unwrap_or_default(),
+        total_referrals: referral_count,
+        referral_revenue: rust_decimal::Decimal::from_f64(referral_revenue).unwrap_or_default(),
+        first_job_date: first_job,
+        last_job_date: last_job,
+        avg_job_value: rust_decimal::Decimal::from_f64(avg).unwrap_or_default(),
+    }))
+}
+
+/// Lead conversion rate: won / (won + lost).
+async fn conversion_rate(
+    State(state): State&lt;Arc&lt;AppState&gt;&gt;,
+) -> Result&lt;Json&lt;serde_json::Value&gt;, AppError&gt; {
+    let conn = state.db.conn();
+    let won: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM leads WHERE status = 'won'", [], |r| r.get(0),
+    )?;
+    let lost: i64 = conn.query_row(
+        "SELECT COUNT(*) FROM leads WHERE status = 'lost'", [], |r| r.get(0),
+    )?;
+    let total_closed = won + lost;
+    let rate = if total_closed > 0 { won as f64 / total_closed as f64 * 100.0 } else { 0.0 };
+
+    // Conversion by source
+    let mut stmt = conn.prepare(
+        "SELECT source,
+                SUM(CASE WHEN status = 'won' THEN 1 ELSE 0 END),
+                SUM(CASE WHEN status = 'lost' THEN 1 ELSE 0 END),
+                COUNT(*)
+         FROM leads GROUP BY source"
+    )?;
+    let by_source: Vec&lt;serde_json::Value&gt; = stmt.query_map([], |row| {
+        let s_won: i64 = row.get(1)?;
+        let s_lost: i64 = row.get(2)?;
+        let s_total: i64 = row.get(3)?;
+        let s_closed = s_won + s_lost;
+        Ok(serde_json::json!({
+            "source": row.get::&lt;_, String&gt;(0)?,
+            "won": s_won,
+            "lost": s_lost,
+            "open": s_total - s_closed,
+            "conversion_rate_pct": if s_closed > 0 { s_won as f64 / s_closed as f64 * 100.0 } else { 0.0 },
+        }))
+    })?.collect::&lt;Result&lt;Vec&lt;_&gt;, _&gt;&gt;()?;
+
+    Ok(Json(serde_json::json!({
+        "total_won": won,
+        "total_lost": lost,
+        "overall_conversion_rate_pct": rate,
+        "by_source": by_source,
+    })))
+}
+</hick:file>
+
+### Migration
+
+<hick:file path="backend/migrations/010_crm.sql">CREATE TABLE IF NOT EXISTS leads (
+    id TEXT PRIMARY KEY,
+    customer_id TEXT NOT NULL REFERENCES customers(id),
+    status TEXT NOT NULL DEFAULT 'new_lead'
+        CHECK(status IN ('new_lead','contacted','site_visit_scheduled','site_visit_completed',
+                         'estimate_sent','negotiating','won','lost')),
+    source TEXT NOT NULL,
+    estimated_value REAL,
+    job_id TEXT,
+    assigned_to TEXT,
+    lost_reason TEXT,
+    lost_to_competitor TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS interactions (
+    id TEXT PRIMARY KEY,
+    customer_id TEXT NOT NULL REFERENCES customers(id),
+    lead_id TEXT REFERENCES leads(id),
+    date TEXT NOT NULL,
+    interaction_type TEXT NOT NULL CHECK(interaction_type IN ('call','email','text','in_person','site_visit','voicemail','social_media')),
+    direction TEXT NOT NULL CHECK(direction IN ('inbound','outbound')),
+    summary TEXT NOT NULL,
+    duration_minutes INTEGER,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS follow_ups (
+    id TEXT PRIMARY KEY,
+    customer_id TEXT NOT NULL REFERENCES customers(id),
+    lead_id TEXT REFERENCES leads(id),
+    due_date TEXT NOT NULL,
+    action TEXT NOT NULL,
+    notes TEXT,
+    completed BOOLEAN NOT NULL DEFAULT 0,
+    completed_at TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX idx_leads_customer ON leads(customer_id);
+CREATE INDEX idx_leads_status ON leads(status);
+CREATE INDEX idx_leads_source ON leads(source);
+CREATE INDEX idx_interactions_customer ON interactions(customer_id);
+CREATE INDEX idx_interactions_lead ON interactions(lead_id);
+CREATE INDEX idx_interactions_date ON interactions(date);
+CREATE INDEX idx_follow_ups_due ON follow_ups(due_date);
+CREATE INDEX idx_follow_ups_incomplete ON follow_ups(completed) WHERE completed = 0;
+</hick:file>
+
+</hick:when>
+</hick:doc>

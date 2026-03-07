@@ -21,10 +21,7 @@ pub struct SinkGuard {
 
 impl SinkGuard {
     /// Create a new sink guard with the given capabilities and sink definitions.
-    pub fn new(
-        capabilities: ContainerCapabilities,
-        sink_defs: Vec<SinkDef>,
-    ) -> Self {
+    pub fn new(capabilities: ContainerCapabilities, sink_defs: Vec<SinkDef>) -> Self {
         let defs_map = sink_defs
             .into_iter()
             .map(|d| (d.sink_type.clone(), d))
@@ -159,9 +156,11 @@ mod tests {
         let caps = ContainerCapabilities::new();
         let guard = SinkGuard::new(caps, vec![]);
 
-        assert!(guard
-            .validate_call("unknown", &HashMap::new(), None)
-            .is_err());
+        assert!(
+            guard
+                .validate_call("unknown", &HashMap::new(), None)
+                .is_err()
+        );
     }
 
     #[test]

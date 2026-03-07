@@ -1,0 +1,23 @@
+# Blue Iron Cube — System of Record for French Drain Installation
+# Usage: hick --param business_name="Acme Drainage" --features all blue-iron-cube/
+
+files:
+  - main.hick
+  - domains/*.hick
+  - shared/*.hick
+  - platforms/*.hick
+
+vars:
+  app_name: "blue-iron-cube"
+  business_name: "Acme Drainage"
+  rust_edition: "2024"
+  bundle_id: "com.acmedrainage.blueironcube"
+  min_ios_version: "17.0"
+  url_scheme: "blueironcube"
+  project_name: "BlueIronCube"
+  min_android_sdk: "26"
+  target_android_sdk: "35"
+  dotnet_version: "8.0"
+  node_version: "20"
+
+output-dir: output/

@@ -1,0 +1,27 @@
+# IDE
+.idea/
+.vscode/
+*.swp
+*~
+
+# Rust
+target/
+Cargo.lock
+
+# Data
+data/
+*.db
+*.db-wal
+*.db-shm
+
+# OS
+.DS_Store
+Thumbs.db
+
+# devenv
+.devenv/
+dev-data/
+dev-backups/
+.env
+*.ts.net.crt
+*.ts.net.key

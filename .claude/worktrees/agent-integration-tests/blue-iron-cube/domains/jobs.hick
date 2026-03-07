@@ -1,0 +1,595 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
+
+<hick:when test="jobs">
+
+## Jobs
+
+The job is the central entity. Every dollar spent and every hour worked ties back
+to a job. A job captures the site conditions (soil type, grade, access) that drive
+cost variability — these become the feature vector for the estimating model.
+
+**Cost tracking philosophy:** A job's total cost is the sum of its line items. Line
+items are categorized as material, labor, equipment, or overhead. This granularity
+lets us answer "what did this job actually cost?" at any level of detail.
+
+**Key metrics per job:**
+- **Gross revenue** — what the customer paid
+- **Direct cost** — materials + labor + equipment
+- **Processing fees** — credit card fees absorbed by the business
+- **Allocated overhead** — share of fixed costs
+- **True cost** — direct cost + processing fees + allocated overhead
+- **True profit margin** — (revenue - true cost) / revenue
+
+**Partial completion:** Jobs aren't always all-or-nothing. A job can be partially
+completed (e.g., excavation done but rain halted restoration). The `completion_pct`
+field and per-phase tracking let the owner see exactly where things stand. A
+partially completed job still has real costs that must be accounted for.
+
+**Job phases** (natural milestones for a french drain install):
+1. Site assessment and marking
+2. Excavation
+3. Pipe installation and grading
+4. Backfill and compaction
+5. Restoration (sod/seed/cleanup)
+6. Final walkthrough and sign-off
+
+### Data Model
+
+<hick:file path="backend/src/jobs/mod.rs">mod model;
+mod routes;
+
+pub use routes::routes;
+pub use model::{Job, JobLineItem, JobStatus, LineItemCategory};
+</hick:file>
+
+<hick:file path="backend/src/jobs/model.rs">use chrono::NaiveDate;
+use chrono::NaiveDateTime;
+use rust_decimal::Decimal;
+use serde::{Deserialize, Serialize};
+
+/// Status progression: lead -> scheduled -> in_progress -> completed -> invoiced
+/// A job can also be partially_completed (work stopped before 100%) or cancelled.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum JobStatus {
+    Lead,
+    Scheduled,
+    InProgress,
+    PartiallyCompleted,
+    Completed,
+    Invoiced,
+    Cancelled,
+}
+
+impl JobStatus {
+    pub fn as_str(&amp;self) -> &amp;'static str {
+        match self {
+            Self::Lead => "lead",
+            Self::Scheduled => "scheduled",
+            Self::InProgress => "in_progress",
+            Self::PartiallyCompleted => "partially_completed",
+            Self::Completed => "completed",
+            Self::Invoiced => "invoiced",
+            Self::Cancelled => "cancelled",
+        }
+    }
+
+    pub fn from_str(s: &amp;str) -> Option&lt;Self&gt; {
+        match s {
+            "lead" => Some(Self::Lead),
+            "scheduled" => Some(Self::Scheduled),
+            "in_progress" => Some(Self::InProgress),
+            "partially_completed" => Some(Self::PartiallyCompleted),
+            "completed" => Some(Self::Completed),
+            "invoiced" => Some(Self::Invoiced),
+            "cancelled" => Some(Self::Cancelled),
+            _ => None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
+pub enum LineItemCategory {
+    Material,
+    Labor,
+    Equipment,
+    Overhead,
+}
+
+/// A french drain installation job.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Job {
+    pub id: String,
+    pub customer_id: String,
+    pub status: JobStatus,
+
+    // Site characteristics — these drive cost variability
+    pub site_address: String,
+    pub soil_type: String,        // clay, sand, loam, rocky, mixed
+    pub yard_grade: String,       // flat, slight, moderate, steep
+    pub site_access: String,      // easy, moderate, difficult, hand_carry_only
+    pub site_notes: Option&lt;String&gt;,
+
+    // Scope
+    pub linear_feet_planned: Option&lt;Decimal&gt;,
+    pub linear_feet_actual: Option&lt;Decimal&gt;,
+    pub trench_depth_inches: Option&lt;Decimal&gt;,
+    pub includes_sump_pump: bool,
+    pub includes_downspout_tie_in: bool,
+    pub number_of_catch_basins: i32,
+
+    // Schedule
+    pub scheduled_date: Option&lt;NaiveDate&gt;,
+    pub start_date: Option&lt;NaiveDate&gt;,
+    pub end_date: Option&lt;NaiveDate&gt;,
+    pub estimated_crew_hours: Option&lt;Decimal&gt;,
+    pub actual_crew_hours: Option&lt;Decimal&gt;,
+
+    // Conditions on the day
+    pub weather_conditions: Option&lt;String&gt;,
+    pub ground_was_wet: Option&lt;bool&gt;,
+
+    // Completion tracking
+    pub completion_pct: i32,              // 0-100
+    pub phase_assessment: bool,
+    pub phase_excavation: bool,
+    pub phase_pipe_install: bool,
+    pub phase_backfill: bool,
+    pub phase_restoration: bool,
+    pub phase_walkthrough: bool,
+    pub cancellation_reason: Option&lt;String&gt;,
+
+    // Financials (computed from line items and payments)
+    pub quoted_price: Option&lt;Decimal&gt;,
+    pub actual_revenue: Option&lt;Decimal&gt;,
+
+    pub created_at: NaiveDateTime,
+    pub updated_at: NaiveDateTime,
+}
+
+/// An individual cost line on a job.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct JobLineItem {
+    pub id: String,
+    pub job_id: String,
+    pub category: LineItemCategory,
+    pub description: String,
+    pub quantity: Decimal,
+    pub unit: String,
+    pub unit_cost: Decimal,
+    pub total_cost: Decimal,
+    pub notes: Option&lt;String&gt;,
+    pub created_at: NaiveDateTime,
+}
+
+/// Cost summary computed from line items and payments.
+#[derive(Debug, Serialize)]
+pub struct JobCostBreakdown {
+    pub job_id: String,
+    pub material_cost: Decimal,
+    pub labor_cost: Decimal,
+    pub equipment_cost: Decimal,
+    pub processing_fees: Decimal,   // credit card fees absorbed
+    pub overhead_allocated: Decimal,
+    pub direct_cost: Decimal,       // material + labor + equipment
+    pub true_cost: Decimal,         // direct + processing_fees + overhead
+    pub revenue: Decimal,
+    pub gross_margin: Decimal,      // revenue - direct
+    pub true_margin: Decimal,       // revenue - true cost
+    pub true_margin_pct: Decimal,   // true_margin / revenue
+    pub completion_pct: i32,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateJob {
+    pub customer_id: String,
+    pub site_address: String,
+    pub soil_type: String,
+    pub yard_grade: String,
+    pub site_access: String,
+    pub site_notes: Option&lt;String&gt;,
+    pub linear_feet_planned: Option&lt;Decimal&gt;,
+    pub trench_depth_inches: Option&lt;Decimal&gt;,
+    pub includes_sump_pump: Option&lt;bool&gt;,
+    pub includes_downspout_tie_in: Option&lt;bool&gt;,
+    pub number_of_catch_basins: Option&lt;i32&gt;,
+    pub scheduled_date: Option&lt;NaiveDate&gt;,
+    pub estimated_crew_hours: Option&lt;Decimal&gt;,
+    pub quoted_price: Option&lt;Decimal&gt;,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CreateLineItem {
+    pub category: LineItemCategory,
+    pub description: String,
+    pub quantity: Decimal,
+    pub unit: String,
+    pub unit_cost: Decimal,
+    pub notes: Option&lt;String&gt;,
+}
+</hick:file>
+
+### Routes
+
+<hick:file path="backend/src/jobs/routes.rs">use std::sync::Arc;
+use axum::{
+    extract::{Path, State},
+    routing::{get, post},
+    Json, Router,
+};
+use rust_decimal::Decimal;
+use rust_decimal::prelude::ToPrimitive;
+use crate::{AppState, error::AppError, types::{new_id, get_decimal, get_decimal_opt}};
+use super::model::*;
+
+pub fn routes() -> Router&lt;Arc&lt;AppState&gt;&gt; {
+    Router::new()
+        .route("/api/jobs", get(list_jobs).post(create_job))
+        .route("/api/jobs/:id", get(get_job))
+        .route("/api/jobs/:id/line-items", post(add_line_item))
+        .route("/api/jobs/:id/costs", get(cost_breakdown))
+        .route("/api/jobs/:id/complete", post(complete_job))
+        .route("/api/jobs/:id/phase", post(update_phase))
+        .route("/api/jobs/:id/cancel", post(cancel_job))
+}
+
+async fn list_jobs(
+    State(state): State&lt;Arc&lt;AppState&gt;&gt;,
+) -> Result&lt;Json&lt;Vec&lt;Job&gt;&gt;, AppError&gt; {
+    let conn = state.db.conn();
+    let mut stmt = conn.prepare(
+        "SELECT id, customer_id, status, site_address, soil_type, yard_grade,
+                site_access, site_notes, linear_feet_planned, linear_feet_actual,
+                trench_depth_inches, includes_sump_pump, includes_downspout_tie_in,
+                number_of_catch_basins, scheduled_date, start_date, end_date,
+                estimated_crew_hours, actual_crew_hours, weather_conditions,
+                ground_was_wet, completion_pct, phase_assessment, phase_excavation,
+                phase_pipe_install, phase_backfill, phase_restoration, phase_walkthrough,
+                cancellation_reason, quoted_price, actual_revenue, created_at, updated_at
+         FROM jobs ORDER BY created_at DESC"
+    )?;
+    let jobs = stmt.query_map([], |row| {
+        Ok(Job {
+            id: row.get(0)?,
+            customer_id: row.get(1)?,
+            status: JobStatus::from_str(&amp;row.get::&lt;_, String&gt;(2)?).unwrap_or(JobStatus::Lead),
+            site_address: row.get(3)?,
+            soil_type: row.get(4)?,
+            yard_grade: row.get(5)?,
+            site_access: row.get(6)?,
+            site_notes: row.get(7)?,
+            linear_feet_planned: get_decimal_opt(row, 8)?,
+            linear_feet_actual: get_decimal_opt(row, 9)?,
+            trench_depth_inches: get_decimal_opt(row, 10)?,
+            includes_sump_pump: row.get(11)?,
+            includes_downspout_tie_in: row.get(12)?,
+            number_of_catch_basins: row.get(13)?,
+            scheduled_date: row.get(14)?,
+            start_date: row.get(15)?,
+            end_date: row.get(16)?,
+            estimated_crew_hours: get_decimal_opt(row, 17)?,
+            actual_crew_hours: get_decimal_opt(row, 18)?,
+            weather_conditions: row.get(19)?,
+            ground_was_wet: row.get(20)?,
+            completion_pct: row.get(21)?,
+            phase_assessment: row.get(22)?,
+            phase_excavation: row.get(23)?,
+            phase_pipe_install: row.get(24)?,
+            phase_backfill: row.get(25)?,
+            phase_restoration: row.get(26)?,
+            phase_walkthrough: row.get(27)?,
+            cancellation_reason: row.get(28)?,
+            quoted_price: get_decimal_opt(row, 29)?,
+            actual_revenue: get_decimal_opt(row, 30)?,
+            created_at: row.get(31)?,
+            updated_at: row.get(32)?,
+        })
+    })?.collect::&lt;Result&lt;Vec&lt;_&gt;, _&gt;&gt;()?;
+    Ok(Json(jobs))
+}
+
+async fn create_job(
+    State(state): State&lt;Arc&lt;AppState&gt;&gt;,
+    Json(input): Json&lt;CreateJob&gt;,
+) -> Result&lt;Json&lt;serde_json::Value&gt;, AppError&gt; {
+    let id = new_id("job");
+    let conn = state.db.conn();
+    conn.execute(
+        "INSERT INTO jobs (id, customer_id, status, site_address, soil_type, yard_grade,
+                           site_access, site_notes, linear_feet_planned, trench_depth_inches,
+                           includes_sump_pump, includes_downspout_tie_in, number_of_catch_basins,
+                           scheduled_date, estimated_crew_hours, quoted_price)
+         VALUES (?1, ?2, 'lead', ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15)",
+        rusqlite::params![
+            id, input.customer_id, input.site_address, input.soil_type,
+            input.yard_grade, input.site_access, input.site_notes,
+            input.linear_feet_planned.map(|d| d.to_f64().unwrap_or(0.0)),
+            input.trench_depth_inches.map(|d| d.to_f64().unwrap_or(0.0)),
+            input.includes_sump_pump.unwrap_or(false),
+            input.includes_downspout_tie_in.unwrap_or(false),
+            input.number_of_catch_basins.unwrap_or(0),
+            input.scheduled_date,
+            input.estimated_crew_hours.map(|d| d.to_f64().unwrap_or(0.0)),
+            input.quoted_price.map(|d| d.to_f64().unwrap_or(0.0)),
+        ],
+    )?;
+    Ok(Json(serde_json::json!({ "id": id })))
+}
+
+async fn get_job(
+    State(state): State&lt;Arc&lt;AppState&gt;&gt;,
+    Path(id): Path&lt;String&gt;,
+) -> Result&lt;Json&lt;serde_json::Value&gt;, AppError&gt; {
+    let conn = state.db.conn();
+    // Get job + line items in one response
+    let job_exists: bool = conn.query_row(
+        "SELECT COUNT(*) > 0 FROM jobs WHERE id = ?1", [&amp;id], |r| r.get(0)
+    )?;
+    if !job_exists {
+        return Err(AppError::NotFound(format!("Job {} not found", id)));
+    }
+
+    let mut stmt = conn.prepare(
+        "SELECT id, category, description, quantity, unit, unit_cost, total_cost, notes, created_at
+         FROM job_line_items WHERE job_id = ?1 ORDER BY created_at"
+    )?;
+    let line_items: Vec&lt;serde_json::Value&gt; = stmt.query_map([&amp;id], |row| {
+        Ok(serde_json::json!({
+            "id": row.get::&lt;_, String&gt;(0)?,
+            "category": row.get::&lt;_, String&gt;(1)?,
+            "description": row.get::&lt;_, String&gt;(2)?,
+            "quantity": row.get::&lt;_, f64&gt;(3)?,
+            "unit": row.get::&lt;_, String&gt;(4)?,
+            "unit_cost": row.get::&lt;_, f64&gt;(5)?,
+            "total_cost": row.get::&lt;_, f64&gt;(6)?,
+            "notes": row.get::&lt;_, Option&lt;String&gt;&gt;(7)?,
+        }))
+    })?.collect::&lt;Result&lt;Vec&lt;_&gt;, _&gt;&gt;()?;
+
+    Ok(Json(serde_json::json!({
+        "id": id,
+        "line_items": line_items,
+    })))
+}
+
+async fn add_line_item(
+    State(state): State&lt;Arc&lt;AppState&gt;&gt;,
+    Path(job_id): Path&lt;String&gt;,
+    Json(input): Json&lt;CreateLineItem&gt;,
+) -> Result&lt;Json&lt;serde_json::Value&gt;, AppError&gt; {
+    let id = new_id("li");
+    let total = input.quantity * input.unit_cost;
+    let category = match input.category {
+        LineItemCategory::Material => "material",
+        LineItemCategory::Labor => "labor",
+        LineItemCategory::Equipment => "equipment",
+        LineItemCategory::Overhead => "overhead",
+    };
+    let conn = state.db.conn();
+    conn.execute(
+        "INSERT INTO job_line_items (id, job_id, category, description, quantity, unit, unit_cost, total_cost, notes)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+        rusqlite::params![id, job_id, category, input.description,
+            input.quantity.to_f64().unwrap_or(0.0), input.unit,
+            input.unit_cost.to_f64().unwrap_or(0.0), total.to_f64().unwrap_or(0.0),
+            input.notes],
+    )?;
+    Ok(Json(serde_json::json!({ "id": id, "total_cost": total })))
+}
+
+async fn cost_breakdown(
+    State(state): State&lt;Arc&lt;AppState&gt;&gt;,
+    Path(id): Path&lt;String&gt;,
+) -> Result&lt;Json&lt;JobCostBreakdown&gt;, AppError&gt; {
+    let conn = state.db.conn();
+    let (revenue, completion_pct): (Decimal, i32) = conn.query_row(
+        "SELECT COALESCE(actual_revenue, quoted_price, 0), completion_pct FROM jobs WHERE id = ?1",
+        [&amp;id], |r| Ok((get_decimal(r, 0)?, r.get(1)?)),
+    ).map_err(|_| AppError::NotFound(format!("Job {} not found", id)))?;
+
+    let sum_category = |cat: &amp;str| -> Result&lt;Decimal, AppError&gt; {
+        Ok(conn.query_row(
+            "SELECT COALESCE(SUM(total_cost), 0) FROM job_line_items WHERE job_id = ?1 AND category = ?2",
+            rusqlite::params![&amp;id, cat], |r| get_decimal(r, 0),
+        )?)
+    };
+
+    let material = sum_category("material")?;
+    let labor = sum_category("labor")?;
+    let equipment = sum_category("equipment")?;
+    let processing_fees = sum_category("processing_fee")?;
+    let overhead = sum_category("overhead")?;
+    let direct = material + labor + equipment;
+    let true_cost = direct + processing_fees + overhead;
+    let gross_margin = revenue - direct;
+    let true_margin = revenue - true_cost;
+    let true_margin_pct = if revenue > Decimal::ZERO {
+        true_margin / revenue * Decimal::from(100)
+    } else {
+        Decimal::ZERO
+    };
+
+    Ok(Json(JobCostBreakdown {
+        job_id: id,
+        material_cost: material,
+        labor_cost: labor,
+        equipment_cost: equipment,
+        processing_fees,
+        overhead_allocated: overhead,
+        direct_cost: direct,
+        true_cost,
+        revenue,
+        gross_margin,
+        true_margin,
+        true_margin_pct,
+        completion_pct,
+    }))
+}
+
+async fn complete_job(
+    State(state): State&lt;Arc&lt;AppState&gt;&gt;,
+    Path(id): Path&lt;String&gt;,
+) -> Result&lt;Json&lt;serde_json::Value&gt;, AppError&gt; {
+    let conn = state.db.conn();
+    conn.execute(
+        "UPDATE jobs SET status = 'completed', completion_pct = 100, end_date = date('now'),
+                phase_assessment = 1, phase_excavation = 1, phase_pipe_install = 1,
+                phase_backfill = 1, phase_restoration = 1, phase_walkthrough = 1,
+                updated_at = datetime('now')
+         WHERE id = ?1",
+        [&amp;id],
+    )?;
+    Ok(Json(serde_json::json!({ "status": "completed", "completion_pct": 100 })))
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct PhaseUpdate {
+    phase: String,
+    completed: bool,
+}
+
+/// Mark individual phases complete/incomplete. Completion percentage auto-computes
+/// from the number of completed phases (each phase = ~17%).
+async fn update_phase(
+    State(state): State&lt;Arc&lt;AppState&gt;&gt;,
+    Path(id): Path&lt;String&gt;,
+    Json(input): Json&lt;PhaseUpdate&gt;,
+) -> Result&lt;Json&lt;serde_json::Value&gt;, AppError&gt; {
+    let col = match input.phase.as_str() {
+        "assessment" => "phase_assessment",
+        "excavation" => "phase_excavation",
+        "pipe_install" => "phase_pipe_install",
+        "backfill" => "phase_backfill",
+        "restoration" => "phase_restoration",
+        "walkthrough" => "phase_walkthrough",
+        _ => return Err(AppError::BadRequest(format!("Unknown phase: {}", input.phase))),
+    };
+    let conn = state.db.conn();
+    // Update the phase
+    conn.execute(
+        &amp;format!("UPDATE jobs SET {} = ?2, updated_at = datetime('now') WHERE id = ?1", col),
+        rusqlite::params![id, input.completed],
+    )?;
+    // Recompute completion_pct from phases
+    let pct: i32 = conn.query_row(
+        "SELECT (CAST(phase_assessment AS INTEGER) + CAST(phase_excavation AS INTEGER) +
+                 CAST(phase_pipe_install AS INTEGER) + CAST(phase_backfill AS INTEGER) +
+                 CAST(phase_restoration AS INTEGER) + CAST(phase_walkthrough AS INTEGER)) * 100 / 6
+         FROM jobs WHERE id = ?1",
+        [&amp;id], |r| r.get(0),
+    )?;
+    // Auto-set status based on completion
+    let status = if pct == 100 { "completed" } else if pct > 0 { "in_progress" } else { "scheduled" };
+    conn.execute(
+        "UPDATE jobs SET completion_pct = ?2, status = ?3, updated_at = datetime('now') WHERE id = ?1",
+        rusqlite::params![id, pct, status],
+    )?;
+    Ok(Json(serde_json::json!({ "completion_pct": pct, "status": status })))
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct CancelRequest {
+    reason: String,
+}
+
+async fn cancel_job(
+    State(state): State&lt;Arc&lt;AppState&gt;&gt;,
+    Path(id): Path&lt;String&gt;,
+    Json(input): Json&lt;CancelRequest&gt;,
+) -> Result&lt;Json&lt;serde_json::Value&gt;, AppError&gt; {
+    let conn = state.db.conn();
+    let current_pct: i32 = conn.query_row(
+        "SELECT completion_pct FROM jobs WHERE id = ?1",
+        [&amp;id], |r| r.get(0),
+    ).map_err(|_| AppError::NotFound(format!("Job {} not found", id)))?;
+
+    let status = if current_pct > 0 { "partially_completed" } else { "cancelled" };
+    conn.execute(
+        "UPDATE jobs SET status = ?2, cancellation_reason = ?3, end_date = date('now'),
+                updated_at = datetime('now')
+         WHERE id = ?1",
+        rusqlite::params![id, status, input.reason],
+    )?;
+    Ok(Json(serde_json::json!({ "status": status, "completion_pct": current_pct })))
+}
+</hick:file>
+
+### Migration
+
+The jobs table captures every variable that affects cost. These columns become
+the feature vector for the estimating model's linear regression.
+
+<hick:file path="backend/migrations/002_jobs.sql">CREATE TABLE IF NOT EXISTS jobs (
+    id TEXT PRIMARY KEY,
+    customer_id TEXT NOT NULL REFERENCES customers(id),
+    status TEXT NOT NULL DEFAULT 'lead',
+
+    -- Site characteristics (cost drivers)
+    site_address TEXT NOT NULL,
+    soil_type TEXT NOT NULL DEFAULT 'mixed',
+    yard_grade TEXT NOT NULL DEFAULT 'flat',
+    site_access TEXT NOT NULL DEFAULT 'easy',
+    site_notes TEXT,
+
+    -- Scope
+    linear_feet_planned REAL,
+    linear_feet_actual REAL,
+    trench_depth_inches REAL,
+    includes_sump_pump BOOLEAN NOT NULL DEFAULT 0,
+    includes_downspout_tie_in BOOLEAN NOT NULL DEFAULT 0,
+    number_of_catch_basins INTEGER NOT NULL DEFAULT 0,
+
+    -- Schedule
+    scheduled_date TEXT,
+    start_date TEXT,
+    end_date TEXT,
+    estimated_crew_hours REAL,
+    actual_crew_hours REAL,
+
+    -- Conditions
+    weather_conditions TEXT,
+    ground_was_wet BOOLEAN,
+
+    -- Completion tracking
+    completion_pct INTEGER NOT NULL DEFAULT 0,
+    phase_assessment BOOLEAN NOT NULL DEFAULT 0,
+    phase_excavation BOOLEAN NOT NULL DEFAULT 0,
+    phase_pipe_install BOOLEAN NOT NULL DEFAULT 0,
+    phase_backfill BOOLEAN NOT NULL DEFAULT 0,
+    phase_restoration BOOLEAN NOT NULL DEFAULT 0,
+    phase_walkthrough BOOLEAN NOT NULL DEFAULT 0,
+    cancellation_reason TEXT,
+
+    -- Financials
+    quoted_price REAL,
+    actual_revenue REAL,
+
+    created_at TEXT NOT NULL DEFAULT (datetime('now')),
+    updated_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE TABLE IF NOT EXISTS job_line_items (
+    id TEXT PRIMARY KEY,
+    job_id TEXT NOT NULL REFERENCES jobs(id),
+    category TEXT NOT NULL CHECK(category IN ('material', 'labor', 'equipment', 'overhead', 'processing_fee')),
+    description TEXT NOT NULL,
+    quantity REAL NOT NULL,
+    unit TEXT NOT NULL,
+    unit_cost REAL NOT NULL,
+    total_cost REAL NOT NULL,
+    notes TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX idx_jobs_customer ON jobs(customer_id);
+CREATE INDEX idx_jobs_status ON jobs(status);
+CREATE INDEX idx_jobs_scheduled ON jobs(scheduled_date);
+CREATE INDEX idx_jobs_completion ON jobs(completion_pct);
+CREATE INDEX idx_line_items_job ON job_line_items(job_id);
+CREATE INDEX idx_line_items_category ON job_line_items(category);
+</hick:file>
+
+</hick:when>
+</hick:doc>

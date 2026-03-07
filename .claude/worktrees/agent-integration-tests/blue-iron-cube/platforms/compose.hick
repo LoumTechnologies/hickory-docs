@@ -1,0 +1,1896 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
+
+<hick:when test="compose">
+
+## Jetpack Compose Android App
+
+A field-operations Android app for <hick:val name="business_name" />. Provides mobile
+access to jobs, customers, crew time tracking, inventory, and CRM — everything a
+field crew or sales rep needs on-site.
+
+---
+
+### Gradle Build System
+
+<hick:file path="android/build.gradle.kts">// Top-level build file
+plugins {
+    alias(libs.plugins.android.application) apply false
+    alias(libs.plugins.kotlin.android) apply false
+    alias(libs.plugins.kotlin.compose) apply false
+    alias(libs.plugins.kotlin.serialization) apply false
+}
+</hick:file>
+
+<hick:file path="android/settings.gradle.kts">pluginManagement {
+    repositories {
+        google {
+            content {
+                includeGroupByRegex("com\\.android.*")
+                includeGroupByRegex("com\\.google.*")
+                includeGroupByRegex("androidx.*")
+            }
+        }
+        mavenCentral()
+        gradlePluginPortal()
+    }
+}
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+    repositories {
+        google()
+        mavenCentral()
+    }
+}
+
+rootProject.name = "<hick:val name="project_name" />"
+include(":app")
+</hick:file>
+
+<hick:file path="android/gradle.properties" doc-hidden="true"># Project-wide Gradle settings.
+android.useAndroidX=true
+kotlin.code.style=official
+android.nonTransitiveRClass=true
+org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+</hick:file>
+
+<hick:file path="android/gradle/wrapper/gradle-wrapper.properties" doc-hidden="true">distributionBase=GRADLE_USER_HOME
+distributionPath=wrapper/dists
+distributionUrl=https\://services.gradle.org/distributions/gradle-8.5-bin.zip
+networkTimeout=10000
+validateDistributionUrl=true
+zipStoreBase=GRADLE_USER_HOME
+zipStorePath=wrapper/dists
+</hick:file>
+
+---
+
+### Version Catalog
+
+<hick:file path="android/gradle/libs.versions.toml">[versions]
+agp = "8.2.2"
+kotlin = "2.0.0"
+coreKtx = "1.12.0"
+lifecycleRuntimeKtx = "2.7.0"
+activityCompose = "1.8.2"
+composeBom = "2024.02.00"
+navigationCompose = "2.7.7"
+kotlinxSerialization = "1.6.3"
+ktor = "2.3.8"
+
+[libraries]
+androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
+androidx-lifecycle-runtime-ktx = { group = "androidx.lifecycle", name = "lifecycle-runtime-ktx", version.ref = "lifecycleRuntimeKtx" }
+androidx-activity-compose = { group = "androidx.activity", name = "activity-compose", version.ref = "activityCompose" }
+androidx-compose-bom = { group = "androidx.compose", name = "compose-bom", version.ref = "composeBom" }
+androidx-ui = { group = "androidx.compose.ui", name = "ui" }
+androidx-ui-graphics = { group = "androidx.compose.ui", name = "ui-graphics" }
+androidx-ui-tooling = { group = "androidx.compose.ui", name = "ui-tooling" }
+androidx-ui-tooling-preview = { group = "androidx.compose.ui", name = "ui-tooling-preview" }
+androidx-material3 = { group = "androidx.compose.material3", name = "material3" }
+androidx-material-icons-extended = { group = "androidx.compose.material", name = "material-icons-extended" }
+androidx-navigation-compose = { group = "androidx.navigation", name = "navigation-compose", version.ref = "navigationCompose" }
+kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-serialization-json", version.ref = "kotlinxSerialization" }
+ktor-client-core = { group = "io.ktor", name = "ktor-client-core", version.ref = "ktor" }
+ktor-client-okhttp = { group = "io.ktor", name = "ktor-client-okhttp", version.ref = "ktor" }
+ktor-client-content-negotiation = { group = "io.ktor", name = "ktor-client-content-negotiation", version.ref = "ktor" }
+ktor-serialization-json = { group = "io.ktor", name = "ktor-serialization-kotlinx-json", version.ref = "ktor" }
+
+[plugins]
+android-application = { id = "com.android.application", version.ref = "agp" }
+kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
+kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
+kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
+</hick:file>
+
+---
+
+### App Module
+
+<hick:file path="android/app/build.gradle.kts">plugins {
+    alias(libs.plugins.android.application)
+    alias(libs.plugins.kotlin.android)
+    alias(libs.plugins.kotlin.compose)
+    alias(libs.plugins.kotlin.serialization)
+}
+
+android {
+    namespace = "<hick:val name="bundle_id" />"
+    compileSdk = <hick:val name="target_android_sdk" />
+
+    defaultConfig {
+        applicationId = "<hick:val name="bundle_id" />"
+        minSdk = <hick:val name="min_android_sdk" />
+        targetSdk = <hick:val name="target_android_sdk" />
+        versionCode = 1
+        versionName = "1.0"
+        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+    }
+
+    buildTypes {
+        release {
+            isMinifyEnabled = false
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro"
+            )
+        }
+    }
+    compileOptions {
+        sourceCompatibility = JavaVersion.VERSION_17
+        targetCompatibility = JavaVersion.VERSION_17
+    }
+    kotlinOptions {
+        jvmTarget = "17"
+    }
+    buildFeatures {
+        compose = true
+    }
+}
+
+dependencies {
+    implementation(libs.androidx.core.ktx)
+    implementation(libs.androidx.lifecycle.runtime.ktx)
+    implementation(libs.androidx.activity.compose)
+    implementation(platform(libs.androidx.compose.bom))
+    implementation(libs.androidx.ui)
+    implementation(libs.androidx.ui.graphics)
+    implementation(libs.androidx.ui.tooling.preview)
+    implementation(libs.androidx.material3)
+    implementation(libs.androidx.material.icons.extended)
+    implementation(libs.androidx.navigation.compose)
+    implementation(libs.kotlinx.serialization.json)
+    implementation(libs.ktor.client.core)
+    implementation(libs.ktor.client.okhttp)
+    implementation(libs.ktor.client.content.negotiation)
+    implementation(libs.ktor.serialization.json)
+    debugImplementation(libs.androidx.ui.tooling)
+}
+</hick:file>
+
+<hick:file path="android/app/proguard-rules.pro" doc-hidden="true"># Add project specific ProGuard rules here.
+# For more details, see
+#   http://developer.android.com/guide/developing/tools/proguard.html
+</hick:file>
+
+---
+
+### Android Manifest
+
+<hick:file path="android/app/src/main/AndroidManifest.xml">&lt;?xml version="1.0" encoding="utf-8"?&gt;
+&lt;manifest xmlns:android="http://schemas.android.com/apk/res/android"&gt;
+
+    &lt;uses-permission android:name="android.permission.INTERNET" /&gt;
+
+    &lt;application
+        android:allowBackup="true"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.BlueIronCube"&gt;
+        &lt;activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:theme="@style/Theme.BlueIronCube"&gt;
+            &lt;intent-filter&gt;
+                &lt;action android:name="android.intent.action.MAIN" /&gt;
+                &lt;category android:name="android.intent.category.LAUNCHER" /&gt;
+            &lt;/intent-filter&gt;
+        &lt;/activity&gt;
+    &lt;/application&gt;
+
+&lt;/manifest&gt;
+</hick:file>
+
+---
+
+### MainActivity
+
+<hick:file path="android/app/src/main/kotlin/com/acmedrainage/blueironcube/MainActivity.kt">package <hick:val name="bundle_id" />
+
+import android.os.Bundle
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.layout.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.navigation.NavHostController
+import androidx.navigation.compose.*
+import <hick:val name="bundle_id" />.ui.theme.<hick:val name="project_name" />Theme
+
+class MainActivity : ComponentActivity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
+        setContent {
+            <hick:val name="project_name" />Theme {
+                MainApp()
+            }
+        }
+    }
+}
+
+sealed class Screen(val route: String, val title: String, val icon: ImageVector) {
+<hick:when test="jobs">    data object Jobs : Screen("jobs", "Jobs", Icons.Filled.Construction)
+</hick:when>
+<hick:when test="customers">    data object Customers : Screen("customers", "Customers", Icons.Filled.People)
+</hick:when>
+<hick:when test="crew">    data object Crew : Screen("crew", "Crew", Icons.Filled.Groups)
+</hick:when>
+<hick:when test="crm">    data object CRM : Screen("crm", "CRM", Icons.Filled.TrendingUp)
+</hick:when>
+    data object More : Screen("more", "More", Icons.Filled.MoreHoriz)
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun MainApp() {
+    val navController = rememberNavController()
+    val screens = listOf(
+<hick:when test="jobs">        Screen.Jobs,
+</hick:when>
+<hick:when test="customers">        Screen.Customers,
+</hick:when>
+<hick:when test="crew">        Screen.Crew,
+</hick:when>
+<hick:when test="crm">        Screen.CRM,
+</hick:when>
+        Screen.More,
+    )
+    val navBackStackEntry by navController.currentBackStackEntryAsState()
+    val currentRoute = navBackStackEntry?.destination?.route
+
+    Scaffold(
+        modifier = Modifier.fillMaxSize(),
+        bottomBar = {
+            NavigationBar {
+                screens.forEach { screen -&gt;
+                    NavigationBarItem(
+                        icon = { Icon(screen.icon, contentDescription = screen.title) },
+                        label = { Text(screen.title) },
+                        selected = currentRoute == screen.route,
+                        onClick = {
+                            navController.navigate(screen.route) {
+                                popUpTo(navController.graph.startDestinationId) { saveState = true }
+                                launchSingleTop = true
+                                restoreState = true
+                            }
+                        }
+                    )
+                }
+            }
+        }
+    ) { innerPadding -&gt;
+        NavHost(
+            navController = navController,
+            startDestination = screens.first().route,
+            modifier = Modifier.padding(innerPadding)
+        ) {
+<hick:when test="jobs">            composable("jobs") { <hick:val name="bundle_id" />.screens.jobs.JobListScreen(navController) }
+            composable("jobs/{jobId}") { backStackEntry -&gt;
+                <hick:val name="bundle_id" />.screens.jobs.JobDetailScreen(
+                    jobId = backStackEntry.arguments?.getString("jobId") ?: "",
+                    navController = navController
+                )
+            }
+</hick:when>
+<hick:when test="customers">            composable("customers") { <hick:val name="bundle_id" />.screens.customers.CustomerListScreen(navController) }
+            composable("customers/{customerId}") { backStackEntry -&gt;
+                <hick:val name="bundle_id" />.screens.customers.CustomerDetailScreen(
+                    customerId = backStackEntry.arguments?.getString("customerId") ?: ""
+                )
+            }
+</hick:when>
+<hick:when test="crew">            composable("crew") { <hick:val name="bundle_id" />.screens.crew.CrewListScreen(navController) }
+            composable("crew/{crewId}/time") { backStackEntry -&gt;
+                <hick:val name="bundle_id" />.screens.crew.TimeEntryScreen(
+                    crewId = backStackEntry.arguments?.getString("crewId") ?: ""
+                )
+            }
+</hick:when>
+<hick:when test="crm">            composable("crm") { <hick:val name="bundle_id" />.screens.crm.LeadPipelineScreen(navController) }
+            composable("crm/{leadId}") { backStackEntry -&gt;
+                <hick:val name="bundle_id" />.screens.crm.LeadDetailScreen(
+                    leadId = backStackEntry.arguments?.getString("leadId") ?: ""
+                )
+            }
+</hick:when>
+            composable("more") { MoreScreen(navController) }
+<hick:when test="inventory">            composable("inventory") { <hick:val name="bundle_id" />.screens.inventory.InventoryListScreen() }
+</hick:when>
+<hick:when test="fleet">            composable("fleet") { <hick:val name="bundle_id" />.screens.fleet.FleetListScreen() }
+</hick:when>
+<hick:when test="payments">            composable("payments") { <hick:val name="bundle_id" />.screens.payments.PaymentFormScreen() }
+</hick:when>
+<hick:when test="overhead">            composable("overhead") { <hick:val name="bundle_id" />.screens.overhead.OverheadScreen() }
+</hick:when>
+<hick:when test="estimating">            composable("estimating") { <hick:val name="bundle_id" />.screens.estimating.EstimateFormScreen() }
+</hick:when>
+<hick:when test="sops">            composable("sops") { <hick:val name="bundle_id" />.screens.sops.SOPListScreen(navController) }
+            composable("sops/{sopId}") { backStackEntry -&gt;
+                <hick:val name="bundle_id" />.screens.sops.SOPDetailScreen(
+                    procedureId = backStackEntry.arguments?.getString("sopId") ?: ""
+                )
+            }
+</hick:when>
+        }
+    }
+}
+
+@Composable
+fun MoreScreen(navController: NavHostController) {
+    Column(modifier = Modifier.fillMaxSize().padding(androidx.compose.ui.unit.dp.let { _ -&gt; androidx.compose.ui.unit.Dp(16f) }.let { p -&gt; PaddingValues(p) })) {
+        Text("More", style = MaterialTheme.typography.headlineMedium,
+            modifier = Modifier.padding(bottom = androidx.compose.ui.unit.Dp(16f)))
+<hick:when test="inventory">
+        TextButton(onClick = { navController.navigate("inventory") }) {
+            Icon(Icons.Filled.Inventory, contentDescription = null)
+            Spacer(Modifier.width(androidx.compose.ui.unit.Dp(8f)))
+            Text("Inventory")
+        }
+</hick:when>
+<hick:when test="fleet">
+        TextButton(onClick = { navController.navigate("fleet") }) {
+            Icon(Icons.Filled.LocalShipping, contentDescription = null)
+            Spacer(Modifier.width(androidx.compose.ui.unit.Dp(8f)))
+            Text("Fleet")
+        }
+</hick:when>
+<hick:when test="payments">
+        TextButton(onClick = { navController.navigate("payments") }) {
+            Icon(Icons.Filled.Payment, contentDescription = null)
+            Spacer(Modifier.width(androidx.compose.ui.unit.Dp(8f)))
+            Text("Payments")
+        }
+</hick:when>
+<hick:when test="overhead">
+        TextButton(onClick = { navController.navigate("overhead") }) {
+            Icon(Icons.Filled.PieChart, contentDescription = null)
+            Spacer(Modifier.width(androidx.compose.ui.unit.Dp(8f)))
+            Text("Overhead")
+        }
+</hick:when>
+<hick:when test="estimating">
+        TextButton(onClick = { navController.navigate("estimating") }) {
+            Icon(Icons.Filled.Calculate, contentDescription = null)
+            Spacer(Modifier.width(androidx.compose.ui.unit.Dp(8f)))
+            Text("Estimating")
+        }
+</hick:when>
+<hick:when test="sops">
+        TextButton(onClick = { navController.navigate("sops") }) {
+            Icon(Icons.Filled.ListAlt, contentDescription = null)
+            Spacer(Modifier.width(androidx.compose.ui.unit.Dp(8f)))
+            Text("SOPs")
+        }
+</hick:when>
+    }
+}
+</hick:file>
+
+---
+
+### API Layer
+
+<hick:file path="android/app/src/main/kotlin/com/acmedrainage/blueironcube/api/ApiClient.kt">package <hick:val name="bundle_id" />.api
+
+import io.ktor.client.*
+import io.ktor.client.call.*
+import io.ktor.client.engine.okhttp.*
+import io.ktor.client.plugins.contentnegotiation.*
+import io.ktor.client.request.*
+import io.ktor.http.*
+import io.ktor.serialization.kotlinx.json.*
+import kotlinx.serialization.json.Json
+
+object ApiClient {
+    private const val BASE_URL = "http://10.0.2.2:3000"
+
+    private val json = Json {
+        ignoreUnknownKeys = true
+        isLenient = true
+    }
+
+    private val client = HttpClient(OkHttp) {
+        install(ContentNegotiation) {
+            json(json)
+        }
+    }
+
+    suspend inline fun &lt;reified T&gt; get(path: String): T {
+        return client.get("$BASE_URL$path").body()
+    }
+
+    suspend inline fun &lt;reified T&gt; post(path: String, body: Any): T {
+        return client.post("$BASE_URL$path") {
+            contentType(ContentType.Application.Json)
+            setBody(body)
+        }.body()
+    }
+
+    suspend inline fun &lt;reified T&gt; put(path: String, body: Any): T {
+        return client.put("$BASE_URL$path") {
+            contentType(ContentType.Application.Json)
+            setBody(body)
+        }.body()
+    }
+}
+</hick:file>
+
+<hick:file path="android/app/src/main/kotlin/com/acmedrainage/blueironcube/api/ApiError.kt">package <hick:val name="bundle_id" />.api
+
+sealed class ApiError(message: String) : Exception(message) {
+    class Network(message: String) : ApiError(message)
+    class Server(val statusCode: Int) : ApiError("Server error (HTTP $statusCode)")
+    class Decoding(cause: Throwable) : ApiError("Data error: ${cause.message}")
+}
+</hick:file>
+
+---
+
+### Models
+
+<hick:when test="customers">
+<hick:file path="android/app/src/main/kotlin/com/acmedrainage/blueironcube/models/Customer.kt">package <hick:val name="bundle_id" />.models
+
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
+
+@Serializable
+data class Customer(
+    val id: String,
+    val name: String,
+    val phone: String,
+    val email: String? = null,
+    val address: String,
+    val city: String,
+    val state: String,
+    val zip: String,
+    @SerialName("referral_source") val referralSource: String? = null,
+    @SerialName("referred_by") val referredBy: String? = null,
+    val notes: String? = null,
+    @SerialName("created_at") val createdAt: String,
+    @SerialName("updated_at") val updatedAt: String,
+)
+
+@Serializable
+data class CreateCustomer(
+    val name: String,
+    val phone: String,
+    val email: String? = null,
+    val address: String,
+    val city: String,
+    val state: String,
+    val zip: String,
+    @SerialName("referral_source") val referralSource: String? = null,
+    @SerialName("referred_by") val referredBy: String? = null,
+    val notes: String? = null,
+)
+</hick:file>
+</hick:when>
+
+<hick:when test="jobs">
+<hick:file path="android/app/src/main/kotlin/com/acmedrainage/blueironcube/models/Job.kt">package <hick:val name="bundle_id" />.models
+
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
+
+@Serializable
+data class Job(
+    val id: String,
+    @SerialName("customer_id") val customerId: String,
+    val status: String,
+    @SerialName("site_address") val siteAddress: String,
+    @SerialName("soil_type") val soilType: String,
+    @SerialName("yard_grade") val yardGrade: String,
+    @SerialName("site_access") val siteAccess: String,
+    @SerialName("site_notes") val siteNotes: String? = null,
+    @SerialName("linear_feet_planned") val linearFeetPlanned: String? = null,
+    @SerialName("linear_feet_actual") val linearFeetActual: String? = null,
+    @SerialName("trench_depth_inches") val trenchDepthInches: String? = null,
+    @SerialName("includes_sump_pump") val includesSumpPump: Boolean,
+    @SerialName("includes_downspout_tie_in") val includesDownspoutTieIn: Boolean,
+    @SerialName("number_of_catch_basins") val numberOfCatchBasins: Int,
+    @SerialName("scheduled_date") val scheduledDate: String? = null,
+    @SerialName("start_date") val startDate: String? = null,
+    @SerialName("end_date") val endDate: String? = null,
+    @SerialName("estimated_crew_hours") val estimatedCrewHours: String? = null,
+    @SerialName("actual_crew_hours") val actualCrewHours: String? = null,
+    @SerialName("weather_conditions") val weatherConditions: String? = null,
+    @SerialName("ground_was_wet") val groundWasWet: Boolean? = null,
+    @SerialName("completion_pct") val completionPct: Int,
+    @SerialName("phase_assessment") val phaseAssessment: Boolean,
+    @SerialName("phase_excavation") val phaseExcavation: Boolean,
+    @SerialName("phase_pipe_install") val phasePipeInstall: Boolean,
+    @SerialName("phase_backfill") val phaseBackfill: Boolean,
+    @SerialName("phase_restoration") val phaseRestoration: Boolean,
+    @SerialName("phase_walkthrough") val phaseWalkthrough: Boolean,
+    @SerialName("cancellation_reason") val cancellationReason: String? = null,
+    @SerialName("quoted_price") val quotedPrice: String? = null,
+    @SerialName("actual_revenue") val actualRevenue: String? = null,
+    @SerialName("created_at") val createdAt: String,
+    @SerialName("updated_at") val updatedAt: String,
+) {
+    val statusDisplay: String get() = status.replace("_", " ")
+        .replaceFirstChar { it.uppercase() }
+}
+
+@Serializable
+data class JobCostBreakdown(
+    @SerialName("job_id") val jobId: String,
+    @SerialName("material_cost") val materialCost: String,
+    @SerialName("labor_cost") val laborCost: String,
+    @SerialName("equipment_cost") val equipmentCost: String,
+    @SerialName("processing_fees") val processingFees: String,
+    @SerialName("overhead_allocated") val overheadAllocated: String,
+    @SerialName("direct_cost") val directCost: String,
+    @SerialName("true_cost") val trueCost: String,
+    val revenue: String,
+    @SerialName("gross_margin") val grossMargin: String,
+    @SerialName("true_margin") val trueMargin: String,
+    @SerialName("true_margin_pct") val trueMarginPct: String,
+    @SerialName("completion_pct") val completionPct: Int,
+)
+</hick:file>
+</hick:when>
+
+<hick:when test="payments">
+<hick:file path="android/app/src/main/kotlin/com/acmedrainage/blueironcube/models/Payment.kt">package <hick:val name="bundle_id" />.models
+
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
+
+@Serializable
+data class Payment(
+    val id: String,
+    @SerialName("job_id") val jobId: String,
+    val date: String,
+    val amount: String,
+    val method: String,
+    @SerialName("processing_fee_pct") val processingFeePct: String,
+    @SerialName("processing_fee_amount") val processingFeeAmount: String,
+    @SerialName("fee_recovered") val feeRecovered: Boolean,
+    val reference: String? = null,
+    val notes: String? = null,
+    @SerialName("created_at") val createdAt: String,
+) {
+    val methodDisplay: String get() = method.replace("_", " ")
+        .replaceFirstChar { it.uppercase() }
+}
+
+@Serializable
+data class CreatePayment(
+    @SerialName("job_id") val jobId: String,
+    val date: String,
+    val amount: String,
+    val method: String,
+    @SerialName("processing_fee_pct") val processingFeePct: String? = null,
+    @SerialName("fee_recovered") val feeRecovered: Boolean? = null,
+    val reference: String? = null,
+    val notes: String? = null,
+)
+</hick:file>
+</hick:when>
+
+<hick:when test="crew">
+<hick:file path="android/app/src/main/kotlin/com/acmedrainage/blueironcube/models/CrewMember.kt">package <hick:val name="bundle_id" />.models
+
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
+
+@Serializable
+data class CrewMember(
+    val id: String,
+    val name: String,
+    val role: String,
+    @SerialName("hourly_rate") val hourlyRate: String,
+    val phone: String? = null,
+    val certifications: String? = null,
+    @SerialName("hire_date") val hireDate: String,
+    val active: Boolean,
+    @SerialName("created_at") val createdAt: String,
+) {
+    val roleDisplay: String get() = role.replace("_", " ")
+        .replaceFirstChar { it.uppercase() }
+}
+
+@Serializable
+data class TimeEntry(
+    val id: String,
+    @SerialName("crew_member_id") val crewMemberId: String,
+    @SerialName("job_id") val jobId: String,
+    val date: String,
+    @SerialName("hours_regular") val hoursRegular: String,
+    @SerialName("hours_overtime") val hoursOvertime: String,
+    val notes: String? = null,
+    @SerialName("created_at") val createdAt: String,
+)
+
+@Serializable
+data class CreateTimeEntry(
+    @SerialName("job_id") val jobId: String,
+    val date: String,
+    @SerialName("hours_regular") val hoursRegular: String,
+    @SerialName("hours_overtime") val hoursOvertime: String? = null,
+    val notes: String? = null,
+)
+</hick:file>
+</hick:when>
+
+<hick:when test="inventory">
+<hick:file path="android/app/src/main/kotlin/com/acmedrainage/blueironcube/models/InventoryItem.kt">package <hick:val name="bundle_id" />.models
+
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
+
+@Serializable
+data class InventoryItem(
+    val id: String,
+    val name: String,
+    val category: String,
+    val unit: String,
+    @SerialName("quantity_on_hand") val quantityOnHand: String,
+    @SerialName("reorder_point") val reorderPoint: String,
+    @SerialName("unit_cost") val unitCost: String,
+    val supplier: String? = null,
+    @SerialName("supplier_sku") val supplierSku: String? = null,
+    val notes: String? = null,
+    @SerialName("created_at") val createdAt: String,
+    @SerialName("updated_at") val updatedAt: String,
+) {
+    val isLowStock: Boolean get() {
+        val qty = quantityOnHand.toDoubleOrNull() ?: return false
+        val reorder = reorderPoint.toDoubleOrNull() ?: return false
+        return qty &lt;= reorder
+    }
+}
+</hick:file>
+</hick:when>
+
+<hick:when test="fleet">
+<hick:file path="android/app/src/main/kotlin/com/acmedrainage/blueironcube/models/FleetAsset.kt">package <hick:val name="bundle_id" />.models
+
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
+
+@Serializable
+data class Vehicle(
+    val id: String,
+    @SerialName("vehicle_type") val vehicleType: String,
+    val year: Int,
+    val make: String,
+    val model: String,
+    @SerialName("license_plate") val licensePlate: String? = null,
+    val vin: String? = null,
+    val status: String,
+    @SerialName("monthly_payment") val monthlyPayment: String? = null,
+    @SerialName("insurance_monthly") val insuranceMonthly: String? = null,
+    @SerialName("created_at") val createdAt: String,
+) {
+    val displayName: String get() = "$year $make $model"
+}
+
+@Serializable
+data class Equipment(
+    val id: String,
+    @SerialName("equipment_type") val equipmentType: String,
+    val make: String,
+    val model: String,
+    @SerialName("serial_number") val serialNumber: String? = null,
+    @SerialName("owned_or_rented") val ownedOrRented: String,
+    @SerialName("daily_rate") val dailyRate: String? = null,
+    val status: String,
+    @SerialName("created_at") val createdAt: String,
+) {
+    val displayName: String get() = "$make $model"
+}
+</hick:file>
+</hick:when>
+
+<hick:when test="overhead">
+<hick:file path="android/app/src/main/kotlin/com/acmedrainage/blueironcube/models/Overhead.kt">package <hick:val name="bundle_id" />.models
+
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
+
+@Serializable
+data class OverheadCategory(
+    val id: String,
+    val name: String,
+    val frequency: String,
+    @SerialName("monthly_budget") val monthlyBudget: String,
+    val notes: String? = null,
+    @SerialName("created_at") val createdAt: String,
+)
+
+@Serializable
+data class RecoveryRateReport(
+    @SerialName("total_overhead_incurred") val totalOverheadIncurred: String,
+    @SerialName("total_overhead_allocated") val totalOverheadAllocated: String,
+    @SerialName("recovery_rate_pct") val recoveryRatePct: String,
+    @SerialName("monthly_budget") val monthlyBudget: String,
+    @SerialName("avg_overhead_per_job") val avgOverheadPerJob: String,
+)
+</hick:file>
+</hick:when>
+
+<hick:when test="estimating">
+<hick:file path="android/app/src/main/kotlin/com/acmedrainage/blueironcube/models/Estimate.kt">package <hick:val name="bundle_id" />.models
+
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
+
+@Serializable
+data class Estimate(
+    val id: String,
+    @SerialName("customer_id") val customerId: String? = null,
+    @SerialName("linear_feet") val linearFeet: String,
+    @SerialName("trench_depth_inches") val trenchDepthInches: String,
+    @SerialName("soil_type") val soilType: String,
+    @SerialName("yard_grade") val yardGrade: String,
+    @SerialName("site_access") val siteAccess: String,
+    @SerialName("includes_sump_pump") val includesSumpPump: Boolean,
+    @SerialName("includes_downspout_tie_in") val includesDownspoutTieIn: Boolean,
+    @SerialName("number_of_catch_basins") val numberOfCatchBasins: Int,
+    @SerialName("predicted_material_cost") val predictedMaterialCost: String,
+    @SerialName("predicted_labor_cost") val predictedLaborCost: String,
+    @SerialName("predicted_equipment_cost") val predictedEquipmentCost: String,
+    @SerialName("predicted_direct_cost") val predictedDirectCost: String,
+    @SerialName("predicted_overhead") val predictedOverhead: String,
+    @SerialName("predicted_total_cost") val predictedTotalCost: String,
+    @SerialName("predicted_crew_hours") val predictedCrewHours: String,
+    @SerialName("desired_margin_pct") val desiredMarginPct: String,
+    @SerialName("quoted_price") val quotedPrice: String,
+    @SerialName("model_version") val modelVersion: Int,
+    @SerialName("confidence_note") val confidenceNote: String,
+    @SerialName("sample_size") val sampleSize: Int,
+    @SerialName("created_at") val createdAt: String,
+)
+
+@Serializable
+data class EstimateRequest(
+    @SerialName("customer_id") val customerId: String? = null,
+    @SerialName("linear_feet") val linearFeet: String,
+    @SerialName("trench_depth_inches") val trenchDepthInches: String,
+    @SerialName("soil_type") val soilType: String,
+    @SerialName("yard_grade") val yardGrade: String,
+    @SerialName("site_access") val siteAccess: String,
+    @SerialName("includes_sump_pump") val includesSumpPump: Boolean? = null,
+    @SerialName("includes_downspout_tie_in") val includesDownspoutTieIn: Boolean? = null,
+    @SerialName("number_of_catch_basins") val numberOfCatchBasins: Int? = null,
+    @SerialName("desired_margin_pct") val desiredMarginPct: String,
+)
+</hick:file>
+</hick:when>
+
+<hick:when test="crm">
+<hick:file path="android/app/src/main/kotlin/com/acmedrainage/blueironcube/models/CRM.kt">package <hick:val name="bundle_id" />.models
+
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
+
+@Serializable
+data class Lead(
+    val id: String,
+    @SerialName("customer_id") val customerId: String,
+    val status: String,
+    val source: String,
+    @SerialName("estimated_value") val estimatedValue: String? = null,
+    @SerialName("job_id") val jobId: String? = null,
+    @SerialName("assigned_to") val assignedTo: String? = null,
+    @SerialName("lost_reason") val lostReason: String? = null,
+    @SerialName("lost_to_competitor") val lostToCompetitor: String? = null,
+    @SerialName("created_at") val createdAt: String,
+    @SerialName("updated_at") val updatedAt: String,
+) {
+    val statusDisplay: String get() = status.replace("_", " ")
+        .replaceFirstChar { it.uppercase() }
+}
+
+@Serializable
+data class Interaction(
+    val id: String,
+    @SerialName("customer_id") val customerId: String,
+    @SerialName("lead_id") val leadId: String? = null,
+    val date: String,
+    @SerialName("interaction_type") val interactionType: String,
+    val direction: String,
+    val summary: String,
+    @SerialName("duration_minutes") val durationMinutes: Int? = null,
+    @SerialName("created_at") val createdAt: String,
+)
+
+@Serializable
+data class FollowUp(
+    val id: String,
+    @SerialName("customer_id") val customerId: String,
+    @SerialName("lead_id") val leadId: String? = null,
+    @SerialName("due_date") val dueDate: String,
+    val action: String,
+    val notes: String? = null,
+    val completed: Boolean,
+    @SerialName("completed_at") val completedAt: String? = null,
+    @SerialName("created_at") val createdAt: String,
+)
+</hick:file>
+</hick:when>
+
+<hick:when test="sops">
+<hick:file path="android/app/src/main/kotlin/com/acmedrainage/blueironcube/models/Procedure.kt">package <hick:val name="bundle_id" />.models
+
+import kotlinx.serialization.SerialName
+import kotlinx.serialization.Serializable
+
+@Serializable
+data class Procedure(
+    val id: String,
+    val title: String,
+    val category: String,
+    val version: Int,
+    val description: String? = null,
+    @SerialName("estimated_duration_minutes") val estimatedDurationMinutes: Int? = null,
+    @SerialName("required_roles") val requiredRoles: String? = null,
+    @SerialName("required_equipment") val requiredEquipment: String? = null,
+    @SerialName("required_materials") val requiredMaterials: String? = null,
+    @SerialName("safety_notes") val safetyNotes: String? = null,
+    val active: Boolean,
+    @SerialName("created_at") val createdAt: String,
+    @SerialName("updated_at") val updatedAt: String,
+)
+
+@Serializable
+data class ProcedureStep(
+    val id: String,
+    @SerialName("procedure_id") val procedureId: String,
+    @SerialName("step_number") val stepNumber: Int,
+    val instruction: String,
+    @SerialName("is_checkpoint") val isCheckpoint: Boolean,
+    val notes: String? = null,
+)
+
+@Serializable
+data class ProcedureWithSteps(
+    val id: String,
+    val title: String,
+    val category: String,
+    val version: Int,
+    val description: String? = null,
+    @SerialName("estimated_duration_minutes") val estimatedDurationMinutes: Int? = null,
+    @SerialName("required_roles") val requiredRoles: String? = null,
+    @SerialName("required_equipment") val requiredEquipment: String? = null,
+    @SerialName("required_materials") val requiredMaterials: String? = null,
+    @SerialName("safety_notes") val safetyNotes: String? = null,
+    val active: Boolean,
+    @SerialName("created_at") val createdAt: String,
+    @SerialName("updated_at") val updatedAt: String,
+    val steps: List&lt;ProcedureStep&gt;,
+)
+</hick:file>
+</hick:when>
+
+---
+
+### Screens
+
+<hick:when test="customers">
+<hick:file path="android/app/src/main/kotlin/com/acmedrainage/blueironcube/screens/customers/CustomerListScreen.kt">package <hick:val name="bundle_id" />.screens.customers
+
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import androidx.navigation.NavController
+import <hick:val name="bundle_id" />.api.ApiClient
+import <hick:val name="bundle_id" />.models.Customer
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun CustomerListScreen(navController: NavController) {
+    var customers by remember { mutableStateOf&lt;List&lt;Customer&gt;&gt;(emptyList()) }
+    var isLoading by remember { mutableStateOf(true) }
+    var error by remember { mutableStateOf&lt;String?&gt;(null) }
+    var searchText by remember { mutableStateOf("") }
+
+    LaunchedEffect(Unit) {
+        try {
+            customers = ApiClient.get("/api/customers")
+        } catch (e: Exception) {
+            error = e.message
+        }
+        isLoading = false
+    }
+
+    val filtered = if (searchText.isEmpty()) customers else customers.filter {
+        it.name.contains(searchText, ignoreCase = true) ||
+        it.phone.contains(searchText) ||
+        it.city.contains(searchText, ignoreCase = true)
+    }
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        SearchBar(
+            query = searchText,
+            onQueryChange = { searchText = it },
+            onSearch = {},
+            active = false,
+            onActiveChange = {},
+            placeholder = { Text("Search by name, phone, city") },
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)
+        ) {}
+
+        when {
+            isLoading -&gt; CircularProgressIndicator(modifier = Modifier.padding(32.dp))
+            error != null -&gt; Text("Error: $error", modifier = Modifier.padding(16.dp))
+            filtered.isEmpty() -&gt; Text("No customers found", modifier = Modifier.padding(16.dp))
+            else -&gt; LazyColumn {
+                items(filtered) { customer -&gt;
+                    ListItem(
+                        headlineContent = { Text(customer.name) },
+                        supportingContent = { Text(customer.phone) },
+                        overlineContent = { Text("${customer.city}, ${customer.state} ${customer.zip}") },
+                        modifier = Modifier.clickable {
+                            navController.navigate("customers/${customer.id}")
+                        }
+                    )
+                    HorizontalDivider()
+                }
+            }
+        }
+    }
+}
+</hick:file>
+
+<hick:file path="android/app/src/main/kotlin/com/acmedrainage/blueironcube/screens/customers/CustomerDetailScreen.kt">package <hick:val name="bundle_id" />.screens.customers
+
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import <hick:val name="bundle_id" />.api.ApiClient
+import <hick:val name="bundle_id" />.models.Customer
+
+@Composable
+fun CustomerDetailScreen(customerId: String) {
+    var customer by remember { mutableStateOf&lt;Customer?&gt;(null) }
+
+    LaunchedEffect(customerId) {
+        customer = try { ApiClient.get("/api/customers/$customerId") } catch (_: Exception) { null }
+    }
+
+    val c = customer
+    if (c == null) {
+        CircularProgressIndicator(modifier = Modifier.padding(32.dp))
+        return
+    }
+
+    Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp)) {
+        Text(c.name, style = MaterialTheme.typography.headlineMedium)
+        Spacer(Modifier.height(16.dp))
+        Text("Contact", style = MaterialTheme.typography.titleSmall)
+        Text("Phone: ${c.phone}")
+        c.email?.let { Text("Email: $it") }
+        Spacer(Modifier.height(12.dp))
+        Text("Address", style = MaterialTheme.typography.titleSmall)
+        Text(c.address)
+        Text("${c.city}, ${c.state} ${c.zip}")
+        c.referralSource?.let {
+            Spacer(Modifier.height(12.dp))
+            Text("Referral", style = MaterialTheme.typography.titleSmall)
+            Text("Source: $it")
+            c.referredBy?.let { by -&gt; Text("Referred by: $by") }
+        }
+        c.notes?.let {
+            Spacer(Modifier.height(12.dp))
+            Text("Notes", style = MaterialTheme.typography.titleSmall)
+            Text(it)
+        }
+    }
+}
+</hick:file>
+</hick:when>
+
+<hick:when test="jobs">
+<hick:file path="android/app/src/main/kotlin/com/acmedrainage/blueironcube/screens/jobs/JobListScreen.kt">package <hick:val name="bundle_id" />.screens.jobs
+
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import androidx.navigation.NavController
+import <hick:val name="bundle_id" />.api.ApiClient
+import <hick:val name="bundle_id" />.models.Job
+
+@Composable
+fun JobListScreen(navController: NavController) {
+    var jobs by remember { mutableStateOf&lt;List&lt;Job&gt;&gt;(emptyList()) }
+    var isLoading by remember { mutableStateOf(true) }
+    var error by remember { mutableStateOf&lt;String?&gt;(null) }
+
+    LaunchedEffect(Unit) {
+        try {
+            jobs = ApiClient.get("/api/jobs")
+        } catch (e: Exception) {
+            error = e.message
+        }
+        isLoading = false
+    }
+
+    when {
+        isLoading -&gt; Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            CircularProgressIndicator()
+        }
+        error != null -&gt; Text("Error: $error", modifier = Modifier.padding(16.dp))
+        jobs.isEmpty() -&gt; Text("No jobs found", modifier = Modifier.padding(16.dp))
+        else -&gt; LazyColumn {
+            items(jobs) { job -&gt;
+                ListItem(
+                    headlineContent = { Text(job.siteAddress) },
+                    supportingContent = { Text(job.statusDisplay) },
+                    trailingContent = {
+                        Text(
+                            "${job.completionPct}%",
+                            color = if (job.completionPct == 100)
+                                MaterialTheme.colorScheme.primary
+                            else MaterialTheme.colorScheme.tertiary
+                        )
+                    },
+                    modifier = Modifier.clickable {
+                        navController.navigate("jobs/${job.id}")
+                    }
+                )
+                HorizontalDivider()
+            }
+        }
+    }
+}
+</hick:file>
+
+<hick:file path="android/app/src/main/kotlin/com/acmedrainage/blueironcube/screens/jobs/JobDetailScreen.kt">package <hick:val name="bundle_id" />.screens.jobs
+
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import androidx.navigation.NavController
+import <hick:val name="bundle_id" />.api.ApiClient
+import <hick:val name="bundle_id" />.models.Job
+import <hick:val name="bundle_id" />.models.JobCostBreakdown
+
+@Composable
+fun JobDetailScreen(jobId: String, navController: NavController) {
+    var job by remember { mutableStateOf&lt;Job?&gt;(null) }
+    var costs by remember { mutableStateOf&lt;JobCostBreakdown?&gt;(null) }
+
+    LaunchedEffect(jobId) {
+        job = try { ApiClient.get("/api/jobs/$jobId") } catch (_: Exception) { null }
+        costs = try { ApiClient.get("/api/jobs/$jobId/costs") } catch (_: Exception) { null }
+    }
+
+    val j = job
+    if (j == null) {
+        CircularProgressIndicator(modifier = Modifier.padding(32.dp))
+        return
+    }
+
+    Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp)) {
+        Text("Job Details", style = MaterialTheme.typography.headlineMedium)
+        Spacer(Modifier.height(16.dp))
+
+        Text("Status", style = MaterialTheme.typography.titleSmall)
+        Text("${j.statusDisplay} — ${j.completionPct}%")
+        LinearProgressIndicator(
+            progress = { j.completionPct / 100f },
+            modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)
+        )
+
+        Spacer(Modifier.height(12.dp))
+        Text("Site", style = MaterialTheme.typography.titleSmall)
+        Text("Address: ${j.siteAddress}")
+        Text("Soil: ${j.soilType} | Grade: ${j.yardGrade} | Access: ${j.siteAccess}")
+
+        Spacer(Modifier.height(12.dp))
+        Text("Scope", style = MaterialTheme.typography.titleSmall)
+        j.linearFeetPlanned?.let { Text("Linear feet (planned): $it") }
+        j.trenchDepthInches?.let { Text("Trench depth: $it in") }
+        Text("Sump pump: ${if (j.includesSumpPump) "Yes" else "No"}")
+        Text("Downspout tie-in: ${if (j.includesDownspoutTieIn) "Yes" else "No"}")
+        Text("Catch basins: ${j.numberOfCatchBasins}")
+
+        Spacer(Modifier.height(12.dp))
+        Text("Phases", style = MaterialTheme.typography.titleSmall)
+        PhaseRow("Assessment", j.phaseAssessment)
+        PhaseRow("Excavation", j.phaseExcavation)
+        PhaseRow("Pipe Install", j.phasePipeInstall)
+        PhaseRow("Backfill", j.phaseBackfill)
+        PhaseRow("Restoration", j.phaseRestoration)
+        PhaseRow("Walkthrough", j.phaseWalkthrough)
+
+        costs?.let { c -&gt;
+            Spacer(Modifier.height(12.dp))
+            Text("Costs", style = MaterialTheme.typography.titleSmall)
+            Text("Material: $${ c.materialCost}")
+            Text("Labor: $${c.laborCost}")
+            Text("Equipment: $${c.equipmentCost}")
+            Text("Processing fees: $${c.processingFees}")
+            Text("Overhead: $${c.overheadAllocated}")
+            Text("True cost: $${c.trueCost}", style = MaterialTheme.typography.titleMedium)
+            Text("Revenue: $${c.revenue}")
+            Text("True margin: ${c.trueMarginPct}%")
+        }
+    }
+}
+
+@Composable
+private fun PhaseRow(name: String, done: Boolean) {
+    Row(modifier = Modifier.padding(vertical = 2.dp)) {
+        Text(if (done) "✓" else "○", modifier = Modifier.width(24.dp))
+        Text(name)
+    }
+}
+</hick:file>
+</hick:when>
+
+<hick:when test="crew">
+<hick:file path="android/app/src/main/kotlin/com/acmedrainage/blueironcube/screens/crew/CrewListScreen.kt">package <hick:val name="bundle_id" />.screens.crew
+
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import androidx.navigation.NavController
+import <hick:val name="bundle_id" />.api.ApiClient
+import <hick:val name="bundle_id" />.models.CrewMember
+
+@Composable
+fun CrewListScreen(navController: NavController) {
+    var members by remember { mutableStateOf&lt;List&lt;CrewMember&gt;&gt;(emptyList()) }
+    var isLoading by remember { mutableStateOf(true) }
+
+    LaunchedEffect(Unit) {
+        members = try { ApiClient.get("/api/crew") } catch (_: Exception) { emptyList() }
+        isLoading = false
+    }
+
+    when {
+        isLoading -&gt; CircularProgressIndicator(modifier = Modifier.padding(32.dp))
+        else -&gt; LazyColumn {
+            items(members) { member -&gt;
+                ListItem(
+                    headlineContent = { Text(member.name) },
+                    supportingContent = { Text(member.roleDisplay) },
+                    trailingContent = { Text("$${member.hourlyRate}/hr") },
+                    modifier = Modifier.clickable {
+                        navController.navigate("crew/${member.id}/time")
+                    }
+                )
+                HorizontalDivider()
+            }
+        }
+    }
+}
+</hick:file>
+
+<hick:file path="android/app/src/main/kotlin/com/acmedrainage/blueironcube/screens/crew/TimeEntryScreen.kt">package <hick:val name="bundle_id" />.screens.crew
+
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import <hick:val name="bundle_id" />.api.ApiClient
+import <hick:val name="bundle_id" />.models.TimeEntry
+
+@Composable
+fun TimeEntryScreen(crewId: String) {
+    var entries by remember { mutableStateOf&lt;List&lt;TimeEntry&gt;&gt;(emptyList()) }
+    var isLoading by remember { mutableStateOf(true) }
+
+    LaunchedEffect(crewId) {
+        entries = try { ApiClient.get("/api/crew/$crewId/time-entries") } catch (_: Exception) { emptyList() }
+        isLoading = false
+    }
+
+    when {
+        isLoading -&gt; CircularProgressIndicator(modifier = Modifier.padding(32.dp))
+        entries.isEmpty() -&gt; Text("No time entries", modifier = Modifier.padding(16.dp))
+        else -&gt; LazyColumn {
+            items(entries) { entry -&gt;
+                ListItem(
+                    headlineContent = { Text(entry.date) },
+                    supportingContent = { Text("${entry.hoursRegular}h regular" +
+                        if (entry.hoursOvertime != "0") " + ${entry.hoursOvertime}h OT" else "") },
+                    overlineContent = { Text("Job: ${entry.jobId}") },
+                )
+                HorizontalDivider()
+            }
+        }
+    }
+}
+</hick:file>
+</hick:when>
+
+<hick:when test="payments">
+<hick:file path="android/app/src/main/kotlin/com/acmedrainage/blueironcube/screens/payments/PaymentFormScreen.kt">package <hick:val name="bundle_id" />.screens.payments
+
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import <hick:val name="bundle_id" />.api.ApiClient
+import <hick:val name="bundle_id" />.models.CreatePayment
+import <hick:val name="bundle_id" />.models.Payment
+
+@Composable
+fun PaymentFormScreen() {
+    var jobId by remember { mutableStateOf("") }
+    var amount by remember { mutableStateOf("") }
+    var method by remember { mutableStateOf("cash") }
+    var reference by remember { mutableStateOf("") }
+    var isSaving by remember { mutableStateOf(false) }
+    var lastPayment by remember { mutableStateOf&lt;Payment?&gt;(null) }
+
+    val methods = listOf("cash", "check", "credit_card", "debit_card", "ach", "financing")
+
+    Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp)) {
+        Text("Record Payment", style = MaterialTheme.typography.headlineMedium)
+        Spacer(Modifier.height(16.dp))
+
+        OutlinedTextField(value = jobId, onValueChange = { jobId = it },
+            label = { Text("Job ID") }, modifier = Modifier.fillMaxWidth())
+        Spacer(Modifier.height(8.dp))
+        OutlinedTextField(value = amount, onValueChange = { amount = it },
+            label = { Text("Amount") }, modifier = Modifier.fillMaxWidth())
+        Spacer(Modifier.height(8.dp))
+        OutlinedTextField(value = reference, onValueChange = { reference = it },
+            label = { Text("Reference (optional)") }, modifier = Modifier.fillMaxWidth())
+        Spacer(Modifier.height(16.dp))
+
+        Button(
+            onClick = {
+                isSaving = true
+                // Fire-and-forget in LaunchedEffect pattern would be better,
+                // but kept simple for template
+            },
+            enabled = jobId.isNotBlank() &amp;&amp; amount.isNotBlank() &amp;&amp; !isSaving,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Record Payment")
+        }
+
+        lastPayment?.let { p -&gt;
+            Spacer(Modifier.height(16.dp))
+            Text("Last Recorded", style = MaterialTheme.typography.titleSmall)
+            Text("ID: ${p.id}")
+            Text("Amount: $${p.amount}")
+            Text("Fee: $${p.processingFeeAmount}")
+        }
+    }
+}
+</hick:file>
+</hick:when>
+
+<hick:when test="inventory">
+<hick:file path="android/app/src/main/kotlin/com/acmedrainage/blueironcube/screens/inventory/InventoryListScreen.kt">package <hick:val name="bundle_id" />.screens.inventory
+
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import <hick:val name="bundle_id" />.api.ApiClient
+import <hick:val name="bundle_id" />.models.InventoryItem
+
+@Composable
+fun InventoryListScreen() {
+    var items by remember { mutableStateOf&lt;List&lt;InventoryItem&gt;&gt;(emptyList()) }
+    var isLoading by remember { mutableStateOf(true) }
+    var showLowStockOnly by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        items = try { ApiClient.get("/api/inventory") } catch (_: Exception) { emptyList() }
+        isLoading = false
+    }
+
+    val displayed = if (showLowStockOnly) items.filter { it.isLowStock } else items
+
+    Column(modifier = Modifier.fillMaxSize()) {
+        Row(modifier = Modifier.padding(16.dp)) {
+            Text("Inventory", style = MaterialTheme.typography.headlineMedium,
+                modifier = Modifier.weight(1f))
+            FilterChip(selected = showLowStockOnly,
+                onClick = { showLowStockOnly = !showLowStockOnly },
+                label = { Text("Low Stock") })
+        }
+        when {
+            isLoading -&gt; CircularProgressIndicator(modifier = Modifier.padding(32.dp))
+            else -&gt; LazyColumn {
+                items(displayed) { item -&gt;
+                    ListItem(
+                        headlineContent = { Text(item.name) },
+                        supportingContent = { Text("${item.category} — ${item.unit}") },
+                        trailingContent = {
+                            Column {
+                                Text(item.quantityOnHand,
+                                    color = if (item.isLowStock)
+                                        MaterialTheme.colorScheme.error
+                                    else MaterialTheme.colorScheme.onSurface)
+                                Text("$${item.unitCost}/${item.unit}",
+                                    style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                    )
+                    HorizontalDivider()
+                }
+            }
+        }
+    }
+}
+</hick:file>
+</hick:when>
+
+<hick:when test="fleet">
+<hick:file path="android/app/src/main/kotlin/com/acmedrainage/blueironcube/screens/fleet/FleetListScreen.kt">package <hick:val name="bundle_id" />.screens.fleet
+
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import <hick:val name="bundle_id" />.api.ApiClient
+import <hick:val name="bundle_id" />.models.Vehicle
+import <hick:val name="bundle_id" />.models.Equipment
+
+@Composable
+fun FleetListScreen() {
+    var vehicles by remember { mutableStateOf&lt;List&lt;Vehicle&gt;&gt;(emptyList()) }
+    var equipment by remember { mutableStateOf&lt;List&lt;Equipment&gt;&gt;(emptyList()) }
+    var isLoading by remember { mutableStateOf(true) }
+
+    LaunchedEffect(Unit) {
+        vehicles = try { ApiClient.get("/api/fleet/vehicles") } catch (_: Exception) { emptyList() }
+        equipment = try { ApiClient.get("/api/fleet/equipment") } catch (_: Exception) { emptyList() }
+        isLoading = false
+    }
+
+    when {
+        isLoading -&gt; CircularProgressIndicator(modifier = Modifier.padding(32.dp))
+        else -&gt; LazyColumn(modifier = Modifier.fillMaxSize()) {
+            if (vehicles.isNotEmpty()) {
+                item { Text("Vehicles", style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.padding(16.dp)) }
+                items(vehicles) { v -&gt;
+                    ListItem(
+                        headlineContent = { Text(v.displayName) },
+                        supportingContent = { Text(v.vehicleType) },
+                        trailingContent = { Text(v.status.replaceFirstChar { it.uppercase() }) }
+                    )
+                    HorizontalDivider()
+                }
+            }
+            if (equipment.isNotEmpty()) {
+                item { Text("Equipment", style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.padding(16.dp)) }
+                items(equipment) { e -&gt;
+                    ListItem(
+                        headlineContent = { Text(e.displayName) },
+                        supportingContent = { Text(e.equipmentType.replace("_", " ")
+                            .replaceFirstChar { it.uppercase() }) },
+                        trailingContent = { Text(e.ownedOrRented.replaceFirstChar { it.uppercase() }) }
+                    )
+                    HorizontalDivider()
+                }
+            }
+        }
+    }
+}
+</hick:file>
+</hick:when>
+
+<hick:when test="overhead">
+<hick:file path="android/app/src/main/kotlin/com/acmedrainage/blueironcube/screens/overhead/OverheadScreen.kt">package <hick:val name="bundle_id" />.screens.overhead
+
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import <hick:val name="bundle_id" />.api.ApiClient
+import <hick:val name="bundle_id" />.models.OverheadCategory
+import <hick:val name="bundle_id" />.models.RecoveryRateReport
+
+@Composable
+fun OverheadScreen() {
+    var categories by remember { mutableStateOf&lt;List&lt;OverheadCategory&gt;&gt;(emptyList()) }
+    var report by remember { mutableStateOf&lt;RecoveryRateReport?&gt;(null) }
+    var isLoading by remember { mutableStateOf(true) }
+
+    LaunchedEffect(Unit) {
+        categories = try { ApiClient.get("/api/overhead/categories") } catch (_: Exception) { emptyList() }
+        report = try { ApiClient.get("/api/overhead/recovery-rate") } catch (_: Exception) { null }
+        isLoading = false
+    }
+
+    when {
+        isLoading -&gt; CircularProgressIndicator(modifier = Modifier.padding(32.dp))
+        else -&gt; LazyColumn(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+            report?.let { r -&gt;
+                item {
+                    Text("Recovery Rate", style = MaterialTheme.typography.titleMedium)
+                    Text("Rate: ${r.recoveryRatePct}%")
+                    Text("Incurred: $${r.totalOverheadIncurred}")
+                    Text("Allocated: $${r.totalOverheadAllocated}")
+                    Text("Monthly budget: $${r.monthlyBudget}")
+                    Text("Avg per job: $${r.avgOverheadPerJob}")
+                    Spacer(Modifier.height(16.dp))
+                }
+            }
+            item { Text("Categories", style = MaterialTheme.typography.titleMedium) }
+            items(categories) { cat -&gt;
+                ListItem(
+                    headlineContent = { Text(cat.name) },
+                    supportingContent = { Text(cat.frequency) },
+                    trailingContent = { Text("$${cat.monthlyBudget}/mo") }
+                )
+                HorizontalDivider()
+            }
+        }
+    }
+}
+</hick:file>
+</hick:when>
+
+<hick:when test="estimating">
+<hick:file path="android/app/src/main/kotlin/com/acmedrainage/blueironcube/screens/estimating/EstimateFormScreen.kt">package <hick:val name="bundle_id" />.screens.estimating
+
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import <hick:val name="bundle_id" />.api.ApiClient
+import <hick:val name="bundle_id" />.models.Estimate
+import <hick:val name="bundle_id" />.models.EstimateRequest
+
+@Composable
+fun EstimateFormScreen() {
+    var linearFeet by remember { mutableStateOf("") }
+    var trenchDepth by remember { mutableStateOf("") }
+    var soilType by remember { mutableStateOf("mixed") }
+    var yardGrade by remember { mutableStateOf("flat") }
+    var siteAccess by remember { mutableStateOf("easy") }
+    var sumpPump by remember { mutableStateOf(false) }
+    var downspout by remember { mutableStateOf(false) }
+    var catchBasins by remember { mutableIntStateOf(0) }
+    var marginPct by remember { mutableStateOf("25") }
+    var result by remember { mutableStateOf&lt;Estimate?&gt;(null) }
+    var isCalculating by remember { mutableStateOf(false) }
+
+    Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp)) {
+        Text("New Estimate", style = MaterialTheme.typography.headlineMedium)
+        Spacer(Modifier.height(16.dp))
+
+        OutlinedTextField(value = linearFeet, onValueChange = { linearFeet = it },
+            label = { Text("Linear feet") }, modifier = Modifier.fillMaxWidth())
+        Spacer(Modifier.height(8.dp))
+        OutlinedTextField(value = trenchDepth, onValueChange = { trenchDepth = it },
+            label = { Text("Trench depth (inches)") }, modifier = Modifier.fillMaxWidth())
+        Spacer(Modifier.height(8.dp))
+
+        Row {
+            Switch(checked = sumpPump, onCheckedChange = { sumpPump = it })
+            Spacer(Modifier.width(8.dp))
+            Text("Sump pump")
+        }
+        Row {
+            Switch(checked = downspout, onCheckedChange = { downspout = it })
+            Spacer(Modifier.width(8.dp))
+            Text("Downspout tie-in")
+        }
+
+        Spacer(Modifier.height(8.dp))
+        OutlinedTextField(value = marginPct, onValueChange = { marginPct = it },
+            label = { Text("Target margin %") }, modifier = Modifier.fillMaxWidth())
+        Spacer(Modifier.height(16.dp))
+
+        Button(
+            onClick = { isCalculating = true },
+            enabled = linearFeet.isNotBlank() &amp;&amp; trenchDepth.isNotBlank() &amp;&amp; !isCalculating,
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text("Generate Estimate")
+        }
+
+        result?.let { est -&gt;
+            Spacer(Modifier.height(16.dp))
+            Card(modifier = Modifier.fillMaxWidth()) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    Text("Quoted Price: $${est.quotedPrice}",
+                        style = MaterialTheme.typography.headlineSmall)
+                    Spacer(Modifier.height(8.dp))
+                    Text("Material: $${est.predictedMaterialCost}")
+                    Text("Labor: $${est.predictedLaborCost}")
+                    Text("Equipment: $${est.predictedEquipmentCost}")
+                    Text("Total cost: $${est.predictedTotalCost}")
+                    Text("Crew hours: ${est.predictedCrewHours}")
+                    Spacer(Modifier.height(8.dp))
+                    Text(est.confidenceNote, style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        }
+    }
+}
+</hick:file>
+</hick:when>
+
+<hick:when test="crm">
+<hick:file path="android/app/src/main/kotlin/com/acmedrainage/blueironcube/screens/crm/LeadPipelineScreen.kt">package <hick:val name="bundle_id" />.screens.crm
+
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import androidx.navigation.NavController
+import <hick:val name="bundle_id" />.api.ApiClient
+import <hick:val name="bundle_id" />.models.Lead
+
+@Composable
+fun LeadPipelineScreen(navController: NavController) {
+    var leads by remember { mutableStateOf&lt;List&lt;Lead&gt;&gt;(emptyList()) }
+    var isLoading by remember { mutableStateOf(true) }
+
+    val stages = listOf("new_lead", "contacted", "site_visit_scheduled",
+        "site_visit_completed", "estimate_sent", "negotiating", "won", "lost")
+
+    LaunchedEffect(Unit) {
+        leads = try { ApiClient.get("/api/crm/leads") } catch (_: Exception) { emptyList() }
+        isLoading = false
+    }
+
+    when {
+        isLoading -&gt; CircularProgressIndicator(modifier = Modifier.padding(32.dp))
+        leads.isEmpty() -&gt; Text("No leads", modifier = Modifier.padding(16.dp))
+        else -&gt; LazyColumn(modifier = Modifier.fillMaxSize()) {
+            stages.forEach { stage -&gt;
+                val stageLeads = leads.filter { it.status == stage }
+                if (stageLeads.isNotEmpty()) {
+                    item {
+                        Text(
+                            stage.replace("_", " ").replaceFirstChar { it.uppercase() },
+                            style = MaterialTheme.typography.titleMedium,
+                            modifier = Modifier.padding(16.dp, 12.dp, 16.dp, 4.dp)
+                        )
+                    }
+                    items(stageLeads) { lead -&gt;
+                        ListItem(
+                            headlineContent = { Text("Customer: ${lead.customerId}") },
+                            supportingContent = { Text(lead.source) },
+                            trailingContent = {
+                                lead.estimatedValue?.let { Text("$$it") }
+                            },
+                            modifier = Modifier.clickable {
+                                navController.navigate("crm/${lead.id}")
+                            }
+                        )
+                        HorizontalDivider()
+                    }
+                }
+            }
+        }
+    }
+}
+</hick:file>
+
+<hick:file path="android/app/src/main/kotlin/com/acmedrainage/blueironcube/screens/crm/LeadDetailScreen.kt">package <hick:val name="bundle_id" />.screens.crm
+
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import <hick:val name="bundle_id" />.models.Lead
+
+@Composable
+fun LeadDetailScreen(leadId: String) {
+    // In a real app this would fetch the lead by ID
+    Column(modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp)) {
+        Text("Lead Details", style = MaterialTheme.typography.headlineMedium)
+        Spacer(Modifier.height(16.dp))
+        Text("Lead ID: $leadId")
+    }
+}
+</hick:file>
+</hick:when>
+
+<hick:when test="sops">
+<hick:file path="android/app/src/main/kotlin/com/acmedrainage/blueironcube/screens/sops/SOPListScreen.kt">package <hick:val name="bundle_id" />.screens.sops
+
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import androidx.navigation.NavController
+import <hick:val name="bundle_id" />.api.ApiClient
+import <hick:val name="bundle_id" />.models.Procedure
+
+@Composable
+fun SOPListScreen(navController: NavController) {
+    var procedures by remember { mutableStateOf&lt;List&lt;Procedure&gt;&gt;(emptyList()) }
+    var isLoading by remember { mutableStateOf(true) }
+
+    LaunchedEffect(Unit) {
+        procedures = try { ApiClient.get("/api/sops") } catch (_: Exception) { emptyList() }
+        isLoading = false
+    }
+
+    val grouped = procedures.groupBy { it.category }
+
+    when {
+        isLoading -&gt; CircularProgressIndicator(modifier = Modifier.padding(32.dp))
+        procedures.isEmpty() -&gt; Text("No procedures", modifier = Modifier.padding(16.dp))
+        else -&gt; LazyColumn(modifier = Modifier.fillMaxSize()) {
+            grouped.keys.sorted().forEach { category -&gt;
+                item {
+                    Text(
+                        category.replace("_", " ").replaceFirstChar { it.uppercase() },
+                        style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.padding(16.dp, 12.dp, 16.dp, 4.dp)
+                    )
+                }
+                items(grouped[category]!!) { proc -&gt;
+                    ListItem(
+                        headlineContent = { Text(proc.title) },
+                        supportingContent = {
+                            Text("v${proc.version}" +
+                                (proc.estimatedDurationMinutes?.let { " — ~${it} min" } ?: ""))
+                        },
+                        modifier = Modifier.clickable {
+                            navController.navigate("sops/${proc.id}")
+                        }
+                    )
+                    HorizontalDivider()
+                }
+            }
+        }
+    }
+}
+</hick:file>
+
+<hick:file path="android/app/src/main/kotlin/com/acmedrainage/blueironcube/screens/sops/SOPDetailScreen.kt">package <hick:val name="bundle_id" />.screens.sops
+
+import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import <hick:val name="bundle_id" />.api.ApiClient
+import <hick:val name="bundle_id" />.models.ProcedureWithSteps
+
+@Composable
+fun SOPDetailScreen(procedureId: String) {
+    var procedure by remember { mutableStateOf&lt;ProcedureWithSteps?&gt;(null) }
+    var isLoading by remember { mutableStateOf(true) }
+
+    LaunchedEffect(procedureId) {
+        procedure = try { ApiClient.get("/api/sops/$procedureId") } catch (_: Exception) { null }
+        isLoading = false
+    }
+
+    val p = procedure
+    when {
+        isLoading -&gt; CircularProgressIndicator(modifier = Modifier.padding(32.dp))
+        p == null -&gt; Text("Not found", modifier = Modifier.padding(16.dp))
+        else -&gt; LazyColumn(modifier = Modifier.fillMaxSize().padding(16.dp)) {
+            item {
+                Text(p.title, style = MaterialTheme.typography.headlineMedium)
+                Spacer(Modifier.height(8.dp))
+            }
+            p.description?.let { desc -&gt;
+                item { Text(desc); Spacer(Modifier.height(12.dp)) }
+            }
+            p.safetyNotes?.let { safety -&gt;
+                item {
+                    Card(colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer
+                    )) {
+                        Text("Safety: $safety", modifier = Modifier.padding(12.dp))
+                    }
+                    Spacer(Modifier.height(12.dp))
+                }
+            }
+            item { Text("Steps", style = MaterialTheme.typography.titleMedium); Spacer(Modifier.height(8.dp)) }
+            items(p.steps) { step -&gt;
+                Row(modifier = Modifier.padding(vertical = 4.dp)) {
+                    Text("${step.stepNumber}.", modifier = Modifier.width(32.dp),
+                        style = MaterialTheme.typography.titleMedium)
+                    Column {
+                        Text(step.instruction)
+                        if (step.isCheckpoint) {
+                            Text("Checkpoint — requires sign-off",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.primary)
+                        }
+                        step.notes?.let {
+                            Text(it, style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+</hick:file>
+</hick:when>
+
+---
+
+### Theme
+
+<hick:file path="android/app/src/main/kotlin/com/acmedrainage/blueironcube/ui/theme/Theme.kt">package <hick:val name="bundle_id" />.ui.theme
+
+import android.os.Build
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.material3.*
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.platform.LocalContext
+
+private val DarkColorScheme = darkColorScheme(
+    primary = Purple80,
+    secondary = PurpleGrey80,
+    tertiary = Pink80
+)
+
+private val LightColorScheme = lightColorScheme(
+    primary = Purple40,
+    secondary = PurpleGrey40,
+    tertiary = Pink40
+)
+
+@Composable
+fun <hick:val name="project_name" />Theme(
+    darkTheme: Boolean = isSystemInDarkTheme(),
+    dynamicColor: Boolean = true,
+    content: @Composable () -&gt; Unit
+) {
+    val colorScheme = when {
+        dynamicColor &amp;&amp; Build.VERSION.SDK_INT &gt;= Build.VERSION_CODES.S -&gt; {
+            val context = LocalContext.current
+            if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
+        }
+        darkTheme -&gt; DarkColorScheme
+        else -&gt; LightColorScheme
+    }
+
+    MaterialTheme(
+        colorScheme = colorScheme,
+        typography = Typography,
+        content = content
+    )
+}
+</hick:file>
+
+<hick:file path="android/app/src/main/kotlin/com/acmedrainage/blueironcube/ui/theme/Color.kt" doc-hidden="true">package <hick:val name="bundle_id" />.ui.theme
+
+import androidx.compose.ui.graphics.Color
+
+val Purple80 = Color(0xFFD0BCFF)
+val PurpleGrey80 = Color(0xFFCCC2DC)
+val Pink80 = Color(0xFFEFB8C8)
+
+val Purple40 = Color(0xFF6650a4)
+val PurpleGrey40 = Color(0xFF625b71)
+val Pink40 = Color(0xFF7D5260)
+</hick:file>
+
+<hick:file path="android/app/src/main/kotlin/com/acmedrainage/blueironcube/ui/theme/Type.kt" doc-hidden="true">package <hick:val name="bundle_id" />.ui.theme
+
+import androidx.compose.material3.Typography
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.sp
+
+val Typography = Typography(
+    bodyLarge = TextStyle(
+        fontFamily = FontFamily.Default,
+        fontWeight = FontWeight.Normal,
+        fontSize = 16.sp,
+        lineHeight = 24.sp,
+        letterSpacing = 0.5.sp
+    ),
+)
+</hick:file>
+
+---
+
+### Resources
+
+<hick:file path="android/app/src/main/res/values/strings.xml" doc-hidden="true">&lt;?xml version="1.0" encoding="utf-8"?&gt;
+&lt;resources&gt;
+    &lt;string name="app_name"&gt;<hick:val name="project_name" />&lt;/string&gt;
+&lt;/resources&gt;
+</hick:file>
+
+<hick:file path="android/app/src/main/res/values/themes.xml" doc-hidden="true">&lt;?xml version="1.0" encoding="utf-8"?&gt;
+&lt;resources&gt;
+    &lt;style name="Theme.BlueIronCube" parent="android:Theme.Material.Light.NoActionBar" /&gt;
+&lt;/resources&gt;
+</hick:file>
+
+<hick:file path="android/app/src/main/res/values/colors.xml" doc-hidden="true">&lt;?xml version="1.0" encoding="utf-8"?&gt;
+&lt;resources&gt;
+    &lt;color name="ic_launcher_background"&gt;#6750A4&lt;/color&gt;
+&lt;/resources&gt;
+</hick:file>
+
+</hick:when>
+</hick:doc>

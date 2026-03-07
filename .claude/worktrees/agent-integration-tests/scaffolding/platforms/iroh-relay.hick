@@ -1,0 +1,598 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
+
+<hick:when test="iroh-relay">
+
+## Iroh Relay Server
+
+The Iroh relay server provides NAT traversal and peer discovery for Iroh-based
+peer-to-peer applications. It acts as a STUN/TURN-like service that helps peers
+behind NATs establish direct connections, falling back to relaying traffic when
+direct connections aren't possible.
+
+### Project Configuration
+
+The Cargo.toml defines the relay server dependencies:
+
+<hick:file path="iroh-relay/Cargo.toml">[package]
+name = "<hick:val name="project_name" />-iroh-relay"
+version = "0.1.0"
+edition = "<hick:val name="rust_edition" />"
+
+[[bin]]
+name = "<hick:val name="project_name" />-relay"
+path = "src/main.rs"
+
+[dependencies]
+# Iroh relay server
+iroh-relay = "0.31"
+iroh-base = "0.31"
+
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+
+# Configuration and CLI
+clap = { version = "4", features = ["derive", "env"] }
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+
+# TLS
+rcgen = "0.13"
+rustls = "0.23"
+rustls-pemfile = "2"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Error handling
+anyhow = "1"
+thiserror = "2"
+
+[dev-dependencies]
+tempfile = "3"
+</hick:file>
+
+### Rust Toolchain
+
+<hick:file path="iroh-relay/rust-toolchain.toml">[toolchain]
+channel = "nightly"
+</hick:file>
+
+### Entry Point
+
+The main binary parses configuration and starts the relay server:
+
+<hick:file path="iroh-relay/src/main.rs">//! <hick:val name="project_name" /> Iroh Relay Server
+//!
+//! A relay server for NAT traversal and peer discovery in Iroh-based P2P networks.
+
+mod config;
+mod server;
+
+use anyhow::Result;
+use clap::Parser;
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+
+#[derive(Parser)]
+#[command(name = "<hick:val name="project_name" />-relay")]
+#[command(about = "Iroh relay server for P2P networking")]
+struct Cli {
+    /// Path to configuration file
+    #[arg(short, long, env = "RELAY_CONFIG")]
+    config: Option<std::path::PathBuf>,
+
+    /// HTTP bind address
+    #[arg(long, env = "RELAY_HTTP_ADDR", default_value = "0.0.0.0:80")]
+    http_addr: String,
+
+    /// HTTPS bind address
+    #[arg(long, env = "RELAY_HTTPS_ADDR", default_value = "0.0.0.0:443")]
+    https_addr: String,
+
+    /// QUIC bind address for native relay protocol
+    #[arg(long, env = "RELAY_QUIC_ADDR", default_value = "0.0.0.0:3478")]
+    quic_addr: String,
+
+    /// Path to TLS certificate file (PEM format)
+    #[arg(long, env = "RELAY_TLS_CERT")]
+    tls_cert: Option<std::path::PathBuf>,
+
+    /// Path to TLS private key file (PEM format)
+    #[arg(long, env = "RELAY_TLS_KEY")]
+    tls_key: Option<std::path::PathBuf>,
+
+    /// Generate self-signed certificates (for development)
+    #[arg(long, env = "RELAY_SELF_SIGNED", default_value = "false")]
+    self_signed: bool,
+
+    /// Hostname for the relay server (used in certificate generation)
+    #[arg(long, env = "RELAY_HOSTNAME", default_value = "localhost")]
+    hostname: String,
+}
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    // Initialize tracing
+    tracing_subscriber::registry()
+        .with(
+            tracing_subscriber::EnvFilter::try_from_default_env()
+                .unwrap_or_else(|_| "<hick:val name="project_name" />_iroh_relay=info,iroh_relay=info".into()),
+        )
+        .with(tracing_subscriber::fmt::layer())
+        .init();
+
+    let cli = Cli::parse();
+
+    // Build configuration
+    let config = if let Some(config_path) = cli.config {
+        config::RelayConfig::from_file(&config_path)?
+    } else {
+        config::RelayConfig {
+            http_addr: cli.http_addr.parse()?,
+            https_addr: cli.https_addr.parse()?,
+            quic_addr: cli.quic_addr.parse()?,
+            tls_cert: cli.tls_cert,
+            tls_key: cli.tls_key,
+            self_signed: cli.self_signed,
+            hostname: cli.hostname,
+        }
+    };
+
+    tracing::info!("Starting <hick:val name="project_name" /> Iroh Relay Server");
+    tracing::info!("HTTP: {}", config.http_addr);
+    tracing::info!("HTTPS: {}", config.https_addr);
+    tracing::info!("QUIC: {}", config.quic_addr);
+
+    server::run(config).await
+}
+</hick:file>
+
+### Configuration Module
+
+<hick:file path="iroh-relay/src/config.rs">//! Configuration for the relay server
+
+use anyhow::{Context, Result};
+use serde::{Deserialize, Serialize};
+use std::net::SocketAddr;
+use std::path::{Path, PathBuf};
+
+/// Relay server configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RelayConfig {
+    /// HTTP bind address (for health checks and HTTP->HTTPS redirect)
+    #[serde(default = "default_http_addr")]
+    pub http_addr: SocketAddr,
+
+    /// HTTPS bind address
+    #[serde(default = "default_https_addr")]
+    pub https_addr: SocketAddr,
+
+    /// QUIC bind address for native relay protocol
+    #[serde(default = "default_quic_addr")]
+    pub quic_addr: SocketAddr,
+
+    /// Path to TLS certificate file
+    pub tls_cert: Option<PathBuf>,
+
+    /// Path to TLS private key file
+    pub tls_key: Option<PathBuf>,
+
+    /// Use self-signed certificates
+    #[serde(default)]
+    pub self_signed: bool,
+
+    /// Hostname for certificate generation
+    #[serde(default = "default_hostname")]
+    pub hostname: String,
+}
+
+fn default_http_addr() -> SocketAddr {
+    "0.0.0.0:80".parse().unwrap()
+}
+
+fn default_https_addr() -> SocketAddr {
+    "0.0.0.0:443".parse().unwrap()
+}
+
+fn default_quic_addr() -> SocketAddr {
+    "0.0.0.0:3478".parse().unwrap()
+}
+
+fn default_hostname() -> String {
+    "localhost".to_string()
+}
+
+impl Default for RelayConfig {
+    fn default() -> Self {
+        Self {
+            http_addr: default_http_addr(),
+            https_addr: default_https_addr(),
+            quic_addr: default_quic_addr(),
+            tls_cert: None,
+            tls_key: None,
+            self_signed: true,
+            hostname: default_hostname(),
+        }
+    }
+}
+
+impl RelayConfig {
+    /// Load configuration from a TOML file
+    pub fn from_file(path: &Path) -> Result<Self> {
+        let content = std::fs::read_to_string(path)
+            .with_context(|| format!("Failed to read config file: {}", path.display()))?;
+        let config: RelayConfig = toml::from_str(&content)
+            .with_context(|| format!("Failed to parse config file: {}", path.display()))?;
+        Ok(config)
+    }
+}
+</hick:file>
+
+### Server Module
+
+<hick:file path="iroh-relay/src/server.rs">//! Relay server implementation
+
+use anyhow::{Context, Result};
+use iroh_relay::server::{
+    AccessConfig, CertConfig, QuicConfig, RelayConfig as IrohRelayConfig,
+    Server, ServerConfig, TlsConfig,
+};
+use std::sync::Arc;
+
+use crate::config::RelayConfig;
+
+/// Run the relay server
+pub async fn run(config: RelayConfig) -> Result<()> {
+    let (tls_config, server_config) = create_tls_config(&config)?;
+
+    let quic_config = QuicConfig {
+        server_config: server_config.clone(),
+        bind_addr: config.quic_addr,
+    };
+
+    let relay_config = IrohRelayConfig {
+        http_bind_addr: config.http_addr,
+        tls: Some(tls_config),
+        limits: Default::default(),
+        key_cache_capacity: Some(10_000),
+        access: AccessConfig::Everyone,
+    };
+
+    let server_config = ServerConfig {
+        relay: Some(relay_config),
+        quic: Some(quic_config),
+        ..Default::default()
+    };
+
+    tracing::info!("Spawning relay server...");
+    let server = Server::spawn(server_config)
+        .await
+        .context("Failed to spawn relay server")?;
+
+    if let Some(https_addr) = server.https_addr() {
+        tracing::info!("Relay server listening on https://{}", https_addr);
+    }
+    if let Some(quic_addr) = server.quic_addr() {
+        tracing::info!("QUIC relay listening on {}", quic_addr);
+    }
+
+    // Keep the server running
+    tracing::info!("Relay server is ready");
+    tokio::signal::ctrl_c().await?;
+    tracing::info!("Shutting down...");
+
+    Ok(())
+}
+
+/// Create TLS configuration from the relay config
+fn create_tls_config(config: &RelayConfig) -> Result<(TlsConfig, Arc<rustls::ServerConfig>)> {
+    let (certs, key, server_config) = if config.self_signed {
+        tracing::info!("Generating self-signed certificate for {}", config.hostname);
+        generate_self_signed_cert(&config.hostname)?
+    } else {
+        let cert_path = config.tls_cert.as_ref()
+            .context("TLS certificate path required when not using self-signed")?;
+        let key_path = config.tls_key.as_ref()
+            .context("TLS key path required when not using self-signed")?;
+
+        tracing::info!("Loading TLS certificate from {}", cert_path.display());
+        load_tls_files(cert_path, key_path)?
+    };
+
+    let tls_config = TlsConfig {
+        cert: CertConfig::<(), ()>::Manual { certs },
+        https_bind_addr: config.https_addr,
+        quic_bind_addr: config.quic_addr,
+        server_config: server_config.clone(),
+    };
+
+    Ok((tls_config, server_config))
+}
+
+/// Generate a self-signed certificate for development
+fn generate_self_signed_cert(
+    hostname: &str,
+) -> Result<(Vec<rustls::pki_types::CertificateDer<'static>>, rustls::pki_types::PrivateKeyDer<'static>, Arc<rustls::ServerConfig>)> {
+    use rcgen::{CertifiedKey, generate_simple_self_signed};
+
+    let subject_alt_names = vec![
+        hostname.to_string(),
+        "localhost".to_string(),
+        "127.0.0.1".to_string(),
+    ];
+
+    let CertifiedKey { cert, key_pair } = generate_simple_self_signed(subject_alt_names)
+        .context("Failed to generate self-signed certificate")?;
+
+    let cert_der = cert.der().clone();
+    let key_der = key_pair.serialize_der();
+
+    let certs = vec![cert_der];
+    let key = rustls::pki_types::PrivateKeyDer::Pkcs8(key_der.into());
+
+    let server_config = rustls::ServerConfig::builder()
+        .with_no_client_auth()
+        .with_single_cert(certs.clone(), key.clone_key())
+        .context("Failed to create rustls server config")?;
+
+    Ok((certs, key, Arc::new(server_config)))
+}
+
+/// Load TLS certificate and key from files
+fn load_tls_files(
+    cert_path: &std::path::Path,
+    key_path: &std::path::Path,
+) -> Result<(Vec<rustls::pki_types::CertificateDer<'static>>, rustls::pki_types::PrivateKeyDer<'static>, Arc<rustls::ServerConfig>)> {
+    use std::io::BufReader;
+
+    let cert_file = std::fs::File::open(cert_path)
+        .with_context(|| format!("Failed to open certificate file: {}", cert_path.display()))?;
+    let mut cert_reader = BufReader::new(cert_file);
+    let certs: Vec<_> = rustls_pemfile::certs(&mut cert_reader)
+        .collect::<Result<Vec<_>, _>>()
+        .context("Failed to parse certificate file")?;
+
+    let key_file = std::fs::File::open(key_path)
+        .with_context(|| format!("Failed to open key file: {}", key_path.display()))?;
+    let mut key_reader = BufReader::new(key_file);
+    let key = rustls_pemfile::private_key(&mut key_reader)
+        .context("Failed to parse key file")?
+        .context("No private key found in key file")?;
+
+    let server_config = rustls::ServerConfig::builder()
+        .with_no_client_auth()
+        .with_single_cert(certs.clone(), key.clone_key())
+        .context("Failed to create rustls server config")?;
+
+    Ok((certs, key, Arc::new(server_config)))
+}
+</hick:file>
+
+### Dockerfile
+
+The Dockerfile builds a minimal container for the relay server:
+
+<hick:file path="iroh-relay/Dockerfile"># syntax=docker/dockerfile:1
+
+# Build stage
+FROM rust:1.83-slim-bookworm AS builder
+
+WORKDIR /app
+
+# Install build dependencies
+RUN apt-get update && apt-get install -y \
+    pkg-config \
+    libssl-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy manifests
+COPY Cargo.toml Cargo.lock* ./
+
+# Create dummy source to cache dependencies
+RUN mkdir src && echo "fn main() {}" > src/main.rs
+
+# Build dependencies (this layer is cached)
+RUN cargo build --release && rm -rf src
+
+# Copy actual source
+COPY src ./src
+
+# Build the actual binary
+RUN touch src/main.rs && cargo build --release
+
+# Runtime stage
+FROM debian:bookworm-slim
+
+WORKDIR /app
+
+# Install runtime dependencies
+RUN apt-get update && apt-get install -y \
+    ca-certificates \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy binary from builder
+COPY --from=builder /app/target/release/<hick:val name="project_name" />-relay /usr/local/bin/relay
+
+# Create non-root user
+RUN useradd -r -s /bin/false relay
+USER relay
+
+# Expose ports
+# HTTP (health checks, redirect)
+EXPOSE 80
+# HTTPS (WebSocket relay)
+EXPOSE 443
+# QUIC (native relay protocol)
+EXPOSE 3478/udp
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD curl -f http://localhost:80/health || exit 1
+
+# Default environment
+ENV RELAY_HTTP_ADDR=0.0.0.0:80
+ENV RELAY_HTTPS_ADDR=0.0.0.0:443
+ENV RELAY_QUIC_ADDR=0.0.0.0:3478
+ENV RELAY_SELF_SIGNED=true
+ENV RELAY_HOSTNAME=localhost
+ENV RUST_LOG=info
+
+ENTRYPOINT ["/usr/local/bin/relay"]
+</hick:file>
+
+### Docker Compose
+
+For local development with the relay server:
+
+<hick:file path="iroh-relay/docker-compose.yml">services:
+  relay:
+    build: .
+    ports:
+      - "8080:80"      # HTTP
+      - "8443:443"     # HTTPS
+      - "3478:3478/udp" # QUIC
+    environment:
+      - RELAY_SELF_SIGNED=true
+      - RELAY_HOSTNAME=localhost
+      - RUST_LOG=info,iroh_relay=debug
+    restart: unless-stopped
+</hick:file>
+
+### Example Configuration File
+
+<hick:file path="iroh-relay/config.example.toml"># <hick:val name="project_name" /> Iroh Relay Server Configuration
+
+# HTTP bind address (for health checks and redirects)
+http_addr = "0.0.0.0:80"
+
+# HTTPS bind address (for WebSocket relay)
+https_addr = "0.0.0.0:443"
+
+# QUIC bind address (for native relay protocol)
+quic_addr = "0.0.0.0:3478"
+
+# TLS Configuration
+# For production, provide certificate and key files:
+# tls_cert = "/etc/ssl/certs/relay.crt"
+# tls_key = "/etc/ssl/private/relay.key"
+
+# For development, use self-signed certificates:
+self_signed = true
+hostname = "localhost"
+</hick:file>
+
+### Gitignore
+
+<hick:file path="iroh-relay/.gitignore"># Rust
+target/
+Cargo.lock
+
+# IDE
+.idea/
+.vscode/
+
+# Config (may contain secrets)
+config.toml
+
+# TLS files
+*.pem
+*.crt
+*.key
+</hick:file>
+
+### README
+
+<hick:file path="iroh-relay/README.md"># <hick:val name="project_name" /> Iroh Relay Server
+
+A relay server for NAT traversal and peer discovery in Iroh-based P2P networks.
+
+## Quick Start
+
+### Development (Self-Signed Certificates)
+
+```bash
+cargo run -- --self-signed --hostname localhost
+```
+
+### Docker
+
+```bash
+docker build -t <hick:val name="project_name" />-relay .
+docker run -p 8080:80 -p 8443:443 -p 3478:3478/udp <hick:val name="project_name" />-relay
+```
+
+### Docker Compose
+
+```bash
+docker compose up
+```
+
+## Configuration
+
+The server can be configured via:
+1. Command-line arguments
+2. Environment variables
+3. Configuration file (TOML)
+
+### Command-Line Options
+
+```
+Options:
+  -c, --config <CONFIG>        Path to configuration file
+      --http-addr <HTTP_ADDR>  HTTP bind address [default: 0.0.0.0:80]
+      --https-addr <HTTPS_ADDR> HTTPS bind address [default: 0.0.0.0:443]
+      --quic-addr <QUIC_ADDR>  QUIC bind address [default: 0.0.0.0:3478]
+      --tls-cert <TLS_CERT>    Path to TLS certificate file
+      --tls-key <TLS_KEY>      Path to TLS private key file
+      --self-signed            Generate self-signed certificates
+      --hostname <HOSTNAME>    Hostname for certificate [default: localhost]
+```
+
+### Environment Variables
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `RELAY_CONFIG` | Path to config file | - |
+| `RELAY_HTTP_ADDR` | HTTP bind address | `0.0.0.0:80` |
+| `RELAY_HTTPS_ADDR` | HTTPS bind address | `0.0.0.0:443` |
+| `RELAY_QUIC_ADDR` | QUIC bind address | `0.0.0.0:3478` |
+| `RELAY_TLS_CERT` | TLS certificate path | - |
+| `RELAY_TLS_KEY` | TLS private key path | - |
+| `RELAY_SELF_SIGNED` | Use self-signed certs | `false` |
+| `RELAY_HOSTNAME` | Hostname for certs | `localhost` |
+
+## Production Deployment
+
+For production, you should:
+
+1. **Use proper TLS certificates** (e.g., from Let's Encrypt)
+2. **Set up a reverse proxy** (nginx, Caddy) for TLS termination
+3. **Configure firewall rules** to allow UDP on port 3478
+4. **Set resource limits** appropriate for your expected load
+
+### Example with Let's Encrypt
+
+```bash
+# Generate certificates with certbot
+certbot certonly --standalone -d relay.example.com
+
+# Run the relay
+./relay \
+  --hostname relay.example.com \
+  --tls-cert /etc/letsencrypt/live/relay.example.com/fullchain.pem \
+  --tls-key /etc/letsencrypt/live/relay.example.com/privkey.pem
+```
+
+## Connecting Clients
+
+Clients using the `iroh` feature in the Rust frontend library can connect to this relay:
+
+```rust
+let node = create_iroh_node(Some("https://relay.example.com:443".to_string()))?;
+```
+</hick:file>
+
+</hick:when>
+</hick:doc>

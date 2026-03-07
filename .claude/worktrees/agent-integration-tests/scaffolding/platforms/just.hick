@@ -1,0 +1,303 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
+
+<!-- Just Build System -->
+
+This template generates a `justfile` for building all enabled platforms using
+the [just](https://just.systems/) command runner.
+
+**Why just?**
+- Simple, human-readable syntax
+- Cross-platform support
+- Dependency management between tasks
+- Environment variable integration
+- No complex makefile syntax
+
+<hick:when test="just">
+
+<hick:file path="justfile"># <hick:val name="project_name" /> - Build Tasks
+#
+# Run `just --list` to see all available commands
+# Run `just <command>` to execute a command
+
+set dotenv-load
+
+# Default: show available commands
+default:
+    @just --list
+<hick:when test="swiftui">
+
+# ============================================================================
+# Apple Platforms (SwiftUI)
+# ============================================================================
+
+# Generate Xcode project with xcodegen
+apple-xcodegen:
+    cd apple && xcodegen generate
+
+# Build iOS app (simulator)
+apple-ios-build:
+    cd apple && xcodebuild -scheme <hick:val name="project_name" /> -destination 'generic/platform=iOS Simulator' build
+
+# Build macOS app
+apple-macos-build:
+    cd apple && xcodebuild -scheme <hick:val name="project_name" />-macOS build
+
+# Run iOS tests
+apple-ios-test:
+    cd apple && xcodebuild -scheme <hick:val name="project_name" /> -destination 'generic/platform=iOS Simulator' test
+
+# Run macOS tests
+apple-macos-test:
+    cd apple && xcodebuild -scheme <hick:val name="project_name" />-macOS test
+
+# Open Xcode project
+apple-open:
+    cd apple && open <hick:val name="project_name" />.xcodeproj
+
+# All Apple builds
+apple-build: apple-xcodegen apple-ios-build apple-macos-build
+
+# All Apple tests
+apple-test: apple-ios-test apple-macos-test
+</hick:when>
+<hick:when test="compose">
+
+# ============================================================================
+# Android (Jetpack Compose)
+# ============================================================================
+
+# Build Android debug APK
+android-build:
+    cd android && gradle assembleDebug --no-daemon
+
+# Build Android release APK
+android-release:
+    cd android && gradle assembleRelease --no-daemon
+
+# Run Android tests
+android-test:
+    cd android && gradle test --no-daemon
+
+# Run Android lint
+android-lint:
+    cd android && gradle lint --no-daemon
+
+# Clean Android build
+android-clean:
+    cd android && gradle clean --no-daemon
+</hick:when>
+<hick:when test="avalonia">
+
+# ============================================================================
+# Desktop (Avalonia)
+# ============================================================================
+
+# Build Avalonia desktop app
+desktop-build:
+    cd desktop && dotnet build
+
+# Run Avalonia desktop app
+desktop-run:
+    cd desktop && dotnet run
+
+# Run desktop tests
+desktop-test:
+    cd desktop && dotnet test
+
+# Publish desktop for current platform
+desktop-publish:
+    cd desktop && dotnet publish -c Release
+
+# Publish for Windows
+desktop-publish-win:
+    cd desktop && dotnet publish -c Release -r win-x64 --self-contained
+
+# Publish for macOS
+desktop-publish-mac:
+    cd desktop && dotnet publish -c Release -r osx-x64 --self-contained
+
+# Publish for Linux
+desktop-publish-linux:
+    cd desktop && dotnet publish -c Release -r linux-x64 --self-contained
+
+# Clean desktop build
+desktop-clean:
+    cd desktop && dotnet clean
+</hick:when>
+<hick:when test="spa">
+
+# ============================================================================
+# Web Application (React SPA)
+# ============================================================================
+
+# Install web dependencies
+web-install:
+    cd web && npm install
+
+# Build web application (installs deps if needed)
+web-build:
+    cd web && [ -d node_modules ] || npm install
+    cd web && npm run build
+
+# Run web development server
+web-dev:
+    cd web && npm run dev
+
+# Run web tests
+web-test:
+    cd web && npm test
+
+# Run web linting
+web-lint:
+    cd web && npm run lint
+
+# Preview production build
+web-preview:
+    cd web && npm run preview
+</hick:when>
+<hick:when test="extension">
+
+# ============================================================================
+# Browser Extension
+# ============================================================================
+
+# Install extension dependencies
+extension-install:
+    cd browser-extension && npm install
+
+# Build extension (installs deps if needed)
+extension-build:
+    cd browser-extension && [ -d node_modules ] || npm install
+    cd browser-extension && npm run build
+
+# Build extension for development (with watch)
+extension-dev:
+    cd browser-extension && npm run dev
+
+# Run extension tests
+extension-test:
+    cd browser-extension && npm test
+
+# Run extension linting
+extension-lint:
+    cd browser-extension && npm run lint
+
+# Package extension for Chrome
+extension-package-chrome:
+    cd browser-extension && npm run package:chrome
+
+# Package extension for Firefox
+extension-package-firefox:
+    cd browser-extension && npm run package:firefox
+</hick:when>
+<hick:when test="backend">
+
+# ============================================================================
+# Backend (Rust)
+# ============================================================================
+
+# Build backend
+backend-build:
+    cd backend && cargo build
+
+# Build backend (release)
+backend-release:
+    cd backend && cargo build --release
+
+# Run backend
+backend-run:
+    cd backend && cargo run
+
+# Run backend tests
+backend-test:
+    cd backend && cargo test
+
+# Run backend with hot reload
+backend-watch:
+    cd backend && cargo watch -x run
+
+# Run backend linting
+backend-lint:
+    cd backend && cargo clippy -- -D warnings
+
+# Format backend code
+backend-fmt:
+    cd backend && cargo fmt
+
+# Check backend formatting
+backend-fmt-check:
+    cd backend && cargo fmt --check
+</hick:when>
+<hick:when test="rust-frontend-lib">
+
+# ============================================================================
+# Rust Frontend Library
+# ============================================================================
+
+# Build Rust library for all targets
+rust-lib-build:
+    cd rust-lib && cargo build
+
+# Build WASM target
+rust-lib-wasm:
+    cd rust-lib && ./build-wasm.sh
+
+# Build native FFI bindings
+rust-lib-native:
+    cd rust-lib && ./build-native.sh
+
+# Run Rust library tests
+rust-lib-test:
+    cd rust-lib && cargo test
+
+# Run Rust library linting
+rust-lib-lint:
+    cd rust-lib && cargo clippy -- -D warnings
+
+# Format Rust library code
+rust-lib-fmt:
+    cd rust-lib && cargo fmt
+</hick:when>
+
+# ============================================================================
+# Meta Recipes (run all/multiple platforms)
+# ============================================================================
+
+# Install all dependencies
+install:<hick:when test="spa">
+    @just web-install</hick:when><hick:when test="extension">
+    @just extension-install</hick:when>
+    @echo "Dependencies installed"
+
+# Build all platforms
+build-all:<hick:when test="swiftui"> apple-build</hick:when><hick:when test="compose"> android-build</hick:when><hick:when test="avalonia"> desktop-build</hick:when><hick:when test="spa"> web-build</hick:when><hick:when test="extension"> extension-build</hick:when><hick:when test="backend"> backend-build</hick:when><hick:when test="rust-frontend-lib"> rust-lib-build</hick:when>
+    @echo "All platforms built"
+
+# Test all platforms
+test-all:<hick:when test="swiftui"> apple-test</hick:when><hick:when test="compose"> android-test</hick:when><hick:when test="avalonia"> desktop-test</hick:when><hick:when test="spa"> web-test</hick:when><hick:when test="extension"> extension-test</hick:when><hick:when test="backend"> backend-test</hick:when><hick:when test="rust-frontend-lib"> rust-lib-test</hick:when>
+    @echo "All tests passed"
+
+# Lint all platforms
+lint-all:<hick:when test="spa"> web-lint</hick:when><hick:when test="extension"> extension-lint</hick:when><hick:when test="backend"> backend-lint</hick:when><hick:when test="rust-frontend-lib"> rust-lib-lint</hick:when>
+    @echo "All linting passed"
+
+# Clean all build artifacts
+clean:<hick:when test="compose">
+    @just android-clean</hick:when><hick:when test="avalonia">
+    @just desktop-clean</hick:when><hick:when test="swiftui">
+    rm -rf apple/DerivedData</hick:when><hick:when test="spa">
+    rm -rf web/dist web/node_modules</hick:when><hick:when test="extension">
+    rm -rf browser-extension/dist browser-extension/node_modules</hick:when><hick:when test="backend">
+    cd backend && cargo clean</hick:when><hick:when test="rust-frontend-lib">
+    cd rust-lib && cargo clean</hick:when>
+    @echo "Cleaned all build artifacts"
+
+# CI check: build and test everything
+ci: install build-all test-all lint-all
+    @echo "CI checks passed"
+</hick:file>
+
+</hick:when>
+
+</hick:doc>

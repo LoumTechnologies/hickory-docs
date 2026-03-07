@@ -1,0 +1,1568 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
+
+<hick:when test="spa">
+
+### Web Dockerfile
+
+<hick:file path="web/Dockerfile">FROM node:<hick:val name="node_version" />-slim
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci
+COPY . .
+EXPOSE 5173
+CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0"]
+</hick:file>
+
+## React TypeScript Web Dashboard
+
+A web dashboard for <hick:val name="business_name" />. Provides desktop-optimized
+views for managing jobs, customers, crew, inventory, and all business domains from
+the office.
+
+---
+
+### Package Configuration
+
+<hick:file path="web/package.json">{
+  "name": "<hick:val name="app_name" />-web",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b &amp;&amp; vite build",
+    "lint": "eslint .",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "react-router-dom": "^6.22.0"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.15.0",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.4",
+    "eslint": "^9.15.0",
+    "eslint-plugin-react-hooks": "^5.0.0",
+    "eslint-plugin-react-refresh": "^0.4.14",
+    "globals": "^15.12.0",
+    "typescript": "~5.6.2",
+    "typescript-eslint": "^8.15.0",
+    "vite": "^6.0.1"
+  }
+}
+</hick:file>
+
+### Vite Configuration
+
+<hick:file path="web/vite.config.ts">import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+
+export default defineConfig({
+  plugins: [react()],
+  server: {
+    proxy: {
+      '/api': 'http://localhost:3000',
+    },
+  },
+})
+</hick:file>
+
+### TypeScript Configuration
+
+<hick:file path="web/tsconfig.json">{
+  "files": [],
+  "references": [
+    { "path": "./tsconfig.app.json" },
+    { "path": "./tsconfig.node.json" }
+  ]
+}
+</hick:file>
+
+<hick:file path="web/tsconfig.app.json" doc-hidden="true">{
+  "compilerOptions": {
+    "target": "ES2020",
+    "useDefineForClassFields": true,
+    "lib": ["ES2020", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "skipLibCheck": true,
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "isolatedModules": true,
+    "moduleDetection": "force",
+    "noEmit": true,
+    "jsx": "react-jsx",
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedSideEffectImports": true
+  },
+  "include": ["src"]
+}
+</hick:file>
+
+<hick:file path="web/tsconfig.node.json" doc-hidden="true">{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2023"],
+    "module": "ESNext",
+    "skipLibCheck": true,
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "isolatedModules": true,
+    "moduleDetection": "force",
+    "noEmit": true,
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedSideEffectImports": true
+  },
+  "include": ["vite.config.ts"]
+}
+</hick:file>
+
+<hick:file path="web/src/vite-env.d.ts" doc-hidden="true">/// &lt;reference types="vite/client" /&gt;
+</hick:file>
+
+### ESLint Configuration
+
+<hick:file path="web/eslint.config.js">import js from '@eslint/js'
+import globals from 'globals'
+import reactHooks from 'eslint-plugin-react-hooks'
+import reactRefresh from 'eslint-plugin-react-refresh'
+import tseslint from 'typescript-eslint'
+
+export default tseslint.config(
+  { ignores: ['dist'] },
+  {
+    extends: [js.configs.recommended, ...tseslint.configs.recommended],
+    files: ['**/*.{ts,tsx}'],
+    languageOptions: {
+      ecmaVersion: 2020,
+      globals: globals.browser,
+    },
+    plugins: {
+      'react-hooks': reactHooks,
+      'react-refresh': reactRefresh,
+    },
+    rules: {
+      ...reactHooks.configs.recommended.rules,
+      'react-refresh/only-export-components': [
+        'warn',
+        { allowConstantExport: true },
+      ],
+    },
+  },
+)
+</hick:file>
+
+---
+
+### HTML Entry Point
+
+<hick:file path="web/index.html">&lt;!DOCTYPE html&gt;
+&lt;html lang="en"&gt;
+  &lt;head&gt;
+    &lt;meta charset="UTF-8" /&gt;
+    &lt;meta name="viewport" content="width=device-width, initial-scale=1.0" /&gt;
+    &lt;title&gt;<hick:val name="project_name" /> — Dashboard&lt;/title&gt;
+  &lt;/head&gt;
+  &lt;body&gt;
+    &lt;div id="root"&gt;&lt;/div&gt;
+    &lt;script type="module" src="/src/main.tsx"&gt;&lt;/script&gt;
+  &lt;/body&gt;
+&lt;/html&gt;
+</hick:file>
+
+---
+
+### Application Entry
+
+<hick:file path="web/src/main.tsx">import { StrictMode } from 'react'
+import { createRoot } from 'react-dom/client'
+import { BrowserRouter } from 'react-router-dom'
+import './index.css'
+import App from './App.tsx'
+
+createRoot(document.getElementById('root')!).render(
+  &lt;StrictMode&gt;
+    &lt;BrowserRouter&gt;
+      &lt;App /&gt;
+    &lt;/BrowserRouter&gt;
+  &lt;/StrictMode&gt;,
+)
+</hick:file>
+
+<hick:file path="web/src/App.tsx">import { Routes, Route, NavLink } from 'react-router-dom'
+import './App.css'
+<hick:when test="jobs">import { JobListPage } from './pages/jobs/JobListPage'
+import { JobDetailPage } from './pages/jobs/JobDetailPage'
+</hick:when>
+<hick:when test="customers">import { CustomerListPage } from './pages/customers/CustomerListPage'
+import { CustomerDetailPage } from './pages/customers/CustomerDetailPage'
+</hick:when>
+<hick:when test="crew">import { CrewListPage } from './pages/crew/CrewListPage'
+</hick:when>
+<hick:when test="payments">import { PaymentFormPage } from './pages/payments/PaymentFormPage'
+</hick:when>
+<hick:when test="inventory">import { InventoryListPage } from './pages/inventory/InventoryListPage'
+</hick:when>
+<hick:when test="fleet">import { FleetListPage } from './pages/fleet/FleetListPage'
+</hick:when>
+<hick:when test="overhead">import { OverheadPage } from './pages/overhead/OverheadPage'
+</hick:when>
+<hick:when test="estimating">import { EstimateFormPage } from './pages/estimating/EstimateFormPage'
+</hick:when>
+<hick:when test="crm">import { LeadPipelinePage } from './pages/crm/LeadPipelinePage'
+</hick:when>
+<hick:when test="sops">import { SOPListPage } from './pages/sops/SOPListPage'
+import { SOPDetailPage } from './pages/sops/SOPDetailPage'
+</hick:when>
+
+function App() {
+  return (
+    &lt;div className="app-layout"&gt;
+      &lt;nav className="sidebar"&gt;
+        &lt;h2&gt;<hick:val name="project_name" />&lt;/h2&gt;
+        &lt;ul&gt;
+<hick:when test="jobs">          &lt;li&gt;&lt;NavLink to="/jobs"&gt;Jobs&lt;/NavLink&gt;&lt;/li&gt;
+</hick:when>
+<hick:when test="customers">          &lt;li&gt;&lt;NavLink to="/customers"&gt;Customers&lt;/NavLink&gt;&lt;/li&gt;
+</hick:when>
+<hick:when test="crew">          &lt;li&gt;&lt;NavLink to="/crew"&gt;Crew&lt;/NavLink&gt;&lt;/li&gt;
+</hick:when>
+<hick:when test="payments">          &lt;li&gt;&lt;NavLink to="/payments"&gt;Payments&lt;/NavLink&gt;&lt;/li&gt;
+</hick:when>
+<hick:when test="inventory">          &lt;li&gt;&lt;NavLink to="/inventory"&gt;Inventory&lt;/NavLink&gt;&lt;/li&gt;
+</hick:when>
+<hick:when test="fleet">          &lt;li&gt;&lt;NavLink to="/fleet"&gt;Fleet&lt;/NavLink&gt;&lt;/li&gt;
+</hick:when>
+<hick:when test="overhead">          &lt;li&gt;&lt;NavLink to="/overhead"&gt;Overhead&lt;/NavLink&gt;&lt;/li&gt;
+</hick:when>
+<hick:when test="estimating">          &lt;li&gt;&lt;NavLink to="/estimating"&gt;Estimating&lt;/NavLink&gt;&lt;/li&gt;
+</hick:when>
+<hick:when test="crm">          &lt;li&gt;&lt;NavLink to="/crm"&gt;CRM&lt;/NavLink&gt;&lt;/li&gt;
+</hick:when>
+<hick:when test="sops">          &lt;li&gt;&lt;NavLink to="/sops"&gt;SOPs&lt;/NavLink&gt;&lt;/li&gt;
+</hick:when>
+        &lt;/ul&gt;
+      &lt;/nav&gt;
+      &lt;main className="main-content"&gt;
+        &lt;Routes&gt;
+          &lt;Route path="/" element={&lt;h1&gt;Welcome to <hick:val name="project_name" />&lt;/h1&gt;} /&gt;
+<hick:when test="jobs">          &lt;Route path="/jobs" element={&lt;JobListPage /&gt;} /&gt;
+          &lt;Route path="/jobs/:jobId" element={&lt;JobDetailPage /&gt;} /&gt;
+</hick:when>
+<hick:when test="customers">          &lt;Route path="/customers" element={&lt;CustomerListPage /&gt;} /&gt;
+          &lt;Route path="/customers/:customerId" element={&lt;CustomerDetailPage /&gt;} /&gt;
+</hick:when>
+<hick:when test="crew">          &lt;Route path="/crew" element={&lt;CrewListPage /&gt;} /&gt;
+</hick:when>
+<hick:when test="payments">          &lt;Route path="/payments" element={&lt;PaymentFormPage /&gt;} /&gt;
+</hick:when>
+<hick:when test="inventory">          &lt;Route path="/inventory" element={&lt;InventoryListPage /&gt;} /&gt;
+</hick:when>
+<hick:when test="fleet">          &lt;Route path="/fleet" element={&lt;FleetListPage /&gt;} /&gt;
+</hick:when>
+<hick:when test="overhead">          &lt;Route path="/overhead" element={&lt;OverheadPage /&gt;} /&gt;
+</hick:when>
+<hick:when test="estimating">          &lt;Route path="/estimating" element={&lt;EstimateFormPage /&gt;} /&gt;
+</hick:when>
+<hick:when test="crm">          &lt;Route path="/crm" element={&lt;LeadPipelinePage /&gt;} /&gt;
+</hick:when>
+<hick:when test="sops">          &lt;Route path="/sops" element={&lt;SOPListPage /&gt;} /&gt;
+          &lt;Route path="/sops/:sopId" element={&lt;SOPDetailPage /&gt;} /&gt;
+</hick:when>
+        &lt;/Routes&gt;
+      &lt;/main&gt;
+    &lt;/div&gt;
+  )
+}
+
+export default App
+</hick:file>
+
+---
+
+### Styles
+
+<hick:file path="web/src/index.css">:root {
+  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+  color-scheme: light dark;
+  color: rgba(255, 255, 255, 0.87);
+  background-color: #242424;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    color: #213547;
+    background-color: #ffffff;
+  }
+}
+</hick:file>
+
+<hick:file path="web/src/App.css">.app-layout {
+  display: flex;
+  min-height: 100vh;
+}
+
+.sidebar {
+  width: 220px;
+  padding: 1rem;
+  background: #1a1a2e;
+  border-right: 1px solid #333;
+  flex-shrink: 0;
+}
+
+.sidebar h2 {
+  margin: 0 0 1.5rem;
+  font-size: 1.2rem;
+  color: #646cff;
+}
+
+.sidebar ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.sidebar li {
+  margin-bottom: 0.25rem;
+}
+
+.sidebar a {
+  display: block;
+  padding: 0.5rem 0.75rem;
+  border-radius: 6px;
+  color: inherit;
+  text-decoration: none;
+  transition: background 0.15s;
+}
+
+.sidebar a:hover {
+  background: rgba(100, 108, 255, 0.1);
+}
+
+.sidebar a.active {
+  background: rgba(100, 108, 255, 0.2);
+  color: #646cff;
+}
+
+.main-content {
+  flex: 1;
+  padding: 2rem;
+  overflow-y: auto;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin-top: 1rem;
+}
+
+th, td {
+  text-align: left;
+  padding: 0.75rem;
+  border-bottom: 1px solid #333;
+}
+
+th {
+  font-weight: 600;
+  color: #888;
+  font-size: 0.85rem;
+  text-transform: uppercase;
+}
+
+.form-group {
+  margin-bottom: 1rem;
+}
+
+.form-group label {
+  display: block;
+  margin-bottom: 0.25rem;
+  font-size: 0.85rem;
+  color: #888;
+}
+
+.form-group input,
+.form-group select {
+  width: 100%;
+  padding: 0.5rem;
+  border: 1px solid #333;
+  border-radius: 6px;
+  background: #1a1a1a;
+  color: inherit;
+  font-size: 1rem;
+}
+
+button {
+  padding: 0.5rem 1rem;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  font-size: 1rem;
+  background: #646cff;
+  color: white;
+  cursor: pointer;
+}
+
+button:hover {
+  background: #535bf2;
+}
+
+button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.badge {
+  display: inline-block;
+  padding: 0.15rem 0.5rem;
+  border-radius: 12px;
+  font-size: 0.8rem;
+}
+
+.badge-green { background: rgba(34, 197, 94, 0.2); color: #22c55e; }
+.badge-orange { background: rgba(249, 115, 22, 0.2); color: #f97316; }
+.badge-red { background: rgba(239, 68, 68, 0.2); color: #ef4444; }
+
+@media (prefers-color-scheme: light) {
+  .sidebar { background: #f5f5f7; border-right-color: #ddd; }
+  .form-group input, .form-group select { background: #fff; border-color: #ddd; }
+  th, td { border-bottom-color: #eee; }
+}
+</hick:file>
+
+---
+
+### API Client
+
+<hick:file path="web/src/api/client.ts">const BASE_URL = '/api'
+
+function snakeToCamel(str: string): string {
+  return str.replace(/_([a-z])/g, (_, c) =&gt; c.toUpperCase())
+}
+
+function camelToSnake(str: string): string {
+  return str.replace(/[A-Z]/g, (c) =&gt; `_${c.toLowerCase()}`)
+}
+
+function transformKeys&lt;T&gt;(obj: unknown, transform: (key: string) =&gt; string): T {
+  if (Array.isArray(obj)) return obj.map((item) =&gt; transformKeys(item, transform)) as T
+  if (obj !== null &amp;&amp; typeof obj === 'object') {
+    return Object.fromEntries(
+      Object.entries(obj as Record&lt;string, unknown&gt;).map(([key, value]) =&gt; [
+        transform(key),
+        transformKeys(value, transform),
+      ])
+    ) as T
+  }
+  return obj as T
+}
+
+export async function apiGet&lt;T&gt;(path: string): Promise&lt;T&gt; {
+  const res = await fetch(`${BASE_URL}${path}`)
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  const data = await res.json()
+  return transformKeys&lt;T&gt;(data, snakeToCamel)
+}
+
+export async function apiPost&lt;T&gt;(path: string, body: unknown): Promise&lt;T&gt; {
+  const res = await fetch(`${BASE_URL}${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(transformKeys(body, camelToSnake)),
+  })
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  const data = await res.json()
+  return transformKeys&lt;T&gt;(data, snakeToCamel)
+}
+
+export async function apiPut&lt;T&gt;(path: string, body: unknown): Promise&lt;T&gt; {
+  const res = await fetch(`${BASE_URL}${path}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(transformKeys(body, camelToSnake)),
+  })
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  const data = await res.json()
+  return transformKeys&lt;T&gt;(data, snakeToCamel)
+}
+</hick:file>
+
+---
+
+### Types
+
+<hick:when test="customers">
+<hick:file path="web/src/types/customer.ts">export interface Customer {
+  id: string
+  name: string
+  phone: string
+  email?: string
+  address: string
+  city: string
+  state: string
+  zip: string
+  referralSource?: string
+  referredBy?: string
+  notes?: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface CreateCustomer {
+  name: string
+  phone: string
+  email?: string
+  address: string
+  city: string
+  state: string
+  zip: string
+  referralSource?: string
+  referredBy?: string
+  notes?: string
+}
+</hick:file>
+</hick:when>
+
+<hick:when test="jobs">
+<hick:file path="web/src/types/job.ts">export interface Job {
+  id: string
+  customerId: string
+  status: string
+  siteAddress: string
+  soilType: string
+  yardGrade: string
+  siteAccess: string
+  siteNotes?: string
+  linearFeetPlanned?: string
+  linearFeetActual?: string
+  trenchDepthInches?: string
+  includesSumpPump: boolean
+  includesDownspoutTieIn: boolean
+  numberOfCatchBasins: number
+  scheduledDate?: string
+  startDate?: string
+  endDate?: string
+  estimatedCrewHours?: string
+  actualCrewHours?: string
+  weatherConditions?: string
+  groundWasWet?: boolean
+  completionPct: number
+  phaseAssessment: boolean
+  phaseExcavation: boolean
+  phasePipeInstall: boolean
+  phaseBackfill: boolean
+  phaseRestoration: boolean
+  phaseWalkthrough: boolean
+  cancellationReason?: string
+  quotedPrice?: string
+  actualRevenue?: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface JobCostBreakdown {
+  jobId: string
+  materialCost: string
+  laborCost: string
+  equipmentCost: string
+  processingFees: string
+  overheadAllocated: string
+  directCost: string
+  trueCost: string
+  revenue: string
+  grossMargin: string
+  trueMargin: string
+  trueMarginPct: string
+  completionPct: number
+}
+</hick:file>
+</hick:when>
+
+<hick:when test="payments">
+<hick:file path="web/src/types/payment.ts">export interface Payment {
+  id: string
+  jobId: string
+  date: string
+  amount: string
+  method: string
+  processingFeePct: string
+  processingFeeAmount: string
+  feeRecovered: boolean
+  reference?: string
+  notes?: string
+  createdAt: string
+}
+
+export interface CreatePayment {
+  jobId: string
+  date: string
+  amount: string
+  method: string
+  processingFeePct?: string
+  feeRecovered?: boolean
+  reference?: string
+  notes?: string
+}
+</hick:file>
+</hick:when>
+
+<hick:when test="crew">
+<hick:file path="web/src/types/crew.ts">export interface CrewMember {
+  id: string
+  name: string
+  role: string
+  hourlyRate: string
+  phone?: string
+  certifications?: string
+  hireDate: string
+  active: boolean
+  createdAt: string
+}
+
+export interface TimeEntry {
+  id: string
+  crewMemberId: string
+  jobId: string
+  date: string
+  hoursRegular: string
+  hoursOvertime: string
+  notes?: string
+  createdAt: string
+}
+</hick:file>
+</hick:when>
+
+<hick:when test="inventory">
+<hick:file path="web/src/types/inventory.ts">export interface InventoryItem {
+  id: string
+  name: string
+  category: string
+  unit: string
+  quantityOnHand: string
+  reorderPoint: string
+  unitCost: string
+  supplier?: string
+  supplierSku?: string
+  notes?: string
+  createdAt: string
+  updatedAt: string
+}
+</hick:file>
+</hick:when>
+
+<hick:when test="fleet">
+<hick:file path="web/src/types/fleet.ts">export interface Vehicle {
+  id: string
+  vehicleType: string
+  year: number
+  make: string
+  model: string
+  licensePlate?: string
+  vin?: string
+  status: string
+  monthlyPayment?: string
+  insuranceMonthly?: string
+  createdAt: string
+}
+
+export interface Equipment {
+  id: string
+  equipmentType: string
+  make: string
+  model: string
+  serialNumber?: string
+  ownedOrRented: string
+  dailyRate?: string
+  status: string
+  createdAt: string
+}
+</hick:file>
+</hick:when>
+
+<hick:when test="overhead">
+<hick:file path="web/src/types/overhead.ts">export interface OverheadCategory {
+  id: string
+  name: string
+  frequency: string
+  monthlyBudget: string
+  notes?: string
+  createdAt: string
+}
+
+export interface RecoveryRateReport {
+  totalOverheadIncurred: string
+  totalOverheadAllocated: string
+  recoveryRatePct: string
+  monthlyBudget: string
+  avgOverheadPerJob: string
+}
+</hick:file>
+</hick:when>
+
+<hick:when test="estimating">
+<hick:file path="web/src/types/estimate.ts">export interface Estimate {
+  id: string
+  customerId?: string
+  linearFeet: string
+  trenchDepthInches: string
+  soilType: string
+  yardGrade: string
+  siteAccess: string
+  includesSumpPump: boolean
+  includesDownspoutTieIn: boolean
+  numberOfCatchBasins: number
+  predictedMaterialCost: string
+  predictedLaborCost: string
+  predictedEquipmentCost: string
+  predictedDirectCost: string
+  predictedOverhead: string
+  predictedTotalCost: string
+  predictedCrewHours: string
+  desiredMarginPct: string
+  quotedPrice: string
+  modelVersion: number
+  confidenceNote: string
+  sampleSize: number
+  createdAt: string
+}
+
+export interface EstimateRequest {
+  customerId?: string
+  linearFeet: string
+  trenchDepthInches: string
+  soilType: string
+  yardGrade: string
+  siteAccess: string
+  includesSumpPump?: boolean
+  includesDownspoutTieIn?: boolean
+  numberOfCatchBasins?: number
+  desiredMarginPct: string
+}
+</hick:file>
+</hick:when>
+
+<hick:when test="crm">
+<hick:file path="web/src/types/crm.ts">export interface Lead {
+  id: string
+  customerId: string
+  status: string
+  source: string
+  estimatedValue?: string
+  jobId?: string
+  assignedTo?: string
+  lostReason?: string
+  lostToCompetitor?: string
+  createdAt: string
+  updatedAt: string
+}
+
+export interface Interaction {
+  id: string
+  customerId: string
+  leadId?: string
+  date: string
+  interactionType: string
+  direction: string
+  summary: string
+  durationMinutes?: number
+  createdAt: string
+}
+
+export interface FollowUp {
+  id: string
+  customerId: string
+  leadId?: string
+  dueDate: string
+  action: string
+  notes?: string
+  completed: boolean
+  completedAt?: string
+  createdAt: string
+}
+</hick:file>
+</hick:when>
+
+<hick:when test="sops">
+<hick:file path="web/src/types/procedure.ts">export interface Procedure {
+  id: string
+  title: string
+  category: string
+  version: number
+  description?: string
+  estimatedDurationMinutes?: number
+  requiredRoles?: string
+  requiredEquipment?: string
+  requiredMaterials?: string
+  safetyNotes?: string
+  active: boolean
+  createdAt: string
+  updatedAt: string
+}
+
+export interface ProcedureStep {
+  id: string
+  procedureId: string
+  stepNumber: number
+  instruction: string
+  isCheckpoint: boolean
+  notes?: string
+}
+
+export interface ProcedureWithSteps extends Procedure {
+  steps: ProcedureStep[]
+}
+</hick:file>
+</hick:when>
+
+---
+
+### Hooks
+
+<hick:when test="customers">
+<hick:file path="web/src/hooks/useCustomers.ts">import { useState, useEffect } from 'react'
+import { apiGet } from '../api/client'
+import type { Customer } from '../types/customer'
+
+export function useCustomers() {
+  const [customers, setCustomers] = useState&lt;Customer[]&gt;([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState&lt;string | null&gt;(null)
+
+  useEffect(() =&gt; {
+    apiGet&lt;Customer[]&gt;('/customers')
+      .then(setCustomers)
+      .catch((e) =&gt; setError(e.message))
+      .finally(() =&gt; setLoading(false))
+  }, [])
+
+  return { customers, loading, error }
+}
+</hick:file>
+</hick:when>
+
+<hick:when test="jobs">
+<hick:file path="web/src/hooks/useJobs.ts">import { useState, useEffect } from 'react'
+import { apiGet } from '../api/client'
+import type { Job } from '../types/job'
+
+export function useJobs() {
+  const [jobs, setJobs] = useState&lt;Job[]&gt;([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState&lt;string | null&gt;(null)
+
+  useEffect(() =&gt; {
+    apiGet&lt;Job[]&gt;('/jobs')
+      .then(setJobs)
+      .catch((e) =&gt; setError(e.message))
+      .finally(() =&gt; setLoading(false))
+  }, [])
+
+  return { jobs, loading, error }
+}
+</hick:file>
+</hick:when>
+
+---
+
+### Pages
+
+<hick:when test="jobs">
+<hick:file path="web/src/pages/jobs/JobListPage.tsx">import { Link } from 'react-router-dom'
+import { useJobs } from '../../hooks/useJobs'
+
+export function JobListPage() {
+  const { jobs, loading, error } = useJobs()
+
+  if (loading) return &lt;p&gt;Loading jobs...&lt;/p&gt;
+  if (error) return &lt;p&gt;Error: {error}&lt;/p&gt;
+
+  return (
+    &lt;div&gt;
+      &lt;h1&gt;Jobs&lt;/h1&gt;
+      &lt;table&gt;
+        &lt;thead&gt;
+          &lt;tr&gt;
+            &lt;th&gt;Address&lt;/th&gt;
+            &lt;th&gt;Status&lt;/th&gt;
+            &lt;th&gt;Completion&lt;/th&gt;
+          &lt;/tr&gt;
+        &lt;/thead&gt;
+        &lt;tbody&gt;
+          {jobs.map((job) =&gt; (
+            &lt;tr key={job.id}&gt;
+              &lt;td&gt;&lt;Link to={`/jobs/${job.id}`}&gt;{job.siteAddress}&lt;/Link&gt;&lt;/td&gt;
+              &lt;td&gt;{job.status.replace(/_/g, ' ')}&lt;/td&gt;
+              &lt;td&gt;
+                &lt;span className={`badge ${job.completionPct === 100 ? 'badge-green' : 'badge-orange'}`}&gt;
+                  {job.completionPct}%
+                &lt;/span&gt;
+              &lt;/td&gt;
+            &lt;/tr&gt;
+          ))}
+        &lt;/tbody&gt;
+      &lt;/table&gt;
+    &lt;/div&gt;
+  )
+}
+</hick:file>
+
+<hick:file path="web/src/pages/jobs/JobDetailPage.tsx">import { useState, useEffect } from 'react'
+import { useParams } from 'react-router-dom'
+import { apiGet } from '../../api/client'
+import type { Job, JobCostBreakdown } from '../../types/job'
+
+export function JobDetailPage() {
+  const { jobId } = useParams()
+  const [job, setJob] = useState&lt;Job | null&gt;(null)
+  const [costs, setCosts] = useState&lt;JobCostBreakdown | null&gt;(null)
+
+  useEffect(() =&gt; {
+    if (!jobId) return
+    apiGet&lt;Job&gt;(`/jobs/${jobId}`).then(setJob).catch(() =&gt; {})
+    apiGet&lt;JobCostBreakdown&gt;(`/jobs/${jobId}/costs`).then(setCosts).catch(() =&gt; {})
+  }, [jobId])
+
+  if (!job) return &lt;p&gt;Loading...&lt;/p&gt;
+
+  const phases = [
+    ['Assessment', job.phaseAssessment],
+    ['Excavation', job.phaseExcavation],
+    ['Pipe Install', job.phasePipeInstall],
+    ['Backfill', job.phaseBackfill],
+    ['Restoration', job.phaseRestoration],
+    ['Walkthrough', job.phaseWalkthrough],
+  ] as const
+
+  return (
+    &lt;div&gt;
+      &lt;h1&gt;Job Details&lt;/h1&gt;
+      &lt;p&gt;{job.siteAddress} — {job.status.replace(/_/g, ' ')} ({job.completionPct}%)&lt;/p&gt;
+
+      &lt;h2&gt;Site&lt;/h2&gt;
+      &lt;p&gt;Soil: {job.soilType} | Grade: {job.yardGrade} | Access: {job.siteAccess}&lt;/p&gt;
+
+      &lt;h2&gt;Phases&lt;/h2&gt;
+      &lt;ul&gt;
+        {phases.map(([name, done]) =&gt; (
+          &lt;li key={name}&gt;{done ? '✓' : '○'} {name}&lt;/li&gt;
+        ))}
+      &lt;/ul&gt;
+
+      {costs &amp;&amp; (
+        &lt;&gt;
+          &lt;h2&gt;Costs&lt;/h2&gt;
+          &lt;table&gt;
+            &lt;tbody&gt;
+              &lt;tr&gt;&lt;td&gt;Material&lt;/td&gt;&lt;td&gt;${costs.materialCost}&lt;/td&gt;&lt;/tr&gt;
+              &lt;tr&gt;&lt;td&gt;Labor&lt;/td&gt;&lt;td&gt;${costs.laborCost}&lt;/td&gt;&lt;/tr&gt;
+              &lt;tr&gt;&lt;td&gt;Equipment&lt;/td&gt;&lt;td&gt;${costs.equipmentCost}&lt;/td&gt;&lt;/tr&gt;
+              &lt;tr&gt;&lt;td&gt;Processing fees&lt;/td&gt;&lt;td&gt;${costs.processingFees}&lt;/td&gt;&lt;/tr&gt;
+              &lt;tr&gt;&lt;td&gt;Overhead&lt;/td&gt;&lt;td&gt;${costs.overheadAllocated}&lt;/td&gt;&lt;/tr&gt;
+              &lt;tr&gt;&lt;td&gt;&lt;strong&gt;True cost&lt;/strong&gt;&lt;/td&gt;&lt;td&gt;&lt;strong&gt;${costs.trueCost}&lt;/strong&gt;&lt;/td&gt;&lt;/tr&gt;
+              &lt;tr&gt;&lt;td&gt;Revenue&lt;/td&gt;&lt;td&gt;${costs.revenue}&lt;/td&gt;&lt;/tr&gt;
+              &lt;tr&gt;&lt;td&gt;True margin&lt;/td&gt;&lt;td&gt;{costs.trueMarginPct}%&lt;/td&gt;&lt;/tr&gt;
+            &lt;/tbody&gt;
+          &lt;/table&gt;
+        &lt;/&gt;
+      )}
+    &lt;/div&gt;
+  )
+}
+</hick:file>
+</hick:when>
+
+<hick:when test="customers">
+<hick:file path="web/src/pages/customers/CustomerListPage.tsx">import { Link } from 'react-router-dom'
+import { useCustomers } from '../../hooks/useCustomers'
+
+export function CustomerListPage() {
+  const { customers, loading, error } = useCustomers()
+
+  if (loading) return &lt;p&gt;Loading customers...&lt;/p&gt;
+  if (error) return &lt;p&gt;Error: {error}&lt;/p&gt;
+
+  return (
+    &lt;div&gt;
+      &lt;h1&gt;Customers&lt;/h1&gt;
+      &lt;table&gt;
+        &lt;thead&gt;
+          &lt;tr&gt;
+            &lt;th&gt;Name&lt;/th&gt;
+            &lt;th&gt;Phone&lt;/th&gt;
+            &lt;th&gt;City&lt;/th&gt;
+          &lt;/tr&gt;
+        &lt;/thead&gt;
+        &lt;tbody&gt;
+          {customers.map((c) =&gt; (
+            &lt;tr key={c.id}&gt;
+              &lt;td&gt;&lt;Link to={`/customers/${c.id}`}&gt;{c.name}&lt;/Link&gt;&lt;/td&gt;
+              &lt;td&gt;{c.phone}&lt;/td&gt;
+              &lt;td&gt;{c.city}, {c.state}&lt;/td&gt;
+            &lt;/tr&gt;
+          ))}
+        &lt;/tbody&gt;
+      &lt;/table&gt;
+    &lt;/div&gt;
+  )
+}
+</hick:file>
+
+<hick:file path="web/src/pages/customers/CustomerDetailPage.tsx">import { useState, useEffect } from 'react'
+import { useParams } from 'react-router-dom'
+import { apiGet } from '../../api/client'
+import type { Customer } from '../../types/customer'
+
+export function CustomerDetailPage() {
+  const { customerId } = useParams()
+  const [customer, setCustomer] = useState&lt;Customer | null&gt;(null)
+
+  useEffect(() =&gt; {
+    if (!customerId) return
+    apiGet&lt;Customer&gt;(`/customers/${customerId}`).then(setCustomer).catch(() =&gt; {})
+  }, [customerId])
+
+  if (!customer) return &lt;p&gt;Loading...&lt;/p&gt;
+
+  return (
+    &lt;div&gt;
+      &lt;h1&gt;{customer.name}&lt;/h1&gt;
+      &lt;p&gt;Phone: {customer.phone}&lt;/p&gt;
+      {customer.email &amp;&amp; &lt;p&gt;Email: {customer.email}&lt;/p&gt;}
+      &lt;p&gt;{customer.address}&lt;/p&gt;
+      &lt;p&gt;{customer.city}, {customer.state} {customer.zip}&lt;/p&gt;
+      {customer.referralSource &amp;&amp; &lt;p&gt;Referral: {customer.referralSource}&lt;/p&gt;}
+      {customer.notes &amp;&amp; &lt;p&gt;Notes: {customer.notes}&lt;/p&gt;}
+    &lt;/div&gt;
+  )
+}
+</hick:file>
+</hick:when>
+
+<hick:when test="crew">
+<hick:file path="web/src/pages/crew/CrewListPage.tsx">import { useState, useEffect } from 'react'
+import { apiGet } from '../../api/client'
+import type { CrewMember } from '../../types/crew'
+
+export function CrewListPage() {
+  const [members, setMembers] = useState&lt;CrewMember[]&gt;([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() =&gt; {
+    apiGet&lt;CrewMember[]&gt;('/crew')
+      .then(setMembers)
+      .finally(() =&gt; setLoading(false))
+  }, [])
+
+  if (loading) return &lt;p&gt;Loading crew...&lt;/p&gt;
+
+  return (
+    &lt;div&gt;
+      &lt;h1&gt;Crew&lt;/h1&gt;
+      &lt;table&gt;
+        &lt;thead&gt;
+          &lt;tr&gt;&lt;th&gt;Name&lt;/th&gt;&lt;th&gt;Role&lt;/th&gt;&lt;th&gt;Rate&lt;/th&gt;&lt;th&gt;Status&lt;/th&gt;&lt;/tr&gt;
+        &lt;/thead&gt;
+        &lt;tbody&gt;
+          {members.map((m) =&gt; (
+            &lt;tr key={m.id}&gt;
+              &lt;td&gt;{m.name}&lt;/td&gt;
+              &lt;td&gt;{m.role.replace(/_/g, ' ')}&lt;/td&gt;
+              &lt;td&gt;${m.hourlyRate}/hr&lt;/td&gt;
+              &lt;td&gt;&lt;span className={`badge ${m.active ? 'badge-green' : 'badge-red'}`}&gt;
+                {m.active ? 'Active' : 'Inactive'}
+              &lt;/span&gt;&lt;/td&gt;
+            &lt;/tr&gt;
+          ))}
+        &lt;/tbody&gt;
+      &lt;/table&gt;
+    &lt;/div&gt;
+  )
+}
+</hick:file>
+</hick:when>
+
+<hick:when test="payments">
+<hick:file path="web/src/pages/payments/PaymentFormPage.tsx">import { useState } from 'react'
+import { apiPost } from '../../api/client'
+import type { Payment, CreatePayment } from '../../types/payment'
+
+export function PaymentFormPage() {
+  const [jobId, setJobId] = useState('')
+  const [amount, setAmount] = useState('')
+  const [method, setMethod] = useState('cash')
+  const [reference, setReference] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [last, setLast] = useState&lt;Payment | null&gt;(null)
+
+  const methods = ['cash', 'check', 'credit_card', 'debit_card', 'ach', 'financing']
+
+  const handleSubmit = async (e: React.FormEvent) =&gt; {
+    e.preventDefault()
+    setSaving(true)
+    try {
+      const today = new Date().toISOString().slice(0, 10)
+      const payment: CreatePayment = {
+        jobId, date: today, amount, method,
+        reference: reference || undefined,
+      }
+      const result = await apiPost&lt;Payment&gt;('/payments', payment)
+      setLast(result)
+    } catch { /* ignore */ }
+    setSaving(false)
+  }
+
+  return (
+    &lt;div&gt;
+      &lt;h1&gt;Record Payment&lt;/h1&gt;
+      &lt;form onSubmit={handleSubmit} style={{ maxWidth: 400 }}&gt;
+        &lt;div className="form-group"&gt;
+          &lt;label&gt;Job ID&lt;/label&gt;
+          &lt;input value={jobId} onChange={(e) =&gt; setJobId(e.target.value)} /&gt;
+        &lt;/div&gt;
+        &lt;div className="form-group"&gt;
+          &lt;label&gt;Amount&lt;/label&gt;
+          &lt;input value={amount} onChange={(e) =&gt; setAmount(e.target.value)} /&gt;
+        &lt;/div&gt;
+        &lt;div className="form-group"&gt;
+          &lt;label&gt;Method&lt;/label&gt;
+          &lt;select value={method} onChange={(e) =&gt; setMethod(e.target.value)}&gt;
+            {methods.map((m) =&gt; (
+              &lt;option key={m} value={m}&gt;{m.replace(/_/g, ' ')}&lt;/option&gt;
+            ))}
+          &lt;/select&gt;
+        &lt;/div&gt;
+        &lt;div className="form-group"&gt;
+          &lt;label&gt;Reference (optional)&lt;/label&gt;
+          &lt;input value={reference} onChange={(e) =&gt; setReference(e.target.value)} /&gt;
+        &lt;/div&gt;
+        &lt;button type="submit" disabled={!jobId || !amount || saving}&gt;Record Payment&lt;/button&gt;
+      &lt;/form&gt;
+      {last &amp;&amp; (
+        &lt;div style={{ marginTop: '1rem' }}&gt;
+          &lt;p&gt;Recorded: {last.id} — ${last.amount} (fee: ${last.processingFeeAmount})&lt;/p&gt;
+        &lt;/div&gt;
+      )}
+    &lt;/div&gt;
+  )
+}
+</hick:file>
+</hick:when>
+
+<hick:when test="inventory">
+<hick:file path="web/src/pages/inventory/InventoryListPage.tsx">import { useState, useEffect } from 'react'
+import { apiGet } from '../../api/client'
+import type { InventoryItem } from '../../types/inventory'
+
+export function InventoryListPage() {
+  const [items, setItems] = useState&lt;InventoryItem[]&gt;([])
+  const [loading, setLoading] = useState(true)
+  const [lowOnly, setLowOnly] = useState(false)
+
+  useEffect(() =&gt; {
+    apiGet&lt;InventoryItem[]&gt;('/inventory')
+      .then(setItems)
+      .finally(() =&gt; setLoading(false))
+  }, [])
+
+  const isLow = (item: InventoryItem) =&gt; {
+    const qty = parseFloat(item.quantityOnHand)
+    const reorder = parseFloat(item.reorderPoint)
+    return !isNaN(qty) &amp;&amp; !isNaN(reorder) &amp;&amp; qty &lt;= reorder
+  }
+
+  const displayed = lowOnly ? items.filter(isLow) : items
+
+  if (loading) return &lt;p&gt;Loading inventory...&lt;/p&gt;
+
+  return (
+    &lt;div&gt;
+      &lt;h1&gt;Inventory&lt;/h1&gt;
+      &lt;label&gt;
+        &lt;input type="checkbox" checked={lowOnly} onChange={(e) =&gt; setLowOnly(e.target.checked)} /&gt;
+        {' '}Low stock only
+      &lt;/label&gt;
+      &lt;table&gt;
+        &lt;thead&gt;
+          &lt;tr&gt;&lt;th&gt;Name&lt;/th&gt;&lt;th&gt;Category&lt;/th&gt;&lt;th&gt;Qty&lt;/th&gt;&lt;th&gt;Unit Cost&lt;/th&gt;&lt;/tr&gt;
+        &lt;/thead&gt;
+        &lt;tbody&gt;
+          {displayed.map((item) =&gt; (
+            &lt;tr key={item.id}&gt;
+              &lt;td&gt;{item.name}&lt;/td&gt;
+              &lt;td&gt;{item.category}&lt;/td&gt;
+              &lt;td style={{ color: isLow(item) ? '#ef4444' : undefined }}&gt;{item.quantityOnHand}&lt;/td&gt;
+              &lt;td&gt;${item.unitCost}/{item.unit}&lt;/td&gt;
+            &lt;/tr&gt;
+          ))}
+        &lt;/tbody&gt;
+      &lt;/table&gt;
+    &lt;/div&gt;
+  )
+}
+</hick:file>
+</hick:when>
+
+<hick:when test="fleet">
+<hick:file path="web/src/pages/fleet/FleetListPage.tsx">import { useState, useEffect } from 'react'
+import { apiGet } from '../../api/client'
+import type { Vehicle, Equipment } from '../../types/fleet'
+
+export function FleetListPage() {
+  const [vehicles, setVehicles] = useState&lt;Vehicle[]&gt;([])
+  const [equipment, setEquipment] = useState&lt;Equipment[]&gt;([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() =&gt; {
+    Promise.all([
+      apiGet&lt;Vehicle[]&gt;('/fleet/vehicles').then(setVehicles),
+      apiGet&lt;Equipment[]&gt;('/fleet/equipment').then(setEquipment),
+    ]).finally(() =&gt; setLoading(false))
+  }, [])
+
+  if (loading) return &lt;p&gt;Loading fleet...&lt;/p&gt;
+
+  return (
+    &lt;div&gt;
+      &lt;h1&gt;Fleet&lt;/h1&gt;
+      {vehicles.length &gt; 0 &amp;&amp; (
+        &lt;&gt;
+          &lt;h2&gt;Vehicles&lt;/h2&gt;
+          &lt;table&gt;
+            &lt;thead&gt;&lt;tr&gt;&lt;th&gt;Vehicle&lt;/th&gt;&lt;th&gt;Type&lt;/th&gt;&lt;th&gt;Status&lt;/th&gt;&lt;/tr&gt;&lt;/thead&gt;
+            &lt;tbody&gt;
+              {vehicles.map((v) =&gt; (
+                &lt;tr key={v.id}&gt;
+                  &lt;td&gt;{v.year} {v.make} {v.model}&lt;/td&gt;
+                  &lt;td&gt;{v.vehicleType}&lt;/td&gt;
+                  &lt;td&gt;{v.status}&lt;/td&gt;
+                &lt;/tr&gt;
+              ))}
+            &lt;/tbody&gt;
+          &lt;/table&gt;
+        &lt;/&gt;
+      )}
+      {equipment.length &gt; 0 &amp;&amp; (
+        &lt;&gt;
+          &lt;h2&gt;Equipment&lt;/h2&gt;
+          &lt;table&gt;
+            &lt;thead&gt;&lt;tr&gt;&lt;th&gt;Equipment&lt;/th&gt;&lt;th&gt;Type&lt;/th&gt;&lt;th&gt;Owned/Rented&lt;/th&gt;&lt;/tr&gt;&lt;/thead&gt;
+            &lt;tbody&gt;
+              {equipment.map((e) =&gt; (
+                &lt;tr key={e.id}&gt;
+                  &lt;td&gt;{e.make} {e.model}&lt;/td&gt;
+                  &lt;td&gt;{e.equipmentType.replace(/_/g, ' ')}&lt;/td&gt;
+                  &lt;td&gt;{e.ownedOrRented}&lt;/td&gt;
+                &lt;/tr&gt;
+              ))}
+            &lt;/tbody&gt;
+          &lt;/table&gt;
+        &lt;/&gt;
+      )}
+    &lt;/div&gt;
+  )
+}
+</hick:file>
+</hick:when>
+
+<hick:when test="overhead">
+<hick:file path="web/src/pages/overhead/OverheadPage.tsx">import { useState, useEffect } from 'react'
+import { apiGet } from '../../api/client'
+import type { OverheadCategory, RecoveryRateReport } from '../../types/overhead'
+
+export function OverheadPage() {
+  const [categories, setCategories] = useState&lt;OverheadCategory[]&gt;([])
+  const [report, setReport] = useState&lt;RecoveryRateReport | null&gt;(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() =&gt; {
+    Promise.all([
+      apiGet&lt;OverheadCategory[]&gt;('/overhead/categories').then(setCategories),
+      apiGet&lt;RecoveryRateReport&gt;('/overhead/recovery-rate').then(setReport).catch(() =&gt; {}),
+    ]).finally(() =&gt; setLoading(false))
+  }, [])
+
+  if (loading) return &lt;p&gt;Loading...&lt;/p&gt;
+
+  return (
+    &lt;div&gt;
+      &lt;h1&gt;Overhead&lt;/h1&gt;
+      {report &amp;&amp; (
+        &lt;div style={{ marginBottom: '2rem' }}&gt;
+          &lt;h2&gt;Recovery Rate&lt;/h2&gt;
+          &lt;p&gt;Rate: {report.recoveryRatePct}%&lt;/p&gt;
+          &lt;p&gt;Incurred: ${report.totalOverheadIncurred} | Allocated: ${report.totalOverheadAllocated}&lt;/p&gt;
+          &lt;p&gt;Monthly budget: ${report.monthlyBudget} | Avg per job: ${report.avgOverheadPerJob}&lt;/p&gt;
+        &lt;/div&gt;
+      )}
+      &lt;h2&gt;Categories&lt;/h2&gt;
+      &lt;table&gt;
+        &lt;thead&gt;&lt;tr&gt;&lt;th&gt;Name&lt;/th&gt;&lt;th&gt;Frequency&lt;/th&gt;&lt;th&gt;Monthly Budget&lt;/th&gt;&lt;/tr&gt;&lt;/thead&gt;
+        &lt;tbody&gt;
+          {categories.map((cat) =&gt; (
+            &lt;tr key={cat.id}&gt;
+              &lt;td&gt;{cat.name}&lt;/td&gt;
+              &lt;td&gt;{cat.frequency}&lt;/td&gt;
+              &lt;td&gt;${cat.monthlyBudget}&lt;/td&gt;
+            &lt;/tr&gt;
+          ))}
+        &lt;/tbody&gt;
+      &lt;/table&gt;
+    &lt;/div&gt;
+  )
+}
+</hick:file>
+</hick:when>
+
+<hick:when test="estimating">
+<hick:file path="web/src/pages/estimating/EstimateFormPage.tsx">import { useState } from 'react'
+import { apiPost } from '../../api/client'
+import type { Estimate, EstimateRequest } from '../../types/estimate'
+
+export function EstimateFormPage() {
+  const [linearFeet, setLinearFeet] = useState('')
+  const [trenchDepth, setTrenchDepth] = useState('')
+  const [soilType, setSoilType] = useState('mixed')
+  const [yardGrade, setYardGrade] = useState('flat')
+  const [siteAccess, setSiteAccess] = useState('easy')
+  const [sumpPump, setSumpPump] = useState(false)
+  const [downspout, setDownspout] = useState(false)
+  const [catchBasins, setCatchBasins] = useState(0)
+  const [marginPct, setMarginPct] = useState('25')
+  const [result, setResult] = useState&lt;Estimate | null&gt;(null)
+  const [calculating, setCalculating] = useState(false)
+
+  const handleSubmit = async (e: React.FormEvent) =&gt; {
+    e.preventDefault()
+    setCalculating(true)
+    try {
+      const req: EstimateRequest = {
+        linearFeet, trenchDepthInches: trenchDepth, soilType, yardGrade, siteAccess,
+        includesSumpPump: sumpPump, includesDownspoutTieIn: downspout,
+        numberOfCatchBasins: catchBasins, desiredMarginPct: marginPct,
+      }
+      setResult(await apiPost&lt;Estimate&gt;('/estimates', req))
+    } catch { /* ignore */ }
+    setCalculating(false)
+  }
+
+  return (
+    &lt;div&gt;
+      &lt;h1&gt;New Estimate&lt;/h1&gt;
+      &lt;form onSubmit={handleSubmit} style={{ maxWidth: 400 }}&gt;
+        &lt;div className="form-group"&gt;
+          &lt;label&gt;Linear feet&lt;/label&gt;
+          &lt;input value={linearFeet} onChange={(e) =&gt; setLinearFeet(e.target.value)} /&gt;
+        &lt;/div&gt;
+        &lt;div className="form-group"&gt;
+          &lt;label&gt;Trench depth (inches)&lt;/label&gt;
+          &lt;input value={trenchDepth} onChange={(e) =&gt; setTrenchDepth(e.target.value)} /&gt;
+        &lt;/div&gt;
+        &lt;div className="form-group"&gt;
+          &lt;label&gt;Soil type&lt;/label&gt;
+          &lt;select value={soilType} onChange={(e) =&gt; setSoilType(e.target.value)}&gt;
+            {['clay','sand','loam','rocky','mixed'].map((s) =&gt; &lt;option key={s} value={s}&gt;{s}&lt;/option&gt;)}
+          &lt;/select&gt;
+        &lt;/div&gt;
+        &lt;div className="form-group"&gt;
+          &lt;label&gt;Yard grade&lt;/label&gt;
+          &lt;select value={yardGrade} onChange={(e) =&gt; setYardGrade(e.target.value)}&gt;
+            {['flat','slight','moderate','steep'].map((g) =&gt; &lt;option key={g} value={g}&gt;{g}&lt;/option&gt;)}
+          &lt;/select&gt;
+        &lt;/div&gt;
+        &lt;div className="form-group"&gt;
+          &lt;label&gt;Site access&lt;/label&gt;
+          &lt;select value={siteAccess} onChange={(e) =&gt; setSiteAccess(e.target.value)}&gt;
+            {['easy','moderate','difficult','hand_carry_only'].map((a) =&gt;
+              &lt;option key={a} value={a}&gt;{a.replace(/_/g, ' ')}&lt;/option&gt;)}
+          &lt;/select&gt;
+        &lt;/div&gt;
+        &lt;div className="form-group"&gt;
+          &lt;label&gt;&lt;input type="checkbox" checked={sumpPump} onChange={(e) =&gt; setSumpPump(e.target.checked)} /&gt; Sump pump&lt;/label&gt;
+        &lt;/div&gt;
+        &lt;div className="form-group"&gt;
+          &lt;label&gt;&lt;input type="checkbox" checked={downspout} onChange={(e) =&gt; setDownspout(e.target.checked)} /&gt; Downspout tie-in&lt;/label&gt;
+        &lt;/div&gt;
+        &lt;div className="form-group"&gt;
+          &lt;label&gt;Catch basins&lt;/label&gt;
+          &lt;input type="number" value={catchBasins} onChange={(e) =&gt; setCatchBasins(parseInt(e.target.value) || 0)} /&gt;
+        &lt;/div&gt;
+        &lt;div className="form-group"&gt;
+          &lt;label&gt;Target margin %&lt;/label&gt;
+          &lt;input value={marginPct} onChange={(e) =&gt; setMarginPct(e.target.value)} /&gt;
+        &lt;/div&gt;
+        &lt;button type="submit" disabled={!linearFeet || !trenchDepth || calculating}&gt;Generate Estimate&lt;/button&gt;
+      &lt;/form&gt;
+      {result &amp;&amp; (
+        &lt;div style={{ marginTop: '2rem' }}&gt;
+          &lt;h2&gt;Quoted Price: ${result.quotedPrice}&lt;/h2&gt;
+          &lt;p&gt;Material: ${result.predictedMaterialCost} | Labor: ${result.predictedLaborCost}&lt;/p&gt;
+          &lt;p&gt;Equipment: ${result.predictedEquipmentCost} | Total: ${result.predictedTotalCost}&lt;/p&gt;
+          &lt;p&gt;Crew hours: {result.predictedCrewHours}&lt;/p&gt;
+          &lt;p&gt;&lt;em&gt;{result.confidenceNote}&lt;/em&gt;&lt;/p&gt;
+        &lt;/div&gt;
+      )}
+    &lt;/div&gt;
+  )
+}
+</hick:file>
+</hick:when>
+
+<hick:when test="crm">
+<hick:file path="web/src/pages/crm/LeadPipelinePage.tsx">import { useState, useEffect } from 'react'
+import { apiGet } from '../../api/client'
+import type { Lead } from '../../types/crm'
+
+const stages = ['new_lead', 'contacted', 'site_visit_scheduled',
+  'site_visit_completed', 'estimate_sent', 'negotiating', 'won', 'lost']
+
+export function LeadPipelinePage() {
+  const [leads, setLeads] = useState&lt;Lead[]&gt;([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() =&gt; {
+    apiGet&lt;Lead[]&gt;('/crm/leads')
+      .then(setLeads)
+      .finally(() =&gt; setLoading(false))
+  }, [])
+
+  if (loading) return &lt;p&gt;Loading pipeline...&lt;/p&gt;
+
+  return (
+    &lt;div&gt;
+      &lt;h1&gt;Lead Pipeline&lt;/h1&gt;
+      {stages.map((stage) =&gt; {
+        const stageLeads = leads.filter((l) =&gt; l.status === stage)
+        if (stageLeads.length === 0) return null
+        return (
+          &lt;div key={stage} style={{ marginBottom: '1.5rem' }}&gt;
+            &lt;h2&gt;{stage.replace(/_/g, ' ')}&lt;/h2&gt;
+            &lt;table&gt;
+              &lt;thead&gt;&lt;tr&gt;&lt;th&gt;Customer&lt;/th&gt;&lt;th&gt;Source&lt;/th&gt;&lt;th&gt;Value&lt;/th&gt;&lt;/tr&gt;&lt;/thead&gt;
+              &lt;tbody&gt;
+                {stageLeads.map((lead) =&gt; (
+                  &lt;tr key={lead.id}&gt;
+                    &lt;td&gt;{lead.customerId}&lt;/td&gt;
+                    &lt;td&gt;{lead.source}&lt;/td&gt;
+                    &lt;td&gt;{lead.estimatedValue ? `$${lead.estimatedValue}` : '—'}&lt;/td&gt;
+                  &lt;/tr&gt;
+                ))}
+              &lt;/tbody&gt;
+            &lt;/table&gt;
+          &lt;/div&gt;
+        )
+      })}
+    &lt;/div&gt;
+  )
+}
+</hick:file>
+</hick:when>
+
+<hick:when test="sops">
+<hick:file path="web/src/pages/sops/SOPListPage.tsx">import { useState, useEffect } from 'react'
+import { Link } from 'react-router-dom'
+import { apiGet } from '../../api/client'
+import type { Procedure } from '../../types/procedure'
+
+export function SOPListPage() {
+  const [procedures, setProcedures] = useState&lt;Procedure[]&gt;([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() =&gt; {
+    apiGet&lt;Procedure[]&gt;('/sops')
+      .then(setProcedures)
+      .finally(() =&gt; setLoading(false))
+  }, [])
+
+  if (loading) return &lt;p&gt;Loading procedures...&lt;/p&gt;
+
+  const grouped = procedures.reduce&lt;Record&lt;string, Procedure[]&gt;&gt;((acc, p) =&gt; {
+    ;(acc[p.category] ??= []).push(p)
+    return acc
+  }, {})
+
+  return (
+    &lt;div&gt;
+      &lt;h1&gt;Standard Operating Procedures&lt;/h1&gt;
+      {Object.keys(grouped).sort().map((cat) =&gt; (
+        &lt;div key={cat} style={{ marginBottom: '1.5rem' }}&gt;
+          &lt;h2&gt;{cat.replace(/_/g, ' ')}&lt;/h2&gt;
+          &lt;table&gt;
+            &lt;thead&gt;&lt;tr&gt;&lt;th&gt;Title&lt;/th&gt;&lt;th&gt;Version&lt;/th&gt;&lt;th&gt;Duration&lt;/th&gt;&lt;/tr&gt;&lt;/thead&gt;
+            &lt;tbody&gt;
+              {grouped[cat].map((proc) =&gt; (
+                &lt;tr key={proc.id}&gt;
+                  &lt;td&gt;&lt;Link to={`/sops/${proc.id}`}&gt;{proc.title}&lt;/Link&gt;&lt;/td&gt;
+                  &lt;td&gt;v{proc.version}&lt;/td&gt;
+                  &lt;td&gt;{proc.estimatedDurationMinutes ? `~${proc.estimatedDurationMinutes} min` : '—'}&lt;/td&gt;
+                &lt;/tr&gt;
+              ))}
+            &lt;/tbody&gt;
+          &lt;/table&gt;
+        &lt;/div&gt;
+      ))}
+    &lt;/div&gt;
+  )
+}
+</hick:file>
+
+<hick:file path="web/src/pages/sops/SOPDetailPage.tsx">import { useState, useEffect } from 'react'
+import { useParams } from 'react-router-dom'
+import { apiGet } from '../../api/client'
+import type { ProcedureWithSteps } from '../../types/procedure'
+
+export function SOPDetailPage() {
+  const { sopId } = useParams()
+  const [procedure, setProcedure] = useState&lt;ProcedureWithSteps | null&gt;(null)
+
+  useEffect(() =&gt; {
+    if (!sopId) return
+    apiGet&lt;ProcedureWithSteps&gt;(`/sops/${sopId}`).then(setProcedure).catch(() =&gt; {})
+  }, [sopId])
+
+  if (!procedure) return &lt;p&gt;Loading...&lt;/p&gt;
+
+  return (
+    &lt;div&gt;
+      &lt;h1&gt;{procedure.title}&lt;/h1&gt;
+      {procedure.description &amp;&amp; &lt;p&gt;{procedure.description}&lt;/p&gt;}
+      {procedure.safetyNotes &amp;&amp; (
+        &lt;div style={{ padding: '0.75rem', background: 'rgba(249, 115, 22, 0.1)', borderRadius: 6 }}&gt;
+          Safety: {procedure.safetyNotes}
+        &lt;/div&gt;
+      )}
+      &lt;h2&gt;Steps&lt;/h2&gt;
+      &lt;ol&gt;
+        {procedure.steps.map((step) =&gt; (
+          &lt;li key={step.id} style={{ marginBottom: '0.5rem' }}&gt;
+            {step.instruction}
+            {step.isCheckpoint &amp;&amp; &lt;span className="badge badge-orange"&gt; Checkpoint&lt;/span&gt;}
+            {step.notes &amp;&amp; &lt;div style={{ fontSize: '0.85rem', color: '#888' }}&gt;{step.notes}&lt;/div&gt;}
+          &lt;/li&gt;
+        ))}
+      &lt;/ol&gt;
+    &lt;/div&gt;
+  )
+}
+</hick:file>
+</hick:when>
+
+</hick:when>
+</hick:doc>

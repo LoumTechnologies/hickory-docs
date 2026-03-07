@@ -324,9 +324,7 @@ impl ReactLoop {
                                     .ok();
                                 results.push(ScriptResult {
                                     stdout: String::new(),
-                                    stderr: format!(
-                                        "Policy denied execution: {reason}"
-                                    ),
+                                    stderr: format!("Policy denied execution: {reason}"),
                                     exit_code: Some(1),
                                 });
                                 continue;
@@ -334,16 +332,12 @@ impl ReactLoop {
                             Err(e) => {
                                 events
                                     .send(AgentEvent::SecurityViolation {
-                                        description: format!(
-                                            "Policy evaluation error: {e}"
-                                        ),
+                                        description: format!("Policy evaluation error: {e}"),
                                     })
                                     .ok();
                                 results.push(ScriptResult {
                                     stdout: String::new(),
-                                    stderr: format!(
-                                        "Policy evaluation failed: {e}"
-                                    ),
+                                    stderr: format!("Policy evaluation failed: {e}"),
                                     exit_code: Some(1),
                                 });
                                 continue;
@@ -357,9 +351,7 @@ impl ReactLoop {
                         })
                         .ok();
                     let result = self.execute_script(script, i).await;
-                    events
-                        .send(AgentEvent::ScriptFinished(result.clone()))
-                        .ok();
+                    events.send(AgentEvent::ScriptFinished(result.clone())).ok();
                     results.push(result);
                 }
 

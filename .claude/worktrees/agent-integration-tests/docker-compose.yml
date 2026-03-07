@@ -1,0 +1,43 @@
+x-devenv:
+  version: "1"
+
+services:
+  wrist-flick-api:
+    build:
+      context: .
+      dockerfile: crates/wrist-flick/Dockerfile
+    environment:
+      WRIST_FLICK_PORT: "3000"
+      WRIST_FLICK_LLM: "${WRIST_FLICK_LLM}"
+      WRIST_FLICK_MODEL: "${WRIST_FLICK_MODEL}"
+      WRIST_FLICK_DB: "/data/wrist-flick.db"
+      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY}"
+      OPENAI_API_KEY: "${OPENAI_API_KEY}"
+    volumes:
+      - ./dev-data/wrist-flick:/data
+    ports:
+      - "${WRIST_FLICK_API_PORT}:3000"
+    x-devenv:
+      portEnvVar: WRIST_FLICK_API_PORT
+      healthCheck: /health
+      healthTimeout: 120
+      projectPath: crates/wrist-flick
+      command: "cargo run -p wrist-flick"
+      developerUrl: /health
+
+  wrist-flick-web:
+    build:
+      context: .
+      dockerfile: crates/wrist-flick/web/Dockerfile
+    environment:
+      VITE_API_URL: "http://localhost:${WRIST_FLICK_API_PORT}"
+    ports:
+      - "${WRIST_FLICK_WEB_PORT}:80"
+    depends_on:
+      - wrist-flick-api
+    x-devenv:
+      portEnvVar: WRIST_FLICK_WEB_PORT
+      healthCheck: /
+      projectPath: crates/wrist-flick/web
+      command: "npm --prefix crates/wrist-flick/web run dev"
+      developerUrl: /

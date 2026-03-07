@@ -1,0 +1,3415 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
+
+<hick:when test="rust-frontend-lib">
+
+## Rust Frontend Library
+
+This library contains shared business logic written in Rust that compiles to multiple targets:
+- **WebAssembly** — For React SPA and browser extensions via wasm-bindgen
+- **Native FFI** — For SwiftUI, Android, and Avalonia via UniFFI
+
+This architecture allows you to write performance-critical or security-sensitive code once
+in Rust and share it across all platforms with type-safe bindings.
+
+### Project Configuration
+
+The Cargo.toml configures both WASM and FFI targets. The `crate-type` includes both
+`cdylib` (for WASM/FFI) and `lib` (for Rust consumers like the backend):
+
+<hick:file path="rust-lib/Cargo.toml">[package]
+name = "<hick:val name="project_name" />-core"
+version = "0.1.0"
+edition = "<hick:val name="rust_edition" />"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "<hick:val name="project_name" />_core"
+
+[dependencies]
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Error handling
+thiserror = "2"
+<hick:when test="sqlite">
+# SQLite (common dependencies)
+chrono = { version = "0.4", features = ["serde"] }
+</hick:when>
+<hick:when test="iroh">
+# Iroh P2P networking (common dependencies)
+iroh-base = "0.31"
+</hick:when>
+<hick:when test="decentralized-auth">
+# Decentralized authentication
+base64 = "0.22"
+bs58 = "0.5"
+</hick:when>
+
+# WASM support (only included for wasm32 target)
+[target.'cfg(target_arch = "wasm32")'.dependencies]
+wasm-bindgen = "0.2"
+wasm-bindgen-futures = "0.4"
+js-sys = "0.3"
+web-sys = { version = "0.3", features = ["console"] }
+getrandom = { version = "0.3", features = ["wasm_js"] }
+<hick:when test="sqlite">sqlite-wasm-rs = { version = "0.4", default-features = false, features = ["precompiled"] }
+uuid = { version = "1", features = ["v4", "serde", "js"] }
+</hick:when>
+<hick:when test="decentralized-auth">ed25519-dalek = { version = "2", default-features = false, features = ["rand_core"] }
+</hick:when>
+
+# UniFFI for native FFI bindings (excluded from wasm32)
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+uniffi = { version = "0.29", features = ["cli"] }
+<hick:when test="sqlite">rusqlite = { version = "0.32", features = ["bundled"] }
+uuid = { version = "1", features = ["v4", "serde"] }
+</hick:when>
+<hick:when test="iroh">iroh = "0.31"
+tokio = { version = "1", features = ["rt-multi-thread", "sync", "macros"] }
+rand = "0.8"
+url = "2"
+</hick:when>
+<hick:when test="decentralized-auth">ed25519-dalek = { version = "2", features = ["rand_core"] }
+rand = "0.8"
+age = "0.11"
+directories = "5"
+</hick:when>
+
+[target.'cfg(not(target_arch = "wasm32"))'.build-dependencies]
+uniffi = { version = "0.29", features = ["build"] }
+
+[[bin]]
+name = "uniffi-bindgen"
+path = "src/bin/uniffi-bindgen.rs"
+
+[features]
+default = []
+</hick:file>
+
+### Rust Toolchain
+
+We use nightly Rust for the latest features:
+
+<hick:file path="rust-lib/rust-toolchain.toml">[toolchain]
+channel = "nightly"
+targets = ["wasm32-unknown-unknown"]
+</hick:file>
+
+### Build Script
+
+The build script generates UniFFI bindings for native targets:
+
+<hick:file path="rust-lib/build.rs">#[cfg(not(target_arch = "wasm32"))]
+fn main() {
+    uniffi::generate_scaffolding("src/core.udl").unwrap();
+}
+
+#[cfg(target_arch = "wasm32")]
+fn main() {
+    // No build script needed for WASM
+}
+</hick:file>
+
+### UniFFI Interface Definition
+
+The `.udl` file defines the FFI interface that UniFFI uses to generate bindings for
+Swift, Kotlin, and C#:
+
+<hick:file path="rust-lib/src/core.udl">namespace <hick:val name="project_name" />_core {
+    string greet(string name);
+    u64 fibonacci(u32 n);
+    string process_data(string json_input);
+<hick:when test="sqlite">
+    // Database operations
+    [Throws=DatabaseError]
+    Database open_database(string path);
+</hick:when>
+<hick:when test="iroh">
+    // Iroh networking operations
+    [Throws=IrohError]
+    IrohNode create_iroh_node(string? relay_url);
+
+    string get_node_id([ByRef] IrohNode node);
+</hick:when>
+<hick:when test="decentralized-auth">
+    // Decentralized authentication
+    [Throws=AuthError]
+    Identity create_identity();
+
+    [Throws=AuthError]
+    Identity load_identity(string private_key_base64);
+
+    [Throws=AuthError]
+    Identity load_or_create_identity(string storage_path);
+
+    [Throws=AuthError]
+    void save_identity([ByRef] Identity identity, string storage_path);
+
+    [Throws=AuthError]
+    VerifiedToken verify_auth_token(string token, string? expected_issuer);
+
+    string generate_challenge();
+
+    [Throws=AuthError]
+    boolean verify_challenge([ByRef] Identity identity, string challenge, string signature, string signer_public_key);
+</hick:when>
+<hick:when test="decentralized-auth && iroh">
+    // Iroh + Auth integration
+    [Throws=AuthError]
+    Identity identity_from_iroh_node([ByRef] IrohNode node);
+
+    [Throws=AuthError]
+    AuthenticatedPeer authenticate_peer([ByRef] IrohNode node, [ByRef] Identity identity, string peer_node_id);
+
+    [Throws=AuthError]
+    string respond_to_auth_challenge([ByRef] Identity identity, string challenge, sequence<string> capabilities);
+
+    [Throws=AuthError]
+    AuthenticatedPeer verify_peer_response(string expected_challenge, string response_token);
+</hick:when>
+<hick:when test="event-sourcing">
+    // Event sourcing operations
+    EventStore create_event_store(string site_id, ConflictStrategy conflict_strategy);
+</hick:when>
+};
+
+[Error]
+enum CoreError {
+    "InvalidInput",
+    "ProcessingFailed",
+};
+
+dictionary GreetingResult {
+    string message;
+    u64 timestamp;
+};
+<hick:when test="sqlite">
+[Error]
+enum DatabaseError {
+    "ConnectionFailed",
+    "QueryFailed",
+    "NotFound",
+    "InvalidData",
+};
+</hick:when>
+<hick:when test="iroh">
+[Error]
+enum IrohError {
+    "InitFailed",
+    "ConnectionFailed",
+    "InvalidNodeId",
+    "SendFailed",
+    "ReceiveFailed",
+};
+
+dictionary NodeInfo {
+    string node_id;
+    string? relay_url;
+    sequence<string> direct_addresses;
+};
+
+interface IrohNode {
+    // Get this node's public identifier
+    string node_id();
+
+    // Get the relay URL this node is connected to
+    string? relay_url();
+
+    // Get node addressing info for sharing with peers
+    [Throws=IrohError]
+    NodeInfo node_info();
+
+    // Connect to a peer by their node ID
+    [Throws=IrohError]
+    void connect(string node_id, string? relay_url);
+
+    // Send data to a connected peer
+    [Throws=IrohError]
+    void send(string node_id, string alpn, bytes data);
+
+    // Shutdown the node
+    void shutdown();
+};
+</hick:when>
+<hick:when test="decentralized-auth">
+[Error]
+enum AuthError {
+    "KeyGenerationFailed",
+    "InvalidKey",
+    "SignatureFailed",
+    "VerificationFailed",
+    "TokenExpired",
+    "InvalidToken",
+    "StorageError",
+};
+
+dictionary AuthTokenClaims {
+    string? audience;
+    string? subject;
+    u64 expires_at;
+    sequence<string> capabilities;
+};
+
+dictionary VerifiedToken {
+    string issuer;
+    string? audience;
+    string? subject;
+    u64 expires_at;
+    u64 issued_at;
+    sequence<string> capabilities;
+};
+
+interface Identity {
+    // Get the public key as base64
+    string public_key();
+
+    // Get the DID identifier (did:key:z6Mk...)
+    string did();
+
+    // Sign arbitrary data, returns base64 signature
+    [Throws=AuthError]
+    string sign(bytes data);
+
+    // Verify a signature from any public key
+    [Throws=AuthError]
+    boolean verify(string public_key, bytes data, string signature);
+
+    // Create a signed auth token
+    [Throws=AuthError]
+    string create_token(AuthTokenClaims claims);
+
+    // Sign a challenge for authentication
+    [Throws=AuthError]
+    string sign_challenge(string challenge);
+};
+</hick:when>
+<hick:when test="decentralized-auth && iroh">
+dictionary AuthenticatedPeer {
+    string peer_did;
+    string peer_node_id;
+    sequence<string> capabilities;
+};
+</hick:when>
+<hick:when test="event-sourcing">
+[Enum]
+interface ConflictStrategy {
+    LastWriteWins();
+    FirstWriteWins();
+    Merge();
+    Manual();
+};
+
+[Error]
+enum EventError {
+    "NotFound",
+    "Conflict",
+    "InvalidEvent",
+    "StorageError",
+    "SerializationError",
+};
+
+dictionary EventMetadata {
+    u64 timestamp;
+    string site_id;
+    u64 lamport_timestamp;
+    sequence<string> previous_event_ids;
+    sequence<string> author_ids;
+    string? branch;
+    boolean is_snapshot;
+};
+
+dictionary Event {
+    string id;
+    string aggregate_id;
+    string aggregate_type;
+    string event_type;
+    string payload;
+    EventMetadata metadata;
+};
+
+dictionary ConflictInfo {
+    sequence<Event> conflicting_events;
+    string common_ancestor;
+    boolean auto_resolved;
+    string? winner_id;
+};
+
+interface EventStore {
+    // Get the site ID for this store
+    string site_id();
+
+    // Get the current lamport timestamp
+    u64 current_lamport();
+
+    // Append an event to an aggregate
+    [Throws=EventError]
+    Event append(string aggregate_id, string aggregate_type, string event_type, string payload, sequence<string> author_ids);
+
+    // Append an event to a branch
+    [Throws=EventError]
+    Event append_to_branch(string aggregate_id, string aggregate_type, string event_type, string payload, sequence<string> author_ids, string branch);
+
+    // Create a snapshot for an aggregate
+    [Throws=EventError]
+    Event create_snapshot(string aggregate_id, string aggregate_type, string state_payload, sequence<string> author_ids);
+
+    // Receive an event from another site (returns conflict info if detected)
+    [Throws=EventError]
+    ConflictInfo? receive(Event event);
+
+    // Get events since the last snapshot
+    sequence<Event> get_events_since_snapshot(string aggregate_id);
+
+    // Get all events for an aggregate
+    sequence<Event> get_all_events(string aggregate_id);
+
+    // Get events for a specific branch
+    sequence<Event> get_branch_events(string aggregate_id, string branch);
+
+    // Merge a branch into main
+    [Throws=EventError]
+    Event merge_branch(string aggregate_id, string aggregate_type, string branch, sequence<string> author_ids);
+
+    // Export events as JSON
+    [Throws=EventError]
+    string export_events(string aggregate_id, u64? since_lamport);
+
+    // Import events from JSON
+    [Throws=EventError]
+    sequence<ConflictInfo?> import_events(string events_json);
+};
+</hick:when>
+<hick:when test="sqlite">
+dictionary TodoItem {
+    string id;
+    string title;
+    boolean completed;
+    string created_at;
+};
+
+interface Database {
+    // Todo CRUD operations - returns JSON for cross-platform compatibility
+    [Throws=DatabaseError]
+    string create_todo(string title);
+
+    [Throws=DatabaseError]
+    string list_todos();
+
+    [Throws=DatabaseError]
+    string? get_todo(string id);
+
+    [Throws=DatabaseError]
+    string update_todo(string id, string? title, boolean? completed);
+
+    [Throws=DatabaseError]
+    void delete_todo(string id);
+
+    // Close database connection
+    void close();
+};
+</hick:when>
+</hick:file>
+
+### Core Library Implementation
+
+The main library file contains the shared business logic. Functions are exposed to both
+WASM (via wasm-bindgen) and native platforms (via UniFFI):
+
+<hick:file path="rust-lib/src/lib.rs">//! <hick:val name="project_name" /> Core Library
+//!
+//! Shared business logic that compiles to WebAssembly and native FFI bindings.
+
+mod error;
+<hick:when test="sqlite">mod database;
+</hick:when>
+<hick:when test="iroh">#[cfg(not(target_arch = "wasm32"))]
+mod networking;
+</hick:when>
+<hick:when test="decentralized-auth">mod auth;
+</hick:when>
+<hick:when test="event-sourcing">mod events;
+</hick:when>
+pub use error::CoreError;
+<hick:when test="sqlite">pub use database::{Database, DatabaseError, TodoItem, open_database};
+</hick:when>
+<hick:when test="iroh">#[cfg(not(target_arch = "wasm32"))]
+pub use networking::{IrohNode, IrohError, NodeInfo, create_iroh_node, get_node_id};
+</hick:when>
+<hick:when test="decentralized-auth">pub use auth::{
+    Identity, AuthError, AuthTokenClaims, VerifiedToken,
+    create_identity, load_identity, load_or_create_identity, save_identity,
+    verify_auth_token, generate_challenge, verify_challenge,
+};
+</hick:when>
+<hick:when test="event-sourcing">pub use events::{
+    Event, EventMetadata, EventError, EventStore, ConflictStrategy, ConflictInfo,
+    create_event_store,
+};
+</hick:when>
+<hick:when test="decentralized-auth && iroh">#[cfg(not(target_arch = "wasm32"))]
+mod auth_iroh;
+#[cfg(not(target_arch = "wasm32"))]
+pub use auth_iroh::{
+    AuthenticatedPeer, identity_from_iroh_node, authenticate_peer,
+    respond_to_auth_challenge, verify_peer_response,
+};
+</hick:when>
+
+use serde::{Deserialize, Serialize};
+
+// Include UniFFI scaffolding for native targets
+#[cfg(not(target_arch = "wasm32"))]
+uniffi::include_scaffolding!("core");
+
+// WASM bindings
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen::prelude::*;
+
+/// Result type for greeting operations
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GreetingResult {
+    pub message: String,
+    pub timestamp: u64,
+}
+
+/// Generate a personalized greeting
+///
+/// # Arguments
+/// * `name` - The name to greet
+///
+/// # Returns
+/// A greeting string
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
+pub fn greet(name: String) -> String {
+    if name.is_empty() {
+        "Hello, World!".to_string()
+    } else {
+        format!("Hello, {}!", name)
+    }
+}
+
+/// Calculate the nth Fibonacci number
+///
+/// Uses an iterative approach for efficiency.
+///
+/// # Arguments
+/// * `n` - The index of the Fibonacci number to calculate
+///
+/// # Returns
+/// The nth Fibonacci number
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
+pub fn fibonacci(n: u32) -> u64 {
+    match n {
+        0 => 0,
+        1 => 1,
+        _ => {
+            let mut a = 0u64;
+            let mut b = 1u64;
+            for _ in 2..=n {
+                let temp = a + b;
+                a = b;
+                b = temp;
+            }
+            b
+        }
+    }
+}
+
+/// Process JSON input and return transformed JSON output
+///
+/// This demonstrates more complex data handling across the FFI boundary.
+///
+/// # Arguments
+/// * `json_input` - A JSON string containing input data
+///
+/// # Returns
+/// A JSON string with processed results
+#[cfg_attr(target_arch = "wasm32", wasm_bindgen)]
+pub fn process_data(json_input: String) -> String {
+    let json_input = json_input.as_str();
+    #[derive(Deserialize)]
+    struct Input {
+        values: Vec<i32>,
+    }
+
+    #[derive(Serialize)]
+    struct Output {
+        sum: i64,
+        count: usize,
+        average: f64,
+        sorted: Vec<i32>,
+    }
+
+    let result: Result<Output, serde_json::Error> = (|| {
+        let input: Input = serde_json::from_str(json_input)?;
+        let sum: i64 = input.values.iter().map(|&x| x as i64).sum();
+        let count = input.values.len();
+        let average = if count > 0 {
+            sum as f64 / count as f64
+        } else {
+            0.0
+        };
+        let mut sorted = input.values.clone();
+        sorted.sort();
+
+        Ok(Output {
+            sum,
+            count,
+            average,
+            sorted,
+        })
+    })();
+
+    match result {
+        Ok(output) => serde_json::to_string(&output).unwrap_or_else(|_| "{}".to_string()),
+        Err(_) => r#"{"error": "Failed to process input"}"#.to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_greet_with_name() {
+        assert_eq!(greet("Alice".to_string()), "Hello, Alice!");
+    }
+
+    #[test]
+    fn test_greet_empty_name() {
+        assert_eq!(greet(String::new()), "Hello, World!");
+    }
+
+    #[test]
+    fn test_fibonacci() {
+        assert_eq!(fibonacci(0), 0);
+        assert_eq!(fibonacci(1), 1);
+        assert_eq!(fibonacci(10), 55);
+        assert_eq!(fibonacci(20), 6765);
+    }
+
+    #[test]
+    fn test_process_data() {
+        let input = r#"{"values": [3, 1, 4, 1, 5, 9, 2, 6]}"#.to_string();
+        let output = process_data(input);
+        let parsed: serde_json::Value = serde_json::from_str(&output).unwrap();
+
+        assert_eq!(parsed["sum"], 31);
+        assert_eq!(parsed["count"], 8);
+        assert_eq!(parsed["sorted"], serde_json::json!([1, 1, 2, 3, 4, 5, 6, 9]));
+    }
+}
+</hick:file>
+
+### Error Types
+
+Error handling that works across FFI boundaries:
+
+<hick:file path="rust-lib/src/error.rs">//! Error types for the core library
+
+use thiserror::Error;
+
+/// Errors that can occur in core library operations
+#[derive(Error, Debug)]
+pub enum CoreError {
+    #[error("Invalid input: {0}")]
+    InvalidInput(String),
+
+    #[error("Processing failed: {0}")]
+    ProcessingFailed(String),
+}
+</hick:file>
+
+<hick:when test="sqlite">
+### Database Module
+
+The database module provides SQLite-backed storage for all platforms:
+- Native: Uses rusqlite with bundled SQLite
+- WASM: Uses sqlite-wasm-rs with precompiled SQLite for WebAssembly
+
+<hick:file path="rust-lib/src/database.rs">//! Database module with SQLite support for all platforms
+//!
+//! - Native: Uses rusqlite with bundled SQLite
+//! - WASM: Uses sqlite-wasm-rs with precompiled SQLite
+
+use serde::{Deserialize, Serialize};
+use thiserror::Error;
+use uuid::Uuid;
+use chrono::Utc;
+use std::sync::Arc;
+
+#[cfg(not(target_arch = "wasm32"))]
+use rusqlite::{Connection, params};
+#[cfg(not(target_arch = "wasm32"))]
+use std::sync::Mutex;
+
+#[cfg(target_arch = "wasm32")]
+use sqlite_wasm_rs as ffi;
+#[cfg(target_arch = "wasm32")]
+use std::ffi::CString;
+#[cfg(target_arch = "wasm32")]
+use std::cell::RefCell;
+
+/// Database errors
+#[derive(Error, Debug)]
+pub enum DatabaseError {
+    #[error("Connection failed: {0}")]
+    ConnectionFailed(String),
+
+    #[error("Query failed: {0}")]
+    QueryFailed(String),
+
+    #[error("Not found")]
+    NotFound,
+
+    #[error("Invalid data: {0}")]
+    InvalidData(String),
+}
+
+/// A todo item stored in the database
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TodoItem {
+    pub id: String,
+    pub title: String,
+    pub completed: bool,
+    pub created_at: String,
+}
+
+// ============================================================================
+// Native Implementation (SQLite)
+// ============================================================================
+
+#[cfg(not(target_arch = "wasm32"))]
+pub struct Database {
+    conn: Arc<Mutex<Connection>>,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl Database {
+    fn new(conn: Connection) -> Self {
+        Self {
+            conn: Arc::new(Mutex::new(conn)),
+        }
+    }
+
+    /// Create a new todo item (returns JSON string)
+    pub fn create_todo(&self, title: String) -> Result<String, DatabaseError> {
+        let id = Uuid::new_v4().to_string();
+        let created_at = Utc::now().to_rfc3339();
+
+        let conn = self.conn.lock().map_err(|e| DatabaseError::QueryFailed(e.to_string()))?;
+        conn.execute(
+            "INSERT INTO todos (id, title, completed, created_at) VALUES (?1, ?2, ?3, ?4)",
+            params![id, title, false, created_at],
+        ).map_err(|e| DatabaseError::QueryFailed(e.to_string()))?;
+
+        let item = TodoItem {
+            id,
+            title,
+            completed: false,
+            created_at,
+        };
+        serde_json::to_string(&item).map_err(|e| DatabaseError::InvalidData(e.to_string()))
+    }
+
+    /// List all todos (returns JSON array string)
+    pub fn list_todos(&self) -> Result<String, DatabaseError> {
+        let conn = self.conn.lock().map_err(|e| DatabaseError::QueryFailed(e.to_string()))?;
+        let mut stmt = conn
+            .prepare("SELECT id, title, completed, created_at FROM todos ORDER BY created_at DESC")
+            .map_err(|e| DatabaseError::QueryFailed(e.to_string()))?;
+
+        let rows = stmt
+            .query_map([], |row| {
+                Ok(TodoItem {
+                    id: row.get(0)?,
+                    title: row.get(1)?,
+                    completed: row.get(2)?,
+                    created_at: row.get(3)?,
+                })
+            })
+            .map_err(|e| DatabaseError::QueryFailed(e.to_string()))?;
+
+        let mut todos = Vec::new();
+        for row in rows {
+            todos.push(row.map_err(|e| DatabaseError::QueryFailed(e.to_string()))?);
+        }
+        serde_json::to_string(&todos).map_err(|e| DatabaseError::InvalidData(e.to_string()))
+    }
+
+    /// Get a specific todo by ID (returns JSON string or None)
+    pub fn get_todo(&self, id: String) -> Result<Option<String>, DatabaseError> {
+        let conn = self.conn.lock().map_err(|e| DatabaseError::QueryFailed(e.to_string()))?;
+        let mut stmt = conn
+            .prepare("SELECT id, title, completed, created_at FROM todos WHERE id = ?1")
+            .map_err(|e| DatabaseError::QueryFailed(e.to_string()))?;
+
+        let mut rows = stmt
+            .query_map(params![id], |row| {
+                Ok(TodoItem {
+                    id: row.get(0)?,
+                    title: row.get(1)?,
+                    completed: row.get(2)?,
+                    created_at: row.get(3)?,
+                })
+            })
+            .map_err(|e| DatabaseError::QueryFailed(e.to_string()))?;
+
+        match rows.next() {
+            Some(row) => {
+                let item = row.map_err(|e| DatabaseError::QueryFailed(e.to_string()))?;
+                let json = serde_json::to_string(&item).map_err(|e| DatabaseError::InvalidData(e.to_string()))?;
+                Ok(Some(json))
+            },
+            None => Ok(None),
+        }
+    }
+
+    /// Internal: Get a specific todo by ID as struct (for update operations)
+    fn get_todo_internal(&self, id: String) -> Result<Option<TodoItem>, DatabaseError> {
+        let conn = self.conn.lock().map_err(|e| DatabaseError::QueryFailed(e.to_string()))?;
+        let mut stmt = conn
+            .prepare("SELECT id, title, completed, created_at FROM todos WHERE id = ?1")
+            .map_err(|e| DatabaseError::QueryFailed(e.to_string()))?;
+
+        let mut rows = stmt
+            .query_map(params![id], |row| {
+                Ok(TodoItem {
+                    id: row.get(0)?,
+                    title: row.get(1)?,
+                    completed: row.get(2)?,
+                    created_at: row.get(3)?,
+                })
+            })
+            .map_err(|e| DatabaseError::QueryFailed(e.to_string()))?;
+
+        match rows.next() {
+            Some(row) => Ok(Some(row.map_err(|e| DatabaseError::QueryFailed(e.to_string()))?)),
+            None => Ok(None),
+        }
+    }
+
+    /// Update a todo item (returns JSON string)
+    pub fn update_todo(
+        &self,
+        id: String,
+        title: Option<String>,
+        completed: Option<bool>,
+    ) -> Result<String, DatabaseError> {
+        let existing = self.get_todo_internal(id.clone())?.ok_or(DatabaseError::NotFound)?;
+
+        let new_title = title.unwrap_or(existing.title);
+        let new_completed = completed.unwrap_or(existing.completed);
+
+        let conn = self.conn.lock().map_err(|e| DatabaseError::QueryFailed(e.to_string()))?;
+        conn.execute(
+            "UPDATE todos SET title = ?1, completed = ?2 WHERE id = ?3",
+            params![new_title, new_completed, id],
+        ).map_err(|e| DatabaseError::QueryFailed(e.to_string()))?;
+
+        let item = TodoItem {
+            id,
+            title: new_title,
+            completed: new_completed,
+            created_at: existing.created_at,
+        };
+        serde_json::to_string(&item).map_err(|e| DatabaseError::InvalidData(e.to_string()))
+    }
+
+    /// Delete a todo item
+    pub fn delete_todo(&self, id: String) -> Result<(), DatabaseError> {
+        let conn = self.conn.lock().map_err(|e| DatabaseError::QueryFailed(e.to_string()))?;
+        let rows = conn
+            .execute("DELETE FROM todos WHERE id = ?1", params![id])
+            .map_err(|e| DatabaseError::QueryFailed(e.to_string()))?;
+
+        if rows == 0 {
+            return Err(DatabaseError::NotFound);
+        }
+        Ok(())
+    }
+
+    /// Close the database connection
+    pub fn close(&self) {
+        // Connection is closed when dropped
+    }
+}
+
+/// Open a database connection
+#[cfg(not(target_arch = "wasm32"))]
+pub fn open_database(path: String) -> Result<Arc<Database>, DatabaseError> {
+    let conn = Connection::open(&path)
+        .map_err(|e| DatabaseError::ConnectionFailed(e.to_string()))?;
+
+    // Create tables if they don't exist
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS todos (
+            id TEXT PRIMARY KEY,
+            title TEXT NOT NULL,
+            completed INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL
+        )",
+        [],
+    ).map_err(|e| DatabaseError::QueryFailed(e.to_string()))?;
+
+    Ok(Arc::new(Database::new(conn)))
+}
+
+// ============================================================================
+// WASM Implementation (sqlite-wasm-rs)
+// ============================================================================
+
+#[cfg(target_arch = "wasm32")]
+pub struct Database {
+    db: RefCell<*mut ffi::sqlite3>,
+}
+
+// Safety: Database is only used single-threaded in WASM
+#[cfg(target_arch = "wasm32")]
+unsafe impl Send for Database {}
+#[cfg(target_arch = "wasm32")]
+unsafe impl Sync for Database {}
+
+#[cfg(target_arch = "wasm32")]
+impl Database {
+    fn new(db: *mut ffi::sqlite3) -> Self {
+        Self { db: RefCell::new(db) }
+    }
+
+    fn exec(&self, sql: &str) -> Result<(), DatabaseError> {
+        let c_sql = CString::new(sql).map_err(|e| DatabaseError::InvalidData(e.to_string()))?;
+        let db = *self.db.borrow();
+        let ret = unsafe {
+            ffi::sqlite3_exec(db, c_sql.as_ptr(), None, std::ptr::null_mut(), std::ptr::null_mut())
+        };
+        if ret != ffi::SQLITE_OK {
+            return Err(DatabaseError::QueryFailed(format!("sqlite error: {}", ret)));
+        }
+        Ok(())
+    }
+
+    pub fn create_todo(&self, title: String) -> Result<String, DatabaseError> {
+        let id = Uuid::new_v4().to_string();
+        let created_at = Utc::now().to_rfc3339();
+
+        let sql = format!(
+            "INSERT INTO todos (id, title, completed, created_at) VALUES ('{}', '{}', 0, '{}')",
+            id.replace("'", "''"),
+            title.replace("'", "''"),
+            created_at.replace("'", "''")
+        );
+        self.exec(&sql)?;
+
+        let item = TodoItem {
+            id,
+            title,
+            completed: false,
+            created_at,
+        };
+        serde_json::to_string(&item).map_err(|e| DatabaseError::InvalidData(e.to_string()))
+    }
+
+    pub fn list_todos(&self) -> Result<String, DatabaseError> {
+        let db = *self.db.borrow();
+        let sql = CString::new("SELECT id, title, completed, created_at FROM todos ORDER BY created_at DESC")
+            .map_err(|e| DatabaseError::InvalidData(e.to_string()))?;
+
+        let mut stmt: *mut ffi::sqlite3_stmt = std::ptr::null_mut();
+        let ret = unsafe {
+            ffi::sqlite3_prepare_v2(db, sql.as_ptr(), -1, &mut stmt, std::ptr::null_mut())
+        };
+        if ret != ffi::SQLITE_OK {
+            return Err(DatabaseError::QueryFailed(format!("prepare error: {}", ret)));
+        }
+
+        let mut todos = Vec::new();
+        loop {
+            let step = unsafe { ffi::sqlite3_step(stmt) };
+            if step == ffi::SQLITE_DONE {
+                break;
+            }
+            if step != ffi::SQLITE_ROW {
+                unsafe { ffi::sqlite3_finalize(stmt); }
+                return Err(DatabaseError::QueryFailed(format!("step error: {}", step)));
+            }
+
+            let id = unsafe {
+                let ptr = ffi::sqlite3_column_text(stmt, 0);
+                if ptr.is_null() { String::new() } else {
+                    std::ffi::CStr::from_ptr(ptr as *const i8).to_string_lossy().into_owned()
+                }
+            };
+            let title = unsafe {
+                let ptr = ffi::sqlite3_column_text(stmt, 1);
+                if ptr.is_null() { String::new() } else {
+                    std::ffi::CStr::from_ptr(ptr as *const i8).to_string_lossy().into_owned()
+                }
+            };
+            let completed = unsafe { ffi::sqlite3_column_int(stmt, 2) != 0 };
+            let created_at = unsafe {
+                let ptr = ffi::sqlite3_column_text(stmt, 3);
+                if ptr.is_null() { String::new() } else {
+                    std::ffi::CStr::from_ptr(ptr as *const i8).to_string_lossy().into_owned()
+                }
+            };
+
+            todos.push(TodoItem { id, title, completed, created_at });
+        }
+        unsafe { ffi::sqlite3_finalize(stmt); }
+
+        serde_json::to_string(&todos).map_err(|e| DatabaseError::InvalidData(e.to_string()))
+    }
+
+    pub fn get_todo(&self, id: String) -> Result<Option<String>, DatabaseError> {
+        let db = *self.db.borrow();
+        let sql = CString::new("SELECT id, title, completed, created_at FROM todos WHERE id = ?")
+            .map_err(|e| DatabaseError::InvalidData(e.to_string()))?;
+
+        let mut stmt: *mut ffi::sqlite3_stmt = std::ptr::null_mut();
+        let ret = unsafe {
+            ffi::sqlite3_prepare_v2(db, sql.as_ptr(), -1, &mut stmt, std::ptr::null_mut())
+        };
+        if ret != ffi::SQLITE_OK {
+            return Err(DatabaseError::QueryFailed(format!("prepare error: {}", ret)));
+        }
+
+        let c_id = CString::new(id).map_err(|e| DatabaseError::InvalidData(e.to_string()))?;
+        unsafe { ffi::sqlite3_bind_text(stmt, 1, c_id.as_ptr(), -1, ffi::SQLITE_TRANSIENT()); }
+
+        let step = unsafe { ffi::sqlite3_step(stmt) };
+        if step == ffi::SQLITE_DONE {
+            unsafe { ffi::sqlite3_finalize(stmt); }
+            return Ok(None);
+        }
+        if step != ffi::SQLITE_ROW {
+            unsafe { ffi::sqlite3_finalize(stmt); }
+            return Err(DatabaseError::QueryFailed(format!("step error: {}", step)));
+        }
+
+        let item = TodoItem {
+            id: unsafe {
+                let ptr = ffi::sqlite3_column_text(stmt, 0);
+                if ptr.is_null() { String::new() } else {
+                    std::ffi::CStr::from_ptr(ptr as *const i8).to_string_lossy().into_owned()
+                }
+            },
+            title: unsafe {
+                let ptr = ffi::sqlite3_column_text(stmt, 1);
+                if ptr.is_null() { String::new() } else {
+                    std::ffi::CStr::from_ptr(ptr as *const i8).to_string_lossy().into_owned()
+                }
+            },
+            completed: unsafe { ffi::sqlite3_column_int(stmt, 2) != 0 },
+            created_at: unsafe {
+                let ptr = ffi::sqlite3_column_text(stmt, 3);
+                if ptr.is_null() { String::new() } else {
+                    std::ffi::CStr::from_ptr(ptr as *const i8).to_string_lossy().into_owned()
+                }
+            },
+        };
+        unsafe { ffi::sqlite3_finalize(stmt); }
+
+        let json = serde_json::to_string(&item).map_err(|e| DatabaseError::InvalidData(e.to_string()))?;
+        Ok(Some(json))
+    }
+
+    pub fn update_todo(
+        &self,
+        id: String,
+        title: Option<String>,
+        completed: Option<bool>,
+    ) -> Result<String, DatabaseError> {
+        // First get the existing todo
+        let existing_json = self.get_todo(id.clone())?.ok_or(DatabaseError::NotFound)?;
+        let existing: TodoItem = serde_json::from_str(&existing_json)
+            .map_err(|e| DatabaseError::InvalidData(e.to_string()))?;
+
+        let new_title = title.unwrap_or(existing.title);
+        let new_completed = completed.unwrap_or(existing.completed);
+
+        let sql = format!(
+            "UPDATE todos SET title = '{}', completed = {} WHERE id = '{}'",
+            new_title.replace("'", "''"),
+            if new_completed { 1 } else { 0 },
+            id.replace("'", "''")
+        );
+        self.exec(&sql)?;
+
+        let item = TodoItem {
+            id,
+            title: new_title,
+            completed: new_completed,
+            created_at: existing.created_at,
+        };
+        serde_json::to_string(&item).map_err(|e| DatabaseError::InvalidData(e.to_string()))
+    }
+
+    pub fn delete_todo(&self, id: String) -> Result<(), DatabaseError> {
+        let sql = format!("DELETE FROM todos WHERE id = '{}'", id.replace("'", "''"));
+        self.exec(&sql)?;
+        // Note: We don't check if the row existed, matching rusqlite behavior
+        Ok(())
+    }
+
+    pub fn close(&self) {
+        let db = *self.db.borrow();
+        if !db.is_null() {
+            unsafe { ffi::sqlite3_close(db); }
+        }
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+impl Drop for Database {
+    fn drop(&mut self) {
+        self.close();
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+pub fn open_database(_path: String) -> Result<Arc<Database>, DatabaseError> {
+    // WASM uses in-memory SQLite database
+    let c_path = CString::new(":memory:").unwrap();
+    let mut db: *mut ffi::sqlite3 = std::ptr::null_mut();
+
+    let ret = unsafe {
+        ffi::sqlite3_open_v2(
+            c_path.as_ptr(),
+            &mut db,
+            ffi::SQLITE_OPEN_READWRITE | ffi::SQLITE_OPEN_CREATE,
+            std::ptr::null()
+        )
+    };
+
+    if ret != ffi::SQLITE_OK {
+        return Err(DatabaseError::ConnectionFailed(format!("sqlite open error: {}", ret)));
+    }
+
+    let database = Database::new(db);
+
+    // Create tables
+    database.exec(
+        "CREATE TABLE IF NOT EXISTS todos (
+            id TEXT PRIMARY KEY,
+            title TEXT NOT NULL,
+            completed INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL
+        )"
+    )?;
+
+    Ok(Arc::new(database))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_todo_crud() {
+        let db = open_database(":memory:".to_string()).unwrap();
+
+        // Create
+        let todo_json = db.create_todo("Test task".to_string()).unwrap();
+        let todo: TodoItem = serde_json::from_str(&todo_json).unwrap();
+        assert_eq!(todo.title, "Test task");
+        assert!(!todo.completed);
+
+        // Read
+        let todos_json = db.list_todos().unwrap();
+        let todos: Vec<TodoItem> = serde_json::from_str(&todos_json).unwrap();
+        assert_eq!(todos.len(), 1);
+
+        // Update
+        let updated_json = db.update_todo(todo.id.clone(), None, Some(true)).unwrap();
+        let updated: TodoItem = serde_json::from_str(&updated_json).unwrap();
+        assert!(updated.completed);
+
+        // Delete
+        db.delete_todo(todo.id).unwrap();
+        let todos_json = db.list_todos().unwrap();
+        let todos: Vec<TodoItem> = serde_json::from_str(&todos_json).unwrap();
+        assert_eq!(todos.len(), 0);
+    }
+}
+</hick:file>
+</hick:when>
+
+<hick:when test="iroh">
+### Networking Module (Iroh)
+
+The networking module provides peer-to-peer connectivity using Iroh. This is only
+available on native platforms (not WASM) due to Iroh's networking requirements.
+
+<hick:file path="rust-lib/src/networking.rs">//! Iroh P2P networking module
+//!
+//! Provides peer-to-peer connectivity using Iroh for native platforms.
+//! Iroh handles NAT traversal, hole punching, and relay fallback automatically.
+
+use std::sync::Arc;
+use thiserror::Error;
+use iroh::{Endpoint, NodeAddr, NodeId, SecretKey};
+use iroh_base::key::PublicKey;
+use tokio::runtime::Runtime;
+use std::str::FromStr;
+
+/// Errors that can occur in Iroh networking operations
+#[derive(Error, Debug)]
+pub enum IrohError {
+    #[error("Initialization failed: {0}")]
+    InitFailed(String),
+
+    #[error("Connection failed: {0}")]
+    ConnectionFailed(String),
+
+    #[error("Invalid node ID: {0}")]
+    InvalidNodeId(String),
+
+    #[error("Send failed: {0}")]
+    SendFailed(String),
+
+    #[error("Receive failed: {0}")]
+    ReceiveFailed(String),
+}
+
+/// Information about a node for sharing with peers
+#[derive(Debug, Clone)]
+pub struct NodeInfo {
+    pub node_id: String,
+    pub relay_url: Option<String>,
+    pub direct_addresses: Vec<String>,
+}
+
+/// An Iroh networking node
+pub struct IrohNode {
+    endpoint: Endpoint,
+    runtime: Arc<Runtime>,
+    secret_key: SecretKey,
+}
+
+impl IrohNode {
+    /// Get this node's public identifier (NodeId)
+    pub fn node_id(&self) -> String {
+        self.endpoint.node_id().to_string()
+    }
+
+    /// Get the relay URL this node is connected to
+    pub fn relay_url(&self) -> Option<String> {
+        self.runtime.block_on(async {
+            self.endpoint.home_relay().map(|url| url.to_string())
+        })
+    }
+
+    /// Get node addressing info for sharing with peers
+    pub fn node_info(&self) -> Result<NodeInfo, IrohError> {
+        self.runtime.block_on(async {
+            let node_addr = self.endpoint.node_addr().await
+                .map_err(|e| IrohError::InitFailed(e.to_string()))?;
+
+            Ok(NodeInfo {
+                node_id: node_addr.node_id.to_string(),
+                relay_url: node_addr.relay_url.map(|u| u.to_string()),
+                direct_addresses: node_addr.direct_addresses
+                    .iter()
+                    .map(|a| a.to_string())
+                    .collect(),
+            })
+        })
+    }
+
+    /// Connect to a peer by their node ID
+    pub fn connect(&self, node_id: String, relay_url: Option<String>) -> Result<(), IrohError> {
+        let node_id = NodeId::from_str(&node_id)
+            .map_err(|e| IrohError::InvalidNodeId(e.to_string()))?;
+
+        let relay_url = relay_url
+            .map(|url| url.parse())
+            .transpose()
+            .map_err(|e: url::ParseError| IrohError::ConnectionFailed(e.to_string()))?;
+
+        let node_addr = NodeAddr {
+            node_id,
+            relay_url,
+            direct_addresses: Default::default(),
+        };
+
+        self.runtime.block_on(async {
+            // Use a default ALPN for the connection
+            let alpn = b"<hick:val name="project_name" />/1";
+            self.endpoint.connect(node_addr, alpn)
+                .await
+                .map_err(|e| IrohError::ConnectionFailed(e.to_string()))?;
+            Ok(())
+        })
+    }
+
+    /// Send data to a connected peer
+    pub fn send(&self, node_id: String, alpn: String, data: Vec<u8>) -> Result<(), IrohError> {
+        let node_id = NodeId::from_str(&node_id)
+            .map_err(|e| IrohError::InvalidNodeId(e.to_string()))?;
+
+        let node_addr = NodeAddr {
+            node_id,
+            relay_url: None,
+            direct_addresses: Default::default(),
+        };
+
+        self.runtime.block_on(async {
+            let conn = self.endpoint.connect(node_addr, alpn.as_bytes())
+                .await
+                .map_err(|e| IrohError::ConnectionFailed(e.to_string()))?;
+
+            let mut send_stream = conn.open_uni()
+                .await
+                .map_err(|e| IrohError::SendFailed(e.to_string()))?;
+
+            send_stream.write_all(&data)
+                .await
+                .map_err(|e| IrohError::SendFailed(e.to_string()))?;
+
+            send_stream.finish()
+                .map_err(|e| IrohError::SendFailed(e.to_string()))?;
+
+            Ok(())
+        })
+    }
+
+    /// Shutdown the node
+    pub fn shutdown(&self) {
+        self.runtime.block_on(async {
+            self.endpoint.close().await;
+        });
+    }
+
+    /// Get the secret key bytes (for auth integration)
+    /// Returns None if the key cannot be extracted
+    pub fn secret_key_bytes(&self) -> Option<[u8; 32]> {
+        Some(self.secret_key.to_bytes())
+    }
+}
+
+/// Create a new Iroh node
+///
+/// # Arguments
+/// * `relay_url` - Optional custom relay server URL. If None, uses Iroh's default relays.
+pub fn create_iroh_node(relay_url: Option<String>) -> Result<Arc<IrohNode>, IrohError> {
+    let runtime = Runtime::new()
+        .map_err(|e| IrohError::InitFailed(e.to_string()))?;
+
+    let secret_key = SecretKey::generate(rand::rngs::OsRng);
+
+    let endpoint = runtime.block_on(async {
+        let mut builder = Endpoint::builder()
+            .secret_key(secret_key.clone());
+
+        // If a custom relay URL is provided, configure it
+        if let Some(url) = relay_url {
+            let relay_url: iroh::RelayUrl = url.parse()
+                .map_err(|e: url::ParseError| IrohError::InitFailed(e.to_string()))?;
+            builder = builder.relay_mode(iroh::RelayMode::Custom(
+                iroh::RelayMap::from_iter([iroh::RelayNode {
+                    url: relay_url,
+                    quic: None,
+                }])
+            ));
+        }
+
+        builder.bind()
+            .await
+            .map_err(|e| IrohError::InitFailed(e.to_string()))
+    })?;
+
+    Ok(Arc::new(IrohNode {
+        endpoint,
+        runtime: Arc::new(runtime),
+        secret_key,
+    }))
+}
+
+/// Get the node ID from an IrohNode (convenience function for FFI)
+pub fn get_node_id(node: &IrohNode) -> String {
+    node.node_id()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_create_node() {
+        let node = create_iroh_node(None).expect("should create node");
+        let node_id = node.node_id();
+        assert!(!node_id.is_empty());
+        node.shutdown();
+    }
+
+    #[test]
+    fn test_node_info() {
+        let node = create_iroh_node(None).expect("should create node");
+        let info = node.node_info().expect("should get node info");
+        assert!(!info.node_id.is_empty());
+        node.shutdown();
+    }
+}
+</hick:file>
+</hick:when>
+
+<hick:when test="decentralized-auth">
+### Authentication Module
+
+The auth module provides decentralized identity and authentication using ed25519 key pairs:
+- Generate identity key pairs
+- Sign and verify arbitrary data
+- Create and verify JWT-like auth tokens
+- DID-compatible identifiers (`did:key:z6Mk...`)
+- Challenge-response authentication
+- Encrypted key storage with age (native) or localStorage (WASM)
+
+<hick:file path="rust-lib/src/auth.rs">//! Decentralized authentication module
+//!
+//! Provides offline-first, peer-to-peer authentication using Ed25519 key pairs.
+//! Supports both native platforms (with age-encrypted storage) and WASM
+//! (with localStorage).
+
+use serde::{Deserialize, Serialize};
+use thiserror::Error;
+use std::sync::Arc;
+use ed25519_dalek::{SigningKey, VerifyingKey, Signature, Signer, Verifier};
+
+#[cfg(not(target_arch = "wasm32"))]
+use std::io::{Read, Write};
+#[cfg(not(target_arch = "wasm32"))]
+use std::fs;
+#[cfg(not(target_arch = "wasm32"))]
+use directories::ProjectDirs;
+
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen::prelude::*;
+
+/// Errors that can occur in authentication operations
+#[derive(Error, Debug)]
+pub enum AuthError {
+    #[error("Key generation failed: {0}")]
+    KeyGenerationFailed(String),
+
+    #[error("Invalid key: {0}")]
+    InvalidKey(String),
+
+    #[error("Signature failed: {0}")]
+    SignatureFailed(String),
+
+    #[error("Verification failed: {0}")]
+    VerificationFailed(String),
+
+    #[error("Token expired")]
+    TokenExpired,
+
+    #[error("Invalid token: {0}")]
+    InvalidToken(String),
+
+    #[error("Storage error: {0}")]
+    StorageError(String),
+}
+
+/// Claims for an auth token
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuthTokenClaims {
+    pub audience: Option<String>,
+    pub subject: Option<String>,
+    pub expires_at: u64,
+    pub capabilities: Vec<String>,
+}
+
+/// A verified auth token
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VerifiedToken {
+    pub issuer: String,
+    pub audience: Option<String>,
+    pub subject: Option<String>,
+    pub expires_at: u64,
+    pub issued_at: u64,
+    pub capabilities: Vec<String>,
+}
+
+/// Internal token structure for serialization
+#[derive(Debug, Serialize, Deserialize)]
+struct TokenPayload {
+    iss: String,           // issuer (DID)
+    aud: Option<String>,   // audience
+    sub: Option<String>,   // subject
+    exp: u64,              // expires at (unix timestamp)
+    iat: u64,              // issued at (unix timestamp)
+    cap: Vec<String>,      // capabilities
+}
+
+/// An ed25519 identity for signing and verification
+pub struct Identity {
+    signing_key: SigningKey,
+}
+
+impl Identity {
+    fn new(signing_key: SigningKey) -> Self {
+        Self { signing_key }
+    }
+
+    /// Get the public key as base64
+    pub fn public_key(&self) -> String {
+        use base64::Engine;
+        base64::engine::general_purpose::STANDARD.encode(self.signing_key.verifying_key().as_bytes())
+    }
+
+    /// Get the DID identifier (did:key:z6Mk...)
+    ///
+    /// Uses the did:key method with multicodec prefix for ed25519-pub (0xed01)
+    pub fn did(&self) -> String {
+        let pub_bytes = self.signing_key.verifying_key().as_bytes();
+        // Multicodec prefix for ed25519-pub is 0xed 0x01
+        let mut multicodec = vec![0xed, 0x01];
+        multicodec.extend_from_slice(pub_bytes);
+        format!("did:key:z{}", bs58::encode(&multicodec).into_string())
+    }
+
+    /// Sign arbitrary data, returns base64 signature
+    pub fn sign(&self, data: Vec<u8>) -> Result<String, AuthError> {
+        use base64::Engine;
+        let signature = self.signing_key.sign(&data);
+        Ok(base64::engine::general_purpose::STANDARD.encode(signature.to_bytes()))
+    }
+
+    /// Verify a signature from any public key
+    pub fn verify(&self, public_key: String, data: Vec<u8>, signature: String) -> Result<bool, AuthError> {
+        use base64::Engine;
+
+        let pub_bytes = base64::engine::general_purpose::STANDARD
+            .decode(&public_key)
+            .map_err(|e| AuthError::InvalidKey(e.to_string()))?;
+
+        let pub_key_array: [u8; 32] = pub_bytes
+            .try_into()
+            .map_err(|_| AuthError::InvalidKey("Invalid public key length".to_string()))?;
+
+        let verifying_key = VerifyingKey::from_bytes(&pub_key_array)
+            .map_err(|e| AuthError::InvalidKey(e.to_string()))?;
+
+        let sig_bytes = base64::engine::general_purpose::STANDARD
+            .decode(&signature)
+            .map_err(|e| AuthError::VerificationFailed(e.to_string()))?;
+
+        let sig_array: [u8; 64] = sig_bytes
+            .try_into()
+            .map_err(|_| AuthError::VerificationFailed("Invalid signature length".to_string()))?;
+
+        let sig = Signature::from_bytes(&sig_array);
+
+        Ok(verifying_key.verify(&data, &sig).is_ok())
+    }
+
+    /// Create a signed auth token
+    pub fn create_token(&self, claims: AuthTokenClaims) -> Result<String, AuthError> {
+        use base64::Engine;
+
+        let now = current_timestamp();
+        let payload = TokenPayload {
+            iss: self.did(),
+            aud: claims.audience,
+            sub: claims.subject,
+            exp: claims.expires_at,
+            iat: now,
+            cap: claims.capabilities,
+        };
+
+        let payload_json = serde_json::to_string(&payload)
+            .map_err(|e| AuthError::SignatureFailed(e.to_string()))?;
+
+        let payload_b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(payload_json.as_bytes());
+        let signature = self.signing_key.sign(payload_b64.as_bytes());
+        let sig_b64 = base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(signature.to_bytes());
+
+        // Format: payload.signature (JWT-like but simpler)
+        Ok(format!("{}.{}", payload_b64, sig_b64))
+    }
+
+    /// Sign a challenge for authentication
+    pub fn sign_challenge(&self, challenge: String) -> Result<String, AuthError> {
+        self.sign(challenge.into_bytes())
+    }
+
+    /// Get the raw signing key bytes (for internal use/storage)
+    fn secret_key_bytes(&self) -> [u8; 32] {
+        self.signing_key.to_bytes()
+    }
+}
+
+/// Create a new random identity
+pub fn create_identity() -> Result<Arc<Identity>, AuthError> {
+    let mut rng = rand_rng();
+    let signing_key = SigningKey::generate(&mut rng);
+    Ok(Arc::new(Identity::new(signing_key)))
+}
+
+/// Load an identity from base64-encoded private key
+pub fn load_identity(private_key_base64: String) -> Result<Arc<Identity>, AuthError> {
+    use base64::Engine;
+
+    let key_bytes = base64::engine::general_purpose::STANDARD
+        .decode(&private_key_base64)
+        .map_err(|e| AuthError::InvalidKey(e.to_string()))?;
+
+    let key_array: [u8; 32] = key_bytes
+        .try_into()
+        .map_err(|_| AuthError::InvalidKey("Invalid key length".to_string()))?;
+
+    let signing_key = SigningKey::from_bytes(&key_array);
+    Ok(Arc::new(Identity::new(signing_key)))
+}
+
+/// Verify an auth token and return its claims
+///
+/// # Arguments
+/// * `token` - The token string (payload.signature format)
+/// * `expected_issuer` - Optional DID to verify the issuer against
+pub fn verify_auth_token(token: String, expected_issuer: Option<String>) -> Result<VerifiedToken, AuthError> {
+    use base64::Engine;
+
+    let parts: Vec<&str> = token.split('.').collect();
+    if parts.len() != 2 {
+        return Err(AuthError::InvalidToken("Invalid token format".to_string()));
+    }
+
+    let payload_b64 = parts[0];
+    let sig_b64 = parts[1];
+
+    // Decode payload
+    let payload_json = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(payload_b64)
+        .map_err(|e| AuthError::InvalidToken(e.to_string()))?;
+
+    let payload: TokenPayload = serde_json::from_slice(&payload_json)
+        .map_err(|e| AuthError::InvalidToken(e.to_string()))?;
+
+    // Verify issuer if expected
+    if let Some(expected) = expected_issuer {
+        if payload.iss != expected {
+            return Err(AuthError::InvalidToken("Issuer mismatch".to_string()));
+        }
+    }
+
+    // Extract public key from DID
+    let pub_key = did_to_public_key(&payload.iss)?;
+
+    // Verify signature
+    let sig_bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(sig_b64)
+        .map_err(|e| AuthError::VerificationFailed(e.to_string()))?;
+
+    let sig_array: [u8; 64] = sig_bytes
+        .try_into()
+        .map_err(|_| AuthError::VerificationFailed("Invalid signature length".to_string()))?;
+
+    let signature = Signature::from_bytes(&sig_array);
+
+    pub_key.verify(payload_b64.as_bytes(), &signature)
+        .map_err(|e| AuthError::VerificationFailed(e.to_string()))?;
+
+    // Check expiration (with 60s clock drift tolerance)
+    let now = current_timestamp();
+    if payload.exp + 60 < now {
+        return Err(AuthError::TokenExpired);
+    }
+
+    Ok(VerifiedToken {
+        issuer: payload.iss,
+        audience: payload.aud,
+        subject: payload.sub,
+        expires_at: payload.exp,
+        issued_at: payload.iat,
+        capabilities: payload.cap,
+    })
+}
+
+/// Generate a cryptographic challenge (nonce)
+pub fn generate_challenge() -> String {
+    use base64::Engine;
+    let mut nonce = [0u8; 32];
+    fill_random(&mut nonce);
+    base64::engine::general_purpose::STANDARD.encode(nonce)
+}
+
+/// Verify a signed challenge
+///
+/// # Arguments
+/// * `identity` - The identity to use for verification context (unused, kept for FFI consistency)
+/// * `challenge` - The original challenge
+/// * `signature` - The base64 signature
+/// * `signer_public_key` - The base64 public key of the signer
+pub fn verify_challenge(
+    _identity: &Identity,
+    challenge: String,
+    signature: String,
+    signer_public_key: String,
+) -> Result<bool, AuthError> {
+    use base64::Engine;
+
+    let pub_bytes = base64::engine::general_purpose::STANDARD
+        .decode(&signer_public_key)
+        .map_err(|e| AuthError::InvalidKey(e.to_string()))?;
+
+    let pub_key_array: [u8; 32] = pub_bytes
+        .try_into()
+        .map_err(|_| AuthError::InvalidKey("Invalid public key length".to_string()))?;
+
+    let verifying_key = VerifyingKey::from_bytes(&pub_key_array)
+        .map_err(|e| AuthError::InvalidKey(e.to_string()))?;
+
+    let sig_bytes = base64::engine::general_purpose::STANDARD
+        .decode(&signature)
+        .map_err(|e| AuthError::VerificationFailed(e.to_string()))?;
+
+    let sig_array: [u8; 64] = sig_bytes
+        .try_into()
+        .map_err(|_| AuthError::VerificationFailed("Invalid signature length".to_string()))?;
+
+    let sig = Signature::from_bytes(&sig_array);
+
+    Ok(verifying_key.verify(challenge.as_bytes(), &sig).is_ok())
+}
+
+/// Public wrapper for current_timestamp (used by iroh integration)
+pub fn current_timestamp_pub() -> u64 {
+    current_timestamp()
+}
+
+/// Load an identity from raw key bytes (used by iroh integration)
+pub fn load_identity_from_bytes(key_bytes: [u8; 32]) -> Result<Arc<Identity>, AuthError> {
+    let signing_key = SigningKey::from_bytes(&key_bytes);
+    Ok(Arc::new(Identity::new(signing_key)))
+}
+
+/// Extract public key from a did:key identifier
+fn did_to_public_key(did: &str) -> Result<VerifyingKey, AuthError> {
+    if !did.starts_with("did:key:z") {
+        return Err(AuthError::InvalidKey("Invalid DID format".to_string()));
+    }
+
+    let multibase = &did[8..]; // Skip "did:key:"
+    if !multibase.starts_with('z') {
+        return Err(AuthError::InvalidKey("Invalid multibase prefix".to_string()));
+    }
+
+    let decoded = bs58::decode(&multibase[1..])
+        .into_vec()
+        .map_err(|e| AuthError::InvalidKey(e.to_string()))?;
+
+    // Check ed25519-pub multicodec prefix (0xed 0x01)
+    if decoded.len() < 34 || decoded[0] != 0xed || decoded[1] != 0x01 {
+        return Err(AuthError::InvalidKey("Invalid multicodec prefix".to_string()));
+    }
+
+    let pub_bytes: [u8; 32] = decoded[2..34]
+        .try_into()
+        .map_err(|_| AuthError::InvalidKey("Invalid key length".to_string()))?;
+
+    VerifyingKey::from_bytes(&pub_bytes)
+        .map_err(|e| AuthError::InvalidKey(e.to_string()))
+}
+
+// ============================================================================
+// Platform-specific implementations
+// ============================================================================
+
+#[cfg(not(target_arch = "wasm32"))]
+fn rand_rng() -> rand::rngs::OsRng {
+    rand::rngs::OsRng
+}
+
+#[cfg(target_arch = "wasm32")]
+fn rand_rng() -> getrandom::Rng {
+    getrandom::Rng
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn fill_random(buf: &mut [u8]) {
+    use rand::RngCore;
+    rand::rngs::OsRng.fill_bytes(buf);
+}
+
+#[cfg(target_arch = "wasm32")]
+fn fill_random(buf: &mut [u8]) {
+    getrandom::fill(buf).expect("getrandom failed");
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn current_timestamp() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs()
+}
+
+#[cfg(target_arch = "wasm32")]
+fn current_timestamp() -> u64 {
+    (js_sys::Date::now() / 1000.0) as u64
+}
+
+// ============================================================================
+// Native storage with age encryption
+// ============================================================================
+
+#[cfg(not(target_arch = "wasm32"))]
+pub fn load_or_create_identity(storage_path: String) -> Result<Arc<Identity>, AuthError> {
+    use std::path::Path;
+
+    let path = Path::new(&storage_path);
+
+    if path.exists() {
+        // Load existing identity
+        let encrypted = fs::read(path)
+            .map_err(|e| AuthError::StorageError(e.to_string()))?;
+
+        let decrypted = decrypt_with_age(&encrypted)?;
+        load_identity(decrypted)
+    } else {
+        // Create new identity and save it
+        let identity = create_identity()?;
+        save_identity(&identity, storage_path)?;
+        Ok(identity)
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+pub fn save_identity(identity: &Identity, storage_path: String) -> Result<(), AuthError> {
+    use std::path::Path;
+    use base64::Engine;
+
+    let path = Path::new(&storage_path);
+
+    // Create parent directories if needed
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|e| AuthError::StorageError(e.to_string()))?;
+    }
+
+    let key_b64 = base64::engine::general_purpose::STANDARD.encode(identity.secret_key_bytes());
+    let encrypted = encrypt_with_age(&key_b64)?;
+
+    fs::write(path, encrypted)
+        .map_err(|e| AuthError::StorageError(e.to_string()))?;
+
+    Ok(())
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn encrypt_with_age(plaintext: &str) -> Result<Vec<u8>, AuthError> {
+    use age::secrecy::ExposeSecret;
+
+    // Generate a passphrase for this identity (derived from system entropy)
+    // In production, this would use platform keychain
+    let passphrase = get_or_create_passphrase()?;
+
+    let encryptor = age::Encryptor::with_user_passphrase(passphrase.expose_secret().into());
+
+    let mut encrypted = vec![];
+    let mut writer = encryptor.wrap_output(&mut encrypted)
+        .map_err(|e| AuthError::StorageError(e.to_string()))?;
+
+    writer.write_all(plaintext.as_bytes())
+        .map_err(|e| AuthError::StorageError(e.to_string()))?;
+
+    writer.finish()
+        .map_err(|e| AuthError::StorageError(e.to_string()))?;
+
+    Ok(encrypted)
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn decrypt_with_age(ciphertext: &[u8]) -> Result<String, AuthError> {
+    use age::secrecy::ExposeSecret;
+
+    let passphrase = get_or_create_passphrase()?;
+
+    let decryptor = match age::Decryptor::new(ciphertext)
+        .map_err(|e| AuthError::StorageError(e.to_string()))? {
+        age::Decryptor::Passphrase(d) => d,
+        _ => return Err(AuthError::StorageError("Unexpected decryptor type".to_string())),
+    };
+
+    let mut decrypted = vec![];
+    let mut reader = decryptor.decrypt(&passphrase, None)
+        .map_err(|e| AuthError::StorageError(e.to_string()))?;
+
+    reader.read_to_end(&mut decrypted)
+        .map_err(|e| AuthError::StorageError(e.to_string()))?;
+
+    String::from_utf8(decrypted)
+        .map_err(|e| AuthError::StorageError(e.to_string()))
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn get_or_create_passphrase() -> Result<age::secrecy::SecretString, AuthError> {
+    use age::secrecy::SecretString;
+    use base64::Engine;
+
+    // Get project-specific config directory
+    let proj_dirs = ProjectDirs::from("com", "<hick:val name="organization" />", "<hick:val name="project_name" />")
+        .ok_or_else(|| AuthError::StorageError("Cannot determine config directory".to_string()))?;
+
+    let config_dir = proj_dirs.config_dir();
+    let passphrase_path = config_dir.join(".passphrase");
+
+    if passphrase_path.exists() {
+        let passphrase = fs::read_to_string(&passphrase_path)
+            .map_err(|e| AuthError::StorageError(e.to_string()))?;
+        Ok(SecretString::from(passphrase))
+    } else {
+        // Generate new passphrase
+        let mut entropy = [0u8; 32];
+        fill_random(&mut entropy);
+        let passphrase = base64::engine::general_purpose::STANDARD.encode(entropy);
+
+        fs::create_dir_all(config_dir)
+            .map_err(|e| AuthError::StorageError(e.to_string()))?;
+
+        fs::write(&passphrase_path, &passphrase)
+            .map_err(|e| AuthError::StorageError(e.to_string()))?;
+
+        // Set restrictive permissions on Unix
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mut perms = fs::metadata(&passphrase_path)
+                .map_err(|e| AuthError::StorageError(e.to_string()))?
+                .permissions();
+            perms.set_mode(0o600);
+            fs::set_permissions(&passphrase_path, perms)
+                .map_err(|e| AuthError::StorageError(e.to_string()))?;
+        }
+
+        Ok(SecretString::from(passphrase))
+    }
+}
+
+// ============================================================================
+// WASM storage with localStorage
+// ============================================================================
+
+#[cfg(target_arch = "wasm32")]
+pub fn load_or_create_identity(storage_path: String) -> Result<Arc<Identity>, AuthError> {
+    let storage = web_sys::window()
+        .and_then(|w| w.local_storage().ok())
+        .flatten()
+        .ok_or_else(|| AuthError::StorageError("localStorage not available".to_string()))?;
+
+    let key = format!("{}_identity", storage_path);
+
+    if let Ok(Some(value)) = storage.get_item(&key) {
+        // Load existing identity
+        load_identity(value)
+    } else {
+        // Create new identity and save it
+        let identity = create_identity()?;
+        save_identity(&identity, storage_path)?;
+        Ok(identity)
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+pub fn save_identity(identity: &Identity, storage_path: String) -> Result<(), AuthError> {
+    use base64::Engine;
+
+    let storage = web_sys::window()
+        .and_then(|w| w.local_storage().ok())
+        .flatten()
+        .ok_or_else(|| AuthError::StorageError("localStorage not available".to_string()))?;
+
+    let key = format!("{}_identity", storage_path);
+    let value = base64::engine::general_purpose::STANDARD.encode(identity.secret_key_bytes());
+
+    storage.set_item(&key, &value)
+        .map_err(|_| AuthError::StorageError("Failed to save to localStorage".to_string()))?;
+
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_create_identity() {
+        let identity = create_identity().expect("should create identity");
+        assert!(!identity.public_key().is_empty());
+        assert!(identity.did().starts_with("did:key:z"));
+    }
+
+    #[test]
+    fn test_sign_and_verify() {
+        let identity = create_identity().expect("should create identity");
+        let data = b"hello world".to_vec();
+
+        let signature = identity.sign(data.clone()).expect("should sign");
+        let verified = identity.verify(identity.public_key(), data, signature).expect("should verify");
+
+        assert!(verified);
+    }
+
+    #[test]
+    fn test_sign_verify_fails_with_wrong_key() {
+        let identity1 = create_identity().expect("should create identity");
+        let identity2 = create_identity().expect("should create identity");
+        let data = b"hello world".to_vec();
+
+        let signature = identity1.sign(data.clone()).expect("should sign");
+        let verified = identity1.verify(identity2.public_key(), data, signature).expect("should verify");
+
+        assert!(!verified);
+    }
+
+    #[test]
+    fn test_create_and_verify_token() {
+        let identity = create_identity().expect("should create identity");
+
+        let claims = AuthTokenClaims {
+            audience: Some("test-audience".to_string()),
+            subject: Some("test-subject".to_string()),
+            expires_at: current_timestamp() + 3600,
+            capabilities: vec!["read".to_string(), "write".to_string()],
+        };
+
+        let token = identity.create_token(claims).expect("should create token");
+        let verified = verify_auth_token(token, Some(identity.did())).expect("should verify");
+
+        assert_eq!(verified.issuer, identity.did());
+        assert_eq!(verified.audience, Some("test-audience".to_string()));
+        assert_eq!(verified.subject, Some("test-subject".to_string()));
+        assert_eq!(verified.capabilities, vec!["read", "write"]);
+    }
+
+    #[test]
+    fn test_expired_token() {
+        let identity = create_identity().expect("should create identity");
+
+        let claims = AuthTokenClaims {
+            audience: None,
+            subject: None,
+            expires_at: current_timestamp() - 3600, // Expired
+            capabilities: vec![],
+        };
+
+        let token = identity.create_token(claims).expect("should create token");
+        let result = verify_auth_token(token, None);
+
+        assert!(matches!(result, Err(AuthError::TokenExpired)));
+    }
+
+    #[test]
+    fn test_challenge_response() {
+        let identity = create_identity().expect("should create identity");
+
+        let challenge = generate_challenge();
+        let signature = identity.sign_challenge(challenge.clone()).expect("should sign challenge");
+
+        let verified = verify_challenge(&identity, challenge, signature, identity.public_key())
+            .expect("should verify challenge");
+
+        assert!(verified);
+    }
+
+    #[test]
+    fn test_did_roundtrip() {
+        let identity = create_identity().expect("should create identity");
+        let did = identity.did();
+
+        let pub_key = did_to_public_key(&did).expect("should parse DID");
+        assert_eq!(pub_key.as_bytes(), identity.signing_key.verifying_key().as_bytes());
+    }
+
+    #[test]
+    fn test_load_identity() {
+        use base64::Engine;
+
+        let identity = create_identity().expect("should create identity");
+        let key_b64 = base64::engine::general_purpose::STANDARD.encode(identity.secret_key_bytes());
+
+        let loaded = load_identity(key_b64).expect("should load identity");
+        assert_eq!(loaded.public_key(), identity.public_key());
+        assert_eq!(loaded.did(), identity.did());
+    }
+}
+</hick:file>
+</hick:when>
+
+<hick:when test="decentralized-auth && iroh">
+### Iroh + Auth Integration
+
+When both `decentralized-auth` and `iroh` features are enabled, this module provides
+additional integration for P2P peer authentication using Iroh's node identity.
+
+<hick:file path="rust-lib/src/auth_iroh.rs">//! Iroh integration for decentralized authentication
+//!
+//! When both `decentralized-auth` and `iroh` features are enabled, this module
+//! provides integration between Iroh's node identity and the auth system.
+
+use std::sync::Arc;
+use crate::auth::{Identity, AuthError, AuthTokenClaims, VerifiedToken, generate_challenge, verify_auth_token};
+use crate::networking::{IrohNode, IrohError};
+
+/// An authenticated peer connection
+#[derive(Debug, Clone)]
+pub struct AuthenticatedPeer {
+    pub peer_did: String,
+    pub peer_node_id: String,
+    pub capabilities: Vec<String>,
+}
+
+/// Create an Identity from an Iroh node's secret key
+///
+/// This reuses Iroh's ed25519 key for authentication, ensuring the node ID
+/// and DID are cryptographically linked.
+pub fn identity_from_iroh_node(node: &IrohNode) -> Result<Arc<Identity>, AuthError> {
+    // Iroh uses ed25519, same as our auth system
+    // We need to extract the secret key from the node
+    // Note: This requires the IrohNode to expose its secret key
+    let secret_key_bytes = node.secret_key_bytes()
+        .ok_or_else(|| AuthError::InvalidKey("Cannot extract secret key from Iroh node".to_string()))?;
+
+    crate::auth::load_identity_from_bytes(secret_key_bytes)
+}
+
+/// Authenticate a remote peer using challenge-response
+///
+/// This performs a challenge-response authentication with a remote peer
+/// over Iroh's QUIC connection, verifying their identity.
+pub fn authenticate_peer(
+    node: &IrohNode,
+    identity: &Identity,
+    peer_node_id: String,
+) -> Result<AuthenticatedPeer, AuthError> {
+    // Generate a challenge
+    let challenge = generate_challenge();
+
+    // Send challenge to peer via Iroh
+    let alpn = "<hick:val name="project_name" />/auth/1";
+
+    // Create challenge request
+    let request = serde_json::json!({
+        "type": "challenge",
+        "challenge": challenge,
+        "requester_did": identity.did(),
+    });
+
+    let request_bytes = serde_json::to_vec(&request)
+        .map_err(|e| AuthError::SignatureFailed(e.to_string()))?;
+
+    // Send challenge and wait for response
+    // Note: This is a simplified implementation. In production, you'd want
+    // proper bidirectional communication with timeout handling.
+    node.send(peer_node_id.clone(), alpn.to_string(), request_bytes)
+        .map_err(|e| match e {
+            IrohError::ConnectionFailed(s) => AuthError::VerificationFailed(s),
+            IrohError::SendFailed(s) => AuthError::VerificationFailed(s),
+            _ => AuthError::VerificationFailed(e.to_string()),
+        })?;
+
+    // In a real implementation, you would:
+    // 1. Wait for the peer's signed response
+    // 2. Verify the signature against the challenge
+    // 3. Extract the peer's DID and capabilities from their token
+
+    // For now, return a placeholder indicating authentication was initiated
+    // The actual verification would happen asynchronously
+    Ok(AuthenticatedPeer {
+        peer_did: format!("pending:challenge:{}", peer_node_id),
+        peer_node_id,
+        capabilities: vec![],
+    })
+}
+
+/// Verify an authentication request from a peer
+///
+/// Call this when receiving a challenge request from a remote peer.
+pub fn respond_to_auth_challenge(
+    identity: &Identity,
+    challenge: String,
+    capabilities: Vec<String>,
+) -> Result<String, AuthError> {
+    // Create a short-lived token as the response
+    let claims = AuthTokenClaims {
+        audience: None,
+        subject: Some(challenge), // Include the challenge as subject for binding
+        expires_at: crate::auth::current_timestamp_pub() + 60, // 1 minute validity
+        capabilities,
+    };
+
+    identity.create_token(claims)
+}
+
+/// Verify a peer's authentication response
+pub fn verify_peer_response(
+    expected_challenge: String,
+    response_token: String,
+) -> Result<AuthenticatedPeer, AuthError> {
+    // Verify the token
+    let verified = verify_auth_token(response_token, None)?;
+
+    // Check that the challenge matches
+    if verified.subject != Some(expected_challenge) {
+        return Err(AuthError::VerificationFailed("Challenge mismatch".to_string()));
+    }
+
+    // Extract node ID from DID (the last part after the multicodec prefix)
+    // In a real implementation, you'd map DIDs to node IDs properly
+    let peer_node_id = did_to_node_id_hint(&verified.issuer);
+
+    Ok(AuthenticatedPeer {
+        peer_did: verified.issuer,
+        peer_node_id,
+        capabilities: verified.capabilities,
+    })
+}
+
+/// Extract a hint for the node ID from a DID
+/// This is a best-effort mapping; proper verification requires the actual node ID
+fn did_to_node_id_hint(did: &str) -> String {
+    // DIDs and Iroh node IDs both use ed25519, but have different encodings
+    // This extracts the base58 portion as a hint
+    if did.starts_with("did:key:z") {
+        did[9..].to_string() // Skip "did:key:z"
+    } else {
+        did.to_string()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::auth::create_identity;
+
+    #[test]
+    fn test_challenge_response_flow() {
+        let identity = create_identity().expect("should create identity");
+        let challenge = generate_challenge();
+
+        // Simulate responding to a challenge
+        let response = respond_to_auth_challenge(
+            &identity,
+            challenge.clone(),
+            vec!["read".to_string()],
+        ).expect("should create response");
+
+        // Verify the response
+        let peer = verify_peer_response(challenge, response)
+            .expect("should verify response");
+
+        assert_eq!(peer.peer_did, identity.did());
+        assert_eq!(peer.capabilities, vec!["read"]);
+    }
+}
+</hick:file>
+
+Now update lib.rs to include the auth_iroh module and add the helper function:
+
+Add to auth.rs a public timestamp function and bytes loader:
+
+```rust
+// In auth.rs, add these public functions for iroh integration:
+pub fn current_timestamp_pub() -> u64 {
+    current_timestamp()
+}
+
+pub fn load_identity_from_bytes(key_bytes: [u8; 32]) -> Result<Arc<Identity>, AuthError> {
+    let signing_key = SigningKey::from_bytes(&key_bytes);
+    Ok(Arc::new(Identity::new(signing_key)))
+}
+```
+
+The UniFFI interface for the combined features:
+
+Add to core.udl after the decentralized-auth section:
+</hick:when>
+
+<hick:when test="event-sourcing">
+### Event Sourcing Architecture
+
+This module implements an event sourcing architecture that enables a sliding scale between
+heavy servers/thin clients and thin servers/heavy clients. All domain changes are event-driven.
+
+**Benefits:**
+- Reduce cloud costs by moving computation to clients
+- Maximize offline functionality with local-first data
+- Minimize frontend code duplication via shared Rust library
+
+#### Core Design Principles
+
+- **Event sourcing for all domain objects** — State is derived from an append-only event log
+- **E2E encryption for sensitive entities** — Combined with `decentralized-auth` feature
+- **Server responsibilities minimized** — Auth, ferrying/storing encrypted data, push notifications
+- **SQLite for local storage** — Clients maintain a local subset of data
+- **File contents separate from events** — Large files stored out-of-band, still encrypted
+
+#### File Uploads
+
+File uploads are handled asynchronously outside the event stream:
+1. Command event requests a signed URL from the server
+2. Client uploads file directly to object storage
+3. Event references the file by its content hash
+
+This approach works with any object storage provider and keeps the event stream lightweight.
+
+#### Snapshots
+
+Events are organized by aggregate root. Snapshot events compress history for new clients:
+- The unencrypted `is_snapshot` flag lets the server identify snapshot boundaries
+- Server can discard pre-snapshot events (optionally retained for audit)
+- New clients receive only the latest snapshot plus subsequent events
+
+#### Conflict Resolution
+
+Each event includes `previous_event_ids` for conflict detection:
+- Concurrent offline edits produce events with the same previous ID
+- Conflicts are resolved via CRDT (default: last-write-wins)
+- Some entities can surface conflicts in UI for manual resolution
+- Merge events reference multiple previous IDs
+
+**Supported strategies:**
+| Strategy | Behavior |
+|----------|----------|
+| `LastWriteWins` | Latest timestamp wins (default) |
+| `FirstWriteWins` | Earliest timestamp wins |
+| `Merge` | Custom merge function (requires application logic) |
+| `Manual` | Surface conflict to UI for user resolution |
+
+#### Branching
+
+The optional `branch` property enables advanced workflows:
+- **Dry runs** — Test changes before committing to main
+- **Review/approve workflows** — Changes reviewed before merge
+- **Merge operations** — Combine branch events into main timeline
+
+Merge events are unencrypted so the server knows which events to send to which clients.
+
+#### Local Storage Architecture
+
+- **SQLite** — Structured data storage with full query capability
+- **Device filesystem** — Cached files from cloud storage
+- **Cloud storage** — Assume users have more files than fit on device
+- **Encryption** — Files always encrypted before upload
+
+#### Bulk Import/Export
+
+Parquet files support admin bulk operations across all entities, enabling:
+- Data migration between systems
+- Backup and restore
+- Analytics and reporting
+
+#### Server Responsibilities
+
+The server acts as a relay for encrypted data:
+- Ferry events between devices and users (based on org membership)
+- Store encrypted event streams
+- Provide events since last snapshot by entity ID
+- Push notifications for real-time sync
+
+#### End-to-End Encryption Integration
+
+When combined with the `decentralized-auth` feature:
+
+**Password = Private Key:**
+- Client decrypts server's challenge (encrypted with user's public key)
+- Key never leaves device
+
+**Device-to-Device Sync:**
+1. Exchange public keys
+2. Verify identity via challenge/response
+3. Send events encrypted with recipient's public key
+
+**Partial Encryption:**
+- Not all entities need E2E encryption
+- Allows password reset with partial data loss
+- E2E only for sensitive data where loss on reset is acceptable
+
+#### Event Properties
+
+| Property | Type | Description |
+|----------|------|-------------|
+| `timestamp` | `u64` | Unix timestamp in milliseconds |
+| `site_id` | `String` | Device/client identifier, part of event ID |
+| `lamport_timestamp` | `u64` | Logical clock sequence number |
+| `previous_event_ids` | `Vec<String>` | For conflict detection; multiple IDs for merges |
+| `author_ids` | `Vec<String>` | User(s) who authored; `[human, LLM]` for AI-assisted |
+| `branch` | `Option<String>` | Optional branch for dry runs/workflows |
+| `is_snapshot` | `bool` | Whether this event compresses history |
+
+---
+
+### Implementation
+
+<hick:file path="rust-lib/src/events.rs">//! Event sourcing module
+//!
+//! Provides event-driven architecture with:
+//! - Immutable event records with causal ordering
+//! - Aggregate root management
+//! - Snapshot compression
+//! - CRDT-based conflict resolution
+
+use serde::{Deserialize, Serialize};
+use thiserror::Error;
+use uuid::Uuid;
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
+
+#[cfg(not(target_arch = "wasm32"))]
+use std::sync::Mutex;
+#[cfg(target_arch = "wasm32")]
+use std::cell::RefCell;
+
+/// Errors that can occur in event sourcing operations
+#[derive(Error, Debug)]
+pub enum EventError {
+    #[error("Event not found: {0}")]
+    NotFound(String),
+
+    #[error("Conflict detected: {0}")]
+    Conflict(String),
+
+    #[error("Invalid event: {0}")]
+    InvalidEvent(String),
+
+    #[error("Storage error: {0}")]
+    StorageError(String),
+
+    #[error("Serialization error: {0}")]
+    SerializationError(String),
+}
+
+/// Event metadata for causal ordering and conflict detection
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EventMetadata {
+    /// When the event occurred (Unix timestamp milliseconds)
+    pub timestamp: u64,
+    /// Device/client identifier
+    pub site_id: String,
+    /// Logical clock sequence number
+    pub lamport_timestamp: u64,
+    /// Previous event ID(s) for conflict detection
+    pub previous_event_ids: Vec<String>,
+    /// User(s) who authored the event (supports human + LLM co-authorship)
+    pub author_ids: Vec<String>,
+    /// Optional branch for dry runs or review workflows
+    pub branch: Option<String>,
+    /// Whether this event is a snapshot that compresses history
+    pub is_snapshot: bool,
+}
+
+/// A domain event with typed payload
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Event {
+    /// Unique event identifier (site_id + lamport_timestamp)
+    pub id: String,
+    /// The aggregate root this event belongs to
+    pub aggregate_id: String,
+    /// The type of aggregate (e.g., "user", "document", "task")
+    pub aggregate_type: String,
+    /// Event type name (e.g., "created", "updated", "deleted")
+    pub event_type: String,
+    /// Event payload as JSON
+    pub payload: String,
+    /// Event metadata
+    pub metadata: EventMetadata,
+}
+
+impl Event {
+    /// Create a new event
+    pub fn new(
+        aggregate_id: String,
+        aggregate_type: String,
+        event_type: String,
+        payload: String,
+        site_id: String,
+        lamport_timestamp: u64,
+        previous_event_ids: Vec<String>,
+        author_ids: Vec<String>,
+    ) -> Self {
+        let id = format!("{}-{}", site_id, lamport_timestamp);
+        Self {
+            id,
+            aggregate_id,
+            aggregate_type,
+            event_type,
+            payload,
+            metadata: EventMetadata {
+                timestamp: current_timestamp_ms(),
+                site_id,
+                lamport_timestamp,
+                previous_event_ids,
+                author_ids,
+                branch: None,
+                is_snapshot: false,
+            },
+        }
+    }
+
+    /// Create a snapshot event that compresses history
+    pub fn snapshot(
+        aggregate_id: String,
+        aggregate_type: String,
+        state_payload: String,
+        site_id: String,
+        lamport_timestamp: u64,
+        previous_event_ids: Vec<String>,
+        author_ids: Vec<String>,
+    ) -> Self {
+        let mut event = Self::new(
+            aggregate_id,
+            aggregate_type,
+            "snapshot".to_string(),
+            state_payload,
+            site_id,
+            lamport_timestamp,
+            previous_event_ids,
+            author_ids,
+        );
+        event.metadata.is_snapshot = true;
+        event
+    }
+
+    /// Set the branch for this event
+    pub fn with_branch(mut self, branch: String) -> Self {
+        self.metadata.branch = Some(branch);
+        self
+    }
+}
+
+/// Conflict resolution strategy
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+pub enum ConflictStrategy {
+    /// Last write wins based on timestamp
+    LastWriteWins,
+    /// First write wins based on timestamp
+    FirstWriteWins,
+    /// Merge concurrent changes (requires custom merge function)
+    Merge,
+    /// Surface conflict to UI for manual resolution
+    Manual,
+}
+
+impl Default for ConflictStrategy {
+    fn default() -> Self {
+        Self::LastWriteWins
+    }
+}
+
+/// Result of conflict detection
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConflictInfo {
+    /// The conflicting events (same previous_event_id)
+    pub conflicting_events: Vec<Event>,
+    /// The common ancestor event ID
+    pub common_ancestor: String,
+    /// Whether the conflict was auto-resolved
+    pub auto_resolved: bool,
+    /// The winning event ID (if auto-resolved)
+    pub winner_id: Option<String>,
+}
+
+/// A local event store for managing events
+#[cfg(not(target_arch = "wasm32"))]
+pub struct EventStore {
+    /// In-memory event storage (keyed by aggregate_id)
+    events: Arc<Mutex<HashMap<String, Vec<Event>>>>,
+    /// Current lamport timestamp for this site
+    lamport_clock: Arc<Mutex<u64>>,
+    /// This site's identifier
+    site_id: String,
+    /// Conflict resolution strategy
+    conflict_strategy: ConflictStrategy,
+}
+
+#[cfg(target_arch = "wasm32")]
+pub struct EventStore {
+    events: RefCell<HashMap<String, Vec<Event>>>,
+    lamport_clock: RefCell<u64>,
+    site_id: String,
+    conflict_strategy: ConflictStrategy,
+}
+
+// Safety: EventStore is only used single-threaded in WASM
+#[cfg(target_arch = "wasm32")]
+unsafe impl Send for EventStore {}
+#[cfg(target_arch = "wasm32")]
+unsafe impl Sync for EventStore {}
+
+impl EventStore {
+    /// Get the current lamport timestamp and increment it
+    fn next_lamport(&self) -> u64 {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let mut clock = self.lamport_clock.lock().unwrap();
+            let current = *clock;
+            *clock += 1;
+            current
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            let mut clock = self.lamport_clock.borrow_mut();
+            let current = *clock;
+            *clock += 1;
+            current
+        }
+    }
+
+    /// Update lamport clock based on received event
+    fn update_lamport(&self, received_timestamp: u64) {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let mut clock = self.lamport_clock.lock().unwrap();
+            *clock = (*clock).max(received_timestamp) + 1;
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            let mut clock = self.lamport_clock.borrow_mut();
+            *clock = (*clock).max(received_timestamp) + 1;
+        }
+    }
+
+    /// Get all events for an aggregate
+    fn get_events_internal(&self, aggregate_id: &str) -> Vec<Event> {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let events = self.events.lock().unwrap();
+            events.get(aggregate_id).cloned().unwrap_or_default()
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            let events = self.events.borrow();
+            events.get(aggregate_id).cloned().unwrap_or_default()
+        }
+    }
+
+    /// Store an event
+    fn store_event_internal(&self, event: Event) {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let mut events = self.events.lock().unwrap();
+            events.entry(event.aggregate_id.clone()).or_default().push(event);
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            let mut events = self.events.borrow_mut();
+            events.entry(event.aggregate_id.clone()).or_default().push(event);
+        }
+    }
+
+    /// Get the site ID
+    pub fn site_id(&self) -> String {
+        self.site_id.clone()
+    }
+
+    /// Get the current lamport timestamp (without incrementing)
+    pub fn current_lamport(&self) -> u64 {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            *self.lamport_clock.lock().unwrap()
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            *self.lamport_clock.borrow()
+        }
+    }
+
+    /// Append a new event to an aggregate
+    pub fn append(
+        &self,
+        aggregate_id: String,
+        aggregate_type: String,
+        event_type: String,
+        payload: String,
+        author_ids: Vec<String>,
+    ) -> Result<Event, EventError> {
+        let events = self.get_events_internal(&aggregate_id);
+        let previous_ids: Vec<String> = events
+            .iter()
+            .filter(|e| e.metadata.branch.is_none()) // Only main branch events
+            .rev()
+            .take(1)
+            .map(|e| e.id.clone())
+            .collect();
+
+        let lamport = self.next_lamport();
+        let event = Event::new(
+            aggregate_id,
+            aggregate_type,
+            event_type,
+            payload,
+            self.site_id.clone(),
+            lamport,
+            previous_ids,
+            author_ids,
+        );
+
+        self.store_event_internal(event.clone());
+        Ok(event)
+    }
+
+    /// Append an event to a specific branch
+    pub fn append_to_branch(
+        &self,
+        aggregate_id: String,
+        aggregate_type: String,
+        event_type: String,
+        payload: String,
+        author_ids: Vec<String>,
+        branch: String,
+    ) -> Result<Event, EventError> {
+        let events = self.get_events_internal(&aggregate_id);
+        let previous_ids: Vec<String> = events
+            .iter()
+            .filter(|e| e.metadata.branch.as_ref() == Some(&branch))
+            .rev()
+            .take(1)
+            .map(|e| e.id.clone())
+            .collect();
+
+        let lamport = self.next_lamport();
+        let event = Event::new(
+            aggregate_id,
+            aggregate_type,
+            event_type,
+            payload,
+            self.site_id.clone(),
+            lamport,
+            previous_ids,
+            author_ids,
+        ).with_branch(branch);
+
+        self.store_event_internal(event.clone());
+        Ok(event)
+    }
+
+    /// Create a snapshot for an aggregate
+    pub fn create_snapshot(
+        &self,
+        aggregate_id: String,
+        aggregate_type: String,
+        state_payload: String,
+        author_ids: Vec<String>,
+    ) -> Result<Event, EventError> {
+        let events = self.get_events_internal(&aggregate_id);
+        let previous_ids: Vec<String> = events
+            .iter()
+            .filter(|e| e.metadata.branch.is_none())
+            .map(|e| e.id.clone())
+            .collect();
+
+        let lamport = self.next_lamport();
+        let event = Event::snapshot(
+            aggregate_id,
+            aggregate_type,
+            state_payload,
+            self.site_id.clone(),
+            lamport,
+            previous_ids,
+            author_ids,
+        );
+
+        self.store_event_internal(event.clone());
+        Ok(event)
+    }
+
+    /// Receive an event from another site
+    pub fn receive(&self, event: Event) -> Result<Option<ConflictInfo>, EventError> {
+        // Update lamport clock
+        self.update_lamport(event.metadata.lamport_timestamp);
+
+        // Check for conflicts (events with same previous_event_id)
+        let existing = self.get_events_internal(&event.aggregate_id);
+        let conflicts: Vec<Event> = existing
+            .iter()
+            .filter(|e| {
+                // Check if any previous IDs overlap
+                e.metadata.previous_event_ids.iter()
+                    .any(|pid| event.metadata.previous_event_ids.contains(pid))
+                    && e.id != event.id
+            })
+            .cloned()
+            .collect();
+
+        if !conflicts.is_empty() {
+            let common_ancestor = event.metadata.previous_event_ids
+                .first()
+                .cloned()
+                .unwrap_or_default();
+
+            let mut all_conflicts = conflicts.clone();
+            all_conflicts.push(event.clone());
+
+            let conflict_info = self.resolve_conflicts(&all_conflicts, &common_ancestor)?;
+            self.store_event_internal(event);
+            return Ok(Some(conflict_info));
+        }
+
+        self.store_event_internal(event);
+        Ok(None)
+    }
+
+    /// Resolve conflicts between events
+    fn resolve_conflicts(&self, events: &[Event], common_ancestor: &str) -> Result<ConflictInfo, EventError> {
+        let (auto_resolved, winner_id) = match self.conflict_strategy {
+            ConflictStrategy::LastWriteWins => {
+                let winner = events.iter()
+                    .max_by_key(|e| e.metadata.timestamp)
+                    .map(|e| e.id.clone());
+                (true, winner)
+            }
+            ConflictStrategy::FirstWriteWins => {
+                let winner = events.iter()
+                    .min_by_key(|e| e.metadata.timestamp)
+                    .map(|e| e.id.clone());
+                (true, winner)
+            }
+            ConflictStrategy::Merge | ConflictStrategy::Manual => {
+                (false, None)
+            }
+        };
+
+        Ok(ConflictInfo {
+            conflicting_events: events.to_vec(),
+            common_ancestor: common_ancestor.to_string(),
+            auto_resolved,
+            winner_id,
+        })
+    }
+
+    /// Get all events for an aggregate since the last snapshot
+    pub fn get_events_since_snapshot(&self, aggregate_id: String) -> Vec<Event> {
+        let events = self.get_events_internal(&aggregate_id);
+
+        // Find the last snapshot
+        let last_snapshot_idx = events.iter()
+            .rposition(|e| e.metadata.is_snapshot);
+
+        match last_snapshot_idx {
+            Some(idx) => events[idx..].to_vec(),
+            None => events,
+        }
+    }
+
+    /// Get all events for an aggregate (full history)
+    pub fn get_all_events(&self, aggregate_id: String) -> Vec<Event> {
+        self.get_events_internal(&aggregate_id)
+    }
+
+    /// Get events for a specific branch
+    pub fn get_branch_events(&self, aggregate_id: String, branch: String) -> Vec<Event> {
+        self.get_events_internal(&aggregate_id)
+            .into_iter()
+            .filter(|e| e.metadata.branch.as_ref() == Some(&branch))
+            .collect()
+    }
+
+    /// Merge a branch into main
+    pub fn merge_branch(
+        &self,
+        aggregate_id: String,
+        aggregate_type: String,
+        branch: String,
+        author_ids: Vec<String>,
+    ) -> Result<Event, EventError> {
+        let branch_events = self.get_branch_events(aggregate_id.clone(), branch.clone());
+        if branch_events.is_empty() {
+            return Err(EventError::NotFound(format!("Branch '{}' has no events", branch)));
+        }
+
+        // Create a merge event that references both main and branch
+        let main_events = self.get_events_internal(&aggregate_id);
+        let mut previous_ids: Vec<String> = main_events
+            .iter()
+            .filter(|e| e.metadata.branch.is_none())
+            .rev()
+            .take(1)
+            .map(|e| e.id.clone())
+            .collect();
+
+        // Add the last branch event
+        if let Some(last_branch) = branch_events.last() {
+            previous_ids.push(last_branch.id.clone());
+        }
+
+        let lamport = self.next_lamport();
+        let event = Event::new(
+            aggregate_id,
+            aggregate_type,
+            "branch_merged".to_string(),
+            serde_json::json!({ "merged_branch": branch }).to_string(),
+            self.site_id.clone(),
+            lamport,
+            previous_ids,
+            author_ids,
+        );
+
+        self.store_event_internal(event.clone());
+        Ok(event)
+    }
+
+    /// Export events as JSON for sync
+    pub fn export_events(&self, aggregate_id: String, since_lamport: Option<u64>) -> Result<String, EventError> {
+        let events = self.get_events_internal(&aggregate_id);
+        let filtered: Vec<&Event> = match since_lamport {
+            Some(lamport) => events.iter()
+                .filter(|e| e.metadata.lamport_timestamp > lamport)
+                .collect(),
+            None => events.iter().collect(),
+        };
+
+        serde_json::to_string(&filtered)
+            .map_err(|e| EventError::SerializationError(e.to_string()))
+    }
+
+    /// Import events from JSON
+    pub fn import_events(&self, events_json: String) -> Result<Vec<Option<ConflictInfo>>, EventError> {
+        let events: Vec<Event> = serde_json::from_str(&events_json)
+            .map_err(|e| EventError::SerializationError(e.to_string()))?;
+
+        let mut conflicts = Vec::new();
+        for event in events {
+            conflicts.push(self.receive(event)?);
+        }
+
+        Ok(conflicts)
+    }
+}
+
+/// Create a new event store
+pub fn create_event_store(site_id: String, conflict_strategy: ConflictStrategy) -> Arc<EventStore> {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        Arc::new(EventStore {
+            events: Arc::new(Mutex::new(HashMap::new())),
+            lamport_clock: Arc::new(Mutex::new(0)),
+            site_id,
+            conflict_strategy,
+        })
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        Arc::new(EventStore {
+            events: RefCell::new(HashMap::new()),
+            lamport_clock: RefCell::new(0),
+            site_id,
+            conflict_strategy,
+        })
+    }
+}
+
+/// Get current timestamp in milliseconds
+fn current_timestamp_ms() -> u64 {
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_millis() as u64
+    }
+    #[cfg(target_arch = "wasm32")]
+    {
+        js_sys::Date::now() as u64
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_append_event() {
+        let store = create_event_store("site1".to_string(), ConflictStrategy::LastWriteWins);
+
+        let event = store.append(
+            "agg-123".to_string(),
+            "task".to_string(),
+            "created".to_string(),
+            r#"{"title":"Test"}"#.to_string(),
+            vec!["user-1".to_string()],
+        ).unwrap();
+
+        assert_eq!(event.aggregate_id, "agg-123");
+        assert_eq!(event.event_type, "created");
+        assert!(!event.metadata.is_snapshot);
+    }
+
+    #[test]
+    fn test_snapshot() {
+        let store = create_event_store("site1".to_string(), ConflictStrategy::LastWriteWins);
+
+        // Add some events
+        store.append(
+            "agg-123".to_string(),
+            "task".to_string(),
+            "created".to_string(),
+            r#"{"title":"Test"}"#.to_string(),
+            vec!["user-1".to_string()],
+        ).unwrap();
+
+        store.append(
+            "agg-123".to_string(),
+            "task".to_string(),
+            "updated".to_string(),
+            r#"{"title":"Updated"}"#.to_string(),
+            vec!["user-1".to_string()],
+        ).unwrap();
+
+        // Create snapshot
+        let snapshot = store.create_snapshot(
+            "agg-123".to_string(),
+            "task".to_string(),
+            r#"{"title":"Updated","completed":false}"#.to_string(),
+            vec!["user-1".to_string()],
+        ).unwrap();
+
+        assert!(snapshot.metadata.is_snapshot);
+
+        // Get events since snapshot
+        let events = store.get_events_since_snapshot("agg-123".to_string());
+        assert_eq!(events.len(), 1);
+        assert!(events[0].metadata.is_snapshot);
+    }
+
+    #[test]
+    fn test_conflict_detection() {
+        let store1 = create_event_store("site1".to_string(), ConflictStrategy::LastWriteWins);
+        let store2 = create_event_store("site2".to_string(), ConflictStrategy::LastWriteWins);
+
+        // Both sites create events with same previous
+        let event1 = store1.append(
+            "agg-123".to_string(),
+            "task".to_string(),
+            "created".to_string(),
+            r#"{"title":"From Site 1"}"#.to_string(),
+            vec!["user-1".to_string()],
+        ).unwrap();
+
+        // Site 2 receives the initial event
+        store2.receive(event1.clone()).unwrap();
+
+        // Both sites make concurrent edits (same previous event)
+        let edit1 = store1.append(
+            "agg-123".to_string(),
+            "task".to_string(),
+            "updated".to_string(),
+            r#"{"title":"Edit from Site 1"}"#.to_string(),
+            vec!["user-1".to_string()],
+        ).unwrap();
+
+        let edit2 = store2.append(
+            "agg-123".to_string(),
+            "task".to_string(),
+            "updated".to_string(),
+            r#"{"title":"Edit from Site 2"}"#.to_string(),
+            vec!["user-2".to_string()],
+        ).unwrap();
+
+        // Site 1 receives Site 2's edit - conflict!
+        let conflict = store1.receive(edit2).unwrap();
+        assert!(conflict.is_some());
+        let info = conflict.unwrap();
+        assert!(info.auto_resolved);
+        assert!(info.winner_id.is_some());
+    }
+
+    #[test]
+    fn test_branch_and_merge() {
+        let store = create_event_store("site1".to_string(), ConflictStrategy::LastWriteWins);
+
+        // Create initial event
+        store.append(
+            "agg-123".to_string(),
+            "task".to_string(),
+            "created".to_string(),
+            r#"{"title":"Test"}"#.to_string(),
+            vec!["user-1".to_string()],
+        ).unwrap();
+
+        // Create branch event
+        store.append_to_branch(
+            "agg-123".to_string(),
+            "task".to_string(),
+            "updated".to_string(),
+            r#"{"title":"Draft Edit"}"#.to_string(),
+            vec!["user-1".to_string()],
+            "draft".to_string(),
+        ).unwrap();
+
+        // Get branch events
+        let branch_events = store.get_branch_events("agg-123".to_string(), "draft".to_string());
+        assert_eq!(branch_events.len(), 1);
+
+        // Merge branch
+        let merge = store.merge_branch(
+            "agg-123".to_string(),
+            "task".to_string(),
+            "draft".to_string(),
+            vec!["user-1".to_string()],
+        ).unwrap();
+
+        assert_eq!(merge.event_type, "branch_merged");
+        assert_eq!(merge.metadata.previous_event_ids.len(), 2);
+    }
+
+    #[test]
+    fn test_export_import() {
+        let store1 = create_event_store("site1".to_string(), ConflictStrategy::LastWriteWins);
+        let store2 = create_event_store("site2".to_string(), ConflictStrategy::LastWriteWins);
+
+        // Add events to store1
+        store1.append(
+            "agg-123".to_string(),
+            "task".to_string(),
+            "created".to_string(),
+            r#"{"title":"Test"}"#.to_string(),
+            vec!["user-1".to_string()],
+        ).unwrap();
+
+        // Export and import to store2
+        let json = store1.export_events("agg-123".to_string(), None).unwrap();
+        let conflicts = store2.import_events(json).unwrap();
+
+        assert!(conflicts.iter().all(|c| c.is_none())); // No conflicts
+
+        let events = store2.get_all_events("agg-123".to_string());
+        assert_eq!(events.len(), 1);
+    }
+}
+</hick:file>
+</hick:when>
+
+### WASM-Specific TypeScript Bindings
+
+For web platforms, we provide TypeScript type definitions. These are generated by
+wasm-bindgen but we include a manual declaration file for better IDE support:
+
+<hick:file path="rust-lib/pkg/types.d.ts">// TypeScript declarations for <hick:val name="project_name" />-core WASM module
+// These augment the auto-generated wasm-bindgen types
+
+declare module '<hick:val name="project_name" />-core' {
+  /**
+   * Initialize the WASM module
+   * Must be called before using any other functions
+   */
+  export default function init(): Promise<void>;
+
+  /**
+   * Generate a personalized greeting
+   * @param name - The name to greet (empty string returns default greeting)
+   * @returns A greeting string
+   */
+  export function greet(name: string): string;
+
+  /**
+   * Calculate the nth Fibonacci number
+   * @param n - The index (0-based) of the Fibonacci number
+   * @returns The nth Fibonacci number as a bigint
+   */
+  export function fibonacci(n: number): bigint;
+
+  /**
+   * Process JSON data and return computed statistics
+   * @param jsonInput - JSON string with { values: number[] }
+   * @returns JSON string with { sum, count, average, sorted }
+   */
+  export function process_data(jsonInput: string): string;
+<hick:when test="decentralized-auth">
+  /**
+   * Create a new random identity
+   */
+  export function create_identity(): Identity;
+
+  /**
+   * Load an identity from base64-encoded private key
+   */
+  export function load_identity(privateKeyBase64: string): Identity;
+
+  /**
+   * Load an identity from storage, or create a new one
+   * @param storagePath - Storage key name for localStorage
+   */
+  export function load_or_create_identity(storagePath: string): Identity;
+
+  /**
+   * Save an identity to storage
+   * @param identity - The identity to save
+   * @param storagePath - Storage key name for localStorage
+   */
+  export function save_identity(identity: Identity, storagePath: string): void;
+
+  /**
+   * Verify an auth token
+   * @param token - The token string
+   * @param expectedIssuer - Optional DID to verify issuer against
+   */
+  export function verify_auth_token(token: string, expectedIssuer?: string): VerifiedToken;
+
+  /**
+   * Generate a cryptographic challenge
+   */
+  export function generate_challenge(): string;
+
+  /**
+   * Verify a signed challenge
+   */
+  export function verify_challenge(
+    identity: Identity,
+    challenge: string,
+    signature: string,
+    signerPublicKey: string
+  ): boolean;
+
+  /**
+   * Claims for creating an auth token
+   */
+  export interface AuthTokenClaims {
+    audience?: string;
+    subject?: string;
+    expires_at: number;
+    capabilities: string[];
+  }
+
+  /**
+   * A verified auth token
+   */
+  export interface VerifiedToken {
+    issuer: string;
+    audience?: string;
+    subject?: string;
+    expires_at: number;
+    issued_at: number;
+    capabilities: string[];
+  }
+
+  /**
+   * An ed25519 identity for signing and verification
+   */
+  export interface Identity {
+    /** Get the public key as base64 */
+    public_key(): string;
+    /** Get the DID identifier (did:key:z6Mk...) */
+    did(): string;
+    /** Sign arbitrary data, returns base64 signature */
+    sign(data: Uint8Array): string;
+    /** Verify a signature from any public key */
+    verify(publicKey: string, data: Uint8Array, signature: string): boolean;
+    /** Create a signed auth token */
+    create_token(claims: AuthTokenClaims): string;
+    /** Sign a challenge for authentication */
+    sign_challenge(challenge: string): string;
+  }
+</hick:when>
+<hick:when test="event-sourcing">
+  /**
+   * Create a new event store
+   * @param siteId - Unique identifier for this device/client
+   * @param conflictStrategy - Strategy for resolving conflicts
+   */
+  export function create_event_store(siteId: string, conflictStrategy: ConflictStrategy): EventStore;
+
+  /**
+   * Conflict resolution strategy
+   */
+  export type ConflictStrategy =
+    | { type: 'LastWriteWins' }
+    | { type: 'FirstWriteWins' }
+    | { type: 'Merge' }
+    | { type: 'Manual' };
+
+  /**
+   * Event metadata for causal ordering
+   */
+  export interface EventMetadata {
+    timestamp: number;
+    site_id: string;
+    lamport_timestamp: number;
+    previous_event_ids: string[];
+    author_ids: string[];
+    branch?: string;
+    is_snapshot: boolean;
+  }
+
+  /**
+   * A domain event
+   */
+  export interface Event {
+    id: string;
+    aggregate_id: string;
+    aggregate_type: string;
+    event_type: string;
+    payload: string;
+    metadata: EventMetadata;
+  }
+
+  /**
+   * Information about detected conflicts
+   */
+  export interface ConflictInfo {
+    conflicting_events: Event[];
+    common_ancestor: string;
+    auto_resolved: boolean;
+    winner_id?: string;
+  }
+
+  /**
+   * Event store for managing domain events
+   */
+  export interface EventStore {
+    /** Get this store's site ID */
+    site_id(): string;
+    /** Get current lamport timestamp */
+    current_lamport(): number;
+    /** Append an event to an aggregate */
+    append(aggregateId: string, aggregateType: string, eventType: string, payload: string, authorIds: string[]): Event;
+    /** Append an event to a branch */
+    append_to_branch(aggregateId: string, aggregateType: string, eventType: string, payload: string, authorIds: string[], branch: string): Event;
+    /** Create a snapshot */
+    create_snapshot(aggregateId: string, aggregateType: string, statePayload: string, authorIds: string[]): Event;
+    /** Receive an event from another site */
+    receive(event: Event): ConflictInfo | null;
+    /** Get events since last snapshot */
+    get_events_since_snapshot(aggregateId: string): Event[];
+    /** Get all events */
+    get_all_events(aggregateId: string): Event[];
+    /** Get branch events */
+    get_branch_events(aggregateId: string, branch: string): Event[];
+    /** Merge a branch */
+    merge_branch(aggregateId: string, aggregateType: string, branch: string, authorIds: string[]): Event;
+    /** Export events as JSON */
+    export_events(aggregateId: string, sinceLamport?: number): string;
+    /** Import events from JSON */
+    import_events(eventsJson: string): (ConflictInfo | null)[];
+  }
+</hick:when>
+<hick:when test="sqlite">
+  /**
+   * Open a database connection
+   * @param path - Database path (ignored on WASM, uses in-memory)
+   * @returns A Database instance
+   */
+  export function open_database(path: string): Database;
+
+  /**
+   * A todo item
+   */
+  export interface TodoItem {
+    id: string;
+    title: string;
+    completed: boolean;
+    created_at: string;
+  }
+
+  /**
+   * Database interface for CRUD operations
+   * Note: Methods return JSON strings that need to be parsed
+   */
+  export interface Database {
+    /** Creates a todo and returns JSON string of TodoItem */
+    create_todo(title: string): string;
+    /** Returns JSON string of TodoItem[] */
+    list_todos(): string;
+    /** Returns JSON string of TodoItem or null */
+    get_todo(id: string): string | null;
+    /** Updates a todo and returns JSON string of TodoItem */
+    update_todo(id: string, title: string | null, completed: boolean | null): string;
+    delete_todo(id: string): void;
+    close(): void;
+  }
+</hick:when>
+}
+</hick:file>
+
+### Build Scripts
+
+Scripts to build the core library for different targets:
+
+<hick:file path="rust-lib/build-wasm.sh">#!/bin/bash
+# Build WASM package for web platforms
+# Requires: wasm-pack (cargo install wasm-pack)
+
+set -e
+
+echo "Building <hick:val name="project_name" />-core for WebAssembly..."
+
+# Build with wasm-pack for bundler target (works with Vite)
+wasm-pack build --target bundler --out-dir pkg
+
+# Also build for web target (can be loaded directly in browser)
+wasm-pack build --target web --out-dir pkg-web
+
+echo "WASM build complete!"
+echo "  - Bundler output: pkg/"
+echo "  - Web output: pkg-web/"
+</hick:file>
+
+<hick:file path="rust-lib/build-native.sh">#!/bin/bash
+# Build native libraries and generate FFI bindings
+# Requires: uniffi-bindgen (cargo install uniffi_bindgen)
+
+set -e
+
+echo "Building <hick:val name="project_name" />-core for native platforms..."
+
+# Build the native library
+cargo build --release
+
+# Generate Swift bindings
+echo "Generating Swift bindings..."
+cargo run --bin uniffi-bindgen generate --library target/release/lib<hick:val name="project_name" />_core.dylib --language swift --out-dir bindings/swift 2>/dev/null || \
+cargo run --bin uniffi-bindgen generate --library target/release/lib<hick:val name="project_name" />_core.so --language swift --out-dir bindings/swift 2>/dev/null || \
+echo "Swift binding generation requires macOS or Linux"
+
+# Generate Kotlin bindings
+echo "Generating Kotlin bindings..."
+cargo run --bin uniffi-bindgen generate --library target/release/lib<hick:val name="project_name" />_core.dylib --language kotlin --out-dir bindings/kotlin 2>/dev/null || \
+cargo run --bin uniffi-bindgen generate --library target/release/lib<hick:val name="project_name" />_core.so --language kotlin --out-dir bindings/kotlin 2>/dev/null || \
+echo "Kotlin binding generation requires macOS or Linux"
+
+# Generate C# bindings
+echo "Generating C# bindings..."
+cargo run --bin uniffi-bindgen generate --library target/release/lib<hick:val name="project_name" />_core.dylib --language csharp --out-dir bindings/csharp 2>/dev/null || \
+cargo run --bin uniffi-bindgen generate --library target/release/lib<hick:val name="project_name" />_core.so --language csharp --out-dir bindings/csharp 2>/dev/null || \
+echo "C# binding generation requires macOS or Linux"
+
+echo "Native build complete!"
+echo "Bindings generated in: bindings/"
+</hick:file>
+
+### UniFFI Bindgen Binary
+
+A helper binary for generating bindings:
+
+<hick:file path="rust-lib/src/bin/uniffi-bindgen.rs">//! UniFFI binding generator binary
+//!
+//! Run with: cargo run --bin uniffi-bindgen -- generate ...
+
+fn main() {
+    #[cfg(not(target_arch = "wasm32"))]
+    uniffi::uniffi_bindgen_main();
+
+    #[cfg(target_arch = "wasm32")]
+    panic!("uniffi-bindgen cannot run on wasm32 target");
+}
+</hick:file>
+
+### Directory Structure
+
+Create placeholder directories for generated bindings:
+
+<hick:file path="rust-lib/bindings/.gitkeep"># Generated FFI bindings directory
+# Run build-native.sh to generate bindings for:
+# - swift/   - Swift bindings for iOS/macOS
+# - kotlin/  - Kotlin bindings for Android
+# - csharp/  - C# bindings for Avalonia/.NET
+</hick:file>
+
+<hick:file path="rust-lib/pkg/.gitkeep"># WASM package output directory
+# Run build-wasm.sh to generate the wasm-bindgen package
+</hick:file>
+
+</hick:when>
+</hick:doc>

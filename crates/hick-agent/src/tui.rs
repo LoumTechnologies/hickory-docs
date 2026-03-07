@@ -175,9 +175,7 @@ impl App {
                         LineKind::Error,
                         &format!(
                             "exit: {}",
-                            result
-                                .exit_code
-                                .map_or("unknown".into(), |c| c.to_string())
+                            result.exit_code.map_or("unknown".into(), |c| c.to_string())
                         ),
                     );
                 }
@@ -331,7 +329,7 @@ impl App {
 
         let chunks = Layout::vertical([
             Constraint::Length(1), // header
-            Constraint::Min(1),   // output
+            Constraint::Min(1),    // output
             Constraint::Length(3), // input
         ])
         .split(area);
@@ -414,13 +412,11 @@ impl App {
             Style::default().fg(Color::Cyan)
         };
 
-        let input_widget = Paragraph::new(input_display)
-            .style(input_style)
-            .block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .border_style(Style::default().fg(Color::DarkGray)),
-            );
+        let input_widget = Paragraph::new(input_display).style(input_style).block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(Color::DarkGray)),
+        );
         frame.render_widget(input_widget, chunks[2]);
 
         // Cursor position (only visible when idle)
@@ -479,7 +475,10 @@ pub fn run_tui(
                 if let Ok(approval) = approval_rx.try_recv() {
                     app.push_line(
                         LineKind::Info,
-                        &format!("[network] Request to {} \u{2014} allow? (y/n)", approval.host),
+                        &format!(
+                            "[network] Request to {} \u{2014} allow? (y/n)",
+                            approval.host
+                        ),
                     );
                     app.pending_approval = Some(approval.response_tx);
                 }

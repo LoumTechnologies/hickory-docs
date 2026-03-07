@@ -1,0 +1,82 @@
+[product]
+name = "hickory-docs"
+codename = "CodeForge"
+monetization = "supporting"
+revenue_potential = 40000.0
+release_phase = "beta"
+
+[[features]]
+name = "Container Execution"
+category = "orchestration"
+release_priority = "must_have"
+revenue_weight = 0.25
+
+[[features]]
+name = "Code Generation"
+category = "codegen"
+release_priority = "must_have"
+revenue_weight = 0.25
+
+[[features.exercises]]
+consumer = "waymark"
+type = "dogfood"
+source_refs = ["../waymark/scaffolding/"]
+
+[[features]]
+name = "Feature Matrix"
+category = "codegen"
+release_priority = "must_have"
+revenue_weight = 0.15
+
+[[features]]
+name = "Literate Programming"
+category = "documentation"
+release_priority = "should_have"
+revenue_weight = 0.10
+
+[[features]]
+name = "Event-Sourced Sub-Apps"
+category = "data"
+release_priority = "should_have"
+revenue_weight = 0.10
+
+[[features.exercises]]
+consumer = "waymark"
+type = "integration"
+source_refs = ["crates/hick-grove/"]
+
+[[features.exercises]]
+consumer = "hickory-docs"
+type = "dogfood"
+source_refs = ["crates/drift-signal-core/"]
+
+[[features]]
+name = "AI Agent Integration"
+category = "extensibility"
+release_priority = "should_have"
+revenue_weight = 0.05
+
+[[features]]
+name = "Structural Queries"
+category = "tooling"
+release_priority = "nice_to_have"
+revenue_weight = 0.05
+
+[[features]]
+name = "WASM Compilation"
+category = "orchestration"
+release_priority = "should_have"
+revenue_weight = 0.05
+
+# --- Cross-repo: hickory-docs consumes waymark crates ---
+
+[[features]]
+name = "Waymark Integration (drift-signal)"
+category = "integration"
+release_priority = "should_have"
+revenue_weight = 0.0
+
+[[features.exercises]]
+consumer = "hickory-docs"
+type = "dogfood"
+source_refs = ["crates/drift-signal-core/Cargo.toml", "crates/drift-signal-ffi/Cargo.toml"]
