@@ -26,3 +26,6 @@ matrix/
 
 # Auto-generated agent docs
 .agents/
+
+# devenv-pilot database (per-repository)
+.devenv-pilot/
