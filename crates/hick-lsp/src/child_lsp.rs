@@ -107,6 +107,10 @@ impl ChildLspHandle {
                     Err(_) => break,
                 }
             }
+            // Drop all pending response senders so that callers waiting on
+            // rx.await get Err(Canceled) instead of blocking forever.
+            let mut pending = pending_clone.lock().await;
+            pending.clear();
         });
 
         Ok(Self {
