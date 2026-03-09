@@ -9,3 +9,5 @@ pub mod lang_detect;
 pub mod position_map;
 pub mod virtual_file;
 pub mod document;
+pub mod child_lsp;
+pub mod dispatcher;
