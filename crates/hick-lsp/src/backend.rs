@@ -62,11 +62,11 @@ impl HickBackend {
     }
 
     /// Derive a stable virtual file URI from the .hick document URI and virtual
-    /// file path.
+    /// file path, preserving directory structure so that tools like
+    /// rust-analyzer can resolve paths from Cargo.toml correctly.
     fn vfile_uri(hick_uri: &Url, vfile_path: &str) -> Url {
         let hash = simple_hash(hick_uri.as_str());
-        let safe_path = vfile_path.replace('/', "_");
-        Url::parse(&format!("file:///tmp/hick-lsp-vfiles/{hash}/{safe_path}"))
+        Url::parse(&format!("file:///tmp/hick-lsp-vfiles/{hash}/{vfile_path}"))
             .unwrap_or_else(|_| hick_uri.clone())
     }
 
@@ -123,16 +123,12 @@ impl HickBackend {
         self.close_vfiles_for(hick_uri).await;
 
         // 4. Determine root URI for child LSP initialization.
-        let root_uri = hick_uri
-            .join(".")
-            .map(|u| {
-                let s = u.as_str();
-                match s.rfind('/') {
-                    Some(i) => s[..=i].to_string(),
-                    None => s.to_string(),
-                }
-            })
-            .unwrap_or_else(|_| "file:///".to_string());
+        //
+        // We use the virtual file directory so that child LSPs like
+        // rust-analyzer don't discover unrelated projects in the .hick
+        // file's parent directory.
+        let hash = simple_hash(hick_uri.as_str());
+        let root_uri = format!("file:///tmp/hick-lsp-vfiles/{hash}/");
 
         let vfile_version = {
             let docs = self.documents.read().await;
@@ -141,7 +137,19 @@ impl HickBackend {
                 .unwrap_or(1)
         };
 
-        // 5. For each virtual file with a known language, forward to child LSP.
+        // 5. Write all virtual files to disk so that tools like
+        //    rust-analyzer can discover project structure (e.g., Cargo.toml).
+        for vf in &state.virtual_files {
+            let vf_uri = Self::vfile_uri(hick_uri, &vf.path);
+            if let Ok(path) = vf_uri.to_file_path() {
+                if let Some(parent) = path.parent() {
+                    let _ = std::fs::create_dir_all(parent);
+                }
+                let _ = std::fs::write(&path, vf.content());
+            }
+        }
+
+        // 6. For each virtual file with a known language, forward to child LSP.
         let mut new_open_vfiles = Vec::new();
 
         for vf in &state.virtual_files {
@@ -339,7 +347,21 @@ async fn handle_child_diagnostics(
     let index = vfile_index.read().await;
     let mapping = match index.get(&vf_uri) {
         Some(m) => m,
-        None => return Ok(()),
+        None => {
+            let diag_count = notif
+                .params
+                .get("diagnostics")
+                .and_then(|d| d.as_array())
+                .map(|a| a.len())
+                .unwrap_or(0);
+            tracing::debug!(
+                %vf_uri,
+                diag_count,
+                language_id = %notif.language_id,
+                "no vfile mapping for URI, dropping diagnostics"
+            );
+            return Ok(());
+        }
     };
 
     let hick_uri = mapping.hick_uri.clone();
