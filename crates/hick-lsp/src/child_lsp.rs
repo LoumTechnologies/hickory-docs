@@ -2,35 +2,57 @@
 //!
 //! Manages spawning and communicating with child LSP servers (e.g.,
 //! rust-analyzer, pyright) via JSON-RPC over stdio.
+//!
+//! The I/O is split: a writer half sends requests/notifications to the child's
+//! stdin, while a background tokio task reads from stdout and dispatches
+//! responses (to waiting request futures) and notifications (to a channel).
+
+use std::collections::HashMap;
+use std::sync::atomic::{AtomicI64, Ordering};
+use std::sync::Arc;
 
 use serde_json::Value;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
+use tokio::sync::{mpsc, oneshot, Mutex};
+use tokio::task::JoinHandle;
 
-/// A running child LSP server process.
-pub(crate) struct ChildLsp {
-    /// The language ID this server handles (e.g., "rust", "python").
-    #[allow(dead_code)]
-    language_id: String,
-    /// The spawned process.
-    process: Child,
-    /// Writer to the child's stdin.
-    stdin: tokio::io::BufWriter<tokio::process::ChildStdin>,
-    /// Reader from the child's stdout.
-    stdout: BufReader<tokio::process::ChildStdout>,
-    /// Next request ID for outgoing requests.
-    next_id: i64,
-    /// Whether the server has been initialized.
-    initialized: bool,
+/// A notification received from a child LSP server.
+#[derive(Debug, Clone)]
+pub(crate) struct ChildNotification {
+    /// The language ID of the child that sent this notification.
+    pub(crate) language_id: String,
+    /// The JSON-RPC method name (e.g., "textDocument/publishDiagnostics").
+    pub(crate) method: String,
+    /// The notification params.
+    pub(crate) params: Value,
 }
 
-impl ChildLsp {
-    /// Spawn a new child LSP server for the given language.
+/// Handle for communicating with a child LSP server.
+///
+/// The handle is cheaply cloneable (all state is behind `Arc`). A background
+/// task continuously reads the child's stdout, dispatching responses to waiting
+/// callers and forwarding notifications to a shared channel.
+#[derive(Clone)]
+pub(crate) struct ChildLspHandle {
+    language_id: String,
+    stdin: Arc<Mutex<tokio::io::BufWriter<tokio::process::ChildStdin>>>,
+    next_id: Arc<AtomicI64>,
+    pending: Arc<Mutex<HashMap<i64, oneshot::Sender<Value>>>>,
+    process: Arc<Mutex<Child>>,
+    _reader_handle: Arc<JoinHandle<()>>,
+}
+
+impl ChildLspHandle {
+    /// Spawn a new child LSP server and start the background reader.
     ///
-    /// The language ID is mapped to a command using [`lsp_command`]. The child
-    /// process is started with stdin/stdout piped for JSON-RPC communication
-    /// and stderr inherited so operator can see child server logs.
-    pub(crate) async fn spawn(language_id: &str) -> Result<Self, ChildLspError> {
+    /// Returns the handle and an unbounded receiver for notifications from
+    /// this child. The caller should drain the receiver to process
+    /// notifications like `textDocument/publishDiagnostics`.
+    pub(crate) async fn spawn(
+        language_id: &str,
+        notification_tx: mpsc::UnboundedSender<ChildNotification>,
+    ) -> Result<Self, ChildLspError> {
         let cmd_parts = lsp_command(language_id)?;
         let program = &cmd_parts[0];
         let args = &cmd_parts[1..];
@@ -53,28 +75,64 @@ impl ChildLsp {
             "stdout was configured as piped but take() returned None; this is a tokio bug",
         );
 
+        let pending: Arc<Mutex<HashMap<i64, oneshot::Sender<Value>>>> =
+            Arc::new(Mutex::new(HashMap::new()));
+
+        let lang_id = language_id.to_string();
+        let pending_clone = Arc::clone(&pending);
+        let reader_handle = tokio::spawn(async move {
+            let mut stdout = BufReader::new(child_stdout);
+            loop {
+                match read_message(&mut stdout).await {
+                    Ok(msg) => {
+                        // Response (has "id" and no "method")?
+                        if let Some(id) = msg.get("id").and_then(|v| v.as_i64()) {
+                            if msg.get("method").is_none() {
+                                let mut pending = pending_clone.lock().await;
+                                if let Some(tx) = pending.remove(&id) {
+                                    let _ = tx.send(msg);
+                                }
+                                continue;
+                            }
+                        }
+                        // Notification (has "method", no "id" or "id" is null)?
+                        if let Some(method) = msg.get("method").and_then(|m| m.as_str()) {
+                            let params = msg.get("params").cloned().unwrap_or(Value::Null);
+                            let _ = notification_tx.send(ChildNotification {
+                                language_id: lang_id.clone(),
+                                method: method.to_string(),
+                                params,
+                            });
+                        }
+                    }
+                    Err(_) => break, // child exited or I/O error
+                }
+            }
+        });
+
         Ok(Self {
             language_id: language_id.to_string(),
-            process: child,
-            stdin: tokio::io::BufWriter::new(child_stdin),
-            stdout: BufReader::new(child_stdout),
-            next_id: 1,
-            initialized: false,
+            stdin: Arc::new(Mutex::new(tokio::io::BufWriter::new(child_stdin))),
+            next_id: Arc::new(AtomicI64::new(1)),
+            pending,
+            process: Arc::new(Mutex::new(child)),
+            _reader_handle: Arc::new(reader_handle),
         })
     }
 
     /// Send an LSP request and wait for the matching response.
-    ///
-    /// The method and params are wrapped in a JSON-RPC request envelope with an
-    /// auto-incrementing ID. The response is read back, and JSON-RPC errors are
-    /// surfaced as [`ChildLspError::JsonRpc`].
     pub(crate) async fn request(
-        &mut self,
+        &self,
         method: &str,
         params: Value,
     ) -> Result<Value, ChildLspError> {
-        let id = self.next_id;
-        self.next_id += 1;
+        let id = self.next_id.fetch_add(1, Ordering::Relaxed);
+
+        let (tx, rx) = oneshot::channel();
+        {
+            let mut pending = self.pending.lock().await;
+            pending.insert(id, tx);
+        }
 
         let message = serde_json::json!({
             "jsonrpc": "2.0",
@@ -83,47 +141,26 @@ impl ChildLsp {
             "params": params,
         });
 
-        self.send_message(&message).await?;
+        send_message(&self.stdin, &message).await?;
 
-        // Read responses until we find one matching our request ID.
-        // Notifications (messages without an id) are skipped.
-        loop {
-            let response = self.read_message().await?;
+        let response = rx.await.map_err(|_| ChildLspError::ProcessExited)?;
 
-            // Skip notifications (no id field).
-            let resp_id = match response.get("id") {
-                Some(v) if !v.is_null() => v,
-                _ => continue,
-            };
-
-            // Check if this is our response.
-            if resp_id.as_i64() == Some(id) {
-                if let Some(error) = response.get("error") {
-                    let code = error
-                        .get("code")
-                        .and_then(|c| c.as_i64())
-                        .unwrap_or(-1);
-                    let message = error
-                        .get("message")
-                        .and_then(|m| m.as_str())
-                        .unwrap_or("unknown error")
-                        .to_string();
-                    return Err(ChildLspError::JsonRpc { code, message });
-                }
-
-                return Ok(response
-                    .get("result")
-                    .cloned()
-                    .unwrap_or(Value::Null));
-            }
-            // If the id doesn't match, skip (could be a response to a
-            // cancelled or timed-out request).
+        if let Some(error) = response.get("error") {
+            let code = error.get("code").and_then(|c| c.as_i64()).unwrap_or(-1);
+            let message = error
+                .get("message")
+                .and_then(|m| m.as_str())
+                .unwrap_or("unknown error")
+                .to_string();
+            return Err(ChildLspError::JsonRpc { code, message });
         }
+
+        Ok(response.get("result").cloned().unwrap_or(Value::Null))
     }
 
     /// Send an LSP notification (no response expected).
     pub(crate) async fn notify(
-        &mut self,
+        &self,
         method: &str,
         params: Value,
     ) -> Result<(), ChildLspError> {
@@ -133,26 +170,22 @@ impl ChildLsp {
             "params": params,
         });
 
-        self.send_message(&message).await
+        send_message(&self.stdin, &message).await
     }
 
     /// Initialize the child LSP server with the given workspace root.
-    ///
-    /// Sends the `initialize` request followed by the `initialized`
-    /// notification per the LSP specification. Subsequent calls are a no-op.
     pub(crate) async fn initialize(
-        &mut self,
+        &self,
         root_uri: &str,
     ) -> Result<Value, ChildLspError> {
-        if self.initialized {
-            return Ok(Value::Null);
-        }
-
         let params = serde_json::json!({
             "processId": std::process::id(),
             "rootUri": root_uri,
             "capabilities": {
                 "textDocument": {
+                    "publishDiagnostics": {
+                        "relatedInformation": false
+                    },
                     "completion": {
                         "completionItem": {
                             "snippetSupport": false
@@ -168,95 +201,92 @@ impl ChildLsp {
 
         let result = self.request("initialize", params).await?;
         self.notify("initialized", serde_json::json!({})).await?;
-        self.initialized = true;
 
         Ok(result)
     }
 
     /// Shut down the child LSP server gracefully.
-    ///
-    /// Sends the `shutdown` request, then an `exit` notification, then kills
-    /// the process if it hasn't already exited.
-    pub(crate) async fn shutdown(&mut self) -> Result<(), ChildLspError> {
-        // Best-effort: ignore errors during shutdown sequence since the child
-        // may have already exited.
+    pub(crate) async fn shutdown(&self) -> Result<(), ChildLspError> {
         let _ = self.request("shutdown", Value::Null).await;
         let _ = self.notify("exit", Value::Null).await;
-        let _ = self.process.kill().await;
+        let _ = self.process.lock().await.kill().await;
         Ok(())
     }
 
-    // ------------------------------------------------------------------
-    // Internal helpers
-    // ------------------------------------------------------------------
-
-    /// Send a JSON-RPC message with `Content-Length` framing.
-    async fn send_message(&mut self, message: &Value) -> Result<(), ChildLspError> {
-        let body = serde_json::to_string(message)?;
-        let header = format!("Content-Length: {}\r\n\r\n", body.len());
-
-        self.stdin.write_all(header.as_bytes()).await?;
-        self.stdin.write_all(body.as_bytes()).await?;
-        self.stdin.flush().await?;
-
-        Ok(())
+    pub(crate) fn language_id(&self) -> &str {
+        &self.language_id
     }
+}
 
-    /// Read one JSON-RPC message from the child's stdout.
-    ///
-    /// Parses the `Content-Length` header, then reads exactly that many bytes
-    /// of JSON body.
-    async fn read_message(&mut self) -> Result<Value, ChildLspError> {
-        let content_length = self.read_content_length().await?;
+// ------------------------------------------------------------------
+// Free-standing I/O helpers
+// ------------------------------------------------------------------
 
-        let mut body = vec![0u8; content_length];
-        tokio::io::AsyncReadExt::read_exact(&mut self.stdout, &mut body).await?;
+async fn send_message(
+    stdin: &Arc<Mutex<tokio::io::BufWriter<tokio::process::ChildStdin>>>,
+    message: &Value,
+) -> Result<(), ChildLspError> {
+    let body = serde_json::to_string(message)?;
+    let header = format!("Content-Length: {}\r\n\r\n", body.len());
 
-        let value: Value = serde_json::from_slice(&body)?;
-        Ok(value)
-    }
+    let mut stdin = stdin.lock().await;
+    stdin.write_all(header.as_bytes()).await?;
+    stdin.write_all(body.as_bytes()).await?;
+    stdin.flush().await?;
 
-    /// Read headers until we find `Content-Length`, consuming the blank line
-    /// that terminates the header block.
-    async fn read_content_length(&mut self) -> Result<usize, ChildLspError> {
-        let mut content_length: Option<usize> = None;
-        let mut line = String::new();
+    Ok(())
+}
 
-        loop {
-            line.clear();
-            let bytes_read = self.stdout.read_line(&mut line).await?;
-            if bytes_read == 0 {
-                return Err(ChildLspError::ProcessExited);
-            }
+async fn read_message(
+    stdout: &mut BufReader<tokio::process::ChildStdout>,
+) -> Result<Value, ChildLspError> {
+    let content_length = read_content_length(stdout).await?;
 
-            let trimmed = line.trim();
-            if trimmed.is_empty() {
-                // End of headers.
-                break;
-            }
+    let mut body = vec![0u8; content_length];
+    tokio::io::AsyncReadExt::read_exact(stdout, &mut body).await?;
 
-            if let Some(value) = trimmed.strip_prefix("Content-Length:") {
-                content_length = Some(value.trim().parse::<usize>().map_err(|_| {
-                    ChildLspError::Io(std::io::Error::new(
-                        std::io::ErrorKind::InvalidData,
-                        format!(
-                            "child LSP sent a Content-Length header with a \
-                             non-numeric value: '{}'",
-                            value.trim()
-                        ),
-                    ))
-                })?);
-            }
-            // Other headers (e.g. Content-Type) are ignored.
+    let value: Value = serde_json::from_slice(&body)?;
+    Ok(value)
+}
+
+async fn read_content_length(
+    stdout: &mut BufReader<tokio::process::ChildStdout>,
+) -> Result<usize, ChildLspError> {
+    let mut content_length: Option<usize> = None;
+    let mut line = String::new();
+
+    loop {
+        line.clear();
+        let bytes_read = stdout.read_line(&mut line).await?;
+        if bytes_read == 0 {
+            return Err(ChildLspError::ProcessExited);
         }
 
-        content_length.ok_or_else(|| {
-            ChildLspError::Io(std::io::Error::new(
-                std::io::ErrorKind::InvalidData,
-                "child LSP sent a message without a Content-Length header",
-            ))
-        })
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            break;
+        }
+
+        if let Some(value) = trimmed.strip_prefix("Content-Length:") {
+            content_length = Some(value.trim().parse::<usize>().map_err(|_| {
+                ChildLspError::Io(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!(
+                        "child LSP sent a Content-Length header with a \
+                         non-numeric value: '{}'",
+                        value.trim()
+                    ),
+                ))
+            })?);
+        }
     }
+
+    content_length.ok_or_else(|| {
+        ChildLspError::Io(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "child LSP sent a message without a Content-Length header",
+        ))
+    })
 }
 
 /// Errors that can occur when communicating with a child LSP server.
@@ -301,7 +331,7 @@ pub(crate) enum ChildLspError {
 
 /// Map a language ID to the command (program + arguments) for spawning that
 /// language's LSP server.
-fn lsp_command(language_id: &str) -> Result<Vec<String>, ChildLspError> {
+pub(crate) fn lsp_command(language_id: &str) -> Result<Vec<String>, ChildLspError> {
     match language_id {
         "rust" => Ok(vec!["rust-analyzer".into()]),
         "python" => Ok(vec![

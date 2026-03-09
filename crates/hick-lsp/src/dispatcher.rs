@@ -4,42 +4,52 @@
 //! and provides access to them by language ID.
 
 use std::collections::HashMap;
-use tokio::sync::Mutex;
 
-use crate::child_lsp::{ChildLsp, ChildLspError};
+use tokio::sync::mpsc;
+
+use crate::child_lsp::{ChildLspError, ChildLspHandle, ChildNotification};
 
 /// Routes LSP requests to the appropriate child server by language.
 ///
 /// Each language gets at most one child LSP process. Processes are spawned
 /// lazily on first access and initialized with the workspace root.
 pub(crate) struct Dispatcher {
-    /// Map from language_id to child LSP server.
-    children: HashMap<String, Mutex<ChildLsp>>,
+    /// Map from language_id to child LSP handle.
+    children: HashMap<String, ChildLspHandle>,
+    /// Shared sender for all child notifications.
+    notification_tx: mpsc::UnboundedSender<ChildNotification>,
 }
 
 impl Dispatcher {
-    /// Create a new empty dispatcher with no child servers.
-    pub(crate) fn new() -> Self {
+    /// Create a new empty dispatcher.
+    ///
+    /// The `notification_tx` is shared with all spawned children — they all
+    /// send their notifications (e.g., `publishDiagnostics`) to this channel.
+    pub(crate) fn new(notification_tx: mpsc::UnboundedSender<ChildNotification>) -> Self {
         Self {
             children: HashMap::new(),
+            notification_tx,
         }
     }
 
     /// Get or spawn a child LSP for the given language.
     ///
-    /// If a child already exists for the language, returns a reference to its
-    /// mutex. Otherwise spawns a new child, initializes it with the given
-    /// `root_uri`, and stores it for future requests.
+    /// If a child already exists for the language, returns a reference to it.
+    /// Otherwise spawns a new child, initializes it with the given `root_uri`,
+    /// and stores it for future requests.
     pub(crate) async fn get_or_spawn(
         &mut self,
         language_id: &str,
         root_uri: &str,
-    ) -> Result<&Mutex<ChildLsp>, ChildLspError> {
+    ) -> Result<&ChildLspHandle, ChildLspError> {
         if !self.children.contains_key(language_id) {
-            let mut child = ChildLsp::spawn(language_id).await?;
-            child.initialize(root_uri).await?;
-            self.children
-                .insert(language_id.to_string(), Mutex::new(child));
+            let handle = ChildLspHandle::spawn(
+                language_id,
+                self.notification_tx.clone(),
+            )
+            .await?;
+            handle.initialize(root_uri).await?;
+            self.children.insert(language_id.to_string(), handle);
         }
 
         Ok(self
@@ -49,14 +59,9 @@ impl Dispatcher {
     }
 
     /// Shut down all child LSP servers.
-    ///
-    /// Each child receives a `shutdown` request and `exit` notification.
-    /// Errors during individual shutdowns are logged but do not prevent other
-    /// children from being shut down.
     pub(crate) async fn shutdown_all(&mut self) {
-        for (language_id, child_mutex) in self.children.drain() {
-            let mut child = child_mutex.into_inner();
-            if let Err(e) = child.shutdown().await {
+        for (language_id, handle) in self.children.drain() {
+            if let Err(e) = handle.shutdown().await {
                 tracing::warn!(
                     language_id,
                     error = %e,
@@ -73,7 +78,8 @@ mod tests {
 
     #[test]
     fn new_dispatcher_is_empty() {
-        let d = Dispatcher::new();
+        let (tx, _rx) = mpsc::unbounded_channel();
+        let d = Dispatcher::new(tx);
         assert!(d.children.is_empty());
     }
 }

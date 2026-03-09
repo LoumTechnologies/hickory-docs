@@ -4,6 +4,10 @@ use tracing_subscriber::EnvFilter;
 mod backend;
 mod child_lsp;
 mod dispatcher;
+mod document;
+mod lang_detect;
+mod position_map;
+mod virtual_file;
 
 #[tokio::main]
 async fn main() {
