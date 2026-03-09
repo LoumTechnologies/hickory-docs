@@ -21,6 +21,11 @@ pub(crate) struct HickBackend {
     notification_rx: Arc<Mutex<mpsc::UnboundedReceiver<ChildNotification>>>,
     /// Mapping from virtual file URI -> (hick document URI, PositionMap).
     vfile_index: Arc<RwLock<HashMap<Url, VFileMapping>>>,
+    /// Accumulated child diagnostics keyed by (hick_uri, vfile_uri).
+    /// When any child sends diagnostics, we update its entry and republish
+    /// the merged set for the hick document, avoiding later children
+    /// overwriting earlier children's diagnostics.
+    child_diagnostics: Arc<RwLock<HashMap<Url, HashMap<Url, Vec<Diagnostic>>>>>,
 }
 
 struct DocEntry {
@@ -52,6 +57,7 @@ impl HickBackend {
             dispatcher: Arc::new(Mutex::new(Dispatcher::new(notification_tx))),
             notification_rx: Arc::new(Mutex::new(notification_rx)),
             vfile_index: Arc::new(RwLock::new(HashMap::new())),
+            child_diagnostics: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
@@ -67,9 +73,17 @@ impl HickBackend {
     /// Process a document change: parse, generate virtual files, forward to
     /// child LSPs.
     async fn process_document(&self, hick_uri: &Url, source: &str) {
+        tracing::debug!(%hick_uri, source_len = source.len(), "process_document called");
+
         // 1. Try to parse the hick document.
         let state = match HickDocumentState::from_source(source) {
-            Ok(s) => s,
+            Ok(s) => {
+                tracing::debug!(
+                    vfile_count = s.virtual_files.len(),
+                    "parsed hick document successfully"
+                );
+                s
+            }
             Err(e) => {
                 let (line, message) = parse_error_location(&e);
                 let lsp_line = if line > 0 { line - 1 } else { 0 } as u32;
@@ -131,6 +145,8 @@ impl HickBackend {
         let mut new_open_vfiles = Vec::new();
 
         for vf in &state.virtual_files {
+            tracing::debug!(path = %vf.path, language_id = ?vf.language_id, "processing virtual file");
+
             let lang_id = match vf.language_id {
                 Some(id) => id,
                 None => continue,
@@ -138,11 +154,13 @@ impl HickBackend {
 
             // Skip languages where we don't have an LSP command.
             if lsp_command(lang_id).is_err() {
+                tracing::debug!(lang_id, "no LSP command for language, skipping");
                 continue;
             }
 
             let vf_uri = Self::vfile_uri(hick_uri, &vf.path);
             let content = vf.content();
+            tracing::debug!(%vf_uri, content_len = content.len(), "forwarding to child LSP");
             let position_map = PositionMap::build(&vf.segments);
 
             // Store the mapping.
@@ -159,9 +177,12 @@ impl HickBackend {
             }
 
             // Send to child LSP.
+            tracing::debug!(lang_id, %root_uri, "acquiring dispatcher lock for child LSP");
             let mut dispatcher = self.dispatcher.lock().await;
+            tracing::debug!(lang_id, "dispatching to child LSP");
             match dispatcher.get_or_spawn(lang_id, &root_uri).await {
                 Ok(handle) => {
+                    tracing::debug!(lang_id, "child LSP ready, sending didOpen");
                     let result = handle
                         .notify(
                             "textDocument/didOpen",
@@ -237,6 +258,12 @@ impl HickBackend {
                 .collect()
         };
 
+        // Clear accumulated diagnostics for this hick document.
+        {
+            let mut diags = self.child_diagnostics.write().await;
+            diags.remove(hick_uri);
+        }
+
         let dispatcher = self.dispatcher.lock().await;
         for (vf_uri, language_id) in &to_close {
             if let Ok(handle) = dispatcher.get_child(language_id) {
@@ -258,13 +285,26 @@ impl HickBackend {
         let client = self.client.clone();
         let notification_rx = Arc::clone(&self.notification_rx);
         let vfile_index = Arc::clone(&self.vfile_index);
+        let child_diagnostics = Arc::clone(&self.child_diagnostics);
 
         tokio::spawn(async move {
+            tracing::debug!("notification handler started");
             let mut rx = notification_rx.lock().await;
             while let Some(notif) = rx.recv().await {
+                tracing::debug!(
+                    method = %notif.method,
+                    language_id = %notif.language_id,
+                    "received child LSP notification"
+                );
                 if notif.method == "textDocument/publishDiagnostics" {
                     if let Err(e) =
-                        handle_child_diagnostics(&client, &vfile_index, &notif).await
+                        handle_child_diagnostics(
+                            &client,
+                            &vfile_index,
+                            &child_diagnostics,
+                            &notif,
+                        )
+                        .await
                     {
                         tracing::debug!(
                             error = %e,
@@ -273,14 +313,20 @@ impl HickBackend {
                     }
                 }
             }
+            tracing::debug!("notification handler exited");
         });
     }
 }
 
 /// Process a publishDiagnostics notification from a child LSP.
+///
+/// Instead of publishing each child's diagnostics independently (which would
+/// cause later children to overwrite earlier ones), we accumulate diagnostics
+/// per virtual file and publish the merged set for the whole .hick document.
 async fn handle_child_diagnostics(
     client: &Client,
     vfile_index: &Arc<RwLock<HashMap<Url, VFileMapping>>>,
+    accumulated: &Arc<RwLock<HashMap<Url, HashMap<Url, Vec<Diagnostic>>>>>,
     notif: &ChildNotification,
 ) -> std::result::Result<(), Box<dyn std::error::Error + Send + Sync>> {
     let uri_str = notif
@@ -376,8 +422,16 @@ async fn handle_child_diagnostics(
 
     drop(index);
 
+    // Update this virtual file's diagnostics and publish the merged set.
+    let merged = {
+        let mut store = accumulated.write().await;
+        let per_hick = store.entry(hick_uri.clone()).or_default();
+        per_hick.insert(vf_uri, translated);
+        per_hick.values().flatten().cloned().collect::<Vec<_>>()
+    };
+
     client
-        .publish_diagnostics(hick_uri, translated, None)
+        .publish_diagnostics(hick_uri, merged, None)
         .await;
 
     Ok(())
