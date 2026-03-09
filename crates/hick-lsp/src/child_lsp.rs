@@ -294,7 +294,7 @@ pub(crate) enum ChildLspError {
     /// No known LSP server for the requested language.
     #[error(
         "no LSP server known for language '{language_id}'. \
-         Supported languages: rust, python, typescript, javascript, go, c, cpp, lua, zig, nix"
+         Supported languages: rust, python, typescript, javascript, json, go, c, cpp, lua, zig, nix"
     )]
     UnknownLanguage { language_id: String },
 
@@ -345,6 +345,10 @@ pub(crate) fn lsp_command(language_id: &str) -> Result<Vec<String>, ChildLspErro
         "c" | "cpp" => Ok(vec!["clangd".into()]),
         "lua" => Ok(vec!["lua-language-server".into()]),
         "zig" => Ok(vec!["zls".into()]),
+        "json" => Ok(vec![
+            "vscode-json-language-server".into(),
+            "--stdio".into(),
+        ]),
         "nix" => Ok(vec!["nil".into()]),
         _ => Err(ChildLspError::UnknownLanguage {
             language_id: language_id.to_string(),
@@ -365,6 +369,7 @@ mod tests {
             "javascript",
             "typescriptreact",
             "javascriptreact",
+            "json",
             "go",
             "c",
             "cpp",

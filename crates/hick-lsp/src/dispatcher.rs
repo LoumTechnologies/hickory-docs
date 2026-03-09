@@ -58,6 +58,20 @@ impl Dispatcher {
             .expect("just inserted or already present"))
     }
 
+    /// Get an existing child LSP handle without spawning.
+    ///
+    /// Returns `Err` if no child exists for the given language.
+    pub(crate) fn get_child(
+        &self,
+        language_id: &str,
+    ) -> Result<&ChildLspHandle, ChildLspError> {
+        self.children
+            .get(language_id)
+            .ok_or_else(|| ChildLspError::UnknownLanguage {
+                language_id: language_id.to_string(),
+            })
+    }
+
     /// Shut down all child LSP servers.
     pub(crate) async fn shutdown_all(&mut self) {
         for (language_id, handle) in self.children.drain() {

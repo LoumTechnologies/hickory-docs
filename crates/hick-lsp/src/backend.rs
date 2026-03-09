@@ -36,6 +36,8 @@ struct DocEntry {
 struct VFileMapping {
     /// The .hick document URI.
     hick_uri: Url,
+    /// The language ID of this virtual file (for routing to child LSPs).
+    language_id: String,
     /// Position map for translating coordinates.
     position_map: PositionMap,
 }
@@ -150,6 +152,7 @@ impl HickBackend {
                     vf_uri.clone(),
                     VFileMapping {
                         hick_uri: hick_uri.clone(),
+                        language_id: lang_id.to_string(),
                         position_map,
                     },
                 );
@@ -209,6 +212,9 @@ impl HickBackend {
     }
 
     /// Close all virtual files associated with a .hick document.
+    ///
+    /// Sends `textDocument/didClose` to each child LSP so that re-opening the
+    /// same URI later is not a protocol violation.
     async fn close_vfiles_for(&self, hick_uri: &Url) {
         let old_vfiles = {
             let docs = self.documents.read().await;
@@ -218,9 +224,31 @@ impl HickBackend {
             }
         };
 
-        let mut index = self.vfile_index.write().await;
-        for vf_uri in &old_vfiles {
-            index.remove(vf_uri);
+        // Collect (uri, language_id) pairs before sending didClose.
+        let to_close: Vec<(Url, String)> = {
+            let mut index = self.vfile_index.write().await;
+            old_vfiles
+                .iter()
+                .filter_map(|vf_uri| {
+                    index
+                        .remove(vf_uri)
+                        .map(|m| (vf_uri.clone(), m.language_id))
+                })
+                .collect()
+        };
+
+        let dispatcher = self.dispatcher.lock().await;
+        for (vf_uri, language_id) in &to_close {
+            if let Ok(handle) = dispatcher.get_child(language_id) {
+                let _ = handle
+                    .notify(
+                        "textDocument/didClose",
+                        serde_json::json!({
+                            "textDocument": { "uri": vf_uri.as_str() }
+                        }),
+                    )
+                    .await;
+            }
         }
     }
 
