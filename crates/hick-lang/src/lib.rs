@@ -172,6 +172,9 @@ pub enum ParseError {
         name: String,
         line: usize,
     },
+
+    #[error("unclosed comment starting at line {line} (missing closing `-->`)")]
+    UnclosedComment { line: usize },
 }
 
 // ---------------------------------------------------------------------------
@@ -396,6 +399,26 @@ impl<'a> Parser<'a> {
         }
     }
 
+    /// If the cursor is at `<!--`, skip past the matching `-->`.
+    ///
+    /// Returns `true` if a comment was skipped.
+    fn skip_comment(&mut self) -> Result<bool, ParseError> {
+        let rem = self.remaining();
+        if !rem.starts_with("<!--") {
+            return Ok(false);
+        }
+        let comment_line = self.line;
+        match rem[4..].find("-->") {
+            Some(end) => {
+                self.advance(4 + end + 3);
+                Ok(true)
+            }
+            None => Err(ParseError::UnclosedComment {
+                line: comment_line,
+            }),
+        }
+    }
+
     /// Advance `n` bytes, tracking line and column numbers.
     fn advance(&mut self, n: usize) {
         let slice = &self.input[self.pos..self.pos + n];
@@ -462,18 +485,17 @@ impl<'a> Parser<'a> {
                 });
             }
 
-            // Look for the next opening or closing marker
+            // Look for the next opening marker, closing marker, or comment
             let rem = self.remaining();
             let next_open = rem.find(self.open_marker.as_str());
             let next_close = rem.find(self.close_marker.as_str());
+            let next_comment = rem.find("<!--");
 
             // Determine the nearest marker
-            let nearest = match (next_open, next_close) {
-                (Some(a), Some(b)) => Some(a.min(b)),
-                (Some(a), None) => Some(a),
-                (None, Some(b)) => Some(b),
-                (None, None) => None,
-            };
+            let nearest = [next_open, next_close, next_comment]
+                .into_iter()
+                .flatten()
+                .min();
 
             match nearest {
                 None => {
@@ -486,6 +508,25 @@ impl<'a> Parser<'a> {
                 }
                 Some(offset) => {
                     let abs = self.pos + offset;
+
+                    // Is this a comment?
+                    if self.input[abs..].starts_with("<!--") {
+                        // Flush text before the comment
+                        if abs > text_start {
+                            let span =
+                                SourceSpan::new(text_start, abs, text_start_line, text_start_col);
+                            nodes.push(HickNode::Text(
+                                self.input[text_start..abs].to_string(),
+                                Some(span),
+                            ));
+                        }
+                        self.advance(offset);
+                        self.skip_comment()?;
+                        text_start = self.pos;
+                        text_start_line = self.line;
+                        text_start_col = self.col;
+                        continue;
+                    }
 
                     // Is this a closing tag?
                     if self.input[abs..].starts_with(&self.close_marker) {
@@ -1468,5 +1509,78 @@ hello world
         let tag_text = &src[span.start..span.end];
         assert!(tag_text.starts_with("<hick:allow"));
         assert!(tag_text.ends_with("/>"));
+    }
+
+    #[test]
+    fn comment_is_skipped() {
+        let src = r#"<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
+<!-- this is a comment -->
+<hick:file path="a.rs">hello</hick:file>
+</hick:doc>"#;
+        let doc = parse(src).unwrap();
+        let files = doc.find_tags("file");
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].get_attribute("path"), Some("a.rs"));
+    }
+
+    #[test]
+    fn comment_out_hick_file_block() {
+        let src = r#"<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
+<hick:file path="keep.rs">kept</hick:file>
+<!--
+<hick:file path="removed.rs">this should not appear</hick:file>
+-->
+</hick:doc>"#;
+        let doc = parse(src).unwrap();
+        let files = doc.find_tags("file");
+        assert_eq!(files.len(), 1);
+        assert_eq!(files[0].get_attribute("path"), Some("keep.rs"));
+    }
+
+    #[test]
+    fn multiple_comments() {
+        let src = r#"<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
+<!-- first -->
+<hick:file path="a.rs">a</hick:file>
+<!-- second -->
+<!-- third -->
+<hick:file path="b.rs">b</hick:file>
+</hick:doc>"#;
+        let doc = parse(src).unwrap();
+        let files = doc.find_tags("file");
+        assert_eq!(files.len(), 2);
+    }
+
+    #[test]
+    fn unclosed_comment_error() {
+        let src = r#"<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
+<!-- unclosed comment
+<hick:file path="a.rs">a</hick:file>
+</hick:doc>"#;
+        let err = parse(src).unwrap_err();
+        assert!(
+            matches!(err, ParseError::UnclosedComment { line: 2 }),
+            "expected UnclosedComment at line 2, got: {err:?}"
+        );
+    }
+
+    #[test]
+    fn comment_preserves_surrounding_text() {
+        let src = r#"<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
+before<!-- comment -->after
+</hick:doc>"#;
+        let doc = parse(src).unwrap();
+        let texts: Vec<&str> = doc
+            .nodes
+            .iter()
+            .filter_map(|n| match n {
+                HickNode::Text(t, _) => Some(t.as_str()),
+                _ => None,
+            })
+            .collect();
+        let combined = texts.join("");
+        assert!(combined.contains("before"), "missing 'before': {combined:?}");
+        assert!(combined.contains("after"), "missing 'after': {combined:?}");
+        assert!(!combined.contains("comment"), "comment leaked: {combined:?}");
     }
 }

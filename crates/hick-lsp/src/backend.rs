@@ -554,6 +554,7 @@ fn parse_error_location(err: &hick_lang::ParseError) -> (usize, String) {
         hick_lang::ParseError::MissingRoot => (1, err.to_string()),
         hick_lang::ParseError::UnclosedTag { line, .. } => (*line, err.to_string()),
         hick_lang::ParseError::UnexpectedClose { line, .. } => (*line, err.to_string()),
+        hick_lang::ParseError::UnclosedComment { line } => (*line, err.to_string()),
     }
 }
 
