@@ -97,15 +97,14 @@ impl ChildLspHandle {
                         }
                         // Notification (has "method", no "id" or "id" is null)?
                         if let Some(method) = msg.get("method").and_then(|m| m.as_str()) {
-                            let params = msg.get("params").cloned().unwrap_or(Value::Null);
                             let _ = notification_tx.send(ChildNotification {
                                 language_id: lang_id.clone(),
                                 method: method.to_string(),
-                                params,
+                                params: msg.get("params").cloned().unwrap_or(Value::Null),
                             });
                         }
                     }
-                    Err(_) => break, // child exited or I/O error
+                    Err(_) => break,
                 }
             }
         });
