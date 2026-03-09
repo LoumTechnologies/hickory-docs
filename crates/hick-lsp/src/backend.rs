@@ -104,7 +104,7 @@ impl HickBackend {
                     )
                     .await;
 
-                self.close_vfiles_for(hick_uri).await;
+                self.close_vfiles_for(hick_uri, &[]).await;
 
                 let mut docs = self.documents.write().await;
                 if let Some(entry) = docs.get_mut(hick_uri) {
@@ -114,13 +114,17 @@ impl HickBackend {
             }
         };
 
-        // 2. Clear hick-level parse errors (document is valid).
-        self.client
-            .publish_diagnostics(hick_uri.clone(), vec![], None)
-            .await;
+        // 2. Compute the new set of virtual file URIs so we can prune stale
+        //    accumulator entries without clearing diagnostics that will be
+        //    refreshed momentarily.
+        let new_vfile_uris: Vec<Url> = state
+            .virtual_files
+            .iter()
+            .map(|vf| Self::vfile_uri(hick_uri, &vf.path))
+            .collect();
 
-        // 3. Close old virtual files.
-        self.close_vfiles_for(hick_uri).await;
+        // 3. Close old virtual files, pruning diagnostics for removed files.
+        self.close_vfiles_for(hick_uri, &new_vfile_uris).await;
 
         // 4. Determine root URI for child LSP initialization.
         //
@@ -243,8 +247,10 @@ impl HickBackend {
     /// Close all virtual files associated with a .hick document.
     ///
     /// Sends `textDocument/didClose` to each child LSP so that re-opening the
-    /// same URI later is not a protocol violation.
-    async fn close_vfiles_for(&self, hick_uri: &Url) {
+    /// same URI later is not a protocol violation. Only prunes accumulated
+    /// diagnostics for virtual files that are no longer in `new_vfile_uris`,
+    /// keeping existing diagnostics for files that will be refreshed.
+    async fn close_vfiles_for(&self, hick_uri: &Url, new_vfile_uris: &[Url]) {
         let old_vfiles = {
             let docs = self.documents.read().await;
             match docs.get(hick_uri) {
@@ -266,11 +272,27 @@ impl HickBackend {
                 .collect()
         };
 
-        // Clear accumulated diagnostics for this hick document.
+        // Remove accumulated diagnostics only for virtual files that no
+        // longer exist, so that diagnostics for surviving files persist
+        // until the child LSP sends fresh ones.
         {
             let mut diags = self.child_diagnostics.write().await;
-            diags.remove(hick_uri);
+            if let Some(per_hick) = diags.get_mut(hick_uri) {
+                per_hick.retain(|vf_uri, _| new_vfile_uris.contains(vf_uri));
+            }
         }
+
+        // Republish the remaining accumulated diagnostics (minus removed files).
+        let remaining = {
+            let store = self.child_diagnostics.read().await;
+            store
+                .get(hick_uri)
+                .map(|per_hick| per_hick.values().flatten().cloned().collect::<Vec<_>>())
+                .unwrap_or_default()
+        };
+        self.client
+            .publish_diagnostics(hick_uri.clone(), remaining, None)
+            .await;
 
         let dispatcher = self.dispatcher.lock().await;
         for (vf_uri, language_id) in &to_close {
@@ -518,11 +540,7 @@ impl LanguageServer for HickBackend {
     async fn did_close(&self, params: DidCloseTextDocumentParams) {
         let uri = params.text_document.uri;
 
-        self.close_vfiles_for(&uri).await;
-
-        self.client
-            .publish_diagnostics(uri.clone(), vec![], None)
-            .await;
+        self.close_vfiles_for(&uri, &[]).await;
 
         let mut docs = self.documents.write().await;
         docs.remove(&uri);
