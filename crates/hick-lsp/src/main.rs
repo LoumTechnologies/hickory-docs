@@ -2,6 +2,8 @@ use tower_lsp::{LspService, Server};
 use tracing_subscriber::EnvFilter;
 
 mod backend;
+mod child_lsp;
+mod dispatcher;
 
 #[tokio::main]
 async fn main() {
