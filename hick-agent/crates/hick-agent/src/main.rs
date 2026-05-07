@@ -503,10 +503,8 @@ async fn main() -> Result<()> {
             // Build the WASM sandbox executor for running scripts.
             let sandbox_executor: Option<Arc<Mutex<dyn CommandExecutor>>> = if config
                 .images_dir
-                .join(&config.default_image)
-                .with_extension("wasm")
+                .join(format!("{}.wasm", config.default_image))
                 .exists()
-                || config.images_dir.join("alpine.wasm").exists()
             {
                 let sandbox_config = WasmSandboxConfig {
                     images_dir: config.images_dir.clone(),
