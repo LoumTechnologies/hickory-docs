@@ -1,0 +1,29 @@
+[package]
+name = "network"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+tokio = { version = "1", features = ["io-util", "macros", "net", "rt", "sync", "time"] }
+anyhow = "1"
+smoltcp = { version = "0.12.0", default-features = false, features = ["std", "alloc", "medium-ethernet", "proto-ipv4", "socket-tcp", "socket-udp", "socket-raw"] }
+async-trait = "0.1"
+dashmap = "6"
+log = "0.4.29"
+httparse = "1"
+rcgen = "0.14"
+rustls = "0.23"
+rustls-native-certs = "0.8"
+secrecy = "0.10"
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+tokio-rustls = "0.26"
+hick_secrets_crate = { package = "hick-secrets", version = "0.1", path = "../../../hick-security/crates/hick-secrets" }
+net_config_crate = { package = "net-config", path = "../net-config" }
+connection_filter_crate = { package = "connection-filter", path = "../connection-filter" }
+bridge_crate = { package = "bridge", path = "../bridge" }
+tcp_nat_crate = { package = "tcp-nat", path = "../tcp-nat" }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["io-util", "macros", "net", "rt-multi-thread", "sync", "time"] }

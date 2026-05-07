@@ -1,0 +1,8 @@
+[package]
+name = "net-config"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+smoltcp = { version = "0.12.0", default-features = false, features = ["std", "alloc", "medium-ethernet", "proto-ipv4"] }
