@@ -11,8 +11,8 @@ path = "src/main.rs"
 [dependencies]
 hick-flow.workspace = true
 hick-exec.workspace = true
-hick-handlers = { version = "0.1", path = "../../../hickory-docs/crates/hick-handlers" }
-hick-live = { version = "0.1", path = "../../../hickory-docs/crates/hick-live" }
+hick-handlers = { version = "0.1", path = "../../../crates/hick-handlers" }
+hick-live = { version = "0.1", path = "../../../crates/hick-live" }
 hick-lang.workspace = true
 hick-token.workspace = true
 hick-sink.workspace = true

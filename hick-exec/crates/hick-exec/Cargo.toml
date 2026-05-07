@@ -7,7 +7,7 @@ publish = false
 [dependencies]
 hick-condition = { path = "../hick-condition" }
 hick-flow = { path = "../../../hick-reactive/crates/hick-flow" }
-hick-lang = { path = "../../../hick-lang" }
+hick-lang = { path = "../../../hick-lang/crates/hick-lang" }
 tokio = { version = "1", features = ["sync", "rt", "macros"] }
 tokio-stream = "0.1"
 tokio-util = "0.7"

@@ -10,7 +10,7 @@ path = "src/main.rs"
 
 [dependencies]
 hick-lang = { workspace = true, features = ["serde"] }
-hick-lens = { version = "0.1", path = "../../../hickory-docs/crates/hick-lens" }
+hick-lens = { version = "0.1", path = "../../../crates/hick-lens" }
 hick-flow = { workspace = true, features = ["serde"] }
 serde = { version = "1", features = ["derive", "rc"] }
 serde_json = "1"

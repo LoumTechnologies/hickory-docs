@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-hick-lang = { path = "../hick-lang" }
+hick-lang = { path = "../../../hick-lang/crates/hick-lang" }
 futures = "0.3"
 tokio = { version = "1", features = ["sync", "rt", "macros"] }
 tokio-stream = "0.1"

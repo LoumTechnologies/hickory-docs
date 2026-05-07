@@ -6,8 +6,8 @@ description = "Reusable abstractions for AI coding agents: sandboxed command exe
 publish = false
 
 [dependencies]
-hick = { version = "0.1", path = "../../../hickory-docs/crates/hick" }
-hick-lens = { version = "0.1", path = "../../../hickory-docs/crates/hick-lens" }
+hick = { version = "0.1", path = "../../../crates/hick" }
+hick-lens = { version = "0.1", path = "../../../crates/hick-lens" }
 hick-flow = { workspace = true, features = ["serde"] }
 hick-exec.workspace = true
 hick-token.workspace = true

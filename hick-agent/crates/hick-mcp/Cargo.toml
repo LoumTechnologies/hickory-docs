@@ -9,8 +9,8 @@ name = "hick-mcp"
 path = "src/main.rs"
 
 [dependencies]
-hick = { version = "0.1", path = "../../../hickory-docs/crates/hick" }
-hick-lens = { version = "0.1", path = "../../../hickory-docs/crates/hick-lens" }
+hick = { version = "0.1", path = "../../../crates/hick" }
+hick-lens = { version = "0.1", path = "../../../crates/hick-lens" }
 hick-flow.workspace = true
 hick-lang.workspace = true
 hick-exec.workspace = true

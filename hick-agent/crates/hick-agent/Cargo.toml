@@ -20,7 +20,7 @@ integration-test = ["hick-agent-engine/integration-test"]
 hick-agent-engine = { path = "../hick-agent-engine" }
 
 # Dependencies only needed by the CLI binary (main.rs) and TUI (tui.rs)
-hick = { version = "0.1", path = "../../../hickory-docs/crates/hick" }
+hick = { version = "0.1", path = "../../../crates/hick" }
 hick-agent-core = { path = "../hick-agent-core" }
 hick-token.workspace = true
 anyhow = "1"
