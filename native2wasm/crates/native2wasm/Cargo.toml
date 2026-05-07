@@ -1,0 +1,31 @@
+[package]
+name = "native2wasm"
+version = "0.1.0"
+edition = "2024"
+description = "Unified CLI: any native binary → WASI WebAssembly"
+
+[[bin]]
+name = "native2wasm"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+env_logger = "0.11"
+goblin = "0.9"
+log = "0.4"
+tempfile = "3"
+which = "7"
+
+# Internal crates
+native2wasm-core = { path = "../native2wasm-core" }
+elf2wasm = { path = "../elf2wasm" }
+mach2wasm = { path = "../mach2wasm" }
+pe2wasm = { path = "../pe2wasm" }
+emu-core = { path = "../emu-core" }
+emu-x86 = { path = "../emu-x86" }
+emu-arm64 = { path = "../emu-arm64" }
+c2w = { path = "../c2w" }
+
+[dev-dependencies]
+tempfile = "3"

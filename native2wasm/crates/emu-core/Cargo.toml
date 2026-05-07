@@ -1,0 +1,14 @@
+[package]
+name = "emu-core"
+version = "0.1.0"
+edition = "2024"
+description = "User-mode emulator framework for native2wasm"
+
+[dependencies]
+anyhow = "1"
+dirs = "6"
+log = "0.4"
+tempfile = "3"
+which = "7"
+
+native2wasm-core = { path = "../native2wasm-core" }
