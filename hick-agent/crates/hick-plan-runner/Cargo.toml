@@ -1,0 +1,27 @@
+[package]
+name = "hick-plan-runner"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[[bin]]
+name = "hick-plan-runner"
+path = "src/main.rs"
+
+[dependencies]
+hick-flow.workspace = true
+hick-exec.workspace = true
+hick-handlers = { version = "0.1", path = "../../../hickory-docs/crates/hick-handlers" }
+hick-live = { version = "0.1", path = "../../../hickory-docs/crates/hick-live" }
+hick-lang.workspace = true
+hick-token.workspace = true
+hick-sink.workspace = true
+hick-policy.workspace = true
+hick-classify.workspace = true
+clap = { version = "4", features = ["derive"] }
+tokio = { version = "1", features = ["full"] }
+serde_json = "1"
+anyhow = "1"
+log = "0.4"
+env_logger = "0.11"
+futures = "0.3"

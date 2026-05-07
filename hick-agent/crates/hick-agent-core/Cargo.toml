@@ -1,0 +1,16 @@
+[package]
+name = "hick-agent-core"
+version = "0.1.0"
+edition = "2024"
+description = "Reusable abstractions for AI coding agents: sandboxed command execution and Hick XML edit format"
+publish = false
+
+[dependencies]
+hick = { version = "0.1", path = "../../../hickory-docs/crates/hick" }
+hick-lens = { version = "0.1", path = "../../../hickory-docs/crates/hick-lens" }
+hick-flow = { workspace = true, features = ["serde"] }
+hick-exec.workspace = true
+hick-token.workspace = true
+async-trait = "0.1"
+anyhow = "1"
+tokio = { version = "1", features = ["sync", "fs"] }

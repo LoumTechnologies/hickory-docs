@@ -1,0 +1,48 @@
+[package]
+name = "hick-agent-engine"
+version = "0.1.0"
+edition = "2024"
+description = "Embeddable agent engine — ReAct loop, LLM abstraction, security stack. No TUI/CLI."
+publish = false
+
+[features]
+default = []
+local = ["dep:llama-cpp-2"]
+local-cuda = ["local", "llama-cpp-2/cuda"]
+integration-test = []
+
+[dependencies]
+hick-agent-core = { path = "../hick-agent-core" }
+hick-token.workspace = true
+hick-classify.workspace = true
+hick-policy.workspace = true
+hick-sink.workspace = true
+hick-flow = { workspace = true, features = ["serde"] }
+hick-lang.workspace = true
+chrono = "0.4"
+async-openai = "0.28"
+async-trait = "0.1"
+anyhow = "1"
+bytes = "1"
+futures = "0.3"
+reqwest = { version = "0.12", features = ["json", "stream"] }
+tokio = { version = "1", features = ["full"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+glob = "0.3"
+log = "0.4"
+notify = "7"
+sha2 = "0.10"
+walkdir = "2"
+toml = "1.0.3"
+
+# Metal auto-enabled on macOS; CUDA opt-in via `local-cuda` feature
+[target.'cfg(target_os = "macos")'.dependencies]
+llama-cpp-2 = { version = "0.1", optional = true, features = ["metal"] }
+
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+llama-cpp-2 = { version = "0.1", optional = true }
+
+[dev-dependencies]
+tempfile = "3"
