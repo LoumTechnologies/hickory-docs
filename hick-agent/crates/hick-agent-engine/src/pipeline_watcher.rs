@@ -20,7 +20,7 @@ use std::time::Duration;
 use anyhow::{Context, Result};
 use hick_flow::provenance::ProvenanceMap;
 use log::{debug, error, info, warn};
-use notify::{EventKind, RecommendedWatcher, RecursiveMode, Watcher};
+use notify::{EventKind, PollWatcher, RecommendedWatcher, RecursiveMode, Watcher};
 use sha2::{Digest, Sha256};
 use tokio::sync::{Mutex, Notify};
 
@@ -114,16 +114,33 @@ impl PipelineWatcher {
             }
         }
 
-        // Set up file watcher
+        // Set up file watcher, falling back to polling if inotify is unavailable.
         let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-        let mut watcher = RecommendedWatcher::new(
+        let poll_config = notify::Config::default().with_poll_interval(Duration::from_millis(500));
+        let make_cb = {
+            let tx = tx.clone();
             move |res: notify::Result<notify::Event>| {
                 if let Ok(event) = res {
                     let _ = tx.send(event);
                 }
-            },
-            notify::Config::default().with_poll_interval(Duration::from_millis(100)),
-        )?;
+            }
+        };
+        let mut watcher: Box<dyn Watcher + Send> =
+            match RecommendedWatcher::new(make_cb, notify::Config::default()) {
+                Ok(w) => {
+                    info!("Pipeline watcher: using inotify");
+                    Box::new(w)
+                }
+                Err(e) => {
+                    warn!("Pipeline watcher: inotify unavailable ({e}), falling back to polling");
+                    let cb = move |res: notify::Result<notify::Event>| {
+                        if let Ok(event) = res {
+                            let _ = tx.send(event);
+                        }
+                    };
+                    Box::new(PollWatcher::new(cb, poll_config)?)
+                }
+            };
 
         // Watch the project directory for all file changes
         watcher.watch(&self.project_dir, RecursiveMode::Recursive)?;
