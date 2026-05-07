@@ -1,0 +1,28 @@
+[package]
+name = "hick-grove"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+hick-flow = { path = "../hick-flow" }
+yrs = "0.21"
+tokio = { version = "1", features = ["sync", "rt", "macros"] }
+quick-xml = "0.37"
+futures = "0.3"
+async-stream = "0.3"
+uuid = { version = "1", features = ["v7"] }
+anyhow = "1"
+log = "0.4"
+serde = { version = "1", features = ["derive"] }
+
+[dependencies.rusqlite]
+version = "0.32"
+features = ["bundled"]
+optional = true
+
+[features]
+default = []
+sqlite-example = ["rusqlite"]
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
