@@ -501,45 +501,39 @@ async fn main() -> Result<()> {
             };
 
             // Build the WASM sandbox executor for running scripts.
-            let sandbox_executor: Option<Arc<Mutex<dyn CommandExecutor>>> = if config
+            let wasm_image_path = config
                 .images_dir
-                .join(format!("{}.wasm", config.default_image))
-                .exists()
-            {
-                let sandbox_config = WasmSandboxConfig {
-                    images_dir: config.images_dir.clone(),
-                    workdir: config.project_dir.clone(),
-                    default_image: config.default_image.clone(),
-                    capabilities: sandbox_caps,
-                    auth: auth_stack,
-                };
-                match WasmSandboxExecutor::new(sandbox_config) {
-                    exec => {
-                        event_tx
-                            .send(AgentEvent::Info(format!(
-                                "Sandbox: WASM container enabled ({caps_summary})"
-                            )))
-                            .ok();
-                        Some(Arc::new(Mutex::new(exec)))
-                    }
-                }
-            } else {
-                event_tx
-                    .send(AgentEvent::Info(
-                        "Sandbox: disabled (no WASM images found, using host execution)".into(),
-                    ))
-                    .ok();
-                None
+                .join(format!("{}.wasm", config.default_image));
+            if !wasm_image_path.exists() {
+                anyhow::bail!(
+                    "WASM image not found: {}\n\n\
+                     Set --images-dir to the directory containing your .wasm images\n\
+                     and --default-image to the image name (without the .wasm extension).\n\n\
+                     Example:\n\
+                     \x20 hick-agent run \\\n\
+                     \x20   --images-dir /path/to/converted_images/alpine \\\n\
+                     \x20   --default-image 3.23.2",
+                    wasm_image_path.display()
+                );
+            }
+            let sandbox_config = WasmSandboxConfig {
+                images_dir: config.images_dir.clone(),
+                workdir: config.project_dir.clone(),
+                default_image: config.default_image.clone(),
+                capabilities: sandbox_caps,
+                auth: auth_stack,
             };
+            let sandbox_executor: Arc<Mutex<dyn CommandExecutor>> =
+                Arc::new(Mutex::new(WasmSandboxExecutor::new(sandbox_config)));
+            event_tx
+                .send(AgentEvent::Info(format!(
+                    "Sandbox: WASM container enabled ({caps_summary})"
+                )))
+                .ok();
 
-            let mut react_loop = if let Some(executor) = sandbox_executor {
-                ReactLoop::new(agent, config.project_dir.clone())
-                    .with_executor(executor, config.default_image.clone())
-                    .with_sink_guard(sink_guard)
-            } else {
-                ReactLoop::new(agent, config.project_dir.clone())
-                    .with_sink_guard(sink_guard)
-            };
+            let mut react_loop = ReactLoop::new(agent, config.project_dir.clone())
+                .with_executor(sandbox_executor, config.default_image.clone())
+                .with_sink_guard(sink_guard);
 
             // Wire up policy evaluator if configured.
             if let Some(ref policy_path) = security_config.policy_script {
