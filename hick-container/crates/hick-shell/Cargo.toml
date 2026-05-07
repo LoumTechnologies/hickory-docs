@@ -1,0 +1,15 @@
+[package]
+name = "hick-shell"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+brush-parser = "0.3"
+wasmtime.workspace = true
+wasi-common = "41.0.1"
+cap-std = "3.4.5"
+tokio = { version = "1", features = ["rt", "sync", "io-util", "time"] }
+anyhow = "1"
+thiserror = "2"
+log = "0.4"
