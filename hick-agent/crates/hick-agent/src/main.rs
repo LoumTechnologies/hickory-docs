@@ -319,6 +319,41 @@ fn endpoint_host_for_provider(provider: Provider, api_base: &Option<String>) -> 
     }
 }
 
+/// Walk up from `start` looking for `native2wasm/crates/c2w/converted_images`.
+/// Returns `(images_dir, default_image)` for the first image found, or `None`.
+fn detect_images_dir(start: &std::path::Path) -> Option<(PathBuf, String)> {
+    let rel = std::path::Path::new("native2wasm/crates/c2w/converted_images");
+    let mut dir = start.to_path_buf();
+    loop {
+        let candidate = dir.join(rel);
+        if candidate.is_dir() {
+            // Find the first subdirectory (e.g. "alpine") that contains a .wasm file
+            if let Ok(entries) = std::fs::read_dir(&candidate) {
+                for entry in entries.flatten() {
+                    let image_dir = entry.path();
+                    if !image_dir.is_dir() {
+                        continue;
+                    }
+                    if let Ok(files) = std::fs::read_dir(&image_dir) {
+                        for file in files.flatten() {
+                            let p = file.path();
+                            if p.extension().and_then(|e| e.to_str()) == Some("wasm") {
+                                if let Some(stem) = p.file_stem().and_then(|s| s.to_str()) {
+                                    return Some((image_dir, stem.to_string()));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        if !dir.pop() {
+            break;
+        }
+    }
+    None
+}
+
 /// Background task that waits for user messages and drives the react loop.
 async fn agent_task(
     react_loop: ReactLoop,
@@ -360,9 +395,22 @@ async fn main() -> Result<()> {
             max_tokens,
             no_stream,
         } => {
+            let project_dir = project_dir.unwrap_or_else(|| std::env::current_dir().unwrap());
+            let (images_dir, default_image) = match images_dir {
+                Some(d) => (d, default_image),
+                None => {
+                    match detect_images_dir(&project_dir) {
+                        Some((d, img)) => {
+                            println!("Auto-detected images: {} (image: {})", d.display(), img);
+                            (d, img)
+                        }
+                        None => (PathBuf::from("."), default_image),
+                    }
+                }
+            };
             let config = AgentConfig {
-                project_dir: project_dir.unwrap_or_else(|| std::env::current_dir().unwrap()),
-                images_dir: images_dir.unwrap_or_else(|| PathBuf::from(".")),
+                project_dir,
+                images_dir,
                 default_image,
             };
 
