@@ -2,42 +2,28 @@ x-devenv:
   version: "1"
 
 services:
-  wrist-flick-api:
+  backend:
     build:
-      context: .
-      dockerfile: ../drift-signal/crates/wrist-flick/Dockerfile
-    environment:
-      WRIST_FLICK_PORT: "3000"
-      WRIST_FLICK_LLM: "${WRIST_FLICK_LLM}"
-      WRIST_FLICK_MODEL: "${WRIST_FLICK_MODEL}"
-      WRIST_FLICK_DB: "/data/wrist-flick.db"
-      ANTHROPIC_API_KEY: "${ANTHROPIC_API_KEY}"
-      OPENAI_API_KEY: "${OPENAI_API_KEY}"
-    volumes:
-      - ./dev-data/wrist-flick:/data
+      context: ./backend
+      dockerfile: Dockerfile
     ports:
-      - "${WRIST_FLICK_API_PORT}:3000"
+      - "${BACKEND_PORT:-3000}:3000"
+    volumes:
+      - ./dev-data/backend:/app/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+    environment:
+      - RUST_LOG=blue_iron_cube=debug,tower_http=debug
     x-devenv:
-      portEnvVar: WRIST_FLICK_API_PORT
+      portEnvVar: BACKEND_PORT
       healthCheck: /health
-      healthTimeout: 120
-      projectPath: ../drift-signal/crates/wrist-flick
-      command: "cargo run --manifest-path ../drift-signal/Cargo.toml -p wrist-flick"
+      healthCheckProtocol: http
+      healthTimeout: 60
+      projectPath: ./backend
+      command: cargo run
       developerUrl: /health
 
-  wrist-flick-web:
-    build:
-      context: .
-      dockerfile: ../drift-signal/crates/wrist-flick/web/Dockerfile
-    environment:
-      VITE_API_URL: "http://localhost:${WRIST_FLICK_API_PORT}"
-    ports:
-      - "${WRIST_FLICK_WEB_PORT}:80"
-    depends_on:
-      - wrist-flick-api
-    x-devenv:
-      portEnvVar: WRIST_FLICK_WEB_PORT
-      healthCheck: /
-      projectPath: ../drift-signal/crates/wrist-flick/web
-      command: "npm --prefix ../drift-signal/crates/wrist-flick/web run dev"
-      developerUrl: /
