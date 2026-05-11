@@ -5,11 +5,66 @@ It defines a simple Rust program and a Python script.
 
 <hick:copy id="greeting">Hello from hick!</hick:copy>
 
-<hick:file path="Cargo.toml">
-[package]
-name = "hick-demo"
-version = "0.1.0"
-edition = "2021"
+<hick:file path="Cargo.toml">[workspace]
+resolver = "3"
+members = [
+    "backend",
+    "crates/*",
+    "hick-lang/crates/*",
+    "hick-reactive/crates/*",
+    "hick-exec/crates/*",
+    "hick-security/crates/*",
+    "hick-store/crates/*",
+    "wasm-net/crates/*",
+    "hick-container/crates/*",
+    "hick-agent/crates/*",
+    "native2wasm/crates/*",
+]
+exclude = ["matrix"]
+
+[workspace.package]
+edition = "2024"
+publish = false
+
+[workspace.dependencies]
+hick-lang = { version = "0.1", path = "hick-lang/crates/hick-lang" }
+hick-flow = { version = "0.1", path = "hick-reactive/crates/hick-flow" }
+hick-exec = { version = "0.1", path = "hick-exec/crates/hick-exec" }
+hick-condition = { version = "0.1", path = "hick-exec/crates/hick-condition" }
+
+# hick-security
+hick-classify = { version = "0.1", path = "hick-security/crates/hick-classify" }
+hick-token = { version = "0.1", path = "hick-security/crates/hick-token" }
+hick-sink = { version = "0.1", path = "hick-security/crates/hick-sink" }
+hick-secrets = { version = "0.1", path = "hick-security/crates/hick-secrets" }
+hick-policy = { version = "0.1", path = "hick-security/crates/hick-policy" }
+
+# hick-store
+hick-store = { version = "0.1", path = "hick-store/crates/hick-store" }
+hick-merge = { version = "0.1", path = "hick-store/crates/hick-merge" }
+
+# wasm-net
+net-config = { version = "0.1", path = "wasm-net/crates/net-config" }
+bridge = { version = "0.1", path = "wasm-net/crates/bridge" }
+tcp-nat = { version = "0.1", path = "wasm-net/crates/tcp-nat" }
+connection-filter = { version = "0.1", path = "wasm-net/crates/connection-filter" }
+network = { version = "0.1", path = "wasm-net/crates/network" }
+
+# hick-container
+container = { version = "0.1", path = "hick-container/crates/container" }
+hick-shell = { version = "0.1", path = "hick-container/crates/hick-shell" }
+
+# native2wasm
+c2w = { version = "0.1", path = "native2wasm/crates/c2w" }
+
+# wasmtime
+wasmtime = { version = "41.0.0", default-features = false, features = [
+    "async", "cache", "cranelift", "runtime", "std", "threads", "wat",
+    "profiling", "parallel-compilation", "pooling-allocator",
+    "demangle", "addr2line", "coredump", "debug-builtins",
+    "gc", "gc-drc", "gc-null",
+    "component-model", "component-model-async",
+] }
 </hick:file>
 
 <hick:file path="src/main.rs">
