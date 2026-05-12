@@ -132,7 +132,7 @@ fn detect_providers() -> Vec<DetectedProvider> {
             "claude-sonnet-4-5-20250929",
         ),
         ("OPENAI_API_KEY", Provider::Openai, "gpt-4o"),
-        ("XAI_API_KEY", Provider::Xai, "grok-2-1212"),
+        ("XAI_API_KEY", Provider::Xai, "grok-4.3"),
     ];
     for &(env_var, provider, default_model) in candidates {
         if std::env::var(env_var)
@@ -242,7 +242,7 @@ fn build_llm_client(
             Ok(Box::new(AnthropicClient::with_config(model, key)))
         }
         Provider::Xai => {
-            let model = model.unwrap_or_else(|| "grok-2-1212".into());
+            let model = model.unwrap_or_else(|| "grok-4.3".into());
             if let Some(key) = api_key {
                 Ok(Box::new(OpenAiCompatClient::custom(
                     "https://api.x.ai/v1",
