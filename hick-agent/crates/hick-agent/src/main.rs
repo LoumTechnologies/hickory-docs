@@ -661,6 +661,14 @@ async fn main() -> Result<()> {
 
             let provider_info = format!("{provider_name} / {model_name}");
 
+            // Determine log path: .hick/agent-YYYYMMDD-HHMMSS.log
+            let log_path = {
+                let ts = chrono::Local::now().format("%Y%m%d-%H%M%S");
+                let log_dir = config.project_dir.join(".hick");
+                std::fs::create_dir_all(&log_dir).ok();
+                log_dir.join(format!("agent-{ts}.log"))
+            };
+
             // Spawn the agent task
             let interrupt_agent = Arc::clone(&interrupt);
             tokio::spawn(agent_task(react_loop, event_tx, cmd_rx, interrupt_agent));
@@ -668,7 +676,14 @@ async fn main() -> Result<()> {
             // Run the TUI on a blocking thread (the agent runs on tokio workers)
             let interrupt_tui = Arc::clone(&interrupt);
             tokio::task::spawn_blocking(move || {
-                run_tui(event_rx, cmd_tx, interrupt_tui, provider_info, approval_rx)
+                run_tui(
+                    event_rx,
+                    cmd_tx,
+                    interrupt_tui,
+                    provider_info,
+                    approval_rx,
+                    Some(log_path),
+                )
             })
             .await??;
         }

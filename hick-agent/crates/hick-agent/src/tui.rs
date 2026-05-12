@@ -4,7 +4,8 @@
 //! output area with styled text. User input is captured via crossterm key
 //! events and sent back as [`AgentCommand`]s.
 
-use std::io;
+use std::io::{self, BufWriter, Write as _};
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -56,10 +57,38 @@ struct App {
     should_quit: bool,
     /// Pending network approval prompt — awaiting y/n from the user.
     pending_approval: Option<oneshot::Sender<NetworkVerdict>>,
+    /// XML session log file writer (None if log could not be opened).
+    log: Option<BufWriter<std::fs::File>>,
+    /// Display path shown in the header (just the filename).
+    log_display: String,
 }
 
 impl App {
-    fn new(provider_info: String) -> Self {
+    fn new(provider_info: String, log_path: Option<PathBuf>) -> Self {
+        let (log, log_display) = match log_path {
+            Some(path) => {
+                let display = path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("agent.log")
+                    .to_string();
+                match std::fs::File::create(&path) {
+                    Ok(f) => {
+                        let mut w = BufWriter::new(f);
+                        let now = chrono::Local::now();
+                        let _ = writeln!(
+                            w,
+                            r#"<session start="{}">"#,
+                            now.to_rfc3339()
+                        );
+                        let _ = w.flush();
+                        (Some(w), display)
+                    }
+                    Err(_) => (None, display),
+                }
+            }
+            None => (None, String::new()),
+        };
         Self {
             lines: Vec::new(),
             current_partial: String::new(),
@@ -72,6 +101,28 @@ impl App {
             provider_info,
             should_quit: false,
             pending_approval: None,
+            log,
+            log_display,
+        }
+    }
+
+    fn log_entry(&mut self, tag: &str, attrs: &[(&str, &str)], content: &str) {
+        if let Some(ref mut w) = self.log {
+            let now = chrono::Local::now();
+            let attr_str = attrs
+                .iter()
+                .map(|(k, v)| format!(r#" {}="{}""#, k, xml_escape(v)))
+                .collect::<String>();
+            let _ = writeln!(
+                w,
+                r#"  <{} time="{}"{}>{}</{}>"#,
+                tag,
+                now.to_rfc3339(),
+                attr_str,
+                xml_escape(content),
+                tag
+            );
+            let _ = w.flush();
         }
     }
 
@@ -136,12 +187,13 @@ impl App {
                 self.thinking_shown = true;
             }
             AgentEvent::Token(text) => self.append_token(&text),
-            AgentEvent::ResponseComplete(_) => {
-                // Tokens already handled inline; nothing to do here.
+            AgentEvent::ResponseComplete(response) => {
+                self.log_entry("assistant", &[], &response);
             }
-            AgentEvent::ScriptStarted { .. } => {
+            AgentEvent::ScriptStarted { code } => {
                 self.flush_partial();
                 self.push_line(LineKind::Info, "\u{25b6} Running script...");
+                self.log_entry("script-code", &[], &code);
             }
             AgentEvent::ScriptFinished(result) => {
                 // Replace "Running script..." indicator
@@ -170,7 +222,8 @@ impl App {
                         self.push_line(LineKind::Error, line);
                     }
                 }
-                if result.exit_code != Some(0) {
+                let exit_ok = result.exit_code == Some(0);
+                if !exit_ok {
                     self.push_line(
                         LineKind::Error,
                         &format!(
@@ -179,6 +232,16 @@ impl App {
                         ),
                     );
                 }
+                let exit_attr = result
+                    .exit_code
+                    .map(|c| c.to_string())
+                    .unwrap_or_else(|| "unknown".into());
+                let combined = if result.stdout.is_empty() && result.stderr.is_empty() {
+                    String::new()
+                } else {
+                    format!("{}{}", result.stdout, result.stderr)
+                };
+                self.log_entry("script-output", &[("exit", &exit_attr)], &combined);
             }
             AgentEvent::Done(_) => {
                 self.flush_partial();
@@ -188,11 +251,13 @@ impl App {
             AgentEvent::Interrupted => {
                 self.flush_partial();
                 self.push_line(LineKind::Info, "\u{25cf} Interrupted");
+                self.log_entry("interrupted", &[], "");
                 self.busy = false;
             }
             AgentEvent::Error(msg) => {
                 self.flush_partial();
                 self.push_line(LineKind::Error, &msg);
+                self.log_entry("error", &[], &msg);
                 self.busy = false;
             }
             AgentEvent::DataClassification {
@@ -206,6 +271,7 @@ impl App {
             }
             AgentEvent::SecurityViolation { description } => {
                 self.push_line(LineKind::Error, &format!("SECURITY: {description}"));
+                self.log_entry("security-violation", &[], &description);
             }
         }
     }
@@ -276,6 +342,7 @@ impl App {
 
                     self.push_line(LineKind::User, &format!("> {msg}"));
                     self.push_line(LineKind::Separator, "");
+                    self.log_entry("user", &[], &msg);
                     cmd_tx.send(AgentCommand::Message(msg)).ok();
                     self.busy = true;
                     self.auto_scroll = true;
@@ -335,7 +402,7 @@ impl App {
         .split(area);
 
         // Header bar
-        let header = Paragraph::new(Line::from(vec![
+        let mut header_spans = vec![
             Span::styled(
                 "hick-agent",
                 Style::default()
@@ -344,7 +411,15 @@ impl App {
             ),
             Span::styled(" \u{2502} ", Style::default().fg(Color::DarkGray)),
             Span::styled(&self.provider_info, Style::default().fg(Color::DarkGray)),
-        ]));
+        ];
+        if !self.log_display.is_empty() {
+            header_spans.push(Span::styled(" \u{2502} ", Style::default().fg(Color::DarkGray)));
+            header_spans.push(Span::styled(
+                format!("log: {}", self.log_display),
+                Style::default().fg(Color::DarkGray),
+            ));
+        }
+        let header = Paragraph::new(Line::from(header_spans));
         frame.render_widget(header, chunks[0]);
 
         // Build output text
@@ -428,9 +503,21 @@ impl App {
     }
 }
 
+// ── XML helpers ────────────────────────────────────────────────────
+
+fn xml_escape(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+}
+
 // ── Public entry point ─────────────────────────────────────────────
 
 /// Run the ratatui TUI. Blocks until the user quits.
+///
+/// `log_path` — if provided, an XML session log is written there for the
+/// full duration of the session. The path is shown in the header bar.
 ///
 /// This function takes ownership of the event/command channels, the interrupt
 /// signal, and an optional network approval channel. It should be called from
@@ -441,6 +528,7 @@ pub fn run_tui(
     interrupt: Arc<Notify>,
     provider_info: String,
     mut approval_rx: mpsc::UnboundedReceiver<NetworkApprovalRequest>,
+    log_path: Option<PathBuf>,
 ) -> anyhow::Result<()> {
     // Setup terminal
     enable_raw_mode()?;
@@ -449,7 +537,7 @@ pub fn run_tui(
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    let mut app = App::new(provider_info);
+    let mut app = App::new(provider_info, log_path);
 
     let result = (|| -> anyhow::Result<()> {
         loop {
@@ -486,6 +574,14 @@ pub fn run_tui(
         }
         Ok(())
     })();
+
+    // Close the XML log
+    if let Some(ref mut w) = app.log {
+        let now = chrono::Local::now();
+        let _ = writeln!(w, r#"  <session-end time="{}"/>"#, now.to_rfc3339());
+        let _ = writeln!(w, "</session>");
+        let _ = w.flush();
+    }
 
     // Restore terminal
     disable_raw_mode()?;
