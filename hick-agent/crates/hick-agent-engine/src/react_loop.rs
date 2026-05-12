@@ -427,42 +427,54 @@ impl ReactLoop {
 
     /// Run the full ReAct loop until done or max turns.
     ///
+    /// `history` is the persistent conversation across multiple user turns. On
+    /// the first call it must be empty; the system prompt and initial user
+    /// message are prepended automatically. On subsequent calls only the new
+    /// user message is appended, preserving the full conversation context.
+    ///
     /// Emits [`AgentEvent`]s on the channel and checks `interrupt` for
     /// user-requested cancellation.
     pub async fn run(
         &self,
         user_message: &str,
+        history: &mut Vec<Message>,
         events: &mpsc::UnboundedSender<AgentEvent>,
         interrupt: &Notify,
     ) -> anyhow::Result<()> {
-        // Load standards-based agent context (AGENTS.md, .agents/, CLAUDE.md)
-        let agent_context = context::load_agent_context(&self.project_dir);
-        let system = if agent_context.is_empty() {
-            SYSTEM_PROMPT.to_string()
-        } else {
-            format!("{SYSTEM_PROMPT}\n\n---\n\n{agent_context}")
-        };
-
-        let mut messages = vec![
-            Message {
+        if history.is_empty() {
+            // First turn: prepend system prompt and wrap user message with context.
+            let agent_context = context::load_agent_context(&self.project_dir);
+            let system = if agent_context.is_empty() {
+                SYSTEM_PROMPT.to_string()
+            } else {
+                format!("{SYSTEM_PROMPT}\n\n---\n\n{agent_context}")
+            };
+            history.push(Message {
                 role: Role::System,
                 content: system,
-            },
-            Message {
+            });
+            history.push(Message {
                 role: Role::User,
                 content: format!(
                     "Project directory: {}\n\nRequest: {}",
                     self.project_dir.display(),
                     user_message
                 ),
-            },
-        ];
+            });
+        } else {
+            // Subsequent turns: append user message directly.
+            history.push(Message {
+                role: Role::User,
+                content: user_message.to_string(),
+            });
+        }
 
-        let mut state = AgentState::Thinking { messages_sent: 2 };
+        let messages = history;
+        let mut state = AgentState::Thinking { messages_sent: messages.len() };
         let mut turns = 0;
 
         while !state.is_terminal() && turns < self.max_turns {
-            state = self.step(state, &mut messages, events, interrupt).await?;
+            state = self.step(state, messages, events, interrupt).await?;
             turns += 1;
 
             if let AgentState::Observing { .. } = state {

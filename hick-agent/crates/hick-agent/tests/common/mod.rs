@@ -169,8 +169,9 @@ pub async fn run_agent(
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
     let interrupt = Notify::new();
 
+    let mut history = Vec::new();
     react
-        .run("test", &tx, &interrupt)
+        .run("test", &mut history, &tx, &interrupt)
         .await
         .expect("ReactLoop::run failed");
 

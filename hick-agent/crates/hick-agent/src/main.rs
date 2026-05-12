@@ -361,10 +361,11 @@ async fn agent_task(
     mut commands: mpsc::UnboundedReceiver<AgentCommand>,
     interrupt: Arc<Notify>,
 ) {
+    let mut history = Vec::new();
     while let Some(cmd) = commands.recv().await {
         match cmd {
             AgentCommand::Message(msg) => {
-                if let Err(e) = react_loop.run(&msg, &events, &interrupt).await {
+                if let Err(e) = react_loop.run(&msg, &mut history, &events, &interrupt).await {
                     events.send(AgentEvent::Error(e.to_string())).ok();
                 }
             }
