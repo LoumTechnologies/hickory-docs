@@ -273,6 +273,18 @@ impl App {
                 self.push_line(LineKind::Error, &format!("SECURITY: {description}"));
                 self.log_entry("security-violation", &[], &description);
             }
+            AgentEvent::Reprompt { reason, attempt } => {
+                self.flush_partial();
+                self.push_line(
+                    LineKind::Info,
+                    &format!("\u{26a0} Re-prompting (attempt {attempt}): {reason}"),
+                );
+                self.log_entry(
+                    "reprompt",
+                    &[("attempt", &attempt.to_string())],
+                    &reason,
+                );
+            }
         }
     }
 
@@ -446,11 +458,29 @@ impl App {
             ));
         }
 
-        let total_lines = text_lines.len();
         // Inner height = block height minus 2 for the borders
         let visible_height = chunks[1].height.saturating_sub(2) as usize;
+        // Inner width = block width minus 2 for the borders
+        let inner_width = chunks[1].width.saturating_sub(2) as usize;
 
-        let max_scroll = total_lines.saturating_sub(visible_height);
+        // Count total visual rows accounting for line wrapping — Paragraph::scroll uses
+        // visual row offsets, so max_scroll must be in the same units.
+        let total_visual_rows: usize = text_lines
+            .iter()
+            .map(|line| {
+                let char_count: usize = line.spans.iter().map(|s| s.content.chars().count()).sum();
+                if inner_width == 0 {
+                    1
+                } else if char_count == 0 {
+                    1
+                } else {
+                    char_count.div_ceil(inner_width)
+                }
+            })
+            .sum::<usize>()
+            .max(1);
+
+        let max_scroll = total_visual_rows.saturating_sub(visible_height);
         if self.auto_scroll {
             self.scroll = max_scroll;
         } else {
