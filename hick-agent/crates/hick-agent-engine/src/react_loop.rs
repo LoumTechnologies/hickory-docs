@@ -102,6 +102,18 @@ Key elements:
 4. **Print your results.** Your script's stdout is what you see as observation. Use print/Console.WriteLine/console.log to report findings.
 "#;
 
+/// Appended to the system prompt when code runs in the WASM sandbox (normal mode).
+///
+/// The model must not use the host project path here — scripts only see `/workspace`.
+const SANDBOX_EXECUTION_CONTEXT: &str = r#"
+
+## Execution environment (sandbox)
+
+Your fenced code blocks run in an isolated Linux/WASM container. The project is mounted at **`/workspace`** and shell commands start from there (`cd /workspace`, etc.).
+
+In every script, use **`/workspace`**, **`WORKSPACE`** (set for Python), or paths **relative to `/workspace`**. **Do not** use host absolute paths such as `/home/...`, `/Users/...`, or `~/...` — those paths do not exist inside the container.
+"#;
+
 // ── Response protocol ────────────────────────────────────────────────────────
 
 /// Intent declared by the LLM in its `<hick:next>` tag.
@@ -588,22 +600,32 @@ impl ReactLoop {
         if history.is_empty() {
             // First turn: prepend system prompt and wrap user message with context.
             let agent_context = context::load_agent_context(&self.project_dir);
-            let system = if agent_context.is_empty() {
-                SYSTEM_PROMPT.to_string()
-            } else {
-                format!("{SYSTEM_PROMPT}\n\n---\n\n{agent_context}")
-            };
+            let mut system = SYSTEM_PROMPT.to_string();
+            if self.executor.is_some() {
+                system.push_str(SANDBOX_EXECUTION_CONTEXT);
+            }
+            if !agent_context.is_empty() {
+                system.push_str("\n\n---\n\n");
+                system.push_str(&agent_context);
+            }
             history.push(Message {
                 role: Role::System,
                 content: system,
             });
-            history.push(Message {
-                role: Role::User,
-                content: format!(
+            // In the sandbox, the LLM only sees `/workspace`; telling it the host path makes
+            // it emit scripts that list the wrong directory. Unsandboxed mode still needs cwd.
+            let first_user = if self.executor.is_some() {
+                user_message.to_string()
+            } else {
+                format!(
                     "Project directory: {}\n\nRequest: {}",
                     self.project_dir.display(),
                     user_message
-                ),
+                )
+            };
+            history.push(Message {
+                role: Role::User,
+                content: first_user,
             });
         } else {
             // Subsequent turns: append user message directly.

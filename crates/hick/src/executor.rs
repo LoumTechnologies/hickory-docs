@@ -5,6 +5,7 @@
 //! container-testbed pattern for automated (non-interactive) use.
 
 use std::collections::HashMap;
+use std::fs::File;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -1024,6 +1025,59 @@ pub fn resolve_image_path(images_dir: &Path, name: &str) -> PathBuf {
         exact.display()
     );
     PathBuf::from(name)
+}
+
+/// Ensure `wasm_path` is a Wasmtime-loadable module, extracting from a sibling
+/// `*.wasm.zip` when the file is missing or corrupt (common after a bad copy or
+/// partial Git LFS download).
+pub fn ensure_loadable_wasm_file(wasm_path: &Path) -> Result<()> {
+    let zip_path = wasm_path.with_extension("wasm.zip");
+    let engine = create_async_engine()?;
+
+    let try_validate = || -> Result<()> {
+        let bytes = std::fs::read(wasm_path)?;
+        Module::validate(&engine, &bytes)?;
+        Ok(())
+    };
+
+    if wasm_path.is_file() && try_validate().is_ok() {
+        return Ok(());
+    }
+
+    if !zip_path.is_file() {
+        if wasm_path.is_file() {
+            try_validate()
+                .with_context(|| format!("failed to load WASM image: {}", wasm_path.display()))?;
+        }
+        bail!(
+            "WASM image not found: {} (and no backup zip at {})",
+            wasm_path.display(),
+            zip_path.display()
+        );
+    }
+
+    warn!(
+        "WASM image at {} is missing or invalid; extracting from {}",
+        wasm_path.display(),
+        zip_path.display()
+    );
+    let file = File::open(&zip_path)
+        .with_context(|| format!("failed to open {}", zip_path.display()))?;
+    let mut archive =
+        zip::ZipArchive::new(file).with_context(|| format!("failed to read {}", zip_path.display()))?;
+    let dest_dir = wasm_path
+        .parent()
+        .with_context(|| format!("WASM path has no parent: {}", wasm_path.display()))?;
+    archive
+        .extract(dest_dir)
+        .with_context(|| format!("failed to extract {}", zip_path.display()))?;
+
+    try_validate().with_context(|| {
+        format!(
+            "failed to load WASM image after extracting {} — archive may be corrupt or incompatible",
+            zip_path.display()
+        )
+    })
 }
 
 // ---------------------------------------------------------------------------

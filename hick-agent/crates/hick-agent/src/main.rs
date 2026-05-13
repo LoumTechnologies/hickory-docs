@@ -553,18 +553,18 @@ async fn main() -> Result<()> {
             let wasm_image_path = config
                 .images_dir
                 .join(format!("{}.wasm", config.default_image));
-            if !wasm_image_path.exists() {
-                anyhow::bail!(
-                    "WASM image not found: {}\n\n\
+            hick::executor::ensure_loadable_wasm_file(&wasm_image_path).map_err(|e| {
+                anyhow::anyhow!(
+                    "{e:#}\n\n\
                      Set --images-dir to the directory containing your .wasm images\n\
                      and --default-image to the image name (without the .wasm extension).\n\n\
+                     If you have a `*.wasm.zip` next to the image, it will be extracted automatically when the `.wasm` is missing or corrupt.\n\n\
                      Example:\n\
                      \x20 hick-agent run \\\n\
                      \x20   --images-dir /path/to/converted_images/alpine \\\n\
                      \x20   --default-image 3.23.2",
-                    wasm_image_path.display()
-                );
-            }
+                )
+            })?;
             let sandbox_config = WasmSandboxConfig {
                 images_dir: config.images_dir.clone(),
                 workdir: config.project_dir.clone(),

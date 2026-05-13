@@ -65,6 +65,11 @@ IMAGES_DIR := "native2wasm/crates/c2w/converted_images"
 #           template-runc/out/runc template-tini/out/tini \
 #           template-vmtouch/out/vmtouch \
 #           ~/.cache/c2w/templates/amd64-v0.8.3/guest/
+# Rebuilds `alpine/{{VERSION}}.wasm` and refreshes `alpine/{{VERSION}}.wasm.zip`
+# with the same bytes (Git LFS / `ensure_loadable_wasm_file` fallback). Extra
+# packages (nodejs, npm, tsx, Python) increase image size; that is expected.
+# A Wasm parse error is usually corruption or a truncated file, not “too large”.
+# Needs: `zip` from Info-ZIP (e.g. Debian `zip` package).
 rebuild-alpine VERSION="3.23.2":
     @echo "Building Alpine {{VERSION}} WASM image with agent runtimes..."
     cargo run -p c2w-testbed -- \
@@ -74,7 +79,9 @@ rebuild-alpine VERSION="3.23.2":
         --setup-cmd "npm install -g tsx" \
         "alpine:{{VERSION}}" \
         "{{IMAGES_DIR}}/alpine/{{VERSION}}.wasm"
-    @echo "Done: {{IMAGES_DIR}}/alpine/{{VERSION}}.wasm"
+    @rm -f "{{IMAGES_DIR}}/alpine/{{VERSION}}.wasm.zip"
+    @cd "{{IMAGES_DIR}}/alpine" && zip -q "{{VERSION}}.wasm.zip" "{{VERSION}}.wasm"
+    @echo "Done: {{IMAGES_DIR}}/alpine/{{VERSION}}.wasm and {{VERSION}}.wasm.zip"
 
 # ── Tests ──────────────────────────────────────────────────────────────────────
 
