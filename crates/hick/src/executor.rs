@@ -308,8 +308,13 @@ impl ContainerExecutor {
     /// When a pool is available, attempts to adopt a pre-warmed container
     /// first, falling back to a fresh boot on pool miss.
     pub async fn ensure_started(&mut self, name: &str, image: &str) -> Result<()> {
-        if self.containers.contains_key(name) {
-            return Ok(());
+        if let Some(rc) = self.containers.get(name) {
+            if rc.booted {
+                return Ok(());
+            }
+            // Container exists but failed to boot — remove the dead entry so we
+            // can try again with a fresh start.
+            self.containers.remove(name);
         }
 
         // Check if this is a fork target

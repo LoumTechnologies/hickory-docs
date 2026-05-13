@@ -102,7 +102,12 @@ pub async fn build_without_docker(image_ref: &str, output_path: &Path, cli: &Cli
         compose_minpack_dir(&pack_dir, layout, &minpack_dir)?;
 
         // Pack minpack into wizered WASM
-        run_wasi_vfs_pack(&wizered_wasm, &minpack_dir, output_path)?;
+        let packed_wasm = work.join("packed-pre-opt.wasm");
+        run_wasi_vfs_pack(&wizered_wasm, &minpack_dir, &packed_wasm)?;
+
+        // Wizer produces one data segment per modified memory page, which can
+        // exceed wasmtime's 100k-segment parse limit. Coalesce with wasm-opt.
+        run_wasm_opt(&packed_wasm, output_path)?;
     } else {
         // Native mode: pack full /pack into emulator WASM
         run_wasi_vfs_pack(&emulator_wasm, &pack_dir, output_path)?;
@@ -186,6 +191,36 @@ fn compose_minpack_dir(
 }
 
 /// Run `wasi-vfs pack` to embed a directory into a WASM module.
+/// Run `wasm-opt --limit-segments` to coalesce Wizer-generated data segments.
+///
+/// Wizer emits one segment per modified memory page; without this pass the
+/// segment count easily exceeds wasmtime's 100 000-segment parse limit.
+fn run_wasm_opt(input_wasm: &Path, output_wasm: &Path) -> Result<()> {
+    let wasm_opt = which::which("wasm-opt").context(
+        "wasm-opt not found in PATH; install binaryen (e.g. `apt install binaryen`)",
+    )?;
+
+    log::info!("running wasm-opt --limit-segments on {:?}", input_wasm);
+
+    let status = Command::new(&wasm_opt)
+        .arg("--limit-segments")
+        .arg("--enable-bulk-memory")
+        .arg(input_wasm)
+        .arg("-o")
+        .arg(output_wasm)
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit())
+        .status()
+        .context("failed to execute wasm-opt")?;
+
+    if !status.success() {
+        bail!("wasm-opt failed");
+    }
+
+    log::info!("wasm-opt complete: {:?}", output_wasm);
+    Ok(())
+}
+
 fn run_wasi_vfs_pack(input_wasm: &Path, pack_dir: &Path, output_wasm: &Path) -> Result<()> {
     let wasi_vfs = which::which("wasi-vfs")
         .context("wasi-vfs binary not found in PATH. Install with: cargo install wasi-vfs-cli")?;

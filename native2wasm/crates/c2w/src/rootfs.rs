@@ -132,55 +132,77 @@ fn copy_template_binaries(template_dir: &Path, output_dir: &Path) -> Result<()> 
     Ok(())
 }
 
-/// Create symlinks for common busybox applets.
+/// Create symlinks for all busybox applets by querying the binary itself.
+///
+/// Runs `busybox --list` (same approach as container2wasm's Dockerfile) so
+/// every applet the compiled busybox supports gets a symlink — including
+/// `stty`, `udhcpc`, etc. that the guest init process expects.
+///
+/// Falls back to a minimal hardcoded list if the binary cannot be executed
+/// (e.g. cross-architecture builds without binfmt support).
 fn create_busybox_symlinks(output_dir: &Path) -> Result<()> {
-    let applets = [
-        "sh", "ash", "cat", "cp", "dd", "df", "echo", "env", "grep", "hostname", "id", "kill",
-        "ln", "ls", "mkdir", "mknod", "mount", "mv", "ping", "ps", "pwd", "rm", "rmdir", "sed",
-        "sleep", "stat", "sync", "tar", "touch", "true", "false", "uname", "umount", "vi", "wget",
-        "chmod", "chown", "date", "dmesg", "du", "find", "free", "head", "ifconfig", "ip", "less",
-        "more", "netstat", "nslookup", "route", "tail", "top", "wc", "which", "xargs",
-    ];
-
+    let busybox_bin = output_dir.join("bin/busybox");
     let bin_dir = output_dir.join("bin");
     let sbin_dir = output_dir.join("sbin");
 
+    let applets = query_busybox_applets(&busybox_bin);
+
+    // sbin applets that busybox places under /sbin
+    let sbin_set: std::collections::HashSet<&str> = [
+        "halt", "ifconfig", "ip", "mdev", "modprobe", "pivot_root", "poweroff", "reboot",
+        "route", "sysctl", "umount", "iptables", "ip6tables", "udhcpc", "udhcpd",
+    ]
+    .into_iter()
+    .collect();
+
     for applet in &applets {
-        let link = bin_dir.join(applet);
+        let in_sbin = sbin_set.contains(applet.as_str());
+        let (link, target) = if in_sbin {
+            (sbin_dir.join(applet), "../bin/busybox")
+        } else {
+            (bin_dir.join(applet), "busybox")
+        };
         if !link.exists() {
             #[cfg(unix)]
-            std::os::unix::fs::symlink("busybox", &link)
+            std::os::unix::fs::symlink(target, &link)
                 .with_context(|| format!("failed to create busybox symlink for {:?}", applet))?;
         }
     }
 
-    // sbin applets
-    let sbin_applets = [
-        "halt",
-        "ifconfig",
-        "ip",
-        "mdev",
-        "modprobe",
-        "mount",
-        "pivot_root",
-        "poweroff",
-        "reboot",
-        "route",
-        "sysctl",
-        "umount",
-    ];
+    Ok(())
+}
 
-    for applet in &sbin_applets {
-        let link = sbin_dir.join(applet);
-        if !link.exists() {
-            #[cfg(unix)]
-            std::os::unix::fs::symlink("../bin/busybox", &link).with_context(|| {
-                format!("failed to create busybox sbin symlink for {:?}", applet)
-            })?;
+/// Run `busybox --list` on the host to get every supported applet name.
+/// Falls back to a minimal hardcoded set if execution fails.
+fn query_busybox_applets(busybox_bin: &Path) -> Vec<String> {
+    match std::process::Command::new(busybox_bin)
+        .arg("--list")
+        .output()
+    {
+        Ok(out) if out.status.success() => {
+            let list: Vec<String> = String::from_utf8_lossy(&out.stdout)
+                .lines()
+                .map(|l| l.trim().to_string())
+                .filter(|l| !l.is_empty())
+                .collect();
+            log::info!("busybox reports {} applets", list.len());
+            list
+        }
+        _ => {
+            log::warn!("could not run busybox --list; falling back to minimal applet set");
+            [
+                "sh", "ash", "cat", "cp", "dd", "df", "echo", "env", "grep", "hostname", "id",
+                "kill", "ln", "ls", "mkdir", "mknod", "mount", "mv", "ping", "ps", "pwd", "rm",
+                "rmdir", "sed", "sleep", "stat", "stty", "sync", "tar", "touch", "true", "false",
+                "uname", "umount", "vi", "wget", "chmod", "chown", "date", "dmesg", "du", "find",
+                "free", "head", "ifconfig", "ip", "less", "more", "netstat", "nslookup", "route",
+                "tail", "top", "wc", "which", "xargs",
+            ]
+            .iter()
+            .map(|s| s.to_string())
+            .collect()
         }
     }
-
-    Ok(())
 }
 
 /// Recursively copy a directory tree.

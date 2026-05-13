@@ -267,26 +267,17 @@ fn parse_user(user_str: &str) -> (u32, u32) {
 }
 
 /// Boot configuration read by the guest init process.
+///
+/// Field names and types must match container2wasm's `inittype.BootConfig`:
+///   Cmd        [][]string  (each element is a command+args slice)
+///   CmdPreRun  [][]string
+///   Mounts     []MountInfo (fields: fstype, src, dst, dir, file, post_dir, post_file, cmd, data)
 fn generate_init_config(debug: bool, is_wizer: bool) -> Result<serde_json::Value> {
-    let debug_str = if debug { "true" } else { "false" };
-
-    // Pre-cache binaries into memory for faster startup
-    let cmd_pre_run: Vec<Vec<String>> = vec![vec![
-        "vmtouch".to_string(),
-        "-tv".to_string(),
-        "/sbin/runc".to_string(),
-        "/sbin/init".to_string(),
-    ]];
-
     let config = json!({
-        "cmd": [
-            "/sbin/runc",
-            "run",
-            "-b", "/run/bundle",
-            "foo"
-        ],
-        "cmd_pre_run": cmd_pre_run,
-        "debug": debug_str == "true",
+        // Each element is a complete argv: [["/sbin/runc", "run", "-b", "/run/bundle", "foo"]]
+        "cmd": [["/sbin/runc", "run", "-b", "/run/bundle", "foo"]],
+        "cmd_pre_run": [["vmtouch", "-tv", "/sbin/runc", "/sbin/init"]],
+        "debug": debug,
         "debug_init": is_wizer,
         "container": {
             "bundle_path": "/run/bundle",
@@ -294,71 +285,62 @@ fn generate_init_config(debug: bool, is_wizer: bool) -> Result<serde_json::Value
             "runtime_config_path": "/oci/spec.json",
             "image_rootfs_path": "/oci/rootfs"
         },
-        "mounts": init_mounts()
+        "mounts": init_mounts(),
+        "post_mounts": []
     });
 
     Ok(config)
 }
 
 fn init_mounts() -> Vec<serde_json::Value> {
+    // Field names match container2wasm inittype.MountInfo JSON tags:
+    //   fstype, src, dst, flags, data, dir, file, post_dir, post_file, cmd, async, optional
     vec![
+        json!({ "fstype": "proc",   "src": "proc",   "dst": "/proc" }),
+        json!({ "fstype": "tmpfs",  "src": "tmpfs",  "dst": "/run" }),
+        json!({ "fstype": "tmpfs",  "src": "tmpfs",  "dst": "/sys" }),
+        json!({ "fstype": "tmpfs",  "src": "tmpfs",  "dst": "/tmp" }),
+        json!({ "fstype": "tmpfs",  "src": "tmpfs",  "dst": "/var" }),
+        json!({ "fstype": "tmpfs",  "src": "tmpfs",  "dst": "/mnt" }),
         json!({
-            "source": "proc",
-            "destination": "/proc",
-            "type": "proc",
-            "options": []
+            "fstype": "tmpfs",
+            "src": "tmpfs",
+            "dst": "/etc",
+            "post_file": [
+                { "path": "/etc/hosts",      "mode": 0o644, "contents": "127.0.0.1\tlocalhost\n" },
+                { "path": "/etc/resolv.conf", "mode": 0o644, "contents": "" }
+            ]
         }),
         json!({
-            "source": "tmpfs",
-            "destination": "/run",
-            "type": "tmpfs",
-            "options": []
+            "fstype": "cgroup2",
+            "src": "none",
+            "dst": "/sys/fs/cgroup",
+            "dir": [{ "path": "/sys/fs/cgroup", "mode": 0o666 }]
         }),
+        // runc bundle directory
         json!({
-            "source": "tmpfs",
-            "destination": "/sys",
-            "type": "tmpfs",
-            "options": []
-        }),
-        json!({
-            "source": "tmpfs",
-            "destination": "/tmp",
-            "type": "tmpfs",
-            "options": []
-        }),
-        json!({
-            "source": "tmpfs",
-            "destination": "/var",
-            "type": "tmpfs",
-            "options": []
-        }),
-        json!({
-            "source": "tmpfs",
-            "destination": "/mnt",
-            "type": "tmpfs",
-            "options": []
-        }),
-        json!({
-            "source": "tmpfs",
-            "destination": "/etc",
-            "type": "tmpfs",
-            "options": []
-        }),
-        json!({
-            "source": "cgroup2",
-            "destination": "/sys/fs/cgroup",
-            "type": "cgroup2",
-            "options": []
+            "fstype": "tmpfs",
+            "src": "tmpfs",
+            "dst": "/run/bundle",
+            "dir": [{ "path": "/run/bundle", "mode": 0o666 }]
         }),
         // Overlay mount for the container rootfs
         json!({
-            "source": "overlay",
-            "destination": "/run/rootfs",
-            "type": "overlay",
-            "options": [
-                "lowerdir=/oci/rootfs",
-                "upperdir=/run/rootfs-upper",
-                "workdir=/run/rootfs-work"
+            "fstype": "overlay",
+            "src": "overlay",
+            "dst": "/run/rootfs",
+            "data": "lowerdir=/oci/rootfs,upperdir=/run/rootfs-upper,workdir=/run/rootfs-work",
+            "dir": [
+                { "path": "/run/rootfs",       "mode": 0o755 },
+                { "path": "/run/rootfs-upper", "mode": 0o755 },
+                { "path": "/run/rootfs-work",  "mode": 0o755 }
+            ],
+            "post_dir": [
+                { "path": "/run/rootfs/etc/", "mode": 0o644 }
+            ],
+            "post_file": [
+                { "path": "/run/rootfs/etc/hosts",       "mode": 0o644, "contents": "127.0.0.1\tlocalhost\n" },
+                { "path": "/run/rootfs/etc/resolv.conf", "mode": 0o644, "contents": "" }
             ]
         }),
     ]

@@ -69,6 +69,7 @@ rebuild-alpine VERSION="3.23.2":
     @echo "Building Alpine {{VERSION}} WASM image with /workspace..."
     cargo run -p c2w-testbed -- \
         --no-docker \
+        --wizer \
         "alpine:{{VERSION}}" \
         "{{IMAGES_DIR}}/alpine/{{VERSION}}.wasm"
     @echo "Done: {{IMAGES_DIR}}/alpine/{{VERSION}}.wasm"
