@@ -35,6 +35,8 @@ pub enum AgentEvent {
     },
     /// A security rule blocked an operation.
     SecurityViolation { description: String },
+    /// The agent re-prompted the LLM due to a malformed response.
+    Reprompt { reason: String, attempt: usize },
 }
 
 /// Commands sent from the UI to the agent core.

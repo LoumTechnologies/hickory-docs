@@ -61,6 +61,13 @@ pub fn assemble_vm_rootfs(
     // Copy container rootfs
     copy_dir_recursive(container_rootfs, &output_dir.join("oci/rootfs"))?;
 
+    // Ensure /workspace exists as a mount point for WASI preopened directories.
+    // Container2wasm's init enumerates WASI preopened FDs and mounts them via
+    // virtio-9p. The mount silently fails if the destination does not exist in
+    // the guest rootfs, so we create it unconditionally here.
+    fs::create_dir_all(output_dir.join("oci/rootfs/workspace"))
+        .context("failed to create /workspace mount point in OCI rootfs")?;
+
     // Copy spec files
     for name in &["image.json", "spec.json", "initconfig.json"] {
         let src = spec_dir.join(name);

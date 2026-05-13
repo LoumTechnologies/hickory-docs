@@ -31,15 +31,22 @@ use crate::tools::{CodeBlock, Language, ScriptResult, extract_code_blocks};
 
 const SYSTEM_PROMPT: &str = r#"You are an AI coding agent for projects using Hick (hickory docs) — an XML format for defining containers, file outputs, and code generation.
 
-## How you work
+## Response format (REQUIRED)
 
-You accomplish tasks by writing code. Write ONE fenced code block per response, then STOP and wait for the real execution output. Do NOT predict or guess what the output will be — the system runs your code and shows you the actual stdout/stderr.
+Every response MUST begin with one of these two XML tags on the very first line:
+
+  <hick:next>code</hick:next>
+  <hick:next>done</hick:next>
+
+Rules:
+- `<hick:next>code</hick:next>` — you are going to run code. You MUST include exactly one fenced code block in this response.
+- `<hick:next>done</hick:next>` — you are finished. Write your final answer as plain text; do NOT include any code blocks.
+
+The system validates these tags. If you write `<hick:next>code</hick:next>` without a code block, or `<hick:next>done</hick:next>` with a code block, you will be asked to correct your response.
+
+Write ONE fenced code block per response, then STOP and wait for the real execution output. Do NOT predict or guess what the output will be — the system runs your code and shows you the actual stdout/stderr.
 
 Supported languages: ```python, ```csharp (or ```cs), ```typescript (or ```ts).
-
-When you're done (no more code to run), write your final answer as plain text without any code blocks.
-
-IMPORTANT: Only write ONE code block per response. Never write multiple code blocks. Never write "Observation:" or fake output — you will receive the real output automatically.
 
 ## Available languages
 
@@ -95,6 +102,68 @@ Key elements:
 4. **Print your results.** Your script's stdout is what you see as observation. Use print/Console.WriteLine/console.log to report findings.
 "#;
 
+// ── Response protocol ────────────────────────────────────────────────────────
+
+/// Intent declared by the LLM in its `<hick:next>` tag.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ResponseIntent {
+    /// LLM declared it will run a code block this turn.
+    Code,
+    /// LLM declared it is done; no code block should follow.
+    Done,
+    /// No `<hick:next>` tag found — protocol not followed.
+    Unknown,
+}
+
+fn parse_intent(response: &str) -> ResponseIntent {
+    let t = response.trim_start();
+    if t.starts_with("<hick:next>code</hick:next>") {
+        ResponseIntent::Code
+    } else if t.starts_with("<hick:next>done</hick:next>") {
+        ResponseIntent::Done
+    } else {
+        ResponseIntent::Unknown
+    }
+}
+
+/// Validate a response against the `<hick:next>` protocol.
+///
+/// Returns `None` when the response is valid, or `Some(reason)` describing
+/// the first violation found. Callers use this to decide whether to re-prompt.
+fn validate_response(response: &str) -> Option<String> {
+    let intent = parse_intent(response);
+    let has_code = !extract_code_blocks(response).is_empty();
+    match (intent, has_code) {
+        (ResponseIntent::Code, true) => None,
+        (ResponseIntent::Done, false) => None,
+        (ResponseIntent::Code, false) => Some(
+            "declared <hick:next>code</hick:next> but did not include a code block".into(),
+        ),
+        (ResponseIntent::Done, true) => Some(
+            "declared <hick:next>done</hick:next> but included a code block".into(),
+        ),
+        (ResponseIntent::Unknown, _) => Some(
+            "response did not start with <hick:next>code</hick:next> or <hick:next>done</hick:next>".into(),
+        ),
+    }
+}
+
+/// Correction message injected as a user turn after a protocol violation.
+///
+/// Kept as a standalone function so it's easy to tune independently of the
+/// validation logic.
+fn correction_message(reason: &str) -> String {
+    format!(
+        "Your last response was invalid: {reason}.\n\n\
+         Please try again. Start your response with exactly one of:\n\
+         - `<hick:next>code</hick:next>` followed immediately by a fenced code block \
+           (python / csharp / typescript)\n\
+         - `<hick:next>done</hick:next>` followed by your final plain-text answer with no code blocks"
+    )
+}
+
+// ── ReAct loop ───────────────────────────────────────────────────────────────
+
 /// ReAct loop runner — script-first model.
 ///
 /// Communicates with the UI through event channels, never printing directly.
@@ -102,6 +171,9 @@ pub struct ReactLoop {
     pub agent: Agent,
     pub project_dir: PathBuf,
     max_turns: usize,
+    /// Maximum re-prompt attempts when the LLM violates the response protocol.
+    /// After this many retries the last response is processed as-is.
+    max_reprompts: usize,
     /// Whether to use streaming LLM output (sends many small Token events)
     /// vs. a single complete call (sends one large Token event).
     pub stream_output: bool,
@@ -122,12 +194,19 @@ impl ReactLoop {
             agent,
             project_dir,
             max_turns: 50,
+            max_reprompts: 2,
             stream_output: true,
             executor: None,
             sandbox_image: "alpine".to_string(),
             policy_evaluator: None,
             sink_guard: None,
         }
+    }
+
+    /// Override the maximum number of re-prompt retries on protocol violations.
+    pub fn with_max_reprompts(mut self, n: usize) -> Self {
+        self.max_reprompts = n;
+        self
     }
 
     /// Set the sandboxed command executor for running scripts.
@@ -158,11 +237,65 @@ impl ReactLoop {
         self.sink_guard.as_ref()
     }
 
+    /// Call the LLM once and return the full response text.
+    ///
+    /// Returns `None` when the user interrupted. When `emit_tokens` is true,
+    /// [`AgentEvent::Token`] events are fired for each streamed chunk (used for
+    /// the first call in a turn). Re-prompt retries pass `emit_tokens = false`
+    /// so only the final accepted response appears in the UI.
+    async fn call_llm(
+        &self,
+        messages: &[Message],
+        events: &mpsc::UnboundedSender<AgentEvent>,
+        interrupt: &Notify,
+        emit_tokens: bool,
+    ) -> anyhow::Result<Option<String>> {
+        if emit_tokens && self.stream_output {
+            let mut stream = self.agent.llm_stream(messages.to_vec()).await?;
+            let mut full = String::new();
+            let interrupt_fut = interrupt.notified();
+            tokio::pin!(interrupt_fut);
+            loop {
+                tokio::select! {
+                    biased;
+                    _ = &mut interrupt_fut => return Ok(None),
+                    chunk = stream.next() => {
+                        match chunk {
+                            Some(Ok(chunk)) => {
+                                if !chunk.delta.is_empty() {
+                                    events.send(AgentEvent::Token(chunk.delta.clone())).ok();
+                                    full.push_str(&chunk.delta);
+                                }
+                            }
+                            Some(Err(e)) => return Err(e),
+                            None => break,
+                        }
+                    }
+                }
+            }
+            Ok(Some(full))
+        } else {
+            let interrupt_fut = interrupt.notified();
+            tokio::pin!(interrupt_fut);
+            tokio::select! {
+                biased;
+                _ = &mut interrupt_fut => Ok(None),
+                result = self.agent.llm_complete(messages.to_vec()) => {
+                    let response = result?;
+                    if emit_tokens {
+                        events.send(AgentEvent::Token(response.clone())).ok();
+                    }
+                    Ok(Some(response))
+                }
+            }
+        }
+    }
+
     /// Execute a code block inside the sandbox container.
     ///
-    /// Writes the script to `.hick/tmp/script_N.{ext}` on the host (which is
-    /// mounted at `/workspace` inside the container), then runs the
-    /// language-appropriate command via [`CommandExecutor`].
+    /// Writes the script to `.hick/tmp/script_N.{ext}` on the host for
+    /// debugging, then injects it directly into the container filesystem and
+    /// runs it via [`CommandExecutor`].
     async fn execute_code_block(&self, block: &CodeBlock, index: usize) -> ScriptResult {
         let tmp_dir = self.project_dir.join(".hick").join("tmp");
         if let Err(e) = std::fs::create_dir_all(&tmp_dir) {
@@ -196,6 +329,27 @@ impl ReactLoop {
             };
 
             let mut exec = executor.lock().await;
+
+            // Inject the script into the container filesystem. The sandbox
+            // creates /workspace as a plain directory (WASI preopened dirs are
+            // not visible as real VFS paths to shell commands), so we must push
+            // the file in explicitly before running it.
+            if let Err(e) = exec
+                .inject_file(
+                    "agent-sandbox",
+                    &self.sandbox_image,
+                    block.code.as_bytes(),
+                    &container_script_path,
+                )
+                .await
+            {
+                return ScriptResult {
+                    stdout: String::new(),
+                    stderr: format!("Failed to inject script into sandbox: {e}"),
+                    exit_code: None,
+                };
+            }
+
             match exec
                 .execute("agent-sandbox", &cmd, &self.sandbox_image, Some(300))
                 .await
@@ -269,60 +423,51 @@ impl ReactLoop {
             AgentState::Thinking { .. } => {
                 events.send(AgentEvent::Thinking).ok();
 
-                let response = if self.stream_output {
-                    let mut stream = self.agent.llm_stream(messages.clone()).await?;
-                    let mut full = String::new();
-
-                    // Pin the interrupt future so it survives across loop iterations.
-                    let interrupt_fut = interrupt.notified();
-                    tokio::pin!(interrupt_fut);
-
-                    loop {
-                        tokio::select! {
-                            biased;
-                            _ = &mut interrupt_fut => {
-                                events.send(AgentEvent::Interrupted).ok();
-                                return Ok(AgentState::to_done("(interrupted)".into()));
-                            }
-                            chunk = stream.next() => {
-                                match chunk {
-                                    Some(Ok(chunk)) => {
-                                        if !chunk.delta.is_empty() {
-                                            events.send(AgentEvent::Token(chunk.delta.clone())).ok();
-                                            full.push_str(&chunk.delta);
-                                        }
-                                    }
-                                    Some(Err(e)) => return Err(e),
-                                    None => break,
-                                }
-                            }
-                        }
-                    }
-                    full
-                } else {
-                    // Non-streaming: race the complete call against interrupt.
-                    let interrupt_fut = interrupt.notified();
-                    tokio::pin!(interrupt_fut);
-
-                    tokio::select! {
-                        biased;
-                        _ = &mut interrupt_fut => {
-                            events.send(AgentEvent::Interrupted).ok();
-                            return Ok(AgentState::to_done("(interrupted)".into()));
-                        }
-                        result = self.agent.llm_complete(messages.clone()) => {
-                            let response = result?;
-                            events.send(AgentEvent::Token(response.clone())).ok();
-                            response
-                        }
-                    }
+                // Initial LLM call — stream tokens to the UI.
+                let Some(mut response) =
+                    self.call_llm(messages, events, interrupt, true).await?
+                else {
+                    events.send(AgentEvent::Interrupted).ok();
+                    return Ok(AgentState::to_done("(interrupted)".into()));
                 };
+
+                // Re-prompt loop: keep retrying until the response follows the
+                // <hick:next> protocol or we exhaust max_reprompts.
+                for attempt in 1..=self.max_reprompts {
+                    let Some(reason) = validate_response(&response) else {
+                        break; // valid
+                    };
+                    events
+                        .send(AgentEvent::Reprompt {
+                            reason: reason.clone(),
+                            attempt,
+                        })
+                        .ok();
+                    // Fold the invalid response + correction into history.
+                    messages.push(Message {
+                        role: Role::Assistant,
+                        content: response.clone(),
+                    });
+                    messages.push(Message {
+                        role: Role::User,
+                        content: correction_message(&reason),
+                    });
+                    // Retry without streaming so only the final answer appears.
+                    events.send(AgentEvent::Thinking).ok();
+                    let Some(r) =
+                        self.call_llm(messages, events, interrupt, false).await?
+                    else {
+                        events.send(AgentEvent::Interrupted).ok();
+                        return Ok(AgentState::to_done("(interrupted)".into()));
+                    };
+                    response = r;
+                }
 
                 events
                     .send(AgentEvent::ResponseComplete(response.clone()))
                     .ok();
 
-                // Add assistant message to history
+                // Add assistant message to history.
                 messages.push(Message {
                     role: Role::Assistant,
                     content: response.clone(),
@@ -339,7 +484,6 @@ impl ReactLoop {
                 // the LLM from hallucinating observations for later blocks.
                 let blocks = vec![all_blocks.into_iter().next().unwrap()];
 
-                // Extract the non-code-block text as "thought"
                 let thought = extract_thought(&response);
 
                 Ok(AgentState::to_executing(blocks, thought))
@@ -502,15 +646,19 @@ impl ReactLoop {
     }
 }
 
-/// Extract the "thought" text from a response — everything before the first code block.
+/// Extract the "thought" text from a response — everything before the first code block,
+/// with the `<hick:next>` intent tag stripped.
 fn extract_thought(response: &str) -> Option<String> {
-    // Find the earliest ``` fence and take everything before it.
-    let text = if let Some(pos) = response.find("```") {
-        response[..pos].trim().to_string()
+    let stripped = response
+        .trim_start()
+        .trim_start_matches("<hick:next>code</hick:next>")
+        .trim_start_matches("<hick:next>done</hick:next>")
+        .trim_start();
+    let text = if let Some(pos) = stripped.find("```") {
+        stripped[..pos].trim().to_string()
     } else {
-        response.trim().to_string()
+        stripped.trim().to_string()
     };
-
     if text.is_empty() { None } else { Some(text) }
 }
 
