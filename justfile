@@ -66,10 +66,12 @@ IMAGES_DIR := "native2wasm/crates/c2w/converted_images"
 #           template-vmtouch/out/vmtouch \
 #           ~/.cache/c2w/templates/amd64-v0.8.3/guest/
 rebuild-alpine VERSION="3.23.2":
-    @echo "Building Alpine {{VERSION}} WASM image with /workspace..."
+    @echo "Building Alpine {{VERSION}} WASM image with agent runtimes..."
     cargo run -p c2w-testbed -- \
         --no-docker \
         --wizer \
+        --setup-cmd "apk add --no-cache nodejs npm python3 py3-pip" \
+        --setup-cmd "npm install -g tsx" \
         "alpine:{{VERSION}}" \
         "{{IMAGES_DIR}}/alpine/{{VERSION}}.wasm"
     @echo "Done: {{IMAGES_DIR}}/alpine/{{VERSION}}.wasm"

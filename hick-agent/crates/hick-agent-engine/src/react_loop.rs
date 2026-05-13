@@ -63,7 +63,7 @@ Supported languages: ```python, ```csharp (or ```cs), ```typescript (or ```ts).
 
 ### TypeScript (tsx)
 - Write TypeScript with full type checking
-- Install npm packages: run a Python or shell step first with `npm install`
+- Install npm packages: run a Python step first with `subprocess.run(['npm', 'install', 'pkg'])`
 
 ## Hickory SDK (Python only)
   from hickory import hick

@@ -113,6 +113,15 @@ pub struct Cli {
     #[arg(long)]
     pub cache_dir: Option<PathBuf>,
 
+    /// Shell command to run inside the extracted container rootfs before building
+    /// the WASM image (--no-docker mode only). Commands run in order inside a
+    /// chroot using a user namespace (requires Linux with unprivileged user
+    /// namespaces enabled). Can be specified multiple times.
+    ///
+    /// Example: `--setup-cmd "apk add --no-cache nodejs npm" --setup-cmd "npm install -g tsx"`
+    #[arg(long)]
+    pub setup_cmd: Vec<String>,
+
     /// Registry username for OCI image pull (--no-docker mode).
     #[arg(long)]
     pub registry_username: Option<String>,

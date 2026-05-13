@@ -56,6 +56,13 @@ pub async fn build_without_docker(image_ref: &str, output_path: &Path, cli: &Cli
     let image_config =
         oci_pull::pull_and_extract(image_ref, &cli.target_arch, &rootfs_dir, &auth).await?;
 
+    // 2a. Run optional setup commands inside the extracted rootfs
+    if !cli.setup_cmd.is_empty() {
+        log::info!("running {} setup command(s) in rootfs", cli.setup_cmd.len());
+        run_setup_in_rootfs(&rootfs_dir, &cli.setup_cmd, image_ref)
+            .context("rootfs setup commands failed")?;
+    }
+
     // Serialize image config for spec generation
     let image_config_json =
         serde_json::to_string_pretty(&image_config).context("failed to serialize image config")?;
@@ -260,4 +267,181 @@ fn build_wizer_opts_with_pack(cli: &Cli, pack_dir: &Path) -> wizer::WizerOpts {
         .push(("/pack".to_string(), pack_dir.to_string_lossy().to_string()));
 
     opts
+}
+
+/// Run setup commands inside the extracted container rootfs.
+///
+/// Tries `unshare --user --map-root-user --mount` first (no root required on
+/// Linux with unprivileged user namespaces enabled). Falls back to Docker with
+/// `--cap-add SYS_CHROOT` when unshare is unavailable or restricted.
+fn run_setup_in_rootfs(rootfs_dir: &Path, cmds: &[String], image_ref: &str) -> Result<()> {
+    // Write the inner setup script into the rootfs so we avoid shell-escaping
+    // every command individually.
+    write_inner_setup_script(rootfs_dir, cmds)?;
+
+    let result = if unshare_userns_available() {
+        log::info!("running rootfs setup via unshare+chroot");
+        run_setup_unshare(rootfs_dir)
+    } else if which::which("docker").is_ok() {
+        log::info!("unshare unavailable; falling back to docker chroot");
+        run_setup_docker(rootfs_dir, image_ref)
+    } else {
+        bail!(
+            "cannot run rootfs setup: neither `unshare --user` (Linux user namespaces) \
+             nor `docker` is available.\n\
+             Enable user namespaces: `sysctl -w kernel.unprivileged_userns_clone=1`\n\
+             Or install Docker."
+        )
+    };
+
+    // Always clean up the inner script regardless of success/failure.
+    fs::remove_file(rootfs_dir.join("_hick_setup.sh")).ok();
+
+    result
+}
+
+/// Write the combined setup commands as a shell script inside the rootfs.
+fn write_inner_setup_script(rootfs_dir: &Path, cmds: &[String]) -> Result<()> {
+    use std::io::Write as _;
+    use std::os::unix::fs::PermissionsExt;
+
+    let path = rootfs_dir.join("_hick_setup.sh");
+    let mut f = fs::File::create(&path).context("create inner setup script")?;
+    writeln!(f, "#!/bin/sh\nset -e")?;
+    for cmd in cmds {
+        writeln!(f, "{cmd}")?;
+    }
+    f.set_permissions(fs::Permissions::from_mode(0o755))
+        .context("chmod inner setup script")?;
+    Ok(())
+}
+
+/// Probe whether `unshare --user --map-root-user` works on this host.
+fn unshare_userns_available() -> bool {
+    Command::new("unshare")
+        .args(["--user", "--map-root-user", "--", "true"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
+}
+
+/// Install packages via `unshare --user --map-root-user --mount --fork`.
+fn run_setup_unshare(rootfs_dir: &Path) -> Result<()> {
+    use std::io::Write as _;
+    use std::os::unix::fs::PermissionsExt;
+
+    let rootfs = rootfs_dir
+        .to_str()
+        .context("rootfs path is not valid UTF-8")?;
+
+    // Ensure DNS resolution and virtual filesystem mount points exist.
+    let etc = rootfs_dir.join("etc");
+    fs::create_dir_all(&etc).ok();
+    let resolv = etc.join("resolv.conf");
+    if !resolv.exists() {
+        fs::write(&resolv, "nameserver 8.8.8.8\nnameserver 8.8.4.4\n").ok();
+    }
+    for dir in &["proc", "sys", "dev"] {
+        fs::create_dir_all(rootfs_dir.join(dir)).ok();
+    }
+
+    let outer_script = format!(
+        "#!/bin/sh\nset -e\n\
+        mount --bind /proc '{rootfs}/proc'\n\
+        mount --bind /sys  '{rootfs}/sys'\n\
+        mount --bind /dev  '{rootfs}/dev'\n\
+        chroot '{rootfs}' /bin/sh /_hick_setup.sh\n\
+        STATUS=$?\n\
+        umount '{rootfs}/dev'  2>/dev/null || true\n\
+        umount '{rootfs}/sys'  2>/dev/null || true\n\
+        umount '{rootfs}/proc' 2>/dev/null || true\n\
+        exit $STATUS\n"
+    );
+
+    let mut tmp = tempfile::NamedTempFile::new().context("create outer script")?;
+    tmp.write_all(outer_script.as_bytes())
+        .context("write outer script")?;
+    tmp.as_file()
+        .set_permissions(fs::Permissions::from_mode(0o755))
+        .context("chmod outer script")?;
+    let (_, script_path) = tmp.keep().context("keep outer script")?;
+
+    let status = Command::new("unshare")
+        .args(["--user", "--map-root-user", "--mount", "--fork", "--"])
+        .arg("sh")
+        .arg(&script_path)
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit())
+        .status()
+        .context("failed to run `unshare`")?;
+
+    fs::remove_file(&script_path).ok();
+
+    if !status.success() {
+        bail!("unshare setup failed (see stderr above)");
+    }
+    Ok(())
+}
+
+/// Install packages by bind-mounting the rootfs into a privileged Docker
+/// container and running the setup script via `chroot`.
+///
+/// `--privileged` is required so that the container can bind-mount `/proc`,
+/// `/sys`, and `/dev` into the chroot — Alpine's apk post-install scripts
+/// hang without these virtual filesystems.
+fn run_setup_docker(rootfs_dir: &Path, image_ref: &str) -> Result<()> {
+    // Resolve to an absolute path so the Docker bind mount works regardless of cwd.
+    let rootfs_abs =
+        fs::canonicalize(rootfs_dir).unwrap_or_else(|_| rootfs_dir.to_path_buf());
+    let rootfs_str = rootfs_abs
+        .to_str()
+        .context("rootfs path is not valid UTF-8")?;
+
+    // Bind-mount virtual filesystems inside the chroot so apk post-install
+    // scripts that read /proc or /dev work correctly, then chroot and run the
+    // setup script, then unmount regardless of outcome.
+    //
+    // After unmounting, wipe /tmp in the rootfs: package managers (npm) leave
+    // root-owned compile-cache files there that our non-root user can't read
+    // when the c2w pipeline later copies the rootfs into the VM image.
+    let shell_cmd = "\
+        cp /etc/resolv.conf /rootfs/etc/resolv.conf 2>/dev/null || true && \
+        mkdir -p /rootfs/proc /rootfs/sys /rootfs/dev /rootfs/dev/pts && \
+        mount --bind /proc    /rootfs/proc    && \
+        mount --bind /sys     /rootfs/sys     && \
+        mount --bind /dev     /rootfs/dev     && \
+        mount --bind /dev/pts /rootfs/dev/pts && \
+        chroot /rootfs /bin/sh /_hick_setup.sh; \
+        STATUS=$?; \
+        umount /rootfs/dev/pts 2>/dev/null || true; \
+        umount /rootfs/dev     2>/dev/null || true; \
+        umount /rootfs/sys     2>/dev/null || true; \
+        umount /rootfs/proc    2>/dev/null || true; \
+        rm -rf /rootfs/tmp/* 2>/dev/null || true; \
+        chmod -R a+rX /rootfs 2>/dev/null || true; \
+        exit $STATUS";
+
+    let status = Command::new("docker")
+        .args([
+            "run",
+            "--rm",
+            "--privileged",
+            "-v",
+            &format!("{rootfs_str}:/rootfs"),
+            image_ref,
+            "sh",
+            "-c",
+            shell_cmd,
+        ])
+        .stdout(Stdio::inherit())
+        .stderr(Stdio::inherit())
+        .status()
+        .context("failed to run docker for rootfs setup")?;
+
+    if !status.success() {
+        bail!("docker chroot setup failed (see stderr above)");
+    }
+    Ok(())
 }

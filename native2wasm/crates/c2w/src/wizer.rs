@@ -40,7 +40,7 @@ impl Default for WizerOpts {
             init_func: "wizer.initialize".to_string(),
             func_renames: vec![("_start".to_string(), "wizer.resume".to_string())],
             keep_init_func: false,
-            wasm_bulk_memory: true,
+            wasm_bulk_memory: false,
         }
     }
 }
@@ -71,7 +71,10 @@ impl WizerOpts {
             // container2wasm default: rename _start to wizer.resume
             func_renames: vec![("_start".to_string(), "wizer.resume".to_string())],
             keep_init_func: false,
-            wasm_bulk_memory: true,
+            // Use active (non-bulk) segments so wasm-opt --limit-segments can
+            // coalesce them; passive bulk-memory segments cannot be merged and
+            // easily exceed wasmtime's 100k data-count-section limit.
+            wasm_bulk_memory: false,
         }
     }
 }

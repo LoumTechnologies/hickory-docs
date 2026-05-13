@@ -30,7 +30,7 @@ impl Language {
         match self {
             Language::Python => format!("python3 {script_path}"),
             Language::CSharp => format!("dotnet-script {script_path}"),
-            Language::TypeScript => format!("npx tsx {script_path}"),
+            Language::TypeScript => format!("tsx {script_path}"),
         }
     }
 }
@@ -287,7 +287,7 @@ mod tests {
         );
         assert_eq!(
             Language::TypeScript.run_command("/tmp/s.ts"),
-            "npx tsx /tmp/s.ts"
+            "tsx /tmp/s.ts"
         );
     }
 
