@@ -1,36 +1,42 @@
 //! Code block extraction and execution for the script-first ReAct loop.
 //!
-//! The LLM writes code in fenced markdown blocks (Python, C#, TypeScript).
-//! This module extracts those code blocks and provides types for execution results.
+//! The LLM writes code in fenced markdown blocks. This module extracts those
+//! blocks and maps fence tags to a runner (`sh`, `python3`, `node`, …).
 
 use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
-/// Languages the agent can execute inside the sandbox container.
+/// Execution backend for an extracted fenced code block.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Language {
+    Shell,
     Python,
     CSharp,
     TypeScript,
+    JavaScript,
 }
 
 impl Language {
     /// File extension used when writing the script to disk.
     pub fn extension(&self) -> &'static str {
         match self {
+            Language::Shell => "sh",
             Language::Python => "py",
             Language::CSharp => "csx",
             Language::TypeScript => "ts",
+            Language::JavaScript => "js",
         }
     }
 
     /// Shell command to execute a script file at the given path inside the container.
     pub fn run_command(&self, script_path: &str) -> String {
         match self {
+            Language::Shell => format!("sh {script_path}"),
             Language::Python => format!("python3 {script_path}"),
             Language::CSharp => format!("dotnet-script {script_path}"),
             Language::TypeScript => format!("tsx {script_path}"),
+            Language::JavaScript => format!("node {script_path}"),
         }
     }
 }
@@ -38,9 +44,11 @@ impl Language {
 impl fmt::Display for Language {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Language::Shell => write!(f, "shell"),
             Language::Python => write!(f, "python"),
             Language::CSharp => write!(f, "csharp"),
             Language::TypeScript => write!(f, "typescript"),
+            Language::JavaScript => write!(f, "javascript"),
         }
     }
 }
@@ -87,14 +95,20 @@ impl ScriptResult {
     }
 }
 
-/// Fence tag → Language mapping. Order matters: first match wins when
-/// multiple patterns share a prefix (e.g. "```cs" before "```c").
+/// Fence tag → Language mapping. Longer tags must appear before shorter ones
+/// that are prefixes (e.g. `typescript` before `ts`).
 const FENCE_TAGS: &[(&str, Language)] = &[
+    ("bash", Language::Shell),
+    ("shell", Language::Shell),
+    ("posix-sh", Language::Shell),
+    ("sh", Language::Shell),
     ("python", Language::Python),
     ("csharp", Language::CSharp),
     ("cs", Language::CSharp),
     ("typescript", Language::TypeScript),
     ("ts", Language::TypeScript),
+    ("javascript", Language::JavaScript),
+    ("js", Language::JavaScript),
 ];
 
 /// Extract code blocks from an LLM response.
@@ -106,7 +120,8 @@ const FENCE_TAGS: &[(&str, Language)] = &[
 /// ```
 /// ````
 ///
-/// Supports: `python`, `csharp`/`cs`, `typescript`/`ts`.
+/// Supports: `bash`/`sh`/`shell`/`posix-sh`, `python`, `csharp`/`cs`,
+/// `typescript`/`ts`, `javascript`/`js`.
 /// Returns blocks in document order.
 pub fn extract_code_blocks(text: &str) -> Vec<CodeBlock> {
     let mut blocks = Vec::new();
@@ -270,13 +285,16 @@ mod tests {
 
     #[test]
     fn language_extensions() {
+        assert_eq!(Language::Shell.extension(), "sh");
         assert_eq!(Language::Python.extension(), "py");
         assert_eq!(Language::CSharp.extension(), "csx");
         assert_eq!(Language::TypeScript.extension(), "ts");
+        assert_eq!(Language::JavaScript.extension(), "js");
     }
 
     #[test]
     fn language_run_commands() {
+        assert_eq!(Language::Shell.run_command("/tmp/s.sh"), "sh /tmp/s.sh");
         assert_eq!(
             Language::Python.run_command("/tmp/s.py"),
             "python3 /tmp/s.py"
@@ -289,6 +307,19 @@ mod tests {
             Language::TypeScript.run_command("/tmp/s.ts"),
             "tsx /tmp/s.ts"
         );
+        assert_eq!(
+            Language::JavaScript.run_command("/tmp/s.js"),
+            "node /tmp/s.js"
+        );
+    }
+
+    #[test]
+    fn extract_shell_block_bash() {
+        let text = "```bash\nls -la\n```";
+        let blocks = extract_code_blocks(text);
+        assert_eq!(blocks.len(), 1);
+        assert_eq!(blocks[0].language, Language::Shell);
+        assert_eq!(blocks[0].code.trim(), "ls -la");
     }
 
     // -- ScriptResult tests --

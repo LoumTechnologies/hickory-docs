@@ -4,8 +4,9 @@
 //! `hick-agent` so it can be embedded in other frontends (web, native apps,
 //! headless runners) without pulling in TUI/CLI dependencies.
 //!
-//! The agent uses a script-first model: the LLM writes code in fenced markdown
-//! blocks, which are executed in a sandbox, with output returned as observations.
+//! The agent uses a script-first model: the LLM writes fenced code (shell plus
+//! Python/JavaScript/C#/TypeScript paths, etc.), executed in a sandbox with
+//! output returned as observations.
 //! The Hick pipeline runs transparently via the PipelineWatcher.
 
 pub mod agent;
