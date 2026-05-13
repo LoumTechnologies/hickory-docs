@@ -156,13 +156,14 @@ pub fn create_executor(workdir: &Path) -> (SharedExecutor, String) {
     create_executor_with_guest_network(workdir, true)
 }
 
-/// Like [`create_executor`], but allows disabling the virtio guest network bootstrap.
+/// Like [`create_executor`], but allows toggling the virtio guest network bootstrap.
 ///
-/// Directory mount integration tests pass `guest_network: false`: with `--net=socket` enabled,
-/// some container2wasm images never attach virtio-9p for `/workspace`, so the sandbox only sees an
-/// empty tree (matching the “`.hick` only” symptom when tooling wrote under `/workspace` without a
-/// real host backing). Interactive `hick-agent run` keeps guest networking **`true`** so `apk`,
-/// `pip`, and similar commands still work inside the VM.
+/// Pass `guest_network: true` (the default for production) to boot with `--net=socket` so
+/// in-guest networking (`apk`, `pip`, etc.) works. The FD-3 collision fix ensures that
+/// host directory preopens are still visible at `/workspace` even with networking on.
+///
+/// Pass `guest_network: false` only when specifically testing the no-network path or when
+/// the test environment cannot reach the network.
 pub fn create_executor_with_guest_network(
     workdir: &Path,
     guest_network: bool,

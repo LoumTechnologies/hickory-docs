@@ -199,9 +199,9 @@ pub struct ContainerExecutor {
     preopened_dirs: Vec<(PathBuf, String)>,
     /// When enabled, WASM guests boot with the virtio socket shim (`--net=socket`).
     ///
-    /// On some container2wasm images, combining this shim with WASI-preopened directories prevents
-    /// `/workspace` from receiving the virtio-9p host mount until the bootstrap order is fixed
-    /// upstream. Sandbox integration tests set this to [`false`] so directory mounts remain testable.
+    /// Defaults to `true`. The listen socket is registered at FD 3 before directory preopens so
+    /// that `preopened_dir` calls land on FD 4+ (where the container2wasm init enumerates them),
+    /// allowing both virtio networking and `/workspace` visibility simultaneously.
     guest_network_enabled: bool,
     /// Optional pool for adopting pre-warmed containers.
     pool: Option<SharedPool>,
@@ -256,9 +256,6 @@ impl ContainerExecutor {
     }
 
     /// Toggle virtio guest networking (`LISTEN_FDS` / `--net=socket`) for future container boots.
-    ///
-    /// Disabling this keeps WASI directory preopens observable in the guest (see
-    /// [`Self::guest_network_enabled`]).
     pub fn set_guest_network_enabled(&mut self, enabled: bool) {
         self.guest_network_enabled = enabled;
     }

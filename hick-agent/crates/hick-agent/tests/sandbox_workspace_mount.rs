@@ -1,19 +1,15 @@
 //! Integration tests: host project directory mounted at `/workspace`.
 //!
-//! These exercises require **guest virtio networking disabled** for the WASM kernel (see
-//! [`common::create_executor_with_guest_network`]): with `--net=socket`, current container2wasm
-//! images omit the virtio-9p mount at `/workspace`, so the sandbox would only see stub paths (the
-//! “only `.hick` visible” symptom when artifacts were injected without a backing host mount).
-//!
-//! Covers:
+//! Covers three scenarios with **guest networking disabled** (baseline) and one with **networking
+//! enabled** (regression guard for the FD-3 collision fix):
 //!
 //! - **Visibility** — Files and dirs that exist under the temp project dir appear in `ls` / `cat`
 //! - **Change propagation** — A host overwrite is visible inside the sandbox on the next read
 //!   (shared mount coherence; true inotify in the WASM guest is not asserted here.)
 //! - **Writes** — Guest redirects and mkdir create real files/dirs under the temp project dir
-//!
-//! Production `hick-agent run` passes `WasmSandboxConfig { guest_network_enabled: true }` so
-//! `apk` / `pip` work; resolving mount+network coexistence belongs in the container/kernel layer.
+//! - **Net + mount coexistence** — With `--net=socket` enabled, `/workspace` still lists host
+//!   seed files (guards the fix that registers the listen socket at FD 3 before directories so
+//!   directory preopens land on FD 4+ where the container2wasm init enumerates them).
 //!
 //! Run with:
 //! ```text
@@ -140,5 +136,49 @@ async fn sandbox_writes_are_visible_on_host_including_new_paths() {
             .unwrap()
             .contains("new-file-line"),
         "unexpected leaf contents"
+    );
+}
+
+/// Regression test: guest networking + host workspace mount must coexist.
+///
+/// Before the FD-3 fix, `preopened_socket(3, …)` would overwrite the directory
+/// preopen that `preopened_dir` had placed at FD 3, making `/workspace` appear
+/// empty inside the VM. This test guards against that regression by running with
+/// `guest_network_enabled: true` and asserting that host seed files are visible.
+#[tokio::test(flavor = "multi_thread")]
+async fn sandbox_workspace_visible_with_guest_networking_on() {
+    let workdir = tempfile::tempdir().unwrap();
+    let root = workdir.path();
+    std::fs::write(root.join("net_seed.txt"), "net-seed-content").unwrap();
+    std::fs::create_dir_all(root.join("net_dir")).unwrap();
+    std::fs::write(root.join("net_dir/nested.txt"), "nested-content").unwrap();
+
+    let (executor, image) = create_executor_with_guest_network(root, true);
+
+    let out = exec_sh(&executor, &image, "ls -1 /workspace | sort").await;
+    assert_eq!(
+        out.exit_code,
+        Some(0),
+        "ls /workspace failed with networking on; output: {:?}",
+        out.output
+    );
+    let listing = &out.output;
+    assert!(
+        listing.contains("net_seed.txt"),
+        "host seed file not visible in /workspace with guest networking on;\n\
+         This indicates the FD-3 collision bug has regressed.\n\
+         listing:\n{listing}"
+    );
+    assert!(
+        listing.contains("net_dir"),
+        "host directory not visible in /workspace with guest networking on;\n\
+         listing:\n{listing}"
+    );
+
+    let out = exec_sh(&executor, &image, "cat /workspace/net_seed.txt").await;
+    assert!(
+        out.output.contains("net-seed-content"),
+        "file contents not readable with guest networking on; got {:?}",
+        out.output
     );
 }

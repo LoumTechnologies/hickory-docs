@@ -168,18 +168,16 @@ impl Container {
             .stdout(Box::new(wasi_stdout))
             .stderr(Box::new(wasi_stderr));
 
-        // Add preopened host directories
-        for (host_path, guest_path) in &preopened_dirs {
-            let dir = cap_std::fs::Dir::open_ambient_dir(host_path, cap_std::ambient_authority())?;
-            builder.preopened_dir(dir, guest_path)?;
-            debug!(
-                "[container] Preopened dir: {} -> {}",
-                host_path.display(),
-                guest_path
-            );
-        }
-
-        // Set up networking if enabled
+        // Set up networking FIRST so the socket occupies FD 3 before directory
+        // preopens are registered. wasi_common's Table::push() (used by
+        // preopened_dir) skips already-occupied keys, so directories land on
+        // FD 4, 5, … — exactly where the container2wasm init enumerates them
+        // after consuming the LISTEN_FDS=1 socket at FD 3.
+        //
+        // If directories were registered first (old order), they would claim
+        // FD 3 via push(), then preopened_socket(3, …) would call insert_at(3)
+        // and silently overwrite the directory — leaving /workspace invisible
+        // inside the VM even though the host preopen was configured.
         let mut network_shutdown = None;
         let mut network_connect_addr = None;
         if networking {
@@ -213,6 +211,19 @@ impl Container {
             let (shutdown_tx, shutdown_rx) = watch::channel(false);
             network_shutdown = Some(shutdown_tx);
             network_connect_addr = Some((listen_addr, shutdown_rx));
+        }
+
+        // Add preopened host directories. When networking is enabled the socket
+        // already holds FD 3; push() skips it and assigns FD 4+ to dirs so the
+        // container2wasm init can find them via fd_prestat_get after the socket.
+        for (host_path, guest_path) in &preopened_dirs {
+            let dir = cap_std::fs::Dir::open_ambient_dir(host_path, cap_std::ambient_authority())?;
+            builder.preopened_dir(dir, guest_path)?;
+            debug!(
+                "[container] Preopened dir: {} -> {}",
+                host_path.display(),
+                guest_path
+            );
         }
 
         // Create pause channel (starts in running state)
