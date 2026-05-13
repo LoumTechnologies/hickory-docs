@@ -208,10 +208,15 @@ impl Container {
             builder.preopened_socket(socket_fd, wasi_listener)?;
 
             // argv[0] must be a program name. --net=socket=listenfd=N tells the
-            // container2wasm emulator to use FD N for the QEMU network channel
-            // instead of the default FD 3.
+            // container2wasm emulator which WASI FD holds the network socket.
+            // When no dirs are preopened socket_fd=3 (the default); with preopened
+            // dirs it shifts to 3+N so LISTEN_FDS=1 alone would point the init at
+            // the wrong FD. LISTEN_FDS=1 enables the socket-networking path in the
+            // init; listenfd=N overrides which FD it calls sock_accept on.
             builder.arg("container.wasm")?;
             builder.arg(&format!("--net=socket=listenfd={socket_fd}"))?;
+            builder.env("LISTEN_FDS", "1")?;
+            builder.env("LISTEN_PID", "1")?;
 
             let (shutdown_tx, shutdown_rx) = watch::channel(false);
             network_shutdown = Some(shutdown_tx);
