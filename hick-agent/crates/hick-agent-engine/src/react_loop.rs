@@ -407,10 +407,9 @@ impl ReactLoop {
 
             let mut exec = executor.lock().await;
 
-            // Inject the script into the container filesystem. The sandbox
-            // creates /workspace as a plain directory (WASI preopened dirs are
-            // not visible as real VFS paths to shell commands), so we must push
-            // the file in explicitly before running it.
+            // Persist fenced scripts under `project/.hick/tmp/...` on the host, and duplicate them into
+            // the VM (`inject_file`) so execution works both when virtio-9p is missing and when the
+            // mount is authoritative.
             if let Err(e) = exec
                 .inject_file(
                     "agent-sandbox",

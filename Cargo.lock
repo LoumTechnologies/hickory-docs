@@ -4130,11 +4130,13 @@ name = "hick-agent"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "chrono",
  "clap",
  "crossterm",
  "dotenvy",
  "env_logger",
+ "futures",
  "hick",
  "hick-agent-core",
  "hick-agent-engine",

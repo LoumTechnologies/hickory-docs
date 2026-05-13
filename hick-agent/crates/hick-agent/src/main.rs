@@ -549,6 +549,15 @@ async fn main() -> Result<()> {
                 "permissive (no deny-all)".to_string()
             };
 
+            // With virtio guest networking enabled (default `--net=socket`), some WASM images omit the
+            // virtio-9p `/workspace` host mount entirely. Integration tests rely on opting out via
+            // `HICK_AGENT_DISABLE_SANDBOX_GUEST_NET=1`; disabling also fixes “empty workspace” locally,
+            // but apk/pip/git typically need networking left on.
+            let sandbox_guest_network = !matches!(
+                std::env::var("HICK_AGENT_DISABLE_SANDBOX_GUEST_NET").as_deref(),
+                Ok("1") | Ok("true") | Ok("yes")
+            );
+
             // Build the WASM sandbox executor for running scripts.
             let wasm_image_path = config
                 .images_dir
@@ -571,6 +580,7 @@ async fn main() -> Result<()> {
                 default_image: config.default_image.clone(),
                 capabilities: sandbox_caps,
                 auth: auth_stack,
+                guest_network_enabled: sandbox_guest_network,
             };
             let sandbox_executor: Arc<Mutex<dyn CommandExecutor>> =
                 Arc::new(Mutex::new(WasmSandboxExecutor::new(sandbox_config)));

@@ -4,7 +4,7 @@
 //! - [`ScriptedLlm`]: deterministic LLM mock returning pre-programmed responses
 //! - [`create_executor`]: create a WASM sandbox executor for a given workdir
 //! - [`run_agent`]: drive a full ReactLoop with scripted responses and collect events
-
+#![allow(dead_code)] // Each integration test binary uses only part of this module.
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
@@ -100,18 +100,49 @@ pub fn ensure_wasm_extracted(wasm_path: &Path) {
     );
 }
 
-/// Path to the `c2w/converted_images` directory.
+/// Repo-root-relative path to compiled container images (`c2w` output).
+///
+/// Matches `detect_images_dir` in `hick-agent` `main.rs`: walk upward from this
+/// crate until `native2wasm/crates/c2w/converted_images` exists.
 pub fn images_dir() -> PathBuf {
-    let manifest = env!("CARGO_MANIFEST_DIR");
-    Path::new(manifest)
-        .parent()
-        .unwrap()
-        .join("c2w/converted_images")
+    let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let rel = Path::new("native2wasm/crates/c2w/converted_images");
+    let mut dir = manifest.to_path_buf();
+    loop {
+        let candidate = dir.join(rel);
+        if candidate.is_dir() {
+            return candidate;
+        }
+        if !dir.pop() {
+            break;
+        }
+    }
+    panic!(
+        "Could not find `{}` by walking up from {}. Expected the Hick monorepo checkout with native2wasm artifacts.",
+        rel.display(),
+        manifest.display()
+    );
 }
 
-/// Path to the ubuntu 24.04 WASM image.
-pub fn ubuntu_wasm_path() -> PathBuf {
-    images_dir().join("ubuntu/24.04.wasm")
+/// Image family passed to [`hick::executor::resolve_image_path`] (e.g. `ubuntu` → `ubuntu/24.04.wasm`).
+///
+/// Prefer `ubuntu` when that fixture exists (full Python toolchain in typical images); otherwise
+/// use `alpine` so shell-based integration tests still run in minimal checkouts.
+///
+/// Note: `execution_python` needs `python3` on `PATH` (usually `ubuntu`/`debian` fixtures). A bare
+/// `alpine` image will fail those tests unless you extend them to `apk add python3` first.
+fn integration_image_family(images_root: &Path) -> String {
+    for name in ["ubuntu", "debian", "fedora", "alpine"] {
+        let path = hick::executor::resolve_image_path(images_root, name);
+        if path.is_file() {
+            return name.to_string();
+        }
+    }
+    panic!(
+        "No runnable `.wasm` image under {} (tried ubuntu, debian, fedora, alpine). \
+         Convert or fetch images into that directory (see native2wasm / `git lfs pull`).",
+        images_root.display()
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -121,23 +152,38 @@ pub fn ubuntu_wasm_path() -> PathBuf {
 /// Type alias for the executor handle shared between tests and the ReactLoop.
 pub type SharedExecutor = Arc<tokio::sync::Mutex<dyn CommandExecutor>>;
 
-/// Create a WASM sandbox executor backed by the ubuntu image.
-///
-/// The `workdir` is mounted at `/workspace` inside the container.
 pub fn create_executor(workdir: &Path) -> (SharedExecutor, String) {
-    let wasm_path = ubuntu_wasm_path();
+    create_executor_with_guest_network(workdir, true)
+}
+
+/// Like [`create_executor`], but allows disabling the virtio guest network bootstrap.
+///
+/// Directory mount integration tests pass `guest_network: false`: with `--net=socket` enabled,
+/// some container2wasm images never attach virtio-9p for `/workspace`, so the sandbox only sees an
+/// empty tree (matching the “`.hick` only” symptom when tooling wrote under `/workspace` without a
+/// real host backing). Interactive `hick-agent run` keeps guest networking **`true`** so `apk`,
+/// `pip`, and similar commands still work inside the VM.
+pub fn create_executor_with_guest_network(
+    workdir: &Path,
+    guest_network: bool,
+) -> (SharedExecutor, String) {
+    let images_root = images_dir();
+    let image_family = integration_image_family(&images_root);
+    let wasm_path = hick::executor::resolve_image_path(&images_root, &image_family);
     ensure_wasm_extracted(&wasm_path);
 
     let config = WasmSandboxConfig {
-        images_dir: images_dir(),
+        images_dir: images_root,
         workdir: workdir.to_path_buf(),
-        default_image: "ubuntu".to_string(),
+        default_image: image_family.clone(),
         capabilities: ContainerCapabilities::default(),
+        auth: None,
+        guest_network_enabled: guest_network,
     };
 
     let executor = WasmSandboxExecutor::new(config);
     let shared: SharedExecutor = Arc::new(tokio::sync::Mutex::new(executor));
-    (shared, "ubuntu".to_string())
+    (shared, image_family)
 }
 
 // ---------------------------------------------------------------------------

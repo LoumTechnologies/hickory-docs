@@ -197,6 +197,12 @@ pub struct ContainerExecutor {
     stats: HashMap<String, ContainerResourceStats>,
     /// Host directories to preopen in every container's WASI context.
     preopened_dirs: Vec<(PathBuf, String)>,
+    /// When enabled, WASM guests boot with the virtio socket shim (`--net=socket`).
+    ///
+    /// On some container2wasm images, combining this shim with WASI-preopened directories prevents
+    /// `/workspace` from receiving the virtio-9p host mount until the bootstrap order is fixed
+    /// upstream. Sandbox integration tests set this to [`false`] so directory mounts remain testable.
+    guest_network_enabled: bool,
     /// Optional pool for adopting pre-warmed containers.
     pool: Option<SharedPool>,
     /// Number of containers adopted from the pool (vs fresh boot).
@@ -228,6 +234,7 @@ impl ContainerExecutor {
             module_cache: HashMap::new(),
             stats: HashMap::new(),
             preopened_dirs: Vec::new(),
+            guest_network_enabled: true,
             pool: None,
             pool_hits: 0,
             pool_boot_time_saved: Duration::ZERO,
@@ -246,6 +253,14 @@ impl ContainerExecutor {
     /// passed through to the WASI context builder when starting containers.
     pub fn set_preopened_dirs(&mut self, dirs: Vec<(PathBuf, String)>) {
         self.preopened_dirs = dirs;
+    }
+
+    /// Toggle virtio guest networking (`LISTEN_FDS` / `--net=socket`) for future container boots.
+    ///
+    /// Disabling this keeps WASI directory preopens observable in the guest (see
+    /// [`Self::guest_network_enabled`]).
+    pub fn set_guest_network_enabled(&mut self, enabled: bool) {
+        self.guest_network_enabled = enabled;
     }
 
     /// Create an executor backed by a shared container pool.
@@ -275,6 +290,7 @@ impl ContainerExecutor {
             module_cache,
             stats: HashMap::new(),
             preopened_dirs: Vec::new(),
+            guest_network_enabled: true,
             pool: Some(pool),
             pool_hits: 0,
             pool_boot_time_saved: Duration::ZERO,
@@ -404,7 +420,7 @@ impl ContainerExecutor {
         };
 
         let mut config = ContainerConfig::new(engine, module);
-        config.networking = true;
+        config.networking = self.guest_network_enabled;
         config.connection_filter = Some(filter);
         config.network_config = Some(net_cfg.clone());
         config.bridge = Some(self.bridge.clone());

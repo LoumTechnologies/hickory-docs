@@ -70,6 +70,11 @@ pub struct WasmSandboxConfig {
     pub capabilities: ContainerCapabilities,
     /// Optional auth injection stack for transparent credential management.
     pub auth: Option<Arc<AuthStack>>,
+    /// Enables the guest virtio network bootstrap (`--net=socket`). Default: `true`.
+    ///
+    /// When `false`, host directory preopens map to `/workspace` reliably on current
+    /// container2wasm images, but in-guest networking (`apk`, `pip`, etc.) is unavailable.
+    pub guest_network_enabled: bool,
 }
 
 impl Default for WasmSandboxConfig {
@@ -80,6 +85,7 @@ impl Default for WasmSandboxConfig {
             default_image: "alpine".to_string(),
             capabilities: ContainerCapabilities::default(),
             auth: None,
+            guest_network_enabled: true,
         }
     }
 }
@@ -118,6 +124,7 @@ impl WasmSandboxExecutor {
                 self.config.workdir.clone(),
                 "/workspace".to_string(),
             )]);
+            exec.set_guest_network_enabled(self.config.guest_network_enabled);
             if let Some(ref auth) = self.config.auth {
                 exec.set_auth(auth.clone());
             }
@@ -135,59 +142,13 @@ impl WasmSandboxExecutor {
         Ok(())
     }
 
-    /// Create `/workspace` directory structure in the container and inject the SDK.
-    ///
-    /// WASI preopened directories are file-descriptor capabilities — they do not
-    /// automatically create visible paths in the container's VFS. We create the
-    /// directories explicitly and copy in the SDK so shell commands like
-    /// `cd /workspace` and `import hickory` work correctly.
-    async fn initialize_workspace(&mut self, container: &str) -> anyhow::Result<()> {
-        let exec = self.executor.as_mut().unwrap();
-        exec.execute(
-            container,
-            "mkdir -p /workspace/.hick/tmp /workspace/.hick/sdk",
-        )
-        .await?;
-
-        let sdk_dir = self.config.workdir.join(".hick").join("sdk");
-        if sdk_dir.is_dir() {
-            self.inject_directory(container, &sdk_dir.clone(), "/workspace/.hick/sdk")
-                .await?;
-        }
-
-        Ok(())
-    }
-
-    /// Recursively inject all files from `host_dir` into `container_dest`.
-    async fn inject_directory(
-        &mut self,
-        container: &str,
-        host_dir: &Path,
-        container_dest: &str,
-    ) -> anyhow::Result<()> {
-        let files = collect_files(host_dir)?;
-        for host_path in files {
-            let relative = host_path
-                .strip_prefix(host_dir)
-                .unwrap()
-                .to_string_lossy()
-                .replace('\\', "/");
-            let dest = format!("{container_dest}/{relative}");
-
-            // Ensure parent directory exists.
-            if let Some(parent) = Path::new(&dest).parent() {
-                let mkdir_cmd = format!("mkdir -p {}", parent.display());
-                self.executor
-                    .as_mut()
-                    .unwrap()
-                    .execute(container, &mkdir_cmd)
-                    .await?;
-            }
-
-            let content = std::fs::read(&host_path)?;
-            self.write_file_to_container(container, &content, &dest)
-                .await?;
-        }
+    /// Creates `.hick/tmp` and `.hick/sdk` on the host project tree (visible at `/workspace/.hick/*`
+    /// once the host mount is wired). No guest `mkdir` under `/workspace` — that can materialize
+    /// an empty overlay and hide virtio-9p mounts on some kernels.
+    async fn initialize_workspace(&mut self, _container: &str) -> anyhow::Result<()> {
+        let hick_root = self.config.workdir.join(".hick");
+        std::fs::create_dir_all(hick_root.join("tmp"))?;
+        std::fs::create_dir_all(hick_root.join("sdk"))?;
         Ok(())
     }
 
@@ -280,7 +241,14 @@ impl CommandExecutor for WasmSandboxExecutor {
     ) -> anyhow::Result<()> {
         self.ensure_ready(container, image).await?;
 
-        // Ensure the parent directory exists.
+        if let Some(rest) = dest_path.strip_prefix("/workspace/") {
+            let host_path = self.config.workdir.join(rest);
+            if let Some(parent) = host_path.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            std::fs::write(host_path, content)?;
+        }
+
         if let Some(parent) = Path::new(dest_path).parent() {
             let mkdir_cmd = format!("mkdir -p {}", parent.display());
             self.executor
@@ -290,24 +258,6 @@ impl CommandExecutor for WasmSandboxExecutor {
                 .await?;
         }
 
-        self.write_file_to_container(container, content, dest_path)
-            .await
+        self.write_file_to_container(container, content, dest_path).await
     }
-}
-
-/// Collect all regular files under `dir` recursively.
-fn collect_files(dir: &Path) -> anyhow::Result<Vec<PathBuf>> {
-    let mut files = Vec::new();
-    if dir.is_dir() {
-        for entry in std::fs::read_dir(dir)? {
-            let entry = entry?;
-            let path = entry.path();
-            if path.is_dir() {
-                files.extend(collect_files(&path)?);
-            } else if path.is_file() {
-                files.push(path);
-            }
-        }
-    }
-    Ok(files)
 }
