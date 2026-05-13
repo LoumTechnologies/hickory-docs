@@ -550,10 +550,9 @@ async fn main() -> Result<()> {
             };
 
             // Guest networking is on by default so apk/pip/git work inside the VM.
-            // The previous FD-3 collision (preopened_socket overwriting preopened_dir at FD 3)
-            // that caused an empty /workspace with networking on has been fixed in container.rs.
-            // HICK_AGENT_DISABLE_SANDBOX_GUEST_NET is kept for backward compatibility but is no
-            // longer needed for workspace visibility.
+            // container.rs registers dirs first (FD 3+) then places the socket after them,
+            // using --net=socket=listenfd=N so both networking and /workspace visibility work.
+            // HICK_AGENT_DISABLE_SANDBOX_GUEST_NET is kept for backward compatibility.
             let sandbox_guest_network = !matches!(
                 std::env::var("HICK_AGENT_DISABLE_SANDBOX_GUEST_NET").as_deref(),
                 Ok("1") | Ok("true") | Ok("yes")

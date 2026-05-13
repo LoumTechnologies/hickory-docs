@@ -8,8 +8,8 @@
 //!   (shared mount coherence; true inotify in the WASM guest is not asserted here.)
 //! - **Writes** — Guest redirects and mkdir create real files/dirs under the temp project dir
 //! - **Net + mount coexistence** — With `--net=socket` enabled, `/workspace` still lists host
-//!   seed files (guards the fix that registers the listen socket at FD 3 before directories so
-//!   directory preopens land on FD 4+ where the container2wasm init enumerates them).
+//!   seed files (guards the fix that registers dirs first at FD 3+ and uses
+//!   `--net=socket=listenfd=N` to point the emulator at the socket after the dirs).
 //!
 //! Run with:
 //! ```text
@@ -141,10 +141,11 @@ async fn sandbox_writes_are_visible_on_host_including_new_paths() {
 
 /// Regression test: guest networking + host workspace mount must coexist.
 ///
-/// Before the FD-3 fix, `preopened_socket(3, …)` would overwrite the directory
-/// preopen that `preopened_dir` had placed at FD 3, making `/workspace` appear
-/// empty inside the VM. This test guards against that regression by running with
-/// `guest_network_enabled: true` and asserting that host seed files are visible.
+/// The fix registers directory preopens first (FD 3+) and places the network
+/// socket after them, using `--net=socket=listenfd=N` to point the emulator at
+/// the right FD. This guards against regressions where the socket lands at FD 3,
+/// which makes fd_prestat_get return EBADF and stops the init's dir enumeration
+/// loop before it can find and mount /workspace.
 #[tokio::test(flavor = "multi_thread")]
 async fn sandbox_workspace_visible_with_guest_networking_on() {
     let workdir = tempfile::tempdir().unwrap();

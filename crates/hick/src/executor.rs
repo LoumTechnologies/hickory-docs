@@ -199,9 +199,9 @@ pub struct ContainerExecutor {
     preopened_dirs: Vec<(PathBuf, String)>,
     /// When enabled, WASM guests boot with the virtio socket shim (`--net=socket`).
     ///
-    /// Defaults to `true`. The listen socket is registered at FD 3 before directory preopens so
-    /// that `preopened_dir` calls land on FD 4+ (where the container2wasm init enumerates them),
-    /// allowing both virtio networking and `/workspace` visibility simultaneously.
+    /// Defaults to `true`. Directory preopens are registered at FD 3+ first; the socket is placed
+    /// after them and the emulator is pointed at it via `--net=socket=listenfd=N`, so both
+    /// virtio networking and `/workspace` visibility work simultaneously.
     guest_network_enabled: bool,
     /// Optional pool for adopting pre-warmed containers.
     pool: Option<SharedPool>,

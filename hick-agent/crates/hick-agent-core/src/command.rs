@@ -72,8 +72,8 @@ pub struct WasmSandboxConfig {
     pub auth: Option<Arc<AuthStack>>,
     /// Enables the guest virtio network bootstrap (`--net=socket`). Default: `true`.
     ///
-    /// When `true`, the listen socket occupies FD 3 before directory preopens are registered, so
-    /// `preopened_dir` lands on FD 4+ — both networking and `/workspace` visibility work together.
+    /// When `true`, directory preopens are registered first (FD 3+), then the socket is placed
+    /// after them via `--net=socket=listenfd=N` — both networking and `/workspace` work together.
     pub guest_network_enabled: bool,
 }
 

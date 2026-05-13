@@ -168,54 +168,17 @@ impl Container {
             .stdout(Box::new(wasi_stdout))
             .stderr(Box::new(wasi_stderr));
 
-        // Set up networking FIRST so the socket occupies FD 3 before directory
-        // preopens are registered. wasi_common's Table::push() (used by
-        // preopened_dir) skips already-occupied keys, so directories land on
-        // FD 4, 5, … — exactly where the container2wasm init enumerates them
-        // after consuming the LISTEN_FDS=1 socket at FD 3.
+        // Register preopened host directories FIRST so they occupy FD 3, 4, … via
+        // Table::push(). The container2wasm init enumerates preopened dirs by calling
+        // fd_prestat_get starting at FD 3; it stops on the first EBADF. Registering
+        // dirs before the socket ensures all dirs are found before the loop terminates.
         //
-        // If directories were registered first (old order), they would claim
-        // FD 3 via push(), then preopened_socket(3, …) would call insert_at(3)
-        // and silently overwrite the directory — leaving /workspace invisible
-        // inside the VM even though the host preopen was configured.
-        let mut network_shutdown = None;
-        let mut network_connect_addr = None;
-        if networking {
-            // Create a TCP listener that WASM will use to accept connections.
-            // The kernel calls sock_accept on this fd to establish the network channel.
-            // Always bind to port 0 so multiple containers can coexist.
-            let std_listener = std::net::TcpListener::bind("127.0.0.1:0")?;
-            // Set non-blocking like wasmtime CLI does
-            std_listener.set_nonblocking(true)?;
-            let listen_addr = std_listener.local_addr()?;
-            debug!(
-                "[container] Created listener (non-blocking), local_addr = {:?}",
-                listen_addr
-            );
-
-            // Use wasi_common::sync::TcpListener like wasmtime CLI does.
-            // The sync implementation uses POSIX poll() for readiness which
-            // properly blocks until a connection arrives.
-            let wasi_listener = wasi_common::sync::TcpListener::from_std(std_listener);
-            builder.preopened_socket(3, wasi_listener)?;
-
-            // Pass args and env so the container2wasm kernel knows to use networking.
-            // argv[0] must be a program name (like wasmtime CLI passes the module basename).
-            // LISTEN_FDS=1 tells the kernel there's one preopened socket (at fd=3).
-            builder.arg("container.wasm")?;
-            builder.arg("--net=socket")?;
-            builder.env("LISTEN_FDS", "1")?;
-            builder.env("LISTEN_PID", "1")?;
-
-            // Store the address for connecting after WASM starts
-            let (shutdown_tx, shutdown_rx) = watch::channel(false);
-            network_shutdown = Some(shutdown_tx);
-            network_connect_addr = Some((listen_addr, shutdown_rx));
-        }
-
-        // Add preopened host directories. When networking is enabled the socket
-        // already holds FD 3; push() skips it and assigns FD 4+ to dirs so the
-        // container2wasm init can find them via fd_prestat_get after the socket.
+        // When networking is also enabled, the socket is placed AFTER the dirs at
+        // FD (3 + len(dirs)) via insert_at, and the emulator is told which FD to use
+        // via --net=socket=listenfd=N. This avoids the FD-3 collision where
+        // preopened_socket(3,…) would overwrite the dir that push() had placed at FD 3,
+        // and also avoids fd_prestat_get(3) returning EBADF (socket) causing the init
+        // loop to stop before finding the preopened dirs.
         for (host_path, guest_path) in &preopened_dirs {
             let dir = cap_std::fs::Dir::open_ambient_dir(host_path, cap_std::ambient_authority())?;
             builder.preopened_dir(dir, guest_path)?;
@@ -224,6 +187,35 @@ impl Container {
                 host_path.display(),
                 guest_path
             );
+        }
+
+        let mut network_shutdown = None;
+        let mut network_connect_addr = None;
+        if networking {
+            // Socket goes after all dir preopens. Since push() assigns FDs starting at
+            // 3 and dirs are registered above, next available FD is 3 + len(dirs).
+            let socket_fd = 3u32 + preopened_dirs.len() as u32;
+
+            let std_listener = std::net::TcpListener::bind("127.0.0.1:0")?;
+            std_listener.set_nonblocking(true)?;
+            let listen_addr = std_listener.local_addr()?;
+            debug!(
+                "[container] Created listener (non-blocking), socket_fd={socket_fd}, local_addr = {:?}",
+                listen_addr
+            );
+
+            let wasi_listener = wasi_common::sync::TcpListener::from_std(std_listener);
+            builder.preopened_socket(socket_fd, wasi_listener)?;
+
+            // argv[0] must be a program name. --net=socket=listenfd=N tells the
+            // container2wasm emulator to use FD N for the QEMU network channel
+            // instead of the default FD 3.
+            builder.arg("container.wasm")?;
+            builder.arg(&format!("--net=socket=listenfd={socket_fd}"))?;
+
+            let (shutdown_tx, shutdown_rx) = watch::channel(false);
+            network_shutdown = Some(shutdown_tx);
+            network_connect_addr = Some((listen_addr, shutdown_rx));
         }
 
         // Create pause channel (starts in running state)
