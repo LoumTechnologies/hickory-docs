@@ -40,6 +40,12 @@ pub enum ConnectionVerdict {
 #[async_trait]
 pub trait ConnectionFilter: Send + Sync {
     async fn filter(&self, request: &NetworkRequest) -> ConnectionVerdict;
+
+    /// Called after a successful DNS A-record resolution so that TCP
+    /// connections to the resolved IP can be matched back to the hostname.
+    ///
+    /// Default: no-op (implementors that don't need hostname tracking can ignore it).
+    fn register_dns_result(&self, _domain: &str, _addr: std::net::IpAddr) {}
 }
 
 /// Default filter that allows all connections.
@@ -89,6 +95,11 @@ impl SwappableFilter {
 
 #[async_trait]
 impl ConnectionFilter for SwappableFilter {
+    fn register_dns_result(&self, domain: &str, addr: std::net::IpAddr) {
+        let guard = self.inner.load();
+        guard.0.register_dns_result(domain, addr);
+    }
+
     async fn filter(&self, request: &NetworkRequest) -> ConnectionVerdict {
         let guard = self.inner.load();
         guard.0.filter(request).await
@@ -156,6 +167,10 @@ impl CapabilityFilter {
 #[cfg(feature = "capability")]
 #[async_trait]
 impl ConnectionFilter for CapabilityFilter {
+    fn register_dns_result(&self, domain: &str, addr: std::net::IpAddr) {
+        self.dns_cache.lock().unwrap().insert(addr, domain.to_string());
+    }
+
     async fn filter(&self, request: &NetworkRequest) -> ConnectionVerdict {
         match request {
             NetworkRequest::Dns { domain } => {
@@ -325,6 +340,33 @@ mod capability_tests {
         let tcp = NetworkRequest::Tcp {
             dest: "1.2.3.4:9999".parse().unwrap(),
         };
+        assert_eq!(filter.filter(&tcp).await, ConnectionVerdict::Allow);
+    }
+
+    /// TCP to an allowed host is permitted AFTER register_dns_result maps the IP.
+    ///
+    /// Reproduces the bug where handle_dns did not call register_dns_result,
+    /// causing TCP connections to resolved IPs to be blocked ("Connection reset
+    /// by peer") even though the hostname was in the allow list.
+    #[tokio::test]
+    async fn capability_filter_tcp_allowed_after_dns_registration() {
+        let caps = ContainerCapabilities::new()
+            .allow_network("pypi.org", "*")
+            .deny_all_network();
+
+        let filter = CapabilityFilter::new(caps);
+        let ip: std::net::IpAddr = "151.101.64.223".parse().unwrap();
+
+        // Before registration: TCP to the resolved IP is blocked (no hostname in cache)
+        let tcp = NetworkRequest::Tcp {
+            dest: std::net::SocketAddr::new(ip, 443),
+        };
+        assert_eq!(filter.filter(&tcp).await, ConnectionVerdict::Block);
+
+        // Simulate handle_dns calling register_dns_result after forwarding the response
+        filter.register_dns_result("pypi.org", ip);
+
+        // After registration: TCP to the same IP is now allowed
         assert_eq!(filter.filter(&tcp).await, ConnectionVerdict::Allow);
     }
 }
