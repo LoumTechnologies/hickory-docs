@@ -632,10 +632,12 @@ async fn handle_dns(
                     response.len()
                 );
 
-                // Populate the filter's hostname→IP cache so TCP connections
-                // to the resolved IP can be matched back to the hostname.
-                if let Some((hostname, ip)) = dns::parse_a_response(&response) {
-                    filter.register_dns_result(&hostname, ip.into());
+                // Register ALL resolved IPs so TCP connections to any of
+                // them can be matched back to the hostname (round-robin/failover).
+                if let Some((hostname, ips)) = dns::parse_all_a_records(&response) {
+                    for ip in ips {
+                        filter.register_dns_result(&hostname, ip.into());
+                    }
                 }
 
                 let sock = net.udp_socket(dns_handle);
@@ -715,9 +717,12 @@ async fn handle_dns_bridged(
 
                 // Populate hostname caches from A-record responses:
                 // dns_hostname_cache for TLS interception, filter cache for TCP filtering.
-                if let Some((hostname, ip)) = dns::parse_a_response(&response) {
-                    dns_hostname_cache.write().await.insert(ip, hostname.clone());
-                    filter.register_dns_result(&hostname, ip.into());
+                // Register ALL IPs so round-robin / failover connections are also allowed.
+                if let Some((hostname, ips)) = dns::parse_all_a_records(&response) {
+                    for ip in ips {
+                        dns_hostname_cache.write().await.insert(ip, hostname.clone());
+                        filter.register_dns_result(&hostname, ip.into());
+                    }
                 }
 
                 let sock = net.udp_socket(dns_handle);

@@ -168,6 +168,18 @@ pub fn create_executor_with_guest_network(
     workdir: &Path,
     guest_network: bool,
 ) -> (SharedExecutor, String) {
+    create_executor_with_capabilities(workdir, guest_network, ContainerCapabilities::default())
+}
+
+/// Like [`create_executor_with_guest_network`], but with explicit capabilities.
+///
+/// Use this to test the `CapabilityFilter` path (deny-all + specific allow list),
+/// which is what the live agent uses by default.
+pub fn create_executor_with_capabilities(
+    workdir: &Path,
+    guest_network: bool,
+    capabilities: ContainerCapabilities,
+) -> (SharedExecutor, String) {
     let images_root = images_dir();
     let image_family = integration_image_family(&images_root);
     let wasm_path = hick::executor::resolve_image_path(&images_root, &image_family);
@@ -177,7 +189,7 @@ pub fn create_executor_with_guest_network(
         images_dir: images_root,
         workdir: workdir.to_path_buf(),
         default_image: image_family.clone(),
-        capabilities: ContainerCapabilities::default(),
+        capabilities,
         auth: None,
         guest_network_enabled: guest_network,
     };

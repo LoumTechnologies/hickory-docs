@@ -11,8 +11,9 @@ mod common;
 
 use std::sync::Arc;
 
-use common::create_executor_with_guest_network;
+use common::{create_executor_with_capabilities, create_executor_with_guest_network};
 use hick_agent_core::{CommandExecutor, CommandOutput};
+use hick_token::ContainerCapabilities;
 use tokio::sync::Mutex;
 
 const SANDBOX_CONTAINER: &str = "agent-sandbox";
@@ -136,5 +137,70 @@ async fn sandbox_guest_resolves_dns() {
     assert!(
         output.contains("Address") || output.contains("answer"),
         "nslookup should return an address for google.com; got:\n{output}"
+    );
+}
+
+/// Regression test: TCP connections to allowed hosts work after DNS resolution.
+///
+/// Covers the bug where handle_dns forwarded DNS responses but never called
+/// register_dns_result on the filter. CapabilityFilter then had no hostname
+/// cached for the resolved IP, fell back to IP-string matching, found no match
+/// under DenyAll, and reset the connection ("Connection reset by peer") even
+/// though the hostname was in the allow list.
+///
+/// Uses a DenyAll + specific-allowlist config matching the live agent default,
+/// and verifies that wget can actually reach the allowed host over TCP.
+#[tokio::test(flavor = "multi_thread")]
+async fn sandbox_tcp_allowed_after_capability_filter_dns_registration() {
+    let workdir = tempfile::tempdir().unwrap();
+
+    // Mirror the live agent's default security policy: deny all, but allow
+    // example.com (a stable, well-known host that doesn't require auth).
+    let caps = ContainerCapabilities::new()
+        .allow_network("example.com", "*")
+        .deny_all_network();
+
+    let (executor, image) = create_executor_with_capabilities(workdir.path(), true, caps);
+
+    // DNS for the allowed host must resolve.
+    let dns_out = exec_sh(
+        &executor,
+        &image,
+        "nslookup example.com 2>&1 | head -4; echo exit=$?",
+    )
+    .await;
+    eprintln!("[test] nslookup example.com:\n{}", dns_out.output);
+    assert!(
+        dns_out.output.contains("Address"),
+        "DNS for allowed host should resolve; got:\n{}",
+        dns_out.output
+    );
+
+    // TCP to the resolved IP must succeed — NOT "bad address" or "Connection reset by peer".
+    let out = exec_sh(
+        &executor,
+        &image,
+        "wget -T 15 -q -O /dev/null http://example.com/ 2>&1; echo exit=$?",
+    )
+    .await;
+    let output = &out.output;
+    eprintln!("[test] wget http://example.com/ (capability filter):\n{output}");
+    assert!(
+        !output.contains("bad address") && !output.contains("reset by peer"),
+        "wget to allowed host must not be blocked by capability filter; got:\n{output}"
+    );
+
+    // DNS for a blocked host must be silently dropped (no external address returned).
+    let blocked = exec_sh(
+        &executor,
+        &image,
+        "nslookup google.com 2>&1 | head -4; echo exit=$?",
+    )
+    .await;
+    eprintln!("[test] nslookup google.com (should be blocked):\n{}", blocked.output);
+    assert!(
+        !blocked.output.contains("Address:") || blocked.output.contains("10.0.1.1"),
+        "DNS for blocked host should not resolve to an external address; got:\n{}",
+        blocked.output
     );
 }

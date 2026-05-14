@@ -159,6 +159,84 @@ pub fn build_a_response(query: &[u8], ip: std::net::Ipv4Addr) -> Option<Vec<u8>>
     Some(resp)
 }
 
+/// Extract the queried domain and ALL resolved IPv4 addresses from a DNS A-record response.
+///
+/// Returns `None` if the response is malformed or has no A records.
+/// All IPs must be registered with the capability filter so TCP connections
+/// to any of them can be matched back to the hostname (round-robin or failover).
+pub fn parse_all_a_records(response: &[u8]) -> Option<(String, Vec<std::net::Ipv4Addr>)> {
+    const HEADER_LEN: usize = 12;
+    if response.len() < HEADER_LEN {
+        return None;
+    }
+    if response[2] & 0x80 == 0 {
+        return None;
+    }
+    let ancount = u16::from_be_bytes([response[6], response[7]]);
+    if ancount == 0 {
+        return None;
+    }
+
+    let domain = parse_query_domain(response)?;
+
+    let mut pos = HEADER_LEN;
+    loop {
+        if pos >= response.len() {
+            return None;
+        }
+        let label_len = response[pos] as usize;
+        pos += 1;
+        if label_len == 0 {
+            break;
+        }
+        pos += label_len;
+    }
+    pos += 4; // skip QTYPE + QCLASS
+
+    let mut ips = Vec::new();
+    for _ in 0..ancount {
+        if pos + 2 > response.len() {
+            break;
+        }
+        if response[pos] & 0xC0 == 0xC0 {
+            pos += 2;
+        } else {
+            loop {
+                if pos >= response.len() {
+                    return None;
+                }
+                let len = response[pos] as usize;
+                pos += 1;
+                if len == 0 {
+                    break;
+                }
+                pos += len;
+            }
+        }
+        if pos + 10 > response.len() {
+            break;
+        }
+        let rtype = u16::from_be_bytes([response[pos], response[pos + 1]]);
+        let rdlen = u16::from_be_bytes([response[pos + 8], response[pos + 9]]) as usize;
+        pos += 10;
+        if rtype == 1 && rdlen == 4 && pos + 4 <= response.len() {
+            ips.push(std::net::Ipv4Addr::new(
+                response[pos],
+                response[pos + 1],
+                response[pos + 2],
+                response[pos + 3],
+            ));
+        }
+        pos += rdlen;
+    }
+
+    if ips.is_empty() {
+        None
+    } else {
+        Some((domain, ips))
+    }
+}
+
 /// Extract the queried domain and resolved IPv4 address from a DNS A-record response.
 ///
 /// Parses the QNAME from the question section and the first A-record RDATA
