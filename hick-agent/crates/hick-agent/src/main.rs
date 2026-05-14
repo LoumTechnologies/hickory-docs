@@ -150,7 +150,7 @@ fn detect_providers() -> Vec<DetectedProvider> {
     found
 }
 
-/// Prompt the user to confirm or select a provider from detected API keys.
+/// Select a provider from detected API keys, prompting only when multiple are found.
 /// Called before the TUI starts, so stdin/stdout are available.
 fn prompt_provider_selection(detected: Vec<DetectedProvider>) -> Result<Provider> {
     if detected.is_empty() {
@@ -167,20 +167,7 @@ fn prompt_provider_selection(detected: Vec<DetectedProvider>) -> Result<Provider
     }
 
     if detected.len() == 1 {
-        let d = &detected[0];
-        print!(
-            "Detected {} ({}). Use {} / {}? [Y/n] ",
-            d.env_var, d.provider, d.provider, d.default_model,
-        );
-        std::io::stdout().flush()?;
-
-        let mut input = String::new();
-        std::io::stdin().read_line(&mut input)?;
-        let input = input.trim().to_lowercase();
-        if input.is_empty() || input == "y" || input == "yes" {
-            return Ok(d.provider);
-        }
-        anyhow::bail!("Cancelled. Use --provider to specify a provider explicitly.");
+        return Ok(detected[0].provider);
     }
 
     // Multiple providers detected — let the user choose
