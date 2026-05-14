@@ -168,17 +168,21 @@ impl Container {
             .stdout(Box::new(wasi_stdout))
             .stderr(Box::new(wasi_stderr));
 
-        // Register preopened host directories FIRST so they occupy FD 3, 4, … via
-        // Table::push(). The container2wasm init enumerates preopened dirs by calling
-        // fd_prestat_get starting at FD 3; it stops on the first EBADF. Registering
-        // dirs before the socket ensures all dirs are found before the loop terminates.
+        // FD layout:
         //
-        // When networking is also enabled, the socket is placed AFTER the dirs at
-        // FD (3 + len(dirs)) via insert_at, and the emulator is told which FD to use
-        // via --net=socket=listenfd=N. This avoids the FD-3 collision where
-        // preopened_socket(3,…) would overwrite the dir that push() had placed at FD 3,
-        // and also avoids fd_prestat_get(3) returning EBADF (socket) causing the init
-        // loop to stop before finding the preopened dirs.
+        //   FD 3+: preopened dirs (via Table::push — starts at 3, increments)
+        //   FD 3+N: network socket (via insert_at — placed after all dirs)
+        //
+        // The container2wasm init enumerates preopened dirs by calling fd_prestat_get
+        // starting at FD 3; it stops on the first EBADF. Placing the socket AFTER the
+        // dirs ensures all dirs are found before the loop hits the socket and stops.
+        //
+        // Networking uses --net=socket=listenfd=N to tell the emulator which WASI FD
+        // holds the network socket. LISTEN_FDS=1 / LISTEN_PID=1 enable the socket-
+        // networking path in the c2w init; listenfd=N points it at the correct FD.
+
+        // Register preopened host directories FIRST so they occupy FD 3, 4, … via
+        // Table::push().
         for (host_path, guest_path) in &preopened_dirs {
             let dir = cap_std::fs::Dir::open_ambient_dir(host_path, cap_std::ambient_authority())?;
             builder.preopened_dir(dir, guest_path)?;
@@ -192,8 +196,7 @@ impl Container {
         let mut network_shutdown = None;
         let mut network_connect_addr = None;
         if networking {
-            // Socket goes after all dir preopens. Since push() assigns FDs starting at
-            // 3 and dirs are registered above, next available FD is 3 + len(dirs).
+            // Socket goes after all dir preopens at FD = 3 + len(dirs).
             let socket_fd = 3u32 + preopened_dirs.len() as u32;
 
             let std_listener = std::net::TcpListener::bind("127.0.0.1:0")?;
@@ -207,12 +210,9 @@ impl Container {
             let wasi_listener = wasi_common::sync::TcpListener::from_std(std_listener);
             builder.preopened_socket(socket_fd, wasi_listener)?;
 
-            // argv[0] must be a program name. --net=socket=listenfd=N tells the
+            // argv[0] is the program name. --net=socket=listenfd=N tells the
             // container2wasm emulator which WASI FD holds the network socket.
-            // When no dirs are preopened socket_fd=3 (the default); with preopened
-            // dirs it shifts to 3+N so LISTEN_FDS=1 alone would point the init at
-            // the wrong FD. LISTEN_FDS=1 enables the socket-networking path in the
-            // init; listenfd=N overrides which FD it calls sock_accept on.
+            // LISTEN_FDS=1 / LISTEN_PID=1 enable the socket-networking path.
             builder.arg("container.wasm")?;
             builder.arg(&format!("--net=socket=listenfd={socket_fd}"))?;
             builder.env("LISTEN_FDS", "1")?;

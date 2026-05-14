@@ -12,6 +12,43 @@
 
 
 
+
+
+
+
+
+
+
+
+
+## Shared Configuration
+
+### EditorConfig
+
+
+### `.editorconfig`
+
+```
+root = true
+
+[*]
+indent_style = space
+indent_size = 4
+end_of_line = lf
+charset = utf-8
+trim_trailing_whitespace = true
+insert_final_newline = true
+
+[*.{yml,yaml,toml}]
+indent_size = 2
+
+[*.sql]
+indent_size = 4
+```
+
+
+
+
 ## Shared Configuration
 
 These files are shared across all platforms.
@@ -72,6 +109,169 @@ CI configuration highlights:
 - **Parallel jobs** — Each platform builds independently
 - **Caching** — npm and Rust dependencies are cached for faster builds
 - **Platform-appropriate runners** — macOS for Apple, Ubuntu for others
+
+
+
+This is a demo hick document for testing the LSP server.
+It defines a simple Rust program and a Python script.
+
+
+
+
+### `Cargo.toml`
+
+```toml
+[workspace]
+resolver = "3"
+members = [
+    "backend",
+    "crates/*",
+    "hick-lang/crates/*",
+    "hick-reactive/crates/*",
+    "hick-exec/crates/*",
+    "hick-security/crates/*",
+    "hick-store/crates/*",
+    "wasm-net/crates/*",
+    "hick-container/crates/*",
+    "hick-agent/crates/*",
+    "native2wasm/crates/*",
+]
+exclude = ["matrix"]
+
+[workspace.package]
+edition = "2024"
+publish = false
+
+[workspace.dependencies]
+hick-lang = { version = "0.1", path = "hick-lang/crates/hick-lang" }
+hick-flow = { version = "0.1", path = "hick-reactive/crates/hick-flow" }
+hick-exec = { version = "0.1", path = "hick-exec/crates/hick-exec" }
+hick-condition = { version = "0.1", path = "hick-exec/crates/hick-condition" }
+
+# hick-security
+hick-classify = { version = "0.1", path = "hick-security/crates/hick-classify" }
+hick-token = { version = "0.1", path = "hick-security/crates/hick-token" }
+hick-sink = { version = "0.1", path = "hick-security/crates/hick-sink" }
+hick-secrets = { version = "0.1", path = "hick-security/crates/hick-secrets" }
+hick-policy = { version = "0.1", path = "hick-security/crates/hick-policy" }
+
+# hick-store
+hick-store = { version = "0.1", path = "hick-store/crates/hick-store" }
+hick-merge = { version = "0.1", path = "hick-store/crates/hick-merge" }
+
+# wasm-net
+net-config = { version = "0.1", path = "wasm-net/crates/net-config" }
+bridge = { version = "0.1", path = "wasm-net/crates/bridge" }
+tcp-nat = { version = "0.1", path = "wasm-net/crates/tcp-nat" }
+connection-filter = { version = "0.1", path = "wasm-net/crates/connection-filter" }
+network = { version = "0.1", path = "wasm-net/crates/network" }
+
+# hick-container
+container = { version = "0.1", path = "hick-container/crates/container" }
+hick-shell = { version = "0.1", path = "hick-container/crates/hick-shell" }
+
+# native2wasm
+c2w = { version = "0.1", path = "native2wasm/crates/c2w" }
+
+# wasmtime
+wasmtime = { version = "41.0.0", default-features = false, features = [
+    "async", "cache", "cranelift", "runtime", "std", "threads", "wat",
+    "profiling", "parallel-compilation", "pooling-allocator",
+    "demangle", "addr2line", "coredump", "debug-builtins",
+    "gc", "gc-drc", "gc-null",
+    "component-model", "component-model-async",
+] }
+```
+
+
+
+### `src/main.rs`
+
+```rust
+
+fn main() {
+    let message = "Hello from hick!";
+    println!("{}", message);
+
+    let numbers: Vec<i32> = (1..=10).collect();
+    for n in &numbers {
+        if n % 2 == 0 {
+            println!("{} is even", n);
+        }
+    }
+}
+```
+
+
+
+### `hello.py`
+
+```python
+
+def greet(name: str) -> str:
+    return f"Hello, {name}!"
+
+if __name__ == "__main__":
+    print(greet("world"))
+```
+
+
+
+### `config.json`
+
+```json
+
+{
+    "name": "hick-demo",
+    "version": "0.1.0",
+    "greeting": "Hello from hick!"
+}
+```
+
+
+Try editing this file in Kate — if the LSP is working, you should see:
+- Parse errors highlighted as diagnostics if you break the hick syntax
+- No errors on valid documents like this one
+
+Try introducing an error, for example delete the closing tag on one
+of the hick:file blocks, and you should see a diagnostic appear.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+This template generates a `justfile` for building all enabled platforms using
+the [just](https://just.systems/) command runner.
+
+**Why just?**
+- Simple, human-readable syntax
+- Cross-platform support
+- Dependency management between tasks
+- Environment variable integration
+- No complex makefile syntax
+
+
 
 
 
@@ -818,17 +1018,40 @@ launchers:
 
 
 
+# Cross-Platform Project Scaffolding
+
+This template generates a multi-platform project with a consistent structure across:
+
+- **SwiftUI** — iOS, iPadOS, and macOS using Apple's declarative UI framework
+- **Jetpack Compose** — Android with Kotlin and modern declarative UI
+- **Avalonia** — Cross-platform desktop (Windows, macOS, Linux) with .NET
+- **React SPA** — Single-page web application with TypeScript
+- **Browser Extension** — Chrome/Firefox extension with React TypeScript
+- **Rust Backend** — API server using Axum for high performance
+
+Each platform is behind a feature flag, so you only generate what you need.
+
+## Usage
+
+Generate a project with specific platforms:
+
+```bash
+hick --param project_name=MyApp --features swiftui,backend scaffolding/
+```
+
+Generate all platforms:
+
+```bash
+hick --param project_name=MyApp --features all scaffolding/
+```
+
+---
+
+## Configuration Variables
+
+These variables control project metadata and can be overridden via `--param`:
 
 
-This template generates a `justfile` for building all enabled platforms using
-the [just](https://just.systems/) command runner.
-
-**Why just?**
-- Simple, human-readable syntax
-- Cross-platform support
-- Dependency management between tasks
-- Environment variable integration
-- No complex makefile syntax
 
 
 
@@ -839,6 +1062,24 @@ the [just](https://just.systems/) command runner.
 
 
 
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `project_name` | BlueIronCube | Project name (used in file paths, class names) |
+| `bundle_id` | com.acmedrainage.blueironcube | Reverse-domain bundle identifier |
+| `organization` | Example Inc | Company/organization name for copyright |
+| `min_ios_version` | 17.0 | Minimum iOS deployment target |
+| `min_macos_version` | 14.0 | Minimum macOS deployment target |
+| `min_android_sdk` | 26 | Minimum Android SDK level |
+| `target_android_sdk` | 35 | Target Android SDK level |
+| `dotnet_version` | 8.0 | .NET version for Avalonia |
+| `rust_edition` | 2024 | Rust edition year |
+| `node_version` | 20 | Node.js version for web projects |
+
+---
+
+## Feature Definitions
+
+Features control which platforms are generated. They can be combined freely.
 
 
 
@@ -852,6 +1093,200 @@ the [just](https://just.systems/) command runner.
 
 
 
+
+**Build system:**
+
+
+
+**Meta-features** for convenience:
+
+
+
+
+
+
+
+**Verify commands** run after each matrix combination to catch scaffolding errors:
+
+
+
+
+
+
+
+
+
+| Feature | Description |
+|---------|-------------|
+| `swiftui` | iOS, iPadOS, macOS with SwiftUI |
+| `compose` | Android with Jetpack Compose |
+| `avalonia` | Desktop with Avalonia (.NET) |
+| `spa` | React TypeScript web app |
+| `extension` | Browser extension |
+| `backend` | Rust API server |
+| `rust-frontend-lib` | Shared Rust library (WASM + FFI) |
+| `sqlite` | SQLite database in Rust library (requires rust-frontend-lib) |
+| `iroh` | Iroh P2P networking in Rust library (requires rust-frontend-lib) |
+| `decentralized-auth` | Decentralized identity and authentication (requires rust-frontend-lib) |
+| `event-sourcing` | Event sourcing with CRDT conflict resolution (requires rust-frontend-lib, sqlite) |
+| `iroh-relay` | Iroh relay server for NAT traversal |
+| `just` | Justfile for build automation |
+| `all` | All platforms (not build systems) |
+| `mobile` | SwiftUI + Compose |
+| `desktop` | SwiftUI + Avalonia |
+| `web` | SPA + Extension |
+| `native` | Native platforms + Rust library |
+
+---
+
+## Substitution Rules
+
+The project name is substituted throughout all generated files using case variants:
+
+
+
+This means `BlueIronCube`, `blueIronCube`, `blue_iron_cube`, `BLUE_IRON_CUBE`, and `blue-iron-cube`
+in the template files will all be replaced with the corresponding case variant of
+your chosen project name.
+
+---
+
+## Shared Content Blocks
+
+### License
+
+We use MIT License by default. This cut block is referenced elsewhere without
+appearing directly in any file output:
+
+
+
+### Common Gitignore Patterns
+
+These patterns are shared across all platforms:
+
+
+
+---
+
+## Root Project Files
+
+### LICENSE
+
+The license file at the project root:
+
+
+### `LICENSE`
+
+```
+MIT License
+
+Copyright (c) 2024 
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.```
+
+
+### README.md
+
+The main README is dynamically generated based on which features are enabled,
+so users always see accurate platform-specific instructions:
+
+
+### `README.md`
+
+```markdown
+# BlueIronCube
+
+A cross-platform application by Example Inc.
+
+## Platforms
+
+
+
+
+
+
+
+
+
+
+
+
+## License
+
+MIT License - see [LICENSE](LICENSE) for details.
+```
+
+
+### .gitignore
+
+The gitignore combines common patterns with platform-specific ones based on
+enabled features:
+
+
+### `.gitignore`
+
+```
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build outputs
+dist/
+build/
+out/
+
+
+
+
+
+
+
+
+```
+
+
+---
+
+## Platform Templates
+
+The platform-specific files are defined in separate `.hick` files for maintainability.
+Each platform template is guarded by its feature flag.
+
+See the individual platform documentation:
+- [SwiftUI Platform](platforms/swiftui.hick) — Apple platforms with XcodeGen
+- [Compose Platform](platforms/compose.hick) — Android with Kotlin DSL Gradle
+- [Avalonia Platform](platforms/avalonia.hick) — .NET cross-platform desktop
+- [SPA Platform](platforms/spa.hick) — React + Vite web application
+- [Extension Platform](platforms/extension.hick) — Browser extension
+- [Backend Platform](platforms/backend.hick) — Rust Axum server
+- [Rust Frontend Library](platforms/rust-frontend-lib.hick) — Shared Rust library with WASM + FFI
+- [Iroh Relay](platforms/iroh-relay.hick) — Iroh relay server for P2P networking
+
+Build system template:
+- [Just Build System](platforms/just.hick) — Justfile for task automation
 
 
 
@@ -1551,439 +1986,4 @@ The following line only appears because `show-features` is defined:
 
 
 
-
-
-
-This is a demo hick document for testing the LSP server.
-It defines a simple Rust program and a Python script.
-
-
-
-
-### `Cargo.toml`
-
-```toml
-[workspace]
-resolver = "3"
-members = [
-    "backend",
-    "crates/*",
-    "hick-lang/crates/*",
-    "hick-reactive/crates/*",
-    "hick-exec/crates/*",
-    "hick-security/crates/*",
-    "hick-store/crates/*",
-    "wasm-net/crates/*",
-    "hick-container/crates/*",
-    "hick-agent/crates/*",
-    "native2wasm/crates/*",
-]
-exclude = ["matrix"]
-
-[workspace.package]
-edition = "2024"
-publish = false
-
-[workspace.dependencies]
-hick-lang = { version = "0.1", path = "hick-lang/crates/hick-lang" }
-hick-flow = { version = "0.1", path = "hick-reactive/crates/hick-flow" }
-hick-exec = { version = "0.1", path = "hick-exec/crates/hick-exec" }
-hick-condition = { version = "0.1", path = "hick-exec/crates/hick-condition" }
-
-# hick-security
-hick-classify = { version = "0.1", path = "hick-security/crates/hick-classify" }
-hick-token = { version = "0.1", path = "hick-security/crates/hick-token" }
-hick-sink = { version = "0.1", path = "hick-security/crates/hick-sink" }
-hick-secrets = { version = "0.1", path = "hick-security/crates/hick-secrets" }
-hick-policy = { version = "0.1", path = "hick-security/crates/hick-policy" }
-
-# hick-store
-hick-store = { version = "0.1", path = "hick-store/crates/hick-store" }
-hick-merge = { version = "0.1", path = "hick-store/crates/hick-merge" }
-
-# wasm-net
-net-config = { version = "0.1", path = "wasm-net/crates/net-config" }
-bridge = { version = "0.1", path = "wasm-net/crates/bridge" }
-tcp-nat = { version = "0.1", path = "wasm-net/crates/tcp-nat" }
-connection-filter = { version = "0.1", path = "wasm-net/crates/connection-filter" }
-network = { version = "0.1", path = "wasm-net/crates/network" }
-
-# hick-container
-container = { version = "0.1", path = "hick-container/crates/container" }
-hick-shell = { version = "0.1", path = "hick-container/crates/hick-shell" }
-
-# native2wasm
-c2w = { version = "0.1", path = "native2wasm/crates/c2w" }
-
-# wasmtime
-wasmtime = { version = "41.0.0", default-features = false, features = [
-    "async", "cache", "cranelift", "runtime", "std", "threads", "wat",
-    "profiling", "parallel-compilation", "pooling-allocator",
-    "demangle", "addr2line", "coredump", "debug-builtins",
-    "gc", "gc-drc", "gc-null",
-    "component-model", "component-model-async",
-] }
-```
-
-
-
-### `src/main.rs`
-
-```rust
-
-fn main() {
-    let message = "Hello from hick!";
-    println!("{}", message);
-
-    let numbers: Vec<i32> = (1..=10).collect();
-    for n in &numbers {
-        if n % 2 == 0 {
-            println!("{} is even", n);
-        }
-    }
-}
-```
-
-
-
-### `hello.py`
-
-```python
-
-def greet(name: str) -> str:
-    return f"Hello, {name}!"
-
-if __name__ == "__main__":
-    print(greet("world"))
-```
-
-
-
-### `config.json`
-
-```json
-
-{
-    "name": "hick-demo",
-    "version": "0.1.0",
-    "greeting": "Hello from hick!"
-}
-```
-
-
-Try editing this file in Kate — if the LSP is working, you should see:
-- Parse errors highlighted as diagnostics if you break the hick syntax
-- No errors on valid documents like this one
-
-Try introducing an error, for example delete the closing tag on one
-of the hick:file blocks, and you should see a diagnostic appear.
-
-
-
-
-
-
-
-
-
-## Shared Configuration
-
-### EditorConfig
-
-
-### `.editorconfig`
-
-```
-root = true
-
-[*]
-indent_style = space
-indent_size = 4
-end_of_line = lf
-charset = utf-8
-trim_trailing_whitespace = true
-insert_final_newline = true
-
-[*.{yml,yaml,toml}]
-indent_size = 2
-
-[*.sql]
-indent_size = 4
-```
-
-
-
-
-
-
-
-# Cross-Platform Project Scaffolding
-
-This template generates a multi-platform project with a consistent structure across:
-
-- **SwiftUI** — iOS, iPadOS, and macOS using Apple's declarative UI framework
-- **Jetpack Compose** — Android with Kotlin and modern declarative UI
-- **Avalonia** — Cross-platform desktop (Windows, macOS, Linux) with .NET
-- **React SPA** — Single-page web application with TypeScript
-- **Browser Extension** — Chrome/Firefox extension with React TypeScript
-- **Rust Backend** — API server using Axum for high performance
-
-Each platform is behind a feature flag, so you only generate what you need.
-
-## Usage
-
-Generate a project with specific platforms:
-
-```bash
-hick --param project_name=MyApp --features swiftui,backend scaffolding/
-```
-
-Generate all platforms:
-
-```bash
-hick --param project_name=MyApp --features all scaffolding/
-```
-
----
-
-## Configuration Variables
-
-These variables control project metadata and can be overridden via `--param`:
-
-
-
-
-
-
-
-
-
-
-
-
-| Variable | Default | Purpose |
-|----------|---------|---------|
-| `project_name` | BlueIronCube | Project name (used in file paths, class names) |
-| `bundle_id` | com.acmedrainage.blueironcube | Reverse-domain bundle identifier |
-| `organization` | Example Inc | Company/organization name for copyright |
-| `min_ios_version` | 17.0 | Minimum iOS deployment target |
-| `min_macos_version` | 14.0 | Minimum macOS deployment target |
-| `min_android_sdk` | 26 | Minimum Android SDK level |
-| `target_android_sdk` | 35 | Target Android SDK level |
-| `dotnet_version` | 8.0 | .NET version for Avalonia |
-| `rust_edition` | 2024 | Rust edition year |
-| `node_version` | 20 | Node.js version for web projects |
-
----
-
-## Feature Definitions
-
-Features control which platforms are generated. They can be combined freely.
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-**Build system:**
-
-
-
-**Meta-features** for convenience:
-
-
-
-
-
-
-
-**Verify commands** run after each matrix combination to catch scaffolding errors:
-
-
-
-
-
-
-
-
-
-| Feature | Description |
-|---------|-------------|
-| `swiftui` | iOS, iPadOS, macOS with SwiftUI |
-| `compose` | Android with Jetpack Compose |
-| `avalonia` | Desktop with Avalonia (.NET) |
-| `spa` | React TypeScript web app |
-| `extension` | Browser extension |
-| `backend` | Rust API server |
-| `rust-frontend-lib` | Shared Rust library (WASM + FFI) |
-| `sqlite` | SQLite database in Rust library (requires rust-frontend-lib) |
-| `iroh` | Iroh P2P networking in Rust library (requires rust-frontend-lib) |
-| `decentralized-auth` | Decentralized identity and authentication (requires rust-frontend-lib) |
-| `event-sourcing` | Event sourcing with CRDT conflict resolution (requires rust-frontend-lib, sqlite) |
-| `iroh-relay` | Iroh relay server for NAT traversal |
-| `just` | Justfile for build automation |
-| `all` | All platforms (not build systems) |
-| `mobile` | SwiftUI + Compose |
-| `desktop` | SwiftUI + Avalonia |
-| `web` | SPA + Extension |
-| `native` | Native platforms + Rust library |
-
----
-
-## Substitution Rules
-
-The project name is substituted throughout all generated files using case variants:
-
-
-
-This means `BlueIronCube`, `blueIronCube`, `blue_iron_cube`, `BLUE_IRON_CUBE`, and `blue-iron-cube`
-in the template files will all be replaced with the corresponding case variant of
-your chosen project name.
-
----
-
-## Shared Content Blocks
-
-### License
-
-We use MIT License by default. This cut block is referenced elsewhere without
-appearing directly in any file output:
-
-
-
-### Common Gitignore Patterns
-
-These patterns are shared across all platforms:
-
-
-
----
-
-## Root Project Files
-
-### LICENSE
-
-The license file at the project root:
-
-
-### `LICENSE`
-
-```
-MIT License
-
-Copyright (c) 2024 
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.```
-
-
-### README.md
-
-The main README is dynamically generated based on which features are enabled,
-so users always see accurate platform-specific instructions:
-
-
-### `README.md`
-
-```markdown
-# BlueIronCube
-
-A cross-platform application by Example Inc.
-
-## Platforms
-
-
-
-
-
-
-
-
-
-
-
-
-## License
-
-MIT License - see [LICENSE](LICENSE) for details.
-```
-
-
-### .gitignore
-
-The gitignore combines common patterns with platform-specific ones based on
-enabled features:
-
-
-### `.gitignore`
-
-```
-# IDE
-.idea/
-.vscode/
-*.swp
-*.swo
-*~
-
-# OS
-.DS_Store
-Thumbs.db
-
-# Build outputs
-dist/
-build/
-out/
-
-
-
-
-
-
-
-
-```
-
-
----
-
-## Platform Templates
-
-The platform-specific files are defined in separate `.hick` files for maintainability.
-Each platform template is guarded by its feature flag.
-
-See the individual platform documentation:
-- [SwiftUI Platform](platforms/swiftui.hick) — Apple platforms with XcodeGen
-- [Compose Platform](platforms/compose.hick) — Android with Kotlin DSL Gradle
-- [Avalonia Platform](platforms/avalonia.hick) — .NET cross-platform desktop
-- [SPA Platform](platforms/spa.hick) — React + Vite web application
-- [Extension Platform](platforms/extension.hick) — Browser extension
-- [Backend Platform](platforms/backend.hick) — Rust Axum server
-- [Rust Frontend Library](platforms/rust-frontend-lib.hick) — Shared Rust library with WASM + FFI
-- [Iroh Relay](platforms/iroh-relay.hick) — Iroh relay server for P2P networking
-
-Build system template:
-- [Just Build System](platforms/just.hick) — Justfile for task automation
 
