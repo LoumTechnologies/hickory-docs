@@ -77,6 +77,39 @@ async fn sandbox_guest_qemu_networking_connected() {
     );
 }
 
+/// Verify that wget can reach an external host by hostname (DNS + TCP).
+///
+/// This tests the full musl getaddrinfo() + TCP pipeline, which the live agent
+/// uses. Unlike the raw-IP wget test, this requires DNS to actually work.
+#[tokio::test(flavor = "multi_thread")]
+async fn sandbox_guest_wget_hostname() {
+    let workdir = tempfile::tempdir().unwrap();
+    let (executor, image) = create_executor_with_guest_network(workdir.path(), true);
+
+    // First confirm DNS resolves at all
+    let dns_out = exec_sh(
+        &executor,
+        &image,
+        "nslookup example.com 2>&1 | head -4; echo exit=$?",
+    )
+    .await;
+    eprintln!("[test] nslookup example.com:\n{}", dns_out.output);
+
+    // Now try wget by hostname — this goes through musl getaddrinfo()
+    let out = exec_sh(
+        &executor,
+        &image,
+        "wget -T 15 -q -O /dev/null http://example.com/ 2>&1; echo exit=$?",
+    )
+    .await;
+    let output = &out.output;
+    eprintln!("[test] wget http://example.com/ output:\n{output}");
+    assert!(
+        !output.contains("bad address"),
+        "wget must be able to resolve the hostname via musl getaddrinfo(); got:\n{output}"
+    );
+}
+
 /// Verify DNS resolution works inside the sandbox.
 ///
 /// The container's /etc/resolv.conf points to 10.0.1.1 (the smoltcp gateway
