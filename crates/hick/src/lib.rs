@@ -11,11 +11,14 @@ pub mod compact;
 pub mod config;
 pub mod equiv;
 pub mod executor;
+pub mod generate_matrix;
+pub mod output_cleanup;
 pub mod pool;
 pub mod repl;
 pub mod store_config;
 mod text;
 pub mod transcript;
+pub mod visual_regression;
 pub mod volume_state;
 pub mod watch;
 mod weave;
@@ -1498,6 +1501,497 @@ fn extract_verify_from_nodes(
             extract_verify_from_nodes(&tag.children, source_file, commands);
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Pipeline CLI helpers (shared between hick and hick-agent binaries)
+// ---------------------------------------------------------------------------
+
+/// Expand a CLI argument into a list of `.hick` files.
+///
+/// - If `path` is a file, return it directly.
+/// - If `path` is a directory with `_hick.yml`, use that config to resolve files.
+/// - If `path` is a directory without config, expand `**/*.hick`.
+pub fn expand_path_arg(path: &Path) -> Result<(Vec<PathBuf>, Option<PathBuf>)> {
+    use config::HickConfig;
+    use anyhow::{bail, Context as _};
+    if path.is_file() {
+        return Ok((vec![path.to_path_buf()], None));
+    }
+    if path.is_dir() {
+        let config_path = path.join("_hick.yml");
+        if config_path.is_file() {
+            let config = HickConfig::load(&config_path)?;
+            let files = config.resolve_files(path)?;
+            return Ok((files, Some(config_path)));
+        }
+        let pattern = path.join("**/*.hick");
+        let pattern_str = pattern.to_string_lossy();
+        let mut matches: Vec<PathBuf> = glob::glob(&pattern_str)
+            .with_context(|| format!("invalid glob pattern: {}", pattern_str))?
+            .filter_map(|r| r.ok())
+            .collect();
+        matches.sort();
+        if matches.is_empty() {
+            bail!(
+                "No .hick files found in '{}'\n\n\
+                 To fix this, either:\n  \
+                 1. Create a _hick.yml config file listing your .hick files\n  \
+                 2. Add .hick files to the directory\n  \
+                 3. Specify files directly: hick run file1.hick file2.hick",
+                path.display()
+            );
+        }
+        return Ok((matches, None));
+    }
+    bail!(
+        "Path '{}' does not exist\n\n\
+         Check that the path is correct and try again.\n\
+         Use 'hick --help' to see usage information.",
+        path.display()
+    );
+}
+
+/// Parse a `key=value` string into a `(String, String)` pair (for clap `value_parser`).
+pub fn parse_param(s: &str) -> std::result::Result<(String, String), String> {
+    let (key, value) = s
+        .split_once('=')
+        .ok_or_else(|| format!("invalid param format '{s}', expected key=value"))?;
+    Ok((key.to_string(), value.to_string()))
+}
+
+/// Configuration for `run_pipeline_cmd`.
+pub struct PipelineRunOpts {
+    pub files: Vec<PathBuf>,
+    pub config_path: Option<PathBuf>,
+    pub key_file: Option<PathBuf>,
+    pub secrets_dir: Option<PathBuf>,
+    pub images_dir: Option<PathBuf>,
+    pub params: Vec<(String, String)>,
+    pub features: Option<String>,
+    pub output_dir: Option<PathBuf>,
+    pub dry_run: bool,
+    pub cache: bool,
+    pub freeze: bool,
+    pub clear_cache: bool,
+    pub verbose: bool,
+}
+
+/// Execute the pipeline run command.
+///
+/// This is the core logic shared between the `hick run` subcommand in
+/// both the `hick` binary and the unified `hick` binary produced by the
+/// `hick-agent` package.
+pub async fn run_pipeline_cmd(opts: PipelineRunOpts) -> Result<()> {
+    use std::time::Instant;
+    use anyhow::{bail, Context as _};
+    use log::{debug, info};
+    use config::{HickConfig, find_config};
+    use cache::CacheConfig;
+
+    let pipeline_start = Instant::now();
+
+    let (expanded_files, dir_config) = if !opts.files.is_empty() {
+        let mut all_files = Vec::new();
+        let mut found_config = None;
+        for path in &opts.files {
+            let (files, cfg) = expand_path_arg(path)?;
+            all_files.extend(files);
+            if cfg.is_some() {
+                found_config = cfg;
+            }
+        }
+        (all_files, found_config)
+    } else {
+        (Vec::new(), None)
+    };
+
+    let config_path = opts
+        .config_path
+        .or(dir_config)
+        .or_else(|| find_config(&std::env::current_dir().unwrap_or_default()));
+
+    let config = if let Some(ref path) = config_path {
+        info!("Using config: {}", path.display());
+        HickConfig::load(path)?
+    } else {
+        HickConfig::default()
+    };
+
+    let config_dir = config_path
+        .as_ref()
+        .and_then(|p| p.parent())
+        .unwrap_or(Path::new("."));
+
+    let files = if !expanded_files.is_empty() {
+        expanded_files
+    } else {
+        config.resolve_files(config_dir)?
+    };
+
+    if files.is_empty() {
+        bail!(
+            "No .hick files specified\n\n\
+             Usage:\n  \
+             hick run <file.hick>         Run a single file\n  \
+             hick run <directory>         Run all .hick files in directory\n  \
+             hick run                     Use _hick.yml config if present\n\n\
+             Create a _hick.yml file to define default files and variables."
+        );
+    }
+
+    let mut params: Vec<(String, String)> = config
+        .vars
+        .iter()
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect();
+    for (k, v) in &opts.params {
+        params.retain(|(pk, _)| pk != k);
+        params.push((k.clone(), v.clone()));
+    }
+    if let Some(ref features) = opts.features {
+        params.retain(|(pk, _)| pk != "features");
+        params.push(("features".to_string(), features.clone()));
+    }
+
+    let key_path = opts
+        .key_file
+        .or_else(|| config.secrets.key_file.as_ref().map(PathBuf::from))
+        .unwrap_or_else(|| PathBuf::from("~/.config/hick/key.txt"));
+    let key_path = expand_tilde(&key_path);
+
+    let secrets_dir = opts
+        .secrets_dir
+        .or_else(|| config.secrets.secrets_dir.as_ref().map(PathBuf::from))
+        .unwrap_or_else(|| PathBuf::from("~/.config/hick/secrets"));
+    let secrets_dir = expand_tilde(&secrets_dir);
+
+    let output_dir = opts
+        .output_dir
+        .or_else(|| config.output_dir.as_ref().map(|d| config_dir.join(d)))
+        .unwrap_or_else(|| PathBuf::from("."));
+
+    let _secrets_provider = hick_secrets::AgeSecretsProvider::new(&key_path, &secrets_dir);
+
+    // Check if it's a session file (single-file replay)
+    if files.len() == 1 {
+        let path = &files[0];
+        let source = std::fs::read_to_string(path)
+            .with_context(|| format!("failed to read {}", path.display()))?;
+        if hick_lang::is_session_source(&source) {
+            let images_dir = opts
+                .images_dir
+                .or_else(|| {
+                    config
+                        .defaults
+                        .images_dir
+                        .as_ref()
+                        .map(|d| expand_tilde(Path::new(d)))
+                })
+                .unwrap_or_else(|| PathBuf::from("."));
+            return crate::pipeline_session_replay(path, &source, images_dir, opts.verbose).await;
+        }
+    }
+
+    let mut file_contents = Vec::new();
+    for path in &files {
+        let source = std::fs::read_to_string(path)
+            .with_context(|| format!("failed to read {}", path.display()))?;
+        file_contents.push((path.display().to_string(), source));
+    }
+
+    let sources: Vec<(&str, &str)> = file_contents
+        .iter()
+        .map(|(name, content)| (name.as_str(), content.as_str()))
+        .collect();
+
+    let cache_enabled = opts.cache || opts.freeze;
+    let cc = if cache_enabled {
+        let cc = CacheConfig::new(config_dir, true, opts.freeze);
+        if opts.clear_cache {
+            cache::cache_clear(&cc)?;
+            info!("Cache cleared");
+        }
+        Some(cc)
+    } else if opts.clear_cache {
+        let cc = CacheConfig::new(config_dir, false, false);
+        cache::cache_clear(&cc)?;
+        info!("Cache cleared");
+        None
+    } else {
+        None
+    };
+
+    let result = if opts.dry_run {
+        run_pipeline(&sources, &params).await?
+    } else {
+        let images_dir = opts
+            .images_dir
+            .or_else(|| {
+                config
+                    .defaults
+                    .images_dir
+                    .as_ref()
+                    .map(|d| expand_tilde(Path::new(d)))
+            })
+            .unwrap_or_else(|| PathBuf::from("."));
+
+        let pipeline_config = PipelineConfig {
+            images_dir,
+            toolchain_dir: None,
+            working_dir: None,
+            max_rounds: 1,
+        };
+        run_pipeline_live(&sources, &pipeline_config, &params, cc.as_ref(), None).await?
+    };
+
+    let mut expected_paths: std::collections::HashSet<PathBuf> =
+        std::collections::HashSet::new();
+    let mut files_written = 0usize;
+    let mut files_unchanged = 0usize;
+
+    for (path, content) in &result.files {
+        let full_path = if output_dir == Path::new(".") {
+            PathBuf::from(path)
+        } else {
+            expected_paths.insert(PathBuf::from(path));
+            output_dir.join(path)
+        };
+
+        let needs_write = match content {
+            hick_exec::node::FileContent::Text(s) => {
+                if full_path.is_file() {
+                    match std::fs::read_to_string(&full_path) {
+                        Ok(existing) => existing != *s,
+                        Err(_) => true,
+                    }
+                } else {
+                    true
+                }
+            }
+            hick_exec::node::FileContent::Binary(data) => {
+                if full_path.is_file() {
+                    match std::fs::read(&full_path) {
+                        Ok(existing) => existing != data.to_bytes().unwrap_or_default(),
+                        Err(_) => true,
+                    }
+                } else {
+                    true
+                }
+            }
+        };
+
+        if needs_write {
+            info!("Writing output: {}", full_path.display());
+            if let Some(parent) = full_path.parent()
+                && !parent.as_os_str().is_empty()
+            {
+                std::fs::create_dir_all(parent)?;
+            }
+            match content {
+                hick_exec::node::FileContent::Text(s) => std::fs::write(&full_path, s)?,
+                hick_exec::node::FileContent::Binary(data) => {
+                    std::fs::write(&full_path, data.to_bytes()?)?;
+                }
+            }
+            debug!("  {} bytes written", content.len());
+            files_written += 1;
+        } else {
+            debug!("Unchanged: {}", full_path.display());
+            files_unchanged += 1;
+        }
+    }
+
+    if output_dir != Path::new(".") {
+        output_cleanup::clean_stale_outputs(&output_dir, &expected_paths)?;
+    }
+
+    if result.files.is_empty() {
+        info!("No file outputs produced");
+    }
+
+    let wall_time = pipeline_start.elapsed();
+    let num_containers = result.resource_stats.len();
+    let num_files = result.files.len();
+    let total_output_bytes: usize = result.files.values().map(|c| c.len()).sum();
+
+    let total_boot: Duration = result
+        .resource_stats
+        .values()
+        .map(|s| s.boot_duration)
+        .sum();
+    let total_exec: Duration = result
+        .resource_stats
+        .values()
+        .map(|s| s.total_exec_duration)
+        .sum();
+    let total_commands: usize = result
+        .resource_stats
+        .values()
+        .map(|s| s.command_durations.len())
+        .sum();
+
+    let pool_info = if result.pool_hits > 0 {
+        format!(" ({} from pool)", result.pool_hits)
+    } else {
+        String::new()
+    };
+
+    let pipeline_boot = total_boot.saturating_sub(result.pool_boot_time_saved);
+
+    let file_stats = if files_unchanged > 0 {
+        format!(
+            "{} file{} ({} written, {} unchanged)",
+            num_files,
+            if num_files == 1 { "" } else { "s" },
+            files_written,
+            files_unchanged
+        )
+    } else {
+        format!(
+            "{} file{} written",
+            files_written,
+            if files_written == 1 { "" } else { "s" }
+        )
+    };
+
+    eprintln!(
+        "Done: {} ({} bytes), {} container{}{}, {} command{} — {} total (boot {}, exec {})",
+        file_stats,
+        total_output_bytes,
+        num_containers,
+        if num_containers == 1 { "" } else { "s" },
+        pool_info,
+        total_commands,
+        if total_commands == 1 { "" } else { "s" },
+        fmt_duration(wall_time),
+        fmt_duration(pipeline_boot),
+        fmt_duration(total_exec),
+    );
+
+    Ok(())
+}
+
+/// Replay a session .hick file without calling the LLM.
+async fn pipeline_session_replay(
+    file_path: &Path,
+    source: &str,
+    images_dir: PathBuf,
+    verbose: bool,
+) -> Result<()> {
+    use anyhow::Context as _;
+    use base64::Engine as _;
+    use hick_token::ContainerCapabilities;
+    use std::collections::HashMap;
+
+    let session = hick_lang::parse_session(source)
+        .map_err(|e| anyhow::anyhow!("{e}"))
+        .with_context(|| format!("failed to parse session file {}", file_path.display()))?;
+
+    eprintln!(
+        "Replaying {} from {}",
+        if session.nodes.is_empty() {
+            "empty session".to_string()
+        } else {
+            format!("{} session nodes", session.nodes.len())
+        },
+        file_path.display()
+    );
+
+    let mut caps: HashMap<String, ContainerCapabilities> = HashMap::new();
+    caps.insert(
+        "replay".to_string(),
+        ContainerCapabilities::new().deny_all_network(),
+    );
+
+    let mut executor = executor::ContainerExecutor::new(images_dir, caps)?;
+    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    executor.set_preopened_dirs(vec![(cwd, "/workspace".to_string())]);
+
+    let mut started = false;
+    let mut action_idx = 0usize;
+    let mut command_idx = 0usize;
+
+    for node in &session.nodes {
+        match node {
+            hick_lang::SessionNode::User { text } => {
+                if verbose {
+                    eprintln!("[user] {}", text.trim());
+                }
+            }
+            hick_lang::SessionNode::Assistant { text, actions } => {
+                if verbose && !text.trim().is_empty() {
+                    eprintln!("[assistant] {}", text.trim());
+                }
+                for action in actions {
+                    action_idx += 1;
+                    if !started {
+                        executor.ensure_started("replay", "alpine").await?;
+                        started = true;
+                    }
+                    let interpreter = match action.lang.to_lowercase().as_str() {
+                        "sh" | "shell" | "bash" => "sh",
+                        "python" | "python3" | "py" => "python3",
+                        "node" | "js" | "javascript" => "node",
+                        _ => "sh",
+                    };
+                    let encoded = base64::engine::general_purpose::STANDARD
+                        .encode(action.code.as_bytes());
+                    let script_path = format!("/tmp/__hick_action_{action_idx}");
+                    let cmd = format!(
+                        "printf '%s' '{encoded}' | base64 -d > {script_path} && \
+                         {interpreter} {script_path}"
+                    );
+                    println!("[action-{action_idx}] lang={}", action.lang);
+                    if verbose {
+                        for line in action.code.trim().lines() {
+                            println!("  {line}");
+                        }
+                    }
+                    match executor.execute("replay", &cmd).await {
+                        Ok(output) => {
+                            if !output.is_empty() {
+                                println!("{output}");
+                            }
+                        }
+                        Err(e) => eprintln!("[action-{action_idx}] error: {e}"),
+                    }
+                }
+            }
+            hick_lang::SessionNode::Observation {
+                source,
+                exit_code,
+                text,
+            } => {
+                if verbose {
+                    let src = source.as_deref().unwrap_or("-");
+                    let exit = exit_code.map_or_else(|| "-".to_string(), |c| c.to_string());
+                    eprintln!("[observation source={src} exit={exit}] {}", text.trim());
+                }
+            }
+            hick_lang::SessionNode::Command { text } => {
+                command_idx += 1;
+                if !started {
+                    executor.ensure_started("replay", "alpine").await?;
+                    started = true;
+                }
+                println!("[command-{command_idx}] {}", text.trim());
+                match executor.execute("replay", text.trim()).await {
+                    Ok(output) => {
+                        if !output.is_empty() {
+                            println!("{output}");
+                        }
+                    }
+                    Err(e) => eprintln!("[command-{command_idx}] error: {e}"),
+                }
+            }
+        }
+    }
+
+    if started {
+        executor.shutdown().await;
+    }
+    Ok(())
 }
 
 #[cfg(test)]

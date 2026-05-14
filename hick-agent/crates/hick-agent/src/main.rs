@@ -1,12 +1,8 @@
-//! hick-agent: AI command-line coding agent.
+//! hick: Unified AI coding agent and pipeline runner.
 //!
-//! Script-first model: the LLM writes Python scripts, which are executed
-//! and their output returned as observations. The Hick pipeline runs
-//! transparently via a file watcher.
-//!
-//! The binary wires up the core [`ReactLoop`] to a ratatui TUI via
-//! event channels, keeping all rendering in the TUI and all logic in
-//! the core.
+//! With no arguments, launches the AI agent TUI (ratatui interface).
+//! All pipeline subcommands (run, up, repl, init, validate, generate-matrix)
+//! are available as first-class subcommands.
 
 use std::fmt;
 use std::io::Write as _;
@@ -30,11 +26,11 @@ use hick_agent_engine::{
 use hick_agent_engine::network_filter::extract_host_from_url;
 
 #[derive(Parser)]
-#[command(name = "hick-agent")]
-#[command(about = "AI coding agent using Hick XML — script-first model")]
+#[command(name = "hick")]
+#[command(about = "Secure container orchestration shell + AI coding agent")]
 struct Cli {
     #[command(subcommand)]
-    command: Commands,
+    command: Option<Commands>,
 }
 
 #[derive(Clone, Copy, ValueEnum)]
@@ -54,8 +50,8 @@ enum Provider {
 
 #[derive(Subcommand)]
 enum Commands {
-    /// Run the agent interactively
-    Run {
+    /// Launch the AI agent TUI (default when no subcommand given).
+    Agent {
         /// Project directory (default: current dir)
         #[arg(short, long)]
         project_dir: Option<PathBuf>,
@@ -93,6 +89,108 @@ enum Commands {
         #[arg(long)]
         no_stream: bool,
     },
+
+    /// Run the pipeline once (single-shot mode).
+    Run(PipelineRunArgs),
+
+    /// Watch mode: re-run pipeline on file changes with merge-aware snapshots.
+    Up(PipelineUpArgs),
+
+    /// Interactive REPL: explore containers and record a session transcript.
+    Repl(PipelineReplArgs),
+
+    /// Initialize AI agent instructions for the project.
+    Init(PipelineInitArgs),
+
+    /// Validate AI agent configuration.
+    Validate(PipelineValidateArgs),
+
+    /// Generate all combinations of features to separate folders.
+    GenerateMatrix(hick::generate_matrix::GenerateMatrixArgs),
+}
+
+#[derive(clap::Args)]
+struct PipelineRunArgs {
+    /// `.hick` files to process.
+    files: Vec<PathBuf>,
+    #[arg(long)]
+    config: Option<PathBuf>,
+    #[arg(long)]
+    key_file: Option<PathBuf>,
+    #[arg(long)]
+    secrets_dir: Option<PathBuf>,
+    #[arg(long, env = "HICK_IMAGES_DIR")]
+    images_dir: Option<PathBuf>,
+    #[arg(long = "param", value_parser = hick::parse_param)]
+    params: Vec<(String, String)>,
+    #[arg(long)]
+    features: Option<String>,
+    #[arg(long)]
+    output_dir: Option<PathBuf>,
+    #[arg(long)]
+    dry_run: bool,
+    #[arg(long)]
+    cache: bool,
+    #[arg(long)]
+    freeze: bool,
+    #[arg(long)]
+    clear_cache: bool,
+    #[arg(short, long)]
+    verbose: bool,
+}
+
+#[derive(clap::Args)]
+struct PipelineUpArgs {
+    #[arg(required = true)]
+    files: Vec<PathBuf>,
+    #[arg(long, default_value = "~/.config/hick/key.txt")]
+    key_file: PathBuf,
+    #[arg(long, default_value = "~/.config/hick/secrets")]
+    secrets_dir: PathBuf,
+    #[arg(long, env = "HICK_IMAGES_DIR")]
+    images_dir: Option<PathBuf>,
+    #[arg(long = "param", value_parser = hick::parse_param)]
+    params: Vec<(String, String)>,
+    #[arg(long)]
+    features: Option<String>,
+    #[arg(long)]
+    dry_run: bool,
+    #[arg(short, long)]
+    verbose: bool,
+    #[arg(long, default_value = "auto")]
+    store: String,
+    #[arg(long)]
+    merge_api: Option<String>,
+    #[arg(long, default_value = "main")]
+    branch: String,
+    #[arg(long, default_value = "3")]
+    max_stages: usize,
+}
+
+#[derive(clap::Args)]
+struct PipelineReplArgs {
+    #[arg(long, env = "HICK_IMAGES_DIR")]
+    images_dir: Option<PathBuf>,
+    #[arg(long, default_value = "session.hick")]
+    output: PathBuf,
+    #[arg(short, long)]
+    verbose: bool,
+}
+
+#[derive(clap::Args)]
+struct PipelineInitArgs {
+    #[arg(long)]
+    project_dir: Option<PathBuf>,
+    #[arg(long)]
+    no_agents: bool,
+}
+
+#[derive(clap::Args)]
+struct PipelineValidateArgs {
+    #[arg(long)]
+    project_dir: Option<PathBuf>,
+    #[arg(long)]
+    fix: bool,
 }
 
 #[allow(dead_code)] // Fields read only when `local` feature is enabled
@@ -356,6 +454,13 @@ async fn agent_task(
                     events.send(AgentEvent::Error(e.to_string())).ok();
                 }
             }
+            AgentCommand::DirectCommand(cmd) => {
+                if let Err(e) =
+                    react_loop.run_direct_command(&cmd, &mut history, &events).await
+                {
+                    events.send(AgentEvent::Error(e.to_string())).ok();
+                }
+            }
             AgentCommand::Quit => break,
         }
     }
@@ -368,8 +473,24 @@ async fn main() -> Result<()> {
 
     let cli = Cli::parse();
 
-    match cli.command {
-        Commands::Run {
+    // Unwrap or default to Agent subcommand
+    let command = cli.command.unwrap_or(Commands::Agent {
+        project_dir: None,
+        images_dir: None,
+        default_image: "alpine".to_string(),
+        provider: None,
+        model: None,
+        api_base: None,
+        api_key: None,
+        model_path: None,
+        n_gpu_layers: None,
+        n_ctx: 4096,
+        max_tokens: 4096,
+        no_stream: false,
+    });
+
+    match command {
+        Commands::Agent {
             project_dir,
             images_dir,
             default_image,
@@ -658,12 +779,12 @@ async fn main() -> Result<()> {
 
             let provider_info = format!("{provider_name} / {model_name}");
 
-            // Determine log path: .hick/agent-YYYYMMDD-HHMMSS.log
+            // Session file: .hick/agent-YYYYMMDD-HHMMSS.hick
             let log_path = {
                 let ts = chrono::Local::now().format("%Y%m%d-%H%M%S");
                 let log_dir = config.project_dir.join(".hick");
                 std::fs::create_dir_all(&log_dir).ok();
-                log_dir.join(format!("agent-{ts}.log"))
+                log_dir.join(format!("agent-{ts}.hick"))
             };
 
             // Spawn the agent task
@@ -683,10 +804,115 @@ async fn main() -> Result<()> {
                 )
             })
             .await??;
+            Ok(())
         }
-    }
 
-    Ok(())
+        Commands::Run(args) => {
+            hick::run_pipeline_cmd(hick::PipelineRunOpts {
+                files: args.files,
+                config_path: args.config,
+                key_file: args.key_file,
+                secrets_dir: args.secrets_dir,
+                images_dir: args.images_dir,
+                params: args.params,
+                features: args.features,
+                output_dir: args.output_dir,
+                dry_run: args.dry_run,
+                cache: args.cache,
+                freeze: args.freeze,
+                clear_cache: args.clear_cache,
+                verbose: args.verbose,
+            })
+            .await
+        }
+
+        Commands::Up(args) => {
+            use hick::store_config::{StoreBackend, StoreConfig};
+            let key_path = hick::expand_tilde(&args.key_file);
+            let secrets_dir_path = hick::expand_tilde(&args.secrets_dir);
+            let _secrets_provider =
+                hick_secrets::AgeSecretsProvider::new(&key_path, &secrets_dir_path);
+
+            let mut config = StoreConfig::load(&std::env::current_dir()?);
+            config.store = match args.store.as_str() {
+                "git" => StoreBackend::Git,
+                "builtin" => StoreBackend::Builtin,
+                _ => StoreBackend::Auto,
+            };
+            if let Some(url) = args.merge_api {
+                config.merge_api = Some(url);
+            }
+            config.branch = args.branch;
+            config.max_stages = args.max_stages;
+
+            let images_dir = args
+                .images_dir
+                .map(|p| hick::expand_tilde(&p))
+                .unwrap_or_else(|| std::path::PathBuf::from("."));
+
+            let mut params: Vec<(String, String)> = args.params.clone();
+            if let Some(ref features) = args.features {
+                params.retain(|(pk, _)| pk != "features");
+                params.push(("features".to_string(), features.clone()));
+            }
+
+            hick::watch::run_watch(&args.files, &config, &params, args.dry_run, images_dir).await
+        }
+
+        Commands::Repl(args) => {
+            let images_dir = args
+                .images_dir
+                .map(|p| hick::expand_tilde(&p))
+                .unwrap_or_else(|| std::path::PathBuf::from("."));
+            hick::repl::run_repl(images_dir, args.output).await
+        }
+
+        Commands::Init(args) => {
+            let project_dir = args
+                .project_dir
+                .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
+            let config = hick::agents::InitConfig {
+                project_dir: project_dir.clone(),
+                no_agents: args.no_agents,
+            };
+            let result = hick::agents::init_agents(&config)?;
+            if result.agents_file_created {
+                println!("Created .agents/hick.md");
+            }
+            if let Some(ref path) = result.reference_added_to {
+                println!("Added reference to {}", path.display());
+            }
+            if !result.agents_file_created && result.reference_added_to.is_none() {
+                println!("Nothing to do (--no-agents specified or already initialized)");
+            }
+            Ok(())
+        }
+
+        Commands::Validate(args) => {
+            let project_dir = args
+                .project_dir
+                .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
+            let config = hick::agents::ValidateConfig {
+                project_dir,
+                fix: args.fix,
+            };
+            let issues = hick::agents::validate_agents(&config)?;
+            if issues.is_empty() {
+                println!("Agent configuration is valid");
+                Ok(())
+            } else {
+                for issue in &issues {
+                    eprintln!("Error: {issue}");
+                }
+                if !args.fix {
+                    eprintln!("\nRun with --fix to automatically resolve these issues");
+                }
+                anyhow::bail!("Validation failed with {} issue(s)", issues.len())
+            }
+        }
+
+        Commands::GenerateMatrix(args) => hick::generate_matrix::run(args).await,
+    }
 }
 
 /// Copy the bundled Python SDK into the project's `.hick/sdk/` directory

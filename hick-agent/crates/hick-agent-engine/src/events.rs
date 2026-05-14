@@ -18,8 +18,8 @@ pub enum AgentEvent {
     Token(String),
     /// LLM response complete. Contains the full response text.
     ResponseComplete(String),
-    /// About to execute a Python script.
-    ScriptStarted { code: String },
+    /// About to execute a script (any language).
+    ScriptStarted { code: String, lang: String },
     /// Script execution finished.
     ScriptFinished(ScriptResult),
     /// Agent produced a final answer (no more code blocks).
@@ -44,6 +44,9 @@ pub enum AgentEvent {
 pub enum AgentCommand {
     /// User submitted a message.
     Message(String),
+    /// User typed `! <cmd>` — run the command directly in the WASM container
+    /// without calling the LLM.
+    DirectCommand(String),
     /// User wants to quit the application.
     Quit,
 }

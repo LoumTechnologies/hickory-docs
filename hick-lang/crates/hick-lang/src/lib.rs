@@ -132,6 +132,72 @@ pub struct HickDocument {
     pub weave_path: Option<String>,
 }
 
+// ---------------------------------------------------------------------------
+// Session AST types
+// ---------------------------------------------------------------------------
+
+/// An embedded script block inside a `hick:assistant` node.
+///
+/// `lang` is the language identifier (e.g. `"python"`, `"sh"`, `"js"`).
+/// `code` is the raw script content.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ActionBlock {
+    /// Language identifier (e.g. `"python"`, `"sh"`).
+    pub lang: String,
+    /// Raw script source code.
+    pub code: String,
+}
+
+/// A typed turn in an AI agent session, extracted from `hick:session` nodes.
+#[derive(Debug, Clone, PartialEq)]
+pub enum SessionNode {
+    /// A user message (inert during replay — loaded as context only).
+    User { text: String },
+    /// A full LLM response with optional embedded action blocks.
+    ///
+    /// During replay: embedded `hick:action` scripts are executed; the LLM is
+    /// not called.
+    Assistant {
+        /// Prose text of the LLM response (excluding action blocks).
+        text: String,
+        /// Embedded script blocks to execute during replay.
+        actions: Vec<ActionBlock>,
+    },
+    /// Captured stdout/stderr from a prior script or command execution.
+    ///
+    /// Inert during replay — the output was already captured in the original
+    /// session and does not need to be re-executed.
+    Observation {
+        /// Identifies which action produced this observation (e.g. `"action-0"`).
+        source: Option<String>,
+        /// Exit code of the originating command.
+        exit_code: Option<i32>,
+        /// Captured output text.
+        text: String,
+    },
+    /// A direct shell command typed by the user with the `!` prefix.
+    ///
+    /// Executed in the WASM container during replay.
+    Command { text: String },
+}
+
+/// A parsed `.hick` session file (root element: `hick:session`).
+///
+/// Session files record AI agent conversations as both a transcript and a
+/// replayable program.  Running `hick run session.hick` re-executes all
+/// side-effecting steps without calling the LLM.
+#[derive(Debug, Clone)]
+pub struct SessionDocument {
+    /// Typed session turns in document order.
+    pub nodes: Vec<SessionNode>,
+    /// Original source text.
+    pub source: String,
+    /// The XML namespace prefix used in this document.
+    pub prefix: String,
+    /// RFC 3339 timestamp from the `start` attribute of the root element.
+    pub start_time: Option<String>,
+}
+
 impl HickDocument {
     /// Iterate over top-level tags.
     pub fn tags(&self) -> impl Iterator<Item = &HickTag> {
@@ -266,6 +332,25 @@ fn detect_prefix(input: &str) -> String {
 pub fn parse(source: &str) -> Result<HickDocument, ParseError> {
     let mut parser = Parser::new(source);
     parser.parse_document()
+}
+
+/// Parse a `.hick` session file whose root element is `<PREFIX:session>`.
+///
+/// Returns typed [`SessionNode`]s extracted from the session's turns.
+/// Returns [`ParseError::MissingRoot`] if the source does not contain a
+/// `<PREFIX:session>` root element.
+pub fn parse_session(source: &str) -> Result<SessionDocument, ParseError> {
+    let mut parser = Parser::new(source);
+    parser.parse_session_document()
+}
+
+/// Return `true` if `source` appears to be a session file (contains a
+/// `<PREFIX:session` root element).  This is a fast pre-check that avoids
+/// full parsing when deciding whether to enter replay mode.
+pub fn is_session_source(source: &str) -> bool {
+    let prefix = detect_prefix(source);
+    let marker = format!("<{prefix}:session");
+    source.contains(&marker)
 }
 
 // ---------------------------------------------------------------------------
@@ -462,6 +547,35 @@ impl<'a> Parser<'a> {
             source: self.input.to_string(),
             prefix: self.prefix.clone(),
             weave_path,
+        })
+    }
+
+    /// Parse a session document whose root element is `<PREFIX:session>`.
+    fn parse_session_document(&mut self) -> Result<SessionDocument, ParseError> {
+        self.skip_xml_declaration();
+
+        let session_marker = format!("<{}:session", self.prefix);
+        let root_start = self
+            .remaining()
+            .find(&session_marker)
+            .ok_or(ParseError::MissingRoot)?;
+        self.advance(root_start);
+
+        let tag = self.parse_open_tag()?;
+        if tag.name != "session" {
+            return Err(ParseError::MissingRoot);
+        }
+
+        let start_time = tag.get_attribute("start").map(|s| s.to_string());
+
+        let raw_nodes = self.parse_children("session", tag.source_line)?;
+        let nodes = extract_session_nodes(&raw_nodes);
+
+        Ok(SessionDocument {
+            nodes,
+            source: self.input.to_string(),
+            prefix: self.prefix.clone(),
+            start_time,
         })
     }
 
@@ -786,6 +900,66 @@ impl<'a> Parser<'a> {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Session node extraction
+// ---------------------------------------------------------------------------
+
+/// Convert raw [`HickNode`]s (from a `hick:session` root) into typed
+/// [`SessionNode`]s.  Unknown tags are silently ignored.
+fn extract_session_nodes(nodes: &[HickNode]) -> Vec<SessionNode> {
+    let mut result = Vec::new();
+    for node in nodes {
+        match node {
+            HickNode::Tag(tag) => match tag.name.as_str() {
+                "user" => result.push(SessionNode::User {
+                    text: tag.text_content(),
+                }),
+                "assistant" => {
+                    let mut prose = String::new();
+                    let mut actions = Vec::new();
+                    for child in &tag.children {
+                        match child {
+                            HickNode::Text(t, _) => prose.push_str(t),
+                            HickNode::Tag(child_tag) if child_tag.name == "action" => {
+                                let lang = child_tag
+                                    .get_attribute("lang")
+                                    .unwrap_or("python")
+                                    .to_string();
+                                actions.push(ActionBlock {
+                                    lang,
+                                    code: child_tag.text_content(),
+                                });
+                            }
+                            _ => {}
+                        }
+                    }
+                    result.push(SessionNode::Assistant {
+                        text: prose.trim().to_string(),
+                        actions,
+                    });
+                }
+                "observation" => {
+                    let source = tag.get_attribute("source").map(|s| s.to_string());
+                    let exit_code = tag
+                        .get_attribute("exit")
+                        .and_then(|s| s.parse::<i32>().ok());
+                    result.push(SessionNode::Observation {
+                        source,
+                        exit_code,
+                        text: tag.text_content(),
+                    });
+                }
+                "command" => result.push(SessionNode::Command {
+                    text: tag.text_content(),
+                }),
+                _ => {} // unknown tags are gracefully skipped
+            },
+            HickNode::Text(..) => {} // whitespace between turns is ignored
+        }
+    }
+    result
+}
+
 impl fmt::Display for HickTag {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "<hick:{}", self.name)?;
@@ -1039,6 +1213,172 @@ This is removed from output.
         let cuts = doc.find_tags("cut");
         assert_eq!(cuts.len(), 1);
         assert_eq!(cuts[0].get_attribute("id"), Some("internal-only"));
+    }
+
+    // -----------------------------------------------------------------------
+    // Session node tests
+    // -----------------------------------------------------------------------
+
+    fn minimal_session(body: &str) -> String {
+        format!(
+            r#"<?xml version="1.0" encoding="UTF-8"?>
+<hick:session xmlns:hick="http://www.hickorydocs.com/1.0" start="2026-01-01T00:00:00Z">
+{body}
+</hick:session>"#
+        )
+    }
+
+    #[test]
+    fn parse_session_user_node() {
+        let src = minimal_session("<hick:user>add a login page</hick:user>");
+        let doc = parse_session(&src).unwrap();
+        assert_eq!(doc.start_time.as_deref(), Some("2026-01-01T00:00:00Z"));
+        assert_eq!(doc.nodes.len(), 1);
+        assert_eq!(
+            doc.nodes[0],
+            SessionNode::User {
+                text: "add a login page".into()
+            }
+        );
+    }
+
+    #[test]
+    fn parse_session_assistant_without_action() {
+        let src = minimal_session(
+            "<hick:assistant>Here is the final answer.</hick:assistant>",
+        );
+        let doc = parse_session(&src).unwrap();
+        assert_eq!(
+            doc.nodes[0],
+            SessionNode::Assistant {
+                text: "Here is the final answer.".into(),
+                actions: vec![],
+            }
+        );
+    }
+
+    #[test]
+    fn parse_session_assistant_with_action() {
+        let src = minimal_session(
+            r#"<hick:assistant>
+I will create the file now.
+<hick:action lang="python">
+import os
+print(os.getcwd())
+</hick:action>
+</hick:assistant>"#,
+        );
+        let doc = parse_session(&src).unwrap();
+        match &doc.nodes[0] {
+            SessionNode::Assistant { actions, .. } => {
+                assert_eq!(actions.len(), 1);
+                assert_eq!(actions[0].lang, "python");
+                assert!(actions[0].code.contains("os.getcwd()"));
+            }
+            other => panic!("expected Assistant, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn parse_session_observation_node() {
+        let src = minimal_session(
+            r#"<hick:observation source="action-0" exit="0">Files created: src/login.py</hick:observation>"#,
+        );
+        let doc = parse_session(&src).unwrap();
+        assert_eq!(
+            doc.nodes[0],
+            SessionNode::Observation {
+                source: Some("action-0".into()),
+                exit_code: Some(0),
+                text: "Files created: src/login.py".into(),
+            }
+        );
+    }
+
+    #[test]
+    fn parse_session_command_node() {
+        let src = minimal_session("<hick:command>ls -la src/</hick:command>");
+        let doc = parse_session(&src).unwrap();
+        assert_eq!(
+            doc.nodes[0],
+            SessionNode::Command {
+                text: "ls -la src/".into()
+            }
+        );
+    }
+
+    #[test]
+    fn parse_session_full_turn_sequence() {
+        let src = minimal_session(
+            r#"<hick:user>add a login page</hick:user>
+<hick:assistant>
+I'll create the login page now.
+<hick:action lang="python">
+print("creating login page")
+</hick:action>
+</hick:assistant>
+<hick:observation source="action-0" exit="0">creating login page</hick:observation>"#,
+        );
+        let doc = parse_session(&src).unwrap();
+        assert_eq!(doc.nodes.len(), 3);
+        assert!(matches!(doc.nodes[0], SessionNode::User { .. }));
+        assert!(matches!(doc.nodes[1], SessionNode::Assistant { .. }));
+        assert!(matches!(doc.nodes[2], SessionNode::Observation { .. }));
+    }
+
+    #[test]
+    fn parse_session_command_and_observation() {
+        let src = minimal_session(
+            r#"<hick:command>ls -la</hick:command>
+<hick:observation source="command-0" exit="0">total 8
+-rw-r--r-- 1 user user 42 main.py
+</hick:observation>"#,
+        );
+        let doc = parse_session(&src).unwrap();
+        assert_eq!(doc.nodes.len(), 2);
+        assert!(matches!(doc.nodes[0], SessionNode::Command { .. }));
+        assert!(matches!(doc.nodes[1], SessionNode::Observation { .. }));
+    }
+
+    #[test]
+    fn is_session_source_detection() {
+        let session_src = minimal_session("<hick:user>hello</hick:user>");
+        assert!(is_session_source(&session_src));
+
+        let pipeline_src = r#"<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
+<hick:file path="out.txt">hello</hick:file>
+</hick:doc>"#;
+        assert!(!is_session_source(pipeline_src));
+    }
+
+    #[test]
+    fn parse_session_mixed_with_unknown_tags() {
+        // Unknown tags (not user/assistant/observation/command) are silently skipped
+        let src = minimal_session(
+            r#"<hick:user>hello</hick:user>
+<hick:metadata version="1"/>
+<hick:command>echo hi</hick:command>"#,
+        );
+        let doc = parse_session(&src).unwrap();
+        assert_eq!(doc.nodes.len(), 2); // metadata skipped
+        assert!(matches!(doc.nodes[0], SessionNode::User { .. }));
+        assert!(matches!(doc.nodes[1], SessionNode::Command { .. }));
+    }
+
+    #[test]
+    fn pipeline_doc_with_session_like_nodes_parses_ok() {
+        // A pipeline file can contain hick:user etc. without error (they're just unknown tags)
+        let src = r#"<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
+<hick:file path="out.txt">hello</hick:file>
+<hick:user>this is fine</hick:user>
+</hick:doc>"#;
+        let doc = parse(src).unwrap();
+        let files = doc.find_tags("file");
+        assert_eq!(files.len(), 1);
+        let users = doc.find_tags("user");
+        assert_eq!(users.len(), 1);
     }
 
     fn find_tags_recursive<'a>(tag: &'a HickTag, name: &str, out: &mut Vec<&'a HickTag>) {

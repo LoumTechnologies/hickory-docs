@@ -24,6 +24,7 @@ use tokio::sync::{Notify, mpsc, oneshot};
 
 use hick_agent_engine::events::{AgentCommand, AgentEvent};
 use hick_agent_engine::network_filter::{NetworkApprovalRequest, NetworkVerdict};
+use hick_agent_engine::tools::ScriptResult;
 
 // ── Styled output model ────────────────────────────────────────────
 
@@ -57,10 +58,18 @@ struct App {
     should_quit: bool,
     /// Pending network approval prompt — awaiting y/n from the user.
     pending_approval: Option<oneshot::Sender<NetworkVerdict>>,
-    /// XML session log file writer (None if log could not be opened).
+    /// .hick session file writer (None if log could not be opened).
     log: Option<BufWriter<std::fs::File>>,
     /// Display path shown in the header (just the filename).
     log_display: String,
+    /// Buffered LLM response from ResponseComplete, not yet written.
+    pending_response: Option<String>,
+    /// Buffered script code + lang from ScriptStarted, not yet written.
+    pending_action: Option<(String, String)>,
+    /// Counter for action/command source attributes.
+    session_action_index: usize,
+    /// True when the current busy turn is a `!` direct command (not an LLM turn).
+    in_direct_command: bool,
 }
 
 impl App {
@@ -70,15 +79,16 @@ impl App {
                 let display = path
                     .file_name()
                     .and_then(|n| n.to_str())
-                    .unwrap_or("agent.log")
+                    .unwrap_or("agent.hick")
                     .to_string();
                 match std::fs::File::create(&path) {
                     Ok(f) => {
                         let mut w = BufWriter::new(f);
                         let now = chrono::Local::now();
+                        let _ = writeln!(w, r#"<?xml version="1.0" encoding="UTF-8"?>"#);
                         let _ = writeln!(
                             w,
-                            r#"<session start="{}">"#,
+                            r#"<hick:session xmlns:hick="http://www.hickorydocs.com/1.0" start="{}">"#,
                             now.to_rfc3339()
                         );
                         let _ = w.flush();
@@ -103,25 +113,155 @@ impl App {
             pending_approval: None,
             log,
             log_display,
+            pending_response: None,
+            pending_action: None,
+            session_action_index: 0,
+            in_direct_command: false,
         }
     }
 
-    fn log_entry(&mut self, tag: &str, attrs: &[(&str, &str)], content: &str) {
+    /// Write a `hick:command` node for a `!`-prefixed direct command.
+    fn log_command(&mut self, cmd: &str) {
+        if let Some(ref mut w) = self.log {
+            let now = chrono::Local::now();
+            let _ = writeln!(
+                w,
+                r#"  <hick:command time="{}">{}</hick:command>"#,
+                now.to_rfc3339(),
+                xml_escape(cmd)
+            );
+            let _ = w.flush();
+        }
+    }
+
+    /// Write a `hick:observation` node for a direct command result.
+    fn log_command_observation(&mut self, result: &ScriptResult) {
+        let source_id = format!("command-{}", self.session_action_index);
+        self.session_action_index += 1;
+        if let Some(ref mut w) = self.log {
+            let now = chrono::Local::now();
+            let exit_attr = result
+                .exit_code
+                .map(|c| c.to_string())
+                .unwrap_or_else(|| "unknown".into());
+            let combined = format!("{}{}", result.stdout, result.stderr);
+            let _ = writeln!(
+                w,
+                r#"  <hick:observation source="{}" exit="{}" time="{}">{}</hick:observation>"#,
+                source_id,
+                exit_attr,
+                now.to_rfc3339(),
+                xml_escape(&combined)
+            );
+            let _ = w.flush();
+        }
+    }
+
+    /// Write a `hick:user` node for the given message text.
+    fn log_user(&mut self, text: &str) {
+        if let Some(ref mut w) = self.log {
+            let now = chrono::Local::now();
+            let _ = writeln!(
+                w,
+                r#"  <hick:user time="{}">{}</hick:user>"#,
+                now.to_rfc3339(),
+                xml_escape(text)
+            );
+            let _ = w.flush();
+        }
+    }
+
+    /// Write `hick:assistant` + `hick:action` + `hick:observation` for a turn that
+    /// executed a script.  Consumes `pending_response` and `pending_action`.
+    fn log_turn_with_action(&mut self, result: &ScriptResult) {
+        if self.log.is_none() {
+            self.pending_response.take();
+            self.pending_action.take();
+            return;
+        }
+        let now = chrono::Local::now();
+        let response = self.pending_response.take().unwrap_or_default();
+        let (code, lang) = self.pending_action.take().unwrap_or_else(|| (String::new(), "sh".into()));
+        let action_id = format!("action-{}", self.session_action_index);
+        self.session_action_index += 1;
+
+        if let Some(ref mut w) = self.log {
+            let _ = writeln!(w, r#"  <hick:assistant time="{}">"#, now.to_rfc3339());
+            if !response.trim().is_empty() {
+                let _ = writeln!(w, "{}", xml_escape(response.trim()));
+            }
+            let _ = writeln!(w, r#"    <hick:action lang="{}">"#, lang);
+            let _ = w.write_all(code.as_bytes());
+            if !code.ends_with('\n') {
+                let _ = w.write_all(b"\n");
+            }
+            let _ = writeln!(w, "    </hick:action>");
+            let _ = writeln!(w, "  </hick:assistant>");
+
+            let exit_attr = result
+                .exit_code
+                .map(|c| c.to_string())
+                .unwrap_or_else(|| "unknown".into());
+            let combined = format!("{}{}", result.stdout, result.stderr);
+            let _ = writeln!(
+                w,
+                r#"  <hick:observation source="{}" exit="{}" time="{}">{}</hick:observation>"#,
+                action_id,
+                exit_attr,
+                now.to_rfc3339(),
+                xml_escape(&combined)
+            );
+            let _ = w.flush();
+        }
+    }
+
+    /// Write `hick:assistant` for a final-answer turn (no script executed).
+    /// Consumes `pending_response`.
+    fn log_turn_done(&mut self) {
+        let response = match self.pending_response.take() {
+            Some(r) if !r.trim().is_empty() => r,
+            _ => return,
+        };
+        self.pending_action.take();
+        if let Some(ref mut w) = self.log {
+            let now = chrono::Local::now();
+            let _ = writeln!(
+                w,
+                r#"  <hick:assistant time="{}">{}</hick:assistant>"#,
+                now.to_rfc3339(),
+                xml_escape(response.trim())
+            );
+            let _ = w.flush();
+        }
+    }
+
+    /// Write an informational hick: node (not replayed, just for the transcript).
+    fn log_info_node(&mut self, tag: &str, attrs: &[(&str, &str)], content: &str) {
         if let Some(ref mut w) = self.log {
             let now = chrono::Local::now();
             let attr_str = attrs
                 .iter()
                 .map(|(k, v)| format!(r#" {}="{}""#, k, xml_escape(v)))
                 .collect::<String>();
-            let _ = writeln!(
-                w,
-                r#"  <{} time="{}"{}>{}</{}>"#,
-                tag,
-                now.to_rfc3339(),
-                attr_str,
-                xml_escape(content),
-                tag
-            );
+            if content.is_empty() {
+                let _ = writeln!(
+                    w,
+                    r#"  <hick:{} time="{}"{}/>"#,
+                    tag,
+                    now.to_rfc3339(),
+                    attr_str
+                );
+            } else {
+                let _ = writeln!(
+                    w,
+                    r#"  <hick:{} time="{}"{}>{}</hick:{}>"#,
+                    tag,
+                    now.to_rfc3339(),
+                    attr_str,
+                    xml_escape(content),
+                    tag
+                );
+            }
             let _ = w.flush();
         }
     }
@@ -188,12 +328,14 @@ impl App {
             }
             AgentEvent::Token(text) => self.append_token(&text),
             AgentEvent::ResponseComplete(response) => {
-                self.log_entry("assistant", &[], &response);
+                // Buffer the full response; written to session file after script result arrives
+                // (or on Done if no script is executed this turn).
+                self.pending_response = Some(response);
             }
-            AgentEvent::ScriptStarted { code } => {
+            AgentEvent::ScriptStarted { code, lang } => {
                 self.flush_partial();
                 self.push_line(LineKind::Info, "\u{25b6} Running script...");
-                self.log_entry("script-code", &[], &code);
+                self.pending_action = Some((code, lang));
             }
             AgentEvent::ScriptFinished(result) => {
                 // Replace "Running script..." indicator
@@ -232,32 +374,41 @@ impl App {
                         ),
                     );
                 }
-                let exit_attr = result
-                    .exit_code
-                    .map(|c| c.to_string())
-                    .unwrap_or_else(|| "unknown".into());
-                let combined = if result.stdout.is_empty() && result.stderr.is_empty() {
-                    String::new()
+                // Write session nodes: direct commands use hick:observation only
+                // (hick:command was already written in handle_key); LLM turns write
+                // hick:assistant + hick:action + hick:observation.
+                if self.in_direct_command {
+                    self.log_command_observation(&result);
                 } else {
-                    format!("{}{}", result.stdout, result.stderr)
-                };
-                self.log_entry("script-output", &[("exit", &exit_attr)], &combined);
+                    self.log_turn_with_action(&result);
+                }
             }
             AgentEvent::Done(_) => {
                 self.flush_partial();
+                // Write any buffered response that wasn't paired with a script.
+                if !self.in_direct_command {
+                    self.log_turn_done();
+                }
+                self.in_direct_command = false;
                 self.push_line(LineKind::Separator, "");
                 self.busy = false;
             }
             AgentEvent::Interrupted => {
                 self.flush_partial();
+                self.pending_response.take();
+                self.pending_action.take();
+                self.in_direct_command = false;
                 self.push_line(LineKind::Info, "\u{25cf} Interrupted");
-                self.log_entry("interrupted", &[], "");
+                self.log_info_node("interrupted", &[], "");
                 self.busy = false;
             }
             AgentEvent::Error(msg) => {
                 self.flush_partial();
+                self.pending_response.take();
+                self.pending_action.take();
+                self.in_direct_command = false;
                 self.push_line(LineKind::Error, &msg);
-                self.log_entry("error", &[], &msg);
+                self.log_info_node("error", &[], &msg);
                 self.busy = false;
             }
             AgentEvent::DataClassification {
@@ -271,7 +422,7 @@ impl App {
             }
             AgentEvent::SecurityViolation { description } => {
                 self.push_line(LineKind::Error, &format!("SECURITY: {description}"));
-                self.log_entry("security-violation", &[], &description);
+                self.log_info_node("security-violation", &[], &description);
             }
             AgentEvent::Reprompt { reason, attempt } => {
                 self.flush_partial();
@@ -279,11 +430,7 @@ impl App {
                     LineKind::Info,
                     &format!("\u{26a0} Re-prompting (attempt {attempt}): {reason}"),
                 );
-                self.log_entry(
-                    "reprompt",
-                    &[("attempt", &attempt.to_string())],
-                    &reason,
-                );
+                self.log_info_node("reprompt", &[("attempt", &attempt.to_string())], &reason);
             }
         }
     }
@@ -352,9 +499,26 @@ impl App {
                         return;
                     }
 
+                    // `! <cmd>` — run directly in the WASM container, no LLM call.
+                    if msg.starts_with('!') {
+                        let shell_cmd = msg[1..].trim().to_string();
+                        if shell_cmd.is_empty() {
+                            self.push_line(LineKind::Info, "Usage: ! <shell command>");
+                            return;
+                        }
+                        self.push_line(LineKind::User, &format!("> {msg}"));
+                        self.push_line(LineKind::Separator, "");
+                        self.log_command(&shell_cmd);
+                        self.in_direct_command = true;
+                        cmd_tx.send(AgentCommand::DirectCommand(shell_cmd)).ok();
+                        self.busy = true;
+                        self.auto_scroll = true;
+                        return;
+                    }
+
                     self.push_line(LineKind::User, &format!("> {msg}"));
                     self.push_line(LineKind::Separator, "");
-                    self.log_entry("user", &[], &msg);
+                    self.log_user(&msg);
                     cmd_tx.send(AgentCommand::Message(msg)).ok();
                     self.busy = true;
                     self.auto_scroll = true;
@@ -605,11 +769,11 @@ pub fn run_tui(
         Ok(())
     })();
 
-    // Close the XML log
+    // Close the session file
     if let Some(ref mut w) = app.log {
         let now = chrono::Local::now();
-        let _ = writeln!(w, r#"  <session-end time="{}"/>"#, now.to_rfc3339());
-        let _ = writeln!(w, "</session>");
+        let _ = writeln!(w, r#"  <hick:session-end time="{}"/>"#, now.to_rfc3339());
+        let _ = writeln!(w, "</hick:session>");
         let _ = w.flush();
     }
 

@@ -9,7 +9,7 @@ use std::time::Instant;
 use anyhow::{Context, Result, bail};
 use log::info;
 
-use hick::config::{HickConfig, find_config};
+use crate::config::{HickConfig, find_config};
 
 use crate::expand_path_arg;
 use crate::visual_regression::{self, VisualRegressionConfig};
@@ -411,7 +411,7 @@ fn render_progress(
     };
     let remaining = total.saturating_sub(completed);
     let eta_ms = avg_ms * remaining as u64;
-    let eta = hick::fmt_duration(Duration::from_millis(eta_ms));
+    let eta = crate::fmt_duration(Duration::from_millis(eta_ms));
 
     // Progress bar (20 chars wide)
     let bar_width = 20;
@@ -469,7 +469,7 @@ fn render_progress(
                     } else {
                         feat.clone()
                     },
-                    hick::fmt_duration(Duration::from_secs_f64(*coef))
+                    crate::fmt_duration(Duration::from_secs_f64(*coef))
                 )
             })
             .collect();
@@ -595,10 +595,10 @@ pub async fn run(cli: GenerateMatrixArgs) -> Result<()> {
         .collect();
 
     // Extract feature definitions from the hick files
-    let feature_defs = hick::extract_feature_definitions(&sources)?;
+    let feature_defs = crate::extract_feature_definitions(&sources)?;
 
     // Extract embedded verify commands from the hick files
-    let embedded_verify = hick::extract_verify_commands(&sources)?;
+    let embedded_verify = crate::extract_verify_commands(&sources)?;
 
     // Identify leaf features (those that are not meta-features)
     // A leaf feature is one that doesn't have any `requires` attributes
@@ -955,7 +955,7 @@ pub async fn run(cli: GenerateMatrixArgs) -> Result<()> {
                 }
 
                 // Run the pipeline for this combination
-                let result = hick::run_pipeline(&sources, &params).await;
+                let result = crate::run_pipeline(&sources, &params).await;
                 let combo_elapsed = combo_start.elapsed();
 
                 match result {
@@ -1179,7 +1179,7 @@ pub async fn run(cli: GenerateMatrixArgs) -> Result<()> {
     println!("Parallel jobs: {}", jobs);
     println!("Successful: {}", successful);
     println!("Failed: {}", failed);
-    println!("Total time: {}", hick::fmt_duration(elapsed));
+    println!("Total time: {}", crate::fmt_duration(elapsed));
 
     // Calculate timing statistics
     if !timings_data.is_empty() {
@@ -1197,19 +1197,19 @@ pub async fn run(cli: GenerateMatrixArgs) -> Result<()> {
         println!("\n--- Timing Statistics ---");
         println!(
             "Average time per combination: {}",
-            hick::fmt_duration(Duration::from_secs_f64(avg_time))
+            crate::fmt_duration(Duration::from_secs_f64(avg_time))
         );
         println!(
             "Min time: {}",
-            hick::fmt_duration(Duration::from_secs_f64(min_time))
+            crate::fmt_duration(Duration::from_secs_f64(min_time))
         );
         println!(
             "Max time: {}",
-            hick::fmt_duration(Duration::from_secs_f64(max_time))
+            crate::fmt_duration(Duration::from_secs_f64(max_time))
         );
         println!(
             "Sum of all iteration times: {}",
-            hick::fmt_duration(Duration::from_secs_f64(total_combo_time))
+            crate::fmt_duration(Duration::from_secs_f64(total_combo_time))
         );
 
         // Run linear regression to identify slow features
@@ -1225,7 +1225,7 @@ pub async fn run(cli: GenerateMatrixArgs) -> Result<()> {
                         "  {:20} {}{}",
                         feat,
                         sign,
-                        hick::fmt_duration(Duration::from_secs_f64(coef.abs()))
+                        crate::fmt_duration(Duration::from_secs_f64(coef.abs()))
                     );
                 }
             }

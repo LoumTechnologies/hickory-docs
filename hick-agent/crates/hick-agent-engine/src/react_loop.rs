@@ -636,6 +636,7 @@ impl ReactLoop {
                     events
                         .send(AgentEvent::ScriptStarted {
                             code: block.code.clone(),
+                            lang: block.language.extension().to_string(),
                         })
                         .ok();
                     let result = self.execute_code_block(block, i).await;
@@ -665,6 +666,93 @@ impl ReactLoop {
                 Ok(AgentState::to_observing(results))
             }
             _ => Ok(state),
+        }
+    }
+
+    /// Execute a shell command directly in the WASM sandbox without calling the LLM.
+    ///
+    /// Records the command + output in `history` so subsequent LLM turns have context.
+    /// Emits `ScriptStarted`/`ScriptFinished`/`Done` events so the TUI and session
+    /// recorder see a complete turn.
+    pub async fn run_direct_command(
+        &self,
+        cmd: &str,
+        history: &mut Vec<Message>,
+        events: &mpsc::UnboundedSender<AgentEvent>,
+    ) -> anyhow::Result<()> {
+        events
+            .send(AgentEvent::ScriptStarted {
+                code: cmd.to_string(),
+                lang: "sh".to_string(),
+            })
+            .ok();
+
+        let result = self.execute_shell_command(cmd).await;
+        events.send(AgentEvent::ScriptFinished(result.clone())).ok();
+
+        // Add to history so the LLM has context on subsequent turns.
+        let obs = format!(
+            "User ran directly (! command): {cmd}\nOutput:\n{}",
+            result.as_observation()
+        );
+        history.push(Message {
+            role: Role::User,
+            content: obs,
+        });
+
+        events.send(AgentEvent::Done(String::new())).ok();
+        Ok(())
+    }
+
+    /// Run a shell command string directly in the sandbox container.
+    async fn execute_shell_command(&self, cmd: &str) -> ScriptResult {
+        if let Some(ref executor) = self.executor {
+            let sandbox_cmd = format!("cd /workspace && {cmd}");
+            let mut exec = executor.lock().await;
+            match exec
+                .execute("agent-sandbox", &sandbox_cmd, &self.sandbox_image, Some(60))
+                .await
+            {
+                Ok(result) => ScriptResult {
+                    stdout: result.output,
+                    stderr: String::new(),
+                    exit_code: result.exit_code,
+                },
+                Err(e) => ScriptResult {
+                    stdout: String::new(),
+                    stderr: format!("Command failed: {e}"),
+                    exit_code: None,
+                },
+            }
+        } else {
+            // Unsandboxed fallback: spawn on host.
+            use std::process::Stdio;
+            match tokio::process::Command::new("sh")
+                .arg("-c")
+                .arg(cmd)
+                .stdout(Stdio::piped())
+                .stderr(Stdio::piped())
+                .current_dir(&self.project_dir)
+                .spawn()
+            {
+                Ok(child) => match child.wait_with_output().await {
+                    Ok(out) => ScriptResult {
+                        stdout: String::from_utf8_lossy(&out.stdout).to_string(),
+                        stderr: String::from_utf8_lossy(&out.stderr).to_string(),
+                        exit_code: out.status.code(),
+                    },
+                    Err(e) => ScriptResult {
+                        stdout: String::new(),
+                        stderr: format!("Failed to collect output: {e}"),
+                        exit_code: None,
+                    },
+                },
+                Err(e) => ScriptResult {
+                    stdout: String::new(),
+                    stderr: format!("Failed to spawn sh: {e}"),
+                    exit_code: None,
+                },
+            }
         }
     }
 

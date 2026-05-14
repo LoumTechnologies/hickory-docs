@@ -6,7 +6,7 @@ description = "AI command-line coding agent — script-first model with transpar
 publish = false
 
 [[bin]]
-name = "hick-agent"
+name = "hick"
 path = "src/main.rs"
 
 [features]
@@ -22,6 +22,7 @@ hick-agent-engine = { path = "../hick-agent-engine" }
 # Dependencies only needed by the CLI binary (main.rs) and TUI (tui.rs)
 hick = { version = "0.1", path = "../../../crates/hick" }
 hick-agent-core = { path = "../hick-agent-core" }
+hick-secrets.workspace = true
 hick-token.workspace = true
 anyhow = "1"
 clap = { version = "4", features = ["derive", "env"] }

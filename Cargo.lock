@@ -4140,6 +4140,7 @@ dependencies = [
  "hick",
  "hick-agent-core",
  "hick-agent-engine",
+ "hick-secrets",
  "hick-token",
  "log",
  "rand 0.9.4",

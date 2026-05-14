@@ -8,10 +8,6 @@ name = "hick"
 path = "src/lib.rs"
 
 [[bin]]
-name = "hick"
-path = "src/main.rs"
-
-[[bin]]
 name = "hick-equiv"
 path = "src/bin/hick-equiv.rs"
 
