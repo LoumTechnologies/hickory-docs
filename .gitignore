@@ -52,3 +52,5 @@ web/node_modules/
 web/dist/
 browser-extension/node_modules/
 browser-extension/dist/
+
+PLAN.md
