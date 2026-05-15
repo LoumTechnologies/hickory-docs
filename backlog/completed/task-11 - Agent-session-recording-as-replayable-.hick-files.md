@@ -1,9 +1,10 @@
 ---
 id: TASK-11
 title: Agent session recording as replayable .hick files
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-05-14 17:12'
+updated_date: '2026-05-15 12:43'
 labels: []
 dependencies: []
 priority: high
@@ -45,3 +46,9 @@ Users can prefix input with `!` to run a shell command directly in the WASM cont
 - [ ] #7 `!` command stdout is displayed inline in the TUI and appended to the session file as hick:command + hick:observation
 - [ ] #8 The LLM is not invoked after a `!` command (silent mode)
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Implemented across subtasks 11.1–11.4: hick-lang parser extended with session node types, agent sessions recorded as .hick files, ! command mode added to agent TUI for direct container execution, and session replay via hick run.
+<!-- SECTION:FINAL_SUMMARY:END -->

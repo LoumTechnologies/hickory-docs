@@ -1,10 +1,10 @@
 ---
 id: TASK-11.4
 title: 'Session replay: hick run re-executes a .hick session file without LLM'
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-05-14 17:14'
-updated_date: '2026-05-14 19:55'
+updated_date: '2026-05-15 12:43'
 labels: []
 dependencies:
   - TASK-11.1
@@ -49,3 +49,9 @@ Either by the presence of a `hick:session` root element, or by encountering sess
 - [ ] #7 Normal pipeline .hick files (no session nodes) are unaffected — hick run still works as before
 - [ ] #8 hick run --verbose during replay prints each node being executed or skipped
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Session replay implemented: hick run re-executes a .hick session file by replaying recorded container commands deterministically without invoking the LLM.
+<!-- SECTION:FINAL_SUMMARY:END -->

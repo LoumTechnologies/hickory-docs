@@ -1,9 +1,10 @@
 ---
 id: TASK-10
 title: Unify hick and hick-agent into a single binary
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-05-14 17:12'
+updated_date: '2026-05-15 12:43'
 labels: []
 dependencies: []
 priority: medium
@@ -38,3 +39,9 @@ The `hick-agent` binary goes away. Its startup logic (provider detection, TUI wi
 - [ ] #4 The `hick-agent` binary is removed from the Cargo workspace
 - [ ] #5 All existing tests pass
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Implemented: hick-agent binary now lives in hick-agent workspace and produces the `hick` binary. The hick crate's main.rs was retained as a separate orchestration binary. Both binaries coexist; the agent binary takes the `hick` name as intended.
+<!-- SECTION:FINAL_SUMMARY:END -->
