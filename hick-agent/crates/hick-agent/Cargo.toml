@@ -23,13 +23,11 @@ hick-agent-engine = { path = "../hick-agent-engine" }
 hick = { version = "0.1", path = "../../../crates/hick" }
 hick-agent-core = { path = "../hick-agent-core" }
 hick-secrets.workspace = true
-hick-token.workspace = true
 anyhow = "1"
 clap = { version = "4", features = ["derive", "env"] }
 dotenvy = "0.15.7"
 env_logger = "0.11"
 log = "0.4"
-rand = "0.9"
 tokio = { version = "1", features = ["full"] }
 ratatui = "0.30.0"
 crossterm = "0.29.0"

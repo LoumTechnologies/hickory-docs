@@ -4141,9 +4141,7 @@ dependencies = [
  "hick-agent-core",
  "hick-agent-engine",
  "hick-secrets",
- "hick-token",
  "log",
- "rand 0.9.4",
  "ratatui",
  "tempfile",
  "tokio",
@@ -4169,30 +4167,40 @@ name = "hick-agent-engine"
 version = "0.1.0"
 dependencies = [
  "anyhow",
- "async-openai",
  "async-trait",
- "bytes",
- "chrono",
  "futures",
- "glob",
  "hick-agent-core",
- "hick-classify",
- "hick-flow",
- "hick-lang",
+ "hick-agent-script-first",
+ "hick-agent-sdk",
  "hick-policy",
- "hick-sink",
  "hick-token",
  "llama-cpp-2",
  "log",
+ "tempfile",
+]
+
+[[package]]
+name = "hick-agent-script-first"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "futures",
+ "glob",
+ "hick",
+ "hick-agent-core",
+ "hick-agent-sdk",
+ "hick-flow",
+ "hick-lang",
+ "hick-policy",
+ "log",
  "notify",
- "reqwest",
  "serde",
  "serde_json",
  "serde_yaml",
  "sha2 0.10.9",
  "tempfile",
  "tokio",
- "toml 1.1.2+spec-1.1.0",
  "walkdir",
 ]
 

@@ -12,14 +12,13 @@ use std::sync::Arc;
 use anyhow::Result;
 use clap::{Parser, Subcommand, ValueEnum};
 use hick_agent_core::{CommandExecutor, WasmSandboxConfig, WasmSandboxExecutor};
-use hick_token::TokenAuthority;
 use tokio::sync::{Mutex, Notify, mpsc};
 
 #[cfg(feature = "local")]
 use hick_agent_engine::LocalLlmClient;
 use hick_agent::tui::run_tui;
 use hick_agent_engine::{
-    Agent, AgentCommand, AgentConfig, AgentEvent, AgentSecurityConfig, AnthropicClient,
+    AgentCommand, AgentEvent, AgentSecurityConfig, AnthropicClient,
     FilteredLlmClient, LlmClient, NetworkApprovalRequest, NetworkFilter, OpenAiCompatClient,
     PipelineWatcher, ReactLoop, SinkGuard,
 };
@@ -441,23 +440,20 @@ fn detect_images_dir(start: &std::path::Path) -> Option<(PathBuf, String)> {
 
 /// Background task that waits for user messages and drives the react loop.
 async fn agent_task(
-    react_loop: ReactLoop,
+    mut react_loop: ReactLoop,
     events: mpsc::UnboundedSender<AgentEvent>,
     mut commands: mpsc::UnboundedReceiver<AgentCommand>,
     interrupt: Arc<Notify>,
 ) {
-    let mut history = Vec::new();
     while let Some(cmd) = commands.recv().await {
         match cmd {
             AgentCommand::Message(msg) => {
-                if let Err(e) = react_loop.run(&msg, &mut history, &events, &interrupt).await {
+                if let Err(e) = react_loop.run(&msg, &events, &interrupt).await {
                     events.send(AgentEvent::Error(e.to_string())).ok();
                 }
             }
             AgentCommand::DirectCommand(cmd) => {
-                if let Err(e) =
-                    react_loop.run_direct_command(&cmd, &mut history, &events).await
-                {
+                if let Err(e) = react_loop.run_direct_command(&cmd, &events).await {
                     events.send(AgentEvent::Error(e.to_string())).ok();
                 }
             }
@@ -517,11 +513,6 @@ async fn main() -> Result<()> {
                     }
                 }
             };
-            let config = AgentConfig {
-                project_dir,
-                images_dir,
-                default_image,
-            };
 
             // Resolve provider: explicit flag/env, or auto-detect from API keys
             let provider = match provider {
@@ -537,7 +528,7 @@ async fn main() -> Result<()> {
                 n_gpu_layers,
                 n_ctx,
                 max_tokens,
-                project_dir: config.project_dir.clone(),
+                project_dir: project_dir.clone(),
             };
             let llm = build_llm_client(provider, model, api_base.clone(), api_key, local_opts)?;
 
@@ -547,16 +538,16 @@ async fn main() -> Result<()> {
             let interrupt = Arc::new(Notify::new());
 
             // Load agent security configuration (used for both sandbox and network filter).
-            let security_config_path = config.project_dir.join(".hick").join("agent-security.toml");
+            let security_config_path = project_dir.join(".hick").join("agent-security.toml");
             let security_config = AgentSecurityConfig::load_or_default(&security_config_path)?;
             let sandbox_caps = security_config.to_capabilities();
 
             // Load auth injection configuration.
-            let auth_rules_path = config.project_dir.join(".hick").join("auth-rules.toml");
+            let auth_rules_path = project_dir.join(".hick").join("auth-rules.toml");
             let age_key_path = std::env::var("HICK_AGE_KEY")
                 .map(PathBuf::from)
                 .unwrap_or_else(|_| PathBuf::from("/Users/ai/Documents/src/key.txt"));
-            let age_secrets_dir = config.project_dir.join(".hick").join("secrets");
+            let age_secrets_dir = project_dir.join(".hick").join("secrets");
             let auth_stack = match hick::auth::AuthStack::from_config(
                 &auth_rules_path,
                 &age_key_path,
@@ -584,7 +575,7 @@ async fn main() -> Result<()> {
             // Network filter for LLM API calls.
             // Priority: explicit network-rules.toml > derived from agent-security.toml > none.
             let (approval_tx, approval_rx) = mpsc::unbounded_channel::<NetworkApprovalRequest>();
-            let filter_config_path = config.project_dir.join(".hick").join("network-rules.toml");
+            let filter_config_path = project_dir.join(".hick").join("network-rules.toml");
             let host = endpoint_host_for_provider(provider, &api_base);
             let llm: Box<dyn LlmClient> = if matches!(provider, Provider::Local) {
                 drop(approval_tx);
@@ -629,18 +620,6 @@ async fn main() -> Result<()> {
             let provider_name = llm.provider_name().to_string();
             let model_name = llm.model_name().to_string();
 
-            // Create token authority with a random per-session key and mint
-            // a root capability token for this session.
-            let session_key: [u8; 32] = rand::random();
-            let token_authority = Arc::new(TokenAuthority::new(&session_key));
-            let session_token = Arc::new(
-                token_authority
-                    .mint("agent-session", &sandbox_caps)
-                    .map_err(|e| anyhow::anyhow!("Failed to mint session token: {e}"))?,
-            );
-
-            let agent =
-                Agent::new(config.clone(), llm).with_security(token_authority, session_token);
             let output_dir = std::env::var("HICK_OUTPUT_DIR").ok();
 
             // Create the sink guard for classification-based API call gating.
@@ -667,9 +646,7 @@ async fn main() -> Result<()> {
             );
 
             // Build the WASM sandbox executor for running scripts.
-            let wasm_image_path = config
-                .images_dir
-                .join(format!("{}.wasm", config.default_image));
+            let wasm_image_path = images_dir.join(format!("{}.wasm", default_image));
             hick::executor::ensure_loadable_wasm_file(&wasm_image_path).map_err(|e| {
                 anyhow::anyhow!(
                     "{e:#}\n\n\
@@ -683,9 +660,9 @@ async fn main() -> Result<()> {
                 )
             })?;
             let sandbox_config = WasmSandboxConfig {
-                images_dir: config.images_dir.clone(),
-                workdir: config.project_dir.clone(),
-                default_image: config.default_image.clone(),
+                images_dir: images_dir.clone(),
+                workdir: project_dir.clone(),
+                default_image: default_image.clone(),
                 capabilities: sandbox_caps,
                 auth: auth_stack,
                 guest_network_enabled: sandbox_guest_network,
@@ -698,18 +675,18 @@ async fn main() -> Result<()> {
                 )))
                 .ok();
 
-            let mut react_loop = ReactLoop::new(agent, config.project_dir.clone())
-                .with_executor(sandbox_executor, config.default_image.clone())
+            let mut react_loop = ReactLoop::new(llm, project_dir.clone())
+                .with_executor(sandbox_executor, default_image.clone())
                 .with_sink_guard(sink_guard);
 
             // Wire up policy evaluator if configured.
             if let Some(ref policy_path) = security_config.policy_script {
-                let resolved = config.project_dir.join(policy_path);
+                let resolved = project_dir.join(policy_path);
                 // Validate the policy script path before wiring it up:
                 // - Must exist and be a regular file
                 // - Must end in .py
                 // - Must resolve to within the project directory (prevent traversal)
-                let canonical_project = config.project_dir.canonicalize().unwrap_or_default();
+                let canonical_project = project_dir.canonicalize().unwrap_or_default();
                 let is_valid_policy = resolved.exists()
                     && resolved.is_file()
                     && resolved
@@ -750,7 +727,7 @@ async fn main() -> Result<()> {
             react_loop.stream_output = !no_stream;
 
             // Start the transparent pipeline watcher
-            let watcher = Arc::new(PipelineWatcher::new(config.project_dir.clone(), output_dir));
+            let watcher = Arc::new(PipelineWatcher::new(project_dir.clone(), output_dir));
             let event_tx_watcher = event_tx.clone();
             tokio::spawn({
                 let watcher = Arc::clone(&watcher);
@@ -764,13 +741,13 @@ async fn main() -> Result<()> {
             });
 
             // Copy the Python SDK into .hick/sdk/
-            setup_sdk(&config.project_dir);
+            setup_sdk(&project_dir);
 
             // Send startup info as events
             event_tx
                 .send(AgentEvent::Info(format!(
                     "Project: {}",
-                    config.project_dir.display()
+                    project_dir.display()
                 )))
                 .ok();
             event_tx
@@ -782,7 +759,7 @@ async fn main() -> Result<()> {
             // Session file: .hick/agent-YYYYMMDD-HHMMSS.hick
             let log_path = {
                 let ts = chrono::Local::now().format("%Y%m%d-%H%M%S");
-                let log_dir = config.project_dir.join(".hick");
+                let log_dir = project_dir.join(".hick");
                 std::fs::create_dir_all(&log_dir).ok();
                 log_dir.join(format!("agent-{ts}.hick"))
             };

@@ -1,0 +1,30 @@
+[package]
+name = "hick-agent-script-first"
+version = "0.1.0"
+edition = "2024"
+description = "Script-first ReAct agent strategy — extends hick-agent-sdk with Python/shell script execution in WASM containers."
+publish = false
+
+[dependencies]
+hick-agent-sdk = { path = "../hick-agent-sdk" }
+hick-agent-core = { path = "../hick-agent-core" }
+hick-policy.workspace = true
+hick-flow = { workspace = true, features = ["serde"] }
+hick-lang.workspace = true
+hick = { version = "0.1", path = "../../../crates/hick" }
+
+anyhow = "1"
+async-trait = "0.1"
+futures = "0.3"
+glob = "0.3"
+log = "0.4"
+notify = "7"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+sha2 = "0.10"
+tokio = { version = "1", features = ["full"] }
+walkdir = "2"
+
+[dev-dependencies]
+tempfile = "3"
