@@ -11,13 +11,18 @@ path = "src/main.rs"
 
 [features]
 default = []
-local = ["hick-agent-engine/local"]
+local = ["dep:hick-agent-engine", "hick-agent-engine/local"]
 local-cuda = ["local", "hick-agent-engine/local-cuda"]
-integration-test = ["hick-agent-engine/integration-test"]
+integration-test = []
 
 [dependencies]
-# Core engine (extracted)
-hick-agent-engine = { path = "../hick-agent-engine" }
+# SDK + extension crates — wired directly in main.rs / tui.rs
+hick-agent-sdk = { path = "../hick-agent-sdk" }
+hick-agent-script-first = { path = "../hick-agent-script-first" }
+hick-policy.workspace = true
+
+# Engine shim kept only for the optional llama.cpp local provider
+hick-agent-engine = { path = "../hick-agent-engine", optional = true }
 
 # Dependencies only needed by the CLI binary (main.rs) and TUI (tui.rs)
 hick = { version = "0.1", path = "../../../crates/hick" }

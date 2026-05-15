@@ -22,9 +22,9 @@ use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
 use ratatui::{Frame, Terminal};
 use tokio::sync::{Notify, mpsc, oneshot};
 
-use hick_agent_engine::events::{AgentCommand, AgentEvent};
-use hick_agent_engine::network_filter::{NetworkApprovalRequest, NetworkVerdict};
-use hick_agent_engine::tools::ScriptResult;
+use hick_agent_script_first::events::{AgentCommand, AgentEvent};
+use hick_agent_sdk::network_filter::{NetworkApprovalRequest, NetworkVerdict};
+use hick_agent_script_first::tools::ScriptResult;
 
 // ── Styled output model ────────────────────────────────────────────
 
