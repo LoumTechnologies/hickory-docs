@@ -4155,9 +4155,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "hick",
- "hick-exec",
- "hick-flow",
- "hick-lens",
+ "hick-agent-hick-edit",
  "hick-token",
  "tokio",
 ]
@@ -4180,6 +4178,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "hick-agent-hick-edit"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "glob",
+ "hick",
+ "hick-agent-sdk",
+ "hick-exec",
+ "hick-flow",
+ "hick-lang",
+ "hick-lens",
+ "log",
+ "notify",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "sha2 0.10.9",
+ "tempfile",
+ "tokio",
+ "walkdir",
+]
+
+[[package]]
 name = "hick-agent-script-first"
 version = "0.1.0"
 dependencies = [
@@ -4189,6 +4211,7 @@ dependencies = [
  "glob",
  "hick",
  "hick-agent-core",
+ "hick-agent-hick-edit",
  "hick-agent-sdk",
  "hick-flow",
  "hick-lang",
