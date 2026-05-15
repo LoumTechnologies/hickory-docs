@@ -4267,6 +4267,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "hick-basic"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "clap",
+ "crossterm",
+ "dotenvy",
+ "env_logger",
+ "hick-agent-core",
+ "hick-agent-script-first",
+ "hick-agent-sdk",
+ "hick-policy",
+ "log",
+ "ratatui",
+ "tokio",
+]
+
+[[package]]
 name = "hick-case"
 version = "0.1.0"
 

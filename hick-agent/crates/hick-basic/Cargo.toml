@@ -1,0 +1,31 @@
+[package]
+name = "hick-basic"
+version = "0.1.0"
+edition = "2024"
+description = "Baseline AI coding agent — script-first ReAct loop with no hick pipeline awareness."
+publish = false
+
+[[bin]]
+name = "hick-basic"
+path = "src/main.rs"
+
+[features]
+default = []
+
+[dependencies]
+# SDK + script-first extension — no hick pipeline dependencies in this manifest
+hick-agent-sdk = { path = "../hick-agent-sdk" }
+hick-agent-script-first = { path = "../hick-agent-script-first" }
+hick-agent-core = { path = "../hick-agent-core" }
+hick-policy.workspace = true
+
+# CLI binary dependencies
+anyhow = "1"
+clap = { version = "4", features = ["derive", "env"] }
+dotenvy = "0.15.7"
+env_logger = "0.11"
+log = "0.4"
+tokio = { version = "1", features = ["full"] }
+ratatui = "0.30.0"
+crossterm = "0.29.0"
+chrono = "0.4"
