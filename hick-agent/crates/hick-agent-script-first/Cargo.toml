@@ -7,6 +7,7 @@ publish = false
 
 [dependencies]
 hick-agent-sdk = { path = "../hick-agent-sdk" }
+hick-agent-hick-edit = { path = "../hick-agent-hick-edit" }
 hick-agent-core = { path = "../hick-agent-core" }
 hick-policy.workspace = true
 hick-flow = { workspace = true, features = ["serde"] }

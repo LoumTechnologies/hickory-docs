@@ -2,14 +2,12 @@
 name = "hick-agent-core"
 version = "0.1.0"
 edition = "2024"
-description = "Reusable abstractions for AI coding agents: sandboxed command execution and Hick XML edit format"
+description = "Re-export shim — command execution types (local) and hick-XML edit types from hick-agent-hick-edit"
 publish = false
 
 [dependencies]
+hick-agent-hick-edit = { path = "../hick-agent-hick-edit" }
 hick = { version = "0.1", path = "../../../crates/hick" }
-hick-lens = { version = "0.1", path = "../../../crates/hick-lens" }
-hick-flow = { workspace = true, features = ["serde"] }
-hick-exec.workspace = true
 hick-token.workspace = true
 async-trait = "0.1"
 anyhow = "1"

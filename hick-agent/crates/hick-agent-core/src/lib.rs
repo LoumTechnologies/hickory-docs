@@ -1,13 +1,9 @@
-//! Reusable abstractions for AI coding agents.
+//! Re-export shim for `hick-agent-core`.
 //!
-//! This crate provides clean separation between:
-//! - **Sandboxed command execution** — Run shell commands in Hick WASM containers
-//! - **Hick edit format** — Parse, run pipeline, query structure, compute and apply edits
-//!
-//! Other agents (CLI, MCP, IDE plugins) can use these same abstractions.
+//! Hick-XML edit types have moved to [`hick_agent_hick_edit`]. Command
+//! execution types remain here while their API differs from [`hick_agent_sdk`].
 
 pub mod command;
-pub mod edit_format;
 
 /// Trait for executing shell commands in a sandboxed environment.
 pub use command::CommandExecutor;
@@ -19,12 +15,12 @@ pub use command::WasmSandboxConfig;
 pub use command::WasmSandboxExecutor;
 
 /// Trait for Hick XML edit operations: run pipelines, query structure, compute and apply edits.
-pub use edit_format::HickEditFormat;
+pub use hick_agent_hick_edit::HickEditFormat;
 /// Concrete implementation of [`HickEditFormat`] backed by hick and hick-lens.
-pub use edit_format::HickEditService;
+pub use hick_agent_hick_edit::HickEditService;
 /// Output from a pipeline run, including generated files, provenance maps, and AST mappings.
-pub use edit_format::PipelineOutput;
+pub use hick_agent_hick_edit::PipelineOutput;
 /// A single structural query match with element metadata and provenance origins.
-pub use edit_format::QueryMatch;
+pub use hick_agent_hick_edit::QueryMatch;
 /// A computed source edit (file, byte range, replacement content, confidence).
-pub use edit_format::SourceEdit;
+pub use hick_agent_hick_edit::SourceEdit;
