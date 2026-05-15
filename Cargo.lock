@@ -4197,6 +4197,29 @@ dependencies = [
 ]
 
 [[package]]
+name = "hick-agent-sdk"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-openai",
+ "async-trait",
+ "base64 0.22.1",
+ "bytes",
+ "chrono",
+ "futures",
+ "hick-classify",
+ "hick-sink",
+ "hick-token",
+ "log",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "toml 1.1.2+spec-1.1.0",
+]
+
+[[package]]
 name = "hick-api"
 version = "0.1.0"
 dependencies = [

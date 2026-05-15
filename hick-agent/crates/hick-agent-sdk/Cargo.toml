@@ -1,0 +1,33 @@
+[package]
+name = "hick-agent-sdk"
+version = "0.1.0"
+edition = "2024"
+description = "Generic agent building-block crate — LLM clients, sandbox execution, network filtering, runtime loop. Zero hick pipeline knowledge."
+publish = false
+
+[features]
+default = []
+
+[dependencies]
+# hick security crates only — no hick pipeline crates (hick, hick-lang, hick-exec)
+hick-classify.workspace = true
+hick-token.workspace = true
+hick-sink.workspace = true
+
+async-openai = "0.28"
+async-trait = "0.1"
+anyhow = "1"
+base64 = "0.22"
+bytes = "1"
+chrono = "0.4"
+futures = "0.3"
+log = "0.4"
+reqwest = { version = "0.12", features = ["json", "stream"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+toml = "1"
+
+[dev-dependencies]
+tempfile = "3"
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
