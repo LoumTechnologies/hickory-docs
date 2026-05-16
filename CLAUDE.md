@@ -31,6 +31,30 @@ hick.pipeline_write("src/lib.rs", rust_source_with_generics)
 # The '<' in 'Result<()>' becomes '&lt;' in the output file.
 ```
 
+## AI Coding Agent Architecture
+
+The agents live under `hick-agent/crates/`. Three layers:
+
+**Core** (`hick-agent-sdk`): LLM clients, WASM sandbox, network
+filtering, runtime loop. No hick pipeline knowledge. All agents depend
+on this; extend it rather than forking it.
+
+**Extensions** (`hick-agent-*` prefix): Optional capabilities evaluated
+for inclusion in the final public agent. Current extensions:
+- `hick-agent-script-first` — script-first ReAct loop (Python/shell in
+  WASM containers)
+- `hick-agent-hick-edit` — hick-XML pipeline editing, pipeline watcher,
+  reverse provenance
+
+New capabilities under evaluation belong here as a new
+`hick-agent-<feature>` crate before being promoted to a binary.
+
+**Binary crates** (adjective-noun names, e.g. `copper-ledge`,
+`iron-peak`): Each binary wires a specific combination of extensions
+together for A/B evaluation. The combination is explicit in
+`Cargo.toml` — no hidden feature gates. When evaluation is done, the
+winning combination becomes the public release binary.
+
 <!-- BACKLOG.MD MCP GUIDELINES START -->
 
 <CRITICAL_INSTRUCTION>
