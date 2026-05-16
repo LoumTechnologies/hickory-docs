@@ -6,7 +6,7 @@ title: >-
 status: To Do
 assignee: []
 created_date: '2026-05-13'
-updated_date: '2026-05-13'
+updated_date: '2026-05-16 12:12'
 labels:
   - wasm
   - wasi
@@ -19,7 +19,6 @@ priority: high
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
-
 ### Problem
 
 Agent workloads routinely invoke simple networking utilities (especially **`curl`-style HTTP GET**) inside the Hick Linux WASM VM. That path boots/emulates a full guest stack and is comparatively expensive even though the actual need is often a bounded HTTP fetch.
@@ -62,25 +61,22 @@ This becomes the reference implementation for “criteria met → WASI component
 - Command injection path: `crates/hick/src/executor.rs` (`execute`, `execute_with_stdin`).
 - Wasmtime workspace features: root `Cargo.toml` (`component-model`, `component-model-async`).
 - Prior coexistence work: `backlog/tasks/task-8*.md`.
-
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria
-
 <!-- AC:BEGIN -->
-- [ ] **AC1** — New Rust crate under workspace builds `hick-fetch` as a **WASI Preview 2 component** and documents build/run with Wasmtime 41+.
-- [ ] **AC2** — `hick-fetch` supports at least: URL positional arg, connect/read timeouts, max response bytes, HTTPS GET, sensible exit codes for DNS/TLS/HTTP failures.
-- [ ] **AC3** — Host-side runner executes the component with Wasmtime **Preview 2** WASI networking (`wasmtime-wasi` / documented worlds), without nesting inside the Linux VM.
-- [ ] **AC4** — Delegation hook in `ContainerExecutor::execute` (behind **explicit config / feature flag**) can intercept a **narrow class** of `curl` invocations and produce stdout compatible enough for existing pipelines.
-- [ ] **AC5** — Delegated calls enforce **policy parity** with container networking rules (same allow/deny inputs as the container path; tests prove deny wins).
-- [ ] **AC6** — Command history / replay behavior for delegated executions is **defined, implemented, and covered by tests** (no silent divergence after fork).
-- [ ] **AC7** — Short design note in-repo listing **porting criteria** and how to register additional WASI fast-path tools later.
+- [ ] #1 **AC1** — New Rust crate under workspace builds `hick-fetch` as a **WASI Preview 2 component** and documents build/run with Wasmtime 41+.
+- [ ] #2 **AC2** — `hick-fetch` supports at least: URL positional arg, connect/read timeouts, max response bytes, HTTPS GET, sensible exit codes for DNS/TLS/HTTP failures.
+- [ ] #3 **AC3** — Host-side runner executes the component with Wasmtime **Preview 2** WASI networking (`wasmtime-wasi` / documented worlds), without nesting inside the Linux VM.
+- [ ] #4 **AC4** — Delegation hook in `ContainerExecutor::execute` (behind **explicit config / feature flag**) can intercept a **narrow class** of `curl` invocations and produce stdout compatible enough for existing pipelines.
+- [ ] #5 **AC5** — Delegated calls enforce **policy parity** with container networking rules (same allow/deny inputs as the container path; tests prove deny wins).
+- [ ] #6 **AC6** — Command history / replay behavior for delegated executions is **defined, implemented, and covered by tests** (no silent divergence after fork).
+- [ ] #7 **AC7** — Short design note in-repo listing **porting criteria** and how to register additional WASI fast-path tools later.
 <!-- AC:END -->
 
 ## Implementation Plan
 
 <!-- SECTION:PLAN:BEGIN -->
-
 ### Phase A — Scaffolding and reference component (`hick-fetch`)
 
 1. Add workspace member crate (suggested path: `crates/hick-fetch/` or `hick-exec/crates/hick-fetch/`—follow sibling crate layout conventions).
@@ -114,13 +110,10 @@ This becomes the reference implementation for “criteria met → WASI component
 
 - **TASK-9.1** — Additional tools (`wget`-shaped, registry HEAD probes) once matcher framework exists.
 - **TASK-9.2** — Guest PATH shim only if product requires coverage outside `ContainerExecutor::execute`.
-
 <!-- SECTION:PLAN:END -->
 
 ## Final Summary
 
 <!-- SECTION:FINAL_SUMMARY:BEGIN -->
-
 _(Fill when task completes.)_
-
 <!-- SECTION:FINAL_SUMMARY:END -->
