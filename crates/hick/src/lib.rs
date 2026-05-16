@@ -6,6 +6,7 @@
 
 pub mod agents;
 pub mod auth;
+pub mod pipeline;
 pub mod cache;
 pub mod compact;
 pub mod config;

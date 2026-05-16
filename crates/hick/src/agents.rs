@@ -124,9 +124,11 @@ fn strip_header(content: &str) -> &str {
 /// into CLAUDE.md or AGENTS.md if present.
 pub fn init_agents(config: &InitConfig) -> Result<InitResult> {
     if config.no_agents {
+        let pipeline_initialized = init_pipeline_config(&config.project_dir)?;
         return Ok(InitResult {
             agents_file_created: false,
             reference_added_to: None,
+            pipeline_initialized,
         });
     }
 
@@ -165,10 +167,28 @@ pub fn init_agents(config: &InitConfig) -> Result<InitResult> {
             None
         };
 
+    // Auto-create _hick.yml if absent
+    let pipeline_initialized = init_pipeline_config(&config.project_dir)?;
+
     Ok(InitResult {
         agents_file_created: true,
         reference_added_to,
+        pipeline_initialized,
     })
+}
+
+/// Create a minimal `_hick.yml` in `project_dir` if one does not already exist.
+///
+/// Returns `true` if the file was created, `false` if it already existed.
+fn init_pipeline_config(project_dir: &Path) -> Result<bool> {
+    let config_path = project_dir.join("_hick.yml");
+    if config_path.is_file() {
+        return Ok(false);
+    }
+    let content = "# Hick pipeline root — list .hick source files in order\nfiles: []\n";
+    fs::write(&config_path, content)
+        .with_context(|| format!("failed to create: {}", config_path.display()))?;
+    Ok(true)
 }
 
 /// Result of initialization.
@@ -178,6 +198,8 @@ pub struct InitResult {
     pub agents_file_created: bool,
     /// Path to the file where reference was added (if any).
     pub reference_added_to: Option<PathBuf>,
+    /// Whether _hick.yml was newly created.
+    pub pipeline_initialized: bool,
 }
 
 /// Validate agent configuration for a project.

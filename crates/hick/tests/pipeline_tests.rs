@@ -2254,3 +2254,118 @@ name = "example"
     assert!(weave.contains("```rust"), "should have rust fence");
     assert!(weave.contains("```toml"), "should have toml fence");
 }
+
+// ---------------------------------------------------------------------------
+// TASK-20: hick init creates _hick.yml; pipeline show/status; multi-session run
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_hick_init_creates_pipeline_config() {
+    let dir = tempfile::tempdir().unwrap();
+    let config = hick::agents::InitConfig {
+        project_dir: dir.path().to_path_buf(),
+        no_agents: true,
+    };
+    let result = hick::agents::init_agents(&config).unwrap();
+    assert!(result.pipeline_initialized);
+    assert!(dir.path().join("_hick.yml").is_file());
+    let content = std::fs::read_to_string(dir.path().join("_hick.yml")).unwrap();
+    assert!(content.contains("files:"));
+}
+
+#[test]
+fn test_hick_init_does_not_overwrite_existing_pipeline_config() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("_hick.yml"),
+        "files:\n  - custom.hick\n",
+    )
+    .unwrap();
+
+    let config = hick::agents::InitConfig {
+        project_dir: dir.path().to_path_buf(),
+        no_agents: true,
+    };
+    let result = hick::agents::init_agents(&config).unwrap();
+    assert!(!result.pipeline_initialized, "should not overwrite existing _hick.yml");
+    let content = std::fs::read_to_string(dir.path().join("_hick.yml")).unwrap();
+    assert!(content.contains("custom.hick"), "original content preserved");
+}
+
+#[test]
+fn test_pipeline_show_no_error_on_empty_config() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("_hick.yml"), "files: []\n").unwrap();
+    hick::pipeline::pipeline_show(dir.path()).unwrap();
+}
+
+#[test]
+fn test_pipeline_show_with_owned_files() {
+    let dir = tempfile::tempdir().unwrap();
+    let src = hick_doc(
+        r#"<hick:file path="src/lib.rs">pub fn lib() {}</hick:file>
+<hick:file path="README.md">
+# Docs
+<hick:paste name="module-list"/>
+</hick:file>"#,
+    );
+    std::fs::write(dir.path().join("_hick.yml"), "files:\n  - main.hick\n").unwrap();
+    std::fs::write(dir.path().join("main.hick"), &src).unwrap();
+    // Should not error
+    hick::pipeline::pipeline_show(dir.path()).unwrap();
+}
+
+#[test]
+fn test_pipeline_status_classifies_files() {
+    let dir = tempfile::tempdir().unwrap();
+    let src = hick_doc(r#"<hick:file path="out.txt">hello</hick:file>"#);
+    std::fs::write(dir.path().join("_hick.yml"), "files:\n  - main.hick\n").unwrap();
+    std::fs::write(dir.path().join("main.hick"), &src).unwrap();
+    // Write the output file (pipeline-owned, on disk)
+    std::fs::write(dir.path().join("out.txt"), "hello").unwrap();
+    // Write an untracked file
+    std::fs::write(dir.path().join("extra.txt"), "extra").unwrap();
+    // Should not error
+    hick::pipeline::pipeline_status(dir.path()).unwrap();
+}
+
+/// AC#4: hick run after multiple simulated agent sessions reproduces all files.
+///
+/// Simulates two sessions by appending <hick:file> elements to the pipeline
+/// hick source, then verifies hick run produces all files from both sessions.
+#[tokio::test]
+async fn test_multi_session_hick_run_reproduces_all_files() {
+    // Session 1: create initial pipeline with file a.txt
+    let session1 = hick_doc(r#"<hick:file path="a.txt">from-session-1</hick:file>"#);
+
+    let result1 = hick::run_pipeline(&[("session1.hick", &session1)], &[])
+        .await
+        .unwrap();
+    assert_eq!(result1.files.get("a.txt").unwrap(), "from-session-1");
+
+    // Session 2: new hick file appended to the same pipeline adds b.txt
+    let session2 = hick_doc(r#"<hick:file path="b.txt">from-session-2</hick:file>"#);
+
+    // Running both session files together simulates running the full pipeline
+    // after two agent sessions have each appended their own .hick file.
+    let result_combined = hick::run_pipeline(
+        &[
+            ("session1.hick", &session1),
+            ("session2.hick", &session2),
+        ],
+        &[],
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(
+        result_combined.files.get("a.txt").unwrap(),
+        "from-session-1",
+        "session 1 file reproduced"
+    );
+    assert_eq!(
+        result_combined.files.get("b.txt").unwrap(),
+        "from-session-2",
+        "session 2 file reproduced"
+    );
+}

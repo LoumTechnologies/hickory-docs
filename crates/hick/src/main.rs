@@ -8,9 +8,6 @@ use std::path::PathBuf;
 
 use anyhow::{Result, bail};
 use clap::{Parser, Subcommand};
-use log::info;
-
-use hick::config::{HickConfig, find_config};
 use hick::store_config::{StoreBackend, StoreConfig};
 
 // ---------------------------------------------------------------------------
@@ -43,6 +40,37 @@ enum Command {
 
     /// Generate all combinations of features to separate folders.
     GenerateMatrix(hick::generate_matrix::GenerateMatrixArgs),
+
+    /// Inspect the pipeline DAG and file ownership.
+    Pipeline(PipelineArgs),
+}
+
+#[derive(clap::Args)]
+struct PipelineArgs {
+    #[command(subcommand)]
+    command: PipelineCommand,
+}
+
+#[derive(Subcommand)]
+enum PipelineCommand {
+    /// Print the pipeline DAG with file ownership and paste slots.
+    Show(PipelineShowArgs),
+    /// Show which output files are pipeline-owned vs untracked on disk.
+    Status(PipelineStatusArgs),
+}
+
+#[derive(clap::Args)]
+struct PipelineShowArgs {
+    /// Project directory (default: current dir).
+    #[arg(long)]
+    project_dir: Option<PathBuf>,
+}
+
+#[derive(clap::Args)]
+struct PipelineStatusArgs {
+    /// Project directory (default: current dir).
+    #[arg(long)]
+    project_dir: Option<PathBuf>,
 }
 
 #[derive(clap::Args)]
@@ -181,7 +209,7 @@ fn parse_cli() -> Cli {
     let is_subcommand = first_positional.is_some_and(|a| {
         matches!(
             a.as_str(),
-            "run" | "up" | "repl" | "init" | "validate" | "generate-matrix" | "help"
+            "run" | "up" | "repl" | "init" | "validate" | "generate-matrix" | "pipeline" | "help"
         )
     });
 
@@ -266,14 +294,20 @@ async fn main() -> Result<()> {
                 no_agents: args.no_agents,
             };
             let result = hick::agents::init_agents(&config)?;
+            if result.pipeline_initialized {
+                println!("Created _hick.yml");
+            }
             if result.agents_file_created {
                 println!("Created .agents/hick.md");
             }
             if let Some(ref path) = result.reference_added_to {
                 println!("Added reference to {}", path.display());
             }
-            if !result.agents_file_created && result.reference_added_to.is_none() {
-                println!("Nothing to do (--no-agents specified or already initialized)");
+            if !result.pipeline_initialized
+                && !result.agents_file_created
+                && result.reference_added_to.is_none()
+            {
+                println!("Nothing to do (already initialized)");
             }
             Ok(())
         }
@@ -302,6 +336,22 @@ async fn main() -> Result<()> {
         Command::GenerateMatrix(args) => {
             init_logger(args.verbose);
             hick::generate_matrix::run(args).await
+        }
+        Command::Pipeline(args) => {
+            let project_dir = match &args.command {
+                PipelineCommand::Show(a) => a
+                    .project_dir
+                    .clone()
+                    .unwrap_or_else(|| std::env::current_dir().unwrap_or_default()),
+                PipelineCommand::Status(a) => a
+                    .project_dir
+                    .clone()
+                    .unwrap_or_else(|| std::env::current_dir().unwrap_or_default()),
+            };
+            match args.command {
+                PipelineCommand::Show(_) => hick::pipeline::pipeline_show(&project_dir),
+                PipelineCommand::Status(_) => hick::pipeline::pipeline_status(&project_dir),
+            }
         }
     }
 }
