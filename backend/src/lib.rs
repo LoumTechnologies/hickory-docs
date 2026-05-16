@@ -24,7 +24,7 @@ pub struct AppState {
     pub db: db::Database,
 }
 
-pub async fn run() -> Result&lt;()&gt; {
+pub async fn run() -> Result<()> {
     tracing_subscriber::registry()
         .with(
             tracing_subscriber::EnvFilter::try_from_default_env()
@@ -47,11 +47,11 @@ pub async fn run() -> Result&lt;()&gt; {
     Ok(())
 }
 
-async fn health() -> &amp;'static str {
+async fn health() -> &'static str {
     "OK"
 }
 
-pub fn create_router(state: Arc&lt;AppState&gt;) -> Router {
+pub fn create_router(state: Arc<AppState>) -> Router {
     let cors = CorsLayer::new()
         .allow_origin(Any)
         .allow_methods(Any)

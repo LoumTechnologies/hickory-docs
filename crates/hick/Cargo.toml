@@ -15,6 +15,10 @@ path = "src/bin/hick-equiv.rs"
 name = "hick-compact"
 path = "src/bin/hick-compact.rs"
 
+[[bin]]
+name = "hick-promote"
+path = "src/bin/hick-promote.rs"
+
 [dependencies]
 container.workspace = true
 connection-filter = { workspace = true, features = ["capability"] }

@@ -9,6 +9,7 @@ pub mod auth;
 pub mod cache;
 pub mod compact;
 pub mod config;
+pub mod promote;
 pub mod equiv;
 pub mod executor;
 pub mod generate_matrix;

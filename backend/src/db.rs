@@ -4,11 +4,11 @@ use std::path::Path;
 use std::sync::Mutex;
 
 pub struct Database {
-    conn: Mutex&lt;Connection&gt;,
+    conn: Mutex<Connection>,
 }
 
 impl Database {
-    pub fn open(path: &amp;str) -> Result&lt;Self&gt; {
+    pub fn open(path: &str) -> Result<Self> {
         if let Some(parent) = Path::new(path).parent() {
             std::fs::create_dir_all(parent)?;
         }
@@ -17,11 +17,11 @@ impl Database {
         Ok(Self { conn: Mutex::new(conn) })
     }
 
-    pub fn conn(&amp;self) -> std::sync::MutexGuard&lt;'_, Connection&gt; {
+    pub fn conn(&self) -> std::sync::MutexGuard<'_, Connection> {
         self.conn.lock().expect("database lock poisoned")
     }
 
-    pub fn run_migrations(&amp;self) -> Result&lt;()&gt; {
+    pub fn run_migrations(&self) -> Result<()> {
         let conn = self.conn();
         let migration_dir = Path::new("migrations");
         if !migration_dir.exists() {
@@ -33,7 +33,7 @@ impl Database {
                 applied_at TEXT NOT NULL DEFAULT (datetime('now'))
             )"
         )?;
-        let mut entries: Vec&lt;_&gt; = std::fs::read_dir(migration_dir)?
+        let mut entries: Vec<_> = std::fs::read_dir(migration_dir)?
             .filter_map(|e| e.ok())
             .filter(|e| e.path().extension().map_or(false, |ext| ext == "sql"))
             .collect();
@@ -42,13 +42,13 @@ impl Database {
             let name = entry.file_name().to_string_lossy().to_string();
             let already_applied: bool = conn.query_row(
                 "SELECT COUNT(*) > 0 FROM _migrations WHERE name = ?1",
-                [&amp;name],
+                [&name],
                 |row| row.get(0),
             )?;
             if !already_applied {
                 let sql = std::fs::read_to_string(entry.path())?;
-                conn.execute_batch(&amp;sql)?;
-                conn.execute("INSERT INTO _migrations (name) VALUES (?1)", [&amp;name])?;
+                conn.execute_batch(&sql)?;
+                conn.execute("INSERT INTO _migrations (name) VALUES (?1)", [&name])?;
                 tracing::info!("applied migration: {}", name);
             }
         }

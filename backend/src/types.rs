@@ -6,19 +6,19 @@ use serde::{Deserialize, Serialize};
 pub type Money = Decimal;
 
 /// Standard ID prefix format: "entity-uuid7"
-pub fn new_id(prefix: &amp;str) -> String {
+pub fn new_id(prefix: &str) -> String {
     format!("{}-{}", prefix, uuid::Uuid::now_v7())
 }
 
 /// Read a Decimal from a rusqlite row column (stored as REAL in SQLite).
-pub fn get_decimal(row: &amp;rusqlite::Row, idx: usize) -> rusqlite::Result&lt;Decimal&gt; {
+pub fn get_decimal(row: &rusqlite::Row, idx: usize) -> rusqlite::Result<Decimal> {
     let val: f64 = row.get(idx)?;
     Ok(Decimal::from_f64(val).unwrap_or_default())
 }
 
 /// Read an optional Decimal from a rusqlite row column.
-pub fn get_decimal_opt(row: &amp;rusqlite::Row, idx: usize) -> rusqlite::Result&lt;Option&lt;Decimal&gt;&gt; {
-    let val: Option&lt;f64&gt; = row.get(idx)?;
+pub fn get_decimal_opt(row: &rusqlite::Row, idx: usize) -> rusqlite::Result<Option<Decimal>> {
+    let val: Option<f64> = row.get(idx)?;
     Ok(val.map(|v| Decimal::from_f64(v).unwrap_or_default()))
 }
 

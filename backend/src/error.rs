@@ -20,7 +20,7 @@ pub enum AppError {
 
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
-        let (status, message) = match &amp;self {
+        let (status, message) = match &self {
             AppError::NotFound(msg) => (StatusCode::NOT_FOUND, msg.clone()),
             AppError::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg.clone()),
             AppError::Internal(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg.clone()),
@@ -29,13 +29,13 @@ impl IntoResponse for AppError {
     }
 }
 
-impl From&lt;anyhow::Error&gt; for AppError {
+impl From<anyhow::Error> for AppError {
     fn from(err: anyhow::Error) -> Self {
         AppError::Internal(err.to_string())
     }
 }
 
-impl From&lt;rusqlite::Error&gt; for AppError {
+impl From<rusqlite::Error> for AppError {
     fn from(err: rusqlite::Error) -> Self {
         AppError::Internal(err.to_string())
     }
