@@ -1,12 +1,12 @@
 [package]
-name = "hick-basic"
+name = "copper-ledge"
 version = "0.1.0"
 edition = "2024"
-description = "Baseline AI coding agent — script-first ReAct loop with no hick pipeline awareness."
+description = "Standard AI coding agent — script-first ReAct loop, WASM sandbox, no pipeline-specific knowledge."
 publish = false
 
 [[bin]]
-name = "hick-basic"
+name = "copper-ledge"
 path = "src/main.rs"
 
 [features]

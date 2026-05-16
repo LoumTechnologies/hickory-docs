@@ -35,7 +35,7 @@ use crate::tools::{CodeBlock, Language, ScriptResult, extract_code_blocks};
 
 // ── System prompt ────────────────────────────────────────────────────────────
 
-const SYSTEM_PROMPT: &str = r#"You are an AI coding agent for projects using Hick (hickory docs) — an XML format for defining containers, file outputs, and code generation.
+const SYSTEM_PROMPT: &str = r#"You are an AI coding agent. You work by writing and executing code to accomplish tasks.
 
 ## Response format (REQUIRED)
 
@@ -54,27 +54,26 @@ Write ONE fenced code block per response, then STOP and wait for the real execut
 
 ## Executable fenced blocks (runner map)
 
-Pick a fence whose runner exists in your environment (see the runtime probe in the system prompt when using the sandbox).
+Pick a fence whose runner exists in your environment (see the runtime probe):
 
 - Shell: ```bash, ```sh, ```shell, ```posix-sh — saved as POSIX `sh`; use for `apk add`, `ls`, pipelines, POSIX scripts, installers, compilers, etc.
-- Python: ```python — `python3` + Hickory SDK
+- Python: ```python — `python3`
 - JavaScript (Node): ```javascript / ```js — `node`
 - C#: ```csharp / ```cs — `dotnet-script`
 - TypeScript: ```typescript / ```ts — `tsx`
 
-You may install language runtimes or packages yourself inside the sandbox (e.g. `apk add …`, `npm install -g …`, pip, curling binaries) whenever you need them. No separate permission step—go ahead and fix the environment if something is missing (subject to Hick resource limits you may hit as normal errors).
+You may install language runtimes or packages yourself inside the sandbox (e.g. `apk add …`, `npm install -g …`, pip, curling binaries) whenever you need them. No separate permission step — go ahead and fix the environment if something is missing.
 
-## Available languages / patterns
+## Available languages
 
 ### Shell (recommended for discovery and installs)
 - Prefer ```bash when you want simple commands: `find`, `ls`, `apk add python3 py3-pip`, `wget`, etc.
-- Scripts run as `sh /workspace/.hick/tmp/…` — the interpreter is POSIX `sh` for these fences (shebang lines are ignored). Call another interpreter explicitly (`python3 …`, `bash …`) once installed.
+- Scripts run as POSIX `sh` (shebang lines are ignored). Call another interpreter explicitly (`python3 …`, `bash …`) once installed.
 
 ### Python
 - Read/write files with `open()`, `os`, `pathlib`
 - Run shell commands with `subprocess.run()`
 - Install packages: `subprocess.run(['pip', 'install', ...])` (after installing pip if needed)
-- Hickory SDK: `from hickory import hick` (Python only — SDK under `/workspace/.hick/sdk`)
 
 ### JavaScript (Node)
 - Runs with `node`. Use `.mjs` style or plain CommonJS depending on what's available after install.
@@ -87,41 +86,9 @@ You may install language runtimes or packages yourself inside the sandbox (e.g. 
 ### TypeScript (tsx)
 - Write TypeScript; requires `tsx` (install globally or via npm/npx depending on probe output).
 
-## Hickory SDK (Python only)
-  from hickory import hick
-  hick.query(selector, file=path)      — find elements (fn, struct, class, #id, .class)
-  hick.structure(path)                  — structural summary of a generated file
-  hick.provenance(path, start, end)    — which .hick source generated these lines
-  hick.edit(selector, new_code, file=path) — compute source edits
-  hick.apply(edits)                     — apply edits to .hick source files
-
-## Hick XML format
-
-.hick files use this format:
-  <hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
-    <hick:file path="output/path.py">
-  file content here
-    </hick:file>
-  </hick:doc>
-
-Key elements:
-- Root element: `<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">`
-- File output: `<hick:file path="relative/path">content</hick:file>`
-- Variables: `<hick:var name="x">value</hick:var>` and `<hick:paste select="$x"/>`
-- Shell exec: `<hick:exec container="default">command</hick:exec>`
-
 ## Key concepts
 
-1. **Output files are generated** from `.hick` XML source files. The pipeline runs transparently when `.hick` files change — you never need to run it manually.
-
-2. **Edit .hick source, not output files.** Use the hickory SDK to map output locations back to .hick source, or edit .hick files directly.
-
-3. **`<hick:exec>` vs one-off commands:**
-   - Use one-off scripts for: running tests, installing deps, checking status
-   - Use `<hick:exec container="...">` in .hick files for recurring code generation
-   - Rule: if the command's output becomes part of generated code, put it in a `<hick:exec>` block
-
-4. **Print your results.** Your script's stdout is what you see as observation. Use print/Console.WriteLine/console.log in typed languages, or echo/printf for shell fences, to report findings.
+1. **Print your results.** Your script's stdout is what you see as observation. Use print/Console.WriteLine/console.log in typed languages, or echo/printf for shell fences, to report findings.
 "#;
 
 /// Appended to the system prompt when code runs in the WASM sandbox (normal mode).
@@ -221,7 +188,7 @@ impl hick_agent_sdk::CommandExecutor for NoopSandbox {
 pub struct ReactLoop {
     /// SDK runtime — manages history, LLM calls, and project context.
     runtime: AgentRuntime,
-    /// Host project directory (used for .hick/tmp script staging).
+    /// Host project directory (used for script staging under `agent_dir`).
     pub project_dir: PathBuf,
     max_turns: usize,
     /// Maximum re-prompt attempts when the LLM violates the response protocol.
@@ -237,6 +204,13 @@ pub struct ReactLoop {
     policy_evaluator: Option<PolicyEvaluator>,
     /// Optional sink guard for classification-based API call gating.
     sink_guard: Option<Arc<SinkGuard>>,
+    /// Hidden directory under `project_dir` used for script staging and optional SDK.
+    /// Defaults to `".agent"`. Set to `".hick"` for iron-peak.
+    agent_dir: String,
+    /// Overrides the built-in system prompt when set.
+    custom_system_prompt: Option<String>,
+    /// When true, injects `PYTHONPATH=<agent_dir>/sdk` for Python script execution.
+    inject_sdk_pythonpath: bool,
 }
 
 impl ReactLoop {
@@ -257,12 +231,41 @@ impl ReactLoop {
             sandbox_image: "alpine".to_string(),
             policy_evaluator: None,
             sink_guard: None,
+            agent_dir: ".agent".to_string(),
+            custom_system_prompt: None,
+            inject_sdk_pythonpath: false,
         }
     }
 
     /// Override the maximum number of re-prompt retries on protocol violations.
     pub fn with_max_reprompts(mut self, n: usize) -> Self {
         self.max_reprompts = n;
+        self
+    }
+
+    /// Set the hidden agent directory used for script staging (default: `".agent"`).
+    ///
+    /// Scripts are staged at `<project_dir>/<agent_dir>/tmp/` on the host and
+    /// `/workspace/<agent_dir>/tmp/` inside the WASM container.
+    pub fn with_agent_dir(mut self, dir: impl Into<String>) -> Self {
+        self.agent_dir = dir.into();
+        self
+    }
+
+    /// Override the default system prompt with a custom one.
+    ///
+    /// The sandbox execution context and project context are still appended.
+    /// Use this to inject agent-specific instructions (e.g. hick pipeline editing).
+    pub fn with_system_prompt(mut self, prompt: impl Into<String>) -> Self {
+        self.custom_system_prompt = Some(prompt.into());
+        self
+    }
+
+    /// Enable `PYTHONPATH=<agent_dir>/sdk` injection for Python script execution.
+    ///
+    /// Use this when an SDK is bundled into `<project_dir>/<agent_dir>/sdk/`.
+    pub fn with_sdk(mut self) -> Self {
+        self.inject_sdk_pythonpath = true;
         self
     }
 
@@ -384,7 +387,7 @@ impl ReactLoop {
     // ── Script execution ──────────────────────────────────────────────────────
 
     async fn execute_code_block(&self, block: &CodeBlock, index: usize) -> ScriptResult {
-        let tmp_dir = self.project_dir.join(".hick").join("tmp");
+        let tmp_dir = self.project_dir.join(&self.agent_dir).join("tmp");
         if let Err(e) = std::fs::create_dir_all(&tmp_dir) {
             return ScriptResult {
                 stdout: String::new(),
@@ -403,13 +406,21 @@ impl ReactLoop {
             };
         }
 
-        let container_script_path = format!("/workspace/.hick/tmp/{filename}");
+        let container_script_path =
+            format!("/workspace/{}/tmp/{filename}", self.agent_dir);
 
         if let Some(ref executor) = self.executor {
             let run_cmd = block.language.run_command(&container_script_path);
             let cmd = match block.language {
                 Language::Python => {
-                    format!("PYTHONPATH=/workspace/.hick/sdk WORKSPACE=/workspace {run_cmd}")
+                    if self.inject_sdk_pythonpath {
+                        format!(
+                            "PYTHONPATH=/workspace/{}/sdk WORKSPACE=/workspace {run_cmd}",
+                            self.agent_dir
+                        )
+                    } else {
+                        format!("WORKSPACE=/workspace {run_cmd}")
+                    }
                 }
                 Language::Shell
                 | Language::JavaScript
@@ -488,14 +499,22 @@ impl ReactLoop {
 
             let cwd = self.project_dir.as_path();
             let path_os = script_path.into_os_string();
-            let sdk_path = self.project_dir.join(".hick").join("sdk");
+            let sdk_path = self.project_dir.join(&self.agent_dir).join("sdk");
             match block.language {
                 Language::Python => {
-                    let py_env = [
-                        (std::ffi::OsStr::new("PYTHONPATH"), sdk_path.as_os_str()),
-                        (std::ffi::OsStr::new("WORKSPACE"), self.project_dir.as_os_str()),
-                    ];
-                    spawn_and_collect("python3", &[path_os], cwd, &py_env).await
+                    if self.inject_sdk_pythonpath {
+                        let py_env = [
+                            (std::ffi::OsStr::new("PYTHONPATH"), sdk_path.as_os_str()),
+                            (std::ffi::OsStr::new("WORKSPACE"), self.project_dir.as_os_str()),
+                        ];
+                        spawn_and_collect("python3", &[path_os], cwd, &py_env).await
+                    } else {
+                        let py_env = [(
+                            std::ffi::OsStr::new("WORKSPACE"),
+                            self.project_dir.as_os_str(),
+                        )];
+                        spawn_and_collect("python3", &[path_os], cwd, &py_env).await
+                    }
                 }
                 Language::Shell => spawn_and_collect("sh", &[path_os], cwd, &[]).await,
                 Language::JavaScript => spawn_and_collect("node", &[path_os], cwd, &[]).await,
@@ -751,7 +770,11 @@ impl ReactLoop {
     ) -> anyhow::Result<()> {
         if self.runtime.history().is_empty() {
             // First turn: build and inject the system prompt.
-            let mut system = SYSTEM_PROMPT.to_string();
+            let base = self
+                .custom_system_prompt
+                .as_deref()
+                .unwrap_or(SYSTEM_PROMPT);
+            let mut system = base.to_string();
             if self.executor.is_some() {
                 system.push_str(SANDBOX_EXECUTION_CONTEXT);
                 if let Some(probe) = self.sandbox_runtime_probe_text().await {

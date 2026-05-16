@@ -1,8 +1,7 @@
-//! hick-basic: baseline AI coding agent.
+//! copper-ledge: standard AI coding agent.
 //!
 //! Launches the script-first ReAct agent TUI with no hick pipeline features.
-//! Useful as an evaluation baseline: does the agent add value before any
-//! hick-XML-aware extensions are added?
+//! Works on any codebase. Useful as an evaluation baseline against iron-peak.
 
 use std::fmt;
 use std::io::Write as _;
@@ -14,7 +13,7 @@ use clap::{Parser, ValueEnum};
 use hick_agent_core::{CommandExecutor, WasmSandboxConfig, WasmSandboxExecutor};
 use tokio::sync::{Mutex, Notify, mpsc};
 
-use hick_basic::tui::run_tui;
+use copper_ledge::tui::run_tui;
 use hick_agent_script_first::{AgentCommand, AgentEvent, ReactLoop};
 use hick_agent_sdk::{
     AgentSecurityConfig, AnthropicClient, FilteredLlmClient, LlmClient,
@@ -23,8 +22,8 @@ use hick_agent_sdk::{
 use hick_agent_sdk::network_filter::extract_host_from_url;
 
 #[derive(Parser)]
-#[command(name = "hick-basic")]
-#[command(about = "Baseline AI coding agent — script-first ReAct loop, works on any repo")]
+#[command(name = "copper-ledge")]
+#[command(about = "Standard AI coding agent — script-first ReAct loop, works on any repo")]
 struct Cli {
     /// Project directory (default: current dir)
     #[arg(short, long)]
@@ -118,7 +117,7 @@ fn select_provider(detected: Vec<DetectedProvider>) -> Result<Provider> {
              \x20 OPENAI_API_KEY     — OpenAI\n\
              \x20 XAI_API_KEY        — xAI / Grok\n\n\
              Or specify a provider explicitly:\n\
-             \x20 hick-basic --provider anthropic"
+             \x20 copper-ledge --provider anthropic"
         );
     }
 
@@ -392,7 +391,7 @@ async fn main() -> Result<()> {
         workdir: project_dir.clone(),
         default_image: default_image.clone(),
         capabilities: sandbox_caps,
-        auth: None, // no auth injection in hick-basic
+        auth: None,
         guest_network_enabled: sandbox_guest_network,
     };
     let sandbox_executor: Arc<Mutex<dyn CommandExecutor>> =
@@ -405,7 +404,8 @@ async fn main() -> Result<()> {
 
     let mut react_loop = ReactLoop::new(llm, project_dir.clone())
         .with_executor(sandbox_executor, default_image.clone())
-        .with_sink_guard(sink_guard);
+        .with_sink_guard(sink_guard)
+        .with_agent_dir(".copper-ledge");
 
     // Wire up policy evaluator if configured.
     if let Some(ref policy_path) = security_config.policy_script {
@@ -450,8 +450,6 @@ async fn main() -> Result<()> {
 
     react_loop.stream_output = !cli.no_stream;
 
-    setup_sdk(&project_dir);
-
     event_tx
         .send(AgentEvent::Info(format!(
             "Project: {}",
@@ -463,9 +461,9 @@ async fn main() -> Result<()> {
 
     let log_path = {
         let ts = chrono::Local::now().format("%Y%m%d-%H%M%S");
-        let log_dir = project_dir.join(".hick");
+        let log_dir = project_dir.join(".copper-ledge");
         std::fs::create_dir_all(&log_dir).ok();
-        log_dir.join(format!("basic-{ts}.hick"))
+        log_dir.join(format!("session-{ts}.log"))
     };
 
     let interrupt_agent = Arc::clone(&interrupt);
@@ -485,34 +483,4 @@ async fn main() -> Result<()> {
     .await??;
 
     Ok(())
-}
-
-fn setup_sdk(project_dir: &std::path::Path) {
-    let sdk_dest = project_dir.join(".hick").join("sdk").join("hickory");
-    if sdk_dest.join("__init__.py").exists() {
-        return;
-    }
-
-    let sdk_source = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("sdk")
-        .join("hickory");
-
-    if !sdk_source.exists() {
-        return;
-    }
-
-    if let Err(e) = std::fs::create_dir_all(&sdk_dest) {
-        eprintln!("Warning: could not create SDK dir: {e}");
-        return;
-    }
-
-    for entry in ["__init__.py", "client.py"] {
-        let src = sdk_source.join(entry);
-        let dst = sdk_dest.join(entry);
-        if src.exists()
-            && let Err(e) = std::fs::copy(&src, &dst)
-        {
-            eprintln!("Warning: could not copy SDK file {entry}: {e}");
-        }
-    }
 }

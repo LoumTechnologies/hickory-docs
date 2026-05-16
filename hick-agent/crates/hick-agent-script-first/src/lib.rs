@@ -5,15 +5,11 @@
 //! and executed in a WASM sandbox, and stdout is fed back as the next
 //! observation.
 //!
-//! This crate is intentionally hick-aware: it depends on the hick pipeline for
-//! [`PipelineWatcher`] and on `hick-agent-core` for the WASM sandbox executor.
+//! This crate has zero knowledge of hick XML, hick pipelines, or hickory-specific
+//! formats. It works on any codebase.
 
-pub mod backing;
 pub mod events;
-pub mod file_io;
-pub mod pipeline_watcher;
 pub mod react_loop;
-pub mod reverse_provenance;
 pub mod state;
 pub mod tools;
 
@@ -21,8 +17,6 @@ pub mod tools;
 pub use events::AgentEvent;
 /// Commands sent from the UI to the agent core (user messages, quit).
 pub use events::AgentCommand;
-/// Watches `.hick` files and transparently reruns the pipeline.
-pub use pipeline_watcher::PipelineWatcher;
 /// Script-first ReAct loop: extracts code blocks from LLM responses and executes them in a sandbox.
 pub use react_loop::ReactLoop;
 /// State machine for the script-first ReAct agent loop.

@@ -12,9 +12,9 @@ use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use futures::Stream;
-use hick_agent::events::AgentEvent;
-use hick_agent::llm::{ChatChunk, LlmClient, Message};
-use hick_agent::{Agent, AgentConfig, ReactLoop};
+use iron_peak::events::AgentEvent;
+use iron_peak::llm::{ChatChunk, LlmClient, Message};
+use hick_agent_script_first::ReactLoop;
 use hick_agent_core::{CommandExecutor, WasmSandboxConfig, WasmSandboxExecutor};
 use hick_token::ContainerCapabilities;
 use tokio::sync::Notify;
@@ -214,23 +214,15 @@ pub async fn run_agent(
 ) -> Vec<AgentEvent> {
     let llm = ScriptedLlm::new(responses);
 
-    let config = AgentConfig {
-        project_dir: workdir.to_path_buf(),
-        images_dir: images_dir(),
-        default_image: image.to_string(),
-    };
-
-    let agent = Agent::new(config, Box::new(llm));
-
-    let react =
-        ReactLoop::new(agent, workdir.to_path_buf()).with_executor(executor, image.to_string());
+    let react = ReactLoop::new(Box::new(llm), workdir.to_path_buf())
+        .with_executor(executor, image.to_string())
+        .with_agent_dir(".hick");
 
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
     let interrupt = Notify::new();
 
-    let mut history = Vec::new();
     react
-        .run("test", &mut history, &tx, &interrupt)
+        .run("test", &tx, &interrupt)
         .await
         .expect("ReactLoop::run failed");
 
@@ -244,7 +236,7 @@ pub async fn run_agent(
 }
 
 /// Collect all `ScriptFinished` events from a run.
-pub fn finished_results(events: &[AgentEvent]) -> Vec<&hick_agent::tools::ScriptResult> {
+pub fn finished_results(events: &[AgentEvent]) -> Vec<&iron_peak::tools::ScriptResult> {
     events
         .iter()
         .filter_map(|e| match e {

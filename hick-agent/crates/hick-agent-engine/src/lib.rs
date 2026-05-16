@@ -2,7 +2,7 @@
 //!
 //! All agent logic has been split into two crates:
 //! - [`hick_agent_sdk`] — generic building blocks (LLM clients, sandbox, network filter, etc.)
-//! - [`hick_agent_script_first`] — script-first ReAct strategy (ReactLoop, PipelineWatcher, events, tools)
+//! - [`hick_agent_script_first`] — script-first ReAct strategy (ReactLoop, events, tools)
 //!
 //! The `local` llama.cpp provider lives here because llama-cpp-2 is a heavy optional dep
 //! that only the binary needs; it is not suitable for the sdk.
@@ -15,8 +15,6 @@ pub use hick_agent_script_first::AgentCommand;
 pub use hick_agent_script_first::AgentEvent;
 /// State machine for the script-first ReAct agent loop.
 pub use hick_agent_script_first::AgentState;
-/// Watches `.hick` files, transparently reruns the pipeline, and applies reverse provenance.
-pub use hick_agent_script_first::PipelineWatcher;
 /// Script-first ReAct loop: extracts code blocks from LLM responses and executes them in a sandbox.
 pub use hick_agent_script_first::ReactLoop;
 /// A code block extracted from an LLM response.

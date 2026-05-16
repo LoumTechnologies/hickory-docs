@@ -4,14 +4,14 @@
 //! deterministic responses, the ReactLoop extracts code blocks, executes
 //! them in the WASM sandbox, and feeds observations back.
 //!
-//! Run with: cargo test -p hick-agent --features integration-test --test react_loop_integration -- --test-threads=1
+//! Run with: cargo test -p iron-peak --features integration-test --test react_loop_integration -- --test-threads=1
 
 #![cfg(feature = "integration-test")]
 
 mod common;
 
 use common::{create_executor, done_message, finished_results, run_agent};
-use hick_agent::events::AgentEvent;
+use iron_peak::events::AgentEvent;
 
 #[tokio::test(flavor = "multi_thread")]
 async fn single_turn_no_code() {

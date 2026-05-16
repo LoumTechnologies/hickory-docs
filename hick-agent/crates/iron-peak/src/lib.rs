@@ -1,7 +1,8 @@
-//! AI command-line coding agent.
+//! iron-peak: hick-native AI coding agent.
 //!
-//! This crate is a thin CLI/TUI wrapper that wires [`hick_agent_sdk`] (runtime)
-//! and [`hick_agent_script_first`] (script-first ReAct strategy) together.
+//! A thin CLI/TUI wrapper wiring [`hick_agent_sdk`] (runtime),
+//! [`hick_agent_script_first`] (script-first ReAct strategy), and
+//! [`hick_agent_hick_edit`] (hick pipeline integration) together.
 
 /// Event types for agent-to-UI communication.
 pub use hick_agent_script_first::events;
@@ -35,7 +36,7 @@ pub use hick_agent_sdk::NetworkVerdict;
 /// OpenAI-compatible chat completion client.
 pub use hick_agent_sdk::OpenAiCompatClient;
 /// Watches `.hick` files, transparently reruns the pipeline, and applies reverse provenance.
-pub use hick_agent_script_first::PipelineWatcher;
+pub use hick_agent_hick_edit::PipelineWatcher;
 /// Script-first ReAct loop.
 pub use hick_agent_script_first::ReactLoop;
 /// Validates outbound API sink calls against capability tokens and sink definitions.

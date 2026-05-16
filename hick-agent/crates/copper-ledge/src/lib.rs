@@ -1,8 +1,8 @@
-//! Baseline AI coding agent — script-first ReAct loop, no hick pipeline knowledge.
+//! copper-ledge: standard AI coding agent.
 //!
-//! This crate is a thin CLI/TUI wrapper that wires [`hick_agent_sdk`] (runtime)
-//! and [`hick_agent_script_first`] (script-first ReAct strategy) together
-//! without any dependency on the hick pipeline, hick-lang, or hick XML editing.
+//! A thin CLI/TUI wrapper wiring [`hick_agent_sdk`] (runtime) and
+//! [`hick_agent_script_first`] (script-first ReAct strategy). Zero knowledge of
+//! hick XML, hick pipelines, or any hickory-specific format.
 
 /// Event types for agent-to-UI communication.
 pub use hick_agent_script_first::events;
