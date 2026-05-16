@@ -6,11 +6,12 @@ title: >-
 status: To Do
 assignee: []
 created_date: '2026-05-16 12:23'
-updated_date: '2026-05-16 12:57'
+updated_date: '2026-05-16 13:02'
 labels:
   - mcp
   - extensions
   - graphql
+milestone: m-3
 dependencies:
   - TASK-24.1
   - TASK-24.2

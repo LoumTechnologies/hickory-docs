@@ -4,10 +4,12 @@ title: 'Extension hick-agent-mcp-xml: hick:tool XML element dispatcher for MCP t
 status: To Do
 assignee: []
 created_date: '2026-05-16 12:23'
+updated_date: '2026-05-16 13:02'
 labels:
   - mcp
   - extensions
   - hick-xml
+milestone: m-3
 dependencies:
   - TASK-24.1
   - TASK-24.2

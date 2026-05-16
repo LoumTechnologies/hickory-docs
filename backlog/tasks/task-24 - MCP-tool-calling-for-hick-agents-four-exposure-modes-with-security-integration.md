@@ -6,11 +6,13 @@ title: >-
 status: To Do
 assignee: []
 created_date: '2026-05-16 12:21'
+updated_date: '2026-05-16 13:02'
 labels:
   - mcp
   - security
   - extensions
   - tool-calling
+milestone: m-3
 dependencies: []
 priority: high
 ---

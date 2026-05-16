@@ -4,12 +4,13 @@ title: MCP response format config option for hick agent implementations
 status: To Do
 assignee: []
 created_date: '2026-05-16 12:56'
-updated_date: '2026-05-16 13:00'
+updated_date: '2026-05-16 13:02'
 labels:
   - mcp
   - graphql
   - eval
   - context-efficiency
+milestone: m-3
 dependencies:
   - TASK-24.1
   - TASK-23

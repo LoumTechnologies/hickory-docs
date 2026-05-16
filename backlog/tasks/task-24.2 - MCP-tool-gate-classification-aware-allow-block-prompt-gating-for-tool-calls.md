@@ -4,9 +4,11 @@ title: 'MCP tool gate: classification-aware allow/block/prompt gating for tool c
 status: To Do
 assignee: []
 created_date: '2026-05-16 12:22'
+updated_date: '2026-05-16 13:02'
 labels:
   - mcp
   - security
+milestone: m-3
 dependencies:
   - TASK-24.1
 references:

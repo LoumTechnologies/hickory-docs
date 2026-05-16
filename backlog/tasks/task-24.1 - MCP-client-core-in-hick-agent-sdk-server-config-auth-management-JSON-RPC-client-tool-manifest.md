@@ -6,10 +6,12 @@ title: >-
 status: To Do
 assignee: []
 created_date: '2026-05-16 12:22'
+updated_date: '2026-05-16 13:02'
 labels:
   - mcp
   - security
   - sdk
+milestone: m-3
 dependencies: []
 references:
   - hick-agent/crates/hick-agent-sdk/src/security_config.rs

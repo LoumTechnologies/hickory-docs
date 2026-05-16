@@ -4,12 +4,13 @@ title: 'Extension hick-agent-mcp-wasm: auto-generated WASI CLI binary per MCP to
 status: To Do
 assignee: []
 created_date: '2026-05-16 12:22'
-updated_date: '2026-05-16 12:52'
+updated_date: '2026-05-16 13:02'
 labels:
   - mcp
   - wasm
   - wasi
   - extensions
+milestone: m-3
 dependencies:
   - TASK-24.1
   - TASK-24.2
