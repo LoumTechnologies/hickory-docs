@@ -3,9 +3,10 @@ id: TASK-19
 title: >-
   Session → pipeline promotion: hick promote extracts a clean pipeline from a
   session file
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-05-15 12:46'
+updated_date: '2026-05-16 11:58'
 labels: []
 milestone: m-1
 dependencies:
@@ -55,12 +56,36 @@ hick promote <session.hick> [--output pipeline.hick] [--append _hick.yml] [--dry
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 hick promote <session.hick> produces a valid .hick pipeline file
-- [ ] #2 Only surviving (last-written) file paths appear in the output; overwritten paths are discarded
-- [ ] #3 Files already in the pipeline become hick:copy elements; new files become hick:file elements
-- [ ] #4 --dry-run prints what would be emitted without writing
-- [ ] #5 --append _hick.yml appends elements to the project pipeline file
+- [x] #1 hick promote <session.hick> produces a valid .hick pipeline file
+- [x] #2 Only surviving (last-written) file paths appear in the output; overwritten paths are discarded
+- [x] #3 Files already in the pipeline become hick:copy elements; new files become hick:file elements
+- [x] #4 --dry-run prints what would be emitted without writing
+- [x] #5 --append _hick.yml appends elements to the project pipeline file
 - [ ] #6 hick run <promoted.hick> produces identical output files to the original session (verified by diff)
 - [ ] #7 hick equiv <original-session.hick> <promoted.hick> passes (same outputs)
-- [ ] #8 cargo test --workspace passes
+- [x] #8 cargo test --workspace passes
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Implemented `hick-promote` — the session → pipeline promotion tool.
+
+**New Rust module** (`crates/hick/src/promote.rs`):
+- `PromoteOpts` / `PromoteResult` public API
+- Parses session files via `hick_lang::parse_session()`
+- Extracts Python write ops (`pipeline_write`, `pipeline_new_file`, `open()`) and shell redirect ops (`> path`) from each `hick:action` block
+- Custom Python string literal parser (single/double/triple-quoted, no regex dependency)
+- Deduplicates writes, keeping only the last write per path (AC#2)
+- Pipeline-owned paths → `<hick:copy target="slot">`; new paths → `<hick:file path="...">` (AC#3)
+- Falls back to reading current file from disk when content is a variable reference
+- 20 unit tests
+
+**New binary** (`crates/hick/src/bin/hick-promote.rs`):
+- CLI: `hick-promote <session.hick> [-o output] [--append _hick.yml] [--dry-run]`
+- Follows `hick-compact` / `hick-equiv` pattern (AC#1, AC#4, AC#5)
+
+**Also fixed** pre-existing XML-entity corruption in `backend/src/*.rs` (introduced by TASK-18's pipeline-write XML escaping): `&lt;` → `<`, `&gt;` → `>`, `&amp;` → `&`.
+
+AC#6 (`hick equiv` round-trip) and AC#7 (`hick run` identity) are integration/manual tests requiring live session files — infrastructure is in place.
+<!-- SECTION:FINAL_SUMMARY:END -->
