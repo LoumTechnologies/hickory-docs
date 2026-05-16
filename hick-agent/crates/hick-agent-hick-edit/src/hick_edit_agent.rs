@@ -8,6 +8,7 @@ use tokio::sync::Mutex;
 use hick_agent_sdk::AgentRuntime;
 
 use crate::file_io::load_hick_sources;
+use crate::paste_slot_inserter::insert_paste_slots;
 use crate::{HickEditService, PasteSlotRegistry};
 
 /// Adds hick-XML edit capabilities to an [`AgentRuntime`].
@@ -60,9 +61,14 @@ impl HickEditAgent {
 
     /// Compose a `<hick:file path="…">` XML element for producing a new output file.
     ///
+    /// Automatically inserts `<hick:paste name="…"/>` slots at structural boundaries
+    /// (function ends, class bodies, import groups, module footer) so agents have
+    /// stable, merge-safe composition points from the moment the file is created.
+    ///
     /// Returns the XML fragment the agent should insert into a `.hick` source file.
     pub fn compose_file_element(&self, path: &str, content: &str) -> String {
-        format!("<hick:file path=\"{path}\">{content}</hick:file>")
+        let content_with_slots = insert_paste_slots(path, content);
+        format!("<hick:file path=\"{path}\">{content_with_slots}</hick:file>")
     }
 
     /// Access the edit service for direct pipeline operations.

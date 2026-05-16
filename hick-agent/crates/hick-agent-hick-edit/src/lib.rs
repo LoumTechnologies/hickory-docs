@@ -20,6 +20,7 @@
 pub mod edit_format;
 pub mod file_io;
 pub mod hick_edit_agent;
+pub mod paste_slot_inserter;
 pub mod paste_slot_registry;
 pub mod pipeline_watcher;
 pub mod reverse_provenance;
@@ -56,6 +57,8 @@ pub use pipeline_watcher::PipelineState;
 /// Indexes named `<hick:paste>` slots so the agent can discover composition
 /// points without scanning every source file on each request.
 pub use paste_slot_registry::PasteSlotRegistry;
+/// Insert `<hick:paste name="…"/>` slots into `hick:file` content at structural positions.
+pub use paste_slot_inserter::insert_paste_slots;
 
 // ---------------------------------------------------------------------------
 // Hick edit agent

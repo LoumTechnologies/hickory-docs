@@ -2235,6 +2235,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "copper-ledge"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "clap",
+ "crossterm",
+ "dotenvy",
+ "env_logger",
+ "hick-agent-core",
+ "hick-agent-script-first",
+ "hick-agent-sdk",
+ "hick-policy",
+ "log",
+ "ratatui",
+ "tokio",
+]
+
+[[package]]
 name = "core-foundation"
 version = "0.9.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4126,32 +4145,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "hick-agent"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "chrono",
- "clap",
- "crossterm",
- "dotenvy",
- "env_logger",
- "futures",
- "hick",
- "hick-agent-core",
- "hick-agent-engine",
- "hick-agent-script-first",
- "hick-agent-sdk",
- "hick-policy",
- "hick-secrets",
- "log",
- "ratatui",
- "tempfile",
- "tokio",
- "zip",
-]
-
-[[package]]
 name = "hick-agent-core"
 version = "0.1.0"
 dependencies = [
@@ -4211,23 +4204,14 @@ dependencies = [
  "anyhow",
  "async-trait",
  "futures",
- "glob",
- "hick",
  "hick-agent-core",
- "hick-agent-hick-edit",
  "hick-agent-sdk",
- "hick-flow",
- "hick-lang",
  "hick-policy",
  "log",
- "notify",
  "serde",
  "serde_json",
- "serde_yaml",
- "sha2 0.10.9",
  "tempfile",
  "tokio",
- "walkdir",
 ]
 
 [[package]]
@@ -4263,25 +4247,6 @@ dependencies = [
  "network",
  "serde",
  "serde_json",
- "tokio",
-]
-
-[[package]]
-name = "hick-basic"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "chrono",
- "clap",
- "crossterm",
- "dotenvy",
- "env_logger",
- "hick-agent-core",
- "hick-agent-script-first",
- "hick-agent-sdk",
- "hick-policy",
- "log",
- "ratatui",
  "tokio",
 ]
 
@@ -5194,6 +5159,34 @@ name = "ipnet"
 version = "2.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d98f6fed1fde3f8c21bc40a1abb88dd75e67924f9cffc3ef95607bad8017f8e2"
+
+[[package]]
+name = "iron-peak"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "chrono",
+ "clap",
+ "crossterm",
+ "dotenvy",
+ "env_logger",
+ "futures",
+ "hick",
+ "hick-agent-core",
+ "hick-agent-engine",
+ "hick-agent-hick-edit",
+ "hick-agent-script-first",
+ "hick-agent-sdk",
+ "hick-lang",
+ "hick-policy",
+ "hick-secrets",
+ "log",
+ "ratatui",
+ "tempfile",
+ "tokio",
+ "zip",
+]
 
 [[package]]
 name = "is-terminal"

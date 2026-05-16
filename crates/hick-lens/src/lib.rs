@@ -14,9 +14,11 @@ pub mod annotate;
 pub mod edit;
 pub mod language;
 pub mod mapping;
+pub mod paste_slots;
 pub mod selector;
 
 pub use edit::{EditConfidence, SourceEdit};
 pub use language::Language;
 pub use mapping::{AstElement, AstElementKind, AstMapping};
+pub use paste_slots::{PasteInsertion, compute_insertions};
 pub use selector::{Selector, SelectorMatch};
