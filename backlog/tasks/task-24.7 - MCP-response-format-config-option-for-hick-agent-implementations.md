@@ -4,7 +4,7 @@ title: MCP response format config option for hick agent implementations
 status: To Do
 assignee: []
 created_date: '2026-05-16 12:56'
-updated_date: '2026-05-16 13:02'
+updated_date: '2026-05-16 13:04'
 labels:
   - mcp
   - graphql
@@ -14,6 +14,7 @@ milestone: m-3
 dependencies:
   - TASK-24.1
   - TASK-23
+  - TASK-28
 parent_task_id: TASK-24
 priority: medium
 ---
