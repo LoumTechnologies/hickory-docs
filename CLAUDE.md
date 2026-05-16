@@ -6,6 +6,31 @@ Before committing, always run the full test suite:
 cargo test --workspace -- --test-threads=1
 ```
 
+## XML Entity Escaping in Pipeline Writes
+
+**hick's parser does NOT unescape XML entity references in text content.**
+`&lt;` in a `.hick` source file will appear as `&lt;` in the pipeline output —
+not `<`. This is different from standard XML parsers.
+
+Consequence: code or text content containing `<`, `>`, or `&` (Rust generics,
+C++ templates, HTML, boolean `&&`, shell redirects, etc.) will be corrupted if
+passed through `pipeline_write`, `pipeline_new_file`, or `append_to_hick_source`
+without special handling.
+
+**Safe options:**
+1. Wrap content in a CDATA section before inserting into the `.hick` source:
+   `<![CDATA[pub fn foo<T>() -> Result<T>]]>` — CDATA content is never escaped
+   and hick preserves it literally.
+2. After any pipeline write, run `hick run` and grep the output files for XML
+   entities (`&lt;`, `&gt;`, `&amp;`) as a smoke check.
+
+**Anti-pattern to avoid:**
+```python
+# This will corrupt Rust/C++/HTML content:
+hick.pipeline_write("src/lib.rs", rust_source_with_generics)
+# The '<' in 'Result<()>' becomes '&lt;' in the output file.
+```
+
 <!-- BACKLOG.MD MCP GUIDELINES START -->
 
 <CRITICAL_INSTRUCTION>
