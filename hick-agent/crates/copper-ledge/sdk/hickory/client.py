@@ -141,6 +141,78 @@ class HickClient:
         ]
         return self._run(cmd)
 
+    def is_pipeline_owned(self, output_file):
+        """Check whether a file is owned by the hick pipeline."""
+        try:
+            owned = self.pipeline_list_owned()
+            return any(f["output_path"] == output_file for f in (owned or []))
+        except Exception:
+            return False
+
+    def pipeline_list_owned(self):
+        """List all output files owned by the pipeline."""
+        cmd = [
+            self.bin,
+            "pipeline-list-owned",
+            "--hick-dir",
+            self.workspace,
+        ]
+        return self._run(cmd)
+
+    def list_paste_slots(self, output_file):
+        """List named paste slots for a pipeline-owned output file."""
+        cmd = [
+            self.bin,
+            "pipeline-list-slots",
+            output_file,
+            "--hick-dir",
+            self.workspace,
+        ]
+        return self._run(cmd) or []
+
+    def pipeline_write(self, output_file, content, slot=None):
+        """Write to a pipeline-owned file via hick:copy elements.
+
+        Falls back to a direct write with a warning for non-pipeline files.
+        """
+        if not self.is_pipeline_owned(output_file):
+            print(
+                f"[hick] WARNING: '{output_file}' is not pipeline-owned — "
+                "falling back to direct write",
+                flush=True,
+            )
+            abs_path = os.path.join(self.workspace, output_file)
+            os.makedirs(os.path.dirname(abs_path) or ".", exist_ok=True)
+            with open(abs_path, "w") as fh:
+                fh.write(content)
+            return None
+
+        cmd = [
+            self.bin,
+            "pipeline-write",
+            output_file,
+            "--content",
+            content,
+            "--hick-dir",
+            self.workspace,
+        ]
+        if slot:
+            cmd += ["--slot", slot]
+        return self._run(cmd)
+
+    def pipeline_new_file(self, output_file, content):
+        """Create a new output file via a hick:file element appended to the pipeline."""
+        cmd = [
+            self.bin,
+            "pipeline-new-file",
+            output_file,
+            "--content",
+            content,
+            "--hick-dir",
+            self.workspace,
+        ]
+        return self._run(cmd)
+
     def _provenance_path(self, file):
         """Convention: provenance stored as .hick/provenance/<safe-name>.json"""
         if file:

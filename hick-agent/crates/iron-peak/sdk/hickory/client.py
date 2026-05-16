@@ -141,6 +141,112 @@ class HickClient:
         ]
         return self._run(cmd)
 
+    def is_pipeline_owned(self, output_file):
+        """Check whether a file is owned by the hick pipeline.
+
+        Returns True if the file is declared in a <hick:file path="…"> element,
+        False otherwise (in which case a direct write is appropriate).
+        """
+        try:
+            owned = self.pipeline_list_owned()
+            return any(f["output_path"] == output_file for f in (owned or []))
+        except Exception:
+            return False
+
+    def pipeline_list_owned(self):
+        """List all output files owned by the pipeline.
+
+        Returns a list of dicts with output_path, hick_source, paste_slots.
+        """
+        cmd = [
+            self.bin,
+            "pipeline-list-owned",
+            "--hick-dir",
+            self.workspace,
+        ]
+        return self._run(cmd)
+
+    def list_paste_slots(self, output_file):
+        """List named paste slots available for a pipeline-owned output file.
+
+        Args:
+            output_file: Relative path of the generated output file.
+
+        Returns:
+            List of slot name strings.
+        """
+        cmd = [
+            self.bin,
+            "pipeline-list-slots",
+            output_file,
+            "--hick-dir",
+            self.workspace,
+        ]
+        return self._run(cmd) or []
+
+    def pipeline_write(self, output_file, content, slot=None):
+        """Write to a pipeline-owned file by appending a hick:copy element.
+
+        For pipeline-owned files this is the preferred way to make edits —
+        it preserves provenance and is merge-safe across concurrent agents.
+        Falls back to a direct write (with a printed warning) when the file
+        is not owned by the pipeline.
+
+        Args:
+            output_file: Relative path of the generated output file to modify.
+            content: New content to insert at the paste slot.
+            slot: Named paste slot to target. Uses the first available slot if
+                  omitted.
+
+        Returns:
+            Dict with element, hick_source, slot on success; None on fallback.
+        """
+        if not self.is_pipeline_owned(output_file):
+            print(
+                f"[hick] WARNING: '{output_file}' is not pipeline-owned — "
+                "falling back to direct write",
+                flush=True,
+            )
+            abs_path = os.path.join(self.workspace, output_file)
+            os.makedirs(os.path.dirname(abs_path) or ".", exist_ok=True)
+            with open(abs_path, "w") as fh:
+                fh.write(content)
+            return None
+
+        cmd = [
+            self.bin,
+            "pipeline-write",
+            output_file,
+            "--content",
+            content,
+            "--hick-dir",
+            self.workspace,
+        ]
+        if slot:
+            cmd += ["--slot", slot]
+        return self._run(cmd)
+
+    def pipeline_new_file(self, output_file, content):
+        """Create a new output file by appending a hick:file element to the pipeline.
+
+        Args:
+            output_file: Relative path for the new generated file.
+            content: File content (may include <hick:paste name="…"/> slots).
+
+        Returns:
+            None on success; raises RuntimeError on failure.
+        """
+        cmd = [
+            self.bin,
+            "pipeline-new-file",
+            output_file,
+            "--content",
+            content,
+            "--hick-dir",
+            self.workspace,
+        ]
+        return self._run(cmd)
+
     def _provenance_path(self, file):
         """Convention: provenance stored as .hick/provenance/<safe-name>.json"""
         if file:

@@ -73,6 +73,49 @@ enum Command {
         #[arg(long)]
         hick_dir: String,
     },
+
+    /// List all output files owned by the pipeline
+    PipelineListOwned {
+        /// Root directory containing .hick source files (default: current dir)
+        #[arg(long, default_value = ".")]
+        hick_dir: String,
+    },
+
+    /// List named paste slots for a pipeline-owned output file
+    PipelineListSlots {
+        /// Relative path of the output file
+        output_path: String,
+        /// Root directory containing .hick source files (default: current dir)
+        #[arg(long, default_value = ".")]
+        hick_dir: String,
+    },
+
+    /// Modify a pipeline-owned file by appending a hick:copy element
+    PipelineWrite {
+        /// Relative output file path to modify
+        output_path: String,
+        /// New content to insert at the target paste slot
+        #[arg(long)]
+        content: String,
+        /// Named paste slot to target (uses first available if omitted)
+        #[arg(long)]
+        slot: Option<String>,
+        /// Root directory containing .hick source files (default: current dir)
+        #[arg(long, default_value = ".")]
+        hick_dir: String,
+    },
+
+    /// Create a new file by appending a hick:file element to the pipeline
+    PipelineNewFile {
+        /// Relative output file path to create
+        output_path: String,
+        /// File content
+        #[arg(long)]
+        content: String,
+        /// Root directory containing .hick source files (default: current dir)
+        #[arg(long, default_value = ".")]
+        hick_dir: String,
+    },
 }
 
 fn main() {
@@ -123,6 +166,38 @@ fn run(cli: Cli) -> Result<(), hick_query_edit::Error> {
         }
         Command::ApplyEdits { edits, hick_dir } => {
             hick_query_edit::apply_edits(&edits, &hick_dir)?;
+        }
+        Command::PipelineListOwned { hick_dir } => {
+            let owned = hick_query_edit::pipeline_list_owned(&hick_dir)?;
+            println!("{}", serde_json::to_string_pretty(&owned).unwrap());
+        }
+        Command::PipelineListSlots {
+            output_path,
+            hick_dir,
+        } => {
+            let slots = hick_query_edit::pipeline_list_slots(&output_path, &hick_dir)?;
+            println!("{}", serde_json::to_string_pretty(&slots).unwrap());
+        }
+        Command::PipelineWrite {
+            output_path,
+            content,
+            slot,
+            hick_dir,
+        } => {
+            let result = hick_query_edit::pipeline_write(
+                &output_path,
+                &content,
+                slot.as_deref(),
+                &hick_dir,
+            )?;
+            println!("{}", serde_json::to_string_pretty(&result).unwrap());
+        }
+        Command::PipelineNewFile {
+            output_path,
+            content,
+            hick_dir,
+        } => {
+            hick_query_edit::pipeline_new_file(&output_path, &content, &hick_dir)?;
         }
     }
     Ok(())

@@ -1,9 +1,10 @@
 ---
 id: TASK-18
 title: 'Agent produces hick:copy edits instead of direct file writes'
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-05-15 12:46'
+updated_date: '2026-05-16 11:24'
 labels: []
 milestone: m-1
 dependencies:

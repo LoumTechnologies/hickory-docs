@@ -22,6 +22,7 @@ pub mod file_io;
 pub mod hick_edit_agent;
 pub mod paste_slot_inserter;
 pub mod paste_slot_registry;
+pub mod pipeline_registry;
 pub mod pipeline_watcher;
 pub mod reverse_provenance;
 
@@ -66,3 +67,12 @@ pub use paste_slot_inserter::insert_paste_slots;
 
 /// Composable hick-XML edit behaviour layered on top of [`hick_agent_sdk::AgentRuntime`].
 pub use hick_edit_agent::HickEditAgent;
+
+// ---------------------------------------------------------------------------
+// Pipeline registry
+// ---------------------------------------------------------------------------
+
+/// Maps pipeline output file paths to their owning `.hick` sources and paste slots.
+pub use pipeline_registry::PipelineRegistry;
+/// Ownership record for one pipeline-managed output file.
+pub use pipeline_registry::FileOwnership;

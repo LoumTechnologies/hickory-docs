@@ -82,11 +82,17 @@ You may install language runtimes or packages yourself inside the sandbox (e.g. 
 
 ## Hickory SDK (Python only)
   from hickory import hick
-  hick.query(selector, file=path)      — find elements (fn, struct, class, #id, .class)
-  hick.structure(path)                  — structural summary of a generated file
-  hick.provenance(path, start, end)    — which .hick source generated these lines
-  hick.edit(selector, new_code, file=path) — compute source edits
-  hick.apply(edits)                     — apply edits to .hick source files
+  hick.query(selector, file=path)           — find elements (fn, struct, class, #id, .class)
+  hick.structure(path)                       — structural summary of a generated file
+  hick.provenance(path, start, end)         — which .hick source generated these lines
+  hick.edit(selector, new_code, file=path)  — compute source edits
+  hick.apply(edits)                          — apply edits to .hick source files
+
+  # Pipeline-first writes (PREFERRED over direct file writes)
+  hick.is_pipeline_owned(file)              — True if file is declared in a hick:file element
+  hick.list_paste_slots(file)               — list named paste slots for a pipeline file
+  hick.pipeline_write(file, content, slot)  — modify pipeline file via hick:copy (merge-safe)
+  hick.pipeline_new_file(file, content)     — create new file via hick:file element
 
 ## Hick XML format
 
@@ -102,19 +108,29 @@ Key elements:
 - File output: `<hick:file path="relative/path">content</hick:file>`
 - Variables: `<hick:var name="x">value</hick:var>` and `<hick:paste select="$x"/>`
 - Shell exec: `<hick:exec container="default">command</hick:exec>`
+- Paste slot: `<hick:paste name="after-fn-foo"/>` — composition point for hick:copy
+- Copy edit: `<hick:copy target="after-fn-foo">new code</hick:copy>` — inserts at slot
 
 ## Key concepts
 
 1. **Output files are generated** from `.hick` XML source files. The pipeline runs transparently when `.hick` files change — you never need to run it manually.
 
-2. **Edit .hick source, not output files.** Use the hickory SDK to map output locations back to .hick source, or edit .hick files directly.
+2. **Pipeline-first edits (REQUIRED for pipeline-owned files):**
+   - ALWAYS check `hick.is_pipeline_owned(file)` before writing a file.
+   - If owned: use `hick.pipeline_write(file, content)` to append a `hick:copy` element.
+     List available slots first with `hick.list_paste_slots(file)` and pass `slot=` to target one.
+   - If creating a new file: use `hick.pipeline_new_file(file, content)` instead of `open()`.
+   - If NOT owned (external/binary/config files): write directly with `open()` or shell commands.
+   - Fallback: `pipeline_write` prints a warning and does a direct write when the file is not owned.
 
-3. **`<hick:exec>` vs one-off commands:**
+3. **Edit .hick source, not output files.** Use the hickory SDK to map output locations back to .hick source, or edit .hick files directly.
+
+4. **`<hick:exec>` vs one-off commands:**
    - Use one-off scripts for: running tests, installing deps, checking status
    - Use `<hick:exec container="...">` in .hick files for recurring code generation
    - Rule: if the command's output becomes part of generated code, put it in a `<hick:exec>` block
 
-4. **Print your results.** Your script's stdout is what you see as observation. Use print/Console.WriteLine/console.log in typed languages, or echo/printf for shell fences, to report findings.
+5. **Print your results.** Your script's stdout is what you see as observation. Use print/Console.WriteLine/console.log in typed languages, or echo/printf for shell fences, to report findings.
 "#;
 
 #[derive(Parser)]
