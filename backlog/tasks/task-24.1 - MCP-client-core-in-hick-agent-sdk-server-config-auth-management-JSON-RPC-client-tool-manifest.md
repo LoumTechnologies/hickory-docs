@@ -3,10 +3,10 @@ id: TASK-24.1
 title: >-
   MCP client core in hick-agent-sdk: server config, auth management, JSON-RPC
   client, tool manifest
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-05-16 12:22'
-updated_date: '2026-05-16 13:02'
+updated_date: '2026-05-17 11:07'
 labels:
   - mcp
   - security
@@ -80,12 +80,24 @@ Auth credentials live in `.hick/mcp-secrets.toml` (gitignored) or come from envi
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 McpServerConfig and McpSecretsConfig are separate structs; secrets file path is gitignored by default in new projects.
-- [ ] #2 McpCredentialStore holds loaded credentials; it has no Serialize/Deserialize impl and no Display impl — no accidental leakage path.
-- [ ] #3 McpClient trait is implemented for both stdio and HTTP transports with a shared test harness (mock server or fixture).
-- [ ] #4 tools/list is fetched on connect and cached; McpToolDef carries name, description, and input/output JSON Schema.
-- [ ] #5 Stdio transport reconnects automatically when the child process exits; test covers restart-on-exit.
-- [ ] #6 HTTP transport injects auth headers at call time using credentials from McpCredentialStore — never from serialized config.
-- [ ] #7 Unit tests cover: credential env-var indirection, tools/list parsing, stdio reconnect, HTTP auth header injection.
-- [ ] #8 McpClient is pub-use'd from hick-agent-sdk lib.rs with full doc comments on all public items.
+- [x] #1 McpServerConfig and McpSecretsConfig are separate structs; secrets file path is gitignored by default in new projects.
+- [x] #2 McpCredentialStore holds loaded credentials; it has no Serialize/Deserialize impl and no Display impl — no accidental leakage path.
+- [x] #3 McpClient trait is implemented for both stdio and HTTP transports with a shared test harness (mock server or fixture).
+- [x] #4 tools/list is fetched on connect and cached; McpToolDef carries name, description, and input/output JSON Schema.
+- [x] #5 Stdio transport reconnects automatically when the child process exits; test covers restart-on-exit.
+- [x] #6 HTTP transport injects auth headers at call time using credentials from McpCredentialStore — never from serialized config.
+- [x] #7 Unit tests cover: credential env-var indirection, tools/list parsing, stdio reconnect, HTTP auth header injection.
+- [x] #8 McpClient is pub-use'd from hick-agent-sdk lib.rs with full doc comments on all public items.
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Added MCP client core to `hick-agent-sdk` in three new source files:
+
+- `mcp_config.rs`: `McpServersConfig`/`McpServerConfig` (TOML, safe to commit), `McpCredentialStore` (no Serialize/Deserialize/Display), `ResolvedCredential` (bearer, API key, basic, env-var indirection). Credentials are held in-memory behind `Arc<McpCredentialStore>` and never cross a serialization boundary.
+- `mcp_client.rs`: `McpClient` trait with `call`/`list_tools`/`refresh_tools`; `StdioMcpClient` (spawns child process, reconnects automatically on exit); `HttpMcpClient` (reqwest POST, injects auth at call time from `McpCredentialStore`). Tool manifest cached per session.
+- Updated `lib.rs` with full `pub use` facade and doc comments for all new public items.
+
+All 8 acceptance criteria verified by passing tests (credential env-var indirection, tools/list parsing, stdio reconnect, HTTP auth header injection).
+<!-- SECTION:FINAL_SUMMARY:END -->

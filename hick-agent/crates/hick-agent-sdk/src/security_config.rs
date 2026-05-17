@@ -10,6 +10,8 @@ use hick_sink::{SinkDef, SinkSlot};
 use hick_token::ContainerCapabilities;
 use serde::Deserialize;
 
+use crate::tool_gate::ToolGateConfig;
+
 /// A host:port entry for network access rules.
 #[derive(Debug, Clone, Deserialize)]
 pub struct HostEntry {
@@ -39,6 +41,41 @@ pub struct SinkSlotConfig {
     pub accepted: Vec<serde_json::Value>,
     #[serde(default)]
     pub rejected: Vec<serde_json::Value>,
+}
+
+/// A slot within an MCP tool sink definition.
+///
+/// ```toml
+/// [[mcp_tool_sinks.slots]]
+/// name = "scope"
+/// rejected = [{"sensitivity": "secret"}]
+/// ```
+#[derive(Debug, Clone, Deserialize)]
+pub struct McpToolSinkSlotConfig {
+    pub name: String,
+    #[serde(default)]
+    pub rejected: Vec<serde_json::Value>,
+}
+
+/// An MCP tool sink definition entry (TOML-friendly).
+///
+/// Analogous to [`SinkDefConfig`] but for MCP tool call gating. Each slot
+/// carries the classification labels that block tool calls when present in
+/// the WASM container scope.
+///
+/// ```toml
+/// [[mcp_tool_sinks]]
+/// sink_type = "mcp-tool-call"
+///
+/// [[mcp_tool_sinks.slots]]
+/// name = "scope"
+/// rejected = [{"sensitivity": "secret"}]
+/// ```
+#[derive(Debug, Clone, Deserialize)]
+pub struct McpToolSinkConfig {
+    pub sink_type: String,
+    #[serde(default)]
+    pub slots: Vec<McpToolSinkSlotConfig>,
 }
 
 /// A sink definition entry (TOML-friendly).
@@ -89,6 +126,13 @@ pub struct AgentSecurityConfig {
     /// Sink definitions for API call gating.
     #[serde(default)]
     pub sinks: Vec<SinkDefConfig>,
+    /// Sink definitions for MCP tool call gating.
+    ///
+    /// Each slot's `rejected` list specifies classification labels that block
+    /// MCP tool calls when present in the WASM container scope. The default
+    /// rejects `sensitivity: secret` from all MCP calls.
+    #[serde(default)]
+    pub mcp_tool_sinks: Vec<McpToolSinkConfig>,
 }
 
 impl Default for AgentSecurityConfig {
@@ -115,6 +159,13 @@ impl Default for AgentSecurityConfig {
                 slots: vec![SinkSlotConfig {
                     name: "code".to_string(),
                     accepted: vec![],
+                    rejected: vec![serde_json::json!({"sensitivity": "secret"})],
+                }],
+            }],
+            mcp_tool_sinks: vec![McpToolSinkConfig {
+                sink_type: "mcp-tool-call".to_string(),
+                slots: vec![McpToolSinkSlotConfig {
+                    name: "scope".to_string(),
                     rejected: vec![serde_json::json!({"sensitivity": "secret"})],
                 }],
             }],
@@ -160,6 +211,23 @@ impl AgentSecurityConfig {
                 required_capabilities: vec![format!("api-sink = {}", cfg.sink_type)],
             })
             .collect()
+    }
+
+    /// Produce a [`ToolGateConfig`] from the `mcp_tool_sinks` stanza.
+    ///
+    /// Callers should combine this with per-server trust levels from
+    /// `McpServersConfig` to construct a full [`crate::ToolGate`].
+    pub fn to_tool_gate_config(&self) -> ToolGateConfig {
+        let rejection_classifications = self
+            .mcp_tool_sinks
+            .iter()
+            .flat_map(|sink| sink.slots.iter())
+            .flat_map(|slot| slot.rejected.iter())
+            .map(|v| Classification::new(vec![v.clone()]))
+            .collect();
+        ToolGateConfig {
+            rejection_classifications,
+        }
     }
 
     /// Convert to [`ContainerCapabilities`] for the sandbox executor.
@@ -236,5 +304,52 @@ write = ["/workspace/output/**"]
         let defs = config.to_sink_defs();
         assert_eq!(defs.len(), 1);
         assert_eq!(defs[0].sink_type, "script-execution");
+    }
+
+    #[test]
+    fn default_config_rejects_secret_from_mcp_calls() {
+        let config = AgentSecurityConfig::default();
+        let gate_cfg = config.to_tool_gate_config();
+        assert_eq!(gate_cfg.rejection_classifications.len(), 1);
+        let label = &gate_cfg.rejection_classifications[0];
+        assert!(label
+            .labels()
+            .contains(&serde_json::json!({"sensitivity": "secret"})));
+    }
+
+    #[test]
+    fn to_tool_gate_config_empty_when_no_mcp_sinks() {
+        let config = AgentSecurityConfig {
+            mcp_tool_sinks: vec![],
+            ..AgentSecurityConfig::default()
+        };
+        let gate_cfg = config.to_tool_gate_config();
+        assert!(gate_cfg.rejection_classifications.is_empty());
+    }
+
+    #[test]
+    fn mcp_tool_sinks_deserialization() {
+        // TOML inline table syntax uses `key = "value"`, not JSON `"key": "value"`.
+        let toml_str = r#"
+deny_all_network = false
+
+[[mcp_tool_sinks]]
+sink_type = "mcp-tool-call"
+
+[[mcp_tool_sinks.slots]]
+name = "scope"
+rejected = [{sensitivity = "secret"}]
+"#;
+        let config: AgentSecurityConfig = toml::from_str(toml_str).unwrap();
+        assert_eq!(config.mcp_tool_sinks.len(), 1);
+        assert_eq!(config.mcp_tool_sinks[0].sink_type, "mcp-tool-call");
+        assert_eq!(config.mcp_tool_sinks[0].slots.len(), 1);
+        assert_eq!(
+            config.mcp_tool_sinks[0].slots[0].rejected[0],
+            serde_json::json!({"sensitivity": "secret"})
+        );
+
+        let gate_cfg = config.to_tool_gate_config();
+        assert_eq!(gate_cfg.rejection_classifications.len(), 1);
     }
 }

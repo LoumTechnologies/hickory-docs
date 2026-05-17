@@ -20,16 +20,24 @@
 //! | [`ProjectContextLoader`] | Loads AGENTS.md / CLAUDE.md context |
 //! | [`CommandExecutor`] | Trait for sandboxed command execution |
 //! | [`WasmSandboxExecutor`] | WASM container executor (backend-agnostic) |
+//! | [`McpClient`] | Trait for MCP server clients |
+//! | [`StdioMcpClient`] | MCP client over child-process stdio |
+//! | [`HttpMcpClient`] | MCP client over HTTP |
+//! | [`McpCredentialStore`] | Holds resolved MCP auth credentials |
+//! | [`ToolGate`] | Classification-aware MCP tool call gating |
 
 pub mod command;
 pub mod llm;
 pub mod llm_anthropic;
 pub mod llm_openai_compat;
+pub mod mcp_client;
+pub mod mcp_config;
 pub mod network_filter;
 pub mod project_context;
 pub mod runtime;
 pub mod security_config;
 pub mod sink_guard;
+pub mod tool_gate;
 
 // ---------------------------------------------------------------------------
 // Runtime
@@ -97,6 +105,51 @@ pub use command::WasmSandboxExecutor;
 pub use sink_guard::SinkGuard;
 /// Top-level agent security configuration loaded from `.hick/agent-security.toml`.
 pub use security_config::AgentSecurityConfig;
+
+// ---------------------------------------------------------------------------
+// MCP client
+// ---------------------------------------------------------------------------
+
+/// Trait for a connected MCP server client (stdio or HTTP).
+pub use mcp_client::McpClient;
+/// MCP client that communicates with a server process over stdin/stdout.
+pub use mcp_client::StdioMcpClient;
+/// MCP client that communicates with a server over HTTP (JSON-RPC 2.0 POST).
+pub use mcp_client::HttpMcpClient;
+/// Description of a single tool exposed by an MCP server.
+pub use mcp_client::McpToolDef;
+
+// ---------------------------------------------------------------------------
+// MCP configuration
+// ---------------------------------------------------------------------------
+
+/// Transport kind for an MCP server connection (`stdio` or `http`).
+pub use mcp_config::McpTransportKind;
+/// Trust level assigned to an MCP server.
+pub use mcp_config::McpServerTrust;
+/// Configuration for a single MCP server (safe to commit — no secrets).
+pub use mcp_config::McpServerConfig;
+/// Top-level server configuration file (`.hick/mcp-servers.toml`).
+pub use mcp_config::McpServersConfig;
+/// A resolved credential ready to inject as HTTP headers at call time.
+pub use mcp_config::ResolvedCredential;
+/// Holds resolved MCP auth credentials; never serialized, never written to disk.
+pub use mcp_config::McpCredentialStore;
+
+// ---------------------------------------------------------------------------
+// Tool gate
+// ---------------------------------------------------------------------------
+
+/// Trust level for an MCP server, used by `ToolGate` to determine gating.
+pub use tool_gate::ToolTrust;
+/// Verdict returned by [`ToolGate::check`]: `Allow` or `Block`.
+pub use tool_gate::ToolVerdict;
+/// Request sent to the UI when `ToolGate` needs the user's decision.
+pub use tool_gate::ToolApprovalRequest;
+/// Configuration for [`ToolGate`], produced by `AgentSecurityConfig::to_tool_gate_config`.
+pub use tool_gate::ToolGateConfig;
+/// Classification-aware MCP tool call gating with per-session verdict caching.
+pub use tool_gate::ToolGate;
 
 // ---------------------------------------------------------------------------
 // Project context

@@ -1,10 +1,10 @@
 ---
 id: TASK-24.2
 title: 'MCP tool gate: classification-aware allow/block/prompt gating for tool calls'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-05-16 12:22'
-updated_date: '2026-05-16 13:02'
+updated_date: '2026-05-17 11:07'
 labels:
   - mcp
   - security
@@ -75,12 +75,25 @@ impl ToolGate {
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 ToolGate::check returns Block when scope_classifications contains a rejection criterion, regardless of tool trust level.
-- [ ] #2 ToolGate::check returns Block (not Prompt) for untrusted tools when any rejection classification is present in scope.
-- [ ] #3 ToolGate::check sends a ToolApprovalRequest and waits when trust = Prompt and no rejection classification is present.
-- [ ] #4 Verdicts are cached per (server_name, tool_name) pair for the session duration.
-- [ ] #5 AgentSecurityConfig gains a mcp_tool_sinks stanza; default config rejects sensitivity:secret from all MCP calls.
-- [ ] #6 ToolGate is pub-use'd from hick-agent-sdk with full doc comments.
-- [ ] #7 Tests cover: block-on-secret, block-untrusted-with-classification, prompt-for-unknown, cache-reuse, channel-closed-blocks-safely.
-- [ ] #8 ToolGate compiles and passes tests in isolation (does not require any extension crate to exist).
+- [x] #1 ToolGate::check returns Block when scope_classifications contains a rejection criterion, regardless of tool trust level.
+- [x] #2 ToolGate::check returns Block (not Prompt) for untrusted tools when any rejection classification is present in scope.
+- [x] #3 ToolGate::check sends a ToolApprovalRequest and waits when trust = Prompt and no rejection classification is present.
+- [x] #4 Verdicts are cached per (server_name, tool_name) pair for the session duration.
+- [x] #5 AgentSecurityConfig gains a mcp_tool_sinks stanza; default config rejects sensitivity:secret from all MCP calls.
+- [x] #6 ToolGate is pub-use'd from hick-agent-sdk with full doc comments.
+- [x] #7 Tests cover: block-on-secret, block-untrusted-with-classification, prompt-for-unknown, cache-reuse, channel-closed-blocks-safely.
+- [x] #8 ToolGate compiles and passes tests in isolation (does not require any extension crate to exist).
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Added `ToolGate` to `hick-agent-sdk` in `tool_gate.rs`, mirroring the `NetworkFilter` design:
+
+- `ToolTrust` (Trusted/Untrusted/Prompt), `ToolVerdict` (Allow/Block), `ToolApprovalRequest` with `oneshot::Sender<ToolVerdict>`, `ToolGateConfig` with `rejection_classifications: Vec<Classification>`.
+- `ToolGate::check` evaluates rules in priority order: rejection classification always blocks (regardless of trust), then trust level drives allow vs. prompt. Verdicts cached per `(server, tool)` pair for the session. Closed approval channel blocks safely.
+- `AgentSecurityConfig` gains `mcp_tool_sinks: Vec<McpToolSinkConfig>` and `to_tool_gate_config()`. Default config rejects `sensitivity: secret` from all MCP calls.
+- All public items `pub use`'d from `lib.rs` with doc comments.
+
+All 8 acceptance criteria verified by 9 passing tests covering: block-on-secret, block-untrusted-with-classification, block-regardless-of-trust, prompt-for-unknown, cache-reuse, channel-closed-blocks-safely, allow-empty-scope.
+<!-- SECTION:FINAL_SUMMARY:END -->
