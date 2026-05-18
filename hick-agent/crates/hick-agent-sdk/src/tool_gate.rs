@@ -8,10 +8,14 @@
 //! verdict pattern, an approval channel, and a per-session verdict cache.
 
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::Mutex;
 
 use hick_classify::Classification;
+use hick_policy::{CapabilityRequest, DeterministicSuggestionGenerator, PolicySuggestion, SuggestionGenerator};
 use tokio::sync::{mpsc, oneshot};
+
+use crate::network_filter::{ApprovalResponse, NetworkVerdict};
 
 // ---------------------------------------------------------------------------
 // Public types
@@ -43,8 +47,10 @@ pub struct ToolApprovalRequest {
     pub server_name: String,
     /// Name of the tool being invoked.
     pub tool_name: String,
-    /// Sender for the user's verdict.
-    pub response_tx: oneshot::Sender<ToolVerdict>,
+    /// Pre-generated policy suggestions (deterministic, ready for immediate display).
+    pub suggestions: Vec<PolicySuggestion>,
+    /// Sender for the user's response (verdict + optional always-allow rule).
+    pub response_tx: oneshot::Sender<ApprovalResponse>,
 }
 
 /// Configuration for [`ToolGate`], typically produced by
@@ -71,12 +77,23 @@ pub struct ToolGateConfig {
 ///    **Allow**.
 ///
 /// Verdicts are cached per `(server_name, tool_name)` pair for the session.
+/// An "Always Allow" response writes the chosen rule to `tool-rules.toml` in
+/// `config_dir` (if set) so the rule persists across sessions.
 pub struct ToolGate {
     config: ToolGateConfig,
     server_trust: HashMap<String, ToolTrust>,
     default_trust: ToolTrust,
     cache: Mutex<HashMap<(String, String), ToolVerdict>>,
     approval_tx: mpsc::UnboundedSender<ToolApprovalRequest>,
+    /// Directory where `tool-rules.toml` should be written on always-allow.
+    pub config_dir: Option<PathBuf>,
+}
+
+fn network_verdict_to_tool(v: NetworkVerdict) -> ToolVerdict {
+    match v {
+        NetworkVerdict::Allow => ToolVerdict::Allow,
+        NetworkVerdict::Block => ToolVerdict::Block,
+    }
 }
 
 impl ToolGate {
@@ -98,7 +115,14 @@ impl ToolGate {
             default_trust,
             cache: Mutex::new(HashMap::new()),
             approval_tx,
+            config_dir: None,
         }
+    }
+
+    /// Set the directory where `tool-rules.toml` should be written on always-allow.
+    pub fn with_config_dir(mut self, dir: PathBuf) -> Self {
+        self.config_dir = Some(dir);
+        self
     }
 
     /// Check whether the tool call is permitted.
@@ -168,10 +192,19 @@ impl ToolGate {
         tool: &str,
         cache_key: (String, String),
     ) -> ToolVerdict {
+        // Eagerly generate deterministic suggestions for the UI.
+        let req = CapabilityRequest::McpTool {
+            server_name: server.to_string(),
+            tool_name: tool.to_string(),
+            args_summary: None,
+        };
+        let suggestions = DeterministicSuggestionGenerator.suggestions(&req).await;
+
         let (response_tx, response_rx) = oneshot::channel();
         let request = ToolApprovalRequest {
             server_name: server.to_string(),
             tool_name: tool.to_string(),
+            suggestions,
             response_tx,
         };
 
@@ -183,9 +216,22 @@ impl ToolGate {
         }
 
         match response_rx.await {
-            Ok(verdict) => {
-                self.cache_verdict(cache_key, verdict);
-                verdict
+            Ok(ApprovalResponse {
+                verdict,
+                always_allow: Some(suggestion),
+            }) => {
+                self.apply_always_allow(&suggestion);
+                let tool_verdict = network_verdict_to_tool(verdict);
+                self.cache_verdict(cache_key, tool_verdict);
+                tool_verdict
+            }
+            Ok(ApprovalResponse {
+                verdict,
+                always_allow: None,
+            }) => {
+                let tool_verdict = network_verdict_to_tool(verdict);
+                self.cache_verdict(cache_key, tool_verdict);
+                tool_verdict
             }
             Err(_) => {
                 log::warn!(
@@ -193,6 +239,24 @@ impl ToolGate {
                 );
                 ToolVerdict::Block
             }
+        }
+    }
+
+    fn apply_always_allow(&self, suggestion: &PolicySuggestion) {
+        let Some(ref config_dir) = self.config_dir else {
+            log::warn!(
+                "ToolGate: no config_dir set; cannot persist always-allow rule for '{}'",
+                suggestion.pattern
+            );
+            return;
+        };
+        let config_path = config_dir.join(suggestion.config_file_key());
+        let snippet = suggestion.to_toml_snippet();
+        if let Err(e) = crate::network_filter::append_to_config_file(&config_path, &snippet) {
+            log::warn!(
+                "ToolGate: failed to persist always-allow rule to {}: {e}",
+                config_path.display()
+            );
         }
     }
 }
@@ -307,7 +371,13 @@ mod tests {
         let request = rx.recv().await.unwrap();
         assert_eq!(request.server_name, "unknown_server");
         assert_eq!(request.tool_name, "some_tool");
-        request.response_tx.send(ToolVerdict::Allow).unwrap();
+        request
+            .response_tx
+            .send(ApprovalResponse {
+                verdict: NetworkVerdict::Allow,
+                always_allow: None,
+            })
+            .unwrap();
 
         let verdict = check_handle.await.unwrap();
         assert_eq!(verdict, ToolVerdict::Allow);
@@ -326,7 +396,12 @@ mod tests {
                 .await
         });
         let req = rx.recv().await.unwrap();
-        req.response_tx.send(ToolVerdict::Allow).unwrap();
+        req.response_tx
+            .send(ApprovalResponse {
+                verdict: NetworkVerdict::Allow,
+                always_allow: None,
+            })
+            .unwrap();
         assert_eq!(handle1.await.unwrap(), ToolVerdict::Allow);
 
         // Second call for the same (server, tool): should use the cache, no prompt.

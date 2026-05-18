@@ -40,6 +40,7 @@ pub mod project_context;
 pub mod runtime;
 pub mod security_config;
 pub mod sink_guard;
+pub mod suggestion_gen;
 pub mod tool_gate;
 
 // ---------------------------------------------------------------------------
@@ -84,6 +85,8 @@ pub use network_filter::FilteredLlmClient;
 pub use network_filter::NetworkApprovalRequest;
 /// Verdict for a filtered network request: Allow or Block.
 pub use network_filter::NetworkVerdict;
+/// Response returned through the approval channel (verdict + optional always-allow rule).
+pub use network_filter::ApprovalResponse;
 
 // ---------------------------------------------------------------------------
 // Sandbox execution
@@ -153,6 +156,13 @@ pub use tool_gate::ToolApprovalRequest;
 pub use tool_gate::ToolGateConfig;
 /// Classification-aware MCP tool call gating with per-session verdict caching.
 pub use tool_gate::ToolGate;
+
+// ---------------------------------------------------------------------------
+// Suggestion generation
+// ---------------------------------------------------------------------------
+
+/// LLM-backed suggestion generator for the Always Allow flow.
+pub use suggestion_gen::LlmSuggestionGenerator;
 
 // ---------------------------------------------------------------------------
 // MCP response format

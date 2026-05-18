@@ -1,10 +1,10 @@
 ---
 id: TASK-29
 title: Add `Prompt` outcome to `PolicyDecision` in hick-policy
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-05-17 10:47'
-updated_date: '2026-05-17 10:51'
+updated_date: '2026-05-18 12:04'
 labels:
   - security
   - policy
@@ -40,3 +40,9 @@ This is a public API addition (new enum variant), so hick-policy needs a minor v
 - [ ] #5 hick-policy version is bumped (minor).
 - [ ] #6 Tests cover: policy script returning prompt is parsed and returned correctly.
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Added `Prompt { reason: String }` variant to `PolicyDecision` in `hick-policy`. Added `evaluate_with_prompt_script` and `prompt_decision_json_roundtrip` tests. Bumped crate version to `0.2.0` (new public API).
+<!-- SECTION:FINAL_SUMMARY:END -->

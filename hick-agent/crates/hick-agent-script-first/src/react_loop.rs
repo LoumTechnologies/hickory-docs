@@ -674,6 +674,24 @@ impl ReactLoop {
                                 });
                                 continue;
                             }
+                            // TODO: wire up full prompt flow (Always Allow milestone)
+                            Ok(hick_policy::PolicyDecision::Prompt { reason }) => {
+                                events
+                                    .send(AgentEvent::SecurityViolation {
+                                        description: format!(
+                                            "Policy requires approval for script execution: {reason}"
+                                        ),
+                                    })
+                                    .ok();
+                                results.push(ScriptResult {
+                                    stdout: String::new(),
+                                    stderr: format!(
+                                        "Policy requires approval: {reason}"
+                                    ),
+                                    exit_code: Some(1),
+                                });
+                                continue;
+                            }
                             Err(e) => {
                                 events
                                     .send(AgentEvent::SecurityViolation {

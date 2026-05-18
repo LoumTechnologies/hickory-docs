@@ -6,12 +6,13 @@
 //! directory.
 
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use futures::Stream;
+use hick_policy::{CapabilityRequest, DeterministicSuggestionGenerator, PolicySuggestion, SuggestionGenerator};
 use hick_token::ContainerCapabilities;
 use serde::Deserialize;
 use tokio::sync::{mpsc, oneshot};
@@ -23,6 +24,19 @@ use crate::llm::{ChatChunk, LlmClient, Message};
 pub enum NetworkVerdict {
     Allow,
     Block,
+}
+
+/// Response sent back through the approval channel.
+///
+/// `verdict` is the immediate decision; `always_allow` carries an optional
+/// policy rule to persist so the same request is automatically allowed in
+/// future sessions.
+#[derive(Debug)]
+pub struct ApprovalResponse {
+    pub verdict: NetworkVerdict,
+    /// If `Some`, the filter appends this rule to the appropriate config file
+    /// and reloads its rules before caching the verdict.
+    pub always_allow: Option<PolicySuggestion>,
 }
 
 /// Action to take when a rule matches.
@@ -81,8 +95,10 @@ impl Default for NetworkFilterConfig {
 pub struct NetworkApprovalRequest {
     /// The host being accessed.
     pub host: String,
-    /// Sender for the user's verdict.
-    pub response_tx: oneshot::Sender<NetworkVerdict>,
+    /// Pre-generated policy suggestions (deterministic, ready for immediate display).
+    pub suggestions: Vec<PolicySuggestion>,
+    /// Sender for the user's response (verdict + optional always-allow rule).
+    pub response_tx: oneshot::Sender<ApprovalResponse>,
 }
 
 /// Filters outbound network requests by host against configurable rules.
@@ -90,8 +106,14 @@ pub struct NetworkApprovalRequest {
 /// When a rule action is `Prompt`, sends a [`NetworkApprovalRequest`] to the
 /// caller and waits for the user's decision. Verdicts are cached per host for
 /// the duration of the session.
+///
+/// An "Always Allow" response writes the chosen policy rule to the config file
+/// and reloads the in-memory rules so subsequent requests are served from the
+/// rule table without prompting.
 pub struct NetworkFilter {
-    config: NetworkFilterConfig,
+    config: Mutex<NetworkFilterConfig>,
+    /// Path to the TOML config file, used for always-allow writes and reloads.
+    config_path: Option<PathBuf>,
     cache: Mutex<HashMap<String, NetworkVerdict>>,
     approval_tx: mpsc::UnboundedSender<NetworkApprovalRequest>,
 }
@@ -103,20 +125,29 @@ impl NetworkFilter {
         approval_tx: mpsc::UnboundedSender<NetworkApprovalRequest>,
     ) -> Self {
         Self {
-            config,
+            config: Mutex::new(config),
+            config_path: None,
             cache: Mutex::new(HashMap::new()),
             approval_tx,
         }
     }
 
     /// Load filter configuration from a TOML file.
+    ///
+    /// Remembers the file path so that always-allow writes can append rules
+    /// and trigger a live reload.
     pub fn load(
         path: &Path,
         approval_tx: mpsc::UnboundedSender<NetworkApprovalRequest>,
     ) -> anyhow::Result<Self> {
         let content = std::fs::read_to_string(path)?;
         let config: NetworkFilterConfig = toml::from_str(&content)?;
-        Ok(Self::new(config, approval_tx))
+        Ok(Self {
+            config: Mutex::new(config),
+            config_path: Some(path.to_path_buf()),
+            cache: Mutex::new(HashMap::new()),
+            approval_tx,
+        })
     }
 
     /// Create a filter that allows everything (used when no config file exists).
@@ -168,12 +199,12 @@ impl NetworkFilter {
 
     /// Number of configured rules.
     pub fn rule_count(&self) -> usize {
-        self.config.rules.len()
+        self.config.lock().unwrap().rules.len()
     }
 
     /// Human-readable name for the default action.
     pub fn default_action_name(&self) -> &'static str {
-        match self.config.default {
+        match self.config.lock().unwrap().default {
             RuleAction::Allow => "allow",
             RuleAction::Block => "block",
             RuleAction::Prompt => "prompt",
@@ -183,7 +214,8 @@ impl NetworkFilter {
     /// Check if a request to the given host is allowed.
     ///
     /// For `Prompt` rules, sends a request to the approval channel and blocks
-    /// until the user responds.
+    /// until the user responds. An "Always Allow" response writes the chosen
+    /// rule to the config file and reloads rules before caching.
     pub async fn check(&self, host: &str) -> NetworkVerdict {
         if let Some(&verdict) = self.cache.lock().unwrap().get(host) {
             return verdict;
@@ -205,12 +237,13 @@ impl NetworkFilter {
     }
 
     fn find_matching_action(&self, host: &str) -> RuleAction {
-        for rule in &self.config.rules {
+        let config = self.config.lock().unwrap();
+        for rule in &config.rules {
             if host_matches(&rule.pattern, host) {
                 return rule.action;
             }
         }
-        self.config.default
+        config.default
     }
 
     fn cache_verdict(&self, host: &str, verdict: NetworkVerdict) {
@@ -218,9 +251,17 @@ impl NetworkFilter {
     }
 
     async fn prompt_user(&self, host: &str) -> NetworkVerdict {
+        // Eagerly generate deterministic suggestions so the UI can display them
+        // immediately without waiting for an LLM call.
+        let req = CapabilityRequest::Network {
+            host: host.to_string(),
+        };
+        let suggestions = DeterministicSuggestionGenerator.suggestions(&req).await;
+
         let (response_tx, response_rx) = oneshot::channel();
         let request = NetworkApprovalRequest {
             host: host.to_string(),
+            suggestions,
             response_tx,
         };
 
@@ -230,7 +271,18 @@ impl NetworkFilter {
         }
 
         match response_rx.await {
-            Ok(verdict) => {
+            Ok(ApprovalResponse {
+                verdict,
+                always_allow: Some(suggestion),
+            }) => {
+                self.apply_always_allow(&suggestion);
+                self.cache_verdict(host, verdict);
+                verdict
+            }
+            Ok(ApprovalResponse {
+                verdict,
+                always_allow: None,
+            }) => {
                 self.cache_verdict(host, verdict);
                 verdict
             }
@@ -240,6 +292,81 @@ impl NetworkFilter {
             }
         }
     }
+
+    /// Persist an always-allow rule to the config file and reload rules.
+    fn apply_always_allow(&self, suggestion: &PolicySuggestion) {
+        let Some(ref config_path) = self.config_path else {
+            log::warn!(
+                "NetworkFilter: no config path set; cannot persist always-allow rule for '{}'",
+                suggestion.pattern
+            );
+            return;
+        };
+
+        // Only network-rules.toml is managed by this filter.
+        if suggestion.config_file_key() != "network-rules.toml" {
+            log::warn!(
+                "NetworkFilter: ignoring always-allow for non-network rule type '{}'",
+                suggestion.config_file_key()
+            );
+            return;
+        }
+
+        let snippet = suggestion.to_toml_snippet();
+        if let Err(e) = append_to_config_file(config_path, &snippet) {
+            log::warn!(
+                "NetworkFilter: failed to persist always-allow rule to {}: {e}",
+                config_path.display()
+            );
+            // Fallback: rule is allowed for this session via the cache but not persisted.
+            return;
+        }
+
+        self.reload_rules_from_path(config_path);
+    }
+
+    /// Re-read and apply the TOML config from the stored path.
+    fn reload_rules_from_path(&self, path: &Path) {
+        match std::fs::read_to_string(path) {
+            Ok(content) => match toml::from_str::<NetworkFilterConfig>(&content) {
+                Ok(config) => {
+                    *self.config.lock().unwrap() = config;
+                    log::debug!(
+                        "NetworkFilter: reloaded rules from {}",
+                        path.display()
+                    );
+                }
+                Err(e) => {
+                    log::warn!(
+                        "NetworkFilter: failed to parse reloaded config from {}: {e}",
+                        path.display()
+                    );
+                }
+            },
+            Err(e) => {
+                log::warn!(
+                    "NetworkFilter: failed to read config from {}: {e}",
+                    path.display()
+                );
+            }
+        }
+    }
+}
+
+/// Append a TOML snippet to a config file, creating parent directories as needed.
+pub(crate) fn append_to_config_file(path: &Path, snippet: &str) -> std::io::Result<()> {
+    use std::io::Write as _;
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let mut file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)?;
+    // Ensure there is a blank line before the appended snippet.
+    writeln!(file)?;
+    file.write_all(snippet.as_bytes())?;
+    Ok(())
 }
 
 /// Check if a host pattern matches a given host.
@@ -455,6 +582,20 @@ mod tests {
         assert!(filter.cache.lock().unwrap().contains_key("example.com"));
     }
 
+    fn allow_once() -> ApprovalResponse {
+        ApprovalResponse {
+            verdict: NetworkVerdict::Allow,
+            always_allow: None,
+        }
+    }
+
+    fn block_once() -> ApprovalResponse {
+        ApprovalResponse {
+            verdict: NetworkVerdict::Block,
+            always_allow: None,
+        }
+    }
+
     #[tokio::test]
     async fn filter_prompt_with_allow_response() {
         let (tx, mut rx) = mpsc::unbounded_channel();
@@ -469,7 +610,8 @@ mod tests {
 
         let request = rx.recv().await.unwrap();
         assert_eq!(request.host, "example.com");
-        request.response_tx.send(NetworkVerdict::Allow).unwrap();
+        assert!(!request.suggestions.is_empty());
+        request.response_tx.send(allow_once()).unwrap();
 
         let verdict = check_handle.await.unwrap();
         assert_eq!(verdict, NetworkVerdict::Allow);
@@ -490,7 +632,7 @@ mod tests {
         let check_handle = tokio::spawn(async move { filter_clone.check("evil.com").await });
 
         let request = rx.recv().await.unwrap();
-        request.response_tx.send(NetworkVerdict::Block).unwrap();
+        request.response_tx.send(block_once()).unwrap();
 
         let verdict = check_handle.await.unwrap();
         assert_eq!(verdict, NetworkVerdict::Block);
@@ -508,6 +650,101 @@ mod tests {
         drop(rx);
 
         assert_eq!(filter.check("example.com").await, NetworkVerdict::Block);
+    }
+
+    #[tokio::test]
+    async fn always_allow_writes_to_config_and_reloads() {
+        use hick_policy::{PolicySuggestion, SuggestionRuleType, SuggestionScope};
+        use tempfile::TempDir;
+
+        let dir = TempDir::new().unwrap();
+        let config_path = dir.path().join("network-rules.toml");
+
+        // Write a minimal config that defaults to Prompt
+        std::fs::write(&config_path, "default = \"prompt\"\n").unwrap();
+
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let filter = Arc::new(NetworkFilter::load(&config_path, tx).unwrap());
+
+        let filter_clone = filter.clone();
+        let handle = tokio::spawn(async move { filter_clone.check("api.example.com").await });
+
+        let request = rx.recv().await.unwrap();
+        assert_eq!(request.host, "api.example.com");
+
+        // User picks "Always Allow" with an exact-host suggestion
+        let suggestion = PolicySuggestion {
+            rule_type: SuggestionRuleType::Network,
+            pattern: "api.example.com".to_string(),
+            scope: SuggestionScope::Exact,
+        };
+        request
+            .response_tx
+            .send(ApprovalResponse {
+                verdict: NetworkVerdict::Allow,
+                always_allow: Some(suggestion),
+            })
+            .unwrap();
+
+        let verdict = handle.await.unwrap();
+        assert_eq!(verdict, NetworkVerdict::Allow);
+
+        // Config file should now contain the new rule
+        let written = std::fs::read_to_string(&config_path).unwrap();
+        assert!(written.contains("pattern = \"api.example.com\""));
+        assert!(written.contains("action = \"allow\""));
+
+        // A second request should bypass the prompt because the rule is live
+        assert_eq!(
+            filter.check("api.example.com").await,
+            NetworkVerdict::Allow
+        );
+        assert!(rx.try_recv().is_err(), "no new prompt should fire");
+    }
+
+    #[tokio::test]
+    async fn always_allow_write_failure_allows_session_only() {
+        use hick_policy::{PolicySuggestion, SuggestionRuleType, SuggestionScope};
+
+        // Use a path inside a non-existent directory that cannot be created
+        // (simulate write failure by pointing to a path under a file, not a dir).
+        let (tx, mut rx) = mpsc::unbounded_channel();
+
+        // Create a filter with a config_path that points to a location where
+        // the parent is a file (not a dir), making writes fail.
+        let config = NetworkFilterConfig {
+            default: RuleAction::Prompt,
+            rules: vec![],
+        };
+        let mut filter = NetworkFilter::new(config, tx);
+        // Point config_path to an impossible location
+        filter.config_path = Some(std::path::PathBuf::from("/dev/null/network-rules.toml"));
+        let filter = Arc::new(filter);
+
+        let filter_clone = filter.clone();
+        let handle = tokio::spawn(async move { filter_clone.check("example.com").await });
+
+        let request = rx.recv().await.unwrap();
+        let suggestion = PolicySuggestion {
+            rule_type: SuggestionRuleType::Network,
+            pattern: "example.com".to_string(),
+            scope: SuggestionScope::Exact,
+        };
+        request
+            .response_tx
+            .send(ApprovalResponse {
+                verdict: NetworkVerdict::Allow,
+                always_allow: Some(suggestion),
+            })
+            .unwrap();
+
+        // Despite the write failure, the verdict is still Allow for this session
+        let verdict = handle.await.unwrap();
+        assert_eq!(verdict, NetworkVerdict::Allow);
+
+        // Second request uses the cache (session-only allow)
+        assert_eq!(filter.check("example.com").await, NetworkVerdict::Allow);
+        assert!(rx.try_recv().is_err());
     }
 
     #[test]

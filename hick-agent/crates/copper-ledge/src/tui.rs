@@ -23,7 +23,8 @@ use ratatui::{Frame, Terminal};
 use tokio::sync::{Notify, mpsc, oneshot};
 
 use hick_agent_script_first::events::{AgentCommand, AgentEvent};
-use hick_agent_sdk::network_filter::{NetworkApprovalRequest, NetworkVerdict};
+use hick_agent_sdk::network_filter::{ApprovalResponse, NetworkApprovalRequest, NetworkVerdict};
+use hick_policy::PolicySuggestion;
 use hick_agent_script_first::tools::ScriptResult;
 
 // ── Styled output model ────────────────────────────────────────────
@@ -45,6 +46,16 @@ struct StyledLine {
 
 // ── Application state ──────────────────────────────────────────────
 
+/// Pending network approval: holds suggestions for "Always Allow" and the
+/// channel back to the filter.
+struct PendingApproval {
+    host: String,
+    suggestions: Vec<PolicySuggestion>,
+    response_tx: oneshot::Sender<ApprovalResponse>,
+    /// When `true`, the user typed 'a' and is now selecting a suggestion index.
+    choosing_suggestion: bool,
+}
+
 struct App {
     lines: Vec<StyledLine>,
     current_partial: String,
@@ -56,8 +67,8 @@ struct App {
     thinking_shown: bool,
     provider_info: String,
     should_quit: bool,
-    /// Pending network approval prompt — awaiting y/n from the user.
-    pending_approval: Option<oneshot::Sender<NetworkVerdict>>,
+    /// Pending network approval prompt — awaiting y/n/a from the user.
+    pending_approval: Option<PendingApproval>,
     /// .hick session file writer (None if log could not be opened).
     log: Option<BufWriter<std::fs::File>>,
     /// Display path shown in the header (just the filename).
@@ -428,6 +439,11 @@ impl App {
         }
 
         if self.pending_approval.is_some() {
+            let choosing = self
+                .pending_approval
+                .as_ref()
+                .is_some_and(|p| p.choosing_suggestion);
+
             match (key.modifiers, key.code) {
                 (m, KeyCode::Char('c')) if m.contains(KeyModifiers::CONTROL) => {
                     self.pending_approval.take();
@@ -438,15 +454,80 @@ impl App {
                         self.should_quit = true;
                     }
                 }
-                (_, KeyCode::Char('y')) | (_, KeyCode::Char('Y')) => {
-                    if let Some(tx) = self.pending_approval.take() {
-                        tx.send(NetworkVerdict::Allow).ok();
-                        self.push_line(LineKind::Info, "[network] Allowed");
+                (_, KeyCode::Char('y')) | (_, KeyCode::Char('Y')) if !choosing => {
+                    if let Some(p) = self.pending_approval.take() {
+                        p.response_tx
+                            .send(ApprovalResponse {
+                                verdict: NetworkVerdict::Allow,
+                                always_allow: None,
+                            })
+                            .ok();
+                        self.push_line(LineKind::Info, "[network] Allowed (this request only)");
                     }
                 }
-                (_, KeyCode::Char('n')) | (_, KeyCode::Char('N')) => {
-                    if let Some(tx) = self.pending_approval.take() {
-                        tx.send(NetworkVerdict::Block).ok();
+                (_, KeyCode::Char('a')) | (_, KeyCode::Char('A')) if !choosing => {
+                    let descs: Vec<String> = self
+                        .pending_approval
+                        .as_ref()
+                        .map(|p| {
+                            p.suggestions
+                                .iter()
+                                .enumerate()
+                                .map(|(i, s)| format!("  [{}] {}", i + 1, s.describe()))
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    if let Some(ref mut p) = self.pending_approval {
+                        p.choosing_suggestion = true;
+                    }
+                    if !descs.is_empty() {
+                        self.push_line(
+                            LineKind::Info,
+                            "[network] Choose a rule to always allow (type a number):",
+                        );
+                        for d in descs {
+                            self.push_line(LineKind::Info, &d);
+                        }
+                    }
+                }
+                (_, KeyCode::Char(c)) if choosing && c.is_ascii_digit() => {
+                    let idx = c.to_digit(10).unwrap_or(0) as usize;
+                    if let Some(p) = self.pending_approval.take() {
+                        if idx >= 1 && idx <= p.suggestions.len() {
+                            let suggestion = p.suggestions.into_iter().nth(idx - 1).unwrap();
+                            let desc = suggestion.describe();
+                            p.response_tx
+                                .send(ApprovalResponse {
+                                    verdict: NetworkVerdict::Allow,
+                                    always_allow: Some(suggestion),
+                                })
+                                .ok();
+                            self.push_line(
+                                LineKind::Info,
+                                &format!("[network] Always allow: {desc}"),
+                            );
+                        } else {
+                            self.push_line(LineKind::Info, "[network] Invalid selection");
+                            // Put it back without choosing mode
+                            // (approval is dropped; fall through to block-safe path)
+                            p.response_tx
+                                .send(ApprovalResponse {
+                                    verdict: NetworkVerdict::Block,
+                                    always_allow: None,
+                                })
+                                .ok();
+                            self.push_line(LineKind::Info, "[network] Blocked (invalid selection)");
+                        }
+                    }
+                }
+                (_, KeyCode::Char('n')) | (_, KeyCode::Char('N')) if !choosing => {
+                    if let Some(p) = self.pending_approval.take() {
+                        p.response_tx
+                            .send(ApprovalResponse {
+                                verdict: NetworkVerdict::Block,
+                                always_allow: None,
+                            })
+                            .ok();
                         self.push_line(LineKind::Info, "[network] Blocked");
                     }
                 }
@@ -637,8 +718,15 @@ impl App {
             );
         frame.render_widget(output, chunks[1]);
 
-        let input_display = if self.pending_approval.is_some() {
-            "\u{26a0} Network approval required \u{2014} y to allow, n to block".to_string()
+        let input_display = if let Some(ref p) = self.pending_approval {
+            if p.choosing_suggestion {
+                "\u{26a0} Type a number to select a rule, or Ctrl+C to cancel".to_string()
+            } else {
+                format!(
+                    "\u{26a0} Allow {}? \u{2014} y = once, a = always (with rule), n = block",
+                    p.host
+                )
+            }
         } else if self.busy {
             "\u{25cf} Agent is working... (Ctrl+C to interrupt)".to_string()
         } else {
@@ -720,11 +808,16 @@ pub fn run_tui(
                     app.push_line(
                         LineKind::Info,
                         &format!(
-                            "[network] Request to {} \u{2014} allow? (y/n)",
+                            "[network] Request to {} \u{2014} y = once, a = always, n = block",
                             approval.host
                         ),
                     );
-                    app.pending_approval = Some(approval.response_tx);
+                    app.pending_approval = Some(PendingApproval {
+                        host: approval.host,
+                        suggestions: approval.suggestions,
+                        response_tx: approval.response_tx,
+                        choosing_suggestion: false,
+                    });
                 }
             }
         }

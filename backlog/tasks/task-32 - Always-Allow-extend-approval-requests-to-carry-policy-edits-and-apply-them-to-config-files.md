@@ -3,10 +3,10 @@ id: TASK-32
 title: >-
   Always Allow: extend approval requests to carry policy edits and apply them to
   config files
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-05-17 10:48'
-updated_date: '2026-05-17 10:51'
+updated_date: '2026-05-18 12:04'
 labels:
   - security
   - policy
@@ -80,3 +80,9 @@ The UI representation of suggestions comes from `PolicySuggestion::describe()` â
 - [ ] #6 copper-ledge and iron-peak kick off SuggestionGenerator in the background when a prompt fires.
 - [ ] #7 Tests: always_allow writes the expected line to a temp config file; reload causes subsequent check to return Allow without prompting; write failure allows session-only.
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Extended approval channels: `ApprovalResponse` struct carries `verdict + always_allow: Option<PolicySuggestion>`. `NetworkFilter` now holds `Mutex<NetworkFilterConfig>` for live reload, appends always-allow rules to config file via `append_to_config_file`, and reloads. `ToolGate` wired with same pattern via `apply_always_allow` + `config_dir`. TUI in both copper-ledge and iron-peak updated: `PendingApproval` struct, y/a/n/digit key handling, and `input_display` showing host + rule options. `DeterministicSuggestionGenerator` called eagerly in both gates before prompting.
+<!-- SECTION:FINAL_SUMMARY:END -->

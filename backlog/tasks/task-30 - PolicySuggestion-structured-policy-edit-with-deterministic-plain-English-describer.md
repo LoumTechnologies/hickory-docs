@@ -3,10 +3,10 @@ id: TASK-30
 title: >-
   PolicySuggestion: structured policy edit with deterministic plain-English
   describer
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-05-17 10:48'
-updated_date: '2026-05-17 10:51'
+updated_date: '2026-05-18 12:04'
 labels:
   - security
   - policy
@@ -55,3 +55,9 @@ No LLM is involved in this task — everything is deterministic. The LLM-backed 
 - [ ] #5 Tests cover describe() and to_toml_snippet() for all SuggestionRuleType variants.
 - [ ] #6 No LLM calls, subprocess calls, or async code in this module.
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Added `PolicySuggestion` struct with `SuggestionRuleType` and `SuggestionScope` enums in new `hick-policy/src/suggestion.rs`. Implements `describe()`, `to_toml_snippet()`, and `config_file_key()`. Full test suite included. Re-exported from `hick-policy/src/lib.rs`.
+<!-- SECTION:FINAL_SUMMARY:END -->

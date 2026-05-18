@@ -13,6 +13,7 @@ default = []
 hick-classify.workspace = true
 hick-token.workspace = true
 hick-sink.workspace = true
+hick-policy.workspace = true
 
 async-openai = "0.28"
 async-trait = "0.1"

@@ -4471,6 +4471,7 @@ dependencies = [
  "chrono",
  "futures",
  "hick-classify",
+ "hick-policy",
  "hick-sink",
  "hick-token",
  "log",
@@ -4721,8 +4722,9 @@ dependencies = [
 
 [[package]]
 name = "hick-policy"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
+ "async-trait",
  "hick-classify",
  "log",
  "serde",
@@ -4730,6 +4732,7 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
+ "toml 1.1.2+spec-1.1.0",
 ]
 
 [[package]]

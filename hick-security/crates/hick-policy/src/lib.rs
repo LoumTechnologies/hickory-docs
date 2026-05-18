@@ -7,6 +7,12 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
+pub mod generator;
+pub mod suggestion;
+
+pub use generator::{CapabilityRequest, DeterministicSuggestionGenerator, SuggestionGenerator};
+pub use suggestion::{PolicySuggestion, SuggestionRuleType, SuggestionScope};
+
 // ---------------------------------------------------------------------------
 // Errors
 // ---------------------------------------------------------------------------
@@ -41,6 +47,12 @@ pub enum PolicyDecision {
     Allow,
     #[serde(rename = "deny")]
     Deny { reason: String },
+    /// The policy script cannot make a binary decision and requests human input.
+    ///
+    /// Distinct from `Deny`: `Deny` is a hard block; `Prompt` suspends execution
+    /// and waits for the user to approve or reject.
+    #[serde(rename = "prompt")]
+    Prompt { reason: String },
 }
 
 /// Input for a flow policy check.
@@ -284,6 +296,44 @@ def evaluate(data):
     #[should_panic(expected = "valid Python identifier")]
     fn with_function_rejects_invalid_name() {
         PolicyEvaluator::new("/tmp/test.py").with_function("not valid!");
+    }
+
+    #[tokio::test]
+    async fn evaluate_with_prompt_script() {
+        let script = write_policy_script(
+            r#"
+def evaluate(data):
+    return {"decision": "prompt", "reason": "needs approval"}
+"#,
+        );
+
+        let evaluator = PolicyEvaluator::new(script.path().to_str().unwrap());
+        let input = FlowPolicyInput {
+            column_classifications: serde_json::json!({}),
+            sink_type: "email".to_string(),
+            slot_name: "to".to_string(),
+            data_classification: serde_json::json!([]),
+            token_caveats: vec![],
+        };
+
+        let result = evaluator.evaluate_flow(&input).await.unwrap();
+        assert_eq!(
+            result,
+            PolicyDecision::Prompt {
+                reason: "needs approval".to_string()
+            }
+        );
+    }
+
+    #[test]
+    fn prompt_decision_json_roundtrip() {
+        let decision = PolicyDecision::Prompt {
+            reason: "needs approval".to_string(),
+        };
+        let json = serde_json::to_string(&decision).unwrap();
+        assert!(json.contains("\"decision\":\"prompt\""));
+        let decoded: PolicyDecision = serde_json::from_str(&json).unwrap();
+        assert_eq!(decoded, decision);
     }
 
     #[tokio::test]

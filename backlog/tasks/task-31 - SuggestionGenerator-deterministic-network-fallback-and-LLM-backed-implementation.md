@@ -3,10 +3,10 @@ id: TASK-31
 title: >-
   SuggestionGenerator: deterministic network fallback and LLM-backed
   implementation
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-05-17 10:48'
-updated_date: '2026-05-17 10:51'
+updated_date: '2026-05-18 12:04'
 labels:
   - security
   - policy
@@ -88,3 +88,9 @@ Suggestion generation should be kicked off in the background as soon as a prompt
 - [ ] #7 Tests for DeterministicSuggestionGenerator cover all CapabilityRequest variants.
 - [ ] #8 LlmSuggestionGenerator has an integration test using a mock LlmClient that returns valid and invalid JSON.
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Added `SuggestionGenerator` async trait, `CapabilityRequest` enum, and `DeterministicSuggestionGenerator` in new `hick-policy/src/generator.rs`. Added `LlmSuggestionGenerator` with deterministic fallback in new `hick-agent-sdk/src/suggestion_gen.rs`. All re-exported from their respective `lib.rs` facades.
+<!-- SECTION:FINAL_SUMMARY:END -->
