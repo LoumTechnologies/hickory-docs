@@ -735,7 +735,15 @@ impl ContainerExecutor {
                 tokio::time::timeout_at(deadline, rc.container.read_stdout(&mut buf)).await;
 
             match read_result {
-                Err(_) => bail!("timed out waiting for command output"),
+                Err(_) => {
+                    // Mark the container as needing a restart: its shell is still processing
+                    // the hung command, so any further writes to stdin would be interleaved
+                    // with the old session's markers and corrupt subsequent executions.
+                    if let Some(rc) = self.containers.get_mut(name) {
+                        rc.booted = false;
+                    }
+                    bail!("timed out waiting for command output");
+                }
                 Ok(Err(e)) => bail!("read error: {e}"),
                 Ok(Ok(0)) => bail!("container exited unexpectedly"),
                 Ok(Ok(n)) => {

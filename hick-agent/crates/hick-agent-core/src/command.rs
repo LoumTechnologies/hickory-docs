@@ -242,11 +242,15 @@ impl CommandExecutor for WasmSandboxExecutor {
         self.ensure_ready(container, image).await?;
 
         if let Some(rest) = dest_path.strip_prefix("/workspace/") {
+            // The host workdir is mounted at /workspace inside the container, so writing
+            // to the host is sufficient — no shell interaction needed. Redundant container
+            // writes can corrupt the marker protocol if a previous command timed out.
             let host_path = self.config.workdir.join(rest);
             if let Some(parent) = host_path.parent() {
                 std::fs::create_dir_all(parent)?;
             }
             std::fs::write(host_path, content)?;
+            return Ok(());
         }
 
         if let Some(parent) = Path::new(dest_path).parent() {
