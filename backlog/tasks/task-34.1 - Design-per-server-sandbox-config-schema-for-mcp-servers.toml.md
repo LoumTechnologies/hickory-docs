@@ -4,6 +4,7 @@ title: 'Design: per-server sandbox config schema for mcp-servers.toml'
 status: To Do
 assignee: []
 created_date: '2026-05-18 13:01'
+updated_date: '2026-05-18 13:45'
 labels: []
 milestone: m-5
 dependencies: []
@@ -16,17 +17,19 @@ priority: high
 <!-- SECTION:DESCRIPTION:BEGIN -->
 ## Goal
 
-Extend the MCP server configuration schema (currently in `mcp_config.rs`) with per-server sandbox declarations: whether to sandbox, which WASM image to use, network rules, and file-access patterns.
+Extend the MCP server configuration schema (currently in `mcp_config.rs`) with per-server sandbox declarations covering: which env var name carries the credential, the sentinel token prefix to use, and network access rules.
+
+## Context
+
+Only **stdio servers** need this config. Remote HTTP servers are already handled by `HttpMcpClient` (credentials injected at call time on the host via `McpCredentialStore`). The sandbox for stdio servers runs inside the existing WASM VM — no separate container config or image selection is needed.
 
 ## Design questions to resolve
 
-1. **Sandbox mode** — should `sandbox = true/false` default to `true` for new servers, or opt-in? Recommendation: default to `true` (fail-secure) with an explicit `sandbox = false` escape hatch for trusted/internal servers.
+1. **Env var mapping** — how does the config declare which env var name the server reads its credential from? The sentinel token needs to be injected under the right name (e.g. `GITHUB_PERSONAL_ACCESS_TOKEN`, not a generic name).
 
-2. **Image selection** — use the same WASM images as the LLM script sandbox (alpine), or allow per-server image override?
+2. **Network rules** — inline in `mcp-servers.toml` as a `[servers.my-server.network]` section. Reuse `NetworkFilterConfig` field layout from `security_config.rs`.
 
-3. **Network rules** — inline in `mcp-servers.toml` as a `[servers.my-server.network]` section, or a separate `mcp-server-network.toml`? Recommendation: inline, matching how `AgentSecurityConfig` and `NetworkFilterConfig` are composed in `security_config.rs`.
-
-4. **File access** — MCP servers likely need read access to the project directory. Should this be declared per-server or defaulted?
+3. **Servers that don't use bearer auth** — some servers may use custom auth header names or non-bearer schemes. Config should allow declaring the header name (default: `Authorization: Bearer`).
 
 ## Proposed schema sketch
 
@@ -37,15 +40,16 @@ transport = "stdio"
 command = ["npx", "-y", "@modelcontextprotocol/server-github"]
 
 [servers.sandbox]
-enabled = true
-image = "alpine"          # optional, defaults to agent default
+# env var the server reads its credential from
+credential_env = "GITHUB_PERSONAL_ACCESS_TOKEN"
+# optional: auth header the server sends (default: "Authorization: Bearer {token}")
+auth_header = "Authorization"
+auth_scheme = "Bearer"
+# network rules applied by the interceptor
 deny_all_network = true
 allowed_hosts = [
   { host = "api.github.com", port = "443" },
-  { host = "github.com",     port = "443" },
 ]
-file_access.read  = ["/workspace/**"]
-file_access.write = []
 ```
 
 ## References
@@ -58,8 +62,9 @@ file_access.write = []
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
 - [ ] #1 TOML schema is documented in code with examples (doc comments on structs)
-- [ ] #2 Defaults to sandbox=true when field is omitted
+- [ ] #2 credential_env field declares which env var name receives the sentinel token
 - [ ] #3 network rules inline in the server block, reusing NetworkFilterConfig field layout
 - [ ] #4 Schema is validated on load with clear error messages for missing required fields
-- [ ] #5 Existing configs without sandbox block continue to work (backwards compatible: sandbox=false default until feature is stabilised, then flip)
+- [ ] #5 Existing configs without sandbox block continue to work (sandbox is opt-in per server)
+- [ ] #6 Remote HTTP servers (transport = "http") are not affected by this config block
 <!-- AC:END -->

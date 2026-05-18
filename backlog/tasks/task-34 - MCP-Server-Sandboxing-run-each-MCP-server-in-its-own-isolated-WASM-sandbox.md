@@ -4,6 +4,7 @@ title: 'MCP Server Sandboxing: run each MCP server in its own isolated WASM sand
 status: To Do
 assignee: []
 created_date: '2026-05-18 13:01'
+updated_date: '2026-05-18 13:45'
 labels: []
 milestone: m-5
 dependencies: []
@@ -15,22 +16,29 @@ priority: high
 <!-- SECTION:DESCRIPTION:BEGIN -->
 ## Goal
 
-Run each configured MCP server in its own WASM sandbox so that:
-1. The LLM cannot access MCP credentials (already true via `McpCredentialStore`, but the server process itself needs to be confined too)
-2. One MCP server cannot read another server's credentials or environment
-3. MCP servers with network access are gated through the existing `NetworkFilter` framework
-4. The existing `ToolGate` (which already blocks calls before `McpClient::call`) is unaffected — it remains the intent-level gate
+Sandbox untrusted MCP server processes so that:
+1. The LLM cannot access MCP credentials (API keys / PATs)
+2. One MCP server cannot read another server's credentials
+3. MCP servers with network access are gated per-server through the existing `NetworkFilter` framework
+4. The existing `ToolGate` is unaffected — it remains the intent-level gate above `McpClient::call`
 
-## Background
+## MCP auth reality (from spec research)
 
-Currently `StdioMcpClient` spawns the MCP server as a plain host process with full host access. `HttpMcpClient` connects to a remote endpoint with credentials injected at call time (already isolated). The WASM sandbox used for LLM scripts is the right model to apply here.
+There are two completely separate worlds:
 
-## Architecture decisions already settled
+**Stdio MCP servers (local, the common case today):**
+The MCP spec explicitly says stdio servers SHOULD NOT use OAuth. They read credentials from env vars — a PAT or API key the user created directly in the SaaS (e.g. `GITHUB_PERSONAL_ACCESS_TOKEN`). No OAuth app is involved. This is the case for the GitHub MCP server, Slack, Linear, and most servers in the ecosystem today.
 
-- `ToolGate` is NOT made obsolete by per-server network filtering. They operate at different layers: ToolGate at intent/classification, NetworkFilter at transport/host. Both are needed.
-- Sandboxing the MCP server process is a change at the `StdioMcpClient` layer — below `ToolGate`. No changes to any tool-calling mode (WASM component injection, magic-IP stubs, direct call) are needed.
-- Per-server `NetworkFilterConfig` reuses the existing framework; each server gets its own config section.
-- Credentials must be injected via WASM host functions (not env vars), matching the `hick-agent-mcp-sdk` pattern.
+**Remote HTTP MCP servers (hosted, emerging):**
+These use OAuth 2.1. The MCP server developer/operator owns the OAuth app in the SaaS. The user just approves it (consent screen). The Hickory Agent acts as the MCP *client* — it needs one Client ID Metadata Document (CIMD) at a URL we control, which becomes the client identity for all remote servers. Auth for these is already handled by `HttpMcpClient` (credentials injected at call time). No sandboxing concern here.
+
+## Architecture decisions
+
+- **No per-server `WasmSandboxExecutor`.** MCP servers run inside the existing WASM VM infrastructure, not in separate Wasmtime instances. This avoids the per-server memory and startup overhead.
+- **Credential proxy for stdio servers.** Each stdio MCP server is given a fake sentinel token as its env var (e.g. `GITHUB_PERSONAL_ACCESS_TOKEN=hick-proxy:github:<nonce>`). The smoltcp network interceptor (already used by `hick-agent-mcp-sdk`) recognises the sentinel, strips it, and injects the real credential from `McpCredentialStore`. The real credential never enters the WASM sandbox.
+- **Remote HTTP servers are already isolated.** `HttpMcpClient` injects real credentials at call time on the host. No change needed.
+- **Per-server NetworkFilter at the interceptor level.** The interceptor that does credential substitution also enforces the per-server allowed-hosts list. Same `NetworkFilter` framework, applied inside the interceptor rather than as a separate container boundary.
+- **ToolGate is unaffected.** It sits above `McpClient::call`. Sandboxing is a change below the gate.
 
 ## Subtasks
 
@@ -39,10 +47,10 @@ See child tasks for implementation breakdown.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Each stdio MCP server runs inside its own WASM container (one container per server name)
-- [ ] #2 No MCP server can read env vars or files belonging to another server's sandbox
-- [ ] #3 MCP servers requiring network access use a per-server NetworkFilter config (allow/block/prompt by host)
-- [ ] #4 Credentials are injected via WASM host functions, not env vars or sandbox-visible files
+- [ ] #1 Stdio MCP servers receive a fake sentinel credential via env var; the real credential never appears in the WASM sandbox
+- [ ] #2 The smoltcp interceptor recognises sentinel tokens, substitutes real credentials, and enforces per-server allowed-hosts rules
+- [ ] #3 Remote HTTP MCP servers (HttpMcpClient) are unchanged — they already handle credential isolation on the host
+- [ ] #4 No per-server WasmSandboxExecutor is created; MCP servers run in the existing WASM VM infrastructure
 - [ ] #5 ToolGate continues to gate all three tool-calling modes unchanged
-- [ ] #6 Per-server sandbox config is declarative (TOML) and co-located with the existing mcp-servers config
+- [ ] #6 Per-server network and credential config is declarative (TOML) and co-located with the existing mcp-servers config
 <!-- AC:END -->
