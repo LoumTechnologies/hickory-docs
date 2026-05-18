@@ -477,10 +477,10 @@ fn is_hick_change(event: &notify::Event) -> bool {
     if !is_change {
         return false;
     }
-    event
-        .paths
-        .iter()
-        .any(|p| p.extension().is_some_and(|e| e == "hick"))
+    event.paths.iter().any(|p| {
+        p.extension().is_some_and(|e| e == "hick")
+            && !p.components().any(|c| c.as_os_str() == ".hick")
+    })
 }
 
 fn hash_sources(sources: &HashMap<String, String>) -> HashMap<String, String> {

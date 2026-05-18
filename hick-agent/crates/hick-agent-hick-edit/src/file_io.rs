@@ -20,12 +20,14 @@ pub fn load_hick_sources(project_dir: &Path) -> anyhow::Result<HashMap<String, S
         vec!["**/*.hick".to_string()]
     };
 
+    let hick_state_dir = project_dir.join(".hick");
+
     for pattern in patterns {
         let full_pattern = project_dir.join(&pattern);
         let pattern_str = full_pattern.to_string_lossy();
         if let Ok(entries) = glob::glob(&pattern_str) {
             for entry in entries.filter_map(|e| e.ok()) {
-                if entry.is_file() {
+                if entry.is_file() && !entry.starts_with(&hick_state_dir) {
                     let rel = entry
                         .strip_prefix(project_dir)
                         .unwrap_or(&entry)
@@ -45,7 +47,10 @@ pub fn load_hick_sources(project_dir: &Path) -> anyhow::Result<HashMap<String, S
             .filter_map(|e| e.ok())
         {
             let path = entry.path();
-            if path.is_file() && path.extension().is_some_and(|e| e == "hick") {
+            if path.is_file()
+                && path.extension().is_some_and(|e| e == "hick")
+                && !path.starts_with(&hick_state_dir)
+            {
                 let rel = path
                     .strip_prefix(project_dir)
                     .unwrap_or(path)
