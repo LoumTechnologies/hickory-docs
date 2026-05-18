@@ -6,30 +6,41 @@ Before committing, always run the full test suite:
 cargo test --workspace -- --test-threads=1
 ```
 
-## XML Entity Escaping in Pipeline Writes
+## Hickory XML Is Not Standard XML
 
-**hick's parser does NOT unescape XML entity references in text content.**
-`&lt;` in a `.hick` source file will appear as `&lt;` in the pipeline output —
-not `<`. This is different from standard XML parsers.
+Hickory XML is **not** a standard XML dialect. The parser only recognises
+elements that carry the `hick:` namespace prefix (e.g. `<hick:doc>`,
+`<hick:section>`). Anything that merely *looks* like an XML tag but lacks that
+prefix is passed through literally — it is not parsed, not escaped, and not
+touched.
 
-Consequence: code or text content containing `<`, `>`, or `&` (Rust generics,
-C++ templates, HTML, boolean `&&`, shell redirects, etc.) will be corrupted if
-passed through `pipeline_write`, `pipeline_new_file`, or `append_to_hick_source`
-without special handling.
+Consequence: bare `<`, `>`, and `&` characters in content (Rust generics, C++
+templates, HTML, boolean `&&`, shell redirects, etc.) are **preserved as-is**
+in pipeline output. You do **not** need CDATA sections or entity escaping for
+source code embedded in `.hick` files.
 
-**Safe options:**
-1. Wrap content in a CDATA section before inserting into the `.hick` source:
-   `<![CDATA[pub fn foo<T>() -> Result<T>]]>` — CDATA content is never escaped
-   and hick preserves it literally.
-2. After any pipeline write, run `hick run` and grep the output files for XML
-   entities (`&lt;`, `&gt;`, `&amp;`) as a smoke check.
+If output files contain `&lt;`, `&gt;`, or `&amp;` as literal text, that
+indicates either (a) the content was pre-escaped before being inserted, or (b)
+an older/non-hickory tool processed the file. It is not a property of the
+current hick pipeline.
 
-**Anti-pattern to avoid:**
-```python
-# This will corrupt Rust/C++/HTML content:
-hick.pipeline_write("src/lib.rs", rust_source_with_generics)
-# The '<' in 'Result<()>' becomes '&lt;' in the output file.
-```
+## Pipeline-Generated Files
+
+Many files in this repo are **outputs of the hick pipeline**, not sources.
+Running `cargo test` or `hick run` regenerates them. Editing generated files
+directly is pointless — the next pipeline run overwrites the changes.
+
+**How to identify a generated file:** check whether it appears as a weave
+target in any `.hick` source file (`grep -r 'weave="path/to/file"' --include="*.hick"`).
+If it does, edit the `.hick` source instead.
+
+Known generated files/directories (non-exhaustive):
+- `backend/src/` — generated from `blue-iron-cube/main.hick` and domain `.hick` files
+- `.gitignore`, `README.md`, `.editorconfig`, `.devcontainer/` — generated from scaffolding `.hick` files
+- `TEMPLATE.md` — test pipeline output, not committed
+
+**Never** manually fix content in a generated file (e.g. to correct entity refs
+or formatting). Find the `.hick` source and fix it there.
 
 ## AI Coding Agent Architecture
 

@@ -334,11 +334,11 @@ use std::path::Path;
 use std::sync::Mutex;
 
 pub struct Database {
-    conn: Mutex&lt;Connection&gt;,
+    conn: Mutex<Connection>,
 }
 
 impl Database {
-    pub fn open(path: &amp;str) -> Result&lt;Self&gt; {
+    pub fn open(path: &str) -> Result<Self> {
         if let Some(parent) = Path::new(path).parent() {
             std::fs::create_dir_all(parent)?;
         }
@@ -347,11 +347,11 @@ impl Database {
         Ok(Self { conn: Mutex::new(conn) })
     }
 
-    pub fn conn(&amp;self) -> std::sync::MutexGuard&lt;'_, Connection&gt; {
+    pub fn conn(&self) -> std::sync::MutexGuard<'_, Connection> {
         self.conn.lock().expect("database lock poisoned")
     }
 
-    pub fn run_migrations(&amp;self) -> Result&lt;()&gt; {
+    pub fn run_migrations(&self) -> Result<()> {
         let conn = self.conn();
         let migration_dir = Path::new("migrations");
         if !migration_dir.exists() {
@@ -363,7 +363,7 @@ impl Database {
                 applied_at TEXT NOT NULL DEFAULT (datetime('now'))
             )"
         )?;
-        let mut entries: Vec&lt;_&gt; = std::fs::read_dir(migration_dir)?
+        let mut entries: Vec<_> = std::fs::read_dir(migration_dir)?
             .filter_map(|e| e.ok())
             .filter(|e| e.path().extension().map_or(false, |ext| ext == "sql"))
             .collect();
@@ -372,13 +372,13 @@ impl Database {
             let name = entry.file_name().to_string_lossy().to_string();
             let already_applied: bool = conn.query_row(
                 "SELECT COUNT(*) > 0 FROM _migrations WHERE name = ?1",
-                [&amp;name],
+                [&name],
                 |row| row.get(0),
             )?;
             if !already_applied {
                 let sql = std::fs::read_to_string(entry.path())?;
-                conn.execute_batch(&amp;sql)?;
-                conn.execute("INSERT INTO _migrations (name) VALUES (?1)", [&amp;name])?;
+                conn.execute_batch(&sql)?;
+                conn.execute("INSERT INTO _migrations (name) VALUES (?1)", [&name])?;
                 tracing::info!("applied migration: {}", name);
             }
         }
@@ -411,7 +411,7 @@ pub enum AppError {
 
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
-        let (status, message) = match &amp;self {
+        let (status, message) = match &self {
             AppError::NotFound(msg) => (StatusCode::NOT_FOUND, msg.clone()),
             AppError::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg.clone()),
             AppError::Internal(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg.clone()),
@@ -420,13 +420,13 @@ impl IntoResponse for AppError {
     }
 }
 
-impl From&lt;anyhow::Error&gt; for AppError {
+impl From<anyhow::Error> for AppError {
     fn from(err: anyhow::Error) -> Self {
         AppError::Internal(err.to_string())
     }
 }
 
-impl From&lt;rusqlite::Error&gt; for AppError {
+impl From<rusqlite::Error> for AppError {
     fn from(err: rusqlite::Error) -> Self {
         AppError::Internal(err.to_string())
     }

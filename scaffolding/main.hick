@@ -182,6 +182,13 @@ Thumbs.db
 dist/
 build/
 out/
+
+# Agent runtime state
+.hick/
+.copper-ledge/
+
+# Test pipeline output
+TEMPLATE.md
 </hick:cut>
 
 ---

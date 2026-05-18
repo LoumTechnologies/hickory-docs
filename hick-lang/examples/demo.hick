@@ -37,7 +37,7 @@ hick-classify = { version = "0.1", path = "hick-security/crates/hick-classify" }
 hick-token = { version = "0.1", path = "hick-security/crates/hick-token" }
 hick-sink = { version = "0.1", path = "hick-security/crates/hick-sink" }
 hick-secrets = { version = "0.1", path = "hick-security/crates/hick-secrets" }
-hick-policy = { version = "0.1", path = "hick-security/crates/hick-policy" }
+hick-policy = { version = "0.2", path = "hick-security/crates/hick-policy" }
 
 # hick-store
 hick-store = { version = "0.1", path = "hick-store/crates/hick-store" }
