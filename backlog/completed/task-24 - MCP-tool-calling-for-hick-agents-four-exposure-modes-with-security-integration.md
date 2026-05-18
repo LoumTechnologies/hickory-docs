@@ -3,10 +3,10 @@ id: TASK-24
 title: >-
   MCP tool calling for hick agents: four exposure modes with security
   integration
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-05-16 12:21'
-updated_date: '2026-05-16 13:02'
+updated_date: '2026-05-18 11:44'
 labels:
   - mcp
   - security
@@ -43,3 +43,9 @@ Allow any hick agent binary to be configured with MCP servers. Expose those tool
 ## Subtask order
 TASK-24.1 (MCP client core) → TASK-24.2 (tool gate) → TASK-24.3–24.6 (exposure mode extensions, can proceed in parallel once 24.1 and 24.2 are done).
 <!-- SECTION:DESCRIPTION:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+All eight subtasks complete. MCP client core + ToolGate in hick-agent-sdk (24.1, 24.2); four extension crates (mcp-wasm, mcp-sdk, mcp-xml, mcp-graphql) for the four exposure modes (24.3–24.6); shared ShapeFormatConfig response serialization in hick-agent-sdk (24.7); McpToolRule caveat in hick-token 0.2.0 (24.8). Universal hick-agent binary wires all extensions from .hick/agent.toml (TASK-28).
+<!-- SECTION:FINAL_SUMMARY:END -->
