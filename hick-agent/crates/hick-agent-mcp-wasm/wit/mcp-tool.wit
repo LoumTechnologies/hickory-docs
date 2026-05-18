@@ -1,0 +1,14 @@
+package hick:mcp@0.1.0;
+
+interface mcp {
+    /// Invoke an MCP tool. Input and output are JSON strings.
+    /// The host implements this import — no network socket is involved.
+    call-tool: func(server: string, tool: string, input: string) -> result<string, string>;
+}
+
+/// World for a single auto-generated MCP tool WASI component.
+/// The component imports the mcp interface and exports a CLI-style run function.
+world mcp-tool {
+    import mcp;
+    export run: func(args: list<string>) -> s32;
+}

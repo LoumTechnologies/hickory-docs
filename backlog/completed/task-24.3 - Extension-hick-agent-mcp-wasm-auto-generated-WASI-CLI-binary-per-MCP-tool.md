@@ -1,10 +1,10 @@
 ---
 id: TASK-24.3
 title: 'Extension hick-agent-mcp-wasm: auto-generated WASI CLI binary per MCP tool'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-05-16 12:22'
-updated_date: '2026-05-16 13:02'
+updated_date: '2026-05-18 00:59'
 labels:
   - mcp
   - wasm
@@ -120,3 +120,9 @@ The extension registers generated `.wasm` component paths with the WASM VM via T
 - [ ] #9 A build failure for one tool logs a warning but does not prevent other tools from being registered.
 - [ ] #10 Extension integrates into an agent binary by wiring the WIT linker and registering McpWasmExtension — no source changes to hick-agent-sdk or wasm-net.
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Implemented hick-agent-mcp-wasm crate: WIT interface (mcp-tool.wit), McpWasmExtension with build()/call_tool(), McpWasmContainerBackend that intercepts mcp-* commands at the ContainerBackend level calling MCP API directly in the host. Build via cargo-component is non-fatal.
+<!-- SECTION:FINAL_SUMMARY:END -->

@@ -1,0 +1,43 @@
+[package]
+name = "hick-agent"
+version = "0.1.0"
+edition = "2024"
+description = "Universal hick agent binary — all extensions linked; which activate is driven by .hick/agent.toml."
+publish = false
+
+[[bin]]
+name = "hick-agent"
+path = "src/main.rs"
+
+[features]
+default = []
+
+[dependencies]
+# All extension crates linked in; activation is a runtime branch from config.
+hick-agent-sdk = { path = "../hick-agent-sdk" }
+hick-agent-script-first = { path = "../hick-agent-script-first" }
+hick-agent-hick-edit = { path = "../hick-agent-hick-edit" }
+hick-agent-mcp-wasm = { path = "../hick-agent-mcp-wasm" }
+hick-agent-mcp-sdk = { path = "../hick-agent-mcp-sdk" }
+hick-agent-mcp-xml = { path = "../hick-agent-mcp-xml" }
+hick-agent-mcp-graphql = { path = "../hick-agent-mcp-graphql" }
+hick-agent-core = { path = "../hick-agent-core" }
+hick-policy.workspace = true
+hick-classify.workspace = true
+network = { workspace = true }
+
+anyhow = "1"
+async-trait = "0.1"
+clap = { version = "4", features = ["derive", "env"] }
+dotenvy = "0.15.7"
+env_logger = "0.11"
+futures = "0.3"
+log = "0.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+toml = "1"
+
+[dev-dependencies]
+tempfile = "3"
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }

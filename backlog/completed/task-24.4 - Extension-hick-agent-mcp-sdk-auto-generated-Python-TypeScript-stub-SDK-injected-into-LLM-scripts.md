@@ -3,10 +3,10 @@ id: TASK-24.4
 title: >-
   Extension hick-agent-mcp-sdk: auto-generated Python/TypeScript stub SDK
   injected into LLM scripts
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-05-16 12:23'
-updated_date: '2026-05-16 13:02'
+updated_date: '2026-05-18 00:59'
 labels:
   - mcp
   - extensions
@@ -115,3 +115,9 @@ This extension wraps or composes with `hick-agent-script-first`. It intercepts t
 - [ ] #10 Preamble injection prepends to a copy written to the container — the LLM output in conversation history is not modified.
 - [ ] #11 Extension integrates into an agent binary without source changes to hick-agent-sdk, hick-agent-script-first, or wasm-net.
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Implemented hick-agent-mcp-sdk crate: McpSdkInterceptor (smoltcp Interceptor at 169.254.1.2) handles HTTP tool calls from scripts; generates _mcp.py and _mcp.ts stubs with no credentials, only magic gateway IP; McpSdkExtension writes stubs and injects preambles.
+<!-- SECTION:FINAL_SUMMARY:END -->

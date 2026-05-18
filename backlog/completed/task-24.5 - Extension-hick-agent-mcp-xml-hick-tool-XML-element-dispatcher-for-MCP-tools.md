@@ -1,10 +1,10 @@
 ---
 id: TASK-24.5
 title: 'Extension hick-agent-mcp-xml: hick:tool XML element dispatcher for MCP tools'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-05-16 12:23'
-updated_date: '2026-05-16 13:02'
+updated_date: '2026-05-18 00:59'
 labels:
   - mcp
   - extensions
@@ -79,3 +79,9 @@ The `hick:input` CDATA form is required for inputs containing `<`, `>`, or `&` (
 - [ ] #7 System prompt fragment documents the element schema and all available tool names/arguments.
 - [ ] #8 Extension integrates into an agent binary without source changes to hick-agent-sdk or hick-agent-hick-edit.
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Implemented hick-agent-mcp-xml crate: scan_tool_elements() string scanner for <hick:tool> elements, McpXmlExtension::process_response() dispatches each element via ToolGate then McpClient, wraps results in <hick:tool-result> with CDATA. Results formatted by ShapeFormatConfig.
+<!-- SECTION:FINAL_SUMMARY:END -->

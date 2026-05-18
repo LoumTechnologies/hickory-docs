@@ -1,0 +1,22 @@
+[package]
+name = "hick-agent-mcp-sdk"
+version = "0.1.0"
+edition = "2024"
+description = "MCP extension: auto-generated Python/TypeScript stub SDK injected into LLM scripts via a magic-IP HTTP interceptor."
+publish = false
+
+[dependencies]
+hick-agent-sdk = { path = "../hick-agent-sdk" }
+network = { workspace = true }
+hick-classify.workspace = true
+
+anyhow = "1"
+async-trait = "0.1"
+log = "0.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+
+[dev-dependencies]
+tempfile = "3"
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }

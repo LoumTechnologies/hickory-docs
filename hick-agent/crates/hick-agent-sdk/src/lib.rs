@@ -25,6 +25,8 @@
 //! | [`HttpMcpClient`] | MCP client over HTTP |
 //! | [`McpCredentialStore`] | Holds resolved MCP auth credentials |
 //! | [`ToolGate`] | Classification-aware MCP tool call gating |
+//! | [`ShapeFormatConfig`] | Shape-aware MCP result serialization config |
+//! | [`format_mcp_result`] | Detect shape and serialize an MCP result |
 
 pub mod command;
 pub mod llm;
@@ -32,6 +34,7 @@ pub mod llm_anthropic;
 pub mod llm_openai_compat;
 pub mod mcp_client;
 pub mod mcp_config;
+pub mod mcp_format;
 pub mod network_filter;
 pub mod project_context;
 pub mod runtime;
@@ -150,6 +153,23 @@ pub use tool_gate::ToolApprovalRequest;
 pub use tool_gate::ToolGateConfig;
 /// Classification-aware MCP tool call gating with per-session verdict caching.
 pub use tool_gate::ToolGate;
+
+// ---------------------------------------------------------------------------
+// MCP response format
+// ---------------------------------------------------------------------------
+
+/// Structural shape of an MCP tool response value.
+pub use mcp_format::ResponseShape;
+/// Detect the structural shape of a JSON value.
+pub use mcp_format::detect_shape;
+/// Output serialization format for MCP tool results.
+pub use mcp_format::McpResponseFormat;
+/// Per-shape format overrides.
+pub use mcp_format::ByShapeConfig;
+/// Shape-aware format configuration for MCP tool results.
+pub use mcp_format::ShapeFormatConfig;
+/// Detect shape and serialize an MCP result using the configured format.
+pub use mcp_format::format_mcp_result;
 
 // ---------------------------------------------------------------------------
 // Project context

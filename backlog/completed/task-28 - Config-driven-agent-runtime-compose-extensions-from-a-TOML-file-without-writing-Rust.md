@@ -3,10 +3,10 @@ id: TASK-28
 title: >-
   Config-driven agent runtime: compose extensions from a TOML file without
   writing Rust
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-05-16 13:04'
-updated_date: '2026-05-16 13:04'
+updated_date: '2026-05-18 01:00'
 labels:
   - sdk
   - extensions
@@ -78,3 +78,9 @@ This is safe because extension crates are already designed to be opt-in via the 
 - [ ] #6 config_version field is present and validated; a mismatched version emits a warning but does not hard-fail for v1.
 - [ ] #7 Existing adjective-noun binaries (copper-ledge, iron-peak) are unaffected — they continue to compile and run with their hardwired extension sets.
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Implemented hick-agent/crates/hick-agent/src/main.rs: AgentConfig deserialization from .hick/agent.toml with [agent], [extensions], [mcp], [mcp.response_format], [security] sections. config_version validation (must be 1). Provider auto-detection from ANTHROPIC_API_KEY/OPENAI_API_KEY/XAI_API_KEY. MCP client construction and tool listing. ToolGate with terminal approval handler. Extension wiring based on config flags (mcp_xml, mcp_graphql, mcp_sdk, mcp_wasm). Custom agent loop using AgentRuntime directly, applying XML then GraphQL extensions after each response. NoopSandbox for the universal binary.
+<!-- SECTION:FINAL_SUMMARY:END -->

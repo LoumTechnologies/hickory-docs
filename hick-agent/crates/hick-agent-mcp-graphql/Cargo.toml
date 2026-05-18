@@ -1,0 +1,22 @@
+[package]
+name = "hick-agent-mcp-graphql"
+version = "0.1.0"
+edition = "2024"
+description = "MCP extension: in-process GraphQL executor over MCP with <hick:graphql-query> element dispatch."
+publish = false
+
+[dependencies]
+hick-agent-sdk = { path = "../hick-agent-sdk" }
+hick-classify.workspace = true
+
+anyhow = "1"
+async-trait = "0.1"
+async-graphql = { version = "7", features = ["dynamic-schema"] }
+log = "0.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+
+[dev-dependencies]
+tempfile = "3"
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }

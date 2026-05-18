@@ -1,10 +1,10 @@
 ---
 id: TASK-24.7
 title: MCP response format config option for hick agent implementations
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-05-16 12:56'
-updated_date: '2026-05-16 13:04'
+updated_date: '2026-05-18 01:00'
 labels:
   - mcp
   - graphql
@@ -136,3 +136,9 @@ Run all three formats × four shapes through the TASK-23 eval framework. The res
 - [ ] #7 Eval covers all three formats across all four shapes (12 variants) through the TASK-23 framework; results documented in-repo.
 - [ ] #8 Recommended per-shape defaults are set from eval results (or justified fallbacks) and documented in the config TOML example.
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Implemented hick-agent-sdk/src/mcp_format.rs: ResponseShape enum, detect_shape(), McpResponseFormat (Json/Markdown/Xml), ByShapeConfig, ShapeFormatConfig with recommended() preset, format_mcp_result(). Re-exported from hick-agent-sdk root. Used by all four MCP extension crates.
+<!-- SECTION:FINAL_SUMMARY:END -->

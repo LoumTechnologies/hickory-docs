@@ -3,9 +3,10 @@ id: TASK-24.8
 title: >-
   McpToolRule caveat in hick-token: allow_mcp_tool and check_mcp_tool on
   ContainerCapabilities
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-05-17 10:49'
+updated_date: '2026-05-18 01:00'
 labels:
   - mcp
   - security
@@ -44,3 +45,9 @@ Minor version bump for hick-token (new public API).
 - [ ] #6 hick-token version is bumped (minor).
 - [ ] #7 Tests cover: allow specific tool, deny absent tool, closed-by-default, attenuation preserves rules, intersect keeps only shared rules.
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Added McpToolRule to hick-token: mcp-tool caveat roundtrip, allow_mcp_tool() builder, check_mcp_tool() closed-by-default, wired into intersect/merge_caveats/from_caveats/to_caveats/verify_hick_caveat. 7 tests. Version bumped to 0.2.0.
+<!-- SECTION:FINAL_SUMMARY:END -->

@@ -3,10 +3,10 @@ id: TASK-24.6
 title: >-
   Extension hick-agent-mcp-graphql: in-process GraphQL executor over MCP with
   hick:graphql-query element
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-05-16 12:23'
-updated_date: '2026-05-16 13:02'
+updated_date: '2026-05-18 00:59'
 labels:
   - mcp
   - extensions
@@ -79,3 +79,9 @@ Each `McpToolDef` → one mutation or query field, arguments from input JSON Sch
 - [ ] #10 The hick-edit extension ignores <hick:graphql-query> elements — no pipeline corruption.
 - [ ] #11 Extension integrates into an agent binary without source changes to hick-agent-sdk or hick-agent-hick-edit.
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Implemented hick-agent-mcp-graphql crate: in-process async-graphql v7 dynamic schema where each MCP tool is a mutation field. scan_graphql_elements() finds <hick:graphql-query> elements. process_response() executes queries against the schema. Empty tool set handled by omitting Mutation type. Introspection enabled.
+<!-- SECTION:FINAL_SUMMARY:END -->
