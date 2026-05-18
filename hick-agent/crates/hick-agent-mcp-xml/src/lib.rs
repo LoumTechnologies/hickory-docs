@@ -481,4 +481,62 @@ Some text after."#;
         assert!(fragment.contains("github/create_issue"));
         assert!(fragment.contains("hick:tool"));
     }
+
+    // ── TASK-34.5: ToolGate verification for McpXmlExtension ─────────────────
+
+    /// Verify: a Block verdict from ToolGate prevents McpClient::call from
+    /// being reached in the McpXmlExtension (direct McpClient::call) mode.
+    #[tokio::test]
+    async fn xml_extension_block_verdict_prevents_mcp_call() {
+        use hick_agent_sdk::{ToolGateConfig, ToolTrust};
+        use tokio::sync::mpsc;
+
+        let (tx, _rx) = mpsc::unbounded_channel();
+        let config = ToolGateConfig {
+            rejection_classifications: vec![hick_classify::Classification::new(vec![
+                json!({"sensitivity": "secret"}),
+            ])],
+        };
+        let gate = Arc::new(hick_agent_sdk::ToolGate::new(config, HashMap::new(), ToolTrust::Trusted, tx));
+
+        // Spy McpClient: records whether call() was reached.
+        struct SpyClient {
+            called: std::sync::Arc<std::sync::Mutex<bool>>,
+        }
+        #[async_trait::async_trait]
+        impl McpClient for SpyClient {
+            async fn call(&self, _: &str, _: serde_json::Value) -> anyhow::Result<serde_json::Value> {
+                *self.called.lock().unwrap() = true;
+                Ok(serde_json::Value::Null)
+            }
+            async fn list_tools(&self) -> anyhow::Result<Vec<McpToolDef>> { Ok(vec![]) }
+            async fn refresh_tools(&self) -> anyhow::Result<Vec<McpToolDef>> { Ok(vec![]) }
+        }
+
+        let call_reached = std::sync::Arc::new(std::sync::Mutex::new(false));
+        let spy: Arc<dyn McpClient> = Arc::new(SpyClient { called: call_reached.clone() });
+
+        let mut clients = HashMap::new();
+        clients.insert("github".to_string(), spy);
+
+        let ext = McpXmlExtension::new(gate, clients, ShapeFormatConfig::default());
+
+        let secret_scope = vec![hick_classify::Classification::new(vec![
+            json!({"sensitivity": "secret"}),
+        ])];
+
+        let response = r#"<hick:tool server="github" name="create_issue">
+  <hick:arg name="title">Test</hick:arg>
+</hick:tool>"#;
+
+        let obs = ext.process_response(response, &secret_scope).await;
+        // ToolGate should block — tool-result should show "blocked".
+        assert!(obs.is_some());
+        let obs_str = obs.unwrap();
+        assert!(obs_str.contains("blocked"), "result must be blocked: {obs_str}");
+        assert!(
+            !*call_reached.lock().unwrap(),
+            "McpClient::call must NOT be reached when ToolGate blocks"
+        );
+    }
 }

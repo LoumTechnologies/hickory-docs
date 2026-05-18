@@ -120,6 +120,8 @@ pub use security_config::AgentSecurityConfig;
 pub use mcp_client::McpClient;
 /// MCP client that communicates with a server process over stdin/stdout.
 pub use mcp_client::StdioMcpClient;
+/// MCP client that runs a stdio server with a sentinel credential and sandbox isolation.
+pub use mcp_client::SandboxedStdioMcpClient;
 /// MCP client that communicates with a server over HTTP (JSON-RPC 2.0 POST).
 pub use mcp_client::HttpMcpClient;
 /// Description of a single tool exposed by an MCP server.
@@ -137,6 +139,10 @@ pub use mcp_config::McpServerTrust;
 pub use mcp_config::McpServerConfig;
 /// Top-level server configuration file (`.hick/mcp-servers.toml`).
 pub use mcp_config::McpServersConfig;
+/// Per-server sandbox configuration for stdio MCP servers.
+pub use mcp_config::McpSandboxConfig;
+/// A host entry in the per-server sandbox network allow-list.
+pub use mcp_config::McpSandboxAllowedHost;
 /// A resolved credential ready to inject as HTTP headers at call time.
 pub use mcp_config::ResolvedCredential;
 /// Holds resolved MCP auth credentials; never serialized, never written to disk.

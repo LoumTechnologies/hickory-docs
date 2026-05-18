@@ -3,9 +3,10 @@ id: TASK-34.5
 title: >-
   Audit: verify ToolGate covers all three tool-calling modes under sandboxed MCP
   servers
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-05-18 13:02'
+updated_date: '2026-05-18 17:30'
 labels: []
 milestone: m-5
 dependencies:
@@ -42,7 +43,26 @@ All three modes already go through `ToolGate`. This task is verification + docum
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Each of the three tool-calling modes has a test that confirms a Block verdict from ToolGate prevents McpClient::call from being reached
-- [ ] #2 If any mode lacks a ToolGate check, it is added
-- [ ] #3 Findings documented in task notes regardless of outcome
+- [x] #1 Each of the three tool-calling modes has a test that confirms a Block verdict from ToolGate prevents McpClient::call from being reached
+- [x] #2 If any mode lacks a ToolGate check, it is added
+- [x] #3 Findings documented in task notes regardless of outcome
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+## Audit Findings
+
+All three tool-calling modes already call `ToolGate::check` before `McpClient::call`. No gaps found.
+
+**Mode 1: `McpWasmContainerBackend`** (`hick-agent-mcp-wasm/src/lib.rs`)  
+`execute_raw()` → `McpWasmExtension::call_tool()` → `tool_gate.check()` → `client.call()`. Existing test `call_tool_blocked_on_secret_classification` covers the Block path.
+
+**Mode 2: `McpSdkInterceptor`** (`hick-agent-mcp-sdk/src/lib.rs`)  
+`dispatch()` → `tool_gate.check()` → (if block: return 403) → `client.call()`. Added test `sdk_interceptor_block_verdict_prevents_mcp_call` using a spy McpClient to verify call is not reached.
+
+**Mode 3: `McpXmlExtension`** (`hick-agent-mcp-xml/src/lib.rs`)  
+`dispatch_element()` → `tool_gate.check()` → (if block: return blocked result) → `client.call()`. Added test `xml_extension_block_verdict_prevents_mcp_call` using a spy McpClient.
+
+Note: task description references `hick-agent-hick-edit` as the "direct call" mode, but examining the code confirms `HickEditAgent` does not call `McpClient` directly — it only wraps `AgentRuntime` for hick-XML pipeline editing. The three modes verified are WASM/McpWasmContainerBackend, SDK/McpSdkInterceptor, and XML/McpXmlExtension (all confirmed ToolGate-gated).
+<!-- SECTION:NOTES:END -->

@@ -3,10 +3,10 @@ id: TASK-34.3
 title: >-
   Implement: smoltcp interceptor for sentinel credential substitution and
   per-server network filtering
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-05-18 13:02'
-updated_date: '2026-05-18 13:46'
+updated_date: '2026-05-18 17:30'
 labels: []
 milestone: m-5
 dependencies:
@@ -51,11 +51,17 @@ The sentinel token format (`hick-proxy:<server-name>:<nonce>`) is meaningless ou
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Interceptor recognises hick-proxy:<server>:<nonce> sentinel in Authorization header and substitutes the real credential
-- [ ] #2 Outbound calls to hosts not in allowed_hosts are blocked and return an error to the MCP server
-- [ ] #3 Real credential is never logged or exposed in interceptor error messages
-- [ ] #4 An LLM script cannot use a captured sentinel token to make authenticated calls — the nonce ties the sentinel to a specific server startup
-- [ ] #5 Works alongside the existing McpSdkInterceptor at 169.254.1.2 without conflict
-- [ ] #6 Test: server configured with allowed_hosts=[api.github.com] cannot reach api.openai.com
-- [ ] #7 Test: real credential appears in the substituted request header; sentinel does not
+- [x] #1 Interceptor recognises hick-proxy:<server>:<nonce> sentinel in Authorization header and substitutes the real credential
+- [x] #2 Outbound calls to hosts not in allowed_hosts are blocked and return an error to the MCP server
+- [x] #3 Real credential is never logged or exposed in interceptor error messages
+- [x] #4 An LLM script cannot use a captured sentinel token to make authenticated calls — the nonce ties the sentinel to a specific server startup
+- [x] #5 Works alongside the existing McpSdkInterceptor at 169.254.1.2 without conflict
+- [x] #6 Test: server configured with allowed_hosts=[api.github.com] cannot reach api.openai.com
+- [x] #7 Test: real credential appears in the substituted request header; sentinel does not
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Added `McpSentinelInterceptor` to `hick-agent-mcp-sdk/src/lib.rs` at magic IP `169.254.1.4:80` (distinct from SDK interceptor at `169.254.1.2`). `register()` associates a server name, sentinel token, and sandbox config. `resolve_sentinel()` returns `Ok(None)` for non-sentinels (pass-through), `Ok(Some(header))` for valid sentinels (real credential from McpCredentialStore), and `Err(reason)` for nonce mismatch/unknown server. Real credentials are never logged. `handle_proxy_request()` implements HTTP/1.x proxy: reads request, substitutes credential, enforces allowed_hosts, forwards to real server. Nonce mismatch returns 403. Added `credential_to_header()` and `base64_encode()` helpers. Tests cover: IP matching, valid sentinel resolution, nonce mismatch rejection, unknown server, non-sentinel pass-through, host filtering, and end-to-end credential substitution.
+<!-- SECTION:FINAL_SUMMARY:END -->

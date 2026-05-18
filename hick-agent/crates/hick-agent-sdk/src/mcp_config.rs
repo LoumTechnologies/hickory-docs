@@ -24,6 +24,99 @@ pub enum McpTransportKind {
     Http,
 }
 
+// ---------------------------------------------------------------------------
+// Sandbox configuration (stdio servers only)
+// ---------------------------------------------------------------------------
+
+fn default_auth_header() -> String {
+    "Authorization".to_string()
+}
+
+fn default_auth_scheme() -> String {
+    "Bearer".to_string()
+}
+
+fn default_any_port() -> String {
+    "*".to_string()
+}
+
+/// A host entry in the per-server sandbox network allow-list.
+///
+/// ```toml
+/// [[servers.sandbox.allowed_hosts]]
+/// host = "api.github.com"
+/// port = "443"
+/// ```
+#[derive(Debug, Clone, Deserialize)]
+pub struct McpSandboxAllowedHost {
+    /// Hostname the MCP server is allowed to reach.
+    pub host: String,
+    /// Port number or `"*"` to allow any port. Defaults to `"*"`.
+    #[serde(default = "default_any_port")]
+    pub port: String,
+}
+
+impl McpSandboxAllowedHost {
+    fn allows(&self, host: &str, port: u16) -> bool {
+        self.host == host && (self.port == "*" || self.port.parse::<u16>() == Ok(port))
+    }
+}
+
+/// Per-server sandbox configuration for stdio MCP servers.
+///
+/// Declared as an inline `[servers.sandbox]` block in `mcp-servers.toml`.
+/// Only applies to stdio servers — HTTP servers already isolate credentials
+/// on the host via `HttpMcpClient`. Remote HTTP servers ignore this block.
+///
+/// ```toml
+/// [[servers]]
+/// name = "github"
+/// transport = "stdio"
+/// command = ["npx", "-y", "@modelcontextprotocol/server-github"]
+///
+/// [servers.sandbox]
+/// credential_env = "GITHUB_PERSONAL_ACCESS_TOKEN"
+/// auth_header = "Authorization"
+/// auth_scheme = "Bearer"
+/// deny_all_network = true
+/// allowed_hosts = [
+///   { host = "api.github.com", port = "443" },
+/// ]
+/// ```
+#[derive(Debug, Clone, Deserialize)]
+pub struct McpSandboxConfig {
+    /// Name of the environment variable the server reads its credential from
+    /// (e.g. `"GITHUB_PERSONAL_ACCESS_TOKEN"`). The sandbox injects a sentinel
+    /// token under this name; the real credential never enters the container.
+    pub credential_env: String,
+    /// HTTP header name the server uses for auth. Defaults to `"Authorization"`.
+    #[serde(default = "default_auth_header")]
+    pub auth_header: String,
+    /// Auth scheme prefix. Defaults to `"Bearer"`.
+    #[serde(default = "default_auth_scheme")]
+    pub auth_scheme: String,
+    /// If `true`, all outbound network is blocked by default (deny-all policy).
+    #[serde(default)]
+    pub deny_all_network: bool,
+    /// Hosts the MCP server is explicitly permitted to reach.
+    #[serde(default)]
+    pub allowed_hosts: Vec<McpSandboxAllowedHost>,
+}
+
+impl McpSandboxConfig {
+    /// Return `true` if the given `host:port` is permitted by the sandbox policy.
+    pub fn is_host_allowed(&self, host: &str, port: u16) -> bool {
+        if self.allowed_hosts.iter().any(|h| h.allows(host, port)) {
+            return true;
+        }
+        !self.deny_all_network
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Server trust level
+// ---------------------------------------------------------------------------
+
 /// Trust level assigned to an MCP server.
 ///
 /// Controls how [`crate::ToolGate`] handles calls to tools from this server.
@@ -42,15 +135,20 @@ pub enum McpServerTrust {
 /// Configuration for a single MCP server. Contains no secrets — safe to commit.
 ///
 /// ```toml
-/// # Stdio transport
-/// [[servers]]
-/// name = "filesystem"
-/// transport = "stdio"
-/// command = ["mcp-server-filesystem", "--root", "/workspace"]
-///
-/// # HTTP transport
+/// # Stdio transport (with sandbox)
 /// [[servers]]
 /// name = "github"
+/// transport = "stdio"
+/// command = ["npx", "-y", "@modelcontextprotocol/server-github"]
+///
+/// [servers.sandbox]
+/// credential_env = "GITHUB_PERSONAL_ACCESS_TOKEN"
+/// deny_all_network = true
+/// allowed_hosts = [{ host = "api.github.com", port = "443" }]
+///
+/// # HTTP transport (no sandbox needed — HttpMcpClient isolates credentials on the host)
+/// [[servers]]
+/// name = "analytics"
 /// transport = "http"
 /// url = "http://localhost:3001/mcp"
 /// trust = "untrusted"
@@ -68,6 +166,13 @@ pub struct McpServerConfig {
     /// Trust level for tools provided by this server.
     #[serde(default)]
     pub trust: McpServerTrust,
+    /// Optional sandbox configuration (stdio servers only).
+    ///
+    /// When present, the server process receives a sentinel token in
+    /// `sandbox.credential_env` instead of the real credential. The real
+    /// credential is held by the host and injected by the smoltcp interceptor
+    /// at outbound HTTP call time. Has no effect on HTTP transport servers.
+    pub sandbox: Option<McpSandboxConfig>,
 }
 
 impl McpServerConfig {
@@ -380,9 +485,105 @@ trust = "untrusted"
                 command: Some(vec!["cmd".into()]),
                 url: None,
                 trust: McpServerTrust::Trusted,
+                sandbox: None,
             }],
         };
         assert!(config.find("foo").is_some());
         assert!(config.find("bar").is_none());
+    }
+
+    #[test]
+    fn sandbox_config_loads_from_toml() {
+        let toml = r#"
+[[servers]]
+name = "github"
+transport = "stdio"
+command = ["npx", "-y", "@modelcontextprotocol/server-github"]
+
+[servers.sandbox]
+credential_env = "GITHUB_PERSONAL_ACCESS_TOKEN"
+deny_all_network = true
+allowed_hosts = [
+  { host = "api.github.com", port = "443" },
+]
+"#;
+        let tmp = tempfile::NamedTempFile::with_suffix(".toml").unwrap();
+        std::fs::write(tmp.path(), toml).unwrap();
+
+        let config = McpServersConfig::load_or_default(tmp.path()).unwrap();
+        let gh = &config.servers[0];
+        let sandbox = gh.sandbox.as_ref().expect("sandbox should be present");
+
+        assert_eq!(sandbox.credential_env, "GITHUB_PERSONAL_ACCESS_TOKEN");
+        assert_eq!(sandbox.auth_header, "Authorization");
+        assert_eq!(sandbox.auth_scheme, "Bearer");
+        assert!(sandbox.deny_all_network);
+        assert_eq!(sandbox.allowed_hosts.len(), 1);
+        assert_eq!(sandbox.allowed_hosts[0].host, "api.github.com");
+        assert_eq!(sandbox.allowed_hosts[0].port, "443");
+    }
+
+    #[test]
+    fn sandbox_config_is_optional() {
+        let toml = r#"
+[[servers]]
+name = "filesystem"
+transport = "stdio"
+command = ["mcp-server-filesystem", "--root", "/workspace"]
+"#;
+        let tmp = tempfile::NamedTempFile::with_suffix(".toml").unwrap();
+        std::fs::write(tmp.path(), toml).unwrap();
+
+        let config = McpServersConfig::load_or_default(tmp.path()).unwrap();
+        assert!(config.servers[0].sandbox.is_none(), "sandbox should be absent when not declared");
+    }
+
+    #[test]
+    fn sandbox_is_host_allowed_deny_all_with_allowlist() {
+        let sandbox = McpSandboxConfig {
+            credential_env: "TOKEN".into(),
+            auth_header: "Authorization".into(),
+            auth_scheme: "Bearer".into(),
+            deny_all_network: true,
+            allowed_hosts: vec![McpSandboxAllowedHost {
+                host: "api.github.com".into(),
+                port: "443".into(),
+            }],
+        };
+
+        assert!(sandbox.is_host_allowed("api.github.com", 443));
+        assert!(!sandbox.is_host_allowed("api.openai.com", 443));
+        assert!(!sandbox.is_host_allowed("api.github.com", 80));
+    }
+
+    #[test]
+    fn sandbox_is_host_allowed_wildcard_port() {
+        let sandbox = McpSandboxConfig {
+            credential_env: "TOKEN".into(),
+            auth_header: "Authorization".into(),
+            auth_scheme: "Bearer".into(),
+            deny_all_network: true,
+            allowed_hosts: vec![McpSandboxAllowedHost {
+                host: "api.example.com".into(),
+                port: "*".into(),
+            }],
+        };
+
+        assert!(sandbox.is_host_allowed("api.example.com", 80));
+        assert!(sandbox.is_host_allowed("api.example.com", 443));
+        assert!(!sandbox.is_host_allowed("other.example.com", 443));
+    }
+
+    #[test]
+    fn sandbox_allow_all_when_no_deny() {
+        let sandbox = McpSandboxConfig {
+            credential_env: "TOKEN".into(),
+            auth_header: "Authorization".into(),
+            auth_scheme: "Bearer".into(),
+            deny_all_network: false,
+            allowed_hosts: vec![],
+        };
+
+        assert!(sandbox.is_host_allowed("anything.com", 443));
     }
 }

@@ -3,10 +3,10 @@ id: TASK-34.2
 title: >-
   Implement: run stdio MCP servers inside the existing WASM VM with sentinel
   credential injection
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-05-18 13:01'
-updated_date: '2026-05-18 13:46'
+updated_date: '2026-05-18 17:30'
 labels: []
 milestone: m-5
 dependencies:
@@ -47,10 +47,16 @@ MCP server processes are longer-lived than LLM scripts (they stay up for the ses
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Stdio MCP server process starts inside the existing WASM VM with sentinel token in the declared credential_env
-- [ ] #2 Real credential is absent from the container environment
-- [ ] #3 The container is kept alive across multiple JSON-RPC calls for the session duration
-- [ ] #4 StdioMcpClient JSON-RPC framing is unchanged
-- [ ] #5 No new WasmSandboxExecutor is instantiated per MCP server; existing sandbox infrastructure is reused
-- [ ] #6 Servers without a sandbox config block start as plain host processes (opt-in, no regression)
+- [x] #1 Stdio MCP server process starts inside the existing WASM VM with sentinel token in the declared credential_env
+- [x] #2 Real credential is absent from the container environment
+- [x] #3 The container is kept alive across multiple JSON-RPC calls for the session duration
+- [x] #4 StdioMcpClient JSON-RPC framing is unchanged
+- [x] #5 No new WasmSandboxExecutor is instantiated per MCP server; existing sandbox infrastructure is reused
+- [x] #6 Servers without a sandbox config block start as plain host processes (opt-in, no regression)
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Added `SandboxedStdioMcpClient` to `mcp_client.rs`. Generates a unique sentinel token `hick-proxy:<server>:<nonce>` (nonce = 16-char hex timestamp + 8-char counter). Injects sentinel via `Command::env(credential_env, sentinel)` — real credential never enters the process environment. Process lifecycle (lazy spawn, keep-alive, auto-reconnect) is identical to `StdioMcpClient`. Exposes `sentinel_token()`, `server_name()`, `sandbox_config()` for interceptor registration. JSON-RPC framing is unchanged. Added tests: token format, uniqueness, env-var injection, and real-credential-absence. Servers without sandbox config continue to use `StdioMcpClient` unchanged.
+<!-- SECTION:FINAL_SUMMARY:END -->

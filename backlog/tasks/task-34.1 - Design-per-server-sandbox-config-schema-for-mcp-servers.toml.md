@@ -1,10 +1,10 @@
 ---
 id: TASK-34.1
 title: 'Design: per-server sandbox config schema for mcp-servers.toml'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-05-18 13:01'
-updated_date: '2026-05-18 13:45'
+updated_date: '2026-05-18 17:30'
 labels: []
 milestone: m-5
 dependencies: []
@@ -61,10 +61,16 @@ allowed_hosts = [
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 TOML schema is documented in code with examples (doc comments on structs)
-- [ ] #2 credential_env field declares which env var name receives the sentinel token
-- [ ] #3 network rules inline in the server block, reusing NetworkFilterConfig field layout
-- [ ] #4 Schema is validated on load with clear error messages for missing required fields
-- [ ] #5 Existing configs without sandbox block continue to work (sandbox is opt-in per server)
-- [ ] #6 Remote HTTP servers (transport = "http") are not affected by this config block
+- [x] #1 TOML schema is documented in code with examples (doc comments on structs)
+- [x] #2 credential_env field declares which env var name receives the sentinel token
+- [x] #3 network rules inline in the server block, reusing NetworkFilterConfig field layout
+- [x] #4 Schema is validated on load with clear error messages for missing required fields
+- [x] #5 Existing configs without sandbox block continue to work (sandbox is opt-in per server)
+- [x] #6 Remote HTTP servers (transport = "http") are not affected by this config block
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Added `McpSandboxAllowedHost` and `McpSandboxConfig` structs to `mcp_config.rs` with full doc comments and TOML examples. Added `sandbox: Option<McpSandboxConfig>` to `McpServerConfig`. Schema validated on load via serde (missing `credential_env` produces a clear toml parse error). Existing configs without sandbox block deserialize to `sandbox: None` with no regression. Added 5 tests covering schema loading, opt-in absence, host filtering, wildcard port, and deny-all-with-allowlist.
+<!-- SECTION:FINAL_SUMMARY:END -->

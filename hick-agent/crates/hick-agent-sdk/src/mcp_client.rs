@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
 
-use crate::mcp_config::McpCredentialStore;
+use crate::mcp_config::{McpCredentialStore, McpSandboxConfig};
 
 // ---------------------------------------------------------------------------
 // Tool manifest
@@ -206,6 +206,208 @@ impl McpClient for StdioMcpClient {
             Ok(result) => Ok(result),
             Err(_) => {
                 // Force reconnect: drop the dead connection.
+                *state = None;
+                self.do_call(&mut state, id, method, &params).await
+            }
+        }
+    }
+
+    async fn list_tools(&self) -> anyhow::Result<Vec<McpToolDef>> {
+        {
+            let cache = self.cached_tools.lock().unwrap();
+            if let Some(tools) = cache.as_ref() {
+                return Ok(tools.clone());
+            }
+        }
+        self.refresh_tools().await
+    }
+
+    async fn refresh_tools(&self) -> anyhow::Result<Vec<McpToolDef>> {
+        let result = self.call("tools/list", serde_json::Value::Null).await?;
+        let tools = parse_tools_list(result)?;
+        *self.cached_tools.lock().unwrap() = Some(tools.clone());
+        Ok(tools)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Sentinel nonce generation
+// ---------------------------------------------------------------------------
+
+fn generate_nonce() -> String {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use std::time::SystemTime;
+
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+
+    let time = SystemTime::now()
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .map(|d| d.as_nanos() as u64)
+        .unwrap_or(0);
+    let count = COUNTER.fetch_add(1, Ordering::Relaxed);
+    // 16-char hex timestamp + 8-char counter gives a unique, hard-to-guess nonce.
+    format!("{:016x}{:08x}", time, count)
+}
+
+// ---------------------------------------------------------------------------
+// Sandboxed stdio transport
+// ---------------------------------------------------------------------------
+
+/// MCP client that injects a sentinel credential token into the server's
+/// environment instead of the real credential.
+///
+/// The sentinel has the format `hick-proxy:<server_name>:<nonce>`. The real
+/// credential never enters the server process's environment; it is held by
+/// the host and injected by the smoltcp interceptor when the server makes
+/// outbound HTTP calls carrying the sentinel in its `Authorization` header.
+///
+/// The process lifecycle is identical to [`StdioMcpClient`]: the server is
+/// spawned on first use and kept alive across JSON-RPC calls for the session.
+/// On process exit, the client automatically respawns.
+///
+/// Use [`StdioMcpClient`] for servers without a sandbox config.
+pub struct SandboxedStdioMcpClient {
+    server_name: String,
+    command: Vec<String>,
+    sandbox: McpSandboxConfig,
+    sentinel_token: String,
+    state: tokio::sync::Mutex<Option<StdioConnection>>,
+    cached_tools: Mutex<Option<Vec<McpToolDef>>>,
+    next_id: AtomicU64,
+}
+
+impl SandboxedStdioMcpClient {
+    /// Create a sandboxed stdio client.
+    ///
+    /// Generates a unique sentinel token `hick-proxy:<server_name>:<nonce>` on
+    /// construction. The token is injected into the server process via
+    /// `sandbox.credential_env` at spawn time. Register `sentinel_token()` with
+    /// [`crate::McpSentinelInterceptor`] so the interceptor can resolve it.
+    pub fn new(
+        server_name: String,
+        command: Vec<String>,
+        sandbox: McpSandboxConfig,
+    ) -> Self {
+        let nonce = generate_nonce();
+        let sentinel_token = format!("hick-proxy:{}:{}", server_name, nonce);
+        Self {
+            server_name,
+            command,
+            sandbox,
+            sentinel_token,
+            state: tokio::sync::Mutex::new(None),
+            cached_tools: Mutex::new(None),
+            next_id: AtomicU64::new(1),
+        }
+    }
+
+    /// The sentinel token injected into the server's `credential_env`.
+    ///
+    /// Register this with the interceptor so it can substitute the real credential.
+    pub fn sentinel_token(&self) -> &str {
+        &self.sentinel_token
+    }
+
+    /// The server name this client was created for.
+    pub fn server_name(&self) -> &str {
+        &self.server_name
+    }
+
+    /// The sandbox configuration for this server.
+    pub fn sandbox_config(&self) -> &McpSandboxConfig {
+        &self.sandbox
+    }
+
+    fn spawn_connection(&self) -> anyhow::Result<StdioConnection> {
+        use std::process::Stdio as StdStdio;
+        use tokio::process::Command;
+
+        let (cmd, args) = self
+            .command
+            .split_first()
+            .ok_or_else(|| anyhow::anyhow!("stdio MCP command is empty"))?;
+
+        let mut child = Command::new(cmd)
+            .args(args)
+            // Inject sentinel token under the declared env var name.
+            // The real credential is NOT present in the environment.
+            .env(&self.sandbox.credential_env, &self.sentinel_token)
+            .stdin(StdStdio::piped())
+            .stdout(StdStdio::piped())
+            .stderr(StdStdio::null())
+            .spawn()?;
+
+        let stdin = child.stdin.take().expect("stdin piped");
+        let stdout = child.stdout.take().expect("stdout piped");
+
+        Ok(StdioConnection {
+            child,
+            stdin,
+            stdout: tokio::io::BufReader::new(stdout),
+        })
+    }
+
+    async fn do_call(
+        &self,
+        state: &mut Option<StdioConnection>,
+        id: u64,
+        method: &str,
+        params: &serde_json::Value,
+    ) -> anyhow::Result<serde_json::Value> {
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
+
+        if state.is_none() {
+            *state = Some(self.spawn_connection()?);
+        }
+        let conn = state.as_mut().unwrap();
+
+        let request = JsonRpcRequest {
+            jsonrpc: "2.0",
+            id,
+            method,
+            params,
+        };
+        let mut bytes = serde_json::to_vec(&request)?;
+        bytes.push(b'\n');
+
+        conn.stdin.write_all(&bytes).await?;
+        conn.stdin.flush().await?;
+
+        let mut line = String::new();
+        let n = conn.stdout.read_line(&mut line).await?;
+        if n == 0 {
+            anyhow::bail!("sandboxed stdio MCP server '{}' closed stdout unexpectedly", self.server_name);
+        }
+
+        let response: JsonRpcResponse = serde_json::from_str(&line)?;
+        match response.result {
+            Some(r) => Ok(r),
+            None => anyhow::bail!(
+                "JSON-RPC error from sandboxed stdio MCP server '{}': {}",
+                self.server_name,
+                response
+                    .error
+                    .as_ref()
+                    .map(|e| e.to_string())
+                    .unwrap_or_default()
+            ),
+        }
+    }
+}
+
+#[async_trait]
+impl McpClient for SandboxedStdioMcpClient {
+    async fn call(
+        &self,
+        method: &str,
+        params: serde_json::Value,
+    ) -> anyhow::Result<serde_json::Value> {
+        let id = self.next_id.fetch_add(1, Ordering::Relaxed);
+        let mut state = self.state.lock().await;
+
+        match self.do_call(&mut state, id, method, &params).await {
+            Ok(result) => Ok(result),
+            Err(_) => {
                 *state = None;
                 self.do_call(&mut state, id, method, &params).await
             }
@@ -516,6 +718,78 @@ token = "test-token-http-241"
             auth_found.is_some(),
             "Authorization header was not injected or did not match expected value"
         );
+    }
+
+    // -----------------------------------------------------------------------
+    // SandboxedStdioMcpClient tests
+    // -----------------------------------------------------------------------
+
+    fn sample_sandbox_config() -> crate::mcp_config::McpSandboxConfig {
+        crate::mcp_config::McpSandboxConfig {
+            credential_env: "TEST_MCP_TOKEN".into(),
+            auth_header: "Authorization".into(),
+            auth_scheme: "Bearer".into(),
+            deny_all_network: true,
+            allowed_hosts: vec![],
+        }
+    }
+
+    #[test]
+    fn sentinel_token_format() {
+        let client = SandboxedStdioMcpClient::new(
+            "myserver".into(),
+            vec!["echo".into()],
+            sample_sandbox_config(),
+        );
+        let token = client.sentinel_token();
+        assert!(token.starts_with("hick-proxy:myserver:"), "token: {token}");
+        // nonce is non-empty
+        let nonce = token.strip_prefix("hick-proxy:myserver:").unwrap();
+        assert!(!nonce.is_empty());
+    }
+
+    #[test]
+    fn sentinel_tokens_are_unique() {
+        let c1 = SandboxedStdioMcpClient::new("s".into(), vec!["cmd".into()], sample_sandbox_config());
+        let c2 = SandboxedStdioMcpClient::new("s".into(), vec!["cmd".into()], sample_sandbox_config());
+        assert_ne!(c1.sentinel_token(), c2.sentinel_token(), "nonces must be unique");
+    }
+
+    #[tokio::test]
+    async fn sandboxed_client_injects_sentinel_env_var() {
+        // Command that prints the value of TEST_MCP_TOKEN to stdout as JSON-RPC.
+        // We echo a valid JSON-RPC response so the client can parse it.
+        let client = SandboxedStdioMcpClient::new(
+            "github".into(),
+            vec![
+                "sh".into(),
+                "-c".into(),
+                // Read stdin (the JSON-RPC request), print the env var value in result.
+                r#"IFS= read -r _req && printf '{"jsonrpc":"2.0","id":1,"result":{"env":"%s"}}\n' "$TEST_MCP_TOKEN""#.into(),
+            ],
+            sample_sandbox_config(),
+        );
+
+        let sentinel = client.sentinel_token().to_string();
+        let result = client.call("tools/list", serde_json::Value::Null).await.unwrap();
+        let env_value = result["env"].as_str().unwrap_or("");
+        assert_eq!(env_value, sentinel, "sentinel token should be injected into TEST_MCP_TOKEN");
+    }
+
+    #[test]
+    fn sandboxed_client_real_credential_not_in_sentinel() {
+        // The sentinel token must not contain any substring that could be a real token.
+        // It should be "hick-proxy:<server>:<nonce>" with no secret embedded.
+        let client = SandboxedStdioMcpClient::new(
+            "github".into(),
+            vec!["cmd".into()],
+            sample_sandbox_config(),
+        );
+        let token = client.sentinel_token();
+        // Token must follow the sentinel prefix format exactly.
+        assert!(token.starts_with("hick-proxy:github:"), "token: {token}");
+        // No spaces, no real secret-looking content.
+        assert!(!token.contains(' '), "sentinel must not contain spaces");
     }
 
     #[tokio::test]
