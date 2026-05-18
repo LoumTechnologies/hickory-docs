@@ -182,7 +182,7 @@ axum-test = "15"
 use blue_iron_cube::run;
 
 #[tokio::main]
-async fn main() -> Result&lt;()&gt; {
+async fn main() -> Result<()> {
     run().await
 }
 </hick:file>
@@ -215,7 +215,7 @@ pub struct AppState {
     pub db: db::Database,
 }
 
-pub async fn run() -> Result&lt;()&gt; {
+pub async fn run() -> Result<()> {
     tracing_subscriber::registry()
         .with(
             tracing_subscriber::EnvFilter::try_from_default_env()
@@ -238,11 +238,11 @@ pub async fn run() -> Result&lt;()&gt; {
     Ok(())
 }
 
-async fn health() -> &amp;'static str {
+async fn health() -> &'static str {
     "OK"
 }
 
-pub fn create_router(state: Arc&lt;AppState&gt;) -> Router {
+pub fn create_router(state: Arc<AppState>) -> Router {
     let cors = CorsLayer::new()
         .allow_origin(Any)
         .allow_methods(Any)
@@ -278,19 +278,19 @@ use serde::{Deserialize, Serialize};
 pub type Money = Decimal;
 
 /// Standard ID prefix format: "entity-uuid7"
-pub fn new_id(prefix: &amp;str) -> String {
+pub fn new_id(prefix: &str) -> String {
     format!("{}-{}", prefix, uuid::Uuid::now_v7())
 }
 
 /// Read a Decimal from a rusqlite row column (stored as REAL in SQLite).
-pub fn get_decimal(row: &amp;rusqlite::Row, idx: usize) -> rusqlite::Result&lt;Decimal&gt; {
+pub fn get_decimal(row: &rusqlite::Row, idx: usize) -> rusqlite::Result<Decimal> {
     let val: f64 = row.get(idx)?;
     Ok(Decimal::from_f64(val).unwrap_or_default())
 }
 
 /// Read an optional Decimal from a rusqlite row column.
-pub fn get_decimal_opt(row: &amp;rusqlite::Row, idx: usize) -> rusqlite::Result&lt;Option&lt;Decimal&gt;&gt; {
-    let val: Option&lt;f64&gt; = row.get(idx)?;
+pub fn get_decimal_opt(row: &rusqlite::Row, idx: usize) -> rusqlite::Result<Option<Decimal>> {
+    let val: Option<f64> = row.get(idx)?;
     Ok(val.map(|v| Decimal::from_f64(v).unwrap_or_default()))
 }
 
@@ -661,7 +661,7 @@ Platform templates:
 RUN rustup default nightly
 WORKDIR /app
 COPY Cargo.toml Cargo.lock ./
-RUN mkdir src &amp;&amp; echo "fn main() {}" > src/main.rs &amp;&amp; echo "" > src/lib.rs
+RUN mkdir src && echo "fn main() {}" > src/main.rs && echo "" > src/lib.rs
 RUN cargo build --release 2>/dev/null || true
 RUN rm -rf src
 COPY src/ src/
@@ -670,7 +670,7 @@ RUN touch src/main.rs src/lib.rs
 RUN cargo build --release
 
 FROM debian:bookworm-slim
-RUN apt-get update &amp;&amp; apt-get install -y --no-install-recommends curl &amp;&amp; rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y --no-install-recommends curl && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=builder /app/target/release/blue-iron-cube /app/blue-iron-cube
 COPY --from=builder /app/migrations /app/migrations
