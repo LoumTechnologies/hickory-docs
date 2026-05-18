@@ -796,12 +796,17 @@ async fn main() -> Result<()> {
                 )))
                 .ok();
 
+            let system_prompt = format!(
+                "{}\n\n---\n\n{}",
+                HICK_SYSTEM_PROMPT,
+                hick_agent_hick_edit::system_prompt_fragment()
+            );
             let mut react_loop = ReactLoop::new(llm, project_dir.clone())
                 .with_executor(sandbox_executor, default_image.clone())
                 .with_sink_guard(sink_guard)
                 .with_agent_dir(".hick")
                 .with_sdk()
-                .with_system_prompt(HICK_SYSTEM_PROMPT);
+                .with_system_prompt(&system_prompt);
 
             // Wire up policy evaluator if configured.
             if let Some(ref policy_path) = security_config.policy_script {

@@ -26,6 +26,32 @@ pub mod pipeline_registry;
 pub mod pipeline_watcher;
 pub mod reverse_provenance;
 
+/// System prompt fragment describing Hickory XML behaviour and generated-file
+/// policy. Call this from any agent binary that depends on this crate and
+/// concatenate the result into the agent's system prompt.
+pub fn system_prompt_fragment() -> &'static str {
+    "## Hickory XML: key behaviours for pipeline editing
+
+Hickory XML is NOT standard XML. The parser only recognises elements that carry
+the `hick:` namespace prefix (e.g. `<hick:doc>`, `<hick:file>`, `<hick:cut>`).
+Everything else is passed through **literally** — bare `<`, `>`, and `&` in
+content are never parsed, escaped, or modified.
+
+**Never escape source code in .hick files.** Write Rust generics, C++
+templates, shell `&&`, HTML, etc. with bare characters:
+  pub fn foo<T>() -> Result<T>          ← correct
+  pub fn foo&lt;T&gt;() -> Result&lt;T&gt;   ← wrong — entity refs appear verbatim in output
+
+If an output file contains `&lt;`, `&gt;`, or `&amp;` as literal text, the
+`.hick` source has pre-escaped content. Fix the `.hick` source — do not edit
+the output file.
+
+**Output files are generated — never edit them directly.** The next pipeline
+run overwrites any direct edits. Always check before writing:
+  hick.is_pipeline_owned(path)     → True = edit the .hick source instead
+  hick.provenance(path, start, end) → find which .hick source owns these lines"
+}
+
 // ---------------------------------------------------------------------------
 // Edit format
 // ---------------------------------------------------------------------------
