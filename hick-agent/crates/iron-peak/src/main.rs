@@ -12,6 +12,10 @@ use std::sync::Arc;
 use anyhow::Result;
 use clap::{Parser, Subcommand, ValueEnum};
 use hick_agent_core::{CommandExecutor, WasmSandboxConfig, WasmSandboxExecutor};
+use hick_agent_sdk::mcp_install::{
+    McpInstaller, infer_name, list_servers, parse_spec, remove_server,
+};
+use hick_agent_sdk::mcp_config::McpServerTrust;
 use tokio::sync::{Mutex, Notify, mpsc};
 
 #[cfg(feature = "local")]
@@ -218,6 +222,70 @@ enum Commands {
 
     /// Insert paste slots into all hick:file elements in a .hick file.
     PasteSlots(PasteSlotsArgs),
+
+    /// Manage MCP server installations.
+    Mcp {
+        #[command(subcommand)]
+        cmd: McpCommand,
+    },
+}
+
+#[derive(Subcommand)]
+enum McpCommand {
+    /// Install an MCP server and add it to .hick/mcp-servers.toml.
+    Install(McpInstallArgs),
+    /// List all configured MCP servers.
+    List {
+        /// Project directory (default: current dir).
+        #[arg(long)]
+        project_dir: Option<PathBuf>,
+    },
+    /// Remove a configured MCP server.
+    Remove {
+        /// Server name to remove.
+        name: String,
+        /// Project directory (default: current dir).
+        #[arg(long)]
+        project_dir: Option<PathBuf>,
+    },
+}
+
+#[derive(clap::Args)]
+struct McpInstallArgs {
+    /// Stdio command (e.g. "npx -y @scope/server-github") or HTTP URL.
+    spec: String,
+    /// Server name (inferred from spec if omitted).
+    #[arg(long)]
+    name: Option<String>,
+    /// Trust level: trusted, untrusted, or prompt (default).
+    #[arg(long, default_value = "prompt")]
+    trust: McpTrustArg,
+    /// Project directory (default: current dir).
+    #[arg(long)]
+    project_dir: Option<PathBuf>,
+    /// Directory containing .wasm container images (enables WASM package install).
+    #[arg(long, env = "HICK_IMAGES_DIR")]
+    images_dir: Option<PathBuf>,
+    /// Default container image name (used with --images-dir).
+    #[arg(long, default_value = "alpine")]
+    default_image: String,
+}
+
+#[derive(Clone, Copy, ValueEnum)]
+enum McpTrustArg {
+    Trusted,
+    Untrusted,
+    Prompt,
+}
+
+impl From<McpTrustArg> for McpServerTrust {
+    fn from(t: McpTrustArg) -> Self {
+        match t {
+            McpTrustArg::Trusted => McpServerTrust::Trusted,
+            McpTrustArg::Untrusted => McpServerTrust::Untrusted,
+            McpTrustArg::Prompt => McpServerTrust::Prompt,
+        }
+    }
 }
 
 #[derive(clap::Args)]
@@ -895,17 +963,19 @@ async fn main() -> Result<()> {
 
             // Spawn the agent task
             let interrupt_agent = Arc::clone(&interrupt);
-            tokio::spawn(agent_task(react_loop, event_tx, cmd_rx, interrupt_agent));
+            tokio::spawn(agent_task(react_loop, event_tx.clone(), cmd_rx, interrupt_agent));
 
             // Run the TUI on a blocking thread (the agent runs on tokio workers)
             let interrupt_tui = Arc::clone(&interrupt);
             tokio::task::spawn_blocking(move || {
                 run_tui(
                     event_rx,
+                    event_tx,
                     cmd_tx,
                     interrupt_tui,
                     provider_info,
                     approval_rx,
+                    project_dir,
                     Some(log_path),
                 )
             })
@@ -1020,6 +1090,144 @@ async fn main() -> Result<()> {
         Commands::GenerateMatrix(args) => hick::generate_matrix::run(args).await,
 
         Commands::PasteSlots(args) => paste_slots_cmd(args),
+
+        Commands::Mcp { cmd } => mcp_cmd(cmd).await,
+    }
+}
+
+async fn mcp_cmd(cmd: McpCommand) -> Result<()> {
+    match cmd {
+        McpCommand::List { project_dir } => {
+            let project_dir = project_dir.unwrap_or_else(|| std::env::current_dir().unwrap());
+            let lines = list_servers(&project_dir)?;
+            for l in lines {
+                println!("{l}");
+            }
+            Ok(())
+        }
+
+        McpCommand::Remove { name, project_dir } => {
+            let project_dir = project_dir.unwrap_or_else(|| std::env::current_dir().unwrap());
+            remove_server(&name, &project_dir)?;
+            println!("Removed MCP server '{name}'.");
+            Ok(())
+        }
+
+        McpCommand::Install(args) => {
+            let project_dir = args
+                .project_dir
+                .unwrap_or_else(|| std::env::current_dir().unwrap());
+            let spec = parse_spec(&args.spec);
+            let trust: McpServerTrust = args.trust.into();
+
+            // Resolve server name: --name flag, inference, or stdin prompt.
+            let name = match args.name {
+                Some(n) => n,
+                None => match infer_name(&spec) {
+                    Some(n) => {
+                        println!("Inferred server name: {n}");
+                        n
+                    }
+                    None => {
+                        print!("Server name: ");
+                        std::io::stdout().flush()?;
+                        let mut buf = String::new();
+                        std::io::stdin().read_line(&mut buf)?;
+                        let n = buf.trim().to_string();
+                        if n.is_empty() {
+                            anyhow::bail!("Server name is required.");
+                        }
+                        n
+                    }
+                },
+            };
+
+            // Optional WASM package install.
+            if let Some(images_dir) = args.images_dir {
+                println!("Installing package in WASM sandbox...");
+                use hick_agent_core::WasmSandboxConfig;
+                use hick_token::ContainerCapabilities;
+                let caps = hick_agent_sdk::mcp_install::PackageManagerNetworkPolicy::allowed_hosts()
+                    .iter()
+                    .fold(
+                        ContainerCapabilities::new().deny_all_network(),
+                        |c, h| c.allow_network(&h.host, &h.port),
+                    );
+                let sandbox_config = WasmSandboxConfig {
+                    images_dir,
+                    workdir: project_dir.clone(),
+                    default_image: args.default_image,
+                    capabilities: caps,
+                    auth: None,
+                    guest_network_enabled: true,
+                };
+                let mut executor = WasmSandboxExecutor::new(sandbox_config);
+                McpInstaller::run_package_install(
+                    &spec,
+                    Some(&mut SdkExecutorBridge(&mut executor)),
+                )
+                .await?;
+                println!("Package install complete.");
+            } else {
+                println!(
+                    "Skipping WASM package install (use --images-dir to enable). \
+                     Server must be available on PATH."
+                );
+            }
+
+            // Verify connection.
+            println!("Verifying server connection...");
+            let tools = McpInstaller::verify_connection(&spec).await?;
+            println!("Server responded with {} tool(s):", tools.len());
+            for t in &tools {
+                println!("  • {} — {}", t.name, t.description);
+            }
+
+            // Write config.
+            McpInstaller::write_config(&spec, &name, trust, &project_dir)?;
+            println!("Wrote entry to .hick/mcp-servers.toml");
+
+            // Prompt for credentials.
+            let mut creds: Vec<(String, String)> = Vec::new();
+            loop {
+                print!("Credential env var name (blank to skip): ");
+                std::io::stdout().flush()?;
+                let mut buf = String::new();
+                std::io::stdin().read_line(&mut buf)?;
+                let env_var = buf.trim().to_string();
+                if env_var.is_empty() {
+                    break;
+                }
+                creds.push((env_var, String::new()));
+            }
+            McpInstaller::write_credentials(&name, creds, &project_dir)?;
+            if project_dir.join(".hick").join("mcp-secrets.toml").exists() {
+                println!("Wrote credentials to .hick/mcp-secrets.toml");
+            }
+
+            println!("\nMCP server '{}' installed successfully.", name);
+            Ok(())
+        }
+    }
+}
+
+/// Bridges `hick_agent_core::CommandExecutor` to `hick_agent_sdk::CommandExecutor`.
+struct SdkExecutorBridge<'a>(&'a mut WasmSandboxExecutor);
+
+#[async_trait::async_trait]
+impl hick_agent_sdk::CommandExecutor for SdkExecutorBridge<'_> {
+    async fn execute(
+        &mut self,
+        container: &str,
+        command: &str,
+        image: &str,
+        timeout: Option<u64>,
+    ) -> anyhow::Result<hick_agent_sdk::CommandOutput> {
+        let out = self.0.execute(container, command, image, timeout).await?;
+        Ok(hick_agent_sdk::CommandOutput {
+            output: out.output,
+            exit_code: out.exit_code,
+        })
     }
 }
 

@@ -35,6 +35,7 @@ pub mod llm_openai_compat;
 pub mod mcp_client;
 pub mod mcp_config;
 pub mod mcp_format;
+pub mod mcp_install;
 pub mod network_filter;
 pub mod project_context;
 pub mod runtime;
@@ -193,3 +194,28 @@ pub use mcp_format::format_mcp_result;
 
 /// Loads agent context from standard project locations (AGENTS.md, CLAUDE.md, etc.).
 pub use project_context::ProjectContextLoader;
+
+// ---------------------------------------------------------------------------
+// MCP install
+// ---------------------------------------------------------------------------
+
+/// Parsed MCP server install specification (stdio command or HTTP URL).
+pub use mcp_install::McpInstallSpec;
+/// Package manager detected from a stdio command's first token.
+pub use mcp_install::PackageManager;
+/// Network policy covering all supported package registries (npm, PyPI, crates.io).
+pub use mcp_install::PackageManagerNetworkPolicy;
+/// Drives the MCP server install sequence (package install, verify, write config).
+pub use mcp_install::McpInstaller;
+/// Credential input request sent from an install task to the UI.
+pub use mcp_install::McpCredentialRequest;
+/// Parse a raw spec string into an [`McpInstallSpec`].
+pub use mcp_install::parse_spec;
+/// Infer a server name from an install spec; returns `None` when ambiguous.
+pub use mcp_install::infer_name;
+/// Detect the package manager used by a stdio command.
+pub use mcp_install::detect_package_manager;
+/// Read all configured MCP servers and return a formatted table.
+pub use mcp_install::list_servers;
+/// Remove a named server from `.hick/mcp-servers.toml`.
+pub use mcp_install::remove_server;

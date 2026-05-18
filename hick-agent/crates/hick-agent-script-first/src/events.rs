@@ -32,6 +32,10 @@ pub enum AgentEvent {
     SecurityViolation { description: String },
     /// The agent re-prompted the LLM due to a malformed response.
     Reprompt { reason: String, attempt: usize },
+    /// A progress line from a running `/mcp install` task.
+    McpInstallProgress(String),
+    /// `/mcp install` completed successfully; lists installed tool names.
+    McpInstallComplete { tools: Vec<String> },
 }
 
 /// Commands sent from the UI to the agent core.

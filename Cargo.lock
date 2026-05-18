@@ -2356,6 +2356,7 @@ name = "copper-ledge"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "chrono",
  "clap",
  "crossterm",
@@ -2365,6 +2366,7 @@ dependencies = [
  "hick-agent-script-first",
  "hick-agent-sdk",
  "hick-policy",
+ "hick-token",
  "log",
  "ratatui",
  "tokio",
@@ -5432,6 +5434,7 @@ dependencies = [
  "hick-lang",
  "hick-policy",
  "hick-secrets",
+ "hick-token",
  "log",
  "ratatui",
  "tempfile",
