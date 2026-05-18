@@ -66,6 +66,18 @@ together for A/B evaluation. The combination is explicit in
 `Cargo.toml` — no hidden feature gates. When evaluation is done, the
 winning combination becomes the public release binary.
 
+## Backlog.md Tool Behaviour: task_list vs task_view
+
+`task_list` only searches `backlog/tasks/`. Completed tasks live in
+`backlog/completed/` and are **invisible to `task_list`**. `task_view`
+reads both directories, so it can find a task that `task_list` claims
+doesn't exist.
+
+Consequence: if a task appears missing or "To Do" when you believe it is
+done, call `task_view` with its explicit ID before concluding anything.
+Do not trust a `task_list` absence as proof that a task doesn't exist or
+hasn't been completed.
+
 <!-- BACKLOG.MD MCP GUIDELINES START -->
 
 <CRITICAL_INSTRUCTION>
