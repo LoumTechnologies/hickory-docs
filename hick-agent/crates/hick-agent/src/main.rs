@@ -18,7 +18,8 @@ use futures::StreamExt as _;
 use hick_agent_sdk::{
     AgentRuntime, AnthropicClient, HttpMcpClient, LlmClient, McpClient, McpCredentialStore,
     McpServersConfig, McpTransportKind, Message, OpenAiCompatClient, Role, ShapeFormatConfig,
-    SinkGuard, StdioMcpClient, ToolGate, ToolGateConfig, ToolTrust, ToolVerdict,
+    ApprovalResponse, SinkGuard, StdioMcpClient, ToolGate, ToolGateConfig, ToolTrust,
+    network_filter::NetworkVerdict,
     tool_gate::ToolApprovalRequest,
 };
 use hick_classify::Classification;
@@ -279,12 +280,15 @@ fn build_tool_gate(
             let _ = io::stderr().flush();
             let mut line = String::new();
             let _ = io::stdin().read_line(&mut line);
-            let verdict = if line.trim().eq_ignore_ascii_case("y") {
-                ToolVerdict::Allow
+            let network_verdict = if line.trim().eq_ignore_ascii_case("y") {
+                NetworkVerdict::Allow
             } else {
-                ToolVerdict::Block
+                NetworkVerdict::Block
             };
-            let _ = req.response_tx.send(verdict);
+            let _ = req.response_tx.send(ApprovalResponse {
+                verdict: network_verdict,
+                always_allow: None,
+            });
         }
     });
 

@@ -277,6 +277,7 @@ pub fn run_vm(input: &Path, detected: &DetectedBinary, output: &Path) -> Result<
         registry_password: None,
         image_name: Some(image_tag.clone()),
         output: Some(output.to_string_lossy().to_string()),
+        setup_cmd: vec![],
     };
 
     let result = c2w::run(c2w_cli);
