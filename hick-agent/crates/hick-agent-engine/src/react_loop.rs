@@ -18,6 +18,7 @@ use std::sync::Arc;
 
 use futures::StreamExt;
 use hick_agent_core::CommandExecutor;
+use hick_agent_sdk::session_log::{LogEvent, NullSessionLog, SessionLog};
 use hick_policy::PolicyEvaluator;
 use tokio::sync::{Mutex, Notify, mpsc};
 
@@ -219,6 +220,8 @@ pub struct ReactLoop {
     policy_evaluator: Option<PolicyEvaluator>,
     /// Optional sink guard for classification-based API call gating.
     sink_guard: Option<Arc<SinkGuard>>,
+    /// Session log sink. Defaults to `NullSessionLog`.
+    session_log: Arc<dyn SessionLog>,
 }
 
 impl ReactLoop {
@@ -233,6 +236,7 @@ impl ReactLoop {
             sandbox_image: "alpine".to_string(),
             policy_evaluator: None,
             sink_guard: None,
+            session_log: Arc::new(NullSessionLog),
         }
     }
 
@@ -268,6 +272,12 @@ impl ReactLoop {
     /// Get the sink guard (if configured), for SDK API call validation.
     pub fn sink_guard(&self) -> Option<&Arc<SinkGuard>> {
         self.sink_guard.as_ref()
+    }
+
+    /// Set the session log sink.
+    pub fn with_session_log(mut self, log: Arc<dyn SessionLog>) -> Self {
+        self.session_log = log;
+        self
     }
 
     /// Call the LLM once and return the full response text.
@@ -565,6 +575,7 @@ impl ReactLoop {
                 events
                     .send(AgentEvent::ResponseComplete(response.clone()))
                     .ok();
+                self.session_log.record(LogEvent::LlmResponse { text: &response });
 
                 // Add assistant message to history.
                 messages.push(Message {
@@ -603,13 +614,9 @@ impl ReactLoop {
                         match evaluator.evaluate_flow(&input).await {
                             Ok(hick_policy::PolicyDecision::Allow) => {}
                             Ok(hick_policy::PolicyDecision::Deny { reason }) => {
-                                events
-                                    .send(AgentEvent::SecurityViolation {
-                                        description: format!(
-                                            "Policy denied script execution: {reason}"
-                                        ),
-                                    })
-                                    .ok();
+                                let desc = format!("Policy denied script execution: {reason}");
+                                events.send(AgentEvent::SecurityViolation { description: desc.clone() }).ok();
+                                self.session_log.record(LogEvent::SecurityViolation { description: &desc });
                                 results.push(ScriptResult {
                                     stdout: String::new(),
                                     stderr: format!("Policy denied execution: {reason}"),
@@ -618,11 +625,9 @@ impl ReactLoop {
                                 continue;
                             }
                             Err(e) => {
-                                events
-                                    .send(AgentEvent::SecurityViolation {
-                                        description: format!("Policy evaluation error: {e}"),
-                                    })
-                                    .ok();
+                                let desc = format!("Policy evaluation error: {e}");
+                                events.send(AgentEvent::SecurityViolation { description: desc.clone() }).ok();
+                                self.session_log.record(LogEvent::SecurityViolation { description: &desc });
                                 results.push(ScriptResult {
                                     stdout: String::new(),
                                     stderr: format!("Policy evaluation failed: {e}"),
@@ -633,13 +638,20 @@ impl ReactLoop {
                         }
                     }
 
+                    let lang = block.language.extension().to_string();
+                    self.session_log.record(LogEvent::ActionStart { lang: &lang, code: &block.code });
                     events
                         .send(AgentEvent::ScriptStarted {
                             code: block.code.clone(),
-                            lang: block.language.extension().to_string(),
+                            lang: lang.clone(),
                         })
                         .ok();
                     let result = self.execute_code_block(block, i).await;
+                    self.session_log.record(LogEvent::ActionEnd {
+                        stdout: &result.stdout,
+                        stderr: &result.stderr,
+                        exit_code: result.exit_code,
+                    });
                     events.send(AgentEvent::ScriptFinished(result.clone())).ok();
                     results.push(result);
                 }
@@ -773,6 +785,14 @@ impl ReactLoop {
         interrupt: &Notify,
     ) -> anyhow::Result<()> {
         if history.is_empty() {
+            // Emit SessionStart once at the beginning of the first turn.
+            let sandbox = self.executor.as_ref().map(|_| self.sandbox_image.as_str());
+            self.session_log.record(LogEvent::SessionStart {
+                model: "",
+                sandbox_image: sandbox,
+                max_turns: self.max_turns,
+            });
+
             // First turn: prepend system prompt and wrap user message with context.
             let agent_context = context::load_agent_context(&self.project_dir);
             let mut system = SYSTEM_PROMPT.to_string();
@@ -803,12 +823,14 @@ impl ReactLoop {
                     user_message
                 )
             };
+            self.session_log.record(LogEvent::UserTurn { text: user_message });
             history.push(Message {
                 role: Role::User,
                 content: first_user,
             });
         } else {
             // Subsequent turns: append user message directly.
+            self.session_log.record(LogEvent::UserTurn { text: user_message });
             history.push(Message {
                 role: Role::User,
                 content: user_message.to_string(),
@@ -818,17 +840,33 @@ impl ReactLoop {
         let messages = history;
         let mut state = AgentState::Thinking { messages_sent: messages.len() };
         let mut turns = 0;
+        let mut prev_state_name = "Idle".to_string();
 
         while !state.is_terminal() && turns < self.max_turns {
+            let next_state_name = format!("{state:?}");
+            self.session_log.record(LogEvent::StateTransition {
+                from: &prev_state_name,
+                to: &next_state_name,
+            });
+            prev_state_name = next_state_name;
+
             state = self.step(state, messages, events, interrupt).await?;
             turns += 1;
 
             if let AgentState::Observing { .. } = state {
+                let obs_name = format!("{state:?}");
+                self.session_log.record(LogEvent::StateTransition {
+                    from: &prev_state_name,
+                    to: &obs_name,
+                });
+                prev_state_name = obs_name;
                 state = AgentState::Thinking {
                     messages_sent: messages.len(),
                 };
             }
         }
+
+        self.session_log.record(LogEvent::SessionEnd);
 
         match state {
             AgentState::Done { message } => {

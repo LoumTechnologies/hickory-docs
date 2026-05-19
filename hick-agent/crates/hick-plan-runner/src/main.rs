@@ -9,6 +9,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use anyhow::{Context, Result, bail};
+use hick_agent_sdk::{XmlDiagnosticLogger, NullSessionLog};
 use clap::Parser;
 use futures::StreamExt;
 use hick_flow::node::Node;
@@ -64,7 +65,8 @@ struct Cli {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    env_logger::init();
+    log::set_boxed_logger(Box::new(XmlDiagnosticLogger::new(Arc::new(NullSessionLog)))).ok();
+    log::set_max_level(log::LevelFilter::Info);
     let cli = Cli::parse();
 
     // 1. Read plan XML

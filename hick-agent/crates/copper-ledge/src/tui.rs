@@ -4,7 +4,6 @@
 //! output area with styled text. User input is captured via crossterm key
 //! events and sent back as [`AgentCommand`]s.
 
-use std::io::{self, BufWriter, Write as _};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
@@ -30,7 +29,6 @@ use hick_agent_sdk::mcp_install::{
 use hick_agent_sdk::mcp_config::McpServerTrust;
 use hick_agent_sdk::network_filter::{ApprovalResponse, NetworkApprovalRequest, NetworkVerdict};
 use hick_policy::PolicySuggestion;
-use hick_agent_script_first::tools::ScriptResult;
 
 // ── Styled output model ────────────────────────────────────────────
 
@@ -87,47 +85,10 @@ struct App {
     pending_approval: Option<PendingApproval>,
     /// Pending MCP credential prompt — awaiting env-var name / value from the user.
     pending_mcp_credential: Option<PendingMcpCredential>,
-    /// .hick session file writer (None if log could not be opened).
-    log: Option<BufWriter<std::fs::File>>,
-    /// Display path shown in the header (just the filename).
-    log_display: String,
-    /// Buffered LLM response from ResponseComplete, not yet written.
-    pending_response: Option<String>,
-    /// Buffered script code + lang from ScriptStarted, not yet written.
-    pending_action: Option<(String, String)>,
-    /// Counter for action/command source attributes.
-    session_action_index: usize,
-    /// True when the current busy turn is a `!` direct command (not an LLM turn).
-    in_direct_command: bool,
 }
 
 impl App {
-    fn new(provider_info: String, log_path: Option<PathBuf>) -> Self {
-        let (log, log_display) = match log_path {
-            Some(path) => {
-                let display = path
-                    .file_name()
-                    .and_then(|n| n.to_str())
-                    .unwrap_or("basic.hick")
-                    .to_string();
-                match std::fs::File::create(&path) {
-                    Ok(f) => {
-                        let mut w = BufWriter::new(f);
-                        let now = chrono::Local::now();
-                        let _ = writeln!(w, r#"<?xml version="1.0" encoding="UTF-8"?>"#);
-                        let _ = writeln!(
-                            w,
-                            r#"<hick:session xmlns:hick="http://www.hickorydocs.com/1.0" start="{}">"#,
-                            now.to_rfc3339()
-                        );
-                        let _ = w.flush();
-                        (Some(w), display)
-                    }
-                    Err(_) => (None, display),
-                }
-            }
-            None => (None, String::new()),
-        };
+    fn new(provider_info: String) -> Self {
         Self {
             lines: Vec::new(),
             current_partial: String::new(),
@@ -141,150 +102,6 @@ impl App {
             should_quit: false,
             pending_approval: None,
             pending_mcp_credential: None,
-            log,
-            log_display,
-            pending_response: None,
-            pending_action: None,
-            session_action_index: 0,
-            in_direct_command: false,
-        }
-    }
-
-    fn log_command(&mut self, cmd: &str) {
-        if let Some(ref mut w) = self.log {
-            let now = chrono::Local::now();
-            let _ = writeln!(
-                w,
-                r#"  <hick:command time="{}">{}</hick:command>"#,
-                now.to_rfc3339(),
-                xml_escape(cmd)
-            );
-            let _ = w.flush();
-        }
-    }
-
-    fn log_command_observation(&mut self, result: &ScriptResult) {
-        let source_id = format!("command-{}", self.session_action_index);
-        self.session_action_index += 1;
-        if let Some(ref mut w) = self.log {
-            let now = chrono::Local::now();
-            let exit_attr = result
-                .exit_code
-                .map(|c| c.to_string())
-                .unwrap_or_else(|| "unknown".into());
-            let combined = format!("{}{}", result.stdout, result.stderr);
-            let _ = writeln!(
-                w,
-                r#"  <hick:observation source="{}" exit="{}" time="{}">{}</hick:observation>"#,
-                source_id,
-                exit_attr,
-                now.to_rfc3339(),
-                xml_escape(&combined)
-            );
-            let _ = w.flush();
-        }
-    }
-
-    fn log_user(&mut self, text: &str) {
-        if let Some(ref mut w) = self.log {
-            let now = chrono::Local::now();
-            let _ = writeln!(
-                w,
-                r#"  <hick:user time="{}">{}</hick:user>"#,
-                now.to_rfc3339(),
-                xml_escape(text)
-            );
-            let _ = w.flush();
-        }
-    }
-
-    fn log_turn_with_action(&mut self, result: &ScriptResult) {
-        if self.log.is_none() {
-            self.pending_response.take();
-            self.pending_action.take();
-            return;
-        }
-        let now = chrono::Local::now();
-        let response = self.pending_response.take().unwrap_or_default();
-        let (code, lang) = self.pending_action.take().unwrap_or_else(|| (String::new(), "sh".into()));
-        let action_id = format!("action-{}", self.session_action_index);
-        self.session_action_index += 1;
-
-        if let Some(ref mut w) = self.log {
-            let _ = writeln!(w, r#"  <hick:assistant time="{}">"#, now.to_rfc3339());
-            if !response.trim().is_empty() {
-                let _ = writeln!(w, "{}", xml_escape(response.trim()));
-            }
-            let _ = writeln!(w, r#"    <hick:action lang="{}">"#, lang);
-            let _ = w.write_all(code.as_bytes());
-            if !code.ends_with('\n') {
-                let _ = w.write_all(b"\n");
-            }
-            let _ = writeln!(w, "    </hick:action>");
-            let _ = writeln!(w, "  </hick:assistant>");
-
-            let exit_attr = result
-                .exit_code
-                .map(|c| c.to_string())
-                .unwrap_or_else(|| "unknown".into());
-            let combined = format!("{}{}", result.stdout, result.stderr);
-            let _ = writeln!(
-                w,
-                r#"  <hick:observation source="{}" exit="{}" time="{}">{}</hick:observation>"#,
-                action_id,
-                exit_attr,
-                now.to_rfc3339(),
-                xml_escape(&combined)
-            );
-            let _ = w.flush();
-        }
-    }
-
-    fn log_turn_done(&mut self) {
-        let response = match self.pending_response.take() {
-            Some(r) if !r.trim().is_empty() => r,
-            _ => return,
-        };
-        self.pending_action.take();
-        if let Some(ref mut w) = self.log {
-            let now = chrono::Local::now();
-            let _ = writeln!(
-                w,
-                r#"  <hick:assistant time="{}">{}</hick:assistant>"#,
-                now.to_rfc3339(),
-                xml_escape(response.trim())
-            );
-            let _ = w.flush();
-        }
-    }
-
-    fn log_info_node(&mut self, tag: &str, attrs: &[(&str, &str)], content: &str) {
-        if let Some(ref mut w) = self.log {
-            let now = chrono::Local::now();
-            let attr_str = attrs
-                .iter()
-                .map(|(k, v)| format!(r#" {}="{}""#, k, xml_escape(v)))
-                .collect::<String>();
-            if content.is_empty() {
-                let _ = writeln!(
-                    w,
-                    r#"  <hick:{} time="{}"{}/>"#,
-                    tag,
-                    now.to_rfc3339(),
-                    attr_str
-                );
-            } else {
-                let _ = writeln!(
-                    w,
-                    r#"  <hick:{} time="{}"{}>{}</hick:{}>"#,
-                    tag,
-                    now.to_rfc3339(),
-                    attr_str,
-                    xml_escape(content),
-                    tag
-                );
-            }
-            let _ = w.flush();
         }
     }
 
@@ -346,13 +163,10 @@ impl App {
                 self.thinking_shown = true;
             }
             AgentEvent::Token(text) => self.append_token(&text),
-            AgentEvent::ResponseComplete(response) => {
-                self.pending_response = Some(response);
-            }
-            AgentEvent::ScriptStarted { code, lang } => {
+            AgentEvent::ResponseComplete(_) => {}
+            AgentEvent::ScriptStarted { .. } => {
                 self.flush_partial();
                 self.push_line(LineKind::Info, "\u{25b6} Running script...");
-                self.pending_action = Some((code, lang));
             }
             AgentEvent::ScriptFinished(result) => {
                 if self
@@ -390,37 +204,20 @@ impl App {
                         ),
                     );
                 }
-                if self.in_direct_command {
-                    self.log_command_observation(&result);
-                } else {
-                    self.log_turn_with_action(&result);
-                }
             }
             AgentEvent::Done(_) => {
                 self.flush_partial();
-                if !self.in_direct_command {
-                    self.log_turn_done();
-                }
-                self.in_direct_command = false;
                 self.push_line(LineKind::Separator, "");
                 self.busy = false;
             }
             AgentEvent::Interrupted => {
                 self.flush_partial();
-                self.pending_response.take();
-                self.pending_action.take();
-                self.in_direct_command = false;
                 self.push_line(LineKind::Info, "\u{25cf} Interrupted");
-                self.log_info_node("interrupted", &[], "");
                 self.busy = false;
             }
             AgentEvent::Error(msg) => {
                 self.flush_partial();
-                self.pending_response.take();
-                self.pending_action.take();
-                self.in_direct_command = false;
                 self.push_line(LineKind::Error, &msg);
-                self.log_info_node("error", &[], &msg);
                 self.busy = false;
             }
             AgentEvent::DataClassification {
@@ -434,7 +231,6 @@ impl App {
             }
             AgentEvent::SecurityViolation { description } => {
                 self.push_line(LineKind::Error, &format!("SECURITY: {description}"));
-                self.log_info_node("security-violation", &[], &description);
             }
             AgentEvent::Reprompt { reason, attempt } => {
                 self.flush_partial();
@@ -442,7 +238,6 @@ impl App {
                     LineKind::Info,
                     &format!("\u{26a0} Re-prompting (attempt {attempt}): {reason}"),
                 );
-                self.log_info_node("reprompt", &[("attempt", &attempt.to_string())], &reason);
             }
             AgentEvent::McpInstallProgress(msg) => {
                 self.push_line(LineKind::Info, &format!("[mcp] {msg}"));
@@ -687,8 +482,6 @@ impl App {
                         }
                         self.push_line(LineKind::User, &format!("> {msg}"));
                         self.push_line(LineKind::Separator, "");
-                        self.log_command(&shell_cmd);
-                        self.in_direct_command = true;
                         cmd_tx.send(AgentCommand::DirectCommand(shell_cmd)).ok();
                         self.busy = true;
                         self.auto_scroll = true;
@@ -697,7 +490,6 @@ impl App {
 
                     self.push_line(LineKind::User, &format!("> {msg}"));
                     self.push_line(LineKind::Separator, "");
-                    self.log_user(&msg);
                     cmd_tx.send(AgentCommand::Message(msg)).ok();
                     self.busy = true;
                     self.auto_scroll = true;
@@ -842,7 +634,7 @@ impl App {
         .split(area);
 
         // Header bar
-        let mut header_spans = vec![
+        let header_spans = vec![
             Span::styled(
                 "hick-basic",
                 Style::default()
@@ -852,13 +644,6 @@ impl App {
             Span::styled(" \u{2502} ", Style::default().fg(Color::DarkGray)),
             Span::styled(&self.provider_info, Style::default().fg(Color::DarkGray)),
         ];
-        if !self.log_display.is_empty() {
-            header_spans.push(Span::styled(" \u{2502} ", Style::default().fg(Color::DarkGray)));
-            header_spans.push(Span::styled(
-                format!("log: {}", self.log_display),
-                Style::default().fg(Color::DarkGray),
-            ));
-        }
         let header = Paragraph::new(Line::from(header_spans));
         frame.render_widget(header, chunks[0]);
 
@@ -1078,15 +863,6 @@ async fn run_mcp_install_task(
         .ok();
 }
 
-// ── XML helpers ────────────────────────────────────────────────────
-
-fn xml_escape(s: &str) -> String {
-    s.replace('&', "&amp;")
-        .replace('<', "&lt;")
-        .replace('>', "&gt;")
-        .replace('"', "&quot;")
-}
-
 // ── Public entry point ─────────────────────────────────────────────
 
 /// Run the ratatui TUI. Blocks until the user quits.
@@ -1100,15 +876,15 @@ pub fn run_tui(
     provider_info: String,
     mut approval_rx: mpsc::UnboundedReceiver<NetworkApprovalRequest>,
     project_dir: PathBuf,
-    log_path: Option<PathBuf>,
 ) -> anyhow::Result<()> {
+    use std::io;
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen)?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    let mut app = App::new(provider_info, log_path);
+    let mut app = App::new(provider_info);
     let (cred_req_tx, mut cred_req_rx) = mpsc::unbounded_channel::<McpCredentialRequest>();
 
     let result = (|| -> anyhow::Result<()> {
@@ -1166,13 +942,6 @@ pub fn run_tui(
         }
         Ok(())
     })();
-
-    if let Some(ref mut w) = app.log {
-        let now = chrono::Local::now();
-        let _ = writeln!(w, r#"  <hick:session-end time="{}"/>"#, now.to_rfc3339());
-        let _ = writeln!(w, "</hick:session>");
-        let _ = w.flush();
-    }
 
     disable_raw_mode()?;
     execute!(terminal.backend_mut(), LeaveAlternateScreen)?;

@@ -19,6 +19,7 @@ use hick_agent_sdk::{
     AgentRuntime, AnthropicClient, HttpMcpClient, LlmClient, McpClient, McpCredentialStore,
     McpServersConfig, McpTransportKind, Message, OpenAiCompatClient, Role, ShapeFormatConfig,
     ApprovalResponse, SinkGuard, StdioMcpClient, ToolGate, ToolGateConfig, ToolTrust,
+    XmlDiagnosticLogger, NullSessionLog,
     network_filter::NetworkVerdict,
     tool_gate::ToolApprovalRequest,
 };
@@ -451,7 +452,8 @@ async fn run_agent(
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     dotenvy::dotenv().ok();
-    env_logger::init();
+    log::set_boxed_logger(Box::new(XmlDiagnosticLogger::new(Arc::new(NullSessionLog)))).ok();
+    log::set_max_level(log::LevelFilter::Info);
 
     let cli = Cli::parse();
 

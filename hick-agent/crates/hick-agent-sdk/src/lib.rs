@@ -40,9 +40,11 @@ pub mod network_filter;
 pub mod project_context;
 pub mod runtime;
 pub mod security_config;
+pub mod session_log;
 pub mod sink_guard;
 pub mod suggestion_gen;
 pub mod tool_gate;
+pub mod xml_session_log;
 
 // ---------------------------------------------------------------------------
 // Runtime
@@ -219,3 +221,24 @@ pub use mcp_install::detect_package_manager;
 pub use mcp_install::list_servers;
 /// Remove a named server from `.hick/mcp-servers.toml`.
 pub use mcp_install::remove_server;
+
+// ---------------------------------------------------------------------------
+// Session logging
+// ---------------------------------------------------------------------------
+
+/// Trait for structured agent session event sinks.
+pub use session_log::SessionLog;
+/// Typed event enum recorded by [`SessionLog::record`].
+pub use session_log::LogEvent;
+/// Binary attachment written into a session bundle directory.
+pub use session_log::LogAttachment;
+/// Severity level for [`LogEvent::DiagnosticLog`] records.
+pub use session_log::LogLevel;
+/// No-op [`SessionLog`] for tests and unconfigured contexts.
+pub use session_log::NullSessionLog;
+/// Writes Agent Log XML to a session directory bundle.
+pub use xml_session_log::XmlSessionLog;
+/// [`log::Log`] adapter that forwards diagnostic records to a [`SessionLog`].
+pub use xml_session_log::XmlDiagnosticLogger;
+/// Wraps an [`McpClient`] to emit [`LogEvent::McpCall`] / [`LogEvent::McpResponse`] events.
+pub use mcp_client::LoggingMcpClient;

@@ -527,6 +527,73 @@ impl McpClient for HttpMcpClient {
 }
 
 // ---------------------------------------------------------------------------
+// LoggingMcpClient
+// ---------------------------------------------------------------------------
+
+/// An [`McpClient`] wrapper that emits [`LogEvent::McpCall`] and
+/// [`LogEvent::McpResponse`] events before and after each delegated call.
+///
+/// Wrap a concrete client with this at agent startup to get MCP call/response
+/// records in the session log:
+///
+/// ```rust,ignore
+/// let client = Arc::new(LoggingMcpClient::new(inner, "github".into(), session_log.clone()));
+/// ```
+pub struct LoggingMcpClient<C: McpClient> {
+    inner: C,
+    server_name: String,
+    log: Arc<dyn crate::session_log::SessionLog>,
+}
+
+impl<C: McpClient> LoggingMcpClient<C> {
+    pub fn new(inner: C, server_name: String, log: Arc<dyn crate::session_log::SessionLog>) -> Self {
+        Self { inner, server_name, log }
+    }
+}
+
+#[async_trait]
+impl<C: McpClient> McpClient for LoggingMcpClient<C> {
+    async fn call(
+        &self,
+        method: &str,
+        params: serde_json::Value,
+    ) -> anyhow::Result<serde_json::Value> {
+        self.log.record(crate::session_log::LogEvent::McpCall {
+            server: &self.server_name,
+            method,
+            params: &params,
+        });
+        let result = self.inner.call(method, params).await;
+        match &result {
+            Ok(r) => {
+                self.log.record(crate::session_log::LogEvent::McpResponse {
+                    server: &self.server_name,
+                    method,
+                    result: r,
+                });
+            }
+            Err(e) => {
+                let err_val = serde_json::json!({"error": e.to_string()});
+                self.log.record(crate::session_log::LogEvent::McpResponse {
+                    server: &self.server_name,
+                    method,
+                    result: &err_val,
+                });
+            }
+        }
+        result
+    }
+
+    async fn list_tools(&self) -> anyhow::Result<Vec<McpToolDef>> {
+        self.inner.list_tools().await
+    }
+
+    async fn refresh_tools(&self) -> anyhow::Result<Vec<McpToolDef>> {
+        self.inner.refresh_tools().await
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 

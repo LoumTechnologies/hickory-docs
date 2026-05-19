@@ -22,6 +22,7 @@ use hick_agent_script_first::{AgentCommand, AgentEvent, ReactLoop};
 use hick_agent_sdk::{
     AgentSecurityConfig, AnthropicClient, FilteredLlmClient, LlmClient,
     NetworkApprovalRequest, NetworkFilter, OpenAiCompatClient, SinkGuard,
+    XmlDiagnosticLogger, XmlSessionLog, NullSessionLog,
 };
 use hick_agent_sdk::network_filter::extract_host_from_url;
 
@@ -355,7 +356,6 @@ async fn agent_task(
 #[tokio::main]
 async fn main() -> Result<()> {
     dotenvy::dotenv().ok();
-    env_logger::init();
 
     let cli = Cli::parse();
 
@@ -538,12 +538,19 @@ async fn main() -> Result<()> {
 
     let provider_info = format!("{provider_name} / {model_name}");
 
-    let log_path = {
+    let session_log: Arc<dyn hick_agent_sdk::SessionLog> = {
         let ts = chrono::Local::now().format("%Y%m%d-%H%M%S");
-        let log_dir = project_dir.join(".copper-ledge");
-        std::fs::create_dir_all(&log_dir).ok();
-        log_dir.join(format!("session-{ts}.log"))
+        let bundle_dir = project_dir.join(".copper-ledge").join(format!("session-{ts}"));
+        match XmlSessionLog::new(bundle_dir) {
+            Ok(log) => Arc::new(log),
+            Err(_) => Arc::new(NullSessionLog),
+        }
     };
+    log::set_boxed_logger(Box::new(XmlDiagnosticLogger::new(Arc::clone(&session_log))))
+        .ok();
+    log::set_max_level(log::LevelFilter::Info);
+
+    let react_loop = react_loop.with_session_log(Arc::clone(&session_log));
 
     let interrupt_agent = Arc::clone(&interrupt);
     tokio::spawn(agent_task(react_loop, event_tx.clone(), cmd_rx, interrupt_agent));
@@ -558,7 +565,6 @@ async fn main() -> Result<()> {
             provider_info,
             approval_rx,
             project_dir,
-            Some(log_path),
         )
     })
     .await??;

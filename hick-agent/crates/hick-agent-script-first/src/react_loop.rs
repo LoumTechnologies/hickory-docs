@@ -25,6 +25,7 @@ use async_trait::async_trait;
 use futures::StreamExt;
 use hick_agent_core::CommandExecutor;
 use hick_agent_sdk::runtime::Step;
+use hick_agent_sdk::session_log::{LogEvent, NullSessionLog, SessionLog};
 use hick_agent_sdk::{AgentRuntime, CommandOutput, LlmClient, Message, Role, SinkGuard};
 use hick_policy::PolicyEvaluator;
 use tokio::sync::{Mutex, Notify, mpsc};
@@ -211,6 +212,8 @@ pub struct ReactLoop {
     custom_system_prompt: Option<String>,
     /// When true, injects `PYTHONPATH=<agent_dir>/sdk` for Python script execution.
     inject_sdk_pythonpath: bool,
+    /// Session log sink. Defaults to `NullSessionLog`.
+    session_log: Arc<dyn SessionLog>,
 }
 
 impl ReactLoop {
@@ -234,6 +237,7 @@ impl ReactLoop {
             agent_dir: ".agent".to_string(),
             custom_system_prompt: None,
             inject_sdk_pythonpath: false,
+            session_log: Arc::new(NullSessionLog),
         }
     }
 
@@ -295,6 +299,12 @@ impl ReactLoop {
     /// Get the sink guard (if configured).
     pub fn sink_guard(&self) -> Option<&Arc<SinkGuard>> {
         self.sink_guard.as_ref()
+    }
+
+    /// Set the session log sink.
+    pub fn with_session_log(mut self, log: Arc<dyn SessionLog>) -> Self {
+        self.session_log = log;
+        self
     }
 
     // ── LLM call via AgentRuntime + Step ─────────────────────────────────────
@@ -625,6 +635,7 @@ impl ReactLoop {
                 events
                     .send(AgentEvent::ResponseComplete(response.clone()))
                     .ok();
+                self.session_log.record(LogEvent::LlmResponse { text: &response });
 
                 // Add the accepted assistant message to history.
                 self.runtime.add_message(Message {
@@ -660,13 +671,9 @@ impl ReactLoop {
                         match evaluator.evaluate_flow(&input).await {
                             Ok(hick_policy::PolicyDecision::Allow) => {}
                             Ok(hick_policy::PolicyDecision::Deny { reason }) => {
-                                events
-                                    .send(AgentEvent::SecurityViolation {
-                                        description: format!(
-                                            "Policy denied script execution: {reason}"
-                                        ),
-                                    })
-                                    .ok();
+                                let desc = format!("Policy denied script execution: {reason}");
+                                events.send(AgentEvent::SecurityViolation { description: desc.clone() }).ok();
+                                self.session_log.record(LogEvent::SecurityViolation { description: &desc });
                                 results.push(ScriptResult {
                                     stdout: String::new(),
                                     stderr: format!("Policy denied execution: {reason}"),
@@ -676,28 +683,20 @@ impl ReactLoop {
                             }
                             // TODO: wire up full prompt flow (Always Allow milestone)
                             Ok(hick_policy::PolicyDecision::Prompt { reason }) => {
-                                events
-                                    .send(AgentEvent::SecurityViolation {
-                                        description: format!(
-                                            "Policy requires approval for script execution: {reason}"
-                                        ),
-                                    })
-                                    .ok();
+                                let desc = format!("Policy requires approval for script execution: {reason}");
+                                events.send(AgentEvent::SecurityViolation { description: desc.clone() }).ok();
+                                self.session_log.record(LogEvent::SecurityViolation { description: &desc });
                                 results.push(ScriptResult {
                                     stdout: String::new(),
-                                    stderr: format!(
-                                        "Policy requires approval: {reason}"
-                                    ),
+                                    stderr: format!("Policy requires approval: {reason}"),
                                     exit_code: Some(1),
                                 });
                                 continue;
                             }
                             Err(e) => {
-                                events
-                                    .send(AgentEvent::SecurityViolation {
-                                        description: format!("Policy evaluation error: {e}"),
-                                    })
-                                    .ok();
+                                let desc = format!("Policy evaluation error: {e}");
+                                events.send(AgentEvent::SecurityViolation { description: desc.clone() }).ok();
+                                self.session_log.record(LogEvent::SecurityViolation { description: &desc });
                                 results.push(ScriptResult {
                                     stdout: String::new(),
                                     stderr: format!("Policy evaluation failed: {e}"),
@@ -708,13 +707,20 @@ impl ReactLoop {
                         }
                     }
 
+                    let lang = block.language.extension().to_string();
+                    self.session_log.record(LogEvent::ActionStart { lang: &lang, code: &block.code });
                     events
                         .send(AgentEvent::ScriptStarted {
                             code: block.code.clone(),
-                            lang: block.language.extension().to_string(),
+                            lang: lang.clone(),
                         })
                         .ok();
                     let result = self.execute_code_block(block, i).await;
+                    self.session_log.record(LogEvent::ActionEnd {
+                        stdout: &result.stdout,
+                        stderr: &result.stderr,
+                        exit_code: result.exit_code,
+                    });
                     events.send(AgentEvent::ScriptFinished(result.clone())).ok();
                     results.push(result);
                 }
@@ -786,7 +792,17 @@ impl ReactLoop {
         events: &mpsc::UnboundedSender<AgentEvent>,
         interrupt: &Notify,
     ) -> anyhow::Result<()> {
-        if self.runtime.history().is_empty() {
+        let is_first_turn = self.runtime.history().is_empty();
+
+        if is_first_turn {
+            // Emit SessionStart once before the first turn.
+            let sandbox = self.executor.as_ref().map(|_| self.sandbox_image.as_str());
+            self.session_log.record(LogEvent::SessionStart {
+                model: "",
+                sandbox_image: sandbox,
+                max_turns: self.max_turns,
+            });
+
             // First turn: build and inject the system prompt.
             let base = self
                 .custom_system_prompt
@@ -821,8 +837,10 @@ impl ReactLoop {
                     user_message
                 )
             };
+            self.session_log.record(LogEvent::UserTurn { text: user_message });
             self.runtime.add_user_message(first_user);
         } else {
+            self.session_log.record(LogEvent::UserTurn { text: user_message });
             self.runtime.add_user_message(user_message.to_string());
         }
 
@@ -830,17 +848,33 @@ impl ReactLoop {
             messages_sent: self.runtime.history().len(),
         };
         let mut turns = 0;
+        let mut prev_state_name = "Idle".to_string();
 
         while !state.is_terminal() && turns < self.max_turns {
+            let next_state_name = format!("{state:?}");
+            self.session_log.record(LogEvent::StateTransition {
+                from: &prev_state_name,
+                to: &next_state_name,
+            });
+            prev_state_name = next_state_name;
+
             state = self.step_once(state, events, interrupt).await?;
             turns += 1;
 
             if let AgentState::Observing { .. } = state {
+                let obs_name = format!("{state:?}");
+                self.session_log.record(LogEvent::StateTransition {
+                    from: &prev_state_name,
+                    to: &obs_name,
+                });
+                prev_state_name = obs_name;
                 state = AgentState::Thinking {
                     messages_sent: self.runtime.history().len(),
                 };
             }
         }
+
+        self.session_log.record(LogEvent::SessionEnd);
 
         match state {
             AgentState::Done { message } => {
