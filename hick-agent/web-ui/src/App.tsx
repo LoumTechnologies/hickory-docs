@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useAgentSocket } from './useAgentSocket'
 import type { UiEvent } from './types'
+import { ConversationCanvas } from './canvas/ConversationCanvas'
 
 export default function App() {
   const { events, send, connected, sessionStartedObservedAt } = useAgentSocket()
@@ -18,6 +19,12 @@ export default function App() {
       if (ev.type === 'session_started') latest = ev
     }
     return latest
+  }, [events])
+
+  const hasBlockingPrompt = useMemo(() => {
+    return events.some(
+      (ev) => ev.type === 'security_violation' || ev.type === 'network_approval',
+    )
   }, [events])
 
   return (
@@ -97,15 +104,15 @@ export default function App() {
           )}
         </aside>
 
-        {/* Main — raw event dump until task-37.5 */}
-        <main className="min-w-0 flex-1 overflow-hidden bg-slate-950 p-3">
-          <pre className="h-full overflow-auto rounded border border-slate-800 bg-slate-900/50 p-3 font-mono text-[11px] leading-relaxed text-slate-200">
-            {events.length === 0
-              ? connected
-                ? 'Waiting for events…'
-                : 'No events yet.'
-              : JSON.stringify(events, null, 2)}
-          </pre>
+        {/* Main — conversation tree canvas (task-37.5) */}
+        <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-slate-950">
+          {events.length === 0 ? (
+            <div className="flex flex-1 items-center justify-center text-sm text-slate-500">
+              {connected ? 'Waiting for events…' : 'No events yet.'}
+            </div>
+          ) : (
+            <ConversationCanvas events={events} connected={connected} send={send} />
+          )}
         </main>
       </div>
 
@@ -116,12 +123,14 @@ export default function App() {
             type="text"
             className="min-w-0 flex-1 rounded border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
             placeholder={
-              connected
-                ? 'Message the agent…'
-                : 'Connect the agent to send messages…'
+              hasBlockingPrompt
+                ? 'Waiting for approval…'
+                : connected
+                  ? 'Message the agent…'
+                  : 'Connect the agent to send messages…'
             }
             value={draft}
-            disabled={!connected}
+            disabled={!connected || hasBlockingPrompt}
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Enter') {
@@ -136,7 +145,7 @@ export default function App() {
           <button
             type="button"
             className="rounded bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-500 disabled:cursor-not-allowed disabled:opacity-40"
-            disabled={!connected || !draft.trim()}
+            disabled={!connected || !draft.trim() || hasBlockingPrompt}
             onClick={() => {
               const text = draft.trim()
               if (!text) return

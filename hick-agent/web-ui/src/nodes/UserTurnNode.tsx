@@ -1,0 +1,29 @@
+interface Props {
+  text: string
+}
+
+export function UserTurnNode({ text }: Props) {
+  return (
+    <div className="flex justify-end py-2 pr-4">
+      <div
+        className="relative max-w-[70%] rounded-[18px] border border-sky-500/40 bg-sky-900/80 px-4 py-3 text-sm text-sky-100"
+        style={{ borderRadius: '18px' }}
+      >
+        <span className="whitespace-pre-wrap break-words">{text}</span>
+        {/* Right-side tail */}
+        <svg
+          width="18"
+          height="14"
+          viewBox="0 0 18 14"
+          className="absolute -bottom-3 right-4 text-sky-900/80"
+          aria-hidden="true"
+        >
+          <path
+            d="M 0 0 C 4 0, 8 4, 6 12 C 10 8, 14 4, 18 0 Z"
+            fill="currentColor"
+          />
+        </svg>
+      </div>
+    </div>
+  )
+}
