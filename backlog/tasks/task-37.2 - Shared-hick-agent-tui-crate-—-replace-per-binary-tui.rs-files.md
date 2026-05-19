@@ -4,6 +4,7 @@ title: Shared hick-agent-tui crate — replace per-binary tui.rs files
 status: To Do
 assignee: []
 created_date: '2026-05-19 11:54'
+updated_date: '2026-05-19 12:07'
 labels:
   - tui
   - ui
@@ -81,3 +82,87 @@ Ctrl+C (interrupt / quit), Ctrl+D (quit), Up/Down/PageUp/PageDown (scroll), Ente
 - [ ] #5 Branch structure (sub-agent nodes) renders with ASCII git-log-style connectors
 - [ ] #6 cargo test --workspace passes
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+## TUI design philosophy: pretty without waste
+
+The TUI must not attempt to port the web visual system into the terminal. Boxes and per-message borders consume rows without adding information. The right model is tools like lazygit, delta, btop: color, unicode, and alignment as information rather than decoration.
+
+### Left-margin role column (the spine)
+
+Reserve a 3-character left margin as a role/indicator column. All content aligns to a consistent content margin at column 4+. The spine character `│` runs continuously. Indicators appear in the margin only when meaningful:
+
+```
+     │ agent message text, wraps
+     │ to the next line cleanly
+     │
+  ●  │ thinking (collapsed — three pulsing dots)
+     │
+     │ agent continues
+     │
+  ▸  │ [py] import pathlib...        ← collapsed script, one line
+  ▸  │ → github/search "foo"         ← collapsed tool call, one line
+     │
+```
+
+### Collapsed = one line, always
+
+Every collapsible item fits in exactly one line when collapsed. No mini-boxes, no multi-line summaries. Format:
+- Script: `▸ [lang] first-line-of-code...` in dark gray
+- Tool call: `▸ → server/tool_name key_param=value` in dark gray
+- Thinking: `●●●` in gray (animated pulsing via periodic redraw), no label
+
+`▸` (right-pointing) = collapsed. `▾` (down-pointing) = expanded.
+
+### Expanded = indented block with left border, no wrapper box
+
+When expanded, content indents from the spine with a `┊` left border character — not a full box. The type label stays on the header line:
+
+```
+  ▾  │ [py] import pathlib...
+     ┊ for f in pathlib.Path('.').rglob('*.rs'):
+     ┊     print(f)
+     ┊ ───
+     ┊ src/main.rs
+     ┊ src/lib.rs
+```
+
+Script input and output are shown together in one expanded block, separated by `┊ ───`. This mirrors the Jupyter notebook cell model (input on top, output below) without requiring two separate expand actions.
+
+For tool calls:
+```
+  ▾  │ → github/search_code
+     ┊ q: "SessionLog"  repo: "hickory-docs"
+     ┊ ───
+     ┊ 3 results: src/session_log.rs, ...
+```
+
+### Turn separators
+
+Between turns: a single `─────────────────────────────────` in very dark gray. No timestamp unless the gap between turns exceeds 60 seconds. One row cost, worthwhile for readability.
+
+### Thinking
+
+Single animated line: `  ●●●` in gray. Pulse is simulated by cycling between `●●●`, `○●●`, `●○●`, `●●○` on each 16ms redraw tick. When expanded: full thinking text as a `┊`-bordered block in dim gray.
+
+### User messages
+
+User messages get the cyan color and a `>` prefix (consistent with current TUI). No box. Wrap to content margin:
+
+```
+     │
+  >  │ do something interesting
+     │ with the codebase
+     │
+```
+
+### Refinement notes (post-first-visual-iteration)
+
+The following details are intentionally left unspecified — they will be tuned against a real terminal after the first visual pass:
+- Whether output clips at N lines with a "... N more lines" indicator, or scrolls inline
+- Exact color palette values (will depend on terminal background assumptions)
+- Whether the spine `│` renders continuously or only between adjacent same-role messages
+- Handling of very long single lines in script output (truncate? wrap? horizontal scroll?)
+<!-- SECTION:NOTES:END -->

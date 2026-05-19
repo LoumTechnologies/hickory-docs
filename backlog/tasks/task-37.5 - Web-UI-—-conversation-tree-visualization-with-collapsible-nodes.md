@@ -4,7 +4,7 @@ title: Web UI — conversation tree visualization with collapsible nodes
 status: To Do
 assignee: []
 created_date: '2026-05-19 11:55'
-updated_date: '2026-05-19 12:03'
+updated_date: '2026-05-19 12:07'
 labels:
   - web
   - frontend
@@ -131,3 +131,49 @@ The scalloped thought bubble border can be approximated with a CSS approach: a `
 - [ ] #14 SVG branch connectors are on a separate absolutely-positioned overlay layer; bubble layout is pure CSS flexbox
 - [ ] #15 cargo test --workspace passes (Rust side unaffected)
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+## Script output and tool calls — expanded state
+
+Both are input/output pairs. The visual treatment should make the pairing obvious and let the user treat each pair as one unit.
+
+### Script execution expanded state (ActionStart + ActionEnd pair)
+
+Mental model: a Jupyter notebook cell. Input (code) on top, output below, grouped in one container. A single click on either chip expands both together; clicking again collapses both. Do not require two separate expand actions.
+
+```
+┌─ [python] ──────────────────────────────── exit 0 ─┐
+│  import pathlib                                     │  ← syntax highlighted
+│  for f in pathlib.Path('.').rglob('*.rs'): print(f) │
+├─────────────────────────────────────────────────────┤
+│  src/main.rs                                        │  ← monospace
+│  src/lib.rs                                         │
+└─────────────────────────────────────────────────────┘
+```
+
+The exit code badge appears in the ActionEnd chip header (green for 0, red otherwise) and in the expanded block header.
+
+### Tool call expanded state (McpCall + McpResponse pair)
+
+Mental model: a browser DevTools network row. Compact — shows what was called and what came back. Key parameters only in the request view; a result summary in the response view.
+
+```
+┌─ → github / search_code ───────────────────── 200 ─┐
+│  q: "SessionLog"  repo: "hickory-docs"              │  ← key params
+├─────────────────────────────────────────────────────┤
+│  3 results: src/session_log.rs, ...                 │  ← result summary
+└─────────────────────────────────────────────────────┘
+```
+
+A "View full JSON" toggle at the bottom of the response section expands to the raw JSON (scrollable, fixed max-height).
+
+### Refinement notes (post-first-visual-iteration)
+
+These details are intentionally unspecified — they require visual feedback to tune correctly:
+- Whether output clips at N lines with a "... N more" button, or scrolls within the expanded block (depends on typical output length)
+- Whether key parameter extraction for tool calls is heuristic (first N keys) or structured (schema-aware) — start heuristic
+- Exact padding, font sizes, and border radius within the expanded block
+- Whether ActionStart and ActionEnd that are far apart in the event stream still pair visually, or only when adjacent
+<!-- SECTION:NOTES:END -->
