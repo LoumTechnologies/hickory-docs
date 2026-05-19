@@ -4,7 +4,7 @@ title: Web UI — conversation tree visualization with collapsible nodes
 status: To Do
 assignee: []
 created_date: '2026-05-19 11:55'
-updated_date: '2026-05-19 12:11'
+updated_date: '2026-05-19 12:17'
 labels:
   - web
   - frontend
@@ -167,6 +167,12 @@ Intentionally unspecified — require visual feedback to tune:
 - [ ] #15 Jump to now button appears when scrolled up; Prezi-transitions if the latest event is in a different branch
 - [ ] #16 Per-column virtualization is used for long branches; at zoom-out scale, placeholder nodes replace full bubble content
 - [ ] #17 cargo test --workspace passes (Rust side unaffected)
+- [ ] #18 Off-screen blocking prompts (network approval, credentials, security) show a pulsing viewport-edge indicator with type icon and label; clicking triggers a Prezi transition to the node
+- [ ] #19 On-screen blocking prompts render as interactive canvas nodes with a pulsing ring; the edge indicator is absent
+- [ ] #20 While any blocking prompt is pending, the input bar is locked and a persistent banner is visible regardless of canvas position
+- [ ] #21 Ctrl+click a branch indicator or node enters crosscut mode, showing multiple panels at 100% scale separated by a ⚡ discontinuity separator
+- [ ] #22 Each crosscut panel supports independent Prezi branch navigation; panels close individually; last panel dissolves back to single view via Prezi transition
+- [ ] #23 Free pan (drag, scroll) and free zoom (scroll, pinch, double-click) are disabled; all navigation is via Prezi transitions, minimap, or notification indicators
 <!-- AC:END -->
 
 ## Implementation Notes
@@ -213,4 +219,42 @@ These details are intentionally unspecified — they require visual feedback to 
 - Whether key parameter extraction for tool calls is heuristic (first N keys) or structured (schema-aware) — start heuristic
 - Exact padding, font sizes, and border radius within the expanded block
 - Whether ActionStart and ActionEnd that are far apart in the event stream still pair visually, or only when adjacent
+
+## Off-screen notification indicators
+
+Blocking prompts (network approval, credentials, security violations) render as interactive nodes at their location on the canvas. When off-screen, a viewport-fixed HUD indicator appears on the nearest screen edge:
+
+- Position: computed by projecting the node's canvas coords to viewport space via React Flow's `project()`, then finding the intersection of the viewport center → node line with the viewport boundary
+- Appearance: pulsing (not subtle — these are blocking), type icon (⚠ security, 🌐 network, 🔒 credentials), short label
+- Click: triggers Prezi transition to the node
+- When on-screen: the node renders inline with a pulsing ring; the edge indicator disappears
+
+While any blocking prompt is pending, the input bar is locked and a persistent banner communicates this regardless of where the user is in the canvas. The user must resolve the prompt to continue.
+
+## Crosscut multi-panel view
+
+Ctrl+click a branch indicator or node → adds it to the crosscut selection. Entering crosscut mode zooms out slightly (Prezi-style) to reveal the panel layout. Each subsequent Ctrl+click slides a new panel in from an edge.
+
+Panels are separated by a discontinuity separator: a dashed vertical line with ⚡ centered, or a styled torn-edge `· · ·` pattern. The separator communicates that the panels are shown together but are NOT adjacent on the canvas — it is purely informational, not interactive.
+
+Each panel is a 100%-scale viewport into its area of the canvas. Prezi branch navigation still works within each panel. Panels close individually with ×; when one panel remains, the crosscut dissolves back to single view via Prezi transition.
+
+Primary use case: monitoring parallel sub-agents side-by-side without leaving the main thread.
+
+## No free pan/zoom (first cut constraint)
+
+Free pan and zoom are explicitly disabled in the first cut. React Flow config:
+
+```tsx
+<ReactFlow
+  panOnDrag={false}
+  panOnScroll={false}
+  zoomOnScroll={false}
+  zoomOnPinch={false}
+  zoomOnDoubleClick={false}
+  preventScrolling={true}
+/>
+```
+
+Within-branch vertical scroll is handled by node content scroll, not React Flow pan. The minimap triggers Prezi transitions on click, not free pan. All navigation has defined semantics: branch indicators, minimap, notification indicators. Nothing is reachable except via these intentional triggers — unreachability is a signal that the topology needs a navigation affordance added.
 <!-- SECTION:NOTES:END -->
