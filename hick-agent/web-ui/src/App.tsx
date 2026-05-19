@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { ConversationCanvas } from './conversation/ConversationCanvas'
 import { useAgentSocket } from './useAgentSocket'
 import type { UiEvent } from './types'
 
@@ -6,6 +7,7 @@ export default function App() {
   const { events, send, connected, sessionStartedObservedAt } = useAgentSocket()
   const [draft, setDraft] = useState('')
   const [sidebarOpen, setSidebarOpen] = useState(true)
+  const [blockingInputLocked, setBlockingInputLocked] = useState(false)
 
   const relaySessionId = useMemo(() => {
     const m = window.location.pathname.match(/^\/session\/([^/]+)\/?$/)
@@ -97,31 +99,32 @@ export default function App() {
           )}
         </aside>
 
-        {/* Main — raw event dump until task-37.5 */}
-        <main className="min-w-0 flex-1 overflow-hidden bg-slate-950 p-3">
-          <pre className="h-full overflow-auto rounded border border-slate-800 bg-slate-900/50 p-3 font-mono text-[11px] leading-relaxed text-slate-200">
-            {events.length === 0
-              ? connected
-                ? 'Waiting for events…'
-                : 'No events yet.'
-              : JSON.stringify(events, null, 2)}
-          </pre>
+        {/* Conversation canvas (TASK-37.5) */}
+        <main className="flex min-w-0 flex-1 flex-col overflow-hidden bg-slate-950">
+          <ConversationCanvas events={events} onBlockingLockedChange={setBlockingInputLocked} />
         </main>
       </div>
 
       {/* Input bar */}
       <footer className="shrink-0 border-t border-slate-800 bg-slate-900/90 px-3 py-3">
+        {blockingInputLocked && (
+          <div className="mx-auto mb-2 max-w-6xl rounded border border-amber-700/50 bg-amber-950/60 px-3 py-2 text-center text-xs text-amber-100">
+            Input is locked while a blocking security or network approval prompt is pending.
+          </div>
+        )}
         <div className="mx-auto flex max-w-6xl gap-2">
           <input
             type="text"
             className="min-w-0 flex-1 rounded border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
             placeholder={
               connected
-                ? 'Message the agent…'
+                ? blockingInputLocked
+                  ? 'Resolve blocking prompt to send messages…'
+                  : 'Message the agent…'
                 : 'Connect the agent to send messages…'
             }
             value={draft}
-            disabled={!connected}
+            disabled={!connected || blockingInputLocked}
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === 'Enter') {
@@ -136,7 +139,7 @@ export default function App() {
           <button
             type="button"
             className="rounded bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-500 disabled:cursor-not-allowed disabled:opacity-40"
-            disabled={!connected || !draft.trim()}
+            disabled={!connected || blockingInputLocked || !draft.trim()}
             onClick={() => {
               const text = draft.trim()
               if (!text) return
