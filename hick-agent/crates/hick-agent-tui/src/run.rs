@@ -60,6 +60,8 @@ pub struct TuiConfig {
     pub project_dir: PathBuf,
     pub interrupt: Arc<Notify>,
     pub ui_fanout_tx: broadcast::Sender<UiEvent>,
+    /// URL of the local web UI, if it started successfully.
+    pub web_ui_url: Option<String>,
 }
 
 // ── Application state ──────────────────────────────────────────────
@@ -915,7 +917,7 @@ impl App {
         // Header bar
         let agent = self.config.agent_name.clone();
         let provider_info = self.config.provider_info.clone();
-        let header_spans = vec![
+        let mut header_spans = vec![
             Span::styled(
                 agent,
                 Style::default()
@@ -925,6 +927,13 @@ impl App {
             Span::styled(" \u{2502} ", Style::default().fg(Color::DarkGray)),
             Span::styled(provider_info, Style::default().fg(Color::DarkGray)),
         ];
+        if let Some(ref url) = self.config.web_ui_url {
+            header_spans.push(Span::styled(" \u{2502} ", Style::default().fg(Color::DarkGray)));
+            header_spans.push(Span::styled(
+                format!("web \u{25b8} {url}"),
+                Style::default().fg(Color::Green),
+            ));
+        }
         let header = Paragraph::new(Line::from(header_spans));
         frame.render_widget(header, chunks[0]);
 

@@ -585,18 +585,29 @@ async fn main() -> Result<()> {
         Some(provider_info.clone()),
     ));
 
-    if web_ui_enabled(cli.no_web) {
+    let web_ui_url = if web_ui_enabled(cli.no_web) {
         match hick_agent_sdk::WebServer::bind(hick_agent_sdk::WebServerConfig::from_env()).await {
             Ok(ws) => {
                 ws.attach(ui_fanout_tx.clone(), ui_cmd_tx.clone());
                 match ws.start().await {
-                    Ok(url) => println!("Web UI: {url}"),
-                    Err(e) => log::warn!("Web UI failed to start: {e}"),
+                    Ok(url) => {
+                        event_tx.send(AgentEvent::Info(format!("Web UI: {url}"))).ok();
+                        Some(url)
+                    }
+                    Err(e) => {
+                        event_tx.send(AgentEvent::Info(format!("Web UI failed to start: {e}"))).ok();
+                        None
+                    }
                 }
             }
-            Err(e) => log::warn!("Web UI unavailable (bind failed): {e}"),
+            Err(e) => {
+                event_tx.send(AgentEvent::Info(format!("Web UI unavailable (bind failed): {e}"))).ok();
+                None
+            }
         }
-    }
+    } else {
+        None
+    };
 
     let cmd_bridge_to_agent = cmd_tx.clone();
     let interrupt_ui = Arc::clone(&interrupt);
@@ -639,6 +650,7 @@ async fn main() -> Result<()> {
                 project_dir,
                 interrupt: interrupt_tui,
                 ui_fanout_tx: ui_fanout_tx.clone(),
+                web_ui_url,
             },
         )
     })
