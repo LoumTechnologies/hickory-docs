@@ -209,6 +209,18 @@ enum Commands {
         no_web: bool,
     },
 
+    /// Open a completed session bundle in read-only replay mode.
+    Replay {
+        /// Path to the session bundle directory (contains session.xml).
+        bundle_dir: PathBuf,
+        /// Replay speed multiplier: 1.0 = real-time, 0.0 = instant.
+        #[arg(long, default_value = "0.0")]
+        replay_speed: f64,
+        /// Project directory (default: current dir).
+        #[arg(short, long)]
+        project_dir: Option<PathBuf>,
+    },
+
     /// Run the pipeline once (single-shot mode).
     Run(PipelineRunArgs),
 
@@ -1072,6 +1084,7 @@ async fn main() -> Result<()> {
                         interrupt: interrupt_tui,
                         ui_fanout_tx: ui_fanout_tx.clone(),
                         web_ui_url,
+                        replay_label: None,
                     },
                 )
             })
@@ -1188,7 +1201,81 @@ async fn main() -> Result<()> {
         Commands::PasteSlots(args) => paste_slots_cmd(args),
 
         Commands::Mcp { cmd } => mcp_cmd(cmd).await,
+
+        Commands::Replay { bundle_dir, replay_speed, project_dir } => {
+            let project_dir = project_dir.unwrap_or_else(|| std::env::current_dir().unwrap());
+            run_replay_tui(&bundle_dir, replay_speed, project_dir).await
+        }
     }
+}
+
+async fn run_replay_tui(
+    bundle_dir: &std::path::Path,
+    replay_speed: f64,
+    project_dir: PathBuf,
+) -> Result<()> {
+    use hick_agent_sdk::SessionBundleReader;
+    use tokio::sync::{Notify, broadcast, mpsc};
+
+    let label = bundle_dir
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("session")
+        .to_string();
+
+    let events = SessionBundleReader::read(bundle_dir)
+        .map_err(|e| anyhow::anyhow!("failed to load session bundle: {e}"))?;
+
+    const UI_BROADCAST_CAP: usize = 2048;
+    let (ui_fanout_tx, _) = broadcast::channel::<hick_agent_sdk::UiEvent>(UI_BROADCAST_CAP);
+    let (ui_mpsc_tx, ui_rx) = mpsc::unbounded_channel::<hick_agent_sdk::UiEvent>();
+    let (ui_cmd_tx, _ui_cmd_rx) = mpsc::unbounded_channel::<hick_agent_sdk::UiCommand>();
+    let interrupt = Arc::new(Notify::new());
+
+    let fanout_clone = ui_fanout_tx.clone();
+    tokio::spawn(async move {
+        for ev in events {
+            if replay_speed > 0.0 {
+                let delay_ms = (50.0 / replay_speed) as u64;
+                tokio::time::sleep(tokio::time::Duration::from_millis(delay_ms)).await;
+            }
+            let _ = fanout_clone.send(ev);
+        }
+    });
+
+    tokio::spawn({
+        let mut sub = ui_fanout_tx.subscribe();
+        let ui_mpsc_tx = ui_mpsc_tx.clone();
+        async move {
+            loop {
+                match sub.recv().await {
+                    Ok(ev) => { if ui_mpsc_tx.send(ev).is_err() { break; } }
+                    Err(broadcast::error::RecvError::Lagged(_)) => {}
+                    Err(broadcast::error::RecvError::Closed) => break,
+                }
+            }
+        }
+    });
+
+    let interrupt_tui = Arc::clone(&interrupt);
+    tokio::task::spawn_blocking(move || {
+        run_tui(
+            ui_rx,
+            ui_cmd_tx,
+            TuiConfig {
+                agent_name: "iron-peak".to_string(),
+                provider_info: String::new(),
+                project_dir,
+                interrupt: interrupt_tui,
+                ui_fanout_tx,
+                web_ui_url: None,
+                replay_label: Some(label),
+            },
+        )
+    })
+    .await??;
+
+    Ok(())
 }
 
 async fn mcp_cmd(cmd: McpCommand) -> Result<()> {

@@ -62,6 +62,9 @@ pub struct TuiConfig {
     pub ui_fanout_tx: broadcast::Sender<UiEvent>,
     /// URL of the local web UI, if it started successfully.
     pub web_ui_url: Option<String>,
+    /// When set, the TUI enters read-only replay mode.  The value is shown in
+    /// the header banner as `[REPLAY] <label>` and the input bar is hidden.
+    pub replay_label: Option<String>,
 }
 
 // ── Application state ──────────────────────────────────────────────
@@ -581,6 +584,46 @@ impl App {
             return;
         }
 
+        // In replay mode only Ctrl+C / Ctrl+D / scroll keys are honoured.
+        if self.config.replay_label.is_some() {
+            let interrupt = &self.config.interrupt;
+            match (key.modifiers, key.code) {
+                (m, KeyCode::Char('c')) if m.contains(KeyModifiers::CONTROL) => {
+                    interrupt.notify_one();
+                    cmd_tx.send(UiCommand::Quit).ok();
+                    self.should_quit = true;
+                }
+                (m, KeyCode::Char('d')) if m.contains(KeyModifiers::CONTROL) => {
+                    cmd_tx.send(UiCommand::Quit).ok();
+                    self.should_quit = true;
+                }
+                (_, KeyCode::Up) => {
+                    self.auto_scroll = false;
+                    self.scroll = self.scroll.saturating_sub(1);
+                }
+                (_, KeyCode::Down) => {
+                    self.scroll = self.scroll.saturating_add(1);
+                }
+                (_, KeyCode::PageUp) => {
+                    self.auto_scroll = false;
+                    self.scroll = self.scroll.saturating_sub(20);
+                }
+                (_, KeyCode::PageDown) => {
+                    self.scroll = self.scroll.saturating_add(20);
+                }
+                (_, KeyCode::Up) if key.modifiers.contains(KeyModifiers::SHIFT) => {
+                    self.bump_collapsible_focus(-1);
+                }
+                (_, KeyCode::Down) if key.modifiers.contains(KeyModifiers::SHIFT) => {
+                    self.bump_collapsible_focus(1);
+                }
+                (_, KeyCode::Char(' ')) => self.toggle_selected_fold(),
+                (_, KeyCode::Enter) => self.toggle_selected_fold(),
+                _ => {}
+            }
+            return;
+        }
+
         let interrupt = &self.config.interrupt;
 
         if let Some(ref _pending) = self.pending_mcp_credential {
@@ -907,26 +950,45 @@ impl App {
         self.pump_network_prompt();
         let area = frame.area();
 
-        let chunks = Layout::vertical([
-            Constraint::Length(1), // header
-            Constraint::Min(1),    // output
-            Constraint::Length(3), // input
-        ])
-        .split(area);
+        let replay_mode = self.config.replay_label.is_some();
+        let input_height: u16 = if replay_mode { 0 } else { 3 };
+
+        let constraints = if replay_mode {
+            vec![Constraint::Length(1), Constraint::Min(1)]
+        } else {
+            vec![Constraint::Length(1), Constraint::Min(1), Constraint::Length(3)]
+        };
+        let chunks = Layout::vertical(constraints).split(area);
 
         // Header bar
         let agent = self.config.agent_name.clone();
         let provider_info = self.config.provider_info.clone();
-        let mut header_spans = vec![
-            Span::styled(
-                agent,
-                Style::default()
-                    .fg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD),
-            ),
-            Span::styled(" \u{2502} ", Style::default().fg(Color::DarkGray)),
-            Span::styled(provider_info, Style::default().fg(Color::DarkGray)),
-        ];
+        let mut header_spans = if let Some(ref label) = self.config.replay_label {
+            vec![
+                Span::styled(
+                    format!("[REPLAY] {label}"),
+                    Style::default()
+                        .fg(Color::Yellow)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(" \u{2502} ", Style::default().fg(Color::DarkGray)),
+                Span::styled(
+                    agent,
+                    Style::default().fg(Color::DarkGray),
+                ),
+            ]
+        } else {
+            vec![
+                Span::styled(
+                    agent,
+                    Style::default()
+                        .fg(Color::Cyan)
+                        .add_modifier(Modifier::BOLD),
+                ),
+                Span::styled(" \u{2502} ", Style::default().fg(Color::DarkGray)),
+                Span::styled(provider_info, Style::default().fg(Color::DarkGray)),
+            ]
+        };
         if let Some(ref url) = self.config.web_ui_url {
             header_spans.push(Span::styled(" \u{2502} ", Style::default().fg(Color::DarkGray)));
             header_spans.push(Span::styled(
@@ -936,6 +998,7 @@ impl App {
         }
         let header = Paragraph::new(Line::from(header_spans));
         frame.render_widget(header, chunks[0]);
+        let _ = input_height;
 
         // Build output text
         let mut text_lines: Vec<Line> = Vec::new();
@@ -991,53 +1054,55 @@ impl App {
             );
         frame.render_widget(output, chunks[1]);
 
-        let input_display = if let Some(ref pm) = self.pending_mcp_credential {
-            match &pm.stage {
-                CredentialStage::EnvVarName => format!(
-                    "[mcp] {} — enter credential env var name (blank to skip): {}",
-                    pm.server_name, self.input
-                ),
-                CredentialStage::Value(env_var) => format!(
-                    "[mcp] Enter value for {} (blank to skip): {}",
-                    env_var, self.input
-                ),
-            }
-        } else if let Some(ref p) = self.pending_approval {
-            if p.choosing_suggestion {
-                "\u{26a0} Type a number to select a rule, or Ctrl+C to cancel".to_string()
+        if !replay_mode {
+            let input_display = if let Some(ref pm) = self.pending_mcp_credential {
+                match &pm.stage {
+                    CredentialStage::EnvVarName => format!(
+                        "[mcp] {} — enter credential env var name (blank to skip): {}",
+                        pm.server_name, self.input
+                    ),
+                    CredentialStage::Value(env_var) => format!(
+                        "[mcp] Enter value for {} (blank to skip): {}",
+                        env_var, self.input
+                    ),
+                }
+            } else if let Some(ref p) = self.pending_approval {
+                if p.choosing_suggestion {
+                    "\u{26a0} Type a number to select a rule, or Ctrl+C to cancel".to_string()
+                } else {
+                    format!(
+                        "\u{26a0} Allow {}? \u{2014} y = once, a = always (with rule), n = block",
+                        p.inner.host
+                    )
+                }
+            } else if self.busy {
+                "\u{25cf} Agent is working... (Ctrl+C to interrupt)".to_string()
             } else {
-                format!(
-                    "\u{26a0} Allow {}? \u{2014} y = once, a = always (with rule), n = block",
-                    p.inner.host
-                )
+                format!("> {}", self.input)
+            };
+
+            let input_style = if self.pending_mcp_credential.is_some() {
+                Style::default().fg(Color::Magenta)
+            } else if self.pending_approval.is_some() {
+                Style::default().fg(Color::Yellow)
+            } else if self.busy {
+                Style::default().fg(Color::DarkGray)
+            } else {
+                Style::default().fg(Color::Cyan)
+            };
+
+            let input_widget = Paragraph::new(input_display).style(input_style).block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::DarkGray)),
+            );
+            frame.render_widget(input_widget, chunks[2]);
+
+            if !self.busy {
+                let cursor_x = chunks[2].x + 1 + 2 + self.input_cursor as u16;
+                let cursor_y = chunks[2].y + 1;
+                frame.set_cursor_position((cursor_x, cursor_y));
             }
-        } else if self.busy {
-            "\u{25cf} Agent is working... (Ctrl+C to interrupt)".to_string()
-        } else {
-            format!("> {}", self.input)
-        };
-
-        let input_style = if self.pending_mcp_credential.is_some() {
-            Style::default().fg(Color::Magenta)
-        } else if self.pending_approval.is_some() {
-            Style::default().fg(Color::Yellow)
-        } else if self.busy {
-            Style::default().fg(Color::DarkGray)
-        } else {
-            Style::default().fg(Color::Cyan)
-        };
-
-        let input_widget = Paragraph::new(input_display).style(input_style).block(
-            Block::default()
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(Color::DarkGray)),
-        );
-        frame.render_widget(input_widget, chunks[2]);
-
-        if !self.busy {
-            let cursor_x = chunks[2].x + 1 + 2 + self.input_cursor as u16;
-            let cursor_y = chunks[2].y + 1;
-            frame.set_cursor_position((cursor_x, cursor_y));
         }
     }
 }

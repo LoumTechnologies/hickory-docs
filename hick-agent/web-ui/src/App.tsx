@@ -1,12 +1,48 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import { useAgentSocket } from './useAgentSocket'
+import { SessionBundleParser } from './session-parser'
 import type { UiEvent } from './types'
 import { ConversationCanvas } from './canvas/ConversationCanvas'
 
 export default function App() {
-  const { events, send, connected, sessionStartedObservedAt } = useAgentSocket()
+  const { events: socketEvents, send, connected, sessionStartedObservedAt, isServerReplay } =
+    useAgentSocket()
+
   const [draft, setDraft] = useState('')
   const [sidebarOpen, setSidebarOpen] = useState(true)
+
+  // Client-side replay state (drag-and-drop).
+  const [dragReplayEvents, setDragReplayEvents] = useState<
+    { event: UiEvent; timestamp: string }[] | null
+  >(null)
+  const [dragReplayError, setDragReplayError] = useState<string | null>(null)
+  const [replayPos, setReplayPos] = useState(0)
+  const [isDragOver, setIsDragOver] = useState(false)
+  const dropRef = useRef<HTMLDivElement>(null)
+
+  const isClientReplay = dragReplayEvents !== null
+  const isAnyReplay = isServerReplay || isClientReplay
+
+  // In server-replay mode the scrubber controls visible slice.
+  // In drag-and-drop mode it controls the same slice over dragReplayEvents.
+  const allReplayEvents: { event: UiEvent; timestamp: string }[] | null = useMemo(() => {
+    if (isClientReplay) return dragReplayEvents
+    if (isServerReplay) return socketEvents.map((e, i) => ({ event: e, timestamp: String(i) }))
+    return null
+  }, [isClientReplay, isServerReplay, dragReplayEvents, socketEvents])
+
+  // Events actually shown (sliced by scrubber in replay modes).
+  const visibleEvents: UiEvent[] = useMemo(() => {
+    if (allReplayEvents !== null) {
+      const pos = isServerReplay && replayPos === 0 ? allReplayEvents.length : replayPos
+      return allReplayEvents.slice(0, pos).map((e) => e.event)
+    }
+    return socketEvents
+  }, [allReplayEvents, socketEvents, isServerReplay, replayPos])
+
+  // Scrubber max is the total number of events available.
+  const scrubberMax = allReplayEvents?.length ?? 0
+  const scrubberValue = isServerReplay && replayPos === 0 ? scrubberMax : replayPos
 
   const relaySessionId = useMemo(() => {
     const m = window.location.pathname.match(/^\/session\/([^/]+)\/?$/)
@@ -15,21 +51,109 @@ export default function App() {
 
   const sessionFromEvents = useMemo(() => {
     let latest: Extract<UiEvent, { type: 'session_started' }> | null = null
-    for (const ev of events) {
+    for (const ev of visibleEvents) {
       if (ev.type === 'session_started') latest = ev
     }
     return latest
-  }, [events])
+  }, [visibleEvents])
 
   const hasBlockingPrompt = useMemo(() => {
-    return events.some(
+    return visibleEvents.some(
       (ev) => ev.type === 'security_violation' || ev.type === 'network_approval',
     )
-  }, [events])
+  }, [visibleEvents])
+
+  // ---------------------------------------------------------------------------
+  // Drag-and-drop handler
+  // ---------------------------------------------------------------------------
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    setIsDragOver(false)
+    const file = e.dataTransfer.files[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      try {
+        const text = ev.target?.result
+        if (typeof text !== 'string') return
+        const parsed = SessionBundleParser.parse(text)
+        setDragReplayEvents(parsed)
+        setDragReplayError(null)
+        setReplayPos(parsed.length) // start at end (show all)
+      } catch (err) {
+        setDragReplayError(String(err))
+      }
+    }
+    reader.readAsText(file)
+  }, [])
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    setIsDragOver(true)
+  }, [])
+
+  const handleDragLeave = useCallback(() => {
+    setIsDragOver(false)
+  }, [])
+
+  const clearDragReplay = useCallback(() => {
+    setDragReplayEvents(null)
+    setDragReplayError(null)
+    setReplayPos(0)
+  }, [])
+
+  // ---------------------------------------------------------------------------
+  // Render
+  // ---------------------------------------------------------------------------
 
   return (
-    <div className="flex h-screen min-h-0 flex-col bg-slate-950 text-slate-100">
-      {!connected && (
+    <div
+      ref={dropRef}
+      className="flex h-screen min-h-0 flex-col bg-slate-950 text-slate-100"
+      onDrop={handleDrop}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+    >
+      {/* Drag-over overlay */}
+      {isDragOver && !isAnyReplay && (
+        <div className="pointer-events-none absolute inset-0 z-50 flex items-center justify-center bg-slate-900/80">
+          <p className="rounded border border-amber-400 bg-slate-950 px-6 py-4 text-lg font-semibold text-amber-300">
+            Drop session.xml to replay
+          </p>
+        </div>
+      )}
+
+      {/* Replay banner */}
+      {isAnyReplay && (
+        <div className="flex items-center gap-3 border-b border-amber-500/40 bg-amber-950/60 px-4 py-2 text-sm text-amber-100">
+          <span className="font-semibold">[REPLAY]</span>
+          {isClientReplay && (
+            <span className="text-amber-200 text-xs">client-side (drag-and-drop)</span>
+          )}
+          {isServerReplay && (
+            <span className="text-amber-200 text-xs">server-streamed</span>
+          )}
+          {isClientReplay && (
+            <button
+              type="button"
+              onClick={clearDragReplay}
+              className="ml-auto rounded border border-amber-600 bg-amber-900/50 px-2 py-0.5 text-xs text-amber-200 hover:bg-amber-800"
+            >
+              Clear
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Drag-and-drop error */}
+      {dragReplayError && (
+        <div className="border-b border-red-500/40 bg-red-950/60 px-4 py-2 text-sm text-red-200">
+          {dragReplayError}
+        </div>
+      )}
+
+      {!connected && !isAnyReplay && (
         <div
           role="status"
           className="border-b border-amber-500/40 bg-amber-950/60 px-4 py-2 text-sm text-amber-100"
@@ -100,71 +224,129 @@ export default function App() {
                   </dd>
                 </div>
               </dl>
+
+              {!isAnyReplay && (
+                <div className="mt-4 rounded border border-dashed border-slate-600 p-3 text-center text-xs text-slate-500">
+                  Drop a <code>session.xml</code> anywhere to replay
+                </div>
+              )}
             </div>
           )}
         </aside>
 
-        {/* Main — conversation tree canvas (task-37.5) */}
+        {/* Main — conversation tree canvas */}
         <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-slate-950">
-          {events.length === 0 ? (
+          {visibleEvents.length === 0 ? (
             <div className="flex flex-1 items-center justify-center text-sm text-slate-500">
-              {connected ? 'Waiting for events…' : 'No events yet.'}
+              {isAnyReplay
+                ? 'No events in replay.'
+                : connected
+                  ? 'Waiting for events…'
+                  : 'No events yet.'}
             </div>
           ) : (
-            <ConversationCanvas events={events} connected={connected} send={send} />
+            <ConversationCanvas
+              events={visibleEvents}
+              connected={connected || isAnyReplay}
+              send={send}
+            />
           )}
         </main>
       </div>
 
-      {/* Input bar */}
-      <footer className="shrink-0 border-t border-slate-800 bg-slate-900/90 px-3 py-3">
-        <div className="mx-auto flex max-w-6xl gap-2">
-          <input
-            type="text"
-            className="min-w-0 flex-1 rounded border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
-            placeholder={
-              hasBlockingPrompt
-                ? 'Waiting for approval…'
-                : connected
-                  ? 'Message the agent…'
-                  : 'Connect the agent to send messages…'
-            }
-            value={draft}
-            disabled={!connected || hasBlockingPrompt}
-            onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                e.preventDefault()
+      {/* Playback scrubber (replay modes only) */}
+      {isAnyReplay && scrubberMax > 0 && (
+        <div className="shrink-0 border-t border-amber-800/40 bg-amber-950/40 px-4 py-2">
+          <div className="mx-auto flex max-w-6xl items-center gap-3">
+            <span className="text-xs text-amber-300 tabular-nums">
+              {scrubberValue} / {scrubberMax}
+            </span>
+            <input
+              type="range"
+              min={0}
+              max={scrubberMax}
+              value={scrubberValue}
+              onChange={(e) => setReplayPos(Number(e.target.value))}
+              className="flex-1 accent-amber-400"
+              aria-label="Replay position"
+            />
+            <button
+              type="button"
+              className="rounded bg-amber-800/60 px-2 py-0.5 text-xs text-amber-200 hover:bg-amber-700"
+              onClick={() => setReplayPos(0)}
+              title="Go to start"
+            >
+              ⏮
+            </button>
+            <button
+              type="button"
+              className="rounded bg-amber-800/60 px-2 py-0.5 text-xs text-amber-200 hover:bg-amber-700"
+              onClick={() => setReplayPos(scrubberMax)}
+              title="Go to end"
+            >
+              ⏭
+            </button>
+            {/* Show timestamp of the event at current position */}
+            {isClientReplay && allReplayEvents && scrubberValue > 0 && (
+              <span className="text-xs text-amber-400 tabular-nums">
+                {allReplayEvents[scrubberValue - 1]?.timestamp ?? ''}
+              </span>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Input bar — hidden in replay mode */}
+      {!isAnyReplay && (
+        <footer className="shrink-0 border-t border-slate-800 bg-slate-900/90 px-3 py-3">
+          <div className="mx-auto flex max-w-6xl gap-2">
+            <input
+              type="text"
+              className="min-w-0 flex-1 rounded border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
+              placeholder={
+                hasBlockingPrompt
+                  ? 'Waiting for approval…'
+                  : connected
+                    ? 'Message the agent…'
+                    : 'Connect the agent to send messages…'
+              }
+              value={draft}
+              disabled={!connected || hasBlockingPrompt}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  e.preventDefault()
+                  const text = draft.trim()
+                  if (!text) return
+                  send({ type: 'message', text })
+                  setDraft('')
+                }
+              }}
+            />
+            <button
+              type="button"
+              className="rounded bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-500 disabled:cursor-not-allowed disabled:opacity-40"
+              disabled={!connected || !draft.trim() || hasBlockingPrompt}
+              onClick={() => {
                 const text = draft.trim()
                 if (!text) return
                 send({ type: 'message', text })
                 setDraft('')
-              }
-            }}
-          />
-          <button
-            type="button"
-            className="rounded bg-sky-600 px-4 py-2 text-sm font-medium text-white hover:bg-sky-500 disabled:cursor-not-allowed disabled:opacity-40"
-            disabled={!connected || !draft.trim() || hasBlockingPrompt}
-            onClick={() => {
-              const text = draft.trim()
-              if (!text) return
-              send({ type: 'message', text })
-              setDraft('')
-            }}
-          >
-            Send
-          </button>
-          <button
-            type="button"
-            className="rounded bg-slate-700 px-4 py-2 text-sm font-medium text-white hover:bg-slate-600 disabled:cursor-not-allowed disabled:opacity-40"
-            disabled={!connected}
-            onClick={() => send({ type: 'cancel' })}
-          >
-            Cancel
-          </button>
-        </div>
-      </footer>
+              }}
+            >
+              Send
+            </button>
+            <button
+              type="button"
+              className="rounded bg-slate-700 px-4 py-2 text-sm font-medium text-white hover:bg-slate-600 disabled:cursor-not-allowed disabled:opacity-40"
+              disabled={!connected}
+              onClick={() => send({ type: 'cancel' })}
+            >
+              Cancel
+            </button>
+          </div>
+        </footer>
+      )}
     </div>
   )
 }

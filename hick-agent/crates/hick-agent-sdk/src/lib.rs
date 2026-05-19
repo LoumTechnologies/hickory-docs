@@ -50,6 +50,7 @@ pub mod sink_guard;
 pub mod suggestion_gen;
 pub mod tool_gate;
 pub mod xml_session_log;
+pub mod session_bundle_reader;
 pub mod ui_event;
 
 #[cfg(feature = "web")]
@@ -247,6 +248,8 @@ pub use session_log::LogLevel;
 pub use session_log::NullSessionLog;
 /// Writes Agent Log XML to a session directory bundle.
 pub use xml_session_log::XmlSessionLog;
+/// Reads a completed session bundle and maps it back to [`UiEvent`]s for replay.
+pub use session_bundle_reader::SessionBundleReader;
 /// [`log::Log`] adapter that forwards diagnostic records to a [`SessionLog`].
 pub use xml_session_log::XmlDiagnosticLogger;
 /// Wraps an [`McpClient`] to emit [`LogEvent::McpCall`] / [`LogEvent::McpResponse`] events.

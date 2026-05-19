@@ -1,9 +1,10 @@
 ---
 id: TASK-37.7
 title: Session file viewer — read-only replay mode in TUI and web UI
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-05-19 11:56'
+updated_date: '2026-05-19 17:33'
 labels:
   - web
   - tui
@@ -63,12 +64,38 @@ A `SessionBundleParser` class in `src/session-parser.ts` that parses the `sessio
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 SessionBundleReader in hick-agent-sdk parses session.xml and returns Vec<UiEvent>
-- [ ] #2 --replay <dir> flag on copper-ledge and iron-peak launches TUI in read-only mode with the session events
-- [ ] #3 TUI read-only mode hides the input bar and shows the REPLAY banner
-- [ ] #4 Web UI accepts a ?replay=<path> URL parameter and streams the session over WebSocket
-- [ ] #5 Web UI accepts drag-and-drop of a session.xml file and replays it client-side
-- [ ] #6 Playback scrubber in web UI allows jumping to any timestamp
-- [ ] #7 Unknown XML elements in the session file are skipped without error
-- [ ] #8 cargo test --workspace passes
+- [x] #1 SessionBundleReader in hick-agent-sdk parses session.xml and returns Vec<UiEvent>
+- [x] #2 --replay <dir> flag on copper-ledge and iron-peak launches TUI in read-only mode with the session events
+- [x] #3 TUI read-only mode hides the input bar and shows the REPLAY banner
+- [x] #4 Web UI accepts a ?replay=<path> URL parameter and streams the session over WebSocket
+- [x] #5 Web UI accepts drag-and-drop of a session.xml file and replays it client-side
+- [x] #6 Playback scrubber in web UI allows jumping to any timestamp
+- [x] #7 Unknown XML elements in the session file are skipped without error
+- [x] #8 cargo test --workspace passes
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Implemented full read-only replay mode for both TUI and web UI.
+
+**Rust (hick-agent-sdk)**
+- Added `session_bundle_reader.rs` with `SessionBundleReader::read()` and `::stream()`. Line-by-line parser maps `log:*` elements → `UiEvent` variants; unknown elements are silently skipped. `ActionStart`/`ActionEnd` share the same `node_id` so `ConversationTree::patch_action_end` works correctly. 9 new unit tests cover all element types, entity unescaping, node-id pairing, and unknown-element skipping.
+- Exported `SessionBundleReader` from `lib.rs`.
+- Added `/ws/replay?path=<dir>` WebSocket endpoint to `web_server.rs` that reads a session bundle and streams all events over the socket.
+
+**TUI (hick-agent-tui)**
+- Added `replay_label: Option<String>` to `TuiConfig`.
+- In replay mode: `handle_key` blocks all text input (only scroll/fold/quit keys work); `render` shows a yellow `[REPLAY] <label>` banner in the header, hides the input bar entirely (layout changes from 3-area to 2-area).
+
+**Binaries**
+- `copper-ledge`: `--replay <dir>` and `--replay-speed <f>` flags; `run_replay()` function that feeds bundle events into TUI.
+- `iron-peak`: `replay` subcommand with identical behaviour.
+- Both existing `TuiConfig` constructions updated with `replay_label: None`.
+
+**Web UI (TypeScript)**
+- `session-parser.ts`: `SessionBundleParser.parse()` uses `DOMParser` to parse session.xml client-side and returns `TimestampedEvent[]`; unknown elements skipped.
+- `useAgentSocket.ts`: detects `?replay=<path>` query param; connects to `/ws/replay?path=...` instead of `/ws`; `send()` is a no-op in replay mode; returns `isServerReplay`.
+- `resolveWebSocketUrl.ts`: updated to accept optional `path` and `query` overrides.
+- `App.tsx`: replay banner (amber), drag-and-drop drop zone accepting `session.xml` files, playback scrubber (range input with ⏮/⏭ buttons and timestamp display), hidden input bar in any replay mode.
+<!-- SECTION:FINAL_SUMMARY:END -->

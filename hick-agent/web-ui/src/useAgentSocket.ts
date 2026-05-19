@@ -8,6 +8,8 @@ export function useAgentSocket(): {
   connected: boolean
   /** Browser wall time when the first `session_started` event was received (local). */
   sessionStartedObservedAt: string | null
+  /** True when the socket is connected to a server-side replay stream. */
+  isServerReplay: boolean
 } {
   const [events, setEvents] = useState<UiEvent[]>([])
   const [connected, setConnected] = useState(false)
@@ -15,11 +17,16 @@ export function useAgentSocket(): {
   const wsRef = useRef<WebSocket | null>(null)
   const attemptRef = useRef(0)
 
+  // Check once for ?replay= query param.
+  const replayPath = new URLSearchParams(window.location.search).get('replay')
+  const isServerReplay = replayPath !== null
+
   const send = useCallback((cmd: UiCommand) => {
+    if (isServerReplay) return // read-only in replay mode
     const ws = wsRef.current
     if (!ws || ws.readyState !== WebSocket.OPEN) return
     ws.send(JSON.stringify(cmd))
-  }, [])
+  }, [isServerReplay])
 
   useEffect(() => {
     let cancelled = false
@@ -27,7 +34,7 @@ export function useAgentSocket(): {
     let socket: WebSocket | null = null
 
     const scheduleReconnect = () => {
-      if (cancelled) return
+      if (cancelled || isServerReplay) return // don't reconnect for replay
       const n = attemptRef.current
       const baseMs = 500 * 2 ** n
       const capped = Math.min(30_000, baseMs)
@@ -38,7 +45,10 @@ export function useAgentSocket(): {
     const connect = () => {
       if (cancelled) return
       reconnectTimer = null
-      const url = resolveWebSocketUrl()
+
+      const url = isServerReplay
+        ? resolveWebSocketUrl('/ws/replay', `path=${encodeURIComponent(replayPath!)}`)
+        : resolveWebSocketUrl()
       socket = new WebSocket(url)
       wsRef.current = socket
 
@@ -82,7 +92,7 @@ export function useAgentSocket(): {
       socket?.close()
       wsRef.current = null
     }
-  }, [])
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
-  return { events, send, connected, sessionStartedObservedAt }
+  return { events, send, connected, sessionStartedObservedAt, isServerReplay }
 }

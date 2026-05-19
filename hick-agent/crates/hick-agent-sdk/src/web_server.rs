@@ -8,16 +8,20 @@ use std::sync::Mutex;
 
 use anyhow::Context;
 use axum::Router;
+use axum::extract::Query;
 use axum::extract::ws::{Message, WebSocket, WebSocketUpgrade};
 use axum::extract::{Path, State};
 use axum::http::HeaderValue;
 use axum::response::IntoResponse;
 use axum::routing::get;
 use futures::{SinkExt, StreamExt};
+use serde::Deserialize;
 use tokio::net::TcpListener;
 use tokio::sync::{broadcast, mpsc};
 
 use crate::{UiCommand, UiEvent};
+use crate::ui_event::ui_event_wire_value;
+use crate::session_bundle_reader::SessionBundleReader;
 
 // ---------------------------------------------------------------------------
 // Embedded React SPA (`hick-agent/web-ui/dist`, built via `just build-web-ui`)
@@ -118,6 +122,7 @@ impl WebServer {
             .route("/", get(serve_index))
             .route("/assets/{name}", get(serve_asset))
             .route("/ws", get(ws_upgrade))
+            .route("/ws/replay", get(ws_replay_upgrade))
             .with_state(attached.clone());
 
         let addr = listener.local_addr()?;
@@ -221,4 +226,50 @@ fn parse_and_forward_command(cmd_tx: &mpsc::UnboundedSender<UiCommand>, bytes: &
         Ok(c) => cmd_tx.send(c).is_ok(),
         Err(_) => false,
     }
+}
+
+// ---------------------------------------------------------------------------
+// Replay WebSocket endpoint — streams a session bundle file over WS
+// ---------------------------------------------------------------------------
+
+#[derive(Deserialize)]
+struct ReplayQuery {
+    path: String,
+}
+
+async fn ws_replay_upgrade(
+    ws: WebSocketUpgrade,
+    Query(q): Query<ReplayQuery>,
+    State(_attached): State<Attached>,
+) -> impl IntoResponse {
+    ws.on_upgrade(move |socket| ws_replay_connected(socket, q.path))
+}
+
+async fn ws_replay_connected(socket: WebSocket, bundle_path: String) {
+    let (mut sink, _stream) = socket.split();
+
+    let bundle_dir = std::path::Path::new(&bundle_path);
+    let events = match SessionBundleReader::read(bundle_dir) {
+        Ok(e) => e,
+        Err(err) => {
+            let msg = serde_json::json!({
+                "type": "error",
+                "node_id": 0,
+                "text": format!("replay: {err}")
+            });
+            let _ = sink.send(Message::text(msg.to_string())).await;
+            let _ = sink.close().await;
+            return;
+        }
+    };
+
+    for ev in &events {
+        let Ok(text) = serde_json::to_string(&ui_event_wire_value(ev)) else {
+            continue;
+        };
+        if sink.send(Message::text(text)).await.is_err() {
+            break;
+        }
+    }
+    let _ = sink.close().await;
 }

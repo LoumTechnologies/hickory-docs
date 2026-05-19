@@ -25,7 +25,7 @@ use hick_agent_tui::{run_tui, TuiConfig};
 use hick_agent_sdk::{
     AgentSecurityConfig, AnthropicClient, FilteredLlmClient, LlmClient,
     NetworkApprovalRequest, NetworkFilter, OpenAiCompatClient, SinkGuard,
-    XmlDiagnosticLogger, XmlSessionLog, NullSessionLog,
+    XmlDiagnosticLogger, XmlSessionLog, NullSessionLog, SessionBundleReader,
 };
 use hick_agent_sdk::network_filter::extract_host_from_url;
 
@@ -63,6 +63,13 @@ struct Cli {
     /// Disable streaming output
     #[arg(long)]
     no_stream: bool,
+    /// Open a completed session bundle in read-only replay mode (mutually exclusive with
+    /// normal agent operation).
+    #[arg(long)]
+    replay: Option<PathBuf>,
+    /// Replay speed multiplier: 1.0 = real-time, 0.0 = instant.  Only used with --replay.
+    #[arg(long, default_value = "0.0")]
+    replay_speed: f64,
 }
 
 #[derive(Subcommand)]
@@ -378,6 +385,16 @@ async fn main() -> Result<()> {
         return mcp_cmd(cmd).await;
     }
 
+    // --replay short-circuits normal agent startup.
+    if let Some(bundle_dir) = cli.replay {
+        return run_replay(
+            &bundle_dir,
+            cli.replay_speed,
+            cli.project_dir.unwrap_or_else(|| std::env::current_dir().unwrap()),
+        )
+        .await;
+    }
+
     let project_dir = cli.project_dir.unwrap_or_else(|| std::env::current_dir().unwrap());
     let (images_dir, default_image) = match cli.images_dir {
         Some(d) => (d, cli.default_image),
@@ -651,6 +668,73 @@ async fn main() -> Result<()> {
                 interrupt: interrupt_tui,
                 ui_fanout_tx: ui_fanout_tx.clone(),
                 web_ui_url,
+                replay_label: None,
+            },
+        )
+    })
+    .await??;
+
+    Ok(())
+}
+
+async fn run_replay(bundle_dir: &std::path::Path, replay_speed: f64, project_dir: PathBuf) -> Result<()> {
+    let label = bundle_dir
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("session")
+        .to_string();
+
+    let events = SessionBundleReader::read(bundle_dir)
+        .map_err(|e| anyhow::anyhow!("failed to load session bundle: {e}"))?;
+
+    const UI_BROADCAST_CAP: usize = 2048;
+    let (ui_fanout_tx, _) = broadcast::channel::<hick_agent_sdk::UiEvent>(UI_BROADCAST_CAP);
+    let (ui_mpsc_tx, ui_rx) = mpsc::unbounded_channel::<hick_agent_sdk::UiEvent>();
+    let (ui_cmd_tx, _ui_cmd_rx) = mpsc::unbounded_channel::<hick_agent_sdk::UiCommand>();
+    let interrupt = Arc::new(Notify::new());
+
+    // Spawn the event feeder.
+    let fanout_clone = ui_fanout_tx.clone();
+    let replay_speed_copy = replay_speed;
+    tokio::spawn(async move {
+        for ev in events {
+            if replay_speed_copy > 0.0 {
+                // Emit events with a small fixed inter-event delay scaled by speed.
+                let delay_ms = (50.0 / replay_speed_copy) as u64;
+                tokio::time::sleep(tokio::time::Duration::from_millis(delay_ms)).await;
+            }
+            let _ = fanout_clone.send(ev);
+        }
+    });
+
+    // Fan broadcast → mpsc for TUI.
+    tokio::spawn({
+        let mut sub = ui_fanout_tx.subscribe();
+        let ui_mpsc_tx = ui_mpsc_tx.clone();
+        async move {
+            loop {
+                match sub.recv().await {
+                    Ok(ev) => { if ui_mpsc_tx.send(ev).is_err() { break; } }
+                    Err(broadcast::error::RecvError::Lagged(_)) => {}
+                    Err(broadcast::error::RecvError::Closed) => break,
+                }
+            }
+        }
+    });
+
+    let interrupt_tui = Arc::clone(&interrupt);
+    tokio::task::spawn_blocking(move || {
+        run_tui(
+            ui_rx,
+            ui_cmd_tx,
+            TuiConfig {
+                agent_name: "copper-ledge".to_string(),
+                provider_info: String::new(),
+                project_dir,
+                interrupt: interrupt_tui,
+                ui_fanout_tx,
+                web_ui_url: None,
+                replay_label: Some(label),
             },
         )
     })
