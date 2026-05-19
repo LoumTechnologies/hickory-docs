@@ -325,6 +325,8 @@ impl ConversationTree {
                     now,
                 );
             }
+            // Branch topology is handled by the agent core; tree ignores this event for now.
+            UiEvent::BranchStarted { .. } => {}
         }
     }
 

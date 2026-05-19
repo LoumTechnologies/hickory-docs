@@ -9,6 +9,7 @@ export type UiCommand =
   | { type: 'quit' }
   | { type: 'expand_node'; node_id: number }
   | { type: 'collapse_node'; node_id: number }
+  | { type: 'rewind_to'; node_id: number }
 
 /**
  * Wire format for `UiEvent` — matches `ui_event_wire_value` in `ui_event.rs`.
@@ -118,4 +119,10 @@ export type UiEvent =
   | {
       type: 'interrupted'
       node_id: number
+    }
+  | {
+      type: 'branch_started'
+      node_id: number
+      fork_node_id: number
+      label: string
     }

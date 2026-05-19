@@ -158,6 +158,10 @@ pub enum UiCommand {
     CollapseNode {
         node_id: NodeId,
     },
+    /// Rewind the agent's LLM context to the given node and start a new branch.
+    RewindTo {
+        node_id: NodeId,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -181,9 +185,14 @@ pub enum UiEvent {
         text: String,
     },
     /// Assistant is waiting on / calling the LLM for this branch.
+    ///
+    /// `text` carries extended-thinking block content when the provider
+    /// returns it (e.g. Anthropic extended thinking).  `None` means the
+    /// LLM was called but produced no separate thinking block.
     Thinking {
         node_id: NodeId,
         parent_id: Option<NodeId>,
+        text: Option<String>,
     },
     /// Streaming token delta for an assistant response node.
     Token {
@@ -267,6 +276,12 @@ pub enum UiEvent {
     Interrupted {
         node_id: NodeId,
     },
+    /// A new conversation branch was created by rewinding to `fork_node_id`.
+    BranchStarted {
+        node_id: NodeId,
+        fork_node_id: NodeId,
+        label: String,
+    },
 }
 
 fn opt_id(id: Option<NodeId>) -> Option<u64> {
@@ -300,10 +315,11 @@ pub fn ui_event_wire_value(ev: &UiEvent) -> serde_json::Value {
             "parent_id": opt_id(*parent_id),
             "text": text,
         }),
-        UiEvent::Thinking { node_id, parent_id } => serde_json::json!({
+        UiEvent::Thinking { node_id, parent_id, text } => serde_json::json!({
             "type": "thinking",
             "node_id": node_id.0,
             "parent_id": opt_id(*parent_id),
+            "text": text,
         }),
         UiEvent::Token { node_id, text } => serde_json::json!({
             "type": "token",
@@ -422,6 +438,12 @@ pub fn ui_event_wire_value(ev: &UiEvent) -> serde_json::Value {
             "type": "interrupted",
             "node_id": node_id.0,
         }),
+        UiEvent::BranchStarted { node_id, fork_node_id, label } => serde_json::json!({
+            "type": "branch_started",
+            "node_id": node_id.0,
+            "fork_node_id": fork_node_id.0,
+            "label": label,
+        }),
     }
 }
 
@@ -455,6 +477,7 @@ impl std::fmt::Debug for UiEvent {
             UiEvent::Error { node_id, .. } => f.debug_tuple("Error").field(node_id).finish(),
             UiEvent::Done { node_id } => f.debug_tuple("Done").field(node_id).finish(),
             UiEvent::Interrupted { node_id } => f.debug_tuple("Interrupted").field(node_id).finish(),
+            UiEvent::BranchStarted { node_id, .. } => f.debug_tuple("BranchStarted").field(node_id).finish(),
         }
     }
 }

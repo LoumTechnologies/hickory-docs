@@ -211,7 +211,10 @@ pub fn ui_command_to_agent(cmd: UiCommand) -> Option<AgentCommand> {
         UiCommand::Message { text } => Some(AgentCommand::Message(text)),
         UiCommand::DirectCommand { text } => Some(AgentCommand::DirectCommand(text)),
         UiCommand::Quit => Some(AgentCommand::Quit),
-        UiCommand::Cancel | UiCommand::ExpandNode { .. } | UiCommand::CollapseNode { .. } => None,
+        UiCommand::Cancel
+        | UiCommand::ExpandNode { .. }
+        | UiCommand::CollapseNode { .. }
+        | UiCommand::RewindTo { .. } => None,
     }
 }
 
