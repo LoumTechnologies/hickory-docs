@@ -1,10 +1,10 @@
 ---
 id: TASK-37.5
 title: Web UI — conversation tree visualization with collapsible nodes
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-05-19 11:55'
-updated_date: '2026-05-19 12:17'
+updated_date: '2026-05-19 16:28'
 labels:
   - web
   - frontend
@@ -150,29 +150,29 @@ Intentionally unspecified — require visual feedback to tune:
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 The conversation is rendered on a 2D React Flow canvas; branch columns are positioned horizontally, threads scroll vertically
-- [ ] #2 Clicking a branch indicator triggers a three-phase Prezi transition: zoom out to ~25% with 3D perspective tilt, pan to target branch, zoom in to 100% with tilt returning to flat
-- [ ] #3 The transition direction of the 3D tilt corresponds to the navigation direction (left/right)
-- [ ] #4 Transitions are ~600ms total and interruptible — clicking mid-transition navigates to the new target
-- [ ] #5 The minimap shows full canvas topology and is clickable to trigger Prezi navigation
-- [ ] #6 Within-branch scrolling is normal vertical scroll with no transition
-- [ ] #7 Adjacent branch columns are visible at ~40% opacity during within-branch scroll; clicking triggers Prezi transition
-- [ ] #8 UserTurn events render as right-aligned cyan speech bubbles with a curvy SVG bezier tail at the bottom-right corner
-- [ ] #9 AssistantDone/Token events render as left-aligned dark speech bubbles with a curvy SVG bezier tail at the bottom-left corner
-- [ ] #10 Thinking events render as left-aligned thought bubbles with scalloped border and ascending-circle tail; collapsed by default showing animated pulsing dots; expandable
-- [ ] #11 ActionStart and ActionEnd render as paired timeline chips; a single click expands both together in a notebook-cell layout (code on top, output below)
-- [ ] #12 McpCall and McpResponse render as paired timeline chips; a single click expands both in a DevTools-row layout (params on top, result below, View full JSON toggle)
-- [ ] #13 Info and Error events render as small spine labels with no bubble or chip
-- [ ] #14 Collapse All / Expand All affects chips and thought bubbles but not speech bubbles
-- [ ] #15 Jump to now button appears when scrolled up; Prezi-transitions if the latest event is in a different branch
-- [ ] #16 Per-column virtualization is used for long branches; at zoom-out scale, placeholder nodes replace full bubble content
-- [ ] #17 cargo test --workspace passes (Rust side unaffected)
-- [ ] #18 Off-screen blocking prompts (network approval, credentials, security) show a pulsing viewport-edge indicator with type icon and label; clicking triggers a Prezi transition to the node
-- [ ] #19 On-screen blocking prompts render as interactive canvas nodes with a pulsing ring; the edge indicator is absent
-- [ ] #20 While any blocking prompt is pending, the input bar is locked and a persistent banner is visible regardless of canvas position
-- [ ] #21 Ctrl+click a branch indicator or node enters crosscut mode, showing multiple panels at 100% scale separated by a ⚡ discontinuity separator
-- [ ] #22 Each crosscut panel supports independent Prezi branch navigation; panels close individually; last panel dissolves back to single view via Prezi transition
-- [ ] #23 Free pan (drag, scroll) and free zoom (scroll, pinch, double-click) are disabled; all navigation is via Prezi transitions, minimap, or notification indicators
+- [x] #1 The conversation is rendered on a 2D React Flow canvas; branch columns are positioned horizontally, threads scroll vertically
+- [x] #2 Clicking a branch indicator triggers a three-phase Prezi transition: zoom out to ~25% with 3D perspective tilt, pan to target branch, zoom in to 100% with tilt returning to flat
+- [x] #3 The transition direction of the 3D tilt corresponds to the navigation direction (left/right)
+- [x] #4 Transitions are ~600ms total and interruptible — clicking mid-transition navigates to the new target
+- [x] #5 The minimap shows full canvas topology and is clickable to trigger Prezi navigation
+- [x] #6 Within-branch scrolling is normal vertical scroll with no transition
+- [x] #7 Adjacent branch columns are visible at ~40% opacity during within-branch scroll; clicking triggers Prezi transition
+- [x] #8 UserTurn events render as right-aligned cyan speech bubbles with a curvy SVG bezier tail at the bottom-right corner
+- [x] #9 AssistantDone/Token events render as left-aligned dark speech bubbles with a curvy SVG bezier tail at the bottom-left corner
+- [x] #10 Thinking events render as left-aligned thought bubbles with scalloped border and ascending-circle tail; collapsed by default showing animated pulsing dots; expandable
+- [x] #11 ActionStart and ActionEnd render as paired timeline chips; a single click expands both together in a notebook-cell layout (code on top, output below)
+- [x] #12 McpCall and McpResponse render as paired timeline chips; a single click expands both in a DevTools-row layout (params on top, result below, View full JSON toggle)
+- [x] #13 Info and Error events render as small spine labels with no bubble or chip
+- [x] #14 Collapse All / Expand All affects chips and thought bubbles but not speech bubbles
+- [x] #15 Jump to now button appears when scrolled up; Prezi-transitions if the latest event is in a different branch
+- [x] #16 Per-column virtualization is used for long branches; at zoom-out scale, placeholder nodes replace full bubble content
+- [x] #17 cargo test --workspace passes (Rust side unaffected)
+- [x] #18 Off-screen blocking prompts (network approval, credentials, security) show a pulsing viewport-edge indicator with type icon and label; clicking triggers a Prezi transition to the node
+- [x] #19 On-screen blocking prompts render as interactive canvas nodes with a pulsing ring; the edge indicator is absent
+- [x] #20 While any blocking prompt is pending, the input bar is locked and a persistent banner is visible regardless of canvas position
+- [x] #21 Ctrl+click a branch indicator or node enters crosscut mode, showing multiple panels at 100% scale separated by a ⚡ discontinuity separator
+- [x] #22 Each crosscut panel supports independent Prezi branch navigation; panels close individually; last panel dissolves back to single view via Prezi transition
+- [x] #23 Free pan (drag, scroll) and free zoom (scroll, pinch, double-click) are disabled; all navigation is via Prezi transitions, minimap, or notification indicators
 <!-- AC:END -->
 
 ## Implementation Notes
@@ -258,3 +258,9 @@ Free pan and zoom are explicitly disabled in the first cut. React Flow config:
 
 Within-branch vertical scroll is handled by node content scroll, not React Flow pan. The minimap triggers Prezi transitions on click, not free pan. All navigation has defined semantics: branch indicators, minimap, notification indicators. Nothing is reachable except via these intentional triggers — unreachability is a signal that the topology needs a navigation affordance added.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Implemented in commit 7a879ff. 13 new source files under `src/canvas/` and `src/nodes/`. Packages added: `@xyflow/react`, `@tanstack/react-virtual`, `framer-motion`. One intentional simplification: crosscut panels render item kind labels rather than full bubble components to avoid duplicating the virtualizer render path; the structural shell (panels, ⚡ separator, close, exit) is fully functional.
+<!-- SECTION:FINAL_SUMMARY:END -->
