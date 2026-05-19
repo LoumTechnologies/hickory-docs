@@ -30,7 +30,8 @@
 //! | [`UiEvent`] | Canonical UI event stream (TUI, web, relay) |
 //! | [`UiCommand`] | Commands from any UI toward the agent core |
 //! | [`ConversationTree`] | Conversation tree derived from [`UiEvent`]s |
-
+//!
+//! With the **`web`** feature ([`WebServer`]), expose a localhost HTTP shell + `/ws` JSON bridge.
 pub mod command;
 pub mod conversation_tree;
 pub mod llm;
@@ -50,6 +51,9 @@ pub mod suggestion_gen;
 pub mod tool_gate;
 pub mod xml_session_log;
 pub mod ui_event;
+
+#[cfg(feature = "web")]
+pub mod web_server;
 
 // ---------------------------------------------------------------------------
 // Runtime
@@ -270,3 +274,14 @@ pub use ui_event::UiNetworkApproval;
 pub use ui_event::UiCommand;
 /// UI-facing event emitted by bridges from extension cores.
 pub use ui_event::UiEvent;
+
+// ---------------------------------------------------------------------------
+// Local web UI (optional)
+// ---------------------------------------------------------------------------
+
+#[cfg(feature = "web")]
+/// Configuration for [`WebServer::bind`] (defaults + [`WebServerConfig::from_env`]).
+pub use web_server::WebServerConfig;
+#[cfg(feature = "web")]
+/// Local SPA + `/ws` bridge for [`UiEvent`] / [`UiCommand`] JSON.
+pub use web_server::WebServer;

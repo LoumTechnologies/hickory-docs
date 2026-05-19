@@ -15,7 +15,7 @@ use hick_agent_sdk::mcp_install::{
     McpInstaller, infer_name, list_servers, parse_spec, remove_server,
 };
 use hick_agent_sdk::mcp_config::McpServerTrust;
-use tokio::sync::{Mutex, Notify, mpsc};
+use tokio::sync::{Mutex, Notify, broadcast, mpsc};
 
 use hick_agent_script_first::{
     AgentCommand, AgentEvent, ReactLoop,
@@ -57,6 +57,9 @@ struct Cli {
     /// API key (overrides provider-specific env vars like OPENAI_API_KEY)
     #[arg(long, env = "HICK_AGENT_API_KEY")]
     api_key: Option<String>,
+    /// Disable local Web UI (also set `HICK_NO_WEB=1`).
+    #[arg(long)]
+    no_web: bool,
     /// Disable streaming output
     #[arg(long)]
     no_stream: bool,
@@ -333,6 +336,14 @@ fn detect_images_dir(start: &std::path::Path) -> Option<(PathBuf, String)> {
     None
 }
 
+fn web_ui_enabled(no_web_cli: bool) -> bool {
+    !no_web_cli
+        && !matches!(
+            std::env::var("HICK_NO_WEB").as_deref(),
+            Ok("1") | Ok("true") | Ok("yes")
+        )
+}
+
 async fn agent_task(
     mut react_loop: ReactLoop,
     events: mpsc::UnboundedSender<AgentEvent>,
@@ -541,21 +552,59 @@ async fn main() -> Result<()> {
 
     let provider_info = format!("{provider_name} / {model_name}");
 
-    let (ui_tx, ui_rx) = mpsc::unbounded_channel::<hick_agent_sdk::UiEvent>();
+    const UI_BROADCAST_CAP: usize = 2048;
+    let (ui_fanout_tx, _) = broadcast::channel::<hick_agent_sdk::UiEvent>(UI_BROADCAST_CAP);
+    let (ui_mpsc_tx, ui_rx) = mpsc::unbounded_channel::<hick_agent_sdk::UiEvent>();
+
+    tokio::spawn({
+        let mut sub = ui_fanout_tx.subscribe();
+        let ui_mpsc_tx = ui_mpsc_tx.clone();
+        async move {
+            loop {
+                match sub.recv().await {
+                    Ok(ev) => {
+                        if ui_mpsc_tx.send(ev).is_err() {
+                            break;
+                        }
+                    }
+                    Err(broadcast::error::RecvError::Lagged(_)) => {}
+                    Err(broadcast::error::RecvError::Closed) => break,
+                }
+            }
+        }
+    });
+
     let (ui_cmd_tx, mut ui_cmd_rx) = mpsc::unbounded_channel::<hick_agent_sdk::UiCommand>();
 
     tokio::spawn(run_ui_event_fanout_task(
         event_rx,
         approval_rx,
-        ui_tx.clone(),
+        ui_fanout_tx.clone(),
         Some(model_name.clone()),
         Some(default_image.clone()),
         Some(provider_info.clone()),
     ));
 
+    if web_ui_enabled(cli.no_web) {
+        match hick_agent_sdk::WebServer::bind(hick_agent_sdk::WebServerConfig::from_env()).await {
+            Ok(ws) => {
+                ws.attach(ui_fanout_tx.clone(), ui_cmd_tx.clone());
+                match ws.start().await {
+                    Ok(url) => println!("Web UI: {url}"),
+                    Err(e) => log::warn!("Web UI failed to start: {e}"),
+                }
+            }
+            Err(e) => log::warn!("Web UI unavailable (bind failed): {e}"),
+        }
+    }
+
     let cmd_bridge_to_agent = cmd_tx.clone();
+    let interrupt_ui = Arc::clone(&interrupt);
     tokio::spawn(async move {
         while let Some(u) = ui_cmd_rx.recv().await {
+            if matches!(u, hick_agent_sdk::UiCommand::Cancel) {
+                interrupt_ui.notify_one();
+            }
             if let Some(c) = ui_command_to_agent(u) {
                 cmd_bridge_to_agent.send(c).ok();
             }
@@ -589,7 +638,7 @@ async fn main() -> Result<()> {
                 provider_info,
                 project_dir,
                 interrupt: interrupt_tui,
-                ui_fanout_tx: ui_tx,
+                ui_fanout_tx: ui_fanout_tx.clone(),
             },
         )
     })

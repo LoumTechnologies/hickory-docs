@@ -17,7 +17,7 @@ integration-test = []
 
 [dependencies]
 # SDK + extension crates — wired directly in main.rs / tui.rs
-hick-agent-sdk = { path = "../hick-agent-sdk" }
+hick-agent-sdk = { path = "../hick-agent-sdk", features = ["web"] }
 hick-agent-script-first = { path = "../hick-agent-script-first" }
 hick-agent-hick-edit = { path = "../hick-agent-hick-edit" }
 hick-agent-tui = { path = "../hick-agent-tui" }

@@ -2,7 +2,7 @@
 //! to the shared SDK UI model ([`UiEvent`](hick_agent_sdk::UiEvent), [`UiCommand`](hick_agent_sdk::UiCommand)).
 
 use hick_agent_sdk::{NetworkApprovalRequest, UiCommand, UiEvent, UiNetworkApproval};
-
+use tokio::sync::broadcast;
 
 use crate::events::{AgentCommand, AgentEvent};
 use crate::tools::ScriptResult;
@@ -208,18 +208,18 @@ impl AgentEvent {
 /// return `None` until the core exposes matching [`AgentCommand`] variants.
 pub fn ui_command_to_agent(cmd: UiCommand) -> Option<AgentCommand> {
     match cmd {
-        UiCommand::Message(s) => Some(AgentCommand::Message(s)),
-        UiCommand::DirectCommand(s) => Some(AgentCommand::DirectCommand(s)),
+        UiCommand::Message { text } => Some(AgentCommand::Message(text)),
+        UiCommand::DirectCommand { text } => Some(AgentCommand::DirectCommand(text)),
         UiCommand::Quit => Some(AgentCommand::Quit),
-        UiCommand::Cancel | UiCommand::ExpandNode(_) | UiCommand::CollapseNode(_) => None,
+        UiCommand::Cancel | UiCommand::ExpandNode { .. } | UiCommand::CollapseNode { .. } => None,
     }
 }
 
 /// Inverse helper for tests / future UI stacks that speak [`UiCommand`] only.
 pub fn agent_command_to_ui(cmd: AgentCommand) -> UiCommand {
     match cmd {
-        AgentCommand::Message(s) => UiCommand::Message(s),
-        AgentCommand::DirectCommand(s) => UiCommand::DirectCommand(s),
+        AgentCommand::Message(s) => UiCommand::Message { text: s },
+        AgentCommand::DirectCommand(s) => UiCommand::DirectCommand { text: s },
         AgentCommand::Quit => UiCommand::Quit,
     }
 }
@@ -227,10 +227,13 @@ pub fn agent_command_to_ui(cmd: AgentCommand) -> UiCommand {
 /// Merges core [`AgentEvent`]s with [`NetworkApprovalRequest`] prompts into [`UiEvent`] for [`hick_agent_tui`] (single [`AgentUiBridge`], monotonic ids).
 ///
 /// Drops the approvals branch cleanly when all [`NetworkApprovalRequest`] senders are gone so the task keeps running until the agent event stream ends.
+///
+/// Events are multicasted via [`broadcast::Sender`] — every subscriber (shared TUI bridge, browsers, …)
+/// observes the same stream.
 pub async fn run_ui_event_fanout_task(
     mut agent_rx: tokio::sync::mpsc::UnboundedReceiver<AgentEvent>,
     mut approval_rx: tokio::sync::mpsc::UnboundedReceiver<NetworkApprovalRequest>,
-    ui_tx: tokio::sync::mpsc::UnboundedSender<UiEvent>,
+    ui_tx: broadcast::Sender<UiEvent>,
     model: Option<String>,
     sandbox_image: Option<String>,
     provider_banner: Option<String>,

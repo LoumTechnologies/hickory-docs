@@ -16,7 +16,7 @@ use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
 use ratatui::{Frame, Terminal};
-use tokio::sync::{Notify, mpsc, oneshot};
+use tokio::sync::{Notify, broadcast, mpsc, oneshot};
 
 use hick_agent_sdk::mcp_install::{
     McpCredentialRequest, McpInstallSpec, McpInstaller, infer_name, list_servers, parse_spec,
@@ -59,7 +59,7 @@ pub struct TuiConfig {
     pub provider_info: String,
     pub project_dir: PathBuf,
     pub interrupt: Arc<Notify>,
-    pub ui_fanout_tx: mpsc::UnboundedSender<UiEvent>,
+    pub ui_fanout_tx: broadcast::Sender<UiEvent>,
 }
 
 // ── Application state ──────────────────────────────────────────────
@@ -772,15 +772,17 @@ impl App {
                             self.misc_info("Usage: ! <shell command>");
                             return;
                         }
-                        cmd_tx
-                            .send(UiCommand::DirectCommand(shell_cmd))
-                            .ok();
+                    cmd_tx
+                        .send(UiCommand::DirectCommand {
+                            text: shell_cmd,
+                        })
+                        .ok();
                         self.busy = true;
                         self.auto_scroll = true;
                         return;
                     }
 
-                    cmd_tx.send(UiCommand::Message(msg)).ok();
+                    cmd_tx.send(UiCommand::Message { text: msg }).ok();
                     self.busy = true;
                     self.auto_scroll = true;
                 }
@@ -1071,7 +1073,7 @@ async fn run_mcp_install_task(
     server_name: String,
     trust: McpServerTrust,
     project_dir: std::path::PathBuf,
-    ui_tx: mpsc::UnboundedSender<UiEvent>,
+    ui_tx: broadcast::Sender<UiEvent>,
     cred_req_tx: mpsc::UnboundedSender<McpCredentialRequest>,
 ) {
     let ids = IdGen::new();

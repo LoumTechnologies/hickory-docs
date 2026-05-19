@@ -132,20 +132,32 @@ impl UiNetworkApproval {
 // ---------------------------------------------------------------------------
 
 /// Commands sent from a UI toward the agent core or shared UI state.
-#[derive(Debug, Clone, PartialEq, Eq)]
+///
+/// Serializes over the browser WebSocket as JSON with a **`type`** field in snake_case
+/// (`message`, `direct_command`, `cancel`, …).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
 pub enum UiCommand {
     /// User submitted a natural-language prompt.
-    Message(String),
+    Message {
+        text: String,
+    },
     /// Shell-style passthrough (`! cmd`).
-    DirectCommand(String),
+    DirectCommand {
+        text: String,
+    },
     /// Ask the core to cancel / interrupt the current step.
     Cancel,
     /// Exit the application / UI session.
     Quit,
     /// Mark a tree node expanded (for server-side collapse tracking).
-    ExpandNode(NodeId),
+    ExpandNode {
+        node_id: NodeId,
+    },
     /// Mark a tree node collapsed.
-    CollapseNode(NodeId),
+    CollapseNode {
+        node_id: NodeId,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -255,6 +267,171 @@ pub enum UiEvent {
     Interrupted {
         node_id: NodeId,
     },
+}
+
+fn opt_id(id: Option<NodeId>) -> Option<u64> {
+    id.map(|n| n.0)
+}
+
+/// JSON wire projection for transports (compact `type` + snake_case payloads).
+///
+/// Interactive approval state (`oneshot`) is intentionally omitted — only display fields ship.
+pub fn ui_event_wire_value(ev: &UiEvent) -> serde_json::Value {
+    match ev {
+        UiEvent::SessionStarted {
+            node_id,
+            model,
+            sandbox_image,
+            provider_info,
+        } => serde_json::json!({
+            "type": "session_started",
+            "node_id": node_id.0,
+            "model": model,
+            "sandbox_image": sandbox_image,
+            "provider_info": provider_info,
+        }),
+        UiEvent::UserTurn {
+            node_id,
+            parent_id,
+            text,
+        } => serde_json::json!({
+            "type": "user_turn",
+            "node_id": node_id.0,
+            "parent_id": opt_id(*parent_id),
+            "text": text,
+        }),
+        UiEvent::Thinking { node_id, parent_id } => serde_json::json!({
+            "type": "thinking",
+            "node_id": node_id.0,
+            "parent_id": opt_id(*parent_id),
+        }),
+        UiEvent::Token { node_id, text } => serde_json::json!({
+            "type": "token",
+            "node_id": node_id.0,
+            "text": text,
+        }),
+        UiEvent::AssistantDone { node_id, text } => serde_json::json!({
+            "type": "assistant_done",
+            "node_id": node_id.0,
+            "text": text,
+        }),
+        UiEvent::ActionStart {
+            node_id,
+            parent_id,
+            lang,
+            code,
+            collapsed_by_default,
+        } => serde_json::json!({
+            "type": "action_start",
+            "node_id": node_id.0,
+            "parent_id": opt_id(*parent_id),
+            "lang": lang,
+            "code": code,
+            "collapsed_by_default": collapsed_by_default,
+        }),
+        UiEvent::ActionEnd {
+            node_id,
+            stdout,
+            stderr,
+            exit_code,
+            collapsed_by_default,
+        } => serde_json::json!({
+            "type": "action_end",
+            "node_id": node_id.0,
+            "stdout": stdout,
+            "stderr": stderr,
+            "exit_code": exit_code,
+            "collapsed_by_default": collapsed_by_default,
+        }),
+        UiEvent::SubAgentSpawned {
+            node_id,
+            parent_id,
+            label,
+        } => serde_json::json!({
+            "type": "sub_agent_spawned",
+            "node_id": node_id.0,
+            "parent_id": opt_id(*parent_id),
+            "label": label,
+        }),
+        UiEvent::SubAgentDone { node_id } => serde_json::json!({
+            "type": "sub_agent_done",
+            "node_id": node_id.0,
+        }),
+        UiEvent::McpCall {
+            node_id,
+            parent_id,
+            server,
+            method,
+            collapsed_by_default,
+        } => serde_json::json!({
+            "type": "mcp_call",
+            "node_id": node_id.0,
+            "parent_id": opt_id(*parent_id),
+            "server": server,
+            "method": method,
+            "collapsed_by_default": collapsed_by_default,
+        }),
+        UiEvent::McpResponse {
+            node_id,
+            server,
+            method,
+            collapsed_by_default,
+        } => serde_json::json!({
+            "type": "mcp_response",
+            "node_id": node_id.0,
+            "server": server,
+            "method": method,
+            "collapsed_by_default": collapsed_by_default,
+        }),
+        UiEvent::SecurityViolation { node_id, description } => serde_json::json!({
+            "type": "security_violation",
+            "node_id": node_id.0,
+            "description": description,
+        }),
+        UiEvent::NetworkApproval(a) => serde_json::json!({
+            "type": "network_approval",
+            "node_id": a.node_id.0,
+            "host": a.host,
+            "suggestions": a.suggestions.iter().map(|s| s.describe()).collect::<Vec<_>>(),
+        }),
+        UiEvent::AdaptiveCard {
+            node_id,
+            parent_id,
+            json,
+        } => serde_json::json!({
+            "type": "adaptive_card",
+            "node_id": node_id.0,
+            "parent_id": opt_id(*parent_id),
+            "json": json,
+        }),
+        UiEvent::Info { node_id, text } => serde_json::json!({
+            "type": "info",
+            "node_id": node_id.0,
+            "text": text,
+        }),
+        UiEvent::Error { node_id, text } => serde_json::json!({
+            "type": "error",
+            "node_id": node_id.0,
+            "text": text,
+        }),
+        UiEvent::Done { node_id } => serde_json::json!({
+            "type": "done",
+            "node_id": node_id.0,
+        }),
+        UiEvent::Interrupted { node_id } => serde_json::json!({
+            "type": "interrupted",
+            "node_id": node_id.0,
+        }),
+    }
+}
+
+impl serde::Serialize for UiEvent {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        ui_event_wire_value(self).serialize(serializer)
+    }
 }
 
 impl std::fmt::Debug for UiEvent {

@@ -1,9 +1,10 @@
 ---
 id: TASK-37.3
 title: Local web server — axum HTTP + WebSocket bridge in hick-agent-sdk
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-05-19 11:54'
+updated_date: '2026-05-19 14:23'
 labels:
   - web
   - sdk
@@ -85,12 +86,18 @@ Update copper-ledge and iron-peak `main.rs` to optionally start the web server (
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 WebServer starts on localhost:7890 by default; URL is printed at agent startup
-- [ ] #2 GET / serves a working HTML page that connects to the WebSocket
-- [ ] #3 WebSocket streams UiEvents as compact JSON to all connected browser clients
-- [ ] #4 Browser clients can send UiCommand JSON messages and they are forwarded to the agent
-- [ ] #5 Multiple simultaneous browser connections all receive the same event stream
-- [ ] #6 The web server is disabled with --no-web flag or HICK_NO_WEB=1
-- [ ] #7 The web feature is a Cargo feature flag; SDK compiles without it
-- [ ] #8 cargo test --workspace passes
+- [x] #1 WebServer starts on localhost:7890 by default; URL is printed at agent startup
+- [x] #2 GET / serves a working HTML page that connects to the WebSocket
+- [x] #3 WebSocket streams UiEvents as compact JSON to all connected browser clients
+- [x] #4 Browser clients can send UiCommand JSON messages and they are forwarded to the agent
+- [x] #5 Multiple simultaneous browser connections all receive the same event stream
+- [x] #6 The web server is disabled with --no-web flag or HICK_NO_WEB=1
+- [x] #7 The web feature is a Cargo feature flag; SDK compiles without it
+- [x] #8 cargo test --workspace passes
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Implemented `hick-agent-sdk` **web** feature: `WebServer` (axum) serves embedded placeholder SPA (`/`, `/assets/app.js`) and `/ws` WebSocket forwarding `UiEvent` JSON (via `Serialize` on `UiEvent`) and parsing `UiCommand` JSON into the shared `ui_cmd` channel. Core fanout uses `broadcast::Sender<UiEvent>` (`run_ui_event_fanout_task`) with a TUI bridge subscriber; binaries print `Web UI: http://localhost:{port}` when enabled. Disable with `--no-web` or `HICK_NO_WEB=1`. Port from `HICK_WEB_PORT` / default 7890. `UiCommand` is now struct variants with serde (tagged JSON). `UiCommand::Cancel` from web/TUI path triggers `interrupt.notify_one()` like Ctrl+C.
+<!-- SECTION:FINAL_SUMMARY:END -->
