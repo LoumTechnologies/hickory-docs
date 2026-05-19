@@ -44,6 +44,3 @@ pub use hick_agent_sdk::SinkGuard;
 /// Local GGUF model inference client using llama.cpp (requires `local` feature).
 #[cfg(feature = "local")]
 pub use hick_agent_engine::LocalLlmClient;
-
-// TUI module — unique to the CLI binary
-pub mod tui;

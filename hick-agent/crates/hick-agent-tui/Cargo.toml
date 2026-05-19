@@ -1,0 +1,14 @@
+[package]
+name = "hick-agent-tui"
+version = "0.1.0"
+edition = "2024"
+description = "Shared Ratatui terminal frontend for Hick agents driven by UiEvent / UiCommand."
+publish = false
+
+[dependencies]
+hick-agent-sdk = { path = "../hick-agent-sdk" }
+hick-policy.workspace = true
+anyhow = "1"
+tokio = { version = "1", features = ["full"] }
+ratatui = "0.30.0"
+crossterm = "0.29.0"

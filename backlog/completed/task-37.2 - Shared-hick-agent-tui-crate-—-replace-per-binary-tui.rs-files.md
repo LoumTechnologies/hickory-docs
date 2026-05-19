@@ -1,10 +1,10 @@
 ---
 id: TASK-37.2
 title: Shared hick-agent-tui crate — replace per-binary tui.rs files
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-05-19 11:54'
-updated_date: '2026-05-19 12:07'
+updated_date: '2026-05-19 13:46'
 labels:
   - tui
   - ui
@@ -75,12 +75,12 @@ Ctrl+C (interrupt / quit), Ctrl+D (quit), Up/Down/PageUp/PageDown (scroll), Ente
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 New crate hick-agent-tui exists with a single public run_tui() entry point
-- [ ] #2 copper-ledge/src/tui.rs and iron-peak/src/tui.rs are deleted
-- [ ] #3 Both binaries compile and their TUI behavior is unchanged for all existing keybindings
-- [ ] #4 Script source and output nodes are collapsed by default; user can expand with Enter/Space
-- [ ] #5 Branch structure (sub-agent nodes) renders with ASCII git-log-style connectors
-- [ ] #6 cargo test --workspace passes
+- [x] #1 New crate hick-agent-tui exists with a single public run_tui() entry point
+- [x] #2 copper-ledge/src/tui.rs and iron-peak/src/tui.rs are deleted
+- [x] #3 Both binaries compile and their TUI behavior is unchanged for all existing keybindings
+- [x] #4 Script source and output nodes are collapsed by default; user can expand with Enter/Space
+- [x] #5 Branch structure (sub-agent nodes) renders with ASCII git-log-style connectors
+- [x] #6 cargo test --workspace passes
 <!-- AC:END -->
 
 ## Implementation Notes
@@ -165,4 +165,12 @@ The following details are intentionally left unspecified — they will be tuned 
 - Exact color palette values (will depend on terminal background assumptions)
 - Whether the spine `│` renders continuously or only between adjacent same-role messages
 - Handling of very long single lines in script output (truncate? wrap? horizontal scroll?)
+
+Ready to start: TASK-37.1 is Done (`UiEvent`/`UiCommand`/`ConversationTree`/`AgentUiBridge` in sdk + script-first). Next agent: add `hick-agent/crates/hick-agent-tui`, wire `run_tui(event_rx, cmd_tx, TuiConfig)`, bridge binaries with `AgentUiBridge` + map `NetworkApproval`/`McpCredentialRequest` like current tui.rs.
 <!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Added workspace crate `hick-agent-tui` with `run_tui(ui_rx, ui_cmd_tx, TuiConfig)` (Blocking ratatui session, `ConversationTree` rendering, network/MCP flows, `/mcp` fanout via `TuiConfig.ui_fanout_tx`). Introduced `hick_agent_script_first::run_ui_event_fanout_task` + `AgentUiBridge::next_node_id` to merge `AgentEvent` + `NetworkApprovalRequest` into `UiEvent` with one id allocator; binaries bridge `UiCommand` → `AgentCommand`. Removed per-binary `tui.rs`, dropped direct ratatui/crossterm deps from copper-ledge and iron-peak. `ConversationNodeKind` is `Copy` for clean TUI pattern matches. Full `cargo test --workspace -- --test-threads=1` passed.
+<!-- SECTION:FINAL_SUMMARY:END -->

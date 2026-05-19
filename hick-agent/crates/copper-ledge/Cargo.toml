@@ -17,6 +17,7 @@ default = []
 hick-agent-sdk = { path = "../hick-agent-sdk" }
 hick-agent-script-first = { path = "../hick-agent-script-first" }
 hick-agent-core = { path = "../hick-agent-core" }
+hick-agent-tui = { path = "../hick-agent-tui" }
 hick-policy.workspace = true
 
 # CLI binary dependencies
@@ -27,6 +28,4 @@ hick-token.workspace = true
 dotenvy = "0.15.7"
 log = "0.4"
 tokio = { version = "1", features = ["full"] }
-ratatui = "0.30.0"
-crossterm = "0.29.0"
 chrono = "0.4"

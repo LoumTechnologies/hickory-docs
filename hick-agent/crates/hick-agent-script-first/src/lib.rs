@@ -8,6 +8,7 @@
 //! This crate has zero knowledge of hick XML, hick pipelines, or hickory-specific
 //! formats. It works on any codebase.
 
+pub mod agent_ui_bridge;
 pub mod events;
 pub mod react_loop;
 pub mod state;
@@ -15,6 +16,11 @@ pub mod tools;
 
 /// Events emitted by the agent core to the UI (tokens, script results, errors).
 pub use events::AgentEvent;
+/// Bridges core [`AgentEvent`]s into SDK [`UiEvent`]s (shared UI layer).
+pub use agent_ui_bridge::AgentUiBridge;
+/// Best-effort [`UiCommand`] → [`AgentCommand`] mapping for chrome-only controls.
+pub use agent_ui_bridge::run_ui_event_fanout_task;
+pub use agent_ui_bridge::ui_command_to_agent;
 /// Commands sent from the UI to the agent core (user messages, quit).
 pub use events::AgentCommand;
 /// Script-first ReAct loop: extracts code blocks from LLM responses and executes them in a sandbox.

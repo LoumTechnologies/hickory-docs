@@ -1,9 +1,10 @@
 ---
 id: TASK-37
 title: 'Agent UI — unified TUI, local web UI, and remote control'
-status: To Do
+status: In Progress
 assignee: []
 created_date: '2026-05-19 11:53'
+updated_date: '2026-05-19 13:01'
 labels:
   - ui
   - sdk
@@ -53,3 +54,9 @@ Agent binaries (copper-ledge, iron-peak) currently each own a ~950-line tui.rs w
 
 task-36 (Agent Log XML session logging) is complete. The `SessionLog` trait and `LogEvent` enum in `hick-agent-sdk` are the session event foundation this work builds on.
 <!-- SECTION:DESCRIPTION:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+TASK-37.1 completed (2026-05-19): unified UiEvent/UiCommand, ConversationTree, script-first bridge; see TASK-37.1 implementation notes. Subtasks 37.2–37.9 remain.
+<!-- SECTION:NOTES:END -->

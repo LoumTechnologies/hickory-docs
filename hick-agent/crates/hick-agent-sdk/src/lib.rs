@@ -27,8 +27,12 @@
 //! | [`ToolGate`] | Classification-aware MCP tool call gating |
 //! | [`ShapeFormatConfig`] | Shape-aware MCP result serialization config |
 //! | [`format_mcp_result`] | Detect shape and serialize an MCP result |
+//! | [`UiEvent`] | Canonical UI event stream (TUI, web, relay) |
+//! | [`UiCommand`] | Commands from any UI toward the agent core |
+//! | [`ConversationTree`] | Conversation tree derived from [`UiEvent`]s |
 
 pub mod command;
+pub mod conversation_tree;
 pub mod llm;
 pub mod llm_anthropic;
 pub mod llm_openai_compat;
@@ -45,6 +49,7 @@ pub mod sink_guard;
 pub mod suggestion_gen;
 pub mod tool_gate;
 pub mod xml_session_log;
+pub mod ui_event;
 
 // ---------------------------------------------------------------------------
 // Runtime
@@ -242,3 +247,26 @@ pub use xml_session_log::XmlSessionLog;
 pub use xml_session_log::XmlDiagnosticLogger;
 /// Wraps an [`McpClient`] to emit [`LogEvent::McpCall`] / [`LogEvent::McpResponse`] events.
 pub use mcp_client::LoggingMcpClient;
+
+// ---------------------------------------------------------------------------
+// Agent UI model (shared TUI / web / relay)
+// ---------------------------------------------------------------------------
+
+/// Incrementally maintained conversation tree for UI rendering.
+pub use conversation_tree::ConversationNode;
+/// Category of node stored in a [`ConversationTree`].
+pub use conversation_tree::ConversationNodeKind;
+/// Opaque payload attached to a [`ConversationNode`].
+pub use conversation_tree::ConversationPayload;
+/// Append-only conversation tree built from [`UiEvent`]s.
+pub use conversation_tree::ConversationTree;
+/// Thread-safe [`NodeId`] allocator.
+pub use ui_event::IdGen;
+/// Stable vertex id for UI trees and transports.
+pub use ui_event::NodeId;
+/// Clone-safe network approval bubble for [`UiEvent::NetworkApproval`].
+pub use ui_event::UiNetworkApproval;
+/// Command from a UI toward the agent core (and optional tree chrome).
+pub use ui_event::UiCommand;
+/// UI-facing event emitted by bridges from extension cores.
+pub use ui_event::UiEvent;

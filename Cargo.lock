@@ -2359,15 +2359,14 @@ dependencies = [
  "async-trait",
  "chrono",
  "clap",
- "crossterm",
  "dotenvy",
  "hick-agent-core",
  "hick-agent-script-first",
  "hick-agent-sdk",
+ "hick-agent-tui",
  "hick-policy",
  "hick-token",
  "log",
- "ratatui",
  "tokio",
 ]
 
@@ -4484,6 +4483,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "hick-agent-tui"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "crossterm",
+ "hick-agent-sdk",
+ "hick-policy",
+ "ratatui",
+ "tokio",
+]
+
+[[package]]
 name = "hick-api"
 version = "0.1.0"
 dependencies = [
@@ -5419,7 +5430,6 @@ dependencies = [
  "async-trait",
  "chrono",
  "clap",
- "crossterm",
  "dotenvy",
  "futures",
  "hick",
@@ -5428,12 +5438,12 @@ dependencies = [
  "hick-agent-hick-edit",
  "hick-agent-script-first",
  "hick-agent-sdk",
+ "hick-agent-tui",
  "hick-lang",
  "hick-policy",
  "hick-secrets",
  "hick-token",
  "log",
- "ratatui",
  "tempfile",
  "tokio",
  "zip",

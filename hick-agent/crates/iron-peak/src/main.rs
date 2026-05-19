@@ -20,10 +20,13 @@ use tokio::sync::{Mutex, Notify, mpsc};
 
 #[cfg(feature = "local")]
 use hick_agent_engine::LocalLlmClient;
-use iron_peak::tui::run_tui;
+use hick_agent_script_first::{
+    AgentCommand, AgentEvent, ReactLoop,
+    run_ui_event_fanout_task, ui_command_to_agent,
+};
+use hick_agent_tui::{run_tui, TuiConfig};
 use hick_agent_hick_edit::{PipelineWatcher, insert_paste_slots};
 use hick_lang;
-use hick_agent_script_first::{AgentCommand, AgentEvent, ReactLoop};
 use hick_agent_sdk::{
     AgentSecurityConfig, AnthropicClient, FilteredLlmClient, LlmClient,
     NetworkApprovalRequest, NetworkFilter, OpenAiCompatClient, SinkGuard,
@@ -953,6 +956,27 @@ async fn main() -> Result<()> {
 
             let provider_info = format!("{provider_name} / {model_name}");
 
+            let (ui_tx, ui_rx) = mpsc::unbounded_channel::<hick_agent_sdk::UiEvent>();
+            let (ui_cmd_tx, mut ui_cmd_rx) = mpsc::unbounded_channel::<hick_agent_sdk::UiCommand>();
+
+            tokio::spawn(run_ui_event_fanout_task(
+                event_rx,
+                approval_rx,
+                ui_tx.clone(),
+                Some(model_name.clone()),
+                Some(default_image.clone()),
+                Some(provider_info.clone()),
+            ));
+
+            let cmd_bridge_to_agent = cmd_tx.clone();
+            tokio::spawn(async move {
+                while let Some(u) = ui_cmd_rx.recv().await {
+                    if let Some(c) = ui_command_to_agent(u) {
+                        cmd_bridge_to_agent.send(c).ok();
+                    }
+                }
+            });
+
             let session_log: Arc<dyn hick_agent_sdk::SessionLog> = {
                 let ts = chrono::Local::now().format("%Y%m%d-%H%M%S");
                 let bundle_dir = project_dir.join(".hick").join(format!("session-{ts}"));
@@ -975,13 +999,15 @@ async fn main() -> Result<()> {
             let interrupt_tui = Arc::clone(&interrupt);
             tokio::task::spawn_blocking(move || {
                 run_tui(
-                    event_rx,
-                    event_tx,
-                    cmd_tx,
-                    interrupt_tui,
-                    provider_info,
-                    approval_rx,
-                    project_dir,
+                    ui_rx,
+                    ui_cmd_tx,
+                    TuiConfig {
+                        agent_name: "iron-peak".to_string(),
+                        provider_info,
+                        project_dir,
+                        interrupt: interrupt_tui,
+                        ui_fanout_tx: ui_tx,
+                    },
                 )
             })
             .await??;

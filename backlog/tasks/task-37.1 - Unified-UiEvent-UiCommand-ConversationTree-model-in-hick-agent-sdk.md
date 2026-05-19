@@ -1,9 +1,10 @@
 ---
 id: TASK-37.1
 title: Unified UiEvent/UiCommand + ConversationTree model in hick-agent-sdk
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-05-19 11:54'
+updated_date: '2026-05-19 13:01'
 labels:
   - sdk
   - ui
@@ -80,10 +81,16 @@ Add bridge functions/impls in the extension crates to convert their existing `Ag
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 UiEvent, UiCommand, NodeId, IdGen are defined in hick-agent-sdk::ui_event and re-exported from lib.rs
-- [ ] #2 Every UiEvent variant carries a NodeId; branching variants (UserTurn, ActionStart, SubAgentSpawned, etc.) carry a parent_id
-- [ ] #3 ConversationTree::apply(UiEvent) builds the in-memory tree; children are ordered by insertion
-- [ ] #4 collapsed_by_default is true on ActionStart, ActionEnd, McpCall, McpResponse variants
-- [ ] #5 AgentEvent → UiEvent bridge is implemented in hick-agent-script-first
-- [ ] #6 cargo test --workspace passes
+- [x] #1 UiEvent, UiCommand, NodeId, IdGen are defined in hick-agent-sdk::ui_event and re-exported from lib.rs
+- [x] #2 Every UiEvent variant carries a NodeId; branching variants (UserTurn, ActionStart, SubAgentSpawned, etc.) carry a parent_id
+- [x] #3 ConversationTree::apply(UiEvent) builds the in-memory tree; children are ordered by insertion
+- [x] #4 collapsed_by_default is true on ActionStart, ActionEnd, McpCall, McpResponse variants
+- [x] #5 AgentEvent → UiEvent bridge is implemented in hick-agent-script-first
+- [x] #6 cargo test --workspace passes
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+Implemented `hick-agent-sdk` modules `ui_event` (`UiEvent`, `UiCommand`, `NodeId`, `IdGen`, `UiNetworkApproval`) and `conversation_tree` (`ConversationTree::apply`, ordered children, tests). Added `hick-agent-script-first::agent_ui_bridge` with `AgentUiBridge`, `AgentEvent::into_ui_events`, and `ui_command_to_agent` / `agent_command_to_ui`. Removed orphan duplicate `hick-agent-engine/src/events.rs` (crate already re-exported script-first events via `lib.rs`).
+<!-- SECTION:NOTES:END -->

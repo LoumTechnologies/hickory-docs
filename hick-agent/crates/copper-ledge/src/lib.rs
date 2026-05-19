@@ -39,6 +39,3 @@ pub use hick_agent_sdk::OpenAiCompatClient;
 pub use hick_agent_script_first::ReactLoop;
 /// Validates outbound API sink calls against capability tokens and sink definitions.
 pub use hick_agent_sdk::SinkGuard;
-
-// TUI module — unique to the CLI binary
-pub mod tui;
