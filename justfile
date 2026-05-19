@@ -92,3 +92,13 @@ test:
 # Run hick-agent tests only.
 test-agent:
     cargo test -p hick-agent-core -p hick-agent-engine -p hick-agent -- --test-threads=1
+
+# Build the Hick agent web UI (Vite → `hick-agent/web-ui/dist/`). Commit `dist/` after changes;
+# `hick-agent-sdk` embeds those bytes at compile time, so Rust builds do not require Node.
+build-web-ui:
+    cd hick-agent/web-ui && npm install && npm run build
+
+# Vite dev server with `/ws` proxied to the local agent (`localhost:7890`). Run an agent with
+# the web server enabled alongside this recipe.
+dev-web-ui:
+    cd hick-agent/web-ui && npm install && npm run dev

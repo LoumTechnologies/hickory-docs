@@ -20,11 +20,12 @@ use tokio::sync::{broadcast, mpsc};
 use crate::{UiCommand, UiEvent};
 
 // ---------------------------------------------------------------------------
-// Embedded placeholder SPA (TASK-37.4 replaces this with React dist)
+// Embedded React SPA (`hick-agent/web-ui/dist`, built via `just build-web-ui`)
 // ---------------------------------------------------------------------------
 
-static INDEX_HTML: &[u8] = include_bytes!("web_placeholder/index.html");
-static ASSET_APP_JS: &[u8] = include_bytes!("web_placeholder/app.js");
+static INDEX_HTML: &[u8] = include_bytes!("../../../web-ui/dist/index.html");
+static ASSET_APP_JS: &[u8] = include_bytes!("../../../web-ui/dist/assets/app.js");
+static ASSET_APP_CSS: &[u8] = include_bytes!("../../../web-ui/dist/assets/app.css");
 
 /// Default TCP port (`7890`).
 pub const DEFAULT_WEB_PORT: u16 = 7890;
@@ -147,6 +148,7 @@ async fn serve_index() -> impl IntoResponse {
 async fn serve_asset(Path(name): Path<String>) -> impl IntoResponse {
     let body: &[u8] = match name.as_str() {
         "app.js" => ASSET_APP_JS,
+        "app.css" => ASSET_APP_CSS,
         _ => &[],
     };
     if body.is_empty() {
@@ -159,6 +161,7 @@ async fn serve_asset(Path(name): Path<String>) -> impl IntoResponse {
     }
     let ct = match name.rsplit_once('.').map(|(_, ext)| ext) {
         Some("js") => "application/javascript; charset=utf-8",
+        Some("css") => "text/css; charset=utf-8",
         _ => "application/octet-stream",
     };
     let hv = HeaderValue::from_str(ct).unwrap_or_else(|_| HeaderValue::from_static("application/octet-stream"));
