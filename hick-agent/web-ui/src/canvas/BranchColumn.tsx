@@ -10,6 +10,7 @@ import { ActionPairNode } from '../nodes/ActionPairNode'
 import { McpPairNode } from '../nodes/McpPairNode'
 import { SpineLabelNode } from '../nodes/SpineLabelNode'
 import { SubAgentNode } from '../nodes/SubAgentNode'
+import { BranchPointNode } from '../nodes/BranchPointNode'
 
 export const COLUMN_WIDTH = 560
 
@@ -21,6 +22,7 @@ export interface BranchColumnData {
   branch: BranchMeta
   items: DisplayItem[]
   isActive: boolean
+  connected: boolean
   collapseState: CollapseState
   send: (cmd: UiCommand) => void
   navigateToBranch: (id: BranchId) => void
@@ -96,10 +98,11 @@ function renderItem(
   collapseState: CollapseState,
   send: (cmd: UiCommand) => void,
   navigateToBranch: (id: BranchId) => void,
+  onBranch?: (nodeId: number) => void,
 ): React.ReactNode {
   switch (item.kind) {
     case 'user_turn':
-      return <UserTurnNode text={item.text} />
+      return <UserTurnNode nodeId={item.nodeId} text={item.text} onBranch={onBranch} />
 
     case 'thinking':
       return (
@@ -112,7 +115,7 @@ function renderItem(
       )
 
     case 'assistant':
-      return <AssistantNode text={item.text} streaming={item.streaming} />
+      return <AssistantNode nodeId={item.nodeId} text={item.text} streaming={item.streaming} onBranch={onBranch} />
 
     case 'action_pair':
       return (
@@ -172,6 +175,15 @@ function renderItem(
         />
       )
 
+    case 'branch_point':
+      return (
+        <BranchPointNode
+          label={item.label}
+          targetBranchId={item.targetBranchId}
+          navigateToBranch={navigateToBranch}
+        />
+      )
+
     case 'done':
       return (
         <div className="mx-auto my-2 w-fit rounded-full border border-green-600/40 bg-green-950/40 px-4 py-1 text-xs text-green-400">
@@ -189,9 +201,10 @@ function renderItem(
 }
 
 export const BranchColumn = forwardRef<BranchColumnHandle, BranchColumnData>(function BranchColumn(
-  { branch, items, isActive, collapseState, send, navigateToBranch, onScrolledUp },
+  { branch, items, isActive, connected, collapseState, send, navigateToBranch, onScrolledUp },
   ref,
 ) {
+  const onBranch = connected ? (nodeId: number) => send({ type: 'rewind_to', node_id: nodeId }) : undefined
   const scrollRef = useRef<HTMLDivElement>(null)
 
   useImperativeHandle(ref, () => ({
@@ -263,7 +276,7 @@ export const BranchColumn = forwardRef<BranchColumnHandle, BranchColumnData>(fun
                   transform: `translateY(${virtualItem.start}px)`,
                 }}
               >
-                {renderItem(item, collapseState, send, navigateToBranch)}
+                {renderItem(item, collapseState, send, navigateToBranch, onBranch)}
               </div>
             )
           })}

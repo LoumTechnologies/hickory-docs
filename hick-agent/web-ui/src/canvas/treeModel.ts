@@ -7,7 +7,8 @@ export interface BranchMeta {
   label: string
   parentBranchId: BranchId | null
   columnIndex: number // negative = left, 0 = center, positive = right
-  forkNodeId: number | null // node_id of sub_agent_spawned that created this branch
+  forkNodeId: number | null // node_id of the event that created this branch
+  kind: 'main' | 'sub_agent' | 'branch'
 }
 
 export type DisplayItem =
@@ -41,6 +42,7 @@ export type DisplayItem =
   | { kind: 'network_approval'; nodeId: number; host: string; suggestions: string[] }
   | { kind: 'adaptive_card'; nodeId: number; json: string }
   | { kind: 'sub_agent_spawned'; nodeId: number; label: string; targetBranchId: BranchId }
+  | { kind: 'branch_point'; nodeId: number; forkNodeId: number; label: string; targetBranchId: BranchId }
   | { kind: 'done'; nodeId: number }
   | { kind: 'interrupted'; nodeId: number }
 
@@ -59,7 +61,7 @@ function nextColumnIndex(usedCount: number): number {
 
 export function buildTreeModel(events: UiEvent[]): TreeModel {
   const branches: BranchMeta[] = [
-    { id: 0, label: 'Main', parentBranchId: null, columnIndex: 0, forkNodeId: null },
+    { id: 0, label: 'Main', parentBranchId: null, columnIndex: 0, forkNodeId: null, kind: 'main' },
   ]
   const itemsByBranch = new Map<BranchId, DisplayItem[]>([[0, []]])
 
@@ -219,6 +221,7 @@ export function buildTreeModel(events: UiEvent[]): TreeModel {
           parentBranchId: bid,
           columnIndex: colIdx,
           forkNodeId: ev.node_id,
+          kind: 'sub_agent',
         })
         itemsByBranch.set(newBranchId, [])
         items.push({
@@ -236,6 +239,29 @@ export function buildTreeModel(events: UiEvent[]): TreeModel {
           branchStack.pop()
         }
         break
+
+      case 'branch_started': {
+        const newBranchId = nextBranchId++
+        const colIdx = nextColumnIndex(subAgentCount++)
+        branches.push({
+          id: newBranchId,
+          label: ev.label,
+          parentBranchId: bid,
+          columnIndex: colIdx,
+          forkNodeId: ev.fork_node_id,
+          kind: 'branch',
+        })
+        itemsByBranch.set(newBranchId, [])
+        items.push({
+          kind: 'branch_point',
+          nodeId: ev.node_id,
+          forkNodeId: ev.fork_node_id,
+          label: ev.label,
+          targetBranchId: newBranchId,
+        })
+        branchStack.push(newBranchId)
+        break
+      }
 
       case 'security_violation':
         items.push({ kind: 'security_violation', nodeId: ev.node_id, description: ev.description })

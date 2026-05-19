@@ -1,13 +1,14 @@
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useRef, useMemo, useEffect } from 'react'
 
 import type { UiEvent, UiCommand } from '../types'
 import { useConversationTree } from './useConversationTree'
 import { useCollapseState } from './useCollapseState'
 import { usePreziController, COLUMN_WIDTH, COLUMN_GAP } from './PreziController'
-import { BranchColumn } from './BranchColumn'
+import { BranchColumn, type BranchColumnHandle } from './BranchColumn'
 import { BranchIndicator } from './BranchIndicator'
 import { HudIndicator, hasBlockingPrompts } from './HudIndicator'
 import { BlockingBanner } from './BlockingBanner'
+import { Minimap } from './Minimap'
 import type { BranchId } from './treeModel'
 
 // ---------------------------------------------------------------------------
@@ -19,6 +20,7 @@ interface CrosscutViewProps {
   onClose: (id: BranchId) => void
   model: ReturnType<typeof useConversationTree>
   collapseState: ReturnType<typeof useCollapseState>
+  connected: boolean
   send: (cmd: UiCommand) => void
   navigateToBranch: (id: BranchId) => void
 }
@@ -28,6 +30,7 @@ function CrosscutView({
   onClose,
   model,
   collapseState,
+  connected,
   send,
   navigateToBranch,
 }: CrosscutViewProps) {
@@ -62,6 +65,7 @@ function CrosscutView({
                   branch={branch}
                   items={items}
                   isActive={true}
+                  connected={connected}
                   collapseState={collapseState}
                   send={send}
                   navigateToBranch={navigateToBranch}
@@ -85,11 +89,15 @@ interface ConversationCanvasProps {
   send: (cmd: UiCommand) => void
 }
 
-export function ConversationCanvas({ events, send }: ConversationCanvasProps) {
+export function ConversationCanvas({ events, connected, send }: ConversationCanvasProps) {
   const model = useConversationTree(events)
   const collapseState = useCollapseState(model)
   const [activeBranchId, setActiveBranchId] = useState<BranchId>(0)
   const [crosscutBranches, setCrosscutBranches] = useState<BranchId[]>([])
+  const [activeColumnScrolledUp, setActiveColumnScrolledUp] = useState(false)
+
+  // Refs keyed by branch id for imperative scroll control
+  const columnRefs = useRef<Map<BranchId, BranchColumnHandle>>(new Map())
 
   const { navigateToBranch: preziNavigate, tiltStyle, rowStyle } = usePreziController(
     activeBranchId,
@@ -99,10 +107,45 @@ export function ConversationCanvas({ events, send }: ConversationCanvasProps) {
   const navigateToBranch = useCallback(
     (id: BranchId) => {
       setActiveBranchId(id)
+      setActiveColumnScrolledUp(false)
       preziNavigate(id)
     },
     [preziNavigate],
   )
+
+  // Auto-navigate to new branch columns created by branch_started events
+  const prevLatestBranchIdRef = useRef<BranchId>(model.latestBranchId)
+  useEffect(() => {
+    const latestId = model.latestBranchId
+    if (latestId !== prevLatestBranchIdRef.current) {
+      prevLatestBranchIdRef.current = latestId
+      const branch = model.branches.find((b) => b.id === latestId)
+      if (branch?.kind === 'branch') {
+        navigateToBranch(latestId)
+      }
+    }
+  })
+
+  const handleJumpToNow = useCallback(() => {
+    const latestId = model.latestBranchId
+    if (latestId !== activeBranchId) {
+      navigateToBranch(latestId)
+      // After Prezi transition (~600ms) scroll to bottom
+      setTimeout(() => {
+        columnRefs.current.get(latestId)?.scrollToBottom()
+      }, 650)
+    } else {
+      columnRefs.current.get(activeBranchId)?.scrollToBottom()
+    }
+  }, [model.latestBranchId, activeBranchId, navigateToBranch])
+
+  const itemCountByBranch = useMemo(() => {
+    const m = new Map<BranchId, number>()
+    for (const [bid, items] of model.itemsByBranch) {
+      m.set(bid, items.length)
+    }
+    return m
+  }, [model.itemsByBranch])
 
   const handleCtrlClick = useCallback(
     (id: BranchId) => {
@@ -136,6 +179,7 @@ export function ConversationCanvas({ events, send }: ConversationCanvasProps) {
           onClose={closeCrosscutPanel}
           model={model}
           collapseState={collapseState}
+          connected={connected}
           send={send}
           navigateToBranch={navigateToBranch}
         />
@@ -173,6 +217,15 @@ export function ConversationCanvas({ events, send }: ConversationCanvasProps) {
         >
           Expand All
         </button>
+        {activeColumnScrolledUp && (
+          <button
+            type="button"
+            className="animate-pulse rounded border border-sky-600 bg-sky-900/90 px-3 py-1 text-xs text-sky-200 backdrop-blur hover:bg-sky-800/90"
+            onClick={handleJumpToNow}
+          >
+            ↓ Jump to now
+          </button>
+        )}
       </div>
 
       {/* 3D-tilt wrapper (Prezi zoom-out effect) */}
@@ -191,17 +244,29 @@ export function ConversationCanvas({ events, send }: ConversationCanvasProps) {
           {sortedBranches.map((branch) => (
             <BranchColumn
               key={branch.id}
+              ref={(handle) => {
+                if (handle) columnRefs.current.set(branch.id, handle)
+                else columnRefs.current.delete(branch.id)
+              }}
               branch={branch}
               items={model.itemsByBranch.get(branch.id) ?? []}
               isActive={branch.id === activeBranchId}
+              connected={connected}
               collapseState={collapseState}
               send={send}
               navigateToBranch={navigateToBranch}
+              onScrolledUp={branch.id === activeBranchId ? setActiveColumnScrolledUp : undefined}
             />
           ))}
         </div>
       </div>
 
+      <Minimap
+        branches={model.branches}
+        activeBranchId={activeBranchId}
+        itemCountByBranch={itemCountByBranch}
+        navigateToBranch={navigateToBranch}
+      />
       <BranchIndicator
         activeBranchId={activeBranchId}
         branches={model.branches}
