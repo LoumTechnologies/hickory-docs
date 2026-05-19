@@ -1,4 +1,4 @@
-import { useRef } from 'react'
+import { useRef, useEffect } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import type { NodeProps } from '@xyflow/react'
 import type { BranchId, BranchMeta, DisplayItem } from './treeModel'
@@ -188,6 +188,16 @@ export function BranchColumn({ data }: NodeProps) {
     data as unknown as BranchColumnData
 
   const scrollRef = useRef<HTMLDivElement>(null)
+
+  // Stop wheel events from reaching React Flow's canvas listener, which would
+  // call preventDefault and block the inner div from scrolling naturally.
+  useEffect(() => {
+    const el = scrollRef.current
+    if (!el) return
+    const stop = (e: WheelEvent) => e.stopPropagation()
+    el.addEventListener('wheel', stop, { passive: false })
+    return () => el.removeEventListener('wheel', stop)
+  }, [])
 
   const virtualizer = useVirtualizer({
     count: items.length,

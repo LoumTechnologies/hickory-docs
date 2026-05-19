@@ -2,7 +2,6 @@ import { useState, useMemo, useCallback } from 'react'
 import {
   ReactFlow,
   ReactFlowProvider,
-  MiniMap,
   type Node,
   type Edge,
 } from '@xyflow/react'
@@ -222,7 +221,7 @@ function InnerCanvas({ events, send }: InnerCanvasProps) {
           zoomOnScroll={false}
           zoomOnPinch={false}
           zoomOnDoubleClick={false}
-          preventScrolling={true}
+          preventScrolling={false}
           nodesDraggable={false}
           nodesConnectable={false}
           elementsSelectable={false}
@@ -230,13 +229,7 @@ function InnerCanvas({ events, send }: InnerCanvasProps) {
           fitViewOptions={{ padding: 0 }}
           defaultViewport={{ x: 0, y: 0, zoom: 1 }}
           style={{ background: 'rgb(2 6 23)' }}
-        >
-          <MiniMap
-            style={{ background: '#0f172a' }}
-            maskColor="rgba(15, 23, 42, 0.7)"
-            nodeColor="#334155"
-          />
-        </ReactFlow>
+        />
       </div>
 
       <BranchIndicator
