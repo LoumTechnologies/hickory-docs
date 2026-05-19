@@ -4,7 +4,7 @@ title: Web UI — conversation tree visualization with collapsible nodes
 status: To Do
 assignee: []
 created_date: '2026-05-19 11:55'
-updated_date: '2026-05-19 12:07'
+updated_date: '2026-05-19 12:11'
 labels:
   - web
   - frontend
@@ -18,118 +18,155 @@ priority: high
 ## Description
 
 <!-- SECTION:DESCRIPTION:BEGIN -->
-Replace the raw JSON event dump (task-37.4) with a full conversation tree visualization in the web UI. This is the primary feature users see: a hybrid of iMessage-style chat bubbles, thought bubbles, timeline chips, and git-log-style branch connectors — all unified by a vertical spine line.
+Replace the raw JSON event dump (task-37.4) with a full conversation tree visualization in the web UI. This is the primary feature users see: a spatial 2D canvas combining iMessage-style chat bubbles, thought bubbles, timeline chips, git-log-style branch connectors, and Prezi-style animated navigation between branches.
+
+## Spatial canvas model
+
+The conversation is laid out on a 2D canvas where:
+- **Vertical axis = time** — all threads run top-to-bottom
+- **Horizontal axis = branches** — the active thread is centered, sibling branches fan out to the left and right in parallel columns
+
+At any moment the user is "in" one thread. That thread fills the center of the viewport and scrolls vertically like a normal chat. Adjacent branches are visible as narrower, slightly faded columns to the left and right. Branch points show connecting indicators where the threads diverged.
+
+The technical foundation is **React Flow** (`@xyflow/react`): conversation nodes become React Flow nodes, branch connectors become React Flow edges, and the library's built-in pan/zoom and `fitView({ nodes })` API powers the Prezi navigation. Each conversation node renders its own bubble/chip/label content inside the React Flow node wrapper.
+
+A **minimap** (React Flow's built-in component) appears in a corner, showing the full canvas topology. Clicking the minimap triggers Prezi navigation to that location.
+
+## Prezi-style branch navigation
+
+Clicking a branch indicator (a subtle arrow or label on the left or right edge of the viewport) triggers a three-phase animated transition:
+
+**Phase 1 — Zoom out (~200ms)**
+The canvas scales down to ~25–30% so all branches are visible simultaneously. A CSS 3D perspective tilt engages: `perspective(1200px) rotateX(6deg) rotateY(±4deg)`, tilting toward the destination branch (left-tilt for left branch, right-tilt for right branch). This gives the sensation of physically pulling back to see the whole structure — the "rotation" that distinguishes this from a plain pan/zoom.
+
+**Phase 2 — Pan (~200ms)**
+The canvas translates horizontally to center the target branch. The tilt gradually shifts. At this scale the full conversation topology is readable — branch lengths, fork points, the relationship between threads.
+
+**Phase 3 — Zoom in (~200ms)**
+Scale returns to 100% centered on the target branch, the 3D tilt flattens to neutral. The user lands at the vertical position of the branch point and can scroll from there.
+
+Total transition: ~600ms, easing `cubic-bezier(0.4, 0, 0.2, 1)`. The transition must be interruptible — clicking another branch mid-transition navigates to the new target.
+
+Navigation modes:
+- **Within-branch**: normal vertical scroll, no transition
+- **Cross-branch**: full Prezi transition
+- **Back to parent**: Prezi transition back up the hierarchy
+- **Jump to now**: button that Prezi-transitions to the bottom of the active branch
 
 ## Visual system
 
 ### Layout structure
 
-A vertical spine line runs at roughly the 25% horizontal mark of the panel (not centered). It is the structural anchor for all event types. Agent content hangs to the left of the spine; user content floats to the right margin. This asymmetry gives agent messages (which are typically longer) more panel width.
+A vertical spine line runs at roughly the 25% horizontal mark within each branch column. It is the structural anchor for all event types. Agent content hangs to the left of the spine; user content floats to the right margin of the column. This asymmetry gives agent messages (typically longer) more width.
 
 Turn separators are subtle horizontal rules with a centered timestamp label:
 ```
 ── 10:42:31 ──────────────────────────────────────────
 ```
-These are the "vertical timeline with a line between events" — they appear between user/agent exchange pairs, not between every event.
+These appear between user/agent exchange pairs, not between every event.
 
 ### Event type visual treatments
 
 **UserTurn — right-aligned speech bubble**
-- Floats to the right margin, away from the spine
+- Floats to the right margin of the branch column, away from the spine
 - Fill: cyan/blue tint (matches TUI user color)
 - Shape: rounded rectangle (border-radius ~18px), iMessage proportions
-- Tail: a curvy SVG bezier tail at the bottom-right corner — not a sharp CSS triangle, an actual curved flare pointing down-right (away from the spine). The tail shape matches iMessage's characteristic "curled" look.
+- Tail: a curvy SVG bezier tail at the bottom-right corner — a curved flare pointing down-right, matching iMessage's characteristic look
 - Never collapsed
 
 **AssistantDone / streaming Token — left-aligned speech bubble**
 - Attaches to the left side of the spine
-- Fill: neutral dark surface (matches TUI white-on-dark)
+- Fill: neutral dark surface
 - Tail: curvy SVG bezier tail at the bottom-left corner, pointing toward the spine
-- Live streaming tokens append to the bubble in-place; the bubble grows downward as tokens arrive
+- Live streaming tokens append to the bubble in-place; the bubble grows downward
 - Never collapsed
 
 **Thinking — left-aligned thought bubble**
-- Same left-side position as agent speech bubbles, but a different shape and tail
-- Outline: scalloped/cloud border — achieved with CSS `border-radius` on overlapping pseudo-elements or an SVG clip-path with bumpy edges (no external library needed)
-- Tail: a series of 3 ascending circles of increasing size (the classic thought bubble trail), rather than a pointed or curved tail. The circles connect from the spine up to the bubble body.
-- **Collapsed by default**: shows the iMessage typing indicator — three pulsing gray dots (●●●) inside a small cloud bubble, with the ascending-circle tail
-- **Expanded**: the cloud bubble expands to show the full thinking text with the same scalloped border
-- The thought bubble / speech bubble distinction is the primary visual signal that this is reasoning, not output
+- Same left-side position as agent speech bubbles, different shape and tail
+- Outline: scalloped/cloud border (CSS pseudo-elements or SVG clip-path)
+- Tail: three ascending circles of increasing size (classic thought bubble trail)
+- **Collapsed by default**: animated pulsing dots (●●●) inside a small cloud bubble with ascending-circle tail
+- **Expanded**: cloud bubble expands to show full thinking text
 
-**ActionStart / ActionEnd / McpCall / McpResponse — timeline chips**
-- A horizontal pill/chip that crosses the spine like a node on a timeline
-- The chip sits on the spine rather than hanging off it — reads as "something happened here" not "someone said something"
-- Collapsed (default): one line — e.g. `[python] print("hello")...` or `→ github/search_repos` with a `▶` chevron on the right
-- Expanded: full content block (syntax-highlighted code or raw output) drops below the chip, indented from the spine
-- ActionStart and ActionEnd chips are visually paired — a faint connecting line between them when both are visible
+**ActionStart / ActionEnd pair — timeline chip (notebook cell)**
+- A horizontal chip crossing the spine; collapsed by default
+- **Single click expands both ActionStart and ActionEnd together** — do not require two expand actions
+- Expanded state: Jupyter notebook cell model — syntax-highlighted code on top, monospace output below, separated by a thin divider. Exit code badge in the header (green for 0, red otherwise)
+- ActionStart and ActionEnd chips that belong to the same execution are paired with a faint vertical connector line when both are visible in collapsed state
+
+**McpCall / McpResponse pair — timeline chip (DevTools network row)**
+- A horizontal chip crossing the spine; collapsed by default
+- Single click expands both together
+- Expanded state: request params (key fields only, heuristic extraction) on top, response summary below. A "View full JSON" toggle at the bottom expands to raw JSON (scrollable, fixed max-height)
 
 **Info / Error — spine labels**
-- Tiny inline text sitting directly on the spine line, no bubble, no chip
-- Info: small gray label with an ℹ icon
-- Error: small red label with a ✕ icon
-- These are diagnostic, not conversational — they should not visually compete with bubbles
+- Tiny inline text on the spine line; no bubble, no chip
+- Info: gray label with ℹ icon. Error: red label with ✕ icon
 
 **AdaptiveCard — left-aligned card**
-- Renders inline like an agent bubble but with a card-style border (not a speech bubble shape)
-- No tail — it's content, not dialogue
-- Never collapsed (the card itself is the compact representation)
+- Card-style border, no speech bubble tail
+- Never collapsed
 
-### Branch rendering (SubAgentSpawned / SubAgentDone)
+### Branch rendering
 
-When a branch event is received, the spine forks into N parallel vertical lines using SVG bezier curves at the fork point (git-log style). Each branch:
-- Has its own narrower spine
-- Renders its own bubbles/chips in the same visual system
-- Is slightly desaturated relative to the main thread to indicate subordinate context
-- Shows a branch label at the fork: `⎇ sub-agent: "summarize repo"`
+Branch column positions are computed from the tree topology. Fork points on the parent column show labeled branch indicators on the left/right edges of the viewport (not on the canvas itself — they're viewport-relative overlays that stay visible during vertical scroll). Clicking an indicator triggers the Prezi transition.
 
-At the merge point (SubAgentDone), the SVG paths curve back together into the main spine.
+Adjacent branch columns are rendered at reduced opacity (~40%) and slightly narrowed so the user can see the topology without reading individual nodes. Hovering a faded column highlights it and shows a "Switch to this branch" affordance.
 
-When there are more than 3 simultaneous branches, overflow branches collapse into a `+N more` indicator (click to expand into a scrollable side panel).
-
-The SVG fork/merge connectors should be rendered in a dedicated `<svg>` overlay layer positioned absolutely over the conversation panel, so the bubble layout is pure CSS flexbox and the connectors are pure SVG — no mixed layout hacks.
+When there are more than 3 simultaneous branches, overflow branches are shown as compact labels only in the zoomed-out view; a `+N more` indicator appears in the viewport-edge overlay.
 
 ### Collapse state
 
-The browser manages its own collapse state (`Map<NodeId, boolean>`). Initial state comes from `collapsed_by_default` on each event (true for ActionStart, ActionEnd, McpCall, McpResponse, Thinking). The user overrides per-node by clicking. A "Collapse all / Expand all" toggle in the toolbar affects all action chips and thought bubbles but not speech bubbles.
+Browser-local `Map<NodeId, boolean>`. Initial state from `collapsed_by_default` on each event. Collapse All / Expand All in the toolbar affects chips and thought bubbles, not speech bubbles.
 
 ### Auto-scroll
 
-Auto-scrolls to the bottom as new events arrive, unless the user has scrolled up. A "Jump to bottom" button appears when scrolled up.
+Auto-scrolls to the bottom of the active branch as new events arrive, unless the user has scrolled up. "Jump to now" button appears when scrolled up; it also Prezi-transitions if the latest event is in a different branch than the one currently viewed.
 
 ### Performance
 
-Must not freeze or scroll-jank with 1,000+ nodes. Use windowing/virtualization (e.g. `react-virtual` or `@tanstack/react-virtual`) for the node list. The SVG branch connector layer redraws only when branch topology changes, not on every event.
+Per-column virtualization for long branches using `@tanstack/react-virtual` (one virtualizer instance per branch column). At zoom-out scale, virtualization is suspended — at 25% scale, fixed-height placeholder nodes are rendered instead of full bubble content. The SVG/React Flow edge layer redraws only on topology changes.
 
 ## Implementation notes
 
-The SVG tail for speech bubbles can be implemented as an inline `<svg>` absolutely positioned at the bubble corner. A sample bezier path for the right-side (user) tail:
-
+The SVG tail for speech bubbles is an inline `<svg>` absolutely positioned at the bubble corner. Sample bezier path for the right-side (user) tail:
 ```svg
 <path d="M 0 0 C 4 0, 8 4, 6 12 C 10 8, 14 4, 18 0 Z" />
 ```
 
-Adjust control points to taste. The thought bubble ascending circles can be three `<circle>` elements of radius 3, 5, 7 spaced vertically below the bubble.
+The 3D tilt during Prezi transitions uses CSS `perspective` on the React Flow container's parent and `rotateX`/`rotateY` on the container itself, animated via `framer-motion` or a CSS transition on `transform`. Keep tilt angles small (≤8°) — the effect should feel like depth, not vertigo.
 
-The scalloped thought bubble border can be approximated with a CSS approach: a `box-shadow` with many small spread values, or with `border-radius` on a rotated pseudo-element grid. If CSS proves too fragile, fall back to an inline SVG `<path>` for the bubble outline.
+## Refinement notes (post-first-visual-iteration)
+
+Intentionally unspecified — require visual feedback to tune:
+- Whether long output clips at N lines with "N more" or scrolls inline
+- Tool call parameter extraction heuristics (which keys to surface in collapsed view)
+- Exact tilt angles and easing curves for the Prezi transition
+- Whether adjacent branch columns show node outlines or just the spine line at ambient opacity
+- Column width at zoom-out scale — enough to see structure, not enough to read text
+- Exact padding, font sizes, and border radius within expanded chip blocks
+- Whether ActionStart/ActionEnd far apart in the stream still pair visually or only when adjacent
 <!-- SECTION:DESCRIPTION:END -->
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 UserTurn events render as right-aligned cyan speech bubbles with a curvy SVG bezier tail at the bottom-right corner
-- [ ] #2 AssistantDone/Token events render as left-aligned dark speech bubbles with a curvy SVG bezier tail at the bottom-left corner, attached to the spine
-- [ ] #3 Thinking events render as left-aligned thought bubbles with a scalloped/cloud border and ascending-circle tail; collapsed by default showing animated pulsing dots (●●●); expandable to show thinking text
-- [ ] #4 ActionStart and ActionEnd events render as horizontal timeline chips crossing the spine; collapsed by default with a ▶ chevron; expanded shows full code/output block
-- [ ] #5 McpCall and McpResponse events render as timeline chips; collapsed by default
-- [ ] #6 Info and Error events render as small inline spine labels (no bubble, no chip)
-- [ ] #7 AdaptiveCard events render as left-aligned cards with a card border (no speech bubble tail)
-- [ ] #8 Turn separators render as horizontal rules with a centered timestamp label between exchange pairs
-- [ ] #9 The vertical spine line runs at ~25% of the panel width; agent content is left of spine, user content is right-aligned to the margin
-- [ ] #10 Sub-agent branches render as parallel spine lines with SVG bezier fork/merge connectors; branch label shown at fork point; >3 simultaneous branches collapse to +N more
-- [ ] #11 Collapse All / Expand All toolbar toggle affects thought bubbles and action chips but not speech bubbles
-- [ ] #12 Auto-scroll follows new events unless the user has scrolled up; Jump to bottom button appears when scrolled up
-- [ ] #13 Layout uses windowing/virtualization for the node list; no freeze or scroll-jank at 1,000 nodes
-- [ ] #14 SVG branch connectors are on a separate absolutely-positioned overlay layer; bubble layout is pure CSS flexbox
-- [ ] #15 cargo test --workspace passes (Rust side unaffected)
+- [ ] #1 The conversation is rendered on a 2D React Flow canvas; branch columns are positioned horizontally, threads scroll vertically
+- [ ] #2 Clicking a branch indicator triggers a three-phase Prezi transition: zoom out to ~25% with 3D perspective tilt, pan to target branch, zoom in to 100% with tilt returning to flat
+- [ ] #3 The transition direction of the 3D tilt corresponds to the navigation direction (left/right)
+- [ ] #4 Transitions are ~600ms total and interruptible — clicking mid-transition navigates to the new target
+- [ ] #5 The minimap shows full canvas topology and is clickable to trigger Prezi navigation
+- [ ] #6 Within-branch scrolling is normal vertical scroll with no transition
+- [ ] #7 Adjacent branch columns are visible at ~40% opacity during within-branch scroll; clicking triggers Prezi transition
+- [ ] #8 UserTurn events render as right-aligned cyan speech bubbles with a curvy SVG bezier tail at the bottom-right corner
+- [ ] #9 AssistantDone/Token events render as left-aligned dark speech bubbles with a curvy SVG bezier tail at the bottom-left corner
+- [ ] #10 Thinking events render as left-aligned thought bubbles with scalloped border and ascending-circle tail; collapsed by default showing animated pulsing dots; expandable
+- [ ] #11 ActionStart and ActionEnd render as paired timeline chips; a single click expands both together in a notebook-cell layout (code on top, output below)
+- [ ] #12 McpCall and McpResponse render as paired timeline chips; a single click expands both in a DevTools-row layout (params on top, result below, View full JSON toggle)
+- [ ] #13 Info and Error events render as small spine labels with no bubble or chip
+- [ ] #14 Collapse All / Expand All affects chips and thought bubbles but not speech bubbles
+- [ ] #15 Jump to now button appears when scrolled up; Prezi-transitions if the latest event is in a different branch
+- [ ] #16 Per-column virtualization is used for long branches; at zoom-out scale, placeholder nodes replace full bubble content
+- [ ] #17 cargo test --workspace passes (Rust side unaffected)
 <!-- AC:END -->
 
 ## Implementation Notes
