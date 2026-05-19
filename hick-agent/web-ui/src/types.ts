@@ -33,6 +33,7 @@ export type UiEvent =
       type: 'thinking'
       node_id: number
       parent_id: number | null
+      text: string | null
     }
   | {
       type: 'token'

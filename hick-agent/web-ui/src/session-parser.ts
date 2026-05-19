@@ -76,7 +76,7 @@ export class SessionBundleParser {
           const assistantId = nextId()
           results.push({
             timestamp: time,
-            event: { type: 'thinking', node_id: thinkingId, parent_id: null },
+            event: { type: 'thinking', node_id: thinkingId, parent_id: null, text: null },
           })
           results.push({
             timestamp: time,

@@ -137,13 +137,18 @@ impl ConversationTree {
             UiEvent::Thinking {
                 node_id,
                 parent_id,
+                text,
             } => {
+                let payload = match text {
+                    Some(t) if !t.is_empty() => ConversationPayload::Text(t.clone()),
+                    _ => ConversationPayload::Empty,
+                };
                 self.insert_node(
                     *node_id,
                     *parent_id,
                     ConversationNodeKind::Thinking,
-                    false,
-                    ConversationPayload::Empty,
+                    true,
+                    payload,
                     now,
                 );
             }

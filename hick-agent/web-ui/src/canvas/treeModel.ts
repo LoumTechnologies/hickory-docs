@@ -12,7 +12,7 @@ export interface BranchMeta {
 
 export type DisplayItem =
   | { kind: 'user_turn'; nodeId: number; text: string }
-  | { kind: 'thinking'; nodeId: number; collapsedByDefault: boolean }
+  | { kind: 'thinking'; nodeId: number; text: string; collapsedByDefault: boolean }
   | { kind: 'assistant'; nodeId: number; text: string; streaming: boolean }
   | {
       kind: 'action_pair'
@@ -47,6 +47,7 @@ export type DisplayItem =
 export interface TreeModel {
   branches: BranchMeta[]
   itemsByBranch: Map<BranchId, DisplayItem[]>
+  latestBranchId: BranchId
 }
 
 // Assign column indices: main=0, first sub=+1, second=-1, third=+2, ...
@@ -99,7 +100,7 @@ export function buildTreeModel(events: UiEvent[]): TreeModel {
         break
 
       case 'thinking':
-        items.push({ kind: 'thinking', nodeId: ev.node_id, collapsedByDefault: true })
+        items.push({ kind: 'thinking', nodeId: ev.node_id, text: ev.text ?? '', collapsedByDefault: true })
         break
 
       case 'token': {
@@ -271,5 +272,5 @@ export function buildTreeModel(events: UiEvent[]): TreeModel {
     }
   }
 
-  return { branches, itemsByBranch }
+  return { branches, itemsByBranch, latestBranchId: currentBranch() }
 }

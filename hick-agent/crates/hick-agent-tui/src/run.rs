@@ -379,7 +379,29 @@ impl App {
                 push_row_tagged(LineKind::User, format!("{pref}{chev}>{text}"));
             }
             ConversationNodeKind::Thinking => {
-                push_row_tagged(LineKind::Info, format!("{pref}{chev}{}", self.pulse_str()));
+                if folded {
+                    push_row_tagged(LineKind::Info, format!("{pref}{chev}{}", self.pulse_str()));
+                } else {
+                    match &node.payload {
+                        ConversationPayload::Text(t) if !t.is_empty() => {
+                            push_row_tagged(LineKind::Info, format!("{pref}{chev}[thinking]"));
+                            let pad = pref.chars().count() + chev.chars().count();
+                            let spacer = " ".repeat(pad + 2);
+                            for ln in t.lines() {
+                                out.push(StyledLine {
+                                    kind: LineKind::Assistant,
+                                    text: format!("{spacer}{ln}"),
+                                });
+                            }
+                        }
+                        _ => {
+                            push_row_tagged(
+                                LineKind::Info,
+                                format!("{pref}{chev}[LLM call — no extended thinking content]"),
+                            );
+                        }
+                    }
+                }
             }
             ConversationNodeKind::Assistant => {
                 let body = match &node.payload {
@@ -996,6 +1018,11 @@ impl App {
                 Style::default().fg(Color::Green),
             ));
         }
+        header_spans.push(Span::styled(" \u{2502} ", Style::default().fg(Color::DarkGray)));
+        header_spans.push(Span::styled(
+            "Shift+\u{2191}\u{2193}: select  Space/Enter: expand",
+            Style::default().fg(Color::DarkGray),
+        ));
         let header = Paragraph::new(Line::from(header_spans));
         frame.render_widget(header, chunks[0]);
         let _ = input_height;

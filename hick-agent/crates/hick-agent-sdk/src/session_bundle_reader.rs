@@ -85,6 +85,7 @@ fn parse_session_xml(xml: &str) -> Vec<UiEvent> {
                 events.push(UiEvent::Thinking {
                     node_id: thinking_id,
                     parent_id: None,
+                    text: None,
                 });
                 events.push(UiEvent::AssistantDone {
                     node_id: assistant_id,

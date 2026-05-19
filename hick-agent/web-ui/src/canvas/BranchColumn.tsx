@@ -1,4 +1,4 @@
-import { useRef, useEffect } from 'react'
+import { useRef, useEffect, useCallback, forwardRef, useImperativeHandle } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import type { BranchId, BranchMeta, DisplayItem } from './treeModel'
 import type { CollapseState } from './useCollapseState'
@@ -13,6 +13,10 @@ import { SubAgentNode } from '../nodes/SubAgentNode'
 
 export const COLUMN_WIDTH = 560
 
+export interface BranchColumnHandle {
+  scrollToBottom: () => void
+}
+
 export interface BranchColumnData {
   branch: BranchMeta
   items: DisplayItem[]
@@ -20,6 +24,7 @@ export interface BranchColumnData {
   collapseState: CollapseState
   send: (cmd: UiCommand) => void
   navigateToBranch: (id: BranchId) => void
+  onScrolledUp?: (scrolledUp: boolean) => void
 }
 
 function NetworkApprovalItem({
@@ -100,6 +105,7 @@ function renderItem(
       return (
         <ThinkingNode
           nodeId={item.nodeId}
+          text={item.text}
           isCollapsed={collapseState.isCollapsed(item.nodeId)}
           onToggle={() => collapseState.toggle(item.nodeId)}
         />
@@ -182,12 +188,27 @@ function renderItem(
   }
 }
 
-export function BranchColumn({ branch, items, isActive, collapseState, send, navigateToBranch }: BranchColumnData) {
-
+export const BranchColumn = forwardRef<BranchColumnHandle, BranchColumnData>(function BranchColumn(
+  { branch, items, isActive, collapseState, send, navigateToBranch, onScrolledUp },
+  ref,
+) {
   const scrollRef = useRef<HTMLDivElement>(null)
 
-  // Stop wheel events from reaching React Flow's canvas listener, which would
-  // call preventDefault and block the inner div from scrolling naturally.
+  useImperativeHandle(ref, () => ({
+    scrollToBottom() {
+      const el = scrollRef.current
+      if (!el) return
+      el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+    },
+  }))
+
+  const handleScroll = useCallback(() => {
+    const el = scrollRef.current
+    if (!el || !onScrolledUp) return
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80
+    onScrolledUp(!atBottom)
+  }, [onScrolledUp])
+
   useEffect(() => {
     const el = scrollRef.current
     if (!el) return
@@ -219,7 +240,11 @@ export function BranchColumn({ branch, items, isActive, collapseState, send, nav
       <div className="pointer-events-none absolute bottom-0 left-[25%] top-10 w-px bg-slate-800" />
 
       {/* Scrollable virtual list */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto overflow-x-hidden">
+      <div
+        ref={scrollRef}
+        className="flex-1 overflow-y-auto overflow-x-hidden"
+        onScroll={handleScroll}
+      >
         <div
           style={{ height: virtualizer.getTotalSize(), position: 'relative' }}
         >
@@ -246,4 +271,4 @@ export function BranchColumn({ branch, items, isActive, collapseState, send, nav
       </div>
     </div>
   )
-}
+})

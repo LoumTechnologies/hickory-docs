@@ -81,6 +81,7 @@ impl AgentUiBridge {
                 vec![UiEvent::Thinking {
                     node_id,
                     parent_id,
+                    text: None,
                 }]
             }
             AgentEvent::Token(text) => {
