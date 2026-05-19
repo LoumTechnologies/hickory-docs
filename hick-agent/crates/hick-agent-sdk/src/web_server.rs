@@ -139,10 +139,10 @@ impl WebServer {
 }
 
 async fn serve_index() -> impl IntoResponse {
-    ([(
-        axum::http::header::CONTENT_TYPE,
-        HeaderValue::from_static("text/html; charset=utf-8"),
-    )], INDEX_HTML)
+    ([
+        (axum::http::header::CONTENT_TYPE, HeaderValue::from_static("text/html; charset=utf-8")),
+        (axum::http::header::CACHE_CONTROL, HeaderValue::from_static("no-store")),
+    ], INDEX_HTML)
 }
 
 async fn serve_asset(Path(name): Path<String>) -> impl IntoResponse {
@@ -165,7 +165,10 @@ async fn serve_asset(Path(name): Path<String>) -> impl IntoResponse {
         _ => "application/octet-stream",
     };
     let hv = HeaderValue::from_str(ct).unwrap_or_else(|_| HeaderValue::from_static("application/octet-stream"));
-    ([(axum::http::header::CONTENT_TYPE, hv)], body).into_response()
+    ([
+        (axum::http::header::CONTENT_TYPE, hv),
+        (axum::http::header::CACHE_CONTROL, HeaderValue::from_static("no-store")),
+    ], body).into_response()
 }
 
 async fn ws_upgrade(
