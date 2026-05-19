@@ -1,6 +1,5 @@
 import { useRef, useEffect } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
-import type { NodeProps } from '@xyflow/react'
 import type { BranchId, BranchMeta, DisplayItem } from './treeModel'
 import type { CollapseState } from './useCollapseState'
 import type { UiCommand } from '../types'
@@ -183,9 +182,7 @@ function renderItem(
   }
 }
 
-export function BranchColumn({ data }: NodeProps) {
-  const { branch, items, isActive, collapseState, send, navigateToBranch } =
-    data as unknown as BranchColumnData
+export function BranchColumn({ branch, items, isActive, collapseState, send, navigateToBranch }: BranchColumnData) {
 
   const scrollRef = useRef<HTMLDivElement>(null)
 
@@ -208,7 +205,7 @@ export function BranchColumn({ data }: NodeProps) {
 
   return (
     <div
-      style={{ width: COLUMN_WIDTH, height: '100vh' }}
+      style={{ width: COLUMN_WIDTH, flexShrink: 0, height: '100%' }}
       className={`relative flex flex-col bg-slate-950/95 transition-opacity duration-300 ${
         isActive ? 'opacity-100' : 'opacity-40'
       }`}
