@@ -2,33 +2,52 @@
 name = "hick-agent"
 version = "0.1.0"
 edition = "2024"
-description = "Universal hick agent binary — all extensions linked; which activate is driven by .hick/agent.toml."
+description = "Universal hick agent binary — replaces iron-peak and copper-ledge."
 publish = false
 
 [[bin]]
-name = "hick-agent"
+name = "hick"
 path = "src/main.rs"
+
+[lib]
+name = "hick_agent"
+path = "src/lib.rs"
 
 [features]
 default = []
+local = ["dep:hick-agent-engine", "hick-agent-engine/local"]
+local-cuda = ["local", "hick-agent-engine/local-cuda"]
+integration-test = []
 
 [dependencies]
-# All extension crates linked in; activation is a runtime branch from config.
-hick-agent-sdk = { path = "../hick-agent-sdk" }
+# SDK + extension crates
+hick-agent-sdk = { path = "../hick-agent-sdk", features = ["web", "relay"] }
 hick-agent-script-first = { path = "../hick-agent-script-first" }
 hick-agent-hick-edit = { path = "../hick-agent-hick-edit" }
-hick-agent-mcp-wasm = { path = "../hick-agent-mcp-wasm" }
-hick-agent-mcp-sdk = { path = "../hick-agent-mcp-sdk" }
-hick-agent-mcp-xml = { path = "../hick-agent-mcp-xml" }
 hick-agent-mcp-graphql = { path = "../hick-agent-mcp-graphql" }
+hick-agent-mcp-sdk = { path = "../hick-agent-mcp-sdk" }
+hick-agent-mcp-wasm = { path = "../hick-agent-mcp-wasm" }
+hick-agent-mcp-xml = { path = "../hick-agent-mcp-xml" }
 hick-agent-core = { path = "../hick-agent-core" }
+hick-agent-tui = { path = "../hick-agent-tui" }
 hick-policy.workspace = true
 hick-classify.workspace = true
 network = { workspace = true }
 
+# Pipeline / hick runtime
+hick-literate = { version = "0.1", path = "../../../crates/hick-literate" }
+hick-lang.workspace = true
+hick-secrets.workspace = true
+hick-token.workspace = true
+
+# Local LLM (optional, build with --features local)
+hick-agent-engine = { path = "../hick-agent-engine", optional = true }
+
+# General CLI/async dependencies
 anyhow = "1"
 async-trait = "0.1"
 clap = { version = "4", features = ["derive", "env"] }
+chrono = "0.4"
 dotenvy = "0.15.7"
 futures = "0.3"
 log = "0.4"
@@ -38,5 +57,8 @@ tokio = { version = "1", features = ["full"] }
 toml = "1"
 
 [dev-dependencies]
+async-trait = "0.1"
+futures = "0.3"
+hick-literate = { version = "0.1", path = "../../../crates/hick-literate" }
 tempfile = "3"
-tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+zip = "2"

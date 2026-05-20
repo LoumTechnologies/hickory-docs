@@ -12,8 +12,8 @@ use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use futures::Stream;
-use iron_peak::events::AgentEvent;
-use iron_peak::llm::{ChatChunk, LlmClient, Message};
+use hick_agent::events::AgentEvent;
+use hick_agent::llm::{ChatChunk, LlmClient, Message};
 use hick_agent_script_first::ReactLoop;
 use hick_agent_core::{CommandExecutor, WasmSandboxConfig, WasmSandboxExecutor};
 use hick_token::ContainerCapabilities;
@@ -101,9 +101,6 @@ pub fn ensure_wasm_extracted(wasm_path: &Path) {
 }
 
 /// Repo-root-relative path to compiled container images (`c2w` output).
-///
-/// Matches `detect_images_dir` in `hick-agent` `main.rs`: walk upward from this
-/// crate until `native2wasm/crates/c2w/converted_images` exists.
 pub fn images_dir() -> PathBuf {
     let manifest = Path::new(env!("CARGO_MANIFEST_DIR"));
     let rel = Path::new("native2wasm/crates/c2w/converted_images");
@@ -124,13 +121,6 @@ pub fn images_dir() -> PathBuf {
     );
 }
 
-/// Image family passed to [`hick_literate::executor::resolve_image_path`] (e.g. `ubuntu` → `ubuntu/24.04.wasm`).
-///
-/// Prefer `ubuntu` when that fixture exists (full Python toolchain in typical images); otherwise
-/// use `alpine` so shell-based integration tests still run in minimal checkouts.
-///
-/// Note: `execution_python` needs `python3` on `PATH` (usually `ubuntu`/`debian` fixtures). A bare
-/// `alpine` image will fail those tests unless you extend them to `apk add python3` first.
 fn integration_image_family(images_root: &Path) -> String {
     for name in ["ubuntu", "debian", "fedora", "alpine"] {
         let path = hick_literate::executor::resolve_image_path(images_root, name);
@@ -156,14 +146,6 @@ pub fn create_executor(workdir: &Path) -> (SharedExecutor, String) {
     create_executor_with_guest_network(workdir, true)
 }
 
-/// Like [`create_executor`], but allows toggling the virtio guest network bootstrap.
-///
-/// Pass `guest_network: true` (the default for production) to boot with `--net=socket` so
-/// in-guest networking (`apk`, `pip`, etc.) works. The FD-3 collision fix ensures that
-/// host directory preopens are still visible at `/workspace` even with networking on.
-///
-/// Pass `guest_network: false` only when specifically testing the no-network path or when
-/// the test environment cannot reach the network.
 pub fn create_executor_with_guest_network(
     workdir: &Path,
     guest_network: bool,
@@ -171,10 +153,6 @@ pub fn create_executor_with_guest_network(
     create_executor_with_capabilities(workdir, guest_network, ContainerCapabilities::default())
 }
 
-/// Like [`create_executor_with_guest_network`], but with explicit capabilities.
-///
-/// Use this to test the `CapabilityFilter` path (deny-all + specific allow list),
-/// which is what the live agent uses by default.
 pub fn create_executor_with_capabilities(
     workdir: &Path,
     guest_network: bool,
@@ -236,7 +214,7 @@ pub async fn run_agent(
 }
 
 /// Collect all `ScriptFinished` events from a run.
-pub fn finished_results(events: &[AgentEvent]) -> Vec<&iron_peak::tools::ScriptResult> {
+pub fn finished_results(events: &[AgentEvent]) -> Vec<&hick_agent::tools::ScriptResult> {
     events
         .iter()
         .filter_map(|e| match e {

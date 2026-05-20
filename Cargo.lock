@@ -2374,25 +2374,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "copper-ledge"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "chrono",
- "clap",
- "dotenvy",
- "hick-agent-core",
- "hick-agent-script-first",
- "hick-agent-sdk",
- "hick-agent-tui",
- "hick-policy",
- "hick-token",
- "log",
- "tokio",
-]
-
-[[package]]
 name = "core-foundation"
 version = "0.9.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4290,10 +4271,12 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "chrono",
  "clap",
  "dotenvy",
  "futures",
  "hick-agent-core",
+ "hick-agent-engine",
  "hick-agent-hick-edit",
  "hick-agent-mcp-graphql",
  "hick-agent-mcp-sdk",
@@ -4301,8 +4284,13 @@ dependencies = [
  "hick-agent-mcp-xml",
  "hick-agent-script-first",
  "hick-agent-sdk",
+ "hick-agent-tui",
  "hick-classify",
+ "hick-lang",
+ "hick-literate",
  "hick-policy",
+ "hick-secrets",
+ "hick-token",
  "log",
  "network",
  "serde",
@@ -4310,6 +4298,7 @@ dependencies = [
  "tempfile",
  "tokio",
  "toml 1.1.2+spec-1.1.0",
+ "zip",
 ]
 
 [[package]]
@@ -5478,33 +5467,6 @@ name = "ipnet"
 version = "2.12.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d98f6fed1fde3f8c21bc40a1abb88dd75e67924f9cffc3ef95607bad8017f8e2"
-
-[[package]]
-name = "iron-peak"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "chrono",
- "clap",
- "dotenvy",
- "futures",
- "hick-agent-core",
- "hick-agent-engine",
- "hick-agent-hick-edit",
- "hick-agent-script-first",
- "hick-agent-sdk",
- "hick-agent-tui",
- "hick-lang",
- "hick-literate",
- "hick-policy",
- "hick-secrets",
- "hick-token",
- "log",
- "tempfile",
- "tokio",
- "zip",
-]
 
 [[package]]
 name = "is-terminal"

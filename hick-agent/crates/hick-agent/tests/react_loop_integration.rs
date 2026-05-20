@@ -1,17 +1,13 @@
 //! Integration tests: Full ReactLoop multi-turn conversations.
 //!
-//! These tests verify the complete agent loop — ScriptedLlm provides
-//! deterministic responses, the ReactLoop extracts code blocks, executes
-//! them in the WASM sandbox, and feeds observations back.
-//!
-//! Run with: cargo test -p iron-peak --features integration-test --test react_loop_integration -- --test-threads=1
+//! Run with: cargo test -p hick-agent --features integration-test --test react_loop_integration -- --test-threads=1
 
 #![cfg(feature = "integration-test")]
 
 mod common;
 
 use common::{create_executor, done_message, finished_results, run_agent};
-use iron_peak::events::AgentEvent;
+use hick_agent::events::AgentEvent;
 
 #[tokio::test(flavor = "multi_thread")]
 async fn single_turn_no_code() {
@@ -62,15 +58,11 @@ async fn multi_turn_python_conversation() {
     let results = finished_results(&events);
     assert_eq!(results.len(), 3);
 
-    // All scripts succeeded
     for (i, r) in results.iter().enumerate() {
         assert_eq!(r.exit_code, Some(0), "script {i} failed: {r:?}");
     }
 
-    // Third script should show the file content
     assert!(results[2].stdout.contains("created by agent"));
-
-    // Final answer present
     assert!(done_message(&events).unwrap().contains("created by agent"));
 }
 
@@ -111,9 +103,7 @@ console.log(summary);
     assert_eq!(results.len(), 2);
     assert!(results[0].stdout.contains("config written"));
     assert!(
-        results[1]
-            .stdout
-            .contains("hickory v2: sandbox, multi-lang"),
+        results[1].stdout.contains("hickory v2: sandbox, multi-lang"),
         "stdout: {:?}",
         results[1].stdout
     );
@@ -163,7 +153,6 @@ async fn events_emitted_in_order() {
     )
     .await;
 
-    // Verify event ordering: Thinking → Token/ResponseComplete → ScriptStarted → ScriptFinished → Thinking → ... → Done
     let event_names: Vec<&str> = events
         .iter()
         .map(|e| match e {
@@ -178,10 +167,7 @@ async fn events_emitted_in_order() {
         })
         .collect();
 
-    // First event should be Thinking
     assert_eq!(event_names[0], "Thinking");
-
-    // Should contain the key sequence
     assert!(event_names.contains(&"ScriptStarted"));
     assert!(event_names.contains(&"ScriptFinished"));
     assert_eq!(*event_names.last().unwrap(), "Done");

@@ -1,8 +1,9 @@
-//! iron-peak: hick-native AI coding agent.
+//! hick: universal AI coding agent.
 //!
-//! A thin CLI/TUI wrapper wiring [`hick_agent_sdk`] (runtime),
+//! A CLI/TUI binary wiring [`hick_agent_sdk`] (runtime),
 //! [`hick_agent_script_first`] (script-first ReAct strategy), and
 //! [`hick_agent_hick_edit`] (hick pipeline integration) together.
+//! Extension activation is driven by `.hick/agent.toml`.
 
 /// Event types for agent-to-UI communication.
 pub use hick_agent_script_first::events;
@@ -33,8 +34,6 @@ pub use hick_agent_sdk::NetworkApprovalRequest;
 pub use hick_agent_sdk::NetworkFilter;
 /// Verdict for a filtered network request: Allow or Block.
 pub use hick_agent_sdk::NetworkVerdict;
-/// OpenAI-compatible chat completion client.
-pub use hick_agent_sdk::OpenAiCompatClient;
 /// Watches `.hick` files, transparently reruns the pipeline, and applies reverse provenance.
 pub use hick_agent_hick_edit::PipelineWatcher;
 /// Script-first ReAct loop.
