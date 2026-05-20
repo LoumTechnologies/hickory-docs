@@ -2,7 +2,7 @@
 //!
 //! All agent logic has been split into two crates:
 //! - [`hick_agent_sdk`] — generic building blocks (LLM clients, sandbox, network filter, etc.)
-//! - [`hick_agent_script_first`] — script-first ReAct strategy (ReactLoop, events, tools)
+//! - [`hick_agent_script_first`] — script-first strategy (ScriptBlockIntentParser, events, tools)
 //!
 //! The `local` llama.cpp provider lives here because llama-cpp-2 is a heavy optional dep
 //! that only the binary needs; it is not suitable for the sdk.
@@ -13,10 +13,8 @@
 pub use hick_agent_script_first::AgentCommand;
 /// Events emitted by the agent core to the UI (tokens, script results, errors).
 pub use hick_agent_script_first::AgentEvent;
-/// State machine for the script-first ReAct agent loop.
-pub use hick_agent_script_first::AgentState;
-/// Script-first ReAct loop: extracts code blocks from LLM responses and executes them in a sandbox.
-pub use hick_agent_script_first::ReactLoop;
+/// [`MatchIntent`] impl for the script-first agent strategy.
+pub use hick_agent_script_first::ScriptBlockIntentParser;
 /// A code block extracted from an LLM response.
 pub use hick_agent_script_first::CodeBlock;
 /// Execution backend for an extracted fenced code block.

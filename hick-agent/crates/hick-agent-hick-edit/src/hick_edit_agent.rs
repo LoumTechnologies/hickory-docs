@@ -1,24 +1,24 @@
-//! `HickEditAgent` — composable hick-XML behaviour layered on top of `AgentRuntime`.
+//! `HickEditAgent` — composable hick-XML behaviour layered on top of [`AgentHistory`].
 
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use tokio::sync::Mutex;
 
-use hick_agent_sdk::AgentRuntime;
+use hick_agent_sdk::AgentHistory;
 
 use crate::file_io::load_hick_sources;
 use crate::paste_slot_inserter::insert_paste_slots;
 use crate::{HickEditService, PasteSlotRegistry};
 
-/// Adds hick-XML edit capabilities to an [`AgentRuntime`].
+/// Adds hick-XML edit capabilities to an [`AgentHistory`].
 ///
-/// `HickEditAgent` wraps the generic SDK runtime and layers on hick-specific
+/// `HickEditAgent` holds an [`AgentHistory`] and layers on hick-specific
 /// behaviour: discovering paste slots, composing `<hick:copy>` elements for
 /// modifications, and composing `<hick:file>` elements for new files.
 pub struct HickEditAgent {
-    /// Underlying generic agent runtime (LLM, history, sandbox).
-    pub runtime: AgentRuntime,
+    /// Conversation history (messages and taint classifications).
+    pub history: AgentHistory,
     /// Hick edit service for pipeline execution and structural queries.
     edit_service: Arc<Mutex<HickEditService>>,
     /// Registry of paste slots discovered from the current pipeline.
@@ -28,10 +28,10 @@ pub struct HickEditAgent {
 }
 
 impl HickEditAgent {
-    /// Create a new `HickEditAgent` from an existing [`AgentRuntime`].
-    pub fn new(runtime: AgentRuntime, project_dir: PathBuf) -> Self {
+    /// Create a new `HickEditAgent` from an [`AgentHistory`].
+    pub fn new(history: AgentHistory, project_dir: PathBuf) -> Self {
         Self {
-            runtime,
+            history,
             edit_service: Arc::new(Mutex::new(HickEditService::new())),
             registry: PasteSlotRegistry::new(),
             project_dir,

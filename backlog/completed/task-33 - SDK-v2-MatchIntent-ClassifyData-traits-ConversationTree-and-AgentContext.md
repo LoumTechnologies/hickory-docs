@@ -1,10 +1,10 @@
 ---
 id: TASK-33
 title: 'SDK v2: MatchIntent/ClassifyData traits, ConversationTree, and AgentContext'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-05-17 10:49'
-updated_date: '2026-05-17 10:52'
+updated_date: '2026-05-20 16:07'
 labels:
   - sdk
   - architecture
@@ -140,13 +140,24 @@ Updating the binaries is the integration test that the new API is ergonomic. The
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 `MatchIntent`, `ClassifyData`, `ConversationTree`, `AgentContext`, `IntentRouter`, and `LoopIntent` are defined and exported from `hick-agent-sdk`.
-- [ ] #2 `ConversationTree` tracks per-node data classifications; `.branch()` inherits parent classifications; `.merge(sub, strategy)` folds results back.
-- [ ] #3 `IntentRouter` accepts a list of registered `MatchIntent` impls and returns `LoopIntent` by trying each parser in priority order.
-- [ ] #4 The canonical `run_agent_engine` loop compiles and passes a unit test with a mock LLM, mock executor, and at least one custom `MatchIntent` impl.
-- [ ] #5 `AgentRuntime` and the old `ReactLoop` public API are deleted — no shims remain in `hick-agent-sdk`.
-- [ ] #6 `hick-agent-script-first`'s fenced-block parsing is extracted into a `ScriptBlockIntentParser` struct implementing `MatchIntent`; the old `ReactLoop` entry point is replaced.
-- [ ] #7 `copper-ledge` is updated to build an `AgentContext` with `ScriptBlockIntentParser`; it compiles and all existing tests pass.
-- [ ] #8 `iron-peak` is updated to build an `AgentContext` with both `ScriptBlockIntentParser` and `HickEditIntentParser`; it compiles and all existing tests pass.
-- [ ] #9 All existing tests in `hick-agent-sdk` and `hick-agent-script-first` pass after the refactor.
+- [ ] #1 MatchIntent, ClassifyData, ConversationTree, AgentContext, IntentRouter, and LoopIntent are defined and exported from hick-agent-sdk.
+- [ ] #2 ConversationTree tracks per-node data classifications; .branch() inherits parent classifications; .merge(sub, strategy) folds results back.
+- [ ] #3 IntentRouter accepts a list of registered MatchIntent impls and returns LoopIntent by trying each parser in priority order.
+- [ ] #4 The canonical run_agent_engine loop compiles and passes a unit test with a mock LLM, mock executor, and at least one custom MatchIntent impl.
+- [ ] #5 AgentRuntime and the old ReactLoop public API are deleted — no shims remain in hick-agent-sdk.
+- [ ] #6 hick-agent-script-first's fenced-block parsing is extracted into a ScriptBlockIntentParser struct implementing MatchIntent; the old ReactLoop entry point is replaced.
+- [ ] #7 The hick binary (hick-agent/crates/hick-agent/) is updated to build an AgentContext using the extensions declared in the active agent.toml; it compiles and all existing tests pass. (iron-peak and copper-ledge no longer exist — TASK-43 replaced them.)
+- [ ] #8 All existing tests in hick-agent-sdk and hick-agent-script-first pass after the refactor.
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+AC updated 2026-05-20: removed references to iron-peak and copper-ledge (deleted by TASK-43). Integration target is now the hick binary at hick-agent/crates/hick-agent/.
+<!-- SECTION:NOTES:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Implemented SDK v2: MatchIntent/ClassifyData traits, AgentHistory (with branching/merging), IntentRouter, LoopIntent, AgentContext, ToolExecutor, AgentIo, TaskCompleteSignal, and run_agent_engine in hick-agent-sdk/src/agent_engine.rs. Replaced ReactLoop in hick-agent-script-first with ScriptBlockIntentParser implementing MatchIntent, returning TaskCompleteSignal for done responses and ScriptBlockPayload for code blocks. Deleted AgentRuntime (runtime.rs) and ReactLoop (react_loop.rs old impl) and AgentState (state.rs) with no shims. Updated HickEditAgent to use AgentHistory instead of AgentRuntime. Rewrote hick-agent/src/main.rs to wire AgentContext with HickAgentIo, HickToolExecutor, IntentRouter containing ScriptBlockIntentParser. All workspace tests pass.
+<!-- SECTION:FINAL_SUMMARY:END -->

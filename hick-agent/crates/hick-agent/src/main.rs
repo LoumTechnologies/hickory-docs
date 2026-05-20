@@ -24,16 +24,22 @@ use tokio::sync::{Mutex, Notify, broadcast, mpsc};
 #[cfg(feature = "local")]
 use hick_agent_engine::LocalLlmClient;
 use hick_agent_script_first::{
-    AgentCommand, AgentEvent, ReactLoop,
-    run_ui_event_fanout_task,
+    AgentCommand, AgentEvent, ScriptBlockIntentParser, ScriptBlockPayload,
+    correction_message, run_ui_event_fanout_task,
+    CodeBlock, Language, ScriptResult,
+    SANDBOX_EXECUTION_CONTEXT, SANDBOX_RUNTIME_PROBE,
 };
 use hick_agent_tui::{run_tui, TuiConfig};
 use hick_agent_hick_edit::{PipelineWatcher, insert_paste_slots};
 use hick_agent_sdk::{
-    AgentSecurityConfig, AnthropicClient, FilteredLlmClient, LlmClient,
-    NetworkApprovalRequest, NetworkFilter, OpenAiCompatClient, SinkGuard,
-    XmlDiagnosticLogger, XmlSessionLog, NullSessionLog,
+    AgentContext, AgentHistory, AgentIo, AgentSecurityConfig, AnthropicClient,
+    FilteredLlmClient, IntentRouter, LlmClient, Message, NetworkApprovalRequest,
+    NetworkFilter, OpenAiCompatClient, Role, SinkGuard,
+    ToolData, ToolExecutor, XmlDiagnosticLogger, XmlSessionLog, NullSessionLog,
+    run_agent_engine,
 };
+use std::any::Any;
+use std::sync::atomic::{AtomicBool, Ordering};
 use hick_agent_sdk::network_filter::extract_host_from_url;
 
 // ── System prompt ─────────────────────────────────────────────────────────────
@@ -640,40 +646,372 @@ fn load_extensions(
     }
 }
 
+// ── HickAgentIo ───────────────────────────────────────────────────────────────
+
+/// Possible side-effects signalled from [`HickAgentIo::await_next_input_packet`].
+enum PendingCommand {
+    None,
+    Quit,
+    Rewind { system_messages: Vec<Message>, user_assistant_history: Vec<Message> },
+}
+
+struct HickAgentIo {
+    /// Receives all `AgentCommand`s from the TUI / UI.
+    cmd_rx: tokio::sync::Mutex<mpsc::UnboundedReceiver<AgentCommand>>,
+    /// Sends `AgentEvent`s to the UI fanout task.
+    event_tx: mpsc::UnboundedSender<AgentEvent>,
+    /// Cleared to signal the engine loop to exit.
+    running: Arc<AtomicBool>,
+    /// Side-channel for non-message commands detected during `await_next_input_packet`.
+    pending: tokio::sync::Mutex<PendingCommand>,
+    /// Snapshot of system messages for rewind reconstruction.
+    system_messages: tokio::sync::Mutex<Vec<Message>>,
+    /// WASM executor reference (for DirectCommand handling).
+    executor: Arc<tokio::sync::Mutex<dyn CommandExecutor>>,
+    /// Container image name for the WASM sandbox.
+    sandbox_image: String,
+    /// Agent scratch directory (`.hick`).
+    agent_dir: String,
+    /// Project directory.
+    project_dir: std::path::PathBuf,
+}
+
+#[async_trait::async_trait]
+impl AgentIo for HickAgentIo {
+    async fn await_next_input_packet(&self) -> String {
+        loop {
+            let cmd = {
+                let mut rx = self.cmd_rx.lock().await;
+                rx.recv().await
+            };
+            match cmd {
+                Some(AgentCommand::Message(msg)) => {
+                    self.event_tx.send(AgentEvent::UserMessage(msg.clone())).ok();
+                    return msg;
+                }
+                Some(AgentCommand::DirectCommand(cmd)) => {
+                    // Execute the command in the sandbox and return an observation.
+                    self.event_tx
+                        .send(AgentEvent::ScriptStarted {
+                            code: cmd.clone(),
+                            lang: "sh".to_string(),
+                        })
+                        .ok();
+                    let result = self.execute_shell(&cmd).await;
+                    self.event_tx.send(AgentEvent::ScriptFinished(result.clone())).ok();
+                    let obs = format!(
+                        "User ran directly (! command): {cmd}\nOutput:\n{}",
+                        result.as_observation()
+                    );
+                    self.event_tx.send(AgentEvent::Done(String::new())).ok();
+                    return obs;
+                }
+                Some(AgentCommand::RewindTo { fork_node_id, user_assistant_history }) => {
+                    let system_msgs = self.system_messages.lock().await.clone();
+                    *self.pending.lock().await = PendingCommand::Rewind {
+                        system_messages: system_msgs,
+                        user_assistant_history,
+                    };
+                    self.event_tx
+                        .send(AgentEvent::Info(format!(
+                            "Context rewound to branch point #{fork_node_id}."
+                        )))
+                        .ok();
+                    self.running.store(false, Ordering::SeqCst);
+                    return String::new();
+                }
+                Some(AgentCommand::Quit) | None => {
+                    *self.pending.lock().await = PendingCommand::Quit;
+                    self.running.store(false, Ordering::SeqCst);
+                    return String::new();
+                }
+            }
+        }
+    }
+
+    fn stream_chunk(&self, message: &Message) {
+        if !message.content.is_empty() {
+            self.event_tx.send(AgentEvent::Token(message.content.clone())).ok();
+        }
+    }
+
+    fn print_status_update(&self, text: &str) {
+        self.event_tx.send(AgentEvent::Done(text.to_string())).ok();
+    }
+}
+
+impl HickAgentIo {
+    async fn execute_shell(&self, cmd: &str) -> ScriptResult {
+        let sandbox_cmd = format!("cd /workspace && {cmd}");
+        let mut exec = self.executor.lock().await;
+        match exec
+            .execute("agent-sandbox", &sandbox_cmd, &self.sandbox_image, Some(60))
+            .await
+        {
+            Ok(result) => ScriptResult {
+                stdout: result.output,
+                stderr: String::new(),
+                exit_code: result.exit_code,
+            },
+            Err(e) => ScriptResult {
+                stdout: String::new(),
+                stderr: format!("Command failed: {e}"),
+                exit_code: None,
+            },
+        }
+    }
+}
+
+// ── HickToolExecutor ──────────────────────────────────────────────────────────
+
+struct HickToolExecutor {
+    executor: Arc<tokio::sync::Mutex<dyn CommandExecutor>>,
+    sandbox_image: String,
+    agent_dir: String,
+    project_dir: std::path::PathBuf,
+    event_tx: mpsc::UnboundedSender<AgentEvent>,
+    session_log: Arc<dyn hick_agent_sdk::SessionLog>,
+    policy_evaluator: Option<hick_policy::PolicyEvaluator>,
+    inject_sdk_pythonpath: bool,
+}
+
+#[async_trait::async_trait]
+impl ToolExecutor for HickToolExecutor {
+    async fn run(&self, _tool: ToolData) -> anyhow::Result<Message> {
+        // The script-first strategy uses run_custom; standard tool calls are not used.
+        Ok(Message {
+            role: Role::User,
+            content: "<tool-error>No MCP tools configured</tool-error>".to_string(),
+        })
+    }
+
+    async fn run_custom(
+        &self,
+        name: &str,
+        payload: Box<dyn Any + Send>,
+    ) -> anyhow::Result<Message> {
+        if name != "script_first" {
+            return Ok(Message {
+                role: Role::User,
+                content: format!("<tool-error>Unknown custom intent: {name}</tool-error>"),
+            });
+        }
+
+        let script_payload = match payload.downcast::<ScriptBlockPayload>() {
+            Ok(p) => p,
+            Err(_) => {
+                return Ok(Message {
+                    role: Role::User,
+                    content: "<tool-error>Invalid script_first payload type</tool-error>".to_string(),
+                });
+            }
+        };
+
+        match *script_payload {
+            ScriptBlockPayload::Invalid { reason } => {
+                // Inject re-prompt correction — LLM will self-correct on next turn.
+                Ok(Message {
+                    role: Role::User,
+                    content: correction_message(&reason),
+                })
+            }
+            ScriptBlockPayload::Code { blocks, .. } => {
+                let results = self.execute_blocks(&blocks).await;
+                let observation = results
+                    .iter()
+                    .enumerate()
+                    .map(|(i, r)| {
+                        if results.len() == 1 {
+                            format!("Script output:\n{}", r.as_observation())
+                        } else {
+                            format!("Script {} output:\n{}", i + 1, r.as_observation())
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n\n---\n\n");
+
+                Ok(Message { role: Role::User, content: observation })
+            }
+        }
+    }
+}
+
+impl HickToolExecutor {
+    async fn execute_blocks(&self, blocks: &[CodeBlock]) -> Vec<ScriptResult> {
+        let mut results = Vec::with_capacity(blocks.len());
+
+        for (i, block) in blocks.iter().enumerate() {
+            // Policy check.
+            if let Some(ref evaluator) = self.policy_evaluator {
+                let input = hick_policy::FlowPolicyInput {
+                    column_classifications: serde_json::json!({}),
+                    sink_type: "script-execution".to_string(),
+                    slot_name: format!("script_{i}"),
+                    data_classification: serde_json::json!(["agent-generated"]),
+                    token_caveats: vec![],
+                };
+                match evaluator.evaluate_flow(&input).await {
+                    Ok(hick_policy::PolicyDecision::Allow) => {}
+                    Ok(hick_policy::PolicyDecision::Deny { reason }) => {
+                        let desc = format!("Policy denied script execution: {reason}");
+                        self.event_tx.send(AgentEvent::SecurityViolation { description: desc.clone() }).ok();
+                        self.session_log.record(hick_agent_sdk::session_log::LogEvent::SecurityViolation { description: &desc });
+                        results.push(ScriptResult {
+                            stdout: String::new(),
+                            stderr: format!("Policy denied execution: {reason}"),
+                            exit_code: Some(1),
+                        });
+                        continue;
+                    }
+                    Ok(hick_policy::PolicyDecision::Prompt { reason }) => {
+                        let desc = format!("Policy requires approval for script execution: {reason}");
+                        self.event_tx.send(AgentEvent::SecurityViolation { description: desc.clone() }).ok();
+                        self.session_log.record(hick_agent_sdk::session_log::LogEvent::SecurityViolation { description: &desc });
+                        results.push(ScriptResult {
+                            stdout: String::new(),
+                            stderr: format!("Policy requires approval: {reason}"),
+                            exit_code: Some(1),
+                        });
+                        continue;
+                    }
+                    Err(e) => {
+                        let desc = format!("Policy evaluation error: {e}");
+                        self.event_tx.send(AgentEvent::SecurityViolation { description: desc.clone() }).ok();
+                        self.session_log.record(hick_agent_sdk::session_log::LogEvent::SecurityViolation { description: &desc });
+                        results.push(ScriptResult {
+                            stdout: String::new(),
+                            stderr: format!("Policy evaluation failed: {e}"),
+                            exit_code: Some(1),
+                        });
+                        continue;
+                    }
+                }
+            }
+
+            let lang = block.language.extension().to_string();
+            self.session_log.record(hick_agent_sdk::session_log::LogEvent::ActionStart { lang: &lang, code: &block.code });
+            self.event_tx
+                .send(AgentEvent::ScriptStarted {
+                    code: block.code.clone(),
+                    lang: lang.clone(),
+                })
+                .ok();
+            let result = self.execute_block(block, i).await;
+            self.session_log.record(hick_agent_sdk::session_log::LogEvent::ActionEnd {
+                stdout: &result.stdout,
+                stderr: &result.stderr,
+                exit_code: result.exit_code,
+            });
+            self.event_tx.send(AgentEvent::ScriptFinished(result.clone())).ok();
+            results.push(result);
+        }
+
+        results
+    }
+
+    async fn execute_block(&self, block: &CodeBlock, index: usize) -> ScriptResult {
+        let tmp_dir = self.project_dir.join(&self.agent_dir).join("tmp");
+        if let Err(e) = std::fs::create_dir_all(&tmp_dir) {
+            return ScriptResult {
+                stdout: String::new(),
+                stderr: format!("Failed to create tmp dir: {e}"),
+                exit_code: None,
+            };
+        }
+
+        let filename = format!("script_{index}.{}", block.language.extension());
+        let script_path = tmp_dir.join(&filename);
+        if let Err(e) = std::fs::write(&script_path, &block.code) {
+            return ScriptResult {
+                stdout: String::new(),
+                stderr: format!("Failed to write script: {e}"),
+                exit_code: None,
+            };
+        }
+
+        let container_script_path =
+            format!("/workspace/{}/tmp/{filename}", self.agent_dir);
+
+        let run_cmd = block.language.run_command(&container_script_path);
+        let cmd = match block.language {
+            Language::Python => {
+                if self.inject_sdk_pythonpath {
+                    format!(
+                        "PYTHONPATH=/workspace/{}/sdk WORKSPACE=/workspace {run_cmd}",
+                        self.agent_dir
+                    )
+                } else {
+                    format!("WORKSPACE=/workspace {run_cmd}")
+                }
+            }
+            Language::Shell
+            | Language::JavaScript
+            | Language::TypeScript
+            | Language::CSharp => format!("cd /workspace && {run_cmd}"),
+        };
+
+        let mut exec = self.executor.lock().await;
+
+        if let Err(e) = exec
+            .inject_file(
+                "agent-sandbox",
+                &self.sandbox_image,
+                block.code.as_bytes(),
+                &container_script_path,
+            )
+            .await
+        {
+            return ScriptResult {
+                stdout: String::new(),
+                stderr: format!("Failed to inject script into sandbox: {e}"),
+                exit_code: None,
+            };
+        }
+
+        match exec
+            .execute("agent-sandbox", &cmd, &self.sandbox_image, Some(300))
+            .await
+        {
+            Ok(result) => ScriptResult {
+                stdout: result.output.clone(),
+                stderr: String::new(),
+                exit_code: result.exit_code,
+            },
+            Err(e) => ScriptResult {
+                stdout: String::new(),
+                stderr: format!("Sandbox execution failed: {e}"),
+                exit_code: None,
+            },
+        }
+    }
+}
+
 // ── Agent task ────────────────────────────────────────────────────────────────
 
 async fn agent_task(
-    mut react_loop: ReactLoop,
-    events: mpsc::UnboundedSender<AgentEvent>,
-    mut commands: mpsc::UnboundedReceiver<AgentCommand>,
-    interrupt: Arc<Notify>,
+    ctx: AgentContext,
+    io: Arc<HickAgentIo>,
+    mut history: AgentHistory,
 ) {
-    while let Some(cmd) = commands.recv().await {
-        match cmd {
-            AgentCommand::Message(msg) => {
-                if let Err(e) = react_loop.run(&msg, &events, &interrupt).await {
-                    events.send(AgentEvent::Error(e.to_string())).ok();
-                }
-            }
-            AgentCommand::DirectCommand(cmd) => {
-                if let Err(e) = react_loop.run_direct_command(&cmd, &events).await {
-                    events.send(AgentEvent::Error(e.to_string())).ok();
-                }
-            }
-            AgentCommand::Quit => break,
-            AgentCommand::RewindTo { fork_node_id, user_assistant_history } => {
-                let system_msgs: Vec<_> = react_loop
-                    .history()
-                    .iter()
-                    .take_while(|m| m.role == hick_agent_sdk::Role::System)
-                    .cloned()
-                    .collect();
-                let mut full_history = system_msgs;
-                full_history.extend(user_assistant_history);
-                react_loop.set_history(full_history);
-                events
-                    .send(AgentEvent::Info(format!("Context rewound to branch point #{fork_node_id}.")))
-                    .ok();
+    let running = Arc::clone(&io.running);
+    loop {
+        running.store(true, Ordering::SeqCst);
+        run_agent_engine(&ctx, &mut history, Arc::clone(&running)).await;
+
+        // Check what caused the engine to exit.
+        let pending = {
+            let mut lock = io.pending.lock().await;
+            std::mem::replace(&mut *lock, PendingCommand::None)
+        };
+        match pending {
+            PendingCommand::Quit | PendingCommand::None => break,
+            PendingCommand::Rewind { system_messages, user_assistant_history } => {
+                let mut new_msgs = system_messages;
+                new_msgs.extend(user_assistant_history);
+                history.set_messages(new_msgs);
+                history.mark_idle();
+                // Update the system_messages snapshot for future rewinds.
+                // (system messages don't change, so no action needed here.)
             }
         }
     }
@@ -883,16 +1221,21 @@ async fn main() -> Result<()> {
                 HICK_SYSTEM_PROMPT.to_string()
             };
 
-            let mut react_loop = ReactLoop::new(llm, project_dir.clone())
-                .with_executor(sandbox_executor, default_image.clone())
-                .with_sink_guard(sink_guard)
-                .with_agent_dir(".hick")
-                .with_system_prompt(&system_prompt);
+            // Build sandbox probe text to append to the system prompt
+            let probe_text: Option<String> = {
+                let mut exec = sandbox_executor.lock().await;
+                match exec
+                    .execute("agent-sandbox", SANDBOX_RUNTIME_PROBE, &default_image, Some(120))
+                    .await
+                {
+                    Ok(cmd_out) => Some(cmd_out.output),
+                    Err(e) => Some(format!("Sandbox runtime probe failed: {e}")),
+                }
+            };
 
             // Enable hick pipeline integration when configured
+            let inject_sdk = hick_edit;
             if hick_edit {
-                react_loop = react_loop.with_sdk();
-
                 // Copy the Python SDK into .hick/sdk/
                 setup_sdk(&project_dir);
 
@@ -913,34 +1256,39 @@ async fn main() -> Result<()> {
                 event_tx.send(AgentEvent::Info("Pipeline: watching .hick files".into())).ok();
             }
 
-            // Wire up policy evaluator if configured
-            if let Some(ref policy_path) = security_config.policy_script {
-                let resolved = project_dir.join(policy_path);
-                let canonical_project = project_dir.canonicalize().unwrap_or_default();
-                let is_valid_policy = resolved.exists()
-                    && resolved.is_file()
-                    && resolved.extension().is_some_and(|ext| ext == "py")
-                    && resolved.canonicalize().ok().is_some_and(|p| p.starts_with(&canonical_project));
+            // Wire up optional policy evaluator.
+            let policy_evaluator: Option<hick_policy::PolicyEvaluator> =
+                if let Some(ref policy_path) = security_config.policy_script {
+                    let resolved = project_dir.join(policy_path);
+                    let canonical_project = project_dir.canonicalize().unwrap_or_default();
+                    let is_valid_policy = resolved.exists()
+                        && resolved.is_file()
+                        && resolved.extension().is_some_and(|ext| ext == "py")
+                        && resolved.canonicalize().ok().is_some_and(|p| p.starts_with(&canonical_project));
 
-                if is_valid_policy {
-                    react_loop = react_loop.with_policy(hick_policy::PolicyEvaluator::new(
-                        resolved.to_str().unwrap_or(policy_path),
-                    ));
-                    event_tx.send(AgentEvent::Info(format!("Policy: active ({})", resolved.display()))).ok();
-                } else if resolved.exists() {
-                    event_tx.send(AgentEvent::Info(format!(
-                        "Policy: rejected ({}) — must be a .py file within project directory",
-                        resolved.display()
-                    ))).ok();
+                    if is_valid_policy {
+                        event_tx.send(AgentEvent::Info(format!("Policy: active ({})", resolved.display()))).ok();
+                        Some(hick_policy::PolicyEvaluator::new(
+                            resolved.to_str().unwrap_or(policy_path),
+                        ))
+                    } else if resolved.exists() {
+                        event_tx.send(AgentEvent::Info(format!(
+                            "Policy: rejected ({}) — must be a .py file within project directory",
+                            resolved.display()
+                        ))).ok();
+                        None
+                    } else {
+                        event_tx.send(AgentEvent::Info(format!(
+                            "Policy: script not found ({}), skipping",
+                            resolved.display()
+                        ))).ok();
+                        None
+                    }
                 } else {
-                    event_tx.send(AgentEvent::Info(format!(
-                        "Policy: script not found ({}), skipping",
-                        resolved.display()
-                    ))).ok();
-                }
-            }
+                    None
+                };
 
-            react_loop.stream_output = !no_stream;
+            let _no_stream = no_stream; // kept for future streaming support
 
             event_tx.send(AgentEvent::Info(format!("Project: {}", project_dir.display()))).ok();
 
@@ -1041,10 +1389,63 @@ async fn main() -> Result<()> {
             log::set_boxed_logger(Box::new(XmlDiagnosticLogger::new(Arc::clone(&session_log)))).ok();
             log::set_max_level(log::LevelFilter::Info);
 
-            let react_loop = react_loop.with_session_log(Arc::clone(&session_log));
+            // Build the initial conversation history with system prompt.
+            let mut history = AgentHistory::new();
+            {
+                let mut full_system = system_prompt.clone();
+                full_system.push_str(SANDBOX_EXECUTION_CONTEXT);
+                if let Some(ref probe) = probe_text {
+                    full_system.push_str(
+                        "\n\n## Detected sandbox runtimes (automatic probe)\n\n```text\n",
+                    );
+                    full_system.push_str(probe.trim_end());
+                    full_system.push_str("\n```\n");
+                }
+                history.push_system(full_system.clone());
+                // Store system messages snapshot in the io struct (set below).
+                let _ = full_system; // used above
+            }
+            let system_messages_snapshot: Vec<Message> = history.messages().to_vec();
 
-            let interrupt_agent = Arc::clone(&interrupt);
-            tokio::spawn(agent_task(react_loop, event_tx.clone(), cmd_rx, interrupt_agent));
+            let running = Arc::new(AtomicBool::new(true));
+
+            let hick_io = Arc::new(HickAgentIo {
+                cmd_rx: tokio::sync::Mutex::new(cmd_rx),
+                event_tx: event_tx.clone(),
+                running: Arc::clone(&running),
+                pending: tokio::sync::Mutex::new(PendingCommand::None),
+                system_messages: tokio::sync::Mutex::new(system_messages_snapshot),
+                executor: Arc::clone(&sandbox_executor),
+                sandbox_image: default_image.clone(),
+                agent_dir: ".hick".to_string(),
+                project_dir: project_dir.clone(),
+            });
+
+            let hick_executor = Arc::new(HickToolExecutor {
+                executor: Arc::clone(&sandbox_executor),
+                sandbox_image: default_image.clone(),
+                agent_dir: ".hick".to_string(),
+                project_dir: project_dir.clone(),
+                event_tx: event_tx.clone(),
+                session_log: Arc::clone(&session_log),
+                policy_evaluator,
+                inject_sdk_pythonpath: inject_sdk,
+            });
+
+            let mut router = IntentRouter::new();
+            router.register(ScriptBlockIntentParser);
+
+            let ctx = AgentContext {
+                llm,
+                router,
+                executor: hick_executor,
+                io: Arc::clone(&hick_io) as Arc<dyn AgentIo>,
+            };
+
+            // Suppress unused warning — sink_guard is captured for future use
+            let _ = sink_guard;
+
+            tokio::spawn(agent_task(ctx, hick_io, history));
 
             let interrupt_tui = Arc::clone(&interrupt);
             tokio::task::spawn_blocking(move || {

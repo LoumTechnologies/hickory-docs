@@ -1,9 +1,8 @@
-//! Script-first ReAct agent strategy — extension crate on top of `hick-agent-sdk`.
+//! Script-first agent strategy — extension crate on top of `hick-agent-sdk`.
 //!
-//! Provides one specific agent strategy: the LLM is prompted to write fenced
-//! code blocks (Python, shell, JS, C#, TypeScript), those scripts are extracted
-//! and executed in a WASM sandbox, and stdout is fed back as the next
-//! observation.
+//! Provides the script-first agent strategy: the LLM writes fenced code blocks
+//! (Python, shell, JS, C#, TypeScript), those scripts are extracted and executed
+//! in a WASM sandbox, and stdout is fed back as the next observation.
 //!
 //! This crate has zero knowledge of hick XML, hick pipelines, or hickory-specific
 //! formats. It works on any codebase.
@@ -11,7 +10,6 @@
 pub mod agent_ui_bridge;
 pub mod events;
 pub mod react_loop;
-pub mod state;
 pub mod tools;
 
 /// Events emitted by the agent core to the UI (tokens, script results, errors).
@@ -25,10 +23,20 @@ pub use agent_ui_bridge::run_ui_event_fanout_task;
 pub use agent_ui_bridge::ui_command_to_agent;
 /// Commands sent from the UI to the agent core (user messages, quit).
 pub use events::AgentCommand;
-/// Script-first ReAct loop: extracts code blocks from LLM responses and executes them in a sandbox.
-pub use react_loop::ReactLoop;
-/// State machine for the script-first ReAct agent loop.
-pub use state::AgentState;
+/// [`MatchIntent`] impl for the script-first strategy — parses `<hick:next>` responses.
+pub use react_loop::ScriptBlockIntentParser;
+/// Payload produced by [`ScriptBlockIntentParser`] for code or invalid responses.
+pub use react_loop::ScriptBlockPayload;
+/// Validate a `<hick:next>` response for protocol compliance.
+pub use react_loop::validate_response;
+/// Build the correction message to inject when an LLM response violates the protocol.
+pub use react_loop::correction_message;
+/// Default system prompt for the script-first agent strategy.
+pub use react_loop::SYSTEM_PROMPT;
+/// Sandbox execution context appended to the system prompt in WASM mode.
+pub use react_loop::SANDBOX_EXECUTION_CONTEXT;
+/// Shell probe command run once per session to enumerate sandbox runtimes.
+pub use react_loop::SANDBOX_RUNTIME_PROBE;
 /// A code block extracted from an LLM response.
 pub use tools::CodeBlock;
 /// Execution backend for an extracted fenced code block.

@@ -9,8 +9,15 @@
 //!
 //! | Type | Purpose |
 //! |------|---------|
-//! | [`AgentRuntime`] | Handle for writing an agent while loop |
-//! | [`Step`] | Enum dispatched in the while loop body |
+//! | [`MatchIntent`] | Trait for extensible LLM response parsers |
+//! | [`ClassifyData`] | Trait for background security / taint scanners |
+//! | [`AgentHistory`] | Taint-aware conversation history with branching |
+//! | [`IntentRouter`] | Routes a response to the first matching parser |
+//! | [`LoopIntent`] | Enum dispatched by the canonical engine loop |
+//! | [`AgentContext`] | Dependency bag passed into the engine loop |
+//! | [`ToolExecutor`] | Trait for dispatching tool and custom intent calls |
+//! | [`AgentIo`] | Trait for blocking input / streaming output |
+//! | [`run_agent_engine`] | Canonical async agent loop |
 //! | [`LlmClient`] | Trait for LLM chat completion clients |
 //! | [`AnthropicClient`] | Anthropic Messages API client |
 //! | [`OpenAiCompatClient`] | OpenAI-compatible API client |
@@ -29,9 +36,10 @@
 //! | [`format_mcp_result`] | Detect shape and serialize an MCP result |
 //! | [`UiEvent`] | Canonical UI event stream (TUI, web, relay) |
 //! | [`UiCommand`] | Commands from any UI toward the agent core |
-//! | [`ConversationTree`] | Conversation tree derived from [`UiEvent`]s |
+//! | [`ConversationTree`] | UI rendering tree derived from [`UiEvent`]s |
 //!
 //! With the **`web`** feature ([`WebServer`]), expose a localhost HTTP shell + `/ws` JSON bridge.
+pub mod agent_engine;
 pub mod agent_memory;
 pub mod agent_skills;
 pub mod agentignore;
@@ -47,7 +55,6 @@ pub mod mcp_install;
 pub mod mcp_project_config;
 pub mod network_filter;
 pub mod project_context;
-pub mod runtime;
 pub mod security_config;
 pub mod session_log;
 pub mod sink_guard;
@@ -66,17 +73,33 @@ pub mod web_server;
 pub mod relay_client;
 
 // ---------------------------------------------------------------------------
-// Runtime
+// Agent engine (SDK v2)
 // ---------------------------------------------------------------------------
 
-/// The handle for writing an agent while loop (history, streaming, sandbox).
-pub use runtime::AgentRuntime;
-/// Event enum that the agent while loop dispatches on.
-pub use runtime::Step;
-/// A streaming token chunk from the LLM.
-pub use runtime::StreamChunk;
-/// A structured tool call requested by the LLM.
-pub use runtime::ToolCall;
+/// Extensible LLM response parser trait.
+pub use agent_engine::MatchIntent;
+/// Background data classification scanner trait.
+pub use agent_engine::ClassifyData;
+/// Taint-aware conversation history with branching support.
+pub use agent_engine::AgentHistory;
+/// Merge strategy for folding a sub-branch back into its parent.
+pub use agent_engine::MergeStrategy;
+/// Holds registered [`MatchIntent`] impls and routes an LLM response to the first match.
+pub use agent_engine::IntentRouter;
+/// Intent returned by the router — what the canonical loop does next.
+pub use agent_engine::LoopIntent;
+/// Structured tool call parsed from an LLM response.
+pub use agent_engine::ToolData;
+/// Dispatches tool calls and custom-intent payloads; enforces security policy.
+pub use agent_engine::ToolExecutor;
+/// Input/output interface for the agent engine.
+pub use agent_engine::AgentIo;
+/// Dependency bag passed into the canonical agent engine loop.
+pub use agent_engine::AgentContext;
+/// Canonical async agent engine loop.
+pub use agent_engine::run_agent_engine;
+/// Marker payload returned by a [`MatchIntent`] impl to signal task completion.
+pub use agent_engine::TaskCompleteSignal;
 
 // ---------------------------------------------------------------------------
 // LLM clients

@@ -1,8 +1,8 @@
 //! hick: universal AI coding agent.
 //!
-//! A CLI/TUI binary wiring [`hick_agent_sdk`] (runtime),
-//! [`hick_agent_script_first`] (script-first ReAct strategy), and
-//! [`hick_agent_hick_edit`] (hick pipeline integration) together.
+//! A CLI/TUI binary wiring [`hick_agent_sdk`] (SDK v2 engine),
+//! [`hick_agent_script_first`] (script-first strategy via [`ScriptBlockIntentParser`]),
+//! and [`hick_agent_hick_edit`] (hick pipeline integration) together.
 //! Extension activation is driven by `.hick/agent.toml`.
 
 /// Event types for agent-to-UI communication.
@@ -36,8 +36,8 @@ pub use hick_agent_sdk::NetworkFilter;
 pub use hick_agent_sdk::NetworkVerdict;
 /// Watches `.hick` files, transparently reruns the pipeline, and applies reverse provenance.
 pub use hick_agent_hick_edit::PipelineWatcher;
-/// Script-first ReAct loop.
-pub use hick_agent_script_first::ReactLoop;
+/// [`MatchIntent`] impl for the script-first strategy.
+pub use hick_agent_script_first::ScriptBlockIntentParser;
 /// Validates outbound API sink calls against capability tokens and sink definitions.
 pub use hick_agent_sdk::SinkGuard;
 /// Local GGUF model inference client using llama.cpp (requires `local` feature).

@@ -11,7 +11,7 @@
 //!
 //! | Type | Purpose |
 //! |------|---------|
-//! | [`HickEditAgent`] | Composable hick-edit behaviour layered on `AgentRuntime` |
+//! | [`HickEditAgent`] | Composable hick-edit behaviour layered on [`AgentHistory`] |
 //! | [`HickEditFormat`] | Trait for hick XML edit operations |
 //! | [`HickEditService`] | Concrete edit service backed by hick and hick-lens |
 //! | [`PipelineWatcher`] | Watches `.hick` files and transparently reruns the pipeline |
@@ -91,7 +91,7 @@ pub use paste_slot_inserter::insert_paste_slots;
 // Hick edit agent
 // ---------------------------------------------------------------------------
 
-/// Composable hick-XML edit behaviour layered on top of [`hick_agent_sdk::AgentRuntime`].
+/// Composable hick-XML edit behaviour layered on top of [`hick_agent_sdk::AgentHistory`].
 pub use hick_edit_agent::HickEditAgent;
 
 // ---------------------------------------------------------------------------
