@@ -66,6 +66,27 @@ together for A/B evaluation. The combination is explicit in
 `Cargo.toml` — no hidden feature gates. When evaluation is done, the
 winning combination becomes the public release binary.
 
+## Formal Specifications (`docs/specs/`)
+
+Formal behavioural specifications for this codebase live in `docs/specs/`.
+They use RFC-style normative language (`MUST`, `MUST NOT`, `SHOULD`,
+`SHOULD NOT`, `MAY`). All spec files MUST use this language consistently —
+informal phrasing ("should", "will", "needs to") is not acceptable in a spec.
+
+**During every conversation**, watch for requirements, constraints, or
+invariants the user states about how the system must behave. If a stated
+requirement belongs in a spec:
+
+1. Check whether a relevant spec file already exists in `docs/specs/`.
+2. If one exists, add the requirement to it using normative language.
+3. If none exists, create a new spec file in `docs/specs/` with an
+   appropriate name and a `## Scope` section before adding the requirement.
+4. Tell the user which spec file was updated or created.
+
+Do this proactively — do not wait to be asked. Requirements mentioned in
+passing during planning or debugging conversations are just as binding as
+those stated explicitly.
+
 ## Backlog.md Tool Behaviour: task_list vs task_view
 
 `task_list` only searches `backlog/tasks/`. Completed tasks live in
