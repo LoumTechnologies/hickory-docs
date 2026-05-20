@@ -4286,6 +4286,7 @@ dependencies = [
  "hick-agent-sdk",
  "hick-agent-tui",
  "hick-classify",
+ "hick-eval-store",
  "hick-lang",
  "hick-literate",
  "hick-policy",

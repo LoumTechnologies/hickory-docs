@@ -126,10 +126,23 @@ impl AgentUiBridge {
                 // Checkpoint: record the turn history after adding this assistant response.
                 self.turn_history.push(Message { role: Role::Assistant, content: text.clone() });
                 self.node_turn_checkpoint.insert(node_id, self.turn_history.len());
-                vec![UiEvent::AssistantDone {
-                    node_id,
-                    text,
-                }]
+                // Approximate token counts: 4 chars ≈ 1 token (rough heuristic).
+                let output_tokens = (text.len() as u64).div_ceil(4);
+                let input_tokens = self.turn_history
+                    .iter()
+                    .map(|m| m.content.len() as u64)
+                    .sum::<u64>()
+                    .div_ceil(4);
+                let stats_id = self.ids.next();
+                vec![
+                    UiEvent::AssistantDone { node_id, text },
+                    UiEvent::TurnStats {
+                        node_id: stats_id,
+                        input_tokens,
+                        output_tokens,
+                        cost_usd: None,
+                    },
+                ]
             }
             AgentEvent::ScriptStarted { code, lang } => {
                 let node_id = self.ids.next();
@@ -242,7 +255,8 @@ pub fn ui_command_to_agent(cmd: UiCommand) -> Option<AgentCommand> {
         | UiCommand::RewindTo { .. }
         | UiCommand::NetworkApproval { .. }
         | UiCommand::McpCredential { .. }
-        | UiCommand::McpCredentialSkip => None,
+        | UiCommand::McpCredentialSkip
+        | UiCommand::AddConfigPath { .. } => None,
     }
 }
 

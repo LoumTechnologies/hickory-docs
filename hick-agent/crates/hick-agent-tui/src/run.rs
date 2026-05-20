@@ -29,6 +29,20 @@ use hick_agent_sdk::{
     UiCommand, UiEvent, UiNetworkApproval,
 };
 
+// ---------------------------------------------------------------------------
+// Public multi-tab API
+// ---------------------------------------------------------------------------
+
+/// One config slot for [`run_tui`] — supplies events from one agent instance.
+pub struct TabSource {
+    /// Label shown in the tab bar (e.g. `"claude-opus / hick-edit"`).
+    pub label: String,
+    /// Events produced by this agent instance.
+    pub event_rx: mpsc::UnboundedReceiver<UiEvent>,
+    /// Channel to send commands back to this agent instance (or to the shared UI).
+    pub cmd_tx: mpsc::UnboundedSender<UiCommand>,
+}
+
 // ── Styled output model ────────────────────────────────────────────
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -53,7 +67,6 @@ enum FoldOverride {
 }
 
 /// Configuration forwarded from each binary crate.
-#[derive(Clone)]
 pub struct TuiConfig {
     pub agent_name: String,
     pub provider_info: String,
@@ -65,6 +78,8 @@ pub struct TuiConfig {
     /// When set, the TUI enters read-only replay mode.  The value is shown in
     /// the header banner as `[REPLAY] <label>` and the input bar is hidden.
     pub replay_label: Option<String>,
+    /// Receive dynamically-added tabs (mid-session mode switching, AC #6).
+    pub add_tab_rx: Option<mpsc::UnboundedReceiver<TabSource>>,
 }
 
 // ── Application state ──────────────────────────────────────────────
@@ -98,6 +113,10 @@ struct App {
     preorder_ids: Vec<NodeId>,
     selected_ix: usize,
     pending_turn_sep: bool,
+    /// Completed turn count (for per-tab stats display).
+    turn_count: u64,
+    /// Accumulated approximate output token count.
+    total_output_tokens: u64,
     pulse_counter: usize,
     lines: Vec<StyledLine>,
     input: String,
@@ -123,6 +142,8 @@ impl App {
             preorder_ids: Vec::new(),
             selected_ix: 0,
             pending_turn_sep: false,
+            turn_count: 0,
+            total_output_tokens: 0,
             pulse_counter: 0,
             lines: Vec::new(),
             input: String::new(),
@@ -178,12 +199,17 @@ impl App {
                 }
                 return;
             }
+            UiEvent::TurnStats { output_tokens, .. } => {
+                self.total_output_tokens += output_tokens;
+                return; // not a tree node
+            }
             UiEvent::NetworkApproval(inner) => {
                 self.approvals_q.push_back(inner.clone());
             }
             UiEvent::Done { .. } | UiEvent::Interrupted { .. } => {
                 self.pending_turn_sep = true;
                 self.busy = false;
+                self.turn_count += 1;
             }
             UiEvent::Error { .. } => self.busy = false,
             UiEvent::Info { text, .. } => {
@@ -649,8 +675,11 @@ impl App {
     fn handle_key(
         &mut self,
         key: crossterm::event::KeyEvent,
+        // Primary command sender (for this tab's agent + UI state).
         cmd_tx: &mpsc::UnboundedSender<UiCommand>,
         cred_req_tx: &mpsc::UnboundedSender<McpCredentialRequest>,
+        // Extra senders that should receive fan-out copies of Message/DirectCommand/Cancel.
+        fanout_txs: &[mpsc::UnboundedSender<UiCommand>],
     ) {
         if key.kind != KeyEventKind::Press {
             return;
@@ -889,17 +918,17 @@ impl App {
                             self.misc_info("Usage: ! <shell command>");
                             return;
                         }
-                    cmd_tx
-                        .send(UiCommand::DirectCommand {
-                            text: shell_cmd,
-                        })
-                        .ok();
+                        let dc = UiCommand::DirectCommand { text: shell_cmd };
+                        cmd_tx.send(dc.clone()).ok();
+                        for tx in fanout_txs { tx.send(dc.clone()).ok(); }
                         self.busy = true;
                         self.auto_scroll = true;
                         return;
                     }
 
-                    cmd_tx.send(UiCommand::Message { text: msg }).ok();
+                    let msg_cmd = UiCommand::Message { text: msg };
+                    cmd_tx.send(msg_cmd.clone()).ok();
+                    for tx in fanout_txs { tx.send(msg_cmd.clone()).ok(); }
                     self.busy = true;
                     self.auto_scroll = true;
                 }
@@ -1039,10 +1068,10 @@ impl App {
 
     // ── Rendering ──────────────────────────────────────────────────
 
-    fn render(&mut self, frame: &mut Frame) {
+    fn render_in(&mut self, frame: &mut Frame, area: ratatui::layout::Rect) {
         self.rebuild_screen();
         self.pump_network_prompt();
-        let area = frame.area();
+        let area = area;
 
         let replay_mode = self.config.replay_label.is_some();
         let input_height: u16 = if replay_mode { 0 } else { 3 };
@@ -1398,47 +1427,139 @@ fn extract_card_text(val: &serde_json::Value, out: &mut Vec<String>) {
 
 // ── Public entry point ─────────────────────────────────────────────
 
-/// Blocking Ratatui session — consumes merged [`UiEvent`]s and emits [`UiCommand`]s upward.
+/// Blocking Ratatui session — multi-tab capable.
+///
+/// `tabs` must have at least one entry. When it has exactly one entry the UI is
+/// identical to the previous single-tab behaviour. With multiple entries a tab
+/// bar appears at the top; `[` / `]` switch tabs and messages are fanned out to
+/// all active agents simultaneously.
+///
+/// Dynamic tabs can be added mid-session via `config.add_tab_rx`.
 pub fn run_tui(
-    mut ui_rx: mpsc::UnboundedReceiver<UiEvent>,
-    ui_cmd_tx: mpsc::UnboundedSender<UiCommand>,
+    tabs: Vec<TabSource>,
     config: TuiConfig,
 ) -> anyhow::Result<()> {
+    assert!(!tabs.is_empty(), "run_tui requires at least one TabSource");
     use std::io;
+
     enable_raw_mode()?;
     let mut stdout = io::stdout();
     execute!(stdout, EnterAlternateScreen)?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
-    let mut app = App::new(config);
+    // Decompose tabs into parallel vecs — event receivers, command senders, labels, Apps.
+    let mut event_rxs: Vec<mpsc::UnboundedReceiver<UiEvent>> = Vec::new();
+    let mut cmd_txs: Vec<mpsc::UnboundedSender<UiCommand>> = Vec::new();
+    let mut tab_labels: Vec<String> = Vec::new();
+    let mut apps: Vec<App> = Vec::new();
+    let mut add_tab_rx = config.add_tab_rx;
+
+    for tab in tabs {
+        event_rxs.push(tab.event_rx);
+        cmd_txs.push(tab.cmd_tx);
+        tab_labels.push(tab.label);
+    }
+
+    // Create a shared TuiConfig (without the add_tab_rx) for the apps.
+    let shared_config = TuiConfig {
+        agent_name: config.agent_name.clone(),
+        provider_info: config.provider_info.clone(),
+        project_dir: config.project_dir.clone(),
+        interrupt: Arc::clone(&config.interrupt),
+        ui_fanout_tx: config.ui_fanout_tx.clone(),
+        web_ui_url: config.web_ui_url.clone(),
+        replay_label: config.replay_label.clone(),
+        add_tab_rx: None,
+    };
+    for _ in 0..event_rxs.len() {
+        apps.push(App::new(shared_config.clone()));
+    }
+
+    let mut active_tab: usize = 0;
     let (cred_req_tx, mut cred_req_rx) = mpsc::unbounded_channel::<McpCredentialRequest>();
+
+    let multi = apps.len() > 1;
+    // Tab bar height: 1 row for labels + 1 divider row when multi-tab.
+    let tab_bar_height: u16 = if multi { 2 } else { 0 };
 
     let result = (|| -> anyhow::Result<()> {
         loop {
-            app.pulse_counter = app.pulse_counter.wrapping_add(1);
-            terminal.draw(|f| app.render(f))?;
+            // Dynamically add new tabs if requested (AC #6).
+            if let Some(ref mut rx) = add_tab_rx {
+                while let Ok(new_tab) = rx.try_recv() {
+                    event_rxs.push(new_tab.event_rx);
+                    cmd_txs.push(new_tab.cmd_tx);
+                    tab_labels.push(new_tab.label);
+                    apps.push(App::new(shared_config.clone()));
+                }
+            }
+
+            let n_tabs = apps.len();
+            let is_multi = n_tabs > 1;
+
+            // Increment pulse on the active app.
+            apps[active_tab].pulse_counter = apps[active_tab].pulse_counter.wrapping_add(1);
+
+            terminal.draw(|f| {
+                let full_area = f.area();
+                if is_multi {
+                    // Render tab bar at top.
+                    let (bar_area, body_area) = split_tab_bar(full_area, tab_bar_height);
+                    render_tab_bar(f, bar_area, &tab_labels, &apps, active_tab);
+                    apps[active_tab].render_in(f, body_area);
+                } else {
+                    apps[0].render_in(f, full_area);
+                }
+            })?;
 
             if event::poll(Duration::from_millis(16))? {
                 if let Event::Key(key) = event::read()? {
-                    app.handle_key(key, &ui_cmd_tx, &cred_req_tx);
-                    if app.should_quit {
+                    // Tab switching keys (multi-tab only).
+                    if is_multi && key.kind == KeyEventKind::Press {
+                        match (key.modifiers, key.code) {
+                            (_, KeyCode::Char('[')) if apps[active_tab].input.is_empty() => {
+                                active_tab = active_tab.saturating_sub(1);
+                                continue;
+                            }
+                            (_, KeyCode::Char(']')) if apps[active_tab].input.is_empty() => {
+                                active_tab = (active_tab + 1).min(n_tabs - 1);
+                                continue;
+                            }
+                            _ => {}
+                        }
+                    }
+
+                    // Fan-out senders: all cmd_txs except the active tab's.
+                    let fanout: Vec<mpsc::UnboundedSender<UiCommand>> = cmd_txs
+                        .iter()
+                        .enumerate()
+                        .filter(|(i, _)| *i != active_tab)
+                        .map(|(_, tx)| tx.clone())
+                        .collect();
+
+                    apps[active_tab].handle_key(key, &cmd_txs[active_tab], &cred_req_tx, &fanout);
+                    if apps[active_tab].should_quit {
                         break;
                     }
                 }
             }
 
-            while let Ok(ev) = ui_rx.try_recv() {
-                app.ingest(&ev);
+            // Drain events for every tab.
+            for (i, rx) in event_rxs.iter_mut().enumerate() {
+                while let Ok(ev) = rx.try_recv() {
+                    apps[i].ingest(&ev);
+                }
             }
 
-            if app.pending_mcp_credential.is_none() {
+            // MCP credential prompts only apply to the active tab.
+            if apps[active_tab].pending_mcp_credential.is_none() {
                 if let Ok(req) = cred_req_rx.try_recv() {
-                    app.misc_info(format!(
+                    apps[active_tab].misc_info(format!(
                         "[mcp] Credential needed for '{}' — enter env var name (blank to skip):",
                         req.server_name
                     ));
-                    app.pending_mcp_credential = Some(PendingMcpCredential {
+                    apps[active_tab].pending_mcp_credential = Some(PendingMcpCredential {
                         server_name: req.server_name,
                         stage: CredentialStage::EnvVarName,
                         response_tx: req.response_tx,
@@ -1454,4 +1575,89 @@ pub fn run_tui(
     terminal.show_cursor()?;
 
     result
+}
+
+// ── Tab bar helpers ────────────────────────────────────────────────
+
+/// Split `area` into (tab_bar, body) vertically.
+fn split_tab_bar(area: ratatui::layout::Rect, bar_height: u16) -> (ratatui::layout::Rect, ratatui::layout::Rect) {
+    use ratatui::layout::Rect;
+    let bar = Rect {
+        x: area.x,
+        y: area.y,
+        width: area.width,
+        height: bar_height.min(area.height),
+    };
+    let body_y = area.y.saturating_add(bar_height);
+    let body = Rect {
+        x: area.x,
+        y: body_y,
+        width: area.width,
+        height: area.height.saturating_sub(bar_height),
+    };
+    (bar, body)
+}
+
+/// Render the tab bar labels with active tab highlighted.
+fn render_tab_bar(
+    frame: &mut Frame,
+    area: ratatui::layout::Rect,
+    labels: &[String],
+    apps: &[App],
+    active: usize,
+) {
+    let mut spans: Vec<Span> = Vec::new();
+    for (i, (label, app)) in labels.iter().zip(apps.iter()).enumerate() {
+        let display = if label.is_empty() {
+            format!(" Tab {} ", i + 1)
+        } else {
+            format!(" {} ", label)
+        };
+        // Append per-tab stats if any turns have completed.
+        let stats = if app.turn_count > 0 {
+            format!(
+                "[{}t ~{}k]",
+                app.turn_count,
+                app.total_output_tokens / 1000
+            )
+        } else {
+            String::new()
+        };
+        let full_label = format!("{}{}", display, stats);
+        let style = if i == active {
+            Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)
+        } else if app.busy {
+            Style::default().fg(Color::Yellow)
+        } else {
+            Style::default().fg(Color::DarkGray)
+        };
+        spans.push(Span::styled(full_label, style));
+        if i + 1 < labels.len() {
+            spans.push(Span::styled(" │ ", Style::default().fg(Color::DarkGray)));
+        }
+    }
+    // Hint for navigation.
+    spans.push(Span::styled(
+        "  [/] switch tab",
+        Style::default().fg(Color::DarkGray),
+    ));
+
+    let tab_line = ratatui::widgets::Paragraph::new(ratatui::text::Line::from(spans));
+    frame.render_widget(tab_line, area);
+}
+
+// Implement Clone for TuiConfig so we can clone it for each App.
+impl Clone for TuiConfig {
+    fn clone(&self) -> Self {
+        Self {
+            agent_name: self.agent_name.clone(),
+            provider_info: self.provider_info.clone(),
+            project_dir: self.project_dir.clone(),
+            interrupt: Arc::clone(&self.interrupt),
+            ui_fanout_tx: self.ui_fanout_tx.clone(),
+            web_ui_url: self.web_ui_url.clone(),
+            replay_label: self.replay_label.clone(),
+            add_tab_rx: None, // not cloneable; only used in the outer run_tui
+        }
+    }
 }

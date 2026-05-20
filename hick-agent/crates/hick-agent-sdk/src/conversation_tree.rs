@@ -334,6 +334,8 @@ impl ConversationTree {
             UiEvent::BranchStarted { .. } => {}
             // PaneContent is a side-channel; TUI/web UI maintain their own pane map.
             UiEvent::PaneContent { .. } => {}
+            // TurnStats is a UI-only signal; not a conversation node.
+            UiEvent::TurnStats { .. } => {}
         }
     }
 

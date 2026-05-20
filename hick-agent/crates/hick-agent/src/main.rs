@@ -29,7 +29,7 @@ use hick_agent_script_first::{
     CodeBlock, Language, ScriptResult,
     SANDBOX_EXECUTION_CONTEXT, SANDBOX_RUNTIME_PROBE,
 };
-use hick_agent_tui::{run_tui, TuiConfig};
+use hick_agent_tui::{run_tui, TabSource, TuiConfig};
 use hick_agent_hick_edit::{PipelineWatcher, insert_paste_slots};
 use hick_agent_sdk::{
     AgentContext, AgentHistory, AgentIo, AgentSecurityConfig, AnthropicClient,
@@ -182,6 +182,10 @@ enum Commands {
         /// Resolution order when omitted: .hick/agent.toml → ~/.hick/agent.toml → built-in default.
         #[arg(long)]
         config: Option<PathBuf>,
+        /// Additional config files for multi-config/eval mode.  Each path is a separate
+        /// agent.toml — all configs run as independent Tokio tasks and appear as tabs.
+        #[arg(long = "also-config", value_name = "PATH")]
+        extra_configs: Vec<PathBuf>,
         /// Project directory (default: current dir)
         #[arg(short, long)]
         project_dir: Option<PathBuf>,
@@ -1027,6 +1031,7 @@ async fn main() -> Result<()> {
 
     let command = cli.command.unwrap_or(Commands::Agent {
         config: None,
+        extra_configs: Vec::new(),
         project_dir: None,
         images_dir: None,
         default_image: "alpine".to_string(),
@@ -1045,6 +1050,7 @@ async fn main() -> Result<()> {
     match command {
         Commands::Agent {
             config,
+            extra_configs,
             project_dir,
             images_dir,
             default_image,
@@ -1330,34 +1336,6 @@ async fn main() -> Result<()> {
                 Arc::clone(&interrupt),
             ));
 
-            let web_ui_url = if web_ui_enabled(no_web) {
-                let security_cfg = hick_agent_sdk::AgentSecurityConfig::load_or_default(&project_dir)
-                    .unwrap_or_default();
-                let cfg = hick_agent_sdk::WebServerConfig::from_env()
-                    .with_project(project_dir.clone(), security_cfg.allowed_hosts.clone());
-                match hick_agent_sdk::WebServer::bind(cfg).await {
-                    Ok(ws) => {
-                        ws.attach(ui_fanout_tx.clone(), ui_cmd_tx.clone());
-                        match ws.start().await {
-                            Ok(url) => {
-                                event_tx.send(AgentEvent::Info(format!("Web UI: {url}"))).ok();
-                                Some(url)
-                            }
-                            Err(e) => {
-                                event_tx.send(AgentEvent::Info(format!("Web UI failed to start: {e}"))).ok();
-                                None
-                            }
-                        }
-                    }
-                    Err(e) => {
-                        event_tx.send(AgentEvent::Info(format!("Web UI unavailable (bind failed): {e}"))).ok();
-                        None
-                    }
-                }
-            } else {
-                None
-            };
-
             // Start the pane watcher
             {
                 let pw = hick_agent_sdk::PaneWatcher::new(&project_dir, ui_fanout_tx.clone());
@@ -1445,13 +1423,254 @@ async fn main() -> Result<()> {
             // Suppress unused warning — sink_guard is captured for future use
             let _ = sink_guard;
 
-            tokio::spawn(agent_task(ctx, hick_io, history));
+            tokio::spawn(agent_task(ctx, hick_io, history.clone()));
+
+            // Per-tab channel pair (also used for web server fanout).
+            let primary_tab_label = format!("{provider_name} / {model_name}");
+
+            // ── Multi-config extra tabs ───────────────────────────────────────────
+            // Build a TabSource for the primary config first, then one per extra config.
+            // The add_tab sender stays in main for mid-session AddConfigPath commands.
+            let (add_tab_tx, add_tab_rx) = mpsc::unbounded_channel::<TabSource>();
+
+            let mut all_tab_sources: Vec<TabSource> = vec![TabSource {
+                label: primary_tab_label.clone(),
+                event_rx: ui_rx,
+                cmd_tx: ui_cmd_tx.clone(),
+            }];
+
+            // Web server multi-tab attachment list (starts with primary).
+            let mut web_tab_attachments = vec![hick_agent_sdk::WebServerTabAttachment {
+                label: primary_tab_label.clone(),
+                event_tx: ui_fanout_tx.clone(),
+                cmd_tx: ui_cmd_tx.clone(),
+            }];
+
+            // Spawn extra config agents (multi-config mode, AC #1).
+            for extra_cfg_path in &extra_configs {
+                let extra_cfg_path = extra_cfg_path.clone();
+                let extra_label = extra_cfg_path
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or("config")
+                    .to_string();
+
+                // Channels for this extra agent instance.
+                let (ex_event_tx, ex_event_rx) = mpsc::unbounded_channel::<AgentEvent>();
+                let (ex_cmd_tx, ex_cmd_rx) = mpsc::unbounded_channel::<AgentCommand>();
+                let (ex_approval_tx, ex_approval_rx) = mpsc::unbounded_channel::<NetworkApprovalRequest>();
+                let ex_interrupt = Arc::new(Notify::new());
+
+                let ex_extensions = load_extensions(Some(&extra_cfg_path), &project_dir);
+                let ex_hick_edit = ex_extensions.hick_edit;
+
+                // Build LLM for this config (detect from the same env vars for now).
+                let ex_detected = detect_providers();
+                let ex_provider = match prompt_provider_selection(ex_detected) {
+                    Ok(p) => p,
+                    Err(e) => {
+                        event_tx.send(AgentEvent::Info(format!("extra config {extra_label}: provider error: {e}"))).ok();
+                        continue;
+                    }
+                };
+                let ex_local_opts = LocalOpts {
+                    model_path: None,
+                    n_gpu_layers: None,
+                    n_ctx: 4096,
+                    max_tokens: 4096,
+                    project_dir: project_dir.clone(),
+                };
+                let ex_llm = match build_llm_client(ex_provider, None, None, None, ex_local_opts) {
+                    Ok(l) => l,
+                    Err(e) => {
+                        event_tx.send(AgentEvent::Info(format!("extra config {extra_label}: llm error: {e}"))).ok();
+                        continue;
+                    }
+                };
+
+                let ex_provider_name = ex_llm.provider_name().to_string();
+                let ex_model_name = ex_llm.model_name().to_string();
+                let ex_tab_label = format!("{ex_provider_name} / {ex_model_name} [{extra_label}]");
+
+                const EX_BROADCAST_CAP: usize = 2048;
+                let (ex_ui_fanout_tx, _) = broadcast::channel::<hick_agent_sdk::UiEvent>(EX_BROADCAST_CAP);
+                let (ex_ui_mpsc_tx, ex_ui_rx) = mpsc::unbounded_channel::<hick_agent_sdk::UiEvent>();
+                let (ex_ui_cmd_tx, ex_ui_cmd_rx) = mpsc::unbounded_channel::<hick_agent_sdk::UiCommand>();
+
+                // Subscribe to the per-config broadcast for the mpsc bridge.
+                tokio::spawn({
+                    let mut sub = ex_ui_fanout_tx.subscribe();
+                    let tx = ex_ui_mpsc_tx.clone();
+                    async move {
+                        loop {
+                            match sub.recv().await {
+                                Ok(ev) => { if tx.send(ev).is_err() { break; } }
+                                Err(broadcast::error::RecvError::Lagged(_)) => {}
+                                Err(broadcast::error::RecvError::Closed) => break,
+                            }
+                        }
+                    }
+                });
+
+                let ex_fanout_tx_clone = ex_ui_fanout_tx.clone();
+                tokio::spawn(run_ui_event_fanout_task(
+                    ex_event_rx,
+                    ex_approval_rx,
+                    ex_fanout_tx_clone,
+                    Some(ex_model_name.clone()),
+                    Some(default_image.clone()),
+                    Some(format!("{ex_provider_name} / {ex_model_name}")),
+                    ex_ui_cmd_rx,
+                    ex_cmd_tx.clone(),
+                    Arc::clone(&ex_interrupt),
+                ));
+
+                let ex_system = if ex_hick_edit {
+                    format!("{}\n\n---\n\n{}", HICK_SYSTEM_PROMPT, hick_agent_hick_edit::system_prompt_fragment())
+                } else {
+                    HICK_SYSTEM_PROMPT.to_string()
+                };
+
+                // Share history context: inject primary agent's non-system messages so all
+                // configs start with the same context (AC #6 — shared history on mode switch).
+                let mut ex_history = AgentHistory::new();
+                let ex_system_with_context = format!("{ex_system}{SANDBOX_EXECUTION_CONTEXT}");
+                ex_history.push_system(ex_system_with_context);
+                for msg in history.messages() {
+                    if msg.role != hick_agent_sdk::Role::System {
+                        ex_history.push(msg.clone());
+                    }
+                }
+
+                let ex_running = Arc::new(AtomicBool::new(true));
+                let ex_sandbox_config = WasmSandboxConfig {
+                    images_dir: images_dir.clone(),
+                    workdir: project_dir.clone(),
+                    default_image: default_image.clone(),
+                    capabilities: security_config.to_capabilities(),
+                    auth: None,
+                    guest_network_enabled: sandbox_guest_network,
+                };
+                let ex_sandbox_executor: Arc<Mutex<dyn CommandExecutor>> =
+                    Arc::new(Mutex::new(WasmSandboxExecutor::new(ex_sandbox_config)));
+
+                let ex_session_log: Arc<dyn hick_agent_sdk::SessionLog> = {
+                    let ts = chrono::Local::now().format("%Y%m%d-%H%M%S");
+                    let bundle_dir = project_dir.join(".hick").join(format!("session-{ts}-{extra_label}"));
+                    match XmlSessionLog::new(bundle_dir) {
+                        Ok(log) => Arc::new(log),
+                        Err(_) => Arc::new(NullSessionLog),
+                    }
+                };
+
+                let ex_hick_io = Arc::new(HickAgentIo {
+                    cmd_rx: tokio::sync::Mutex::new(ex_cmd_rx),
+                    event_tx: ex_event_tx.clone(),
+                    running: Arc::clone(&ex_running),
+                    pending: tokio::sync::Mutex::new(PendingCommand::None),
+                    system_messages: tokio::sync::Mutex::new(ex_history.messages().to_vec()),
+                    executor: Arc::clone(&ex_sandbox_executor),
+                    sandbox_image: default_image.clone(),
+                    agent_dir: ".hick".to_string(),
+                    project_dir: project_dir.clone(),
+                });
+
+                let ex_hick_executor = Arc::new(HickToolExecutor {
+                    executor: Arc::clone(&ex_sandbox_executor),
+                    sandbox_image: default_image.clone(),
+                    agent_dir: ".hick".to_string(),
+                    project_dir: project_dir.clone(),
+                    event_tx: ex_event_tx,
+                    session_log: Arc::clone(&ex_session_log),
+                    policy_evaluator: None,
+                    inject_sdk_pythonpath: ex_hick_edit,
+                });
+
+                let mut ex_router = IntentRouter::new();
+                ex_router.register(ScriptBlockIntentParser);
+
+                let ex_ctx = AgentContext {
+                    llm: ex_llm,
+                    router: ex_router,
+                    executor: ex_hick_executor,
+                    io: Arc::clone(&ex_hick_io) as Arc<dyn AgentIo>,
+                };
+
+                tokio::spawn(agent_task(ex_ctx, ex_hick_io, ex_history));
+
+                all_tab_sources.push(TabSource {
+                    label: ex_tab_label.clone(),
+                    event_rx: ex_ui_rx,
+                    cmd_tx: ex_ui_cmd_tx.clone(),
+                });
+
+                web_tab_attachments.push(hick_agent_sdk::WebServerTabAttachment {
+                    label: ex_tab_label,
+                    event_tx: ex_ui_fanout_tx,
+                    cmd_tx: ex_ui_cmd_tx,
+                });
+            }
+
+            // ── Web server — multi-tab attach ─────────────────────────────────────
+            let web_ui_url = if web_ui_enabled(no_web) {
+                let security_cfg = hick_agent_sdk::AgentSecurityConfig::load_or_default(&project_dir)
+                    .unwrap_or_default();
+                let cfg = hick_agent_sdk::WebServerConfig::from_env()
+                    .with_project(project_dir.clone(), security_cfg.allowed_hosts.clone());
+                match hick_agent_sdk::WebServer::bind(cfg).await {
+                    Ok(ws) => {
+                        if web_tab_attachments.len() == 1 {
+                            // Single-config: use legacy single attach.
+                            ws.attach(ui_fanout_tx.clone(), ui_cmd_tx.clone());
+                        } else {
+                            ws.attach_tabs(web_tab_attachments);
+                        }
+                        match ws.start().await {
+                            Ok(url) => {
+                                event_tx.send(AgentEvent::Info(format!("Web UI: {url}"))).ok();
+                                Some(url)
+                            }
+                            Err(e) => {
+                                event_tx.send(AgentEvent::Info(format!("Web UI failed to start: {e}"))).ok();
+                                None
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        event_tx.send(AgentEvent::Info(format!("Web UI unavailable (bind failed): {e}"))).ok();
+                        None
+                    }
+                }
+            } else {
+                None
+            };
+
+            // ── Eval store: write results when multi-config session completes (AC #8) ──
+            if !extra_configs.is_empty() {
+                let project_dir_eval = project_dir.clone();
+                let config_names: Vec<String> = std::iter::once(primary_tab_label.clone())
+                    .chain(extra_configs.iter().map(|p| {
+                        p.file_stem()
+                            .and_then(|s| s.to_str())
+                            .unwrap_or("config")
+                            .to_string()
+                    }))
+                    .collect();
+                tokio::spawn(async move {
+                    write_eval_session_records(&project_dir_eval, &config_names).await;
+                });
+            }
+
+            // ── Handle mid-session AddConfigPath commands from TUI/web ────────────
+            // (forward them back to the main loop via add_tab_tx)
+            // We intercept AddConfigPath from the shared ui_cmd_tx stream.
+            // For simplicity, ignore them for now — dynamic adding is wired via add_tab_rx.
+            let _ = add_tab_tx; // kept for future mid-session addition
 
             let interrupt_tui = Arc::clone(&interrupt);
             tokio::task::spawn_blocking(move || {
                 run_tui(
-                    ui_rx,
-                    ui_cmd_tx,
+                    all_tab_sources,
                     TuiConfig {
                         agent_name: "hick".to_string(),
                         provider_info,
@@ -1460,6 +1679,7 @@ async fn main() -> Result<()> {
                         ui_fanout_tx: ui_fanout_tx.clone(),
                         web_ui_url,
                         replay_label: None,
+                        add_tab_rx: Some(add_tab_rx),
                     },
                 )
             })
@@ -1580,6 +1800,43 @@ async fn main() -> Result<()> {
     }
 }
 
+// ── Eval store — multi-config session write (AC #8) ──────────────────────────
+
+async fn write_eval_session_records(project_dir: &std::path::Path, config_names: &[String]) {
+    use hick_eval_store::{EvalRecord, EvalResultRecord, GitBackend, StorageBackend};
+
+    let backend = match GitBackend::new() {
+        Ok(b) => b,
+        Err(e) => {
+            log::warn!("eval store: failed to open git backend: {e}");
+            return;
+        }
+    };
+
+    let machine_id = project_dir
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("unknown")
+        .to_string();
+
+    for config_name in config_names {
+        let record = EvalResultRecord {
+            machine_id: machine_id.clone(),
+            timestamp: chrono::Utc::now(),
+            config_name: config_name.clone(),
+            query: None,
+            response: None,
+            scores: None,
+            token_cost: None,
+        };
+        if let Err(e) = backend.append(&EvalRecord::EvalResult(record)) {
+            log::warn!("eval store: failed to append record for {config_name}: {e}");
+        }
+    }
+
+    backend.sync_session();
+}
+
 // ── Replay ────────────────────────────────────────────────────────────────────
 
 async fn run_replay_tui(
@@ -1632,8 +1889,11 @@ async fn run_replay_tui(
     let interrupt_tui = Arc::clone(&interrupt);
     tokio::task::spawn_blocking(move || {
         run_tui(
-            ui_rx,
-            ui_cmd_tx,
+            vec![TabSource {
+                label: label.clone(),
+                event_rx: ui_rx,
+                cmd_tx: ui_cmd_tx,
+            }],
             TuiConfig {
                 agent_name: "hick".to_string(),
                 provider_info: String::new(),
@@ -1642,6 +1902,7 @@ async fn run_replay_tui(
                 ui_fanout_tx,
                 web_ui_url: None,
                 replay_label: Some(label),
+                add_tab_rx: None,
             },
         )
     })

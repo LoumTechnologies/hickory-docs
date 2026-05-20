@@ -365,6 +365,9 @@ pub use web_server::WebServerConfig;
 #[cfg(feature = "web")]
 /// Local SPA + `/ws` bridge for [`UiEvent`] / [`UiCommand`] JSON.
 pub use web_server::WebServer;
+#[cfg(feature = "web")]
+/// Per-tab attachment descriptor for [`WebServer::attach_tabs`].
+pub use web_server::WebServerTabAttachment;
 
 // ---------------------------------------------------------------------------
 // Cloud relay (optional)

@@ -177,6 +177,11 @@ pub enum UiCommand {
     },
     /// Web UI skips credential entry for an MCP install flow.
     McpCredentialSkip,
+    /// Request to add a new config to the current session (mid-session multi-config).
+    AddConfigPath {
+        /// TOML config file path. The agent core will load and spawn a new instance.
+        path: String,
+    },
 }
 
 // ---------------------------------------------------------------------------
@@ -307,6 +312,16 @@ pub enum UiEvent {
         pane_type: String,
         /// Entry file for html panes (relative to the pane directory).
         entry: String,
+    },
+    /// LLM token usage and estimated cost for the completed assistant turn.
+    TurnStats {
+        node_id: NodeId,
+        /// Approximate input token count for this turn.
+        input_tokens: u64,
+        /// Approximate output token count for this turn.
+        output_tokens: u64,
+        /// Estimated USD cost (None when cost model is unknown).
+        cost_usd: Option<f64>,
     },
 }
 
@@ -479,6 +494,13 @@ pub fn ui_event_wire_value(ev: &UiEvent) -> serde_json::Value {
             "pane_type": pane_type,
             "entry": entry,
         }),
+        UiEvent::TurnStats { node_id, input_tokens, output_tokens, cost_usd } => serde_json::json!({
+            "type": "turn_stats",
+            "node_id": node_id.0,
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "cost_usd": cost_usd,
+        }),
     }
 }
 
@@ -514,6 +536,7 @@ impl std::fmt::Debug for UiEvent {
             UiEvent::Interrupted { node_id } => f.debug_tuple("Interrupted").field(node_id).finish(),
             UiEvent::BranchStarted { node_id, .. } => f.debug_tuple("BranchStarted").field(node_id).finish(),
             UiEvent::PaneContent { node_id, .. } => f.debug_tuple("PaneContent").field(node_id).finish(),
+            UiEvent::TurnStats { node_id, .. } => f.debug_tuple("TurnStats").field(node_id).finish(),
         }
     }
 }

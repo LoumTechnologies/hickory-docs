@@ -30,6 +30,7 @@ hick-agent-mcp-wasm = { path = "../hick-agent-mcp-wasm" }
 hick-agent-mcp-xml = { path = "../hick-agent-mcp-xml" }
 hick-agent-core = { path = "../hick-agent-core" }
 hick-agent-tui = { path = "../hick-agent-tui" }
+hick-eval-store = { path = "../hick-eval-store" }
 hick-policy.workspace = true
 hick-classify.workspace = true
 network = { workspace = true }

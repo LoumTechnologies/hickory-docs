@@ -74,8 +74,26 @@ impl WebServerConfig {
     }
 }
 
+/// Per-tab event/command state for multi-config sessions.
+#[derive(Clone)]
+struct TabInfo {
+    label: String,
+    event_tx: broadcast::Sender<UiEvent>,
+    cmd_tx: mpsc::UnboundedSender<UiCommand>,
+    /// Pre-serialized event history for page-refresh replay.
+    history: Arc<Mutex<Vec<String>>>,
+}
+
+/// Attachment for one tab when using [`WebServer::attach_tabs`].
+pub struct WebServerTabAttachment {
+    pub label: String,
+    pub event_tx: broadcast::Sender<UiEvent>,
+    pub cmd_tx: mpsc::UnboundedSender<UiCommand>,
+}
+
 #[derive(Clone)]
 struct Attached {
+    /// Tab 0 event/cmd channels (used by the legacy `/ws` endpoint and single-config mode).
     event_tx: broadcast::Sender<UiEvent>,
     cmd_tx: mpsc::UnboundedSender<UiCommand>,
     /// Pre-serialized event history for page-refresh replay (TASK-37.10).
@@ -84,6 +102,8 @@ struct Attached {
     project_dir: Option<PathBuf>,
     /// Allowed-host list for HTML pane CSP.
     allowed_hosts: Arc<Vec<crate::security_config::HostEntry>>,
+    /// Multi-tab: one entry per active config. Empty = single-config (use event_tx/cmd_tx).
+    tabs: Arc<Vec<TabInfo>>,
 }
 
 /// Localhost HTTP service (static SPA + `/ws`).
@@ -113,6 +133,8 @@ impl WebServer {
     }
 
     /// Connect UI channels: outbound [`UiEvent`] broadcast and inbound [`UiCommand`] sink.
+    ///
+    /// Single-config mode. For multi-config use [`attach_tabs`](Self::attach_tabs).
     pub fn attach(
         &self,
         event_tx: broadcast::Sender<UiEvent>,
@@ -128,6 +150,35 @@ impl WebServer {
                 history,
                 project_dir: self.config.project_dir.clone(),
                 allowed_hosts: Arc::new(self.config.allowed_hosts.clone()),
+                tabs: Arc::new(Vec::new()),
+            });
+    }
+
+    /// Connect multiple config tabs for multi-config sessions.
+    ///
+    /// The first tab also serves as the fallback for the legacy `/ws` endpoint.
+    pub fn attach_tabs(&self, tab_attachments: Vec<WebServerTabAttachment>) {
+        assert!(!tab_attachments.is_empty(), "attach_tabs requires at least one tab");
+        let mut tabs = Vec::with_capacity(tab_attachments.len());
+        for att in tab_attachments {
+            tabs.push(TabInfo {
+                label: att.label,
+                event_tx: att.event_tx,
+                cmd_tx: att.cmd_tx,
+                history: Arc::new(Mutex::new(Vec::new())),
+            });
+        }
+        let first = tabs[0].clone();
+        self.attached
+            .lock()
+            .expect("web mutex")
+            .replace(Attached {
+                event_tx: first.event_tx.clone(),
+                cmd_tx: first.cmd_tx.clone(),
+                history: first.history.clone(),
+                project_dir: self.config.project_dir.clone(),
+                allowed_hosts: Arc::new(self.config.allowed_hosts.clone()),
+                tabs: Arc::new(tabs),
             });
     }
 
@@ -147,10 +198,9 @@ impl WebServer {
             .clone()
             .ok_or_else(|| anyhow::anyhow!("call WebServer::attach before start"))?;
 
-        // TASK-37.10: spawn history-capture task.
-        // Subscribe while holding the history lock ensures no events are lost between the
-        // snapshot and the live subscription in ws_connected.
-        {
+        // Spawn history-capture task for every tab (including tab 0 = legacy single-config).
+        if attached.tabs.is_empty() {
+            // Single-config: capture into the top-level history.
             let history = Arc::clone(&attached.history);
             let mut sub = attached.event_tx.subscribe();
             tokio::spawn(async move {
@@ -161,13 +211,29 @@ impl WebServer {
                     history.lock().unwrap().push(text);
                 }
             });
+        } else {
+            // Multi-config: capture per-tab.
+            for tab in attached.tabs.iter() {
+                let history = Arc::clone(&tab.history);
+                let mut sub = tab.event_tx.subscribe();
+                tokio::spawn(async move {
+                    while let Ok(ev) = sub.recv().await {
+                        let Ok(text) = serde_json::to_string(&ui_event_wire_value(&ev)) else {
+                            continue;
+                        };
+                        history.lock().unwrap().push(text);
+                    }
+                });
+            }
         }
 
         let routes = Router::new()
             .route("/", get(serve_index))
             .route("/assets/{name}", get(serve_asset))
             .route("/ws", get(ws_upgrade))
+            .route("/ws/tab/{id}", get(ws_tab_upgrade))
             .route("/ws/replay", get(ws_replay_upgrade))
+            .route("/api/tabs", get(api_tabs))
             .route("/pane-files/{*path}", get(serve_pane_file))
             .route("/cwd/{*path}", get(serve_cwd_file))
             .with_state(attached.clone());
@@ -236,18 +302,83 @@ async fn ws_upgrade(
 
 async fn ws_connected(socket: WebSocket, attached: Attached) {
     // TASK-37.10: atomically subscribe + snapshot so no events are missed or duplicated.
+    // Legacy `/ws` always connects to the first tab (or single-config channels).
     let (recv, snapshot) = {
         let guard = attached.history.lock().unwrap();
         let recv = attached.event_tx.subscribe();
-        let snap = guard.clone(); // clone while locked
+        let snap = guard.clone();
         drop(guard);
         (recv, snap)
     };
-    let mut recv = recv;
-    let cmd_tx = attached.cmd_tx;
+    ws_stream_events(socket, recv, snapshot, attached.cmd_tx).await;
+}
+
+fn parse_and_forward_command(cmd_tx: &mpsc::UnboundedSender<UiCommand>, bytes: &[u8]) -> bool {
+    match serde_json::from_slice::<UiCommand>(bytes) {
+        Ok(c) => cmd_tx.send(c).is_ok(),
+        Err(_) => false,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// /api/tabs — returns tab list as JSON
+// ---------------------------------------------------------------------------
+
+async fn api_tabs(State(attached): State<Attached>) -> impl IntoResponse {
+    let tabs_json: Vec<serde_json::Value> = if attached.tabs.is_empty() {
+        vec![serde_json::json!({"id": 0, "label": ""})]
+    } else {
+        attached
+            .tabs
+            .iter()
+            .enumerate()
+            .map(|(i, t)| serde_json::json!({"id": i, "label": t.label}))
+            .collect()
+    };
+    axum::Json(tabs_json)
+}
+
+// ---------------------------------------------------------------------------
+// Per-tab WebSocket endpoint `/ws/tab/{id}`
+// ---------------------------------------------------------------------------
+
+async fn ws_tab_upgrade(
+    ws: WebSocketUpgrade,
+    Path(id): Path<usize>,
+    State(attached): State<Attached>,
+) -> impl IntoResponse {
+    ws.on_upgrade(move |socket| ws_tab_connected(socket, id, attached))
+}
+
+async fn ws_tab_connected(socket: WebSocket, tab_id: usize, attached: Attached) {
+    // Resolve the tab — fall back to tab 0 / single-config if out of range.
+    let (event_tx, cmd_tx, history) = if attached.tabs.is_empty() {
+        (attached.event_tx.clone(), attached.cmd_tx.clone(), Arc::clone(&attached.history))
+    } else {
+        let idx = tab_id.min(attached.tabs.len() - 1);
+        let tab = &attached.tabs[idx];
+        (tab.event_tx.clone(), tab.cmd_tx.clone(), Arc::clone(&tab.history))
+    };
+
+    let (recv, snapshot) = {
+        let guard = history.lock().unwrap();
+        let recv = event_tx.subscribe();
+        let snap = guard.clone();
+        drop(guard);
+        (recv, snap)
+    };
+    ws_stream_events(socket, recv, snapshot, cmd_tx).await;
+}
+
+/// Shared helper: send history snapshot then live events, accept commands from browser.
+async fn ws_stream_events(
+    socket: WebSocket,
+    mut recv: broadcast::Receiver<UiEvent>,
+    snapshot: Vec<String>,
+    cmd_tx: mpsc::UnboundedSender<UiCommand>,
+) {
     let (mut sink, mut stream) = socket.split();
 
-    // Send history first (page-refresh replay).
     for msg in &snapshot {
         if sink.send(Message::text(msg.as_str())).await.is_err() {
             let _ = sink.close().await;
@@ -255,7 +386,6 @@ async fn ws_connected(socket: WebSocket, attached: Attached) {
         }
     }
 
-    // Forward live events from broadcast; accept commands from the browser.
     loop {
         tokio::select! {
             ev = recv.recv() => {
@@ -273,28 +403,15 @@ async fn ws_connected(socket: WebSocket, attached: Attached) {
             in_msg = stream.next() => {
                 match in_msg {
                     None => break,
-                    Some(Ok(Message::Text(t))) => {
-                        let _ = parse_and_forward_command(&cmd_tx, t.as_bytes());
-                    }
-                    Some(Ok(Message::Binary(b))) => {
-                        let _ = parse_and_forward_command(&cmd_tx, &b);
-                    }
-                    Some(Ok(Message::Ping(_))) => {}
-                    Some(Ok(Message::Pong(_))) => {}
-                    Some(Ok(Message::Close(_))) => break,
-                    Some(Err(_)) => break,
+                    Some(Ok(Message::Text(t))) => { let _ = parse_and_forward_command(&cmd_tx, t.as_bytes()); }
+                    Some(Ok(Message::Binary(b))) => { let _ = parse_and_forward_command(&cmd_tx, &b); }
+                    Some(Ok(Message::Ping(_) | Message::Pong(_))) => {}
+                    Some(Ok(Message::Close(_))) | Some(Err(_)) => break,
                 }
             }
         }
     }
     let _ = sink.close().await;
-}
-
-fn parse_and_forward_command(cmd_tx: &mpsc::UnboundedSender<UiCommand>, bytes: &[u8]) -> bool {
-    match serde_json::from_slice::<UiCommand>(bytes) {
-        Ok(c) => cmd_tx.send(c).is_ok(),
-        Err(_) => false,
-    }
 }
 
 // ---------------------------------------------------------------------------
