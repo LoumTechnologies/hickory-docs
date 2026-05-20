@@ -39,6 +39,7 @@ axum = { version = "0.8", default-features = false, features = [
     "tokio",
     "ws",
 ], optional = true }
+globset = "0.4"
 tokio-tungstenite = { version = "0.24", features = ["native-tls"], optional = true }
 uuid = { version = "1", features = ["v4"], optional = true }
 

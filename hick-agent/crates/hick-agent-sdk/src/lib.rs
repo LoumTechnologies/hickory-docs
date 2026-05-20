@@ -32,6 +32,9 @@
 //! | [`ConversationTree`] | Conversation tree derived from [`UiEvent`]s |
 //!
 //! With the **`web`** feature ([`WebServer`]), expose a localhost HTTP shell + `/ws` JSON bridge.
+pub mod agent_memory;
+pub mod agent_skills;
+pub mod agentignore;
 pub mod command;
 pub mod conversation_tree;
 pub mod llm;
@@ -41,6 +44,7 @@ pub mod mcp_client;
 pub mod mcp_config;
 pub mod mcp_format;
 pub mod mcp_install;
+pub mod mcp_project_config;
 pub mod network_filter;
 pub mod project_context;
 pub mod runtime;
@@ -211,6 +215,38 @@ pub use mcp_format::format_mcp_result;
 
 /// Loads agent context from standard project locations (AGENTS.md, CLAUDE.md, etc.).
 pub use project_context::ProjectContextLoader;
+
+// ---------------------------------------------------------------------------
+// .agentignore (task 38)
+// ---------------------------------------------------------------------------
+
+/// Gitignore-style path filter loaded from `.agentignore` at the project root.
+pub use agentignore::AgentIgnoreFilter;
+
+// ---------------------------------------------------------------------------
+// Project-local MCP server discovery (task 39)
+// ---------------------------------------------------------------------------
+
+/// MCP server configuration discovered from `mcp.json` / `.mcp.json` at the project root.
+pub use mcp_project_config::ProjectMcpConfig;
+/// A single MCP server entry from the project's `mcp.json` / `.mcp.json`.
+pub use mcp_project_config::ProjectMcpServerEntry;
+
+// ---------------------------------------------------------------------------
+// Agent skills (task 40)
+// ---------------------------------------------------------------------------
+
+/// A single skill loaded from `.agents/skills/<name>.md`.
+pub use agent_skills::Skill;
+/// Loads and provides access to project skills from `.agents/skills/`.
+pub use agent_skills::SkillLoader;
+
+// ---------------------------------------------------------------------------
+// Agent memory bank (task 41)
+// ---------------------------------------------------------------------------
+
+/// Persistent agent memory bank backed by `.agents/memory/*.md` files.
+pub use agent_memory::MemoryBank;
 
 // ---------------------------------------------------------------------------
 // MCP install
