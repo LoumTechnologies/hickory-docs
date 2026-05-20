@@ -8,8 +8,8 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use hick::auth::AuthStack;
-use hick::executor::ContainerExecutor;
+use hick_literate::auth::AuthStack;
+use hick_literate::executor::ContainerExecutor;
 use hick_token::ContainerCapabilities;
 
 /// Structured output from a sandboxed command execution.
@@ -162,7 +162,7 @@ impl WasmSandboxExecutor {
         content: &[u8],
         dest_path: &str,
     ) -> anyhow::Result<()> {
-        let encoded = hick::volume_state::encode_base64(content);
+        let encoded = hick_literate::volume_state::encode_base64(content);
         let tmp_b64 = "/tmp/_hick_inject.b64";
         let chunk_size = 512;
 

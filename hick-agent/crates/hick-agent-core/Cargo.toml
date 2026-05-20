@@ -7,7 +7,7 @@ publish = false
 
 [dependencies]
 hick-agent-hick-edit = { path = "../hick-agent-hick-edit" }
-hick = { version = "0.1", path = "../../../crates/hick" }
+hick-literate = { version = "0.1", path = "../../../crates/hick-literate" }
 hick-token.workspace = true
 async-trait = "0.1"
 anyhow = "1"

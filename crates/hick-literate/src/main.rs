@@ -8,7 +8,7 @@ use std::path::PathBuf;
 
 use anyhow::{Result, bail};
 use clap::{Parser, Subcommand};
-use hick::store_config::{StoreBackend, StoreConfig};
+use hick_literate::store_config::{StoreBackend, StoreConfig};
 
 // ---------------------------------------------------------------------------
 // CLI
@@ -39,7 +39,7 @@ enum Command {
     Validate(ValidateArgs),
 
     /// Generate all combinations of features to separate folders.
-    GenerateMatrix(hick::generate_matrix::GenerateMatrixArgs),
+    GenerateMatrix(hick_literate::generate_matrix::GenerateMatrixArgs),
 
     /// Inspect the pipeline DAG and file ownership.
     Pipeline(PipelineArgs),
@@ -90,7 +90,7 @@ struct RunArgs {
     #[arg(long)]
     images_dir: Option<PathBuf>,
 
-    #[arg(long = "param", value_parser = hick::parse_param)]
+    #[arg(long = "param", value_parser = hick_literate::parse_param)]
     params: Vec<(String, String)>,
 
     #[arg(long)]
@@ -129,7 +129,7 @@ struct UpArgs {
     #[arg(long)]
     images_dir: Option<PathBuf>,
 
-    #[arg(long = "param", value_parser = hick::parse_param)]
+    #[arg(long = "param", value_parser = hick_literate::parse_param)]
     params: Vec<(String, String)>,
 
     #[arg(long)]
@@ -229,7 +229,7 @@ async fn main() -> Result<()> {
     match cli.command {
         Command::Run(args) => {
             init_logger(args.verbose);
-            hick::run_pipeline_cmd(hick::PipelineRunOpts {
+            hick_literate::run_pipeline_cmd(hick_literate::PipelineRunOpts {
                 files: args.files,
                 config_path: args.config,
                 key_file: args.key_file,
@@ -250,14 +250,14 @@ async fn main() -> Result<()> {
             init_logger(args.verbose);
             let images_dir = args
                 .images_dir
-                .map(|p| hick::expand_tilde(&p))
+                .map(|p| hick_literate::expand_tilde(&p))
                 .unwrap_or_else(default_images_dir);
-            hick::repl::run_repl(images_dir, args.output).await
+            hick_literate::repl::run_repl(images_dir, args.output).await
         }
         Command::Up(args) => {
             init_logger(args.verbose);
-            let key_path = hick::expand_tilde(&args.key_file);
-            let secrets_dir = hick::expand_tilde(&args.secrets_dir);
+            let key_path = hick_literate::expand_tilde(&args.key_file);
+            let secrets_dir = hick_literate::expand_tilde(&args.secrets_dir);
             let _secrets_provider = hick_secrets::AgeSecretsProvider::new(&key_path, &secrets_dir);
 
             let mut config = StoreConfig::load(&std::env::current_dir()?);
@@ -274,7 +274,7 @@ async fn main() -> Result<()> {
 
             let images_dir = args
                 .images_dir
-                .map(|p| hick::expand_tilde(&p))
+                .map(|p| hick_literate::expand_tilde(&p))
                 .unwrap_or_else(default_images_dir);
 
             let mut params: Vec<(String, String)> = args.params.clone();
@@ -283,17 +283,17 @@ async fn main() -> Result<()> {
                 params.push(("features".to_string(), features.clone()));
             }
 
-            hick::watch::run_watch(&args.files, &config, &params, args.dry_run, images_dir).await
+            hick_literate::watch::run_watch(&args.files, &config, &params, args.dry_run, images_dir).await
         }
         Command::Init(args) => {
             let project_dir = args
                 .project_dir
                 .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
-            let config = hick::agents::InitConfig {
+            let config = hick_literate::agents::InitConfig {
                 project_dir: project_dir.clone(),
                 no_agents: args.no_agents,
             };
-            let result = hick::agents::init_agents(&config)?;
+            let result = hick_literate::agents::init_agents(&config)?;
             if result.pipeline_initialized {
                 println!("Created _hick.yml");
             }
@@ -315,11 +315,11 @@ async fn main() -> Result<()> {
             let project_dir = args
                 .project_dir
                 .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
-            let config = hick::agents::ValidateConfig {
+            let config = hick_literate::agents::ValidateConfig {
                 project_dir,
                 fix: args.fix,
             };
-            let issues = hick::agents::validate_agents(&config)?;
+            let issues = hick_literate::agents::validate_agents(&config)?;
             if issues.is_empty() {
                 println!("Agent configuration is valid");
                 Ok(())
@@ -335,7 +335,7 @@ async fn main() -> Result<()> {
         }
         Command::GenerateMatrix(args) => {
             init_logger(args.verbose);
-            hick::generate_matrix::run(args).await
+            hick_literate::generate_matrix::run(args).await
         }
         Command::Pipeline(args) => {
             let project_dir = match &args.command {
@@ -349,8 +349,8 @@ async fn main() -> Result<()> {
                     .unwrap_or_else(|| std::env::current_dir().unwrap_or_default()),
             };
             match args.command {
-                PipelineCommand::Show(_) => hick::pipeline::pipeline_show(&project_dir),
-                PipelineCommand::Status(_) => hick::pipeline::pipeline_status(&project_dir),
+                PipelineCommand::Show(_) => hick_literate::pipeline::pipeline_show(&project_dir),
+                PipelineCommand::Status(_) => hick_literate::pipeline::pipeline_status(&project_dir),
             }
         }
     }

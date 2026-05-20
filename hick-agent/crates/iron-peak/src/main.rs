@@ -237,7 +237,7 @@ enum Commands {
     Validate(PipelineValidateArgs),
 
     /// Generate all combinations of features to separate folders.
-    GenerateMatrix(hick::generate_matrix::GenerateMatrixArgs),
+    GenerateMatrix(hick_literate::generate_matrix::GenerateMatrixArgs),
 
     /// Insert paste slots into all hick:file elements in a .hick file.
     PasteSlots(PasteSlotsArgs),
@@ -319,7 +319,7 @@ struct PipelineRunArgs {
     secrets_dir: Option<PathBuf>,
     #[arg(long, env = "HICK_IMAGES_DIR")]
     images_dir: Option<PathBuf>,
-    #[arg(long = "param", value_parser = hick::parse_param)]
+    #[arg(long = "param", value_parser = hick_literate::parse_param)]
     params: Vec<(String, String)>,
     #[arg(long)]
     features: Option<String>,
@@ -347,7 +347,7 @@ struct PipelineUpArgs {
     secrets_dir: PathBuf,
     #[arg(long, env = "HICK_IMAGES_DIR")]
     images_dir: Option<PathBuf>,
-    #[arg(long = "param", value_parser = hick::parse_param)]
+    #[arg(long = "param", value_parser = hick_literate::parse_param)]
     params: Vec<(String, String)>,
     #[arg(long)]
     features: Option<String>,
@@ -781,7 +781,7 @@ async fn main() -> Result<()> {
                 .map(PathBuf::from)
                 .unwrap_or_else(|_| PathBuf::from("/Users/ai/Documents/src/key.txt"));
             let age_secrets_dir = project_dir.join(".hick").join("secrets");
-            let auth_stack = match hick::auth::AuthStack::from_config(
+            let auth_stack = match hick_literate::auth::AuthStack::from_config(
                 &auth_rules_path,
                 &age_key_path,
                 &age_secrets_dir,
@@ -880,7 +880,7 @@ async fn main() -> Result<()> {
 
             // Build the WASM sandbox executor for running scripts.
             let wasm_image_path = images_dir.join(format!("{}.wasm", default_image));
-            hick::executor::ensure_loadable_wasm_file(&wasm_image_path).map_err(|e| {
+            hick_literate::executor::ensure_loadable_wasm_file(&wasm_image_path).map_err(|e| {
                 anyhow::anyhow!(
                     "{e:#}\n\n\
                      Set --images-dir to the directory containing your .wasm images\n\
@@ -1123,7 +1123,7 @@ async fn main() -> Result<()> {
         }
 
         Commands::Run(args) => {
-            hick::run_pipeline_cmd(hick::PipelineRunOpts {
+            hick_literate::run_pipeline_cmd(hick_literate::PipelineRunOpts {
                 files: args.files,
                 config_path: args.config,
                 key_file: args.key_file,
@@ -1142,9 +1142,9 @@ async fn main() -> Result<()> {
         }
 
         Commands::Up(args) => {
-            use hick::store_config::{StoreBackend, StoreConfig};
-            let key_path = hick::expand_tilde(&args.key_file);
-            let secrets_dir_path = hick::expand_tilde(&args.secrets_dir);
+            use hick_literate::store_config::{StoreBackend, StoreConfig};
+            let key_path = hick_literate::expand_tilde(&args.key_file);
+            let secrets_dir_path = hick_literate::expand_tilde(&args.secrets_dir);
             let _secrets_provider =
                 hick_secrets::AgeSecretsProvider::new(&key_path, &secrets_dir_path);
 
@@ -1162,7 +1162,7 @@ async fn main() -> Result<()> {
 
             let images_dir = args
                 .images_dir
-                .map(|p| hick::expand_tilde(&p))
+                .map(|p| hick_literate::expand_tilde(&p))
                 .unwrap_or_else(|| std::path::PathBuf::from("."));
 
             let mut params: Vec<(String, String)> = args.params.clone();
@@ -1171,26 +1171,26 @@ async fn main() -> Result<()> {
                 params.push(("features".to_string(), features.clone()));
             }
 
-            hick::watch::run_watch(&args.files, &config, &params, args.dry_run, images_dir).await
+            hick_literate::watch::run_watch(&args.files, &config, &params, args.dry_run, images_dir).await
         }
 
         Commands::Repl(args) => {
             let images_dir = args
                 .images_dir
-                .map(|p| hick::expand_tilde(&p))
+                .map(|p| hick_literate::expand_tilde(&p))
                 .unwrap_or_else(|| std::path::PathBuf::from("."));
-            hick::repl::run_repl(images_dir, args.output).await
+            hick_literate::repl::run_repl(images_dir, args.output).await
         }
 
         Commands::Init(args) => {
             let project_dir = args
                 .project_dir
                 .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
-            let config = hick::agents::InitConfig {
+            let config = hick_literate::agents::InitConfig {
                 project_dir: project_dir.clone(),
                 no_agents: args.no_agents,
             };
-            let result = hick::agents::init_agents(&config)?;
+            let result = hick_literate::agents::init_agents(&config)?;
             if result.agents_file_created {
                 println!("Created .agents/hick.md");
             }
@@ -1207,11 +1207,11 @@ async fn main() -> Result<()> {
             let project_dir = args
                 .project_dir
                 .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
-            let config = hick::agents::ValidateConfig {
+            let config = hick_literate::agents::ValidateConfig {
                 project_dir,
                 fix: args.fix,
             };
-            let issues = hick::agents::validate_agents(&config)?;
+            let issues = hick_literate::agents::validate_agents(&config)?;
             if issues.is_empty() {
                 println!("Agent configuration is valid");
                 Ok(())
@@ -1226,7 +1226,7 @@ async fn main() -> Result<()> {
             }
         }
 
-        Commands::GenerateMatrix(args) => hick::generate_matrix::run(args).await,
+        Commands::GenerateMatrix(args) => hick_literate::generate_matrix::run(args).await,
 
         Commands::PasteSlots(args) => paste_slots_cmd(args),
 

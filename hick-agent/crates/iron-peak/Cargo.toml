@@ -27,7 +27,7 @@ hick-policy.workspace = true
 hick-agent-engine = { path = "../hick-agent-engine", optional = true }
 
 # Dependencies only needed by the CLI binary (main.rs).
-hick = { version = "0.1", path = "../../../crates/hick" }
+hick-literate = { version = "0.1", path = "../../../crates/hick-literate" }
 hick-lang.workspace = true
 hick-agent-core = { path = "../hick-agent-core" }
 hick-secrets.workspace = true
@@ -43,6 +43,6 @@ chrono = "0.4"
 [dev-dependencies]
 async-trait = "0.1"
 futures = "0.3"
-hick = { version = "0.1", path = "../../../crates/hick" }
+hick-literate = { version = "0.1", path = "../../../crates/hick-literate" }
 tempfile = "3"
 zip = "2"

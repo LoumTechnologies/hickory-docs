@@ -124,7 +124,7 @@ pub fn images_dir() -> PathBuf {
     );
 }
 
-/// Image family passed to [`hick::executor::resolve_image_path`] (e.g. `ubuntu` → `ubuntu/24.04.wasm`).
+/// Image family passed to [`hick_literate::executor::resolve_image_path`] (e.g. `ubuntu` → `ubuntu/24.04.wasm`).
 ///
 /// Prefer `ubuntu` when that fixture exists (full Python toolchain in typical images); otherwise
 /// use `alpine` so shell-based integration tests still run in minimal checkouts.
@@ -133,7 +133,7 @@ pub fn images_dir() -> PathBuf {
 /// `alpine` image will fail those tests unless you extend them to `apk add python3` first.
 fn integration_image_family(images_root: &Path) -> String {
     for name in ["ubuntu", "debian", "fedora", "alpine"] {
-        let path = hick::executor::resolve_image_path(images_root, name);
+        let path = hick_literate::executor::resolve_image_path(images_root, name);
         if path.is_file() {
             return name.to_string();
         }
@@ -182,7 +182,7 @@ pub fn create_executor_with_capabilities(
 ) -> (SharedExecutor, String) {
     let images_root = images_dir();
     let image_family = integration_image_family(&images_root);
-    let wasm_path = hick::executor::resolve_image_path(&images_root, &image_family);
+    let wasm_path = hick_literate::executor::resolve_image_path(&images_root, &image_family);
     ensure_wasm_extracted(&wasm_path);
 
     let config = WasmSandboxConfig {

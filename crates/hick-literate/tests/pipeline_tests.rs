@@ -19,7 +19,7 @@ fn hick_doc(body: &str) -> String {
 #[tokio::test]
 async fn test_simple_file_output() {
     let src = hick_doc(r#"<hick:file path="out.txt">hello world</hick:file>"#);
-    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+    let result = hick_literate::run_pipeline(&[("test.hick", &src)], &[])
         .await
         .unwrap();
     assert_eq!(result.files.get("out.txt").unwrap(), "hello world");
@@ -31,7 +31,7 @@ async fn test_file_with_exec_dry_run_transcript() {
         r#"<hick:container name="demo" image="alpine" />
 <hick:file path="out.txt"><hick:exec container="demo">echo hi</hick:exec></hick:file>"#,
     );
-    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+    let result = hick_literate::run_pipeline(&[("test.hick", &src)], &[])
         .await
         .unwrap();
     let content = result.files.get("out.txt").unwrap();
@@ -48,7 +48,7 @@ async fn test_multi_file_output() {
 <hick:file path="b.txt">bbb</hick:file>
 <hick:file path="c.txt">ccc</hick:file>"#,
     );
-    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+    let result = hick_literate::run_pipeline(&[("test.hick", &src)], &[])
         .await
         .unwrap();
     assert_eq!(result.files.len(), 3);
@@ -60,7 +60,7 @@ async fn test_multi_file_output() {
 #[tokio::test]
 async fn test_raw_text_characters() {
     let src = hick_doc(r#"<hick:file path="out.txt">a & b < c > d</hick:file>"#);
-    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+    let result = hick_literate::run_pipeline(&[("test.hick", &src)], &[])
         .await
         .unwrap();
     assert_eq!(result.files.get("out.txt").unwrap(), "a & b < c > d");
@@ -77,7 +77,7 @@ async fn test_exec_show_command_only() {
 <hick:exec container="demo">echo setup</hick:exec>
 <hick:file path="out.txt"><hick:exec container="demo" show="command">echo setup</hick:exec></hick:file>"#,
     );
-    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+    let result = hick_literate::run_pipeline(&[("test.hick", &src)], &[])
         .await
         .unwrap();
     let content = result.files.get("out.txt").unwrap();
@@ -94,7 +94,7 @@ async fn test_exec_show_none() {
 <hick:exec container="demo">echo setup</hick:exec>
 <hick:file path="out.txt">before<hick:exec container="demo" show="none">echo setup</hick:exec>after</hick:file>"#,
     );
-    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+    let result = hick_literate::run_pipeline(&[("test.hick", &src)], &[])
         .await
         .unwrap();
     let content = result.files.get("out.txt").unwrap();
@@ -109,7 +109,7 @@ async fn test_exec_show_output_only() {
 <hick:exec container="demo">echo hello</hick:exec>
 <hick:file path="out.txt">before<hick:exec container="demo" show="output">echo hello</hick:exec>after</hick:file>"#,
     );
-    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+    let result = hick_literate::run_pipeline(&[("test.hick", &src)], &[])
         .await
         .unwrap();
     let content = result.files.get("out.txt").unwrap();
@@ -130,7 +130,7 @@ async fn test_copy_paste() {
         "\n",
         r##"<hick:file path="out.txt"><hick:paste select="#v" /></hick:file>"##,
     ));
-    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+    let result = hick_literate::run_pipeline(&[("test.hick", &src)], &[])
         .await
         .unwrap();
     assert_eq!(result.files.get("out.txt").unwrap(), "3.12");
@@ -143,7 +143,7 @@ async fn test_cut_paste() {
         "\n",
         r##"<hick:file path="out.txt"><hick:paste select="#secret" /></hick:file>"##,
     ));
-    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+    let result = hick_literate::run_pipeline(&[("test.hick", &src)], &[])
         .await
         .unwrap();
     assert_eq!(result.files.get("out.txt").unwrap(), "hidden-value");
@@ -154,7 +154,7 @@ async fn test_paste_missing_selector() {
     let src = hick_doc(
         r##"<hick:file path="out.txt">before<hick:paste select="#nonexistent" />after</hick:file>"##,
     );
-    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+    let result = hick_literate::run_pipeline(&[("test.hick", &src)], &[])
         .await
         .unwrap();
     // Missing paste produces no output, no crash
@@ -166,7 +166,7 @@ async fn test_copy_paste_across_documents() {
     let doc1 = hick_doc(r#"<hick:copy id="version">2.0.0</hick:copy>"#);
     let doc2 =
         hick_doc(r##"<hick:file path="out.txt"><hick:paste select="#version" /></hick:file>"##);
-    let result = hick::run_pipeline(&[("doc1.hick", &doc1), ("doc2.hick", &doc2)], &[])
+    let result = hick_literate::run_pipeline(&[("doc1.hick", &doc1), ("doc2.hick", &doc2)], &[])
         .await
         .unwrap();
     assert_eq!(result.files.get("out.txt").unwrap(), "2.0.0");
@@ -183,7 +183,7 @@ async fn test_class_selector_single_block() {
         "\n",
         r#"<hick:file path="out.txt"><hick:paste select=".imports" /></hick:file>"#,
     ));
-    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+    let result = hick_literate::run_pipeline(&[("test.hick", &src)], &[])
         .await
         .unwrap();
     assert_eq!(result.files.get("out.txt").unwrap(), "import foo;");
@@ -200,7 +200,7 @@ async fn test_class_selector_multiple_blocks() {
         "\n",
         r#"<hick:file path="out.txt"><hick:paste select=".imports" /></hick:file>"#,
     ));
-    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+    let result = hick_literate::run_pipeline(&[("test.hick", &src)], &[])
         .await
         .unwrap();
     assert_eq!(
@@ -220,7 +220,7 @@ async fn test_class_selector_with_newlines() {
         "\n",
         r#"<hick:file path="out.txt"><hick:paste select=".imports" /></hick:file>"#,
     ));
-    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+    let result = hick_literate::run_pipeline(&[("test.hick", &src)], &[])
         .await
         .unwrap();
     assert_eq!(
@@ -245,7 +245,7 @@ async fn test_class_selector_interleaved_with_id() {
         "\n",
         r##"<hick:file path="by-id.md"><hick:paste select="#header" /></hick:file>"##,
     ));
-    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+    let result = hick_literate::run_pipeline(&[("test.hick", &src)], &[])
         .await
         .unwrap();
     // Class selector gets all three sections
@@ -268,7 +268,7 @@ async fn test_class_selector_multiple_classes() {
         "\n",
         r#"<hick:file path="deps.txt"><hick:paste select=".deps" /></hick:file>"#,
     ));
-    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+    let result = hick_literate::run_pipeline(&[("test.hick", &src)], &[])
         .await
         .unwrap();
     assert_eq!(
@@ -287,7 +287,7 @@ async fn test_class_selector_cut_blocks() {
         "\n",
         r#"<hick:file path="out.txt"><hick:paste select=".secrets" /></hick:file>"#,
     ));
-    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+    let result = hick_literate::run_pipeline(&[("test.hick", &src)], &[])
         .await
         .unwrap();
     assert_eq!(result.files.get("out.txt").unwrap(), "SECRET1;SECRET2;");
@@ -300,7 +300,7 @@ async fn test_class_selector_missing() {
         "\n",
         r#"<hick:file path="out.txt">before<hick:paste select=".nonexistent" />after</hick:file>"#,
     ));
-    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+    let result = hick_literate::run_pipeline(&[("test.hick", &src)], &[])
         .await
         .unwrap();
     // Missing class selector produces no output (like missing ID)
@@ -312,7 +312,7 @@ async fn test_class_selector_across_documents() {
     let doc1 = hick_doc(r#"<hick:copy class="chunks">chunk1;</hick:copy>"#);
     let doc2 = hick_doc(r#"<hick:copy class="chunks">chunk2;</hick:copy>"#);
     let doc3 = hick_doc(r#"<hick:file path="out.txt"><hick:paste select=".chunks" /></hick:file>"#);
-    let result = hick::run_pipeline(
+    let result = hick_literate::run_pipeline(
         &[
             ("doc1.hick", &doc1),
             ("doc2.hick", &doc2),
@@ -334,7 +334,7 @@ async fn test_class_selector_with_substitution() {
         "\n",
         r#"<hick:file path="out.txt"><hick:paste select=".imports" /></hick:file>"#,
     ));
-    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+    let result = hick_literate::run_pipeline(&[("test.hick", &src)], &[])
         .await
         .unwrap();
     // Substitution should apply to pasted content
@@ -352,7 +352,7 @@ async fn test_var_val_basic() {
         "\n",
         r#"<hick:file path="out.txt">v=<hick:val name="version" /></hick:file>"#,
     ));
-    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+    let result = hick_literate::run_pipeline(&[("test.hick", &src)], &[])
         .await
         .unwrap();
     assert_eq!(result.files.get("out.txt").unwrap(), "v=1.0.0");
@@ -366,7 +366,7 @@ async fn test_param_overrides_var() {
         r#"<hick:file path="out.txt">v=<hick:val name="version" /></hick:file>"#,
     ));
     let params = vec![("version".to_string(), "2.0.0".to_string())];
-    let result = hick::run_pipeline(&[("test.hick", &src)], &params)
+    let result = hick_literate::run_pipeline(&[("test.hick", &src)], &params)
         .await
         .unwrap();
     assert_eq!(result.files.get("out.txt").unwrap(), "v=2.0.0");
@@ -376,7 +376,7 @@ async fn test_param_overrides_var() {
 async fn test_var_missing_produces_nothing() {
     let src =
         hick_doc(r#"<hick:file path="out.txt">before<hick:val name="missing" />after</hick:file>"#);
-    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+    let result = hick_literate::run_pipeline(&[("test.hick", &src)], &[])
         .await
         .unwrap();
     assert_eq!(result.files.get("out.txt").unwrap(), "beforeafter");
@@ -386,7 +386,7 @@ async fn test_var_missing_produces_nothing() {
 async fn test_var_across_documents() {
     let doc1 = hick_doc(r#"<hick:var name="shared">hello</hick:var>"#);
     let doc2 = hick_doc(r#"<hick:file path="out.txt"><hick:val name="shared" /></hick:file>"#);
-    let result = hick::run_pipeline(&[("doc1.hick", &doc1), ("doc2.hick", &doc2)], &[])
+    let result = hick_literate::run_pipeline(&[("doc1.hick", &doc1), ("doc2.hick", &doc2)], &[])
         .await
         .unwrap();
     assert_eq!(result.files.get("out.txt").unwrap(), "hello");
@@ -421,7 +421,7 @@ async fn test_include_basic() {
     let main_path = dir.join("main.hick");
     std::fs::write(&main_path, main_src).unwrap();
 
-    let result = hick::run_pipeline(&[(main_path.to_str().unwrap(), main_src)], &[])
+    let result = hick_literate::run_pipeline(&[(main_path.to_str().unwrap(), main_src)], &[])
         .await
         .unwrap();
     assert_eq!(result.files.get("out.txt").unwrap(), "v=4.0.0");
@@ -454,7 +454,7 @@ async fn test_include_circular_detected() {
     .unwrap();
 
     let src = std::fs::read_to_string(dir.join("a.hick")).unwrap();
-    let result = hick::run_pipeline(&[(dir.join("a.hick").to_str().unwrap(), &src)], &[]).await;
+    let result = hick_literate::run_pipeline(&[(dir.join("a.hick").to_str().unwrap(), &src)], &[]).await;
     assert!(result.is_err(), "circular include should fail");
 
     let _ = std::fs::remove_dir_all(&dir);
@@ -561,7 +561,7 @@ async fn test_full_pipeline_smoke() {
 Container: build
 </hick:file>"##,
     ));
-    let result = hick::run_pipeline(&[("smoke.hick", &src)], &[])
+    let result = hick_literate::run_pipeline(&[("smoke.hick", &src)], &[])
         .await
         .unwrap();
 
@@ -583,7 +583,7 @@ async fn test_no_file_outputs() {
         r#"<hick:container name="worker" image="alpine" />
 <hick:exec container="worker">echo working</hick:exec>"#,
     );
-    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+    let result = hick_literate::run_pipeline(&[("test.hick", &src)], &[])
         .await
         .unwrap();
     assert!(result.files.is_empty());
@@ -605,7 +605,7 @@ fn h_doc(body: &str) -> String {
 #[tokio::test]
 async fn test_custom_prefix_file_output() {
     let src = h_doc(r#"<h:file path="out.txt">hello from h prefix</h:file>"#);
-    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+    let result = hick_literate::run_pipeline(&[("test.hick", &src)], &[])
         .await
         .unwrap();
     assert_eq!(result.files.get("out.txt").unwrap(), "hello from h prefix");
@@ -618,7 +618,7 @@ async fn test_custom_prefix_cut_paste() {
         "\n",
         r##"<h:file path="out.txt">NS: <h:paste select="#ns" /></h:file>"##,
     ));
-    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+    let result = hick_literate::run_pipeline(&[("test.hick", &src)], &[])
         .await
         .unwrap();
     assert_eq!(
@@ -632,7 +632,7 @@ async fn test_custom_prefix_hick_in_text_is_literal() {
     // With h: prefix, <hick:...> in text body is NOT parsed
     let src =
         h_doc(r#"<h:file path="out.txt">Example: <hick:file path="x">y</hick:file></h:file>"#);
-    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+    let result = hick_literate::run_pipeline(&[("test.hick", &src)], &[])
         .await
         .unwrap();
     let content = result.files.get("out.txt").unwrap();
@@ -651,7 +651,7 @@ async fn test_custom_prefix_containers() {
 </h:container>
 <h:file path="out.txt">done</h:file>"#,
     );
-    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+    let result = hick_literate::run_pipeline(&[("test.hick", &src)], &[])
         .await
         .unwrap();
     assert!(result.containers.contains_key("worker"));
@@ -673,7 +673,7 @@ async fn test_fork_creates_container_def_in_dry_run() {
 <hick:fork from="base" to="analyzer" />
 <hick:exec container="analyzer">echo analyze</hick:exec>"#,
     );
-    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+    let result = hick_literate::run_pipeline(&[("test.hick", &src)], &[])
         .await
         .unwrap();
 
@@ -700,7 +700,7 @@ async fn test_fork_inherits_source_capabilities() {
 <hick:fork from="base" to="analyzer" />
 <hick:exec container="analyzer">echo analyze</hick:exec>"#,
     );
-    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+    let result = hick_literate::run_pipeline(&[("test.hick", &src)], &[])
         .await
         .unwrap();
 
@@ -728,7 +728,7 @@ async fn test_fork_attenuates_capabilities() {
 </hick:fork>
 <hick:exec container="restricted">echo analyze</hick:exec>"#,
     );
-    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+    let result = hick_literate::run_pipeline(&[("test.hick", &src)], &[])
         .await
         .unwrap();
 
@@ -768,7 +768,7 @@ async fn test_fork_with_allow_and_deny_children() {
 </hick:fork>
 <hick:exec container="scanner">echo scan</hick:exec>"#,
     );
-    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+    let result = hick_literate::run_pipeline(&[("test.hick", &src)], &[])
         .await
         .unwrap();
 
@@ -790,7 +790,7 @@ async fn test_fork_without_declared_source_gets_default_caps() {
 <hick:fork from="base" to="fork-target" />
 <hick:exec container="fork-target">echo hello</hick:exec>"#,
     );
-    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+    let result = hick_literate::run_pipeline(&[("test.hick", &src)], &[])
         .await
         .unwrap();
 
@@ -804,7 +804,7 @@ async fn test_fork_without_declared_source_gets_default_caps() {
 #[tokio::test]
 async fn test_guide_hick_file_processes() {
     let guide_src = include_str!("../../../docs/hick-guide.hick");
-    let result = hick::run_pipeline(&[("hick-guide.hick", guide_src)], &[])
+    let result = hick_literate::run_pipeline(&[("hick-guide.hick", guide_src)], &[])
         .await
         .unwrap();
 
@@ -861,7 +861,7 @@ async fn test_when_attribute_true() {
         "\n",
         r#"<hick:file path="out.txt"><hick:exec container="dbg" /></hick:file>"#,
     ));
-    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+    let result = hick_literate::run_pipeline(&[("test.hick", &src)], &[])
         .await
         .unwrap();
     // Container should exist (when=true)
@@ -884,7 +884,7 @@ async fn test_when_attribute_false() {
         r#"<hick:file path="out.txt">done</hick:file>"#,
     ));
     // No debug var defined -> when="debug" is false
-    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+    let result = hick_literate::run_pipeline(&[("test.hick", &src)], &[])
         .await
         .unwrap();
     // Container should NOT exist (filtered out)
@@ -900,7 +900,7 @@ async fn test_when_tag_true() {
         r#"<hick:when test="mode=prod">production content</hick:when>"#,
         r#" end</hick:file>"#,
     ));
-    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+    let result = hick_literate::run_pipeline(&[("test.hick", &src)], &[])
         .await
         .unwrap();
     let content = result.files.get("out.txt").unwrap();
@@ -919,7 +919,7 @@ async fn test_when_tag_false() {
         r#"<hick:when test="mode=prod">production content</hick:when>"#,
         r#" end</hick:file>"#,
     ));
-    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+    let result = hick_literate::run_pipeline(&[("test.hick", &src)], &[])
         .await
         .unwrap();
     let content = result.files.get("out.txt").unwrap();
@@ -941,7 +941,7 @@ async fn test_when_on_exec_skips_dag() {
         "\n",
         r#"<hick:file path="out.txt"><hick:exec container="c" /></hick:file>"#,
     ));
-    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+    let result = hick_literate::run_pipeline(&[("test.hick", &src)], &[])
         .await
         .unwrap();
     let content = result.files.get("out.txt").unwrap();
@@ -964,7 +964,7 @@ async fn test_when_param_override() {
         r#"done</hick:file>"#,
     ));
     let params = vec![("debug".to_string(), "1".to_string())];
-    let result = hick::run_pipeline(&[("test.hick", &src)], &params)
+    let result = hick_literate::run_pipeline(&[("test.hick", &src)], &params)
         .await
         .unwrap();
     let content = result.files.get("out.txt").unwrap();
@@ -984,7 +984,7 @@ async fn test_when_not_defined() {
         r#"<hick:when test="mode">has mode</hick:when>"#,
         r#"</hick:file>"#,
     ));
-    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+    let result = hick_literate::run_pipeline(&[("test.hick", &src)], &[])
         .await
         .unwrap();
     let content = result.files.get("out.txt").unwrap();
@@ -1008,7 +1008,7 @@ async fn test_when_not_equals() {
         r#"<hick:when test="env!=staging">not staging</hick:when>"#,
         r#"</hick:file>"#,
     ));
-    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+    let result = hick_literate::run_pipeline(&[("test.hick", &src)], &[])
         .await
         .unwrap();
     let content = result.files.get("out.txt").unwrap();
@@ -1037,7 +1037,7 @@ async fn test_when_and_condition() {
         r#"<hick:when test="auth && billing">premium features</hick:when>"#,
         r#"</hick:file>"#,
     ));
-    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+    let result = hick_literate::run_pipeline(&[("test.hick", &src)], &[])
         .await
         .unwrap();
     let content = result.files.get("out.txt").unwrap();
@@ -1056,7 +1056,7 @@ async fn test_when_and_condition_one_missing() {
         r#"<hick:when test="auth && billing">premium features</hick:when>"#,
         r#"basic</hick:file>"#,
     ));
-    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+    let result = hick_literate::run_pipeline(&[("test.hick", &src)], &[])
         .await
         .unwrap();
     let content = result.files.get("out.txt").unwrap();
@@ -1079,7 +1079,7 @@ async fn test_when_or_condition() {
         r#"<hick:when test="auth || admin">has access</hick:when>"#,
         r#"</hick:file>"#,
     ));
-    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+    let result = hick_literate::run_pipeline(&[("test.hick", &src)], &[])
         .await
         .unwrap();
     let content = result.files.get("out.txt").unwrap();
@@ -1096,7 +1096,7 @@ async fn test_when_or_condition_both_missing() {
         r#"<hick:when test="auth || admin">has access</hick:when>"#,
         r#"denied</hick:file>"#,
     ));
-    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+    let result = hick_literate::run_pipeline(&[("test.hick", &src)], &[])
         .await
         .unwrap();
     let content = result.files.get("out.txt").unwrap();
@@ -1122,7 +1122,7 @@ async fn test_when_not_with_parens() {
         r#"<hick:when test="auth && billing">premium</hick:when>"#,
         r#"</hick:file>"#,
     ));
-    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+    let result = hick_literate::run_pipeline(&[("test.hick", &src)], &[])
         .await
         .unwrap();
     let content = result.files.get("out.txt").unwrap();
@@ -1149,7 +1149,7 @@ async fn test_when_mixed_precedence() {
         r#"<hick:when test="auth && billing || admin">elevated</hick:when>"#,
         r#"</hick:file>"#,
     ));
-    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+    let result = hick_literate::run_pipeline(&[("test.hick", &src)], &[])
         .await
         .unwrap();
     let content = result.files.get("out.txt").unwrap();
@@ -1169,7 +1169,7 @@ async fn test_when_parens_override_precedence() {
         r#"<hick:when test="(auth || admin) && billing">premium</hick:when>"#,
         r#"basic</hick:file>"#,
     ));
-    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+    let result = hick_literate::run_pipeline(&[("test.hick", &src)], &[])
         .await
         .unwrap();
     let content = result.files.get("out.txt").unwrap();
@@ -1192,7 +1192,7 @@ async fn test_when_equals_with_and() {
         r#"<hick:when test="env=dev && debug">dev debug mode</hick:when>"#,
         r#"</hick:file>"#,
     ));
-    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+    let result = hick_literate::run_pipeline(&[("test.hick", &src)], &[])
         .await
         .unwrap();
     let content = result.files.get("out.txt").unwrap();
@@ -1219,7 +1219,7 @@ async fn test_when_on_exec_with_compound_condition() {
         "\n",
         r#"<hick:file path="out.txt"><hick:exec container="c" /></hick:file>"#,
     ));
-    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+    let result = hick_literate::run_pipeline(&[("test.hick", &src)], &[])
         .await
         .unwrap();
     let content = result.files.get("out.txt").unwrap();
@@ -1244,7 +1244,7 @@ async fn test_substitute_basic() {
         "\n",
         r#"<hick:file path="out.txt">Welcome to FavoriteApp!</hick:file>"#,
     ));
-    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+    let result = hick_literate::run_pipeline(&[("test.hick", &src)], &[])
         .await
         .unwrap();
     let content = result.files.get("out.txt").unwrap();
@@ -1260,7 +1260,7 @@ async fn test_substitute_with_variants() {
         r#"class FavoriteApp { let favoriteApp = "favorite_app"; }"#,
         r#"</hick:file>"#,
     ));
-    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+    let result = hick_literate::run_pipeline(&[("test.hick", &src)], &[])
         .await
         .unwrap();
     let content = result.files.get("out.txt").unwrap();
@@ -1288,7 +1288,7 @@ async fn test_substitute_value_from_var() {
         "\n",
         r#"<hick:file path="out.txt">Welcome to FavoriteApp!</hick:file>"#,
     ));
-    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+    let result = hick_literate::run_pipeline(&[("test.hick", &src)], &[])
         .await
         .unwrap();
     let content = result.files.get("out.txt").unwrap();
@@ -1303,7 +1303,7 @@ async fn test_substitute_value_from_param() {
         r#"<hick:file path="out.txt">Welcome to FavoriteApp!</hick:file>"#,
     ));
     let params = vec![("project".to_string(), "MyProject".to_string())];
-    let result = hick::run_pipeline(&[("test.hick", &src)], &params)
+    let result = hick_literate::run_pipeline(&[("test.hick", &src)], &params)
         .await
         .unwrap();
     let content = result.files.get("out.txt").unwrap();
@@ -1317,7 +1317,7 @@ async fn test_path_interpolation_basic() {
         "\n",
         r#"<hick:file path="Sources/{{name}}/App.swift">app code</hick:file>"#,
     ));
-    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+    let result = hick_literate::run_pipeline(&[("test.hick", &src)], &[])
         .await
         .unwrap();
     assert!(
@@ -1334,7 +1334,7 @@ async fn test_path_interpolation_with_variant() {
         "\n",
         r#"<hick:file path="{{name:snake_case}}.rs">rust code</hick:file>"#,
     ));
-    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+    let result = hick_literate::run_pipeline(&[("test.hick", &src)], &[])
         .await
         .unwrap();
     assert!(
@@ -1351,7 +1351,7 @@ async fn test_substitute_in_path() {
         "\n",
         r#"<hick:file path="Sources/FavoriteApp/App.swift">code</hick:file>"#,
     ));
-    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+    let result = hick_literate::run_pipeline(&[("test.hick", &src)], &[])
         .await
         .unwrap();
     assert!(
@@ -1370,7 +1370,7 @@ async fn test_substitute_in_paste() {
         "\n",
         r##"<hick:file path="out.txt"><hick:paste select="#template" /></hick:file>"##,
     ));
-    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+    let result = hick_literate::run_pipeline(&[("test.hick", &src)], &[])
         .await
         .unwrap();
     let content = result.files.get("out.txt").unwrap();
@@ -1389,7 +1389,7 @@ async fn test_substitute_multiple_patterns() {
         "\n",
         r#"<hick:file path="out.txt">ExampleOrg presents FavoriteApp</hick:file>"#,
     ));
-    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+    let result = hick_literate::run_pipeline(&[("test.hick", &src)], &[])
         .await
         .unwrap();
     let content = result.files.get("out.txt").unwrap();
@@ -1406,7 +1406,7 @@ async fn test_substitute_longer_pattern_first() {
         "\n",
         r#"<hick:file path="out.txt">FavoriteApp is an App</hick:file>"#,
     ));
-    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+    let result = hick_literate::run_pipeline(&[("test.hick", &src)], &[])
         .await
         .unwrap();
     let content = result.files.get("out.txt").unwrap();
@@ -1425,7 +1425,7 @@ async fn test_multi_stage_no_hick_output_single_stage() {
         r#"<hick:file path="out.txt">hello</hick:file>
 <hick:file path="data.json">{"key": "value"}</hick:file>"#,
     );
-    let result = hick::run_pipeline_multi_stage(&[("test.hick", &src)], &[], 3)
+    let result = hick_literate::run_pipeline_multi_stage(&[("test.hick", &src)], &[], 3)
         .await
         .unwrap();
     assert_eq!(result.files.len(), 2);
@@ -1458,7 +1458,7 @@ async fn test_multi_stage_two_stages() {
 </hick:doc></h:file>
 </h:doc>"#;
 
-    let result = hick::run_pipeline_multi_stage(&[("test.hick", &src)], &[], 3)
+    let result = hick_literate::run_pipeline_multi_stage(&[("test.hick", &src)], &[], 3)
         .await
         .unwrap();
 
@@ -1497,7 +1497,7 @@ async fn test_multi_stage_two_stages() {
 async fn test_multi_stage_limit_reached_error() {
     // With max_stages=1, any .hick output triggers the limit error.
     let src = hick_doc(r#"<hick:file path="output.hick">placeholder</hick:file>"#);
-    let result = hick::run_pipeline_multi_stage(&[("test.hick", &src)], &[], 1).await;
+    let result = hick_literate::run_pipeline_multi_stage(&[("test.hick", &src)], &[], 1).await;
     assert!(result.is_err(), "should error when stage limit reached");
     let err = result.unwrap_err().to_string();
     assert!(
@@ -1524,7 +1524,7 @@ async fn test_multi_stage_hick_files_removed_from_output() {
 </hick:doc></h:file>
 </h:doc>"#;
 
-    let result = hick::run_pipeline_multi_stage(&[("test.hick", src)], &[], 3)
+    let result = hick_literate::run_pipeline_multi_stage(&[("test.hick", src)], &[], 3)
         .await
         .unwrap();
 
@@ -1552,7 +1552,7 @@ async fn test_feature_definition_basic() {
     );
 
     // Enable auth feature
-    let result = hick::run_pipeline(
+    let result = hick_literate::run_pipeline(
         &[("test.hick", &src)],
         &[("features".to_string(), "auth".to_string())],
     )
@@ -1577,7 +1577,7 @@ async fn test_feature_not_enabled() {
     );
 
     // Don't enable auth feature
-    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+    let result = hick_literate::run_pipeline(&[("test.hick", &src)], &[])
         .await
         .unwrap();
 
@@ -1600,7 +1600,7 @@ async fn test_feature_with_dependencies() {
     );
 
     // Enable only premium - should auto-enable auth and billing
-    let result = hick::run_pipeline(
+    let result = hick_literate::run_pipeline(
         &[("test.hick", &src)],
         &[("features".to_string(), "premium".to_string())],
     )
@@ -1630,7 +1630,7 @@ async fn test_feature_multiple_enabled() {
 </hick:file>"#,
     );
 
-    let result = hick::run_pipeline(
+    let result = hick_literate::run_pipeline(
         &[("test.hick", &src)],
         &[("features".to_string(), "auth, billing".to_string())],
     )
@@ -1650,7 +1650,7 @@ async fn test_feature_unknown_feature_error() {
 <hick:file path="out.txt">test</hick:file>"#,
     );
 
-    let result = hick::run_pipeline(
+    let result = hick_literate::run_pipeline(
         &[("test.hick", &src)],
         &[("features".to_string(), "nonexistent".to_string())],
     )
@@ -1677,7 +1677,7 @@ async fn test_feature_circular_dependency_error() {
 <hick:file path="out.txt">test</hick:file>"#,
     );
 
-    let result = hick::run_pipeline(
+    let result = hick_literate::run_pipeline(
         &[("test.hick", &src)],
         &[("features".to_string(), "a".to_string())],
     )
@@ -1706,7 +1706,7 @@ async fn test_feature_with_conditional_file() {
     );
 
     // Without auth enabled
-    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+    let result = hick_literate::run_pipeline(&[("test.hick", &src)], &[])
         .await
         .unwrap();
     assert!(result.files.contains_key("main.txt"));
@@ -1716,7 +1716,7 @@ async fn test_feature_with_conditional_file() {
     );
 
     // With auth enabled
-    let result = hick::run_pipeline(
+    let result = hick_literate::run_pipeline(
         &[("test.hick", &src)],
         &[("features".to_string(), "auth".to_string())],
     )
@@ -1740,7 +1740,7 @@ async fn test_feature_with_path_interpolation() {
 </hick:when>"#,
     );
 
-    let result = hick::run_pipeline(
+    let result = hick_literate::run_pipeline(
         &[("test.hick", &src)],
         &[("features".to_string(), "auth".to_string())],
     )
@@ -1762,7 +1762,7 @@ async fn test_feature_with_substitution() {
 </hick:when>"#,
     );
 
-    let result = hick::run_pipeline(
+    let result = hick_literate::run_pipeline(
         &[("test.hick", &src)],
         &[("features".to_string(), "auth".to_string())],
     )
@@ -1794,7 +1794,7 @@ async fn test_exclude_basic() {
 <hick:file path="src/main.rs">code</hick:file>"#,
     );
 
-    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+    let result = hick_literate::run_pipeline(&[("test.hick", &src)], &[])
         .await
         .unwrap();
 
@@ -1822,7 +1822,7 @@ async fn test_exclude_glob_extension() {
 <hick:file path="setup.template-only">setup instructions</hick:file>"#,
     );
 
-    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+    let result = hick_literate::run_pipeline(&[("test.hick", &src)], &[])
         .await
         .unwrap();
 
@@ -1842,7 +1842,7 @@ async fn test_exclude_glob_directory() {
 <hick:file path="src/main.rs">code</hick:file>"#,
     );
 
-    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+    let result = hick_literate::run_pipeline(&[("test.hick", &src)], &[])
         .await
         .unwrap();
 
@@ -1866,7 +1866,7 @@ async fn test_exclude_multiple_patterns() {
 <hick:file path="config.md">real config</hick:file>"#,
     );
 
-    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+    let result = hick_literate::run_pipeline(&[("test.hick", &src)], &[])
         .await
         .unwrap();
 
@@ -1890,7 +1890,7 @@ async fn test_exclude_with_features() {
 </hick:when>"#,
     );
 
-    let result = hick::run_pipeline(
+    let result = hick_literate::run_pipeline(
         &[("test.hick", &src)],
         &[("features".to_string(), "auth".to_string())],
     )
@@ -1915,7 +1915,7 @@ async fn test_exclude_conditional() {
     );
 
     // Without dev feature - debug.dev should be excluded
-    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+    let result = hick_literate::run_pipeline(&[("test.hick", &src)], &[])
         .await
         .unwrap();
     assert!(result.files.contains_key("app.rs"));
@@ -1925,7 +1925,7 @@ async fn test_exclude_conditional() {
     );
 
     // With dev feature - debug.dev should be kept
-    let result = hick::run_pipeline(
+    let result = hick_literate::run_pipeline(
         &[("test.hick", &src)],
         &[("features".to_string(), "dev".to_string())],
     )
@@ -1962,7 +1962,7 @@ The main function prints a greeting.
 
 </hick:doc>"#;
 
-    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+    let result = hick_literate::run_pipeline(&[("test.hick", &src)], &[])
         .await
         .unwrap();
 
@@ -2018,7 +2018,7 @@ target/
 
 </hick:doc>"#;
 
-    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+    let result = hick_literate::run_pipeline(&[("test.hick", &src)], &[])
         .await
         .unwrap();
 
@@ -2055,7 +2055,7 @@ Version: <hick:val name="version" />
 
 </hick:doc>"#;
 
-    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+    let result = hick_literate::run_pipeline(&[("test.hick", &src)], &[])
         .await
         .unwrap();
 
@@ -2095,7 +2095,7 @@ No authentication included.
 
 </hick:doc>"#;
 
-    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+    let result = hick_literate::run_pipeline(&[("test.hick", &src)], &[])
         .await
         .unwrap();
 
@@ -2138,7 +2138,7 @@ body {}
 
 </hick:doc>"#;
 
-    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+    let result = hick_literate::run_pipeline(&[("test.hick", &src)], &[])
         .await
         .unwrap();
 
@@ -2161,7 +2161,7 @@ Some prose here.
 
 </hick:doc>"#;
 
-    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+    let result = hick_literate::run_pipeline(&[("test.hick", &src)], &[])
         .await
         .unwrap();
 
@@ -2187,7 +2187,7 @@ Welcome to FavoriteApp!
 
 </hick:doc>"#;
 
-    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+    let result = hick_literate::run_pipeline(&[("test.hick", &src)], &[])
         .await
         .unwrap();
 
@@ -2229,7 +2229,7 @@ name = "example"
 
 </hick:doc>"#;
 
-    let result = hick::run_pipeline(&[("test.hick", &src)], &[])
+    let result = hick_literate::run_pipeline(&[("test.hick", &src)], &[])
         .await
         .unwrap();
 
@@ -2262,11 +2262,11 @@ name = "example"
 #[test]
 fn test_hick_init_creates_pipeline_config() {
     let dir = tempfile::tempdir().unwrap();
-    let config = hick::agents::InitConfig {
+    let config = hick_literate::agents::InitConfig {
         project_dir: dir.path().to_path_buf(),
         no_agents: true,
     };
-    let result = hick::agents::init_agents(&config).unwrap();
+    let result = hick_literate::agents::init_agents(&config).unwrap();
     assert!(result.pipeline_initialized);
     assert!(dir.path().join("_hick.yml").is_file());
     let content = std::fs::read_to_string(dir.path().join("_hick.yml")).unwrap();
@@ -2282,11 +2282,11 @@ fn test_hick_init_does_not_overwrite_existing_pipeline_config() {
     )
     .unwrap();
 
-    let config = hick::agents::InitConfig {
+    let config = hick_literate::agents::InitConfig {
         project_dir: dir.path().to_path_buf(),
         no_agents: true,
     };
-    let result = hick::agents::init_agents(&config).unwrap();
+    let result = hick_literate::agents::init_agents(&config).unwrap();
     assert!(!result.pipeline_initialized, "should not overwrite existing _hick.yml");
     let content = std::fs::read_to_string(dir.path().join("_hick.yml")).unwrap();
     assert!(content.contains("custom.hick"), "original content preserved");
@@ -2296,7 +2296,7 @@ fn test_hick_init_does_not_overwrite_existing_pipeline_config() {
 fn test_pipeline_show_no_error_on_empty_config() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("_hick.yml"), "files: []\n").unwrap();
-    hick::pipeline::pipeline_show(dir.path()).unwrap();
+    hick_literate::pipeline::pipeline_show(dir.path()).unwrap();
 }
 
 #[test]
@@ -2312,7 +2312,7 @@ fn test_pipeline_show_with_owned_files() {
     std::fs::write(dir.path().join("_hick.yml"), "files:\n  - main.hick\n").unwrap();
     std::fs::write(dir.path().join("main.hick"), &src).unwrap();
     // Should not error
-    hick::pipeline::pipeline_show(dir.path()).unwrap();
+    hick_literate::pipeline::pipeline_show(dir.path()).unwrap();
 }
 
 #[test]
@@ -2326,7 +2326,7 @@ fn test_pipeline_status_classifies_files() {
     // Write an untracked file
     std::fs::write(dir.path().join("extra.txt"), "extra").unwrap();
     // Should not error
-    hick::pipeline::pipeline_status(dir.path()).unwrap();
+    hick_literate::pipeline::pipeline_status(dir.path()).unwrap();
 }
 
 /// AC#4: hick run after multiple simulated agent sessions reproduces all files.
@@ -2338,7 +2338,7 @@ async fn test_multi_session_hick_run_reproduces_all_files() {
     // Session 1: create initial pipeline with file a.txt
     let session1 = hick_doc(r#"<hick:file path="a.txt">from-session-1</hick:file>"#);
 
-    let result1 = hick::run_pipeline(&[("session1.hick", &session1)], &[])
+    let result1 = hick_literate::run_pipeline(&[("session1.hick", &session1)], &[])
         .await
         .unwrap();
     assert_eq!(result1.files.get("a.txt").unwrap(), "from-session-1");
@@ -2348,7 +2348,7 @@ async fn test_multi_session_hick_run_reproduces_all_files() {
 
     // Running both session files together simulates running the full pipeline
     // after two agent sessions have each appended their own .hick file.
-    let result_combined = hick::run_pipeline(
+    let result_combined = hick_literate::run_pipeline(
         &[
             ("session1.hick", &session1),
             ("session2.hick", &session2),

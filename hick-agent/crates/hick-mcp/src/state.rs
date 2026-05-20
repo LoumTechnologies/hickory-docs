@@ -7,7 +7,7 @@ use std::sync::Arc;
 
 use tokio::sync::Mutex;
 
-use hick::executor::ContainerExecutor;
+use hick_literate::executor::ContainerExecutor;
 use hick_exec::node::FileContent;
 use hick_flow::provenance::ProvenanceMap;
 use hick_lens::language::Language;
@@ -192,7 +192,7 @@ impl ServerState {
             .map(|(k, v)| (k.as_str(), v.as_str()))
             .collect();
 
-        let result = hick::run_pipeline(&source_refs, params).await?;
+        let result = hick_literate::run_pipeline(&source_refs, params).await?;
 
         // Build AST mappings and summary
         let mut mappings = HashMap::new();

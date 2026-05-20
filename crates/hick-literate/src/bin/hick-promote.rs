@@ -68,7 +68,7 @@ async fn run() -> Result<()> {
 
     eprintln!("Promoting {}...", args.session.display());
 
-    let result = hick::promote::promote(&hick::promote::PromoteOpts {
+    let result = hick_literate::promote::promote(&hick_literate::promote::PromoteOpts {
         session_source: &session_source,
         project_dir: &project_dir,
         session_name,

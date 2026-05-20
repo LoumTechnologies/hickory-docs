@@ -1,10 +1,10 @@
 [package]
-name = "hick"
+name = "hick-literate"
 version = "0.1.0"
 edition = "2024"
 
 [lib]
-name = "hick"
+name = "hick_literate"
 path = "src/lib.rs"
 
 [[bin]]

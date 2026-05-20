@@ -14,7 +14,7 @@ use hick_lens::language::Language;
 use hick_lens::mapping::AstMapping;
 use hick_lens::selector::Selector;
 
-use hick::run_pipeline;
+use hick_literate::run_pipeline;
 
 /// A computed source edit (before application).
 #[derive(Debug, Clone)]

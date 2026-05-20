@@ -7,7 +7,7 @@ publish = false
 
 [dependencies]
 hick-agent-sdk = { path = "../hick-agent-sdk" }
-hick = { version = "0.1", path = "../../../crates/hick" }
+hick-literate = { version = "0.1", path = "../../../crates/hick-literate" }
 hick-lens = { version = "0.1", path = "../../../crates/hick-lens" }
 hick-flow = { workspace = true, features = ["serde"] }
 hick-exec.workspace = true

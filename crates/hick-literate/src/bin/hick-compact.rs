@@ -58,14 +58,14 @@ async fn run() -> Result<()> {
     eprintln!("Compacting {}...", args.input.display());
 
     // Compact the document
-    let compacted = hick::compact::compact_document(&source)?;
+    let compacted = hick_literate::compact::compact_document(&source)?;
 
     // Verify if requested
     if args.verify {
         eprintln!("Verifying equivalence...");
 
         let result =
-            hick::equiv::check_equivalence(&source, &compacted, args.max_verify_combinations)
+            hick_literate::equiv::check_equivalence(&source, &compacted, args.max_verify_combinations)
                 .await?;
 
         if !result.equivalent {
@@ -82,7 +82,7 @@ async fn run() -> Result<()> {
                     }
                 );
                 for diff in diffs {
-                    eprintln!("    {}", hick::equiv::format_diff(diff));
+                    eprintln!("    {}", hick_literate::equiv::format_diff(diff));
                 }
             }
 

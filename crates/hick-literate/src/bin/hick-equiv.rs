@@ -70,7 +70,7 @@ async fn run() -> Result<bool> {
     );
 
     // Run equivalence check
-    let result = hick::equiv::check_equivalence(&source1, &source2, args.max_combinations).await?;
+    let result = hick_literate::equiv::check_equivalence(&source1, &source2, args.max_combinations).await?;
 
     eprintln!("Tested {} feature combinations", result.combinations_tested);
 
@@ -95,16 +95,16 @@ async fn run() -> Result<bool> {
 
             for diff in diffs {
                 if args.verbose {
-                    eprintln!("{}", hick::equiv::format_diff(diff));
+                    eprintln!("{}", hick_literate::equiv::format_diff(diff));
                 } else {
                     match &diff.kind {
-                        hick::equiv::DiffKind::OnlyInFirst => {
+                        hick_literate::equiv::DiffKind::OnlyInFirst => {
                             eprintln!("    - {} (only in first)", diff.path);
                         }
-                        hick::equiv::DiffKind::OnlyInSecond => {
+                        hick_literate::equiv::DiffKind::OnlyInSecond => {
                             eprintln!("    + {} (only in second)", diff.path);
                         }
-                        hick::equiv::DiffKind::ContentDiffers { .. } => {
+                        hick_literate::equiv::DiffKind::ContentDiffers { .. } => {
                             eprintln!("    ~ {} (content differs)", diff.path);
                         }
                     }

@@ -4285,55 +4285,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "7f24254aa9a54b5c858eaee2f5bccdb46aaf0e486a595ed5fd8f86ba55232a70"
 
 [[package]]
-name = "hick"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "base64 0.22.1",
- "bridge",
- "chrono",
- "clap",
- "connection-filter",
- "container",
- "env_logger",
- "futures",
- "glob",
- "hick-api",
- "hick-case",
- "hick-condition",
- "hick-exec",
- "hick-feature",
- "hick-handlers",
- "hick-lang",
- "hick-live",
- "hick-merge",
- "hick-secrets",
- "hick-shell",
- "hick-store",
- "hick-token",
- "indexmap 2.14.0",
- "log",
- "net-config",
- "network",
- "notify",
- "rand 0.8.6",
- "rustyline",
- "serde",
- "serde_json",
- "serde_yaml",
- "sha2 0.10.9",
- "sysinfo",
- "tar",
- "tempfile",
- "thiserror 2.0.18",
- "tokio",
- "walkdir",
- "wasmtime 41.0.4",
- "wasmtime-wasi 41.0.4",
- "zip",
-]
-
-[[package]]
 name = "hick-agent"
 version = "0.1.0"
 dependencies = [
@@ -4367,8 +4318,8 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
- "hick",
  "hick-agent-hick-edit",
+ "hick-literate",
  "hick-token",
  "tokio",
 ]
@@ -4397,12 +4348,12 @@ dependencies = [
  "anyhow",
  "async-trait",
  "glob",
- "hick",
  "hick-agent-sdk",
  "hick-exec",
  "hick-flow",
  "hick-lang",
  "hick-lens",
+ "hick-literate",
  "log",
  "notify",
  "serde",
@@ -4674,6 +4625,55 @@ dependencies = [
 ]
 
 [[package]]
+name = "hick-literate"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "base64 0.22.1",
+ "bridge",
+ "chrono",
+ "clap",
+ "connection-filter",
+ "container",
+ "env_logger",
+ "futures",
+ "glob",
+ "hick-api",
+ "hick-case",
+ "hick-condition",
+ "hick-exec",
+ "hick-feature",
+ "hick-handlers",
+ "hick-lang",
+ "hick-live",
+ "hick-merge",
+ "hick-secrets",
+ "hick-shell",
+ "hick-store",
+ "hick-token",
+ "indexmap 2.14.0",
+ "log",
+ "net-config",
+ "network",
+ "notify",
+ "rand 0.8.6",
+ "rustyline",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "sha2 0.10.9",
+ "sysinfo",
+ "tar",
+ "tempfile",
+ "thiserror 2.0.18",
+ "tokio",
+ "walkdir",
+ "wasmtime 41.0.4",
+ "wasmtime-wasi 41.0.4",
+ "zip",
+]
+
+[[package]]
 name = "hick-live"
 version = "0.1.0"
 dependencies = [
@@ -4718,11 +4718,11 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "clap",
- "hick",
  "hick-exec",
  "hick-flow",
  "hick-lang",
  "hick-lens",
+ "hick-literate",
  "log",
  "rmcp",
  "schemars",
@@ -5489,7 +5489,6 @@ dependencies = [
  "clap",
  "dotenvy",
  "futures",
- "hick",
  "hick-agent-core",
  "hick-agent-engine",
  "hick-agent-hick-edit",
@@ -5497,6 +5496,7 @@ dependencies = [
  "hick-agent-sdk",
  "hick-agent-tui",
  "hick-lang",
+ "hick-literate",
  "hick-policy",
  "hick-secrets",
  "hick-token",
