@@ -4510,6 +4510,18 @@ name = "hick-condition"
 version = "0.1.0"
 
 [[package]]
+name = "hick-eval-store"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "chrono",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "uuid",
+]
+
+[[package]]
 name = "hick-exec"
 version = "0.1.0"
 dependencies = [
