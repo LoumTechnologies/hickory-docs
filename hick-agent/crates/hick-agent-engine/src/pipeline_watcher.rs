@@ -26,7 +26,7 @@ use tokio::sync::{Mutex, Notify};
 
 use hick_agent_core::{HickEditFormat, HickEditService, PipelineOutput};
 
-use crate::file_io::{load_hick_sources, write_hick_sources};
+use crate::file_io::{load_hick_sources, read_output_dir, write_hick_sources};
 use crate::reverse_provenance::{
     ReverseResult, VerifyResult, apply_reverse_edits, diff_output, reverse_map, verify_round_trip,
 };
@@ -397,10 +397,13 @@ impl PipelineWatcher {
     }
 
     fn output_base(&self) -> PathBuf {
-        match &self.output_dir {
-            Some(d) => self.project_dir.join(d),
-            None => self.project_dir.clone(),
+        if let Some(d) = &self.output_dir {
+            return self.project_dir.join(d);
         }
+        if let Some(d) = read_output_dir(&self.project_dir) {
+            return self.project_dir.join(d);
+        }
+        self.project_dir.clone()
     }
 
     async fn run_pipeline_inner(&self) -> Result<PipelineOutput> {

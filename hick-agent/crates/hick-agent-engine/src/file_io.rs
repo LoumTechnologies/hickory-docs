@@ -68,6 +68,16 @@ pub fn load_hick_sources(project_dir: &Path) -> anyhow::Result<HashMap<String, S
 struct HickConfig {
     #[serde(default)]
     files: Option<Vec<String>>,
+    #[serde(rename = "output-dir")]
+    output_dir: Option<String>,
+}
+
+/// Read the `output-dir` from a `_hick.yml` in `project_dir`, if present.
+pub fn read_output_dir(project_dir: &Path) -> Option<String> {
+    let config_path = project_dir.join("_hick.yml");
+    let content = std::fs::read_to_string(&config_path).ok()?;
+    let config: HickConfig = serde_yaml::from_str(&content).ok()?;
+    config.output_dir
 }
 
 /// Write hick sources to disk.

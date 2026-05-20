@@ -1518,7 +1518,11 @@ pub fn expand_path_arg(path: &Path) -> Result<(Vec<PathBuf>, Option<PathBuf>)> {
     use config::HickConfig;
     use anyhow::{bail, Context as _};
     if path.is_file() {
-        return Ok((vec![path.to_path_buf()], None));
+        let parent_config = path
+            .parent()
+            .map(|p| p.join("_hick.yml"))
+            .filter(|p| p.is_file());
+        return Ok((vec![path.to_path_buf()], parent_config));
     }
     if path.is_dir() {
         let config_path = path.join("_hick.yml");
