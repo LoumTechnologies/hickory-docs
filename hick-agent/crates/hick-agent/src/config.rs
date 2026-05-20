@@ -1,0 +1,781 @@
+//! Agent configuration — unified `.hick/agent.toml` schema.
+//!
+//! Supports two config shapes:
+//! - **Point config**: no `[search]` section → ready to run immediately.
+//! - **Search space config**: has `[search]` + at least one axis → use
+//!   `SearchSpaceConfig::expand_trials()` to enumerate concrete configs.
+//!
+//! Config resolution order:
+//! 1. `--config <path>` (explicit override)
+//! 2. `.hick/agent.toml` in the project directory
+//! 3. `~/.hick/agent.toml` in the user's home directory
+//! 4. Built-in defaults (error: model_id is required)
+
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
+
+use anyhow::{bail, Context as _};
+use hick_agent_sdk::AgentSecurityConfig;
+use serde::Deserialize;
+
+// Known valid keys for `[intent_parsers]` and `[classifiers]`. Any other key
+// produces a startup error (AC #2). These lists grow as TASK-33 lands.
+const KNOWN_INTENT_PARSERS: &[&str] = &["script_first", "hick_edit"];
+const KNOWN_CLASSIFIERS: &[&str] = &["phi", "secrets"];
+
+// ---------------------------------------------------------------------------
+// [model] section
+// ---------------------------------------------------------------------------
+
+/// LLM provider.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Provider {
+    #[default]
+    Anthropic,
+    #[serde(rename = "openai")]
+    OpenAI,
+    #[serde(rename = "xai")]
+    XAI,
+}
+
+/// `[model]` section: which LLM and credentials to use.
+#[derive(Debug, Clone, Deserialize)]
+pub struct ModelSection {
+    /// Provider backend.
+    #[serde(default)]
+    pub provider: Provider,
+    /// Model identifier (e.g. `"claude-opus-4-7-20251101"`).
+    pub model_id: String,
+    /// Name of the environment variable that holds the API key.
+    /// Defaults to the provider's conventional key name.
+    #[serde(default)]
+    pub api_key_env: Option<String>,
+    /// Context window size hint (informational; not enforced here).
+    #[serde(default)]
+    pub context_window: Option<u32>,
+    /// Maximum output tokens per request.
+    #[serde(default)]
+    pub max_tokens: Option<u32>,
+}
+
+// ---------------------------------------------------------------------------
+// [extensions] section
+// ---------------------------------------------------------------------------
+
+/// `[extensions]` section: which optional extension crates are active.
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct ExtensionsSection {
+    #[serde(default)]
+    pub script_first: bool,
+    #[serde(default)]
+    pub hick_edit: bool,
+    #[serde(default)]
+    pub mcp_wasm: bool,
+    #[serde(default)]
+    pub mcp_sdk: bool,
+    #[serde(default)]
+    pub mcp_xml: bool,
+    #[serde(default)]
+    pub mcp_graphql: bool,
+}
+
+// ---------------------------------------------------------------------------
+// [mcp] section
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct McpResponseFormatSection {
+    #[serde(default = "default_fmt")]
+    pub default: String,
+    #[serde(default)]
+    pub by_shape: ByShapeSection,
+}
+
+impl Default for McpResponseFormatSection {
+    fn default() -> Self {
+        Self { default: default_fmt(), by_shape: ByShapeSection::default() }
+    }
+}
+
+fn default_fmt() -> String {
+    "json".into()
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct ByShapeSection {
+    #[serde(default)]
+    pub list: Option<String>,
+    #[serde(default)]
+    pub nested: Option<String>,
+    #[serde(default)]
+    pub scalar: Option<String>,
+    #[serde(default)]
+    pub object: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct McpSection {
+    #[serde(default = "default_servers_file")]
+    pub servers_file: String,
+    #[serde(default = "default_secrets_file")]
+    pub secrets_file: String,
+    #[serde(default)]
+    pub response_format: McpResponseFormatSection,
+}
+
+fn default_servers_file() -> String {
+    ".hick/mcp-servers.toml".into()
+}
+fn default_secrets_file() -> String {
+    ".hick/mcp-secrets.toml".into()
+}
+
+impl Default for McpSection {
+    fn default() -> Self {
+        Self {
+            servers_file: default_servers_file(),
+            secrets_file: default_secrets_file(),
+            response_format: McpResponseFormatSection::default(),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// [machine] and [eval] stubs (consumers: TASK-45, TASK-50)
+// ---------------------------------------------------------------------------
+
+/// `[machine]` stub. Capability scheduling is implemented in TASK-45.
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct MachineSection {}
+
+/// `[eval]` stub. Idle timeout and auto-prune are implemented in TASK-50.
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct EvalSection {}
+
+// ---------------------------------------------------------------------------
+// [search] section
+// ---------------------------------------------------------------------------
+
+/// Strategy for expanding the search space into concrete trials.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum SearchStrategy {
+    /// Cartesian product of all axes.
+    #[default]
+    Grid,
+    /// One-factor-at-a-time: baseline + one variation per axis value.
+    Ofat,
+}
+
+/// A single search axis: a named extension field and the values to try.
+#[derive(Debug, Clone)]
+pub struct SearchAxis {
+    pub name: String,
+    pub values: Vec<toml::Value>,
+}
+
+/// A constraint that prunes invalid trial combinations.
+///
+/// Semantics: if all `if_keys` match a trial, then all `then_keys` must also
+/// match; otherwise the trial is pruned.
+///
+/// TOML example:
+/// ```toml
+/// [[search.constraints]]
+/// if_keys  = { hick_edit = true }
+/// then_keys = { script_first = true }
+/// ```
+#[derive(Debug, Clone)]
+pub struct SearchConstraint {
+    pub if_keys: HashMap<String, toml::Value>,
+    pub then_keys: HashMap<String, toml::Value>,
+}
+
+/// Parsed `[search]` section.
+#[derive(Debug, Clone)]
+pub struct SearchSection {
+    pub strategy: SearchStrategy,
+    /// Search axes (order preserved; used as baseline for OFAT).
+    pub axes: Vec<SearchAxis>,
+    pub constraints: Vec<SearchConstraint>,
+}
+
+// ---------------------------------------------------------------------------
+// Point config
+// ---------------------------------------------------------------------------
+
+/// A concrete, ready-to-run agent configuration.
+#[derive(Debug, Clone)]
+pub struct PointConfig {
+    pub model: ModelSection,
+    pub extensions: ExtensionsSection,
+    /// Inline security config (replaces the old `agent-security.toml` pointer).
+    pub security: AgentSecurityConfig,
+    pub mcp: McpSection,
+    pub machine: MachineSection,
+    pub eval: EvalSection,
+    /// Extra text appended to the agent system prompt. Path relative to
+    /// the project directory.
+    pub system_prompt_extra: Option<String>,
+}
+
+// ---------------------------------------------------------------------------
+// Search space config
+// ---------------------------------------------------------------------------
+
+/// A search space configuration for eval / A-B testing.
+///
+/// Use [`SearchSpaceConfig::expand_trials`] to enumerate all concrete configs.
+#[derive(Debug, Clone)]
+pub struct SearchSpaceConfig {
+    /// Shared base config; per-trial extensions override this.
+    pub base: PointConfig,
+    pub search: SearchSection,
+}
+
+impl SearchSpaceConfig {
+    /// Expand the search space into all concrete trial configs, pruned by
+    /// constraints.
+    pub fn expand_trials(&self) -> Vec<PointConfig> {
+        let combos = match self.search.strategy {
+            SearchStrategy::Grid => self.grid_combinations(),
+            SearchStrategy::Ofat => self.ofat_combinations(),
+        };
+        combos
+            .into_iter()
+            .filter(|c| self.satisfies_constraints(c))
+            .map(|c| self.apply_combo(c))
+            .collect()
+    }
+
+    fn grid_combinations(&self) -> Vec<HashMap<String, toml::Value>> {
+        let mut result: Vec<HashMap<String, toml::Value>> = vec![HashMap::new()];
+        for axis in &self.search.axes {
+            let mut expanded = Vec::new();
+            for combo in result {
+                for val in &axis.values {
+                    let mut c = combo.clone();
+                    c.insert(axis.name.clone(), val.clone());
+                    expanded.push(c);
+                }
+            }
+            result = expanded;
+        }
+        result
+    }
+
+    fn ofat_combinations(&self) -> Vec<HashMap<String, toml::Value>> {
+        // Baseline: first value of every axis.
+        let baseline: HashMap<String, toml::Value> = self
+            .search
+            .axes
+            .iter()
+            .map(|a| (a.name.clone(), a.values[0].clone()))
+            .collect();
+
+        let mut result = vec![baseline.clone()];
+        for axis in &self.search.axes {
+            for val in axis.values.iter().skip(1) {
+                let mut c = baseline.clone();
+                c.insert(axis.name.clone(), val.clone());
+                result.push(c);
+            }
+        }
+        result
+    }
+
+    fn satisfies_constraints(&self, combo: &HashMap<String, toml::Value>) -> bool {
+        for constraint in &self.search.constraints {
+            let if_matches = constraint
+                .if_keys
+                .iter()
+                .all(|(k, v)| combo.get(k).map_or(false, |cv| cv == v));
+            if if_matches {
+                let then_holds = constraint
+                    .then_keys
+                    .iter()
+                    .all(|(k, v)| combo.get(k).map_or(false, |cv| cv == v));
+                if !then_holds {
+                    return false;
+                }
+            }
+        }
+        true
+    }
+
+    fn apply_combo(&self, combo: HashMap<String, toml::Value>) -> PointConfig {
+        let mut cfg = self.base.clone();
+        for (key, val) in combo {
+            match key.as_str() {
+                "script_first" => {
+                    if let Some(b) = val.as_bool() {
+                        cfg.extensions.script_first = b;
+                    }
+                }
+                "hick_edit" => {
+                    if let Some(b) = val.as_bool() {
+                        cfg.extensions.hick_edit = b;
+                    }
+                }
+                "mcp_wasm" => {
+                    if let Some(b) = val.as_bool() {
+                        cfg.extensions.mcp_wasm = b;
+                    }
+                }
+                "mcp_sdk" => {
+                    if let Some(b) = val.as_bool() {
+                        cfg.extensions.mcp_sdk = b;
+                    }
+                }
+                "mcp_xml" => {
+                    if let Some(b) = val.as_bool() {
+                        cfg.extensions.mcp_xml = b;
+                    }
+                }
+                "mcp_graphql" => {
+                    if let Some(b) = val.as_bool() {
+                        cfg.extensions.mcp_graphql = b;
+                    }
+                }
+                _ => {}
+            }
+        }
+        cfg
+    }
+
+    /// Format a single trial as a TOML `[extensions]` fragment.
+    pub fn format_trial_toml(trial: &PointConfig) -> String {
+        let ext = &trial.extensions;
+        format!(
+            "[extensions]\n\
+             script_first = {}\n\
+             hick_edit = {}\n\
+             mcp_wasm = {}\n\
+             mcp_sdk = {}\n\
+             mcp_xml = {}\n\
+             mcp_graphql = {}\n",
+            ext.script_first,
+            ext.hick_edit,
+            ext.mcp_wasm,
+            ext.mcp_sdk,
+            ext.mcp_xml,
+            ext.mcp_graphql,
+        )
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Discriminated AgentConfig
+// ---------------------------------------------------------------------------
+
+/// Discriminated agent configuration.
+///
+/// A file without `[search]` parses as `Point`; one with `[search]` and at
+/// least one axis parses as `Search`.
+#[derive(Debug)]
+pub enum AgentConfig {
+    Point(PointConfig),
+    Search(SearchSpaceConfig),
+}
+
+impl AgentConfig {
+    /// Load config from the first path that exists, in resolution order:
+    /// 1. `explicit_path` (from `--config`)
+    /// 2. `<project_dir>/.hick/agent.toml`
+    /// 3. `~/.hick/agent.toml`
+    ///
+    /// Returns an error if `explicit_path` is given but missing, or if
+    /// neither project nor home config exists.
+    pub fn load(
+        explicit_path: Option<&Path>,
+        project_dir: &Path,
+    ) -> anyhow::Result<Self> {
+        if let Some(path) = explicit_path {
+            return Self::load_from_file(path);
+        }
+
+        let project_cfg = project_dir.join(".hick/agent.toml");
+        if project_cfg.exists() {
+            return Self::load_from_file(&project_cfg);
+        }
+
+        if let Some(home_cfg) = home_config_path() {
+            if home_cfg.exists() {
+                return Self::load_from_file(&home_cfg);
+            }
+        }
+
+        bail!(
+            "no agent config found; create .hick/agent.toml in your project \
+             directory or pass --config <path>"
+        )
+    }
+
+    fn load_from_file(path: &Path) -> anyhow::Result<Self> {
+        let content = std::fs::read_to_string(path)
+            .with_context(|| format!("reading config: {}", path.display()))?;
+        Self::parse(&content)
+            .with_context(|| format!("parsing config: {}", path.display()))
+    }
+
+    /// Parse config from a TOML string. Exposed for testing.
+    pub fn parse(content: &str) -> anyhow::Result<Self> {
+        let raw_val: toml::Value =
+            toml::from_str(content).context("invalid TOML")?;
+        let table = raw_val
+            .as_table()
+            .ok_or_else(|| anyhow::anyhow!("config must be a TOML table"))?;
+
+        // Validate known keys in [intent_parsers] (AC #2).
+        if let Some(ip) = table.get("intent_parsers") {
+            if let Some(t) = ip.as_table() {
+                for key in t.keys() {
+                    if !KNOWN_INTENT_PARSERS.contains(&key.as_str()) {
+                        bail!(
+                            "unknown key in [intent_parsers]: '{}'; \
+                             recognised keys: {}",
+                            key,
+                            KNOWN_INTENT_PARSERS.join(", ")
+                        );
+                    }
+                }
+            }
+        }
+
+        // Validate known keys in [classifiers] (AC #2).
+        if let Some(cl) = table.get("classifiers") {
+            if let Some(t) = cl.as_table() {
+                for key in t.keys() {
+                    if !KNOWN_CLASSIFIERS.contains(&key.as_str()) {
+                        bail!(
+                            "unknown key in [classifiers]: '{}'; \
+                             recognised keys: {}",
+                            key,
+                            KNOWN_CLASSIFIERS.join(", ")
+                        );
+                    }
+                }
+            }
+        }
+
+        // Deserialise the fields we know how to handle (all except [search]).
+        let raw: RawConfig =
+            toml::from_str(content).context("config schema error")?;
+
+        let base = PointConfig {
+            model: raw.model,
+            extensions: raw.extensions,
+            security: raw.security,
+            mcp: raw.mcp,
+            machine: raw.machine,
+            eval: raw.eval,
+            system_prompt_extra: raw.system_prompt_extra,
+        };
+
+        // Discriminate on [search] presence (AC #1).
+        if let Some(search_val) = table.get("search") {
+            let search = parse_search_section(search_val)
+                .context("[search] section error")?;
+            Ok(AgentConfig::Search(SearchSpaceConfig { base, search }))
+        } else {
+            Ok(AgentConfig::Point(base))
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Raw TOML deserialization target
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Deserialize)]
+struct RawConfig {
+    model: ModelSection,
+    #[serde(default)]
+    extensions: ExtensionsSection,
+    /// Inline security config — fields mirror `AgentSecurityConfig`.
+    #[serde(default)]
+    security: AgentSecurityConfig,
+    #[serde(default)]
+    mcp: McpSection,
+    #[serde(default)]
+    machine: MachineSection,
+    #[serde(default)]
+    eval: EvalSection,
+    #[serde(default)]
+    system_prompt_extra: Option<String>,
+    // [search] is parsed separately from the raw toml::Value.
+}
+
+// ---------------------------------------------------------------------------
+// [search] section parsing
+// ---------------------------------------------------------------------------
+
+fn parse_search_section(val: &toml::Value) -> anyhow::Result<SearchSection> {
+    let table = val
+        .as_table()
+        .ok_or_else(|| anyhow::anyhow!("[search] must be a TOML table"))?;
+
+    let strategy = match table.get("strategy").and_then(|v| v.as_str()) {
+        Some("grid") | None => SearchStrategy::Grid,
+        Some("ofat") => SearchStrategy::Ofat,
+        Some(other) => bail!(
+            "unknown search strategy '{}'; known: grid, ofat",
+            other
+        ),
+    };
+
+    let constraints = table
+        .get("constraints")
+        .map(|v| {
+            v.as_array()
+                .ok_or_else(|| anyhow::anyhow!("[search.constraints] must be an array"))
+                .and_then(|arr| arr.iter().map(parse_constraint).collect())
+        })
+        .transpose()?
+        .unwrap_or_default();
+
+    // Every key except "strategy" and "constraints" is a search axis.
+    let mut axes: Vec<SearchAxis> = Vec::new();
+    for (key, value) in table {
+        if key == "strategy" || key == "constraints" {
+            continue;
+        }
+        let values = value
+            .as_array()
+            .ok_or_else(|| {
+                anyhow::anyhow!(
+                    "[search] axis '{}' must be an array of values",
+                    key
+                )
+            })?
+            .clone();
+        if values.is_empty() {
+            bail!("[search] axis '{}' must have at least one value", key);
+        }
+        axes.push(SearchAxis { name: key.clone(), values });
+    }
+
+    Ok(SearchSection { strategy, axes, constraints })
+}
+
+fn parse_constraint(val: &toml::Value) -> anyhow::Result<SearchConstraint> {
+    let table = val
+        .as_table()
+        .ok_or_else(|| anyhow::anyhow!("each constraint must be a TOML table"))?;
+
+    let if_keys = table
+        .get("if_keys")
+        .and_then(|v| v.as_table())
+        .map(|t| t.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
+        .unwrap_or_default();
+
+    let then_keys = table
+        .get("then_keys")
+        .and_then(|v| v.as_table())
+        .map(|t| t.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
+        .unwrap_or_default();
+
+    Ok(SearchConstraint { if_keys, then_keys })
+}
+
+// ---------------------------------------------------------------------------
+// Home config path helper
+// ---------------------------------------------------------------------------
+
+fn home_config_path() -> Option<PathBuf> {
+    std::env::var("HOME")
+        .ok()
+        .map(|h| PathBuf::from(h).join(".hick/agent.toml"))
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn minimal_point_toml(script_first: bool, hick_edit: bool) -> String {
+        format!(
+            r#"
+[model]
+model_id = "claude-opus-4-7-20251101"
+
+[extensions]
+script_first = {script_first}
+hick_edit = {hick_edit}
+"#
+        )
+    }
+
+    // AC #1: no [search] → Point
+    #[test]
+    fn point_config_parsed_without_search_section() {
+        let toml = minimal_point_toml(true, false);
+        let cfg = AgentConfig::parse(&toml).unwrap();
+        assert!(matches!(cfg, AgentConfig::Point(_)));
+    }
+
+    // AC #1: [search] with axes → Search
+    #[test]
+    fn search_config_parsed_with_search_section() {
+        let toml = r#"
+[model]
+model_id = "claude-opus-4-7-20251101"
+
+[search]
+strategy = "grid"
+script_first = [true, false]
+hick_edit = [true, false]
+"#;
+        let cfg = AgentConfig::parse(toml).unwrap();
+        assert!(matches!(cfg, AgentConfig::Search(_)));
+    }
+
+    // AC #2: unknown key in [intent_parsers] → error
+    #[test]
+    fn unknown_intent_parser_key_is_an_error() {
+        let toml = r#"
+[model]
+model_id = "claude-opus-4-7-20251101"
+
+[intent_parsers]
+unknown_parser = true
+"#;
+        let err = AgentConfig::parse(toml).unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("unknown_parser"), "error should name the key: {msg}");
+        assert!(msg.contains("intent_parsers"), "error should mention the section: {msg}");
+    }
+
+    // AC #2: unknown key in [classifiers] → error
+    #[test]
+    fn unknown_classifier_key_is_an_error() {
+        let toml = r#"
+[model]
+model_id = "claude-opus-4-7-20251101"
+
+[classifiers]
+weird_label = true
+"#;
+        let err = AgentConfig::parse(toml).unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("weird_label"), "error should name the key: {msg}");
+    }
+
+    // AC #3: grid strategy with 2 binary axes → 4 trials
+    #[test]
+    fn grid_strategy_two_binary_axes_produces_four_trials() {
+        let toml = r#"
+[model]
+model_id = "claude-opus-4-7-20251101"
+
+[search]
+strategy = "grid"
+script_first = [true, false]
+hick_edit = [true, false]
+"#;
+        let cfg = AgentConfig::parse(toml).unwrap();
+        let AgentConfig::Search(sc) = cfg else { panic!("expected Search") };
+        let trials = sc.expand_trials();
+        assert_eq!(trials.len(), 4);
+    }
+
+    // AC #4: ofat with n axes → 1 + sum(len - 1) trials
+    #[test]
+    fn ofat_strategy_produces_correct_trial_count() {
+        let toml = r#"
+[model]
+model_id = "claude-opus-4-7-20251101"
+
+[search]
+strategy = "ofat"
+script_first = [true, false]
+hick_edit = [true, false]
+mcp_xml = [true, false, true]
+"#;
+        // n=3 axes, lengths [2, 2, 3]
+        // expected = 1 + (2-1) + (2-1) + (3-1) = 1 + 1 + 1 + 2 = 5
+        let cfg = AgentConfig::parse(toml).unwrap();
+        let AgentConfig::Search(sc) = cfg else { panic!("expected Search") };
+        let trials = sc.expand_trials();
+        assert_eq!(trials.len(), 5);
+    }
+
+    // AC #5: constraint prunes invalid combo
+    #[test]
+    fn constraint_prunes_hick_edit_without_script_first() {
+        let toml = r#"
+[model]
+model_id = "claude-opus-4-7-20251101"
+
+[search]
+strategy = "grid"
+script_first = [true, false]
+hick_edit = [true, false]
+
+[[search.constraints]]
+if_keys  = { hick_edit = true }
+then_keys = { script_first = true }
+"#;
+        // 4 combos; {hick_edit=true, script_first=false} pruned → 3 trials
+        let cfg = AgentConfig::parse(toml).unwrap();
+        let AgentConfig::Search(sc) = cfg else { panic!("expected Search") };
+        let trials = sc.expand_trials();
+        assert_eq!(trials.len(), 3);
+        // Confirm the pruned combo is absent
+        let pruned = trials.iter().any(|t| t.extensions.hick_edit && !t.extensions.script_first);
+        assert!(!pruned);
+    }
+
+    // AC #8: adding a new axis is one line
+    #[test]
+    fn adding_new_axis_requires_one_line() {
+        // Demonstrates that `new_ext = [true, false]` inside [search] is all
+        // that is needed — no other file changes. This test parses such a config.
+        let toml = r#"
+[model]
+model_id = "claude-opus-4-7-20251101"
+
+[search]
+strategy = "grid"
+script_first = [true, false]
+new_ext = [true, false]
+"#;
+        let cfg = AgentConfig::parse(toml).unwrap();
+        let AgentConfig::Search(sc) = cfg else { panic!("expected Search") };
+        // new_ext axis is captured even though it maps to no known extension
+        let axis_names: Vec<&str> = sc.search.axes.iter().map(|a| a.name.as_str()).collect();
+        assert!(axis_names.contains(&"new_ext"), "new_ext axis should be captured");
+        // 2×2 = 4 trials (axis values still expand even if the extension is unknown)
+        assert_eq!(sc.expand_trials().len(), 4);
+    }
+
+    // Verify security defaults are applied when [security] is absent.
+    #[test]
+    fn security_defaults_when_section_absent() {
+        let toml = r#"
+[model]
+model_id = "claude-opus-4-7-20251101"
+"#;
+        let cfg = AgentConfig::parse(toml).unwrap();
+        let AgentConfig::Point(pc) = cfg else { panic!("expected Point") };
+        assert!(pc.security.deny_all_network);
+    }
+
+    // Verify [security] section overrides default.
+    #[test]
+    fn security_section_overrides_default() {
+        let toml = r#"
+[model]
+model_id = "claude-opus-4-7-20251101"
+
+[security]
+deny_all_network = false
+"#;
+        let cfg = AgentConfig::parse(toml).unwrap();
+        let AgentConfig::Point(pc) = cfg else { panic!("expected Point") };
+        assert!(!pc.security.deny_all_network);
+    }
+}

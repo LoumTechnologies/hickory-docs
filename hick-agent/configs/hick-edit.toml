@@ -1,0 +1,46 @@
+# hick-edit.toml — hick-native agent (replaces the former iron-peak binary)
+#
+# Extension combination: script-first ReAct loop + transparent hick pipeline
+# integration. Mirrors the dependencies formerly hard-wired in iron-peak/Cargo.toml
+# (hick-agent-script-first + hick-agent-hick-edit + hick-agent-mcp-xml).
+
+[model]
+provider   = "anthropic"
+model_id   = "claude-opus-4-7-20251101"
+# api_key_env = "ANTHROPIC_API_KEY"   # default for anthropic provider
+
+[extensions]
+script_first = true
+hick_edit    = true
+mcp_xml      = true
+mcp_graphql  = false
+mcp_wasm     = false
+mcp_sdk      = false
+
+[security]
+deny_all_network = true
+
+[[security.allowed_hosts]]
+host = "pypi.org"
+port = "443"
+
+[[security.allowed_hosts]]
+host = "files.pythonhosted.org"
+port = "443"
+
+[security.file_access]
+read  = ["/workspace/**"]
+write = ["/workspace/**"]
+
+[mcp]
+servers_file = ".hick/mcp-servers.toml"
+secrets_file = ".hick/mcp-secrets.toml"
+
+[mcp.response_format]
+default = "xml"
+
+[machine]
+# Capability scheduling — implemented in TASK-45.
+
+[eval]
+# Idle timeout, judge config, auto-prune threshold — implemented in TASK-50.

@@ -1,7 +1,9 @@
 //! Universal hick agent binary.
 //!
-//! Reads `.hick/agent.toml`, wires the enabled extension crates, and runs an
-//! agent loop backed by [`hick_agent_sdk::AgentRuntime`].
+//! Reads `.hick/agent.toml` (or `--config <path>`), wires the enabled
+//! extension crates, and runs an agent loop.
+
+mod config;
 
 use std::collections::HashMap;
 use std::io::{self, Read, Write};
@@ -10,6 +12,7 @@ use std::sync::Arc;
 
 use anyhow::Context as _;
 use clap::Parser;
+use config::{AgentConfig, ModelSection, PointConfig, Provider, SearchSpaceConfig};
 use hick_agent_mcp_graphql::McpGraphqlExtension;
 use hick_agent_mcp_sdk::McpSdkExtension;
 use hick_agent_mcp_wasm::McpWasmExtension;
@@ -24,107 +27,7 @@ use hick_agent_sdk::{
     tool_gate::ToolApprovalRequest,
 };
 use hick_classify::Classification;
-use serde::Deserialize;
 use tokio::sync::{Mutex, mpsc};
-
-// ---------------------------------------------------------------------------
-// Config schema
-// ---------------------------------------------------------------------------
-
-#[derive(Debug, Deserialize)]
-struct AgentConfig {
-    agent: AgentSection,
-    #[serde(default)]
-    extensions: ExtensionsSection,
-    #[serde(default)]
-    mcp: McpSection,
-    #[serde(default)]
-    security: SecuritySection,
-}
-
-#[derive(Debug, Deserialize)]
-struct AgentSection {
-    model: String,
-    #[serde(default)]
-    system_prompt_extra: Option<String>,
-    config_version: u32,
-}
-
-#[derive(Debug, Default, Deserialize)]
-struct ExtensionsSection {
-    #[serde(default)]
-    script_first: bool,
-    #[serde(default)]
-    hick_edit: bool,
-    #[serde(default)]
-    mcp_wasm: bool,
-    #[serde(default)]
-    mcp_sdk: bool,
-    #[serde(default)]
-    mcp_xml: bool,
-    #[serde(default)]
-    mcp_graphql: bool,
-}
-
-#[derive(Debug, Default, Deserialize)]
-struct McpSection {
-    #[serde(default = "default_servers_file")]
-    servers_file: String,
-    #[serde(default = "default_secrets_file")]
-    secrets_file: String,
-    #[serde(default)]
-    response_format: ResponseFormatSection,
-}
-
-fn default_servers_file() -> String {
-    ".hick/mcp-servers.toml".into()
-}
-fn default_secrets_file() -> String {
-    ".hick/mcp-secrets.toml".into()
-}
-
-#[derive(Debug, Deserialize)]
-struct ResponseFormatSection {
-    #[serde(default = "default_fmt")]
-    default: String,
-    #[serde(default)]
-    by_shape: ByShapeSection,
-}
-
-impl Default for ResponseFormatSection {
-    fn default() -> Self {
-        Self {
-            default: default_fmt(),
-            by_shape: ByShapeSection::default(),
-        }
-    }
-}
-
-fn default_fmt() -> String {
-    "json".into()
-}
-
-#[derive(Debug, Default, Deserialize)]
-struct ByShapeSection {
-    #[serde(default)]
-    list: Option<String>,
-    #[serde(default)]
-    nested: Option<String>,
-    #[serde(default)]
-    scalar: Option<String>,
-    #[serde(default)]
-    object: Option<String>,
-}
-
-#[derive(Debug, Default, Deserialize)]
-struct SecuritySection {
-    #[serde(default = "default_security_file")]
-    config_file: String,
-}
-
-fn default_security_file() -> String {
-    ".hick/agent-security.toml".into()
-}
 
 // ---------------------------------------------------------------------------
 // CLI
@@ -137,19 +40,25 @@ fn default_security_file() -> String {
     version
 )]
 struct Cli {
-    /// Path to the agent config file (default: .hick/agent.toml).
-    #[arg(long, default_value = ".hick/agent.toml")]
-    config: PathBuf,
+    /// Path to the agent config file.
+    /// Resolution order when omitted: .hick/agent.toml → ~/.hick/agent.toml.
+    #[arg(long)]
+    config: Option<PathBuf>,
 
     /// Project directory (defaults to current working directory).
     #[arg(long)]
     project_dir: Option<PathBuf>,
 
+    /// Print all concrete trial configs as TOML and exit (requires a search-
+    /// space config; errors on a point config).
+    #[arg(long)]
+    expand: bool,
+
     /// Task to execute. Reads from stdin if not provided.
     #[arg(long)]
     task: Option<String>,
 
-    /// Override the model specified in the config.
+    /// Override the model ID specified in the config.
     #[arg(long)]
     model: Option<String>,
 
@@ -159,23 +68,30 @@ struct Cli {
 }
 
 // ---------------------------------------------------------------------------
-// Provider detection
+// Provider / LLM client construction
 // ---------------------------------------------------------------------------
 
-fn build_llm_client(model: &str) -> Box<dyn LlmClient> {
-    if std::env::var("ANTHROPIC_API_KEY").is_ok() {
-        let key = std::env::var("ANTHROPIC_API_KEY").unwrap();
-        return Box::new(AnthropicClient::with_config(model.to_string(), key));
+fn build_llm_client(model: &ModelSection, model_override: Option<&str>) -> Box<dyn LlmClient> {
+    let model_id = model_override.unwrap_or(&model.model_id);
+
+    let api_key_env = model.api_key_env.as_deref().unwrap_or_else(|| match model.provider {
+        Provider::Anthropic => "ANTHROPIC_API_KEY",
+        Provider::OpenAI => "OPENAI_API_KEY",
+        Provider::XAI => "XAI_API_KEY",
+    });
+
+    match model.provider {
+        Provider::Anthropic => {
+            let key = std::env::var(api_key_env).unwrap_or_default();
+            Box::new(AnthropicClient::with_config(model_id.to_string(), key))
+        }
+        Provider::OpenAI => {
+            Box::new(OpenAiCompatClient::openai(model_id.to_string()))
+        }
+        Provider::XAI => {
+            Box::new(OpenAiCompatClient::xai(model_id.to_string()))
+        }
     }
-    if std::env::var("OPENAI_API_KEY").is_ok() {
-        return Box::new(OpenAiCompatClient::openai(model.to_string()));
-    }
-    if std::env::var("XAI_API_KEY").is_ok() {
-        return Box::new(OpenAiCompatClient::xai(model.to_string()));
-    }
-    log::warn!("no API key found; defaulting to Anthropic (key will be empty)");
-    let key = String::new();
-    Box::new(AnthropicClient::with_config(model.to_string(), key))
 }
 
 // ---------------------------------------------------------------------------
@@ -222,7 +138,7 @@ fn server_trust_map(servers: &McpServersConfig) -> HashMap<String, ToolTrust> {
 // Format config construction
 // ---------------------------------------------------------------------------
 
-fn build_format_config(mcp: &McpSection) -> ShapeFormatConfig {
+fn build_format_config(mcp: &config::McpSection) -> ShapeFormatConfig {
     use hick_agent_sdk::{ByShapeConfig, McpResponseFormat};
 
     let parse_fmt = |s: &str| match s {
@@ -238,24 +154,9 @@ fn build_format_config(mcp: &McpSection) -> ShapeFormatConfig {
     let default_fmt = parse_fmt(&mcp.response_format.default);
     let by_shape = ByShapeConfig {
         list: mcp.response_format.by_shape.list.as_deref().map(parse_fmt),
-        nested: mcp
-            .response_format
-            .by_shape
-            .nested
-            .as_deref()
-            .map(parse_fmt),
-        scalar: mcp
-            .response_format
-            .by_shape
-            .scalar
-            .as_deref()
-            .map(parse_fmt),
-        object: mcp
-            .response_format
-            .by_shape
-            .object
-            .as_deref()
-            .map(parse_fmt),
+        nested: mcp.response_format.by_shape.nested.as_deref().map(parse_fmt),
+        scalar: mcp.response_format.by_shape.scalar.as_deref().map(parse_fmt),
+        object: mcp.response_format.by_shape.object.as_deref().map(parse_fmt),
     };
 
     ShapeFormatConfig { default: default_fmt, by_shape }
@@ -271,7 +172,6 @@ fn build_tool_gate(
 ) -> Arc<ToolGate> {
     let (approval_tx, mut approval_rx) = mpsc::unbounded_channel::<ToolApprovalRequest>();
 
-    // Spawn a task that handles approval prompts by asking the user on stderr.
     tokio::spawn(async move {
         while let Some(req) = approval_rx.recv().await {
             eprint!(
@@ -419,7 +319,6 @@ async fn run_agent(
 
         let scope_snapshot = scope.lock().await.clone();
 
-        // MCP XML extension — takes priority.
         if let Some(xml) = &mcp_xml {
             if let Some(obs) = xml.process_response(&response, &scope_snapshot).await {
                 println!("\n[xml-tool-result]\n{obs}");
@@ -428,7 +327,6 @@ async fn run_agent(
             }
         }
 
-        // MCP GraphQL extension.
         if let Some(gql) = &mcp_graphql {
             if let Some(obs) = gql.process_response(&response).await {
                 println!("\n[graphql-result]\n{obs}");
@@ -437,12 +335,137 @@ async fn run_agent(
             }
         }
 
-        // No extension consumed the response — we're done.
         println!();
         break;
     }
 
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// run_point_config — wire a PointConfig and run the agent
+// ---------------------------------------------------------------------------
+
+async fn run_point_config(
+    point: PointConfig,
+    model_override: Option<&str>,
+    task: String,
+    project_dir: PathBuf,
+    max_turns: usize,
+) -> anyhow::Result<()> {
+    log::info!("model: {}", model_override.unwrap_or(&point.model.model_id));
+
+    // Security config (inline in [security] section).
+    let security = &point.security;
+    let capabilities = security.to_capabilities();
+    let sink_defs = security.to_sink_defs();
+    let gate_config = security.to_tool_gate_config();
+
+    // Extra system prompt.
+    let system_prompt_extra: Option<String> = point
+        .system_prompt_extra
+        .as_deref()
+        .map(|p| {
+            let full = if Path::new(p).is_absolute() {
+                PathBuf::from(p)
+            } else {
+                project_dir.join(p)
+            };
+            std::fs::read_to_string(&full)
+                .with_context(|| format!("reading system_prompt_extra: {}", full.display()))
+        })
+        .transpose()?;
+
+    // MCP config.
+    let servers_path = project_dir.join(&point.mcp.servers_file);
+    let secrets_path = project_dir.join(&point.mcp.secrets_file);
+    let servers = McpServersConfig::load_or_default(&servers_path)?;
+    let creds = Arc::new(McpCredentialStore::load(&secrets_path)?);
+    let mcp_clients = build_mcp_clients(&servers, creds)?;
+    let trust_map = server_trust_map(&servers);
+
+    // Tool listings.
+    let mut server_tools: Vec<(String, Vec<hick_agent_sdk::McpToolDef>)> = Vec::new();
+    for (name, client) in &mcp_clients {
+        match client.list_tools().await {
+            Ok(tools) => {
+                log::info!("server '{}': {} tools", name, tools.len());
+                server_tools.push((name.clone(), tools));
+            }
+            Err(e) => {
+                log::warn!("could not list tools from '{}': {e}", name);
+            }
+        }
+    }
+
+    let mcp_clients_arc: HashMap<String, Arc<dyn McpClient>> = mcp_clients;
+    let tool_gate = build_tool_gate(gate_config, trust_map);
+    let format_config = build_format_config(&point.mcp);
+    let scope: Arc<Mutex<Vec<Classification>>> = Arc::new(Mutex::new(Vec::new()));
+
+    // Build enabled extensions.
+    let mcp_xml: Option<Arc<McpXmlExtension>> = if point.extensions.mcp_xml {
+        log::info!("extension enabled: mcp_xml");
+        Some(Arc::new(McpXmlExtension::new(
+            tool_gate.clone(),
+            mcp_clients_arc.clone(),
+            format_config.clone(),
+        )))
+    } else {
+        None
+    };
+
+    let mcp_graphql: Option<Arc<McpGraphqlExtension>> = if point.extensions.mcp_graphql {
+        log::info!("extension enabled: mcp_graphql");
+        Some(Arc::new(McpGraphqlExtension::new(
+            server_tools.clone(),
+            tool_gate.clone(),
+            mcp_clients_arc.clone(),
+            scope.clone(),
+            format_config.clone(),
+        )?))
+    } else {
+        None
+    };
+
+    let mcp_sdk: Option<McpSdkExtension> = if point.extensions.mcp_sdk {
+        log::info!("extension enabled: mcp_sdk");
+        Some(McpSdkExtension::new(server_tools.clone()))
+    } else {
+        None
+    };
+
+    let mcp_wasm: Option<McpWasmExtension> = if point.extensions.mcp_wasm {
+        log::info!("extension enabled: mcp_wasm");
+        Some(McpWasmExtension::new(tool_gate.clone(), mcp_clients_arc.clone()))
+    } else {
+        None
+    };
+
+    if point.extensions.script_first {
+        log::info!("extension enabled: script_first");
+    }
+    if point.extensions.hick_edit {
+        log::info!("extension enabled: hick_edit");
+    }
+
+    let _sink_guard = Arc::new(SinkGuard::new(capabilities, sink_defs));
+
+    let system_prompt = build_system_prompt(
+        system_prompt_extra.as_deref(),
+        mcp_xml.as_deref(),
+        mcp_graphql.as_deref(),
+        mcp_sdk.as_ref(),
+        mcp_wasm.as_ref(),
+        &server_tools,
+        point.extensions.script_first,
+        point.extensions.hick_edit,
+    );
+
+    let llm = build_llm_client(&point.model, model_override);
+    let runtime = AgentRuntime::new(llm, Box::new(NoopSandbox), project_dir);
+
+    run_agent(runtime, system_prompt, task, mcp_xml, mcp_graphql, scope, max_turns).await
 }
 
 // ---------------------------------------------------------------------------
@@ -461,197 +484,74 @@ async fn main() -> anyhow::Result<()> {
         .project_dir
         .unwrap_or_else(|| std::env::current_dir().expect("cannot read cwd"));
 
-    // --- Load config --------------------------------------------------------
+    // Resolve config path: explicit --config resolves relative to cwd.
+    let explicit_path: Option<PathBuf> = cli.config.map(|p| {
+        if p.is_absolute() { p } else { std::env::current_dir().unwrap().join(p) }
+    });
 
-    let config_path = if cli.config.is_absolute() {
-        cli.config.clone()
-    } else {
-        project_dir.join(&cli.config)
-    };
+    let agent_config =
+        AgentConfig::load(explicit_path.as_deref(), &project_dir)?;
 
-    let config: AgentConfig = {
-        let raw = std::fs::read_to_string(&config_path)
-            .with_context(|| format!("reading config: {}", config_path.display()))?;
-        toml::from_str(&raw)
-            .with_context(|| format!("parsing config: {}", config_path.display()))?
-    };
-
-    if config.agent.config_version != 1 {
-        anyhow::bail!(
-            "unsupported config_version {}; only version 1 is supported",
-            config.agent.config_version
-        );
+    // Handle --expand (AC #6): print trial configs as TOML and exit.
+    if cli.expand {
+        match agent_config {
+            AgentConfig::Search(sc) => {
+                let trials = sc.expand_trials();
+                let total = trials.len();
+                for (i, trial) in trials.iter().enumerate() {
+                    println!("# --- Trial {} of {} ---", i + 1, total);
+                    print!("{}", SearchSpaceConfig::format_trial_toml(trial));
+                    if i + 1 < total {
+                        println!();
+                    }
+                }
+                return Ok(());
+            }
+            AgentConfig::Point(_) => {
+                anyhow::bail!(
+                    "--expand requires a search-space config (one with a [search] section)"
+                );
+            }
+        }
     }
 
-    let model = cli.model.as_deref().unwrap_or(&config.agent.model);
-    log::info!("model: {model}");
-
-    // --- Load extra system prompt -------------------------------------------
-
-    let system_prompt_extra: Option<String> = config
-        .agent
-        .system_prompt_extra
-        .as_deref()
-        .map(|p| {
-            let full = if Path::new(p).is_absolute() {
-                PathBuf::from(p)
-            } else {
-                project_dir.join(p)
+    // AC #7: reject search-space configs without --expand.
+    match agent_config {
+        AgentConfig::Search(_) => {
+            anyhow::bail!(
+                "config contains a [search] section; run with --expand to list \
+                 trial configs, or remove [search] to run a single agent"
+            );
+        }
+        AgentConfig::Point(point) => {
+            // Task input.
+            let task = match cli.task {
+                Some(t) => t,
+                None => {
+                    let mut buf = String::new();
+                    io::stdin().read_to_string(&mut buf)?;
+                    buf.trim().to_string()
+                }
             };
-            std::fs::read_to_string(&full)
-                .with_context(|| format!("reading system_prompt_extra: {}", full.display()))
-        })
-        .transpose()?;
 
-    // --- Security config ----------------------------------------------------
-
-    let security_path = project_dir.join(&config.security.config_file);
-    let security = hick_agent_sdk::AgentSecurityConfig::load_or_default(&security_path)?;
-    let capabilities = security.to_capabilities();
-    let sink_defs = security.to_sink_defs();
-    let gate_config = security.to_tool_gate_config();
-
-    // --- MCP config ---------------------------------------------------------
-
-    let servers_path = project_dir.join(&config.mcp.servers_file);
-    let secrets_path = project_dir.join(&config.mcp.secrets_file);
-
-    let servers = McpServersConfig::load_or_default(&servers_path)?;
-    let creds = Arc::new(McpCredentialStore::load(&secrets_path)?);
-
-    let mcp_clients = build_mcp_clients(&servers, creds)?;
-    let trust_map = server_trust_map(&servers);
-
-    // --- Fetch tool listings ------------------------------------------------
-
-    let mut server_tools: Vec<(String, Vec<hick_agent_sdk::McpToolDef>)> = Vec::new();
-    for (name, client) in &mcp_clients {
-        match client.list_tools().await {
-            Ok(tools) => {
-                log::info!("server '{}': {} tools", name, tools.len());
-                server_tools.push((name.clone(), tools));
+            if task.is_empty() {
+                anyhow::bail!("no task provided (use --task or pipe to stdin)");
             }
-            Err(e) => {
-                log::warn!("could not list tools from '{}': {e}", name);
-            }
+
+            run_point_config(
+                point,
+                cli.model.as_deref(),
+                task,
+                project_dir,
+                cli.max_turns,
+            )
+            .await
         }
     }
-
-    let mcp_clients_arc: HashMap<String, Arc<dyn McpClient>> = mcp_clients;
-
-    // --- ToolGate -----------------------------------------------------------
-
-    let tool_gate = build_tool_gate(gate_config, trust_map);
-
-    // --- Format config ------------------------------------------------------
-
-    let format_config = build_format_config(&config.mcp);
-
-    // --- Scope (shared, mutable) --------------------------------------------
-
-    let scope: Arc<Mutex<Vec<Classification>>> = Arc::new(Mutex::new(Vec::new()));
-
-    // --- Build enabled extensions -------------------------------------------
-
-    let mcp_xml: Option<Arc<McpXmlExtension>> = if config.extensions.mcp_xml {
-        log::info!("extension enabled: mcp_xml");
-        Some(Arc::new(McpXmlExtension::new(
-            tool_gate.clone(),
-            mcp_clients_arc.clone(),
-            format_config.clone(),
-        )))
-    } else {
-        None
-    };
-
-    let mcp_graphql: Option<Arc<McpGraphqlExtension>> = if config.extensions.mcp_graphql {
-        log::info!("extension enabled: mcp_graphql");
-        Some(Arc::new(McpGraphqlExtension::new(
-            server_tools.clone(),
-            tool_gate.clone(),
-            mcp_clients_arc.clone(),
-            scope.clone(),
-            format_config.clone(),
-        )?))
-    } else {
-        None
-    };
-
-    let mcp_sdk: Option<McpSdkExtension> = if config.extensions.mcp_sdk {
-        log::info!("extension enabled: mcp_sdk");
-        Some(McpSdkExtension::new(server_tools.clone()))
-    } else {
-        None
-    };
-
-    let mcp_wasm: Option<McpWasmExtension> = if config.extensions.mcp_wasm {
-        log::info!("extension enabled: mcp_wasm");
-        Some(McpWasmExtension::new(tool_gate.clone(), mcp_clients_arc.clone()))
-    } else {
-        None
-    };
-
-    if config.extensions.script_first {
-        log::info!("extension enabled: script_first");
-    }
-    if config.extensions.hick_edit {
-        log::info!("extension enabled: hick_edit");
-    }
-
-    // --- Sink guard ---------------------------------------------------------
-
-    let _sink_guard = Arc::new(SinkGuard::new(capabilities, sink_defs));
-
-    // --- System prompt ------------------------------------------------------
-
-    let system_prompt = build_system_prompt(
-        system_prompt_extra.as_deref(),
-        mcp_xml.as_deref(),
-        mcp_graphql.as_deref(),
-        mcp_sdk.as_ref(),
-        mcp_wasm.as_ref(),
-        &server_tools,
-        config.extensions.script_first,
-        config.extensions.hick_edit,
-    );
-
-    // --- Task ---------------------------------------------------------------
-
-    let task = match cli.task {
-        Some(t) => t,
-        None => {
-            let mut buf = String::new();
-            io::stdin().read_to_string(&mut buf)?;
-            buf.trim().to_string()
-        }
-    };
-
-    if task.is_empty() {
-        anyhow::bail!("no task provided (use --task or pipe to stdin)");
-    }
-
-    // --- Build LLM client and runtime ---------------------------------------
-
-    let llm = build_llm_client(model);
-    let runtime = AgentRuntime::new(llm, Box::new(NoopSandbox), project_dir.clone());
-
-    // --- Run ----------------------------------------------------------------
-
-    run_agent(
-        runtime,
-        system_prompt,
-        task,
-        mcp_xml,
-        mcp_graphql,
-        scope,
-        cli.max_turns,
-    )
-    .await
 }
 
 // ---------------------------------------------------------------------------
-// Noop sandbox — the hick-agent binary delegates real execution to extension
-// crates (McpWasmContainerBackend etc.) or skips sandboxing entirely.
+// Noop sandbox
 // ---------------------------------------------------------------------------
 
 struct NoopSandbox;

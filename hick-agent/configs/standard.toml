@@ -1,0 +1,46 @@
+# standard.toml — standard agent (replaces the former copper-ledge binary)
+#
+# Extension combination: script-first ReAct loop, WASM sandbox, no
+# pipeline-specific knowledge. Mirrors the dependencies formerly hard-wired in
+# copper-ledge/Cargo.toml (hick-agent-script-first only; no hick-edit).
+
+[model]
+provider   = "anthropic"
+model_id   = "claude-opus-4-7-20251101"
+# api_key_env = "ANTHROPIC_API_KEY"   # default for anthropic provider
+
+[extensions]
+script_first = true
+hick_edit    = false
+mcp_xml      = false
+mcp_graphql  = false
+mcp_wasm     = false
+mcp_sdk      = false
+
+[security]
+deny_all_network = true
+
+[[security.allowed_hosts]]
+host = "pypi.org"
+port = "443"
+
+[[security.allowed_hosts]]
+host = "files.pythonhosted.org"
+port = "443"
+
+[security.file_access]
+read  = ["/workspace/**"]
+write = ["/workspace/**"]
+
+[mcp]
+servers_file = ".hick/mcp-servers.toml"
+secrets_file = ".hick/mcp-secrets.toml"
+
+[mcp.response_format]
+default = "json"
+
+[machine]
+# Capability scheduling — implemented in TASK-45.
+
+[eval]
+# Idle timeout, judge config, auto-prune threshold — implemented in TASK-50.
