@@ -8,13 +8,14 @@
 //! verdict pattern, an approval channel, and a per-session verdict cache.
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
 use hick_classify::Classification;
 use hick_policy::{CapabilityRequest, DeterministicSuggestionGenerator, PolicySuggestion, SuggestionGenerator};
 use tokio::sync::{mpsc, oneshot};
 
+use crate::agentignore::AgentIgnoreFilter;
 use crate::network_filter::{ApprovalResponse, NetworkVerdict};
 
 // ---------------------------------------------------------------------------
@@ -87,6 +88,7 @@ pub struct ToolGate {
     approval_tx: mpsc::UnboundedSender<ToolApprovalRequest>,
     /// Directory where `tool-rules.toml` should be written on always-allow.
     pub config_dir: Option<PathBuf>,
+    ignore_filter: Option<AgentIgnoreFilter>,
 }
 
 fn network_verdict_to_tool(v: NetworkVerdict) -> ToolVerdict {
@@ -116,6 +118,7 @@ impl ToolGate {
             cache: Mutex::new(HashMap::new()),
             approval_tx,
             config_dir: None,
+            ignore_filter: None,
         }
     }
 
@@ -123,6 +126,25 @@ impl ToolGate {
     pub fn with_config_dir(mut self, dir: PathBuf) -> Self {
         self.config_dir = Some(dir);
         self
+    }
+
+    /// Attach an [`AgentIgnoreFilter`] so that [`ToolGate::check_path`] can
+    /// block file-read requests whose paths match `.agentignore` patterns.
+    pub fn with_ignore_filter(mut self, filter: AgentIgnoreFilter) -> Self {
+        self.ignore_filter = Some(filter);
+        self
+    }
+
+    /// Block a file-read request if the path matches `.agentignore` patterns.
+    ///
+    /// Returns [`ToolVerdict::Block`] when the path is ignored, otherwise
+    /// [`ToolVerdict::Allow`]. Call this before any file-read MCP tool call
+    /// to enforce the project's `.agentignore` restrictions.
+    pub fn check_path(&self, path: &Path) -> ToolVerdict {
+        match &self.ignore_filter {
+            Some(filter) if filter.is_ignored(path) => ToolVerdict::Block,
+            _ => ToolVerdict::Allow,
+        }
     }
 
     /// Check whether the tool call is permitted.
@@ -448,5 +470,36 @@ mod tests {
 
         let verdict = gate.check("myserver", "tool", &[]).await;
         assert_eq!(verdict, ToolVerdict::Allow);
+    }
+
+    // -----------------------------------------------------------------------
+    // check_path tests (task 38)
+    // -----------------------------------------------------------------------
+
+    fn gate_with_ignore_filter(filter: crate::agentignore::AgentIgnoreFilter) -> ToolGate {
+        let (tx, _rx) = mpsc::unbounded_channel();
+        let gate = ToolGate::new(ToolGateConfig::default(), HashMap::new(), ToolTrust::Trusted, tx);
+        gate.with_ignore_filter(filter)
+    }
+
+    #[test]
+    fn check_path_blocks_ignored_path() {
+        let filter = crate::agentignore::AgentIgnoreFilter::from_str_content(".env\n");
+        let gate = gate_with_ignore_filter(filter);
+        assert_eq!(gate.check_path(Path::new(".env")), ToolVerdict::Block);
+    }
+
+    #[test]
+    fn check_path_allows_non_ignored_path() {
+        let filter = crate::agentignore::AgentIgnoreFilter::from_str_content(".env\n");
+        let gate = gate_with_ignore_filter(filter);
+        assert_eq!(gate.check_path(Path::new("src/main.rs")), ToolVerdict::Allow);
+    }
+
+    #[test]
+    fn check_path_allows_all_when_no_filter() {
+        let (tx, _rx) = mpsc::unbounded_channel();
+        let gate = ToolGate::new(ToolGateConfig::default(), HashMap::new(), ToolTrust::Trusted, tx);
+        assert_eq!(gate.check_path(Path::new(".env")), ToolVerdict::Allow);
     }
 }
