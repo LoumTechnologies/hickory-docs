@@ -1,0 +1,62 @@
+# macbook-2018.toml — 2018 MacBook Pro profile
+#
+# CPU-primary with optional Metal offload. The integrated AMD Radeon Pro 555X
+# has limited ML utility, so CPU remains primary for most workloads.
+# Max model budget reflects 16 GB unified RAM (8 GB headroom left for the OS).
+
+[model]
+provider = "anthropic"
+model_id  = "claude-opus-4-7-20251101"
+
+[extensions]
+script_first = true
+hick_edit    = false
+mcp_xml      = false
+mcp_graphql  = false
+mcp_wasm     = false
+mcp_sdk      = false
+
+[security]
+deny_all_network = true
+
+[[security.allowed_hosts]]
+host = "pypi.org"
+port = "443"
+
+[[security.allowed_hosts]]
+host = "files.pythonhosted.org"
+port = "443"
+
+[security.file_access]
+read  = ["/workspace/**"]
+write = ["/workspace/**"]
+
+[mcp]
+servers_file = ".hick/mcp-servers.toml"
+secrets_file = ".hick/mcp-secrets.toml"
+
+[mcp.response_format]
+default = "json"
+
+[machine]
+# CPU is the reliable primary backend; Metal listed as optional fallback.
+# LocalLlmClient calibrates automatically and picks whichever is faster.
+backends     = ["CPU", "Metal"]
+max_model_gb = 8.0
+eval_configs = ["standard"]
+
+# Populate model_paths with absolute paths to GGUF files on this machine.
+# The eval coordinator skips any entry whose size_gb > max_model_gb above.
+#
+# [[machine.model_paths]]
+# name    = "phi-3-mini"
+# path    = "/Users/you/models/Phi-3-mini-4k-instruct-Q4_K_M.gguf"
+# size_gb = 2.3
+#
+# [[machine.model_paths]]
+# name    = "llama-3.2-1b"
+# path    = "/Users/you/models/Llama-3.2-1B-Instruct-Q4_K_M.gguf"
+# size_gb = 0.8
+
+[eval]
+# Idle timeout, judge config, auto-prune threshold — implemented in TASK-50.

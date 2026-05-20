@@ -142,12 +142,85 @@ impl Default for McpSection {
 }
 
 // ---------------------------------------------------------------------------
-// [machine] and [eval] stubs (consumers: TASK-45, TASK-50)
+// [machine] section
 // ---------------------------------------------------------------------------
 
-/// `[machine]` stub. Capability scheduling is implemented in TASK-45.
+/// A GGUF model file available on this machine.
+#[derive(Debug, Clone, Deserialize)]
+pub struct ModelPathEntry {
+    /// Short name used in eval config references (e.g. `"phi-3-mini"`).
+    pub name: String,
+    /// Absolute (or config-file-relative) path to the `.gguf` file.
+    pub path: PathBuf,
+    /// Approximate model size in gigabytes — compared against `max_model_gb`
+    /// to determine feasibility.
+    pub size_gb: f64,
+}
+
+/// `[machine]` section: per-machine hardware capability declarations.
+///
+/// The eval coordinator reads this section to skip model/config combinations
+/// that exceed the machine's capacity. A machine with no `[machine]` section
+/// is treated as unconstrained.
 #[derive(Debug, Clone, Default, Deserialize)]
-pub struct MachineSection {}
+pub struct MachineSection {
+    /// Inference backends compiled in and available on this machine.
+    /// Recognised values: `"Metal"`, `"CUDA"`, `"CPU"`.
+    /// An empty list means the machine has no declared preference.
+    #[serde(default)]
+    pub backends: Vec<String>,
+    /// Maximum model size (gigabytes) this machine can load.
+    /// Combinations requiring a larger model are skipped by the eval
+    /// coordinator. Absent means no limit is declared.
+    #[serde(default)]
+    pub max_model_gb: Option<f64>,
+    /// GGUF model files available on this machine.
+    #[serde(default)]
+    pub model_paths: Vec<ModelPathEntry>,
+    /// Names of eval configs this machine should attempt.
+    /// An empty list means "attempt all configs".
+    #[serde(default)]
+    pub eval_configs: Vec<String>,
+}
+
+impl MachineSection {
+    /// Returns `true` if this machine can load a model of `size_gb` gigabytes.
+    ///
+    /// When `max_model_gb` is absent, the machine is assumed capable of
+    /// running any model size.
+    // Called by the eval coordinator (TASK-50); unused until then.
+    #[allow(dead_code)]
+    pub fn can_run_model(&self, size_gb: f64) -> bool {
+        self.max_model_gb.map_or(true, |max| size_gb <= max)
+    }
+
+    /// Validate that every declared `model_paths` entry exists on disk.
+    ///
+    /// Relative paths are resolved against `base_dir` (typically the
+    /// directory containing the config file). Absolute paths are checked
+    /// as-is.
+    pub fn validate_paths(&self, base_dir: &Path) -> anyhow::Result<()> {
+        for entry in &self.model_paths {
+            let resolved = if entry.path.is_absolute() {
+                entry.path.clone()
+            } else {
+                base_dir.join(&entry.path)
+            };
+            if !resolved.exists() {
+                bail!(
+                    "[machine.model_paths] entry '{}': path does not exist: {}",
+                    entry.name,
+                    resolved.display()
+                );
+            }
+        }
+        Ok(())
+    }
+}
+
+// ---------------------------------------------------------------------------
+// [eval] stub (consumer: TASK-50)
+// ---------------------------------------------------------------------------
 
 /// `[eval]` stub. Idle timeout and auto-prune are implemented in TASK-50.
 #[derive(Debug, Clone, Default, Deserialize)]
@@ -414,8 +487,19 @@ impl AgentConfig {
     fn load_from_file(path: &Path) -> anyhow::Result<Self> {
         let content = std::fs::read_to_string(path)
             .with_context(|| format!("reading config: {}", path.display()))?;
-        Self::parse(&content)
-            .with_context(|| format!("parsing config: {}", path.display()))
+        let cfg = Self::parse(&content)
+            .with_context(|| format!("parsing config: {}", path.display()))?;
+
+        let base_dir = path.parent().unwrap_or(Path::new("."));
+        let machine = match &cfg {
+            AgentConfig::Point(pc) => &pc.machine,
+            AgentConfig::Search(sc) => &sc.base.machine,
+        };
+        machine
+            .validate_paths(base_dir)
+            .with_context(|| format!("validating [machine] paths in: {}", path.display()))?;
+
+        Ok(cfg)
     }
 
     /// Parse config from a TOML string. Exposed for testing.
@@ -777,5 +861,155 @@ deny_all_network = false
         let cfg = AgentConfig::parse(toml).unwrap();
         let AgentConfig::Point(pc) = cfg else { panic!("expected Point") };
         assert!(!pc.security.deny_all_network);
+    }
+
+    // ---------------------------------------------------------------------------
+    // [machine] section tests
+    // ---------------------------------------------------------------------------
+
+    // AC #1: [machine] parses all declared fields correctly.
+    #[test]
+    fn machine_section_fields_parse() {
+        let toml = r#"
+[model]
+model_id = "claude-opus-4-7-20251101"
+
+[machine]
+backends     = ["Metal", "CPU"]
+max_model_gb = 8.0
+eval_configs = ["standard", "hick-edit"]
+
+[[machine.model_paths]]
+name    = "phi-3-mini"
+path    = "/tmp/phi-3-mini.gguf"
+size_gb = 2.3
+"#;
+        let cfg = AgentConfig::parse(toml).unwrap();
+        let AgentConfig::Point(pc) = cfg else { panic!("expected Point") };
+        let m = &pc.machine;
+        assert_eq!(m.backends, vec!["Metal", "CPU"]);
+        assert_eq!(m.max_model_gb, Some(8.0));
+        assert_eq!(m.eval_configs, vec!["standard", "hick-edit"]);
+        assert_eq!(m.model_paths.len(), 1);
+        assert_eq!(m.model_paths[0].name, "phi-3-mini");
+        assert_eq!(m.model_paths[0].size_gb, 2.3);
+    }
+
+    // AC #1: empty [machine] section uses safe defaults (backwards compat).
+    #[test]
+    fn machine_section_empty_is_ok() {
+        let toml = r#"
+[model]
+model_id = "claude-opus-4-7-20251101"
+
+[machine]
+"#;
+        let cfg = AgentConfig::parse(toml).unwrap();
+        let AgentConfig::Point(pc) = cfg else { panic!("expected Point") };
+        assert!(pc.machine.backends.is_empty());
+        assert!(pc.machine.max_model_gb.is_none());
+        assert!(pc.machine.model_paths.is_empty());
+        assert!(pc.machine.eval_configs.is_empty());
+    }
+
+    // AC #1 / #2: absent [machine] section defaults correctly.
+    #[test]
+    fn machine_section_absent_defaults_ok() {
+        let toml = r#"
+[model]
+model_id = "claude-opus-4-7-20251101"
+"#;
+        let cfg = AgentConfig::parse(toml).unwrap();
+        let AgentConfig::Point(pc) = cfg else { panic!("expected Point") };
+        assert!(pc.machine.can_run_model(999.0), "no limit declared → always feasible");
+    }
+
+    // AC #2: feasibility predicate — model fits.
+    #[test]
+    fn can_run_model_true_when_within_limit() {
+        let m = MachineSection {
+            max_model_gb: Some(8.0),
+            ..Default::default()
+        };
+        assert!(m.can_run_model(7.9));
+        assert!(m.can_run_model(8.0));
+    }
+
+    // AC #2: feasibility predicate — model too large.
+    #[test]
+    fn can_run_model_false_when_exceeds_limit() {
+        let m = MachineSection {
+            max_model_gb: Some(8.0),
+            ..Default::default()
+        };
+        assert!(!m.can_run_model(8.1));
+        assert!(!m.can_run_model(70.0));
+    }
+
+    // AC #2: no limit declared → always feasible.
+    #[test]
+    fn can_run_model_true_when_no_limit() {
+        let m = MachineSection::default();
+        assert!(m.can_run_model(999.0));
+    }
+
+    // AC #3: validate_paths returns error for non-existent path.
+    #[test]
+    fn validate_paths_errors_on_missing_file() {
+        let m = MachineSection {
+            model_paths: vec![ModelPathEntry {
+                name: "missing".into(),
+                path: PathBuf::from("/nonexistent/model.gguf"),
+                size_gb: 4.0,
+            }],
+            ..Default::default()
+        };
+        let err = m.validate_paths(Path::new("/")).unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("missing"), "error should name the entry: {msg}");
+        assert!(msg.contains("does not exist"), "error should state reason: {msg}");
+    }
+
+    // AC #3: validate_paths is a no-op when model_paths is empty.
+    #[test]
+    fn validate_paths_ok_when_no_model_paths() {
+        let m = MachineSection::default();
+        m.validate_paths(Path::new("/")).unwrap();
+    }
+
+    // AC #3: validate_paths succeeds for an existing file.
+    #[test]
+    fn validate_paths_ok_for_existing_file() {
+        use tempfile::NamedTempFile;
+        let f = NamedTempFile::new().unwrap();
+        let m = MachineSection {
+            model_paths: vec![ModelPathEntry {
+                name: "real-model".into(),
+                path: f.path().to_path_buf(),
+                size_gb: 2.0,
+            }],
+            ..Default::default()
+        };
+        m.validate_paths(Path::new("/")).unwrap();
+    }
+
+    // AC #3: relative path is resolved against base_dir.
+    #[test]
+    fn validate_paths_resolves_relative_paths() {
+        use tempfile::TempDir;
+        let dir = TempDir::new().unwrap();
+        // Create a dummy file inside the temp dir
+        let model_file = dir.path().join("model.gguf");
+        std::fs::write(&model_file, b"dummy").unwrap();
+
+        let m = MachineSection {
+            model_paths: vec![ModelPathEntry {
+                name: "local-model".into(),
+                path: PathBuf::from("model.gguf"),
+                size_gb: 1.0,
+            }],
+            ..Default::default()
+        };
+        m.validate_paths(dir.path()).unwrap();
     }
 }

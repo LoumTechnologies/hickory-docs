@@ -1,0 +1,60 @@
+# gpu-desktop.toml — discrete CUDA GPU desktop profile
+#
+# Primary CUDA backend with a generous model budget.
+# Sized for a workstation with 48 GB VRAM (e.g. RTX 6000 Ada); lower the
+# max_model_gb if your GPU has less headroom.
+
+[model]
+provider = "anthropic"
+model_id  = "claude-opus-4-7-20251101"
+
+[extensions]
+script_first = true
+hick_edit    = false
+mcp_xml      = false
+mcp_graphql  = false
+mcp_wasm     = false
+mcp_sdk      = false
+
+[security]
+deny_all_network = true
+
+[[security.allowed_hosts]]
+host = "pypi.org"
+port = "443"
+
+[[security.allowed_hosts]]
+host = "files.pythonhosted.org"
+port = "443"
+
+[security.file_access]
+read  = ["/workspace/**"]
+write = ["/workspace/**"]
+
+[mcp]
+servers_file = ".hick/mcp-servers.toml"
+secrets_file = ".hick/mcp-secrets.toml"
+
+[mcp.response_format]
+default = "json"
+
+[machine]
+backends     = ["CUDA", "CPU"]
+max_model_gb = 40.0
+eval_configs = ["standard", "hick-edit"]
+
+# Populate model_paths with absolute paths to GGUF files on this machine.
+# The eval coordinator skips any entry whose size_gb > max_model_gb above.
+#
+# [[machine.model_paths]]
+# name    = "mistral-7b"
+# path    = "/opt/models/Mistral-7B-Instruct-v0.3-Q4_K_M.gguf"
+# size_gb = 4.1
+#
+# [[machine.model_paths]]
+# name    = "llama-3-70b-q4"
+# path    = "/opt/models/Meta-Llama-3-70B-Instruct-Q4_K_M.gguf"
+# size_gb = 39.0
+
+[eval]
+# Idle timeout, judge config, auto-prune threshold — implemented in TASK-50.

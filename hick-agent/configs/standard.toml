@@ -40,7 +40,17 @@ secrets_file = ".hick/mcp-secrets.toml"
 default = "json"
 
 [machine]
-# Capability scheduling — implemented in TASK-45.
+# Declare this machine's hardware capabilities for the eval coordinator.
+# See configs/macbook-2018.toml and configs/gpu-desktop.toml for examples.
+#
+# backends     = ["CPU"]          # "Metal", "CUDA", or "CPU"
+# max_model_gb = 8.0              # skip models larger than this
+# eval_configs = ["standard"]     # which eval configs to run (empty = all)
+#
+# [[machine.model_paths]]
+# name    = "phi-3-mini"
+# path    = "/path/to/model.gguf"
+# size_gb = 2.3
 
 [eval]
 # Idle timeout, judge config, auto-prune threshold — implemented in TASK-50.
