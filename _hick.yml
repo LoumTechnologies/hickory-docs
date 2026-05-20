@@ -1,0 +1,11 @@
+# Hickory-docs root pipeline config.
+# All blue-iron-cube outputs are sandboxed to blue-iron-cube/output/.
+# Run: hick run  (or iron-peak from repo root)
+
+files:
+  - blue-iron-cube/main.hick
+  - blue-iron-cube/domains/*.hick
+  - blue-iron-cube/shared/*.hick
+  - blue-iron-cube/platforms/*.hick
+
+output-dir: blue-iron-cube/output/
