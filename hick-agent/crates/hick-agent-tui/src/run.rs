@@ -1375,7 +1375,7 @@ fn extract_card_text(val: &serde_json::Value, out: &mut Vec<String>) {
                     if let Some(facts) = map.get("facts").and_then(|v| v.as_array()) {
                         for fact in facts {
                             let title = fact.get("title").and_then(|v| v.as_str()).unwrap_or("");
-                            let value = fact.get("value").and_then(|v| v.as_str()).unwrap_or("");
+                            let value = fact.get("value").and_then(|v: &serde_json::Value| v.as_str()).unwrap_or("");
                             out.push(format!("{title}: {value}"));
                         }
                     }

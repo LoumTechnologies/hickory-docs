@@ -9,6 +9,7 @@ publish = false
 hick-agent-sdk = { path = "../hick-agent-sdk" }
 hick-policy.workspace = true
 anyhow = "1"
+serde_json = "1"
 tokio = { version = "1", features = ["full"] }
 ratatui = "0.30.0"
 crossterm = "0.29.0"

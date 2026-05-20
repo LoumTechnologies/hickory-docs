@@ -621,7 +621,11 @@ async fn main() -> Result<()> {
     ));
 
     let web_ui_url = if web_ui_enabled(cli.no_web) {
-        match hick_agent_sdk::WebServer::bind(hick_agent_sdk::WebServerConfig::from_env()).await {
+        let security_cfg = hick_agent_sdk::AgentSecurityConfig::load_or_default(&project_dir)
+            .unwrap_or_default();
+        let cfg = hick_agent_sdk::WebServerConfig::from_env()
+            .with_project(project_dir.clone(), security_cfg.allowed_hosts.clone());
+        match hick_agent_sdk::WebServer::bind(cfg).await {
             Ok(ws) => {
                 ws.attach(ui_fanout_tx.clone(), ui_cmd_tx.clone());
                 match ws.start().await {
@@ -643,6 +647,26 @@ async fn main() -> Result<()> {
     } else {
         None
     };
+
+    // Start the pane watcher.
+    {
+        let pw = hick_agent_sdk::PaneWatcher::new(&project_dir, ui_fanout_tx.clone());
+        tokio::spawn(pw.run(std::time::Duration::from_secs(2)));
+    }
+
+    // Connect to relay if HICK_RELAY_URL is set.
+    if let Ok(relay_url) = std::env::var("HICK_RELAY_URL") {
+        let event_rx = ui_fanout_tx.subscribe();
+        let cmd_tx_relay = ui_cmd_tx.clone();
+        match hick_agent_sdk::RelayClient::connect(&relay_url, event_rx, cmd_tx_relay).await {
+            Ok(client) => {
+                event_tx.send(AgentEvent::Info(format!("Relay session: {}", client.session_url()))).ok();
+            }
+            Err(e) => {
+                event_tx.send(AgentEvent::Info(format!("Relay connect failed: {e}"))).ok();
+            }
+        }
+    }
 
     // UiCommand routing is now handled inside run_ui_event_fanout_task.
 

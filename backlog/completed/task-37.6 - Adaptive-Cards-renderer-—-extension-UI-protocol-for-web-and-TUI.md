@@ -1,10 +1,10 @@
 ---
 id: TASK-37.6
 title: Adaptive Cards renderer — extension UI protocol for web and TUI
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-05-19 11:55'
-updated_date: '2026-05-20 01:17'
+updated_date: '2026-05-20 10:52'
 labels:
   - web
   - frontend

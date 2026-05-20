@@ -3,10 +3,10 @@ id: TASK-37.12
 title: >-
   Agent panes — CWD static serving, folder-per-pane convention, and sandboxed
   HTML panes
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-05-19 18:23'
-updated_date: '2026-05-20 01:17'
+updated_date: '2026-05-20 10:52'
 labels:
   - web
   - sdk

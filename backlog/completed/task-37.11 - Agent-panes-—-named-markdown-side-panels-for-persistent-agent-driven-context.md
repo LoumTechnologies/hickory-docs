@@ -1,10 +1,10 @@
 ---
 id: TASK-37.11
 title: Agent panes — named markdown side-panels for persistent agent-driven context
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-05-19 17:57'
-updated_date: '2026-05-20 01:17'
+updated_date: '2026-05-20 10:52'
 labels:
   - web
   - tui

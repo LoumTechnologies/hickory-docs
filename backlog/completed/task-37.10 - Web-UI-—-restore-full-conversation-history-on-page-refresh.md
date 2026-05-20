@@ -1,10 +1,10 @@
 ---
 id: TASK-37.10
 title: Web UI — restore full conversation history on page refresh
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-05-19 17:36'
-updated_date: '2026-05-20 01:17'
+updated_date: '2026-05-20 10:52'
 labels:
   - ui
   - web

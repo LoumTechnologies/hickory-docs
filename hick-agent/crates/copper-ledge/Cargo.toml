@@ -14,7 +14,7 @@ default = []
 
 [dependencies]
 # SDK + script-first extension — no hick pipeline dependencies in this manifest
-hick-agent-sdk = { path = "../hick-agent-sdk", features = ["web"] }
+hick-agent-sdk = { path = "../hick-agent-sdk", features = ["web", "relay"] }
 hick-agent-script-first = { path = "../hick-agent-script-first" }
 hick-agent-core = { path = "../hick-agent-core" }
 hick-agent-tui = { path = "../hick-agent-tui" }

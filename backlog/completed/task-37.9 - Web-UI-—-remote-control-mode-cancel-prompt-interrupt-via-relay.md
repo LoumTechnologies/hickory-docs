@@ -1,10 +1,10 @@
 ---
 id: TASK-37.9
 title: 'Web UI — remote control mode (cancel, prompt, interrupt via relay)'
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-05-19 11:57'
-updated_date: '2026-05-20 01:17'
+updated_date: '2026-05-20 10:52'
 labels:
   - web
   - frontend

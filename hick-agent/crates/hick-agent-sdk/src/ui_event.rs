@@ -537,7 +537,7 @@ pub fn emit_adaptive_card(
     let xml_fragment = format!(
         "<log:adaptive-card node-id=\"{node_id}\" parent-id=\"{parent_id}\">{card_json}</log:adaptive-card>"
     );
-    log.record(&crate::session_log::LogEvent::Custom {
+    log.record(crate::session_log::LogEvent::Custom {
         xml_fragment: &xml_fragment,
         attachments: &[],
     });
@@ -550,9 +550,9 @@ mod tests {
 
     struct CaptureSink(std::sync::Mutex<Vec<String>>);
     impl SessionLog for CaptureSink {
-        fn record(&self, event: &LogEvent<'_>) {
+        fn record(&self, event: LogEvent<'_>) {
             if let LogEvent::Custom { xml_fragment, .. } = event {
-                self.0.lock().unwrap().push(xml_fragment.clone());
+                self.0.lock().unwrap().push(xml_fragment.to_string());
             }
         }
     }

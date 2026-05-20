@@ -1,10 +1,10 @@
 ---
 id: TASK-37.8
 title: hick-relay binary + RelayClient in hick-agent-sdk
-status: In Progress
+status: Done
 assignee: []
 created_date: '2026-05-19 11:56'
-updated_date: '2026-05-20 01:17'
+updated_date: '2026-05-20 10:52'
 labels:
   - relay
   - sdk

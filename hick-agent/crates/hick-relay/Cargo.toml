@@ -1,0 +1,22 @@
+[package]
+name = "hick-relay"
+version = "0.1.0"
+edition = "2024"
+description = "Cloud WebSocket relay for hick-agent remote UI sessions — forwards UiEvent/UiCommand between agents and browsers."
+publish = false
+
+[[bin]]
+name = "hick-relay"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+axum = { version = "0.8", default-features = false, features = ["http1", "tokio", "ws", "macros"] }
+clap = { version = "4", features = ["derive", "env"] }
+futures = "0.3"
+log = "0.4"
+env_logger = "0.11"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+uuid = { version = "1", features = ["v4"] }
