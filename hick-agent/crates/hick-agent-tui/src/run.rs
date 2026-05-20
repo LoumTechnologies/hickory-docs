@@ -101,6 +101,10 @@ struct PendingMcpCredential {
     response_tx: oneshot::Sender<Option<(String, String)>>,
 }
 
+struct PendingReplay {
+    turn_node_id: NodeId,
+}
+
 struct PaneState {
     title: String,
     markdown: String,
@@ -129,6 +133,7 @@ struct App {
     approvals_q: VecDeque<UiNetworkApproval>,
     pending_approval: Option<PendingApproval>,
     pending_mcp_credential: Option<PendingMcpCredential>,
+    pending_replay: Option<PendingReplay>,
     panes: HashMap<String, PaneState>,
     show_panes: bool,
 }
@@ -156,6 +161,7 @@ impl App {
             approvals_q: VecDeque::new(),
             pending_approval: None,
             pending_mcp_credential: None,
+            pending_replay: None,
             panes: HashMap::new(),
             show_panes: false,
         }
@@ -794,6 +800,59 @@ impl App {
             return;
         }
 
+        if self.pending_replay.is_some() {
+            match (key.modifiers, key.code) {
+                (m, KeyCode::Char('c')) if m.contains(KeyModifiers::CONTROL) => {
+                    self.pending_replay = None;
+                    self.misc_info("[replay] Cancelled.");
+                }
+                (_, KeyCode::Enter) => {
+                    let input = std::mem::take(&mut self.input);
+                    self.input_cursor = 0;
+                    let pr = self.pending_replay.take().unwrap();
+                    if input.is_empty() {
+                        self.misc_info("[replay] Cancelled (no config paths entered).");
+                    } else {
+                        let paths: Vec<String> = input
+                            .split(',')
+                            .map(|s| s.trim().to_string())
+                            .filter(|s| !s.is_empty())
+                            .collect();
+                        if paths.is_empty() {
+                            self.misc_info("[replay] Cancelled (no valid config paths).");
+                        } else {
+                            cmd_tx.send(UiCommand::ReplayTurn {
+                                turn_node_id: pr.turn_node_id,
+                                config_paths: paths,
+                            }).ok();
+                        }
+                    }
+                }
+                (_, KeyCode::Backspace) => {
+                    if self.input_cursor > 0 {
+                        self.input_cursor -= 1;
+                        self.input.remove(self.input_cursor);
+                    }
+                }
+                (_, KeyCode::Left) => {
+                    self.input_cursor = self.input_cursor.saturating_sub(1);
+                }
+                (_, KeyCode::Right) => {
+                    if self.input_cursor < self.input.len() {
+                        self.input_cursor += 1;
+                    }
+                }
+                (_, KeyCode::Home) => self.input_cursor = 0,
+                (_, KeyCode::End) => self.input_cursor = self.input.len(),
+                (_, KeyCode::Char(c)) => {
+                    self.input.insert(self.input_cursor, c);
+                    self.input_cursor += 1;
+                }
+                _ => {}
+            }
+            return;
+        }
+
         if self.pending_approval.is_some() {
             let choosing = self
                 .pending_approval
@@ -990,6 +1049,18 @@ impl App {
                     if let Some(node) = self.tree.node(sel) {
                         if Self::branchable(node.kind) {
                             cmd_tx.send(UiCommand::RewindTo { node_id: sel }).ok();
+                        }
+                    }
+                }
+            }
+            (_, KeyCode::Char('r')) if self.input.is_empty() && !self.busy => {
+                if let Some(sel) = self.selected_node() {
+                    if let Some(node) = self.tree.node(sel) {
+                        if node.kind == ConversationNodeKind::UserTurn {
+                            self.pending_replay = Some(PendingReplay { turn_node_id: sel });
+                            self.misc_info(
+                                "[replay] Enter config path(s) to replay against (comma-separated):",
+                            );
                         }
                     }
                 }
@@ -1216,7 +1287,12 @@ impl App {
         frame.render_widget(output, conv_area);
 
         if !replay_mode {
-            let input_display = if let Some(ref pm) = self.pending_mcp_credential {
+            let input_display = if let Some(ref _pr) = self.pending_replay {
+                format!(
+                    "[replay] Config path(s), comma-separated (blank=cancel): {}",
+                    self.input
+                )
+            } else if let Some(ref pm) = self.pending_mcp_credential {
                 match &pm.stage {
                     CredentialStage::EnvVarName => format!(
                         "[mcp] {} — enter credential env var name (blank to skip): {}",
@@ -1239,12 +1315,22 @@ impl App {
             } else if self.busy {
                 "\u{25cf} Agent is working... (Ctrl+C to interrupt)".to_string()
             } else if self.input.is_empty() && self.has_selected_branchable() {
-                "[b] branch from here  (type to send a message instead)".to_string()
+                let replay_hint = self
+                    .selected_node()
+                    .and_then(|id| self.tree.node(id))
+                    .is_some_and(|n| n.kind == ConversationNodeKind::UserTurn);
+                if replay_hint {
+                    "[b] branch  [r] replay with alternate config  (type to send a message)".to_string()
+                } else {
+                    "[b] branch from here  (type to send a message instead)".to_string()
+                }
             } else {
                 format!("> {}", self.input)
             };
 
-            let input_style = if self.pending_mcp_credential.is_some() {
+            let input_style = if self.pending_replay.is_some() {
+                Style::default().fg(Color::Green)
+            } else if self.pending_mcp_credential.is_some() {
                 Style::default().fg(Color::Magenta)
             } else if self.pending_approval.is_some() {
                 Style::default().fg(Color::Yellow)

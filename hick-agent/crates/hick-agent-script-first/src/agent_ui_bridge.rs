@@ -240,10 +240,22 @@ impl AgentEvent {
     }
 }
 
+/// Carries the reconstructed context needed to spawn retroactive replay agents (TASK-47).
+pub struct ReplayRequest {
+    /// The `UserTurn` node the user selected.
+    pub turn_node_id: hick_agent_sdk::NodeId,
+    /// The user message text from that turn (becomes the first prompt for replay agents).
+    pub user_message: String,
+    /// Alternating User/Assistant history up to but NOT including the selected turn.
+    pub context_history: Vec<hick_agent_sdk::Message>,
+    /// Config file paths — one replay agent is spawned per path.
+    pub config_paths: Vec<String>,
+}
+
 /// Best-effort mapping for control commands originating from shared UI chrome.
 ///
-/// `RewindTo` and `NetworkApproval` are handled inside [`run_ui_event_fanout_task`]
-/// directly; other UI-only commands return `None`.
+/// `RewindTo`, `NetworkApproval`, and `ReplayTurn` are handled inside
+/// [`run_ui_event_fanout_task`] directly; other UI-only commands return `None`.
 pub fn ui_command_to_agent(cmd: UiCommand) -> Option<AgentCommand> {
     match cmd {
         UiCommand::Message { text } => Some(AgentCommand::Message(text)),
@@ -256,7 +268,8 @@ pub fn ui_command_to_agent(cmd: UiCommand) -> Option<AgentCommand> {
         | UiCommand::NetworkApproval { .. }
         | UiCommand::McpCredential { .. }
         | UiCommand::McpCredentialSkip
-        | UiCommand::AddConfigPath { .. } => None,
+        | UiCommand::AddConfigPath { .. }
+        | UiCommand::ReplayTurn { .. } => None,
     }
 }
 
@@ -275,6 +288,8 @@ pub fn agent_command_to_ui(cmd: AgentCommand) -> UiCommand {
 ///
 /// Handles `RewindTo` commands directly: emits `BranchStarted` and forwards
 /// a `AgentCommand::RewindTo` with the reconstructed history to `agent_cmd_tx`.
+/// Handles `ReplayTurn` commands by reconstructing history from the bridge's turn
+/// checkpoint and forwarding a [`ReplayRequest`] on `replay_tx` (when provided).
 /// All other commands are forwarded via [`ui_command_to_agent`].
 ///
 /// Events are multicasted via [`broadcast::Sender`] — every subscriber (TUI, browsers, …)
@@ -289,6 +304,7 @@ pub async fn run_ui_event_fanout_task(
     mut ui_cmd_rx: mpsc::UnboundedReceiver<UiCommand>,
     agent_cmd_tx: mpsc::UnboundedSender<AgentCommand>,
     interrupt: std::sync::Arc<tokio::sync::Notify>,
+    replay_tx: Option<mpsc::UnboundedSender<ReplayRequest>>,
 ) {
     let mut bridge = AgentUiBridge::new();
     let boot = bridge.bootstrap_session(model, sandbox_image, provider_banner);
@@ -327,6 +343,9 @@ pub async fn run_ui_event_fanout_task(
                     }
                     Some(UiCommand::RewindTo { node_id }) => {
                         handle_rewind_to(node_id, &mut bridge, &ui_tx, &agent_cmd_tx, &interrupt);
+                    }
+                    Some(UiCommand::ReplayTurn { turn_node_id, config_paths }) => {
+                        handle_replay_turn(turn_node_id, config_paths, &bridge, &ui_tx, &replay_tx);
                     }
                     Some(UiCommand::NetworkApproval { node_id, verdict, suggestion_index }) => {
                         handle_web_network_approval(
@@ -373,6 +392,61 @@ fn handle_web_network_approval(
             _ => "[network] Blocked".to_string(),
         },
     });
+}
+
+fn handle_replay_turn(
+    node_id: NodeId,
+    config_paths: Vec<String>,
+    bridge: &AgentUiBridge,
+    ui_tx: &broadcast::Sender<UiEvent>,
+    replay_tx: &Option<mpsc::UnboundedSender<ReplayRequest>>,
+) {
+    let Some(tx) = replay_tx.as_ref() else {
+        let err_id = bridge.ids.next();
+        let _ = ui_tx.send(UiEvent::Error {
+            node_id: err_id,
+            text: "[replay] Replay not available (no replay handler registered).".into(),
+        });
+        return;
+    };
+
+    let Some(&checkpoint_len) = bridge.node_turn_checkpoint.get(&node_id) else {
+        let err_id = bridge.ids.next();
+        let _ = ui_tx.send(UiEvent::Error {
+            node_id: err_id,
+            text: format!("[replay] Unknown turn node #{node_id} — cannot reconstruct history."),
+        });
+        return;
+    };
+
+    if checkpoint_len == 0 {
+        let err_id = bridge.ids.next();
+        let _ = ui_tx.send(UiEvent::Error {
+            node_id: err_id,
+            text: format!("[replay] Turn node #{node_id} has an empty checkpoint."),
+        });
+        return;
+    }
+
+    // turn_history[checkpoint_len - 1] is the User message at the selected turn.
+    let user_message = bridge.turn_history[checkpoint_len - 1].content.clone();
+    let context_history = bridge.turn_history[..checkpoint_len - 1].to_vec();
+
+    let info_id = bridge.ids.next();
+    let _ = ui_tx.send(UiEvent::Info {
+        node_id: info_id,
+        text: format!(
+            "[replay] Queuing replay of turn #{node_id} against {} config(s)…",
+            config_paths.len()
+        ),
+    });
+
+    tx.send(ReplayRequest {
+        turn_node_id: node_id,
+        user_message,
+        context_history,
+        config_paths,
+    }).ok();
 }
 
 fn handle_rewind_to(

@@ -17,10 +17,12 @@ pub use events::AgentEvent;
 /// Bridges core [`AgentEvent`]s into SDK [`UiEvent`]s (shared UI layer).
 pub use agent_ui_bridge::AgentUiBridge;
 /// Fanout task: merges `AgentEvent`s, approvals, and `UiCommand`s into `UiEvent`s.
-/// Handles `RewindTo` commands directly; forwards others via [`ui_command_to_agent`].
+/// Handles `RewindTo` and `ReplayTurn` directly; forwards others via [`ui_command_to_agent`].
 pub use agent_ui_bridge::run_ui_event_fanout_task;
 /// Best-effort [`UiCommand`] → [`AgentCommand`] mapping for chrome-only controls.
 pub use agent_ui_bridge::ui_command_to_agent;
+/// Reconstructed context forwarded to the main orchestrator when a replay is requested.
+pub use agent_ui_bridge::ReplayRequest;
 /// Commands sent from the UI to the agent core (user messages, quit).
 pub use events::AgentCommand;
 /// [`MatchIntent`] impl for the script-first strategy — parses `<hick:next>` responses.

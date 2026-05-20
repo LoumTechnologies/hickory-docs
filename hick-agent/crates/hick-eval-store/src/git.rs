@@ -177,6 +177,7 @@ mod tests {
             response: Some("r".to_string()),
             scores: None,
             token_cost: None,
+            original_turn_id: None,
         })
     }
 

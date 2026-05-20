@@ -25,7 +25,7 @@ use tokio::sync::{Mutex, Notify, broadcast, mpsc};
 use hick_agent_engine::LocalLlmClient;
 use hick_agent_script_first::{
     AgentCommand, AgentEvent, ScriptBlockIntentParser, ScriptBlockPayload,
-    correction_message, run_ui_event_fanout_task,
+    correction_message, run_ui_event_fanout_task, ReplayRequest,
     CodeBlock, Language, ScriptResult,
     SANDBOX_EXECUTION_CONTEXT, SANDBOX_RUNTIME_PROBE,
 };
@@ -1206,7 +1206,7 @@ async fn main() -> Result<()> {
                 images_dir: images_dir.clone(),
                 workdir: project_dir.clone(),
                 default_image: default_image.clone(),
-                capabilities: sandbox_caps,
+                capabilities: sandbox_caps.clone(),
                 auth: auth_stack,
                 guest_network_enabled: sandbox_guest_network,
             };
@@ -1324,6 +1324,8 @@ async fn main() -> Result<()> {
 
             let (ui_cmd_tx, ui_cmd_rx) = mpsc::unbounded_channel::<hick_agent_sdk::UiCommand>();
 
+            let (replay_tx, replay_rx) = mpsc::unbounded_channel::<ReplayRequest>();
+
             tokio::spawn(run_ui_event_fanout_task(
                 event_rx,
                 approval_rx,
@@ -1334,6 +1336,7 @@ async fn main() -> Result<()> {
                 ui_cmd_rx,
                 cmd_tx.clone(),
                 Arc::clone(&interrupt),
+                Some(replay_tx.clone()),
             ));
 
             // Start the pane watcher
@@ -1369,7 +1372,7 @@ async fn main() -> Result<()> {
 
             // Build the initial conversation history with system prompt.
             let mut history = AgentHistory::new();
-            {
+            let full_system_prompt: Arc<String> = {
                 let mut full_system = system_prompt.clone();
                 full_system.push_str(SANDBOX_EXECUTION_CONTEXT);
                 if let Some(ref probe) = probe_text {
@@ -1380,9 +1383,8 @@ async fn main() -> Result<()> {
                     full_system.push_str("\n```\n");
                 }
                 history.push_system(full_system.clone());
-                // Store system messages snapshot in the io struct (set below).
-                let _ = full_system; // used above
-            }
+                Arc::new(full_system)
+            };
             let system_messages_snapshot: Vec<Message> = history.messages().to_vec();
 
             let running = Arc::new(AtomicBool::new(true));
@@ -1523,6 +1525,7 @@ async fn main() -> Result<()> {
                     ex_ui_cmd_rx,
                     ex_cmd_tx.clone(),
                     Arc::clone(&ex_interrupt),
+                    Some(replay_tx.clone()),
                 ));
 
                 let ex_system = if ex_hick_edit {
@@ -1608,6 +1611,31 @@ async fn main() -> Result<()> {
                     label: ex_tab_label,
                     event_tx: ex_ui_fanout_tx,
                     cmd_tx: ex_ui_cmd_tx,
+                });
+            }
+
+            // ── Replay request handler (TASK-47) ─────────────────────────────────
+            {
+                let replay_images_dir = images_dir.clone();
+                let replay_default_image = default_image.clone();
+                let replay_project_dir = project_dir.clone();
+                let replay_sandbox_guest_network = sandbox_guest_network;
+                let replay_security_config = sandbox_caps.clone();
+                let replay_full_system = Arc::clone(&full_system_prompt);
+                let replay_add_tab_tx = add_tab_tx.clone();
+                let replay_event_tx = event_tx.clone();
+                tokio::spawn(async move {
+                    handle_replay_requests(
+                        replay_rx,
+                        replay_images_dir,
+                        replay_default_image,
+                        replay_project_dir,
+                        replay_sandbox_guest_network,
+                        replay_security_config,
+                        replay_full_system,
+                        replay_add_tab_tx,
+                        replay_event_tx,
+                    ).await;
                 });
             }
 
@@ -1800,6 +1828,223 @@ async fn main() -> Result<()> {
     }
 }
 
+// ── Replay requests handler (TASK-47) ────────────────────────────────────────
+
+#[allow(clippy::too_many_arguments)]
+async fn handle_replay_requests(
+    mut replay_rx: mpsc::UnboundedReceiver<ReplayRequest>,
+    images_dir: PathBuf,
+    default_image: String,
+    project_dir: PathBuf,
+    sandbox_guest_network: bool,
+    sandbox_caps: hick_token::ContainerCapabilities,
+    full_system_prompt: Arc<String>,
+    add_tab_tx: mpsc::UnboundedSender<TabSource>,
+    event_tx: mpsc::UnboundedSender<AgentEvent>,
+) {
+    while let Some(req) = replay_rx.recv().await {
+        let turn_id = req.turn_node_id.as_string();
+        for config_path_str in &req.config_paths {
+            let config_path = PathBuf::from(config_path_str);
+            let config_label = config_path
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .unwrap_or("replay")
+                .to_string();
+
+            let extensions = load_extensions(Some(&config_path), &project_dir);
+
+            let detected = detect_providers();
+            let provider = match prompt_provider_selection(detected) {
+                Ok(p) => p,
+                Err(e) => {
+                    event_tx.send(AgentEvent::Info(format!(
+                        "[replay] {config_label}: provider error: {e}"
+                    ))).ok();
+                    continue;
+                }
+            };
+            let local_opts = LocalOpts {
+                model_path: None,
+                n_gpu_layers: None,
+                n_ctx: 4096,
+                max_tokens: 4096,
+                project_dir: project_dir.clone(),
+            };
+            let llm = match build_llm_client(provider, None, None, None, local_opts) {
+                Ok(l) => l,
+                Err(e) => {
+                    event_tx.send(AgentEvent::Info(format!(
+                        "[replay] {config_label}: llm error: {e}"
+                    ))).ok();
+                    continue;
+                }
+            };
+
+            let provider_name = llm.provider_name().to_string();
+            let model_name = llm.model_name().to_string();
+            let tab_label = format!("{provider_name} / {model_name} [replay:{config_label}]");
+
+            let (rep_event_tx, rep_event_rx) = mpsc::unbounded_channel::<AgentEvent>();
+            let (rep_cmd_tx, rep_cmd_rx) = mpsc::unbounded_channel::<AgentCommand>();
+            let (rep_approval_tx, rep_approval_rx) = mpsc::unbounded_channel::<NetworkApprovalRequest>();
+            let rep_interrupt = Arc::new(tokio::sync::Notify::new());
+
+            const REP_BROADCAST_CAP: usize = 2048;
+            let (rep_ui_fanout_tx, _) = broadcast::channel::<hick_agent_sdk::UiEvent>(REP_BROADCAST_CAP);
+            let (rep_ui_mpsc_tx, rep_ui_rx) = mpsc::unbounded_channel::<hick_agent_sdk::UiEvent>();
+            let (rep_ui_cmd_tx, rep_ui_cmd_rx) = mpsc::unbounded_channel::<hick_agent_sdk::UiCommand>();
+
+            tokio::spawn({
+                let mut sub = rep_ui_fanout_tx.subscribe();
+                let tx = rep_ui_mpsc_tx.clone();
+                async move {
+                    loop {
+                        match sub.recv().await {
+                            Ok(ev) => { if tx.send(ev).is_err() { break; } }
+                            Err(broadcast::error::RecvError::Lagged(_)) => {}
+                            Err(broadcast::error::RecvError::Closed) => break,
+                        }
+                    }
+                }
+            });
+
+            let rep_provider_info = format!("{provider_name} / {model_name}");
+            tokio::spawn(run_ui_event_fanout_task(
+                rep_event_rx,
+                rep_approval_rx,
+                rep_ui_fanout_tx.clone(),
+                Some(model_name.clone()),
+                Some(default_image.clone()),
+                Some(rep_provider_info.clone()),
+                rep_ui_cmd_rx,
+                rep_cmd_tx.clone(),
+                Arc::clone(&rep_interrupt),
+                None, // replay agents do not themselves spawn further replays
+            ));
+
+            // Seed history with context up to (not including) the selected turn.
+            let mut rep_history = AgentHistory::new();
+            rep_history.push_system((*full_system_prompt).clone());
+            for msg in &req.context_history {
+                rep_history.push(msg.clone());
+            }
+
+            let rep_running = Arc::new(AtomicBool::new(true));
+            let rep_sandbox_config = WasmSandboxConfig {
+                images_dir: images_dir.clone(),
+                workdir: project_dir.clone(),
+                default_image: default_image.clone(),
+                capabilities: sandbox_caps.clone(),
+                auth: None,
+                guest_network_enabled: sandbox_guest_network,
+            };
+            let rep_sandbox_executor: Arc<Mutex<dyn CommandExecutor>> =
+                Arc::new(Mutex::new(WasmSandboxExecutor::new(rep_sandbox_config)));
+
+            let rep_session_log: Arc<dyn hick_agent_sdk::SessionLog> = {
+                let ts = chrono::Local::now().format("%Y%m%d-%H%M%S");
+                let bundle_dir = project_dir.join(".hick").join(format!("session-{ts}-replay-{config_label}"));
+                match XmlSessionLog::new(bundle_dir) {
+                    Ok(log) => Arc::new(log),
+                    Err(_) => Arc::new(NullSessionLog),
+                }
+            };
+
+            let rep_hick_io = Arc::new(HickAgentIo {
+                cmd_rx: tokio::sync::Mutex::new(rep_cmd_rx),
+                event_tx: rep_event_tx.clone(),
+                running: Arc::clone(&rep_running),
+                pending: tokio::sync::Mutex::new(PendingCommand::None),
+                system_messages: tokio::sync::Mutex::new(rep_history.messages().to_vec()),
+                executor: Arc::clone(&rep_sandbox_executor),
+                sandbox_image: default_image.clone(),
+                agent_dir: ".hick".to_string(),
+                project_dir: project_dir.clone(),
+            });
+
+            let rep_hick_executor = Arc::new(HickToolExecutor {
+                executor: Arc::clone(&rep_sandbox_executor),
+                sandbox_image: default_image.clone(),
+                agent_dir: ".hick".to_string(),
+                project_dir: project_dir.clone(),
+                event_tx: rep_event_tx,
+                session_log: Arc::clone(&rep_session_log),
+                policy_evaluator: None,
+                inject_sdk_pythonpath: extensions.hick_edit,
+            });
+
+            let mut rep_router = IntentRouter::new();
+            rep_router.register(ScriptBlockIntentParser);
+
+            let rep_ctx = AgentContext {
+                llm,
+                router: rep_router,
+                executor: rep_hick_executor,
+                io: Arc::clone(&rep_hick_io) as Arc<dyn AgentIo>,
+            };
+
+            tokio::spawn(agent_task(rep_ctx, rep_hick_io, rep_history));
+
+            // Send the selected turn's user message as the first prompt.
+            rep_cmd_tx.send(AgentCommand::Message(req.user_message.clone())).ok();
+
+            // Register the tab so TUI shows it.
+            add_tab_tx.send(TabSource {
+                label: tab_label.clone(),
+                event_rx: rep_ui_rx,
+                cmd_tx: rep_ui_cmd_tx,
+            }).ok();
+
+            event_tx.send(AgentEvent::Info(format!(
+                "[replay] Tab added: {tab_label}"
+            ))).ok();
+
+            // Write eval record with reference to the original turn.
+            write_replay_eval_record(&project_dir, config_path_str, &req.user_message, &turn_id).await;
+        }
+    }
+}
+
+async fn write_replay_eval_record(
+    project_dir: &std::path::Path,
+    config_name: &str,
+    query: &str,
+    original_turn_id: &str,
+) {
+    use hick_eval_store::{EvalRecord, EvalResultRecord, GitBackend, StorageBackend};
+
+    let backend = match GitBackend::new() {
+        Ok(b) => b,
+        Err(e) => {
+            log::warn!("eval store: failed to open git backend for replay record: {e}");
+            return;
+        }
+    };
+
+    let machine_id = project_dir
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("unknown")
+        .to_string();
+
+    let record = EvalResultRecord {
+        machine_id,
+        timestamp: chrono::Utc::now(),
+        config_name: config_name.to_string(),
+        query: Some(query.to_string()),
+        response: None,
+        scores: None,
+        token_cost: None,
+        original_turn_id: Some(original_turn_id.to_string()),
+    };
+
+    if let Err(e) = backend.append(&EvalRecord::EvalResult(record)) {
+        log::warn!("eval store: failed to append replay record for {config_name}: {e}");
+    }
+    backend.sync_session();
+}
+
 // ── Eval store — multi-config session write (AC #8) ──────────────────────────
 
 async fn write_eval_session_records(project_dir: &std::path::Path, config_names: &[String]) {
@@ -1828,6 +2073,7 @@ async fn write_eval_session_records(project_dir: &std::path::Path, config_names:
             response: None,
             scores: None,
             token_cost: None,
+            original_turn_id: None,
         };
         if let Err(e) = backend.append(&EvalRecord::EvalResult(record)) {
             log::warn!("eval store: failed to append record for {config_name}: {e}");

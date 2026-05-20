@@ -4,9 +4,10 @@ interface Props {
   nodeId: number
   text: string
   onBranch?: (nodeId: number) => void
+  onReplay?: (nodeId: number) => void
 }
 
-export function UserTurnNode({ nodeId, text, onBranch }: Props) {
+export function UserTurnNode({ nodeId, text, onBranch, onReplay }: Props) {
   const [hovered, setHovered] = useState(false)
   return (
     <div
@@ -23,6 +24,16 @@ export function UserTurnNode({ nodeId, text, onBranch }: Props) {
             onClick={() => onBranch(nodeId)}
           >
             ⎇
+          </button>
+        )}
+        {onReplay && hovered && (
+          <button
+            type="button"
+            className="mt-1 rounded p-0.5 text-slate-500 hover:text-violet-400"
+            title="Replay with alternate config"
+            onClick={() => onReplay(nodeId)}
+          >
+            ↺
           </button>
         )}
       <div

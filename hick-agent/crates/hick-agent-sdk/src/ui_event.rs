@@ -182,6 +182,14 @@ pub enum UiCommand {
         /// TOML config file path. The agent core will load and spawn a new instance.
         path: String,
     },
+    /// Replay a past turn against one or more alternate configs (TASK-47).
+    ///
+    /// `turn_node_id` must identify a `UserTurn` node visible in the conversation tree.
+    /// Each path in `config_paths` spawns an independent agent instance in a new tab.
+    ReplayTurn {
+        turn_node_id: NodeId,
+        config_paths: Vec<String>,
+    },
 }
 
 // ---------------------------------------------------------------------------

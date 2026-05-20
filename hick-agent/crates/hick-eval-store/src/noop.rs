@@ -46,6 +46,7 @@ mod tests {
             response: None,
             scores: None,
             token_cost: None,
+            original_turn_id: None,
         })
     }
 

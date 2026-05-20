@@ -102,10 +102,11 @@ function renderItem(
   send: (cmd: UiCommand) => void,
   navigateToBranch: (id: BranchId) => void,
   onBranch?: (nodeId: number) => void,
+  onReplay?: (nodeId: number) => void,
 ): React.ReactNode {
   switch (item.kind) {
     case 'user_turn':
-      return <UserTurnNode nodeId={item.nodeId} text={item.text} onBranch={onBranch} />
+      return <UserTurnNode nodeId={item.nodeId} text={item.text} onBranch={onBranch} onReplay={onReplay} />
 
     case 'thinking':
       return (
@@ -208,6 +209,15 @@ export const BranchColumn = forwardRef<BranchColumnHandle, BranchColumnData>(fun
   ref,
 ) {
   const onBranch = connected ? (nodeId: number) => send({ type: 'rewind_to', node_id: nodeId }) : undefined
+  const onReplay = connected
+    ? (nodeId: number) => {
+        const raw = window.prompt('Config path(s) to replay against (comma-separated):')
+        if (!raw) return
+        const config_paths = raw.split(',').map((s) => s.trim()).filter(Boolean)
+        if (config_paths.length === 0) return
+        send({ type: 'replay_turn', turn_node_id: nodeId, config_paths })
+      }
+    : undefined
   const scrollRef = useRef<HTMLDivElement>(null)
 
   useImperativeHandle(ref, () => ({
@@ -279,7 +289,7 @@ export const BranchColumn = forwardRef<BranchColumnHandle, BranchColumnData>(fun
                   transform: `translateY(${virtualItem.start}px)`,
                 }}
               >
-                {renderItem(item, collapseState, send, navigateToBranch, onBranch)}
+                {renderItem(item, collapseState, send, navigateToBranch, onBranch, onReplay)}
               </div>
             )
           })}

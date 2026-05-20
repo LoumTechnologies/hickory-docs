@@ -13,6 +13,7 @@ export type UiCommand =
   | { type: 'network_approval'; node_id: number; verdict: 'allow' | 'deny'; suggestion_index?: number }
   | { type: 'mcp_credential'; env_var: string; value: string }
   | { type: 'mcp_credential_skip' }
+  | { type: 'replay_turn'; turn_node_id: number; config_paths: string[] }
 
 /**
  * Wire format for `UiEvent` — matches `ui_event_wire_value` in `ui_event.rs`.

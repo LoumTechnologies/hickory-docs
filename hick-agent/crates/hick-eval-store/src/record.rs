@@ -18,6 +18,10 @@ pub struct EvalResultRecord {
     pub scores: Option<HashMap<String, f64>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub token_cost: Option<TokenCost>,
+    /// The `NodeId` (as a decimal string) of the original turn being replayed.
+    /// Present only on retroactive replay records (TASK-47).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub original_turn_id: Option<String>,
 }
 
 /// A pruning decision appended on top of existing records.
@@ -123,6 +127,7 @@ mod tests {
             response: Some("4".to_string()),
             scores: None,
             token_cost: None,
+            original_turn_id: None,
         })
     }
 
@@ -208,6 +213,7 @@ mod tests {
             response: None,
             scores: Some(scores),
             token_cost: None,
+            original_turn_id: None,
         });
         let json = serde_json::to_string(&r).unwrap();
         assert!(json.contains("accuracy"));
@@ -228,6 +234,7 @@ mod tests {
                 output_tokens: None,
                 total_cost_usd: None,
             }),
+            original_turn_id: None,
         });
         let json = serde_json::to_string(&r).unwrap();
         assert!(json.contains("input_tokens"));
