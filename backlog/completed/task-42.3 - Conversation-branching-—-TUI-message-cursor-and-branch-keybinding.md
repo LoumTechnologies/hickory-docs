@@ -1,9 +1,10 @@
 ---
 id: TASK-42.3
 title: 'Conversation branching — TUI: message cursor and branch keybinding'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-05-19 18:26'
+updated_date: '2026-05-19 22:24'
 labels:
   - tui
   - frontend
@@ -50,3 +51,20 @@ The TUI (`hick-agent/crates/hick-agent-tui/src/run.rs`) renders a scrollable lis
 - [ ] #6 A BranchStarted event causes a clearly labelled separator line to appear in the output
 - [ ] #7 cargo test --workspace passes
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Implemented TUI branching support in `hick-agent-tui/src/run.rs`:
+
+- `ingest()`: handles `UiEvent::BranchStarted` by injecting a synthetic Info node with text `── <label> (from ⏵#<fork_node_id>) ──` as a visible separator.
+- Added `branchable()` static method: returns true for `UserTurn` and `Assistant` node kinds.
+- Added `has_selected_branchable()`: checks if the currently selected node is branchable.
+- Added `bump_branchable_focus(delta)`: cycles `selected_ix` through only UserTurn/Assistant nodes.
+- `Up`/`Down` keys: when input is empty and not busy, navigate branchable nodes instead of scrolling. Otherwise scroll as before.
+- `b` key: when input empty, not busy, and a branchable node is selected, sends `UiCommand::RewindTo { node_id }`.
+- Input bar: shows `[b] branch from here  (type to send a message instead)` when input is empty and a branchable node is selected.
+- Header hint updated: `↑↓: branch-nav  b: branch  Shift+↑↓: fold-nav  Space: expand`.
+- Fixed unreachable pattern compiler warning in replay-mode key handler by moving Shift+Up/Down guards before plain Up/Down.
+- Replay mode: `b` key and branch hint are not reachable (replay path returns early before the main key dispatch).
+<!-- SECTION:FINAL_SUMMARY:END -->

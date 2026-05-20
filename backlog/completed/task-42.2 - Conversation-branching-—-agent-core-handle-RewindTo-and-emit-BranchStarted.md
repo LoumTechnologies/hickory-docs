@@ -1,9 +1,10 @@
 ---
 id: TASK-42.2
 title: 'Conversation branching — agent core: handle RewindTo and emit BranchStarted'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-05-19 18:26'
+updated_date: '2026-05-19 22:24'
 labels:
   - backend
   - agent-core
@@ -49,3 +50,16 @@ Do not modify the session XML retroactively. The branching is purely additive �
 - [ ] #5 The session XML after branching contains both the original post-fork events and the new branch events (additive only, nothing removed)
 - [ ] #6 cargo test --workspace passes
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Implemented the agent-core side of conversation branching:
+
+- Added `AgentEvent::UserMessage(String)` — emitted at the start of `ReactLoop::run()` so UIs can create `UserTurn` nodes in live mode (previously only replay emitted these).
+- Added `AgentCommand::RewindTo { fork_node_id, user_assistant_history }` — carries the truncated message history to restore at the fork point.
+- Rewrote `AgentUiBridge` to maintain a parallel `turn_history: Vec<Message>` and `node_turn_checkpoint: HashMap<NodeId, usize>` so any node_id can be mapped back to its LLM history position.
+- `run_ui_event_fanout_task` now owns the `ui_cmd_rx`, `agent_cmd_tx`, and `interrupt` — it handles `Cancel`, `RewindTo` (emits `BranchStarted`, truncates bridge history, forwards `AgentCommand::RewindTo`), and all other `UiCommand`s.
+- Added `ReactLoop::history()` and `ReactLoop::set_history()` public wrappers.
+- Updated `copper-ledge` and `iron-peak` `agent_task` functions to handle `AgentCommand::RewindTo`: preserve system messages from current history, prepend them to the forked user/assistant turns, call `set_history`, and emit an Info event confirming the rewind.
+<!-- SECTION:FINAL_SUMMARY:END -->

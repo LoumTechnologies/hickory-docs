@@ -171,6 +171,13 @@ impl App {
                     self.busy = false;
                 }
             }
+            UiEvent::BranchStarted { fork_node_id, label, .. } => {
+                let sep_id = self.id_gen.next();
+                self.tree.apply(&UiEvent::Info {
+                    node_id: sep_id,
+                    text: format!("── {label} (from \u{23f5}#{fork_node_id}) ──"),
+                });
+            }
             _ => {}
         }
 
@@ -278,6 +285,33 @@ impl App {
             if let Some(node) = self.tree.node(self.preorder_ids[ix]) {
                 let k = node.kind;
                 if Self::collapsible(k) {
+                    self.selected_ix = ix;
+                    return;
+                }
+            }
+        }
+    }
+
+    fn branchable(kind: ConversationNodeKind) -> bool {
+        matches!(kind, ConversationNodeKind::UserTurn | ConversationNodeKind::Assistant)
+    }
+
+    fn has_selected_branchable(&self) -> bool {
+        self.selected_node()
+            .and_then(|id| self.tree.node(id))
+            .is_some_and(|n| Self::branchable(n.kind))
+    }
+
+    fn bump_branchable_focus(&mut self, delta: isize) {
+        if self.preorder_ids.is_empty() {
+            return;
+        }
+        let n = self.preorder_ids.len();
+        let mut ix = self.selected_ix;
+        for _ in 0..n {
+            ix = ((ix as isize + delta).rem_euclid(n as isize)) as usize;
+            if let Some(node) = self.tree.node(self.preorder_ids[ix]) {
+                if Self::branchable(node.kind) {
                     self.selected_ix = ix;
                     return;
                 }
@@ -619,6 +653,12 @@ impl App {
                     cmd_tx.send(UiCommand::Quit).ok();
                     self.should_quit = true;
                 }
+                (m, KeyCode::Up) if m.contains(KeyModifiers::SHIFT) => {
+                    self.bump_collapsible_focus(-1);
+                }
+                (m, KeyCode::Down) if m.contains(KeyModifiers::SHIFT) => {
+                    self.bump_collapsible_focus(1);
+                }
                 (_, KeyCode::Up) => {
                     self.auto_scroll = false;
                     self.scroll = self.scroll.saturating_sub(1);
@@ -632,12 +672,6 @@ impl App {
                 }
                 (_, KeyCode::PageDown) => {
                     self.scroll = self.scroll.saturating_add(20);
-                }
-                (_, KeyCode::Up) if key.modifiers.contains(KeyModifiers::SHIFT) => {
-                    self.bump_collapsible_focus(-1);
-                }
-                (_, KeyCode::Down) if key.modifiers.contains(KeyModifiers::SHIFT) => {
-                    self.bump_collapsible_focus(1);
                 }
                 (_, KeyCode::Char(' ')) => self.toggle_selected_fold(),
                 (_, KeyCode::Enter) => self.toggle_selected_fold(),
@@ -880,11 +914,19 @@ impl App {
             (_, KeyCode::Home) => self.input_cursor = 0,
             (_, KeyCode::End) => self.input_cursor = self.input.len(),
             (_, KeyCode::Up) => {
-                self.auto_scroll = false;
-                self.scroll = self.scroll.saturating_sub(1);
+                if self.input.is_empty() && !self.busy {
+                    self.bump_branchable_focus(-1);
+                } else {
+                    self.auto_scroll = false;
+                    self.scroll = self.scroll.saturating_sub(1);
+                }
             }
             (_, KeyCode::Down) => {
-                self.scroll = self.scroll.saturating_add(1);
+                if self.input.is_empty() && !self.busy {
+                    self.bump_branchable_focus(1);
+                } else {
+                    self.scroll = self.scroll.saturating_add(1);
+                }
             }
             (_, KeyCode::PageUp) => {
                 self.auto_scroll = false;
@@ -892,6 +934,15 @@ impl App {
             }
             (_, KeyCode::PageDown) => {
                 self.scroll = self.scroll.saturating_add(20);
+            }
+            (_, KeyCode::Char('b')) if self.input.is_empty() && !self.busy => {
+                if let Some(sel) = self.selected_node() {
+                    if let Some(node) = self.tree.node(sel) {
+                        if Self::branchable(node.kind) {
+                            cmd_tx.send(UiCommand::RewindTo { node_id: sel }).ok();
+                        }
+                    }
+                }
             }
             (_, KeyCode::Char(c)) if !self.busy => {
                 self.input.insert(self.input_cursor, c);
@@ -1020,7 +1071,7 @@ impl App {
         }
         header_spans.push(Span::styled(" \u{2502} ", Style::default().fg(Color::DarkGray)));
         header_spans.push(Span::styled(
-            "Shift+\u{2191}\u{2193}: select  Space/Enter: expand",
+            "\u{2191}\u{2193}: branch-nav  b: branch  Shift+\u{2191}\u{2193}: fold-nav  Space: expand",
             Style::default().fg(Color::DarkGray),
         ));
         let header = Paragraph::new(Line::from(header_spans));
@@ -1104,6 +1155,8 @@ impl App {
                 }
             } else if self.busy {
                 "\u{25cf} Agent is working... (Ctrl+C to interrupt)".to_string()
+            } else if self.input.is_empty() && self.has_selected_branchable() {
+                "[b] branch from here  (type to send a message instead)".to_string()
             } else {
                 format!("> {}", self.input)
             };

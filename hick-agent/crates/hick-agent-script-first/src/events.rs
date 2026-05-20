@@ -7,6 +7,8 @@ use crate::tools::ScriptResult;
 pub enum AgentEvent {
     /// Informational message (startup, status).
     Info(String),
+    /// User submitted a message — emitted before `Thinking` so UIs can create `UserTurn` nodes.
+    UserMessage(String),
     /// Agent is calling the LLM.
     Thinking,
     /// A streamed token from the LLM response.
@@ -48,4 +50,13 @@ pub enum AgentCommand {
     DirectCommand(String),
     /// User wants to quit the application.
     Quit,
+    /// Rewind the LLM context to a branch fork point.
+    ///
+    /// `user_assistant_history` contains the alternating User/Assistant messages
+    /// up to and including the fork node. System messages from the current history
+    /// are prepended by the agent task before calling `set_history`.
+    RewindTo {
+        fork_node_id: hick_agent_sdk::NodeId,
+        user_assistant_history: Vec<hick_agent_sdk::Message>,
+    },
 }

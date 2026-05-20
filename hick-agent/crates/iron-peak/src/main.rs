@@ -22,7 +22,7 @@ use tokio::sync::{Mutex, Notify, broadcast, mpsc};
 use hick_agent_engine::LocalLlmClient;
 use hick_agent_script_first::{
     AgentCommand, AgentEvent, ReactLoop,
-    run_ui_event_fanout_task, ui_command_to_agent,
+    run_ui_event_fanout_task,
 };
 use hick_agent_tui::{run_tui, TuiConfig};
 use hick_agent_hick_edit::{PipelineWatcher, insert_paste_slots};
@@ -674,6 +674,22 @@ async fn agent_task(
                 }
             }
             AgentCommand::Quit => break,
+            AgentCommand::RewindTo { fork_node_id, user_assistant_history } => {
+                let system_msgs: Vec<_> = react_loop
+                    .history()
+                    .iter()
+                    .take_while(|m| m.role == hick_agent_sdk::Role::System)
+                    .cloned()
+                    .collect();
+                let mut full_history = system_msgs;
+                full_history.extend(user_assistant_history);
+                react_loop.set_history(full_history);
+                events
+                    .send(AgentEvent::Info(format!(
+                        "Context rewound to branch point #{fork_node_id}."
+                    )))
+                    .ok();
+            }
         }
     }
 }
@@ -1003,7 +1019,7 @@ async fn main() -> Result<()> {
                 }
             });
 
-            let (ui_cmd_tx, mut ui_cmd_rx) = mpsc::unbounded_channel::<hick_agent_sdk::UiCommand>();
+            let (ui_cmd_tx, ui_cmd_rx) = mpsc::unbounded_channel::<hick_agent_sdk::UiCommand>();
 
             tokio::spawn(run_ui_event_fanout_task(
                 event_rx,
@@ -1012,6 +1028,9 @@ async fn main() -> Result<()> {
                 Some(model_name.clone()),
                 Some(default_image.clone()),
                 Some(provider_info.clone()),
+                ui_cmd_rx,
+                cmd_tx.clone(),
+                Arc::clone(&interrupt),
             ));
 
             let web_ui_url = if web_ui_enabled(no_web) {
@@ -1040,18 +1059,7 @@ async fn main() -> Result<()> {
                 None
             };
 
-            let cmd_bridge_to_agent = cmd_tx.clone();
-            let interrupt_ui = Arc::clone(&interrupt);
-            tokio::spawn(async move {
-                while let Some(u) = ui_cmd_rx.recv().await {
-                    if matches!(u, hick_agent_sdk::UiCommand::Cancel) {
-                        interrupt_ui.notify_one();
-                    }
-                    if let Some(c) = ui_command_to_agent(u) {
-                        cmd_bridge_to_agent.send(c).ok();
-                    }
-                }
-            });
+            // UiCommand routing is now handled inside run_ui_event_fanout_task.
 
             let session_log: Arc<dyn hick_agent_sdk::SessionLog> = {
                 let ts = chrono::Local::now().format("%Y%m%d-%H%M%S");

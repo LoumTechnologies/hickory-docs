@@ -1,9 +1,10 @@
 ---
 id: TASK-42
 title: 'Conversation branching: rewind to any message and fork'
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-05-19 18:26'
+updated_date: '2026-05-19 22:25'
 labels:
   - feature
   - agent-ui
@@ -41,3 +42,16 @@ Subtasks cover each layer in dependency order.
 - [ ] #4 The branched thread is clearly distinguished in the TUI (header label or indicator)
 - [ ] #5 cargo test --workspace passes throughout
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+All sub-tasks complete. Conversation branching (rewind to any message and fork) is fully implemented across the stack:
+
+- **42.1** (SDK primitives): `UiCommand::RewindTo`, `UiEvent::BranchStarted`, `AgentRuntime::set_history` — already done.
+- **42.2** (agent core): `AgentEvent::UserMessage` emission, `AgentCommand::RewindTo`, `AgentUiBridge` turn-history checkpointing, `run_ui_event_fanout_task` RewindTo handling, `ReactLoop::history()`/`set_history()`, copper-ledge + iron-peak wiring.
+- **42.3** (TUI): `BranchStarted` separator, `bump_branchable_focus`, Up/Down node navigation, `b` key → `UiCommand::RewindTo`, input bar hint, updated header.
+- **42.4** (web UI): branch buttons on bubbles, `BranchPointNode`, new branch column on `branch_started`, auto-navigation — already implemented.
+
+All tests pass (`cargo test --workspace -- --test-threads=1`).
+<!-- SECTION:FINAL_SUMMARY:END -->

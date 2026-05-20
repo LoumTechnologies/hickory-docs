@@ -1,8 +1,10 @@
 //! Bridges [`AgentEvent`](crate::events::AgentEvent) / [`AgentCommand`](crate::events::AgentCommand)
 //! to the shared SDK UI model ([`UiEvent`](hick_agent_sdk::UiEvent), [`UiCommand`](hick_agent_sdk::UiCommand)).
 
-use hick_agent_sdk::{NetworkApprovalRequest, UiCommand, UiEvent, UiNetworkApproval};
-use tokio::sync::broadcast;
+use std::collections::HashMap;
+
+use hick_agent_sdk::{Message, NetworkApprovalRequest, NodeId, Role, UiCommand, UiEvent, UiNetworkApproval};
+use tokio::sync::{broadcast, mpsc};
 
 use crate::events::{AgentCommand, AgentEvent};
 use crate::tools::ScriptResult;
@@ -13,15 +15,20 @@ use crate::tools::ScriptResult;
 pub struct AgentUiBridge {
     ids: hick_agent_sdk::IdGen,
     /// Optional synthetic session root emitted before the first [`Self::user_turn`].
-    session_parent: Option<hick_agent_sdk::NodeId>,
+    session_parent: Option<NodeId>,
     /// Parent link for the next assistant [`UiEvent::Thinking`] node (`None` = forest root).
-    turn_parent: Option<hick_agent_sdk::NodeId>,
+    turn_parent: Option<NodeId>,
     /// Active assistant response node receiving [`UiEvent::Token`] deltas.
-    streaming_assistant: Option<hick_agent_sdk::NodeId>,
+    streaming_assistant: Option<NodeId>,
     /// Last completed assistant node (used as parent for in-turn actions).
-    last_assistant: Option<hick_agent_sdk::NodeId>,
+    last_assistant: Option<NodeId>,
     /// `ActionStart` / `ActionEnd` pairing.
-    pending_action: Option<hick_agent_sdk::NodeId>,
+    pending_action: Option<NodeId>,
+    /// Alternating User/Assistant messages, mirroring what the agent adds to the LLM history.
+    /// Used to reconstruct a truncated history when `RewindTo` arrives.
+    turn_history: Vec<Message>,
+    /// Maps `AssistantDone` or `UserTurn` node_id → length of `turn_history` after that turn.
+    node_turn_checkpoint: HashMap<NodeId, usize>,
 }
 
 impl AgentUiBridge {
@@ -74,6 +81,17 @@ impl AgentUiBridge {
                 let node_id = self.ids.next();
                 vec![UiEvent::Info { node_id, text }]
             }
+            AgentEvent::UserMessage(text) => {
+                let ev = self.user_turn(text.clone(), None);
+                // Track so the user turn node can be used as a RewindTo target.
+                let node_id = match &ev {
+                    UiEvent::UserTurn { node_id, .. } => *node_id,
+                    _ => unreachable!(),
+                };
+                self.turn_history.push(Message { role: Role::User, content: text });
+                self.node_turn_checkpoint.insert(node_id, self.turn_history.len());
+                vec![ev]
+            }
             AgentEvent::Thinking => {
                 let node_id = self.ids.next();
                 let parent_id = self.turn_parent;
@@ -102,6 +120,9 @@ impl AgentUiBridge {
                 };
                 self.last_assistant = Some(node_id);
                 self.streaming_assistant = None;
+                // Checkpoint: record the turn history after adding this assistant response.
+                self.turn_history.push(Message { role: Role::Assistant, content: text.clone() });
+                self.node_turn_checkpoint.insert(node_id, self.turn_history.len());
                 vec![UiEvent::AssistantDone {
                     node_id,
                     text,
@@ -205,8 +226,10 @@ impl AgentEvent {
 
 /// Best-effort mapping for control commands originating from shared UI chrome.
 ///
-/// UI-only commands ([`UiCommand::ExpandNode`], [`UiCommand::CollapseNode`], [`UiCommand::Cancel`])
-/// return `None` until the core exposes matching [`AgentCommand`] variants.
+/// `RewindTo` is handled inside [`run_ui_event_fanout_task`] directly; other
+/// UI-only commands ([`UiCommand::ExpandNode`], [`UiCommand::CollapseNode`],
+/// [`UiCommand::Cancel`]) return `None` until the core exposes matching
+/// [`AgentCommand`] variants.
 pub fn ui_command_to_agent(cmd: UiCommand) -> Option<AgentCommand> {
     match cmd {
         UiCommand::Message { text } => Some(AgentCommand::Message(text)),
@@ -225,22 +248,29 @@ pub fn agent_command_to_ui(cmd: AgentCommand) -> UiCommand {
         AgentCommand::Message(s) => UiCommand::Message { text: s },
         AgentCommand::DirectCommand(s) => UiCommand::DirectCommand { text: s },
         AgentCommand::Quit => UiCommand::Quit,
+        AgentCommand::RewindTo { .. } => UiCommand::Cancel,
     }
 }
 
-/// Merges core [`AgentEvent`]s with [`NetworkApprovalRequest`] prompts into [`UiEvent`] for [`hick_agent_tui`] (single [`AgentUiBridge`], monotonic ids).
+/// Merges core [`AgentEvent`]s, [`NetworkApprovalRequest`] prompts, and [`UiCommand`]s
+/// into [`UiEvent`]s (single [`AgentUiBridge`], monotonic ids).
 ///
-/// Drops the approvals branch cleanly when all [`NetworkApprovalRequest`] senders are gone so the task keeps running until the agent event stream ends.
+/// Handles `RewindTo` commands directly: emits `BranchStarted` and forwards
+/// a `AgentCommand::RewindTo` with the reconstructed history to `agent_cmd_tx`.
+/// All other commands are forwarded via [`ui_command_to_agent`].
 ///
-/// Events are multicasted via [`broadcast::Sender`] — every subscriber (shared TUI bridge, browsers, …)
+/// Events are multicasted via [`broadcast::Sender`] — every subscriber (TUI, browsers, …)
 /// observes the same stream.
 pub async fn run_ui_event_fanout_task(
-    mut agent_rx: tokio::sync::mpsc::UnboundedReceiver<AgentEvent>,
-    mut approval_rx: tokio::sync::mpsc::UnboundedReceiver<NetworkApprovalRequest>,
+    mut agent_rx: mpsc::UnboundedReceiver<AgentEvent>,
+    mut approval_rx: mpsc::UnboundedReceiver<NetworkApprovalRequest>,
     ui_tx: broadcast::Sender<UiEvent>,
     model: Option<String>,
     sandbox_image: Option<String>,
     provider_banner: Option<String>,
+    mut ui_cmd_rx: mpsc::UnboundedReceiver<UiCommand>,
+    agent_cmd_tx: mpsc::UnboundedSender<AgentCommand>,
+    interrupt: std::sync::Arc<tokio::sync::Notify>,
 ) {
     let mut bridge = AgentUiBridge::new();
     let boot = bridge.bootstrap_session(model, sandbox_image, provider_banner);
@@ -269,6 +299,61 @@ pub async fn run_ui_event_fanout_task(
                 }
                 None => approvals_live = false,
             },
+            cmd = ui_cmd_rx.recv() => {
+                match cmd {
+                    None => break,
+                    Some(UiCommand::Cancel) => {
+                        interrupt.notify_one();
+                    }
+                    Some(UiCommand::RewindTo { node_id }) => {
+                        handle_rewind_to(node_id, &mut bridge, &ui_tx, &agent_cmd_tx, &interrupt);
+                    }
+                    Some(other) => {
+                        if let Some(c) = ui_command_to_agent(other) {
+                            agent_cmd_tx.send(c).ok();
+                        }
+                    }
+                }
+            }
         }
     }
+}
+
+fn handle_rewind_to(
+    node_id: NodeId,
+    bridge: &mut AgentUiBridge,
+    ui_tx: &broadcast::Sender<UiEvent>,
+    agent_cmd_tx: &mpsc::UnboundedSender<AgentCommand>,
+    interrupt: &std::sync::Arc<tokio::sync::Notify>,
+) {
+    let Some(&checkpoint_len) = bridge.node_turn_checkpoint.get(&node_id) else {
+        let err_id = bridge.ids.next();
+        let _ = ui_tx.send(UiEvent::Error {
+            node_id: err_id,
+            text: format!("RewindTo: unknown node #{node_id}"),
+        });
+        return;
+    };
+
+    // Cancel any in-flight LLM request.
+    interrupt.notify_one();
+
+    let fork_history = bridge.turn_history[..checkpoint_len].to_vec();
+    let label = format!("Branch from #{node_id}");
+    let branch_node_id = bridge.ids.next();
+    let _ = ui_tx.send(UiEvent::BranchStarted {
+        node_id: branch_node_id,
+        fork_node_id: node_id,
+        label: label.clone(),
+    });
+
+    // Reset the bridge's own turn history so new turns after the branch
+    // don't accumulate stale post-fork entries.
+    bridge.turn_history.truncate(checkpoint_len);
+    bridge.node_turn_checkpoint.retain(|_, v| *v <= checkpoint_len);
+
+    agent_cmd_tx.send(AgentCommand::RewindTo {
+        fork_node_id: node_id,
+        user_assistant_history: fork_history,
+    }).ok();
 }

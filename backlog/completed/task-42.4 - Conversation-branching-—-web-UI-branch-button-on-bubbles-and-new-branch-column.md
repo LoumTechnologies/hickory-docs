@@ -3,9 +3,10 @@ id: TASK-42.4
 title: >-
   Conversation branching — web UI: branch button on bubbles and new branch
   column
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-05-19 18:27'
+updated_date: '2026-05-19 22:24'
 labels:
   - web
   - frontend
@@ -60,3 +61,15 @@ The canvas (`hick-agent/web-ui/src/canvas/`) renders conversation nodes as `Disp
 - [ ] #7 cargo test --workspace passes
 - [ ] #8 npm run build passes with no TypeScript errors
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Web UI branching was already fully implemented in the codebase prior to this session. Confirmed present:
+
+- `treeModel.ts`: handles `branch_started` event, creates new `BranchMeta`, pushes `branch_point` DisplayItem to parent branch.
+- `BranchColumn.tsx`: renders `branch_point` items via `BranchPointNode`, wires `onBranch` to send `{type:'rewind_to', node_id}` when connected.
+- `UserTurnNode.tsx` / `AssistantNode.tsx`: both have `onBranch` prop with hover ⎇ button.
+- `BranchPointNode.tsx`: centered ⎇ button navigating to the target branch.
+- `ConversationCanvas.tsx`: auto-navigates to new branch when `latestBranchId` changes.
+<!-- SECTION:FINAL_SUMMARY:END -->

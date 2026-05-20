@@ -301,6 +301,16 @@ impl ReactLoop {
         self.sink_guard.as_ref()
     }
 
+    /// Return the current conversation history (system + user/assistant messages).
+    pub fn history(&self) -> &[hick_agent_sdk::Message] {
+        self.runtime.history()
+    }
+
+    /// Replace the conversation history (used by `RewindTo` to restore a fork point).
+    pub fn set_history(&mut self, messages: Vec<hick_agent_sdk::Message>) {
+        self.runtime.set_history(messages);
+    }
+
     /// Set the session log sink.
     pub fn with_session_log(mut self, log: Arc<dyn SessionLog>) -> Self {
         self.session_log = log;
@@ -792,6 +802,9 @@ impl ReactLoop {
         events: &mpsc::UnboundedSender<AgentEvent>,
         interrupt: &Notify,
     ) -> anyhow::Result<()> {
+        // Emit user message so UIs can create UserTurn nodes and the bridge can checkpoint history.
+        events.send(AgentEvent::UserMessage(user_message.to_string())).ok();
+
         let is_first_turn = self.runtime.history().is_empty();
 
         if is_first_turn {
