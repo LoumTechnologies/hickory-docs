@@ -11,6 +11,7 @@ import { McpPairNode } from '../nodes/McpPairNode'
 import { SpineLabelNode } from '../nodes/SpineLabelNode'
 import { SubAgentNode } from '../nodes/SubAgentNode'
 import { BranchPointNode } from '../nodes/BranchPointNode'
+import { AdaptiveCardNode } from '../nodes/AdaptiveCardNode'
 
 export const COLUMN_WIDTH = 560
 
@@ -52,18 +53,28 @@ function NetworkApprovalItem({
           Suggested: {suggestions.join(', ')}
         </div>
       )}
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         <button
           type="button"
           className="rounded bg-green-700 px-3 py-1 text-xs text-white hover:bg-green-600"
-          onClick={() => send({ type: 'expand_node', node_id: nodeId })}
+          onClick={() => send({ type: 'network_approval', node_id: nodeId, verdict: 'allow' })}
         >
-          Allow
+          Allow once
         </button>
+        {suggestions.map((s, i) => (
+          <button
+            key={i}
+            type="button"
+            className="rounded bg-blue-800 px-3 py-1 text-xs text-white hover:bg-blue-700"
+            onClick={() => send({ type: 'network_approval', node_id: nodeId, verdict: 'allow', suggestion_index: i + 1 })}
+          >
+            Always: {s}
+          </button>
+        ))}
         <button
           type="button"
           className="rounded bg-red-800 px-3 py-1 text-xs text-white hover:bg-red-700"
-          onClick={() => send({ type: 'collapse_node', node_id: nodeId })}
+          onClick={() => send({ type: 'network_approval', node_id: nodeId, verdict: 'deny' })}
         >
           Deny
         </button>
@@ -84,14 +95,6 @@ function SecurityViolationItem({ description }: { description: string }) {
   )
 }
 
-function AdaptiveCardItem({ json }: { json: string }) {
-  return (
-    <div className="mx-4 my-2 rounded border border-slate-600 bg-slate-800/50 p-3 text-xs text-slate-300">
-      <div className="mb-1 text-slate-500">Adaptive Card</div>
-      <pre className="max-h-32 overflow-auto font-mono text-xs">{json}</pre>
-    </div>
-  )
-}
 
 function renderItem(
   item: DisplayItem,
@@ -164,7 +167,7 @@ function renderItem(
       )
 
     case 'adaptive_card':
-      return <AdaptiveCardItem json={item.json} />
+      return <AdaptiveCardNode json={item.json} />
 
     case 'sub_agent_spawned':
       return (

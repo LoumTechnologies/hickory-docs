@@ -332,6 +332,8 @@ impl ConversationTree {
             }
             // Branch topology is handled by the agent core; tree ignores this event for now.
             UiEvent::BranchStarted { .. } => {}
+            // PaneContent is a side-channel; TUI/web UI maintain their own pane map.
+            UiEvent::PaneContent { .. } => {}
         }
     }
 

@@ -162,6 +162,21 @@ pub enum UiCommand {
     RewindTo {
         node_id: NodeId,
     },
+    /// Web UI response to a `NetworkApproval` event.
+    NetworkApproval {
+        node_id: NodeId,
+        /// "allow" or "deny"
+        verdict: String,
+        /// 1-based index into the `suggestions` list; `None` means allow-once with no persistent rule.
+        suggestion_index: Option<usize>,
+    },
+    /// Web UI supplies a credential for an MCP install flow.
+    McpCredential {
+        env_var: String,
+        value: String,
+    },
+    /// Web UI skips credential entry for an MCP install flow.
+    McpCredentialSkip,
 }
 
 // ---------------------------------------------------------------------------
@@ -281,6 +296,17 @@ pub enum UiEvent {
         node_id: NodeId,
         fork_node_id: NodeId,
         label: String,
+    },
+    /// Agent-pushed persistent markdown pane (name is stable; empty markdown clears the pane).
+    PaneContent {
+        node_id: NodeId,
+        name: String,
+        title: String,
+        markdown: String,
+        /// "markdown" or "html"
+        pane_type: String,
+        /// Entry file for html panes (relative to the pane directory).
+        entry: String,
     },
 }
 
@@ -444,6 +470,15 @@ pub fn ui_event_wire_value(ev: &UiEvent) -> serde_json::Value {
             "fork_node_id": fork_node_id.0,
             "label": label,
         }),
+        UiEvent::PaneContent { node_id, name, title, markdown, pane_type, entry } => serde_json::json!({
+            "type": "pane_content",
+            "node_id": node_id.0,
+            "name": name,
+            "title": title,
+            "markdown": markdown,
+            "pane_type": pane_type,
+            "entry": entry,
+        }),
     }
 }
 
@@ -478,6 +513,63 @@ impl std::fmt::Debug for UiEvent {
             UiEvent::Done { node_id } => f.debug_tuple("Done").field(node_id).finish(),
             UiEvent::Interrupted { node_id } => f.debug_tuple("Interrupted").field(node_id).finish(),
             UiEvent::BranchStarted { node_id, .. } => f.debug_tuple("BranchStarted").field(node_id).finish(),
+            UiEvent::PaneContent { node_id, .. } => f.debug_tuple("PaneContent").field(node_id).finish(),
         }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Adaptive Card emission helper
+// ---------------------------------------------------------------------------
+
+/// Emit an Adaptive Card as a structured session log entry.
+///
+/// The XML fragment format is `<log:adaptive-card node-id="N" parent-id="P">…JSON…</log:adaptive-card>`.
+/// The [`crate::session_bundle_reader::SessionBundleReader`] maps this fragment back to
+/// `UiEvent::AdaptiveCard` during replay.
+pub fn emit_adaptive_card(
+    log: &dyn crate::session_log::SessionLog,
+    id_gen: &IdGen,
+    parent_id: NodeId,
+    card_json: &str,
+) {
+    let node_id = id_gen.next();
+    let xml_fragment = format!(
+        "<log:adaptive-card node-id=\"{node_id}\" parent-id=\"{parent_id}\">{card_json}</log:adaptive-card>"
+    );
+    log.record(&crate::session_log::LogEvent::Custom {
+        xml_fragment: &xml_fragment,
+        attachments: &[],
+    });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::session_log::{LogEvent, SessionLog};
+
+    struct CaptureSink(std::sync::Mutex<Vec<String>>);
+    impl SessionLog for CaptureSink {
+        fn record(&self, event: &LogEvent<'_>) {
+            if let LogEvent::Custom { xml_fragment, .. } = event {
+                self.0.lock().unwrap().push(xml_fragment.clone());
+            }
+        }
+    }
+
+    #[test]
+    fn emit_adaptive_card_roundtrip() {
+        let sink = CaptureSink(std::sync::Mutex::new(vec![]));
+        let id_gen = IdGen::new();
+        let parent_id = id_gen.next();
+        let card_json = r#"{"type":"AdaptiveCard","version":"1.3","body":[]}"#;
+        emit_adaptive_card(&sink, &id_gen, parent_id, card_json);
+
+        let frags = sink.0.lock().unwrap();
+        assert_eq!(frags.len(), 1);
+        let frag = &frags[0];
+        assert!(frag.contains("log:adaptive-card"), "fragment: {frag}");
+        assert!(frag.contains(card_json), "fragment: {frag}");
+        assert!(frag.contains(&format!("parent-id=\"{parent_id}\"")), "fragment: {frag}");
     }
 }

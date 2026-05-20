@@ -10,6 +10,9 @@ export type UiCommand =
   | { type: 'expand_node'; node_id: number }
   | { type: 'collapse_node'; node_id: number }
   | { type: 'rewind_to'; node_id: number }
+  | { type: 'network_approval'; node_id: number; verdict: 'allow' | 'deny'; suggestion_index?: number }
+  | { type: 'mcp_credential'; env_var: string; value: string }
+  | { type: 'mcp_credential_skip' }
 
 /**
  * Wire format for `UiEvent` — matches `ui_event_wire_value` in `ui_event.rs`.
@@ -126,4 +129,13 @@ export type UiEvent =
       node_id: number
       fork_node_id: number
       label: string
+    }
+  | {
+      type: 'pane_content'
+      node_id: number
+      name: string
+      title: string
+      markdown: string
+      pane_type: 'markdown' | 'html'
+      entry: string
     }

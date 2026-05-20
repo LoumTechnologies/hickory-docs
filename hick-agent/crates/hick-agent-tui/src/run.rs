@@ -86,6 +86,11 @@ struct PendingMcpCredential {
     response_tx: oneshot::Sender<Option<(String, String)>>,
 }
 
+struct PaneState {
+    title: String,
+    markdown: String,
+}
+
 struct App {
     tree: ConversationTree,
     fold: HashMap<NodeId, FoldOverride>,
@@ -105,6 +110,8 @@ struct App {
     approvals_q: VecDeque<UiNetworkApproval>,
     pending_approval: Option<PendingApproval>,
     pending_mcp_credential: Option<PendingMcpCredential>,
+    panes: HashMap<String, PaneState>,
+    show_panes: bool,
 }
 
 impl App {
@@ -128,6 +135,8 @@ impl App {
             approvals_q: VecDeque::new(),
             pending_approval: None,
             pending_mcp_credential: None,
+            panes: HashMap::new(),
+            show_panes: false,
         }
     }
 
@@ -158,6 +167,17 @@ impl App {
         }
 
         match ev {
+            UiEvent::PaneContent { name, title, markdown, .. } => {
+                if title.is_empty() && markdown.is_empty() {
+                    self.panes.remove(name);
+                } else {
+                    self.panes.insert(name.clone(), PaneState {
+                        title: title.clone(),
+                        markdown: markdown.clone(),
+                    });
+                }
+                return;
+            }
             UiEvent::NetworkApproval(inner) => {
                 self.approvals_q.push_back(inner.clone());
             }
@@ -582,21 +602,17 @@ impl App {
                     ConversationPayload::AdaptiveCardJson(j) => j.clone(),
                     _ => "{}".into(),
                 };
+                let text_lines = adaptive_card_text_lines(&js);
                 if folded {
-                    let head: String = js.chars().take(120).collect();
-                    push_row_tagged(
-                        LineKind::Info,
-                        format!("{pref}{chev}AdaptiveCard {head}\u{2026}"),
-                    );
+                    let preview = text_lines.first().map(|s| s.as_str()).unwrap_or("…");
+                    let head: String = preview.chars().take(120).collect();
+                    push_row_tagged(LineKind::Info, format!("{pref}{chev}[card] {head}"));
                 } else {
-                    push_row_tagged(LineKind::Info, format!("{pref}{chev}AdaptiveCard"));
+                    push_row_tagged(LineKind::Info, format!("{pref}{chev}[card]"));
                     let pad = pref.chars().count() + chev.chars().count();
                     let spacer = " ".repeat(pad + 2);
-                    for ln in js.lines().take(64) {
-                        out.push(StyledLine {
-                            kind: LineKind::Info,
-                            text: format!("{spacer}{ln}"),
-                        });
+                    for ln in text_lines {
+                        out.push(StyledLine { kind: LineKind::Assistant, text: format!("{spacer}{ln}") });
                     }
                 }
             }
@@ -935,6 +951,11 @@ impl App {
             (_, KeyCode::PageDown) => {
                 self.scroll = self.scroll.saturating_add(20);
             }
+            (_, KeyCode::Tab) => {
+                if !self.panes.is_empty() {
+                    self.show_panes = !self.show_panes;
+                }
+            }
             (_, KeyCode::Char('b')) if self.input.is_empty() && !self.busy => {
                 if let Some(sel) = self.selected_node() {
                     if let Some(node) = self.tree.node(sel) {
@@ -1070,6 +1091,12 @@ impl App {
             ));
         }
         header_spans.push(Span::styled(" \u{2502} ", Style::default().fg(Color::DarkGray)));
+        if !self.panes.is_empty() {
+            header_spans.push(Span::styled(
+                format!("panes({}) Tab  ", self.panes.len()),
+                Style::default().fg(Color::Yellow),
+            ));
+        }
         header_spans.push(Span::styled(
             "\u{2191}\u{2193}: branch-nav  b: branch  Shift+\u{2191}\u{2193}: fold-nav  Space: expand",
             Style::default().fg(Color::DarkGray),
@@ -1094,8 +1121,35 @@ impl App {
             text_lines.push(Line::styled(line.text.clone(), style));
         }
 
-        let visible_height = chunks[1].height.saturating_sub(2) as usize;
-        let inner_width = chunks[1].width.saturating_sub(2) as usize;
+        // Split body area horizontally if pane sidebar is active.
+        let body_area = chunks[1];
+        let (conv_area, pane_area_opt) = if self.show_panes && !self.panes.is_empty() {
+            let cols = Layout::horizontal([Constraint::Min(40), Constraint::Length(40)]).split(body_area);
+            (cols[0], Some(cols[1]))
+        } else {
+            (body_area, None)
+        };
+
+        if let Some(pane_area) = pane_area_opt {
+            let mut pane_lines: Vec<Line> = Vec::new();
+            for (name, state) in &self.panes {
+                pane_lines.push(Line::styled(
+                    format!("── {} ──", if state.title.is_empty() { name } else { &state.title }),
+                    Style::default().fg(Color::Yellow),
+                ));
+                for ln in state.markdown.lines().take(200) {
+                    pane_lines.push(Line::styled(ln.to_string(), Style::default().fg(Color::White)));
+                }
+                pane_lines.push(Line::from(""));
+            }
+            let pane_widget = Paragraph::new(Text::from(pane_lines))
+                .wrap(Wrap { trim: false })
+                .block(Block::default().borders(Borders::ALL).border_style(Style::default().fg(Color::DarkGray)));
+            frame.render_widget(pane_widget, pane_area);
+        }
+
+        let visible_height = conv_area.height.saturating_sub(2) as usize;
+        let inner_width = conv_area.width.saturating_sub(2) as usize;
 
         let total_visual_rows: usize = text_lines
             .iter()
@@ -1130,7 +1184,7 @@ impl App {
                     .borders(Borders::ALL)
                     .border_style(Style::default().fg(Color::DarkGray)),
             );
-        frame.render_widget(output, chunks[1]);
+        frame.render_widget(output, conv_area);
 
         if !replay_mode {
             let input_display = if let Some(ref pm) = self.pending_mcp_credential {
@@ -1291,6 +1345,55 @@ async fn run_mcp_install_task(
         tool_names.len(),
         tool_names.join(", ")
     ));
+}
+
+// ── AdaptiveCard text extraction ───────────────────────────────────
+
+fn adaptive_card_text_lines(json: &str) -> Vec<String> {
+    let Ok(val) = serde_json::from_str::<serde_json::Value>(json) else {
+        return vec![json.chars().take(120).collect()];
+    };
+    let mut out = Vec::new();
+    extract_card_text(&val, &mut out);
+    if out.is_empty() {
+        out.push(json.chars().take(120).collect());
+    }
+    out
+}
+
+fn extract_card_text(val: &serde_json::Value, out: &mut Vec<String>) {
+    match val {
+        serde_json::Value::Object(map) => {
+            let ty = map.get("type").and_then(|v| v.as_str()).unwrap_or("");
+            match ty {
+                "TextBlock" | "RichTextBlock" => {
+                    if let Some(text) = map.get("text").and_then(|v| v.as_str()) {
+                        out.push(text.to_string());
+                    }
+                }
+                "FactSet" => {
+                    if let Some(facts) = map.get("facts").and_then(|v| v.as_array()) {
+                        for fact in facts {
+                            let title = fact.get("title").and_then(|v| v.as_str()).unwrap_or("");
+                            let value = fact.get("value").and_then(|v| v.as_str()).unwrap_or("");
+                            out.push(format!("{title}: {value}"));
+                        }
+                    }
+                }
+                _ => {
+                    for v in map.values() {
+                        extract_card_text(v, out);
+                    }
+                }
+            }
+        }
+        serde_json::Value::Array(arr) => {
+            for v in arr {
+                extract_card_text(v, out);
+            }
+        }
+        _ => {}
+    }
 }
 
 // ── Public entry point ─────────────────────────────────────────────

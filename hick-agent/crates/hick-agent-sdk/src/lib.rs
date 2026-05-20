@@ -52,9 +52,14 @@ pub mod tool_gate;
 pub mod xml_session_log;
 pub mod session_bundle_reader;
 pub mod ui_event;
+pub mod pane_watcher;
+pub mod pane_csp;
 
 #[cfg(feature = "web")]
 pub mod web_server;
+
+#[cfg(feature = "relay")]
+pub mod relay_client;
 
 // ---------------------------------------------------------------------------
 // Runtime
@@ -277,6 +282,19 @@ pub use ui_event::UiNetworkApproval;
 pub use ui_event::UiCommand;
 /// UI-facing event emitted by bridges from extension cores.
 pub use ui_event::UiEvent;
+/// Emit an Adaptive Card as a structured XML log node.
+pub use ui_event::emit_adaptive_card;
+
+// ---------------------------------------------------------------------------
+// Agent panes
+// ---------------------------------------------------------------------------
+
+/// Polls `.agents/panes/*/pane.yaml` and emits [`UiEvent::PaneContent`] on changes.
+pub use pane_watcher::PaneWatcher;
+/// Parsed schema for a `pane.yaml` file.
+pub use pane_watcher::PaneYaml;
+/// Build a Content-Security-Policy header value for an HTML pane iframe.
+pub use pane_csp::generate_pane_csp;
 
 // ---------------------------------------------------------------------------
 // Local web UI (optional)
@@ -288,3 +306,11 @@ pub use web_server::WebServerConfig;
 #[cfg(feature = "web")]
 /// Local SPA + `/ws` bridge for [`UiEvent`] / [`UiCommand`] JSON.
 pub use web_server::WebServer;
+
+// ---------------------------------------------------------------------------
+// Cloud relay (optional)
+// ---------------------------------------------------------------------------
+
+#[cfg(feature = "relay")]
+/// Outbound WebSocket bridge to `relay.hickory.dev` for remote UI access.
+pub use relay_client::RelayClient;

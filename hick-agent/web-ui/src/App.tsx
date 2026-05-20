@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { useCallback, useMemo, useRef, useState, useEffect } from 'react'
 import { useAgentSocket } from './useAgentSocket'
 import { SessionBundleParser } from './session-parser'
 import type { UiEvent } from './types'
@@ -10,6 +10,10 @@ export default function App() {
 
   const [draft, setDraft] = useState('')
   const [sidebarOpen, setSidebarOpen] = useState(true)
+
+  // Pane state: name → { title, markdown, pane_type, entry }
+  const [panes, setPanes] = useState<Map<string, { title: string; markdown: string; pane_type: string; entry: string }>>(new Map())
+  const [activePaneTab, setActivePaneTab] = useState<'session' | string>('session')
 
   // Client-side replay state (drag-and-drop).
   const [dragReplayEvents, setDragReplayEvents] = useState<
@@ -43,6 +47,23 @@ export default function App() {
   // Scrubber max is the total number of events available.
   const scrubberMax = allReplayEvents?.length ?? 0
   const scrubberValue = isServerReplay && replayPos === 0 ? scrubberMax : replayPos
+
+  // Update panes from pane_content events in visibleEvents.
+  useEffect(() => {
+    const next = new Map<string, { title: string; markdown: string; pane_type: string; entry: string }>()
+    for (const ev of visibleEvents) {
+      if (ev.type === 'pane_content') {
+        if (ev.title === '' && ev.markdown === '') {
+          // clear event — omit from map
+        } else {
+          next.set(ev.name, { title: ev.title, markdown: ev.markdown, pane_type: ev.pane_type, entry: ev.entry })
+        }
+      }
+    }
+    setPanes(next)
+    // If the active pane was removed, reset to session tab
+    setActivePaneTab((prev) => (prev !== 'session' && !next.has(prev) ? 'session' : prev))
+  }, [visibleEvents])
 
   const relaySessionId = useMemo(() => {
     const m = window.location.pathname.match(/^\/session\/([^/]+)\/?$/)
@@ -180,56 +201,95 @@ export default function App() {
             {sidebarOpen ? '◀' : '▶'}
           </button>
           {sidebarOpen && (
-            <div className="space-y-3 text-sm">
-              <h2 className="text-xs font-semibold uppercase tracking-wide text-slate-400">
-                Session
-              </h2>
-              {relaySessionId && (
-                <p className="rounded bg-indigo-950/50 px-2 py-1 text-xs text-indigo-200">
-                  Remote relay session
-                </p>
-              )}
-              <dl className="space-y-2 text-slate-200">
-                <div>
-                  <dt className="text-slate-500">Model</dt>
-                  <dd className="break-all font-mono text-xs">
-                    {sessionFromEvents?.model ?? '—'}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="text-slate-500">Provider</dt>
-                  <dd className="break-all font-mono text-xs">
-                    {sessionFromEvents?.provider_info ?? '—'}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="text-slate-500">Sandbox image</dt>
-                  <dd className="break-all font-mono text-xs">
-                    {sessionFromEvents?.sandbox_image ?? '—'}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="text-slate-500">Session ID</dt>
-                  <dd className="break-all font-mono text-xs">
-                    {relaySessionId ??
-                      (sessionFromEvents
-                        ? String(sessionFromEvents.node_id)
-                        : '—')}
-                  </dd>
-                </div>
-                <div>
-                  <dt className="text-slate-500">Start time (local)</dt>
-                  <dd className="break-all font-mono text-xs">
-                    {sessionStartedObservedAt ?? '—'}
-                  </dd>
-                </div>
-              </dl>
+            <div className="flex min-h-0 flex-1 flex-col space-y-3 text-sm">
+              {/* Tab bar */}
+              <div className="flex flex-wrap gap-1">
+                <button
+                  type="button"
+                  className={`rounded px-2 py-0.5 text-xs ${activePaneTab === 'session' ? 'bg-sky-700 text-white' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}`}
+                  onClick={() => setActivePaneTab('session')}
+                >
+                  Session
+                </button>
+                {Array.from(panes.entries()).map(([name, pane]) => (
+                  <button
+                    key={name}
+                    type="button"
+                    className={`rounded px-2 py-0.5 text-xs ${activePaneTab === name ? 'bg-sky-700 text-white' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}`}
+                    onClick={() => setActivePaneTab(name)}
+                  >
+                    {pane.title || name}
+                  </button>
+                ))}
+              </div>
 
-              {!isAnyReplay && (
-                <div className="mt-4 rounded border border-dashed border-slate-600 p-3 text-center text-xs text-slate-500">
-                  Drop a <code>session.xml</code> anywhere to replay
-                </div>
-              )}
+              {activePaneTab === 'session' ? (
+                <>
+                  {relaySessionId && (
+                    <p className="rounded bg-indigo-950/50 px-2 py-1 text-xs text-indigo-200">
+                      Remote relay session
+                    </p>
+                  )}
+                  <dl className="space-y-2 text-slate-200">
+                    <div>
+                      <dt className="text-slate-500">Model</dt>
+                      <dd className="break-all font-mono text-xs">
+                        {sessionFromEvents?.model ?? '—'}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-slate-500">Provider</dt>
+                      <dd className="break-all font-mono text-xs">
+                        {sessionFromEvents?.provider_info ?? '—'}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-slate-500">Sandbox image</dt>
+                      <dd className="break-all font-mono text-xs">
+                        {sessionFromEvents?.sandbox_image ?? '—'}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-slate-500">Session ID</dt>
+                      <dd className="break-all font-mono text-xs">
+                        {relaySessionId ??
+                          (sessionFromEvents
+                            ? String(sessionFromEvents.node_id)
+                            : '—')}
+                      </dd>
+                    </div>
+                    <div>
+                      <dt className="text-slate-500">Start time (local)</dt>
+                      <dd className="break-all font-mono text-xs">
+                        {sessionStartedObservedAt ?? '—'}
+                      </dd>
+                    </div>
+                  </dl>
+                  {!isAnyReplay && (
+                    <div className="mt-4 rounded border border-dashed border-slate-600 p-3 text-center text-xs text-slate-500">
+                      Drop a <code>session.xml</code> anywhere to replay
+                    </div>
+                  )}
+                </>
+              ) : (() => {
+                const pane = panes.get(activePaneTab)
+                if (!pane) return null
+                if (pane.pane_type === 'html') {
+                  return (
+                    <iframe
+                      src={`/pane-files/${activePaneTab}/${pane.entry}`}
+                      sandbox="allow-scripts allow-forms"
+                      className="min-h-0 flex-1 rounded border border-slate-700 bg-white"
+                      title={pane.title || activePaneTab}
+                    />
+                  )
+                }
+                return (
+                  <div className="min-h-0 flex-1 overflow-y-auto">
+                    <pre className="whitespace-pre-wrap break-words text-xs text-slate-200">{pane.markdown}</pre>
+                  </div>
+                )
+              })()}
             </div>
           )}
         </aside>

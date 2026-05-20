@@ -3,7 +3,10 @@
 
 use std::collections::HashMap;
 
-use hick_agent_sdk::{Message, NetworkApprovalRequest, NodeId, Role, UiCommand, UiEvent, UiNetworkApproval};
+use hick_agent_sdk::{
+    Message, NetworkApprovalRequest, NodeId, Role, UiCommand, UiEvent, UiNetworkApproval,
+    network_filter::{ApprovalResponse, NetworkVerdict},
+};
 use tokio::sync::{broadcast, mpsc};
 
 use crate::events::{AgentCommand, AgentEvent};
@@ -226,10 +229,8 @@ impl AgentEvent {
 
 /// Best-effort mapping for control commands originating from shared UI chrome.
 ///
-/// `RewindTo` is handled inside [`run_ui_event_fanout_task`] directly; other
-/// UI-only commands ([`UiCommand::ExpandNode`], [`UiCommand::CollapseNode`],
-/// [`UiCommand::Cancel`]) return `None` until the core exposes matching
-/// [`AgentCommand`] variants.
+/// `RewindTo` and `NetworkApproval` are handled inside [`run_ui_event_fanout_task`]
+/// directly; other UI-only commands return `None`.
 pub fn ui_command_to_agent(cmd: UiCommand) -> Option<AgentCommand> {
     match cmd {
         UiCommand::Message { text } => Some(AgentCommand::Message(text)),
@@ -238,7 +239,10 @@ pub fn ui_command_to_agent(cmd: UiCommand) -> Option<AgentCommand> {
         UiCommand::Cancel
         | UiCommand::ExpandNode { .. }
         | UiCommand::CollapseNode { .. }
-        | UiCommand::RewindTo { .. } => None,
+        | UiCommand::RewindTo { .. }
+        | UiCommand::NetworkApproval { .. }
+        | UiCommand::McpCredential { .. }
+        | UiCommand::McpCredentialSkip => None,
     }
 }
 
@@ -277,6 +281,8 @@ pub async fn run_ui_event_fanout_task(
     let _ = ui_tx.send(boot);
 
     let mut approvals_live = true;
+    // Pending network approvals keyed by NodeId — allows web UI to resolve them.
+    let mut pending_approvals: HashMap<NodeId, UiNetworkApproval> = HashMap::new();
 
     loop {
         tokio::select! {
@@ -293,9 +299,9 @@ pub async fn run_ui_event_fanout_task(
             appr = approval_rx.recv(), if approvals_live => match appr {
                 Some(req) => {
                     let id = bridge.next_node_id();
-                    let _ = ui_tx.send(UiEvent::NetworkApproval(
-                        UiNetworkApproval::from_network_request(id, req),
-                    ));
+                    let approval = UiNetworkApproval::from_network_request(id, req);
+                    pending_approvals.insert(id, approval.clone());
+                    let _ = ui_tx.send(UiEvent::NetworkApproval(approval));
                 }
                 None => approvals_live = false,
             },
@@ -308,6 +314,12 @@ pub async fn run_ui_event_fanout_task(
                     Some(UiCommand::RewindTo { node_id }) => {
                         handle_rewind_to(node_id, &mut bridge, &ui_tx, &agent_cmd_tx, &interrupt);
                     }
+                    Some(UiCommand::NetworkApproval { node_id, verdict, suggestion_index }) => {
+                        handle_web_network_approval(
+                            node_id, &verdict, suggestion_index,
+                            &mut pending_approvals, &ui_tx, &mut bridge,
+                        );
+                    }
                     Some(other) => {
                         if let Some(c) = ui_command_to_agent(other) {
                             agent_cmd_tx.send(c).ok();
@@ -317,6 +329,36 @@ pub async fn run_ui_event_fanout_task(
             }
         }
     }
+}
+
+fn handle_web_network_approval(
+    node_id: NodeId,
+    verdict: &str,
+    suggestion_index: Option<usize>,
+    pending_approvals: &mut HashMap<NodeId, UiNetworkApproval>,
+    ui_tx: &broadcast::Sender<UiEvent>,
+    bridge: &mut AgentUiBridge,
+) {
+    let Some(approval) = pending_approvals.remove(&node_id) else {
+        return; // already resolved or unknown
+    };
+    let always_allow = suggestion_index
+        .and_then(|i| approval.suggestions.get(i.saturating_sub(1)).cloned());
+    let net_verdict = match verdict {
+        "allow" => NetworkVerdict::Allow,
+        _ => NetworkVerdict::Block,
+    };
+    let desc = always_allow.as_ref().map(|s| s.describe().to_string());
+    let _ = approval.respond(ApprovalResponse { verdict: net_verdict, always_allow });
+    let info_id = bridge.ids.next();
+    let _ = ui_tx.send(UiEvent::Info {
+        node_id: info_id,
+        text: match (verdict, desc) {
+            ("allow", Some(rule)) => format!("[network] Always allow: {rule}"),
+            ("allow", None) => "[network] Allowed (this request only)".to_string(),
+            _ => "[network] Blocked".to_string(),
+        },
+    });
 }
 
 fn handle_rewind_to(
