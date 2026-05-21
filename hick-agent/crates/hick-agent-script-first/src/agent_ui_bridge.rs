@@ -269,7 +269,8 @@ pub fn ui_command_to_agent(cmd: UiCommand) -> Option<AgentCommand> {
         | UiCommand::McpCredential { .. }
         | UiCommand::McpCredentialSkip
         | UiCommand::AddConfigPath { .. }
-        | UiCommand::ReplayTurn { .. } => None,
+        | UiCommand::ReplayTurn { .. }
+        | UiCommand::ProvideApiKeys { .. } => None,
     }
 }
 

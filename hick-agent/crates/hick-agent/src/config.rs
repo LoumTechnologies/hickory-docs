@@ -778,6 +778,65 @@ fn home_config_path() -> Option<PathBuf> {
 }
 
 // ---------------------------------------------------------------------------
+// User keys file (~/.hick/keys.toml)
+// ---------------------------------------------------------------------------
+
+/// API keys loaded from `~/.hick/keys.toml`.
+///
+/// All fields are optional. A key present here is used as a fallback when the
+/// corresponding environment variable (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`,
+/// `XAI_API_KEY`) is absent or empty.
+///
+/// Example `~/.hick/keys.toml`:
+/// ```toml
+/// anthropic_api_key = "sk-ant-..."
+/// openai_api_key    = "sk-..."
+/// xai_api_key       = "xai-..."
+/// ```
+#[derive(Debug, Clone, Default, Deserialize)]
+pub struct UserKeys {
+    pub anthropic_api_key: Option<String>,
+    pub openai_api_key: Option<String>,
+    pub xai_api_key: Option<String>,
+}
+
+impl UserKeys {
+    /// Load from `~/.hick/keys.toml`.
+    ///
+    /// Returns `Ok(None)` when the file does not exist.
+    /// Returns an error when the file exists but cannot be parsed.
+    pub fn load() -> anyhow::Result<Option<Self>> {
+        let Some(path) = home_keys_path() else {
+            return Ok(None);
+        };
+        if !path.exists() {
+            return Ok(None);
+        }
+        let content = std::fs::read_to_string(&path)
+            .with_context(|| format!("reading {}", path.display()))?;
+        let keys: UserKeys = toml::from_str(&content)
+            .with_context(|| format!("parsing {}", path.display()))?;
+        Ok(Some(keys))
+    }
+
+    /// Return the non-empty key for `provider`, or `None`.
+    pub fn key_for(&self, provider: &Provider) -> Option<&str> {
+        let raw = match provider {
+            Provider::Anthropic => self.anthropic_api_key.as_deref(),
+            Provider::OpenAI => self.openai_api_key.as_deref(),
+            Provider::XAI => self.xai_api_key.as_deref(),
+        };
+        raw.filter(|k| !k.is_empty())
+    }
+}
+
+fn home_keys_path() -> Option<PathBuf> {
+    std::env::var("HOME")
+        .ok()
+        .map(|h| PathBuf::from(h).join(".hick/keys.toml"))
+}
+
+// ---------------------------------------------------------------------------
 // Tests
 // ---------------------------------------------------------------------------
 
@@ -1080,6 +1139,45 @@ model_id = "claude-opus-4-7-20251101"
     fn validate_paths_ok_when_no_model_paths() {
         let m = MachineSection::default();
         m.validate_paths(Path::new("/")).unwrap();
+    }
+
+    // UserKeys: key_for returns None for an empty string value.
+    #[test]
+    fn user_keys_key_for_filters_empty_string() {
+        let keys = UserKeys {
+            anthropic_api_key: Some(String::new()),
+            openai_api_key: Some("sk-real".into()),
+            xai_api_key: None,
+        };
+        assert!(keys.key_for(&Provider::Anthropic).is_none());
+        assert_eq!(keys.key_for(&Provider::OpenAI), Some("sk-real"));
+        assert!(keys.key_for(&Provider::XAI).is_none());
+    }
+
+    // UserKeys: missing file → Ok(None).
+    #[test]
+    fn user_keys_load_returns_none_when_file_absent() {
+        use tempfile::TempDir;
+        let dir = TempDir::new().unwrap();
+        // Safety: single-threaded test environment.
+        unsafe { std::env::set_var("HOME", dir.path()) };
+        let result = UserKeys::load().unwrap();
+        assert!(result.is_none());
+    }
+
+    // UserKeys: valid file → parses correctly.
+    #[test]
+    fn user_keys_load_parses_valid_file() {
+        use tempfile::TempDir;
+        let dir = TempDir::new().unwrap();
+        let hick_dir = dir.path().join(".hick");
+        std::fs::create_dir_all(&hick_dir).unwrap();
+        std::fs::write(hick_dir.join("keys.toml"), r#"anthropic_api_key = "sk-ant-test""#).unwrap();
+        // Safety: single-threaded test environment.
+        unsafe { std::env::set_var("HOME", dir.path()) };
+        let keys = UserKeys::load().unwrap().unwrap();
+        assert_eq!(keys.anthropic_api_key.as_deref(), Some("sk-ant-test"));
+        assert!(keys.openai_api_key.is_none());
     }
 
     // AC #3: validate_paths succeeds for an existing file.

@@ -14,6 +14,7 @@ export type UiCommand =
   | { type: 'mcp_credential'; env_var: string; value: string }
   | { type: 'mcp_credential_skip' }
   | { type: 'replay_turn'; turn_node_id: number; config_paths: string[] }
+  | { type: 'provide_api_keys'; anthropic?: string; openai?: string; xai?: string }
 
 /**
  * Wire format for `UiEvent` — matches `ui_event_wire_value` in `ui_event.rs`.
@@ -139,4 +140,8 @@ export type UiEvent =
       markdown: string
       pane_type: 'markdown' | 'html'
       entry: string
+    }
+  | {
+      type: 'awaiting_api_key'
+      node_id: number
     }

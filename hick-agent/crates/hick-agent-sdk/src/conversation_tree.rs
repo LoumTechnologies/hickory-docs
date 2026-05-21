@@ -338,6 +338,8 @@ impl ConversationTree {
             UiEvent::TurnStats { .. } => {}
             // Judge events are TUI-only signals; not conversation nodes.
             UiEvent::JudgeScoreReady { .. } | UiEvent::JudgeError { .. } => {}
+            // AwaitingApiKey is a UI-only signal; not a conversation node.
+            UiEvent::AwaitingApiKey { .. } => {}
         }
     }
 

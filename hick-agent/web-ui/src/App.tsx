@@ -1,8 +1,9 @@
 import { useCallback, useMemo, useRef, useState, useEffect } from 'react'
 import { useAgentSocket } from './useAgentSocket'
 import { SessionBundleParser } from './session-parser'
-import type { UiEvent } from './types'
+import type { UiEvent, UiCommand } from './types'
 import { ConversationCanvas } from './canvas/ConversationCanvas'
+import { SetupModal } from './SetupModal'
 
 export default function App() {
   const { events: socketEvents, send, connected, sessionStartedObservedAt, isServerReplay } =
@@ -84,6 +85,11 @@ export default function App() {
     )
   }, [visibleEvents])
 
+  // Show the first-run setup modal when the agent is awaiting API keys.
+  const awaitingApiKey = useMemo(() => {
+    return visibleEvents.some((ev) => ev.type === 'awaiting_api_key')
+  }, [visibleEvents])
+
   // ---------------------------------------------------------------------------
   // Drag-and-drop handler
   // ---------------------------------------------------------------------------
@@ -136,6 +142,15 @@ export default function App() {
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
     >
+      {/* First-run API key setup modal */}
+      {awaitingApiKey && (
+        <SetupModal
+          onSubmit={(keys: { anthropic?: string; openai?: string; xai?: string }) => {
+            send({ type: 'provide_api_keys', ...keys } as UiCommand)
+          }}
+        />
+      )}
+
       {/* Drag-over overlay */}
       {isDragOver && !isAnyReplay && (
         <div className="pointer-events-none absolute inset-0 z-50 flex items-center justify-center bg-slate-900/80">

@@ -5,5 +5,7 @@
 //! [`hick_agent_sdk::UiEvent`] channel; this crate renders the unified stream.
 
 mod run;
+mod setup;
 
 pub use run::{run_tui, PruneAction, RatingSubmission, TabSource, TuiConfig};
+pub use setup::{SetupResult, run_setup_tui};

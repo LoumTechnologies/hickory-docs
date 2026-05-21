@@ -618,6 +618,23 @@ fn web_ui_enabled(no_web_cli: bool) -> bool {
         )
 }
 
+fn save_user_keys(keys: &hick_agent_tui::SetupResult) -> anyhow::Result<()> {
+    let home = match std::env::var("HOME") {
+        Ok(h) => PathBuf::from(h),
+        Err(_) => return Ok(()),
+    };
+    let path = home.join(".hick/keys.toml");
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+    let mut lines = Vec::new();
+    if let Some(ref k) = keys.anthropic { lines.push(format!("anthropic_api_key = {k:?}")); }
+    if let Some(ref k) = keys.openai    { lines.push(format!("openai_api_key = {k:?}")); }
+    if let Some(ref k) = keys.xai       { lines.push(format!("xai_api_key = {k:?}")); }
+    std::fs::write(&path, lines.join("\n") + "\n")?;
+    Ok(())
+}
+
 // ── Config-driven extension loading ──────────────────────────────────────────
 
 /// Load `[extensions]` from config resolution order.
@@ -1055,6 +1072,35 @@ async fn agent_task(
 async fn main() -> Result<()> {
     dotenvy::dotenv().ok();
 
+    // Load ~/.hick/keys.toml and inject any missing provider keys into the
+    // process environment so that all downstream env-var reads pick them up.
+    // env vars and --api-key take priority (we only set if absent/empty).
+    let user_keys_providers = match config::UserKeys::load() {
+        Ok(Some(keys)) => {
+            let mut loaded = Vec::<&'static str>::new();
+            let pairs: &[(&'static str, Option<&str>)] = &[
+                ("ANTHROPIC_API_KEY", keys.anthropic_api_key.as_deref()),
+                ("OPENAI_API_KEY",    keys.openai_api_key.as_deref()),
+                ("XAI_API_KEY",       keys.xai_api_key.as_deref()),
+            ];
+            for &(var, val) in pairs {
+                if let Some(v) = val.filter(|k| !k.is_empty()) {
+                    if std::env::var(var).unwrap_or_default().is_empty() {
+                        // Safety: called at startup before worker threads access env.
+                        unsafe { std::env::set_var(var, v) };
+                        loaded.push(var);
+                    }
+                }
+            }
+            loaded
+        }
+        Ok(None) => Vec::new(),
+        Err(e) => {
+            eprintln!("Warning: ~/.hick/keys.toml: {e}");
+            Vec::new()
+        }
+    };
+
     let cli = Cli::parse();
 
     let command = cli.command.unwrap_or(Commands::Agent {
@@ -1109,6 +1155,123 @@ async fn main() -> Result<()> {
             let extensions = load_extensions(config.as_deref(), &project_dir);
             let hick_edit = extensions.hick_edit;
 
+            // ── Early UI channels ─────────────────────────────────────────────────
+            // Created before the LLM so the web server + first-run setup screen can
+            // use them. These same channels are used for the rest of the session.
+            const UI_BROADCAST_CAP: usize = 2048;
+            let (ui_fanout_tx, _) = broadcast::channel::<hick_agent_sdk::UiEvent>(UI_BROADCAST_CAP);
+            let (ui_mpsc_tx, ui_rx) = mpsc::unbounded_channel::<hick_agent_sdk::UiEvent>();
+            let (ui_cmd_tx, mut ui_cmd_rx) = mpsc::unbounded_channel::<hick_agent_sdk::UiCommand>();
+
+            tokio::spawn({
+                let mut sub = ui_fanout_tx.subscribe();
+                let ui_mpsc_tx = ui_mpsc_tx.clone();
+                async move {
+                    loop {
+                        match sub.recv().await {
+                            Ok(ev) => { if ui_mpsc_tx.send(ev).is_err() { break; } }
+                            Err(broadcast::error::RecvError::Lagged(_)) => {}
+                            Err(broadcast::error::RecvError::Closed) => break,
+                        }
+                    }
+                }
+            });
+
+            // ── Early web server (single-config only) ─────────────────────────────
+            // Starting the web server before LLM construction allows the browser to
+            // show the first-run API key setup modal while the TUI is also showing it.
+            // In multi-config mode the extra-config tabs don't exist yet, so we defer
+            // to the late start below (which receives all tab attachments at once).
+            let ws_started_early = extra_configs.is_empty() && web_ui_enabled(no_web);
+            let web_ui_url: Option<String> = if ws_started_early {
+                let sec_cfg = hick_agent_sdk::AgentSecurityConfig::load_or_default(&project_dir)
+                    .unwrap_or_default();
+                let ws_cfg = hick_agent_sdk::WebServerConfig::from_env()
+                    .with_project(project_dir.clone(), sec_cfg.allowed_hosts.clone());
+                match hick_agent_sdk::WebServer::bind(ws_cfg).await {
+                    Ok(ws) => {
+                        ws.attach(ui_fanout_tx.clone(), ui_cmd_tx.clone());
+                        match ws.start().await {
+                            Ok(url) => Some(url),
+                            Err(e) => {
+                                eprintln!("Web UI failed to start: {e}");
+                                None
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("Web UI unavailable (bind failed): {e}");
+                        None
+                    }
+                }
+            } else {
+                None
+            };
+
+            // ── First-run API key setup ───────────────────────────────────────────
+            // When no keys are configured, show the setup screen on both surfaces:
+            //   • TUI: full-screen ratatui form (blocking).
+            //   • Browser: SetupModal rendered on `awaiting_api_key` event.
+            // Either surface can complete setup; the other exits cleanly.
+            if api_key.is_none() && detect_providers().is_empty() {
+                ui_fanout_tx.send(hick_agent_sdk::UiEvent::AwaitingApiKey {
+                    node_id: hick_agent_sdk::NodeId(0),
+                }).ok();
+
+                let setup_done = Arc::new(AtomicBool::new(false));
+                let setup_result: Arc<std::sync::Mutex<Option<hick_agent_tui::SetupResult>>> =
+                    Arc::new(std::sync::Mutex::new(None));
+
+                let tui_done = Arc::clone(&setup_done);
+                let tui_result = Arc::clone(&setup_result);
+                let tui_handle = tokio::task::spawn_blocking(move || {
+                    hick_agent_tui::run_setup_tui(tui_done, tui_result)
+                });
+
+                // Poll for ProvideApiKeys from the browser while TUI is running.
+                let browser_keys: Option<(Option<String>, Option<String>, Option<String>)> = loop {
+                    if setup_done.load(Ordering::Acquire) {
+                        break None; // TUI completed first
+                    }
+                    match ui_cmd_rx.try_recv() {
+                        Ok(hick_agent_sdk::UiCommand::ProvideApiKeys { anthropic, openai, xai }) => {
+                            setup_done.store(true, Ordering::Release);
+                            break Some((anthropic, openai, xai));
+                        }
+                        Ok(_) => {} // other commands during setup — discard
+                        Err(mpsc::error::TryRecvError::Empty) => {
+                            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                        }
+                        Err(mpsc::error::TryRecvError::Disconnected) => break None,
+                    }
+                };
+                tui_handle.await??;
+
+                let final_keys = if let Some((a, o, x)) = browser_keys {
+                    hick_agent_tui::SetupResult { anthropic: a, openai: o, xai: x }
+                } else {
+                    setup_result.lock().unwrap().clone().unwrap_or_default()
+                };
+
+                if !final_keys.has_any() {
+                    return Ok(()); // user quit without entering any key
+                }
+
+                save_user_keys(&final_keys)?;
+
+                // Inject into env so detect_providers() succeeds on the next line.
+                for (var, val) in [
+                    ("ANTHROPIC_API_KEY", final_keys.anthropic.as_deref()),
+                    ("OPENAI_API_KEY",    final_keys.openai.as_deref()),
+                    ("XAI_API_KEY",       final_keys.xai.as_deref()),
+                ] {
+                    if let Some(v) = val {
+                        // Safety: called before worker threads start (event loop below).
+                        unsafe { std::env::set_var(var, v) };
+                    }
+                }
+            }
+
             // Resolve provider: explicit flag/env, or auto-detect from API keys
             let provider = match provider {
                 Some(p) => p,
@@ -1130,6 +1293,13 @@ async fn main() -> Result<()> {
             let (event_tx, event_rx) = mpsc::unbounded_channel::<AgentEvent>();
             let (cmd_tx, cmd_rx) = mpsc::unbounded_channel::<AgentCommand>();
             let interrupt = Arc::new(Notify::new());
+
+            if !user_keys_providers.is_empty() {
+                event_tx.send(AgentEvent::Info(format!(
+                    "API keys: loaded from ~/.hick/keys.toml ({})",
+                    user_keys_providers.join(", ")
+                ))).ok();
+            }
 
             let security_config_path = project_dir.join(".hick").join("agent-security.toml");
             let security_config = AgentSecurityConfig::load_or_default(&security_config_path)?;
@@ -1328,29 +1498,10 @@ async fn main() -> Result<()> {
 
             let provider_info = format!("{provider_name} / {model_name}");
 
-            const UI_BROADCAST_CAP: usize = 2048;
-            let (ui_fanout_tx, _) = broadcast::channel::<hick_agent_sdk::UiEvent>(UI_BROADCAST_CAP);
-            let (ui_mpsc_tx, ui_rx) = mpsc::unbounded_channel::<hick_agent_sdk::UiEvent>();
-
-            tokio::spawn({
-                let mut sub = ui_fanout_tx.subscribe();
-                let ui_mpsc_tx = ui_mpsc_tx.clone();
-                async move {
-                    loop {
-                        match sub.recv().await {
-                            Ok(ev) => {
-                                if ui_mpsc_tx.send(ev).is_err() {
-                                    break;
-                                }
-                            }
-                            Err(broadcast::error::RecvError::Lagged(_)) => {}
-                            Err(broadcast::error::RecvError::Closed) => break,
-                        }
-                    }
-                }
-            });
-
-            let (ui_cmd_tx, ui_cmd_rx) = mpsc::unbounded_channel::<hick_agent_sdk::UiCommand>();
+            // Emit web UI URL now that event_tx exists (early start happened silently above).
+            if let Some(ref url) = web_ui_url {
+                event_tx.send(AgentEvent::Info(format!("Web UI: {url}"))).ok();
+            }
 
             let (replay_tx, replay_rx) = mpsc::unbounded_channel::<ReplayRequest>();
 
@@ -1696,7 +1847,14 @@ async fn main() -> Result<()> {
             }
 
             // ── Web server — multi-tab attach ─────────────────────────────────────
-            let web_ui_url = if web_ui_enabled(no_web) {
+            // Single-config sessions start the web server early (above) so the
+            // browser setup modal works. Multi-config sessions start here once all
+            // tabs are ready.
+            let web_ui_url = if ws_started_early {
+                // Already started; URL was stored above and info was logged after
+                // event_tx was created.
+                web_ui_url
+            } else if web_ui_enabled(no_web) {
                 let security_cfg = hick_agent_sdk::AgentSecurityConfig::load_or_default(&project_dir)
                     .unwrap_or_default();
                 let cfg = hick_agent_sdk::WebServerConfig::from_env()
@@ -1704,7 +1862,6 @@ async fn main() -> Result<()> {
                 match hick_agent_sdk::WebServer::bind(cfg).await {
                     Ok(ws) => {
                         if web_tab_attachments.len() == 1 {
-                            // Single-config: use legacy single attach.
                             ws.attach(ui_fanout_tx.clone(), ui_cmd_tx.clone());
                         } else {
                             ws.attach_tabs(web_tab_attachments);

@@ -178,6 +178,12 @@ pub enum UiCommand {
     },
     /// Web UI skips credential entry for an MCP install flow.
     McpCredentialSkip,
+    /// User supplied API keys via the first-run setup modal.
+    ProvideApiKeys {
+        anthropic: Option<String>,
+        openai: Option<String>,
+        xai: Option<String>,
+    },
     /// Request to add a new config to the current session (mid-session multi-config).
     AddConfigPath {
         /// TOML config file path. The agent core will load and spawn a new instance.
@@ -355,6 +361,10 @@ pub enum UiEvent {
         node_id: NodeId,
         config_name: String,
         error: String,
+    },
+    /// No API keys are configured; UIs should show the first-run setup screen.
+    AwaitingApiKey {
+        node_id: NodeId,
     },
 }
 
@@ -556,6 +566,10 @@ pub fn ui_event_wire_value(ev: &UiEvent) -> serde_json::Value {
             "config_name": config_name,
             "error": error,
         }),
+        UiEvent::AwaitingApiKey { node_id } => serde_json::json!({
+            "type": "awaiting_api_key",
+            "node_id": node_id.0,
+        }),
     }
 }
 
@@ -594,6 +608,7 @@ impl std::fmt::Debug for UiEvent {
             UiEvent::TurnStats { node_id, .. } => f.debug_tuple("TurnStats").field(node_id).finish(),
             UiEvent::JudgeScoreReady { node_id, .. } => f.debug_tuple("JudgeScoreReady").field(node_id).finish(),
             UiEvent::JudgeError { node_id, .. } => f.debug_tuple("JudgeError").field(node_id).finish(),
+            UiEvent::AwaitingApiKey { node_id } => f.debug_tuple("AwaitingApiKey").field(node_id).finish(),
         }
     }
 }
