@@ -5,6 +5,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
+use hick_eval_store::{ConfigStats, StorageBackend, compute_config_stats};
+
 use crossterm::event::{self, Event, KeyCode, KeyEventKind, KeyModifiers};
 use crossterm::execute;
 use crossterm::terminal::{
@@ -76,6 +78,19 @@ pub struct RatingSubmission {
     pub judge_timestamp: Option<String>,
 }
 
+/// A prune or un-prune action initiated from the TUI pruning view (TASK-49).
+pub enum PruneAction {
+    /// User confirmed manual pruning of `config_name`.
+    Prune {
+        config_name: String,
+        scores: HashMap<String, f64>,
+        /// Wilson CI upper bound at the moment of pruning.
+        confidence: f64,
+    },
+    /// User un-pruned `config_name`.
+    Unprune { config_name: String },
+}
+
 /// Configuration forwarded from each binary crate.
 pub struct TuiConfig {
     pub agent_name: String,
@@ -93,6 +108,10 @@ pub struct TuiConfig {
     /// Channel to write human ratings to the eval store (AC #4).  None when
     /// the eval store is not configured.
     pub rating_tx: Option<mpsc::UnboundedSender<RatingSubmission>>,
+    /// Eval store for the pruning view; `None` when not configured.
+    pub eval_store: Option<Arc<dyn StorageBackend>>,
+    /// Channel to send prune/un-prune actions to the handler in `main.rs`.
+    pub prune_tx: Option<mpsc::UnboundedSender<PruneAction>>,
 }
 
 // ── Application state ──────────────────────────────────────────────
@@ -136,6 +155,14 @@ struct PaneState {
     markdown: String,
 }
 
+/// State for the pruning view overlay (TASK-49).
+struct PruningViewState {
+    stats: Vec<ConfigStats>,
+    selected: usize,
+    /// Ephemeral message shown at the bottom of the view.
+    message: Option<String>,
+}
+
 struct App {
     tree: ConversationTree,
     fold: HashMap<NodeId, FoldOverride>,
@@ -164,6 +191,8 @@ struct App {
     pending_rating: Option<PendingRating>,
     panes: HashMap<String, PaneState>,
     show_panes: bool,
+    /// Active pruning view (TASK-49). `Some` when the user has opened the view.
+    pruning_view: Option<PruningViewState>,
 }
 
 impl App {
@@ -193,6 +222,7 @@ impl App {
             pending_rating: None,
             panes: HashMap::new(),
             show_panes: false,
+            pruning_view: None,
         }
     }
 
@@ -1014,6 +1044,37 @@ impl App {
             return;
         }
 
+        // ── Pruning view mode (TASK-49) ─────────────────────────────────────
+        if self.pruning_view.is_some() {
+            match (key.modifiers, key.code) {
+                (m, KeyCode::Char('c')) if m.contains(KeyModifiers::CONTROL) => {
+                    self.pruning_view = None;
+                }
+                (_, KeyCode::Esc) | (_, KeyCode::Char('q')) => {
+                    self.pruning_view = None;
+                }
+                (_, KeyCode::Up) => {
+                    if let Some(ref mut pv) = self.pruning_view {
+                        pv.selected = pv.selected.saturating_sub(1);
+                    }
+                }
+                (_, KeyCode::Down) => {
+                    if let Some(ref mut pv) = self.pruning_view {
+                        let max = pv.stats.len().saturating_sub(1);
+                        pv.selected = (pv.selected + 1).min(max);
+                    }
+                }
+                (_, KeyCode::Char('p')) | (_, KeyCode::Enter) => {
+                    self.handle_prune_confirm();
+                }
+                (_, KeyCode::Char('u')) => {
+                    self.handle_unprune_confirm();
+                }
+                _ => {}
+            }
+            return;
+        }
+
         match (key.modifiers, key.code) {
             (m, KeyCode::Char('c')) if m.contains(KeyModifiers::CONTROL) => {
                 if self.busy {
@@ -1151,6 +1212,9 @@ impl App {
                     }
                 }
             }
+            (_, KeyCode::Char('P')) if self.input.is_empty() && !self.busy => {
+                self.open_pruning_view();
+            }
             (_, KeyCode::Char(c)) if !self.busy => {
                 self.input.insert(self.input_cursor, c);
                 self.input_cursor += 1;
@@ -1261,6 +1325,109 @@ impl App {
         self.submit_rating(scores);
     }
 
+    // ── Pruning view helpers (TASK-49) ─────────────────────────────────
+
+    fn open_pruning_view(&mut self) {
+        let Some(ref store) = self.config.eval_store else {
+            self.misc_info("[prune] Eval store not configured.");
+            return;
+        };
+        match store.read_all() {
+            Err(e) => self.misc_error(format!("[prune] Failed to load eval store: {e}")),
+            Ok(records) => {
+                let stats = compute_config_stats(&records);
+                if stats.is_empty() {
+                    self.misc_info("[prune] No scored configs yet — nothing to show.");
+                    return;
+                }
+                self.pruning_view = Some(PruningViewState {
+                    stats,
+                    selected: 0,
+                    message: None,
+                });
+            }
+        }
+    }
+
+    fn handle_prune_confirm(&mut self) {
+        let Some(ref mut pv) = self.pruning_view else { return };
+        let Some(stat) = pv.stats.get(pv.selected) else { return };
+
+        if stat.is_pruned {
+            pv.message = Some(format!("{} is already pruned — press u to un-prune.", stat.config_name));
+            return;
+        }
+        if !stat.is_candidate {
+            pv.message = Some(format!(
+                "{} is not a pruning candidate (CI upper bound {:.2} >= best win rate).",
+                stat.config_name, stat.ci_high
+            ));
+            return;
+        }
+
+        let config_name = stat.config_name.clone();
+        let ci_high = stat.ci_high;
+        // Build a summary of scores for the record.
+        let scores: HashMap<String, f64> = {
+            let mut m = HashMap::new();
+            m.insert("win_rate".to_string(), stat.win_rate);
+            m.insert("combined_score".to_string(), stat.combined_score);
+            m
+        };
+
+        if let Some(ref tx) = self.config.prune_tx {
+            if tx.send(PruneAction::Prune {
+                config_name: config_name.clone(),
+                scores,
+                confidence: ci_high,
+            }).is_err() {
+                if let Some(ref mut pv2) = self.pruning_view {
+                    pv2.message = Some("[prune] Channel disconnected.".to_string());
+                }
+                return;
+            }
+        }
+
+        // Reflect the pruning immediately in the local stats so the view
+        // updates without a full reload.
+        if let Some(ref mut pv2) = self.pruning_view {
+            if let Some(s) = pv2.stats.get_mut(pv2.selected) {
+                s.is_pruned = true;
+                s.is_candidate = false;
+            }
+            pv2.message = Some(format!("Pruned {config_name}."));
+        }
+        self.misc_info(format!("[prune] {config_name} pruned."));
+    }
+
+    fn handle_unprune_confirm(&mut self) {
+        let Some(ref mut pv) = self.pruning_view else { return };
+        let Some(stat) = pv.stats.get(pv.selected) else { return };
+
+        if !stat.is_pruned {
+            pv.message = Some(format!("{} is not pruned.", stat.config_name));
+            return;
+        }
+
+        let config_name = stat.config_name.clone();
+        if let Some(ref tx) = self.config.prune_tx {
+            if tx.send(PruneAction::Unprune { config_name: config_name.clone() }).is_err() {
+                if let Some(ref mut pv2) = self.pruning_view {
+                    pv2.message = Some("[prune] Channel disconnected.".to_string());
+                }
+                return;
+            }
+        }
+
+        if let Some(ref mut pv2) = self.pruning_view {
+            if let Some(s) = pv2.stats.get_mut(pv2.selected) {
+                s.is_pruned = false;
+            }
+            pv2.message = Some(format!("Un-pruned {config_name}."));
+        }
+        self.misc_info(format!("[prune] {config_name} un-pruned."));
+    }
+
     fn submit_rating(&mut self, scores: HashMap<String, f64>) {
         let Some(pending) = self.pending_rating.take() else { return };
         let Some(ref tx) = self.config.rating_tx else {
@@ -1282,7 +1449,103 @@ impl App {
 
     // ── Rendering ──────────────────────────────────────────────────
 
+    fn render_pruning_view(&self, frame: &mut Frame, area: ratatui::layout::Rect) {
+        use ratatui::layout::Constraint;
+        use ratatui::text::Text;
+
+        let pv = match &self.pruning_view {
+            Some(pv) => pv,
+            None => return,
+        };
+
+        let chunks = ratatui::layout::Layout::vertical([
+            Constraint::Length(1), // header
+            Constraint::Min(1),    // list
+            Constraint::Length(3), // status/help bar
+        ])
+        .split(area);
+
+        // Header
+        let header = Paragraph::new(Line::from(vec![
+            Span::styled(
+                "Pruning view",
+                Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                "  ↑↓ navigate  p/Enter prune  u un-prune  Esc quit",
+                Style::default().fg(Color::DarkGray),
+            ),
+        ]));
+        frame.render_widget(header, chunks[0]);
+
+        // Config list
+        let mut rows: Vec<Line> = Vec::new();
+        for (i, stat) in pv.stats.iter().enumerate() {
+            let selected = i == pv.selected;
+            let rank = format!("{:>2}. ", i + 1);
+            let ci = format!(
+                "[{:.2}–{:.2}]",
+                stat.ci_low, stat.ci_high
+            );
+            let status = if stat.is_pruned {
+                " [PRUNED]"
+            } else if stat.is_candidate {
+                " [CANDIDATE]"
+            } else {
+                ""
+            };
+            let label = format!(
+                "{}{:<30}  score {:.1}  win {:.0}%  CI {}  n={}{}",
+                rank,
+                stat.config_name,
+                stat.combined_score,
+                stat.win_rate * 100.0,
+                ci,
+                stat.sample_count,
+                status,
+            );
+            let style = if selected {
+                Style::default().fg(Color::Black).bg(Color::Cyan)
+            } else if stat.is_pruned {
+                Style::default().fg(Color::DarkGray)
+            } else if stat.is_candidate {
+                Style::default().fg(Color::Yellow)
+            } else {
+                Style::default().fg(Color::White)
+            };
+            rows.push(Line::styled(label, style));
+        }
+
+        let list_widget = Paragraph::new(Text::from(rows))
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::DarkGray)),
+            );
+        frame.render_widget(list_widget, chunks[1]);
+
+        // Status / message bar
+        let status_text = pv
+            .message
+            .as_deref()
+            .unwrap_or("Yellow = candidate  Gray = pruned  p = prune selected  u = un-prune");
+        let status_widget = Paragraph::new(status_text)
+            .style(Style::default().fg(Color::DarkGray))
+            .block(
+                Block::default()
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(Color::DarkGray)),
+            );
+        frame.render_widget(status_widget, chunks[2]);
+    }
+
     fn render_in(&mut self, frame: &mut Frame, area: ratatui::layout::Rect) {
+        // Pruning view takes over the full area when active (TASK-49).
+        if self.pruning_view.is_some() {
+            self.render_pruning_view(frame, area);
+            return;
+        }
+
         self.rebuild_screen();
         self.pump_network_prompt();
         let area = area;
@@ -1480,9 +1743,9 @@ impl App {
                     .and_then(|id| self.tree.node(id))
                     .is_some_and(|n| n.kind == ConversationNodeKind::UserTurn);
                 if replay_hint {
-                    "[b] branch  [r] replay with alternate config  (type to send a message)".to_string()
+                    "[b] branch  [r] replay with alternate config  [P] pruning view  (type to send a message)".to_string()
                 } else {
-                    "[b] branch from here  (type to send a message instead)".to_string()
+                    "[b] branch from here  [P] pruning view  (type to send a message instead)".to_string()
                 }
             } else {
                 format!("> {}", self.input)
@@ -1720,6 +1983,8 @@ pub fn run_tui(
         replay_label: config.replay_label.clone(),
         add_tab_rx: None,
         rating_tx: config.rating_tx.clone(),
+        eval_store: config.eval_store.clone(),
+        prune_tx: config.prune_tx.clone(),
     };
     for _ in 0..event_rxs.len() {
         apps.push(App::new(shared_config.clone()));
@@ -1908,6 +2173,8 @@ impl Clone for TuiConfig {
             replay_label: self.replay_label.clone(),
             add_tab_rx: None, // not cloneable; only used in the outer run_tui
             rating_tx: self.rating_tx.clone(),
+            eval_store: self.eval_store.clone(),
+            prune_tx: self.prune_tx.clone(),
         }
     }
 }

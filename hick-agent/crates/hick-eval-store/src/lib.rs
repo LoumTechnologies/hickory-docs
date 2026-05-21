@@ -14,6 +14,7 @@ mod git;
 mod machine_id;
 mod noop;
 mod path;
+mod pruning;
 mod record;
 
 /// Abstraction over storage transport.
@@ -26,8 +27,10 @@ pub use machine_id::MachineId;
 pub use noop::NoopBackend;
 /// Resolve the directory where `.ndjson` files are stored.
 pub use path::resolve_store_dir;
+/// Pruning analytics: config ranking, Wilson CI, is_pruned predicate.
+pub use pruning::{auto_prune_candidates, compute_config_stats, is_pruned, wilson_ci, ConfigStats};
 /// NDJSON record types.
 pub use record::{
     BacktrackingEvent, EvalRecord, EvalResultRecord, HumanRatingRecord, JudgeScoreRecord,
-    PruneRecord, TokenCost,
+    PruneRecord, TokenCost, UnpruneRecord,
 };

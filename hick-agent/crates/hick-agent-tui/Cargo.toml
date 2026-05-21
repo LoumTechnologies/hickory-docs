@@ -7,8 +7,10 @@ publish = false
 
 [dependencies]
 hick-agent-sdk = { path = "../hick-agent-sdk" }
+hick-eval-store = { path = "../hick-eval-store" }
 hick-policy.workspace = true
 anyhow = "1"
+chrono = { version = "0.4", features = ["serde"] }
 serde_json = "1"
 tokio = { version = "1", features = ["full"] }
 ratatui = "0.30.0"

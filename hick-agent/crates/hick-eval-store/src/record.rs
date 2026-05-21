@@ -32,17 +32,41 @@ pub struct EvalResultRecord {
 
 /// A pruning decision appended on top of existing records.
 ///
-/// Lines are never deleted — this record marks that older entries should be
-/// excluded from aggregation by readers that honour prune semantics.
+/// Lines are never deleted — this record marks that a config should be
+/// excluded from future eval scheduling. Readers derive current state by
+/// replaying the log (prune → unprune → prune …).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PruneRecord {
     pub machine_id: String,
     pub timestamp: DateTime<Utc>,
+    /// Config being pruned. `None` only in legacy records that lacked this field.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub config_name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
-    /// Exclude records with `timestamp < pruned_before` when present.
+    /// Exclude records with `timestamp < pruned_before` when present (legacy).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pruned_before: Option<DateTime<Utc>>,
+    /// Scores at the time pruning was decided (auto-prune records).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scores: Option<HashMap<String, f64>>,
+    /// Wilson CI upper bound at the time of pruning (auto-prune records).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub confidence: Option<f64>,
+    /// How pruning was triggered: `"manual"` or `"auto"`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub trigger: Option<String>,
+}
+
+/// Reversal of a prior [`PruneRecord`]. Appended on top — the prune record
+/// is never deleted. Readers derive current state by replaying the log.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UnpruneRecord {
+    pub machine_id: String,
+    pub timestamp: DateTime<Utc>,
+    pub config_name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
 }
 
 /// One backtracking event identified by the judge: the agent reversed a prior decision.
@@ -123,6 +147,8 @@ pub struct TokenCost {
 pub enum EvalRecord {
     EvalResult(EvalResultRecord),
     Prune(PruneRecord),
+    /// Reversal of a prior [`PruneRecord`] — the prune record is not deleted.
+    Unprune(UnpruneRecord),
     /// LLM-as-judge score (TASK-48).
     JudgeScore(JudgeScoreRecord),
     /// Human rating that confirms or overrides a judge score (TASK-48).
@@ -136,6 +162,7 @@ impl EvalRecord {
         match self {
             EvalRecord::EvalResult(_) => "eval_result",
             EvalRecord::Prune(_) => "prune",
+            EvalRecord::Unprune(_) => "unprune",
             EvalRecord::JudgeScore(_) => "judge_score",
             EvalRecord::HumanRating(_) => "human_rating",
             EvalRecord::Unknown(v) => v
@@ -161,6 +188,7 @@ impl Serialize for EvalRecord {
         match self {
             EvalRecord::EvalResult(r) => Tagged { record_type: "eval_result", inner: r }.serialize(s),
             EvalRecord::Prune(r) => Tagged { record_type: "prune", inner: r }.serialize(s),
+            EvalRecord::Unprune(r) => Tagged { record_type: "unprune", inner: r }.serialize(s),
             EvalRecord::JudgeScore(r) => Tagged { record_type: "judge_score", inner: r }.serialize(s),
             EvalRecord::HumanRating(r) => Tagged { record_type: "human_rating", inner: r }.serialize(s),
             EvalRecord::Unknown(v) => v.serialize(s),
@@ -177,6 +205,9 @@ impl<'de> Deserialize<'de> for EvalRecord {
                 serde_json::from_value(v).map_err(serde::de::Error::custom)?,
             ),
             "prune" => EvalRecord::Prune(
+                serde_json::from_value(v).map_err(serde::de::Error::custom)?,
+            ),
+            "unprune" => EvalRecord::Unprune(
                 serde_json::from_value(v).map_err(serde::de::Error::custom)?,
             ),
             "judge_score" => EvalRecord::JudgeScore(
@@ -230,13 +261,57 @@ mod tests {
         let r = EvalRecord::Prune(PruneRecord {
             machine_id: "m1".to_string(),
             timestamp: Utc::now(),
+            config_name: Some("cfg-a".to_string()),
             reason: Some("old data".to_string()),
             pruned_before: None,
+            scores: None,
+            confidence: None,
+            trigger: Some("manual".to_string()),
         });
         let json = serde_json::to_string(&r).unwrap();
         assert!(json.contains(r#""record_type":"prune""#));
+        assert!(json.contains("cfg-a"));
+        assert!(json.contains("manual"));
         let back: EvalRecord = serde_json::from_str(&json).unwrap();
         assert_eq!(back.record_type(), "prune");
+        if let EvalRecord::Prune(inner) = back {
+            assert_eq!(inner.config_name.as_deref(), Some("cfg-a"));
+            assert_eq!(inner.trigger.as_deref(), Some("manual"));
+        } else {
+            panic!("expected Prune");
+        }
+    }
+
+    #[test]
+    fn prune_legacy_record_without_config_name_parses() {
+        let json = r#"{"record_type":"prune","machine_id":"m1","timestamp":"2024-01-01T00:00:00Z"}"#;
+        let r: EvalRecord = serde_json::from_str(json).unwrap();
+        assert_eq!(r.record_type(), "prune");
+        if let EvalRecord::Prune(inner) = r {
+            assert!(inner.config_name.is_none());
+        } else {
+            panic!("expected Prune");
+        }
+    }
+
+    #[test]
+    fn unprune_round_trip() {
+        let r = EvalRecord::Unprune(UnpruneRecord {
+            machine_id: "m1".to_string(),
+            timestamp: Utc::now(),
+            config_name: "cfg-a".to_string(),
+            reason: Some("re-enabling after review".to_string()),
+        });
+        let json = serde_json::to_string(&r).unwrap();
+        assert!(json.contains(r#""record_type":"unprune""#));
+        assert!(json.contains("cfg-a"));
+        let back: EvalRecord = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.record_type(), "unprune");
+        if let EvalRecord::Unprune(inner) = back {
+            assert_eq!(inner.config_name, "cfg-a");
+        } else {
+            panic!("expected Unprune");
+        }
     }
 
     #[test]
@@ -259,8 +334,12 @@ mod tests {
         let prune = EvalRecord::Prune(PruneRecord {
             machine_id: "m1".to_string(),
             timestamp: Utc::now(),
+            config_name: Some("test-config".to_string()),
             reason: Some("cleanup".to_string()),
             pruned_before: None,
+            scores: None,
+            confidence: None,
+            trigger: Some("manual".to_string()),
         });
         let mut buf = String::new();
         buf.push_str(&serde_json::to_string(&eval).unwrap());

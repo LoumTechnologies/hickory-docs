@@ -316,12 +316,19 @@ impl JudgeSection {
     }
 }
 
-/// `[eval]` section. Idle timeout and auto-prune are in TASK-50; judge is TASK-48.
+/// `[eval]` section.
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct EvalSection {
-    /// Optional LLM-as-judge configuration.
+    /// Optional LLM-as-judge configuration (TASK-48).
     #[serde(default)]
     pub judge: Option<JudgeSection>,
+    /// Confidence threshold for automatic pruning (TASK-49).
+    ///
+    /// When set (e.g. `0.95`), a config whose Wilson CI upper bound falls below
+    /// `best_win_rate * auto_prune_threshold` is automatically pruned during
+    /// idle eval (TASK-50). Absent means auto-prune is disabled.
+    #[serde(default)]
+    pub auto_prune_threshold: Option<f64>,
 }
 
 // ---------------------------------------------------------------------------
@@ -1109,5 +1116,34 @@ model_id = "claude-opus-4-7-20251101"
             ..Default::default()
         };
         m.validate_paths(dir.path()).unwrap();
+    }
+
+    // ---------------------------------------------------------------------------
+    // [eval] section tests
+    // ---------------------------------------------------------------------------
+
+    #[test]
+    fn eval_section_auto_prune_threshold_parses() {
+        let toml = r#"
+[model]
+model_id = "claude-opus-4-7-20251101"
+
+[eval]
+auto_prune_threshold = 0.95
+"#;
+        let cfg = AgentConfig::parse(toml).unwrap();
+        let AgentConfig::Point(pc) = cfg else { panic!("expected Point") };
+        assert_eq!(pc.eval.auto_prune_threshold, Some(0.95));
+    }
+
+    #[test]
+    fn eval_section_auto_prune_threshold_absent_is_none() {
+        let toml = r#"
+[model]
+model_id = "claude-opus-4-7-20251101"
+"#;
+        let cfg = AgentConfig::parse(toml).unwrap();
+        let AgentConfig::Point(pc) = cfg else { panic!("expected Point") };
+        assert!(pc.eval.auto_prune_threshold.is_none());
     }
 }

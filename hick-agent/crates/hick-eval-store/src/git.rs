@@ -201,8 +201,12 @@ mod tests {
         b.append(&EvalRecord::Prune(PruneRecord {
             machine_id: "m1".to_string(),
             timestamp: Utc::now(),
+            config_name: Some("cfg".to_string()),
             reason: Some("old".to_string()),
             pruned_before: None,
+            scores: None,
+            confidence: None,
+            trigger: Some("manual".to_string()),
         }))
         .unwrap();
         let all = b.read_all().unwrap();

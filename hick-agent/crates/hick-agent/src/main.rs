@@ -1755,6 +1755,15 @@ async fn main() -> Result<()> {
             let (rating_tx, rating_rx) = mpsc::unbounded_channel::<hick_agent_tui::RatingSubmission>();
             tokio::spawn(handle_rating_submissions(rating_rx));
 
+            // Prune channel: TUI writes PruneAction; handler persists PruneRecord/UnpruneRecord.
+            let (prune_tx, prune_rx) = mpsc::unbounded_channel::<hick_agent_tui::PruneAction>();
+            tokio::spawn(handle_prune_actions(prune_rx));
+
+            let eval_store: Option<std::sync::Arc<dyn hick_eval_store::StorageBackend>> =
+                hick_eval_store::GitBackend::new()
+                    .ok()
+                    .map(|b| std::sync::Arc::new(b) as _);
+
             let interrupt_tui = Arc::clone(&interrupt);
             tokio::task::spawn_blocking(move || {
                 run_tui(
@@ -1769,6 +1778,8 @@ async fn main() -> Result<()> {
                         replay_label: None,
                         add_tab_rx: Some(add_tab_rx),
                         rating_tx: Some(rating_tx),
+                        eval_store,
+                        prune_tx: Some(prune_tx),
                     },
                 )
             })
@@ -2148,6 +2159,59 @@ async fn write_eval_session_records(project_dir: &std::path::Path, config_names:
     backend.sync_session();
 }
 
+// ── Prune handler (TASK-49) ───────────────────────────────────────────────────
+
+async fn handle_prune_actions(
+    mut prune_rx: mpsc::UnboundedReceiver<hick_agent_tui::PruneAction>,
+) {
+    use hick_eval_store::{
+        EvalRecord, GitBackend, MachineId, PruneRecord, StorageBackend, UnpruneRecord,
+    };
+
+    while let Some(action) = prune_rx.recv().await {
+        let backend = match GitBackend::new() {
+            Ok(b) => b,
+            Err(e) => {
+                log::warn!("eval store: failed to open git backend for prune: {e}");
+                continue;
+            }
+        };
+
+        let machine_id = MachineId::load()
+            .map(|m| m.uuid().to_string())
+            .unwrap_or_else(|_| "unknown".to_string());
+
+        let record = match action {
+            hick_agent_tui::PruneAction::Prune { config_name, scores, confidence } => {
+                EvalRecord::Prune(PruneRecord {
+                    machine_id,
+                    timestamp: chrono::Utc::now(),
+                    config_name: Some(config_name),
+                    reason: None,
+                    pruned_before: None,
+                    scores: Some(scores),
+                    confidence: Some(confidence),
+                    trigger: Some("manual".to_string()),
+                })
+            }
+            hick_agent_tui::PruneAction::Unprune { config_name } => {
+                EvalRecord::Unprune(UnpruneRecord {
+                    machine_id,
+                    timestamp: chrono::Utc::now(),
+                    config_name,
+                    reason: None,
+                })
+            }
+        };
+
+        if let Err(e) = backend.append(&record) {
+            log::warn!("eval store: failed to append prune record: {e}");
+        } else {
+            backend.sync_session();
+        }
+    }
+}
+
 // ── Rating handler (TASK-48 AC #4) ───────────────────────────────────────────
 
 async fn handle_rating_submissions(
@@ -2258,6 +2322,8 @@ async fn run_replay_tui(
                 replay_label: Some(label),
                 add_tab_rx: None,
                 rating_tx: None,
+                eval_store: None,
+                prune_tx: None,
             },
         )
     })

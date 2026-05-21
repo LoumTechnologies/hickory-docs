@@ -4468,8 +4468,10 @@ name = "hick-agent-tui"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "chrono",
  "crossterm",
  "hick-agent-sdk",
+ "hick-eval-store",
  "hick-policy",
  "ratatui",
  "serde_json",
