@@ -1,5 +1,5 @@
 {
-  "name": "BlueIronCube",
+  "name": "MyProject",
   "dockerComposeFile": "../docker-compose.yml",
   "service": "backend",
   "workspaceFolder": "/app",

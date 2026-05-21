@@ -1,13 +1,13 @@
-pub mod customers;
-pub mod jobs;
-pub mod payments;
-pub mod crew;
-pub mod inventory;
-pub mod fleet;
-pub mod overhead;
-pub mod estimating;
-pub mod crm;
-pub mod sops;
+
+
+
+
+
+
+
+
+
+
 pub mod db;
 pub mod error;
 pub mod types;
@@ -59,16 +59,16 @@ pub fn create_router(state: Arc<AppState>) -> Router {
 
     let mut router = Router::new()
         .route("/health", axum::routing::get(health));
-    router = router.merge(customers::routes());
-    router = router.merge(jobs::routes());
-    router = router.merge(payments::routes());
-    router = router.merge(crew::routes());
-    router = router.merge(inventory::routes());
-    router = router.merge(fleet::routes());
-    router = router.merge(overhead::routes());
-    router = router.merge(estimating::routes());
-    router = router.merge(crm::routes());
-    router = router.merge(sops::routes());
+
+
+
+
+
+
+
+
+
+
 
     router
         .with_state(state)
