@@ -83,6 +83,15 @@ rebuild-alpine VERSION="3.23.2":
     @cd "{{IMAGES_DIR}}/alpine" && zip -q "{{VERSION}}.wasm.zip" "{{VERSION}}.wasm"
     @echo "Done: {{IMAGES_DIR}}/alpine/{{VERSION}}.wasm and {{VERSION}}.wasm.zip"
 
+# ── Install ────────────────────────────────────────────────────────────────────
+
+# Build and install the `hick` binary to ~/.local/bin (no sudo required).
+install:
+    cargo build --release -p hick-agent
+    @mkdir -p ~/.local/bin
+    @cp target/release/hick ~/.local/bin/hick
+    @echo "Installed: $(~/.local/bin/hick --version 2>/dev/null || echo ~/.local/bin/hick)"
+
 # ── Tests ──────────────────────────────────────────────────────────────────────
 
 # Run the full test suite (required before committing).
