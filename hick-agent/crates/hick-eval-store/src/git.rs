@@ -178,6 +178,8 @@ mod tests {
             scores: None,
             token_cost: None,
             original_turn_id: None,
+            wall_secs: None,
+            rework_count: None,
         })
     }
 

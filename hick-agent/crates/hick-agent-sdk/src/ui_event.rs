@@ -4,6 +4,7 @@
 //! Network access approvals reuse the same [`crate::NetworkApprovalRequest`] channel semantics as today,
 //! wrapped in [`UiNetworkApproval`] so the enum remains [`Clone`] via shared [`std::sync::Arc`] state.
 
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
 use hick_policy::PolicySuggestion;
@@ -331,6 +332,30 @@ pub enum UiEvent {
         /// Estimated USD cost (None when cost model is unknown).
         cost_usd: Option<f64>,
     },
+    /// Judge scores are available for a completed turn — pre-populates the human rating panel (AC #3).
+    JudgeScoreReady {
+        node_id: NodeId,
+        /// Agent config tab whose response was scored.
+        config_name: String,
+        /// The user query that was judged.
+        query: String,
+        judge_model: String,
+        scores: HashMap<String, f64>,
+        /// Ordered dimension names (preserves display order from config).
+        dimensions: Vec<String>,
+        /// Brief rationale for each backtracking reversal identified (AC #11).
+        backtracking_rationale: Vec<String>,
+        wall_secs: Option<f64>,
+        rework_count: Option<u32>,
+        /// RFC 3339 timestamp of the judge call (links to HumanRatingRecord).
+        judge_timestamp: String,
+    },
+    /// The judge call failed — non-blocking error for UI display (AC #7).
+    JudgeError {
+        node_id: NodeId,
+        config_name: String,
+        error: String,
+    },
 }
 
 fn opt_id(id: Option<NodeId>) -> Option<u64> {
@@ -509,6 +534,28 @@ pub fn ui_event_wire_value(ev: &UiEvent) -> serde_json::Value {
             "output_tokens": output_tokens,
             "cost_usd": cost_usd,
         }),
+        UiEvent::JudgeScoreReady {
+            node_id, config_name, query, judge_model, scores, dimensions,
+            backtracking_rationale, wall_secs, rework_count, judge_timestamp,
+        } => serde_json::json!({
+            "type": "judge_score_ready",
+            "node_id": node_id.0,
+            "config_name": config_name,
+            "query": query,
+            "judge_model": judge_model,
+            "scores": scores,
+            "dimensions": dimensions,
+            "backtracking_rationale": backtracking_rationale,
+            "wall_secs": wall_secs,
+            "rework_count": rework_count,
+            "judge_timestamp": judge_timestamp,
+        }),
+        UiEvent::JudgeError { node_id, config_name, error } => serde_json::json!({
+            "type": "judge_error",
+            "node_id": node_id.0,
+            "config_name": config_name,
+            "error": error,
+        }),
     }
 }
 
@@ -545,6 +592,8 @@ impl std::fmt::Debug for UiEvent {
             UiEvent::BranchStarted { node_id, .. } => f.debug_tuple("BranchStarted").field(node_id).finish(),
             UiEvent::PaneContent { node_id, .. } => f.debug_tuple("PaneContent").field(node_id).finish(),
             UiEvent::TurnStats { node_id, .. } => f.debug_tuple("TurnStats").field(node_id).finish(),
+            UiEvent::JudgeScoreReady { node_id, .. } => f.debug_tuple("JudgeScoreReady").field(node_id).finish(),
+            UiEvent::JudgeError { node_id, .. } => f.debug_tuple("JudgeError").field(node_id).finish(),
         }
     }
 }

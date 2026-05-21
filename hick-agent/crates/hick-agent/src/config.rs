@@ -219,12 +219,110 @@ impl MachineSection {
 }
 
 // ---------------------------------------------------------------------------
-// [eval] stub (consumer: TASK-50)
+// [eval] section (TASK-48 adds judge sub-section)
 // ---------------------------------------------------------------------------
 
-/// `[eval]` stub. Idle timeout and auto-prune are implemented in TASK-50.
+/// Default judge prompt template — separates backtracking from unnecessary steps (AC #9).
+const DEFAULT_JUDGE_PROMPT: &str = "\
+You are evaluating an AI coding agent's response to a user query. Score it on the dimensions below.\n\
+\n\
+## Query\n\
+{query}\n\
+\n\
+## Agent Response / Actions\n\
+{response}\n\
+\n\
+## Scoring Dimensions\n\
+Score each dimension from 1.0 (very poor) to 10.0 (excellent).\n\
+\n\
+{dimensions}\n\
+\n\
+### Backtracking Analysis (REQUIRED)\n\
+Backtracking means the agent explicitly reversed a prior decision:\n\
+- Rewrote a file it had already written\n\
+- Undid an edit or reverted a change\n\
+- Retried a failed approach with a different strategy\n\
+\n\
+This is DIFFERENT from 'unnecessary steps' (steps that could be skipped but not reversed).\n\
+\n\
+For each reversal identified:\n\
+1. Describe what was reversed and what triggered it\n\
+2. Note whether it was avoidable (bad initial plan) or unavoidable (new information arrived)\n\
+\n\
+## Response Format\n\
+Return ONLY a JSON object in this exact format:\n\
+{\n\
+  \"task_completion\": <1.0-10.0>,\n\
+  \"tool_efficiency\": <1.0-10.0>,\n\
+  \"unnecessary_steps\": <1.0-10.0>,\n\
+  \"backtracking\": <1.0-10.0>,\n\
+  \"output_quality\": <1.0-10.0>,\n\
+  \"backtracking_events\": [\n\
+    { \"description\": \"<what was reversed and why>\", \"avoidable\": <true|false> }\n\
+  ]\n\
+}\n\
+If no backtracking occurred, use an empty array for \"backtracking_events\".\n\
+";
+
+/// A single scoring dimension for the judge (name + weight).
+#[derive(Debug, Clone, Deserialize)]
+pub struct JudgeDimension {
+    pub name: String,
+    /// Relative weight for weighted-average scoring (all weights should sum to 1.0).
+    pub weight: f64,
+}
+
+/// `[eval.judge]` section: LLM-as-judge configuration (TASK-48).
+#[derive(Debug, Clone, Deserialize)]
+pub struct JudgeSection {
+    /// Judge model identifier (e.g. `"claude-opus-4-7-20251101"`).
+    pub model: String,
+    /// LLM provider for the judge. Defaults to `anthropic`.
+    #[serde(default)]
+    pub provider: Provider,
+    /// Environment variable holding the judge API key.
+    /// Defaults to the provider's conventional key name.
+    #[serde(default)]
+    pub api_key_env: Option<String>,
+    /// Judge prompt template. Use `{query}`, `{response}`, and `{dimensions}` placeholders.
+    /// Defaults to the built-in template which includes backtracking analysis (AC #9).
+    #[serde(default)]
+    pub prompt_template: Option<String>,
+    /// Scoring dimensions with weights.
+    /// Defaults to task_completion / tool_efficiency / unnecessary_steps / backtracking / output_quality.
+    #[serde(default)]
+    pub dimensions: Vec<JudgeDimension>,
+}
+
+impl JudgeSection {
+    /// Effective dimensions — user-configured or the built-in defaults (AC #9).
+    pub fn effective_dimensions(&self) -> Vec<JudgeDimension> {
+        if self.dimensions.is_empty() {
+            vec![
+                JudgeDimension { name: "task_completion".into(), weight: 0.3 },
+                JudgeDimension { name: "tool_efficiency".into(), weight: 0.2 },
+                JudgeDimension { name: "unnecessary_steps".into(), weight: 0.15 },
+                JudgeDimension { name: "backtracking".into(), weight: 0.25 },
+                JudgeDimension { name: "output_quality".into(), weight: 0.1 },
+            ]
+        } else {
+            self.dimensions.clone()
+        }
+    }
+
+    /// Effective prompt template — user-configured or the built-in default (AC #6 / #9).
+    pub fn effective_prompt_template(&self) -> &str {
+        self.prompt_template.as_deref().unwrap_or(DEFAULT_JUDGE_PROMPT)
+    }
+}
+
+/// `[eval]` section. Idle timeout and auto-prune are in TASK-50; judge is TASK-48.
 #[derive(Debug, Clone, Default, Deserialize)]
-pub struct EvalSection {}
+pub struct EvalSection {
+    /// Optional LLM-as-judge configuration.
+    #[serde(default)]
+    pub judge: Option<JudgeSection>,
+}
 
 // ---------------------------------------------------------------------------
 // [search] section

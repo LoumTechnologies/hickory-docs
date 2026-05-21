@@ -22,6 +22,12 @@ pub struct EvalResultRecord {
     /// Present only on retroactive replay records (TASK-47).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub original_turn_id: Option<String>,
+    /// Wall-clock seconds from UserTurn to Done for this turn (TASK-48 / TASK-23.3).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub wall_secs: Option<f64>,
+    /// Number of failed action steps in this turn (proxy for rework / backtracking).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rework_count: Option<u32>,
 }
 
 /// A pruning decision appended on top of existing records.
@@ -37,6 +43,63 @@ pub struct PruneRecord {
     /// Exclude records with `timestamp < pruned_before` when present.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub pruned_before: Option<DateTime<Utc>>,
+}
+
+/// One backtracking event identified by the judge: the agent reversed a prior decision.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BacktrackingEvent {
+    /// Brief description of what was reversed and what triggered the reversal.
+    pub description: String,
+    /// `true` if the reversal was avoidable (bad initial plan); `false` if new information
+    /// arrived that made reversal necessary.
+    pub avoidable: bool,
+}
+
+/// Judge score record written by the background judge task (TASK-48).
+///
+/// Never overwrites an `EvalResultRecord` — always a separate append.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct JudgeScoreRecord {
+    pub machine_id: String,
+    pub timestamp: DateTime<Utc>,
+    /// Name of the agent config tab whose response was scored.
+    pub config_name: String,
+    /// The judge model identifier (e.g. `"claude-opus-4-7-20251101"`).
+    pub judge_model: String,
+    /// Hex hash of the judge prompt template (for reproducibility across runs).
+    pub prompt_hash: String,
+    pub query: String,
+    /// Per-dimension scores on the configured scale (default 1.0–10.0).
+    pub scores: HashMap<String, f64>,
+    /// Backtracking events identified by the judge (may be empty).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub backtracking_events: Vec<BacktrackingEvent>,
+    /// Token cost of the judge call, tracked separately from conversation cost.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub token_cost: Option<TokenCost>,
+    /// Wall-clock seconds of the evaluated turn (copied from eval result for co-location).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub wall_secs: Option<f64>,
+    /// Rework count of the evaluated turn (copied from eval result).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub rework_count: Option<u32>,
+}
+
+/// Human rating record that confirms or overrides judge scores (TASK-48).
+///
+/// The original `JudgeScoreRecord` is never modified — this is a separate append.
+/// Linked back to the judge record via `judge_timestamp`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HumanRatingRecord {
+    pub machine_id: String,
+    pub timestamp: DateTime<Utc>,
+    pub config_name: String,
+    pub query: String,
+    /// Human-provided per-dimension scores (all dimensions present — overrides or confirmations).
+    pub scores: HashMap<String, f64>,
+    /// Timestamp of the [`JudgeScoreRecord`] this rating responds to.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub judge_timestamp: Option<DateTime<Utc>>,
 }
 
 /// LLM token usage for a single eval turn.
@@ -60,6 +123,10 @@ pub struct TokenCost {
 pub enum EvalRecord {
     EvalResult(EvalResultRecord),
     Prune(PruneRecord),
+    /// LLM-as-judge score (TASK-48).
+    JudgeScore(JudgeScoreRecord),
+    /// Human rating that confirms or overrides a judge score (TASK-48).
+    HumanRating(HumanRatingRecord),
     /// Any `record_type` not known to this version. Preserved verbatim on re-serialise.
     Unknown(Value),
 }
@@ -69,6 +136,8 @@ impl EvalRecord {
         match self {
             EvalRecord::EvalResult(_) => "eval_result",
             EvalRecord::Prune(_) => "prune",
+            EvalRecord::JudgeScore(_) => "judge_score",
+            EvalRecord::HumanRating(_) => "human_rating",
             EvalRecord::Unknown(v) => v
                 .get("record_type")
                 .and_then(|t| t.as_str())
@@ -92,6 +161,8 @@ impl Serialize for EvalRecord {
         match self {
             EvalRecord::EvalResult(r) => Tagged { record_type: "eval_result", inner: r }.serialize(s),
             EvalRecord::Prune(r) => Tagged { record_type: "prune", inner: r }.serialize(s),
+            EvalRecord::JudgeScore(r) => Tagged { record_type: "judge_score", inner: r }.serialize(s),
+            EvalRecord::HumanRating(r) => Tagged { record_type: "human_rating", inner: r }.serialize(s),
             EvalRecord::Unknown(v) => v.serialize(s),
         }
     }
@@ -106,6 +177,12 @@ impl<'de> Deserialize<'de> for EvalRecord {
                 serde_json::from_value(v).map_err(serde::de::Error::custom)?,
             ),
             "prune" => EvalRecord::Prune(
+                serde_json::from_value(v).map_err(serde::de::Error::custom)?,
+            ),
+            "judge_score" => EvalRecord::JudgeScore(
+                serde_json::from_value(v).map_err(serde::de::Error::custom)?,
+            ),
+            "human_rating" => EvalRecord::HumanRating(
                 serde_json::from_value(v).map_err(serde::de::Error::custom)?,
             ),
             _ => EvalRecord::Unknown(v),
@@ -128,6 +205,8 @@ mod tests {
             scores: None,
             token_cost: None,
             original_turn_id: None,
+            wall_secs: None,
+            rework_count: None,
         })
     }
 
@@ -214,6 +293,8 @@ mod tests {
             scores: Some(scores),
             token_cost: None,
             original_turn_id: None,
+            wall_secs: None,
+            rework_count: None,
         });
         let json = serde_json::to_string(&r).unwrap();
         assert!(json.contains("accuracy"));
@@ -235,10 +316,124 @@ mod tests {
                 total_cost_usd: None,
             }),
             original_turn_id: None,
+            wall_secs: None,
+            rework_count: None,
         });
         let json = serde_json::to_string(&r).unwrap();
         assert!(json.contains("input_tokens"));
         assert!(!json.contains("output_tokens"));
         assert!(!json.contains("total_cost_usd"));
+    }
+
+    #[test]
+    fn eval_result_wall_secs_and_rework_count_round_trip() {
+        let r = EvalRecord::EvalResult(EvalResultRecord {
+            machine_id: "m".to_string(),
+            timestamp: Utc::now(),
+            config_name: "c".to_string(),
+            query: None,
+            response: None,
+            scores: None,
+            token_cost: None,
+            original_turn_id: None,
+            wall_secs: Some(61.5),
+            rework_count: Some(2),
+        });
+        let json = serde_json::to_string(&r).unwrap();
+        assert!(json.contains("wall_secs"));
+        assert!(json.contains("61.5"));
+        assert!(json.contains("rework_count"));
+        let back: EvalRecord = serde_json::from_str(&json).unwrap();
+        if let EvalRecord::EvalResult(inner) = back {
+            assert_eq!(inner.wall_secs, Some(61.5));
+            assert_eq!(inner.rework_count, Some(2));
+        } else {
+            panic!("expected EvalResult");
+        }
+    }
+
+    #[test]
+    fn judge_score_round_trip() {
+        let mut scores = HashMap::new();
+        scores.insert("task_completion".to_string(), 8.5);
+        scores.insert("backtracking".to_string(), 9.0);
+        let r = EvalRecord::JudgeScore(JudgeScoreRecord {
+            machine_id: "m".to_string(),
+            timestamp: Utc::now(),
+            config_name: "cfg-a".to_string(),
+            judge_model: "claude-opus-4-7-20251101".to_string(),
+            prompt_hash: "abcd1234".to_string(),
+            query: "fix the bug".to_string(),
+            scores,
+            backtracking_events: vec![BacktrackingEvent {
+                description: "rewrote main.rs after initial approach failed".to_string(),
+                avoidable: true,
+            }],
+            token_cost: None,
+            wall_secs: Some(45.2),
+            rework_count: Some(1),
+        });
+        let json = serde_json::to_string(&r).unwrap();
+        assert!(json.contains(r#""record_type":"judge_score""#));
+        assert!(json.contains("task_completion"));
+        assert!(json.contains("backtracking_events"));
+        assert!(json.contains("avoidable"));
+        let back: EvalRecord = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.record_type(), "judge_score");
+        if let EvalRecord::JudgeScore(inner) = back {
+            assert_eq!(inner.config_name, "cfg-a");
+            assert_eq!(inner.backtracking_events.len(), 1);
+            assert!(inner.backtracking_events[0].avoidable);
+        } else {
+            panic!("expected JudgeScore");
+        }
+    }
+
+    #[test]
+    fn judge_score_empty_backtracking_events_omitted() {
+        let mut scores = HashMap::new();
+        scores.insert("task_completion".to_string(), 9.0);
+        let r = EvalRecord::JudgeScore(JudgeScoreRecord {
+            machine_id: "m".to_string(),
+            timestamp: Utc::now(),
+            config_name: "cfg".to_string(),
+            judge_model: "judge-model".to_string(),
+            prompt_hash: "hash".to_string(),
+            query: "q".to_string(),
+            scores,
+            backtracking_events: vec![],
+            token_cost: None,
+            wall_secs: None,
+            rework_count: None,
+        });
+        let json = serde_json::to_string(&r).unwrap();
+        // Empty vec should be omitted from serialisation.
+        assert!(!json.contains("backtracking_events"));
+    }
+
+    #[test]
+    fn human_rating_round_trip() {
+        let mut scores = HashMap::new();
+        scores.insert("task_completion".to_string(), 9.0);
+        scores.insert("backtracking".to_string(), 7.5);
+        let r = EvalRecord::HumanRating(HumanRatingRecord {
+            machine_id: "m".to_string(),
+            timestamp: Utc::now(),
+            config_name: "cfg-a".to_string(),
+            query: "fix the bug".to_string(),
+            scores,
+            judge_timestamp: None,
+        });
+        let json = serde_json::to_string(&r).unwrap();
+        assert!(json.contains(r#""record_type":"human_rating""#));
+        assert!(json.contains("task_completion"));
+        let back: EvalRecord = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.record_type(), "human_rating");
+        if let EvalRecord::HumanRating(inner) = back {
+            assert_eq!(inner.config_name, "cfg-a");
+            assert!(inner.scores.contains_key("backtracking"));
+        } else {
+            panic!("expected HumanRating");
+        }
     }
 }

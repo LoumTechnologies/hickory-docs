@@ -27,4 +27,7 @@ pub use noop::NoopBackend;
 /// Resolve the directory where `.ndjson` files are stored.
 pub use path::resolve_store_dir;
 /// NDJSON record types.
-pub use record::{EvalRecord, EvalResultRecord, PruneRecord, TokenCost};
+pub use record::{
+    BacktrackingEvent, EvalRecord, EvalResultRecord, HumanRatingRecord, JudgeScoreRecord,
+    PruneRecord, TokenCost,
+};

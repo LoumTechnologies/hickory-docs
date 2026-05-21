@@ -336,6 +336,8 @@ impl ConversationTree {
             UiEvent::PaneContent { .. } => {}
             // TurnStats is a UI-only signal; not a conversation node.
             UiEvent::TurnStats { .. } => {}
+            // Judge events are TUI-only signals; not conversation nodes.
+            UiEvent::JudgeScoreReady { .. } | UiEvent::JudgeError { .. } => {}
         }
     }
 

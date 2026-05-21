@@ -66,6 +66,16 @@ enum FoldOverride {
     Collapsed,
 }
 
+/// Payload sent from the TUI to the rating handler in `main.rs` (AC #4).
+pub struct RatingSubmission {
+    pub config_name: String,
+    /// The user query that was judged.
+    pub query: String,
+    pub scores: HashMap<String, f64>,
+    /// RFC 3339 timestamp of the judge call this rating responds to.
+    pub judge_timestamp: Option<String>,
+}
+
 /// Configuration forwarded from each binary crate.
 pub struct TuiConfig {
     pub agent_name: String,
@@ -80,6 +90,9 @@ pub struct TuiConfig {
     pub replay_label: Option<String>,
     /// Receive dynamically-added tabs (mid-session mode switching, AC #6).
     pub add_tab_rx: Option<mpsc::UnboundedReceiver<TabSource>>,
+    /// Channel to write human ratings to the eval store (AC #4).  None when
+    /// the eval store is not configured.
+    pub rating_tx: Option<mpsc::UnboundedSender<RatingSubmission>>,
 }
 
 // ── Application state ──────────────────────────────────────────────
@@ -103,6 +116,19 @@ struct PendingMcpCredential {
 
 struct PendingReplay {
     turn_node_id: NodeId,
+}
+
+/// Pending human rating for a completed judged turn (AC #3 / #4 / #10).
+struct PendingRating {
+    config_name: String,
+    query: String,
+    judge_scores: HashMap<String, f64>,
+    /// Ordered dimension names — positional index maps to `/rate` args.
+    dimensions: Vec<String>,
+    backtracking_rationale: Vec<String>,
+    wall_secs: Option<f64>,
+    rework_count: Option<u32>,
+    judge_timestamp: String,
 }
 
 struct PaneState {
@@ -134,6 +160,8 @@ struct App {
     pending_approval: Option<PendingApproval>,
     pending_mcp_credential: Option<PendingMcpCredential>,
     pending_replay: Option<PendingReplay>,
+    /// Judge scores ready for human override (AC #3).
+    pending_rating: Option<PendingRating>,
     panes: HashMap<String, PaneState>,
     show_panes: bool,
 }
@@ -162,6 +190,7 @@ impl App {
             pending_approval: None,
             pending_mcp_credential: None,
             pending_replay: None,
+            pending_rating: None,
             panes: HashMap::new(),
             show_panes: false,
         }
@@ -208,6 +237,53 @@ impl App {
             UiEvent::TurnStats { output_tokens, .. } => {
                 self.total_output_tokens += output_tokens;
                 return; // not a tree node
+            }
+            UiEvent::JudgeScoreReady {
+                config_name,
+                query,
+                judge_model,
+                scores,
+                dimensions,
+                backtracking_rationale,
+                wall_secs,
+                rework_count,
+                judge_timestamp,
+                ..
+            } => {
+                // Show summary in conversation view.
+                let score_text = dimensions
+                    .iter()
+                    .filter_map(|d| scores.get(d).map(|s| format!("{d} {s:.1}")))
+                    .collect::<Vec<_>>()
+                    .join(" | ");
+                let mut info = format!("[judge/{judge_model}] {score_text}");
+                if let Some(ws) = wall_secs {
+                    info.push_str(&format!("  Time: {ws:.0}s"));
+                }
+                if let Some(rc) = rework_count {
+                    info.push_str(&format!("  Rework: {rc}"));
+                }
+                self.misc_info(info);
+                if !backtracking_rationale.is_empty() {
+                    for rationale in backtracking_rationale.iter() {
+                        self.misc_info(format!("  backtrack: {rationale}"));
+                    }
+                }
+                self.pending_rating = Some(PendingRating {
+                    config_name: config_name.clone(),
+                    query: query.clone(),
+                    judge_scores: scores.clone(),
+                    dimensions: dimensions.clone(),
+                    backtracking_rationale: backtracking_rationale.clone(),
+                    wall_secs: *wall_secs,
+                    rework_count: *rework_count,
+                    judge_timestamp: judge_timestamp.clone(),
+                });
+                return;
+            }
+            UiEvent::JudgeError { config_name, error, .. } => {
+                self.misc_error(format!("[judge] {config_name}: {error}"));
+                return;
             }
             UiEvent::NetworkApproval(inner) => {
                 self.approvals_q.push_back(inner.clone());
@@ -971,6 +1047,16 @@ impl App {
                         return;
                     }
 
+                    if msg.starts_with("/rate ") {
+                        self.handle_rate_slash(msg[6..].trim());
+                        return;
+                    }
+
+                    if msg.eq_ignore_ascii_case("/accept") {
+                        self.handle_accept_slash();
+                        return;
+                    }
+
                     if msg.starts_with('!') {
                         let shell_cmd = msg[1..].trim().to_string();
                         if shell_cmd.is_empty() {
@@ -1137,6 +1223,63 @@ impl App {
         }
     }
 
+    fn handle_rate_slash(&mut self, args: &str) {
+        let Some(ref pending) = self.pending_rating else {
+            self.misc_info("[rate] No pending judge scores to rate.");
+            return;
+        };
+        let raw: Vec<&str> = args.split_whitespace().collect();
+        if raw.len() != pending.dimensions.len() {
+            self.misc_info(format!(
+                "[rate] Expected {} scores ({}), got {}. Example: /rate {}",
+                pending.dimensions.len(),
+                pending.dimensions.join(" "),
+                raw.len(),
+                (0..pending.dimensions.len()).map(|_| "8").collect::<Vec<_>>().join(" "),
+            ));
+            return;
+        }
+        let mut scores = HashMap::new();
+        for (dim, raw_score) in pending.dimensions.iter().zip(raw.iter()) {
+            match raw_score.parse::<f64>() {
+                Ok(s) => { scores.insert(dim.clone(), s.clamp(1.0, 10.0)); }
+                Err(_) => {
+                    self.misc_error(format!("[rate] Invalid score '{raw_score}' for {dim} — expected a number."));
+                    return;
+                }
+            }
+        }
+        self.submit_rating(scores);
+    }
+
+    fn handle_accept_slash(&mut self) {
+        let Some(ref pending) = self.pending_rating else {
+            self.misc_info("[rate] No pending judge scores to accept.");
+            return;
+        };
+        let scores = pending.judge_scores.clone();
+        self.submit_rating(scores);
+    }
+
+    fn submit_rating(&mut self, scores: HashMap<String, f64>) {
+        let Some(pending) = self.pending_rating.take() else { return };
+        let Some(ref tx) = self.config.rating_tx else {
+            self.misc_info("[rate] Rating store not configured.");
+            return;
+        };
+        let submission = RatingSubmission {
+            config_name: pending.config_name.clone(),
+            query: pending.query.clone(),
+            scores,
+            judge_timestamp: Some(pending.judge_timestamp.clone()),
+        };
+        if tx.send(submission).is_err() {
+            self.misc_error("[rate] Rating channel disconnected.");
+        } else {
+            self.misc_info(format!("[rate] Rating submitted for {}.", pending.config_name));
+        }
+    }
+
     // ── Rendering ──────────────────────────────────────────────────
 
     fn render_in(&mut self, frame: &mut Frame, area: ratatui::layout::Rect) {
@@ -1287,7 +1430,24 @@ impl App {
         frame.render_widget(output, conv_area);
 
         if !replay_mode {
-            let input_display = if let Some(ref _pr) = self.pending_replay {
+            let input_display = if let Some(ref pr) = self.pending_rating {
+                let score_hint = pr.dimensions.iter()
+                    .filter_map(|d| pr.judge_scores.get(d).map(|s| format!("{d} {s:.0}")))
+                    .collect::<Vec<_>>()
+                    .join(" | ");
+                let mut line = format!("[judge] {score_hint}");
+                if let Some(ws) = pr.wall_secs {
+                    line.push_str(&format!("  Time: {ws:.0}s"));
+                }
+                if let Some(rc) = pr.rework_count {
+                    line.push_str(&format!("  Rework: {rc}"));
+                }
+                if self.input.is_empty() {
+                    format!("{line}  \u{2502}  /accept or /rate {} (then Enter)", pr.dimensions.iter().map(|_| "N").collect::<Vec<_>>().join(" "))
+                } else {
+                    format!("{line}  \u{2502}  > {}", self.input)
+                }
+            } else if let Some(ref _pr) = self.pending_replay {
                 format!(
                     "[replay] Config path(s), comma-separated (blank=cancel): {}",
                     self.input
@@ -1328,7 +1488,9 @@ impl App {
                 format!("> {}", self.input)
             };
 
-            let input_style = if self.pending_replay.is_some() {
+            let input_style = if self.pending_rating.is_some() {
+                Style::default().fg(Color::Yellow)
+            } else if self.pending_replay.is_some() {
                 Style::default().fg(Color::Green)
             } else if self.pending_mcp_credential.is_some() {
                 Style::default().fg(Color::Magenta)
@@ -1557,6 +1719,7 @@ pub fn run_tui(
         web_ui_url: config.web_ui_url.clone(),
         replay_label: config.replay_label.clone(),
         add_tab_rx: None,
+        rating_tx: config.rating_tx.clone(),
     };
     for _ in 0..event_rxs.len() {
         apps.push(App::new(shared_config.clone()));
@@ -1744,6 +1907,7 @@ impl Clone for TuiConfig {
             web_ui_url: self.web_ui_url.clone(),
             replay_label: self.replay_label.clone(),
             add_tab_rx: None, // not cloneable; only used in the outer run_tui
+            rating_tx: self.rating_tx.clone(),
         }
     }
 }

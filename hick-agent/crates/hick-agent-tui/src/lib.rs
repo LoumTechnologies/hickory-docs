@@ -6,4 +6,4 @@
 
 mod run;
 
-pub use run::{run_tui, TabSource, TuiConfig};
+pub use run::{run_tui, RatingSubmission, TabSource, TuiConfig};

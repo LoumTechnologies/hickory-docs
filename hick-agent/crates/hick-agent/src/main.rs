@@ -6,6 +6,7 @@
 //! are available as first-class subcommands.
 
 mod config;
+mod judge_task;
 
 use std::fmt;
 use std::io::Write as _;
@@ -648,6 +649,33 @@ fn load_extensions(
         hick_edit: true,
         ..Default::default()
     }
+}
+
+/// Load `[eval.judge]` from config resolution order.
+/// Returns `None` if no config is found or the judge section is absent.
+fn load_eval_judge(
+    explicit_config: Option<&std::path::Path>,
+    project_dir: &std::path::Path,
+) -> Option<config::JudgeSection> {
+    let path = explicit_config.map(|p| p.to_path_buf()).or_else(|| {
+        let proj = project_dir.join(".hick/agent.toml");
+        if proj.exists() {
+            return Some(proj);
+        }
+        std::env::var("HOME")
+            .ok()
+            .map(|h| PathBuf::from(h).join(".hick/agent.toml"))
+            .filter(|p| p.exists())
+    });
+
+    if let Some(path) = path {
+        if let Ok(config::AgentConfig::Point(pc)) =
+            config::AgentConfig::load(Some(&path), project_dir)
+        {
+            return pc.eval.judge;
+        }
+    }
+    None
 }
 
 // ── HickAgentIo ───────────────────────────────────────────────────────────────
@@ -1430,6 +1458,16 @@ async fn main() -> Result<()> {
             // Per-tab channel pair (also used for web server fanout).
             let primary_tab_label = format!("{provider_name} / {model_name}");
 
+            // Spawn judge task for primary config if configured (AC #2).
+            if let Some(judge) = load_eval_judge(config.as_deref(), &project_dir) {
+                let sub = ui_fanout_tx.subscribe();
+                let task_cfg = judge_task::JudgeTaskConfig {
+                    judge_section: judge,
+                    config_name: primary_tab_label.clone(),
+                };
+                tokio::spawn(judge_task::run_judge_task(sub, task_cfg, ui_fanout_tx.clone()));
+            }
+
             // ── Multi-config extra tabs ───────────────────────────────────────────
             // Build a TabSource for the primary config first, then one per extra config.
             // The add_tab sender stays in main for mid-session AddConfigPath commands.
@@ -1601,6 +1639,24 @@ async fn main() -> Result<()> {
 
                 tokio::spawn(agent_task(ex_ctx, ex_hick_io, ex_history));
 
+                // Spawn judge task for this extra config if configured (AC #2).
+                if let Ok(config::AgentConfig::Point(pc)) =
+                    config::AgentConfig::load(Some(&extra_cfg_path), &project_dir)
+                {
+                    if let Some(judge) = pc.eval.judge {
+                        let sub = ex_ui_fanout_tx.subscribe();
+                        let task_cfg = judge_task::JudgeTaskConfig {
+                            judge_section: judge,
+                            config_name: ex_tab_label.clone(),
+                        };
+                        tokio::spawn(judge_task::run_judge_task(
+                            sub,
+                            task_cfg,
+                            ex_ui_fanout_tx.clone(),
+                        ));
+                    }
+                }
+
                 all_tab_sources.push(TabSource {
                     label: ex_tab_label.clone(),
                     event_rx: ex_ui_rx,
@@ -1695,6 +1751,10 @@ async fn main() -> Result<()> {
             // For simplicity, ignore them for now — dynamic adding is wired via add_tab_rx.
             let _ = add_tab_tx; // kept for future mid-session addition
 
+            // Rating channel: TUI writes RatingSubmission; handler persists HumanRatingRecord.
+            let (rating_tx, rating_rx) = mpsc::unbounded_channel::<hick_agent_tui::RatingSubmission>();
+            tokio::spawn(handle_rating_submissions(rating_rx));
+
             let interrupt_tui = Arc::clone(&interrupt);
             tokio::task::spawn_blocking(move || {
                 run_tui(
@@ -1708,6 +1768,7 @@ async fn main() -> Result<()> {
                         web_ui_url,
                         replay_label: None,
                         add_tab_rx: Some(add_tab_rx),
+                        rating_tx: Some(rating_tx),
                     },
                 )
             })
@@ -2037,6 +2098,8 @@ async fn write_replay_eval_record(
         scores: None,
         token_cost: None,
         original_turn_id: Some(original_turn_id.to_string()),
+        wall_secs: None,
+        rework_count: None,
     };
 
     if let Err(e) = backend.append(&EvalRecord::EvalResult(record)) {
@@ -2074,6 +2137,8 @@ async fn write_eval_session_records(project_dir: &std::path::Path, config_names:
             scores: None,
             token_cost: None,
             original_turn_id: None,
+            wall_secs: None,
+            rework_count: None,
         };
         if let Err(e) = backend.append(&EvalRecord::EvalResult(record)) {
             log::warn!("eval store: failed to append record for {config_name}: {e}");
@@ -2081,6 +2146,49 @@ async fn write_eval_session_records(project_dir: &std::path::Path, config_names:
     }
 
     backend.sync_session();
+}
+
+// ── Rating handler (TASK-48 AC #4) ───────────────────────────────────────────
+
+async fn handle_rating_submissions(
+    mut rating_rx: mpsc::UnboundedReceiver<hick_agent_tui::RatingSubmission>,
+) {
+    use hick_eval_store::{EvalRecord, GitBackend, HumanRatingRecord, MachineId, StorageBackend};
+
+    while let Some(sub) = rating_rx.recv().await {
+        let backend = match GitBackend::new() {
+            Ok(b) => b,
+            Err(e) => {
+                log::warn!("eval store: failed to open git backend for rating: {e}");
+                continue;
+            }
+        };
+
+        let machine_id = MachineId::load()
+            .map(|m| m.uuid().to_string())
+            .unwrap_or_else(|_| "unknown".to_string());
+
+        let judge_ts = sub
+            .judge_timestamp
+            .as_deref()
+            .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
+            .map(|t| t.with_timezone(&chrono::Utc));
+
+        let record = HumanRatingRecord {
+            machine_id,
+            timestamp: chrono::Utc::now(),
+            config_name: sub.config_name,
+            query: sub.query,
+            scores: sub.scores,
+            judge_timestamp: judge_ts,
+        };
+
+        if let Err(e) = backend.append(&EvalRecord::HumanRating(record)) {
+            log::warn!("eval store: failed to append human rating: {e}");
+        } else {
+            backend.sync_session();
+        }
+    }
 }
 
 // ── Replay ────────────────────────────────────────────────────────────────────
@@ -2149,6 +2257,7 @@ async fn run_replay_tui(
                 web_ui_url: None,
                 replay_label: Some(label),
                 add_tab_rx: None,
+                rating_tx: None,
             },
         )
     })
