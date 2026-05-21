@@ -607,6 +607,32 @@ fn detect_images_dir(start: &std::path::Path) -> Option<(PathBuf, String)> {
             break;
         }
     }
+
+    // Fallback: check ~/.local/share/hick/images/ (populated by `just install`)
+    if let Some(home) = std::env::var_os("HOME") {
+        let global_dir = PathBuf::from(home).join(".local/share/hick/images");
+        if global_dir.is_dir() {
+            if let Ok(entries) = std::fs::read_dir(&global_dir) {
+                for entry in entries.flatten() {
+                    let image_dir = entry.path();
+                    if !image_dir.is_dir() {
+                        continue;
+                    }
+                    if let Ok(files) = std::fs::read_dir(&image_dir) {
+                        for file in files.flatten() {
+                            let p = file.path();
+                            if p.extension().and_then(|e| e.to_str()) == Some("wasm") {
+                                if let Some(stem) = p.file_stem().and_then(|s| s.to_str()) {
+                                    return Some((image_dir, stem.to_string()));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     None
 }
 

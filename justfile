@@ -85,12 +85,16 @@ rebuild-alpine VERSION="3.23.2":
 
 # ── Install ────────────────────────────────────────────────────────────────────
 
-# Build and install the `hick` binary to ~/.local/bin (no sudo required).
+# Build and install the `hick` binary to ~/.local/bin and copy WASM images to
+# ~/.local/share/hick/images/ so `hick` works from any directory (no sudo required).
 install:
     cargo build --release -p hick-agent
     @mkdir -p ~/.local/bin
     @cp target/release/hick ~/.local/bin/hick
+    @mkdir -p ~/.local/share/hick/images
+    @cp -r "{{IMAGES_DIR}}/." ~/.local/share/hick/images/
     @echo "Installed: $(~/.local/bin/hick --version 2>/dev/null || echo ~/.local/bin/hick)"
+    @echo "Images:    ~/.local/share/hick/images"
 
 # ── Tests ──────────────────────────────────────────────────────────────────────
 
