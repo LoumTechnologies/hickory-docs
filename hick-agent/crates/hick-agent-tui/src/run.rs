@@ -247,6 +247,7 @@ impl App {
         let node_id = self.id_gen.next();
         self.ingest(&UiEvent::Info {
             node_id,
+            parent_id: None,
             text: text.into(),
         });
     }
@@ -264,6 +265,7 @@ impl App {
             let node_id = self.id_gen.next();
             self.tree.apply(&UiEvent::Info {
                 node_id,
+                parent_id: None,
                 text: "─────────────────────────────────".into(),
             });
             self.pending_turn_sep = false;
@@ -350,6 +352,7 @@ impl App {
                 let sep_id = self.id_gen.next();
                 self.tree.apply(&UiEvent::Info {
                     node_id: sep_id,
+                    parent_id: None,
                     text: format!("── {label} (from \u{23f5}#{fork_node_id}) ──"),
                 });
             }
@@ -2180,6 +2183,7 @@ async fn run_mcp_install_task(
     let send_info = |text: String| {
         let _ = ui_tx.send(UiEvent::Info {
             node_id: ids.next(),
+            parent_id: None,
             text,
         });
     };

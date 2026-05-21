@@ -141,7 +141,7 @@ fn parse_session_xml(xml: &str) -> Vec<UiEvent> {
                 });
             }
             "session-end" => {
-                events.push(UiEvent::Done { node_id: id_gen.next() });
+                events.push(UiEvent::Done { node_id: id_gen.next(), parent_id: None });
             }
             // state-transition, diagnostic, session root — skip silently.
             _ => {}

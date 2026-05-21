@@ -290,10 +290,10 @@ impl ConversationTree {
                     now,
                 );
             }
-            UiEvent::Info { node_id, text } => {
+            UiEvent::Info { node_id, parent_id, text } => {
                 self.insert_node(
                     *node_id,
-                    None,
+                    *parent_id,
                     ConversationNodeKind::Info,
                     false,
                     ConversationPayload::Text(text.clone()),
@@ -310,20 +310,20 @@ impl ConversationTree {
                     now,
                 );
             }
-            UiEvent::Done { node_id } => {
+            UiEvent::Done { node_id, parent_id } => {
                 self.insert_node(
                     *node_id,
-                    None,
+                    *parent_id,
                     ConversationNodeKind::Done,
                     false,
                     ConversationPayload::Empty,
                     now,
                 );
             }
-            UiEvent::Interrupted { node_id } => {
+            UiEvent::Interrupted { node_id, parent_id } => {
                 self.insert_node(
                     *node_id,
-                    None,
+                    *parent_id,
                     ConversationNodeKind::Interrupted,
                     false,
                     ConversationPayload::Empty,

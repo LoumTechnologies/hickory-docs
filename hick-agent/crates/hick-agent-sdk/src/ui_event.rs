@@ -303,6 +303,7 @@ pub enum UiEvent {
     /// Informational status line.
     Info {
         node_id: NodeId,
+        parent_id: Option<NodeId>,
         text: String,
     },
     /// Recoverable or fatal error message for display.
@@ -313,10 +314,12 @@ pub enum UiEvent {
     /// Turn / iteration completed.
     Done {
         node_id: NodeId,
+        parent_id: Option<NodeId>,
     },
     /// User or policy interrupted execution.
     Interrupted {
         node_id: NodeId,
+        parent_id: Option<NodeId>,
     },
     /// A new conversation branch was created by rewinding to `fork_node_id`.
     BranchStarted {
@@ -511,9 +514,10 @@ pub fn ui_event_wire_value(ev: &UiEvent) -> serde_json::Value {
             "parent_id": opt_id(*parent_id),
             "json": json,
         }),
-        UiEvent::Info { node_id, text } => serde_json::json!({
+        UiEvent::Info { node_id, parent_id, text } => serde_json::json!({
             "type": "info",
             "node_id": node_id.0,
+            "parent_id": opt_id(*parent_id),
             "text": text,
         }),
         UiEvent::Error { node_id, text } => serde_json::json!({
@@ -521,13 +525,15 @@ pub fn ui_event_wire_value(ev: &UiEvent) -> serde_json::Value {
             "node_id": node_id.0,
             "text": text,
         }),
-        UiEvent::Done { node_id } => serde_json::json!({
+        UiEvent::Done { node_id, parent_id } => serde_json::json!({
             "type": "done",
             "node_id": node_id.0,
+            "parent_id": opt_id(*parent_id),
         }),
-        UiEvent::Interrupted { node_id } => serde_json::json!({
+        UiEvent::Interrupted { node_id, parent_id } => serde_json::json!({
             "type": "interrupted",
             "node_id": node_id.0,
+            "parent_id": opt_id(*parent_id),
         }),
         UiEvent::BranchStarted { node_id, fork_node_id, label } => serde_json::json!({
             "type": "branch_started",
@@ -608,8 +614,8 @@ impl std::fmt::Debug for UiEvent {
             UiEvent::AdaptiveCard { node_id, .. } => f.debug_tuple("AdaptiveCard").field(node_id).finish(),
             UiEvent::Info { node_id, .. } => f.debug_tuple("Info").field(node_id).finish(),
             UiEvent::Error { node_id, .. } => f.debug_tuple("Error").field(node_id).finish(),
-            UiEvent::Done { node_id } => f.debug_tuple("Done").field(node_id).finish(),
-            UiEvent::Interrupted { node_id } => f.debug_tuple("Interrupted").field(node_id).finish(),
+            UiEvent::Done { node_id, .. } => f.debug_tuple("Done").field(node_id).finish(),
+            UiEvent::Interrupted { node_id, .. } => f.debug_tuple("Interrupted").field(node_id).finish(),
             UiEvent::BranchStarted { node_id, .. } => f.debug_tuple("BranchStarted").field(node_id).finish(),
             UiEvent::PaneContent { node_id, .. } => f.debug_tuple("PaneContent").field(node_id).finish(),
             UiEvent::TurnStats { node_id, .. } => f.debug_tuple("TurnStats").field(node_id).finish(),

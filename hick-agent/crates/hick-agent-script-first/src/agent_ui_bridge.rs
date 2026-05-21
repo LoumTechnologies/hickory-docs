@@ -82,7 +82,7 @@ impl AgentUiBridge {
         match event {
             AgentEvent::Info(text) => {
                 let node_id = self.ids.next();
-                vec![UiEvent::Info { node_id, text }]
+                vec![UiEvent::Info { node_id, parent_id: self.turn_parent, text }]
             }
             AgentEvent::UserMessage(_) => {
                 // UserTurn is emitted immediately by run_ui_event_fanout_task when
@@ -185,14 +185,15 @@ impl AgentUiBridge {
                     events.push(UiEvent::AssistantDone { node_id: assistant_id, text: text.clone() });
                     self.turn_history.push(Message { role: Role::Assistant, content: text.clone() });
                 }
+                let done_parent = self.turn_parent;
                 let done_id = self.ids.next();
                 self.turn_parent = Some(done_id);
-                events.push(UiEvent::Done { node_id: done_id });
+                events.push(UiEvent::Done { node_id: done_id, parent_id: done_parent });
                 events
             }
             AgentEvent::Interrupted => {
                 let node_id = self.ids.next();
-                vec![UiEvent::Interrupted { node_id }]
+                vec![UiEvent::Interrupted { node_id, parent_id: self.turn_parent }]
             }
             AgentEvent::Error(text) => {
                 let node_id = self.ids.next();
@@ -205,6 +206,7 @@ impl AgentUiBridge {
                 let node_id = self.ids.next();
                 vec![UiEvent::Info {
                     node_id,
+                    parent_id: self.turn_parent,
                     text: format!("classification ({source}): {classification}"),
                 }]
             }
@@ -219,6 +221,7 @@ impl AgentUiBridge {
                 let node_id = self.ids.next();
                 vec![UiEvent::Info {
                     node_id,
+                    parent_id: self.turn_parent,
                     text: format!("reprompt (attempt {attempt}): {reason}"),
                 }]
             }
@@ -226,6 +229,7 @@ impl AgentUiBridge {
                 let node_id = self.ids.next();
                 vec![UiEvent::Info {
                     node_id,
+                    parent_id: self.turn_parent,
                     text: format!("[mcp install] {msg}"),
                 }]
             }
@@ -233,6 +237,7 @@ impl AgentUiBridge {
                 let node_id = self.ids.next();
                 vec![UiEvent::Info {
                     node_id,
+                    parent_id: self.turn_parent,
                     text: format!(
                         "[mcp install] complete — {} tool(s): {}",
                         tools.len(),
@@ -411,6 +416,7 @@ fn handle_web_network_approval(
     let info_id = bridge.ids.next();
     let _ = ui_tx.send(UiEvent::Info {
         node_id: info_id,
+        parent_id: None,
         text: match (verdict, desc) {
             ("allow", Some(rule)) => format!("[network] Always allow: {rule}"),
             ("allow", None) => "[network] Allowed (this request only)".to_string(),
@@ -460,6 +466,7 @@ fn handle_replay_turn(
     let info_id = bridge.ids.next();
     let _ = ui_tx.send(UiEvent::Info {
         node_id: info_id,
+        parent_id: None,
         text: format!(
             "[replay] Queuing replay of turn #{node_id} against {} config(s)…",
             config_paths.len()
