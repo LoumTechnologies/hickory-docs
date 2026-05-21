@@ -588,7 +588,14 @@ impl App {
                     ConversationPayload::Text(t) => t.clone(),
                     _ => String::new(),
                 };
-                push_row_tagged(LineKind::User, format!("{pref}{chev}>{text}"));
+                let mut lines = text.split('\n');
+                let first = lines.next().unwrap_or("");
+                push_row_tagged(LineKind::User, format!("{pref}{chev}>{first}"));
+                let pad = pref.chars().count() + chev.chars().count() + 1;
+                let spacer = " ".repeat(pad);
+                for ln in lines {
+                    out.push(StyledLine { kind: LineKind::User, text: format!("{spacer}{ln}") });
+                }
             }
             ConversationNodeKind::Thinking => {
                 if folded {
