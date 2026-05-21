@@ -4,7 +4,7 @@ title: 'Eval runner: run one agent configuration against one task and emit XML r
 status: To Do
 assignee: []
 created_date: '2026-05-16 12:13'
-updated_date: '2026-05-16 12:34'
+updated_date: '2026-05-21 01:49'
 labels:
   - evaluation
   - runner
@@ -85,4 +85,21 @@ hick-eval run --config eval/configs/sonnet-script-hick-edit.toml \
 - [ ] #4 Wall-clock timeout is enforced; a timed-out run records exit-status='timeout' in the XML.
 - [ ] #5 Agent configuration is read from a TOML file, not hard-coded — swapping configs requires no recompilation.
 - [ ] #6 Result XML is well-formed and contains all fields shown in the spec above.
+- [ ] #7 Result XML <timing> element includes a rework-count attribute counting tool calls that reversed a prior action in the same run; the field is 0 (not absent) when no rework occurred.
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+## Rework / backtracking tracking
+
+The timing block must include a `rework-count` attribute: the number of tool calls that explicitly reversed a prior action (e.g. file overwrites that undo a previous write, reverted edits, repeated identical calls after a failure). This is distinct from turn count — a model that makes 6 turns cleanly is categorically different from one that makes 6 turns including 2 backtracks.
+
+Updated `<timing>` spec:
+
+```xml
+<timing wall-secs="47.2" turns="8" rework-count="2"/>
+```
+
+The runner infers `rework-count` from the agent's tool call log: any write to a path that was already written in the same run, or any edit that touches lines already edited, increments the counter. This is a conservative lower bound — the judge may surface additional backtracking the log does not make explicit.
+<!-- SECTION:NOTES:END -->

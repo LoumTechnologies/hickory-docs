@@ -4,6 +4,7 @@ title: 'Shared frontend crate: non-interactive (scriptable) CLI invocation mode'
 status: To Do
 assignee: []
 created_date: '2026-05-16 12:33'
+updated_date: '2026-05-20 17:32'
 labels:
   - frontend
   - cli
@@ -63,10 +64,16 @@ The crate exposes a `run_non_interactive(config, agent_loop_fn)` entry point tha
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 A shared crate exists and is linked by all existing agent binary crates.
-- [ ] #2 Each binary accepts --non-interactive, --prompt, --workspace, --perf-log, --max-turns, --timeout-secs flags when the crate is linked.
-- [ ] #3 Running a binary in non-interactive mode with a prompt file drives the agent to completion without any stdin interaction.
+- [ ] #1 A shared crate exists and is linked by the hick binary (hick-agent/crates/hick-agent/). iron-peak and copper-ledge no longer exist — TASK-43 replaced them with hick.
+- [ ] #2 hick accepts --non-interactive, --prompt, --workspace, --perf-log, --max-turns, --timeout-secs flags when the crate is linked.
+- [ ] #3 Running hick in non-interactive mode with a prompt file drives the agent to completion without any stdin interaction.
 - [ ] #4 Exit code is 0 on clean completion and non-zero on agent error or timeout.
 - [ ] #5 Interactive (TUI) mode is unaffected when --non-interactive is absent.
 - [ ] #6 The crate is documented well enough that a new binary crate author can adopt it with a single function call.
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+AC updated 2026-05-20: replaced references to copper-ledge/iron-peak with hick (TASK-43 consolidated to a single binary). Also note TASK-24 referenced in description is actually TASK-26 (perf log format).
+<!-- SECTION:NOTES:END -->

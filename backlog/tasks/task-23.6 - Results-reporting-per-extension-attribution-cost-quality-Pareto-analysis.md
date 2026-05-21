@@ -4,6 +4,7 @@ title: 'Results reporting: per-extension attribution, cost-quality Pareto analys
 status: To Do
 assignee: []
 created_date: '2026-05-16 12:13'
+updated_date: '2026-05-21 01:49'
 labels:
   - evaluation
   - reporting
@@ -71,4 +72,32 @@ The reporter must handle OFAT, fractional-factorial, and exhaustive result sets 
 - [ ] #4 Markdown report is written to results/<run-set-id>/report.md.
 - [ ] #5 `just eval-report` runs the reporter against the most recent results directory.
 - [ ] #6 Reporter handles missing or timed-out runs gracefully (marks them N/A rather than crashing).
+- [ ] #7 Summary table includes Avg Time-to-Done (wall seconds) and Avg Rework columns populated from result XML.
+- [ ] #8 A cost-vs-time Pareto frontier is produced alongside the cost-vs-quality Pareto, with rework rate annotated on each config.
+- [ ] #9 When a human rating UI consumes the report, wall time and rework count are displayed as non-editable ground-truth fields.
 <!-- AC:END -->
+
+## Implementation Notes
+
+<!-- SECTION:NOTES:BEGIN -->
+## Speed metrics and time-to-done
+
+The summary table must include Avg Time-to-Done (wall seconds) alongside cost and quality. Turn count alone is misleading: a fast model with 15 turns can complete before a slow model with 6 turns, and a model that backtracks inflates both turn count and wall time.
+
+Updated summary table spec:
+
+| Config | Avg Quality | Avg Cost (USD) | Avg Time (s) | Avg Turns | Avg Rework | Runs |
+|---|---|---|---|---|---|---|
+| baseline | 0.62 | $0.041 | 61 | 6.2 | 0.4 | 8 |
+| +script-first | 0.81 | $0.089 | 94 | 9.4 | 1.1 | 8 |
+
+## Cost-vs-time Pareto frontier
+
+In addition to the cost-vs-quality Pareto, produce a **cost-vs-time** Pareto: configurations not dominated on both cost and wall time. This surfaces the "cheap but slow" vs "expensive but fast" tradeoff directly. A config that is cheaper AND faster than another is strictly better on efficiency grounds regardless of quality.
+
+Label each config on the Pareto charts with its rework rate so humans can see whether speed is coming from clean execution or from brute-force retries.
+
+## Human-as-judge surface
+
+When the report is consumed by a human rating UI, wall time and rework count MUST be shown as non-editable ground-truth facts alongside the pre-populated judge scores. The human should see: 'This run took 94s with 3 reworks' before they decide whether to override a judge score.
+<!-- SECTION:NOTES:END -->
