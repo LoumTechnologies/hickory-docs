@@ -813,6 +813,10 @@ impl AgentIo for HickAgentIo {
     fn print_status_update(&self, text: &str) {
         self.event_tx.send(AgentEvent::Done(text.to_string())).ok();
     }
+
+    fn notify_interrupted(&self) {
+        self.event_tx.send(AgentEvent::Interrupted).ok();
+    }
 }
 
 impl HickAgentIo {
@@ -1067,11 +1071,12 @@ async fn agent_task(
     ctx: AgentContext,
     io: Arc<HickAgentIo>,
     mut history: AgentHistory,
+    interrupt: Arc<tokio::sync::Notify>,
 ) {
     let running = Arc::clone(&io.running);
     loop {
         running.store(true, Ordering::SeqCst);
-        run_agent_engine(&ctx, &mut history, Arc::clone(&running)).await;
+        run_agent_engine(&ctx, &mut history, Arc::clone(&running), Arc::clone(&interrupt)).await;
 
         // Check what caused the engine to exit.
         let pending = {
@@ -1630,7 +1635,7 @@ async fn main() -> Result<()> {
             // Suppress unused warning — sink_guard is captured for future use
             let _ = sink_guard;
 
-            tokio::spawn(agent_task(ctx, hick_io, history.clone()));
+            tokio::spawn(agent_task(ctx, hick_io, history.clone(), Arc::clone(&interrupt)));
 
             // Per-tab channel pair (also used for web server fanout).
             let primary_tab_label = format!("{provider_name} / {model_name}");
@@ -1814,7 +1819,7 @@ async fn main() -> Result<()> {
                     io: Arc::clone(&ex_hick_io) as Arc<dyn AgentIo>,
                 };
 
-                tokio::spawn(agent_task(ex_ctx, ex_hick_io, ex_history));
+                tokio::spawn(agent_task(ex_ctx, ex_hick_io, ex_history, Arc::clone(&ex_interrupt)));
 
                 // Spawn judge task for this extra config if configured (AC #2).
                 if let Ok(config::AgentConfig::Point(pc)) =
@@ -2239,7 +2244,7 @@ async fn handle_replay_requests(
                 io: Arc::clone(&rep_hick_io) as Arc<dyn AgentIo>,
             };
 
-            tokio::spawn(agent_task(rep_ctx, rep_hick_io, rep_history));
+            tokio::spawn(agent_task(rep_ctx, rep_hick_io, rep_history, Arc::clone(&rep_interrupt)));
 
             // Send the selected turn's user message as the first prompt.
             rep_cmd_tx.send(AgentCommand::Message(req.user_message.clone())).ok();

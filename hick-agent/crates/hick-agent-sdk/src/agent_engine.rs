@@ -21,6 +21,7 @@ use std::any::Any;
 use std::collections::HashSet;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use tokio::sync::Notify;
 
 use async_trait::async_trait;
 
@@ -371,6 +372,12 @@ pub trait AgentIo: Send + Sync {
 
     /// Emit a status update (task complete, info line, etc.).
     fn print_status_update(&self, text: &str);
+
+    /// Notify the UI that the current turn was interrupted (Ctrl+C).
+    /// Default implementation falls back to `print_status_update`.
+    fn notify_interrupted(&self) {
+        self.print_status_update("(interrupted)");
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -406,7 +413,13 @@ pub async fn run_agent_engine(
     ctx: &AgentContext,
     history: &mut AgentHistory,
     running: Arc<AtomicBool>,
+    interrupt: Arc<Notify>,
 ) {
+    // Index into history.messages() pointing to just before the current user message.
+    // Reset each time the agent becomes idle and accepts a new input. Used to rewind
+    // history on interrupt so the incomplete turn is not sent to the LLM next time.
+    let mut turn_checkpoint: usize = 0;
+
     while running.load(Ordering::SeqCst) {
         if history.is_idle() {
             let input = ctx.io.await_next_input_packet().await;
@@ -414,38 +427,70 @@ pub async fn run_agent_engine(
             if !running.load(Ordering::SeqCst) {
                 break;
             }
+            turn_checkpoint = history.messages().len(); // snapshot before pushing user msg
             history.push_user(input);
             history.mark_active();
         }
 
-        let response = match ctx.llm.complete(history.messages().to_vec()).await {
-            Ok(text) => Message { role: Role::Assistant, content: text },
-            Err(e) => Message { role: Role::Assistant, content: format!("<error>{e}</error>") },
+        let response = tokio::select! {
+            biased;
+            _ = interrupt.notified() => {
+                history.set_messages(history.messages()[..turn_checkpoint].to_vec());
+                history.mark_idle();
+                ctx.io.notify_interrupted();
+                continue;
+            }
+            res = ctx.llm.complete(history.messages().to_vec()) => {
+                match res {
+                    Ok(text) => Message { role: Role::Assistant, content: text },
+                    Err(e) => Message { role: Role::Assistant, content: format!("<error>{e}</error>") },
+                }
+            }
         };
         history.push(response.clone());
 
         match ctx.router.determine_intent(&response) {
             LoopIntent::CallTool(tool_data) => {
-                let result = ctx.executor.run(tool_data).await
-                    .unwrap_or_else(|e| Message {
-                        role: Role::User,
-                        content: format!("<tool-error>{e}</tool-error>"),
-                    });
+                let result = tokio::select! {
+                    biased;
+                    _ = interrupt.notified() => {
+                        history.set_messages(history.messages()[..turn_checkpoint].to_vec());
+                        history.mark_idle();
+                        ctx.io.notify_interrupted();
+                        continue;
+                    }
+                    res = ctx.executor.run(tool_data) => {
+                        res.unwrap_or_else(|e| Message {
+                            role: Role::User,
+                            content: format!("<tool-error>{e}</tool-error>"),
+                        })
+                    }
+                };
                 history.push(result);
             }
             LoopIntent::Custom(name, payload) => {
-                let result = ctx.executor.run_custom(&name, payload).await
-                    .unwrap_or_else(|e| Message {
-                        role: Role::User,
-                        content: format!("<tool-error>{e}</tool-error>"),
-                    });
+                let result = tokio::select! {
+                    biased;
+                    _ = interrupt.notified() => {
+                        history.set_messages(history.messages()[..turn_checkpoint].to_vec());
+                        history.mark_idle();
+                        ctx.io.notify_interrupted();
+                        continue;
+                    }
+                    res = ctx.executor.run_custom(&name, payload) => {
+                        res.unwrap_or_else(|e| Message {
+                            role: Role::User,
+                            content: format!("<tool-error>{e}</tool-error>"),
+                        })
+                    }
+                };
                 history.push(result);
             }
             LoopIntent::DelegateTask(prompt) => {
                 let mut sub = history.branch();
                 sub.push_system(prompt);
                 // Recurse: run the sub-agent until it signals TaskComplete.
-                Box::pin(run_agent_engine(ctx, &mut sub, Arc::clone(&running))).await;
+                Box::pin(run_agent_engine(ctx, &mut sub, Arc::clone(&running), Arc::clone(&interrupt))).await;
                 history.merge(sub, MergeStrategy::SummarizeConformant).ok();
             }
             LoopIntent::TaskComplete(summary) => {
@@ -744,7 +789,7 @@ mod tests {
         };
 
         let mut history = AgentHistory::new();
-        run_agent_engine(&ctx, &mut history, Arc::clone(&running)).await;
+        run_agent_engine(&ctx, &mut history, Arc::clone(&running), Arc::new(Notify::new())).await;
 
         // custom executor was called for the code block.
         let calls = executor_calls.lock().unwrap();

@@ -84,16 +84,11 @@ impl AgentUiBridge {
                 let node_id = self.ids.next();
                 vec![UiEvent::Info { node_id, text }]
             }
-            AgentEvent::UserMessage(text) => {
-                let ev = self.user_turn(text.clone(), None);
-                // Track so the user turn node can be used as a RewindTo target.
-                let node_id = match &ev {
-                    UiEvent::UserTurn { node_id, .. } => *node_id,
-                    _ => unreachable!(),
-                };
-                self.turn_history.push(Message { role: Role::User, content: text });
-                self.node_turn_checkpoint.insert(node_id, self.turn_history.len());
-                vec![ev]
+            AgentEvent::UserMessage(_) => {
+                // UserTurn is emitted immediately by run_ui_event_fanout_task when
+                // UiCommand::Message arrives, so the TUI/web don't wait for this roundtrip.
+                // Suppress the duplicate here.
+                vec![]
             }
             AgentEvent::Thinking => {
                 let node_id = self.ids.next();
@@ -353,6 +348,19 @@ pub async fn run_ui_event_fanout_task(
                             node_id, &verdict, suggestion_index,
                             &mut pending_approvals, &ui_tx, &mut bridge,
                         );
+                    }
+                    Some(UiCommand::Message { text }) => {
+                        // Emit UserTurn immediately so TUI/web display the prompt without
+                        // waiting for the HickAgentIo roundtrip (AgentEvent::UserMessage).
+                        let ev = bridge.user_turn(text.clone(), None);
+                        let node_id = match &ev {
+                            UiEvent::UserTurn { node_id, .. } => *node_id,
+                            _ => unreachable!(),
+                        };
+                        bridge.turn_history.push(Message { role: Role::User, content: text.clone() });
+                        bridge.node_turn_checkpoint.insert(node_id, bridge.turn_history.len());
+                        let _ = ui_tx.send(ev);
+                        agent_cmd_tx.send(AgentCommand::Message(text)).ok();
                     }
                     Some(other) => {
                         if let Some(c) = ui_command_to_agent(other) {
