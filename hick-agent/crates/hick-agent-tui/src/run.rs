@@ -178,6 +178,15 @@ struct App {
     lines: Vec<StyledLine>,
     input: String,
     input_cursor: usize,
+    /// Inner width of the input box last time it was rendered.
+    input_box_inner_width: usize,
+    /// How many rows of the input box are visible (box height minus 2 borders).
+    input_box_visible_rows: u16,
+    /// Vertical scroll offset within the input box (visual rows from top).
+    input_scroll: u16,
+    history: Vec<String>,
+    history_idx: Option<usize>,
+    history_draft: String,
     scroll: usize,
     auto_scroll: bool,
     busy: bool,
@@ -200,7 +209,9 @@ impl App {
         Self {
             tree: ConversationTree::new(),
             fold: HashMap::new(),
-            id_gen: IdGen::new(),
+            // Start well above bridge IDs (which start at 1) so locally-injected
+            // separator nodes never collide with tree nodes emitted by the agent.
+            id_gen: IdGen::with_start(1 << 32),
             preorder_ids: Vec::new(),
             selected_ix: 0,
             pending_turn_sep: false,
@@ -210,6 +221,12 @@ impl App {
             lines: Vec::new(),
             input: String::new(),
             input_cursor: 0,
+            input_box_inner_width: 80,
+            input_box_visible_rows: 1,
+            input_scroll: 0,
+            history: Vec::new(),
+            history_idx: None,
+            history_draft: String::new(),
             scroll: 0,
             auto_scroll: true,
             busy: false,
@@ -784,6 +801,51 @@ impl App {
     }
 
 
+    fn history_up(&mut self) {
+        if self.history.is_empty() {
+            return;
+        }
+        match self.history_idx {
+            None => {
+                self.history_draft = self.input.clone();
+                let idx = self.history.len() - 1;
+                self.history_idx = Some(idx);
+                self.input = self.history[idx].clone();
+            }
+            Some(0) => {}
+            Some(idx) => {
+                let new_idx = idx - 1;
+                self.history_idx = Some(new_idx);
+                self.input = self.history[new_idx].clone();
+            }
+        }
+        self.input_cursor = self.input.len();
+    }
+
+    fn history_down(&mut self) {
+        match self.history_idx {
+            None => return,
+            Some(idx) if idx + 1 < self.history.len() => {
+                let new_idx = idx + 1;
+                self.history_idx = Some(new_idx);
+                self.input = self.history[new_idx].clone();
+            }
+            Some(_) => {
+                self.history_idx = None;
+                self.input = std::mem::take(&mut self.history_draft);
+            }
+        }
+        self.input_cursor = self.input.len();
+    }
+
+    fn history_push(&mut self, msg: &str) {
+        if !msg.is_empty() && self.history.last().map(|s| s.as_str()) != Some(msg) {
+            self.history.push(msg.to_string());
+        }
+        self.history_idx = None;
+        self.history_draft.clear();
+    }
+
     fn handle_key(
         &mut self,
         key: crossterm::event::KeyEvent,
@@ -1088,6 +1150,13 @@ impl App {
                 cmd_tx.send(UiCommand::Quit).ok();
                 self.should_quit = true;
             }
+            // Alt+Enter: insert a newline into the prompt (creates multi-line input).
+            (m, KeyCode::Enter) if m.contains(KeyModifiers::ALT) => {
+                if !self.busy {
+                    self.input.insert(self.input_cursor, '\n');
+                    self.input_cursor += 1;
+                }
+            }
             (_, KeyCode::Enter) => {
                 if self.input.is_empty() && !self.busy {
                     self.toggle_selected_fold();
@@ -1096,6 +1165,7 @@ impl App {
                 if !self.busy && !self.input.is_empty() {
                     let msg = std::mem::take(&mut self.input);
                     self.input_cursor = 0;
+                    self.history_push(&msg);
 
                     if msg.eq_ignore_ascii_case("quit") || msg.eq_ignore_ascii_case("exit") {
                         cmd_tx.send(UiCommand::Quit).ok();
@@ -1148,47 +1218,122 @@ impl App {
             (_, KeyCode::Down) if key.modifiers.contains(KeyModifiers::SHIFT) => {
                 self.bump_collapsible_focus(1);
             }
+            // Ctrl+Backspace: terminals send either Ctrl+Backspace or Ctrl+H (\x08).
+            (m, KeyCode::Backspace) if m.contains(KeyModifiers::CONTROL) => {
+                if !self.busy && self.input_cursor > 0 {
+                    let new_pos = prev_word_start(&self.input, self.input_cursor);
+                    self.input.drain(new_pos..self.input_cursor);
+                    self.input_cursor = new_pos;
+                }
+            }
+            (m, KeyCode::Char('h')) if m.contains(KeyModifiers::CONTROL) => {
+                if !self.busy && self.input_cursor > 0 {
+                    let new_pos = prev_word_start(&self.input, self.input_cursor);
+                    self.input.drain(new_pos..self.input_cursor);
+                    self.input_cursor = new_pos;
+                }
+            }
             (_, KeyCode::Backspace) => {
                 if !self.busy && self.input_cursor > 0 {
                     self.input_cursor -= 1;
                     self.input.remove(self.input_cursor);
                 }
             }
+            (m, KeyCode::Left) if m.contains(KeyModifiers::CONTROL) => {
+                self.input_cursor = prev_word_start(&self.input, self.input_cursor);
+            }
             (_, KeyCode::Left) => {
                 self.input_cursor = self.input_cursor.saturating_sub(1);
+            }
+            (m, KeyCode::Right) if m.contains(KeyModifiers::CONTROL) => {
+                self.input_cursor = next_word_end(&self.input, self.input_cursor);
             }
             (_, KeyCode::Right) => {
                 if self.input_cursor < self.input.len() {
                     self.input_cursor += 1;
                 }
             }
-            (_, KeyCode::Home) => self.input_cursor = 0,
-            (_, KeyCode::End) => self.input_cursor = self.input.len(),
+            (m, KeyCode::Home) if m.contains(KeyModifiers::CONTROL) => self.input_cursor = 0,
+            (_, KeyCode::Home) => {
+                let bw = self.input_box_inner_width;
+                self.input_cursor = visual_row_home(&self.input, self.input_cursor, bw);
+            }
+            (m, KeyCode::End) if m.contains(KeyModifiers::CONTROL) => {
+                self.input_cursor = self.input.len();
+            }
+            (_, KeyCode::End) => {
+                let bw = self.input_box_inner_width;
+                self.input_cursor = visual_row_end(&self.input, self.input_cursor, bw);
+            }
+            (m, KeyCode::Delete) if m.contains(KeyModifiers::CONTROL) => {
+                if !self.busy && self.input_cursor < self.input.len() {
+                    let end = next_word_end(&self.input, self.input_cursor);
+                    self.input.drain(self.input_cursor..end);
+                }
+            }
+            (_, KeyCode::Delete) => {
+                if !self.busy && self.input_cursor < self.input.len() {
+                    self.input.remove(self.input_cursor);
+                }
+            }
             (_, KeyCode::Up) => {
-                if self.input.is_empty() && !self.busy {
-                    self.bump_branchable_focus(-1);
+                if !self.busy {
+                    let bw = self.input_box_inner_width;
+                    if let Some(new_pos) = move_cursor_visual_up(&self.input, self.input_cursor, bw) {
+                        self.input_cursor = new_pos;
+                    } else {
+                        self.history_up();
+                    }
                 } else {
                     self.auto_scroll = false;
                     self.scroll = self.scroll.saturating_sub(1);
                 }
             }
             (_, KeyCode::Down) => {
-                if self.input.is_empty() && !self.busy {
-                    self.bump_branchable_focus(1);
+                if !self.busy {
+                    let bw = self.input_box_inner_width;
+                    if let Some(new_pos) = move_cursor_visual_down(&self.input, self.input_cursor, bw) {
+                        self.input_cursor = new_pos;
+                    } else {
+                        self.history_down();
+                    }
                 } else {
                     self.scroll = self.scroll.saturating_add(1);
                 }
             }
             (_, KeyCode::PageUp) => {
-                self.auto_scroll = false;
-                self.scroll = self.scroll.saturating_sub(20);
+                if !self.busy {
+                    let bw = self.input_box_inner_width;
+                    let page = self.input_box_visible_rows.max(1);
+                    self.input_cursor = move_cursor_visual_page_up(&self.input, self.input_cursor, bw, page);
+                } else {
+                    self.auto_scroll = false;
+                    self.scroll = self.scroll.saturating_sub(20);
+                }
             }
             (_, KeyCode::PageDown) => {
-                self.scroll = self.scroll.saturating_add(20);
+                if !self.busy {
+                    let bw = self.input_box_inner_width;
+                    let page = self.input_box_visible_rows.max(1);
+                    self.input_cursor = move_cursor_visual_page_down(&self.input, self.input_cursor, bw, page);
+                } else {
+                    self.scroll = self.scroll.saturating_add(20);
+                }
+            }
+            // Tab/Shift+Tab: cycle through history (Tab=older, BackTab=newer).
+            // Falls back to pane toggle when there is no history at all.
+            (_, KeyCode::BackTab) => {
+                if !self.busy {
+                    self.history_down();
+                }
             }
             (_, KeyCode::Tab) => {
-                if !self.panes.is_empty() {
-                    self.show_panes = !self.show_panes;
+                if !self.busy {
+                    if !self.history.is_empty() || self.history_idx.is_some() {
+                        self.history_up();
+                    } else if !self.panes.is_empty() {
+                        self.show_panes = !self.show_panes;
+                    }
                 }
             }
             (_, KeyCode::Char('b')) if self.input.is_empty() && !self.busy => {
@@ -1551,12 +1696,31 @@ impl App {
         let area = area;
 
         let replay_mode = self.config.replay_label.is_some();
-        let input_height: u16 = if replay_mode { 0 } else { 3 };
+        // Dynamic input box height: grows with the prompt content.
+        let box_inner_width = area.width.saturating_sub(2) as usize;
+        self.input_box_inner_width = box_inner_width;
+        let input_visual_rows = if replay_mode || self.busy
+            || self.pending_approval.is_some()
+            || self.pending_mcp_credential.is_some()
+            || self.pending_replay.is_some()
+            || self.pending_rating.is_some()
+        {
+            1u16
+        } else {
+            visual_input_rows(&self.input, box_inner_width)
+        };
+        let max_input_height: u16 = (area.height * 3 / 4).max(3);
+        let input_height: u16 = if replay_mode {
+            0
+        } else {
+            (input_visual_rows + 2).min(max_input_height)
+        };
+        self.input_box_visible_rows = input_height.saturating_sub(2);
 
         let constraints = if replay_mode {
             vec![Constraint::Length(1), Constraint::Min(1)]
         } else {
-            vec![Constraint::Length(1), Constraint::Min(1), Constraint::Length(3)]
+            vec![Constraint::Length(1), Constraint::Min(1), Constraint::Length(input_height)]
         };
         let chunks = Layout::vertical(constraints).split(area);
 
@@ -1609,7 +1773,6 @@ impl App {
         ));
         let header = Paragraph::new(Line::from(header_spans));
         frame.render_widget(header, chunks[0]);
-        let _ = input_height;
 
         // Build output text
         let mut text_lines: Vec<Line> = Vec::new();
@@ -1748,7 +1911,7 @@ impl App {
                     "[b] branch from here  [P] pruning view  (type to send a message instead)".to_string()
                 }
             } else {
-                format!("> {}", self.input)
+                self.input.clone()
             };
 
             let input_style = if self.pending_rating.is_some() {
@@ -1765,20 +1928,209 @@ impl App {
                 Style::default().fg(Color::Cyan)
             };
 
-            let input_widget = Paragraph::new(input_display).style(input_style).block(
-                Block::default()
-                    .borders(Borders::ALL)
-                    .border_style(Style::default().fg(Color::DarkGray)),
-            );
+            let input_widget = Paragraph::new(input_display)
+                .style(input_style)
+                .wrap(Wrap { trim: false })
+                .scroll((self.input_scroll, 0))
+                .block(
+                    Block::default()
+                        .borders(Borders::ALL)
+                        .border_style(Style::default().fg(Color::DarkGray)),
+                );
             frame.render_widget(input_widget, chunks[2]);
 
             if !self.busy {
-                let cursor_x = chunks[2].x + 1 + 2 + self.input_cursor as u16;
-                let cursor_y = chunks[2].y + 1;
+                let bw = chunks[2].width.saturating_sub(2) as usize;
+                let (vcol, vrow) = visual_cursor_pos(&self.input, self.input_cursor, bw);
+                // Keep cursor visible by adjusting input_scroll.
+                let visible = self.input_box_visible_rows;
+                if vrow < self.input_scroll {
+                    self.input_scroll = vrow;
+                } else if visible > 0 && vrow >= self.input_scroll + visible {
+                    self.input_scroll = vrow.saturating_sub(visible - 1);
+                }
+                let cursor_x = chunks[2].x + 1 + vcol;
+                let cursor_y = chunks[2].y + 1 + vrow.saturating_sub(self.input_scroll);
                 frame.set_cursor_position((cursor_x, cursor_y));
             }
         }
     }
+}
+
+// ── Visual layout helpers ───────────────────────────────────────────
+//
+// The input is displayed left-justified with no prefix.  All helpers work in
+// terms of (visual-row, visual-col) where wrapping happens exactly at
+// `box_inner_width` — matching ratatui's Wrap { trim: false } behaviour for
+// ASCII text (one byte ≈ one column).  Logical lines are delimited by '\n'.
+
+/// Returns the (col, row) visual cursor position for a given byte offset.
+fn visual_cursor_pos(input: &str, cursor: usize, bw: usize) -> (u16, u16) {
+    if bw == 0 {
+        return (0, 0);
+    }
+    let mut row = 0u16;
+    let mut col = 0u16;
+    let mut pos = 0usize;
+
+    for line in input.split('\n') {
+        for byte_off in 0..=line.len() {
+            if pos + byte_off == cursor {
+                return (col, row);
+            }
+            if byte_off < line.len() {
+                col += 1;
+                if col as usize >= bw {
+                    col = 0;
+                    row += 1;
+                }
+            }
+        }
+        pos += line.len() + 1; // +1 for '\n'
+        row += 1;
+        col = 0;
+    }
+    (col, row)
+}
+
+/// Total number of visual rows the input occupies (without borders).
+fn visual_input_rows(input: &str, bw: usize) -> u16 {
+    if bw == 0 {
+        return 1;
+    }
+    let mut rows = 0u16;
+    for line in input.split('\n') {
+        rows += if line.is_empty() { 1 } else { line.len().div_ceil(bw) as u16 };
+    }
+    rows.max(1)
+}
+
+/// Given a target (row, preferred_col) returns the byte offset whose visual
+/// position is as close as possible; clamps to the end of the target row when
+/// `preferred_col` is past it.
+fn byte_at_visual_row_col(input: &str, target_row: u16, preferred_col: u16, bw: usize) -> usize {
+    if bw == 0 {
+        return 0;
+    }
+    let mut row = 0u16;
+    let mut col = 0u16;
+    let mut pos = 0usize;
+    let mut last = 0usize;
+    let mut found = false;
+
+    for line in input.split('\n') {
+        for byte_off in 0..=line.len() {
+            if row == target_row {
+                found = true;
+                last = pos + byte_off;
+                if col >= preferred_col {
+                    return pos + byte_off;
+                }
+            } else if row > target_row {
+                return last;
+            }
+            if byte_off < line.len() {
+                col += 1;
+                if col as usize >= bw {
+                    col = 0;
+                    row += 1;
+                }
+            }
+        }
+        if row == target_row && found {
+            return last;
+        }
+        pos += line.len() + 1;
+        row += 1;
+        col = 0;
+    }
+    if found { last } else { input.len() }
+}
+
+/// Byte offset at the start of the current visual row (Home key).
+fn visual_row_home(input: &str, cursor: usize, bw: usize) -> usize {
+    let (_, vrow) = visual_cursor_pos(input, cursor, bw);
+    byte_at_visual_row_col(input, vrow, 0, bw)
+}
+
+/// Byte offset at the end of the current visual row (End key).
+/// For soft-wrap rows this is the first byte of the next row (cursor sits at
+/// column 0 of the next visual row — the only way to be "after" the last
+/// visible character in a terminal).  For logical-line endings the cursor
+/// stops before the '\n'.
+fn visual_row_end(input: &str, cursor: usize, bw: usize) -> usize {
+    let (_, vrow) = visual_cursor_pos(input, cursor, bw);
+    let total = visual_input_rows(input, bw);
+    if vrow + 1 >= total {
+        return input.len();
+    }
+    let next_start = byte_at_visual_row_col(input, vrow + 1, 0, bw);
+    // If the next visual row begins right after a '\n', stop before the '\n'.
+    if next_start > 0 && input.as_bytes().get(next_start - 1) == Some(&b'\n') {
+        next_start - 1
+    } else {
+        next_start
+    }
+}
+
+/// Move cursor up one visual row; returns `None` on the first row.
+fn move_cursor_visual_up(input: &str, cursor: usize, bw: usize) -> Option<usize> {
+    let (vcol, vrow) = visual_cursor_pos(input, cursor, bw);
+    if vrow == 0 {
+        return None;
+    }
+    Some(byte_at_visual_row_col(input, vrow - 1, vcol, bw))
+}
+
+/// Move cursor down one visual row; returns `None` on the last row.
+fn move_cursor_visual_down(input: &str, cursor: usize, bw: usize) -> Option<usize> {
+    let (vcol, vrow) = visual_cursor_pos(input, cursor, bw);
+    if vrow + 1 >= visual_input_rows(input, bw) {
+        return None;
+    }
+    Some(byte_at_visual_row_col(input, vrow + 1, vcol, bw))
+}
+
+/// Move cursor up by `page_rows` visual rows (clamps to row 0).
+fn move_cursor_visual_page_up(input: &str, cursor: usize, bw: usize, page_rows: u16) -> usize {
+    let (vcol, vrow) = visual_cursor_pos(input, cursor, bw);
+    let target = vrow.saturating_sub(page_rows);
+    byte_at_visual_row_col(input, target, vcol, bw)
+}
+
+/// Move cursor down by `page_rows` visual rows (clamps to last row).
+fn move_cursor_visual_page_down(input: &str, cursor: usize, bw: usize, page_rows: u16) -> usize {
+    let (vcol, vrow) = visual_cursor_pos(input, cursor, bw);
+    let last_row = visual_input_rows(input, bw).saturating_sub(1);
+    let target = (vrow + page_rows).min(last_row);
+    byte_at_visual_row_col(input, target, vcol, bw)
+}
+
+// ── Word-boundary helpers (byte-indexed, ASCII whitespace) ─────────
+
+fn prev_word_start(s: &str, pos: usize) -> usize {
+    let bytes = s.as_bytes();
+    let mut i = pos;
+    while i > 0 && bytes[i - 1].is_ascii_whitespace() {
+        i -= 1;
+    }
+    while i > 0 && !bytes[i - 1].is_ascii_whitespace() {
+        i -= 1;
+    }
+    i
+}
+
+fn next_word_end(s: &str, pos: usize) -> usize {
+    let bytes = s.as_bytes();
+    let len = bytes.len();
+    let mut i = pos;
+    while i < len && bytes[i].is_ascii_whitespace() {
+        i += 1;
+    }
+    while i < len && !bytes[i].is_ascii_whitespace() {
+        i += 1;
+    }
+    i
 }
 
 // ── /mcp helpers ───────────────────────────────────────────────────

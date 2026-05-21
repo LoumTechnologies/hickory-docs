@@ -67,6 +67,13 @@ impl IdGen {
         }
     }
 
+    /// Create a generator whose first ID is `start` (must be ≥ 1).
+    pub fn with_start(start: u64) -> Self {
+        Self {
+            next: std::sync::atomic::AtomicU64::new(start.max(1)),
+        }
+    }
+
     /// Next identifier (unique for this generator for the process lifetime).
     pub fn next(&self) -> NodeId {
         let n = self

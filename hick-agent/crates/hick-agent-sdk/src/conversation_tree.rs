@@ -352,6 +352,7 @@ impl ConversationTree {
         payload: ConversationPayload,
         timestamp: DateTime<Utc>,
     ) {
+        let already_exists = self.nodes.contains_key(&id);
         let node = ConversationNode {
             id,
             parent_id,
@@ -361,7 +362,11 @@ impl ConversationTree {
             payload,
         };
         self.nodes.insert(id, node);
-        self.children.entry(parent_id).or_default().push(id);
+        // Only register in the children map on first insertion; a second call with
+        // the same NodeId (ID-namespace collision) must not duplicate the entry.
+        if !already_exists {
+            self.children.entry(parent_id).or_default().push(id);
+        }
     }
 
     fn append_text(

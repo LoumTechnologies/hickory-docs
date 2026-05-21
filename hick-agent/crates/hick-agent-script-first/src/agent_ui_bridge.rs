@@ -167,12 +167,28 @@ impl AgentUiBridge {
                     collapsed_by_default: true,
                 }]
             }
-            AgentEvent::Done(_) => {
-                let node_id = self.ids.next();
-                self.turn_parent = Some(node_id);
+            AgentEvent::Done(text) => {
                 self.streaming_assistant = None;
                 self.pending_action = None;
-                vec![UiEvent::Done { node_id }]
+                let mut events: Vec<UiEvent> = Vec::new();
+                // Surface the LLM's final answer (text after <hick:next>done</hick:next>)
+                // as an assistant node so it is visible in the TUI.
+                if !text.trim().is_empty() {
+                    let assistant_id = self.ids.next();
+                    self.last_assistant = Some(assistant_id);
+                    // Bootstrap the node with a parent pointer, then fill it via AssistantDone.
+                    events.push(UiEvent::Thinking {
+                        node_id: assistant_id,
+                        parent_id: self.turn_parent,
+                        text: None,
+                    });
+                    events.push(UiEvent::AssistantDone { node_id: assistant_id, text: text.clone() });
+                    self.turn_history.push(Message { role: Role::Assistant, content: text.clone() });
+                }
+                let done_id = self.ids.next();
+                self.turn_parent = Some(done_id);
+                events.push(UiEvent::Done { node_id: done_id });
+                events
             }
             AgentEvent::Interrupted => {
                 let node_id = self.ids.next();
