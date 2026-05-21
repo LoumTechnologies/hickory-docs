@@ -2311,7 +2311,7 @@ pub fn run_tui(
 
     enable_raw_mode()?;
     let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen)?;
+    execute!(stdout, EnterAlternateScreen, crossterm::event::EnableBracketedPaste)?;
     let backend = CrosstermBackend::new(stdout);
     let mut terminal = Terminal::new(backend)?;
 
@@ -2384,34 +2384,44 @@ pub fn run_tui(
             })?;
 
             if event::poll(Duration::from_millis(16))? {
-                if let Event::Key(key) = event::read()? {
-                    // Tab switching keys (multi-tab only).
-                    if is_multi && key.kind == KeyEventKind::Press {
-                        match (key.modifiers, key.code) {
-                            (_, KeyCode::Char('[')) if apps[active_tab].input.is_empty() => {
-                                active_tab = active_tab.saturating_sub(1);
-                                continue;
+                match event::read()? {
+                    Event::Key(key) => {
+                        // Tab switching keys (multi-tab only).
+                        if is_multi && key.kind == KeyEventKind::Press {
+                            match (key.modifiers, key.code) {
+                                (_, KeyCode::Char('[')) if apps[active_tab].input.is_empty() => {
+                                    active_tab = active_tab.saturating_sub(1);
+                                    continue;
+                                }
+                                (_, KeyCode::Char(']')) if apps[active_tab].input.is_empty() => {
+                                    active_tab = (active_tab + 1).min(n_tabs - 1);
+                                    continue;
+                                }
+                                _ => {}
                             }
-                            (_, KeyCode::Char(']')) if apps[active_tab].input.is_empty() => {
-                                active_tab = (active_tab + 1).min(n_tabs - 1);
-                                continue;
-                            }
-                            _ => {}
+                        }
+
+                        // Fan-out senders: all cmd_txs except the active tab's.
+                        let fanout: Vec<mpsc::UnboundedSender<UiCommand>> = cmd_txs
+                            .iter()
+                            .enumerate()
+                            .filter(|(i, _)| *i != active_tab)
+                            .map(|(_, tx)| tx.clone())
+                            .collect();
+
+                        apps[active_tab].handle_key(key, &cmd_txs[active_tab], &cred_req_tx, &fanout);
+                        if apps[active_tab].should_quit {
+                            break;
                         }
                     }
-
-                    // Fan-out senders: all cmd_txs except the active tab's.
-                    let fanout: Vec<mpsc::UnboundedSender<UiCommand>> = cmd_txs
-                        .iter()
-                        .enumerate()
-                        .filter(|(i, _)| *i != active_tab)
-                        .map(|(_, tx)| tx.clone())
-                        .collect();
-
-                    apps[active_tab].handle_key(key, &cmd_txs[active_tab], &cred_req_tx, &fanout);
-                    if apps[active_tab].should_quit {
-                        break;
+                    Event::Paste(text) => {
+                        let app = &mut apps[active_tab];
+                        if !app.busy {
+                            app.input.insert_str(app.input_cursor, &text);
+                            app.input_cursor += text.len();
+                        }
                     }
+                    _ => {}
                 }
             }
 
@@ -2441,7 +2451,7 @@ pub fn run_tui(
     })();
 
     disable_raw_mode()?;
-    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+    execute!(terminal.backend_mut(), LeaveAlternateScreen, crossterm::event::DisableBracketedPaste)?;
     terminal.show_cursor()?;
 
     result
