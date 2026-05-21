@@ -178,6 +178,8 @@ struct App {
     lines: Vec<StyledLine>,
     input: String,
     input_cursor: usize,
+    /// Pasted text too large to show inline (> 2 visual rows); sent with the next message.
+    input_attachment: Option<String>,
     /// Inner width of the input box last time it was rendered.
     input_box_inner_width: usize,
     /// How many rows of the input box are visible (box height minus 2 borders).
@@ -221,6 +223,7 @@ impl App {
             lines: Vec::new(),
             input: String::new(),
             input_cursor: 0,
+            input_attachment: None,
             input_box_inner_width: 80,
             input_box_visible_rows: 1,
             input_scroll: 0,
@@ -1167,14 +1170,23 @@ impl App {
                     self.input_cursor += 1;
                 }
             }
+            (_, KeyCode::Esc) => {
+                self.input_attachment = None;
+            }
             (_, KeyCode::Enter) => {
-                if self.input.is_empty() && !self.busy {
+                let has_content = !self.input.is_empty() || self.input_attachment.is_some();
+                if !has_content && !self.busy {
                     self.toggle_selected_fold();
                     return;
                 }
-                if !self.busy && !self.input.is_empty() {
-                    let msg = std::mem::take(&mut self.input);
+                if !self.busy && has_content {
+                    let input_text = std::mem::take(&mut self.input);
                     self.input_cursor = 0;
+                    let msg = if let Some(att) = self.input_attachment.take() {
+                        if input_text.is_empty() { att } else { format!("{input_text}\n{att}") }
+                    } else {
+                        input_text
+                    };
                     self.history_push(&msg);
 
                     if msg.eq_ignore_ascii_case("quit") || msg.eq_ignore_ascii_case("exit") {
@@ -1717,7 +1729,8 @@ impl App {
         {
             1u16
         } else {
-            visual_input_rows(&self.input, box_inner_width)
+            let rows = visual_input_rows(&self.input, box_inner_width);
+            if self.input_attachment.is_some() { rows + 1 } else { rows }
         };
         let max_input_height: u16 = (area.height * 3 / 4).max(3);
         let input_height: u16 = if replay_mode {
@@ -1938,8 +1951,21 @@ impl App {
                 Style::default().fg(Color::Cyan)
             };
 
-            let input_widget = Paragraph::new(input_display)
-                .style(input_style)
+            let input_text = {
+                let mut lines: Vec<Line> = input_display
+                    .split('\n')
+                    .map(|l| Line::styled(l.to_string(), input_style))
+                    .collect();
+                if let Some(ref att) = self.input_attachment {
+                    let n = att.lines().count();
+                    lines.push(Line::styled(
+                        format!("── {n} lines attached (Esc to remove) ──"),
+                        Style::default().fg(Color::DarkGray),
+                    ));
+                }
+                Text::from(lines)
+            };
+            let input_widget = Paragraph::new(input_text)
                 .wrap(Wrap { trim: false })
                 .scroll((self.input_scroll, 0))
                 .block(
@@ -2424,8 +2450,13 @@ pub fn run_tui(
                     Event::Paste(text) => {
                         let app = &mut apps[active_tab];
                         if !app.busy {
-                            app.input.insert_str(app.input_cursor, &text);
-                            app.input_cursor += text.len();
+                            let bw = app.input_box_inner_width.max(1);
+                            if visual_input_rows(&text, bw) > 2 {
+                                app.input_attachment = Some(text);
+                            } else {
+                                app.input.insert_str(app.input_cursor, &text);
+                                app.input_cursor += text.len();
+                            }
                         }
                     }
                     _ => {}
