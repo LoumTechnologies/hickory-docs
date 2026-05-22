@@ -15,11 +15,11 @@ use log::{info, warn};
 use tokio::sync::{RwLock, mpsc};
 use wasmtime::Module;
 
-use bridge::NetworkBridge;
-use connection_filter::{AllowAll, CapabilityFilter, ConnectionFilter};
-use container::{Container, ContainerConfig, ContainerStats, create_async_engine};
+use hick_net_bridge::NetworkBridge;
+use hick_connection_filter::{AllowAll, CapabilityFilter, ConnectionFilter};
+use hick_container::{Container, ContainerConfig, ContainerStats, create_async_engine};
 use hick_token::ContainerCapabilities;
-use net_config::NetworkConfig;
+use hick_net_config::NetworkConfig;
 
 use crate::auth::AuthStack;
 use crate::pool::SharedPool;
@@ -427,7 +427,7 @@ impl ContainerExecutor {
         // Wire auth injection into the container's network stack.
         if let Some(ref auth) = self.auth {
             config.http_filter = Some(auth.http_filter.clone());
-            config.tls_intercept = Some(network::network_loop::TlsInterceptConfig {
+            config.tls_intercept = Some(hick_net::network_loop::TlsInterceptConfig {
                 ca: auth.tls_intercept.ca.clone(),
                 intercept_hosts: auth.tls_intercept.intercept_hosts.clone(),
             });

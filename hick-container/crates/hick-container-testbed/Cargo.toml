@@ -1,14 +1,14 @@
 [package]
-name = "container-testbed"
+name = "hick-container-testbed"
 version = "0.1.0"
 edition = "2024"
 publish = false
 
 [dependencies]
-container = { path = "../container" }
-net-config.workspace = true
-connection-filter.workspace = true
-bridge.workspace = true
+hick-container = { path = "../hick-container" }
+hick-net-config.workspace = true
+hick-connection-filter.workspace = true
+hick-net-bridge.workspace = true
 wasmtime.workspace = true
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-util", "sync", "time"] }
 async-trait = "0.1"

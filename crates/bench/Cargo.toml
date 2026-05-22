@@ -1,11 +1,11 @@
 [package]
-name = "bench"
+name = "hick-bench"
 version = "0.1.0"
 edition = "2021"
 publish = false
 
 [dependencies]
-container.workspace = true
+hick-container.workspace = true
 c2w = { path = "../../native2wasm/crates/c2w" }
 wasmtime.workspace = true
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-util", "time"] }

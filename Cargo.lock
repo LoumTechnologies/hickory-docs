@@ -1463,22 +1463,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d86b93f97252c47b41663388e6d155714a9d0c398b99f1005cbc5f978b29f445"
 
 [[package]]
-name = "bench"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "c2w",
- "clap",
- "container",
- "criterion",
- "dirs 6.0.0",
- "tempfile",
- "tokio",
- "wasmtime 41.0.4",
- "which",
-]
-
-[[package]]
 name = "bincode"
 version = "1.3.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1646,13 +1630,6 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn 2.0.117",
-]
-
-[[package]]
-name = "bridge"
-version = "0.1.0"
-dependencies = [
- "tokio",
 ]
 
 [[package]]
@@ -2253,17 +2230,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "connection-filter"
-version = "0.1.0"
-dependencies = [
- "arc-swap",
- "async-trait",
- "hick-token",
- "log",
- "tokio",
-]
-
-[[package]]
 name = "const-oid"
 version = "0.9.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2306,44 +2272,6 @@ name = "constant_time_eq"
 version = "0.4.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3d52eff69cd5e647efe296129160853a42795992097e8af39800e1060caeea9b"
-
-[[package]]
-name = "container"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "bridge",
- "cap-std 3.4.5",
- "connection-filter",
- "env_logger",
- "log",
- "net-config",
- "network",
- "os_pipe",
- "rustix 1.1.4",
- "tokio",
- "wasi-common 41.0.4",
- "wasmtime 41.0.4",
- "zip",
-]
-
-[[package]]
-name = "container-testbed"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "bridge",
- "connection-filter",
- "container",
- "env_logger",
- "libc",
- "log",
- "net-config",
- "tokio",
- "wasmtime 41.0.4",
-]
 
 [[package]]
 name = "convert_case"
@@ -4289,11 +4217,11 @@ dependencies = [
  "hick-eval-store",
  "hick-lang",
  "hick-literate",
+ "hick-net",
  "hick-policy",
  "hick-secrets",
  "hick-token",
  "log",
- "network",
  "serde",
  "serde_json",
  "tempfile",
@@ -4379,8 +4307,8 @@ dependencies = [
  "async-trait",
  "hick-agent-sdk",
  "hick-classify",
+ "hick-net",
  "log",
- "network",
  "serde",
  "serde_json",
  "tempfile",
@@ -4483,12 +4411,28 @@ name = "hick-api"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "hick-net",
  "hick-token",
  "log",
- "network",
  "serde",
  "serde_json",
  "tokio",
+]
+
+[[package]]
+name = "hick-bench"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "c2w",
+ "clap",
+ "criterion",
+ "dirs 6.0.0",
+ "hick-container",
+ "tempfile",
+ "tokio",
+ "wasmtime 41.0.4",
+ "which",
 ]
 
 [[package]]
@@ -4511,6 +4455,55 @@ dependencies = [
 [[package]]
 name = "hick-condition"
 version = "0.1.0"
+
+[[package]]
+name = "hick-connection-filter"
+version = "0.1.0"
+dependencies = [
+ "arc-swap",
+ "async-trait",
+ "hick-token",
+ "log",
+ "tokio",
+]
+
+[[package]]
+name = "hick-container"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "cap-std 3.4.5",
+ "env_logger",
+ "hick-connection-filter",
+ "hick-net",
+ "hick-net-bridge",
+ "hick-net-config",
+ "log",
+ "os_pipe",
+ "rustix 1.1.4",
+ "tokio",
+ "wasi-common 41.0.4",
+ "wasmtime 41.0.4",
+ "zip",
+]
+
+[[package]]
+name = "hick-container-testbed"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "env_logger",
+ "hick-connection-filter",
+ "hick-container",
+ "hick-net-bridge",
+ "hick-net-config",
+ "libc",
+ "log",
+ "tokio",
+ "wasmtime 41.0.4",
+]
 
 [[package]]
 name = "hick-eval-store"
@@ -4634,31 +4627,31 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
- "bridge",
  "chrono",
  "clap",
- "connection-filter",
- "container",
  "env_logger",
  "futures",
  "glob",
  "hick-api",
  "hick-case",
  "hick-condition",
+ "hick-connection-filter",
+ "hick-container",
  "hick-exec",
  "hick-feature",
  "hick-handlers",
  "hick-lang",
  "hick-live",
  "hick-merge",
+ "hick-net",
+ "hick-net-bridge",
+ "hick-net-config",
  "hick-secrets",
  "hick-shell",
  "hick-store",
  "hick-token",
  "indexmap 2.14.0",
  "log",
- "net-config",
- "network",
  "notify",
  "rand 0.8.6",
  "rustyline",
@@ -4752,6 +4745,45 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "wiremock",
+]
+
+[[package]]
+name = "hick-net"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "dashmap 6.1.0",
+ "hick-connection-filter",
+ "hick-net-bridge",
+ "hick-net-config",
+ "hick-secrets",
+ "hick-tcp-nat",
+ "httparse",
+ "log",
+ "rcgen",
+ "rustls 0.23.40",
+ "rustls-native-certs",
+ "secrecy",
+ "serde",
+ "smoltcp",
+ "tokio",
+ "tokio-rustls 0.26.4",
+ "toml 0.8.23",
+]
+
+[[package]]
+name = "hick-net-bridge"
+version = "0.1.0"
+dependencies = [
+ "tokio",
+]
+
+[[package]]
+name = "hick-net-config"
+version = "0.1.0"
+dependencies = [
+ "smoltcp",
 ]
 
 [[package]]
@@ -4881,6 +4913,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "hick-tcp-nat"
+version = "0.1.0"
+dependencies = [
+ "hick-net-config",
+]
+
+[[package]]
 name = "hick-token"
 version = "0.1.0"
 dependencies = [
@@ -4891,7 +4930,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "hickory-xml"
+name = "hick-xml"
 version = "0.1.0"
 dependencies = [
  "roxmltree",
@@ -6161,38 +6200,6 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.18",
  "which",
-]
-
-[[package]]
-name = "net-config"
-version = "0.1.0"
-dependencies = [
- "smoltcp",
-]
-
-[[package]]
-name = "network"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "bridge",
- "connection-filter",
- "dashmap 6.1.0",
- "hick-secrets",
- "httparse",
- "log",
- "net-config",
- "rcgen",
- "rustls 0.23.40",
- "rustls-native-certs",
- "secrecy",
- "serde",
- "smoltcp",
- "tcp-nat",
- "tokio",
- "tokio-rustls 0.26.4",
- "toml 0.8.23",
 ]
 
 [[package]]
@@ -8726,13 +8733,6 @@ name = "target-lexicon"
 version = "0.13.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "adb6935a6f5c20170eeceb1a3835a49e12e19d792f6dd344ccc76a985ca5a6ca"
-
-[[package]]
-name = "tcp-nat"
-version = "0.1.0"
-dependencies = [
- "net-config",
-]
 
 [[package]]
 name = "tempfile"

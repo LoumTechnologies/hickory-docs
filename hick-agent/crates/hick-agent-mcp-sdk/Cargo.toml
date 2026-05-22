@@ -7,7 +7,7 @@ publish = false
 
 [dependencies]
 hick-agent-sdk = { path = "../hick-agent-sdk" }
-network = { workspace = true }
+hick-net = { workspace = true }
 hick-classify.workspace = true
 
 anyhow = "1"

@@ -3,7 +3,7 @@ use std::process::Command;
 use std::sync::OnceLock;
 use std::time::Duration;
 
-use container::{create_async_engine, Container};
+use hick_container::{create_async_engine, Container};
 use wasmtime::{Engine, Module};
 
 // ---------------------------------------------------------------------------

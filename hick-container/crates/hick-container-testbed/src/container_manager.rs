@@ -5,10 +5,10 @@ use std::fmt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use bridge::NetworkBridge;
-use connection_filter::ConnectionFilter;
-use container::{Container, ContainerConfig};
-use net_config::NetworkConfig;
+use hick_net_bridge::NetworkBridge;
+use hick_connection_filter::ConnectionFilter;
+use hick_container::{Container, ContainerConfig};
+use hick_net_config::NetworkConfig;
 use tokio::sync::{RwLock, mpsc};
 use wasmtime::{Engine, Module};
 

@@ -21,7 +21,7 @@ async fn test_wasi_common_fd_write() {
     host.set_nonblocking(true).unwrap();
     let mut host = tokio::net::UnixStream::from_std(host).unwrap();
 
-    let stdout = container::pipe::PipeWriter::from_unix_stream(wasi);
+    let stdout = hick_container::pipe::PipeWriter::from_unix_stream(wasi);
 
     let mut builder = wasi_common::tokio::WasiCtxBuilder::new();
     builder.stdout(Box::new(stdout));
@@ -96,13 +96,13 @@ async fn test_wasi_common_fd_read_then_write() {
     let engine = make_engine();
 
     // Create stdin pipe (host writes, wasi reads)
-    let (stdin_host, stdin_wasi) = container::pipe::stdin_pipe().unwrap();
+    let (stdin_host, stdin_wasi) = hick_container::pipe::stdin_pipe().unwrap();
     // Create stdout pipe (wasi writes, host reads)
     let (stdout_host_std, stdout_wasi) = UnixStream::pair().unwrap();
     stdout_host_std.set_nonblocking(true).unwrap();
     let mut stdout_host = tokio::net::UnixStream::from_std(stdout_host_std).unwrap();
 
-    let stdout = container::pipe::PipeWriter::from_unix_stream(stdout_wasi);
+    let stdout = hick_container::pipe::PipeWriter::from_unix_stream(stdout_wasi);
 
     let mut builder = wasi_common::tokio::WasiCtxBuilder::new();
     builder.stdin(Box::new(stdin_wasi));

@@ -1,5 +1,5 @@
 [package]
-name = "network"
+name = "hick-net"
 version = "0.1.0"
 edition = "2024"
 publish = false
@@ -20,10 +20,10 @@ serde = { version = "1", features = ["derive"] }
 toml = "0.8"
 tokio-rustls = "0.26"
 hick_secrets_crate = { package = "hick-secrets", version = "0.1", path = "../../../hick-security/crates/hick-secrets" }
-net_config_crate = { package = "net-config", path = "../net-config" }
-connection_filter_crate = { package = "connection-filter", path = "../connection-filter" }
-bridge_crate = { package = "bridge", path = "../bridge" }
-tcp_nat_crate = { package = "tcp-nat", path = "../tcp-nat" }
+net_config_crate = { package = "hick-net-config", path = "../hick-net-config" }
+connection_filter_crate = { package = "hick-connection-filter", path = "../hick-connection-filter" }
+bridge_crate = { package = "hick-net-bridge", path = "../hick-net-bridge" }
+tcp_nat_crate = { package = "hick-tcp-nat", path = "../hick-tcp-nat" }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["io-util", "macros", "net", "rt-multi-thread", "sync", "time"] }

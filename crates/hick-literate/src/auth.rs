@@ -13,11 +13,11 @@ use hick_secrets::{AgeSecretsProvider, SecretsProvider};
 use hick_secrets::cache::SecretCache;
 use hick_secrets::chain::SecretsProviderChain;
 use hick_secrets::env::EnvSecretsProvider;
-use network::auth_injector::{self, AuthInjector};
-use network::auth_rules::AuthConfig;
-use network::http::HttpFilter;
-use network::network_loop::TlsInterceptConfig;
-use network::tls_ca::HickCa;
+use hick_net::auth_injector::{self, AuthInjector};
+use hick_net::auth_rules::AuthConfig;
+use hick_net::http::HttpFilter;
+use hick_net::network_loop::TlsInterceptConfig;
+use hick_net::tls_ca::HickCa;
 
 /// Bundled auth injection state.
 ///

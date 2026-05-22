@@ -1,5 +1,5 @@
 [package]
-name = "container"
+name = "hick-container"
 version = "0.1.0"
 edition = "2024"
 publish = false
@@ -9,10 +9,10 @@ wasmtime.workspace = true
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-util", "net", "sync", "time"] }
 anyhow = "1"
 wasi-common = { version = "41.0.1", features = ["tokio"] }
-network.workspace = true
-net-config.workspace = true
-connection-filter.workspace = true
-bridge.workspace = true
+hick-net.workspace = true
+hick-net-config.workspace = true
+hick-connection-filter.workspace = true
+hick-net-bridge.workspace = true
 cap-std = "3.4.5"
 async-trait = "0.1.89"
 rustix = { version = "1.1.3", features = ["event"] }

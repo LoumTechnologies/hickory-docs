@@ -37,14 +37,14 @@ hick-store = { version = "0.1", path = "hick-store/crates/hick-store" }
 hick-merge = { version = "0.1", path = "hick-store/crates/hick-merge" }
 
 # wasm-net
-net-config = { version = "0.1", path = "wasm-net/crates/net-config" }
-bridge = { version = "0.1", path = "wasm-net/crates/bridge" }
-tcp-nat = { version = "0.1", path = "wasm-net/crates/tcp-nat" }
-connection-filter = { version = "0.1", path = "wasm-net/crates/connection-filter" }
-network = { version = "0.1", path = "wasm-net/crates/network" }
+hick-net-config = { version = "0.1", path = "wasm-net/crates/hick-net-config" }
+hick-net-bridge = { version = "0.1", path = "wasm-net/crates/hick-net-bridge" }
+hick-tcp-nat = { version = "0.1", path = "wasm-net/crates/hick-tcp-nat" }
+hick-connection-filter = { version = "0.1", path = "wasm-net/crates/hick-connection-filter" }
+hick-net = { version = "0.1", path = "wasm-net/crates/hick-net" }
 
 # hick-container
-container = { version = "0.1", path = "hick-container/crates/container" }
+hick-container = { version = "0.1", path = "hick-container/crates/hick-container" }
 hick-shell = { version = "0.1", path = "hick-container/crates/hick-shell" }
 
 # native2wasm

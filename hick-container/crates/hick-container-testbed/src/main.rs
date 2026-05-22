@@ -5,9 +5,9 @@ use std::os::fd::AsRawFd;
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
-use bridge::NetworkBridge;
-use connection_filter::{ConnectionFilter, ConnectionVerdict, NetworkRequest};
-use container::create_async_engine;
+use hick_net_bridge::NetworkBridge;
+use hick_connection_filter::{ConnectionFilter, ConnectionVerdict, NetworkRequest};
+use hick_container::create_async_engine;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::{RwLock, mpsc, oneshot};
 

@@ -32,7 +32,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use hick_agent_sdk::{McpClient, McpCredentialStore, McpSandboxConfig, McpToolDef, ResolvedCredential, ToolGate, ToolVerdict};
 use hick_classify::Classification;
-use network::interceptor::Interceptor;
+use hick_net::interceptor::Interceptor;
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 
@@ -140,7 +140,7 @@ impl Interceptor for McpSdkInterceptor {
         _dest: SocketAddr,
         reader: Pin<Box<dyn AsyncRead + Send>>,
         writer: Pin<Box<dyn AsyncWrite + Send>>,
-    ) -> Pin<Box<dyn std::future::Future<Output = network::interceptor::InterceptResult> + Send>>
+    ) -> Pin<Box<dyn std::future::Future<Output = hick_net::interceptor::InterceptResult> + Send>>
     {
         // Clone the Arc fields to move into the async block.
         let tool_gate = self.tool_gate.clone();
@@ -166,7 +166,7 @@ async fn handle_http(
     mut reader: Pin<Box<dyn AsyncRead + Send>>,
     mut writer: Pin<Box<dyn AsyncWrite + Send>>,
     interceptor: &McpSdkInterceptor,
-) -> network::interceptor::InterceptResult {
+) -> hick_net::interceptor::InterceptResult {
     // Read headers.
     let mut header_buf = Vec::with_capacity(1024);
     let mut content_length: usize = 0;
@@ -343,7 +343,7 @@ impl Interceptor for McpSentinelInterceptor {
         _dest: SocketAddr,
         reader: Pin<Box<dyn AsyncRead + Send>>,
         writer: Pin<Box<dyn AsyncWrite + Send>>,
-    ) -> Pin<Box<dyn std::future::Future<Output = network::interceptor::InterceptResult> + Send>>
+    ) -> Pin<Box<dyn std::future::Future<Output = hick_net::interceptor::InterceptResult> + Send>>
     {
         // Snapshot the sentinel table for the async closure (avoids self lifetime issues).
         let sentinels_snapshot = self.snapshot_sentinels();
@@ -365,7 +365,7 @@ async fn handle_proxy_request(
     mut writer: Pin<Box<dyn AsyncWrite + Send>>,
     sentinels: HashMap<String, (String, McpSandboxConfig)>,
     credentials: Arc<McpCredentialStore>,
-) -> network::interceptor::InterceptResult {
+) -> hick_net::interceptor::InterceptResult {
     // Read request headers.
     let mut header_buf = Vec::with_capacity(4096);
     let mut single = [0u8; 1];

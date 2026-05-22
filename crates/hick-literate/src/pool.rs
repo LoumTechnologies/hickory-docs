@@ -17,11 +17,11 @@ use log::{debug, info, warn};
 use tokio::sync::{RwLock, mpsc};
 use wasmtime::Module;
 
-use bridge::NetworkBridge;
-use connection_filter::{AllowAll, ConnectionFilter, SwappableFilter};
-use container::{Container, ContainerConfig, create_async_engine};
+use hick_net_bridge::NetworkBridge;
+use hick_connection_filter::{AllowAll, ConnectionFilter, SwappableFilter};
+use hick_container::{Container, ContainerConfig, create_async_engine};
 use hick_token::ContainerCapabilities;
-use net_config::NetworkConfig;
+use hick_net_config::NetworkConfig;
 
 use crate::executor::{PromptMatcher, resolve_image_path};
 
@@ -289,7 +289,7 @@ impl ContainerPool {
 
         // Swap the filter to the real capability filter
         let cap_filter: Arc<dyn ConnectionFilter> =
-            Arc::new(connection_filter::CapabilityFilter::new(caps.clone()));
+            Arc::new(hick_connection_filter::CapabilityFilter::new(caps.clone()));
         wc.swappable_filter.swap(cap_filter);
 
         self.containers_served += 1;

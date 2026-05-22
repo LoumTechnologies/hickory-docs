@@ -73,13 +73,13 @@ fn main() -> anyhow::Result<()> {
     let (_stderr_host, stderr_wasi) = std::os::unix::net::UnixStream::pair()?;
 
     builder
-        .stdin(Box::new(container::pipe::PipeReader::from_unix_stream(
+        .stdin(Box::new(hick_container::pipe::PipeReader::from_unix_stream(
             stdin_wasi,
         )))
-        .stdout(Box::new(container::pipe::PipeWriter::from_unix_stream(
+        .stdout(Box::new(hick_container::pipe::PipeWriter::from_unix_stream(
             stdout_wasi,
         )))
-        .stderr(Box::new(container::pipe::PipeWriter::from_unix_stream(
+        .stderr(Box::new(hick_container::pipe::PipeWriter::from_unix_stream(
             stderr_wasi,
         )));
     builder.arg("container.wasm")?;

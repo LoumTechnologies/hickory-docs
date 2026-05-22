@@ -14,11 +14,11 @@ use wasmtime::{Engine, Module, Store};
 
 use log::{debug, info, warn};
 
-use bridge::NetworkBridge;
-use connection_filter::{AllowAll, ConnectionFilter};
-use net_config::NetworkConfig;
-use network::http::HttpFilter;
-use network::network_loop::TlsInterceptConfig;
+use hick_net_bridge::NetworkBridge;
+use hick_connection_filter::{AllowAll, ConnectionFilter};
+use hick_net_config::NetworkConfig;
+use hick_net::http::HttpFilter;
+use hick_net::network_loop::TlsInterceptConfig;
 
 use crate::pipe::{stderr_pipe, stdin_pipe, stdout_pipe};
 
@@ -523,7 +523,7 @@ async fn run_network_connect(
     info!("[network] Starting network loop...");
     match (bridge, bridge_rx) {
         (Some(b), Some(rx)) => {
-            network::network_loop::run_network_bridged(
+            hick_net::network_loop::run_network_bridged(
                 stream,
                 shutdown,
                 filter,
@@ -536,7 +536,7 @@ async fn run_network_connect(
             .await;
         }
         _ => {
-            network::network_loop::run_network_with_config(
+            hick_net::network_loop::run_network_with_config(
                 stream,
                 shutdown,
                 filter,

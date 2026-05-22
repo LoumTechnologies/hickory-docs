@@ -20,10 +20,10 @@ name = "hick-promote"
 path = "src/bin/hick-promote.rs"
 
 [dependencies]
-container.workspace = true
-connection-filter = { workspace = true, features = ["capability"] }
-bridge.workspace = true
-net-config.workspace = true
+hick-container.workspace = true
+hick-connection-filter = { workspace = true, features = ["capability"] }
+hick-net-bridge.workspace = true
+hick-net-config.workspace = true
 hick-api = { path = "../hick-api" }
 hick-case = { path = "../hick-case" }
 hick-condition.workspace = true
@@ -34,7 +34,7 @@ hick-live = { path = "../hick-live" }
 hick-feature = { path = "../hick-feature" }
 hick-lang.workspace = true
 hick-secrets.workspace = true
-network.workspace = true
+hick-net.workspace = true
 hick-token.workspace = true
 hick-store.workspace = true
 hick-merge.workspace = true

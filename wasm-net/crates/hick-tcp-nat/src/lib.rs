@@ -11,7 +11,7 @@
 use std::collections::HashMap;
 use std::net::Ipv4Addr;
 
-use net_config::{self, NetworkConfig};
+use hick_net_config::{self, NetworkConfig};
 
 /// Result of ingress frame rewriting.
 pub enum IngressResult {
@@ -43,8 +43,8 @@ impl TcpNat {
     pub fn new() -> Self {
         Self {
             nat_table: HashMap::new(),
-            gateway_ip: net_config::GATEWAY_IP_STD,
-            vm_ip: net_config::VM_IP_STD,
+            gateway_ip: hick_net_config::GATEWAY_IP_STD,
+            vm_ip: hick_net_config::VM_IP_STD,
         }
     }
 
@@ -267,7 +267,7 @@ fn recompute_tcp_checksum(frame: &mut [u8]) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use net_config::{GATEWAY_IP_STD, VM_IP_STD};
+    use hick_net_config::{GATEWAY_IP_STD, VM_IP_STD};
 
     /// Build a raw Ethernet/IP/TCP frame for testing.
     fn build_tcp_frame(

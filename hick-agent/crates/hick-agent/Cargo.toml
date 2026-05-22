@@ -33,7 +33,7 @@ hick-agent-tui = { path = "../hick-agent-tui" }
 hick-eval-store = { path = "../hick-eval-store" }
 hick-policy.workspace = true
 hick-classify.workspace = true
-network = { workspace = true }
+hick-net = { workspace = true }
 
 # Pipeline / hick runtime
 hick-literate = { version = "0.1", path = "../../../crates/hick-literate" }

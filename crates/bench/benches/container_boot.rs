@@ -4,7 +4,7 @@ use std::time::{Duration, Instant};
 use bench::{
     alpine_wasm_path, alpine_wizer_wasm_path, load_module, shared_engine, wait_for_prompt,
 };
-use container::ContainerConfig;
+use hick_container::ContainerConfig;
 use criterion::{criterion_group, criterion_main, Criterion, SamplingMode};
 use wasmtime::Module;
 

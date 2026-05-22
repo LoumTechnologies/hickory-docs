@@ -1,6 +1,6 @@
 //! Simple non-interactive container test
 
-use container::{Container, ContainerConfig, create_async_engine};
+use hick_container::{Container, ContainerConfig, create_async_engine};
 use std::path::Path;
 use std::time::Duration;
 use wasmtime::Module;

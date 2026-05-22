@@ -3,7 +3,7 @@
 //! This tests what happens when the kernel tries to use networking
 //! but nothing connects to the preopened socket.
 
-use container::{Container, ContainerConfig, create_async_engine};
+use hick_container::{Container, ContainerConfig, create_async_engine};
 use std::path::Path;
 use std::time::Duration;
 use wasmtime::Module;

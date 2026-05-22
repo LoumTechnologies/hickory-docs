@@ -9,7 +9,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use network::http::{HttpFilter, HttpFilterAction, HttpRequest, HttpResponse};
+use hick_net::http::{HttpFilter, HttpFilterAction, HttpRequest, HttpResponse};
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 
