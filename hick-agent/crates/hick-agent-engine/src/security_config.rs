@@ -1,6 +1,7 @@
 //! Agent security configuration.
 //!
-//! Loads capability restrictions from `.hick/agent-security.toml` and converts
+//! Loads capability restrictions from `.hick/agent-security.toml` (project-local),
+//! `~/.config/hick/agent-security.toml` (user global), or built-in defaults, and converts
 //! them to [`ContainerCapabilities`] used by the sandbox executor.
 
 use std::path::Path;

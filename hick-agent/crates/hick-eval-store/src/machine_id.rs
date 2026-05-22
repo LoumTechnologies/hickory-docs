@@ -4,7 +4,7 @@ use std::path::{Path, PathBuf};
 
 /// Stable per-machine identity.
 ///
-/// The UUID is persisted in `~/.hick/machine-id` on first run. The NDJSON filename
+/// The UUID is persisted in `~/.local/share/hick/machine-id` on first run. The NDJSON filename
 /// combines hostname and UUID so files are both human-readable and globally unique.
 pub struct MachineId {
     uuid: String,
@@ -12,13 +12,13 @@ pub struct MachineId {
 }
 
 impl MachineId {
-    /// Load (or generate on first run) from `~/.hick/machine-id`.
+    /// Load (or generate on first run) from `~/.local/share/hick/machine-id`.
     pub fn load() -> Result<Self> {
         let path = default_path()?;
         Self::load_from(&path)
     }
 
-    /// Load from an explicit path — used in tests to avoid touching `~/.hick/`.
+    /// Load from an explicit path — used in tests to avoid touching `~/.local/share/hick/`.
     pub fn load_from(path: &Path) -> Result<Self> {
         let uuid = if path.exists() {
             fs::read_to_string(path)?.trim().to_string()
@@ -33,7 +33,7 @@ impl MachineId {
         Ok(Self { uuid, hostname: read_hostname() })
     }
 
-    /// The stable UUID string stored in `~/.hick/machine-id`.
+    /// The stable UUID string stored in `~/.local/share/hick/machine-id`.
     pub fn uuid(&self) -> &str {
         &self.uuid
     }
@@ -46,7 +46,7 @@ impl MachineId {
 
 fn default_path() -> Result<PathBuf> {
     crate::path::home_dir()
-        .map(|h| h.join(".hick").join("machine-id"))
+        .map(|h| h.join(".local/share/hick").join("machine-id"))
         .ok_or_else(|| anyhow::anyhow!("could not determine home directory"))
 }
 

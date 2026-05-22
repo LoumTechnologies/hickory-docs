@@ -403,7 +403,7 @@ impl SetupApp {
                     hint_style,
                 )),
                 Line::from(Span::styled(
-                    "Keys saved to ~/.hick/keys.toml and loaded automatically next launch.",
+                    "Keys saved to ~/.config/hick/keys.toml and loaded automatically next launch.",
                     hint_style,
                 )),
             )

@@ -26,12 +26,12 @@ pub(crate) fn home_dir() -> Option<PathBuf> {
 /// Resolve the directory that holds per-machine `.ndjson` eval files.
 ///
 /// Returns `<git-root>/.hick/eval/` when inside a repo,
-/// `~/.hick/eval/` otherwise.
+/// `~/.local/share/hick/eval/` otherwise.
 pub fn resolve_store_dir() -> PathBuf {
     if let Some(root) = git_toplevel() {
         return root.join(".hick").join("eval");
     }
     home_dir()
-        .map(|h| h.join(".hick").join("eval"))
-        .unwrap_or_else(|| PathBuf::from(".hick/eval"))
+        .map(|h| h.join(".local/share/hick").join("eval"))
+        .unwrap_or_else(|| PathBuf::from(".local/share/hick/eval"))
 }

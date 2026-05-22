@@ -778,16 +778,16 @@ fn home_config_path() -> Option<PathBuf> {
 }
 
 // ---------------------------------------------------------------------------
-// User keys file (~/.hick/keys.toml)
+// User keys file (~/.config/hick/keys.toml)
 // ---------------------------------------------------------------------------
 
-/// API keys loaded from `~/.hick/keys.toml`.
+/// API keys loaded from `~/.config/hick/keys.toml`.
 ///
 /// All fields are optional. A key present here is used as a fallback when the
 /// corresponding environment variable (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`,
 /// `XAI_API_KEY`) is absent or empty.
 ///
-/// Example `~/.hick/keys.toml`:
+/// Example `~/.config/hick/keys.toml`:
 /// ```toml
 /// anthropic_api_key = "sk-ant-..."
 /// openai_api_key    = "sk-..."
@@ -801,7 +801,7 @@ pub struct UserKeys {
 }
 
 impl UserKeys {
-    /// Load from `~/.hick/keys.toml`.
+    /// Load from `~/.config/hick/keys.toml`.
     ///
     /// Returns `Ok(None)` when the file does not exist.
     /// Returns an error when the file exists but cannot be parsed.
@@ -833,7 +833,7 @@ impl UserKeys {
 fn home_keys_path() -> Option<PathBuf> {
     std::env::var("HOME")
         .ok()
-        .map(|h| PathBuf::from(h).join(".hick/keys.toml"))
+        .map(|h| PathBuf::from(h).join(".config/hick/keys.toml"))
 }
 
 // ---------------------------------------------------------------------------
@@ -1170,7 +1170,7 @@ model_id = "claude-opus-4-7-20251101"
     fn user_keys_load_parses_valid_file() {
         use tempfile::TempDir;
         let dir = TempDir::new().unwrap();
-        let hick_dir = dir.path().join(".hick");
+        let hick_dir = dir.path().join(".config/hick");
         std::fs::create_dir_all(&hick_dir).unwrap();
         std::fs::write(hick_dir.join("keys.toml"), r#"anthropic_api_key = "sk-ant-test""#).unwrap();
         // Safety: single-threaded test environment.

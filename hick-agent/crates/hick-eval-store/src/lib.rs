@@ -1,8 +1,8 @@
 //! Append-only eval results store: per-machine NDJSON files with git sync.
 //!
 //! Each machine appends exclusively to its own file named `<hostname>_<uuid>.ndjson`,
-//! keyed by a stable UUID written once to `~/.hick/machine-id`. Storage lives under
-//! `.hick/eval/` in the git repo root, falling back to `~/.hick/eval/` outside a repo.
+//! keyed by a stable UUID written once to `~/.local/share/hick/machine-id`. Storage lives under
+//! `.hick/eval/` in the git repo root, falling back to `~/.local/share/hick/eval/` outside a repo.
 //!
 //! Because no two machines share a file, git merges are always conflict-free.
 //! [`GitBackend::read_all`] aggregates all machine files at query time.
@@ -21,7 +21,7 @@ mod record;
 pub use backend::StorageBackend;
 /// Git-backed real implementation of [`StorageBackend`].
 pub use git::GitBackend;
-/// Stable per-machine identity stored in `~/.hick/machine-id`.
+/// Stable per-machine identity stored in `~/.local/share/hick/machine-id`.
 pub use machine_id::MachineId;
 /// In-memory no-op backend for tests.
 pub use noop::NoopBackend;

@@ -180,7 +180,7 @@ enum Commands {
     /// Launch the AI agent TUI (default when no subcommand given).
     Agent {
         /// Path to the agent config file.
-        /// Resolution order when omitted: .hick/agent.toml → ~/.hick/agent.toml → built-in default.
+        /// Resolution order when omitted: .hick/agent.toml → ~/.config/hick/agent.toml → built-in default.
         #[arg(long)]
         config: Option<PathBuf>,
         /// Additional config files for multi-config/eval mode.  Each path is a separate
@@ -649,7 +649,7 @@ fn save_user_keys(keys: &hick_agent_tui::SetupResult) -> anyhow::Result<()> {
         Ok(h) => PathBuf::from(h),
         Err(_) => return Ok(()),
     };
-    let path = home.join(".hick/keys.toml");
+    let path = home.join(".config/hick/keys.toml");
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
@@ -659,6 +659,23 @@ fn save_user_keys(keys: &hick_agent_tui::SetupResult) -> anyhow::Result<()> {
     if let Some(ref k) = keys.xai       { lines.push(format!("xai_api_key = {k:?}")); }
     std::fs::write(&path, lines.join("\n") + "\n")?;
     Ok(())
+}
+
+/// Load security config with three-level resolution:
+/// `.hick/agent-security.toml` → `~/.config/hick/agent-security.toml` → built-in defaults.
+fn load_security_config(project_dir: &std::path::Path) -> anyhow::Result<AgentSecurityConfig> {
+    let local = project_dir.join(".hick").join("agent-security.toml");
+    if local.exists() {
+        return AgentSecurityConfig::load_or_default(&local);
+    }
+    if let Some(global) = std::env::var("HOME")
+        .ok()
+        .map(|h| PathBuf::from(h).join(".config/hick/agent-security.toml"))
+        .filter(|p| p.exists())
+    {
+        return AgentSecurityConfig::load_or_default(&global);
+    }
+    Ok(AgentSecurityConfig::default())
 }
 
 // ── Config-driven extension loading ──────────────────────────────────────────
@@ -676,7 +693,7 @@ fn load_extensions(
         }
         std::env::var("HOME")
             .ok()
-            .map(|h| PathBuf::from(h).join(".hick/agent.toml"))
+            .map(|h| PathBuf::from(h).join(".config/hick/agent.toml"))
             .filter(|p| p.exists())
     });
 
@@ -707,7 +724,7 @@ fn load_eval_judge(
         }
         std::env::var("HOME")
             .ok()
-            .map(|h| PathBuf::from(h).join(".hick/agent.toml"))
+            .map(|h| PathBuf::from(h).join(".config/hick/agent.toml"))
             .filter(|p| p.exists())
     });
 
@@ -1103,7 +1120,7 @@ async fn agent_task(
 async fn main() -> Result<()> {
     dotenvy::dotenv().ok();
 
-    // Load ~/.hick/keys.toml and inject any missing provider keys into the
+    // Load ~/.config/hick/keys.toml and inject any missing provider keys into the
     // process environment so that all downstream env-var reads pick them up.
     // env vars and --api-key take priority (we only set if absent/empty).
     let user_keys_providers = match config::UserKeys::load() {
@@ -1127,7 +1144,7 @@ async fn main() -> Result<()> {
         }
         Ok(None) => Vec::new(),
         Err(e) => {
-            eprintln!("Warning: ~/.hick/keys.toml: {e}");
+            eprintln!("Warning: ~/.config/hick/keys.toml: {e}");
             Vec::new()
         }
     };
@@ -1182,7 +1199,7 @@ async fn main() -> Result<()> {
                 },
             };
 
-            // Load extensions from config (resolution: --config > .hick/agent.toml > ~/.hick/agent.toml > built-in default)
+            // Load extensions from config (resolution: --config > .hick/agent.toml > ~/.config/hick/agent.toml > built-in default)
             let extensions = load_extensions(config.as_deref(), &project_dir);
             let hick_edit = extensions.hick_edit;
 
@@ -1215,8 +1232,7 @@ async fn main() -> Result<()> {
             // to the late start below (which receives all tab attachments at once).
             let ws_started_early = extra_configs.is_empty() && web_ui_enabled(no_web);
             let web_ui_url: Option<String> = if ws_started_early {
-                let sec_cfg = hick_agent_sdk::AgentSecurityConfig::load_or_default(&project_dir)
-                    .unwrap_or_default();
+                let sec_cfg = load_security_config(&project_dir).unwrap_or_default();
                 let ws_cfg = hick_agent_sdk::WebServerConfig::from_env()
                     .with_project(project_dir.clone(), sec_cfg.allowed_hosts.clone());
                 match hick_agent_sdk::WebServer::bind(ws_cfg).await {
@@ -1327,13 +1343,12 @@ async fn main() -> Result<()> {
 
             if !user_keys_providers.is_empty() {
                 event_tx.send(AgentEvent::Info(format!(
-                    "API keys: loaded from ~/.hick/keys.toml ({})",
+                    "API keys: loaded from ~/.config/hick/keys.toml ({})",
                     user_keys_providers.join(", ")
                 ))).ok();
             }
 
-            let security_config_path = project_dir.join(".hick").join("agent-security.toml");
-            let security_config = AgentSecurityConfig::load_or_default(&security_config_path)?;
+            let security_config = load_security_config(&project_dir)?;
             let sandbox_caps = security_config.to_capabilities();
 
             let auth_rules_path = project_dir.join(".hick").join("auth-rules.toml");
