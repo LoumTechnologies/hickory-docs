@@ -171,6 +171,8 @@ enum Provider {
     Anthropic,
     /// xAI/Grok API (XAI_API_KEY)
     Xai,
+    /// OpenRouter — access hundreds of models via one key (OPENROUTER_API_KEY)
+    Openrouter,
     /// Custom OpenAI-compatible endpoint (requires --api-base)
     #[value(name = "openai-compat")]
     OpenaiCompat,
@@ -433,11 +435,12 @@ struct LocalOpts {
 impl fmt::Display for Provider {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Provider::Openai => write!(f, "OpenAI"),
-            Provider::Anthropic => write!(f, "Anthropic"),
-            Provider::Xai => write!(f, "xAI"),
+            Provider::Openai      => write!(f, "OpenAI"),
+            Provider::Anthropic   => write!(f, "Anthropic"),
+            Provider::Xai         => write!(f, "xAI"),
+            Provider::Openrouter  => write!(f, "OpenRouter"),
             Provider::OpenaiCompat => write!(f, "OpenAI-compatible"),
-            Provider::Local => write!(f, "Local"),
+            Provider::Local       => write!(f, "Local"),
         }
     }
 }
@@ -451,9 +454,10 @@ struct DetectedProvider {
 fn detect_providers() -> Vec<DetectedProvider> {
     let mut found = vec![];
     let candidates: &[(&str, Provider, &str)] = &[
-        ("ANTHROPIC_API_KEY", Provider::Anthropic, "claude-sonnet-4-5-20250929"),
-        ("OPENAI_API_KEY", Provider::Openai, "gpt-4o"),
-        ("XAI_API_KEY", Provider::Xai, "grok-4.3"),
+        ("ANTHROPIC_API_KEY",  Provider::Anthropic,  "claude-sonnet-4-5-20250929"),
+        ("OPENAI_API_KEY",     Provider::Openai,     "gpt-4o"),
+        ("XAI_API_KEY",        Provider::Xai,        "grok-4.3"),
+        ("OPENROUTER_API_KEY", Provider::Openrouter, "openai/gpt-4o"),
     ];
     for &(env_var, provider, default_model) in candidates {
         if std::env::var(env_var).ok().filter(|k| !k.is_empty()).is_some() {
@@ -470,9 +474,11 @@ fn prompt_provider_selection(detected: Vec<DetectedProvider>) -> Result<Provider
              Set one of the following environment variables:\n\
              \x20 ANTHROPIC_API_KEY  — Anthropic Claude\n\
              \x20 OPENAI_API_KEY     — OpenAI\n\
-             \x20 XAI_API_KEY        — xAI / Grok\n\n\
+             \x20 XAI_API_KEY        — xAI / Grok\n\
+             \x20 OPENROUTER_API_KEY — OpenRouter (hundreds of models)\n\n\
              Or specify a provider explicitly:\n\
              \x20 hick agent --provider anthropic\n\
+             \x20 hick agent --provider openrouter --model openai/gpt-4o\n\
              \x20 hick agent --provider local --model-path ./model.gguf"
         );
     }
@@ -534,6 +540,11 @@ fn build_llm_client(
                 Ok(Box::new(OpenAiCompatClient::xai(model)))
             }
         }
+        Provider::Openrouter => {
+            let model = model.unwrap_or_else(|| "openai/gpt-4o".into());
+            let key = api_key.unwrap_or_else(|| std::env::var("OPENROUTER_API_KEY").unwrap_or_default());
+            Ok(Box::new(OpenAiCompatClient::custom("https://openrouter.ai/api/v1", key, model, "openrouter")))
+        }
         Provider::OpenaiCompat => {
             let base = api_base.ok_or_else(|| anyhow::anyhow!("--api-base is required for openai-compat provider"))?;
             let key = api_key.unwrap_or_default();
@@ -572,11 +583,12 @@ fn endpoint_host_for_provider(provider: Provider, api_base: &Option<String>) -> 
         extract_host_from_url(base).unwrap_or_else(|| "unknown".to_string())
     } else {
         match provider {
-            Provider::Anthropic => "api.anthropic.com".to_string(),
-            Provider::Openai => "api.openai.com".to_string(),
-            Provider::Xai => "api.x.ai".to_string(),
+            Provider::Anthropic   => "api.anthropic.com".to_string(),
+            Provider::Openai      => "api.openai.com".to_string(),
+            Provider::Xai         => "api.x.ai".to_string(),
+            Provider::Openrouter  => "openrouter.ai".to_string(),
             Provider::OpenaiCompat => "unknown".to_string(),
-            Provider::Local => "localhost".to_string(),
+            Provider::Local       => "localhost".to_string(),
         }
     }
 }
@@ -657,9 +669,10 @@ fn save_user_keys(keys: &hick_agent_tui::SetupResult) -> anyhow::Result<()> {
         std::fs::create_dir_all(parent)?;
     }
     let mut lines = Vec::new();
-    if let Some(ref k) = keys.anthropic { lines.push(format!("anthropic_api_key = {k:?}")); }
-    if let Some(ref k) = keys.openai    { lines.push(format!("openai_api_key = {k:?}")); }
-    if let Some(ref k) = keys.xai       { lines.push(format!("xai_api_key = {k:?}")); }
+    if let Some(ref k) = keys.anthropic  { lines.push(format!("anthropic_api_key = {k:?}")); }
+    if let Some(ref k) = keys.openai     { lines.push(format!("openai_api_key = {k:?}")); }
+    if let Some(ref k) = keys.xai        { lines.push(format!("xai_api_key = {k:?}")); }
+    if let Some(ref k) = keys.openrouter { lines.push(format!("openrouter_api_key = {k:?}")); }
     std::fs::write(&path, lines.join("\n") + "\n")?;
     Ok(())
 }
@@ -1130,9 +1143,10 @@ async fn main() -> Result<()> {
         Ok(Some(keys)) => {
             let mut loaded = Vec::<&'static str>::new();
             let pairs: &[(&'static str, Option<&str>)] = &[
-                ("ANTHROPIC_API_KEY", keys.anthropic_api_key.as_deref()),
-                ("OPENAI_API_KEY",    keys.openai_api_key.as_deref()),
-                ("XAI_API_KEY",       keys.xai_api_key.as_deref()),
+                ("ANTHROPIC_API_KEY",  keys.anthropic_api_key.as_deref()),
+                ("OPENAI_API_KEY",     keys.openai_api_key.as_deref()),
+                ("XAI_API_KEY",        keys.xai_api_key.as_deref()),
+                ("OPENROUTER_API_KEY", keys.openrouter_api_key.as_deref()),
             ];
             for &(var, val) in pairs {
                 if let Some(v) = val.filter(|k| !k.is_empty()) {
@@ -1279,14 +1293,14 @@ async fn main() -> Result<()> {
                 });
 
                 // Poll for ProvideApiKeys from the browser while TUI is running.
-                let browser_keys: Option<(Option<String>, Option<String>, Option<String>)> = loop {
+                let browser_keys: Option<(Option<String>, Option<String>, Option<String>, Option<String>)> = loop {
                     if setup_done.load(Ordering::Acquire) {
                         break None; // TUI completed first
                     }
                     match ui_cmd_rx.try_recv() {
-                        Ok(hick_agent_sdk::UiCommand::ProvideApiKeys { anthropic, openai, xai }) => {
+                        Ok(hick_agent_sdk::UiCommand::ProvideApiKeys { anthropic, openai, xai, openrouter }) => {
                             setup_done.store(true, Ordering::Release);
-                            break Some((anthropic, openai, xai));
+                            break Some((anthropic, openai, xai, openrouter));
                         }
                         Ok(_) => {} // other commands during setup — discard
                         Err(mpsc::error::TryRecvError::Empty) => {
@@ -1297,8 +1311,8 @@ async fn main() -> Result<()> {
                 };
                 tui_handle.await??;
 
-                let final_keys = if let Some((a, o, x)) = browser_keys {
-                    hick_agent_tui::SetupResult { anthropic: a, openai: o, xai: x }
+                let final_keys = if let Some((a, o, x, or_)) = browser_keys {
+                    hick_agent_tui::SetupResult { anthropic: a, openai: o, xai: x, openrouter: or_ }
                 } else {
                     setup_result.lock().unwrap().clone().unwrap_or_default()
                 };
@@ -1311,9 +1325,10 @@ async fn main() -> Result<()> {
 
                 // Inject into env so detect_providers() succeeds on the next line.
                 for (var, val) in [
-                    ("ANTHROPIC_API_KEY", final_keys.anthropic.as_deref()),
-                    ("OPENAI_API_KEY",    final_keys.openai.as_deref()),
-                    ("XAI_API_KEY",       final_keys.xai.as_deref()),
+                    ("ANTHROPIC_API_KEY",  final_keys.anthropic.as_deref()),
+                    ("OPENAI_API_KEY",     final_keys.openai.as_deref()),
+                    ("XAI_API_KEY",        final_keys.xai.as_deref()),
+                    ("OPENROUTER_API_KEY", final_keys.openrouter.as_deref()),
                 ] {
                     if let Some(v) = val {
                         // Safety: called before worker threads start (event loop below).

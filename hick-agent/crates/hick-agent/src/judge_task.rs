@@ -219,9 +219,10 @@ fn build_judge_llm(section: &JudgeSection) -> anyhow::Result<Box<dyn LlmClient>>
         .as_deref()
         .and_then(|env| std::env::var(env).ok())
         .or_else(|| match section.provider {
-            Provider::Anthropic => std::env::var("ANTHROPIC_API_KEY").ok(),
-            Provider::OpenAI => std::env::var("OPENAI_API_KEY").ok(),
-            Provider::XAI => std::env::var("XAI_API_KEY").ok(),
+            Provider::Anthropic  => std::env::var("ANTHROPIC_API_KEY").ok(),
+            Provider::OpenAI     => std::env::var("OPENAI_API_KEY").ok(),
+            Provider::XAI        => std::env::var("XAI_API_KEY").ok(),
+            Provider::OpenRouter => std::env::var("OPENROUTER_API_KEY").ok(),
         })
         .unwrap_or_default();
 
@@ -240,6 +241,12 @@ fn build_judge_llm(section: &JudgeSection) -> anyhow::Result<Box<dyn LlmClient>>
             api_key,
             section.model.clone(),
             "xai",
+        ))),
+        Provider::OpenRouter => Ok(Box::new(OpenAiCompatClient::custom(
+            "https://openrouter.ai/api/v1",
+            api_key,
+            section.model.clone(),
+            "openrouter",
         ))),
     }
 }

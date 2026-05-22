@@ -190,6 +190,8 @@ pub enum UiCommand {
         anthropic: Option<String>,
         openai: Option<String>,
         xai: Option<String>,
+        #[serde(default)]
+        openrouter: Option<String>,
     },
     /// Request to add a new config to the current session (mid-session multi-config).
     AddConfigPath {

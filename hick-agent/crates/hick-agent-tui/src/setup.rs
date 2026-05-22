@@ -32,10 +32,15 @@ pub(crate) enum ProviderKind {
     Anthropic,
     OpenAI,
     XAI,
+    OpenRouter,
 }
 
-const ALL_PROVIDERS: [ProviderKind; 3] =
-    [ProviderKind::Anthropic, ProviderKind::OpenAI, ProviderKind::XAI];
+const ALL_PROVIDERS: [ProviderKind; 4] = [
+    ProviderKind::Anthropic,
+    ProviderKind::OpenAI,
+    ProviderKind::XAI,
+    ProviderKind::OpenRouter,
+];
 
 impl ProviderKind {
     fn display(self) -> &'static str {
@@ -43,6 +48,7 @@ impl ProviderKind {
             ProviderKind::Anthropic => "Anthropic Claude",
             ProviderKind::OpenAI => "OpenAI",
             ProviderKind::XAI => "xAI / Grok",
+            ProviderKind::OpenRouter => "OpenRouter",
         }
     }
 }
@@ -52,6 +58,8 @@ pub(crate) fn detect_from_key(key: &str) -> Option<ProviderKind> {
     let k = key.trim();
     if k.starts_with("sk-ant-") {
         Some(ProviderKind::Anthropic)
+    } else if k.starts_with("sk-or-") {
+        Some(ProviderKind::OpenRouter)
     } else if k.starts_with("xai-") {
         Some(ProviderKind::XAI)
     } else if k.starts_with("sk-") {
@@ -71,11 +79,12 @@ pub struct SetupResult {
     pub anthropic: Option<String>,
     pub openai: Option<String>,
     pub xai: Option<String>,
+    pub openrouter: Option<String>,
 }
 
 impl SetupResult {
     pub fn has_any(&self) -> bool {
-        [&self.anthropic, &self.openai, &self.xai]
+        [&self.anthropic, &self.openai, &self.xai, &self.openrouter]
             .iter()
             .any(|k| k.as_deref().is_some_and(|s| !s.is_empty()))
     }
@@ -198,9 +207,10 @@ impl SetupApp {
         for (p, k) in &self.configured {
             let key = Some(k.trim().to_string()).filter(|s| !s.is_empty());
             match p {
-                ProviderKind::Anthropic => r.anthropic = key,
-                ProviderKind::OpenAI    => r.openai = key,
-                ProviderKind::XAI       => r.xai = key,
+                ProviderKind::Anthropic  => r.anthropic = key,
+                ProviderKind::OpenAI     => r.openai = key,
+                ProviderKind::XAI        => r.xai = key,
+                ProviderKind::OpenRouter => r.openrouter = key,
             }
         }
         r
