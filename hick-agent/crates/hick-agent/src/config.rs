@@ -39,6 +39,8 @@ pub enum Provider {
     XAI,
     #[serde(rename = "openrouter")]
     OpenRouter,
+    #[serde(rename = "deepseek")]
+    DeepSeek,
 }
 
 /// `[model]` section: which LLM and credentials to use.
@@ -787,7 +789,7 @@ fn home_config_path() -> Option<PathBuf> {
 ///
 /// All fields are optional. A key present here is used as a fallback when the
 /// corresponding environment variable (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY`,
-/// `XAI_API_KEY`, `OPENROUTER_API_KEY`) is absent or empty.
+/// `XAI_API_KEY`, `OPENROUTER_API_KEY`, `DEEPSEEK_API_KEY`) is absent or empty.
 ///
 /// Example `~/.config/hick/keys.toml`:
 /// ```toml
@@ -795,6 +797,7 @@ fn home_config_path() -> Option<PathBuf> {
 /// openai_api_key     = "sk-..."
 /// xai_api_key        = "xai-..."
 /// openrouter_api_key = "sk-or-..."
+/// deepseek_api_key   = "sk-..."
 /// ```
 #[derive(Debug, Clone, Default, Deserialize)]
 pub struct UserKeys {
@@ -802,6 +805,7 @@ pub struct UserKeys {
     pub openai_api_key: Option<String>,
     pub xai_api_key: Option<String>,
     pub openrouter_api_key: Option<String>,
+    pub deepseek_api_key: Option<String>,
 }
 
 impl UserKeys {
@@ -830,6 +834,7 @@ impl UserKeys {
             Provider::OpenAI     => self.openai_api_key.as_deref(),
             Provider::XAI        => self.xai_api_key.as_deref(),
             Provider::OpenRouter => self.openrouter_api_key.as_deref(),
+            Provider::DeepSeek   => self.deepseek_api_key.as_deref(),
         };
         raw.filter(|k| !k.is_empty())
     }
@@ -1154,6 +1159,7 @@ model_id = "claude-opus-4-7-20251101"
             openai_api_key: Some("sk-real".into()),
             xai_api_key: None,
             openrouter_api_key: None,
+            deepseek_api_key: None,
         };
         assert!(keys.key_for(&Provider::Anthropic).is_none());
         assert_eq!(keys.key_for(&Provider::OpenAI), Some("sk-real"));

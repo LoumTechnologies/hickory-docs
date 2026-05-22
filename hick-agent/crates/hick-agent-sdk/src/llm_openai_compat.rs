@@ -42,6 +42,12 @@ impl OpenAiCompatClient {
         Self::custom("https://api.x.ai/v1", api_key, model, "xai")
     }
 
+    /// DeepSeek API. Reads `DEEPSEEK_API_KEY` from env.
+    pub fn deepseek(model: String) -> Self {
+        let api_key = std::env::var("DEEPSEEK_API_KEY").unwrap_or_default();
+        Self::custom("https://api.deepseek.com", api_key, model, "deepseek")
+    }
+
     /// Any OpenAI-compatible endpoint.
     pub fn custom(
         api_base: impl Into<String>,

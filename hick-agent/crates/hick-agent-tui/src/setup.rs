@@ -33,13 +33,15 @@ pub(crate) enum ProviderKind {
     OpenAI,
     XAI,
     OpenRouter,
+    DeepSeek,
 }
 
-const ALL_PROVIDERS: [ProviderKind; 4] = [
+const ALL_PROVIDERS: [ProviderKind; 5] = [
     ProviderKind::Anthropic,
     ProviderKind::OpenAI,
     ProviderKind::XAI,
     ProviderKind::OpenRouter,
+    ProviderKind::DeepSeek,
 ];
 
 impl ProviderKind {
@@ -49,11 +51,18 @@ impl ProviderKind {
             ProviderKind::OpenAI => "OpenAI",
             ProviderKind::XAI => "xAI / Grok",
             ProviderKind::OpenRouter => "OpenRouter",
+            ProviderKind::DeepSeek => "DeepSeek",
         }
     }
 }
 
-/// Infer provider from a key's prefix, or `None` if unrecognised.
+/// Infer provider from a key's prefix, or `None` if the prefix is ambiguous.
+///
+/// Only prefixes that are unambiguously tied to a single provider are matched.
+/// Generic prefixes like `sk-` are used by multiple providers (OpenAI, DeepSeek,
+/// Groq, Together, …) and are intentionally left undetected so the user is
+/// prompted to select the provider manually — sending a key to the wrong
+/// endpoint would leak credentials.
 pub(crate) fn detect_from_key(key: &str) -> Option<ProviderKind> {
     let k = key.trim();
     if k.starts_with("sk-ant-") {
@@ -62,8 +71,6 @@ pub(crate) fn detect_from_key(key: &str) -> Option<ProviderKind> {
         Some(ProviderKind::OpenRouter)
     } else if k.starts_with("xai-") {
         Some(ProviderKind::XAI)
-    } else if k.starts_with("sk-") {
-        Some(ProviderKind::OpenAI)
     } else {
         None
     }
@@ -80,11 +87,12 @@ pub struct SetupResult {
     pub openai: Option<String>,
     pub xai: Option<String>,
     pub openrouter: Option<String>,
+    pub deepseek: Option<String>,
 }
 
 impl SetupResult {
     pub fn has_any(&self) -> bool {
-        [&self.anthropic, &self.openai, &self.xai, &self.openrouter]
+        [&self.anthropic, &self.openai, &self.xai, &self.openrouter, &self.deepseek]
             .iter()
             .any(|k| k.as_deref().is_some_and(|s| !s.is_empty()))
     }
@@ -211,6 +219,7 @@ impl SetupApp {
                 ProviderKind::OpenAI     => r.openai = key,
                 ProviderKind::XAI        => r.xai = key,
                 ProviderKind::OpenRouter => r.openrouter = key,
+                ProviderKind::DeepSeek   => r.deepseek = key,
             }
         }
         r

@@ -173,6 +173,8 @@ enum Provider {
     Xai,
     /// OpenRouter — access hundreds of models via one key (OPENROUTER_API_KEY)
     Openrouter,
+    /// DeepSeek API (DEEPSEEK_API_KEY)
+    Deepseek,
     /// Custom OpenAI-compatible endpoint (requires --api-base)
     #[value(name = "openai-compat")]
     OpenaiCompat,
@@ -439,6 +441,7 @@ impl fmt::Display for Provider {
             Provider::Anthropic   => write!(f, "Anthropic"),
             Provider::Xai         => write!(f, "xAI"),
             Provider::Openrouter  => write!(f, "OpenRouter"),
+            Provider::Deepseek    => write!(f, "DeepSeek"),
             Provider::OpenaiCompat => write!(f, "OpenAI-compatible"),
             Provider::Local       => write!(f, "Local"),
         }
@@ -458,6 +461,7 @@ fn detect_providers() -> Vec<DetectedProvider> {
         ("OPENAI_API_KEY",     Provider::Openai,     "gpt-4o"),
         ("XAI_API_KEY",        Provider::Xai,        "grok-4.3"),
         ("OPENROUTER_API_KEY", Provider::Openrouter, "openai/gpt-4o"),
+        ("DEEPSEEK_API_KEY",   Provider::Deepseek,   "deepseek-chat"),
     ];
     for &(env_var, provider, default_model) in candidates {
         if std::env::var(env_var).ok().filter(|k| !k.is_empty()).is_some() {
@@ -475,7 +479,8 @@ fn prompt_provider_selection(detected: Vec<DetectedProvider>) -> Result<Provider
              \x20 ANTHROPIC_API_KEY  — Anthropic Claude\n\
              \x20 OPENAI_API_KEY     — OpenAI\n\
              \x20 XAI_API_KEY        — xAI / Grok\n\
-             \x20 OPENROUTER_API_KEY — OpenRouter (hundreds of models)\n\n\
+             \x20 OPENROUTER_API_KEY — OpenRouter (hundreds of models)\n\
+             \x20 DEEPSEEK_API_KEY   — DeepSeek\n\n\
              Or specify a provider explicitly:\n\
              \x20 hick agent --provider anthropic\n\
              \x20 hick agent --provider openrouter --model openai/gpt-4o\n\
@@ -545,6 +550,14 @@ fn build_llm_client(
             let key = api_key.unwrap_or_else(|| std::env::var("OPENROUTER_API_KEY").unwrap_or_default());
             Ok(Box::new(OpenAiCompatClient::custom("https://openrouter.ai/api/v1", key, model, "openrouter")))
         }
+        Provider::Deepseek => {
+            let model = model.unwrap_or_else(|| "deepseek-chat".into());
+            if let Some(key) = api_key {
+                Ok(Box::new(OpenAiCompatClient::custom("https://api.deepseek.com", key, model, "deepseek")))
+            } else {
+                Ok(Box::new(OpenAiCompatClient::deepseek(model)))
+            }
+        }
         Provider::OpenaiCompat => {
             let base = api_base.ok_or_else(|| anyhow::anyhow!("--api-base is required for openai-compat provider"))?;
             let key = api_key.unwrap_or_default();
@@ -587,6 +600,7 @@ fn endpoint_host_for_provider(provider: Provider, api_base: &Option<String>) -> 
             Provider::Openai      => "api.openai.com".to_string(),
             Provider::Xai         => "api.x.ai".to_string(),
             Provider::Openrouter  => "openrouter.ai".to_string(),
+            Provider::Deepseek    => "api.deepseek.com".to_string(),
             Provider::OpenaiCompat => "unknown".to_string(),
             Provider::Local       => "localhost".to_string(),
         }
@@ -673,6 +687,7 @@ fn save_user_keys(keys: &hick_agent_tui::SetupResult) -> anyhow::Result<()> {
     if let Some(ref k) = keys.openai     { lines.push(format!("openai_api_key = {k:?}")); }
     if let Some(ref k) = keys.xai        { lines.push(format!("xai_api_key = {k:?}")); }
     if let Some(ref k) = keys.openrouter { lines.push(format!("openrouter_api_key = {k:?}")); }
+    if let Some(ref k) = keys.deepseek   { lines.push(format!("deepseek_api_key = {k:?}")); }
     std::fs::write(&path, lines.join("\n") + "\n")?;
     Ok(())
 }
@@ -1147,6 +1162,7 @@ async fn main() -> Result<()> {
                 ("OPENAI_API_KEY",     keys.openai_api_key.as_deref()),
                 ("XAI_API_KEY",        keys.xai_api_key.as_deref()),
                 ("OPENROUTER_API_KEY", keys.openrouter_api_key.as_deref()),
+                ("DEEPSEEK_API_KEY",   keys.deepseek_api_key.as_deref()),
             ];
             for &(var, val) in pairs {
                 if let Some(v) = val.filter(|k| !k.is_empty()) {
@@ -1293,14 +1309,14 @@ async fn main() -> Result<()> {
                 });
 
                 // Poll for ProvideApiKeys from the browser while TUI is running.
-                let browser_keys: Option<(Option<String>, Option<String>, Option<String>, Option<String>)> = loop {
+                let browser_keys: Option<(Option<String>, Option<String>, Option<String>, Option<String>, Option<String>)> = loop {
                     if setup_done.load(Ordering::Acquire) {
                         break None; // TUI completed first
                     }
                     match ui_cmd_rx.try_recv() {
-                        Ok(hick_agent_sdk::UiCommand::ProvideApiKeys { anthropic, openai, xai, openrouter }) => {
+                        Ok(hick_agent_sdk::UiCommand::ProvideApiKeys { anthropic, openai, xai, openrouter, deepseek }) => {
                             setup_done.store(true, Ordering::Release);
-                            break Some((anthropic, openai, xai, openrouter));
+                            break Some((anthropic, openai, xai, openrouter, deepseek));
                         }
                         Ok(_) => {} // other commands during setup — discard
                         Err(mpsc::error::TryRecvError::Empty) => {
@@ -1311,8 +1327,8 @@ async fn main() -> Result<()> {
                 };
                 tui_handle.await??;
 
-                let final_keys = if let Some((a, o, x, or_)) = browser_keys {
-                    hick_agent_tui::SetupResult { anthropic: a, openai: o, xai: x, openrouter: or_ }
+                let final_keys = if let Some((a, o, x, or_, ds)) = browser_keys {
+                    hick_agent_tui::SetupResult { anthropic: a, openai: o, xai: x, openrouter: or_, deepseek: ds }
                 } else {
                     setup_result.lock().unwrap().clone().unwrap_or_default()
                 };
@@ -1329,6 +1345,7 @@ async fn main() -> Result<()> {
                     ("OPENAI_API_KEY",     final_keys.openai.as_deref()),
                     ("XAI_API_KEY",        final_keys.xai.as_deref()),
                     ("OPENROUTER_API_KEY", final_keys.openrouter.as_deref()),
+                    ("DEEPSEEK_API_KEY",   final_keys.deepseek.as_deref()),
                 ] {
                     if let Some(v) = val {
                         // Safety: called before worker threads start (event loop below).

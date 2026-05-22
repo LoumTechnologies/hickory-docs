@@ -192,6 +192,8 @@ pub enum UiCommand {
         xai: Option<String>,
         #[serde(default)]
         openrouter: Option<String>,
+        #[serde(default)]
+        deepseek: Option<String>,
     },
     /// Request to add a new config to the current session (mid-session multi-config).
     AddConfigPath {

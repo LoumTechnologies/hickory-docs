@@ -223,6 +223,7 @@ fn build_judge_llm(section: &JudgeSection) -> anyhow::Result<Box<dyn LlmClient>>
             Provider::OpenAI     => std::env::var("OPENAI_API_KEY").ok(),
             Provider::XAI        => std::env::var("XAI_API_KEY").ok(),
             Provider::OpenRouter => std::env::var("OPENROUTER_API_KEY").ok(),
+            Provider::DeepSeek   => std::env::var("DEEPSEEK_API_KEY").ok(),
         })
         .unwrap_or_default();
 
@@ -247,6 +248,12 @@ fn build_judge_llm(section: &JudgeSection) -> anyhow::Result<Box<dyn LlmClient>>
             api_key,
             section.model.clone(),
             "openrouter",
+        ))),
+        Provider::DeepSeek => Ok(Box::new(OpenAiCompatClient::custom(
+            "https://api.deepseek.com",
+            api_key,
+            section.model.clone(),
+            "deepseek",
         ))),
     }
 }
