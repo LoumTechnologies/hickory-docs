@@ -7,7 +7,6 @@ publish = false
 
 [dependencies]
 hick-agent-sdk = { path = "../hick-agent-sdk" }
-hick-agent-core = { path = "../hick-agent-core" }
 hick-policy.workspace = true
 
 anyhow = "1"

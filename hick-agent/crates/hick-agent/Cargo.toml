@@ -15,8 +15,8 @@ path = "src/lib.rs"
 
 [features]
 default = []
-local = ["dep:hick-agent-engine", "hick-agent-engine/local"]
-local-cuda = ["local", "hick-agent-engine/local-cuda"]
+local = ["dep:llama-cpp-2"]
+local-cuda = ["local", "llama-cpp-2/cuda"]
 integration-test = []
 
 [dependencies]
@@ -28,7 +28,6 @@ hick-agent-mcp-graphql = { path = "../hick-agent-mcp-graphql" }
 hick-agent-mcp-sdk = { path = "../hick-agent-mcp-sdk" }
 hick-agent-mcp-wasm = { path = "../hick-agent-mcp-wasm" }
 hick-agent-mcp-xml = { path = "../hick-agent-mcp-xml" }
-hick-agent-core = { path = "../hick-agent-core" }
 hick-agent-tui = { path = "../hick-agent-tui" }
 hick-eval-store = { path = "../hick-eval-store" }
 hick-policy.workspace = true
@@ -40,9 +39,6 @@ hick-literate = { version = "0.1", path = "../../../crates/hick-literate" }
 hick-lang.workspace = true
 hick-secrets.workspace = true
 hick-token.workspace = true
-
-# Local LLM (optional, build with --features local)
-hick-agent-engine = { path = "../hick-agent-engine", optional = true }
 
 # General CLI/async dependencies
 anyhow = "1"
@@ -56,6 +52,13 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["full"] }
 toml = "1"
+
+# Local LLM (optional, build with --features local)
+[target.'cfg(target_os = "macos")'.dependencies]
+llama-cpp-2 = { version = "0.1", optional = true, features = ["metal"] }
+
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+llama-cpp-2 = { version = "0.1", optional = true }
 
 [dev-dependencies]
 async-trait = "0.1"

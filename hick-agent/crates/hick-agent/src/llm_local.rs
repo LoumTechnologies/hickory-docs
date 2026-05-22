@@ -22,7 +22,7 @@ use llama_cpp_2::model::{AddBos, LlamaChatMessage, LlamaModel};
 use llama_cpp_2::sampling::LlamaSampler;
 use serde::{Deserialize, Serialize};
 
-use crate::llm::{ChatChunk, LlmClient, Message, Role};
+use hick_agent_sdk::llm::{ChatChunk, LlmClient, Message, Role};
 
 /// Local LLM client using llama.cpp for inference.
 ///

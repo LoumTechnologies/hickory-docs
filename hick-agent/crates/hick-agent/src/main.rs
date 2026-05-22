@@ -7,6 +7,7 @@
 
 mod config;
 mod judge_task;
+mod wasm_backend;
 
 use std::fmt;
 use std::io::Write as _;
@@ -15,7 +16,7 @@ use std::sync::Arc;
 
 use anyhow::Result;
 use clap::{Parser, Subcommand, ValueEnum};
-use hick_agent_core::{CommandExecutor, WasmSandboxConfig, WasmSandboxExecutor};
+use hick_agent_sdk::{CommandExecutor, WasmSandboxConfig, WasmSandboxExecutor};
 use hick_agent_sdk::mcp_install::{
     McpInstaller, infer_name, list_servers, parse_spec, remove_server,
 };
@@ -23,7 +24,9 @@ use hick_agent_sdk::mcp_config::McpServerTrust;
 use tokio::sync::{Mutex, Notify, broadcast, mpsc};
 
 #[cfg(feature = "local")]
-use hick_agent_engine::LocalLlmClient;
+mod llm_local;
+#[cfg(feature = "local")]
+use llm_local::LocalLlmClient;
 use hick_agent_script_first::{
     AgentCommand, AgentEvent, ScriptBlockIntentParser, ScriptBlockPayload,
     correction_message, run_ui_event_fanout_task, ReplayRequest,
@@ -1446,16 +1449,20 @@ async fn main() -> Result<()> {
                      \x20   --default-image 3.23.2",
                 )
             })?;
+            let sandbox_backend = wasm_backend::HickWasmBackend::new(
+                images_dir.clone(),
+                project_dir.clone(),
+                sandbox_caps.clone(),
+                auth_stack,
+                sandbox_guest_network,
+            );
             let sandbox_config = WasmSandboxConfig {
-                images_dir: images_dir.clone(),
                 workdir: project_dir.clone(),
                 default_image: default_image.clone(),
-                capabilities: sandbox_caps.clone(),
-                auth: auth_stack,
                 guest_network_enabled: sandbox_guest_network,
             };
             let sandbox_executor: Arc<Mutex<dyn CommandExecutor>> =
-                Arc::new(Mutex::new(WasmSandboxExecutor::new(sandbox_config)));
+                Arc::new(Mutex::new(WasmSandboxExecutor::new(sandbox_config, Box::new(sandbox_backend))));
             event_tx.send(AgentEvent::Info(format!(
                 "Sandbox: WASM container enabled ({caps_summary})"
             ))).ok();
@@ -1781,16 +1788,20 @@ async fn main() -> Result<()> {
                 }
 
                 let ex_running = Arc::new(AtomicBool::new(true));
+                let ex_sandbox_backend = wasm_backend::HickWasmBackend::new(
+                    images_dir.clone(),
+                    project_dir.clone(),
+                    security_config.to_capabilities(),
+                    None,
+                    sandbox_guest_network,
+                );
                 let ex_sandbox_config = WasmSandboxConfig {
-                    images_dir: images_dir.clone(),
                     workdir: project_dir.clone(),
                     default_image: default_image.clone(),
-                    capabilities: security_config.to_capabilities(),
-                    auth: None,
                     guest_network_enabled: sandbox_guest_network,
                 };
                 let ex_sandbox_executor: Arc<Mutex<dyn CommandExecutor>> =
-                    Arc::new(Mutex::new(WasmSandboxExecutor::new(ex_sandbox_config)));
+                    Arc::new(Mutex::new(WasmSandboxExecutor::new(ex_sandbox_config, Box::new(ex_sandbox_backend))));
 
                 let ex_session_log: Arc<dyn hick_agent_sdk::SessionLog> = {
                     let ts = chrono::Local::now().format("%Y%m%d-%H%M%S");
@@ -2206,16 +2217,20 @@ async fn handle_replay_requests(
             }
 
             let rep_running = Arc::new(AtomicBool::new(true));
+            let rep_sandbox_backend = wasm_backend::HickWasmBackend::new(
+                images_dir.clone(),
+                project_dir.clone(),
+                sandbox_caps.clone(),
+                None,
+                sandbox_guest_network,
+            );
             let rep_sandbox_config = WasmSandboxConfig {
-                images_dir: images_dir.clone(),
                 workdir: project_dir.clone(),
                 default_image: default_image.clone(),
-                capabilities: sandbox_caps.clone(),
-                auth: None,
                 guest_network_enabled: sandbox_guest_network,
             };
             let rep_sandbox_executor: Arc<Mutex<dyn CommandExecutor>> =
-                Arc::new(Mutex::new(WasmSandboxExecutor::new(rep_sandbox_config)));
+                Arc::new(Mutex::new(WasmSandboxExecutor::new(rep_sandbox_config, Box::new(rep_sandbox_backend))));
 
             let rep_session_log: Arc<dyn hick_agent_sdk::SessionLog> = {
                 let ts = chrono::Local::now().format("%Y%m%d-%H%M%S");
@@ -2585,7 +2600,6 @@ async fn mcp_cmd(cmd: McpCommand) -> Result<()> {
 
             if let Some(images_dir) = args.images_dir {
                 println!("Installing package in WASM sandbox...");
-                use hick_agent_core::WasmSandboxConfig;
                 use hick_token::ContainerCapabilities;
                 let caps = hick_agent_sdk::mcp_install::PackageManagerNetworkPolicy::allowed_hosts()
                     .iter()
@@ -2593,18 +2607,22 @@ async fn mcp_cmd(cmd: McpCommand) -> Result<()> {
                         ContainerCapabilities::new().deny_all_network(),
                         |c, h| c.allow_network(&h.host, &h.port),
                     );
-                let sandbox_config = WasmSandboxConfig {
+                let mcp_backend = wasm_backend::HickWasmBackend::new(
                     images_dir,
+                    project_dir.clone(),
+                    caps,
+                    None,
+                    true,
+                );
+                let mcp_config = WasmSandboxConfig {
                     workdir: project_dir.clone(),
                     default_image: args.default_image,
-                    capabilities: caps,
-                    auth: None,
                     guest_network_enabled: true,
                 };
-                let mut executor = WasmSandboxExecutor::new(sandbox_config);
+                let mut executor = WasmSandboxExecutor::new(mcp_config, Box::new(mcp_backend));
                 McpInstaller::run_package_install(
                     &spec,
-                    Some(&mut SdkExecutorBridge(&mut executor)),
+                    Some(&mut executor),
                 )
                 .await?;
                 println!("Package install complete.");
@@ -2747,23 +2765,3 @@ fn setup_sdk(project_dir: &std::path::Path) {
     }
 }
 
-// ── SdkExecutorBridge ─────────────────────────────────────────────────────────
-
-struct SdkExecutorBridge<'a>(&'a mut WasmSandboxExecutor);
-
-#[async_trait::async_trait]
-impl hick_agent_sdk::CommandExecutor for SdkExecutorBridge<'_> {
-    async fn execute(
-        &mut self,
-        container: &str,
-        command: &str,
-        image: &str,
-        timeout: Option<u64>,
-    ) -> anyhow::Result<hick_agent_sdk::CommandOutput> {
-        let out = self.0.execute(container, command, image, timeout).await?;
-        Ok(hick_agent_sdk::CommandOutput {
-            output: out.output,
-            exit_code: out.exit_code,
-        })
-    }
-}

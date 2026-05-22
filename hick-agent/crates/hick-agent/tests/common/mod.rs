@@ -12,10 +12,9 @@ use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use futures::Stream;
-use hick_agent::events::AgentEvent;
-use hick_agent::llm::{ChatChunk, LlmClient, Message};
-use hick_agent_script_first::ReactLoop;
-use hick_agent_core::{CommandExecutor, WasmSandboxConfig, WasmSandboxExecutor};
+use hick_agent::wasm_backend::HickWasmBackend;
+use hick_agent_script_first::{AgentEvent, ReactLoop};
+use hick_agent_sdk::{ChatChunk, CommandExecutor, LlmClient, Message, WasmSandboxConfig, WasmSandboxExecutor};
 use hick_token::ContainerCapabilities;
 use tokio::sync::Notify;
 
@@ -163,16 +162,20 @@ pub fn create_executor_with_capabilities(
     let wasm_path = hick_literate::executor::resolve_image_path(&images_root, &image_family);
     ensure_wasm_extracted(&wasm_path);
 
+    let backend = HickWasmBackend::new(
+        images_root,
+        workdir.to_path_buf(),
+        capabilities,
+        None,
+        guest_network,
+    );
     let config = WasmSandboxConfig {
-        images_dir: images_root,
         workdir: workdir.to_path_buf(),
         default_image: image_family.clone(),
-        capabilities,
-        auth: None,
         guest_network_enabled: guest_network,
     };
 
-    let executor = WasmSandboxExecutor::new(config);
+    let executor = WasmSandboxExecutor::new(config, Box::new(backend));
     let shared: SharedExecutor = Arc::new(tokio::sync::Mutex::new(executor));
     (shared, image_family)
 }
@@ -214,7 +217,7 @@ pub async fn run_agent(
 }
 
 /// Collect all `ScriptFinished` events from a run.
-pub fn finished_results(events: &[AgentEvent]) -> Vec<&hick_agent::tools::ScriptResult> {
+pub fn finished_results(events: &[AgentEvent]) -> Vec<&hick_agent_script_first::ScriptResult> {
     events
         .iter()
         .filter_map(|e| match e {

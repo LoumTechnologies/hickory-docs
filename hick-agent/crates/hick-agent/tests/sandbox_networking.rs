@@ -12,7 +12,7 @@ mod common;
 use std::sync::Arc;
 
 use common::{create_executor_with_capabilities, create_executor_with_guest_network};
-use hick_agent_core::{CommandExecutor, CommandOutput};
+use hick_agent_sdk::{CommandExecutor, CommandOutput};
 use hick_token::ContainerCapabilities;
 use tokio::sync::Mutex;
 

@@ -7,7 +7,7 @@
 mod common;
 
 use common::{create_executor, done_message, finished_results, run_agent};
-use hick_agent::events::AgentEvent;
+use hick_agent_script_first::AgentEvent;
 
 #[tokio::test(flavor = "multi_thread")]
 async fn single_turn_no_code() {

@@ -4203,8 +4203,6 @@ dependencies = [
  "clap",
  "dotenvy",
  "futures",
- "hick-agent-core",
- "hick-agent-engine",
  "hick-agent-hick-edit",
  "hick-agent-mcp-graphql",
  "hick-agent-mcp-sdk",
@@ -4221,6 +4219,7 @@ dependencies = [
  "hick-policy",
  "hick-secrets",
  "hick-token",
+ "llama-cpp-2",
  "log",
  "serde",
  "serde_json",
@@ -4228,35 +4227,6 @@ dependencies = [
  "tokio",
  "toml 1.1.2+spec-1.1.0",
  "zip",
-]
-
-[[package]]
-name = "hick-agent-core"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "hick-agent-hick-edit",
- "hick-literate",
- "hick-token",
- "tokio",
-]
-
-[[package]]
-name = "hick-agent-engine"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "async-trait",
- "futures",
- "hick-agent-core",
- "hick-agent-script-first",
- "hick-agent-sdk",
- "hick-policy",
- "hick-token",
- "llama-cpp-2",
- "log",
- "tempfile",
 ]
 
 [[package]]
@@ -4352,7 +4322,6 @@ dependencies = [
  "anyhow",
  "async-trait",
  "futures",
- "hick-agent-core",
  "hick-agent-sdk",
  "hick-policy",
  "log",
