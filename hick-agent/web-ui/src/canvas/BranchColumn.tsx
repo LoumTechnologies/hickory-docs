@@ -205,7 +205,7 @@ function renderItem(
 }
 
 export const BranchColumn = forwardRef<BranchColumnHandle, BranchColumnData>(function BranchColumn(
-  { branch, items, isActive, connected, collapseState, send, navigateToBranch, onScrolledUp },
+  { items, isActive, connected, collapseState, send, navigateToBranch, onScrolledUp },
   ref,
 ) {
   const onBranch = connected ? (nodeId: number) => send({ type: 'rewind_to', node_id: nodeId }) : undefined
@@ -252,19 +252,10 @@ export const BranchColumn = forwardRef<BranchColumnHandle, BranchColumnData>(fun
 
   return (
     <div
-      style={{ width: COLUMN_WIDTH, flexShrink: 0, height: '100%' }}
-      className={`relative flex flex-col bg-slate-950/95 transition-opacity duration-300 ${
+      className={`relative flex min-h-0 flex-1 flex-col bg-slate-950/95 transition-opacity duration-300 ${
         isActive ? 'opacity-100' : 'opacity-40'
       }`}
     >
-      {/* Branch header */}
-      <div className="shrink-0 border-b border-slate-800 bg-slate-900/80 px-4 py-2 text-xs font-semibold text-slate-400">
-        {branch.label}
-      </div>
-
-      {/* Vertical spine line */}
-      <div className="pointer-events-none absolute bottom-0 left-[25%] top-10 w-px bg-slate-800" />
-
       {/* Scrollable virtual list */}
       <div
         ref={scrollRef}

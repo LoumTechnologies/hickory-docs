@@ -50,7 +50,7 @@ export function UserTurnNode({ nodeId, text, onBranch, onReplay }: Props) {
           aria-hidden="true"
         >
           <path
-            d="M 0 0 C 4 0, 8 4, 6 12 C 10 8, 14 4, 18 0 Z"
+            d="M 18 0 C 14 0, 10 4, 12 12 C 8 8, 4 4, 0 0 Z"
             fill="currentColor"
           />
         </svg>
