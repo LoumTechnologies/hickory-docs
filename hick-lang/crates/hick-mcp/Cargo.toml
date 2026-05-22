@@ -10,7 +10,7 @@ path = "src/main.rs"
 
 [dependencies]
 hick-literate = { version = "0.1", path = "../../../crates/hick-literate" }
-hick-lens = { version = "0.1", path = "../../../crates/hick-lens" }
+hick-lens = { version = "0.1", path = "../hick-lens" }
 hick-flow.workspace = true
 hick-lang.workspace = true
 hick-exec.workspace = true

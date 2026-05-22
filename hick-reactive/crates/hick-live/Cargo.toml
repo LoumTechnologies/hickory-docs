@@ -6,7 +6,7 @@ edition = "2024"
 [dependencies]
 hick-flow.workspace = true
 hick-exec.workspace = true
-hick-handlers = { path = "../hick-handlers" }
+hick-handlers = { path = "../../../crates/hick-handlers" }
 hick-lang.workspace = true
 arrow = { version = "54", features = ["prettyprint"] }
 parquet = { version = "54", features = ["arrow"] }

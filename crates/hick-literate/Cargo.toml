@@ -24,13 +24,13 @@ hick-container.workspace = true
 hick-connection-filter = { workspace = true, features = ["capability"] }
 hick-net-bridge.workspace = true
 hick-net-config.workspace = true
-hick-api = { path = "../hick-api" }
+hick-api = { path = "../../hick-container/crates/hick-api" }
 hick-case = { path = "../hick-case" }
 hick-condition.workspace = true
 hick-exec.workspace = true
 hick-handlers = { path = "../hick-handlers" }
 hick-shell.workspace = true
-hick-live = { path = "../hick-live" }
+hick-live = { path = "../../hick-reactive/crates/hick-live" }
 hick-feature = { path = "../hick-feature" }
 hick-lang.workspace = true
 hick-secrets.workspace = true

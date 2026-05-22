@@ -3,6 +3,7 @@ resolver = "3"
 members = [
     "backend",
     "crates/*",
+    "examples/*",
     "hick-lang/crates/*",
     "hick-reactive/crates/*",
     "hick-exec/crates/*",
