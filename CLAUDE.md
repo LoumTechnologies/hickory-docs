@@ -50,21 +50,29 @@ The agents live under `hick-agent/crates/`. Three layers:
 filtering, runtime loop. No hick pipeline knowledge. All agents depend
 on this; extend it rather than forking it.
 
-**Extensions** (`hick-agent-*` prefix): Optional capabilities evaluated
-for inclusion in the final public agent. Current extensions:
+**Extensions** (`hick-agent-*` prefix): Capabilities always compiled
+into the binary; which ones run is controlled by `[extensions]` in
+`agent.toml` (see config-driven activation below). Current extensions:
 - `hick-agent-script-first` — script-first ReAct loop (Python/shell in
   WASM containers)
 - `hick-agent-hick-edit` — hick-XML pipeline editing, pipeline watcher,
   reverse provenance
 
-New capabilities under evaluation belong here as a new
-`hick-agent-<feature>` crate before being promoted to a binary.
+New capabilities belong here as a new `hick-agent-<feature>` crate.
+A crate is always compiled in; its activation is gated by a boolean
+key in `[extensions]`.
 
-**Binary crates** (adjective-noun names, e.g. `copper-ledge`,
-`iron-peak`): Each binary wires a specific combination of extensions
-together for A/B evaluation. The combination is explicit in
-`Cargo.toml` — no hidden feature gates. When evaluation is done, the
-winning combination becomes the public release binary.
+**The `hick` binary** (`hick-agent/crates/hick-agent/`): A single
+universal binary wiring all extensions. Active extensions are
+determined at startup from `.hick/agent.toml` (project config) or
+`~/.hick/agent.toml` (user default). Named config presets live in
+`hick-agent/configs/` (e.g. `standard.toml`, `hick-edit.toml`).
+
+**Adding an extension:** Implement the extension behaviour in a
+`hick-agent-<name>` crate, add it as a dependency of `hick-agent`,
+add a boolean key to `ExtensionsSection` in `src/config.rs`, and add
+the conditional wiring in `src/main.rs`. Add the key to all configs in
+`hick-agent/configs/`.
 
 ## Formal Specifications (`docs/specs/`)
 
