@@ -271,7 +271,7 @@ impl SetupApp {
         f.render_widget(
             Paragraph::new(vec![
                 Line::from(Span::styled(
-                    "  Your keys never leave your machine.  ",
+                    "  Your keys are never sent to the LLM.  ",
                     Style::default().fg(Color::Green).add_modifier(Modifier::BOLD),
                 )),
                 Line::from(""),
