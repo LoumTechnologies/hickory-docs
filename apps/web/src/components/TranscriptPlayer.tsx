@@ -18,6 +18,15 @@ export function TranscriptPlayer({
   events: TranscriptEvent[];
   live?: boolean;
 }) {
+  // In a cell the command is the source text directly above the panel, so
+  // echoing it again as `$ cmd` is pure repetition — hide cmd events unless
+  // there are several (a multi-command group whose outputs interleave, where
+  // the prompts are needed to tell which output belongs to which command).
+  // Hidden commands stay in the timing model, so scrubbing is unchanged.
+  const showCommands = useMemo(
+    () => events.filter((e) => e.kind === "cmd").length > 1,
+    [events],
+  );
   const duration = useMemo(() => transcriptDuration(events), [events]);
   const [playhead, setPlayhead] = useState(duration);
   const [playing, setPlaying] = useState(false);
@@ -73,11 +82,13 @@ export function TranscriptPlayer({
       <pre ref={preRef} className="terminal" data-testid="terminal">
         {segments.map((seg, i) =>
           seg.kind === "cmd" ? (
-            <span key={i} className="t-cmd">
-              <span className="t-prompt">$ </span>
-              {seg.text}
-              {"\n"}
-            </span>
+            showCommands ? (
+              <span key={i} className="t-cmd">
+                <span className="t-prompt">$ </span>
+                {seg.text}
+                {"\n"}
+              </span>
+            ) : null
           ) : seg.kind === "exit" ? (
             seg.exitCode === 0 ? null : (
               <span key={i} className="t-exit">

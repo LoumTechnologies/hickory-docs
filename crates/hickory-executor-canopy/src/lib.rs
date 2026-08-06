@@ -22,7 +22,7 @@ pub mod pb {
     tonic::include_proto!("canopy.v1");
 }
 
-pub use config::CanopyConfig;
+pub use config::{CanopyConfig, image_map_summary};
 pub use executor::CanopyExecutor;
 
 // Exposed for the in-crate contract tests' mock guest; not a public API.

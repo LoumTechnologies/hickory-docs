@@ -664,6 +664,12 @@ async fn health_and_agent_stub() {
     assert_eq!(v["executor"], "local");
     assert_eq!(v["db"], true);
 
+    // GET /api/executor: local executor reports no image map (api.md).
+    let (status, v) = app.get("/api/executor", None).await;
+    assert_eq!(status, 200);
+    assert_eq!(v["kind"], "local");
+    assert_eq!(v["images"], serde_json::Value::Null);
+
     let (token, _) = app.signup("agent@example.com").await;
     let (_, project) = app
         .post(

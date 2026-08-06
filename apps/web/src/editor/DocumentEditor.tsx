@@ -6,11 +6,14 @@ import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirro
 import * as Y from "yjs";
 import { Awareness } from "y-protocols/awareness";
 import { yCollab } from "y-codemirror.next";
-import { CellRegistry, wysiwyg } from "./wysiwyg";
-import type { CellSlot } from "./wysiwyg";
+import { CellRegistry, EnvRegistry, setVerifiedExpects, structureOf, wysiwyg } from "./wysiwyg";
+import type { CellSlot, EnvSlot } from "./wysiwyg";
+import { execBlocksOf, expectRangeOf } from "./hickDoc";
 import { CellPanel } from "../components/CellPanel";
+import { EnvCard } from "../components/EnvCard";
+import { api } from "../api/client";
 import type { Realtime } from "../api/realtime";
-import type { ExecBlock } from "../api/types";
+import type { ExecBlock, ExecutorInfo } from "../api/types";
 
 export interface DocumentEditorProps {
   docId: string;
@@ -72,9 +75,19 @@ export function DocumentEditor({
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
   const registry = useMemo(() => new CellRegistry(), []);
+  const envRegistry = useMemo(() => new EnvRegistry(), []);
   const [slots, setSlots] = useState<CellSlot[]>([]);
+  const [envSlots, setEnvSlots] = useState<EnvSlot[]>([]);
+  const [executorInfo, setExecutorInfo] = useState<ExecutorInfo | null>(null);
 
   useEffect(() => registry.subscribe(() => setSlots(registry.list())), [registry]);
+  useEffect(
+    () => envRegistry.subscribe(() => setEnvSlots(envRegistry.list())),
+    [envRegistry],
+  );
+  useEffect(() => {
+    api.executor().then(setExecutorInfo, () => setExecutorInfo(null));
+  }, []);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -102,7 +115,7 @@ export function DocumentEditor({
         extensions: [
           history(),
           keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab]),
-          wysiwyg(registry),
+          wysiwyg(registry, envRegistry),
           yCollab(ytext, awareness),
           EditorView.lineWrapping,
           EditorView.updateListener.of((u) => {
@@ -113,6 +126,7 @@ export function DocumentEditor({
     });
     viewRef.current = view;
     setSlots(registry.list());
+    setEnvSlots(envRegistry.list());
 
     return () => {
       view.destroy();
@@ -122,7 +136,25 @@ export function DocumentEditor({
     };
     // Recreate the editor per document.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [docId, realtime, registry]);
+  }, [docId, realtime, registry, envRegistry]);
+
+  // Push verified-expect ranges into the editor: for each exec cell whose
+  // last run is ok AND that has an expect block, style the expect body in the
+  // source as the verified output (the single visible copy — see CellPanel).
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!view) return;
+    const structure = structureOf(view.state);
+    const spans: [number, number][] = [];
+    execBlocksOf(structure).forEach((exec, index) => {
+      const block = matchExecBlock({ span: [exec.from, exec.to], index }, execBlocks);
+      if (block?.status === "ok" && block.expect) {
+        const range = expectRangeOf(structure, exec);
+        if (range) spans.push(range);
+      }
+    });
+    view.dispatch({ effects: setVerifiedExpects.of(spans) });
+  }, [execBlocks]);
 
   useEffect(() => {
     const view = viewRef.current;
@@ -152,6 +184,18 @@ export function DocumentEditor({
           slot.key,
         );
       })}
+      {envSlots.map((slot) =>
+        createPortal(
+          <EnvCard
+            name={slot.name}
+            image={slot.image}
+            rules={slot.rules}
+            executor={executorInfo}
+          />,
+          slot.el,
+          slot.key,
+        ),
+      )}
     </>
   );
 }

@@ -77,6 +77,11 @@ Agent sessions stream on the run channel with `run_id === session_id` and
 
 ## Ops
 - `GET /api/health` → `{ok: true, executor: "local"|"canopy", db: bool}`
+- `GET /api/executor` → `{kind: "local"|"canopy", images: {<image ref>: <store path>}|null}`
+  — where cells run, for the Document view's environment cards. `images` is
+  the configured image-ref → Nix-store-path map on canopy (empty object when
+  none configured); `null` on local, where the `image` attribute is recorded
+  provenance, not an enforced sandbox.
 
 ## Generated outputs & lineage (v0.2)
 

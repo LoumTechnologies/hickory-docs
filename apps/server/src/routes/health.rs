@@ -1,10 +1,11 @@
-//! GET /api/health.
+//! GET /api/health and GET /api/executor.
 
 use axum::Json;
 use axum::extract::State;
 use serde_json::{Value, json};
 
 use crate::AppState;
+use crate::config::ExecutorKind;
 
 pub async fn health(State(state): State<AppState>) -> Json<Value> {
     let db_ok = sqlx::query("SELECT 1").execute(&state.db).await.is_ok();
@@ -13,4 +14,16 @@ pub async fn health(State(state): State<AppState>) -> Json<Value> {
         "executor": state.config.executor.as_str(),
         "db": db_ok,
     }))
+}
+
+/// `GET /api/executor` — where cells run (api.md). `images` is the image
+/// ref → store path map on canopy; `null` on local, where the image
+/// attribute is recorded provenance, not an enforced sandbox.
+pub async fn executor(State(state): State<AppState>) -> Json<Value> {
+    let kind = state.config.executor;
+    let images = match kind {
+        ExecutorKind::Local => Value::Null,
+        ExecutorKind::Canopy => json!(crate::executor::canopy_image_map()),
+    };
+    Json(json!({ "kind": kind.as_str(), "images": images }))
 }

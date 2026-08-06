@@ -6,11 +6,21 @@ document is built, and the outputs shown are the outputs produced. If a
 future version of these tools changes behavior, `hickory check` fails and
 this document refuses to pretend otherwise.
 
+## What runs where
+
+Every cell below declares the container it runs in, and the declaration
+renders as an environment card in the web app. The card names the
+container, its image ref, and where commands actually execute: on the
+local executor they run directly on the host and the image ref is
+recorded provenance, not an enforced sandbox; on Cloud Canopy the image
+ref maps to a Nix-defined cell image declared in `flake.nix`, and the
+card shows the resolved store path (or warns when the ref is unmapped).
+
+
+
 ## Setting the stage
 
 We create a small data file that the rest of the document uses.
-
-
 
 $ printf 'cherry,7\napple,3\nbanana,5\napple,9\n' > fruit.csv
   cat fruit.csv

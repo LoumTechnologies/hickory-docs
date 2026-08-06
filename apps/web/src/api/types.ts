@@ -170,3 +170,11 @@ export interface Health {
   executor: "local" | "canopy";
   db: boolean;
 }
+
+/** GET /api/executor — where cells run (environment cards). `images` is the
+ * image ref → Nix store path map on canopy; null on local, where the image
+ * attribute is recorded provenance, not an enforced sandbox. */
+export interface ExecutorInfo {
+  kind: "local" | "canopy";
+  images: Record<string, string> | null;
+}

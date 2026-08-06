@@ -282,3 +282,42 @@ export function execBlocksOf(structure: HickDocStructure): HickBlock[] {
 export function fileBlocksOf(structure: HickDocStructure): HickBlock[] {
   return structure.blocks.filter((b) => b.name === "file");
 }
+
+/** Container declarations in document order (the environment cards). */
+export function containerBlocksOf(structure: HickDocStructure): HickBlock[] {
+  return structure.blocks.filter((b) => b.name === "container");
+}
+
+/**
+ * Human-readable summary of a container's `hick:allow`/`hick:deny` children,
+ * e.g. `["network: github.com:443", "deny network *"]`. Self-closing
+ * containers (no children) yield an empty list.
+ */
+export function accessRulesOf(structure: HickDocStructure, container: HickBlock): string[] {
+  const rules: string[] = [];
+  for (const b of structure.blocks) {
+    if (b.name !== "allow" && b.name !== "deny") continue;
+    if (b.from < container.contentFrom || b.to > container.contentTo) continue;
+    for (const [key, value] of Object.entries(b.attrs)) {
+      rules.push(b.name === "deny" ? `deny ${key} ${value}` : `${key}: ${value}`);
+    }
+  }
+  return rules;
+}
+
+/**
+ * Content range of the first `hick:expect` block nested in `exec`, or null.
+ * Used to style the expect body in the source as the verified output.
+ */
+export function expectRangeOf(
+  structure: HickDocStructure,
+  exec: HickBlock,
+): [number, number] | null {
+  for (const b of structure.blocks) {
+    if (b.name !== "expect") continue;
+    if (b.from < exec.contentFrom || b.to > exec.contentTo) continue;
+    if (b.contentTo <= b.contentFrom) return null;
+    return [b.contentFrom, b.contentTo];
+  }
+  return null;
+}

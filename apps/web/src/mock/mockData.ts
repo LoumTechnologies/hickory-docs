@@ -10,6 +10,10 @@ Hickory Docs turns documentation into a verified pipeline. Every example
 below executes on \`hickory check\`; drift between docs and binary is a
 build failure.
 
+Everything below runs in one declared environment:
+
+<hick:container name="shell" image="debian:12" />
+
 Install the CLI, then confirm the version:
 
 <hick:exec container="shell" image="debian:12">

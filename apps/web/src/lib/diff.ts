@@ -153,6 +153,64 @@ export function computeEdits(oldText: string, newText: string): TextEdit[] {
   return edits;
 }
 
+// ---------------------------------------------------------------------------
+// Display diff (expected vs actual output in a failed cell panel).
+// ---------------------------------------------------------------------------
+
+export interface DiffLine {
+  /** "same" | "del" (expected line not produced) | "ins" (actual-only line). */
+  kind: "same" | "del" | "ins";
+  text: string;
+}
+
+/**
+ * Line-level diff of `expected` → `actual` for display (the failed-cell
+ * panel). Same LCS strategy as `computeEdits`, but emitting per-line rows
+ * instead of replace-range edits. Trailing newlines are normalised away so a
+ * missing final "\n" never shows as a phantom change.
+ */
+export function diffLines(expected: string, actual: string): DiffLine[] {
+  const strip = (l: string) => (l.endsWith("\n") ? l.slice(0, -1) : l);
+  const a = splitLines(expected.replace(/\n$/, "")).map(strip);
+  const b = splitLines(actual.replace(/\n$/, "")).map(strip);
+  const n = a.length;
+  const m = b.length;
+  const rows: DiffLine[] = [];
+
+  if ((n + 1) * (m + 1) > MAX_DP_CELLS) {
+    for (const text of a) rows.push({ kind: "del", text });
+    for (const text of b) rows.push({ kind: "ins", text });
+    return rows;
+  }
+
+  const width = m + 1;
+  const dp = new Uint32Array((n + 1) * width);
+  for (let i = n - 1; i >= 0; i--) {
+    for (let j = m - 1; j >= 0; j--) {
+      dp[i * width + j] =
+        a[i] === b[j]
+          ? dp[(i + 1) * width + j + 1] + 1
+          : Math.max(dp[(i + 1) * width + j], dp[i * width + j + 1]);
+    }
+  }
+  let i = 0;
+  let j = 0;
+  while (i < n || j < m) {
+    if (i < n && j < m && a[i] === b[j]) {
+      rows.push({ kind: "same", text: a[i] });
+      i++;
+      j++;
+    } else if (j >= m || (i < n && dp[(i + 1) * width + j] >= dp[i * width + j + 1])) {
+      rows.push({ kind: "del", text: a[i] });
+      i++;
+    } else {
+      rows.push({ kind: "ins", text: b[j] });
+      j++;
+    }
+  }
+  return rows;
+}
+
 /** Apply replace-range edits (char offsets, non-overlapping) to `text`. */
 export function applyEdits(text: string, edits: TextEdit[]): string {
   const sorted = [...edits].sort((a, b) => a.start - b.start);

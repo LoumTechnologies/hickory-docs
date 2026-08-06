@@ -32,6 +32,13 @@ pub fn validate_executor(config: &mut Config) -> Result<()> {
     Ok(())
 }
 
+/// Image-ref → store-path map for `GET /api/executor` when the canopy
+/// executor is configured. Display-only: parse failures degrade to an
+/// empty map (resolution errors surface at run time).
+pub fn canopy_image_map() -> std::collections::HashMap<String, String> {
+    hickory_executor_canopy::image_map_summary()
+}
+
 /// Build a fresh executor for one run.
 pub fn build_executor(kind: ExecutorKind) -> Result<Arc<dyn Executor>> {
     match kind {

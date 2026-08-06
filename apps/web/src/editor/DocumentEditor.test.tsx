@@ -59,6 +59,31 @@ describe("DocumentEditor (WYSIWYG over raw source)", () => {
     realtime.close();
   });
 
+  it("renders a hick:container declaration as an environment card (tag stays visible)", async () => {
+    const realtime = new LocalRealtime();
+    const source =
+      '<hick:container name="shell" image="alpine:3.20" />\n<hick:exec container="shell">\nls\n</hick:exec>\n';
+    const { container } = render(
+      <DocumentEditor
+        docId="dEnv"
+        initialSource={source}
+        realtime={realtime}
+        execBlocks={[]}
+        runningCells={new Set()}
+        onRunCell={() => undefined}
+      />,
+    );
+    await waitFor(() => expect(container.querySelector(".env-card")).toBeTruthy());
+    const card = container.querySelector(".env-card")!;
+    expect(card.textContent).toContain("shell");
+    expect(card.textContent).toContain("alpine:3.20");
+    // Decoration-only: the tag source itself is still in the document text.
+    expect(container.querySelector(".cm-content")!.textContent).toContain(
+      '<hick:container name="shell" image="alpine:3.20" />',
+    );
+    realtime.close();
+  });
+
   it("never corrupts text: decorations leave the document unchanged on malformed docs", () => {
     const realtime = new LocalRealtime();
     const source = "broken <hick:exec container=\"shell\">\nno close tag, raw < and ** unbalanced";

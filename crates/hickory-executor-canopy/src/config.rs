@@ -135,6 +135,17 @@ impl CanopyConfig {
     }
 }
 
+/// Best-effort summary of the configured image map (`.hick` image ref →
+/// Nix store path) for display purposes (e.g. the server's `GET
+/// /api/executor`). Unlike [`CanopyConfig::from_env`] this never fails:
+/// unset or malformed configuration yields an empty map — resolution
+/// errors surface at run time with actionable messages, not here.
+pub fn image_map_summary() -> HashMap<String, String> {
+    env_opt("CANOPY_IMAGE_MAP")
+        .and_then(|raw| serde_json::from_str(&raw).ok())
+        .unwrap_or_default()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

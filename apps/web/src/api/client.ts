@@ -2,6 +2,7 @@ import type {
   AuthResponse,
   Doc,
   DocSummary,
+  ExecutorInfo,
   OutputEdit,
   OutputEditResponse,
   OutputFile,
@@ -125,6 +126,8 @@ export const api = {
     request<{ checkout_url: string }>("POST", "/api/billing/checkout", {
       price_key: priceKey,
     }),
+
+  executor: () => request<ExecutorInfo>("GET", "/api/executor"),
 
   agent: (docId: string, prompt: string) =>
     request<{ session_id: string }>("POST", `/api/docs/${docId}/agent`, { prompt }),

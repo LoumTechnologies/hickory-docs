@@ -305,6 +305,8 @@ export function installMockApi() {
       return { session_id: streamAgentSession(m![1], String(b.prompt)) };
     }
     if (route === "GET /api/health") return { ok: true, executor: "local", db: true };
+    // Environment cards: mock runs everything on the "local" executor.
+    if (route === "GET /api/executor") return { kind: "local", images: null };
     notFound(path);
   });
 }

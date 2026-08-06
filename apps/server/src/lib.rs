@@ -103,7 +103,8 @@ pub fn build_router(state: AppState) -> Router {
         .route("/billing/checkout", post(routes::billing::checkout))
         .route("/billing/webhook", post(routes::billing::webhook))
         .route("/ws", get(ws::ws_handler))
-        .route("/health", get(routes::health::health));
+        .route("/health", get(routes::health::health))
+        .route("/executor", get(routes::health::executor));
 
     let mut router = Router::new().nest("/api", api);
 

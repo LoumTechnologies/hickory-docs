@@ -643,14 +643,102 @@ textarea:focus {
   gap: 0.6rem;
 }
 .cell-panel-bar .btn-run { margin-left: auto; }
-.cell-expect-chip {
-  font-size: 0.72rem;
+.cell-verified {
+  font-size: 0.75rem;
+  color: var(--ok, #4a7d5f);
+  white-space: nowrap;
+}
+.cell-panel-bar .btn-ghost {
+  font-size: 0.75rem;
+  padding: 0.1rem 0.55rem;
   color: var(--fg-muted);
-  border: 1px dashed var(--border);
+  background: none;
+  border: 1px solid var(--border);
   border-radius: 999px;
-  padding: 0.05rem 0.5rem;
+}
+.cell-panel-bar .btn-ghost.on {
+  color: var(--fg);
+  background: var(--bg-sunken);
 }
 .cell-panel .transcript { margin-top: 0.5rem; }
+
+/* Failed expectation: compact line diff of actual output vs the expect body
+   (the one case where a second copy of the output earns its place). */
+.cell-diff {
+  margin-top: 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.cell-diff-title {
+  padding: 0.25rem 0.7rem;
+  font-size: 0.72rem;
+  color: var(--fg-muted);
+  background: var(--bg-sunken);
+  border-bottom: 1px solid var(--border);
+}
+.cell-diff pre {
+  margin: 0;
+  padding: 0.5rem 0.7rem;
+  font-size: 0.8rem;
+  line-height: 1.5;
+  overflow-x: auto;
+}
+.cell-diff .d-del { color: #b0554c; }
+.cell-diff .d-ins { color: #4a7d5f; }
+.cell-diff .d-same { color: var(--fg-muted); }
+
+/* Verified expect body in the SOURCE: this region IS the cell's output,
+   confirmed by the last run. */
+.cm-expect-verified {
+  background: color-mix(in srgb, #4a7d5f 9%, transparent);
+  border-left: 2px solid #4a7d5f;
+  margin-left: -2px;
+}
+
+/* Environment card above a hick:container declaration. */
+.cm-env-card { padding: 0; }
+.env-card {
+  margin: 0.5rem 0 0.25rem;
+  border: 1px solid var(--border);
+  border-left: 2px solid var(--accent-2);
+  border-radius: 8px;
+  background: var(--bg-raised);
+  padding: 0.45rem 0.8rem 0.5rem;
+  font-size: 0.82rem;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+.env-card-bar {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+.env-card-label {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--fg-muted);
+}
+.env-card-name {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-weight: 650;
+  color: var(--accent-2);
+}
+.env-card-image {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  color: var(--fg-muted);
+}
+.env-card-rules {
+  font-size: 0.75rem;
+  color: var(--fg-muted);
+}
+.env-card-resolution {
+  margin-top: 0.2rem;
+  font-size: 0.75rem;
+  color: var(--fg-muted);
+}
+.env-card-resolution.warn { color: #b0554c; }
 
 /* --- output view --- */
 .output-view { display: flex; flex-direction: column; gap: 0.75rem; }
