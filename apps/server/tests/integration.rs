@@ -711,3 +711,259 @@ async fn run_commits_baseline_then_check_passes_and_drift_fails() {
     let err = c["error"].as_str().unwrap_or("");
     assert!(err.contains("expectation failed"), "error not surfaced: {c}");
 }
+
+// ---------------------------------------------------------------------------
+// Generated outputs & lineage (api.md v0.2)
+// ---------------------------------------------------------------------------
+
+const LINEAGE_DOC: &str = r##"<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
+# Lineage test
+
+<hick:copy id="alpha">fn alpha() {}
+</hick:copy>
+<hick:copy id="beta">fn beta() {}
+</hick:copy>
+<hick:file path="gen.rs"><hick:paste select="#alpha" /><hick:paste select="#beta" /></hick:file>
+</hick:doc>
+"##;
+
+const SEPARATOR_DOC: &str = r##"<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
+# Separator lineage test
+
+<hick:copy id="a" class="fns">fn a() {}
+</hick:copy>
+<hick:copy id="b" class="fns">fn b() {}
+</hick:copy>
+<hick:file path="all.rs"><hick:paste select=".fns" separator=" // SEP " /></hick:file>
+</hick:doc>
+"##;
+
+impl TestApp {
+    /// Create a project + doc, run it, and wait for the run to finish ok.
+    async fn seed_and_run(&self, token: &str, path: &str, source: &str) -> (String, String) {
+        let (_, project) = self
+            .post(
+                "/api/projects",
+                Some(token),
+                json!({ "name": "lineage", "visibility": "private" }),
+            )
+            .await;
+        let project_id = project["id"].as_str().unwrap().to_string();
+        let (_, doc) = self
+            .post(
+                &format!("/api/projects/{project_id}/docs"),
+                Some(token),
+                json!({ "path": path, "source": source }),
+            )
+            .await;
+        let doc_id = doc["id"].as_str().unwrap().to_string();
+        self.run_and_wait(token, &doc_id).await;
+        (project_id, doc_id)
+    }
+
+    async fn run_and_wait(&self, token: &str, doc_id: &str) {
+        let (status, v) = self
+            .post(&format!("/api/docs/{doc_id}/run"), Some(token), json!({}))
+            .await;
+        assert_eq!(status, 202, "{v}");
+        let run_id = v["run_id"].as_str().unwrap().to_string();
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
+        loop {
+            let (_, r) = self.get(&format!("/api/runs/{run_id}"), Some(token)).await;
+            match r["status"].as_str().unwrap_or("") {
+                "ok" => return,
+                "failed" => panic!("run failed: {r}"),
+                _ => {
+                    assert!(tokio::time::Instant::now() < deadline, "run never finished: {r}");
+                    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+                }
+            }
+        }
+    }
+}
+
+/// Two hick:copy slots pasted into one hick:file: GET /outputs lists the
+/// file, provenance covers the whole content gap-free, and every
+/// span-carrying range is byte-identical to the source span it names.
+#[tokio::test(flavor = "multi_thread")]
+async fn outputs_listing_and_byte_precise_provenance() {
+    let app = setup().await;
+    let (token, _) = app.signup("lineage@example.com").await;
+    let (_, doc_id) = app.seed_and_run(&token, "lineage.hick", LINEAGE_DOC).await;
+
+    // Listing shows the generated file with its detected language.
+    let (status, v) = app.get(&format!("/api/docs/{doc_id}/outputs"), Some(&token)).await;
+    assert_eq!(status, 200, "{v}");
+    let files = v["files"].as_array().unwrap();
+    let gen_file = files
+        .iter()
+        .find(|f| f["path"] == "gen.rs")
+        .expect("gen.rs in outputs listing");
+    assert_eq!(gen_file["language"], "rust");
+
+    // File content + provenance.
+    let (status, v) = app
+        .get(&format!("/api/docs/{doc_id}/outputs/file?path=gen.rs"), Some(&token))
+        .await;
+    assert_eq!(status, 200, "{v}");
+    assert_eq!(v["path"], "gen.rs");
+    assert_eq!(v["language"], "rust");
+    let content = v["content"].as_str().unwrap();
+    assert_eq!(content, "fn alpha() {}\nfn beta() {}\n");
+
+    let prov = v["provenance"].as_array().unwrap();
+    assert!(!prov.is_empty());
+    // Gap-free coverage of the whole content.
+    let mut covered = 0usize;
+    let mut sourced = 0usize;
+    for p in prov {
+        let start = p["start"].as_u64().unwrap() as usize;
+        let end = p["end"].as_u64().unwrap() as usize;
+        assert_eq!(start, covered, "provenance must be gap-free: {p}");
+        covered = end;
+        let origin = &p["origin"];
+        if origin["kind"] != "synthetic" {
+            sourced += 1;
+            assert_eq!(origin["doc_path"], "lineage.hick");
+            let s = origin["span"][0].as_u64().unwrap() as usize;
+            let e = origin["span"][1].as_u64().unwrap() as usize;
+            assert_eq!(
+                &LINEAGE_DOC[s..e],
+                &content[start..end],
+                "provenance range must map to the exact source bytes"
+            );
+        }
+    }
+    assert_eq!(covered, content.len());
+    assert_eq!(sourced, 2, "both pasted copy blocks carry source spans");
+
+    // Read follows doc visibility: the project is private, anonymous is 403.
+    let (status, _) = app.get(&format!("/api/docs/{doc_id}/outputs"), None).await;
+    assert_eq!(status, 403);
+    let (status, _) = app
+        .get(&format!("/api/docs/{doc_id}/outputs/file?path=gen.rs"), None)
+        .await;
+    assert_eq!(status, 403);
+}
+
+/// The round trip: edit an output range that came from a hick:copy block via
+/// POST /outputs/edit → the source doc is updated (DB + git commit) → re-run
+/// → the new output equals the edited output byte-for-byte.
+#[tokio::test(flavor = "multi_thread")]
+async fn output_edit_round_trips_byte_for_byte() {
+    let app = setup().await;
+    let (token, _) = app.signup("roundtrip@example.com").await;
+    let (project_id, doc_id) = app.seed_and_run(&token, "rt.hick", LINEAGE_DOC).await;
+
+    let (_, v) = app
+        .get(&format!("/api/docs/{doc_id}/outputs/file?path=gen.rs"), Some(&token))
+        .await;
+    let content = v["content"].as_str().unwrap().to_string();
+    let start = content.find("alpha").unwrap();
+    let end = start + "alpha".len();
+    let expected = format!("{}gamma{}", &content[..start], &content[end..]);
+
+    // Owner-only: another signed-in user is rejected.
+    let (other_token, _) = app.signup("intruder@example.com").await;
+    let (status, _) = app
+        .post(
+            &format!("/api/docs/{doc_id}/outputs/edit"),
+            Some(&other_token),
+            json!({ "path": "gen.rs", "edits": [{ "start": start, "end": end, "text": "gamma" }] }),
+        )
+        .await;
+    assert_eq!(status, 403);
+
+    let (status, v) = app
+        .post(
+            &format!("/api/docs/{doc_id}/outputs/edit"),
+            Some(&token),
+            json!({ "path": "gen.rs", "edits": [{ "start": start, "end": end, "text": "gamma" }] }),
+        )
+        .await;
+    assert_eq!(status, 200, "{v}");
+    assert_eq!(v["applied"], true);
+    let source_edits = v["source_edits"].as_array().unwrap();
+    assert_eq!(source_edits.len(), 1);
+    assert_eq!(source_edits[0]["doc_path"], "rt.hick");
+    assert_eq!(source_edits[0]["text"], "gamma");
+    let s = source_edits[0]["span"][0].as_u64().unwrap() as usize;
+    let e = source_edits[0]["span"][1].as_u64().unwrap() as usize;
+    assert_eq!(&LINEAGE_DOC[s..e], "alpha", "source edit targets the copy block bytes");
+
+    // The doc source was updated in the DB…
+    let (_, doc) = app.get(&format!("/api/docs/{doc_id}"), Some(&token)).await;
+    let new_source = doc["source"].as_str().unwrap().to_string();
+    assert!(new_source.contains("fn gamma() {}"), "{new_source}");
+    assert!(!new_source.contains("fn alpha() {}"));
+
+    // …and committed to git with the pinned message.
+    let project_uuid: uuid::Uuid = project_id.parse().unwrap();
+    let repo = app.git.project_dir(project_uuid);
+    let log = std::process::Command::new("git")
+        .args(["-C", repo.to_str().unwrap(), "log", "-1", "--format=%s", "--", "rt.hick"])
+        .output()
+        .unwrap();
+    let subject = String::from_utf8_lossy(&log.stdout);
+    assert_eq!(subject.trim(), "lineage edit via gen.rs");
+
+    // Re-run: the next run reproduces the edited output byte-for-byte.
+    app.run_and_wait(&token, &doc_id).await;
+    let (status, v) = app
+        .get(&format!("/api/docs/{doc_id}/outputs/file?path=gen.rs"), Some(&token))
+        .await;
+    assert_eq!(status, 200, "{v}");
+    assert_eq!(
+        v["content"].as_str().unwrap(),
+        expected,
+        "round trip must be byte-for-byte"
+    );
+}
+
+/// Edits overlapping a synthetic separator are rejected with 422 and the
+/// offending output range.
+#[tokio::test(flavor = "multi_thread")]
+async fn output_edit_overlapping_synthetic_separator_is_422() {
+    let app = setup().await;
+    let (token, _) = app.signup("synthetic@example.com").await;
+    let (_, doc_id) = app.seed_and_run(&token, "sep.hick", SEPARATOR_DOC).await;
+
+    let (_, v) = app
+        .get(&format!("/api/docs/{doc_id}/outputs/file?path=all.rs"), Some(&token))
+        .await;
+    let content = v["content"].as_str().unwrap().to_string();
+    let sep_start = content.find(" // SEP ").expect("separator in output");
+    let sep_end = sep_start + " // SEP ".len();
+    // Sanity: the separator range is reported synthetic.
+    let prov = v["provenance"].as_array().unwrap();
+    assert!(
+        prov.iter().any(|p| {
+            p["origin"]["kind"] == "synthetic"
+                && (p["start"].as_u64().unwrap() as usize) < sep_end
+                && (p["end"].as_u64().unwrap() as usize) > sep_start
+        }),
+        "separator must be synthetic: {prov:?}"
+    );
+
+    // An edit reaching into the separator fails with the offending range.
+    let (status, v) = app
+        .post(
+            &format!("/api/docs/{doc_id}/outputs/edit"),
+            Some(&token),
+            json!({ "path": "all.rs", "edits": [{ "start": sep_start - 2, "end": sep_start + 3, "text": "X" }] }),
+        )
+        .await;
+    assert_eq!(status, 422, "{v}");
+    // Pinned 422 body: {error, range: {start, end}} (api.md).
+    let range = v["range"].as_object().expect("422 body carries the offending range");
+    let r0 = range["start"].as_u64().unwrap() as usize;
+    let r1 = range["end"].as_u64().unwrap() as usize;
+    assert!(r0 >= sep_start && r1 <= sep_end, "offending range {r0}..{r1} within separator");
+    assert!(v["error"].as_str().unwrap().contains("synthetic"));
+
+    // The doc source was not touched.
+    let (_, doc) = app.get(&format!("/api/docs/{doc_id}"), Some(&token)).await;
+    assert_eq!(doc["source"].as_str().unwrap(), SEPARATOR_DOC);
+}

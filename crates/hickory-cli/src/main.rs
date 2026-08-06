@@ -29,6 +29,10 @@ enum Command {
     /// Weave without executing: cached transcripts where present, otherwise
     /// blocks are marked never-run.
     Weave(WeaveArgs),
+    /// Print the byte-precise lineage (Provenance[]) of a generated output
+    /// file: which source spans produced each byte range. Weaves without
+    /// executing.
+    Lineage(LineageArgs),
     /// Promote a session document into a clean pipeline document.
     Promote(PromoteArgs),
     /// Run the AI agent on a prompt; the session is written as a
@@ -87,6 +91,21 @@ struct WeaveArgs {
 }
 
 #[derive(clap::Args)]
+struct LineageArgs {
+    /// A `.hick` document.
+    doc: PathBuf,
+    /// The generated output file to trace (its `<hick:file path>` value).
+    #[arg(long = "output")]
+    output: String,
+    /// Parameter overrides, `key=value` (repeatable).
+    #[arg(long = "param", value_parser = hick_literate::parse_param)]
+    params: Vec<(String, String)>,
+    /// Emit the Provenance[] JSON on stdout instead of a summary.
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(clap::Args)]
 struct PromoteArgs {
     /// A `hick:session` document.
     session: PathBuf,
@@ -130,6 +149,7 @@ fn main() -> ExitCode {
             Command::Run(args) => cmd_run(args).await,
             Command::Check(args) => cmd_check(args).await,
             Command::Weave(args) => cmd_weave(args).await,
+            Command::Lineage(args) => cmd_lineage(args).await,
             Command::Promote(args) => cmd_promote(args),
             Command::Agent(args) => cmd_agent(args).await,
             Command::Init(args) => cmd_init(args),
@@ -266,6 +286,47 @@ async fn cmd_weave(args: WeaveArgs) -> Result<ExitCode> {
     }
     if args.json {
         emit_json(json_blocks)?;
+    }
+    Ok(ExitCode::SUCCESS)
+}
+
+/// `hickory lineage <doc> --output <path> [--json]` — the same Provenance[]
+/// the server serves from GET /api/docs/:id/outputs/file, computed locally
+/// from a weave (no execution).
+async fn cmd_lineage(args: LineageArgs) -> Result<ExitCode> {
+    let run = run_doc(&args.doc, &args.params, RunMode::Weave, ExecutorChoice::Local).await?;
+    let provenance = hickory_cli::output_lineage(&run, &args.output)?;
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&provenance)?);
+    } else {
+        eprintln!(
+            "{} -> {}: {} provenance span(s)",
+            args.doc.display(),
+            args.output,
+            provenance.len()
+        );
+        for p in &provenance {
+            match &p.origin {
+                hickory_lineage::Origin::Synthetic => {
+                    println!("{:>8}..{:<8} synthetic", p.start, p.end);
+                }
+                origin => {
+                    let (doc_path, s, e) = origin.location().unwrap_or(("?", 0, 0));
+                    let kind = match origin {
+                        hickory_lineage::Origin::Literal { .. } => "literal",
+                        hickory_lineage::Origin::Paste { .. } => "paste",
+                        hickory_lineage::Origin::Exec { .. } => "exec",
+                        hickory_lineage::Origin::Variable { .. } => "variable",
+                        hickory_lineage::Origin::Substitution { .. } => "substitution",
+                        hickory_lineage::Origin::Synthetic => unreachable!(),
+                    };
+                    println!(
+                        "{:>8}..{:<8} {kind:<12} {doc_path} bytes {s}..{e}",
+                        p.start, p.end
+                    );
+                }
+            }
+        }
     }
     Ok(ExitCode::SUCCESS)
 }

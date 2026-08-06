@@ -25,11 +25,27 @@ pub(crate) struct PasteNode {
 
 impl PasteNode {
     pub fn new(content: impl Into<String>, selector: impl Into<String>) -> Self {
+        Self::with_source(content, selector, None)
+    }
+
+    /// Construct with an optional byte-precise source location: the file and
+    /// span of the copy block whose bytes this paste reproduces verbatim.
+    pub fn with_source(
+        content: impl Into<String>,
+        selector: impl Into<String>,
+        source: Option<(Arc<str>, hick_lang::SourceSpan)>,
+    ) -> Self {
         let sel: String = selector.into();
+        let (file, span) = match source {
+            Some((f, s)) => (Some(f), Some(s)),
+            None => (None, None),
+        };
         Self {
             inner: StringNode::new(content),
             origin: SourceOrigin::Paste {
                 selector: Arc::from(sel.as_str()),
+                file,
+                span,
             },
             selector: sel,
         }
@@ -122,13 +138,20 @@ impl TagHandler for PasteHandler {
 
         // Try node-based resolution first (supports reactive streaming)
         if let Some(node) = ctx.state.resolve_paste_node(&selector, sep) {
-            // If the node has a direct string value and we need to dedent, wrap it
-            if ctx.indent > 0
-                && let Some(s) = node.as_string_value()
-            {
+            // Direct string values are wrapped in a PasteNode (dedented as
+            // needed). When the pasted bytes are byte-identical to the copy
+            // block's source bytes, propagate the source span so output edits
+            // can be mapped back to the copy block.
+            if let Some(s) = node.as_string_value() {
                 let dedented = dedent(s, ctx.indent);
-                return Ok(TagResult::Node(Arc::new(PasteNode::new(
-                    dedented, &selector,
+                let source = match node.source_origin() {
+                    Some(SourceOrigin::Literal { file, span }) if dedented == s => {
+                        Some((file.clone(), *span))
+                    }
+                    _ => None,
+                };
+                return Ok(TagResult::Node(Arc::new(PasteNode::with_source(
+                    dedented, &selector, source,
                 ))));
             }
             return Ok(TagResult::Node(node));

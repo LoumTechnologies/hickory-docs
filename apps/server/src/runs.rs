@@ -270,6 +270,11 @@ async fn execute_run(
                 }
             }
             store_blocks(state, run_id, &run_blocks_from_model(&blocks)).await?;
+            // Persist generated outputs + byte-precise provenance so the
+            // /outputs endpoints never re-execute (api.md v0.2).
+            if kind == RunKind::Run && ok {
+                store_run_outputs(state, run_id, doc.id, &run.result).await?;
+            }
             // A successful `run` commits its outputs (woven markdown,
             // generated files) back to the project repo — that commit is the
             // baseline later `check` runs verify drift against.
@@ -326,6 +331,42 @@ pub fn run_blocks_from_model(blocks: &[Block]) -> Vec<Value> {
             _ => None,
         })
         .collect()
+}
+
+/// Persist each text output file of a successful run together with its
+/// api.md `Provenance[]`, keyed by run so `GET /api/docs/:id/outputs*`
+/// serves the last successful run without re-executing.
+async fn store_run_outputs(
+    state: &AppState,
+    run_id: Uuid,
+    doc_id: Uuid,
+    result: &hick_literate::PipelineResult,
+) -> anyhow::Result<()> {
+    for (path, content) in &result.files {
+        let Some(text) = content.as_text() else {
+            continue; // binary outputs carry no byte-precise text lineage
+        };
+        let provenance = result
+            .provenance_maps
+            .get(path)
+            .map(hickory_lineage::from_provenance_map)
+            .unwrap_or_default();
+        sqlx::query(
+            "INSERT INTO run_outputs (run_id, doc_id, path, language, content, provenance)
+             VALUES ($1, $2, $3, $4, $5, $6)
+             ON CONFLICT (run_id, path) DO UPDATE
+                 SET content = EXCLUDED.content, provenance = EXCLUDED.provenance",
+        )
+        .bind(run_id)
+        .bind(doc_id)
+        .bind(path)
+        .bind(hickory_lineage::language_for_path(path))
+        .bind(text)
+        .bind(serde_json::to_value(&provenance)?)
+        .execute(&state.db)
+        .await?;
+    }
+    Ok(())
 }
 
 async fn store_blocks(state: &AppState, run_id: Uuid, blocks: &[Value]) -> anyhow::Result<()> {

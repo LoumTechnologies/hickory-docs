@@ -22,6 +22,7 @@ members = [
     "crates/hickory-agent",
     "crates/hickory-executor-canopy",
     "crates/hickory-cli",
+    "crates/hickory-lineage",
     "apps/server",
 ]
 # editors/zed-hick is a standalone wasm extension crate built by Zed's

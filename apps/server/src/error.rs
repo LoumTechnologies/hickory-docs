@@ -10,11 +10,20 @@ use serde_json::json;
 pub struct ApiError {
     pub status: StatusCode,
     pub message: String,
+    /// Extra top-level fields merged into the error body (e.g. the offending
+    /// `range` for lineage-edit 422s).
+    pub detail: Option<serde_json::Value>,
 }
 
 impl ApiError {
     pub fn new(status: StatusCode, message: impl Into<String>) -> Self {
-        ApiError { status, message: message.into() }
+        ApiError { status, message: message.into(), detail: None }
+    }
+
+    /// Attach extra top-level fields (a JSON object) to the error body.
+    pub fn with_detail(mut self, detail: serde_json::Value) -> Self {
+        self.detail = Some(detail);
+        self
     }
     pub fn bad_request(msg: impl Into<String>) -> Self {
         Self::new(StatusCode::BAD_REQUEST, msg)
@@ -50,7 +59,14 @@ impl std::fmt::Display for ApiError {
 
 impl IntoResponse for ApiError {
     fn into_response(self) -> Response {
-        (self.status, Json(json!({ "error": self.message }))).into_response()
+        let mut body = json!({ "error": self.message });
+        if let Some(serde_json::Value::Object(extra)) = self.detail {
+            let obj = body.as_object_mut().unwrap();
+            for (k, v) in extra {
+                obj.insert(k, v);
+            }
+        }
+        (self.status, Json(body)).into_response()
     }
 }
 

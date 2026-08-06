@@ -99,6 +99,8 @@ mod tests {
             output_end: 10,
             origin: SourceOrigin::Paste {
                 selector: Arc::from("#ver"),
+                file: None,
+                span: None,
             },
         });
 
@@ -107,7 +109,7 @@ mod tests {
             other => panic!("Expected Literal, got {:?}", other),
         }
         match map.origin_at(7) {
-            Some(SourceOrigin::Paste { selector }) => assert_eq!(&**selector, "#ver"),
+            Some(SourceOrigin::Paste { selector, .. }) => assert_eq!(&**selector, "#ver"),
             other => panic!("Expected Paste, got {:?}", other),
         }
         assert!(map.origin_at(10).is_none());
@@ -165,6 +167,8 @@ mod tests {
             output_end: 70,
             origin: SourceOrigin::Paste {
                 selector: Arc::from("#ver"),
+                file: None,
+                span: None,
             },
         });
         map.push(ProvenanceSpan {

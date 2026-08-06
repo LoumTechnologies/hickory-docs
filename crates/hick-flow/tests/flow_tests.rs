@@ -948,6 +948,8 @@ async fn converge_with_provenance_tracks_span_nodes() {
         "world",
         SourceOrigin::Paste {
             selector: Arc::from("#ver"),
+            file: None,
+            span: None,
         },
     )));
     ip.close();
@@ -969,7 +971,7 @@ async fn converge_with_provenance_tracks_span_nodes() {
     assert_eq!(spans[1].output_start, 6);
     assert_eq!(spans[1].output_end, 11);
     match &spans[1].origin {
-        SourceOrigin::Paste { selector } => assert_eq!(&**selector, "#ver"),
+        SourceOrigin::Paste { selector, .. } => assert_eq!(&**selector, "#ver"),
         other => panic!("Expected Paste, got {:?}", other),
     }
 }

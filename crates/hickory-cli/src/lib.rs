@@ -223,3 +223,22 @@ pub fn block_model(run: &DocRun) -> Vec<Block> {
 pub fn block_model_json(run: &DocRun) -> Result<serde_json::Value> {
     Ok(serde_json::json!({ "blocks": block_model(run) }))
 }
+
+/// Byte-precise lineage of one generated output file: the api.md
+/// `Provenance[]` shape (identical to what the server's
+/// `GET /api/docs/:id/outputs/file` returns).
+pub fn output_lineage(
+    run: &DocRun,
+    output_path: &str,
+) -> Result<Vec<hickory_lineage::Provenance>> {
+    let map = run.result.provenance_maps.get(output_path).ok_or_else(|| {
+        let mut available: Vec<&str> =
+            run.result.provenance_maps.keys().map(String::as_str).collect();
+        available.sort();
+        anyhow::anyhow!(
+            "no output named '{output_path}' — available outputs: {}",
+            if available.is_empty() { "(none)".to_string() } else { available.join(", ") }
+        )
+    })?;
+    Ok(hickory_lineage::from_provenance_map(map))
+}

@@ -2369,3 +2369,59 @@ async fn test_multi_session_hick_run_reproduces_all_files() {
         "session 2 file reproduced"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Byte-precise provenance for copy → paste (lineage v0.2)
+// ---------------------------------------------------------------------------
+
+/// Pasted copy-block text carries the copy block's source span, byte-precise:
+/// the provenance span's source bytes equal the output bytes it covers.
+#[tokio::test]
+async fn test_copy_paste_provenance_carries_source_spans() {
+    use hick_exec::node::SourceOrigin;
+
+    let src = hick_doc(
+        r##"<hick:copy id="alpha">fn alpha() {}
+</hick:copy>
+<hick:copy id="beta">fn beta() {}
+</hick:copy>
+<hick:file path="gen.rs"><hick:paste select="#alpha" /><hick:paste select="#beta" /></hick:file>"##,
+    );
+    let result = hick_literate::run_pipeline(&[("test.hick", &src)], &[])
+        .await
+        .unwrap();
+    let content = result
+        .files
+        .get("gen.rs")
+        .unwrap()
+        .as_text()
+        .unwrap()
+        .to_string();
+    assert_eq!(content, "fn alpha() {}\nfn beta() {}\n");
+
+    let map = result.provenance_maps.get("gen.rs").expect("provenance map");
+    // Every output byte is covered, and every paste span with a source
+    // location is byte-identical to the source bytes it points at.
+    let mut covered = 0usize;
+    let mut paste_spans = 0usize;
+    for span in map.spans() {
+        assert_eq!(span.output_start, covered, "gap-free coverage");
+        covered = span.output_end;
+        if let SourceOrigin::Paste {
+            file: Some(file),
+            span: Some(src_span),
+            ..
+        } = &span.origin
+        {
+            paste_spans += 1;
+            assert_eq!(&**file, "test.hick");
+            assert_eq!(
+                &src[src_span.start..src_span.end],
+                &content[span.output_start..span.output_end],
+                "provenance must be byte-precise"
+            );
+        }
+    }
+    assert_eq!(covered, content.len());
+    assert_eq!(paste_spans, 2, "both pastes carry copy-block source spans");
+}

@@ -2728,6 +2728,7 @@ dependencies = [
  "hickory-agent",
  "hickory-executor",
  "hickory-executor-canopy",
+ "hickory-lineage",
  "log",
  "serde",
  "serde_json",
@@ -2773,6 +2774,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "hickory-lineage"
+version = "0.1.0"
+dependencies = [
+ "hick-flow",
+ "hick-lang",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "hickory-server"
 version = "0.1.0"
 dependencies = [
@@ -2790,6 +2801,7 @@ dependencies = [
  "hickory-cli",
  "hickory-executor",
  "hickory-executor-canopy",
+ "hickory-lineage",
  "hmac 0.12.1",
  "jsonwebtoken",
  "log",

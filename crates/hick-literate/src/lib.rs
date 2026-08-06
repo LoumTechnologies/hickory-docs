@@ -349,26 +349,25 @@ fn process_documents_round(
     handler_transcripts: &HashMap<String, Vec<TranscriptEntry>>,
     registry: &TagRegistry,
 ) {
-    let all_nodes: Vec<&HickNode> = documents
-        .iter()
-        .flat_map(|(_, doc)| doc.nodes.iter())
-        .collect();
-
-    // Declaration phase: process copy/cut/substitute/exclude via handlers
-    let decl_ctx = ProcessingContext {
-        state,
-        transcripts: handler_transcripts,
-        indent: 0,
-        registry: Some(registry),
-        context: None,
-        source_file: None,
-    };
-    for node in &all_nodes {
-        if let HickNode::Tag(tag) = node
-            && let Some(handler) = registry.find(&tag.name)
-            && handler.phase() == ProcessingPhase::Declaration
-        {
-            let _ = handler.process(tag, &decl_ctx);
+    // Declaration phase: process copy/cut/substitute/exclude via handlers.
+    // Each document's declarations carry its name as `source_file` so copy
+    // blocks get byte-precise Literal provenance.
+    for (doc_name, doc) in documents {
+        let decl_ctx = ProcessingContext {
+            state,
+            transcripts: handler_transcripts,
+            indent: 0,
+            registry: Some(registry),
+            context: None,
+            source_file: Some(Arc::from(*doc_name)),
+        };
+        for node in &doc.nodes {
+            if let HickNode::Tag(tag) = node
+                && let Some(handler) = registry.find(&tag.name)
+                && handler.phase() == ProcessingPhase::Declaration
+            {
+                let _ = handler.process(tag, &decl_ctx);
+            }
         }
     }
 

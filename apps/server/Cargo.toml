@@ -27,6 +27,7 @@ hickory-cli = { path = "../../crates/hickory-cli" }
 hickory-agent = { path = "../../crates/hickory-agent" }
 hickory-executor = { path = "../../crates/hickory-executor" }
 hickory-executor-canopy = { path = "../../crates/hickory-executor-canopy" }
+hickory-lineage = { path = "../../crates/hickory-lineage" }
 hmac = "0.12"
 jsonwebtoken = "9"
 log = "0.4"

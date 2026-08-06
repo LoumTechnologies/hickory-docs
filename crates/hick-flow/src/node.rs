@@ -36,7 +36,18 @@ pub enum SourceOrigin {
         tag_line: usize,
     },
     /// Content resolved via a paste selector.
-    Paste { selector: Arc<str> },
+    ///
+    /// When the pasted bytes are byte-identical to a contiguous region of a
+    /// source `.hick` file (a plain-text copy block, no dedent applied),
+    /// `file`/`span` carry that region so edits to the pasted output can be
+    /// mapped back to the copy block's source text.
+    Paste {
+        selector: Arc<str>,
+        #[cfg_attr(feature = "serde", serde(default))]
+        file: Option<Arc<str>>,
+        #[cfg_attr(feature = "serde", serde(default))]
+        span: Option<SourceSpan>,
+    },
     /// Value of a variable.
     Variable { name: Arc<str> },
     /// Output from a shell script execution.

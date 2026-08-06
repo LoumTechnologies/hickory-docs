@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use anyhow::Result;
-use hick_exec::node::{InsertionPoint, Node, StringNode};
+use hick_exec::node::{InsertionPoint, Node, SourceOrigin, SpanNode, StringNode};
 use hick_lang::{HickNode, HickTag};
 
 use crate::{
@@ -19,6 +19,20 @@ fn resolve_content_node(tag: &HickTag, ctx: &ProcessingContext) -> (Arc<dyn Node
     let has_child_tags = tag.children.iter().any(|c| matches!(c, HickNode::Tag(_)));
 
     if !text.trim().is_empty() || !has_child_tags {
+        // Plain-text content: when the tag holds exactly one text child with a
+        // known source span (byte-identical to the source bytes — the parser's
+        // no-escaping invariant), carry that span as a Literal origin so
+        // pasted output can be traced (and edited) back to this copy block.
+        if let [HickNode::Text(t, Some(span))] = tag.children.as_slice()
+            && let Some(source_file) = ctx.source_file.as_ref()
+        {
+            let origin = SourceOrigin::Literal {
+                file: source_file.clone(),
+                span: *span,
+            };
+            let node = Arc::new(SpanNode::new(t.clone(), origin));
+            return (node as Arc<dyn Node>, text);
+        }
         let node = Arc::new(StringNode::new(text.clone()));
         return (node as Arc<dyn Node>, text);
     }
