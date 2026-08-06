@@ -77,3 +77,41 @@ Agent sessions stream on the run channel with `run_id === session_id` and
 
 ## Ops
 - `GET /api/health` → `{ok: true, executor: "local"|"canopy", db: bool}`
+
+## Generated outputs & lineage (v0.2)
+
+The other half of the editor: a doc's generated output files (e.g. one code
+file woven from many `hick:copy`/`hick:paste` slots) are viewable AND
+editable, with every character's lineage traced back to its source span.
+
+- `GET /api/docs/:id/outputs` → `{files: [{path, language}]}` — output files
+  the doc produced on its last successful run.
+- `GET /api/docs/:id/outputs/file?path=<rel>` →
+  `{path, language, content, provenance: Provenance[]}` where
+
+```ts
+type Provenance = {
+  start: number; end: number;            // byte range in `content`
+  origin:
+    | { kind: "literal" | "paste" | "exec" | "variable" | "substitution";
+        doc_path: string; span: [number, number] }   // byte span in source doc
+    | { kind: "synthetic" };             // separators etc. — not editable
+};
+```
+
+- `POST /api/docs/:id/outputs/edit` `{path, edits: [{start, end, text}]}` →
+  `{source_edits: [{doc_path, span: [number, number], text}], applied: true}`.
+  The server maps output-range edits through provenance to source-document
+  edits, applies them (git commit per edit batch), and the next run
+  reproduces the edited output. Edits overlapping `synthetic` ranges → 422
+  with the offending range.
+
+## Editor model (v0.2)
+
+The web UI has TWO views (replacing Notebook/Source):
+1. **Document** — one Typora-style WYSIWYG editor over the raw `.hick`
+   source: syntax stays visible (tags, markdown marks) while styled like the
+   rendered result; exec cells render run buttons/status/transcripts inline
+   as widgets. Collab (Yjs) runs on the raw source exactly as before.
+2. **Output** — the generated files, syntax-aware, with lineage: selecting
+   output text highlights its origin; edits POST to /outputs/edit.
