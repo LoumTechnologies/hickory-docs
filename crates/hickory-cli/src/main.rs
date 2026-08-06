@@ -149,9 +149,12 @@ struct RefreshArgs {
     /// Report what would be rewritten without calling a model.
     #[arg(long = "dry-run")]
     dry_run: bool,
-    /// Anthropic model id override.
+    /// Model id override (interpreted by the selected provider).
     #[arg(long = "model")]
     model: Option<String>,
+    /// LLM provider: anthropic (default), openai, deepseek, or grok.
+    #[arg(long = "provider", default_value = "anthropic")]
+    provider: String,
 }
 
 #[derive(clap::Args)]
@@ -164,9 +167,12 @@ struct AgentArgs {
     /// Project directory (sessions land in `<dir>/sessions/`; default: cwd).
     #[arg(long = "dir")]
     dir: Option<PathBuf>,
-    /// Anthropic model id override (default: the current Sonnet-class alias).
+    /// Model id override (default: the provider's default model).
     #[arg(long = "model")]
     model: Option<String>,
+    /// LLM provider: anthropic (default), openai, deepseek, or grok.
+    #[arg(long = "provider", default_value = "anthropic")]
+    provider: String,
     /// Maximum LLM turns before giving up.
     #[arg(long = "max-turns", default_value_t = 20)]
     max_turns: usize,
@@ -440,20 +446,15 @@ fn cmd_promote(args: PromoteArgs) -> Result<ExitCode> {
 async fn cmd_agent(args: AgentArgs) -> Result<ExitCode> {
     use std::io::Write as _;
 
-    use hickory_agent::{AgentConfig, AgentEvent, AnthropicClient, run_agent};
-
-    if std::env::var("ANTHROPIC_API_KEY").is_err() {
-        anyhow::bail!("ANTHROPIC_API_KEY is not set (required by `hickory agent`)");
-    }
+    use hickory_agent::{AgentConfig, AgentEvent, client_for, run_agent};
 
     let project_dir = match &args.dir {
         Some(dir) => dir.clone(),
         None => std::env::current_dir()?,
     };
-    let mut llm = AnthropicClient::new();
-    if let Some(model) = &args.model {
-        llm = llm.with_model(model.clone());
-    }
+    // `client_for` reports an unknown provider or a missing key by name,
+    // before anything is executed.
+    let llm = client_for(&args.provider, args.model.as_deref(), None)?;
     // Executor selection follows HICKORY_EXECUTOR, same as run/check.
     let executor = ExecutorChoice::from_env()?.build()?;
 
@@ -579,7 +580,7 @@ fn indent(s: &str) -> String {
 /// survive: your wording is the starting point, not something to be
 /// regenerated over.
 async fn cmd_refresh(args: RefreshArgs) -> Result<ExitCode> {
-    use hickory_agent::{AnthropicClient, LlmClient, Message, Role};
+    use hickory_agent::{LlmClient, Message, Role, client_for};
 
     let docs = expand_docs(&args.path)?;
     let mut rewrote = 0usize;
@@ -627,14 +628,7 @@ async fn cmd_refresh(args: RefreshArgs) -> Result<ExitCode> {
             }
             continue;
         }
-        if std::env::var("ANTHROPIC_API_KEY").is_err() {
-            anyhow::bail!("ANTHROPIC_API_KEY is not set (required by `hickory refresh`)");
-        }
-
-        let mut llm = AnthropicClient::new();
-        if let Some(model) = &args.model {
-            llm = llm.with_model(model.clone());
-        }
+        let llm = client_for(&args.provider, args.model.as_deref(), None)?;
 
         // Apply back-to-front so earlier spans stay valid.
         jobs.sort_by_key(|j| std::cmp::Reverse(j.0));

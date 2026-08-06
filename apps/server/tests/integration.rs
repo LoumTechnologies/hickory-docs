@@ -82,7 +82,12 @@ async fn setup_with_agent(agent_key: Option<String>) -> TestApp {
         posthog: None,
         web_dist_dir: None,
         plan_set: None,
-        anthropic_api_key: agent_key,
+        agent_llm: agent_key.map(|api_key| hickory_server::AgentLlmConfig {
+            provider: "anthropic".to_string(),
+            api_key,
+            model: None,
+        }),
+        agent_provider: "anthropic".to_string(),
     };
 
     let db = hickory_server::init_db(&test_url).await.unwrap();
@@ -704,7 +709,7 @@ async fn health_and_agent_stub() {
     // hickory-agent is wired, but this test config has no ANTHROPIC_API_KEY:
     // the endpoint no-ops with a clear 503 (graceful degradation).
     assert_eq!(status, 503);
-    assert_eq!(v["error"], "agent not configured (ANTHROPIC_API_KEY unset)");
+    assert_eq!(v["error"], "agent not configured (ANTHROPIC_API_KEY unset for provider anthropic)");
 }
 
 // ---------------------------------------------------------------------------

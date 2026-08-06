@@ -22,7 +22,9 @@ pub mod harness;
 mod llm;
 mod llm_anthropic;
 mod llm_batch;
+mod llm_openai;
 mod protocol;
+mod provider;
 mod react_loop;
 mod script;
 mod scripted;
@@ -58,6 +60,12 @@ pub use llm_batch::AnthropicBatchClient;
 pub use llm_batch::BatchEntry;
 /// Terminal result of one batch entry.
 pub use llm_batch::BatchResult;
+/// An OpenAI-compatible vendor (OpenAI, DeepSeek, xAI/Grok).
+pub use llm_openai::Provider;
+/// Chat client for any OpenAI-compatible provider.
+pub use llm_openai::OpenAiCompatClient;
+/// Build the client for a provider selector (`anthropic`/`openai`/…).
+pub use provider::{ProviderSelection, client_for};
 /// Default system prompt for the script-first strategy.
 pub use protocol::SYSTEM_PROMPT;
 /// System prompt addendum enabling the document edit tool set.

@@ -10,6 +10,7 @@
 use std::path::PathBuf;
 
 use anyhow::{Context as _, Result, bail};
+use hickory_agent::ProviderSelection;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AppEnv {
@@ -69,7 +70,24 @@ pub struct Config {
     /// Explicit plan-set override (else PostHog flag, else "default").
     pub plan_set: Option<String>,
     /// `None` → the agent endpoint answers 503 "agent not configured".
-    pub anthropic_api_key: Option<String>,
+    pub agent_llm: Option<AgentLlmConfig>,
+    /// The selected provider, set whether or not a key was found, so the
+    /// 503 can name the variable that is actually missing.
+    pub agent_provider: String,
+}
+
+/// Which model the agent endpoint runs on, and the key to reach it.
+///
+/// The provider selector picks the key variable (`ANTHROPIC_API_KEY`,
+/// `OPENAI_API_KEY`, `DEEPSEEK_API_KEY`, `XAI_API_KEY`), so a deployment
+/// switches vendor by setting `HICKORY_LLM_PROVIDER` and that vendor's key.
+#[derive(Debug, Clone)]
+pub struct AgentLlmConfig {
+    /// `anthropic` | `openai` | `deepseek` | `grok`.
+    pub provider: String,
+    pub api_key: String,
+    /// `None` → the provider's default model.
+    pub model: Option<String>,
 }
 
 fn env_opt(name: &str) -> Option<String> {
@@ -128,10 +146,21 @@ impl Config {
             Some(other) => bail!("invalid HICKORY_EXECUTOR '{other}' (local|canopy)"),
         };
 
-        let anthropic_api_key = env_opt("ANTHROPIC_API_KEY");
-        if anthropic_api_key.is_none() {
+        // The provider decides which key variable is read, so switching
+        // providers is one environment variable and not a code change.
+        let provider = env_opt("HICKORY_LLM_PROVIDER").unwrap_or_else(|| "anthropic".to_string());
+        let selection = ProviderSelection::parse(&provider)
+            .with_context(|| format!("invalid HICKORY_LLM_PROVIDER '{provider}'"))?;
+        let agent_llm = env_opt(selection.key_env()).map(|api_key| AgentLlmConfig {
+            provider: provider.clone(),
+            api_key,
+            model: env_opt("HICKORY_LLM_MODEL"),
+        });
+        if agent_llm.is_none() {
             log::info!(
-                "Anthropic not configured (ANTHROPIC_API_KEY unset); the agent endpoint answers 503"
+                "agent not configured ({} unset for provider {provider}); \
+                 the agent endpoint answers 503",
+                selection.key_env()
             );
         }
 
@@ -199,7 +228,8 @@ impl Config {
             posthog,
             web_dist_dir,
             plan_set: env_opt("PLAN_SET"),
-            anthropic_api_key,
+            agent_llm,
+            agent_provider: provider,
         })
     }
 }

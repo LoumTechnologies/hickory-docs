@@ -293,7 +293,7 @@ mod tests {
             language: Language::Shell,
             code: "echo out; echo err >&2".into(),
         };
-        let result = run_script(&ex, &block, 0).await.unwrap();
+        let result = run_script(&ex, AGENT_CONTAINER, &block, 0).await.unwrap();
         assert_eq!(result.stdout, "out\n");
         assert_eq!(result.stderr, "err\n");
         assert_eq!(result.exit_code, Some(0));
@@ -307,7 +307,7 @@ mod tests {
             language: Language::Shell,
             code: "echo oops >&2; exit 3".into(),
         };
-        let result = run_script(&ex, &block, 0).await.unwrap();
+        let result = run_script(&ex, AGENT_CONTAINER, &block, 0).await.unwrap();
         assert_eq!(result.exit_code, Some(3));
         assert!(result.stderr.contains("oops"));
     }

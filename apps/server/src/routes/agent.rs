@@ -13,7 +13,7 @@ use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use hickory_agent::{
-    AGENT_EXEC_ID, AgentConfig, AgentEvent, AnthropicClient, PriorTurn, run_agent,
+    AGENT_EXEC_ID, AgentConfig, AgentEvent, PriorTurn, run_agent,
 };
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -112,10 +112,16 @@ pub async fn start_agent(
             "only the project owner can start an agent session",
         ));
     }
-    let Some(api_key) = state.config.anthropic_api_key.clone() else {
-        return Err(ApiError::service_unavailable(
-            "agent not configured (ANTHROPIC_API_KEY unset)",
-        ));
+    let Some(llm_config) = state.config.agent_llm.clone() else {
+        // Name the variable that is missing for the provider actually
+        // selected — "set some key somewhere" is not an error message.
+        let provider = &state.config.agent_provider;
+        let key_env = hickory_agent::ProviderSelection::parse(provider)
+            .map(|s| s.key_env())
+            .unwrap_or("ANTHROPIC_API_KEY");
+        return Err(ApiError::service_unavailable(format!(
+            "agent not configured ({key_env} unset for provider {provider})"
+        )));
     };
     if body.prompt.trim().is_empty() {
         return Err(ApiError::bad_request("prompt required"));
@@ -165,7 +171,7 @@ pub async fn start_agent(
             &doc,
             &prompt,
             prior_turns,
-            &api_key,
+            &llm_config,
         )
         .await
         {
@@ -237,7 +243,7 @@ async fn run_agent_session(
     doc: &DocRow,
     prompt: &str,
     prior_turns: Vec<PriorTurn>,
-    api_key: &str,
+    llm_config: &crate::config::AgentLlmConfig,
 ) -> anyhow::Result<String> {
     // Workspace: temp dir seeded from the project checkout (the agent's
     // scripts and its session file live here until persisted to git).
@@ -275,7 +281,11 @@ async fn run_agent_session(
     };
 
     let executor = crate::executor::build_executor(state.config.executor)?;
-    let llm = AnthropicClient::new().with_api_key(api_key);
+    let llm = hickory_agent::client_for(
+        &llm_config.provider,
+        llm_config.model.as_deref(),
+        Some(&llm_config.api_key),
+    )?;
     let mut config = AgentConfig::new(prompt, tmp.path());
     // Naming the primary document is what enables the document tool set
     // (read_doc / read_output / edit_output / edit_doc / verify). Without it

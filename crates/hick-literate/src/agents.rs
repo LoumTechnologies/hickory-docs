@@ -270,8 +270,20 @@ mod tests {
     use super::*;
     use std::fs;
 
+    /// A directory unique to this call.
+    ///
+    /// Keyed on the process id alone, every test in this module shared one
+    /// directory and wiped it on entry — so under the default parallel
+    /// runner one test deleted another's tree mid-assertion and the suite
+    /// failed a different, random subset each run. The counter is what makes
+    /// them independent.
     fn temp_dir() -> PathBuf {
-        let dir = std::env::temp_dir().join(format!("hick-agents-test-{}", std::process::id()));
+        static NEXT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+        let n = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let dir = std::env::temp_dir().join(format!(
+            "hick-agents-test-{}-{n}",
+            std::process::id()
+        ));
         let _ = fs::remove_dir_all(&dir);
         fs::create_dir_all(&dir).unwrap();
         dir
