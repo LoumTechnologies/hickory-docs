@@ -104,7 +104,9 @@ type Provenance = {
   The server maps output-range edits through provenance to source-document
   edits, applies them (git commit per edit batch), and the next run
   reproduces the edited output. Edits overlapping `synthetic` ranges → 422
-  with the offending range.
+  with body `{error: string, range: {start: number, end: number}}` (the
+  offending output byte range). All ranges in this section are UTF-8 byte
+  offsets.
 
 ## Editor model (v0.2)
 
