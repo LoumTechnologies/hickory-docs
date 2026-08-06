@@ -336,8 +336,8 @@ textarea:focus {
   overflow: hidden;
 }
 
-/* Split needs the whole width; prose alone reads better in a measure. */
-.doc-page.split-mode .doc-main { max-width: none; }
+/* Only prose wants a measure. Split and generated code want the window. */
+.doc-page.wide-mode .doc-main { max-width: none; }
 
 .doc-toolbar {
   display: flex;

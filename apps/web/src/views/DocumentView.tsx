@@ -361,7 +361,7 @@ export function DocumentView({ docId }: { docId: string }) {
 
   return (
     <div
-      className={`doc-page with-chat${view === "split" ? " split-mode" : ""}`}
+      className={`doc-page with-chat${view === "document" ? "" : " wide-mode"}`}
     >
       <div className="doc-main">
         <header className="doc-toolbar">

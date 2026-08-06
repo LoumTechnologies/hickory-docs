@@ -239,12 +239,15 @@ export function OutputEditorPane({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [file, updateLineage]);
 
-  // Reset transient banners when the file changes underneath us.
+  // Reset transient banners when a DIFFERENT file is opened — not when this
+  // same file reloads. Saving reloads it, so keying on the object identity
+  // wiped the "applied N source edits" confirmation the instant it appeared,
+  // leaving no sign the edit had landed.
   useEffect(() => {
     setError(null);
     setSummary(null);
     setDirty(false);
-  }, [file]);
+  }, [file.path]);
 
   return (
     <div className="output-pane">
