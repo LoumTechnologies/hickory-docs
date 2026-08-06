@@ -8,7 +8,6 @@ generated artifact is regenerated.
 
 
 
-
 ## Vocabulary
 
 

@@ -23,7 +23,7 @@ allowance is refused when exhausted, never queued or throttled.
 
 ## Decisions this model rests on
 
-<hick:include file="../decisions/2026-08-06-pricing.hick" select=".decision" />
+<hick:upstream file="../decisions/2026-08-06-pricing.hick" />
 <hick:paste select=".decision" separator="
 
 " />

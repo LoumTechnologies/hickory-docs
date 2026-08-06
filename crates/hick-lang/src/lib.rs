@@ -366,34 +366,71 @@ pub fn resolve_includes(
     base_dir: &std::path::Path,
     seen: &mut std::collections::HashSet<std::path::PathBuf>,
 ) -> Result<(), ParseError> {
-    let new_nodes = resolve_includes_in_nodes(std::mem::take(&mut doc.nodes), base_dir, seen)?;
+    let mut merged: std::collections::HashSet<std::path::PathBuf> =
+        std::collections::HashSet::new();
+    let new_nodes =
+        resolve_includes_in_nodes(std::mem::take(&mut doc.nodes), base_dir, seen, &mut merged)?;
     doc.nodes = new_nodes;
+    // Only documents that actually declare a pipeline pay for the uniqueness
+    // check, so this cannot fail a document that worked before.
+    if !merged.is_empty() {
+        check_unique_ids(&doc.nodes)?;
+    }
     Ok(())
 }
 
-/// Keep only the fragment blocks (`copy`/`cut`) matching `selector`.
+/// `#id` must identify exactly one fragment across a document and everything
+/// upstream of it.
 ///
-/// This is what makes one document able to cite another's decisions without
-/// swallowing the meeting it came out of: an unselected `hick:include` splices
-/// the whole document in, prose and all, which is right for composing a manual
-/// out of chapters and wrong for a chain of notes → domain → requirements.
-///
-/// The selector grammar mirrors `hick:paste`: `#id`, `.class`, or a
-/// comma-separated list of either.
-fn select_fragments(nodes: Vec<HickNode>, selector: &str) -> Vec<HickNode> {
+/// A `.class` selector is explicitly multi-match — several documents
+/// contributing the same class is how a chain accumulates decisions — but an
+/// `#id` that resolves to two different fragments has no defensible answer.
+/// Picking one by a precedence rule is the failure mode that silently binds a
+/// requirement to the wrong text, so this is an error instead.
+fn check_unique_ids(nodes: &[HickNode]) -> Result<(), ParseError> {
+    let mut seen: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    let mut stack: Vec<&HickNode> = nodes.iter().collect();
+    let mut dupes: Vec<(String, usize, usize)> = Vec::new();
+    while let Some(node) = stack.pop() {
+        if let HickNode::Tag(tag) = node {
+            if (tag.name == "copy" || tag.name == "cut")
+                && let Some(id) = tag.get_attribute("id")
+                && let Some(first) = seen.insert(id.to_string(), tag.source_line)
+            {
+                dupes.push((id.to_string(), first, tag.source_line));
+            }
+            stack.extend(tag.children.iter());
+        }
+    }
+    if let Some((id, a, b)) = dupes.into_iter().min_by_key(|(_, a, _)| *a) {
+        return Err(ParseError::Syntax {
+            line: b.min(a),
+            message: format!(
+                "duplicate fragment id '#{id}' in this document and its upstream \
+                 (also at line {}). Ids must be unique across the pipeline; use a \
+                 class if you meant several fragments to match.",
+                a.max(b)
+            ),
+        });
+    }
+    Ok(())
+}
+
+/// Every fragment block in `nodes`, in document order, and nothing else.
+fn fragments_of(nodes: Vec<HickNode>) -> Vec<HickNode> {
     let mut out = Vec::new();
-    collect_fragments(&nodes, selector, &mut out);
+    collect_fragments_any(&nodes, &mut out);
     out
 }
 
-fn collect_fragments(nodes: &[HickNode], selector: &str, out: &mut Vec<HickNode>) {
+fn collect_fragments_any(nodes: &[HickNode], out: &mut Vec<HickNode>) {
     for node in nodes {
         if let HickNode::Tag(tag) = node {
-            if (tag.name == "copy" || tag.name == "cut") && fragment_matches(tag, selector) {
+            if tag.name == "copy" || tag.name == "cut" {
                 out.push(HickNode::Tag(tag.clone()));
                 continue;
             }
-            collect_fragments(&tag.children, selector, out);
+            collect_fragments_any(&tag.children, out);
         }
     }
 }
@@ -477,10 +514,53 @@ fn resolve_includes_in_nodes(
     nodes: Vec<HickNode>,
     base_dir: &std::path::Path,
     seen: &mut std::collections::HashSet<std::path::PathBuf>,
+    merged: &mut std::collections::HashSet<std::path::PathBuf>,
 ) -> Result<Vec<HickNode>, ParseError> {
     let mut result = Vec::new();
     for node in nodes {
         match node {
+            // A pipeline edge. Everything upstream becomes SELECTABLE — its
+            // fragments, transitively — and nothing of it is rendered. This is
+            // what lets a requirements document quote a decision three hops
+            // back without restating the import at every hop.
+            HickNode::Tag(tag) if tag.name == "upstream" => {
+                let file_attr = tag
+                    .get_attribute("file")
+                    .ok_or_else(|| ParseError::Syntax {
+                        line: tag.source_line,
+                        message: "<hick:upstream> missing 'file' attribute".into(),
+                    })?;
+                let canonical = std::path::Path::new(base_dir)
+                    .join(file_attr)
+                    .canonicalize()
+                    .map_err(|e| ParseError::Syntax {
+                        line: tag.source_line,
+                        message: format!("upstream '{file_attr}': {e}"),
+                    })?;
+                if !seen.insert(canonical.clone()) {
+                    return Err(ParseError::Syntax {
+                        line: tag.source_line,
+                        message: format!("circular upstream: {}", canonical.display()),
+                    });
+                }
+                // A diamond (A upstream of B and C, both upstream of D) is the
+                // normal shape of a pipeline, not an error — but D must merge
+                // A's fragments once, or every id in it would collide with
+                // itself.
+                if merged.insert(canonical.clone()) {
+                    let source =
+                        std::fs::read_to_string(&canonical).map_err(|e| ParseError::Syntax {
+                            line: tag.source_line,
+                            message: format!("cannot read '{}': {e}", canonical.display()),
+                        })?;
+                    let mut upstream_doc = parse(&source)?;
+                    let upstream_dir = canonical.parent().unwrap_or(base_dir);
+                    upstream_doc.nodes =
+                        resolve_includes_in_nodes(upstream_doc.nodes, upstream_dir, seen, merged)?;
+                    result.extend(fragments_of(upstream_doc.nodes));
+                }
+                seen.remove(&canonical);
+            }
             HickNode::Tag(tag) if tag.name == "include" => {
                 let file_attr = tag
                     .get_attribute("file")
@@ -517,21 +597,18 @@ fn resolve_includes_in_nodes(
                 let included_dir = canonical.parent().unwrap_or(base_dir);
                 resolve_includes(&mut included_doc, included_dir, seen)?;
 
-                // Splice into parent. With a `select` attribute only the
-                // matching FRAGMENTS come across — the included document's
-                // prose stays where it was written.
-                let nodes = match tag.get_attribute("select") {
-                    Some(selector) => select_fragments(included_doc.nodes, selector),
-                    None => included_doc.nodes,
-                };
-                result.extend(nodes);
+                // Splice children into parent. `include` is textual
+                // composition — a manual out of chapters. To make another
+                // document's fragments SELECTABLE without rendering it, the
+                // element is `hick:upstream`.
+                result.extend(included_doc.nodes);
 
                 seen.remove(&canonical);
             }
             HickNode::Tag(mut tag) => {
                 // Check `when` attribute (skip if needed -- handled upstream)
                 // Recurse into children for nested includes (e.g. inside file tags)
-                tag.children = resolve_includes_in_nodes(tag.children, base_dir, seen)?;
+                tag.children = resolve_includes_in_nodes(tag.children, base_dir, seen, merged)?;
                 result.push(HickNode::Tag(tag));
             }
             text => {
@@ -2102,95 +2179,5 @@ before<!-- comment -->after
             !combined.contains("comment"),
             "comment leaked: {combined:?}"
         );
-    }
-
-    /// A selective include cites another document's fragments WITHOUT
-    /// dragging its prose along. This is what makes a chain of documents —
-    /// meeting notes → domain model → requirements — possible: the domain
-    /// model quotes the decision, not the meeting it came out of.
-    #[test]
-    fn selective_include_takes_fragments_and_leaves_the_prose() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(
-            dir.path().join("notes.hick"),
-            r#"<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
-Long meeting preamble nobody downstream should ever read.
-<hick:copy id="chosen" class="decision">We meter execution minutes.</hick:copy>
-<hick:copy id="parked" class="open-question">Do cached runs count?</hick:copy>
-</hick:doc>"#,
-        )
-        .unwrap();
-
-        let parse_with_includes = |src: &str| {
-            let mut doc = parse(src).unwrap();
-            resolve_includes(&mut doc, dir.path(), &mut std::collections::HashSet::new()).unwrap();
-            doc
-        };
-
-        // Selected: only the matching fragment crosses over.
-        let doc = parse_with_includes(
-            r#"<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
-<hick:include file="notes.hick" select=".decision" />
-</hick:doc>"#,
-        );
-        let copies = doc.find_tags("copy");
-        assert_eq!(copies.len(), 1, "expected exactly the .decision fragment");
-        assert_eq!(copies[0].get_attribute("id"), Some("chosen"));
-
-        // …and the meeting's prose did not come with it.
-        let rendered = format!("{doc:?}");
-        assert!(
-            !rendered.contains("Long meeting preamble"),
-            "a selective include dragged the source document's prose along"
-        );
-
-        // Unselected: the whole document splices in, prose and all. That is
-        // still the right behaviour for composing a manual out of chapters.
-        let whole = parse_with_includes(
-            r#"<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
-<hick:include file="notes.hick" />
-</hick:doc>"#,
-        );
-        assert_eq!(whole.find_tags("copy").len(), 2);
-        assert!(format!("{whole:?}").contains("Long meeting preamble"));
-    }
-
-    #[test]
-    fn selective_include_accepts_a_list_and_ignores_non_matches() {
-        let dir = tempfile::tempdir().unwrap();
-        std::fs::write(
-            dir.path().join("src.hick"),
-            r#"<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
-<hick:copy id="a" class="x">A</hick:copy>
-<hick:copy id="b" class="y">B</hick:copy>
-<hick:copy id="c" class="y">C</hick:copy>
-</hick:doc>"#,
-        )
-        .unwrap();
-        // r##: the selector contains `"#`, which would close an r# string.
-        let mut doc = parse(
-            r##"<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
-<hick:include file="src.hick" select="#a,.y" />
-</hick:doc>"##,
-        )
-        .unwrap();
-        resolve_includes(&mut doc, dir.path(), &mut std::collections::HashSet::new()).unwrap();
-        let ids: Vec<_> = doc
-            .find_tags("copy")
-            .iter()
-            .map(|t| t.get_attribute("id").unwrap().to_string())
-            .collect();
-        assert_eq!(ids, vec!["a", "b", "c"]);
-
-        // A selector that matches nothing yields nothing — silently importing
-        // everything would be the dangerous failure here.
-        let mut none = parse(
-            r#"<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
-<hick:include file="src.hick" select=".nope" />
-</hick:doc>"#,
-        )
-        .unwrap();
-        resolve_includes(&mut none, dir.path(), &mut std::collections::HashSet::new()).unwrap();
-        assert!(none.find_tags("copy").is_empty());
     }
 }

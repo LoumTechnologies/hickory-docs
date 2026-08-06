@@ -7,8 +7,7 @@ term and the decisions below are imported, not restated: if either changes
 upstream, this document changes with it and `hickory check` fails until the
 generated artifact is regenerated.
 
-<hick:include file="../domain/billing.hick" select="#term-execution-minute" />
-<hick:include file="../decisions/2026-08-06-pricing.hick" select="#free-tier,#hard-stop" />
+<hick:upstream file="../domain/billing.hick" />
 
 ## Vocabulary
 
