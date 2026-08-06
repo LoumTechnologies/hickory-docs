@@ -310,21 +310,34 @@ textarea:focus {
 }
 
 /* --- document view --- */
+/* The workspace is an APP SHELL, not a scrolling page: a fixed-height column
+   where the document area scrolls internally and the agent dock keeps its own
+   space along the bottom. Letting the page itself scroll put the dock (sticky)
+   on top of the document instead of beside it, and made the editors' own
+   scrollbars fight the window's. */
 .doc-page {
   display: flex;
-  min-height: calc(100vh - 3rem);
-  align-items: stretch;
+  flex-direction: column;
+  height: calc(100vh - 3rem);
+  min-height: 0;
+  overflow: hidden;
 }
 
 .doc-main {
   flex: 1;
+  min-height: 0;
   min-width: 0;
   max-width: 52rem;
+  width: 100%;
   margin: 0 auto;
-  padding: 1.25rem 1.25rem 4rem;
+  padding: 1.25rem 1.25rem 1rem;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
-.doc-page.with-agent .doc-main { max-width: none; }
+/* Split needs the whole width; prose alone reads better in a measure. */
+.doc-page.split-mode .doc-main { max-width: none; }
 
 .doc-toolbar {
   display: flex;
@@ -555,8 +568,15 @@ textarea:focus {
   background: var(--bg-raised);
 }
 
+.document-editor {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
 .document-editor .cm-editor {
-  max-height: calc(100vh - 12rem);
+  flex: 1;
+  min-height: 0;
+  max-height: 100%;
   font-size: 0.95rem;
 }
 
@@ -940,7 +960,9 @@ textarea:focus {
 .env-card-resolution.warn { color: #b0554c; }
 
 /* --- output view --- */
-.output-view { display: flex; flex-direction: column; gap: 0.75rem; }
+.output-view {
+  flex: 1;
+  min-height: 0; display: flex; flex-direction: column; gap: 0.75rem; }
 
 .output-tabs {
   display: flex;
@@ -965,21 +987,27 @@ textarea:focus {
 .output-tab-spacer { flex: 1; }
 
 .output-body {
+  flex: 1;
+  min-height: 0;
   display: flex;
   gap: 1rem;
-  align-items: flex-start;
+  align-items: stretch;
 }
 
 .output-editor {
   flex: 1;
   min-width: 0;
+  min-height: 0;
+  display: flex;
   border: 1px solid var(--border);
   border-radius: 10px;
   overflow: hidden;
   background: var(--bg-raised);
 }
 .output-editor .cm-editor {
-  max-height: calc(100vh - 15rem);
+  flex: 1;
+  min-height: 0;
+  max-height: 100%;
   font-size: 0.86rem;
 }
 .output-editor .cm-editor.cm-focused { outline: none; }
@@ -1000,6 +1028,7 @@ textarea:focus {
 }
 
 .lineage-strip {
+  overflow-y: auto;
   width: min(22rem, 32vw);
   border: 1px solid var(--border);
   border-radius: 10px;
@@ -1018,39 +1047,6 @@ textarea:focus {
 .lineage-strip li { margin-bottom: 0.4rem; }
 .lineage-strip .btn-link { padding: 0; font-size: inherit; text-align: left; }
 .prov-synthetic { color: var(--fg-muted); }
-
-/* --- agent panel --- */
-.agent-panel {
-  width: min(26rem, 40vw);
-  border-left: 1px solid var(--border);
-  background: var(--bg-raised);
-  padding: 1.25rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.75rem;
-}
-
-.agent-panel h2 { margin: 0; font-size: 1rem; }
-.agent-hint { margin: 0; font-size: 0.8rem; color: var(--fg-muted); }
-
-.agent-input {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-.agent-input textarea { resize: vertical; }
-
-.agent-log {
-  border-radius: 8px;
-  flex: 1;
-  min-height: 8rem;
-}
-
-@media (max-width: 56rem) {
-  .doc-page.with-agent { flex-direction: column; }
-  .agent-panel { width: auto; border-left: none; border-top: 1px solid var(--border); }
-}
 
 /* --- pricing --- */
 .pricing-page {
@@ -1139,7 +1135,6 @@ textarea:focus {
 .cm-hick-fold-placeholder:hover { color: var(--fg); }
 
 /* --- split (lineage) view --- */
-.doc-page.split-mode .doc-main { max-width: none; }
 
 /* THE BOUNCE FIX. Every editor here wraps its lines inside a max-height box.
    When content crosses that height a vertical scrollbar appears, which narrows
@@ -1155,8 +1150,12 @@ textarea:focus {
 
 .split-view {
   position: relative;
+  flex: 1;
+  min-height: 0;
   display: flex;
-  gap: 1.5rem;
+  /* The gaps are not padding — they are the ribbon channels. Squeeze them and
+     the Sankey collapses into vertical bars with nothing to follow. */
+  gap: 2.75rem;
   align-items: stretch;
 }
 .split-pane {
@@ -1168,7 +1167,7 @@ textarea:focus {
 
 /* ---- middle column: the file tree the ribbons pass through ---- */
 .split-middle {
-  flex: 0 0 13rem;
+  flex: 0 0 12rem;
   min-width: 0;
   display: flex;
   flex-direction: column;
@@ -1176,6 +1175,8 @@ textarea:focus {
   padding-top: 0.4rem;
 }
 .output-tree {
+  overflow-y: auto;
+  scrollbar-gutter: stable;
   border: 1px solid var(--border);
   border-radius: 10px;
   background: var(--bg-raised);
@@ -1235,7 +1236,7 @@ textarea:focus {
   padding: 1.25rem 1.25rem 2rem;
 }
 .split-left .document-editor .cm-editor,
-.split-output-editor .cm-editor { max-height: calc(100vh - 13rem); }
+.split-output-editor .cm-editor { max-height: 100%; }
 
 .split-right {
   display: flex;
@@ -1248,6 +1249,9 @@ textarea:focus {
   padding: 0.1rem 0.2rem;
 }
 .split-output-editor {
+  flex: 1;
+  min-height: 0;
+  display: flex;
   border: 1px solid var(--border);
   border-radius: 10px;
   overflow: hidden;
@@ -1263,6 +1267,7 @@ textarea:focus {
   flex-direction: column;
   gap: 0.35rem;
   min-width: 0;
+  min-height: 0;
   flex: 1;
 }
 .output-pane-status {
@@ -1308,8 +1313,9 @@ textarea:focus {
 .ribbon-c3 { fill: var(--ribbon-3); }
 .ribbon-c4 { fill: var(--ribbon-4); }
 .ribbon-c5 { fill: var(--ribbon-5); }
-/* Off-screen endpoint clamped to the pane edge: fade the whole tail. */
-.ribbon-faded { opacity: 0.2; }
+/* Off-screen endpoint clamped to the pane edge: dim it, but keep it legible.
+   These are the ribbons telling you there is more document above or below. */
+.ribbon-faded { opacity: 0.38; }
 .ribbon:hover,
 .ribbon-hovered { opacity: 0.85; }
 .ribbon-layer.has-hover .ribbon:not(.ribbon-hovered) { opacity: 0.12; }
@@ -1321,26 +1327,6 @@ textarea:focus {
   border-radius: 2px;
 }
 
-/* One-time Split suggestion. */
-.split-hint {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.25rem;
-  font-size: 0.78rem;
-  color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 8%, transparent);
-  border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--border));
-  border-radius: 999px;
-  padding: 0.15rem 0.6rem;
-}
-.split-hint-dismiss {
-  font: inherit;
-  cursor: pointer;
-  border: none;
-  background: none;
-  color: inherit;
-  padding: 0 0.1rem;
-}
 
 /* Widget spacing CM can measure: a transparent wrapper instead of margins. */
 .cm-widget-spacer { padding-top: 0.5rem; }
@@ -1452,10 +1438,10 @@ textarea:focus {
    to just its composer. The document area reserves room for it so nothing is
    ever hidden underneath. */
 .doc-page.with-chat .doc-main { padding-bottom: 0.5rem; }
+.chat-dock { width: 100%; }
 
 .chat-dock {
-  position: sticky;
-  bottom: 0;
+  flex: none;
   z-index: 20;
   display: flex;
   flex-direction: column;

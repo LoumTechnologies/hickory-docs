@@ -171,11 +171,14 @@ export function SplitView({
     return out;
   }, [loaded, docPath, docSource]);
 
+  // The node label is the file's real size. (Ribbon thickness still uses the
+  // bytes traceable to THIS document — but labelling a 14 KB generated file
+  // "2 B" because only two of its bytes came from prose is just wrong.)
   const bytesPerFile = useMemo(() => {
     const m = new Map<string, number>();
-    for (const r of ribbons) m.set(r.filePath, (m.get(r.filePath) ?? 0) + r.bytes);
+    for (const [path, f] of loaded) m.set(path, new Blob([f.content]).size);
     return m;
-  }, [ribbons]);
+  }, [loaded]);
 
   const colorPerFile = useMemo(() => {
     const m = new Map<string, number>();
@@ -225,6 +228,8 @@ export function SplitView({
       else byFile.set(r.filePath, [r]);
     }
 
+    let aboveCount = 0;
+    let belowCount = 0;
     for (const [path, list] of byFile) {
       const row = rowsRef.current.get(path);
       if (!row) continue;
@@ -256,6 +261,15 @@ export function SplitView({
 
       let cursor = nRect.top;
       for (const g of groups) {
+        // Ribbons whose source block is scrolled out of view all clamp to the
+        // same pane edge. Without a stagger they stack into a single line and
+        // the whole picture reads as "nothing here"; fanned out, they show how
+        // much of the document is still above or below the viewport.
+        const staggerOf = (top: number, bottom: number) => {
+          if (bottom <= lRect.top) return aboveCount++;
+          if (top >= lRect.bottom) return belowCount++;
+          return 0;
+        };
         const r = g.ribbons[0];
         const share = (g.bytes / totalBytes) * nRect.height;
         const nTop = cursor;
@@ -266,11 +280,15 @@ export function SplitView({
         // Source band spans the ENTIRE block: first line top → last line bottom.
         const sTopBlock = left.lineBlockAt(bf);
         const sBotBlock = left.lineBlockAt(bt);
+        const sTopY = sTopBlock.top + left.documentTop;
+        const sBotY = sBotBlock.bottom + left.documentTop;
         const sBand = clampBand(
-          sTopBlock.top + left.documentTop,
-          sBotBlock.bottom + left.documentTop,
+          sTopY,
+          sBotY,
           lRect.top,
           lRect.bottom,
+          2,
+          staggerOf(sTopY, sBotY),
         );
         const s = atLeast(sBand.yTop, sBand.yBot);
 

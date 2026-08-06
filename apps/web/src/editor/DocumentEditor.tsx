@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { EditorState } from "@codemirror/state";
+import { EditorState, Transaction } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
 import * as Y from "yjs";
@@ -173,6 +173,23 @@ export function DocumentEditor({
         doc: ytext.toString(),
         extensions: [
           history(),
+          // Undo must never reach content this client did not type.
+          //
+          // The room's first sync arrives as an ordinary document change, and
+          // CodeMirror's history treated "the document appeared" as an
+          // undoable local edit: a few Ctrl+Z presses erased the WHOLE
+          // document, and the deletion synced to every other client. The same
+          // applies to every edit a collaborator makes.
+          //
+          // Everything the CRDT applies — remote updates, the initial sync,
+          // the mock-mode seed — is dispatched without a user event, which is
+          // exactly what distinguishes it from typing. Keep those out of the
+          // history and undo means "undo what I did".
+          EditorState.transactionExtender.of((tr) =>
+            tr.docChanged && tr.annotation(Transaction.userEvent) === undefined
+              ? { annotations: Transaction.addToHistory.of(false) }
+              : null,
+          ),
           keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab]),
           wysiwyg(registry, envRegistry),
           hickoryFolding(),
@@ -188,7 +205,7 @@ export function DocumentEditor({
     viewRef.current = view;
     // Debug handle for driving the editor from automation (kept out of the
     // normal path; enable with localStorage "hickory.debug" = "1").
-    if (localStorage.getItem("hickory.debug") === "1") {
+    if (localStorage.getItem("hickory.debug") === "1" || import.meta.env.MODE === "test") {
       (window as unknown as { __hickoryView?: EditorView }).__hickoryView = view;
     }
     setSlots(registry.list());

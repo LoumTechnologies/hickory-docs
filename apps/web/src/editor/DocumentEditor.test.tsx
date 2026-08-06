@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import type { EditorView as EditorViewType } from "@codemirror/view";
 import { DocumentEditor, matchExecBlock } from "./DocumentEditor";
 import { LocalRealtime } from "../api/realtime";
 import { CLI_BLOCKS } from "../mock/mockData";
@@ -150,5 +151,56 @@ describe("matchExecBlock", () => {
     const blocks = execBlocks;
     expect(matchExecBlock({ span: blocks[1].span, index: 0 }, blocks)?.id).toBe(blocks[1].id);
     expect(matchExecBlock({ span: [99990, 99999], index: 1 }, blocks)?.id).toBe(blocks[1].id);
+  });
+});
+
+describe("undo safety", () => {
+  // Regression: a few Ctrl+Z presses used to erase the entire document.
+  // CodeMirror's own history treated the CRDT's initial sync — "the document
+  // appeared" — as an undoable local edit, so undoing past it deleted
+  // everything, and the deletion synced to every other client. Undo must come
+  // from the CRDT, which only tracks what this client actually typed.
+  it("never erases content this client did not type", async () => {
+    const realtime = new LocalRealtime();
+    const source = "# Title\n\nsome prose\n";
+    const { container } = render(
+      <DocumentEditor
+        docId="undo-1"
+        initialSource={source}
+        realtime={realtime}
+        execBlocks={[]}
+        runningCells={new Set()}
+        onRunCell={() => undefined}
+      />,
+    );
+    const content = container.querySelector(".cm-content") as HTMLElement;
+    await waitFor(() => expect(content.textContent).toContain("some prose"));
+    const before = content.textContent;
+
+    // Drive the real key binding rather than a command import, so the test
+    // fails if the keymap is ever wired back to CodeMirror's history.
+    for (let i = 0; i < 10; i++) {
+      content.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "z", ctrlKey: true, bubbles: true }),
+      );
+    }
+
+    expect(content.textContent).toBe(before);
+    expect(content.textContent).toContain("some prose");
+
+    // …and undo must still undo what this client DID type, or the fix would
+    // have traded a destructive undo for a useless one.
+    const view = (window as unknown as { __hickoryView?: EditorViewType }).__hickoryView!;
+    view.dispatch({
+      changes: { from: 0, insert: "TYPED" },
+      userEvent: "input.type",
+    });
+    expect(view.state.doc.toString()).toContain("TYPED");
+    content.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "z", ctrlKey: true, bubbles: true }),
+    );
+    expect(view.state.doc.toString()).not.toContain("TYPED");
+    expect(view.state.doc.toString()).toContain("some prose");
+    realtime.close();
   });
 });

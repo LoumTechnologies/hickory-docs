@@ -18,18 +18,27 @@ import { navigate } from "../router";
 type Banner = { kind: "pending" | "pass" | "fail"; text: string } | null;
 
 /** The Split (lineage) view needs real width for two panes + ribbons. */
-const SPLIT_MIN_WIDTH = "(min-width: 1200px)";
+// Three columns plus ribbons need real width — but 1200 was too greedy: a
+// zoomed-in browser or a 13" laptop dropped straight to a single column with
+// no way to ask for Split at all.
+const SPLIT_MIN_WIDTH = "(min-width: 1024px)";
 
 export function DocumentView({ docId }: { docId: string }) {
   const [doc, setDoc] = useState<Doc | null>(null);
   const [blocks, setBlocks] = useState<Block[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [view, setView] = useState<"document" | "output" | "split">("document");
+  // Split is the workspace: document, the files it generates, and the
+  // generated text, all editable and linked. It needs width, so narrow
+  // viewports start on the document and the effect below keeps them there.
+  const [view, setView] = useState<"document" | "output" | "split">(() =>
+    typeof window.matchMedia === "function" && window.matchMedia(SPLIT_MIN_WIDTH).matches
+      ? "split"
+      : "document",
+  );
   // Split is only offered when the viewport is wide enough for two panes.
   const [wide, setWide] = useState<boolean>(() =>
     typeof window.matchMedia === "function" ? window.matchMedia(SPLIT_MIN_WIDTH).matches : false,
   );
-  const [splitHint, setSplitHint] = useState(false);
   // The dock is part of the workspace, not a mode: it is always mounted and
   // remembers whether the log is expanded.
   const [chatCollapsed, setChatCollapsed] = useState(
@@ -116,15 +125,6 @@ export function DocumentView({ docId }: { docId: string }) {
     if (!wide) setView((v) => (v === "split" ? "document" : v));
   }, [wide]);
 
-  // Auto-suggest Split once per doc (first wide visit).
-  useEffect(() => {
-    if (!wide) return;
-    const key = `hickory.splitHint.${docId}`;
-    if (!localStorage.getItem(key)) {
-      localStorage.setItem(key, "1");
-      setSplitHint(true);
-    }
-  }, [wide, docId]);
 
   // Live run events: append to the matching cell's transcript.
   useEffect(() => {
@@ -228,7 +228,10 @@ export function DocumentView({ docId }: { docId: string }) {
   // server's own debounce is deliberate — re-fetching sooner would read the
   // pre-persist source and render one keystroke behind forever.
   useEffect(() => {
-    if (dirtySource === null) return;
+    // The CRDT's first sync populates the buffer, which fires docChanged just
+    // like typing does. A buffer identical to the server's copy is not an
+    // edit, and reporting "Saved" for it is a lie the user has no way to check.
+    if (dirtySource === null || dirtySource === doc?.source) return;
     setSyncState("editing");
     const timer = setTimeout(() => {
       Promise.all([api.doc(docId), api.render(docId)]).then(
@@ -241,7 +244,7 @@ export function DocumentView({ docId }: { docId: string }) {
       );
     }, 1200);
     return () => clearTimeout(timer);
-  }, [dirtySource, docId]);
+  }, [dirtySource, doc?.source, docId]);
 
   // Spans arriving from provenance / source-edit responses are BYTE offsets
   // into the doc source; the editor selects by char position.
@@ -389,27 +392,12 @@ export function DocumentView({ docId }: { docId: string }) {
                   role="tab"
                   aria-selected={view === "split"}
                   className={view === "split" ? "on" : ""}
-                  onClick={() => {
-                    setSplitHint(false);
-                    setView("split");
-                  }}
+                  onClick={() => setView("split")}
                 >
                   Split
                 </button>
               )}
             </div>
-            {splitHint && view !== "split" && (
-              <span className="split-hint" role="status">
-                New: Split traces each fragment into its output
-                <button
-                  className="btn-link split-hint-dismiss"
-                  aria-label="Dismiss"
-                  onClick={() => setSplitHint(false)}
-                >
-                  ×
-                </button>
-              </span>
-            )}
             {view !== "output" && syncState !== "idle" && (
               <span
                 className={`save-state save-state-${syncState}`}

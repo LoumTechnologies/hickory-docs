@@ -22,9 +22,21 @@ export function clampBand(
   viewTop: number,
   viewBot: number,
   sliver = 2,
+  /** Stagger for bands clamped to the same edge: nth off-screen anchor sits
+   * `n * step` px along the edge, so several of them fan out in document
+   * order instead of stacking into one invisible line. */
+  stagger = 0,
 ): Band {
-  if (yBot <= viewTop) return { yTop: viewTop, yBot: viewTop + sliver, clamped: true };
-  if (yTop >= viewBot) return { yTop: viewBot - sliver, yBot: viewBot, clamped: true };
+  const step = 7;
+  const spread = Math.min(stagger * step, 56);
+  if (yBot <= viewTop) {
+    const top = viewTop + spread;
+    return { yTop: top, yBot: top + sliver, clamped: true };
+  }
+  if (yTop >= viewBot) {
+    const bot = viewBot - spread;
+    return { yTop: bot - sliver, yBot: bot, clamped: true };
+  }
   let clamped = false;
   if (yTop < viewTop) {
     yTop = viewTop;

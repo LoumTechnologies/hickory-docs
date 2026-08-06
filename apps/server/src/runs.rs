@@ -185,6 +185,41 @@ async fn execute_run(
     }
     std::fs::write(&doc_file, &doc.source)?;
 
+    // Stage the document's woven files into the checkout BEFORE executing.
+    //
+    // `hick:file` content is a RESULT of the pipeline, so a cell that runs a
+    // file the same document assembles — the central move of literate
+    // programming, and what the grand tour demonstrates — could only ever work
+    // on the second run, once a previous run had committed that file. On a
+    // fresh document the input volume was seeded from a checkout that did not
+    // contain it yet and the cell died with "No such file or directory".
+    //
+    // Weaving is pure (no execution), so doing it first costs a few
+    // milliseconds and makes the first run behave like every later one. Files
+    // that depend on exec output are woven again from the real transcripts
+    // afterwards; this only guarantees they EXIST when a volume is seeded.
+    {
+        let doc_file = doc_file.clone();
+        let staged = tokio::task::spawn_blocking(move || -> anyhow::Result<usize> {
+            let handle = tokio::runtime::Handle::current();
+            let woven = handle.block_on(hickory_cli::run_doc(
+                &doc_file,
+                &[],
+                hickory_cli::RunMode::Weave,
+                hickory_cli::ExecutorChoice::Local,
+            ))?;
+            Ok(hickory_cli::write_outputs(&woven, None)?.len())
+        })
+        .await?;
+        match staged {
+            Ok(n) if n > 0 => log::debug!("staged {n} woven file(s) for run {run_id}"),
+            Ok(_) => {}
+            // A document that cannot be woven will fail the real run in a
+            // moment with a better message; do not pre-empt it here.
+            Err(e) => log::debug!("pre-run weave for {run_id} produced nothing: {e:#}"),
+        }
+    }
+
     // Live streaming: each finished exec block's events go out on the run
     // channel as they happen, keyed exactly like the block model
     // (`exec_id = "{container}:{line}"`, `t` in ms).

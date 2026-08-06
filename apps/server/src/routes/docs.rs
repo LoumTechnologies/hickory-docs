@@ -89,6 +89,14 @@ pub async fn put_doc(
     .bind(id)
     .fetch_one(&state.db)
     .await?;
+    // Any editor with this document open holds its own CRDT copy, and that
+    // copy wins the next time the room persists. Without this, saving through
+    // the API while someone has the document open silently reverts a moment
+    // later — the same lost update that `/outputs/edit` had.
+    state
+        .rooms
+        .apply_external_source(&state, doc.id, &body.source)
+        .await;
     state
         .git
         .save_file(
