@@ -20,6 +20,18 @@
   --term-bg: #1c1b19;
   --term-fg: #e8e5df;
   --shadow: 0 1px 3px rgba(30, 25, 15, 0.08);
+  /* Syntax token palette — hickory-tuned, shared by Document + Output views. */
+  --tok-keyword: #8a5a20;
+  --tok-string: #2c7a4b;
+  --tok-comment: #8f887b;
+  --tok-literal: #9a6b16;
+  --tok-type: #4a6b8a;
+  --tok-function: #5f5a9e;
+  --tok-property: #446b7a;
+  --tok-tag: #7a5c2e;
+  --tok-meta: #857f72;
+  --tok-operator: #6f6a61;
+  --tok-invalid: #b3372f;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -42,6 +54,17 @@
     --term-bg: #101010;
     --term-fg: #dedbd4;
     --shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+    --tok-keyword: #c9a45e;
+    --tok-string: #6dbb8d;
+    --tok-comment: #7f7a6e;
+    --tok-literal: #d3a54a;
+    --tok-type: #8db0cf;
+    --tok-function: #a89ed6;
+    --tok-property: #7fb0a8;
+    --tok-tag: #c9a45e;
+    --tok-meta: #8c877d;
+    --tok-operator: #98938a;
+    --tok-invalid: #e08a80;
   }
 }
 
@@ -623,6 +646,170 @@ textarea:focus {
   font-weight: 600;
 }
 .cm-file-chip-lang { color: var(--fg-muted); }
+
+/* Syntax token colors (embedded highlighting + Output view). One palette,
+   both themes — see the --tok-* variables at the top. */
+.tok-keyword { color: var(--tok-keyword); font-weight: 600; }
+.tok-string { color: var(--tok-string); }
+.tok-comment { color: var(--tok-comment); font-style: italic; }
+.tok-literal { color: var(--tok-literal); }
+.tok-type { color: var(--tok-type); }
+.tok-function { color: var(--tok-function); }
+.tok-definition { color: var(--tok-function); font-weight: 600; }
+.tok-property { color: var(--tok-property); }
+.tok-tag { color: var(--tok-tag); font-weight: 600; }
+.tok-meta { color: var(--tok-meta); }
+.tok-operator { color: var(--tok-operator); }
+.tok-link { color: var(--accent-2); text-decoration: underline; }
+.tok-invalid { color: var(--tok-invalid); }
+/* classHighlighter fallbacks for names it emits directly. */
+.tok-variableName { color: var(--fg); }
+.tok-propertyName { color: var(--tok-property); }
+.tok-typeName, .tok-className, .tok-namespace { color: var(--tok-type); }
+.tok-number, .tok-bool, .tok-atom { color: var(--tok-literal); }
+.tok-tagName, .tok-heading { color: var(--tok-tag); font-weight: 600; }
+.tok-attributeName, .tok-labelName { color: var(--tok-property); }
+.tok-punctuation { color: var(--tok-meta); }
+.tok-docComment { color: var(--tok-comment); font-style: italic; }
+
+/* Copy/cut fragments: a framed "fragment" card with a badge above. */
+.cm-frag-line {
+  background: color-mix(in srgb, var(--accent) 5%, var(--bg-sunken));
+  border-left: 2px solid color-mix(in srgb, var(--accent) 55%, var(--border));
+  border-right: 1px solid var(--border);
+  padding-left: 0.8rem;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.85em;
+}
+.cm-frag-first { border-top: 1px solid var(--border); }
+.cm-frag-last {
+  border-bottom: 1px solid var(--border);
+  border-bottom-left-radius: 8px;
+  border-bottom-right-radius: 8px;
+  margin-bottom: 0.5rem;
+}
+.cm-frag-cut {
+  border-left-style: dashed;
+  opacity: 0.75;
+}
+
+.cm-frag-chip {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+  padding: 0.28rem 0.8rem;
+  background: var(--neutral-bg);
+  border: 1px solid var(--border);
+  border-bottom: none;
+  border-radius: 8px 8px 0 0;
+  font-size: 0.75rem;
+}
+.cm-frag-chip-kind {
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 0.68rem;
+  font-weight: 650;
+  color: var(--accent);
+}
+.cm-frag-chip-handle {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  color: var(--accent-2);
+  font-weight: 600;
+}
+.cm-frag-chip-lang { color: var(--fg-muted); }
+.cm-frag-chip-hidden {
+  margin-left: auto;
+  color: var(--fg-muted);
+  font-style: italic;
+}
+.cm-frag-chip-cut { border-style: dashed; border-bottom: none; }
+
+/* Paste: inline selector chip; clicking selects the referenced fragment. */
+.cm-paste-chip {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.78em;
+  color: var(--accent-2);
+  background: color-mix(in srgb, var(--accent-2) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent-2) 30%, var(--border));
+  border-radius: 999px;
+  padding: 0.05em 0.45em;
+  cursor: pointer;
+}
+.cm-paste-chip:hover {
+  background: color-mix(in srgb, var(--accent-2) 18%, transparent);
+}
+
+/* Conditional / declarative banners (hick:when, hick:feature, session turns). */
+.cm-hick-banner {
+  display: flex;
+  align-items: baseline;
+  gap: 0.55rem;
+  margin-top: 0.5rem;
+  padding: 0.24rem 0.7rem;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--stale);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--stale) 6%, var(--bg-raised));
+  font-size: 0.75rem;
+}
+.cm-hick-banner-label {
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 0.68rem;
+  font-weight: 650;
+  color: var(--stale);
+}
+.cm-hick-banner-detail {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  color: var(--fg);
+}
+.cm-hick-banner-feature {
+  border-left-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 6%, var(--bg-raised));
+}
+.cm-hick-banner-feature .cm-hick-banner-label { color: var(--accent); }
+.cm-hick-banner-user,
+.cm-hick-banner-assistant,
+.cm-hick-banner-observation {
+  border-left-color: var(--accent-2);
+  background: color-mix(in srgb, var(--accent-2) 6%, var(--bg-raised));
+}
+.cm-hick-banner-user .cm-hick-banner-label,
+.cm-hick-banner-assistant .cm-hick-banner-label,
+.cm-hick-banner-observation .cm-hick-banner-label { color: var(--accent-2); }
+
+/* The hick:when gated region: a quiet amber spine down its whole extent. */
+.cm-when-line {
+  border-left: 3px solid color-mix(in srgb, var(--stale) 45%, transparent);
+  padding-left: 0.7rem;
+}
+
+/* Inline directive token chips (var, val, substitute, volume, secret, …). */
+.cm-hick-token {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.78em;
+  color: var(--fg-muted);
+  background: var(--neutral-bg);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 0.05em 0.35em;
+}
+.cm-token-secret {
+  color: var(--stale);
+  background: var(--stale-bg);
+  border-color: color-mix(in srgb, var(--stale) 35%, var(--border));
+}
+.cm-token-deny,
+.cm-token-exclude {
+  color: var(--fail);
+  background: color-mix(in srgb, var(--fail) 7%, var(--bg-raised));
+}
+.cm-token-allow,
+.cm-token-include {
+  color: var(--ok);
+  background: color-mix(in srgb, var(--ok) 7%, var(--bg-raised));
+}
 
 /* Cell panel widget (run/status/transcript below each exec cell). */
 .cm-cell-panel { padding: 0; }

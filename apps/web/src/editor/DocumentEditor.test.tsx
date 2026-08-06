@@ -84,6 +84,42 @@ describe("DocumentEditor (WYSIWYG over raw source)", () => {
     realtime.close();
   });
 
+  it("renders fragment chips, when banners, paste chips and embedded highlighting", async () => {
+    const realtime = new LocalRealtime();
+    const source =
+      '<hick:copy id="hdr" class="analysis-py">\ndef f():\n    return 1\n</hick:copy>\n' +
+      '<hick:file path="analysis.py">\n<hick:paste select=".analysis-py" />\n</hick:file>\n' +
+      '<hick:when test="!with-r">\n## Gated heading\n</hick:when>\n';
+    const { container } = render(
+      <DocumentEditor
+        docId="dFrag"
+        initialSource={source}
+        realtime={realtime}
+        execBlocks={[]}
+        runningCells={new Set()}
+        onRunCell={() => undefined}
+      />,
+    );
+    await waitFor(() => expect(container.querySelector(".cm-frag-chip")).toBeTruthy());
+    const chip = container.querySelector(".cm-frag-chip")!;
+    expect(chip.textContent).toContain("#hdr");
+    expect(chip.textContent).toContain(".analysis-py");
+    expect(chip.textContent).toContain("python"); // inferred from analysis.py
+    const banner = container.querySelector(".cm-hick-banner-when");
+    expect(banner?.textContent).toContain("!with-r");
+    expect(container.querySelector(".cm-paste-chip")).toBeTruthy();
+    // Embedded python highlighting inside the copy body (decoration-only).
+    const keyword = container.querySelector(".tok-keyword");
+    expect(keyword?.textContent).toBe("def");
+    // Nested prose inside hick:when still styles as a heading.
+    expect(container.querySelector(".cm-md-h2")?.textContent).toContain("Gated heading");
+    // And the raw source is untouched.
+    expect(container.querySelector(".cm-content")!.textContent).toContain(
+      '<hick:copy id="hdr" class="analysis-py">',
+    );
+    realtime.close();
+  });
+
   it("never corrupts text: decorations leave the document unchanged on malformed docs", () => {
     const realtime = new LocalRealtime();
     const source = "broken <hick:exec container=\"shell\">\nno close tag, raw < and ** unbalanced";

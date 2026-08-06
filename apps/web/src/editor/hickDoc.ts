@@ -11,6 +11,9 @@
 // unclosed blocks extend to the end of the document, stray closers are
 // rendered as tag chrome without forming a block.
 
+import { languageFromPath, normalizeLanguage } from "./languages";
+import type { LanguageId } from "./languages";
+
 export interface HickTag {
   from: number;
   to: number;
@@ -166,11 +169,30 @@ export function buildBlocks(text: string, tags: HickTag[]): HickBlock[] {
   return blocks;
 }
 
+/**
+ * Elements whose content is PROSE — markdown styling applies inside them.
+ * Everything else (exec commands, file bodies, copy/cut fragments, expect
+ * output, …) is verbatim payload that markdown must not touch. `doc` is the
+ * whole-document wrapper, `when` gates prose sections, and session elements
+ * hold conversational prose.
+ */
+const PROSE_CONTAINERS = new Set([
+  "doc",
+  "when",
+  "session",
+  "user",
+  "assistant",
+  "observation",
+]);
+
 /** Ranges whose content is verbatim (exec commands, file bodies, copy slots) —
- * markdown styling must not apply inside them. */
+ * markdown styling must not apply inside them. Prose containers (doc, when,
+ * session, …) are excluded so nested prose still styles; their verbatim
+ * children contribute their own ranges. */
 function verbatimRanges(blocks: HickBlock[]): [number, number][] {
   const ranges: [number, number][] = [];
   for (const b of blocks) {
+    if (PROSE_CONTAINERS.has(b.name)) continue;
     if (b.contentTo > b.contentFrom) ranges.push([b.contentFrom, b.contentTo]);
   }
   ranges.sort((a, b) => a[0] - b[0]);
@@ -238,7 +260,7 @@ export function parseHickDoc(text: string): HickDocStructure {
   try {
     const tags = parseTags(text);
     const blocks = buildBlocks(text, tags);
-    const verbatim = verbatimRanges(blocks.filter((b) => b.name !== "session"));
+    const verbatim = verbatimRanges(blocks);
     const tagRanges: [number, number][] = tags.map((t) => [t.from, t.to]);
 
     const headings: Heading[] = [];
@@ -303,6 +325,116 @@ export function accessRulesOf(structure: HickDocStructure, container: HickBlock)
     }
   }
   return rules;
+}
+
+/** Blocks with a given tag name, in document order. */
+export function blocksNamed(structure: HickDocStructure, ...names: string[]): HickBlock[] {
+  return structure.blocks.filter((b) => names.includes(b.name));
+}
+
+/** Copy/cut fragment blocks in document order. */
+export function fragmentBlocksOf(structure: HickDocStructure): HickBlock[] {
+  return blocksNamed(structure, "copy", "cut");
+}
+
+/** `hick:when` conditional blocks in document order. */
+export function whenBlocksOf(structure: HickDocStructure): HickBlock[] {
+  return blocksNamed(structure, "when");
+}
+
+/**
+ * Does a paste selector (`#id`, `.class`, or a comma list of those) refer to
+ * this copy/cut fragment?
+ */
+export function selectorMatches(selector: string | undefined, fragment: HickBlock): boolean {
+  if (!selector) return false;
+  const id = fragment.attrs.id;
+  const classes = (fragment.attrs.class ?? "").split(/\s+/).filter(Boolean);
+  for (const part of selector.split(",").map((s) => s.trim())) {
+    if (id && part === `#${id}`) return true;
+    if (part.startsWith(".") && classes.includes(part.slice(1))) return true;
+  }
+  return false;
+}
+
+/** The first copy/cut fragment a paste selector refers to, or null. */
+export function resolvePasteTarget(
+  structure: HickDocStructure,
+  selector: string | undefined,
+): HickBlock | null {
+  for (const frag of fragmentBlocksOf(structure)) {
+    if (selectorMatches(selector, frag)) return frag;
+  }
+  return null;
+}
+
+function within(inner: { from: number; to: number }, from: number, to: number): boolean {
+  return inner.from >= from && inner.to <= to;
+}
+
+/**
+ * The code sub-ranges of a verbatim block's content: the content span minus
+ * every nested hick tag and nested block (an `expect` body is output, a
+ * nested `exec` inside a `file` highlights under its own rules). Ranges are
+ * sorted and non-overlapping; empty when the block has no highlightable code.
+ */
+export function codeRangesOf(structure: HickDocStructure, block: HickBlock): [number, number][] {
+  const { contentFrom, contentTo } = block;
+  if (contentTo <= contentFrom) return [];
+  const cuts: [number, number][] = [];
+  for (const t of structure.tags) {
+    if (within(t, contentFrom, contentTo)) cuts.push([t.from, t.to]);
+  }
+  for (const b of structure.blocks) {
+    if (b === block) continue;
+    if (within(b, contentFrom, contentTo)) cuts.push([b.from, b.to]);
+  }
+  cuts.sort((a, b) => a[0] - b[0]);
+  const out: [number, number][] = [];
+  let pos = contentFrom;
+  for (const [from, to] of cuts) {
+    if (from > pos) out.push([pos, from]);
+    pos = Math.max(pos, to);
+  }
+  if (pos < contentTo) out.push([pos, contentTo]);
+  return out.filter(([a, b]) => b > a);
+}
+
+/**
+ * The language a block's body should highlight as, or null for plain text:
+ *  - `file`: the `language` attribute, else the path extension;
+ *  - `exec`: shell;
+ *  - `copy`/`cut`: an explicit `lang`/`language` attribute, else inferred
+ *    from where the fragment is pasted — a `hick:paste` inside a `hick:file`
+ *    whose selector matches this fragment lends the file's language.
+ */
+export function languageForBlock(
+  structure: HickDocStructure,
+  block: HickBlock,
+): LanguageId | null {
+  switch (block.name) {
+    case "file":
+      return normalizeLanguage(block.attrs.language) ?? languageFromPath(block.attrs.path);
+    case "exec":
+      return "shell";
+    case "copy":
+    case "cut": {
+      const declared = normalizeLanguage(block.attrs.lang ?? block.attrs.language);
+      if (declared) return declared;
+      for (const file of fileBlocksOf(structure)) {
+        const fileLang =
+          normalizeLanguage(file.attrs.language) ?? languageFromPath(file.attrs.path);
+        if (!fileLang) continue;
+        for (const t of structure.tags) {
+          if (t.name !== "paste" || !within(t, file.contentFrom, file.contentTo)) continue;
+          if (selectorMatches(t.attrs.select, block)) return fileLang;
+        }
+      }
+      return null;
+    }
+    default:
+      return null;
+  }
 }
 
 /**
