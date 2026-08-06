@@ -18,14 +18,17 @@
 //! left behind — see `docs/developers/vendoring-notes.md`.
 
 mod events;
+pub mod harness;
 mod llm;
 mod llm_anthropic;
+mod llm_batch;
 mod protocol;
 mod react_loop;
 mod script;
 mod scripted;
 mod session;
 mod tools;
+mod usage;
 
 /// The `exec_id` agent sessions stream under on the WS run channel.
 pub use events::AGENT_EXEC_ID;
@@ -45,6 +48,16 @@ pub use llm::Role;
 pub use llm_anthropic::AnthropicClient;
 /// Default Anthropic model id (current Sonnet-class alias).
 pub use llm_anthropic::DEFAULT_ANTHROPIC_MODEL;
+/// Output effort level (`output_config.effort`).
+pub use llm_anthropic::Effort;
+/// Result of a cacheable-prefix measurement (via `count_tokens`).
+pub use llm_anthropic::PrefixCheck;
+/// Message Batches API client (50%-discounted, latency-insensitive runs).
+pub use llm_batch::AnthropicBatchClient;
+/// One request in a message batch (keyed by `custom_id`).
+pub use llm_batch::BatchEntry;
+/// Terminal result of one batch entry.
+pub use llm_batch::BatchResult;
 /// Default system prompt for the script-first strategy.
 pub use protocol::SYSTEM_PROMPT;
 /// System prompt addendum enabling the document edit tool set.
@@ -97,3 +110,11 @@ pub use tools::ToolOutcome;
 pub use tools::execute_tool;
 /// Hashline rendering and anchor resolution primitives.
 pub use tools::hashline;
+/// Four-way token usage for one LLM call or an accumulated total.
+pub use usage::Usage;
+/// USD cost of a usage record on a model (cache multipliers applied).
+pub use usage::cost_usd;
+/// Minimum cacheable prefix tokens for a model (below it: silent no-cache).
+pub use usage::min_cacheable_prefix_tokens;
+/// Per-MTok price lookup for known models.
+pub use usage::price_for_model;

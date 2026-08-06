@@ -1,0 +1,104 @@
+{
+  "experiment": "E1-edit-surface",
+  "description": "Edit surface: lineage tools vs script-writes over the grand tour + tours corpus. Primary metric: total USD per completed task; threshold ≥25% median reduction with equal-or-better check-pass rate.",
+  "corpus": "../corpus",
+  "arms": [
+    {
+      "name": "script-only",
+      "baseline": true,
+      "tools": false,
+      "context": "doc"
+    },
+    {
+      "name": "tools",
+      "tools": true,
+      "context": "doc"
+    }
+  ],
+  "tasks": [
+    {
+      "id": "rename-lcg",
+      "prompt": "In {corpus}/grand-tour.hick, rename the linear congruential generator function `lcg` to `linear_congruential` everywhere it appears (definition, calls, and any prose that names it). Keep the document weaving cleanly.",
+      "doc": "grand-tour.hick",
+      "outputs": ["grand-tour.md", "analysis.py"],
+      "check_cmd": "${HICKORY_BIN:-hickory} check grand-tour.hick"
+    },
+    {
+      "id": "change-seed-constant",
+      "prompt": "In {corpus}/grand-tour.hick, change the deterministic RNG seed constant from its current value to 20260806 and update any woven output that shows the derived numbers by re-running the document.",
+      "doc": "grand-tour.hick",
+      "outputs": ["grand-tour.md", "analysis.py"],
+      "check_cmd": "${HICKORY_BIN:-hickory} check grand-tour.hick"
+    },
+    {
+      "id": "add-median-function",
+      "prompt": "Add a `median(xs)` function to the woven analysis module of {corpus}/grand-tour.hick (the document assembles analysis.py from prose-ordered fragments). Place it with the other statistics helpers and add a one-sentence prose introduction in the document.",
+      "doc": "grand-tour.hick",
+      "outputs": ["analysis.py"],
+      "check_cmd": "${HICKORY_BIN:-hickory} check grand-tour.hick"
+    },
+    {
+      "id": "fix-expectation",
+      "prompt": "One expectation in {corpus}/grand-tour.hick asserts an exact figure from the quarterly table. Change the underlying computation to round to 2 decimal places and update the expectation so `hickory check` passes.",
+      "doc": "grand-tour.hick",
+      "outputs": ["grand-tour.md"],
+      "check_cmd": "${HICKORY_BIN:-hickory} check grand-tour.hick"
+    },
+    {
+      "id": "reword-intro-prose",
+      "prompt": "Reword the opening paragraph of {corpus}/grand-tour.hick (the one beginning 'This is an executable document') to be two sentences, keeping the meaning. Do not touch any code cell.",
+      "doc": "grand-tour.hick",
+      "outputs": ["grand-tour.md"],
+      "check_cmd": "${HICKORY_BIN:-hickory} check grand-tour.hick"
+    },
+    {
+      "id": "add-cell-summary-stats",
+      "prompt": "Add a new executable cell near the end of {corpus}/grand-tour.hick that prints the min, max, and mean of the quarterly totals, with a short prose lead-in.",
+      "doc": "grand-tour.hick",
+      "outputs": ["grand-tour.md"],
+      "check_cmd": "${HICKORY_BIN:-hickory} check grand-tour.hick"
+    },
+    {
+      "id": "rename-docstring-artifact",
+      "prompt": "In {corpus}/grand-tour.hick, the assembled module docstring names the source path. Update the docstring fragment so it also states the license line 'License: MIT.' as its final line.",
+      "doc": "grand-tour.hick",
+      "outputs": ["analysis.py"],
+      "check_cmd": "${HICKORY_BIN:-hickory} check grand-tour.hick"
+    },
+    {
+      "id": "tt-change-constant",
+      "prompt": "In {corpus}/text-tools-tour.hick, change the sample input text so it contains exactly five words, and update every expectation that depends on the word count.",
+      "doc": "text-tools-tour.hick",
+      "outputs": ["text-tools-tour.md"],
+      "check_cmd": "${HICKORY_BIN:-hickory} check text-tools-tour.hick"
+    },
+    {
+      "id": "tt-add-step",
+      "prompt": "Add one more pipeline step to {corpus}/text-tools-tour.hick that uppercases the final output, with a one-line prose explanation and a matching expectation.",
+      "doc": "text-tools-tour.hick",
+      "outputs": ["text-tools-tour.md"],
+      "check_cmd": "${HICKORY_BIN:-hickory} check text-tools-tour.hick"
+    },
+    {
+      "id": "bc-tighten-interval",
+      "prompt": "In {corpus}/bootstrap-ci.hick, change the confidence level from its current value to 90% and update the prose sentence that states the level plus any expectation on the interval bounds.",
+      "doc": "bootstrap-ci.hick",
+      "outputs": ["bootstrap-ci.md"],
+      "check_cmd": "${HICKORY_BIN:-hickory} check bootstrap-ci.hick"
+    },
+    {
+      "id": "bc-rename-variable",
+      "prompt": "In {corpus}/bootstrap-ci.hick, rename the variable holding the resample count to `n_resamples` everywhere (code and prose).",
+      "doc": "bootstrap-ci.hick",
+      "outputs": ["bootstrap-ci.md"],
+      "check_cmd": "${HICKORY_BIN:-hickory} check bootstrap-ci.hick"
+    },
+    {
+      "id": "gt-fix-typo-woven",
+      "prompt": "The woven file {corpus}/grand-tour.md contains the phrase 'prose order'. Change that phrase to 'reading order' at its first occurrence by editing at the correct source location so the change survives a re-weave.",
+      "doc": "grand-tour.hick",
+      "outputs": ["grand-tour.md"],
+      "check_cmd": "${HICKORY_BIN:-hickory} check grand-tour.hick"
+    }
+  ]
+}

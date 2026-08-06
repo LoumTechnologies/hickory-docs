@@ -1,0 +1,39 @@
+{
+  "experiment": "E4-effort-sweep",
+  "description": "Effort sweep: same tasks at low/medium/high/xhigh. Deliverable: a recommended default per operation class. Expect non-monotonic cost — higher effort often means fewer turns.",
+  "corpus": "../corpus",
+  "arms": [
+    { "name": "effort-low", "effort": "low", "context": "doc" },
+    { "name": "effort-medium", "effort": "medium", "context": "doc" },
+    { "name": "effort-high", "baseline": true, "effort": "high", "context": "doc" },
+    { "name": "effort-xhigh", "effort": "xhigh", "context": "doc" }
+  ],
+  "tasks": [
+    {
+      "id": "cheap-lookup",
+      "prompt": "Working in {corpus}: state which file assembles analysis.py and which section contributes its docstring, as your final answer. Do not edit anything.",
+      "doc": "grand-tour.hick"
+    },
+    {
+      "id": "single-edit",
+      "prompt": "Working in {corpus}: change the grand tour's RNG seed constant to 777 at its source location, then finish.",
+      "doc": "grand-tour.hick",
+      "outputs": ["analysis.py"],
+      "check_cmd": "${HICKORY_BIN:-hickory} check grand-tour.hick"
+    },
+    {
+      "id": "multi-file-refactor",
+      "prompt": "Working in {corpus}: rename the grand tour's `lcg` function to `linear_congruential` everywhere (definition, calls, prose), keeping `hickory check` green, then finish.",
+      "doc": "grand-tour.hick",
+      "outputs": ["grand-tour.md", "analysis.py"],
+      "check_cmd": "${HICKORY_BIN:-hickory} check grand-tour.hick"
+    },
+    {
+      "id": "fix-under-constraint",
+      "prompt": "Working in {corpus}: make the text-tools tour's final output uppercase while keeping every existing expectation passing (update expectations only where the uppercase change forces it), then finish.",
+      "doc": "text-tools-tour.hick",
+      "outputs": ["text-tools-tour.md"],
+      "check_cmd": "${HICKORY_BIN:-hickory} check text-tools-tour.hick"
+    }
+  ]
+}

@@ -86,3 +86,91 @@ the raw JSONL, with a per-experiment table (arm, median cost, p90, turns,
 pass rate) and the four-way token split. Honest-result rule: if an experiment
 shows no benefit, the report says so — the number is the deliverable, not the
 conclusion we wanted.
+
+## Implementation
+
+Everything below is built and tested; live runs additionally need
+`ANTHROPIC_API_KEY` (never set in CI — network tests are `#[ignore]`d and
+gated on `HICKORY_AGENT_LIVE=1`).
+
+### Cost optimizations in `crates/hickory-agent`
+
+- **Prompt caching by construction** (`llm_anthropic.rs`): system messages
+  become system content blocks; the frozen protocol prompt is the FIRST
+  system message and per-session doc context a SEPARATE second one, so the
+  frozen prefix stays byte-identical across sessions. Breakpoints (max 4):
+  first + last system block, a rolling breakpoint on the last content block
+  of the latest turn, and an intermediate one ~15 blocks back on histories
+  longer than the 20-block lookback. The request builder is deterministic
+  (`AnthropicClient::request_body_bytes` exposes the exact bytes; the E3
+  tests assert byte-stability and catch an injected timestamp).
+- **Prefix-minimum assertion**: on the first request per client a background
+  `count_tokens` probe logs (debug/warn) whether the system prefix clears
+  the model minimum (1024 tokens on sonnet-5, 512 on opus-5/fable-5) —
+  below it the API silently never caches. `verify_cacheable_prefix` exposes
+  the same check; the live E3 test asserts it before asserting
+  `cache_read_input_tokens > 0` on turn 2.
+- **Usage capture**: every call reports `Usage` split four ways (input,
+  cache write, cache read, output); `usage.rs` prices it per model
+  (sonnet-5 $3/$15, haiku-4-5 $1/$5, opus-5 $5/$25 per MTok; cache write
+  1.25x at 5m TTL, read ~0.1x; unknown models cost `None`, never a guess).
+  Per-turn and session totals flow to `AgentEvent::TurnUsage` (live spend
+  for server/UI), to the session log as self-closing `<hick:usage .../>`
+  elements (unknown tags — old parsers skip them), and to
+  `AgentOutcome::{total_usage, total_cost_usd}`.
+- **Effort**: `AnthropicClient::with_effort(low|medium|high|xhigh|max)`
+  sends `output_config.effort`; omitted by default (API default high).
+  Nothing ever sends `temperature`/`top_p`/`top_k`/`thinking`/
+  `budget_tokens` (400s on sonnet-5); adaptive thinking stays on by
+  omission. Tested.
+- **Long-loop hygiene**: `with_context_editing(true)` opts into the
+  `context-management-2025-06-27` beta with `clear_tool_uses_20250919`
+  (off by default; it targets API-native tool_use blocks, so it becomes
+  effective when the loop moves from the text `<hick:tool>` protocol to
+  native tool blocks). Compaction (beta `compact-2026-01-12`, which
+  requires appending the FULL `response.content` back into history) is the
+  documented next step if sessions approach context limits — not yet
+  implemented because history here is plain text, not content blocks.
+- **Batch API** (`llm_batch.rs`): `AnthropicBatchClient`
+  (submit / wait_until_ended / results keyed by `custom_id`) is the
+  complete 50%-discount transport for `hickory check` fan-out (E5). Wiring
+  it into the `check` command lives in `hickory-cli` and is left to that
+  workstream; note that concurrent identical-prefix requests cannot read a
+  cache entry still being written — warm the cache with one request first.
+
+### Harness (`hickory_agent::harness` + `experiments/token-economics/`)
+
+- Committed specs: `tasks/e1-edit-surface.json` (12 edit tasks, script-only
+  baseline vs tools), `tasks/e2-read-surface.json` (doc-first vs
+  outputs-first), `tasks/e4-effort-sweep.json` (low/medium/high/xhigh).
+  Fixed seed corpus under `corpus/` (grand tour, text-tools tour,
+  bootstrap-ci); each task gets a fresh copy, `{corpus}` in prompts/checks
+  expands to it. E3 is tests (below), not a runner arm.
+- Runs land as JSONL under `runs/` (per-turn rows + a task-summary row,
+  each carrying the four-way split). The report renders medians, p90,
+  turns, check-pass rate, the token split, and a verdict per arm vs the
+  baseline — including the plain-words "NO significant benefit" line when
+  the 25% threshold is not met. Tools arms open an `EditSession` on the
+  task's staged document (`AgentConfig::doc_path`), enabling the full
+  read_doc/read_output/edit_output/edit_doc/verify set; rows record
+  `tools_requested`/`tools_active`, and the report prints a PENDING caveat
+  for any row where a tools arm fell back to script-only.
+
+### Commands
+
+```sh
+# Offline (no API key):
+just tokens-report                                     # regenerate report.md
+cargo test -p hickory-agent -- --test-threads=1        # includes E3 offline tests
+
+# Live (ANTHROPIC_API_KEY required):
+just tokens-run experiments/token-economics/tasks/e1-edit-surface.json
+just tokens-run experiments/token-economics/tasks/e2-read-surface.json
+just tokens-run experiments/token-economics/tasks/e4-effort-sweep.json
+just tokens-report
+just tokens-count examples/grand-tour.hick examples/grand-tour.md   # E2 static sizes
+HICKORY_AGENT_LIVE=1 cargo test -p hickory-agent -- --ignored       # E3 live cache test
+```
+
+Task `check_cmd`s invoke `${HICKORY_BIN:-hickory}`; point `HICKORY_BIN` at
+a built CLI (e.g. `target/debug/hickory`) for live runs.

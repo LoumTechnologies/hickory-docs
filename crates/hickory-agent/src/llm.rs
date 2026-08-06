@@ -8,6 +8,8 @@ use async_trait::async_trait;
 use futures::Stream;
 use serde::{Deserialize, Serialize};
 
+use crate::usage::Usage;
+
 /// A chat message with a role and content string.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Message {
@@ -42,6 +44,22 @@ pub struct ChatChunk {
     pub delta: String,
     /// Set when the stream is complete (e.g. "stop", "end_turn").
     pub finish_reason: Option<String>,
+    /// Partial usage carried by this chunk (Anthropic reports input +
+    /// cache counters on `message_start` and output tokens on
+    /// `message_delta`). Sum the usages of every chunk in a stream to get
+    /// the call's total — see [`crate::Usage::add`].
+    pub usage: Option<Usage>,
+}
+
+impl ChatChunk {
+    /// A plain text delta with no finish reason or usage.
+    pub fn text(delta: impl Into<String>) -> Self {
+        Self {
+            delta: delta.into(),
+            finish_reason: None,
+            usage: None,
+        }
+    }
 }
 
 /// A pinned, boxed stream of [`ChatChunk`]s.
@@ -52,6 +70,14 @@ pub type ChatStream = Pin<Box<dyn Stream<Item = anyhow::Result<ChatChunk>> + Sen
 pub trait LlmClient: Send + Sync {
     /// Complete a chat conversation (returns full response text).
     async fn complete(&self, messages: Vec<Message>) -> anyhow::Result<String>;
+
+    /// Complete a chat conversation, returning the text plus the call's
+    /// four-way token [`Usage`]. Default: delegates to
+    /// [`LlmClient::complete`] with zero usage (providers that bill should
+    /// override).
+    async fn complete_with_usage(&self, messages: Vec<Message>) -> anyhow::Result<(String, Usage)> {
+        Ok((self.complete(messages).await?, Usage::default()))
+    }
 
     /// Stream a chat completion. Returns a stream of chunks.
     ///
@@ -64,6 +90,7 @@ pub trait LlmClient: Send + Sync {
             Ok(ChatChunk {
                 delta: response,
                 finish_reason: Some("stop".into()),
+                usage: None,
             })
         });
         Ok(Box::pin(stream))
@@ -82,6 +109,10 @@ pub trait LlmClient: Send + Sync {
 impl LlmClient for Arc<dyn LlmClient> {
     async fn complete(&self, messages: Vec<Message>) -> anyhow::Result<String> {
         (**self).complete(messages).await
+    }
+
+    async fn complete_with_usage(&self, messages: Vec<Message>) -> anyhow::Result<(String, Usage)> {
+        (**self).complete_with_usage(messages).await
     }
 
     async fn complete_stream(&self, messages: Vec<Message>) -> anyhow::Result<ChatStream> {

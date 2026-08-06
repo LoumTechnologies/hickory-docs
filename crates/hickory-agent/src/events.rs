@@ -9,6 +9,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::script::ScriptResult;
+use crate::usage::Usage;
 
 /// The `exec_id` agent sessions stream under on the WS run channel.
 pub const AGENT_EXEC_ID: &str = "agent";
@@ -42,6 +43,22 @@ pub enum AgentEvent {
     },
     /// The agent re-prompted the LLM after a malformed response.
     Reprompt { reason: String, attempt: usize },
+    /// Token usage + spend after an LLM call: this turn's four-way split
+    /// and cost, plus the session's running totals (for live spend UI).
+    /// `cost_usd`/`total_cost_usd` are `None` when the model is not in the
+    /// price table (unknown prices are reported as unknown, never guessed).
+    TurnUsage {
+        /// Zero-based LLM turn index.
+        turn: usize,
+        /// This call's usage.
+        usage: Usage,
+        /// This call's cost in USD.
+        cost_usd: Option<f64>,
+        /// Accumulated session usage.
+        total_usage: Usage,
+        /// Accumulated session cost in USD.
+        total_cost_usd: Option<f64>,
+    },
     /// Agent produced a final answer.
     Done { summary: String },
     /// An unrecoverable error occurred.

@@ -60,6 +60,18 @@ pub enum SessionEvent<'a> {
         /// Captured output text.
         text: &'a str,
     },
+    /// Token usage + spend for one LLM call (`<hick:usage .../>`,
+    /// self-closing — the session parser skips unknown tags, so old
+    /// readers are unaffected). `turn` is `None` for the session total
+    /// written at the end.
+    Usage {
+        /// Zero-based LLM turn index; `None` = session total.
+        turn: Option<usize>,
+        /// The four-way token split.
+        usage: crate::usage::Usage,
+        /// USD cost (`None` when the model has no known price).
+        cost_usd: Option<f64>,
+    },
     /// Session ended — writes the closing `</hick:session>` tag.
     End,
 }
@@ -194,6 +206,27 @@ impl SessionLog for HickSessionLog {
                         text.trim_end()
                     )?;
                 }
+                SessionEvent::Usage {
+                    turn,
+                    usage,
+                    cost_usd,
+                } => {
+                    let scope = match turn {
+                        Some(t) => format!(r#"turn="{t}""#),
+                        None => r#"scope="session""#.to_string(),
+                    };
+                    let cost = cost_usd
+                        .map(|c| format!(r#" cost-usd="{c:.6}""#))
+                        .unwrap_or_default();
+                    writeln!(
+                        writer,
+                        r#"<hick:usage {scope} input="{}" cache-write="{}" cache-read="{}" output="{}"{cost}/>"#,
+                        usage.input_tokens,
+                        usage.cache_creation_input_tokens,
+                        usage.cache_read_input_tokens,
+                        usage.output_tokens,
+                    )?;
+                }
                 SessionEvent::End => {
                     writeln!(writer, "</hick:session>")?;
                 }
@@ -320,6 +353,41 @@ mod tests {
         // No End yet — the file on disk must still contain the turn.
         let source = std::fs::read_to_string(&path).unwrap();
         assert!(source.contains("<hick:user>hello</hick:user>"));
+    }
+
+    #[test]
+    fn usage_elements_do_not_break_session_parsing() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("usage.hick");
+        let log = HickSessionLog::create(&path).unwrap();
+        log.record(SessionEvent::User { text: "hi" });
+        log.record(SessionEvent::Usage {
+            turn: Some(0),
+            usage: crate::usage::Usage {
+                input_tokens: 12,
+                cache_creation_input_tokens: 3,
+                cache_read_input_tokens: 900,
+                output_tokens: 40,
+            },
+            cost_usd: Some(0.001234),
+        });
+        log.record(SessionEvent::Assistant {
+            prose: "done",
+            action: None,
+        });
+        log.record(SessionEvent::Usage {
+            turn: None,
+            usage: crate::usage::Usage::default(),
+            cost_usd: None,
+        });
+        log.record(SessionEvent::End);
+
+        let source = std::fs::read_to_string(&path).unwrap();
+        assert!(source.contains(r#"<hick:usage turn="0" input="12" cache-write="3" cache-read="900" output="40" cost-usd="0.001234"/>"#));
+        assert!(source.contains(r#"<hick:usage scope="session""#));
+        // The session parser skips unknown tags: user + assistant survive.
+        let doc = hick_lang::parse_session(&source).expect("session with usage must parse");
+        assert_eq!(doc.nodes.len(), 2);
     }
 
     #[test]

@@ -37,3 +37,15 @@ run DOC *ARGS:
 # Verify documents (drift/expectations). CI + pre-commit entry point.
 verify DOC *ARGS:
     cargo run -p hickory-cli -- check {{DOC}} {{ARGS}}
+
+# Regenerate experiments/token-economics/report.md from the raw run JSONL.
+tokens-report:
+    cargo run -q -p hickory-agent --bin token_economics -- report
+
+# Run one token-economics experiment (needs ANTHROPIC_API_KEY).
+tokens-run SPEC:
+    cargo run -q -p hickory-agent --bin token_economics -- run {{SPEC}}
+
+# Static token measurement of files via count_tokens (needs ANTHROPIC_API_KEY).
+tokens-count *FILES:
+    cargo run -q -p hickory-agent --bin token_economics -- count-tokens {{FILES}}

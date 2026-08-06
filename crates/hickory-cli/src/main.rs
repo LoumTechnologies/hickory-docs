@@ -470,6 +470,24 @@ async fn cmd_agent(args: AgentArgs) -> Result<ExitCode> {
                 eprintln!("agent: re-prompting after malformed response ({reason})");
             }
             AgentEvent::Error { message } => eprintln!("agent: error: {message}"),
+            AgentEvent::TurnUsage {
+                usage,
+                cost_usd,
+                total_cost_usd,
+                ..
+            } => {
+                let cost =
+                    |c: &Option<f64>| c.map(|v| format!("${v:.4}")).unwrap_or_else(|| "?".into());
+                eprintln!(
+                    "agent: turn usage in={} cache_write={} cache_read={} out={} ({}, session total {})",
+                    usage.input_tokens,
+                    usage.cache_creation_input_tokens,
+                    usage.cache_read_input_tokens,
+                    usage.output_tokens,
+                    cost(cost_usd),
+                    cost(total_cost_usd),
+                );
+            }
             AgentEvent::UserMessage { .. } | AgentEvent::Thinking | AgentEvent::Done { .. } => {}
         }
     };
@@ -478,9 +496,13 @@ async fn cmd_agent(args: AgentArgs) -> Result<ExitCode> {
     executor.shutdown().await?;
 
     eprintln!(
-        "agent: finished in {} turn(s); session written to {}",
+        "agent: finished in {} turn(s); session written to {}{}",
         outcome.turns,
-        outcome.session_path.display()
+        outcome.session_path.display(),
+        outcome
+            .total_cost_usd
+            .map(|c| format!("; spend ${c:.4}"))
+            .unwrap_or_default()
     );
     println!("{}", outcome.session_path.display());
     Ok(ExitCode::SUCCESS)

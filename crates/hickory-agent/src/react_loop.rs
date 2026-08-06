@@ -21,6 +21,7 @@ use crate::protocol::{
 use crate::script::{AGENT_CONTAINER, run_script};
 use crate::session::{HickSessionLog, SessionEvent, SessionLog, session_file_path};
 use crate::tools::{EditSession, execute_tool};
+use crate::usage::{Usage, cost_usd};
 
 /// Configuration for one agent run.
 pub struct AgentConfig {
@@ -64,6 +65,10 @@ pub struct AgentOutcome {
     pub session_path: PathBuf,
     /// Number of LLM turns used.
     pub turns: usize,
+    /// Accumulated four-way token usage for the whole session.
+    pub total_usage: Usage,
+    /// Accumulated USD spend (`None` when the model has no known price).
+    pub total_cost_usd: Option<f64>,
 }
 
 /// Maximum consecutive protocol violations before the run aborts.
@@ -104,23 +109,36 @@ pub async fn run_agent(
             None => None,
         };
 
-    let mut system = SYSTEM_PROMPT.to_string();
+    // Prompt-cache contract: the FIRST system message is the frozen,
+    // byte-stable prefix (protocol + tool doctrine — no timestamps, no
+    // session ids, no interpolation), shared across every session of the
+    // same mode (with/without tools) on the same build. Anything
+    // per-session (doc path, doc context) goes in a SEPARATE later system
+    // message so it gets its own cache breakpoint without invalidating the
+    // frozen one. See `llm_anthropic`'s module docs for the breakpoint
+    // layout.
+    let mut frozen = SYSTEM_PROMPT.to_string();
+    if edit_session.is_some() {
+        frozen.push_str(TOOLS_SYSTEM_PROMPT);
+    }
+    let mut history = vec![Message::new(Role::System, frozen)];
+    let mut session_context = String::new();
     if let Some(es) = &edit_session {
-        system.push_str(TOOLS_SYSTEM_PROMPT);
-        system.push_str(&format!(
-            "\n\nPrimary document of this session: {}",
+        session_context.push_str(&format!(
+            "Primary document of this session: {}",
             es.doc_path().display()
         ));
     }
     if let Some(doc) = &config.doc_context {
-        system.push_str("\n\n## Document under discussion\n\n");
-        system.push_str(doc);
+        if !session_context.is_empty() {
+            session_context.push_str("\n\n");
+        }
+        session_context.push_str(&format!("## Document under discussion\n\n{doc}"));
     }
-
-    let mut history = vec![
-        Message::new(Role::System, system),
-        Message::new(Role::User, config.prompt.clone()),
-    ];
+    if !session_context.is_empty() {
+        history.push(Message::new(Role::System, session_context));
+    }
+    history.push(Message::new(Role::User, config.prompt.clone()));
     session.record(SessionEvent::User {
         text: &config.prompt,
     });
@@ -130,10 +148,26 @@ pub async fn run_agent(
 
     let mut action_index = 0usize;
     let mut consecutive_invalid = 0usize;
+    let mut total_usage = Usage::default();
 
     for turn in 0..config.max_turns {
         on_event(AgentEvent::Thinking);
-        let response = stream_completion(llm, history.clone(), on_event).await?;
+        let (response, turn_usage) = stream_completion(llm, history.clone(), on_event).await?;
+        total_usage.add(&turn_usage);
+        let turn_cost = cost_usd(llm.model_name(), &turn_usage);
+        let total_cost = cost_usd(llm.model_name(), &total_usage);
+        session.record(SessionEvent::Usage {
+            turn: Some(turn),
+            usage: turn_usage,
+            cost_usd: turn_cost,
+        });
+        on_event(AgentEvent::TurnUsage {
+            turn,
+            usage: turn_usage,
+            cost_usd: turn_cost,
+            total_usage,
+            total_cost_usd: total_cost,
+        });
         on_event(AgentEvent::ResponseComplete {
             text: response.clone(),
         });
@@ -243,6 +277,12 @@ pub async fn run_agent(
                     prose: &summary,
                     action: None,
                 });
+                let total_cost_usd = cost_usd(llm.model_name(), &total_usage);
+                session.record(SessionEvent::Usage {
+                    turn: None,
+                    usage: total_usage,
+                    cost_usd: total_cost_usd,
+                });
                 session.record(SessionEvent::End);
                 on_event(AgentEvent::Done {
                     summary: summary.clone(),
@@ -251,11 +291,18 @@ pub async fn run_agent(
                     summary,
                     session_path,
                     turns: turn + 1,
+                    total_usage,
+                    total_cost_usd,
                 });
             }
         }
     }
 
+    session.record(SessionEvent::Usage {
+        turn: None,
+        usage: total_usage,
+        cost_usd: cost_usd(llm.model_name(), &total_usage),
+    });
     session.record(SessionEvent::End);
     let message = format!("agent did not finish within {} turns", config.max_turns);
     on_event(AgentEvent::Error {
@@ -265,16 +312,20 @@ pub async fn run_agent(
 }
 
 /// Stream a completion, emitting [`AgentEvent::Token`] per chunk, and return
-/// the accumulated response text.
+/// the accumulated response text plus the call's summed [`Usage`].
 async fn stream_completion(
     llm: &dyn LlmClient,
     messages: Vec<Message>,
     on_event: &mut (dyn FnMut(AgentEvent) + Send),
-) -> Result<String> {
+) -> Result<(String, Usage)> {
     let mut stream = llm.complete_stream(messages).await?;
     let mut response = String::new();
+    let mut usage = Usage::default();
     while let Some(chunk) = stream.next().await {
         let chunk = chunk?;
+        if let Some(u) = &chunk.usage {
+            usage.add(u);
+        }
         if !chunk.delta.is_empty() {
             on_event(AgentEvent::Token {
                 data: chunk.delta.clone(),
@@ -282,5 +333,5 @@ async fn stream_completion(
             response.push_str(&chunk.delta);
         }
     }
-    Ok(response)
+    Ok((response, usage))
 }
