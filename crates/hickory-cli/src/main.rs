@@ -34,6 +34,10 @@ enum Command {
     /// Run the AI agent on a prompt; the session is written as a
     /// hick:session document under the project's sessions/ directory.
     Agent(AgentArgs),
+    /// Set up a local git repository for hickory: pre-commit drift gate,
+    /// .gitignore entry, and an AGENTS.md section for coding agents.
+    /// Idempotent — re-run any time to refresh the managed blocks.
+    Init(InitArgs),
 }
 
 #[derive(clap::Args)]
@@ -92,6 +96,13 @@ struct PromoteArgs {
 }
 
 #[derive(clap::Args)]
+struct InitArgs {
+    /// Directory inside the git repository to initialize (default: cwd).
+    #[arg(default_value = ".")]
+    dir: PathBuf,
+}
+
+#[derive(clap::Args)]
 struct AgentArgs {
     /// The task prompt for the agent.
     prompt: String,
@@ -121,6 +132,7 @@ fn main() -> ExitCode {
             Command::Weave(args) => cmd_weave(args).await,
             Command::Promote(args) => cmd_promote(args),
             Command::Agent(args) => cmd_agent(args).await,
+            Command::Init(args) => cmd_init(args),
         }
     });
 
@@ -374,6 +386,12 @@ async fn cmd_agent(args: AgentArgs) -> Result<ExitCode> {
         outcome.session_path.display()
     );
     println!("{}", outcome.session_path.display());
+    Ok(ExitCode::SUCCESS)
+}
+
+fn cmd_init(args: InitArgs) -> Result<ExitCode> {
+    let report = hickory_cli::run_init(&args.dir)?;
+    hickory_cli::print_init_report(&report);
     Ok(ExitCode::SUCCESS)
 }
 

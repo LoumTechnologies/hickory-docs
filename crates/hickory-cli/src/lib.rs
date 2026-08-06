@@ -4,6 +4,11 @@
 //! so the server can drive the same run/check/weave/render code paths via
 //! library calls instead of shelling out.
 
+pub mod init;
+
+/// `hickory init` entry points: idempotent local git-repo setup.
+pub use init::{InitReport, print_init_report, run_init};
+
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
