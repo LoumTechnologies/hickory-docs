@@ -37,6 +37,7 @@ these at boot (`apps/server/src/config.rs`) and validates them:
 | Variable | Notes |
 |---|---|
 | `ANTHROPIC_API_KEY` | Enables the server-side agent (hickory-agent ReAct loop; sessions stream on the WS run channel and persist as `hick:session` docs in the project git repo) |
+| `ANTHROPIC_BASE_URL` | Messages endpoint for the agent. Defaults to `https://api.anthropic.com/v1/messages`; `count_tokens` follows the same host. Set it for an enterprise gateway or proxy — or for a local endpoint that records requests, which is how the conversation tests run without a real key |
 
 ## Analytics (optional — absent ⇒ capture is a no-op)
 
