@@ -1,0 +1,4 @@
+# Experiments registry (see $implement-growth-experiments).
+# No experiments running yet. First planned experiment (do not ship until
+# launch traffic exists): team-price-2026-q3 — Team at $99 vs $149 vs $199,
+# flag `pricing-plan-set`, primary metric fake-door plan_selected rate.
