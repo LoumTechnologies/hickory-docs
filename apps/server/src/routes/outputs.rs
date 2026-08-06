@@ -222,6 +222,13 @@ pub async fn edit_outputs(
             .bind(target.id)
             .execute(&state.db)
             .await?;
+        // A live editing room holds its own copy of the text; without this it
+        // keeps serving the pre-edit version and its next debounced persist
+        // writes that stale text back over the row we just updated.
+        state
+            .rooms
+            .apply_external_source(&state, target.id, new_source)
+            .await;
         state
             .git
             .save_file(

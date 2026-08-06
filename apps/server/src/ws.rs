@@ -26,7 +26,9 @@ use yrs::sync::protocol::Protocol as _;
 use yrs::sync::{Awareness, DefaultProtocol, Message, MessageReader, SyncMessage};
 use yrs::updates::decoder::{Decode as _, DecoderV1};
 use yrs::updates::encoder::Encode as _;
-use yrs::{Doc, GetString as _, ReadTxn as _, Text as _, Transact as _, Update};
+use yrs::{
+    Doc, GetString as _, OffsetKind, Options, ReadTxn as _, Text as _, Transact as _, Update,
+};
 
 use crate::auth::verify_token;
 use crate::error::ApiError;
@@ -109,7 +111,7 @@ async fn build_room_doc(state: &AppState, doc: &DocRow) -> Doc {
         })
         .flatten();
 
-    let ydoc = Doc::with_client_id(stable_client_id(doc.id));
+    let ydoc = new_room_doc(doc.id);
     let text = ydoc.get_or_insert_text("source");
 
     if let Some(bytes) = stored {
@@ -139,6 +141,21 @@ async fn build_room_doc(state: &AppState, doc: &DocRow) -> Doc {
         }
     }
     ydoc
+}
+
+/// A room's Y.Doc.
+///
+/// `offset_kind` MUST be `Utf16`. yrs defaults to byte offsets, but every index
+/// on the wire and in the browser is a UTF-16 code-unit offset (Yjs semantics).
+/// With the default, any index math here silently lands in the wrong place on
+/// documents containing non-ASCII — `remove_range` clips the wrong span and the
+/// replacement text is spliced mid-character.
+fn new_room_doc(doc_id: Uuid) -> Doc {
+    Doc::with_options(Options {
+        client_id: stable_client_id(doc_id),
+        offset_kind: OffsetKind::Utf16,
+        ..Options::default()
+    })
 }
 
 /// Yjs client id for the server's own operations on a document. Derived from
@@ -188,6 +205,10 @@ fn text_delta<'a>(current: &str, target: &'a str) -> (usize, usize, &'a str) {
     )
 }
 
+/// Hard ceiling on a live document's text. Well above any real document and
+/// well below the point where a browser stalls rendering it.
+const MAX_DOC_BYTES: usize = 4 * 1024 * 1024;
+
 #[derive(Default)]
 pub struct RoomRegistry {
     rooms: tokio::sync::Mutex<HashMap<Uuid, Arc<Room>>>,
@@ -204,6 +225,47 @@ impl RoomRegistry {
             frame.extend_from_slice(&json);
             room.broadcast(&frame, None);
         }
+    }
+
+    /// Apply a source rewrite that happened outside the CRDT (an `/outputs/edit`
+    /// resolved through provenance) to the live room, if one exists.
+    ///
+    /// Without this the room keeps serving its pre-edit text and its next
+    /// debounced persist writes that stale text back over `docs.source`, so the
+    /// user's edit silently disappears a few seconds after it lands.
+    pub async fn apply_external_source(&self, state: &AppState, doc_id: Uuid, source: &str) {
+        let room = { self.rooms.lock().await.get(&doc_id).cloned() };
+        let Some(room) = room else { return };
+        let awareness = room.awareness.lock().await;
+        let ydoc = awareness.doc();
+        let text = ydoc.get_or_insert_text("source");
+        let current = {
+            let txn = ydoc.transact();
+            text.get_string(&txn)
+        };
+        if current == source {
+            return;
+        }
+        let update = {
+            let mut txn = ydoc.transact_mut();
+            let before = txn.state_vector();
+            let (start, del_len, insert) = text_delta(&current, source);
+            if del_len > 0 {
+                text.remove_range(&mut txn, start as u32, del_len as u32);
+            }
+            if !insert.is_empty() {
+                text.insert(&mut txn, start as u32, insert);
+            }
+            txn.encode_diff_v1(&before)
+        };
+        drop(awareness);
+        room.broadcast(
+            &yjs_frame(&Message::Sync(SyncMessage::Update(update))),
+            None,
+        );
+        // Keep the stored CRDT state in step with the row `/outputs/edit` just
+        // wrote, so a room re-created later resumes from the edited text.
+        schedule_persist(state.clone(), room);
     }
 
     async fn get_or_create(&self, state: &AppState, doc: &DocRow) -> Arc<Room> {
@@ -596,6 +658,25 @@ async fn handle_yjs_payload(
                 | Message::Sync(SyncMessage::Update(bytes)) => {
                     let update = Update::decode_v1(&bytes)?;
                     protocol.handle_update(&awareness, update)?;
+                    let after = {
+                        let d = awareness.doc();
+                        let t = d.get_or_insert_text("source");
+                        let txn = d.transact();
+                        t.get_string(&txn).len()
+                    };
+                    if after > MAX_DOC_BYTES {
+                        // A hick document is prose and cells; nothing legitimate
+                        // reaches megabytes. Runaway growth here means a sync bug
+                        // is concatenating copies of the text, and every extra
+                        // round doubles it — refuse the socket instead of letting
+                        // it persist and freeze every client that opens the doc.
+                        log::error!(
+                            "doc {} grew to {after} bytes (cap {MAX_DOC_BYTES}); \
+                             closing socket without persisting",
+                            room.doc_id
+                        );
+                        return Err(anyhow::anyhow!("document exceeds {MAX_DOC_BYTES} bytes"));
+                    }
                     mutated = true;
                     room.broadcast(
                         &yjs_frame(&Message::Sync(SyncMessage::Update(bytes))),
@@ -698,5 +779,97 @@ mod tests {
         let b = Uuid::new_v4();
         assert_eq!(stable_client_id(a), stable_client_id(a));
         assert_ne!(stable_client_id(a), stable_client_id(b));
+    }
+
+    /// The reconcile path in `build_room_doc` computes indices in UTF-16 code
+    /// units (Yjs semantics). yrs defaults to BYTE offsets, so a room doc built
+    /// without `OffsetKind::Utf16` splices non-ASCII documents at the wrong
+    /// position — silently, and only for documents containing multi-byte
+    /// characters, which is most real prose.
+    #[test]
+    fn room_doc_indexes_text_in_utf16_units() {
+        let doc = new_room_doc(Uuid::new_v4());
+        let text = doc.get_or_insert_text("source");
+        {
+            let mut txn = doc.transact_mut();
+            // "é" and "—" are 2 and 3 bytes, but 1 UTF-16 unit each.
+            text.insert(&mut txn, 0, "aé—b");
+            // UTF-16 index 3 is after "aé—"; byte index 3 would be after "aé".
+            text.insert(&mut txn, 3, "X");
+        }
+        let txn = doc.transact();
+        assert_eq!(text.get_string(&txn), "aé—Xb");
+    }
+
+    /// A round-trip over the exact reconcile logic: applying `text_delta` to a
+    /// room doc must produce the target text byte for byte, including when the
+    /// change straddles multi-byte characters.
+    #[test]
+    fn text_delta_reconciles_non_ascii_documents_exactly() {
+        let cases = [
+            ("héllo — wörld", "héllo — brave wörld"),
+            ("héllo — wörld", "héllo wörld"),
+            ("", "ünicode ⚡ start"),
+            ("drop everything", ""),
+            ("<hick:doc>é</hick:doc>", "<hick:doc>é—ü</hick:doc>"),
+            ("same", "same"),
+        ];
+        for (current, target) in cases {
+            let doc = new_room_doc(Uuid::new_v4());
+            let text = doc.get_or_insert_text("source");
+            {
+                let mut txn = doc.transact_mut();
+                text.insert(&mut txn, 0, current);
+            }
+            {
+                let mut txn = doc.transact_mut();
+                let (start, del_len, insert) = text_delta(current, target);
+                if del_len > 0 {
+                    text.remove_range(&mut txn, start as u32, del_len as u32);
+                }
+                if !insert.is_empty() {
+                    text.insert(&mut txn, start as u32, insert);
+                }
+            }
+            let txn = doc.transact();
+            assert_eq!(
+                text.get_string(&txn),
+                target,
+                "reconciling {current:?} -> {target:?}"
+            );
+        }
+    }
+
+    /// Reconciling must never grow the document by concatenating a rival copy
+    /// of the same text — the failure mode that took a 15 KB document to 50 MB.
+    #[test]
+    fn reconciling_identical_text_is_a_no_op() {
+        let source = std::fs::read_to_string(
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../examples/grand-tour.hick"),
+        )
+        .expect("grand tour fixture");
+        let doc = new_room_doc(Uuid::new_v4());
+        let text = doc.get_or_insert_text("source");
+        {
+            let mut txn = doc.transact_mut();
+            text.insert(&mut txn, 0, &source);
+        }
+        for _ in 0..5 {
+            let current = {
+                let txn = doc.transact();
+                text.get_string(&txn)
+            };
+            assert_eq!(current, source, "text drifted across reconcile rounds");
+            if current != source {
+                let mut txn = doc.transact_mut();
+                let (start, del_len, insert) = text_delta(&current, &source);
+                if del_len > 0 {
+                    text.remove_range(&mut txn, start as u32, del_len as u32);
+                }
+                if !insert.is_empty() {
+                    text.insert(&mut txn, start as u32, insert);
+                }
+            }
+        }
     }
 }

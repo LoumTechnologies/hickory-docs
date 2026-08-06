@@ -11,3 +11,5 @@ dist/
 *.tsbuildinfo
 .dev/
 data/
+
+.claude/worktrees/
