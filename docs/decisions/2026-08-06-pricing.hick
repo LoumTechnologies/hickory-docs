@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="2026-08-06-pricing.md">
+# Pricing decisions — 6 Aug 2026
+
+Working notes. The decisions below are tagged `.decision` and flow into
+`docs/domain/billing.hick`; everything else here is context that explains
+*why*, and deliberately does not.
+
+## What we charge for
+
+Per-seat was the obvious default and we rejected it. Our marginal cost is
+execution time, not headcount — a team of three running CI verification on
+every commit costs us far more than a team of thirty who run docs by hand.
+Per-seat would have charged the second team more.
+
+<hick:copy id="metering-basis" class="decision">
+Billing meters **execution minutes**, not seats. Seats are a soft limit
+that gates collaboration features, never the primary meter.
+</hick:copy>
+
+Per-project pricing (the ReadMe model) was also considered and rejected:
+we want many small verified doc projects per org, and taxing project count
+fights the product's own adoption loop.
+
+## The free tier
+
+The argument was whether 300 minutes is too generous. It is roughly one
+document run per weekday for a month, which is enough to finish an
+evaluation and not enough to run CI on a real repo — which is the exact
+line we want.
+
+<hick:copy id="free-tier" class="decision">
+The free plan (**Open**) includes 300 execution minutes per month and
+1 private project. Public projects are unlimited.
+</hick:copy>
+
+## Overage
+
+Nobody wanted a surprise bill. The decision was a hard stop rather than
+silent metering, with the upgrade path in the error itself.
+
+<hick:copy id="hard-stop" class="decision">
+Exceeding the monthly execution-minute allowance is a **hard stop**: the
+run is refused before any container starts, with the plan's limit and the
+upgrade path named in the error.
+</hick:copy>
+
+**Parked:** whether cached runs (no container started) should count against
+the allowance. Sam to check with two customers. Not decided, so not tagged.
+</hick:doc>

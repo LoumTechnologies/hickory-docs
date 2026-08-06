@@ -371,6 +371,50 @@ pub fn resolve_includes(
     Ok(())
 }
 
+/// Keep only the fragment blocks (`copy`/`cut`) matching `selector`.
+///
+/// This is what makes one document able to cite another's decisions without
+/// swallowing the meeting it came out of: an unselected `hick:include` splices
+/// the whole document in, prose and all, which is right for composing a manual
+/// out of chapters and wrong for a chain of notes → domain → requirements.
+///
+/// The selector grammar mirrors `hick:paste`: `#id`, `.class`, or a
+/// comma-separated list of either.
+fn select_fragments(nodes: Vec<HickNode>, selector: &str) -> Vec<HickNode> {
+    let mut out = Vec::new();
+    collect_fragments(&nodes, selector, &mut out);
+    out
+}
+
+fn collect_fragments(nodes: &[HickNode], selector: &str, out: &mut Vec<HickNode>) {
+    for node in nodes {
+        if let HickNode::Tag(tag) = node {
+            if (tag.name == "copy" || tag.name == "cut") && fragment_matches(tag, selector) {
+                out.push(HickNode::Tag(tag.clone()));
+                continue;
+            }
+            collect_fragments(&tag.children, selector, out);
+        }
+    }
+}
+
+fn fragment_matches(tag: &HickTag, selector: &str) -> bool {
+    selector
+        .split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .any(|sel| {
+            if let Some(id) = sel.strip_prefix('#') {
+                tag.get_attribute("id") == Some(id)
+            } else if let Some(class) = sel.strip_prefix('.') {
+                tag.get_attribute("class")
+                    .is_some_and(|c| c.split_whitespace().any(|x| x == class))
+            } else {
+                false
+            }
+        })
+}
+
 fn resolve_includes_in_nodes(
     nodes: Vec<HickNode>,
     base_dir: &std::path::Path,
@@ -415,8 +459,14 @@ fn resolve_includes_in_nodes(
                 let included_dir = canonical.parent().unwrap_or(base_dir);
                 resolve_includes(&mut included_doc, included_dir, seen)?;
 
-                // Splice children into parent
-                result.extend(included_doc.nodes);
+                // Splice into parent. With a `select` attribute only the
+                // matching FRAGMENTS come across — the included document's
+                // prose stays where it was written.
+                let nodes = match tag.get_attribute("select") {
+                    Some(selector) => select_fragments(included_doc.nodes, selector),
+                    None => included_doc.nodes,
+                };
+                result.extend(nodes);
 
                 seen.remove(&canonical);
             }
@@ -1994,5 +2044,95 @@ before<!-- comment -->after
             !combined.contains("comment"),
             "comment leaked: {combined:?}"
         );
+    }
+
+    /// A selective include cites another document's fragments WITHOUT
+    /// dragging its prose along. This is what makes a chain of documents —
+    /// meeting notes → domain model → requirements — possible: the domain
+    /// model quotes the decision, not the meeting it came out of.
+    #[test]
+    fn selective_include_takes_fragments_and_leaves_the_prose() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("notes.hick"),
+            r#"<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
+Long meeting preamble nobody downstream should ever read.
+<hick:copy id="chosen" class="decision">We meter execution minutes.</hick:copy>
+<hick:copy id="parked" class="open-question">Do cached runs count?</hick:copy>
+</hick:doc>"#,
+        )
+        .unwrap();
+
+        let parse_with_includes = |src: &str| {
+            let mut doc = parse(src).unwrap();
+            resolve_includes(&mut doc, dir.path(), &mut std::collections::HashSet::new()).unwrap();
+            doc
+        };
+
+        // Selected: only the matching fragment crosses over.
+        let doc = parse_with_includes(
+            r#"<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
+<hick:include file="notes.hick" select=".decision" />
+</hick:doc>"#,
+        );
+        let copies = doc.find_tags("copy");
+        assert_eq!(copies.len(), 1, "expected exactly the .decision fragment");
+        assert_eq!(copies[0].get_attribute("id"), Some("chosen"));
+
+        // …and the meeting's prose did not come with it.
+        let rendered = format!("{doc:?}");
+        assert!(
+            !rendered.contains("Long meeting preamble"),
+            "a selective include dragged the source document's prose along"
+        );
+
+        // Unselected: the whole document splices in, prose and all. That is
+        // still the right behaviour for composing a manual out of chapters.
+        let whole = parse_with_includes(
+            r#"<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
+<hick:include file="notes.hick" />
+</hick:doc>"#,
+        );
+        assert_eq!(whole.find_tags("copy").len(), 2);
+        assert!(format!("{whole:?}").contains("Long meeting preamble"));
+    }
+
+    #[test]
+    fn selective_include_accepts_a_list_and_ignores_non_matches() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("src.hick"),
+            r#"<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
+<hick:copy id="a" class="x">A</hick:copy>
+<hick:copy id="b" class="y">B</hick:copy>
+<hick:copy id="c" class="y">C</hick:copy>
+</hick:doc>"#,
+        )
+        .unwrap();
+        // r##: the selector contains `"#`, which would close an r# string.
+        let mut doc = parse(
+            r##"<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
+<hick:include file="src.hick" select="#a,.y" />
+</hick:doc>"##,
+        )
+        .unwrap();
+        resolve_includes(&mut doc, dir.path(), &mut std::collections::HashSet::new()).unwrap();
+        let ids: Vec<_> = doc
+            .find_tags("copy")
+            .iter()
+            .map(|t| t.get_attribute("id").unwrap().to_string())
+            .collect();
+        assert_eq!(ids, vec!["a", "b", "c"]);
+
+        // A selector that matches nothing yields nothing — silently importing
+        // everything would be the dangerous failure here.
+        let mut none = parse(
+            r#"<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
+<hick:include file="src.hick" select=".nope" />
+</hick:doc>"#,
+        )
+        .unwrap();
+        resolve_includes(&mut none, dir.path(), &mut std::collections::HashSet::new()).unwrap();
+        assert!(none.find_tags("copy").is_empty());
     }
 }

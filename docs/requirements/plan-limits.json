@@ -1,0 +1,10 @@
+{
+  "_generated_by": "docs/requirements/metering.hick — edit the requirement, not this file",
+  "exec_minutes_month": {
+    "open": 300,
+    "pro": 2000,
+    "team": 10000,
+    "business": 30000
+
+  }
+}

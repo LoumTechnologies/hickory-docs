@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="metering.md">
+# Metering — requirements
+
+Written against the decisions of 6 Aug and the billing domain model. The
+term and the decisions below are imported, not restated: if either changes
+upstream, this document changes with it and `hickory check` fails until the
+generated artifact is regenerated.
+
+<hick:include file="../domain/billing.hick" select="#term-execution-minute" />
+<hick:include file="../decisions/2026-08-06-pricing.hick" select="#free-tier,#hard-stop" />
+
+## Vocabulary
+
+<hick:paste select="#term-execution-minute" />
+
+## Decisions being implemented
+
+<hick:paste select="#free-tier" />
+
+<hick:paste select="#hard-stop" />
+
+## Requirements
+
+<hick:copy id="r1" class="req">
+**R1.** A run that would exceed the caller's remaining monthly allowance is
+refused with HTTP 403 before any container is started. The error names the
+plan, its allowance, and the upgrade path.
+</hick:copy>
+
+<hick:copy id="r2" class="req">
+**R2.** Allowances reset at 00:00 UTC on the first of each calendar month.
+</hick:copy>
+
+<hick:paste select=".req" separator="
+
+" />
+
+## Allowance table
+
+These are the numbers R1 enforces, written once. Because a paste copies
+bytes verbatim, the canonical form has to be the *machine* form — the prose
+below renders the same bytes rather than a second, prettier copy that could
+drift from it.
+
+<hick:copy id="limits" class="limits">    "open": 300,
+    "pro": 2000,
+    "team": 10000,
+    "business": 30000
+</hick:copy>
+
+```json
+<hick:paste select="#limits" />
+```
+
+<hick:file path="plan-limits.json" language="json">{
+  "_generated_by": "docs/requirements/metering.hick — edit the requirement, not this file",
+  "exec_minutes_month": {
+<hick:paste select="#limits" />
+  }
+}
+</hick:file>
+</hick:doc>
