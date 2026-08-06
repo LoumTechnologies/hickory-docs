@@ -10,7 +10,10 @@ check:
 
 # Run all tests.
 test:
-    cargo test --workspace
+    # Build first (as CI does): the server's LSP tests spawn the `hick-lsp`
+    # binary, which `cargo test` alone does not produce.
+    cargo build --workspace
+    cargo test --workspace -- --test-threads=1
 
 # Lint (warnings are errors, matching CI).
 clippy:
