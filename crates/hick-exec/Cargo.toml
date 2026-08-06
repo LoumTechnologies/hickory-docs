@@ -1,0 +1,19 @@
+[package]
+name = "hick-exec"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+hick-condition = { path = "../hick-condition" }
+hick-flow = { path = "../hick-flow" }
+hick-lang = { path = "../hick-lang" }
+tokio = { version = "1", features = ["sync", "rt", "macros"] }
+tokio-stream = "0.1"
+tokio-util = "0.7"
+futures = "0.3"
+thiserror = "2"
+log = "0.4"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
