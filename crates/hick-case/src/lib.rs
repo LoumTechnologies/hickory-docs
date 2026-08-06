@@ -221,7 +221,7 @@ pub fn generate_case_variants(pattern: &str, value: &str) -> Vec<(String, String
     }
 
     // Sort by pattern length descending (longer patterns first to avoid partial matches)
-    variants.sort_by(|a, b| b.0.len().cmp(&a.0.len()));
+    variants.sort_by_key(|v| std::cmp::Reverse(v.0.len()));
 
     variants
 }

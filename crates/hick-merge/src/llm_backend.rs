@@ -129,7 +129,7 @@ impl MergeStrategy for LlmMergeStrategy {
 mod tests {
     use super::*;
     use hick_store::InMemoryObjectStore;
-    use std::sync::Arc;
+
     use wiremock::matchers::{method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 

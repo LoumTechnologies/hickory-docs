@@ -47,10 +47,10 @@ impl SecretCache {
         }
 
         // Check for a valid cached entry.
-        if let Some(entry) = self.entries.get(name) {
-            if entry.cached_at.elapsed() < self.ttl {
-                return Ok(entry.value.clone());
-            }
+        if let Some(entry) = self.entries.get(name)
+            && entry.cached_at.elapsed() < self.ttl
+        {
+            return Ok(entry.value.clone());
         }
 
         // Cache miss or expired — resolve from provider.
