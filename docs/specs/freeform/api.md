@@ -122,3 +122,31 @@ The web UI has TWO views (replacing Notebook/Source):
    as widgets. Collab (Yjs) runs on the raw source exactly as before.
 2. **Output** — the generated files, syntax-aware, with lineage: selecting
    output text highlights its origin; edits POST to /outputs/edit.
+
+## Editor intelligence — LSP bridge (v0.3)
+
+The server runs `hick-lsp` (the meta-LSP: virtual files per `hick:file`,
+child language servers, positions mapped to `.hick` coordinates) against the
+project checkout, bridged to the browser on the existing doc WebSocket:
+
+- Channel byte `0x02` + JSON-RPC 2.0 payload (UTF-8): a plain LSP stream,
+  one message per frame, no Content-Length headers. The server owns one
+  hick-lsp session per (project, connection); `initialize` is handled
+  server-side — the client starts at `didOpen` using URI
+  `hick:///<doc-path>` and LSP positions computed over the SAME source text
+  the editor holds.
+- Supported requests v1: `textDocument/hover`, `textDocument/definition`,
+  `textDocument/references`, `textDocument/completion`,
+  `textDocument/publishDiagnostics` (server→client). Child-language-server
+  availability is best-effort: a missing rust-analyzer/pyright degrades to
+  hick-structural answers, never errors the channel.
+- Definition/reference results whose target lies inside a GENERATED output
+  file are translated through run provenance back to source-document
+  coordinates when possible; untranslatable targets are returned with URI
+  `hick-output:///<output-path>` so the client can open the Output view at
+  that range.
+- The Output view navigates too: `POST /api/docs/:id/outputs/nav`
+  `{path, offset, kind: "definition"|"references"}` →
+  `{targets: [{uri: "hick:///…"|"hick-output:///…", range: {start, end}} …]}`
+  (byte offsets; server maps output positions into the virtual-file space,
+  asks the child LSP, and maps results back through provenance).
