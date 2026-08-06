@@ -460,14 +460,18 @@ fn extract_exec_info(tag: &HickTag, index: usize) -> ExecInfo {
     let mut consumes_paste = Vec::new();
     scan_copy_paste(&tag.children, &mut produces_copy, &mut consumes_paste);
 
-    let command = tag.text_content();
+    let command = command_text(tag);
 
     // Collect non-command child tags (paste, val, etc.) as stdin sources.
-    // Command text is extracted separately via text_content() above.
+    // Command text is extracted separately via command_text() above.
+    // `<hick:expect>` children are verification metadata, never stdin.
     let stdin_children: Vec<HickNode> = tag
         .children
         .iter()
-        .filter(|child| matches!(child, HickNode::Tag(t) if t.name != "copy" && t.name != "cut"))
+        .filter(|child| {
+            matches!(child, HickNode::Tag(t)
+                if t.name != "copy" && t.name != "cut" && t.name != "expect")
+        })
         .cloned()
         .collect();
 
@@ -516,7 +520,7 @@ fn extract_script_info(tag: &HickTag, index: usize) -> ExecInfo {
     let mut consumes_paste = Vec::new();
     scan_copy_paste(&tag.children, &mut produces_copy, &mut consumes_paste);
 
-    let command = tag.text_content();
+    let command = command_text(tag);
 
     ExecInfo {
         id: ExecId(index),
@@ -531,6 +535,24 @@ fn extract_script_info(tag: &HickTag, index: usize) -> ExecInfo {
         is_script: true,
         toolchain,
     }
+}
+
+/// The command text of an exec/script tag: all text content EXCLUDING any
+/// `<hick:expect>` subtree. Expectations sit inside the exec tag for locality
+/// but are verification metadata, not part of the command.
+fn command_text(tag: &HickTag) -> String {
+    fn collect(nodes: &[HickNode], out: &mut String) {
+        for node in nodes {
+            match node {
+                HickNode::Text(t, _) => out.push_str(t),
+                HickNode::Tag(t) if t.name == "expect" => {}
+                HickNode::Tag(t) => collect(&t.children, out),
+            }
+        }
+    }
+    let mut out = String::new();
+    collect(&tag.children, &mut out);
+    out
 }
 
 fn scan_copy_paste(nodes: &[HickNode], copies: &mut Vec<String>, pastes: &mut Vec<String>) {
@@ -756,7 +778,7 @@ cat /input/file.txt
 </hick:doc>"#;
         let dag = parse_and_build(src).unwrap();
         assert_eq!(dag.execs.len(), 2);
-        assert!(dag.edges.len() >= 1);
+        assert!(!dag.edges.is_empty());
         let volume_edge = dag
             .edges
             .iter()

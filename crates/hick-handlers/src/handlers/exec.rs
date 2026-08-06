@@ -96,7 +96,25 @@ impl TagHandler for ExecHandler {
         }
 
         if let Some(entries) = ctx.transcripts.get(&container_name) {
-            let rendered = render_transcript(entries, show);
+            // When entries carry source-line provenance, render only the
+            // entries belonging to THIS exec tag; otherwise fall back to the
+            // container's whole transcript (legacy behavior). An exec with no
+            // command of its own (a self-closing reference exec) also renders
+            // the whole transcript.
+            let own: Vec<crate::TranscriptEntry> = entries
+                .iter()
+                .filter(|e| e.source_line == Some(tag.source_line))
+                .cloned()
+                .collect();
+            let own_is_reference = !own.is_empty()
+                && own
+                    .iter()
+                    .all(|e| e.commands.iter().all(|c| c.is_empty()) && e.output.is_empty());
+            let rendered = if own.is_empty() || own_is_reference {
+                render_transcript(entries, show)
+            } else {
+                render_transcript(&own, show)
+            };
             Ok(TagResult::Node(Arc::new(ExecNode::new(
                 rendered,
                 &container_name,
@@ -140,6 +158,7 @@ mod tests {
             vec![TranscriptEntry {
                 commands: vec!["echo hello".to_string()],
                 output: "hello".to_string(),
+                source_line: None,
             }],
         );
 
@@ -237,6 +256,7 @@ mod tests {
             vec![TranscriptEntry {
                 commands: vec!["ls".to_string()],
                 output: "file.txt".to_string(),
+                source_line: None,
             }],
         );
 

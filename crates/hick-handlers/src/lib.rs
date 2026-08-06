@@ -142,12 +142,16 @@ impl<'a> ProcessingContext<'a> {
 }
 
 /// A transcript entry for container execution.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct TranscriptEntry {
     /// Commands that were executed.
     pub commands: Vec<String>,
     /// Output from the commands.
     pub output: String,
+    /// Source line of the `<hick:exec>` tag that produced this entry, when
+    /// known. Lets the exec handler render only its own entry instead of the
+    /// container's whole transcript.
+    pub source_line: Option<usize>,
 }
 
 // ---------------------------------------------------------------------------
@@ -183,7 +187,13 @@ pub fn render_transcript(entries: &[TranscriptEntry], show: ExecShow) -> String 
     for entry in entries {
         if matches!(show, ExecShow::All | ExecShow::Command) {
             for cmd in &entry.commands {
-                out.push_str(&format!("$ {cmd}\n"));
+                for (i, line) in cmd.lines().enumerate() {
+                    if i == 0 {
+                        out.push_str(&format!("$ {line}\n"));
+                    } else {
+                        out.push_str(&format!("  {line}\n"));
+                    }
+                }
             }
         }
         if matches!(show, ExecShow::All | ExecShow::Output) && !entry.output.is_empty() {

@@ -585,7 +585,7 @@ async fn transform_records_in_trace() {
     let batch = stream.next().await.unwrap();
     assert!(!batch.is_empty());
     // The trace should contain the transform node
-    assert!(batch[0].trace().len() >= 1);
+    assert!(!batch[0].trace().is_empty());
     assert_eq!(batch[0].final_result().as_string_value(), Some("TEST"));
 }
 

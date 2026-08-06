@@ -210,6 +210,7 @@ mod tests {
             vec![TranscriptEntry {
                 commands: vec!["echo hello".to_string()],
                 output: "hello".to_string(),
+                source_line: None,
             }],
         );
 
@@ -321,6 +322,7 @@ mod tests {
             vec![TranscriptEntry {
                 commands: vec!["date".to_string()],
                 output: "2024-01-01".to_string(),
+                source_line: None,
             }],
         );
 
