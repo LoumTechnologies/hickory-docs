@@ -8,3 +8,4 @@ dist/
 *.t
 *.t.err
 .DS_Store
+*.tsbuildinfo
