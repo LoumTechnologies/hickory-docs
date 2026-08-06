@@ -81,6 +81,14 @@ history, not a chat log that evaporated.
 
 - The CLI, local execution, verification, weaving, and agent sessions work
   today (this repo, `cargo test` covers them).
+- Local git-repo mode works today: `hickory init` installs the pre-commit
+  drift gate and agent instructions — see
+  [docs/users/local-mode.md](docs/users/local-mode.md).
+- The LSP exists: `hick-lsp` (in `crates/hick-lsp`) multiplexes real language
+  servers into `hick:file` blocks; a Zed extension lives in
+  `editors/zed-hick` — see
+  [docs/users/editor-setup.md](docs/users/editor-setup.md). Using AI agents
+  with either mode: [docs/users/ai-agents.md](docs/users/ai-agents.md).
 - The collaborative web app (notebook UI, live CRDT editing, hosted
   execution) and Tauri iOS/Android shells are in `apps/` — hosted beta in
   progress.
