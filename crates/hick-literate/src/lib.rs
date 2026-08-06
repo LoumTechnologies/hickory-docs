@@ -5,18 +5,16 @@
 //! and file output collection — all without touching the filesystem.
 
 pub mod agents;
-pub mod auth;
 pub mod pipeline;
 pub mod cache;
 pub mod compact;
 pub mod config;
+pub mod expect;
 pub mod promote;
 pub mod equiv;
-pub mod executor;
 pub mod generate_matrix;
 pub mod output_cleanup;
-pub mod pool;
-pub mod repl;
+pub mod render;
 pub mod store_config;
 mod text;
 pub mod transcript;
@@ -46,8 +44,12 @@ use hick_feature::{FeatureDef, FeatureRegistry, FeatureSet};
 use hick_lang::{HickDocument, HickNode, HickTag, dedent};
 use hick_token::{ContainerCapabilities, NetworkRule, TokenAuthority};
 
-use crate::executor::{ContainerExecutor, ContainerResourceStats, ExecTranscriptEntry};
-use crate::pool::SharedPool;
+pub use hickory_executor::{
+    ContainerResourceStats, ExecTranscriptEntry, Executor, LocalExecutor, TranscriptEvent,
+    Transcripts,
+};
+
+use crate::expect::ExpectationOutcome;
 use hick_condition::Condition;
 
 // ---------------------------------------------------------------------------
@@ -65,15 +67,18 @@ pub struct PipelineResult {
     pub containers: HashMap<String, ContainerCapabilities>,
     /// Volume name -> list of containers that contributed to its final state.
     pub volume_provenance: HashMap<String, Vec<String>>,
-    /// Per-container resource stats (boot time, exec time, I/O, pause info).
+    /// Per-container resource stats (boot time, exec time).
     /// Empty for dry-run pipelines.
     pub resource_stats: HashMap<String, ContainerResourceStats>,
-    /// Number of containers adopted from the pool (vs fresh boot).
-    /// Zero when no pool is used.
-    pub pool_hits: usize,
-    /// Total boot time saved by adopting pre-warmed containers from the pool.
-    /// Zero when no pool is used or in dry-run mode.
-    pub pool_boot_time_saved: Duration,
+    /// Container name -> ordered transcript entries (with timed events and
+    /// `source_line` provenance pointing at the producing exec tag).
+    pub transcripts: Transcripts,
+    /// Expectation (`<hick:expect>`) outcomes, in execution order. Recorded
+    /// but non-fatal on `run`; `check` turns failures into a non-zero exit.
+    pub expectations: Vec<ExpectationOutcome>,
+    /// Exec blocks that never ran, as `(container, source_line)` pairs
+    /// (dry-run and weave-without-cache modes).
+    pub never_run: std::collections::HashSet<(String, usize)>,
 }
 
 // ---------------------------------------------------------------------------
@@ -218,7 +223,9 @@ fn prepare_pipeline<'a>(
 fn create_tag_registry() -> TagRegistry {
     let mut registry = TagRegistry::new();
     hick_handlers::handlers::register_builtins(&mut registry);
-    hick_live::handlers::register_live_builtins(&mut registry);
+    // NOTE: hick-live's reactive handlers were part of the removed wasm
+    // runtime stack and are not registered; `<hick:live>`-family tags are
+    // ignored. See docs/developers/vendoring-notes.md.
     registry
 }
 
@@ -234,6 +241,7 @@ fn convert_transcripts(
                 .map(|e| TranscriptEntry {
                     commands: e.commands.clone(),
                     output: e.output.clone(),
+                    source_line: e.source_line,
                 })
                 .collect();
             (k.clone(), converted)
@@ -445,23 +453,22 @@ pub async fn run_pipeline_with_authority(
 
     // Build dry-run transcripts: collect commands per container in DAG order
     let mut transcripts: HashMap<String, Vec<ExecTranscriptEntry>> = HashMap::new();
+    let mut never_run: std::collections::HashSet<(String, usize)> =
+        std::collections::HashSet::new();
     for (_, doc) in &documents {
         let flow_dag = dag::build_dag(doc).unwrap();
         for exec_id in flow_dag.topological_order() {
             let info = flow_dag.execs.iter().find(|e| e.id == exec_id).unwrap();
-            let commands: Vec<String> = info
-                .command
-                .trim()
-                .lines()
-                .map(|l| l.trim().to_string())
-                .filter(|l| !l.is_empty())
-                .collect();
+            let commands: Vec<String> = vec![info.command.trim().to_string()];
+            never_run.insert((info.container.clone(), info.source_line));
             transcripts
                 .entry(info.container.clone())
                 .or_default()
                 .push(ExecTranscriptEntry {
                     commands,
                     output: String::new(),
+                    events: Vec::new(),
+                    source_line: Some(info.source_line),
                 });
         }
     }
@@ -477,8 +484,9 @@ pub async fn run_pipeline_with_authority(
         containers: container_defs,
         volume_provenance: HashMap::new(),
         resource_stats: HashMap::new(),
-        pool_hits: 0,
-        pool_boot_time_saved: Duration::ZERO,
+        transcripts,
+        expectations: Vec::new(),
+        never_run,
     })
 }
 
@@ -487,12 +495,8 @@ pub async fn run_pipeline_with_authority(
 // ---------------------------------------------------------------------------
 
 /// Configuration for live pipeline execution.
+#[derive(Default)]
 pub struct PipelineConfig {
-    /// Directory containing pre-converted `.wasm` images.
-    pub images_dir: PathBuf,
-    /// Directory containing `.wasm` command binaries for `<hick:script>` blocks.
-    /// Each `.wasm` file represents a command available to the shell interpreter.
-    pub toolchain_dir: Option<PathBuf>,
     /// Working directory for resolving relative paths in volume declarations.
     pub working_dir: Option<PathBuf>,
     /// Maximum pipeline rounds. `1` (default) preserves single-pass behavior.
@@ -501,10 +505,11 @@ pub struct PipelineConfig {
     pub max_rounds: usize,
 }
 
-/// Run the pipeline with real container execution.
+/// Run the pipeline with real command execution through an [`Executor`].
 ///
 /// Unlike [`run_pipeline`] which produces placeholder strings for exec tags,
-/// this function starts WASM containers, runs commands, and captures output.
+/// this function runs commands via the supplied executor and captures output
+/// (including timed transcript events).
 ///
 /// When `cache_config` is `Some`, execution results are cached and reused
 /// on subsequent runs if the cache key matches. In freeze mode, missing
@@ -514,7 +519,7 @@ pub async fn run_pipeline_live(
     config: &PipelineConfig,
     params: &[(String, String)],
     cache_config: Option<&cache::CacheConfig>,
-    pool: Option<&SharedPool>,
+    executor: Arc<dyn Executor>,
 ) -> Result<PipelineResult> {
     let mut root_key = [0u8; 32];
     rand::thread_rng().fill_bytes(&mut root_key);
@@ -528,22 +533,26 @@ pub async fn run_pipeline_live(
         fork_registrations,
     } = prepared;
 
-    // Build DAGs, run execs in containers (with optional caching)
-    let mut executor = if let Some(pool) = pool {
-        ContainerExecutor::new_with_pool(
-            config.images_dir.clone(),
-            container_defs.clone(),
-            pool.clone(),
-        )
-        .await?
-    } else {
-        ContainerExecutor::new(config.images_dir.clone(), container_defs.clone())?
-    };
-
     // Register fork definitions with the executor
     for (from, to, additional_caps) in &fork_registrations {
-        executor.register_fork(to, from, additional_caps.clone());
+        executor.register_fork(to, from, additional_caps.clone()).await?;
     }
+
+    // Collect <hick:expect> expectations per (container, exec source line).
+    let mut expect_specs: HashMap<(String, usize), (String, expect::ExpectSpec)> = HashMap::new();
+    for (name, doc) in &documents {
+        let specs = expect::collect_expectations(&doc.nodes)
+            .map_err(|e| anyhow::anyhow!("invalid <hick:expect> in {name}: {e}"))?;
+        for spec in specs {
+            expect_specs.insert(
+                (spec.container.clone(), spec.exec_line),
+                (name.to_string(), spec),
+            );
+        }
+    }
+    let mut expectations: Vec<ExpectationOutcome> = Vec::new();
+    // Per-container source lines, in the order entries were appended.
+    let mut exec_lines: HashMap<String, Vec<usize>> = HashMap::new();
 
     // Collect volume declarations and set up volume store
     let mut volume_store = volume_state::VolumeStore::new();
@@ -617,13 +626,24 @@ pub async fn run_pipeline_live(
                         exec_info.container,
                         &key[..12]
                     );
+                    if let Some((doc_name, spec)) =
+                        expect_specs.get(&(exec_info.container.clone(), exec_info.source_line))
+                    {
+                        expectations.push(expect::evaluate(spec, doc_name, &cached.output));
+                    }
                     executor.inject_transcript_entry(
                         &exec_info.container,
                         ExecTranscriptEntry {
                             commands: cached.commands,
                             output: cached.output,
+                            events: Vec::new(),
+                            source_line: Some(exec_info.source_line),
                         },
                     );
+                    exec_lines
+                        .entry(exec_info.container.clone())
+                        .or_default()
+                        .push(exec_info.source_line);
                     continue;
                 } else if cc.freeze {
                     anyhow::bail!(
@@ -636,42 +656,14 @@ pub async fn run_pipeline_live(
 
             // Cache miss or caching disabled — execute for real
             if exec_info.is_script {
-                // Run via hick-shell lightweight interpreter
-                let toolchain_dir = exec_info
-                    .toolchain
-                    .as_deref()
-                    .map(PathBuf::from)
-                    .or_else(|| config.toolchain_dir.clone())
-                    .unwrap_or_else(|| config.images_dir.clone());
-
-                let env_vars: HashMap<String, String> = HashMap::new();
-                let preopened_dirs: Vec<(PathBuf, String)> = exec_info
-                    .mounts
-                    .iter()
-                    .map(|(_, mount_path)| {
-                        (PathBuf::from(mount_path), mount_path.clone())
-                    })
-                    .collect();
-
-                let output = hick_shell::run_script(
-                    &exec_info.command,
-                    &toolchain_dir,
-                    &preopened_dirs,
-                    &env_vars,
-                )
-                .map_err(|e| anyhow::anyhow!("script execution failed in '{}': {e}", exec_info.container))?;
-
-                info!(
-                    "Script '{}' exited with code {}",
-                    exec_info.container, output.exit_code
-                );
-
-                executor.inject_transcript_entry(
-                    &exec_info.container,
-                    ExecTranscriptEntry {
-                        commands: vec![exec_info.command.clone()],
-                        output: output.stdout,
-                    },
+                // <hick:script> ran through hick-shell's in-process wasm
+                // command interpreter, which was removed with the wasm
+                // container runtime. See docs/developers/vendoring-notes.md.
+                anyhow::bail!(
+                    "<hick:script> blocks are not supported: the in-process shell \
+                     interpreter was part of the removed wasm runtime. \
+                     Use <hick:exec container=\"...\"> instead (line {}).",
+                    exec_info.source_line
                 );
             } else {
                 // Container-based execution
@@ -698,7 +690,10 @@ pub async fn run_pipeline_live(
                 // Evaluate stdin children if present
                 let stdin_content = if !exec_info.stdin_children.is_empty() {
                     let stdin_registry = create_tag_registry();
-                    let current_transcripts = convert_transcripts(executor.transcripts());
+                    let current_transcripts = convert_transcripts(&assign_source_lines(
+                        executor.transcripts(),
+                        &exec_lines,
+                    ));
                     let mut parts = Vec::new();
                     for child in &exec_info.stdin_children {
                         match child {
@@ -733,14 +728,33 @@ pub async fn run_pipeline_live(
                     None
                 };
 
-                if let Some(stdin_data) = &stdin_content {
+                let output = if let Some(stdin_data) = &stdin_content {
                     executor
                         .execute_with_stdin(&exec_info.container, &exec_info.command, stdin_data)
-                        .await?;
+                        .await?
                 } else {
                     executor
                         .execute(&exec_info.container, &exec_info.command)
-                        .await?;
+                        .await?
+                };
+                exec_lines
+                    .entry(exec_info.container.clone())
+                    .or_default()
+                    .push(exec_info.source_line);
+
+                // Evaluate the block's <hick:expect> expectation, if any.
+                // Failures are recorded, never fatal here — `check` decides.
+                if let Some((doc_name, spec)) =
+                    expect_specs.get(&(exec_info.container.clone(), exec_info.source_line))
+                {
+                    let outcome = expect::evaluate(spec, doc_name, &output);
+                    if !outcome.passed {
+                        warn!(
+                            "expectation failed in '{}' at {}:{}: {}",
+                            exec_info.container, doc_name, exec_info.source_line, outcome.detail
+                        );
+                    }
+                    expectations.push(outcome);
                 }
 
                 // Store result in cache after successful execution
@@ -824,11 +838,9 @@ pub async fn run_pipeline_live(
         }
     }
 
-    let transcripts = executor.transcripts().clone();
-    let pool_hits = executor.pool_hits();
-    let pool_boot_time_saved = executor.pool_boot_time_saved();
-    executor.shutdown().await;
-    let resource_stats = executor.resource_stats().clone();
+    let transcripts = assign_source_lines(executor.transcripts(), &exec_lines);
+    let resource_stats = executor.resource_stats();
+    executor.shutdown().await?;
 
     let documents_ref: Vec<(&str, HickDocument)> =
         documents.iter().map(|(n, d)| (*n, d.clone())).collect();
@@ -844,8 +856,108 @@ pub async fn run_pipeline_live(
         containers: container_defs,
         volume_provenance,
         resource_stats,
-        pool_hits,
-        pool_boot_time_saved,
+        transcripts,
+        expectations,
+        never_run: std::collections::HashSet::new(),
+    })
+}
+
+/// Assign per-exec source lines to executor transcript entries, zipping each
+/// container's entries with the lines recorded in execution order.
+fn assign_source_lines(
+    mut transcripts: Transcripts,
+    exec_lines: &HashMap<String, Vec<usize>>,
+) -> Transcripts {
+    for (container, entries) in transcripts.iter_mut() {
+        if let Some(lines) = exec_lines.get(container) {
+            for (entry, line) in entries.iter_mut().zip(lines.iter()) {
+                entry.source_line = Some(*line);
+            }
+        }
+    }
+    transcripts
+}
+
+/// Run the pipeline in weave mode: NEVER executes commands. Cached transcript
+/// entries are used where present; execs without a cached result are woven
+/// with a `[never run]` marker and reported in `PipelineResult::never_run`.
+pub async fn run_pipeline_weave(
+    sources: &[(&str, &str)],
+    params: &[(String, String)],
+    cache_config: Option<&cache::CacheConfig>,
+) -> Result<PipelineResult> {
+    let mut root_key = [0u8; 32];
+    rand::thread_rng().fill_bytes(&mut root_key);
+    let authority = Arc::new(TokenAuthority::new(&root_key));
+
+    let prepared = prepare_pipeline(sources, &authority, params)?;
+    let PreparedPipeline {
+        documents,
+        state,
+        container_defs,
+        ..
+    } = prepared;
+
+    let mut transcripts: Transcripts = HashMap::new();
+    let mut never_run: std::collections::HashSet<(String, usize)> =
+        std::collections::HashSet::new();
+
+    for (name, doc) in &documents {
+        let flow_dag = dag::build_dag(doc)
+            .map_err(|e| anyhow::anyhow!("DAG validation failed in {name}: {e}"))?;
+        for exec_id in flow_dag.topological_order() {
+            let info = flow_dag.execs.iter().find(|e| e.id == exec_id).unwrap();
+            let commands: Vec<String> = vec![info.command.trim().to_string()];
+
+            let cached = if let Some(cc) = cache_config {
+                let image = info.image.as_deref().unwrap_or("alpine");
+                let caps_canonical = cache::canonical_caps(&container_defs, &info.container);
+                let secret_names = cache::secret_names_for(&container_defs, &info.container);
+                let secret_refs: Vec<&str> = secret_names.iter().map(|s| s.as_str()).collect();
+                let key = cache::exec_cache_key(image, &caps_canonical, &info.command, &secret_refs);
+                cache::cache_lookup(cc, &info.container, &key)?
+            } else {
+                None
+            };
+
+            let entry = match cached {
+                Some(cached) => ExecTranscriptEntry {
+                    commands: cached.commands,
+                    output: cached.output,
+                    events: Vec::new(),
+                    source_line: Some(info.source_line),
+                },
+                None => {
+                    never_run.insert((info.container.clone(), info.source_line));
+                    ExecTranscriptEntry {
+                        commands,
+                        output: "[never run]".to_string(),
+                        events: Vec::new(),
+                        source_line: Some(info.source_line),
+                    }
+                }
+            };
+            transcripts
+                .entry(info.container.clone())
+                .or_default()
+                .push(entry);
+        }
+    }
+
+    let documents_ref: Vec<(&str, HickDocument)> =
+        documents.iter().map(|(n, d)| (*n, d.clone())).collect();
+    let (files, provenance_maps) =
+        process_pipeline_outputs(&documents_ref, &state, &transcripts, 1).await;
+
+    Ok(PipelineResult {
+        files,
+        provenance_maps,
+        containers: container_defs,
+        volume_provenance: HashMap::new(),
+        resource_stats: HashMap::new(),
+        transcripts,
+        expectations: Vec::new(),
+        never_run,
     })
 }
 
@@ -1572,7 +1684,6 @@ pub struct PipelineRunOpts {
     pub config_path: Option<PathBuf>,
     pub key_file: Option<PathBuf>,
     pub secrets_dir: Option<PathBuf>,
-    pub images_dir: Option<PathBuf>,
     pub params: Vec<(String, String)>,
     pub features: Option<String>,
     pub output_dir: Option<PathBuf>,
@@ -1685,17 +1796,7 @@ pub async fn run_pipeline_cmd(opts: PipelineRunOpts) -> Result<()> {
         let source = std::fs::read_to_string(path)
             .with_context(|| format!("failed to read {}", path.display()))?;
         if hick_lang::is_session_source(&source) {
-            let images_dir = opts
-                .images_dir
-                .or_else(|| {
-                    config
-                        .defaults
-                        .images_dir
-                        .as_ref()
-                        .map(|d| expand_tilde(Path::new(d)))
-                })
-                .unwrap_or_else(|| PathBuf::from("."));
-            return crate::pipeline_session_replay(path, &source, images_dir, opts.verbose).await;
+            return crate::pipeline_session_replay(path, &source, opts.verbose).await;
         }
     }
 
@@ -1731,24 +1832,12 @@ pub async fn run_pipeline_cmd(opts: PipelineRunOpts) -> Result<()> {
     let result = if opts.dry_run {
         run_pipeline(&sources, &params).await?
     } else {
-        let images_dir = opts
-            .images_dir
-            .or_else(|| {
-                config
-                    .defaults
-                    .images_dir
-                    .as_ref()
-                    .map(|d| expand_tilde(Path::new(d)))
-            })
-            .unwrap_or_else(|| PathBuf::from("."));
-
         let pipeline_config = PipelineConfig {
-            images_dir,
-            toolchain_dir: None,
             working_dir: None,
             max_rounds: 1,
         };
-        run_pipeline_live(&sources, &pipeline_config, &params, cc.as_ref(), None).await?
+        let executor: Arc<dyn Executor> = Arc::new(LocalExecutor::new()?);
+        run_pipeline_live(&sources, &pipeline_config, &params, cc.as_ref(), executor).await?
     };
 
     let mut expected_paths: std::collections::HashSet<PathBuf> =
@@ -1837,13 +1926,7 @@ pub async fn run_pipeline_cmd(opts: PipelineRunOpts) -> Result<()> {
         .map(|s| s.command_durations.len())
         .sum();
 
-    let pool_info = if result.pool_hits > 0 {
-        format!(" ({} from pool)", result.pool_hits)
-    } else {
-        String::new()
-    };
-
-    let pipeline_boot = total_boot.saturating_sub(result.pool_boot_time_saved);
+    let pipeline_boot = total_boot;
 
     let file_stats = if files_unchanged > 0 {
         format!(
@@ -1862,12 +1945,11 @@ pub async fn run_pipeline_cmd(opts: PipelineRunOpts) -> Result<()> {
     };
 
     eprintln!(
-        "Done: {} ({} bytes), {} container{}{}, {} command{} — {} total (boot {}, exec {})",
+        "Done: {} ({} bytes), {} container{}, {} command{} — {} total (boot {}, exec {})",
         file_stats,
         total_output_bytes,
         num_containers,
         if num_containers == 1 { "" } else { "s" },
-        pool_info,
         total_commands,
         if total_commands == 1 { "" } else { "s" },
         fmt_duration(wall_time),
@@ -1879,16 +1961,13 @@ pub async fn run_pipeline_cmd(opts: PipelineRunOpts) -> Result<()> {
 }
 
 /// Replay a session .hick file without calling the LLM.
-async fn pipeline_session_replay(
-    file_path: &Path,
-    source: &str,
-    images_dir: PathBuf,
-    verbose: bool,
-) -> Result<()> {
+///
+/// Runs through the [`Executor`] boundary (a fresh [`LocalExecutor`]), so
+/// replayed commands execute on the host in a temp workdir — the wasm-era
+/// `/workspace` preopen of the invoking directory no longer exists.
+async fn pipeline_session_replay(file_path: &Path, source: &str, verbose: bool) -> Result<()> {
     use anyhow::Context as _;
     use base64::Engine as _;
-    use hick_token::ContainerCapabilities;
-    use std::collections::HashMap;
 
     let session = hick_lang::parse_session(source)
         .map_err(|e| anyhow::anyhow!("{e}"))
@@ -1904,15 +1983,7 @@ async fn pipeline_session_replay(
         file_path.display()
     );
 
-    let mut caps: HashMap<String, ContainerCapabilities> = HashMap::new();
-    caps.insert(
-        "replay".to_string(),
-        ContainerCapabilities::new().deny_all_network(),
-    );
-
-    let mut executor = executor::ContainerExecutor::new(images_dir, caps)?;
-    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    executor.set_preopened_dirs(vec![(cwd, "/workspace".to_string())]);
+    let executor: Arc<dyn Executor> = Arc::new(LocalExecutor::new()?);
 
     let mut started = false;
     let mut action_idx = 0usize;
@@ -1995,7 +2066,7 @@ async fn pipeline_session_replay(
     }
 
     if started {
-        executor.shutdown().await;
+        executor.shutdown().await?;
     }
     Ok(())
 }

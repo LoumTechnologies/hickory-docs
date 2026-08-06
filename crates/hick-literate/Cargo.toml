@@ -2,45 +2,25 @@
 name = "hick-literate"
 version = "0.1.0"
 edition = "2024"
+publish = false
 
 [lib]
 name = "hick_literate"
 path = "src/lib.rs"
 
-[[bin]]
-name = "hick-equiv"
-path = "src/bin/hick-equiv.rs"
-
-[[bin]]
-name = "hick-compact"
-path = "src/bin/hick-compact.rs"
-
-[[bin]]
-name = "hick-promote"
-path = "src/bin/hick-promote.rs"
-
 [dependencies]
-hick-container.workspace = true
-hick-connection-filter = { workspace = true, features = ["capability"] }
-hick-net-bridge.workspace = true
-hick-net-config.workspace = true
-hick-api = { path = "../../hick-container/crates/hick-api" }
+hickory-executor = { path = "../hickory-executor" }
 hick-case = { path = "../hick-case" }
-hick-condition.workspace = true
+hick-condition = { path = "../hick-condition" }
 hick-exec.workspace = true
 hick-handlers = { path = "../hick-handlers" }
-hick-shell.workspace = true
-hick-live = { path = "../../hick-reactive/crates/hick-live" }
 hick-feature = { path = "../hick-feature" }
 hick-lang.workspace = true
-hick-secrets.workspace = true
-hick-net.workspace = true
-hick-token.workspace = true
-hick-store.workspace = true
-hick-merge.workspace = true
+hick-secrets = { path = "../hick-secrets" }
+hick-token = { path = "../hick-token" }
+hick-store = { path = "../hick-store" }
+hick-merge = { path = "../hick-merge" }
 
-wasmtime.workspace = true
-wasmtime-wasi = "41.0.0"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-util", "sync", "time", "signal"] }
 anyhow = "1"
 chrono = { version = "0.4", default-features = false, features = ["std", "clock"] }
@@ -48,6 +28,7 @@ clap = { version = "4", features = ["derive"] }
 env_logger = "0.11"
 log = "0.4"
 rand = "0.8"
+regex = "1"
 serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.149"
 serde_yaml = "0.9.34"
@@ -60,9 +41,9 @@ base64 = "0.22"
 tar = "0.4"
 zip = "2"
 notify = "7"
-rustyline = "14"
 futures = "0.3"
 sysinfo = "0.38.0"
+pulldown-cmark = { version = "0.12", default-features = false, features = ["html"] }
 
 [dev-dependencies]
 tempfile = "3"

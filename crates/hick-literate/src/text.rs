@@ -214,7 +214,7 @@ pub(crate) fn apply_substitutions_segmented(
     }
 
     // Sort by pattern length descending (longest first)
-    replacements.sort_by(|a, b| b.0.len().cmp(&a.0.len()));
+    replacements.sort_by_key(|r| std::cmp::Reverse(r.0.len()));
 
     // Build segments by scanning for pattern occurrences
     segment_text(text, &replacements)
@@ -317,7 +317,7 @@ pub(crate) fn apply_substitutions(text: &str, state: &MultiDocumentState) -> Str
     }
 
     // Sort by pattern length descending (longest first to avoid partial matches)
-    replacements.sort_by(|a, b| b.0.len().cmp(&a.0.len()));
+    replacements.sort_by_key(|r| std::cmp::Reverse(r.0.len()));
 
     // Apply all replacements
     let mut result = text.to_string();

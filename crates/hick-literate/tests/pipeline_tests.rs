@@ -1458,7 +1458,7 @@ async fn test_multi_stage_two_stages() {
 </hick:doc></h:file>
 </h:doc>"#;
 
-    let result = hick_literate::run_pipeline_multi_stage(&[("test.hick", &src)], &[], 3)
+    let result = hick_literate::run_pipeline_multi_stage(&[("test.hick", src)], &[], 3)
         .await
         .unwrap();
 
@@ -1962,7 +1962,7 @@ The main function prints a greeting.
 
 </hick:doc>"#;
 
-    let result = hick_literate::run_pipeline(&[("test.hick", &src)], &[])
+    let result = hick_literate::run_pipeline(&[("test.hick", src)], &[])
         .await
         .unwrap();
 
@@ -2018,7 +2018,7 @@ target/
 
 </hick:doc>"#;
 
-    let result = hick_literate::run_pipeline(&[("test.hick", &src)], &[])
+    let result = hick_literate::run_pipeline(&[("test.hick", src)], &[])
         .await
         .unwrap();
 
@@ -2055,7 +2055,7 @@ Version: <hick:val name="version" />
 
 </hick:doc>"#;
 
-    let result = hick_literate::run_pipeline(&[("test.hick", &src)], &[])
+    let result = hick_literate::run_pipeline(&[("test.hick", src)], &[])
         .await
         .unwrap();
 
@@ -2095,7 +2095,7 @@ No authentication included.
 
 </hick:doc>"#;
 
-    let result = hick_literate::run_pipeline(&[("test.hick", &src)], &[])
+    let result = hick_literate::run_pipeline(&[("test.hick", src)], &[])
         .await
         .unwrap();
 
@@ -2138,7 +2138,7 @@ body {}
 
 </hick:doc>"#;
 
-    let result = hick_literate::run_pipeline(&[("test.hick", &src)], &[])
+    let result = hick_literate::run_pipeline(&[("test.hick", src)], &[])
         .await
         .unwrap();
 
@@ -2161,7 +2161,7 @@ Some prose here.
 
 </hick:doc>"#;
 
-    let result = hick_literate::run_pipeline(&[("test.hick", &src)], &[])
+    let result = hick_literate::run_pipeline(&[("test.hick", src)], &[])
         .await
         .unwrap();
 
@@ -2187,7 +2187,7 @@ Welcome to FavoriteApp!
 
 </hick:doc>"#;
 
-    let result = hick_literate::run_pipeline(&[("test.hick", &src)], &[])
+    let result = hick_literate::run_pipeline(&[("test.hick", src)], &[])
         .await
         .unwrap();
 
@@ -2229,7 +2229,7 @@ name = "example"
 
 </hick:doc>"#;
 
-    let result = hick_literate::run_pipeline(&[("test.hick", &src)], &[])
+    let result = hick_literate::run_pipeline(&[("test.hick", src)], &[])
         .await
         .unwrap();
 

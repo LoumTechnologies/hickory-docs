@@ -16,8 +16,9 @@ members = [
     "crates/hick-store",
     "crates/hick-token",
     "crates/hick-xml",
-    # Phase B (needs executor surgery before joining the workspace):
-    # "crates/hick-literate",
+    "crates/hick-literate",
+    "crates/hickory-executor",
+    "crates/hickory-cli",
 ]
 
 [workspace.package]

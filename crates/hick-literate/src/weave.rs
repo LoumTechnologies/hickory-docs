@@ -17,7 +17,7 @@ use crate::tag_attr;
 use crate::text::{apply_substitutions, interpolate_path};
 
 /// Map file extension to markdown code fence language identifier.
-fn extension_to_language(path: &str) -> &'static str {
+pub(crate) fn extension_to_language(path: &str) -> &'static str {
     let ext = path.rsplit('.').next().unwrap_or("");
     match ext {
         "rs" => "rust",

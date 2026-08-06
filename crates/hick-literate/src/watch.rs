@@ -17,8 +17,8 @@ use hick_store::{
     BuiltinVersionStore, FileProvenance, FsObjectStore, GitVersionStore, VersionStore,
 };
 
-use crate::pool::{ContainerPool, PoolConfig, SharedPool};
 use crate::store_config::{StoreBackend, StoreConfig};
+use hickory_executor::LocalExecutor;
 
 /// Run the watch loop: initial run + re-run on file changes.
 pub async fn run_watch(
@@ -26,7 +26,6 @@ pub async fn run_watch(
     config: &StoreConfig,
     params: &[(String, String)],
     dry_run: bool,
-    images_dir: PathBuf,
 ) -> Result<()> {
     let project_dir = std::env::current_dir()?;
 
@@ -40,34 +39,13 @@ pub async fn run_watch(
         Box::new(TakeGenerated)
     };
 
-    // Create container pool for live execution (survives across iterations)
-    let pool: Option<SharedPool> = if !dry_run {
-        let pool_config = PoolConfig::new(images_dir.clone());
-        info!("Pool: created (max_warm: {})", pool_config.max_warm);
-        Some(Arc::new(tokio::sync::Mutex::new(ContainerPool::new(
-            pool_config,
-        ))))
-    } else {
-        None
-    };
-
     // Initial run
     info!("Running initial pipeline...");
-    run_pipeline_and_merge(
-        files,
-        config,
-        params,
-        dry_run,
-        &images_dir,
-        &store,
-        strategy.as_ref(),
-        pool.as_ref(),
-    )
-    .await
-    .unwrap_or_else(|e| {
-        error!("Initial pipeline run failed: {e}");
-    });
-    log_pool_stats(pool.as_ref()).await;
+    run_pipeline_and_merge(files, config, params, dry_run, &store, strategy.as_ref())
+        .await
+        .unwrap_or_else(|e| {
+            error!("Initial pipeline run failed: {e}");
+        });
 
     // Collect canonical paths and their parent directories for watching.
     // On macOS, notify's FsEventWatcher uses FSEvents which is a directory-level
@@ -135,30 +113,14 @@ pub async fn run_watch(
         while let Ok(Some(_)) = tokio::time::timeout(debounce, rx.recv()).await {}
 
         eprintln!("Re-running pipeline...");
-        run_pipeline_and_merge(
-            files,
-            config,
-            params,
-            dry_run,
-            &images_dir,
-            &store,
-            strategy.as_ref(),
-            pool.as_ref(),
-        )
-        .await
-        .unwrap_or_else(|e| {
-            error!("Pipeline re-run failed: {e}");
-        });
-        log_pool_stats(pool.as_ref()).await;
+        run_pipeline_and_merge(files, config, params, dry_run, &store, strategy.as_ref())
+            .await
+            .unwrap_or_else(|e| {
+                error!("Pipeline re-run failed: {e}");
+            });
     }
 
-    // Shutdown pool on exit
     eprintln!("\nShutting down...");
-    if let Some(pool) = pool {
-        let mut pool_guard = pool.lock().await;
-        pool_guard.shutdown().await;
-    }
-
     Ok(())
 }
 
@@ -183,16 +145,13 @@ async fn create_store(config: &StoreConfig, project_dir: &Path) -> Result<Arc<dy
 }
 
 /// Run the pipeline, merge with previous state, and write outputs.
-#[allow(clippy::too_many_arguments)]
 async fn run_pipeline_and_merge(
     files: &[PathBuf],
     config: &StoreConfig,
     params: &[(String, String)],
     dry_run: bool,
-    images_dir: &Path,
     store: &Arc<dyn VersionStore>,
     strategy: &dyn MergeStrategy,
-    pool: Option<&SharedPool>,
 ) -> Result<()> {
     // Read source files
     let mut file_contents = Vec::new();
@@ -207,15 +166,8 @@ async fn run_pipeline_and_merge(
         .map(|(name, content)| (name.as_str(), content.as_str()))
         .collect();
 
-    // Pre-warm pool from sources (if pool is active)
-    if let Some(pool) = pool {
-        let mut pool_guard = pool.lock().await;
-        pool_guard.warm_from_sources(&sources).await?;
-        drop(pool_guard);
-    }
-
-    // Run pipeline (live with pool, or dry-run multi-stage)
-    let (pipeline_files, pipeline_provenance, pool_hits, pool_boot_time_saved) = if dry_run {
+    // Run pipeline (live, or dry-run multi-stage)
+    let (pipeline_files, pipeline_provenance) = if dry_run {
         let pipeline_result =
             crate::run_pipeline_multi_stage(&sources, params, config.max_stages).await?;
         let files: HashMap<String, Vec<u8>> = pipeline_result
@@ -229,21 +181,15 @@ async fn run_pipeline_and_merge(
                 (k.clone(), bytes)
             })
             .collect();
-        (
-            files,
-            pipeline_result.provenance,
-            0usize,
-            std::time::Duration::ZERO,
-        )
+        (files, pipeline_result.provenance)
     } else {
         let pipeline_config = crate::PipelineConfig {
-            images_dir: images_dir.to_path_buf(),
-            toolchain_dir: None,
             working_dir: None,
             max_rounds: 1,
         };
+        let executor: Arc<dyn crate::Executor> = Arc::new(LocalExecutor::new()?);
         let result =
-            crate::run_pipeline_live(&sources, &pipeline_config, params, None, pool).await?;
+            crate::run_pipeline_live(&sources, &pipeline_config, params, None, executor).await?;
         let files: HashMap<String, Vec<u8>> = result
             .files
             .iter()
@@ -270,23 +216,8 @@ async fn run_pipeline_and_merge(
                 )
             })
             .collect();
-        if result.pool_hits > 0 {
-            info!(
-                "Pool: {} of {} containers adopted from pool",
-                result.pool_hits,
-                result.resource_stats.len()
-            );
-        }
-        let hits = result.pool_hits;
-        let saved = result.pool_boot_time_saved;
-        (files, provenance, hits, saved)
+        (files, provenance)
     };
-
-    // Evict stale containers after each run
-    if let Some(pool) = pool {
-        let mut pool_guard = pool.lock().await;
-        pool_guard.evict_stale();
-    }
 
     // Read current disk files for three-way merge
     let disk_files = read_disk_files(&pipeline_files)?;
@@ -337,41 +268,7 @@ async fn run_pipeline_and_merge(
         config.branch
     );
 
-    // Print pool savings summary when pool was used
-    if pool_hits > 0
-        && let Some(pool) = pool
-    {
-        let pool_guard = pool.lock().await;
-        let stats = pool_guard.stats();
-        let peak_mb = stats.peak_memory_bytes / (1024 * 1024);
-        eprintln!(
-            "  Pool: saved {} boot, cost {}MB for {}",
-            crate::fmt_duration(pool_boot_time_saved),
-            peak_mb,
-            crate::fmt_duration(stats.uptime),
-        );
-    }
-
     Ok(())
-}
-
-/// Log pool statistics after a pipeline run.
-async fn log_pool_stats(pool: Option<&SharedPool>) {
-    if let Some(pool) = pool {
-        let pool_guard = pool.lock().await;
-        let stats = pool_guard.stats();
-        let mem_mb = stats.estimated_memory_bytes / (1024 * 1024);
-        let peak_mb = stats.peak_memory_bytes / (1024 * 1024);
-        info!(
-            "Pool: {} warm ({}MB, peak {}MB), {} served, {} evicted, uptime {}",
-            stats.warm_count,
-            mem_mb,
-            peak_mb,
-            stats.containers_served,
-            stats.containers_evicted,
-            crate::fmt_duration(stats.uptime),
-        );
-    }
 }
 
 /// Read existing disk files that correspond to pipeline output paths.

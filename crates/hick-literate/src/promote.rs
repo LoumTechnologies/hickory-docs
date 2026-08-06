@@ -445,14 +445,14 @@ fn scan_pipeline_owned(project_dir: &Path) -> HashMap<String, PipelineFile> {
 
     // Also check `_hick.yml` for a `files:` list and scan those.
     let config_path = project_dir.join("_hick.yml");
-    if let Ok(yaml) = std::fs::read_to_string(&config_path) {
-        if let Ok(val) = serde_yaml::from_str::<serde_yaml::Value>(&yaml) {
-            if let Some(files) = val.get("files").and_then(|v| v.as_sequence()) {
+    if let Ok(yaml) = std::fs::read_to_string(&config_path)
+        && let Ok(val) = serde_yaml::from_str::<serde_yaml::Value>(&yaml)
+            && let Some(files) = val.get("files").and_then(|v| v.as_sequence()) {
                 for f in files {
                     if let Some(pattern) = f.as_str() {
                         let full = project_dir.join(pattern);
-                        if let Ok(content) = std::fs::read_to_string(&full) {
-                            if let Ok(doc) = hick_lang::parse(&content) {
+                        if let Ok(content) = std::fs::read_to_string(&full)
+                            && let Ok(doc) = hick_lang::parse(&content) {
                                 for file_tag in doc.find_tags("file") {
                                     let Some(output_path) = file_tag.get_attribute("path") else {
                                         continue;
@@ -464,12 +464,9 @@ fn scan_pipeline_owned(project_dir: &Path) -> HashMap<String, PipelineFile> {
                                     );
                                 }
                             }
-                        }
                     }
                 }
             }
-        }
-    }
 
     owned
 }
