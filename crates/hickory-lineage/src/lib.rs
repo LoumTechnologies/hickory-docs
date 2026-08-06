@@ -243,15 +243,56 @@ pub fn map_edits(
     Ok(source_edits)
 }
 
+/// Is `entry`'s source span also feeding a DIFFERENT output range (the same
+/// copy block pasted more than once)? Editing such a range cannot be
+/// reproduced exactly: rewriting the shared source bytes changes every
+/// occurrence on the next run, not just the edited one.
+fn source_is_duplicated(entry: &Provenance, provenance: &[Provenance]) -> bool {
+    let Some((doc, s, e)) = entry.origin.source() else {
+        return false;
+    };
+    if s == e {
+        return false;
+    }
+    provenance.iter().any(|q| {
+        (q.start, q.end) != (entry.start, entry.end)
+            && q.origin
+                .source()
+                .is_some_and(|(d2, s2, e2)| d2 == doc && s < e2 && e > s2)
+    })
+}
+
+fn reject_if_duplicated(entry: &Provenance, provenance: &[Provenance]) -> Result<(), LineageError> {
+    if source_is_duplicated(entry, provenance) {
+        let (doc, s, e) = entry.origin.source().expect("duplicated implies source");
+        return Err(LineageError::Conflict(format!(
+            "output bytes {}..{} come from {doc} bytes {s}..{e}, which is woven \
+             into more than one place — editing one occurrence cannot be \
+             reproduced exactly; edit the source block instead",
+            entry.start, entry.end
+        )));
+    }
+    Ok(())
+}
+
 /// Map a single output edit to one source edit.
 fn map_one(e: &OutputEdit, provenance: &[Provenance]) -> Result<SourceEdit, LineageError> {
     // Pure insertion: attach to the entry containing the point, or the entry
     // ending exactly at it.
     if e.start == e.end {
-        let entry = provenance
+        // Prefer an editable attachment: the entry containing the point,
+        // else the entry ending exactly at it (so inserting at the boundary
+        // of an editable range and a synthetic separator still works).
+        let containing = provenance
             .iter()
-            .find(|p| p.start <= e.start && e.start < p.end)
-            .or_else(|| provenance.iter().rfind(|p| p.end == e.start))
+            .find(|p| p.start <= e.start && e.start < p.end);
+        let ending = provenance.iter().rfind(|p| p.end == e.start);
+        let entry = [containing, ending]
+            .into_iter()
+            .flatten()
+            .find(|p| p.origin.source().is_some())
+            .or(containing)
+            .or(ending)
             .ok_or(LineageError::SyntheticOverlap {
                 start: e.start,
                 end: e.end,
@@ -264,6 +305,7 @@ fn map_one(e: &OutputEdit, provenance: &[Provenance]) -> Result<SourceEdit, Line
                     start: entry.start,
                     end: entry.end,
                 })?;
+        reject_if_duplicated(entry, provenance)?;
         let at = src_start + (e.start - entry.start);
         return Ok(SourceEdit {
             doc_path: doc_path.to_string(),
@@ -298,6 +340,7 @@ fn map_one(e: &OutputEdit, provenance: &[Provenance]) -> Result<SourceEdit, Line
                 end: p.end.min(e.end),
             });
         };
+        reject_if_duplicated(p, provenance)?;
         let overlap_start = e.start.max(p.start);
         let overlap_end = e.end.min(p.end);
         let mapped_start = p_src_start + (overlap_start - p.start);
@@ -611,14 +654,12 @@ mod tests {
             end: 5,
             text: "ins".to_string(),
         }];
-        // Byte 5 is inside the synthetic span → containing entry wins and is
-        // rejected? No: `find` prefers the containing entry (synthetic) —
-        // insertion at a boundary between editable and synthetic content is
-        // ambiguous, so it must fail rather than guess.
-        assert!(matches!(
-            map_edits("01234567", &edits, &p),
-            Err(LineageError::SyntheticOverlap { .. })
-        ));
+        // Byte 5 is the boundary between the editable span and the synthetic
+        // separator: the insertion attaches to the editable entry ending
+        // there (the sweep test proves this reproduces byte-for-byte).
+        let out = map_edits("01234567", &edits, &p).unwrap();
+        assert_eq!(out[0].span, (105, 105));
+        assert_eq!(out[0].text, "ins");
 
         // At the very end of the output, the trailing editable span takes it.
         let p2 = prov(&[(0, 5, lit("d.hick", 100, 105))]);
