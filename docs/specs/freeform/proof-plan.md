@@ -31,13 +31,19 @@ command you can run or a test that already gates CI.
 4. Pricing page renders `plans.json` through the API (no hard-coded prices).
 5. CLI: `hickory agent "…"` works once `ANTHROPIC_API_KEY` is set — sessions
    land in `sessions/*.hick`, `hickory promote` compacts them.
-6. The grand tour: `cargo run -p hickory-cli -- run examples/grand-tour.hick`
+6. The editor, live: the "smoke" project now has `weave-demo.hick` — open it
+   to see the Typora-style Document view (syntax visible, styled like the
+   render), then switch to **Output** → `pleasantries.py`: hover to see each
+   character's source lineage, click "Edit output", change a word, save —
+   the source `hick:copy` block is rewritten through provenance and a re-run
+   reproduces your edit byte-for-byte (verified live against this server).
+7. The grand tour: `cargo run -p hickory-cli -- run examples/grand-tour.hick`
    (needs `duckdb` and `uv` on PATH) — read `examples/grand-tour.md`, open
    `examples/regression-explorer.html` in a browser and drag the slider. Add
    `--features with-r` for the ggplot chapter; R locally requires
    `sudo apt install r-base r-cran-ggplot2` (CI runs it with the feature on
    every push).
-7. Stop everything with `just dev-stop` when done.
+8. Stop everything with `just dev-stop` when done.
 
 ## The three axes
 
