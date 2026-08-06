@@ -31,7 +31,11 @@ import { OutputTree } from "../components/OutputTree";
 import { structureOf } from "../editor/wysiwyg";
 import { rangeHighlightField, setRangeHighlights } from "../editor/rangeHighlight";
 import { deriveRibbons, RIBBON_PALETTE_SIZE, type Ribbon } from "../lib/ribbons";
+import { byteToChar } from "../lib/offsets";
 import { atLeast, clampBand, ribbonPathVia, ribbonStubPath } from "../lib/ribbonGeometry";
+import type { OutputProvenance } from "../lsp/outputMapping";
+import type { LspDiagnostic } from "../lsp/client";
+import type { Extension } from "@codemirror/state";
 
 export interface SplitViewProps {
   docId: string;
@@ -47,6 +51,13 @@ export interface SplitViewProps {
   onRunCell: (execId: string) => void;
   /** An output edit resolved back into the document. */
   onSourceEdited: (edits: SourceEdit[]) => void;
+  /** LSP bindings for the document editor. */
+  lspExtensions?: Extension[];
+  lspDiagnostics?: LspDiagnostic[];
+  /** Build LSP bindings for an output buffer, given its position mapper. */
+  makeOutputLsp?: (provenance: OutputProvenance[]) => Extension[];
+  /** Open this generated file, positioned on the given line span. */
+  outputTarget?: { path: string; span: [number, number] } | null;
 }
 
 /** A ribbon plus the file it flows into. */
@@ -85,6 +96,10 @@ export function SplitView({
   runningCells,
   onRunCell,
   onSourceEdited,
+  lspExtensions,
+  lspDiagnostics,
+  makeOutputLsp,
+  outputTarget,
 }: SplitViewProps) {
   const [files, setFiles] = useState<OutputFileMeta[] | null>(null);
   const [activePath, setActivePath] = useState<string | null>(null);
@@ -367,14 +382,28 @@ export function SplitView({
     [schedule],
   );
 
+  // Language bindings for the output buffer: every position travels back
+  // through this file's provenance before a question is asked about it.
+  const outputLsp = useMemo(() => {
+    if (!makeOutputLsp || !file) return [];
+    return makeOutputLsp(
+      file.provenance.map((p) => ({
+        ...p,
+        charFrom: byteToChar(file.content, p.start),
+        charTo: byteToChar(file.content, p.end),
+      })),
+    );
+  }, [makeOutputLsp, file]);
+
   const rightExtensions = useMemo(
     () => [
       rangeHighlightField,
       EditorView.updateListener.of((u) => {
         if (u.docChanged || u.geometryChanged || u.viewportChanged) schedule();
       }),
+      ...outputLsp,
     ],
-    [schedule],
+    [schedule, outputLsp],
   );
 
   // Scroll / resize wiring.
@@ -399,6 +428,18 @@ export function SplitView({
   }, [leftView, rightView, schedule]);
 
   useEffect(schedule, [ribbons, activePath, schedule]);
+
+  // A definition/reference landed in a generated file: open it and put the
+  // selection on the target lines.
+  useEffect(() => {
+    if (!outputTarget) return;
+    setActivePath(outputTarget.path);
+    if (!rightView || activePath !== outputTarget.path) return;
+    const doc = rightView.state.doc;
+    const from = doc.line(Math.min(Math.max(outputTarget.span[0] + 1, 1), doc.lines)).from;
+    const to = doc.line(Math.min(Math.max(outputTarget.span[1] + 1, 1), doc.lines)).to;
+    rightView.dispatch({ selection: { anchor: from, head: to }, scrollIntoView: true });
+  }, [outputTarget, rightView, activePath]);
 
   // ----- hover / click lineage -----
 
@@ -457,6 +498,8 @@ export function SplitView({
           runningCells={runningCells}
           onRunCell={onRunCell}
           onViewReady={onLeftViewReady}
+          lspExtensions={lspExtensions}
+          lspDiagnostics={lspDiagnostics}
         />
       </div>
 

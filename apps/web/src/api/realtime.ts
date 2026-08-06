@@ -4,6 +4,7 @@ import * as syncProtocol from "y-protocols/sync";
 import * as encoding from "lib0/encoding";
 import * as decoding from "lib0/decoding";
 import { getToken } from "./client";
+import { createLspChannel, type LspChannel } from "../lsp/channel";
 import type { RunWsMessage } from "./types";
 
 // WS /api/ws — one socket, 1-byte channel prefix per api.md:
@@ -28,6 +29,11 @@ export interface Realtime {
    * (mock mode) may seed.
    */
   readonly serverAuthoritative: boolean;
+  /**
+   * The LSP bridge channel (0x02), or null when no server backs this realtime.
+   * The server owns the `hick-lsp` lifecycle, so a client starts at `didOpen`.
+   */
+  lsp(): LspChannel | null;
   close(): void;
 }
 
@@ -44,6 +50,7 @@ export class WsRealtime implements Realtime {
   private awareness: Awareness | null = null;
   private closed = false;
   private queue: Uint8Array[] = [];
+  private lspChannel: LspChannel | null = null;
 
   constructor(private docName: string) {
     this.connect();
@@ -83,6 +90,7 @@ export class WsRealtime implements Realtime {
     if (frame.length === 0) return;
     const channel = frame[0];
     const payload = frame.subarray(1);
+    if (this.lspChannel?.handleFrame(frame)) return;
     if (channel === CHANNEL_RUN) {
       const msg = JSON.parse(new TextDecoder().decode(payload)) as RunWsMessage;
       for (const cb of this.runListeners) cb(msg);
@@ -154,6 +162,13 @@ export class WsRealtime implements Realtime {
     return () => this.runListeners.delete(cb);
   }
 
+  lsp(): LspChannel {
+    // Lazily created: the server spawns hick-lsp on the first 0x02 frame, so
+    // no session exists until something actually asks a language question.
+    this.lspChannel ??= createLspChannel({ send: (frame) => this.send(frame) });
+    return this.lspChannel;
+  }
+
   close() {
     this.closed = true;
     if (this.awareness) {
@@ -189,6 +204,10 @@ export class LocalRealtime implements Realtime {
 
   bindDoc(_doc: Y.Doc, _awareness: Awareness) {
     // Local-only Y.Doc; nothing to sync.
+  }
+
+  lsp(): LspChannel | null {
+    return null; // no server, no language session
   }
 
   onRunEvent(cb: (msg: RunWsMessage) => void): () => void {

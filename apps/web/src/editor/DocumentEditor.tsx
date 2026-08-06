@@ -6,7 +6,10 @@ import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirro
 import * as Y from "yjs";
 import { Awareness } from "y-protocols/awareness";
 import { yCollab } from "y-codemirror.next";
+import type { Extension } from "@codemirror/state";
 import { CellRegistry, EnvRegistry, setVerifiedExpects, structureOf, wysiwyg } from "./wysiwyg";
+import { diagnosticRanges, positionToOffset, setLspDiagnostics } from "../lsp/cmLsp";
+import type { LspDiagnostic } from "../lsp/client";
 import { hickoryFolding } from "./folding";
 import type { CellSlot, EnvSlot } from "./wysiwyg";
 import { execBlocksOf, expectRangeOf } from "./hickDoc";
@@ -31,6 +34,10 @@ export interface DocumentEditorProps {
   /** Fired with the live EditorView on mount and null on teardown (the Split
    * view uses it to measure ribbon anchors against real geometry). */
   onViewReady?: (view: EditorView | null) => void;
+  /** LSP bindings (hover / definition / references) for this buffer. */
+  lspExtensions?: Extension[];
+  /** Diagnostics for this document, in document coordinates. */
+  lspDiagnostics?: LspDiagnostic[];
 }
 
 /** Overlap length of two [from, to) spans. */
@@ -76,6 +83,8 @@ export function DocumentEditor({
   runningCells,
   onRunCell,
   onViewReady,
+  lspExtensions,
+  lspDiagnostics,
 }: DocumentEditorProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
@@ -168,6 +177,7 @@ export function DocumentEditor({
           wysiwyg(registry, envRegistry),
           hickoryFolding(),
           yCollab(ytext, awareness),
+          ...(lspExtensions ?? []),
           EditorView.lineWrapping,
           EditorView.updateListener.of((u) => {
             if (u.docChanged) onChange?.(u.state.doc.toString());
@@ -214,6 +224,18 @@ export function DocumentEditor({
     });
     view.dispatch({ effects: setVerifiedExpects.of(spans) });
   }, [execBlocks]);
+
+  // Diagnostics arrive in LSP line/character coordinates; translate against
+  // the live buffer so they stay put while the user types.
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!view) return;
+    view.dispatch({
+      effects: setLspDiagnostics.of(
+        diagnosticRanges(lspDiagnostics ?? [], (p) => positionToOffset(view.state.doc, p)),
+      ),
+    });
+  }, [lspDiagnostics]);
 
   useEffect(() => {
     const view = viewRef.current;

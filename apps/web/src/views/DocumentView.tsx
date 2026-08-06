@@ -3,7 +3,13 @@ import { api, MOCK } from "../api/client";
 import { WsRealtime, getSharedRealtime, type Realtime } from "../api/realtime";
 import type { Block, Doc, ExecBlock, SourceEdit } from "../api/types";
 import { AgentPanel } from "../components/AgentPanel";
+import { ReferencesPanel } from "../components/ReferencesPanel";
 import { byteToChar } from "../lib/offsets";
+import { useLsp } from "../lsp/useLsp";
+import { lspSupport, offsetToPosition, type LspNavigationTarget } from "../lsp/cmLsp";
+import { positionToUtf16 } from "../lsp/positions";
+import { sourcePositionAt, type OutputProvenance } from "../lsp/outputMapping";
+import type { LspLocation } from "../lsp/client";
 import { DocumentEditor } from "../editor/DocumentEditor";
 import { OutputView } from "./OutputView";
 import { SplitView } from "./SplitView";
@@ -35,6 +41,14 @@ export function DocumentView({ docId }: { docId: string }) {
   // Bumped when an /outputs/edit rewrote the source out-of-band so the
   // Document editor reseeds its Y.Doc from the freshly fetched source.
   const [editorEpoch, setEditorEpoch] = useState(0);
+  // Find-references results, and a pending "open this output file here" jump
+  // produced by LSP navigation into a generated file.
+  const [references, setReferences] = useState<{ locations: LspLocation[]; query: string } | null>(
+    null,
+  );
+  const [outputTarget, setOutputTarget] = useState<{ path: string; span: [number, number] } | null>(
+    null,
+  );
 
   const checkRunRef = useRef<string | null>(null);
   // Fast local runs can finish (and emit their terminal WS message) before
@@ -248,6 +262,79 @@ export function DocumentView({ docId }: { docId: string }) {
     api.render(docId).then((r) => setBlocks(r.blocks), () => undefined);
   };
 
+  // ---- editor intelligence ------------------------------------------------
+  //
+  // One LSP session per document, shared by both editors. It is fed the LIVE
+  // text (unsaved edits included) so positions always match what is on screen.
+  const liveSource = dirtySource ?? doc?.source ?? "";
+  const lsp = useLsp(realtime, doc?.path ?? "", liveSource);
+
+  const openTarget = useCallback(
+    (target: LspNavigationTarget | LspLocation) => {
+      setReferences(null);
+      if (target.uri.startsWith("hick-output:///")) {
+        // The bridge could not map this position back to prose — open the
+        // generated file itself, positioned on the hit.
+        const path = target.uri.slice("hick-output:///".length);
+        setOutputTarget({
+          path,
+          // Output ranges are line/character; the pane resolves them against
+          // its own buffer, so carry them as a line-anchored span.
+          span: [target.range.start.line, target.range.end.line],
+        });
+        setView((v) => (v === "split" ? v : "output"));
+        return;
+      }
+      const from = positionToUtf16(liveSource, target.range.start);
+      const to = positionToUtf16(liveSource, target.range.end);
+      setView((v) => (v === "split" ? v : "document"));
+      setSelectSpan([from, Math.max(to, from)]);
+    },
+    [liveSource],
+  );
+
+  const wordAt = (offset: number) => {
+    const m = /[A-Za-z_][A-Za-z0-9_]*/y;
+    let start = offset;
+    while (start > 0 && /[A-Za-z0-9_]/.test(liveSource[start - 1] ?? "")) start--;
+    m.lastIndex = start;
+    return m.exec(liveSource)?.[0] ?? "";
+  };
+
+  const lspExtensions = useMemo(
+    () =>
+      lspSupport({
+        client: lsp.client,
+        uri: lsp.uri,
+        positionAt: (offset, view) => offsetToPosition(view.state.doc, offset),
+        onNavigate: openTarget,
+        onReferences: (locations, from) =>
+          setReferences({
+            locations,
+            query: wordAt(positionToUtf16(liveSource, from.range.start)),
+          }),
+      }),
+    // Rebuilding these would recreate the editor, so they intentionally track
+    // only the session identity; the callbacks read live state through refs.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [lsp.client, lsp.uri],
+  );
+
+  // The output panes build their own bindings: the same session, but their
+  // positions must travel back through provenance first.
+  const makeOutputLsp = useCallback(
+    (provenance: OutputProvenance[]) =>
+      lspSupport({
+        client: lsp.client,
+        uri: lsp.uri,
+        positionAt: (offset) =>
+          sourcePositionAt(offset, provenance, doc?.path ?? "", liveSource),
+        onNavigate: openTarget,
+        onReferences: (locations) => setReferences({ locations, query: "" }),
+      }),
+    [lsp.client, lsp.uri, openTarget, doc?.path, liveSource],
+  );
+
   const execBlocks = (blocks ?? []).filter((b): b is ExecBlock => b.kind === "exec");
 
   if (error) {
@@ -359,6 +446,8 @@ export function DocumentView({ docId }: { docId: string }) {
             execBlocks={execBlocks}
             runningCells={runningCells}
             onRunCell={(id) => void runCell(id)}
+            lspExtensions={lspExtensions}
+            lspDiagnostics={lsp.diagnostics}
           />
         ) : view === "split" ? (
           <SplitView
@@ -373,11 +462,29 @@ export function DocumentView({ docId }: { docId: string }) {
             runningCells={runningCells}
             onRunCell={(id) => void runCell(id)}
             onSourceEdited={onSourceEdited}
+            lspExtensions={lspExtensions}
+            lspDiagnostics={lsp.diagnostics}
+            makeOutputLsp={makeOutputLsp}
+            outputTarget={outputTarget}
           />
         ) : (
-          <OutputView docId={docId} onSourceEdited={onSourceEdited} onSelectSpan={onSelectSpan} />
+          <OutputView
+            docId={docId}
+            onSourceEdited={onSourceEdited}
+            onSelectSpan={onSelectSpan}
+            makeOutputLsp={makeOutputLsp}
+            outputTarget={outputTarget}
+          />
         )}
       </div>
+      {references && (
+        <ReferencesPanel
+          locations={references.locations}
+          query={references.query}
+          onPick={openTarget}
+          onClose={() => setReferences(null)}
+        />
+      )}
       {showAgent && <AgentPanel docId={docId} realtime={realtime} />}
     </div>
   );

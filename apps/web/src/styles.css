@@ -1357,3 +1357,92 @@ textarea:focus {
   transition: color 0.2s ease;
 }
 .save-state-saved { color: var(--ok); }
+
+/* ---- LSP: diagnostics, hover, references ----
+   Diagnostics are background-only (a painted squiggle), never a border or a
+   widget: anything that changes line height would move the ribbon geometry in
+   Split view and perturb CodeMirror's height map. */
+.cm-lsp-error,
+.cm-lsp-warn {
+  background-repeat: repeat-x;
+  background-position: left bottom;
+  background-size: 6px 3px;
+  padding-bottom: 1px;
+}
+.cm-lsp-error {
+  background-image: linear-gradient(
+    45deg, transparent 65%, var(--danger) 65%, var(--danger) 80%, transparent 80%
+  );
+}
+.cm-lsp-warn {
+  background-image: linear-gradient(
+    45deg, transparent 65%, var(--warn, #b8860b) 65%, var(--warn, #b8860b) 80%, transparent 80%
+  );
+}
+.cm-lsp-hover {
+  max-width: 34rem;
+  padding: 0.4rem 0.6rem;
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  color: var(--fg);
+}
+.cm-tooltip {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-raised);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 18%);
+}
+
+.refs-panel {
+  position: fixed;
+  right: 1.25rem;
+  bottom: 1.25rem;
+  width: 26rem;
+  max-height: 40vh;
+  overflow: auto;
+  z-index: 40;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-raised);
+  box-shadow: 0 12px 32px rgb(0 0 0 / 22%);
+}
+.refs-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding: 0.5rem 0.7rem;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.8rem;
+}
+.refs-empty { padding: 0.7rem; font-size: 0.78rem; margin: 0; }
+.refs-list { list-style: none; margin: 0; padding: 0.25rem; }
+.refs-item {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  width: 100%;
+  text-align: left;
+  padding: 0.3rem 0.45rem;
+  border: none;
+  background: none;
+  border-radius: 6px;
+  font-size: 0.78rem;
+  color: var(--fg);
+  cursor: pointer;
+}
+.refs-item:hover { background: var(--neutral-bg); }
+.refs-kind {
+  font-size: 0.62rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 0.05rem 0.3rem;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  color: var(--fg-muted);
+}
+.refs-kind-doc { color: var(--accent); border-color: color-mix(in srgb, var(--accent) 40%, var(--border)); }
+.refs-where { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.refs-pos { margin-left: auto; color: var(--fg-muted); font-size: 0.7rem; }

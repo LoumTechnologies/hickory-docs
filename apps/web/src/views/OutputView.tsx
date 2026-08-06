@@ -5,10 +5,12 @@
 //
 // There is no "edit mode" — see components/OutputEditorPane.tsx.
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "../api/client";
 import type { OutputFile, OutputFileMeta, Provenance, SourceEdit } from "../api/types";
-import { OutputEditorPane, type ProvChar } from "../components/OutputEditorPane";
+import { OutputEditorPane, provToChars, type ProvChar } from "../components/OutputEditorPane";
+import type { OutputProvenance } from "../lsp/outputMapping";
+import type { Extension } from "@codemirror/state";
 
 function originLabel(p: Provenance): string {
   if (p.origin.kind === "synthetic") return "synthetic (weaver-generated, not editable)";
@@ -21,9 +23,19 @@ export interface OutputViewProps {
   onSourceEdited: (edits: SourceEdit[]) => void;
   /** Jump to a source span in the Document view (lineage click-through). */
   onSelectSpan: (span: [number, number]) => void;
+  /** Build LSP bindings for an output buffer, given its position mapper. */
+  makeOutputLsp?: (provenance: OutputProvenance[]) => Extension[];
+  /** Open this generated file, positioned on the given line span. */
+  outputTarget?: { path: string; span: [number, number] } | null;
 }
 
-export function OutputView({ docId, onSourceEdited, onSelectSpan }: OutputViewProps) {
+export function OutputView({
+  docId,
+  onSourceEdited,
+  onSelectSpan,
+  makeOutputLsp,
+  outputTarget,
+}: OutputViewProps) {
   const [files, setFiles] = useState<OutputFileMeta[] | null>(null);
   const [activePath, setActivePath] = useState<string | null>(null);
   const [file, setFile] = useState<OutputFile | null>(null);
@@ -54,6 +66,18 @@ export function OutputView({ docId, onSourceEdited, onSelectSpan }: OutputViewPr
   }, [docId, activePath]);
 
   useEffect(loadFile, [loadFile]);
+
+  // An LSP target landed in a generated file: open that file's tab.
+  useEffect(() => {
+    if (outputTarget) setActivePath(outputTarget.path);
+  }, [outputTarget]);
+
+  // Language bindings for this buffer: positions travel back through the
+  // file's provenance before any question is asked about them.
+  const outputLsp = useMemo(
+    () => (makeOutputLsp && file ? makeOutputLsp(provToChars(file)) : []),
+    [makeOutputLsp, file],
+  );
 
   const onSaved = (edits: SourceEdit[]) => {
     loadFile();
@@ -110,6 +134,7 @@ export function OutputView({ docId, onSourceEdited, onSelectSpan }: OutputViewPr
             key={file.path}
             docId={docId}
             file={file}
+            extensions={outputLsp}
             onLineage={setActiveProv}
             onSaved={onSaved}
           />
