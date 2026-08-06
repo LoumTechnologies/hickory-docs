@@ -111,3 +111,15 @@ So: transport, token plumbing, spawn, and error surfaces are verified
 against a real agent; guest boot + attach remain verified against the mock
 only, until a node with a built sandbox image is available. The live test
 stays `#[ignore]` and should be pointed at a real node then.
+
+## Cell images (what software a cell has)
+
+Canopy guests are NixOS configurations, so cell toolchains are defined in
+this repo's `flake.nix` by extending canopy's `sandbox-guest` module with
+package sets: `cell-shell` (coreutils/sed/awk), `cell-python` (python3 +
+polars + duckdb + uv), `cell-datasci` (adds R + ggplot2 + the DuckDB CLI).
+Build on a nix machine (`nix build .#cell-datasci`, optionally
+`--override-input cloud-canopy path:<local checkout>`), declare the store
+path in the tenant ledger, and map `image=` refs to it via
+`CANOPY_IMAGE_MAP`. The LocalExecutor ignores images; the same document runs
+locally against host tools.
