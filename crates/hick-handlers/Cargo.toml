@@ -1,0 +1,14 @@
+[package]
+name = "hick-handlers"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+hick-exec.workspace = true
+hick-lang.workspace = true
+anyhow = "1"
+log = "0.4"
+futures = "0.3.31"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }

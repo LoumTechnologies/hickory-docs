@@ -1,0 +1,14 @@
+[package]
+name = "hick-feature"
+version = "0.1.0"
+edition = "2024"
+description = "Feature system with dependency validation for conditional code generation"
+
+[lib]
+name = "hick_feature"
+path = "src/lib.rs"
+
+[dependencies]
+thiserror = "2"
+
+[dev-dependencies]

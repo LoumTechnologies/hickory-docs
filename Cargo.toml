@@ -1,0 +1,29 @@
+[workspace]
+resolver = "3"
+members = [
+    "crates/hick-case",
+    "crates/hick-classify",
+    "crates/hick-condition",
+    "crates/hick-exec",
+    "crates/hick-feature",
+    "crates/hick-flow",
+    "crates/hick-grove",
+    "crates/hick-handlers",
+    "crates/hick-lang",
+    "crates/hick-merge",
+    "crates/hick-secrets",
+    "crates/hick-sink",
+    "crates/hick-store",
+    "crates/hick-token",
+    "crates/hick-xml",
+    # Phase B (needs executor surgery before joining the workspace):
+    # "crates/hick-literate",
+]
+
+[workspace.package]
+edition = "2024"
+publish = false
+
+[workspace.dependencies]
+hick-lang = { version = "0.1", path = "crates/hick-lang" }
+hick-exec = { version = "0.1", path = "crates/hick-exec" }

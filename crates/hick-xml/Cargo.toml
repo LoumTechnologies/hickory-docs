@@ -1,0 +1,10 @@
+[package]
+name = "hick-xml"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+description = "XML DOM abstraction with roxmltree backend, selector queries, and error types for HickoryDocs"
+
+[dependencies]
+roxmltree = "0.20"
+thiserror = "2.0.17"

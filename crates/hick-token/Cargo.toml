@@ -1,0 +1,11 @@
+[package]
+name = "hick-token"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+chrono = { version = "0.4.43", features = ["serde"] }
+hick-classify = { version = "0.1.0", path = "../hick-classify" }
+macaroon = "0.3"
+thiserror = "2"
