@@ -20,6 +20,14 @@ export interface Realtime {
   /** Resolves once the server's initial sync state has been applied (or
    *  immediately when there is no server, e.g. mock mode). */
   whenSynced(): Promise<void>;
+  /**
+   * True when the server owns the document's initial content. The server
+   * builds each room's Y.Doc from `docs.source`, so a client that also
+   * seeds mints a rival copy that the CRDT merges by CONCATENATION —
+   * the document doubles on every connect. Only a client-only realtime
+   * (mock mode) may seed.
+   */
+  readonly serverAuthoritative: boolean;
   close(): void;
 }
 
@@ -28,6 +36,8 @@ export interface Realtime {
  * query parameter since the framed protocol itself carries no doc name.
  */
 export class WsRealtime implements Realtime {
+  /** The server seeds the room from `docs.source`; never seed from here. */
+  readonly serverAuthoritative = true;
   private ws: WebSocket | null = null;
   private runListeners = new Set<(msg: RunWsMessage) => void>();
   private doc: Y.Doc | null = null;
@@ -165,6 +175,8 @@ export function getSharedRealtime(): Realtime | null {
 
 /** In-browser realtime for VITE_MOCK=1: no network; run events are pushed locally. */
 export class LocalRealtime implements Realtime {
+  /** No server in mock mode — the client must seed its own content. */
+  readonly serverAuthoritative = false;
   private runListeners = new Set<(msg: RunWsMessage) => void>();
 
   whenSynced(): Promise<void> {

@@ -145,9 +145,13 @@ async fn build_room_doc(state: &AppState, doc: &DocRow) -> Doc {
 /// the doc id so it is identical across restarts and room re-creations.
 fn stable_client_id(doc_id: Uuid) -> u64 {
     let b = doc_id.as_bytes();
-    // Top bit cleared: yrs treats client ids as u64 but some encodings are
-    // happier below 2^63, and the value only needs to be stable + distinct.
-    u64::from_le_bytes([b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]]) >> 1
+    // MUST stay inside JavaScript's safe-integer range. yrs stores client ids
+    // as u64, but the browser decodes them into JS numbers: a value above
+    // 2^53 makes Yjs throw "Integer out of Range" and drop the whole update,
+    // so the client silently never receives the document. Yjs itself mints
+    // 32-bit ids, so 32 bits is both safe and conventional — still stable
+    // across restarts and distinct per document, which is all this needs.
+    u32::from_le_bytes([b[0], b[1], b[2], b[3]]) as u64
 }
 
 /// Minimal replace turning `current` into `target`, in UTF-16 code units
@@ -662,4 +666,37 @@ async fn persist_now(state: &AppState, room: &Arc<Room>) {
         log::error!("git persist for doc {} failed: {e:#}", room.doc_id);
     }
     let _ = room.owner_id;
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// JavaScript's `Number.MAX_SAFE_INTEGER`. Yjs decodes CRDT client ids
+    /// into JS numbers, so any id at or above this bound makes the browser
+    /// throw "Integer out of Range" and DISCARD the whole update — the
+    /// client silently never receives the document, and (before the client
+    /// stopped seeding) fell back to inserting its own copy, which the CRDT
+    /// merged by concatenation. Measured symptom: a 15 KB document reached
+    /// 49 MB, and rendering it took 7.8 s.
+    const JS_MAX_SAFE_INTEGER: u64 = 9_007_199_254_740_991;
+
+    #[test]
+    fn stable_client_id_stays_javascript_safe() {
+        for _ in 0..1000 {
+            let id = stable_client_id(Uuid::new_v4());
+            assert!(
+                id < JS_MAX_SAFE_INTEGER,
+                "client id {id} exceeds JS safe-integer range; Yjs would reject the update"
+            );
+        }
+    }
+
+    #[test]
+    fn stable_client_id_is_stable_and_distinct() {
+        let a = Uuid::new_v4();
+        let b = Uuid::new_v4();
+        assert_eq!(stable_client_id(a), stable_client_id(a));
+        assert_ne!(stable_client_id(a), stable_client_id(b));
+    }
 }

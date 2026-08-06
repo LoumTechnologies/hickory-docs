@@ -144,21 +144,19 @@ export function DocumentEditor({
     });
     realtime.bindDoc(ydoc, awareness);
 
-    // Seed ONLY after the server's sync state has been applied and the doc
-    // is STILL empty. Deciding on the local (always-fresh) Y.Doc before sync
-    // duplicated the entire document on every page load. 3s fallback covers
-    // a server that never answers (offline dev).
+    // Seeding is ONLY for realtimes with no server behind them (mock mode).
+    // With a server, the room's Y.Doc is built from `docs.source`; seeding
+    // here mints an independent copy of the same text under a different
+    // client id, and the CRDT merges the two by concatenation — the document
+    // doubles on every single connect. (Measured: a 15KB doc reached 49MB.)
     let cancelled = false;
-    const seed = () => {
-      if (!cancelled && ytext.length === 0 && initialSource.length > 0) {
-        ytext.insert(0, initialSource);
-      }
-    };
-    const fallback = setTimeout(seed, 3000);
-    void realtime.whenSynced().then(() => {
-      clearTimeout(fallback);
-      seed();
-    });
+    if (!realtime.serverAuthoritative) {
+      void realtime.whenSynced().then(() => {
+        if (!cancelled && ytext.length === 0 && initialSource.length > 0) {
+          ytext.insert(0, initialSource);
+        }
+      });
+    }
 
     const view = new EditorView({
       parent: host,
@@ -189,7 +187,6 @@ export function DocumentEditor({
 
     return () => {
       cancelled = true;
-      clearTimeout(fallback);
       onViewReady?.(null);
       view.destroy();
       viewRef.current = null;
