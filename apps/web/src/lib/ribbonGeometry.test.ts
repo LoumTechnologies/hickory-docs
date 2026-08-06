@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bandAround, clampBand, ribbonPath, thicknessFor } from "./ribbonGeometry";
+import { bandAround, clampBand, ribbonPath, thicknessFor, ribbonPathVia, ribbonStubPath, atLeast } from "./ribbonGeometry";
 
 describe("clampBand", () => {
   it("passes a fully visible band through untouched", () => {
@@ -61,5 +61,34 @@ describe("ribbonPath", () => {
     expect(d).toContain("M 0.1 1.1");
     expect(d).toContain("6");
     expect(d).not.toMatch(/\d\.\d\d/);
+  });
+});
+
+describe("ribbons routed through the file-tree waypoint", () => {
+  it("threads source → node → output as one closed path", () => {
+    const d = ribbonPathVia(100, 10, 30, 200, 260, 40, 50, 400, 80, 120);
+    // Starts at the source edge, reaches the node's left and right edges, ends
+    // closed so the ribbon fills rather than strokes.
+    expect(d.startsWith("M 100 10")).toBe(true);
+    expect(d).toContain("200 40");
+    expect(d).toContain("L 260 40");
+    expect(d).toContain("400 80");
+    expect(d.endsWith("Z")).toBe(true);
+  });
+
+  it("stubs stop at the node and never reach the output edge", () => {
+    const d = ribbonStubPath(100, 10, 30, 200, 40, 50);
+    expect(d.startsWith("M 100 10")).toBe(true);
+    expect(d).toContain("200 40");
+    expect(d).toContain("L 200 50");
+    expect(d.endsWith("Z")).toBe(true);
+  });
+
+  it("gives a zero-height band a grabbable minimum without moving its center", () => {
+    const b = atLeast(100, 100, 4);
+    expect(b.yBot - b.yTop).toBe(4);
+    expect((b.yTop + b.yBot) / 2).toBe(100);
+    // A band that is already tall enough is returned untouched.
+    expect(atLeast(10, 40, 4)).toEqual({ yTop: 10, yBot: 40 });
   });
 });

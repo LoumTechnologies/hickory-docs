@@ -1141,16 +1141,94 @@ textarea:focus {
 /* --- split (lineage) view --- */
 .doc-page.split-mode .doc-main { max-width: none; }
 
+/* THE BOUNCE FIX. Every editor here wraps its lines inside a max-height box.
+   When content crosses that height a vertical scrollbar appears, which narrows
+   the content box, which rewraps the lines, which can drop the height back
+   below the threshold — the scrollbar disappears and it starts over. That
+   feedback loop is the "metastable bounce": the pane oscillates forever
+   because neither state is stable. Reserving the gutter makes the content
+   width identical whether or not the scrollbar is showing, so there is no
+   loop to enter. */
+.cm-scroller {
+  scrollbar-gutter: stable;
+}
+
 .split-view {
   position: relative;
   display: flex;
-  gap: 3rem;
+  gap: 1.5rem;
   align-items: stretch;
 }
 .split-pane {
   flex: 1;
   min-width: 0;
 }
+/* The document gets the extra room; output is dense monospace. */
+.split-left { flex: 1.15; }
+
+/* ---- middle column: the file tree the ribbons pass through ---- */
+.split-middle {
+  flex: 0 0 13rem;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  padding-top: 0.4rem;
+}
+.output-tree {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-raised);
+  padding: 0.5rem 0.35rem 0.6rem;
+}
+.tree-heading {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--fg-muted);
+  margin: 0 0 0.4rem 0.5rem;
+  font-weight: 600;
+}
+.tree-list { list-style: none; margin: 0; padding: 0; }
+.tree-row {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  width: 100%;
+  text-align: left;
+  padding: 0.2rem 0.4rem;
+  border-radius: 6px;
+  font-size: 0.78rem;
+  color: var(--fg-muted);
+  background: none;
+  border: none;
+}
+.tree-dir { cursor: default; }
+.tree-icon { font-size: 0.6rem; opacity: 0.6; }
+.tree-file { cursor: pointer; color: var(--fg); }
+.tree-file:hover { background: var(--neutral-bg); }
+/* The node a ribbon lands in: a colored spine matching its ribbons. */
+.tree-file { border-left: 3px solid transparent; }
+.tree-c0 { border-left-color: var(--ribbon-0); }
+.tree-c1 { border-left-color: var(--ribbon-1); }
+.tree-c2 { border-left-color: var(--ribbon-2); }
+.tree-c3 { border-left-color: var(--ribbon-3); }
+.tree-c4 { border-left-color: var(--ribbon-4); }
+.tree-c5 { border-left-color: var(--ribbon-5); }
+.tree-file.on {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--fg);
+  font-weight: 600;
+}
+.tree-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tree-bytes { margin-left: auto; font-size: 0.68rem; color: var(--fg-muted); }
+.tree-lineage {
+  font-size: 0.72rem;
+  color: var(--fg-muted);
+  padding: 0 0.5rem;
+}
+.tree-lineage p { margin: 0.15rem 0; }
+.tree-lineage .prov-synthetic { opacity: 0.7; font-style: italic; }
 /* Narrower measure in split so both panes fit; padding stays padding. */
 .split-left .document-editor .cm-content {
   max-width: none;
@@ -1178,6 +1256,33 @@ textarea:focus {
 .split-output-editor .cm-editor { font-size: 0.84rem; }
 .split-output-editor .cm-editor.cm-focused { outline: none; }
 .split-output-editor .cm-scroller { font-family: ui-monospace, Menlo, monospace; }
+
+/* ---- editable output pane ---- */
+.output-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-width: 0;
+  flex: 1;
+}
+.output-pane-status {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  min-height: 1.6rem;
+  font-size: 0.75rem;
+  color: var(--fg-muted);
+  padding: 0 0.2rem;
+}
+.pane-dirty { color: var(--accent); }
+.pane-ok { color: var(--ok); }
+.pane-error { color: var(--danger); }
+.btn-sm { padding: 0.1rem 0.5rem; font-size: 0.72rem; }
+
+/* A ribbon that stops at the file node: content flowing into a file that is
+   not the one open on the right. Quieter than a full-run ribbon. */
+.ribbon-stub { opacity: 0.3; }
+.ribbon-stub:hover { opacity: 0.6; }
 
 /* The ribbon overlay sits over the gap between the panes; only the paths
    take pointer events, so the editors stay fully interactive. */
@@ -1242,3 +1347,13 @@ textarea:focus {
 /* flow-root: children's margins stay inside the widget box (measured). */
 /* flow-root: children's margins stay inside the widget box (measured). */
 .cm-cell-panel, .cm-env-card { display: flow-root; }
+
+/* Autosave indicator: documents persist themselves through the CRDT room, so
+   this reports state rather than offering a button. */
+.save-state {
+  font-size: 0.75rem;
+  color: var(--fg-muted);
+  padding: 0 0.3rem;
+  transition: color 0.2s ease;
+}
+.save-state-saved { color: var(--ok); }

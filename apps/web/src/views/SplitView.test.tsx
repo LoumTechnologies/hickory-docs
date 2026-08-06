@@ -24,6 +24,7 @@ describe("SplitView (document | ribbons | output)", () => {
         execBlocks={[]}
         runningCells={new Set()}
         onRunCell={() => undefined}
+      onSourceEdited={() => undefined}
       />,
     );
     // Left: the WYSIWYG editor over the raw source.
@@ -38,7 +39,13 @@ describe("SplitView (document | ribbons | output)", () => {
         container.querySelector(".split-output-editor .cm-content")?.textContent ?? "",
       ).toContain("def load_runs(path):"),
     );
-    expect(container.querySelector(".split-file-label")?.textContent).toBe("src/latency.py");
+    // Middle: the generated-file tree, with the open file selected. `src/` is
+    // a directory node and `latency.py` the file node the ribbons pass through.
+    const dirs = [...container.querySelectorAll(".tree-dir .tree-name")].map((e) => e.textContent);
+    expect(dirs).toContain("src/");
+    const active = container.querySelector(".tree-file.on");
+    expect(active?.getAttribute("data-path")).toBe("src/latency.py");
+    expect(active?.textContent).toContain("latency.py");
     // The SVG ribbon overlay is mounted (geometry is zero-sized in jsdom,
     // but the layer and its per-ribbon paths derive from real provenance).
     expect(container.querySelector(".ribbon-layer")).toBeTruthy();

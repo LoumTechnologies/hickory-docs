@@ -29,7 +29,9 @@ export function DocumentView({ docId }: { docId: string }) {
   const [banner, setBanner] = useState<Banner>(null);
   const [selectSpan, setSelectSpan] = useState<[number, number] | null>(null);
   const [dirtySource, setDirtySource] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
+  // "saved" once the CRDT room's debounced persist has certainly landed and the
+  // server render caught up; "editing" while the user is still typing.
+  const [syncState, setSyncState] = useState<"idle" | "editing" | "saved">("idle");
   // Bumped when an /outputs/edit rewrote the source out-of-band so the
   // Document editor reseeds its Y.Doc from the freshly fetched source.
   const [editorEpoch, setEditorEpoch] = useState(0);
@@ -201,21 +203,27 @@ export function DocumentView({ docId }: { docId: string }) {
     }
   };
 
-  const save = async () => {
-    if (dirtySource === null || !doc) return;
-    setSaving(true);
-    try {
-      const updated = await api.saveDoc(docId, dirtySource);
-      setDoc(updated);
-      setDirtySource(null);
-      const r = await api.render(docId);
-      setBlocks(r.blocks);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setSaving(false);
-    }
-  };
+  // The document has no Save button: edits go into the CRDT, which the server
+  // persists (Postgres + git) 750 ms after typing stops. All this has to do is
+  // pick the server's copy back up so the cell panels, provenance spans and
+  // ribbons stop describing the previous version. Waiting longer than the
+  // server's own debounce is deliberate — re-fetching sooner would read the
+  // pre-persist source and render one keystroke behind forever.
+  useEffect(() => {
+    if (dirtySource === null) return;
+    setSyncState("editing");
+    const timer = setTimeout(() => {
+      Promise.all([api.doc(docId), api.render(docId)]).then(
+        ([d, r]) => {
+          setDoc(d);
+          setBlocks(r.blocks);
+          setSyncState("saved");
+        },
+        () => undefined,
+      );
+    }, 1200);
+    return () => clearTimeout(timer);
+  }, [dirtySource, docId]);
 
   // Spans arriving from provenance / source-edit responses are BYTE offsets
   // into the doc source; the editor selects by char position.
@@ -311,10 +319,14 @@ export function DocumentView({ docId }: { docId: string }) {
                 </button>
               </span>
             )}
-            {view !== "output" && (
-              <button className="btn" disabled={dirtySource === null || saving} onClick={() => void save()}>
-                {saving ? "Saving…" : "Save"}
-              </button>
+            {view !== "output" && syncState !== "idle" && (
+              <span
+                className={`save-state save-state-${syncState}`}
+                role="status"
+                title="Documents save themselves — edits sync to the project repo automatically."
+              >
+                {syncState === "editing" ? "Saving…" : "Saved"}
+              </span>
             )}
             <button className="btn" disabled={runningCells.size > 0} onClick={() => void runAll()}>
               Run all
@@ -360,6 +372,7 @@ export function DocumentView({ docId }: { docId: string }) {
             execBlocks={execBlocks}
             runningCells={runningCells}
             onRunCell={(id) => void runCell(id)}
+            onSourceEdited={onSourceEdited}
           />
         ) : (
           <OutputView docId={docId} onSourceEdited={onSourceEdited} onSelectSpan={onSelectSpan} />

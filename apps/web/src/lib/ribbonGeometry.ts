@@ -58,6 +58,16 @@ export function bandAround(yTop: number, yBot: number, t: number): { yTop: numbe
   return { yTop: mid - t / 2, yBot: mid + t / 2 };
 }
 
+/**
+ * Give a band a minimum visible thickness, growing it around its midpoint.
+ * A block whose source span is a single short line still needs to be grabbable.
+ */
+export function atLeast(yTop: number, yBot: number, minPx = 4): { yTop: number; yBot: number } {
+  const h = yBot - yTop;
+  if (h >= minPx) return { yTop, yBot };
+  return bandAround(yTop, yBot, minPx);
+}
+
 const fmt = (n: number) => (Math.round(n * 10) / 10).toString();
 
 /**
@@ -78,6 +88,62 @@ export function ribbonPath(
     `C ${fmt(mx)} ${fmt(y0Top)} ${fmt(mx)} ${fmt(y1Top)} ${fmt(x1)} ${fmt(y1Top)}`,
     `L ${fmt(x1)} ${fmt(y1Bot)}`,
     `C ${fmt(mx)} ${fmt(y1Bot)} ${fmt(mx)} ${fmt(y0Bot)} ${fmt(x0)} ${fmt(y0Bot)}`,
+    "Z",
+  ].join(" ");
+}
+
+/**
+ * A ribbon routed THROUGH a waypoint band — the file node in the middle
+ * column. Two Sankey segments (source→node, node→output) joined across the
+ * node's own width, so the eye follows content into the file it lands in and
+ * out again into the generated text.
+ */
+export function ribbonPathVia(
+  x0: number,
+  y0Top: number,
+  y0Bot: number,
+  nodeLeft: number,
+  nodeRight: number,
+  nTop: number,
+  nBot: number,
+  x1: number,
+  y1Top: number,
+  y1Bot: number,
+): string {
+  const m0 = (x0 + nodeLeft) / 2;
+  const m1 = (nodeRight + x1) / 2;
+  return [
+    `M ${fmt(x0)} ${fmt(y0Top)}`,
+    `C ${fmt(m0)} ${fmt(y0Top)} ${fmt(m0)} ${fmt(nTop)} ${fmt(nodeLeft)} ${fmt(nTop)}`,
+    `L ${fmt(nodeRight)} ${fmt(nTop)}`,
+    `C ${fmt(m1)} ${fmt(nTop)} ${fmt(m1)} ${fmt(y1Top)} ${fmt(x1)} ${fmt(y1Top)}`,
+    `L ${fmt(x1)} ${fmt(y1Bot)}`,
+    `C ${fmt(m1)} ${fmt(y1Bot)} ${fmt(m1)} ${fmt(nBot)} ${fmt(nodeRight)} ${fmt(nBot)}`,
+    `L ${fmt(nodeLeft)} ${fmt(nBot)}`,
+    `C ${fmt(m0)} ${fmt(nBot)} ${fmt(m0)} ${fmt(y0Bot)} ${fmt(x0)} ${fmt(y0Bot)}`,
+    "Z",
+  ].join(" ");
+}
+
+/**
+ * A ribbon that ENDS at the waypoint band: content flowing into a file that
+ * is not the one currently open on the right. It shows the document feeding
+ * every generated file, not just the visible one.
+ */
+export function ribbonStubPath(
+  x0: number,
+  y0Top: number,
+  y0Bot: number,
+  nodeLeft: number,
+  nTop: number,
+  nBot: number,
+): string {
+  const m0 = (x0 + nodeLeft) / 2;
+  return [
+    `M ${fmt(x0)} ${fmt(y0Top)}`,
+    `C ${fmt(m0)} ${fmt(y0Top)} ${fmt(m0)} ${fmt(nTop)} ${fmt(nodeLeft)} ${fmt(nTop)}`,
+    `L ${fmt(nodeLeft)} ${fmt(nBot)}`,
+    `C ${fmt(m0)} ${fmt(nBot)} ${fmt(m0)} ${fmt(y0Bot)} ${fmt(x0)} ${fmt(y0Bot)}`,
     "Z",
   ].join(" ");
 }

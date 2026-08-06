@@ -1,6 +1,7 @@
-// Split (lineage) view: Document editor left, generated output right, and an
-// SVG ribbon layer in between connecting each source fragment to the output
-// ranges it produced — a Sankey-style picture of the weave.
+// Split (lineage) view: the document on the left, the tree of generated files
+// in the middle, the generated text on the right, and an SVG ribbon layer
+// threading all three — a Sankey picture of the weave that you can edit from
+// either end.
 //
 // Layering rules honoured here:
 //  - RIBBONS ARE OVERLAY ONLY. Nothing in this file adds decorations that
@@ -11,19 +12,26 @@
 //    lineBlockAt returns the merged visible line, so ribbons collapse onto
 //    the folded line), and off-screen anchors clamp to the pane edge with a
 //    faded tail. Measurement is rAF-throttled on scroll/resize/fold/change.
+//  - A ribbon covers its WHOLE block on the source side, not a token at its
+//    start: the band runs from the first line's top to the last line's bottom,
+//    so the ribbon visibly carries the entire fragment into the output.
+//  - Each file node's height is that file's byte budget, subdivided among the
+//    fragments feeding it in output order — the middle column is a real Sankey
+//    stage, not a legend.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { EditorState, StateEffect } from "@codemirror/state";
+import { StateEffect } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { api } from "../api/client";
-import type { ExecBlock, OutputFile, OutputFileMeta } from "../api/types";
+import type { ExecBlock, OutputFile, OutputFileMeta, SourceEdit } from "../api/types";
 import type { Realtime } from "../api/realtime";
 import { DocumentEditor } from "../editor/DocumentEditor";
-import { languageExtensions } from "../editor/languages";
+import { OutputEditorPane, type ProvChar } from "../components/OutputEditorPane";
+import { OutputTree } from "../components/OutputTree";
 import { structureOf } from "../editor/wysiwyg";
 import { rangeHighlightField, setRangeHighlights } from "../editor/rangeHighlight";
-import { deriveRibbons } from "../lib/ribbons";
-import { bandAround, clampBand, ribbonPath, thicknessFor } from "../lib/ribbonGeometry";
+import { deriveRibbons, RIBBON_PALETTE_SIZE, type Ribbon } from "../lib/ribbons";
+import { atLeast, clampBand, ribbonPathVia, ribbonStubPath } from "../lib/ribbonGeometry";
 
 export interface SplitViewProps {
   docId: string;
@@ -37,6 +45,13 @@ export interface SplitViewProps {
   execBlocks: ExecBlock[];
   runningCells: Set<string>;
   onRunCell: (execId: string) => void;
+  /** An output edit resolved back into the document. */
+  onSourceEdited: (edits: SourceEdit[]) => void;
+}
+
+/** A ribbon plus the file it flows into. */
+interface FileRibbon extends Ribbon {
+  filePath: string;
 }
 
 interface RibbonShape {
@@ -47,11 +62,16 @@ interface RibbonShape {
   /** Source block span to highlight/select (char offsets, left editor). */
   sourceHl: [number, number];
   /** Output range to highlight/select (char offsets, right editor). */
-  outputHl: [number, number];
+  outputHl: [number, number] | null;
+  filePath: string;
 }
 
 /** Views that already received the appended highlight/measure config. */
 const configured = new WeakSet<EditorView>();
+
+/** Cap on files fetched for the tree — a document that weaves hundreds of
+ * files should not turn opening Split into a hundred requests. */
+const MAX_TREE_FILES = 24;
 
 export function SplitView({
   docId,
@@ -64,25 +84,24 @@ export function SplitView({
   execBlocks,
   runningCells,
   onRunCell,
+  onSourceEdited,
 }: SplitViewProps) {
   const [files, setFiles] = useState<OutputFileMeta[] | null>(null);
   const [activePath, setActivePath] = useState<string | null>(null);
-  const [file, setFile] = useState<OutputFile | null>(null);
+  const [loaded, setLoaded] = useState<Map<string, OutputFile>>(new Map());
   const [leftView, setLeftView] = useState<EditorView | null>(null);
   const [rightView, setRightView] = useState<EditorView | null>(null);
   const [shapes, setShapes] = useState<RibbonShape[]>([]);
   const [hovered, setHovered] = useState<string | null>(null);
+  const [lineage, setLineage] = useState<ProvChar[]>([]);
 
   const containerRef = useRef<HTMLDivElement>(null);
-  const rightHostRef = useRef<HTMLDivElement>(null);
   const frameRef = useRef(0);
+  const rowsRef = useRef(new Map<string, HTMLElement>());
 
-  const ribbons = useMemo(
-    () => (file ? deriveRibbons(file, docPath, docSource) : []),
-    [file, docPath, docSource],
-  );
+  const file = activePath ? (loaded.get(activePath) ?? null) : null;
 
-  // ----- output files (right pane), ribbons for the ACTIVE file only -------
+  // ----- output files: the tree, and provenance for every file -------------
 
   useEffect(() => {
     let stale = false;
@@ -102,99 +121,195 @@ export function SplitView({
   }, [docId, docSource]);
 
   useEffect(() => {
-    if (!activePath) {
-      setFile(null);
-      return;
-    }
+    if (!files) return;
     let stale = false;
-    api.outputFile(docId, activePath).then(
-      (f) => !stale && setFile(f),
-      () => !stale && setFile(null),
-    );
+    const wanted = files.slice(0, MAX_TREE_FILES).map((f) => f.path);
+    Promise.all(
+      wanted.map((p) => api.outputFile(docId, p).then((f) => [p, f] as const, () => null)),
+    ).then((entries) => {
+      if (stale) return;
+      const next = new Map<string, OutputFile>();
+      for (const e of entries) if (e) next.set(e[0], e[1]);
+      setLoaded(next);
+    });
     return () => {
       stale = true;
     };
-  }, [docId, activePath, docSource]);
+  }, [docId, files, docSource]);
+
+  // Ribbons for EVERY file, colored per distinct source fragment across the
+  // whole weave: one copy block feeding two files keeps one color.
+  const ribbons = useMemo(() => {
+    const colors = new Map<string, number>();
+    const out: FileRibbon[] = [];
+    for (const [path, f] of loaded) {
+      for (const r of deriveRibbons(f, docPath, docSource)) {
+        const fragKey = `${r.sourceByteSpan[0]}:${r.sourceByteSpan[1]}`;
+        let color = colors.get(fragKey);
+        if (color === undefined) {
+          color = colors.size % RIBBON_PALETTE_SIZE;
+          colors.set(fragKey, color);
+        }
+        out.push({ ...r, color, filePath: path });
+      }
+    }
+    return out;
+  }, [loaded, docPath, docSource]);
+
+  const bytesPerFile = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const r of ribbons) m.set(r.filePath, (m.get(r.filePath) ?? 0) + r.bytes);
+    return m;
+  }, [ribbons]);
+
+  const colorPerFile = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const r of ribbons) if (!m.has(r.filePath)) m.set(r.filePath, r.color);
+    return m;
+  }, [ribbons]);
 
   // ----- geometry: rAF-throttled measurement of live anchors ---------------
 
   const measureRef = useRef<() => void>(() => undefined);
   measureRef.current = () => {
     const left = leftView;
-    const right = rightView;
     const container = containerRef.current;
-    if (!left || !right || !container || ribbons.length === 0) {
+    if (!left || !container || ribbons.length === 0) {
       setShapes((s) => (s.length === 0 ? s : []));
       return;
     }
     const cRect = container.getBoundingClientRect();
     const lRect = left.scrollDOM.getBoundingClientRect();
-    const rRect = right.scrollDOM.getBoundingClientRect();
+    const rRect = rightView?.scrollDOM.getBoundingClientRect() ?? null;
     const structure = structureOf(left.state);
-    const totalBytes = ribbons.reduce((sum, r) => sum + r.bytes, 0);
     const leftLen = left.state.doc.length;
-    const rightLen = right.state.doc.length;
+    const rightLen = rightView?.state.doc.length ?? 0;
     const x0 = lRect.right - cRect.left;
-    const x1 = rRect.left - cRect.left;
+    const x1 = rRect ? rRect.left - cRect.left : x0;
 
-    const out: RibbonShape[] = [];
-    for (const r of ribbons) {
-      // Source anchor: first line of the enclosing copy/cut/file block (its
-      // chip line), falling back to the span's own first line. When that line
-      // is inside a fold, lineBlockAt returns the merged folded line.
-      let anchorPos = Math.min(r.sourceSpan[0], leftLen);
-      let sourceHl: [number, number] = [
-        Math.min(r.sourceSpan[0], leftLen),
-        Math.min(r.sourceSpan[1], leftLen),
-      ];
+    // The whole enclosing block on the source side, resolved once per ribbon.
+    const blockOf = (r: FileRibbon): [number, number] => {
       for (const b of structure.blocks) {
         if (
           (b.name === "copy" || b.name === "cut" || b.name === "file") &&
           r.sourceSpan[0] >= b.from &&
           r.sourceSpan[1] <= b.to
         ) {
-          anchorPos = Math.min(b.from, leftLen);
-          sourceHl = [Math.min(b.from, leftLen), Math.min(b.to, leftLen)];
-          break;
+          return [Math.min(b.from, leftLen), Math.min(b.to, leftLen)];
         }
       }
-      const sBlock = left.lineBlockAt(anchorPos);
-      const sBand = clampBand(
-        sBlock.top + left.documentTop,
-        sBlock.bottom + left.documentTop,
-        lRect.top,
-        lRect.bottom,
-      );
-      const t = thicknessFor(r.bytes, totalBytes);
-      const s = bandAround(sBand.yTop, sBand.yBot, Math.min(t, sBand.yBot - sBand.yTop || t));
+      return [Math.min(r.sourceSpan[0], leftLen), Math.min(r.sourceSpan[1], leftLen)];
+    };
 
-      // Output anchor: the provenance range's first→last line rects.
-      const oFrom = Math.min(r.outputRange[0], rightLen);
-      const oTo = Math.min(Math.max(r.outputRange[1] - 1, oFrom), rightLen);
-      const oTop = right.lineBlockAt(oFrom);
-      const oBot = right.lineBlockAt(oTo);
-      const oBand = clampBand(
-        oTop.top + right.documentTop,
-        oBot.bottom + right.documentTop,
-        rRect.top,
-        rRect.bottom,
-      );
+    const out: RibbonShape[] = [];
+    // Group by file so each node's band can be subdivided by byte weight.
+    const byFile = new Map<string, FileRibbon[]>();
+    for (const r of ribbons) {
+      const list = byFile.get(r.filePath);
+      if (list) list.push(r);
+      else byFile.set(r.filePath, [r]);
+    }
 
-      out.push({
-        key: r.key,
-        color: r.color,
-        clamped: sBand.clamped || oBand.clamped,
-        path: ribbonPath(
-          x0,
-          s.yTop - cRect.top,
-          s.yBot - cRect.top,
-          x1,
-          oBand.yTop - cRect.top,
-          oBand.yBot - cRect.top,
-        ),
-        sourceHl,
-        outputHl: r.outputRange,
-      });
+    for (const [path, list] of byFile) {
+      const row = rowsRef.current.get(path);
+      if (!row) continue;
+      const nRect = row.getBoundingClientRect();
+      const nodeLeft = nRect.left - cRect.left;
+      const nodeRight = nRect.right - cRect.left;
+      const isActive = path === activePath;
+
+      const ordered = [...list].sort((a, b) => a.outputRange[0] - b.outputRange[0]);
+      const totalBytes = ordered.reduce((s, r) => s + r.bytes, 0) || 1;
+      // Inactive files collapse their fragments into one stub per source block
+      // — one file that a block feeds is one statement, not fifty.
+      const groups: { ribbons: FileRibbon[]; bytes: number }[] = [];
+      if (isActive) {
+        for (const r of ordered) groups.push({ ribbons: [r], bytes: r.bytes });
+      } else {
+        const byBlock = new Map<string, { ribbons: FileRibbon[]; bytes: number }>();
+        for (const r of ordered) {
+          const [bf, bt] = blockOf(r);
+          const k = `${bf}:${bt}`;
+          const g = byBlock.get(k);
+          if (g) {
+            g.ribbons.push(r);
+            g.bytes += r.bytes;
+          } else byBlock.set(k, { ribbons: [r], bytes: r.bytes });
+        }
+        groups.push(...byBlock.values());
+      }
+
+      let cursor = nRect.top;
+      for (const g of groups) {
+        const r = g.ribbons[0];
+        const share = (g.bytes / totalBytes) * nRect.height;
+        const nTop = cursor;
+        const nBot = cursor + Math.max(share, 1);
+        cursor = nBot;
+
+        const [bf, bt] = blockOf(r);
+        // Source band spans the ENTIRE block: first line top → last line bottom.
+        const sTopBlock = left.lineBlockAt(bf);
+        const sBotBlock = left.lineBlockAt(bt);
+        const sBand = clampBand(
+          sTopBlock.top + left.documentTop,
+          sBotBlock.bottom + left.documentTop,
+          lRect.top,
+          lRect.bottom,
+        );
+        const s = atLeast(sBand.yTop, sBand.yBot);
+
+        if (isActive && rRect && rightView) {
+          const oFrom = Math.min(r.outputRange[0], rightLen);
+          const oTo = Math.min(Math.max(r.outputRange[1] - 1, oFrom), rightLen);
+          const oTopBlock = rightView.lineBlockAt(oFrom);
+          const oBotBlock = rightView.lineBlockAt(oTo);
+          const oBand = clampBand(
+            oTopBlock.top + rightView.documentTop,
+            oBotBlock.bottom + rightView.documentTop,
+            rRect.top,
+            rRect.bottom,
+          );
+          const o = atLeast(oBand.yTop, oBand.yBot);
+          out.push({
+            key: r.key,
+            color: r.color,
+            clamped: sBand.clamped || oBand.clamped,
+            filePath: path,
+            path: ribbonPathVia(
+              x0,
+              s.yTop - cRect.top,
+              s.yBot - cRect.top,
+              nodeLeft,
+              nodeRight,
+              nTop - cRect.top,
+              nBot - cRect.top,
+              x1,
+              o.yTop - cRect.top,
+              o.yBot - cRect.top,
+            ),
+            sourceHl: [bf, bt],
+            outputHl: r.outputRange,
+          });
+        } else {
+          out.push({
+            key: `${path}:${bf}:${bt}`,
+            color: r.color,
+            clamped: sBand.clamped,
+            filePath: path,
+            path: ribbonStubPath(
+              x0,
+              s.yTop - cRect.top,
+              s.yBot - cRect.top,
+              nodeLeft,
+              nTop - cRect.top,
+              nBot - cRect.top,
+            ),
+            sourceHl: [bf, bt],
+            outputHl: null,
+          });
+        }
+      }
     }
     setShapes(out);
   };
@@ -224,6 +339,15 @@ export function SplitView({
     [],
   );
 
+  const registerRow = useCallback(
+    (path: string, el: HTMLElement | null) => {
+      if (el) rowsRef.current.set(path, el);
+      else rowsRef.current.delete(path);
+      schedule();
+    },
+    [schedule],
+  );
+
   // Left editor: append the highlight field + a measure trigger once per view.
   const onLeftViewReady = useCallback(
     (view: EditorView | null) => {
@@ -243,35 +367,15 @@ export function SplitView({
     [schedule],
   );
 
-  // Right editor: read-only CodeMirror over the active output file.
-  useEffect(() => {
-    const host = rightHostRef.current;
-    if (!host || !file) {
-      setRightView(null);
-      return;
-    }
-    const view = new EditorView({
-      parent: host,
-      state: EditorState.create({
-        doc: file.content,
-        extensions: [
-          rangeHighlightField,
-          ...languageExtensions(file.language),
-          EditorView.lineWrapping,
-          EditorState.readOnly.of(true),
-          EditorView.editable.of(false),
-          EditorView.updateListener.of((u) => {
-            if (u.geometryChanged || u.viewportChanged) schedule();
-          }),
-        ],
+  const rightExtensions = useMemo(
+    () => [
+      rangeHighlightField,
+      EditorView.updateListener.of((u) => {
+        if (u.docChanged || u.geometryChanged || u.viewportChanged) schedule();
       }),
-    });
-    setRightView(view);
-    return () => {
-      view.destroy();
-      setRightView(null);
-    };
-  }, [file, schedule]);
+    ],
+    [schedule],
+  );
 
   // Scroll / resize wiring.
   useEffect(() => {
@@ -294,21 +398,29 @@ export function SplitView({
     };
   }, [leftView, rightView, schedule]);
 
-  useEffect(schedule, [ribbons, schedule]);
+  useEffect(schedule, [ribbons, activePath, schedule]);
 
   // ----- hover / click lineage -----
 
   const highlight = (shape: RibbonShape | null) => {
     setHovered(shape?.key ?? null);
     leftView?.dispatch({
-      effects: setRangeHighlights.of(shape ? [{ from: shape.sourceHl[0], to: shape.sourceHl[1] }] : []),
+      effects: setRangeHighlights.of(
+        shape ? [{ from: shape.sourceHl[0], to: shape.sourceHl[1] }] : [],
+      ),
     });
     rightView?.dispatch({
-      effects: setRangeHighlights.of(shape ? [{ from: shape.outputHl[0], to: shape.outputHl[1] }] : []),
+      effects: setRangeHighlights.of(
+        shape?.outputHl ? [{ from: shape.outputHl[0], to: shape.outputHl[1] }] : [],
+      ),
     });
   };
 
   const selectBoth = (shape: RibbonShape) => {
+    if (shape.filePath !== activePath) {
+      setActivePath(shape.filePath);
+      return;
+    }
     if (leftView) {
       const max = leftView.state.doc.length;
       leftView.dispatch({
@@ -319,7 +431,7 @@ export function SplitView({
         scrollIntoView: true,
       });
     }
-    if (rightView) {
+    if (rightView && shape.outputHl) {
       const max = rightView.state.doc.length;
       rightView.dispatch({
         selection: {
@@ -347,35 +459,49 @@ export function SplitView({
           onViewReady={onLeftViewReady}
         />
       </div>
-      <div className="split-pane split-right">
-        {files && files.length > 1 && (
-          <div className="output-tabs" role="tablist">
-            {files.map((f) => (
-              <button
-                key={f.path}
-                role="tab"
-                aria-selected={f.path === activePath}
-                className={`output-tab mono${f.path === activePath ? " on" : ""}`}
-                onClick={() => setActivePath(f.path)}
-              >
-                {f.path}
-              </button>
+
+      <div className="split-middle">
+        <OutputTree
+          files={files ?? []}
+          activePath={activePath}
+          onSelect={setActivePath}
+          registerRow={registerRow}
+          colorOf={(p) => colorPerFile.get(p)}
+          bytesOf={(p) => bytesPerFile.get(p)}
+        />
+        {lineage.length > 0 && (
+          <div className="tree-lineage" data-testid="tree-lineage">
+            {lineage.slice(0, 3).map((p, i) => (
+              <p key={i} className={p.origin.kind === "synthetic" ? "prov-synthetic" : ""}>
+                {p.origin.kind === "synthetic"
+                  ? "weaver-generated — not editable"
+                  : `${p.origin.kind} from ${p.origin.doc_path}`}
+              </p>
             ))}
           </div>
         )}
+      </div>
+
+      <div className="split-pane split-right">
         {files !== null && files.length === 0 ? (
-          <p className="muted">
-            No generated outputs yet — run the document to weave its files.
-          </p>
+          <p className="muted">No generated outputs yet — run the document to weave its files.</p>
+        ) : file ? (
+          <OutputEditorPane
+            key={file.path}
+            docId={docId}
+            file={file}
+            className="split-output-editor"
+            testId="split-output"
+            extensions={rightExtensions}
+            onViewReady={setRightView}
+            onLineage={setLineage}
+            onSaved={onSourceEdited}
+          />
         ) : (
-          <>
-            {files && files.length === 1 && (
-              <div className="split-file-label mono">{files[0].path}</div>
-            )}
-            <div ref={rightHostRef} className="split-output-editor" data-testid="split-output" />
-          </>
+          <p className="muted">Loading output…</p>
         )}
       </div>
+
       <svg
         className={`ribbon-layer${hovered ? " has-hover" : ""}`}
         data-testid="ribbon-layer"
@@ -387,7 +513,7 @@ export function SplitView({
             d={s.path}
             className={`ribbon ribbon-c${s.color}${s.clamped ? " ribbon-faded" : ""}${
               hovered === s.key ? " ribbon-hovered" : ""
-            }`}
+            }${s.outputHl ? "" : " ribbon-stub"}`}
             onMouseEnter={() => highlight(s)}
             onMouseLeave={() => highlight(null)}
             onClick={() => selectBoth(s)}
