@@ -414,14 +414,6 @@ async fn cmd_agent(args: AgentArgs) -> Result<ExitCode> {
         Some(dir) => dir.clone(),
         None => std::env::current_dir()?,
     };
-    let doc_context = match &args.doc {
-        Some(path) => Some(
-            std::fs::read_to_string(path)
-                .with_context(|| format!("failed to read {}", path.display()))?,
-        ),
-        None => None,
-    };
-
     let mut llm = AnthropicClient::new();
     if let Some(model) = &args.model {
         llm = llm.with_model(model.clone());
@@ -430,7 +422,10 @@ async fn cmd_agent(args: AgentArgs) -> Result<ExitCode> {
     let executor = ExecutorChoice::from_env()?.build()?;
 
     let mut config = AgentConfig::new(args.prompt, &project_dir);
-    config.doc_context = doc_context;
+    // `--doc` is the session's primary document: it enables the edit tool
+    // set (read_doc/read_output/edit_output/edit_doc/verify) instead of
+    // inlining the source as context.
+    config.doc_path = args.doc.clone();
     config.max_turns = args.max_turns;
 
     let mut on_event = |event: AgentEvent| {
@@ -463,6 +458,14 @@ async fn cmd_agent(args: AgentArgs) -> Result<ExitCode> {
                         .unwrap_or_else(|| "unknown".into())
                 );
             }
+            AgentEvent::ToolStarted { name, .. } => eprintln!("agent: running tool {name}"),
+            AgentEvent::ToolFinished { name, ok, text } => {
+                let _ = writeln!(stdout, "{text}");
+                eprintln!(
+                    "agent: tool {name} {}",
+                    if *ok { "ok" } else { "refused/failed" }
+                );
+            }
             AgentEvent::Reprompt { reason, .. } => {
                 eprintln!("agent: re-prompting after malformed response ({reason})");
             }
@@ -471,7 +474,7 @@ async fn cmd_agent(args: AgentArgs) -> Result<ExitCode> {
         }
     };
 
-    let outcome = run_agent(&llm, executor.as_ref(), &config, &mut on_event).await?;
+    let outcome = run_agent(&llm, executor.clone(), &config, &mut on_event).await?;
     executor.shutdown().await?;
 
     eprintln!(

@@ -20,7 +20,8 @@ async fn live_smoke() {
 
     let dir = tempfile::tempdir().unwrap();
     let llm = AnthropicClient::new().with_max_tokens(1024);
-    let executor = LocalExecutor::new().unwrap();
+    let executor: std::sync::Arc<dyn hickory_executor::Executor> =
+        std::sync::Arc::new(LocalExecutor::new().unwrap());
     let mut config = AgentConfig::new(
         "Run one shell command that prints the word smoke, then finish.",
         dir.path(),
@@ -28,7 +29,7 @@ async fn live_smoke() {
     config.max_turns = 4;
 
     let mut events = Vec::new();
-    let outcome = run_agent(&llm, &executor, &config, &mut |e: AgentEvent| {
+    let outcome = run_agent(&llm, executor.clone(), &config, &mut |e: AgentEvent| {
         events.push(e);
     })
     .await

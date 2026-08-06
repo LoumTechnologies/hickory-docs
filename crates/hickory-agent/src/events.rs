@@ -32,6 +32,14 @@ pub enum AgentEvent {
     /// Script execution finished (`exit`-like: carries the exit code plus
     /// captured output).
     ScriptFinished { result: ScriptResult },
+    /// About to execute a document tool (`data` is the raw tool XML).
+    ToolStarted { name: String, data: String },
+    /// Document tool finished; `text` is the tool-result observation.
+    ToolFinished {
+        name: String,
+        ok: bool,
+        text: String,
+    },
     /// The agent re-prompted the LLM after a malformed response.
     Reprompt { reason: String, attempt: usize },
     /// Agent produced a final answer.

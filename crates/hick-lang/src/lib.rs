@@ -578,6 +578,14 @@ impl<'a> Parser<'a> {
     }
 
     /// Parse children until the matching closing tag is found.
+    /// Elements whose content is captured verbatim (raw text up to the next
+    /// matching close marker) instead of being parsed for nested tags.
+    ///
+    /// These carry the agent session vocabulary's payloads: `hick:input`
+    /// (multi-line tool-call payloads, e.g. replacement text that may quote
+    /// unbalanced hick fragments) and `hick:tool-result` (tool observations
+    /// that may excerpt arbitrary document slices). The only substring such
+    /// content cannot contain is its own literal close tag.
     fn parse_children(
         &mut self,
         close_name: &str,
@@ -682,6 +690,28 @@ impl<'a> Parser<'a> {
 
                     if tag.self_closing {
                         nodes.push(HickNode::Tag(tag));
+                    } else if is_raw_content_tag(&tag.name) {
+                        // Verbatim-capture element (session vocabulary:
+                        // tool payloads and tool results): content is raw
+                        // text up to the next matching close marker, so
+                        // captured fragments containing unbalanced
+                        // hick-like markers cannot break the parse.
+                        let close = format!("{}{}>", self.close_marker, tag.name);
+                        let rem = self.remaining();
+                        let end = rem.find(&close).ok_or_else(|| ParseError::UnclosedTag {
+                            prefix: self.prefix.clone(),
+                            name: tag.name.clone(),
+                            line: tag.source_line,
+                        })?;
+                        let raw = rem[..end].to_string();
+                        let span =
+                            SourceSpan::new(self.pos, self.pos + raw.len(), self.line, self.col);
+                        self.advance(end + close.len());
+                        let mut children = Vec::new();
+                        if !raw.is_empty() {
+                            children.push(HickNode::Text(raw, Some(span)));
+                        }
+                        nodes.push(HickNode::Tag(HickTag { children, ..tag }));
                     } else {
                         // Parse nested children
                         let tag_name = tag.name.clone();
@@ -901,6 +931,11 @@ impl<'a> Parser<'a> {
 // ---------------------------------------------------------------------------
 // Session node extraction
 // ---------------------------------------------------------------------------
+
+/// Is `name` a verbatim-capture element? See the note on `parse_children`.
+fn is_raw_content_tag(name: &str) -> bool {
+    matches!(name, "input" | "tool-result")
+}
 
 /// Convert raw [`HickNode`]s (from a `hick:session` root) into typed
 /// [`SessionNode`]s.  Unknown tags are silently ignored.
@@ -1301,6 +1336,41 @@ print(os.getcwd())
                 text: "ls -la src/".into()
             }
         );
+    }
+
+    #[test]
+    fn parse_session_tool_nodes_ride_along_with_raw_payloads() {
+        // The agent tool vocabulary: hick:tool/hick:arg inside an assistant
+        // turn, hick:input payloads and hick:tool-result observations that
+        // may quote UNBALANCED hick fragments — captured verbatim, the
+        // session still parses, and unknown tags are gracefully skipped.
+        let src = minimal_session(
+            r#"<hick:user>fix the constant</hick:user>
+<hick:assistant>
+Following the pointer.
+<hick:tool name="edit_doc">
+<hick:arg name="run">a1b2..c3d4</hick:arg>
+<hick:input>
+<hick:copy id="dup">unbalanced open, no close
+</hick:input>
+</hick:tool>
+</hick:assistant>
+<hick:tool-result name="edit_doc" ok="true">
+edited region:
+ffff|</hick:copy>
+ffff|<hick:file path="gen.rs">// slice
+</hick:tool-result>
+<hick:assistant>Done.</hick:assistant>"#,
+        );
+        let doc = parse_session(&src).expect("tool session must parse");
+        // user + two assistants; tool and tool-result are inert/skipped.
+        assert_eq!(doc.nodes.len(), 3);
+        assert!(matches!(doc.nodes[0], SessionNode::User { .. }));
+        assert!(
+            matches!(&doc.nodes[1], SessionNode::Assistant { text, actions }
+                if text.contains("Following the pointer.") && actions.is_empty())
+        );
+        assert!(matches!(&doc.nodes[2], SessionNode::Assistant { text, .. } if text == "Done."));
     }
 
     #[test]

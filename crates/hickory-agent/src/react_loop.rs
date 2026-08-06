@@ -7,6 +7,7 @@
 //! emitted as an [`AgentEvent`] for the WS run channel.
 
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use anyhow::{Context as _, Result};
 use futures::StreamExt as _;
@@ -14,16 +15,24 @@ use hickory_executor::Executor;
 
 use crate::events::AgentEvent;
 use crate::llm::{LlmClient, Message, Role};
-use crate::protocol::{SYSTEM_PROMPT, Turn, correction_message, parse_response};
+use crate::protocol::{
+    SYSTEM_PROMPT, TOOLS_SYSTEM_PROMPT, Turn, correction_message, parse_response,
+};
 use crate::script::{AGENT_CONTAINER, run_script};
 use crate::session::{HickSessionLog, SessionEvent, SessionLog, session_file_path};
+use crate::tools::{EditSession, execute_tool};
 
 /// Configuration for one agent run.
 pub struct AgentConfig {
     /// The user's task prompt.
     pub prompt: String,
-    /// Optional document source given as context (`--doc`).
+    /// Optional document source given as inline context (pure-script
+    /// sessions; superseded by [`AgentConfig::doc_path`]).
     pub doc_context: Option<String>,
+    /// The session's primary document (`--doc`). When set, the document
+    /// edit tool set (read_doc/read_output/edit_output/edit_doc/verify) is
+    /// enabled and an [`EditSession`] is opened on this path.
+    pub doc_path: Option<PathBuf>,
     /// Project directory: session files land in `<project_dir>/sessions/`.
     pub project_dir: PathBuf,
     /// Maximum LLM turns before giving up (default 20).
@@ -39,6 +48,7 @@ impl AgentConfig {
         Self {
             prompt: prompt.into(),
             doc_context: None,
+            doc_path: None,
             project_dir: project_dir.into(),
             max_turns: 20,
             image: "host".into(),
@@ -66,7 +76,7 @@ const MAX_CONSECUTIVE_INVALID: usize = 3;
 /// answer and the session path.
 pub async fn run_agent(
     llm: &dyn LlmClient,
-    executor: &dyn Executor,
+    executor: Arc<dyn Executor>,
     config: &AgentConfig,
     on_event: &mut (dyn FnMut(AgentEvent) + Send),
 ) -> Result<AgentOutcome> {
@@ -84,7 +94,24 @@ pub async fn run_agent(
         .await
         .context("failed to start agent container")?;
 
+    // The primary document opens an edit session: single-writer, re-woven
+    // after every successful edit, so staleness is impossible inside it.
+    let mut edit_session: Option<EditSession> =
+        match &config.doc_path {
+            Some(path) => Some(EditSession::open(path, &[]).await.with_context(|| {
+                format!("failed to open the primary document {}", path.display())
+            })?),
+            None => None,
+        };
+
     let mut system = SYSTEM_PROMPT.to_string();
+    if let Some(es) = &edit_session {
+        system.push_str(TOOLS_SYSTEM_PROMPT);
+        system.push_str(&format!(
+            "\n\nPrimary document of this session: {}",
+            es.doc_path().display()
+        ));
+    }
     if let Some(doc) = &config.doc_context {
         system.push_str("\n\n## Document under discussion\n\n");
         system.push_str(doc);
@@ -141,7 +168,7 @@ pub async fn run_agent(
                     data: block.code.clone(),
                 });
 
-                let result = run_script(executor, &block, action_index).await?;
+                let result = run_script(executor.as_ref(), &block, action_index).await?;
 
                 let mut observation_text = result.stdout.clone();
                 if !result.stderr.is_empty() {
@@ -164,6 +191,51 @@ pub async fn run_agent(
                 history.push(Message::new(
                     Role::User,
                     format!("Observation:\n{}", result.as_observation()),
+                ));
+            }
+            Turn::Tool {
+                thought,
+                invocation,
+            } => {
+                consecutive_invalid = 0;
+                session.record(SessionEvent::ToolCall {
+                    prose: thought.as_deref().unwrap_or(""),
+                    xml: &invocation.raw_xml,
+                });
+                on_event(AgentEvent::ToolStarted {
+                    name: invocation.name.clone(),
+                    data: invocation.raw_xml.clone(),
+                });
+
+                let outcome = match edit_session.as_mut() {
+                    Some(es) => execute_tool(es, executor.clone(), &invocation).await,
+                    None => crate::tools::ToolOutcome {
+                        name: invocation.name.clone(),
+                        ok: false,
+                        text: "no primary document in this session — document tools need \
+                               `hickory agent --doc <file.hick>`; use a script instead"
+                            .to_string(),
+                    },
+                };
+
+                session.record(SessionEvent::ToolResult {
+                    name: &outcome.name,
+                    ok: outcome.ok,
+                    text: &outcome.text,
+                });
+                on_event(AgentEvent::ToolFinished {
+                    name: outcome.name.clone(),
+                    ok: outcome.ok,
+                    text: outcome.text.clone(),
+                });
+
+                history.push(Message::new(Role::Assistant, response));
+                history.push(Message::new(
+                    Role::User,
+                    format!(
+                        "<hick:tool-result name=\"{}\" ok=\"{}\">\n{}\n</hick:tool-result>",
+                        outcome.name, outcome.ok, outcome.text
+                    ),
                 ));
             }
             Turn::Done { summary } => {

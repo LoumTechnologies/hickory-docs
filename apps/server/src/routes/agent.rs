@@ -152,7 +152,7 @@ async fn run_agent_session(
     let mut on_event = |event: AgentEvent| {
         let _ = event_tx.send(event);
     };
-    let outcome = run_agent(&llm, executor.as_ref(), &config, &mut on_event).await;
+    let outcome = run_agent(&llm, executor.clone(), &config, &mut on_event).await;
     drop(event_tx);
     forwarder.await.ok();
     executor.shutdown().await.ok();

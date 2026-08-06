@@ -35,11 +35,12 @@ async fn agent_session_promotes_to_checked_pipeline() {
 
     // 1. Drive the ReAct loop with scripted responses — no network.
     let llm = ScriptedLlmClient::new([TURN_CODE, TURN_DONE]);
-    let executor = LocalExecutor::new().unwrap();
+    let executor: std::sync::Arc<dyn hickory_executor::Executor> =
+        std::sync::Arc::new(LocalExecutor::new().unwrap());
     let config = AgentConfig::new("create a greeting file", project_dir);
 
     let mut events = Vec::new();
-    let outcome = run_agent(&llm, &executor, &config, &mut |e: AgentEvent| {
+    let outcome = run_agent(&llm, executor.clone(), &config, &mut |e: AgentEvent| {
         events.push(e);
     })
     .await

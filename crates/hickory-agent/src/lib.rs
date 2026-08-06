@@ -25,6 +25,7 @@ mod react_loop;
 mod script;
 mod scripted;
 mod session;
+mod tools;
 
 /// The `exec_id` agent sessions stream under on the WS run channel.
 pub use events::AGENT_EXEC_ID;
@@ -46,12 +47,18 @@ pub use llm_anthropic::AnthropicClient;
 pub use llm_anthropic::DEFAULT_ANTHROPIC_MODEL;
 /// Default system prompt for the script-first strategy.
 pub use protocol::SYSTEM_PROMPT;
+/// System prompt addendum enabling the document edit tool set.
+pub use protocol::TOOLS_SYSTEM_PROMPT;
+/// One tool invocation parsed from a `<hick:next>tool</hick:next>` response.
+pub use protocol::ToolInvocation;
 /// One parsed turn of the `<hick:next>` protocol.
 pub use protocol::Turn;
 /// Build the re-prompt correction message for a malformed response.
 pub use protocol::correction_message;
 /// Parse an LLM response against the `<hick:next>` protocol.
 pub use protocol::parse_response;
+/// Parse the `<hick:tool>` element out of a tool response.
+pub use protocol::parse_tool_invocation;
 /// Configuration for one agent run.
 pub use react_loop::AgentConfig;
 /// The result of a completed agent run.
@@ -82,3 +89,11 @@ pub use session::SessionEvent;
 pub use session::SessionLog;
 /// Conventional session file path: `sessions/<timestamp>-<slug>.hick`.
 pub use session::session_file_path;
+/// Single-writer edit session over one primary hick document.
+pub use tools::EditSession;
+/// The result of one tool invocation (a `<hick:tool-result>` observation).
+pub use tools::ToolOutcome;
+/// Execute one tool invocation against an edit session.
+pub use tools::execute_tool;
+/// Hashline rendering and anchor resolution primitives.
+pub use tools::hashline;

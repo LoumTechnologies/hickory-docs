@@ -34,6 +34,48 @@ What happens, procedurally:
 Choose this when you want sessions captured with full fidelity by
 construction, or you're in the hosted app.
 
+### The document edit tools (`--doc`)
+
+Passing `--doc` makes that file the session's *primary document* and gives
+the agent a first-class edit tool set alongside scripts. Tool calls are
+`<hick:tool>` elements in the session file — the session stays a parseable,
+replayable `hick:session` document.
+
+The tools:
+
+| Tool | What it does |
+| --- | --- |
+| `read_doc` | The document source, hashline-rendered: every line prefixed `hhhh\|`, a 4-hex content hash of that line. |
+| `read_output` | A woven output file, hashline-rendered; `with_lineage` adds per-range annotations showing which lines are editable and where they come from. |
+| `edit_output` | Edit a contiguous line run of an *output*; the edit maps back to the document byte-exactly through lineage. |
+| `edit_doc` | The same edit shape applied directly to the document source. |
+| `verify` | Execute the document for real (every exec block, every expectation) and write the output files. |
+
+Edits anchor on content hashes (`run="firsthash..lasthash"`, or
+`after="hash"` to insert), never on line numbers. That is what makes stale
+edits impossible inside a session: after every successful edit the session
+re-weaves immediately and hands back fresh hashes, and an anchor only
+resolves against text that is actually there. If the document changes on
+disk underneath the session (you, another tool), the session detects the
+content mismatch, re-weaves once automatically, and either resolves the
+edit against the fresh state or returns a structured error — it never
+misapplies an edit.
+
+The doctrine the agent follows (and that you can rely on when reviewing):
+
+1. **Read both surfaces first** — `read_doc` and `read_output` with lineage.
+2. **Code changes go through the output** (`edit_output`): the generated
+   file is what the agent — like any engineer — actually reasons about, and
+   lineage guarantees the document update reproduces the edit byte-for-byte.
+3. **Structural and prose work goes through the document** (`edit_doc`):
+   headings, copy blocks, pipeline structure.
+4. **Lineage refusals are routing, not failure.** Editing exec output, a
+   separator, or one occurrence of a copy block pasted twice cannot be
+   reproduced exactly — the refusal names the document location to edit,
+   and the agent follows the pointer with `edit_doc`.
+5. **`verify` before done** — same semantics as `hickory run` + expectation
+   checking, through the same executor as the agent's scripts.
+
 ## Option 2: bring your own coding agent (local repo)
 
 On a local git repo, `hickory init` makes a general coding agent — Claude
@@ -75,3 +117,9 @@ which agent produced it.
 - **`promote` is lossy on purpose**: it keeps the last write to each output
   and drops dead ends. Keep the original session file if you want the full
   history (it's just a file in git).
+- **The edit session is single-writer, local.** It absorbs *file-level*
+  external edits (content-hash detection + one automatic re-weave), which
+  covers you saving the file in an editor between agent turns. What it does
+  not do yet is merge with a *live* concurrent human editor keystroke-by-
+  keystroke — that is the server-side follow-on (the hosted editor's CRDT
+  layer), not a property of the local CLI session.

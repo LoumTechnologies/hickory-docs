@@ -32,6 +32,24 @@ pub enum SessionEvent<'a> {
         /// `(lang, code)` of the embedded action, if the response ran code.
         action: Option<(&'a str, &'a str)>,
     },
+    /// A tool-invoking LLM response: an `<hick:assistant>` element carrying
+    /// the raw `<hick:tool>` invocation XML verbatim.
+    ToolCall {
+        /// Prose text of the response (excluding the tool element).
+        prose: &'a str,
+        /// The verbatim `<hick:tool>...</hick:tool>` XML.
+        xml: &'a str,
+    },
+    /// The result of a tool invocation (`<hick:tool-result>`). Inert during
+    /// replay, like observations.
+    ToolResult {
+        /// Tool name (e.g. `"edit_output"`).
+        name: &'a str,
+        /// Whether the tool succeeded.
+        ok: bool,
+        /// The observation text returned to the model.
+        text: &'a str,
+    },
     /// Captured output from a script run (`<hick:observation>`).
     Observation {
         /// Identifies which action produced this observation (e.g.
@@ -113,6 +131,7 @@ impl HickSessionLog {
 /// they don't appear as structured tags in the session document.
 fn strip_protocol_tags(text: &str) -> String {
     text.replace("<hick:next>code</hick:next>", "")
+        .replace("<hick:next>tool</hick:next>", "")
         .replace("<hick:next>done</hick:next>", "")
         .trim()
         .to_string()
@@ -146,6 +165,20 @@ impl SessionLog for HickSessionLog {
                             writeln!(writer, "<hick:assistant>{prose}</hick:assistant>")?;
                         }
                     }
+                }
+                SessionEvent::ToolCall { prose, xml } => {
+                    let prose = strip_protocol_tags(prose);
+                    writeln!(writer, "<hick:assistant>")?;
+                    if !prose.is_empty() {
+                        writeln!(writer, "{prose}")?;
+                    }
+                    writeln!(writer, "{}", xml.trim())?;
+                    writeln!(writer, "</hick:assistant>")?;
+                }
+                SessionEvent::ToolResult { name, ok, text } => {
+                    writeln!(writer, r#"<hick:tool-result name="{name}" ok="{ok}">"#)?;
+                    writeln!(writer, "{}", text.trim_end())?;
+                    writeln!(writer, "</hick:tool-result>")?;
                 }
                 SessionEvent::Observation {
                     source,
