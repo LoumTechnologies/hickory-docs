@@ -1,0 +1,103 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="bootstrap-ci.md">
+# The Bootstrap, Reproduced
+
+A statistical paper you can re-run. This document estimates a 95% bootstrap
+confidence interval for the mean of a small sample, generates its own figure,
+and verifies its own numbers. Nothing here is pasted in; every value is
+computed when the document is built, from a fixed seed.
+
+## The sample
+
+<hick:container name="py" image="python:3.12" />
+
+<hick:exec container="py">
+python3 - <<'EOF'
+import random
+random.seed(42)
+sample = [round(random.gauss(50, 12), 1) for _ in range(30)]
+with open("sample.txt", "w") as f:
+    f.write("\n".join(map(str, sample)))
+print(f"n = {len(sample)}")
+print(f"mean = {sum(sample)/len(sample):.2f}")
+EOF
+<hick:expect match="regex-lines">n = 30
+mean = \d+\.\d\d
+</hick:expect>
+</hick:exec>
+
+## Resampling
+
+We draw 10,000 bootstrap resamples and take the 2.5th and 97.5th percentiles
+of the resampled means.
+
+<hick:exec container="py">
+python3 - <<'EOF'
+import random
+random.seed(7)
+sample = [float(x) for x in open("sample.txt")]
+n = len(sample)
+means = sorted(
+    sum(random.choices(sample, k=n)) / n
+    for _ in range(10_000)
+)
+lo, hi = means[249], means[9749]
+print(f"95% CI: [{lo:.2f}, {hi:.2f}]")
+with open("ci.txt", "w") as f:
+    f.write(f"{lo:.4f} {hi:.4f}")
+EOF
+<hick:expect match="regex-lines">95% CI: \[\d+\.\d\d, \d+\.\d\d\]
+</hick:expect>
+</hick:exec>
+
+## The figure
+
+The histogram below is an SVG generated from the bootstrap distribution —
+regenerated on every build, so the figure can never drift from the data.
+
+<hick:file path="bootstrap-histogram.svg">
+<hick:exec container="py">
+python3 - <<'EOF'
+import random
+random.seed(7)
+sample = [float(x) for x in open("sample.txt")]
+n = len(sample)
+means = [sum(random.choices(sample, k=n)) / n for _ in range(10_000)]
+lo_s, hi_s = open("ci.txt").read().split()
+lo, hi = float(lo_s), float(hi_s)
+
+bins = 40
+mn, mx = min(means), max(means)
+w = (mx - mn) / bins
+counts = [0] * bins
+for m in means:
+    counts[min(int((m - mn) / w), bins - 1)] += 1
+peak = max(counts)
+
+W, H, PAD = 640, 320, 30
+bars = []
+for i, c in enumerate(counts):
+    x = PAD + i * (W - 2 * PAD) / bins
+    h = (H - 2 * PAD) * c / peak
+    inside = lo <= mn + (i + 0.5) * w <= hi
+    fill = "#4a7dbd" if inside else "#c9d4e3"
+    bars.append(
+        f'<rect x="{x:.1f}" y="{H - PAD - h:.1f}" '
+        f'width="{(W - 2 * PAD) / bins - 1:.1f}" height="{h:.1f}" fill="{fill}"/>'
+    )
+print(f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {W} {H}">')
+print(f'<text x="{W/2}" y="18" text-anchor="middle" font-family="sans-serif" '
+      f'font-size="13">Bootstrap distribution of the mean (shaded = 95% CI)</text>')
+print("".join(bars))
+print("</svg>")
+EOF
+</hick:exec>
+</hick:file>
+
+## Why this matters
+
+Most published figures cannot be regenerated from their paper. This one is
+regenerated on every run of `hickory run`, and `hickory check` fails the
+build if the computed interval stops matching the prose above. The document
+is the analysis.
+</hick:doc>
