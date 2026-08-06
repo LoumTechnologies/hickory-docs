@@ -398,6 +398,64 @@ fn collect_fragments(nodes: &[HickNode], selector: &str, out: &mut Vec<HickNode>
     }
 }
 
+/// Every fragment block (`copy`/`cut`) in `doc` matching `selector`, in
+/// document order. The selector grammar is `hick:paste`'s: `#id`, `.class`,
+/// or a comma-separated list.
+pub fn fragments_matching<'a>(doc: &'a HickDocument, selector: &str) -> Vec<&'a HickTag> {
+    let mut out = Vec::new();
+    collect_matching(&doc.nodes, selector, &mut out);
+    out
+}
+
+fn collect_matching<'a>(nodes: &'a [HickNode], selector: &str, out: &mut Vec<&'a HickTag>) {
+    for node in nodes {
+        if let HickNode::Tag(tag) = node {
+            if (tag.name == "copy" || tag.name == "cut") && fragment_matches(tag, selector) {
+                out.push(tag);
+                continue;
+            }
+            collect_matching(&tag.children, selector, out);
+        }
+    }
+}
+
+/// The raw text directly inside a tag (its `Text` children, concatenated).
+pub fn tag_text(tag: &HickTag) -> String {
+    let mut out = String::new();
+    for child in &tag.children {
+        if let HickNode::Text(t, _) = child {
+            out.push_str(t);
+        }
+    }
+    out
+}
+
+/// Fingerprint of a transform's inputs: the bytes it was written from plus the
+/// instruction it was written under.
+///
+/// This is what `hickory check` compares, and why checking a transform never
+/// needs a model: an LLM-written passage cannot be re-derived byte-for-byte, so
+/// the document does not claim it reproduces — it claims it was written from
+/// EXACTLY these bytes under EXACTLY this instruction, and that neither has
+/// changed since. The instruction is inside the fingerprint deliberately:
+/// editing "summarize" to "summarize briefly" must invalidate the passage, or
+/// stale prose would keep its attestation.
+///
+/// FNV-1a/64 folded to 8 hex characters — stable across runs and machines, and
+/// short enough to sit in an attribute a human reads in a diff.
+pub fn transform_fingerprint(input: &str, instruct: &str) -> String {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for byte in input
+        .bytes()
+        .chain(b"\0".iter().copied())
+        .chain(instruct.bytes())
+    {
+        hash ^= byte as u64;
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    format!("{:08x}", (hash ^ (hash >> 32)) as u32)
+}
+
 fn fragment_matches(tag: &HickTag, selector: &str) -> bool {
     selector
         .split(',')

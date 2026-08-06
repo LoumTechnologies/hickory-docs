@@ -41,6 +41,9 @@ enum Command {
     /// Run the AI agent on a prompt; the session is written as a
     /// hick:session document under the project's sessions/ directory.
     Agent(AgentArgs),
+    /// Rewrite stale `<hick:transform>` passages from their current inputs.
+    /// The ONLY command that calls a model.
+    Refresh(RefreshArgs),
     /// Set up a local git repository for hickory: pre-commit drift gate,
     /// .gitignore entry, and an AGENTS.md section for coding agents.
     /// Idempotent — re-run any time to refresh the managed blocks.
@@ -137,6 +140,21 @@ struct InitArgs {
 }
 
 #[derive(clap::Args)]
+struct RefreshArgs {
+    /// A `.hick` document (or directory of them).
+    path: PathBuf,
+    /// Rewrite every transform, not only the stale ones.
+    #[arg(long)]
+    all: bool,
+    /// Report what would be rewritten without calling a model.
+    #[arg(long = "dry-run")]
+    dry_run: bool,
+    /// Anthropic model id override.
+    #[arg(long = "model")]
+    model: Option<String>,
+}
+
+#[derive(clap::Args)]
 struct AgentArgs {
     /// The task prompt for the agent.
     prompt: String,
@@ -167,6 +185,7 @@ fn main() -> ExitCode {
             Command::Lineage(args) => cmd_lineage(args).await,
             Command::Promote(args) => cmd_promote(args),
             Command::Agent(args) => cmd_agent(args).await,
+            Command::Refresh(args) => cmd_refresh(args).await,
             Command::Init(args) => cmd_init(args),
         }
     });
@@ -242,7 +261,10 @@ async fn cmd_check(args: CheckArgs) -> Result<ExitCode> {
     let mut json_blocks = Vec::new();
     for doc_path in &docs {
         let run = run_doc(doc_path, &params, RunMode::Execute, executor_choice).await?;
-        let failures = check_failures(&run, args.out.as_deref())?;
+        let mut failures = check_failures(&run, args.out.as_deref())?;
+        // Transform passages are checked from the SOURCE, not from a re-run:
+        // no model is called, so this stays free and deterministic in CI.
+        failures.extend(hickory_cli::stale_transforms(&run.doc_path, &run.source)?);
         if args.json {
             json_blocks.push(block_model_json(&run)?);
         }
@@ -278,6 +300,20 @@ async fn cmd_check(args: CheckArgs) -> Result<ExitCode> {
                         "FAIL {} -> {}: {detail}",
                         doc.display(),
                         output_path.display()
+                    );
+                }
+                CheckFailure::StaleTransform {
+                    doc,
+                    line,
+                    select,
+                    instruct,
+                } => {
+                    eprintln!(
+                        "STALE {}:{line}: the passage written from '{select}' no longer \
+                         matches its input\n  instruction: {instruct}\n  \
+                         fix: hickory refresh {}",
+                        doc.display(),
+                        doc.display(),
                     );
                 }
             }
@@ -529,4 +565,149 @@ fn indent(s: &str) -> String {
         .map(|l| format!("    | {l}"))
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+/// `hickory refresh` — rewrite stale transform passages from their inputs.
+///
+/// This is the only command in the tool that calls a model, and that is a
+/// deliberate boundary: `run`, `check`, and `weave` stay free, offline, and
+/// deterministic, so a document containing LLM-written prose is still safe to
+/// verify in CI.
+///
+/// The model is shown the previous passage along with the new input. That is
+/// what keeps refreshes stable — and what makes a passage you edited by hand
+/// survive: your wording is the starting point, not something to be
+/// regenerated over.
+async fn cmd_refresh(args: RefreshArgs) -> Result<ExitCode> {
+    use hickory_agent::{AnthropicClient, LlmClient, Message, Role};
+
+    let docs = expand_docs(&args.path)?;
+    let mut rewrote = 0usize;
+    let mut stale_total = 0usize;
+
+    for doc_path in &docs {
+        let source = std::fs::read_to_string(doc_path)?;
+        let parsed = hick_lang::parse(&source)
+            .map_err(|e| anyhow::anyhow!("parse error in {}: {e}", doc_path.display()))?;
+
+        // Collect the work first: each transform's input, instruction, current
+        // passage, and the byte span of its body.
+        let mut jobs: Vec<(usize, usize, String, String, String, String)> = Vec::new();
+        for tag in parsed.find_tags("transform") {
+            let select = tag.get_attribute("select").unwrap_or_default().to_string();
+            let instruct = tag
+                .get_attribute("instruct")
+                .unwrap_or_default()
+                .to_string();
+            let recorded = tag.get_attribute("from").unwrap_or_default().to_string();
+            let input = hickory_cli::transform_input(&parsed, &select);
+            let fingerprint = hick_lang::transform_fingerprint(&input, &instruct);
+            if fingerprint == recorded && !args.all {
+                continue;
+            }
+            stale_total += 1;
+            let Some((body_from, body_to)) = body_span(&source, tag) else {
+                eprintln!(
+                    "skip {}:{}: cannot locate the passage body",
+                    doc_path.display(),
+                    tag.source_line
+                );
+                continue;
+            };
+            let previous = source[body_from..body_to].to_string();
+            jobs.push((body_from, body_to, input, instruct, previous, fingerprint));
+        }
+
+        if jobs.is_empty() {
+            continue;
+        }
+        if args.dry_run {
+            for (_, _, _, instruct, _, _) in &jobs {
+                println!("would refresh {}: {instruct}", doc_path.display());
+            }
+            continue;
+        }
+        if std::env::var("ANTHROPIC_API_KEY").is_err() {
+            anyhow::bail!("ANTHROPIC_API_KEY is not set (required by `hickory refresh`)");
+        }
+
+        let mut llm = AnthropicClient::new();
+        if let Some(model) = &args.model {
+            llm = llm.with_model(model.clone());
+        }
+
+        // Apply back-to-front so earlier spans stay valid.
+        jobs.sort_by_key(|j| std::cmp::Reverse(j.0));
+        let mut updated = source.clone();
+        for (from, to, input, instruct, previous, fingerprint) in jobs {
+            let prompt = format!(
+                "Rewrite the passage below so it is accurate for the current input.\n\n\
+                 Instruction: {instruct}\n\n\
+                 Current input:\n{input}\n\n\
+                 Previous passage (keep its voice, structure, and any wording that is \
+                 still correct — change only what the new input requires):\n{previous}\n\n\
+                 Reply with the passage only. No preamble, no code fences."
+            );
+            let passage = llm
+                .complete(vec![
+                    Message::new(
+                        Role::System,
+                        "You rewrite short documentation passages. You preserve the author's \
+                         voice and change as little as possible.",
+                    ),
+                    Message::new(Role::User, prompt),
+                ])
+                .await?;
+            let passage = format!("\n{}\n", passage.trim());
+            updated.replace_range(from..to, &passage);
+            // Re-stamp the fingerprint this passage now attests to.
+            updated = restamp_from(&updated, from, &fingerprint);
+            rewrote += 1;
+        }
+        std::fs::write(doc_path, &updated)?;
+        println!("refreshed {}", doc_path.display());
+    }
+
+    if args.dry_run {
+        println!("{stale_total} transform(s) stale");
+    } else {
+        println!("{rewrote} passage(s) rewritten");
+    }
+    Ok(ExitCode::SUCCESS)
+}
+
+/// Byte span of a tag's body: between the `>` of the opening tag and the `<`
+/// of its closing tag.
+fn body_span(source: &str, tag: &hick_lang::HickTag) -> Option<(usize, usize)> {
+    let open = tag.source_span?;
+    let start = open.end;
+    let close = source[start..].find("</")? + start;
+    Some((start, close))
+}
+
+/// Rewrite the `from="..."` attribute of the transform whose body starts at
+/// `body_start`, inserting one if the document does not carry it yet.
+fn restamp_from(source: &str, body_start: usize, fingerprint: &str) -> String {
+    let head = &source[..body_start];
+    let Some(open) = head.rfind("<hick:transform") else {
+        return source.to_string();
+    };
+    let tag_text = &source[open..body_start];
+    let replaced = match tag_text.find("from=\"") {
+        Some(i) => {
+            let value_start = open + i + "from=\"".len();
+            let value_end = value_start + source[value_start..].find('"').unwrap_or(0);
+            let mut out = source.to_string();
+            out.replace_range(value_start..value_end, fingerprint);
+            return out;
+        }
+        None => tag_text.replacen(
+            "<hick:transform",
+            &format!("<hick:transform from=\"{fingerprint}\""),
+            1,
+        ),
+    };
+    let mut out = source.to_string();
+    out.replace_range(open..body_start, &replaced);
+    out
 }

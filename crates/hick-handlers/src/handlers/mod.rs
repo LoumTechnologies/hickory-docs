@@ -9,6 +9,7 @@ mod exec;
 mod paste;
 mod script;
 mod substitute;
+mod transform;
 mod val;
 
 pub use copy::{CopyHandler, CutHandler};
@@ -17,6 +18,7 @@ pub use exec::ExecHandler;
 pub use paste::PasteHandler;
 pub use script::ScriptHandler;
 pub use substitute::SubstituteHandler;
+pub use transform::TransformHandler;
 pub use val::ValHandler;
 
 use crate::TagRegistry;
@@ -30,5 +32,6 @@ pub fn register_builtins(registry: &mut TagRegistry) {
     registry.register(Box::new(PasteHandler));
     registry.register(Box::new(ScriptHandler));
     registry.register(Box::new(SubstituteHandler));
+    registry.register(Box::new(TransformHandler));
     registry.register(Box::new(ValHandler));
 }

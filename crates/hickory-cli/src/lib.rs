@@ -84,6 +84,58 @@ pub enum CheckFailure {
         output_path: PathBuf,
         detail: String,
     },
+    /// A `hick:transform` passage was written from bytes that have since
+    /// changed. Unlike drift this is not a mismatch that can be recomputed —
+    /// an LLM wrote the passage, so the fix is `hickory refresh`, not a re-run.
+    StaleTransform {
+        doc: PathBuf,
+        line: usize,
+        select: String,
+        instruct: String,
+    },
+}
+
+/// Every `hick:transform` in `source` whose inputs have changed since the
+/// passage was written.
+///
+/// Checking a transform never calls a model: the document does not claim its
+/// passage reproduces, only that it was written from exactly these bytes under
+/// exactly this instruction. That claim is a fingerprint comparison, which
+/// makes it free, offline, and deterministic in CI — the properties that let
+/// an LLM-written passage live in a verified document at all.
+pub fn stale_transforms(doc_path: &Path, source: &str) -> Result<Vec<CheckFailure>> {
+    let doc = hick_lang::parse(source)
+        .map_err(|e| anyhow::anyhow!("parse error in {}: {e}", doc_path.display()))?;
+    let mut out = Vec::new();
+    for tag in doc.find_tags("transform") {
+        let select = tag.get_attribute("select").unwrap_or_default().to_string();
+        let instruct = tag
+            .get_attribute("instruct")
+            .unwrap_or_default()
+            .to_string();
+        let recorded = tag.get_attribute("from").unwrap_or_default();
+        let input = transform_input(&doc, &select);
+        let actual = hick_lang::transform_fingerprint(&input, &instruct);
+        if recorded != actual {
+            out.push(CheckFailure::StaleTransform {
+                doc: doc_path.to_path_buf(),
+                line: tag.source_line,
+                select,
+                instruct,
+            });
+        }
+    }
+    Ok(out)
+}
+
+/// The bytes a transform reads: its selected fragments, concatenated in
+/// document order.
+pub fn transform_input(doc: &hick_lang::HickDocument, select: &str) -> String {
+    hick_lang::fragments_matching(doc, select)
+        .iter()
+        .map(|t| hick_lang::tag_text(t))
+        .collect::<Vec<_>>()
+        .join("")
 }
 
 /// Expand a path argument (file or directory) into `.hick` documents.

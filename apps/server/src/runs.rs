@@ -295,7 +295,11 @@ async fn execute_run(
                 )
             });
             if kind == RunKind::Check {
-                let failures = hickory_cli::check_failures(&run, None)?;
+                let mut failures = hickory_cli::check_failures(&run, None)?;
+                // Transform passages are attested, not reproduced: their check
+                // is a fingerprint comparison against the source, and never
+                // calls a model. See hickory_cli::stale_transforms.
+                failures.extend(hickory_cli::stale_transforms(&run.doc_path, &run.source)?);
                 if !failures.is_empty() {
                     ok = false;
                     let detail: Vec<String> = failures
@@ -311,6 +315,12 @@ async fn execute_run(
                                 ..
                             } => {
                                 format!("drift in {}: {detail}", output_path.display())
+                            }
+                            hickory_cli::CheckFailure::StaleTransform { line, select, .. } => {
+                                format!(
+                                    "line {line}: the passage written from '{select}' no longer \
+                                 matches its input — run `hickory refresh`"
+                                )
                             }
                         })
                         .collect();

@@ -53,6 +53,15 @@ drift from it.
 <hick:paste select="#limits" />
 ```
 
+The same numbers, in prose, for readers who are not reading JSON. This
+passage is WRITTEN FROM the table above rather than being a second copy of
+it: `hickory check` fails if the table changes and the sentence does not.
+
+<hick:transform select="#limits" from="438fb5e6"
+                instruct="One or two sentences naming each plan and its monthly execution-minute allowance. Numbers must be exact. Plain prose, no list, no heading.">
+The Open plan includes 300 execution minutes per month, Pro 2,000, Team 10,000, and Business 30,000.
+</hick:transform>
+
 <hick:file path="plan-limits.json" language="json">{
   "_generated_by": "docs/requirements/metering.hick — edit the requirement, not this file",
   "exec_minutes_month": {
