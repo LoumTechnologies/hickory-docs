@@ -38,6 +38,8 @@ pub struct AgentConfig {
     pub project_dir: PathBuf,
     /// Maximum LLM turns before giving up (default 20).
     pub max_turns: usize,
+    /// Limits applied to every script this session runs.
+    pub script_limits: crate::script::ScriptLimits,
     /// Container image recorded for the agent workspace (LocalExecutor
     /// ignores it).
     pub image: String,
@@ -72,6 +74,7 @@ impl AgentConfig {
             doc_path: None,
             project_dir: project_dir.into(),
             max_turns: 20,
+            script_limits: crate::script::ScriptLimits::default(),
             image: "host".into(),
             container: AGENT_CONTAINER.to_string(),
             prior_turns: Vec::new(),
@@ -232,7 +235,14 @@ pub async fn run_agent(
                 });
 
                 let result =
-                    run_script(executor.as_ref(), &config.container, &block, action_index).await?;
+                    run_script(
+                    executor.as_ref(),
+                    &config.container,
+                    &block,
+                    action_index,
+                    config.script_limits,
+                )
+                .await?;
 
                 let mut observation_text = result.stdout.clone();
                 if !result.stderr.is_empty() {
@@ -328,17 +338,55 @@ pub async fn run_agent(
         }
     }
 
+    // The budget is spent. Do NOT throw the session away: the work up to
+    // here is real — files were written, edits landed — and failing the run
+    // discards the only account of it. Spend one more call asking for a
+    // handoff instead, so an unfinished run ends with a summary a person (or
+    // a follow-up turn, replayed through `prior_turns`) can continue from.
+    on_event(AgentEvent::Thinking);
+    history.push(Message::new(
+        Role::User,
+        format!(
+            "You have used the whole turn budget ({} turns) and must stop now. \
+             Do not start any new work and do not emit a code block or a tool \
+             call. Reply with <hick:next>done</hick:next> followed by a handoff: \
+             what you changed, what you verified, what is left, and the exact \
+             next step you would have taken.",
+            config.max_turns
+        ),
+    ));
+    let (response, wrap_usage) = stream_completion(llm, history.clone(), on_event).await?;
+    total_usage.add(&wrap_usage);
+    let summary = match parse_response(&response) {
+        // A handoff is what was asked for; anything else still carries the
+        // model's own words, which beat a generic failure string.
+        Turn::Done { summary } => summary,
+        _ => response.clone(),
+    };
+    let summary = format!(
+        "[unfinished — stopped after {} turns]\n\n{summary}",
+        config.max_turns
+    );
+    session.record(SessionEvent::Assistant {
+        prose: &summary,
+        action: None,
+    });
     session.record(SessionEvent::Usage {
         turn: None,
         usage: total_usage,
         cost_usd: cost_usd(llm.model_name(), &total_usage),
     });
     session.record(SessionEvent::End);
-    let message = format!("agent did not finish within {} turns", config.max_turns);
-    on_event(AgentEvent::Error {
-        message: message.clone(),
+    on_event(AgentEvent::Done {
+        summary: summary.clone(),
     });
-    anyhow::bail!(message)
+    Ok(AgentOutcome {
+        summary,
+        session_path,
+        turns: config.max_turns,
+        total_usage,
+        total_cost_usd: cost_usd(llm.model_name(), &total_usage),
+    })
 }
 
 /// Stream a completion, emitting [`AgentEvent::Token`] per chunk, and return

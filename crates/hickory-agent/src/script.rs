@@ -170,6 +170,77 @@ pub const AGENT_CONTAINER: &str = "agent";
 /// Directory (relative to the container workdir) that scripts are written to.
 const SCRIPT_DIR: &str = ".hickory-agent";
 
+/// Resource limits applied to every agent script.
+///
+/// Both are load-bearing, and both were missing. An agent's script is
+/// written by a model, so "it will finish" and "it will print a reasonable
+/// amount" are assumptions, not facts: a `cargo test` that waits on a prompt
+/// runs forever, and one `grep -r` over a large repo returns megabytes that
+/// would be pasted verbatim into the next request.
+#[derive(Debug, Clone, Copy)]
+pub struct ScriptLimits {
+    /// Wall-clock limit for one script.
+    pub timeout: std::time::Duration,
+    /// Maximum bytes of stdout (and, separately, stderr) kept as the
+    /// observation.
+    pub max_output_bytes: usize,
+}
+
+impl Default for ScriptLimits {
+    fn default() -> Self {
+        Self {
+            // Long enough for a real build or test suite; short enough that
+            // a wedged script does not consume the whole run.
+            timeout: std::time::Duration::from_secs(600),
+            // ~16k of text is far more than any useful observation and far
+            // less than a context-destroying dump.
+            max_output_bytes: 16 * 1024,
+        }
+    }
+}
+
+/// Keep the head and tail of `text`, dropping the middle.
+///
+/// Both ends matter and for different reasons: the head shows what the
+/// script was doing, the tail holds the error and the exit. Truncating to
+/// the head alone (the obvious implementation) throws away the part the
+/// model actually needs. The marker states the byte count dropped, so the
+/// model can tell a truncated observation from a complete one and narrow
+/// its next command instead of assuming it saw everything.
+fn clamp_output(text: &str, max_bytes: usize) -> String {
+    if text.len() <= max_bytes {
+        return text.to_string();
+    }
+    let half = max_bytes / 2;
+    let head_end = floor_char_boundary(text, half);
+    let tail_start = ceil_char_boundary(text, text.len() - half);
+    let dropped = tail_start - head_end;
+    format!(
+        "{}\n\n… {dropped} bytes omitted; re-run narrowed if you need the middle …\n\n{}",
+        &text[..head_end],
+        &text[tail_start..]
+    )
+}
+
+/// Largest char boundary at or below `i` (`str::floor_char_boundary` is
+/// still unstable).
+fn floor_char_boundary(s: &str, i: usize) -> usize {
+    let mut i = i.min(s.len());
+    while i > 0 && !s.is_char_boundary(i) {
+        i -= 1;
+    }
+    i
+}
+
+/// Smallest char boundary at or above `i`.
+fn ceil_char_boundary(s: &str, i: usize) -> usize {
+    let mut i = i.min(s.len());
+    while i < s.len() && !s.is_char_boundary(i) {
+        i += 1;
+    }
+    i
+}
+
 /// Run one extracted code block through `executor` inside `container`.
 ///
 /// `container` is normally one the DOCUMENT declares, so the agent's scripts
@@ -186,6 +257,7 @@ pub async fn run_script(
     container: &str,
     block: &CodeBlock,
     action_index: usize,
+    limits: ScriptLimits,
 ) -> Result<ScriptResult> {
     let script_path = format!(
         "{SCRIPT_DIR}/action-{action_index}.{}",
@@ -201,10 +273,36 @@ pub async fn run_script(
         )
         .await?;
 
-    // Run it. A non-zero exit surfaces as Err from the executor, but the
-    // transcript entry is recorded first — recover the result from there.
-    let command = block.language.run_command(&script_path);
-    let _ = executor.execute(container, &command).await;
+    // Run it under `timeout` INSIDE the container. Racing an outer future
+    // against the call would return control while the runaway process kept
+    // holding the container's CPU and files; `timeout` actually kills it,
+    // and `-k` follows with SIGKILL for anything that ignores SIGTERM.
+    // Exit 124 is the documented "timed out" code.
+    let secs = limits.timeout.as_secs().max(1);
+    let command = format!(
+        "timeout -k 5 {secs} {}",
+        block.language.run_command(&script_path)
+    );
+    // A backstop for the executor itself hanging (a lost connection to a
+    // remote microVM never reaches `timeout` in the guest). Generous, so it
+    // only ever fires when the in-container limit could not.
+    let outer = limits.timeout + std::time::Duration::from_secs(30);
+    let timed_out = tokio::time::timeout(outer, executor.execute(container, &command))
+        .await
+        .is_err();
+
+    if timed_out {
+        // Nothing was recorded, so say plainly what happened rather than
+        // returning an empty observation the model would read as success.
+        return Ok(ScriptResult {
+            stdout: String::new(),
+            stderr: format!(
+                "the executor did not return within {}s; the script was abandoned",
+                outer.as_secs()
+            ),
+            exit_code: None,
+        });
+    }
 
     let transcripts = executor.transcripts();
     let entry = transcripts
@@ -223,9 +321,17 @@ pub async fn run_script(
         }
     }
 
+    // `timeout` reports 124 when it killed the script. Left as a bare exit
+    // code the model reads it as an ordinary failure and starts debugging
+    // the wrong thing, so name it.
+    if exit_code == Some(124) {
+        let note = format!("\n[killed after {secs}s by the agent script timeout]");
+        stderr.push_str(&note);
+    }
+
     Ok(ScriptResult {
-        stdout: entry.output,
-        stderr,
+        stdout: clamp_output(&entry.output, limits.max_output_bytes),
+        stderr: clamp_output(&stderr, limits.max_output_bytes),
         exit_code,
     })
 }
@@ -293,7 +399,7 @@ mod tests {
             language: Language::Shell,
             code: "echo out; echo err >&2".into(),
         };
-        let result = run_script(&ex, AGENT_CONTAINER, &block, 0).await.unwrap();
+        let result = run_script(&ex, AGENT_CONTAINER, &block, 0, ScriptLimits::default()).await.unwrap();
         assert_eq!(result.stdout, "out\n");
         assert_eq!(result.stderr, "err\n");
         assert_eq!(result.exit_code, Some(0));
@@ -307,8 +413,94 @@ mod tests {
             language: Language::Shell,
             code: "echo oops >&2; exit 3".into(),
         };
-        let result = run_script(&ex, AGENT_CONTAINER, &block, 0).await.unwrap();
+        let result = run_script(&ex, AGENT_CONTAINER, &block, 0, ScriptLimits::default()).await.unwrap();
         assert_eq!(result.exit_code, Some(3));
         assert!(result.stderr.contains("oops"));
+    }
+}
+
+#[cfg(test)]
+mod limit_tests {
+    use super::*;
+    use hickory_executor::LocalExecutor;
+
+    #[test]
+    fn short_output_is_untouched() {
+        assert_eq!(clamp_output("hello", 1024), "hello");
+    }
+
+    #[test]
+    fn truncation_keeps_both_ends_and_says_how_much_it_dropped() {
+        // The tail is where the error and the exit line live; a head-only
+        // truncation would hide exactly what the model needs.
+        let text = format!("{}MIDDLE{}", "A".repeat(5000), "Z".repeat(5000));
+        let out = clamp_output(&text, 1000);
+        assert!(out.starts_with("AAAA"), "head lost");
+        assert!(out.ends_with("ZZZZ"), "tail lost");
+        assert!(!out.contains("MIDDLE"), "middle should be dropped");
+        assert!(out.contains("bytes omitted"), "truncation must be visible");
+        assert!(out.len() < text.len());
+    }
+
+    #[test]
+    fn truncation_never_splits_a_character() {
+        // Byte-slicing a multi-byte character panics; observations are full
+        // of them (test output, diffs, non-ASCII prose).
+        let text = "é".repeat(4000);
+        let out = clamp_output(&text, 1001);
+        assert!(out.contains("bytes omitted"));
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_script_that_never_finishes_is_killed_and_labelled() {
+        let ex = LocalExecutor::new().unwrap();
+        ex.ensure_started(AGENT_CONTAINER, "host").await.unwrap();
+        let block = CodeBlock {
+            language: Language::Shell,
+            code: "sleep 30".into(),
+        };
+        let limits = ScriptLimits {
+            timeout: std::time::Duration::from_secs(1),
+            ..ScriptLimits::default()
+        };
+        let started = std::time::Instant::now();
+        let result = run_script(&ex, AGENT_CONTAINER, &block, 0, limits)
+            .await
+            .unwrap();
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(20),
+            "the timeout did not fire; the script ran to completion"
+        );
+        assert_eq!(result.exit_code, Some(124), "expected the timeout exit code");
+        assert!(
+            result.stderr.contains("agent script timeout"),
+            "a bare 124 reads as an ordinary failure: {}",
+            result.stderr
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_flood_of_output_is_clamped_before_it_reaches_the_model() {
+        let ex = LocalExecutor::new().unwrap();
+        ex.ensure_started(AGENT_CONTAINER, "host").await.unwrap();
+        let block = CodeBlock {
+            language: Language::Shell,
+            // ~2 MB, the shape of one `grep -r` over a large repo.
+            code: "for i in $(seq 1 40000); do echo 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'; done"
+                .into(),
+        };
+        let limits = ScriptLimits {
+            max_output_bytes: 4096,
+            ..ScriptLimits::default()
+        };
+        let result = run_script(&ex, AGENT_CONTAINER, &block, 0, limits)
+            .await
+            .unwrap();
+        assert!(
+            result.stdout.len() < 5000,
+            "an unclamped dump reached the observation: {} bytes",
+            result.stdout.len()
+        );
+        assert!(result.stdout.contains("bytes omitted"));
     }
 }

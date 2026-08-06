@@ -94,6 +94,8 @@ pub use script::CodeBlock;
 pub use script::Language;
 /// Result of executing a script.
 pub use script::ScriptResult;
+/// Timeout and output limits applied to every agent script.
+pub use script::ScriptLimits;
 /// Extract supported fenced code blocks from an LLM response.
 pub use script::extract_code_blocks;
 /// Run one code block through an executor and capture the result.
