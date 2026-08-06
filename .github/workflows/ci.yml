@@ -16,8 +16,26 @@ jobs:
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo build --workspace
       - run: cargo test --workspace -- --test-threads=1
+      - name: Install DuckDB CLI (pinned to the version the examples expect)
+        run: |
+          curl -fsSL -o /tmp/duckdb.zip \
+            https://github.com/duckdb/duckdb/releases/download/v1.5.5/duckdb_cli-linux-amd64.zip
+          sudo unzip -o /tmp/duckdb.zip -d /usr/local/bin
+          duckdb --version
+      - name: Install uv (provides the pinned Python + Polars for the grand tour)
+        run: |
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+      - name: Install R + ggplot2 (for the grand tour's with-r feature)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends r-base r-cran-ggplot2
       - name: Verify the shipped example documents (docs drift is a build failure)
         run: cargo run -p hickory-cli -- check examples/
+      - name: Grand tour with the R section enabled (run, then verify reproducibility)
+        run: |
+          cargo run -p hickory-cli -- run examples/grand-tour.hick --features with-r --out /tmp/grand-tour-with-r
+          cargo run -p hickory-cli -- check examples/grand-tour.hick --features with-r --out /tmp/grand-tour-with-r
 
   web:
     runs-on: ubuntu-latest

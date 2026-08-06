@@ -51,6 +51,10 @@ struct RunArgs {
     /// Parameter overrides, `key=value` (repeatable).
     #[arg(long = "param", value_parser = hick_literate::parse_param)]
     params: Vec<(String, String)>,
+    /// Enable `<hick:feature>` flags (comma-separated, repeatable).
+    /// Shorthand for `--param features=a,b`; feeds `<hick:when test="...">`.
+    #[arg(long = "features", value_delimiter = ',')]
+    features: Vec<String>,
     /// Output directory (default: each document's own directory).
     #[arg(long = "out")]
     out: Option<PathBuf>,
@@ -66,6 +70,10 @@ struct CheckArgs {
     /// Parameter overrides, `key=value` (repeatable).
     #[arg(long = "param", value_parser = hick_literate::parse_param)]
     params: Vec<(String, String)>,
+    /// Enable `<hick:feature>` flags (comma-separated, repeatable).
+    /// Shorthand for `--param features=a,b`; feeds `<hick:when test="...">`.
+    #[arg(long = "features", value_delimiter = ',')]
+    features: Vec<String>,
     /// Directory holding the committed outputs (default: each document's own
     /// directory).
     #[arg(long = "out")]
@@ -82,6 +90,10 @@ struct WeaveArgs {
     /// Parameter overrides, `key=value` (repeatable).
     #[arg(long = "param", value_parser = hick_literate::parse_param)]
     params: Vec<(String, String)>,
+    /// Enable `<hick:feature>` flags (comma-separated, repeatable).
+    /// Shorthand for `--param features=a,b`; feeds `<hick:when test="...">`.
+    #[arg(long = "features", value_delimiter = ',')]
+    features: Vec<String>,
     /// Output directory (default: the document's directory).
     #[arg(long = "out")]
     out: Option<PathBuf>,
@@ -188,12 +200,24 @@ fn print_run_summary(run: &DocRun, written: &[PathBuf]) {
     }
 }
 
+/// Fold `--features a,b` into the param list as the `features` variable —
+/// the same variable `hick-literate`'s feature system reads (enabled
+/// features then become condition variables for `<hick:when test="...">`).
+fn params_with_features(params: &[(String, String)], features: &[String]) -> Vec<(String, String)> {
+    let mut params = params.to_vec();
+    if !features.is_empty() {
+        params.push(("features".to_string(), features.join(",")));
+    }
+    params
+}
+
 async fn cmd_run(args: RunArgs) -> Result<ExitCode> {
     let executor_choice = ExecutorChoice::from_env()?;
     let docs = expand_docs(&args.path)?;
+    let params = params_with_features(&args.params, &args.features);
     let mut json_blocks = Vec::new();
     for doc_path in &docs {
-        let run = run_doc(doc_path, &args.params, RunMode::Execute, executor_choice).await?;
+        let run = run_doc(doc_path, &params, RunMode::Execute, executor_choice).await?;
         let written = write_outputs(&run, args.out.as_deref())?;
         if args.json {
             json_blocks.push(block_model_json(&run)?);
@@ -210,10 +234,11 @@ async fn cmd_run(args: RunArgs) -> Result<ExitCode> {
 async fn cmd_check(args: CheckArgs) -> Result<ExitCode> {
     let executor_choice = ExecutorChoice::from_env()?;
     let docs = expand_docs(&args.path)?;
+    let params = params_with_features(&args.params, &args.features);
     let mut any_failed = false;
     let mut json_blocks = Vec::new();
     for doc_path in &docs {
-        let run = run_doc(doc_path, &args.params, RunMode::Execute, executor_choice).await?;
+        let run = run_doc(doc_path, &params, RunMode::Execute, executor_choice).await?;
         let failures = check_failures(&run, args.out.as_deref())?;
         if args.json {
             json_blocks.push(block_model_json(&run)?);
@@ -268,9 +293,10 @@ async fn cmd_check(args: CheckArgs) -> Result<ExitCode> {
 
 async fn cmd_weave(args: WeaveArgs) -> Result<ExitCode> {
     let docs = expand_docs(&args.path)?;
+    let params = params_with_features(&args.params, &args.features);
     let mut json_blocks = Vec::new();
     for doc_path in &docs {
-        let run = run_doc(doc_path, &args.params, RunMode::Weave, ExecutorChoice::Local).await?;
+        let run = run_doc(doc_path, &params, RunMode::Weave, ExecutorChoice::Local).await?;
         let written = write_outputs(&run, args.out.as_deref())?;
         if args.json {
             json_blocks.push(block_model_json(&run)?);
