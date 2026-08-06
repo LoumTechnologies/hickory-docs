@@ -3,17 +3,27 @@ import { api, MOCK } from "../api/client";
 import { WsRealtime, getSharedRealtime, type Realtime } from "../api/realtime";
 import type { Block, Doc, ExecBlock, SourceEdit } from "../api/types";
 import { AgentPanel } from "../components/AgentPanel";
+import { byteToChar } from "../lib/offsets";
 import { DocumentEditor } from "../editor/DocumentEditor";
 import { OutputView } from "./OutputView";
+import { SplitView } from "./SplitView";
 import { navigate } from "../router";
 
 type Banner = { kind: "pending" | "pass" | "fail"; text: string } | null;
+
+/** The Split (lineage) view needs real width for two panes + ribbons. */
+const SPLIT_MIN_WIDTH = "(min-width: 1200px)";
 
 export function DocumentView({ docId }: { docId: string }) {
   const [doc, setDoc] = useState<Doc | null>(null);
   const [blocks, setBlocks] = useState<Block[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [view, setView] = useState<"document" | "output">("document");
+  const [view, setView] = useState<"document" | "output" | "split">("document");
+  // Split is only offered when the viewport is wide enough for two panes.
+  const [wide, setWide] = useState<boolean>(() =>
+    typeof window.matchMedia === "function" ? window.matchMedia(SPLIT_MIN_WIDTH).matches : false,
+  );
+  const [splitHint, setSplitHint] = useState(false);
   const [showAgent, setShowAgent] = useState(false);
   const [runningCells, setRunningCells] = useState<Set<string>>(new Set());
   const [banner, setBanner] = useState<Banner>(null);
@@ -54,6 +64,28 @@ export function DocumentView({ docId }: { docId: string }) {
   }, [docId]);
 
   useEffect(refresh, [refresh]);
+
+  // Track viewport width; Split degrades to Document when the window shrinks.
+  useEffect(() => {
+    if (typeof window.matchMedia !== "function") return;
+    const mq = window.matchMedia(SPLIT_MIN_WIDTH);
+    const onChange = () => setWide(mq.matches);
+    mq.addEventListener("change", onChange);
+    return () => mq.removeEventListener("change", onChange);
+  }, []);
+  useEffect(() => {
+    if (!wide) setView((v) => (v === "split" ? "document" : v));
+  }, [wide]);
+
+  // Auto-suggest Split once per doc (first wide visit).
+  useEffect(() => {
+    if (!wide) return;
+    const key = `hickory.splitHint.${docId}`;
+    if (!localStorage.getItem(key)) {
+      localStorage.setItem(key, "1");
+      setSplitHint(true);
+    }
+  }, [wide, docId]);
 
   // Live run events: append to the matching cell's transcript.
   useEffect(() => {
@@ -166,9 +198,13 @@ export function DocumentView({ docId }: { docId: string }) {
     }
   };
 
+  // Spans arriving from provenance / source-edit responses are BYTE offsets
+  // into the doc source; the editor selects by char position.
   const onSelectSpan = (span: [number, number]) => {
-    setView("document");
-    setSelectSpan(span);
+    setView((v) => (v === "split" ? v : "document"));
+    setSelectSpan(
+      doc ? [byteToChar(doc.source, span[0]), byteToChar(doc.source, span[1])] : span,
+    );
   };
 
   // An output edit rewrote the source through provenance: re-fetch doc and
@@ -203,7 +239,9 @@ export function DocumentView({ docId }: { docId: string }) {
   }
 
   return (
-    <div className={`doc-page${showAgent ? " with-agent" : ""}`}>
+    <div
+      className={`doc-page${showAgent ? " with-agent" : ""}${view === "split" ? " split-mode" : ""}`}
+    >
       <div className="doc-main">
         <header className="doc-toolbar">
           <button className="btn btn-link" onClick={() => navigate("/projects")}>
@@ -228,8 +266,33 @@ export function DocumentView({ docId }: { docId: string }) {
               >
                 Output
               </button>
+              {wide && (
+                <button
+                  role="tab"
+                  aria-selected={view === "split"}
+                  className={view === "split" ? "on" : ""}
+                  onClick={() => {
+                    setSplitHint(false);
+                    setView("split");
+                  }}
+                >
+                  Split
+                </button>
+              )}
             </div>
-            {view === "document" && (
+            {splitHint && view !== "split" && (
+              <span className="split-hint" role="status">
+                New: Split traces each fragment into its output
+                <button
+                  className="btn-link split-hint-dismiss"
+                  aria-label="Dismiss"
+                  onClick={() => setSplitHint(false)}
+                >
+                  ×
+                </button>
+              </span>
+            )}
+            {view !== "output" && (
               <button className="btn" disabled={dirtySource === null || saving} onClick={() => void save()}>
                 {saving ? "Saving…" : "Save"}
               </button>
@@ -259,6 +322,19 @@ export function DocumentView({ docId }: { docId: string }) {
             key={`${docId}:${editorEpoch}`}
             docId={docId}
             initialSource={doc.source}
+            realtime={realtime}
+            onChange={setDirtySource}
+            selectSpan={selectSpan}
+            execBlocks={execBlocks}
+            runningCells={runningCells}
+            onRunCell={(id) => void runCell(id)}
+          />
+        ) : view === "split" ? (
+          <SplitView
+            docId={docId}
+            docPath={doc.path}
+            docSource={doc.source}
+            editorKey={`${docId}:${editorEpoch}`}
             realtime={realtime}
             onChange={setDirtySource}
             selectSpan={selectSpan}

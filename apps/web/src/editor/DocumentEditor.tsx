@@ -7,6 +7,7 @@ import * as Y from "yjs";
 import { Awareness } from "y-protocols/awareness";
 import { yCollab } from "y-codemirror.next";
 import { CellRegistry, EnvRegistry, setVerifiedExpects, structureOf, wysiwyg } from "./wysiwyg";
+import { hickoryFolding } from "./folding";
 import type { CellSlot, EnvSlot } from "./wysiwyg";
 import { execBlocksOf, expectRangeOf } from "./hickDoc";
 import { CellPanel } from "../components/CellPanel";
@@ -27,6 +28,9 @@ export interface DocumentEditorProps {
   execBlocks: ExecBlock[];
   runningCells: Set<string>;
   onRunCell: (execId: string) => void;
+  /** Fired with the live EditorView on mount and null on teardown (the Split
+   * view uses it to measure ribbon anchors against real geometry). */
+  onViewReady?: (view: EditorView | null) => void;
 }
 
 /** Overlap length of two [from, to) spans. */
@@ -71,6 +75,7 @@ export function DocumentEditor({
   execBlocks,
   runningCells,
   onRunCell,
+  onViewReady,
 }: DocumentEditorProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
@@ -163,6 +168,7 @@ export function DocumentEditor({
           history(),
           keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab]),
           wysiwyg(registry, envRegistry),
+          hickoryFolding(),
           yCollab(ytext, awareness),
           EditorView.lineWrapping,
           EditorView.updateListener.of((u) => {
@@ -179,10 +185,12 @@ export function DocumentEditor({
     }
     setSlots(registry.list());
     setEnvSlots(envRegistry.list());
+    onViewReady?.(view);
 
     return () => {
       cancelled = true;
       clearTimeout(fallback);
+      onViewReady?.(null);
       view.destroy();
       viewRef.current = null;
       awareness.destroy();

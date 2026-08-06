@@ -4,10 +4,14 @@
 // scoped to the tags the mock documents use: hick:file bodies with
 // hick:paste slots filled from hick:copy blocks.
 //
-// All mock sources are ASCII, so byte offsets and JS char offsets coincide;
-// the real client still converts via lib/offsets when displaying.
+// All offsets on the wire are UTF-8 BYTES (the contract in api/types.ts) —
+// and the mock honours that for real: both the weave-demo source and the
+// woven banner contain an em dash, so byte and char offsets genuinely
+// diverge. Content offsets and source spans are computed in bytes here; the
+// client converts via lib/offsets exactly as it must against the real server.
 
 import { parseHickDoc } from "../editor/hickDoc";
+import { byteLength, byteToChar, charToByte } from "../lib/offsets";
 import type {
   OutputEdit,
   OutputFile,
@@ -26,6 +30,11 @@ function trimContent(source: string, from: number, to: number): [number, number]
 /** Weave all hick:file outputs of `source`, with provenance into the doc. */
 export function weaveOutputs(source: string, docPath: string): OutputFile[] {
   const structure = parseHickDoc(source);
+  // Source spans on the wire are bytes into the doc source.
+  const byteSpan = (from: number, to: number): [number, number] => [
+    charToByte(source, from),
+    charToByte(source, to),
+  ];
   const copies = new Map<string, [number, number]>();
   for (const b of structure.blocks) {
     if (b.name === "copy" && b.attrs.id) {
@@ -40,11 +49,14 @@ export function weaveOutputs(source: string, docPath: string): OutputFile[] {
     const language = block.attrs.language ?? "text";
 
     let content = "";
+    let contentBytes = 0; // provenance offsets are UTF-8 bytes (the contract)
     const provenance: Provenance[] = [];
     const push = (text: string, origin: Provenance["origin"]) => {
       if (text.length === 0) return;
-      provenance.push({ start: content.length, end: content.length + text.length, origin });
+      const bytes = byteLength(text);
+      provenance.push({ start: contentBytes, end: contentBytes + bytes, origin });
       content += text;
+      contentBytes += bytes;
     };
 
     // Synthetic banner the weaver adds — not present in any source span.
@@ -67,7 +79,7 @@ export function weaveOutputs(source: string, docPath: string): OutputFile[] {
       push(source.slice(pos, paste.from), {
         kind: "literal",
         doc_path: docPath,
-        span: [pos, paste.from],
+        span: byteSpan(pos, paste.from),
       });
       const id = paste.attrs.select.replace(/^#/, "");
       const copy = copies.get(id);
@@ -75,7 +87,7 @@ export function weaveOutputs(source: string, docPath: string): OutputFile[] {
         push(source.slice(copy[0], copy[1]), {
           kind: "paste",
           doc_path: docPath,
-          span: [copy[0], copy[1]],
+          span: byteSpan(copy[0], copy[1]),
         });
       }
       pos = paste.to;
@@ -85,7 +97,7 @@ export function weaveOutputs(source: string, docPath: string): OutputFile[] {
     push(source.slice(pos, bodyTo), {
       kind: "literal",
       doc_path: docPath,
-      span: [pos, bodyTo],
+      span: byteSpan(pos, bodyTo),
     });
     if (!content.endsWith("\n")) {
       push("\n", { kind: "synthetic" });
@@ -153,12 +165,14 @@ export function mapEditsToSource(file: OutputFile, edits: OutputEdit[]): SourceE
   return sourceEdits;
 }
 
-/** Apply source edits (byte==char offsets in mock) to the doc source. */
+/** Apply source edits (byte spans, per the contract) to the doc source. */
 export function applySourceEdits(source: string, edits: SourceEdit[]): string {
   const sorted = [...edits].sort((a, b) => b.span[0] - a.span[0]);
   let out = source;
   for (const e of sorted) {
-    out = out.slice(0, e.span[0]) + e.text + out.slice(e.span[1]);
+    // Convert against the ORIGINAL source: spans reference it, and edits are
+    // applied back-to-front so earlier offsets stay valid.
+    out = out.slice(0, byteToChar(source, e.span[0])) + e.text + out.slice(byteToChar(source, e.span[1]));
   }
   return out;
 }

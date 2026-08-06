@@ -32,6 +32,14 @@
   --tok-meta: #857f72;
   --tok-operator: #6f6a61;
   --tok-invalid: #b3372f;
+  /* Lineage ribbon palette (Split view) — one stable color per source
+     fragment, hickory-toned. Keep in sync with RIBBON_PALETTE_SIZE. */
+  --ribbon-0: #7a5c2e;
+  --ribbon-1: #4a6b8a;
+  --ribbon-2: #2c7a4b;
+  --ribbon-3: #5f5a9e;
+  --ribbon-4: #9a6b16;
+  --ribbon-5: #446b7a;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -65,6 +73,12 @@
     --tok-meta: #8c877d;
     --tok-operator: #98938a;
     --tok-invalid: #e08a80;
+    --ribbon-0: #c9a45e;
+    --ribbon-1: #8db0cf;
+    --ribbon-2: #6dbb8d;
+    --ribbon-3: #a89ed6;
+    --ribbon-4: #d3a54a;
+    --ribbon-5: #7fb0a8;
   }
 }
 
@@ -1088,6 +1102,140 @@ textarea:focus {
 .interval-toggle { margin-top: 1.5rem; }
 .enterprise-note { margin-top: 2rem; font-size: 0.88rem; }
 .enterprise-note a { color: var(--accent); }
+
+/* --- folding (native CM fold framework; heights stay in the height map) --- */
+.document-editor .cm-gutters {
+  background: transparent;
+  border-right: none;
+  color: var(--fg-muted);
+}
+.document-editor .cm-foldGutter .cm-gutterElement {
+  padding: 0 0.15rem 0 0.35rem;
+}
+.cm-fold-marker {
+  display: inline-block;
+  cursor: pointer;
+  font-size: 0.85rem;
+  line-height: inherit;
+  color: var(--fg-muted);
+  opacity: 0.45;
+  transition: transform 0.12s ease, opacity 0.12s ease;
+  user-select: none;
+}
+.cm-fold-marker.cm-fold-open { transform: rotate(90deg); }
+.document-editor .cm-foldGutter .cm-gutterElement:hover .cm-fold-marker { opacity: 1; }
+/* Folded-body placeholder: a quiet pill, padding-only (no margins — CM must
+   be able to measure the line box exactly). */
+.cm-hick-fold-placeholder {
+  display: inline-block;
+  padding: 0 0.55em;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--neutral-bg);
+  color: var(--fg-muted);
+  font-size: 0.8em;
+  cursor: pointer;
+}
+.cm-hick-fold-placeholder:hover { color: var(--fg); }
+
+/* --- split (lineage) view --- */
+.doc-page.split-mode .doc-main { max-width: none; }
+
+.split-view {
+  position: relative;
+  display: flex;
+  gap: 3rem;
+  align-items: stretch;
+}
+.split-pane {
+  flex: 1;
+  min-width: 0;
+}
+/* Narrower measure in split so both panes fit; padding stays padding. */
+.split-left .document-editor .cm-content {
+  max-width: none;
+  padding: 1.25rem 1.25rem 2rem;
+}
+.split-left .document-editor .cm-editor,
+.split-output-editor .cm-editor { max-height: calc(100vh - 13rem); }
+
+.split-right {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+.split-file-label {
+  font-size: 0.78rem;
+  color: var(--fg-muted);
+  padding: 0.1rem 0.2rem;
+}
+.split-output-editor {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--bg-raised);
+}
+.split-output-editor .cm-editor { font-size: 0.84rem; }
+.split-output-editor .cm-editor.cm-focused { outline: none; }
+.split-output-editor .cm-scroller { font-family: ui-monospace, Menlo, monospace; }
+
+/* The ribbon overlay sits over the gap between the panes; only the paths
+   take pointer events, so the editors stay fully interactive. */
+.ribbon-layer {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  overflow: visible;
+  z-index: 3;
+}
+.ribbon {
+  pointer-events: auto;
+  cursor: pointer;
+  stroke: none;
+  opacity: 0.55;
+  transition: opacity 0.12s ease;
+}
+.ribbon-c0 { fill: var(--ribbon-0); }
+.ribbon-c1 { fill: var(--ribbon-1); }
+.ribbon-c2 { fill: var(--ribbon-2); }
+.ribbon-c3 { fill: var(--ribbon-3); }
+.ribbon-c4 { fill: var(--ribbon-4); }
+.ribbon-c5 { fill: var(--ribbon-5); }
+/* Off-screen endpoint clamped to the pane edge: fade the whole tail. */
+.ribbon-faded { opacity: 0.2; }
+.ribbon:hover,
+.ribbon-hovered { opacity: 0.85; }
+.ribbon-layer.has-hover .ribbon:not(.ribbon-hovered) { opacity: 0.12; }
+
+/* Hovered ribbon's source block / output range highlight (mark decoration —
+   background only, never layout). */
+.cm-ribbon-hl {
+  background: color-mix(in srgb, var(--accent-2) 24%, transparent);
+  border-radius: 2px;
+}
+
+/* One-time Split suggestion. */
+.split-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.78rem;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--border));
+  border-radius: 999px;
+  padding: 0.15rem 0.6rem;
+}
+.split-hint-dismiss {
+  font: inherit;
+  cursor: pointer;
+  border: none;
+  background: none;
+  color: inherit;
+  padding: 0 0.1rem;
+}
 
 /* Widget spacing CM can measure: a transparent wrapper instead of margins. */
 .cm-widget-spacer { padding-top: 0.5rem; }
