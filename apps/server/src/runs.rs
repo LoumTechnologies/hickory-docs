@@ -208,7 +208,10 @@ async fn execute_run(
                 hickory_cli::RunMode::Weave,
                 hickory_cli::ExecutorChoice::Local,
             ))?;
-            Ok(hickory_cli::write_outputs(&woven, None)?.len())
+            // MISSING files only: a file already in the checkout is the
+            // committed baseline that `check` compares against, and
+            // overwriting it with a weave-mode copy would manufacture drift.
+            Ok(hickory_cli::write_missing_outputs(&woven, None)?.len())
         })
         .await?;
         match staged {

@@ -1161,6 +1161,13 @@ textarea:focus {
 .split-pane {
   flex: 1;
   min-width: 0;
+  /* Column + min-height:0 is what actually lets the editor inside shrink to
+     the shell and scroll itself. Without it the pane is a block box that
+     silently overflows: the editor grew to its full 12,000px and everything
+     below the fold became unreachable — no scrollbar, no PageDown, nothing. */
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 /* The document gets the extra room; output is dense monospace. */
 .split-left { flex: 1.15; }

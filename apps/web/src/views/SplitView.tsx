@@ -77,6 +77,17 @@ interface RibbonShape {
   filePath: string;
 }
 
+/** True when two measurements would draw exactly the same picture. */
+function sameShapes(a: RibbonShape[], b: RibbonShape[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    if (a[i].key !== b[i].key || a[i].path !== b[i].path || a[i].clamped !== b[i].clamped) {
+      return false;
+    }
+  }
+  return true;
+}
+
 /** Views that already received the appended highlight/measure config. */
 const configured = new WeakSet<EditorView>();
 
@@ -344,7 +355,11 @@ export function SplitView({
         }
       }
     }
-    setShapes(out);
+    // Scrolling fires a measurement per frame, but the geometry usually comes
+    // back identical (nothing moved relative to the pane). Re-rendering the
+    // ribbon layer anyway would put a React commit on every frame of every
+    // scroll for no visible change.
+    setShapes((prev) => (sameShapes(prev, out) ? prev : out));
   };
 
   // rAF-throttled measurement. In a hidden tab rAF is suspended, so fall

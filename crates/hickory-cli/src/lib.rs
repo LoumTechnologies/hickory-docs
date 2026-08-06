@@ -165,6 +165,43 @@ pub fn write_outputs(run: &DocRun, out_dir: Option<&Path>) -> Result<Vec<PathBuf
     Ok(written)
 }
 
+/// Write only the output files that are MISSING under `out_dir`, leaving any
+/// file already there untouched. Returns the paths written.
+///
+/// This is for staging a document's woven files before execution so that a
+/// cell can run a file its own document assembles. It must never overwrite:
+/// a file already on disk is the committed baseline that `check` compares
+/// freshly produced output against, and replacing it would manufacture drift.
+pub fn write_missing_outputs(run: &DocRun, out_dir: Option<&Path>) -> Result<Vec<PathBuf>> {
+    let base = match out_dir {
+        Some(dir) => dir.to_path_buf(),
+        None => run
+            .doc_path
+            .parent()
+            .unwrap_or(Path::new("."))
+            .to_path_buf(),
+    };
+    let mut written = Vec::new();
+    for (rel_path, content) in &run.result.files {
+        let full = base.join(rel_path);
+        if full.exists() {
+            continue;
+        }
+        if let Some(parent) = full.parent()
+            && !parent.as_os_str().is_empty()
+        {
+            std::fs::create_dir_all(parent)?;
+        }
+        match content {
+            FileContent::Text(s) => std::fs::write(&full, s)?,
+            FileContent::Binary(data) => std::fs::write(&full, data.to_bytes()?)?,
+        }
+        written.push(full);
+    }
+    written.sort();
+    Ok(written)
+}
+
 /// Collect check failures: unmet expectations plus drift between produced
 /// outputs and the committed files on disk.
 pub fn check_failures(run: &DocRun, out_dir: Option<&Path>) -> Result<Vec<CheckFailure>> {
