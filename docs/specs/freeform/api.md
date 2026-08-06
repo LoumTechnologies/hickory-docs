@@ -46,16 +46,27 @@ selects its source).
    blocks: {exec_id, status, transcript}[]}`
 - `POST /api/docs/:id/check` → `{run_id}` — verification run (expect blocks + drift)
 
-## Realtime — `WS /api/ws`
-One socket, message-framed by a 1-byte channel prefix:
-- `0x00` + Yjs sync/awareness bytes (y-websocket protocol, doc name =
-  `doc:<id>`) — collaborative editing state shared by web/iOS/Android.
+## Realtime — `WS /api/ws?doc=doc:<id>&token=<JWT>`
+Connection params: `doc` (the Yjs doc name, `doc:<id>`) and `token` (JWT —
+browsers cannot set WS headers). One socket, message-framed by a 1-byte
+channel prefix:
+- `0x00` + Yjs sync/awareness bytes (y-websocket protocol) — collaborative
+  editing state shared by web/iOS/Android.
 - `0x01` + JSON run event: `{run_id, exec_id, event: TranscriptEvent}` and
   `{run_id, status}` terminal messages.
 
+`TranscriptEvent.t` is **milliseconds since run start**.
+
+Agent sessions stream on the run channel with `run_id === session_id` and
+`exec_id: "agent"`.
+
 ## Billing
-- `GET  /api/billing/plans` → the active plan set from `plans.json` (shaped for
-  the pricing page; respects PostHog flag for plan-set selection)
+- `GET  /api/billing/plans` → the active plan set from `plans.json` (respects
+  PostHog flag for plan-set selection). Shape (pinned; the web client's
+  `src/api/types.ts` mirrors it):
+  `{plans: [{key, name, description, trial_days?, highlight?, prices: [{key,
+  interval, amount_cents, currency, per_seat?}], features: string[]}],
+  enterprise?}`
 - `POST /api/billing/checkout` `{price_key}` → `{checkout_url}` (Stripe)
 - `POST /api/billing/webhook` — Stripe webhooks (signature-verified, idempotent)
 
