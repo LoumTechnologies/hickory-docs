@@ -41,6 +41,13 @@ pub struct AgentConfig {
     /// Container image recorded for the agent workspace (LocalExecutor
     /// ignores it).
     pub image: String,
+    /// Container the agent's scripts run in.
+    ///
+    /// Set this to one the document declares and the agent stops working in a
+    /// side room: its scripts and the document's `hick:exec` cells share a
+    /// filesystem and a toolchain, so a file the agent writes is a file the
+    /// cells can run. Defaults to [`AGENT_CONTAINER`].
+    pub container: String,
     /// Earlier exchanges to replay as conversation history, oldest first.
     ///
     /// This is what makes a chat a chat rather than a series of unrelated
@@ -66,6 +73,7 @@ impl AgentConfig {
             project_dir: project_dir.into(),
             max_turns: 20,
             image: "host".into(),
+            container: AGENT_CONTAINER.to_string(),
             prior_turns: Vec::new(),
         }
     }
@@ -109,7 +117,7 @@ pub async fn run_agent(
     });
 
     executor
-        .ensure_started(AGENT_CONTAINER, &config.image)
+        .ensure_started(&config.container, &config.image)
         .await
         .context("failed to start agent container")?;
 
@@ -223,7 +231,8 @@ pub async fn run_agent(
                     data: block.code.clone(),
                 });
 
-                let result = run_script(executor.as_ref(), &block, action_index).await?;
+                let result =
+                    run_script(executor.as_ref(), &config.container, &block, action_index).await?;
 
                 let mut observation_text = result.stdout.clone();
                 if !result.stderr.is_empty() {

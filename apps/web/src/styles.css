@@ -801,15 +801,46 @@ textarea:focus {
   background: color-mix(in srgb, var(--accent) 6%, var(--bg-raised));
 }
 .cm-hick-banner-feature .cm-hick-banner-label { color: var(--accent); }
-.cm-hick-banner-user,
-.cm-hick-banner-assistant,
-.cm-hick-banner-observation {
-  border-left-color: var(--accent-2);
-  background: color-mix(in srgb, var(--accent-2) 6%, var(--bg-raised));
+/* ---- session turns: the conversation, rendered where it lives ----
+   A hick:session document IS the conversation. These frames make it read as
+   one inside the editor while every byte stays ordinary, editable text — the
+   whole point being that you can edit what the agent said and re-run from
+   there, which a chat transcript will never let you do. */
+.cm-hick-banner-turn-you,
+.cm-hick-banner-turn-user { border-left-color: var(--accent); background: color-mix(in srgb, var(--accent) 7%, var(--bg-raised)); }
+.cm-hick-banner-turn-user .cm-hick-banner-label { color: var(--accent); }
+.cm-hick-banner-turn-assistant { border-left-color: var(--accent-2); background: color-mix(in srgb, var(--accent-2) 7%, var(--bg-raised)); }
+.cm-hick-banner-turn-assistant .cm-hick-banner-label { color: var(--accent-2); }
+.cm-hick-banner-turn-action,
+.cm-hick-banner-turn-tool { border-left-color: var(--fg-muted); background: var(--neutral-bg); }
+.cm-hick-banner-turn-action .cm-hick-banner-label,
+.cm-hick-banner-turn-tool .cm-hick-banner-label { color: var(--fg-muted); }
+.cm-hick-banner-turn-observation,
+.cm-hick-banner-turn-tool-result { border-left-color: var(--ok); background: color-mix(in srgb, var(--ok) 6%, var(--bg-raised)); }
+.cm-hick-banner-turn-observation .cm-hick-banner-label,
+.cm-hick-banner-turn-tool-result .cm-hick-banner-label { color: var(--ok); }
+
+/* Turn bodies. Prose keeps the document's proportional type; anything the
+   machine produced or consumed switches to mono, because it is code. */
+.cm-turn-line {
+  border-left: 3px solid transparent;
+  padding-left: 0.7rem;
 }
-.cm-hick-banner-user .cm-hick-banner-label,
-.cm-hick-banner-assistant .cm-hick-banner-label,
-.cm-hick-banner-observation .cm-hick-banner-label { color: var(--accent-2); }
+.cm-turn-user { border-left-color: color-mix(in srgb, var(--accent) 40%, transparent); }
+.cm-turn-assistant { border-left-color: color-mix(in srgb, var(--accent-2) 40%, transparent); }
+.cm-turn-action,
+.cm-turn-tool {
+  border-left-color: color-mix(in srgb, var(--fg-muted) 45%, transparent);
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.88em;
+}
+.cm-turn-observation,
+.cm-turn-tool-result {
+  border-left-color: color-mix(in srgb, var(--ok) 45%, transparent);
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.85em;
+  color: var(--fg-muted);
+}
 
 /* The hick:when gated region: a quiet amber spine down its whole extent. */
 .cm-when-line {

@@ -217,6 +217,20 @@ pub async fn start_agent(
     ))
 }
 
+/// The document's first `hick:container` declaration, as `(name, image)`.
+///
+/// First rather than "best": a document usually declares its main environment
+/// first, and a wrong guess is visible in the transcript rather than silent.
+/// Documents that declare none keep the standalone agent container.
+fn primary_container(source: &str) -> Option<(String, String)> {
+    let doc = hick_lang::parse(source).ok()?;
+    doc.find_tags("container").into_iter().find_map(|tag| {
+        let name = tag.get_attribute("name")?.to_string();
+        let image = tag.get_attribute("image").unwrap_or("host").to_string();
+        Some((name, image))
+    })
+}
+
 async fn run_agent_session(
     state: &AppState,
     session_id: Uuid,
@@ -270,6 +284,14 @@ async fn run_agent_session(
     config.doc_path = Some(doc_file.clone());
     config.doc_context = Some(doc.source.clone());
     config.prior_turns = prior_turns;
+    // Run in the document's OWN container when it declares one. Otherwise the
+    // agent works in a side room: its scripts land in a different filesystem
+    // and toolchain from the `hick:exec` cells it is editing, so a file it
+    // writes is not a file the document can run.
+    if let Some((name, image)) = primary_container(&doc.source) {
+        config.container = name;
+        config.image = image;
+    }
 
     let mut on_event = |event: AgentEvent| {
         let _ = event_tx.send(event);
@@ -353,4 +375,42 @@ async fn run_agent_session(
         outcome.turns
     );
     Ok(outcome.summary)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::primary_container;
+
+    const DOC: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
+<hick:container name="py" image="python:3.12" />
+<hick:container name="duck" image="duckdb/duckdb:v1.5.5" />
+</hick:doc>
+"#;
+
+    #[test]
+    fn the_agent_joins_the_document_s_first_container() {
+        assert_eq!(
+            primary_container(DOC),
+            Some(("py".to_string(), "python:3.12".to_string()))
+        );
+    }
+
+    #[test]
+    fn a_document_with_no_containers_keeps_the_standalone_agent_room() {
+        let bare = "<hick:doc xmlns:hick=\"http://www.hickorydocs.com/1.0\">hi</hick:doc>";
+        assert_eq!(primary_container(bare), None);
+        // Unparseable source must not panic or invent a container.
+        assert_eq!(primary_container("<hick:doc"), None);
+    }
+
+    #[test]
+    fn a_container_without_an_image_still_names_a_room() {
+        let src = "<hick:doc xmlns:hick=\"http://www.hickorydocs.com/1.0\">\
+                   <hick:container name=\"shell\" /></hick:doc>";
+        assert_eq!(
+            primary_container(src),
+            Some(("shell".to_string(), "host".to_string()))
+        );
+    }
 }

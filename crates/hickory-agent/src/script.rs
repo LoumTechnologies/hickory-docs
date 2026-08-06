@@ -170,7 +170,12 @@ pub const AGENT_CONTAINER: &str = "agent";
 /// Directory (relative to the container workdir) that scripts are written to.
 const SCRIPT_DIR: &str = ".hickory-agent";
 
-/// Run one extracted code block through `executor` inside [`AGENT_CONTAINER`].
+/// Run one extracted code block through `executor` inside `container`.
+///
+/// `container` is normally one the DOCUMENT declares, so the agent's scripts
+/// and the document's own `hick:exec` cells share a filesystem and a toolchain
+/// — an agent that writes a file is writing it where the cells will find it.
+/// [`AGENT_CONTAINER`] is the fallback for documents that declare none.
 ///
 /// The script is written to `.hickory-agent/action-<n>.<ext>` in the
 /// container workspace and executed with the language's runner. The result
@@ -178,6 +183,7 @@ const SCRIPT_DIR: &str = ".hickory-agent";
 /// so a non-zero exit is an observation, not an error.
 pub async fn run_script(
     executor: &dyn Executor,
+    container: &str,
     block: &CodeBlock,
     action_index: usize,
 ) -> Result<ScriptResult> {
@@ -189,7 +195,7 @@ pub async fn run_script(
     // Write the script via stdin so no quoting of the code is needed.
     executor
         .execute_with_stdin(
-            AGENT_CONTAINER,
+            container,
             &format!("mkdir -p {SCRIPT_DIR} && cat > {script_path}"),
             &block.code,
         )
@@ -198,11 +204,11 @@ pub async fn run_script(
     // Run it. A non-zero exit surfaces as Err from the executor, but the
     // transcript entry is recorded first — recover the result from there.
     let command = block.language.run_command(&script_path);
-    let _ = executor.execute(AGENT_CONTAINER, &command).await;
+    let _ = executor.execute(container, &command).await;
 
     let transcripts = executor.transcripts();
     let entry = transcripts
-        .get(AGENT_CONTAINER)
+        .get(container)
         .and_then(|entries| entries.last())
         .cloned()
         .ok_or_else(|| anyhow::anyhow!("executor recorded no transcript for the script run"))?;

@@ -417,6 +417,11 @@ export function languageForBlock(
       return normalizeLanguage(block.attrs.language) ?? languageFromPath(block.attrs.path);
     case "exec":
       return "shell";
+    // A session's executed script: `<hick:action lang="bash">`. Highlighting
+    // it like any other code block is the point — the agent's actions are
+    // cells, not chat transcript.
+    case "action":
+      return normalizeLanguage(block.attrs.lang ?? block.attrs.language) ?? "shell";
     case "copy":
     case "cut": {
       const declared = normalizeLanguage(block.attrs.lang ?? block.attrs.language);

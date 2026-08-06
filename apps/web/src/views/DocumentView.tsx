@@ -27,6 +27,9 @@ export function DocumentView({ docId }: { docId: string }) {
   const [doc, setDoc] = useState<Doc | null>(null);
   const [blocks, setBlocks] = useState<Block[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // A failed weave is reported inline; only a failure to LOAD the document
+  // (missing, forbidden) is fatal to the page.
+  const [renderError, setRenderError] = useState<string | null>(null);
   // Split is the workspace: document, the files it generates, and the
   // generated text, all editable and linked. It needs width, so narrow
   // viewports start on the document and the effect below keeps them there.
@@ -106,8 +109,17 @@ export function DocumentView({ docId }: { docId: string }) {
   const refresh = useCallback(() => {
     api.doc(docId).then(setDoc, (e) => setError(String(e.message ?? e)));
     api.render(docId).then(
-      (r) => setBlocks(r.blocks),
-      (e) => setError(String(e.message ?? e)),
+      (r) => {
+        setBlocks(r.blocks);
+        setRenderError(null);
+      },
+      // A document that will not weave — a syntax error, mid-edit — must
+      // still OPEN. Replacing the page with the error made the one thing that
+      // could fix it, the editor, unreachable.
+      (e) => {
+        setBlocks((prev) => prev ?? []);
+        setRenderError(String(e.message ?? e));
+      },
     );
   }, [docId]);
 
@@ -418,6 +430,11 @@ export function DocumentView({ docId }: { docId: string }) {
         {banner && (
           <div className={`banner banner-${banner.kind}`} role="status">
             {banner.text}
+          </div>
+        )}
+        {renderError && (
+          <div className="banner banner-fail" role="status">
+            Could not weave this document — editing still works. {renderError}
           </div>
         )}
         {view === "document" ? (

@@ -463,6 +463,14 @@ async fn store_blocks(state: &AppState, run_id: Uuid, blocks: &[Value]) -> anyho
 /// thread — under render load `GET /api/health` stopped answering at all —
 /// so the whole body runs on the blocking pool.
 pub async fn weave_blocks(state: &AppState, doc: &DocRow) -> anyhow::Result<Vec<Block>> {
+    // A `hick:session` is a document too — the conversation the agent wrote,
+    // stored in the project. It has no `hick:doc` root and nothing to weave,
+    // so weaving it is not an error: it simply renders no cells, and the
+    // editor renders its turns inline. Erroring here made every session the
+    // agent produced impossible to OPEN in the product that produced it.
+    if hick_lang::is_session_source(&doc.source) {
+        return Ok(Vec::new());
+    }
     let git = state.git.clone();
     let doc = doc.clone();
     let handle = tokio::runtime::Handle::current();
