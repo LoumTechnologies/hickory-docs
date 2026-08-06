@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, MOCK } from "../api/client";
 import { WsRealtime, getSharedRealtime, type Realtime } from "../api/realtime";
-import type { Block, Doc } from "../api/types";
-import { BlockRenderer } from "../components/BlockRenderer";
+import type { Block, Doc, ExecBlock, SourceEdit } from "../api/types";
 import { AgentPanel } from "../components/AgentPanel";
-import { SourceEditor } from "../editor/SourceEditor";
+import { DocumentEditor } from "../editor/DocumentEditor";
+import { OutputView } from "./OutputView";
 import { navigate } from "../router";
 
 type Banner = { kind: "pending" | "pass" | "fail"; text: string } | null;
@@ -13,13 +13,16 @@ export function DocumentView({ docId }: { docId: string }) {
   const [doc, setDoc] = useState<Doc | null>(null);
   const [blocks, setBlocks] = useState<Block[] | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [view, setView] = useState<"notebook" | "source">("notebook");
+  const [view, setView] = useState<"document" | "output">("document");
   const [showAgent, setShowAgent] = useState(false);
   const [runningCells, setRunningCells] = useState<Set<string>>(new Set());
   const [banner, setBanner] = useState<Banner>(null);
   const [selectSpan, setSelectSpan] = useState<[number, number] | null>(null);
   const [dirtySource, setDirtySource] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  // Bumped when an /outputs/edit rewrote the source out-of-band so the
+  // Document editor reseeds its Y.Doc from the freshly fetched source.
+  const [editorEpoch, setEditorEpoch] = useState(0);
 
   const checkRunRef = useRef<string | null>(null);
   // Fast local runs can finish (and emit their terminal WS message) before
@@ -164,9 +167,25 @@ export function DocumentView({ docId }: { docId: string }) {
   };
 
   const onSelectSpan = (span: [number, number]) => {
-    setView("source");
+    setView("document");
     setSelectSpan(span);
   };
+
+  // An output edit rewrote the source through provenance: re-fetch doc and
+  // render, and reseed the Document editor from the new source.
+  const onSourceEdited = (_edits: SourceEdit[]) => {
+    setDirtySource(null);
+    api.doc(docId).then(
+      (d) => {
+        setDoc(d);
+        setEditorEpoch((n) => n + 1);
+      },
+      () => undefined,
+    );
+    api.render(docId).then((r) => setBlocks(r.blocks), () => undefined);
+  };
+
+  const execBlocks = (blocks ?? []).filter((b): b is ExecBlock => b.kind === "exec");
 
   if (error) {
     return (
@@ -195,22 +214,22 @@ export function DocumentView({ docId }: { docId: string }) {
             <div className="segmented" role="tablist">
               <button
                 role="tab"
-                aria-selected={view === "notebook"}
-                className={view === "notebook" ? "on" : ""}
-                onClick={() => setView("notebook")}
+                aria-selected={view === "document"}
+                className={view === "document" ? "on" : ""}
+                onClick={() => setView("document")}
               >
-                Notebook
+                Document
               </button>
               <button
                 role="tab"
-                aria-selected={view === "source"}
-                className={view === "source" ? "on" : ""}
-                onClick={() => setView("source")}
+                aria-selected={view === "output"}
+                className={view === "output" ? "on" : ""}
+                onClick={() => setView("output")}
               >
-                Source
+                Output
               </button>
             </div>
-            {view === "source" && (
+            {view === "document" && (
               <button className="btn" disabled={dirtySource === null || saving} onClick={() => void save()}>
                 {saving ? "Saving…" : "Save"}
               </button>
@@ -235,21 +254,20 @@ export function DocumentView({ docId }: { docId: string }) {
             {banner.text}
           </div>
         )}
-        {view === "notebook" ? (
-          <BlockRenderer
-            blocks={blocks}
-            runningCells={runningCells}
-            onRunCell={(id) => void runCell(id)}
-            onSelectSpan={onSelectSpan}
-          />
-        ) : (
-          <SourceEditor
+        {view === "document" ? (
+          <DocumentEditor
+            key={`${docId}:${editorEpoch}`}
             docId={docId}
             initialSource={doc.source}
             realtime={realtime}
             onChange={setDirtySource}
             selectSpan={selectSpan}
+            execBlocks={execBlocks}
+            runningCells={runningCells}
+            onRunCell={(id) => void runCell(id)}
           />
+        ) : (
+          <OutputView docId={docId} onSourceEdited={onSourceEdited} onSelectSpan={onSelectSpan} />
         )}
       </div>
       {showAgent && <AgentPanel docId={docId} realtime={realtime} />}

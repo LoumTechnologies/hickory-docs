@@ -203,6 +203,79 @@ export const PAPER_BLOCKS: Block[] = [
 ];
 
 // ---------------------------------------------------------------------------
+// Mock document 3: literate weaving — two hick:copy slots woven into one
+// generated Python file, demonstrating /outputs lineage and edit-back.
+// ---------------------------------------------------------------------------
+
+export const WEAVE_SOURCE = `# Woven module demo
+
+This document **weaves** one Python module from two named slots. Edit the
+document *or* the generated output — hickory maps output edits back to the
+source spans they came from (note: raw < and > need no escaping here).
+
+The loader slot:
+
+<hick:copy id="load">
+def load_runs(path):
+    import json
+    with open(path) as f:
+        return json.load(f)
+</hick:copy>
+
+The summary slot:
+
+<hick:copy id="summarise">
+def summarise(runs):
+    import statistics
+    return {n: statistics.median(r) for n, r in runs.items()}
+</hick:copy>
+
+Weave both slots plus a literal entry point into \`src/latency.py\`:
+
+<hick:file path="src/latency.py" language="python">
+<hick:paste select="#load" />
+
+<hick:paste select="#summarise" />
+
+if __name__ == "__main__":
+    print(summarise(load_runs("data/runs.json")))
+</hick:file>
+
+Run the woven module:
+
+<hick:exec container="py" image="python:3.12">
+python src/latency.py
+</hick:exec>
+`;
+
+export const WEAVE_BLOCKS: Block[] = [
+  {
+    kind: "prose",
+    html: "<h1>Woven module demo</h1><p>This document <strong>weaves</strong> one Python module from two named slots. Edit the document <em>or</em> the generated output — hickory maps output edits back to the source spans they came from.</p>",
+    span: [0, WEAVE_SOURCE.indexOf("<hick:copy")],
+  },
+  {
+    kind: "file",
+    path: "src/latency.py",
+    language: "python",
+    body: '<hick:paste select="#load" />\n\n<hick:paste select="#summarise" />\n\nif __name__ == "__main__":\n    print(summarise(load_runs("data/runs.json")))',
+    span: span(WEAVE_SOURCE, '<hick:file path="src/latency.py" language="python">'),
+  },
+  {
+    kind: "exec",
+    id: "weave-run",
+    container: "py",
+    image: "python:3.12",
+    command: "python src/latency.py",
+    span: span(
+      WEAVE_SOURCE,
+      '<hick:exec container="py" image="python:3.12">\npython src/latency.py\n</hick:exec>',
+    ),
+    status: "never-run",
+  },
+];
+
+// ---------------------------------------------------------------------------
 // Projects, docs, plans
 // ---------------------------------------------------------------------------
 
@@ -226,11 +299,19 @@ export const MOCK_DOCS: (Doc & { project_id: string })[] = [
     source: PAPER_SOURCE,
     updated_at: "2026-08-03T11:45:00Z",
   },
+  {
+    id: "d3",
+    project_id: "p1",
+    path: "docs/weave-demo.hick",
+    source: WEAVE_SOURCE,
+    updated_at: "2026-08-04T09:05:00Z",
+  },
 ];
 
 export const MOCK_BLOCKS: Record<string, Block[]> = {
   d1: CLI_BLOCKS,
   d2: PAPER_BLOCKS,
+  d3: WEAVE_BLOCKS,
 };
 
 // Mirrors the repo's plans.json (default plan set), shaped for the pricing

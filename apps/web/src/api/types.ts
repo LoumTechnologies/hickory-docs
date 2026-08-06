@@ -108,6 +108,63 @@ export interface PlansResponse {
   enterprise?: { contact: boolean; description: string };
 }
 
+// Generated outputs & lineage (v0.2). All ranges/spans are BYTE offsets
+// (UTF-8): `start`/`end` into the output file's content, `span` into the
+// source document.
+
+export type ProvenanceOrigin =
+  | {
+      kind: "literal" | "paste" | "exec" | "variable" | "substitution";
+      doc_path: string;
+      span: [number, number];
+    }
+  | { kind: "synthetic" };
+
+export interface Provenance {
+  start: number;
+  end: number;
+  origin: ProvenanceOrigin;
+}
+
+export interface OutputFileMeta {
+  path: string;
+  language: string;
+}
+
+export interface OutputsResponse {
+  files: OutputFileMeta[];
+}
+
+export interface OutputFile {
+  path: string;
+  language: string;
+  content: string;
+  provenance: Provenance[];
+}
+
+export interface OutputEdit {
+  start: number;
+  end: number;
+  text: string;
+}
+
+export interface SourceEdit {
+  doc_path: string;
+  span: [number, number];
+  text: string;
+}
+
+export interface OutputEditResponse {
+  source_edits: SourceEdit[];
+  applied: true;
+}
+
+/** Body of the 422 returned when an edit overlaps a synthetic range. */
+export interface SyntheticRangeError {
+  error: string;
+  range: { start: number; end: number };
+}
+
 export interface Health {
   ok: boolean;
   executor: "local" | "canopy";

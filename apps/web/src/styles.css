@@ -510,28 +510,227 @@ textarea:focus {
   font-family: inherit;
 }
 
-/* --- source editor --- */
-.source-editor {
+/* --- document editor (Typora-style WYSIWYG over raw .hick source) --- */
+.document-editor {
   border: 1px solid var(--border);
   border-radius: 10px;
   overflow: hidden;
   background: var(--bg-raised);
 }
 
-.source-editor .cm-editor {
+.document-editor .cm-editor {
   max-height: calc(100vh - 12rem);
-  font-size: 0.86rem;
+  font-size: 0.95rem;
 }
 
-.source-editor .cm-editor.cm-focused { outline: none; }
-.source-editor .cm-scroller { font-family: ui-monospace, Menlo, monospace; }
-.source-editor .cm-gutters {
+.document-editor .cm-editor.cm-focused { outline: none; }
+
+/* Prose reads like a document: proportional type, generous measure. */
+.document-editor .cm-scroller {
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  line-height: 1.65;
+}
+
+.document-editor .cm-content {
+  max-width: 46rem;
+  margin: 0 auto;
+  padding: 2rem 2.5rem 3rem;
+  caret-color: var(--fg);
+}
+
+/* Headings: big type, `#` marks stay visible but dimmed. */
+.cm-md-heading { font-weight: 650; line-height: 1.3; }
+.cm-md-h1 { font-size: 1.8em; padding-top: 0.4em; }
+.cm-md-h2 { font-size: 1.45em; padding-top: 0.35em; }
+.cm-md-h3 { font-size: 1.2em; padding-top: 0.3em; }
+.cm-md-h4, .cm-md-h5, .cm-md-h6 { font-size: 1.05em; }
+
+.cm-md-mark {
+  color: var(--fg-muted);
+  opacity: 0.55;
+  font-weight: 400;
+}
+
+.cm-md-strong { font-weight: 700; }
+.cm-md-em { font-style: italic; }
+.cm-md-code {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.88em;
+  background: var(--bg-sunken);
+  border-radius: 4px;
+  padding: 0.05em 0.25em;
+}
+
+/* hick tags: visible, but subtle dimmed chrome. */
+.cm-hick-chrome {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.78em;
+  color: var(--fg-muted);
+  opacity: 0.75;
+}
+.cm-hick-chrome.cm-hick-attr,
+.cm-hick-attr { color: var(--accent-2); }
+
+/* Exec cells: framed "cell" look via line decorations. */
+.cm-cell-line {
+  background: var(--bg-sunken);
+  border-left: 2px solid var(--accent);
+  border-right: 1px solid var(--border);
+  padding-left: 0.8rem;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.85em;
+}
+.cm-cell-first {
+  border-top: 1px solid var(--border);
+  border-top-left-radius: 8px;
+  border-top-right-radius: 8px;
+  margin-top: 0.5rem;
+}
+.cm-cell-last { border-bottom: 1px solid var(--border); }
+
+/* File blocks: same frame, accent-2 spine. */
+.cm-file-line {
+  background: var(--bg-sunken);
+  border-left: 2px solid var(--accent-2);
+  border-right: 1px solid var(--border);
+  padding-left: 0.8rem;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.85em;
+}
+.cm-file-first { border-top: 1px solid var(--border); }
+.cm-file-last {
+  border-bottom: 1px solid var(--border);
+  border-bottom-left-radius: 8px;
+  border-bottom-right-radius: 8px;
+  margin-bottom: 0.5rem;
+}
+
+.cm-file-chip {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+  padding: 0.3rem 0.8rem;
+  background: var(--neutral-bg);
+  border: 1px solid var(--border);
+  border-bottom: none;
+  border-radius: 8px 8px 0 0;
+  font-size: 0.78rem;
+}
+.cm-file-chip-path {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  color: var(--accent-2);
+  font-weight: 600;
+}
+.cm-file-chip-lang { color: var(--fg-muted); }
+
+/* Cell panel widget (run/status/transcript below each exec cell). */
+.cm-cell-panel { padding: 0; }
+.cell-panel {
+  border: 1px solid var(--border);
+  border-top: none;
+  border-left: 2px solid var(--accent);
+  border-radius: 0 0 8px 8px;
+  background: var(--bg-raised);
+  padding: 0.5rem 0.8rem 0.7rem;
+  margin-bottom: 0.75rem;
+  font-size: 0.85rem;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+.cell-panel-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+.cell-panel-bar .btn-run { margin-left: auto; }
+.cell-expect-chip {
+  font-size: 0.72rem;
+  color: var(--fg-muted);
+  border: 1px dashed var(--border);
+  border-radius: 999px;
+  padding: 0.05rem 0.5rem;
+}
+.cell-panel .transcript { margin-top: 0.5rem; }
+
+/* --- output view --- */
+.output-view { display: flex; flex-direction: column; gap: 0.75rem; }
+
+.output-tabs {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+.output-tab {
+  border: 1px solid var(--border);
+  border-radius: 8px 8px 0 0;
   background: var(--bg-sunken);
   color: var(--fg-muted);
-  border-right: 1px solid var(--border);
+  padding: 0.3rem 0.8rem;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+.output-tab.on {
+  background: var(--bg-raised);
+  color: var(--fg);
+  border-bottom-color: var(--bg-raised);
+  font-weight: 600;
+}
+.output-tab-spacer { flex: 1; }
+
+.output-body {
+  display: flex;
+  gap: 1rem;
+  align-items: flex-start;
 }
 
-.source-editor .cm-activeLine { background: color-mix(in srgb, var(--accent) 7%, transparent); }
+.output-editor {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--bg-raised);
+}
+.output-editor .cm-editor {
+  max-height: calc(100vh - 15rem);
+  font-size: 0.86rem;
+}
+.output-editor .cm-editor.cm-focused { outline: none; }
+.output-editor .cm-scroller { font-family: ui-monospace, Menlo, monospace; }
+
+.cm-prov-active {
+  background: color-mix(in srgb, var(--accent-2) 22%, transparent);
+  border-radius: 2px;
+}
+.cm-prov-synthetic {
+  background: color-mix(in srgb, var(--fg-muted) 18%, transparent);
+  border-radius: 2px;
+}
+.cm-prov-error {
+  background: color-mix(in srgb, var(--fail) 30%, transparent);
+  outline: 1px solid var(--fail);
+  border-radius: 2px;
+}
+
+.lineage-strip {
+  width: min(22rem, 32vw);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-raised);
+  padding: 0.9rem 1rem;
+  font-size: 0.82rem;
+}
+.lineage-strip h3 {
+  margin: 0 0 0.5rem;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--fg-muted);
+}
+.lineage-strip ul { margin: 0; padding: 0; list-style: none; }
+.lineage-strip li { margin-bottom: 0.4rem; }
+.lineage-strip .btn-link { padding: 0; font-size: inherit; text-align: left; }
+.prov-synthetic { color: var(--fg-muted); }
 
 /* --- agent panel --- */
 .agent-panel {

@@ -2,6 +2,10 @@ import type {
   AuthResponse,
   Doc,
   DocSummary,
+  OutputEdit,
+  OutputEditResponse,
+  OutputFile,
+  OutputsResponse,
   PlansResponse,
   Project,
   RenderResponse,
@@ -26,6 +30,9 @@ export class ApiError extends Error {
   constructor(
     public status: number,
     message: string,
+    /** Parsed JSON error body, when the server sent one (e.g. the 422
+     * synthetic-range payload from POST /outputs/edit). */
+    public body?: unknown,
   ) {
     super(message);
   }
@@ -59,14 +66,16 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   });
   if (!res.ok) {
     let message = res.statusText;
+    let errBody: unknown;
     try {
       const data = await res.json();
+      errBody = data;
       if (typeof data?.error === "string") message = data.error;
       else if (typeof data?.message === "string") message = data.message;
     } catch {
       /* non-JSON error body */
     }
-    throw new ApiError(res.status, message);
+    throw new ApiError(res.status, message, errBody);
   }
   if (res.status === 204) return undefined as T;
   return (await res.json()) as T;
@@ -91,6 +100,19 @@ export const api = {
   saveDoc: (id: string, source: string) =>
     request<Doc>("PUT", `/api/docs/${id}`, { source }),
   render: (id: string) => request<RenderResponse>("GET", `/api/docs/${id}/render`),
+
+  outputs: (docId: string) =>
+    request<OutputsResponse>("GET", `/api/docs/${docId}/outputs`),
+  outputFile: (docId: string, path: string) =>
+    request<OutputFile>(
+      "GET",
+      `/api/docs/${docId}/outputs/file?path=${encodeURIComponent(path)}`,
+    ),
+  editOutput: (docId: string, path: string, edits: OutputEdit[]) =>
+    request<OutputEditResponse>("POST", `/api/docs/${docId}/outputs/edit`, {
+      path,
+      edits,
+    }),
 
   run: (docId: string, cells?: string[]) =>
     request<{ run_id: string }>("POST", `/api/docs/${docId}/run`, cells ? { cells } : {}),

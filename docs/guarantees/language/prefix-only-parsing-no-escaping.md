@@ -17,4 +17,6 @@ Last LLM verification:
   scans only for those markers and comments; all other text becomes
   `HickNode::Text` untouched.
 - Test coverage: hick-lang parser tests exercising raw `<`/`&` in bodies
-  (vendored with the crate).
+  (vendored with the crate); web decoration parser honors the same invariant
+  in `apps/web/src/editor/hickDoc.test.ts` ("no-escaping invariant: raw < > &
+  and non-hick tags are NOT structure").

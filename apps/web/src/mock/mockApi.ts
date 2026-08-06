@@ -1,4 +1,4 @@
-import { installMockHandler, setToken } from "../api/client";
+import { ApiError, installMockHandler, setToken } from "../api/client";
 import { LocalRealtime } from "../api/realtime";
 import type {
   Block,
@@ -16,6 +16,13 @@ import {
   MOCK_PROJECTS,
   PAPER_CHART_SVG,
 } from "./mockData";
+import {
+  SyntheticRangeViolation,
+  applySourceEdits,
+  mapEditsToSource,
+  weaveOutputs,
+} from "./weave";
+import type { OutputEdit } from "../api/types";
 
 // In-browser mock API (VITE_MOCK=1): implements the api.md contract, including
 // fake streaming runs over the LocalRealtime "socket", so `npm run dev:mock`
@@ -67,6 +74,13 @@ function fakeTranscript(cell: ExecBlock): TranscriptEvent[] {
       { t: 700, kind: "out", data: "installed pre-commit hook (sentinel-delimited)\n" },
       { t: 1050, kind: "out", data: "cache  git  hooks\n" },
       { t: 1100, kind: "exit", code: 0 },
+    ];
+  }
+  if (cell.id === "weave-run") {
+    return [
+      { t: 0, kind: "cmd", data: cell.command },
+      { t: 400, kind: "out", data: "{'1': 4.1, '4': 4.9, '16': 7.2, '64': 15.8, '256': 47.0}\n" },
+      { t: 460, kind: "exit", code: 0 },
     ];
   }
   return [
@@ -237,6 +251,41 @@ export function installMockApi() {
     if ((m = path.match(/^\/api\/docs\/([^/]+)\/render$/))) {
       state.docs.find((d) => d.id === m![1]) ?? notFound(path);
       return { blocks: state.blocks[m![1]] ?? [] };
+    }
+    // Generated outputs & lineage (v0.2). Outputs are woven fresh from the
+    // doc's current source, so provenance ranges are always real.
+    if ((m = path.match(/^\/api\/docs\/([^/]+)\/outputs$/))) {
+      const doc = state.docs.find((d) => d.id === m![1]) ?? notFound(path);
+      const files = weaveOutputs(doc.source, doc.path);
+      return { files: files.map(({ path, language }) => ({ path, language })) };
+    }
+    if ((m = path.match(/^\/api\/docs\/([^/]+)\/outputs\/file\?path=(.+)$/))) {
+      const doc = state.docs.find((d) => d.id === m![1]) ?? notFound(path);
+      const filePath = decodeURIComponent(m![2]);
+      const file = weaveOutputs(doc.source, doc.path).find((f) => f.path === filePath);
+      return file ?? notFound(path);
+    }
+    if ((m = path.match(/^\/api\/docs\/([^/]+)\/outputs\/edit$/))) {
+      const doc = state.docs.find((d) => d.id === m![1]) ?? notFound(path);
+      const filePath = String(b.path);
+      const edits = (b.edits ?? []) as OutputEdit[];
+      const file = weaveOutputs(doc.source, doc.path).find((f) => f.path === filePath);
+      if (!file) notFound(path);
+      try {
+        const sourceEdits = mapEditsToSource(file, edits);
+        doc.source = applySourceEdits(doc.source, sourceEdits);
+        doc.updated_at = new Date().toISOString();
+        // Source changed: previously-ok cells go stale, as with PUT /docs/:id.
+        for (const cell of execBlocks(doc.id)) {
+          if (cell.status === "ok") cell.status = "stale";
+        }
+        return { source_edits: sourceEdits, applied: true };
+      } catch (e) {
+        if (e instanceof SyntheticRangeViolation) {
+          throw new ApiError(422, e.message, { error: e.message, range: e.range });
+        }
+        throw e;
+      }
     }
     if ((m = path.match(/^\/api\/docs\/([^/]+)\/run$/))) {
       return { run_id: startRun(m![1], b.cells as string[] | undefined, false) };
