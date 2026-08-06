@@ -20,6 +20,7 @@ struct TestApp {
     client: reqwest::Client,
     _git_dir: tempfile::TempDir,
     git: hickory_server::gitstore::GitStore,
+    renders: Arc<hickory_server::render_cache::RenderCache>,
 }
 
 fn repo_root() -> std::path::PathBuf {
@@ -81,6 +82,7 @@ async fn setup() -> TestApp {
     let db = hickory_server::init_db(&test_url).await.unwrap();
     let state = build_state(config, db.clone()).unwrap();
     let git = state.git.clone();
+    let renders = state.renders.clone();
     let router = build_router(state);
 
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -96,6 +98,7 @@ async fn setup() -> TestApp {
         client: reqwest::Client::new(),
         _git_dir: git_dir,
         git,
+        renders,
     }
 }
 
@@ -1366,4 +1369,295 @@ async fn outputs_nav_definition_maps_back_to_copy_block() {
         )
         .await;
     assert_eq!(status, 400);
+}
+
+// ---------------------------------------------------------------------------
+// Reconnecting must not duplicate the document (migration 0003).
+// ---------------------------------------------------------------------------
+
+/// One client-side Yjs sync round trip over the framed socket: reply to the
+/// server's sync-step-1, ask for its state, and apply what comes back.
+async fn yjs_sync(ws: &mut Ws, ydoc: &yrs::Doc) {
+    use yrs::sync::{Message, SyncMessage};
+    use yrs::updates::decoder::Decode as _;
+    use yrs::updates::encoder::Encode as _;
+    use yrs::{ReadTxn as _, Transact as _};
+
+    let frame = |m: &Message| {
+        let mut f = vec![0x00u8];
+        f.extend_from_slice(&m.encode_v1());
+        TtMessage::Binary(f)
+    };
+
+    // Announce our state so the server sends only what we are missing.
+    let sv = ydoc.transact().state_vector();
+    ws.send(frame(&Message::Sync(SyncMessage::SyncStep1(sv))))
+        .await
+        .unwrap();
+
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
+    let mut got_step2 = false;
+    while !got_step2 {
+        let Ok(Some(Ok(msg))) = tokio::time::timeout_at(deadline, ws.next()).await else {
+            panic!("timed out waiting for the server's sync step 2");
+        };
+        let TtMessage::Binary(bytes) = msg else {
+            continue;
+        };
+        if bytes.first() != Some(&0x00) {
+            continue;
+        }
+        let Ok(message) = Message::decode_v1(&bytes[1..]) else {
+            continue;
+        };
+        match message {
+            Message::Sync(SyncMessage::SyncStep1(their_sv)) => {
+                // Send everything they are missing from us.
+                let update = ydoc.transact().encode_state_as_update_v1(&their_sv);
+                ws.send(frame(&Message::Sync(SyncMessage::SyncStep2(update))))
+                    .await
+                    .unwrap();
+            }
+            Message::Sync(SyncMessage::SyncStep2(update))
+            | Message::Sync(SyncMessage::Update(update)) => {
+                let update = yrs::Update::decode_v1(&update).unwrap();
+                ydoc.transact_mut().apply_update(update).unwrap();
+                got_step2 = true;
+            }
+            _ => {}
+        }
+    }
+}
+
+/// Reconnecting a client whose Y.Doc already holds the document must not
+/// append a second copy of it.
+///
+/// Rooms are created on the first socket and dropped when the last one
+/// leaves. Re-creating a room used to mint a *new* insert of `docs.source`
+/// under a fresh client id, which the CRDT merged with the copy the client
+/// still held — concatenating them. In the dev stack this ran away to a
+/// 49 MB document (3268 copies of a 15 KB file), which is what made
+/// `GET /api/docs/:id/render` take 7.8 s.
+#[tokio::test(flavor = "multi_thread")]
+async fn reconnecting_does_not_duplicate_the_document() {
+    use yrs::{GetString as _, Transact as _};
+
+    let app = setup().await;
+    let (token, _) = app.signup("crdt@example.com").await;
+    let (_, project) = app
+        .post(
+            "/api/projects",
+            Some(&token),
+            json!({ "name": "crdt", "visibility": "private" }),
+        )
+        .await;
+    let (_, doc) = app
+        .post(
+            &format!("/api/projects/{}/docs", project["id"].as_str().unwrap()),
+            Some(&token),
+            json!({ "path": "collab.hick", "source": TEST_DOC }),
+        )
+        .await;
+    let doc_id = doc["id"].as_str().unwrap().to_string();
+
+    // One long-lived client Y.Doc across several connections, like a browser
+    // tab that reconnects (or a page that keeps its doc across a WS drop).
+    let ydoc = yrs::Doc::new();
+    let text = ydoc.get_or_insert_text("source");
+
+    for round in 0..4 {
+        let mut ws = lsp_ws(&app, &token, &doc_id).await;
+        yjs_sync(&mut ws, &ydoc).await;
+        let content = text.get_string(&ydoc.transact());
+        assert_eq!(
+            content,
+            TEST_DOC,
+            "round {round}: the document gained a duplicate copy \
+             ({} bytes vs {} expected)",
+            content.len(),
+            TEST_DOC.len()
+        );
+        ws.close(None).await.unwrap();
+        // Let the socket close, the room drain and the debounced persist run.
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    }
+
+    // Whatever was persisted must still be exactly one copy.
+    let stored: String = sqlx::query_scalar("SELECT source FROM docs WHERE id = $1")
+        .bind(doc_id.parse::<uuid::Uuid>().unwrap())
+        .fetch_one(&app.db)
+        .await
+        .unwrap();
+    assert_eq!(stored, TEST_DOC, "persisted source picked up a duplicate");
+}
+
+// ---------------------------------------------------------------------------
+// Render performance: the weave is cached, and it never blocks the runtime.
+// ---------------------------------------------------------------------------
+
+/// A document big enough that weaving it is measurably expensive.
+fn big_doc(tag: &str, paragraphs: usize) -> String {
+    let mut s = String::from(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
+         <hick:doc xmlns:hick=\"http://www.hickorydocs.com/1.0\">\n",
+    );
+    for i in 0..paragraphs {
+        s.push_str(&format!(
+            "Paragraph {i} of the {tag} document, long enough to cost real work to weave.\n"
+        ));
+    }
+    s.push_str("</hick:doc>\n");
+    s
+}
+
+/// Renders are served from the in-process cache when nothing they depend on
+/// changed, and recomputed as soon as the source moves. Regression guard for
+/// re-weaving the same document on every save / run event / page load.
+#[tokio::test(flavor = "multi_thread")]
+async fn render_is_cached_and_recomputed_when_the_source_changes() {
+    let app = setup().await;
+    let (token, _) = app.signup("rendercache@example.com").await;
+    let (_, project) = app
+        .post(
+            "/api/projects",
+            Some(&token),
+            json!({ "name": "cache", "visibility": "private" }),
+        )
+        .await;
+    let (_, doc) = app
+        .post(
+            &format!("/api/projects/{}/docs", project["id"].as_str().unwrap()),
+            Some(&token),
+            json!({ "path": "cached.hick", "source": big_doc("first", 20_000) }),
+        )
+        .await;
+    let doc_id = doc["id"].as_str().unwrap().to_string();
+
+    let cold = std::time::Instant::now();
+    let (status, first) = app
+        .get(&format!("/api/docs/{doc_id}/render"), Some(&token))
+        .await;
+    let cold = cold.elapsed();
+    assert_eq!(status, 200, "{first}");
+    assert_eq!(
+        app.renders.stats(),
+        (0, 1),
+        "the first render must miss the cache"
+    );
+
+    let warm = std::time::Instant::now();
+    let (status, second) = app
+        .get(&format!("/api/docs/{doc_id}/render"), Some(&token))
+        .await;
+    let warm = warm.elapsed();
+    assert_eq!(status, 200);
+    assert_eq!(second, first, "a cache hit must be byte-identical");
+    assert_eq!(app.renders.stats().0, 1, "the second render must hit");
+    assert!(
+        warm * 2 < cold,
+        "warm render ({warm:?}) should be far cheaper than cold ({cold:?})"
+    );
+
+    // A save changes the source hash: the cache must not serve the old weave.
+    let (status, _) = app
+        .put(
+            &format!("/api/docs/{doc_id}"),
+            Some(&token),
+            json!({ "source": big_doc("second", 20_000) }),
+        )
+        .await;
+    assert_eq!(status, 200);
+    let (status, third) = app
+        .get(&format!("/api/docs/{doc_id}/render"), Some(&token))
+        .await;
+    assert_eq!(status, 200);
+    assert_ne!(third, first, "the render must follow the edited source");
+    assert!(
+        serde_json::to_string(&third)
+            .unwrap()
+            .contains("second document"),
+        "the render should reflect the new source"
+    );
+    assert_eq!(app.renders.stats().1, 2, "the edited source must miss");
+}
+
+/// The weave is CPU-bound and the checkout seed is synchronous filesystem
+/// work; both must run on the blocking pool. Pinned to a single runtime
+/// worker so that doing either on the runtime would visibly stall the
+/// server — which is exactly what happened in the dev stack: under render
+/// load `GET /api/health` stopped answering at all.
+#[tokio::test(flavor = "multi_thread", worker_threads = 1)]
+async fn health_stays_responsive_while_renders_are_in_flight() {
+    let app = setup().await;
+    let (token, _) = app.signup("nonblocking@example.com").await;
+    let (_, project) = app
+        .post(
+            "/api/projects",
+            Some(&token),
+            json!({ "name": "load", "visibility": "private" }),
+        )
+        .await;
+    let project_id = project["id"].as_str().unwrap().to_string();
+
+    // Distinct documents so every render is a genuine cache miss. The docs
+    // themselves are small — the expensive part under test is the per-render
+    // checkout seed, which copies the whole project tree.
+    let mut doc_ids = Vec::new();
+    for i in 0..8 {
+        let (_, doc) = app
+            .post(
+                &format!("/api/projects/{project_id}/docs"),
+                Some(&token),
+                json!({
+                    "path": format!("load-{i}.hick"),
+                    "source": big_doc(&format!("load {i}"), 200),
+                }),
+            )
+            .await;
+        doc_ids.push(doc["id"].as_str().unwrap().to_string());
+    }
+
+    // A heavy (but not declared-output) file in the project checkout, as an
+    // exec's incidental artifact would be: every render copies it.
+    let project_dir = app
+        .git
+        .project_dir(project_id.parse::<uuid::Uuid>().unwrap());
+    std::fs::write(
+        project_dir.join("artifact.bin"),
+        vec![7u8; 48 * 1024 * 1024],
+    )
+    .unwrap();
+
+    let base = app.base.clone();
+    let renders: Vec<_> = doc_ids
+        .into_iter()
+        .map(|id| {
+            let client = app.client.clone();
+            let url = format!("{base}/api/docs/{id}/render");
+            let token = token.clone();
+            tokio::spawn(async move { client.get(url).bearer_auth(token).send().await })
+        })
+        .collect();
+
+    // Let the renders reach the server before probing.
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+    // While those are in flight, health must keep answering promptly.
+    let mut worst = std::time::Duration::ZERO;
+    for _ in 0..10 {
+        let t = std::time::Instant::now();
+        let (status, v) = app.get("/api/health", None).await;
+        worst = worst.max(t.elapsed());
+        assert_eq!(status, 200, "{v}");
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+    assert!(
+        worst < std::time::Duration::from_millis(500),
+        "GET /api/health took {worst:?} while renders were in flight — \
+         CPU-bound work is back on the async runtime"
+    );
+
+    for r in renders {
+        assert_eq!(r.await.unwrap().unwrap().status().as_u16(), 200);
+    }
 }

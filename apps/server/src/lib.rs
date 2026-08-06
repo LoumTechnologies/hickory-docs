@@ -10,6 +10,7 @@ pub mod executor;
 pub mod gitstore;
 pub mod lsp;
 pub mod plans;
+pub mod render_cache;
 pub mod routes;
 pub mod runs;
 pub mod ws;
@@ -38,6 +39,8 @@ pub struct AppState {
     pub rooms: Arc<ws::RoomRegistry>,
     pub editors: Arc<ws::EditorTracker>,
     pub http: reqwest::Client,
+    /// Bounded in-process cache of woven block models (see `render_cache`).
+    pub renders: Arc<render_cache::RenderCache>,
 }
 
 pub static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
@@ -67,6 +70,7 @@ pub fn build_state(mut config: Config, db: sqlx::PgPool) -> Result<AppState> {
         rooms: Arc::new(ws::RoomRegistry::default()),
         editors: Arc::new(ws::EditorTracker::default()),
         http: reqwest::Client::new(),
+        renders: Arc::new(render_cache::RenderCache::default()),
     })
 }
 

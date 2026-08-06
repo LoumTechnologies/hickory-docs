@@ -55,6 +55,25 @@ export function DocumentView({ docId }: { docId: string }) {
     };
   }, [realtime]);
 
+  // Run events arrive in bursts (one terminal message per run, plus the
+  // `verify` fallback path), and each used to trigger its own full render.
+  // Coalesce them into one trailing fetch; `api.render` additionally collapses
+  // anything still in flight.
+  const renderTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const scheduleRender = useCallback(() => {
+    if (renderTimer.current !== null) return;
+    renderTimer.current = setTimeout(() => {
+      renderTimer.current = null;
+      api.render(docId).then((r) => setBlocks(r.blocks), () => undefined);
+    }, 150);
+  }, [docId]);
+  useEffect(
+    () => () => {
+      if (renderTimer.current !== null) clearTimeout(renderTimer.current);
+    },
+    [],
+  );
+
   const refresh = useCallback(() => {
     api.doc(docId).then(setDoc, (e) => setError(String(e.message ?? e)));
     api.render(docId).then(
@@ -104,7 +123,7 @@ export function DocumentView({ docId }: { docId: string }) {
         setRunningCells(new Set());
         startedCellsRef.current = new Set();
         // Pick up final statuses/transcripts from the server's render.
-        api.render(docId).then((r) => setBlocks(r.blocks), () => undefined);
+        scheduleRender();
         return;
       }
       const { exec_id, event } = msg;
@@ -130,7 +149,7 @@ export function DocumentView({ docId }: { docId: string }) {
         });
       }
     });
-  }, [realtime, docId]);
+  }, [realtime, docId, scheduleRender]);
 
   const runCell = async (execId: string) => {
     setBanner(null);
@@ -173,7 +192,7 @@ export function DocumentView({ docId }: { docId: string }) {
             ? { kind: "pass", text: "Verification passed — no drift, all expectations met." }
             : { kind: "fail", text: "Verification failed — expectation mismatch or output drift." },
         );
-        api.render(docId).then((r) => setBlocks(r.blocks), () => undefined);
+        scheduleRender();
       } else {
         checkRunRef.current = run_id;
       }

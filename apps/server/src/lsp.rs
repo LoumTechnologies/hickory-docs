@@ -95,7 +95,8 @@ impl LspSession {
         project_id: Uuid,
     ) -> Result<(Self, mpsc::UnboundedReceiver<Value>)> {
         let workdir = tempfile::tempdir().context("creating LSP session workdir")?;
-        git.seed_checkout(project_id, workdir.path())
+        git.seed_checkout_async(project_id, workdir.path())
+            .await
             .context("seeding LSP session checkout")?;
         let workdir_uri = format!("file://{}/", workdir.path().display());
 

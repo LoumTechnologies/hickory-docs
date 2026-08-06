@@ -64,14 +64,124 @@ impl Room {
         self.clients.lock().unwrap().len()
     }
 
-    /// Current CRDT text content.
-    async fn text_content(&self) -> String {
+    /// Current text plus the encoded CRDT state, taken under one lock so the
+    /// two can never describe different revisions.
+    async fn snapshot(&self) -> (String, Vec<u8>) {
         let awareness = self.awareness.lock().await;
         let doc = awareness.doc();
         let text = doc.get_or_insert_text("source");
         let txn = doc.transact();
-        text.get_string(&txn)
+        (
+            text.get_string(&txn),
+            txn.encode_state_as_update_v1(&yrs::StateVector::default()),
+        )
     }
+}
+
+/// Build the Y.Doc backing a room.
+///
+/// This is the fix for the document-doubling bug (migration 0003). Two rules
+/// hold it together:
+///
+/// 1. **Resume, never re-seed.** When `docs.crdt_state` exists it is applied
+///    as-is, so a re-created room continues the same operation history a
+///    still-connected (or reconnecting) client already has. Seeding a fresh
+///    `Doc` per room minted rival operations that the CRDT merged by
+///    concatenation — every reconnect appended the whole document to itself.
+/// 2. **Stable client id.** Even without persisted state (a doc created
+///    before migration 0003, or one whose state failed to store), the seed
+///    operation is minted under a client id derived from the doc id, so two
+///    independent seeds of the same source are the *same* operation and
+///    dedupe instead of concatenating.
+///
+/// If `docs.source` moved on out of band — a lineage edit, a run, a REST
+/// save — the difference is applied to the restored document as ordinary
+/// CRDT edits (common prefix/suffix preserved, so concurrent edits elsewhere
+/// in the file survive), rather than by starting over.
+async fn build_room_doc(state: &AppState, doc: &DocRow) -> Doc {
+    let stored: Option<Vec<u8>> = sqlx::query_scalar("SELECT crdt_state FROM docs WHERE id = $1")
+        .bind(doc.id)
+        .fetch_optional(&state.db)
+        .await
+        .unwrap_or_else(|e| {
+            log::error!("reading crdt_state for doc {} failed: {e}", doc.id);
+            None
+        })
+        .flatten();
+
+    let ydoc = Doc::with_client_id(stable_client_id(doc.id));
+    let text = ydoc.get_or_insert_text("source");
+
+    if let Some(bytes) = stored {
+        match Update::decode_v1(&bytes) {
+            Ok(update) => {
+                let mut txn = ydoc.transact_mut();
+                if let Err(e) = txn.apply_update(update) {
+                    log::error!("applying stored crdt_state for doc {} failed: {e}", doc.id);
+                }
+            }
+            Err(e) => log::error!("stored crdt_state for doc {} is unreadable: {e}", doc.id),
+        }
+    }
+
+    let current = {
+        let txn = ydoc.transact();
+        text.get_string(&txn)
+    };
+    if current != doc.source {
+        let mut txn = ydoc.transact_mut();
+        let (start, del_len, insert) = text_delta(&current, &doc.source);
+        if del_len > 0 {
+            text.remove_range(&mut txn, start as u32, del_len as u32);
+        }
+        if !insert.is_empty() {
+            text.insert(&mut txn, start as u32, insert);
+        }
+    }
+    ydoc
+}
+
+/// Yjs client id for the server's own operations on a document. Derived from
+/// the doc id so it is identical across restarts and room re-creations.
+fn stable_client_id(doc_id: Uuid) -> u64 {
+    let b = doc_id.as_bytes();
+    // Top bit cleared: yrs treats client ids as u64 but some encodings are
+    // happier below 2^63, and the value only needs to be stable + distinct.
+    u64::from_le_bytes([b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7]]) >> 1
+}
+
+/// Minimal replace turning `current` into `target`, in UTF-16 code units
+/// (Yjs text indices): `(offset, units_to_delete, text_to_insert)`.
+fn text_delta<'a>(current: &str, target: &'a str) -> (usize, usize, &'a str) {
+    let prefix_bytes = current
+        .char_indices()
+        .zip(target.char_indices())
+        .take_while(|((_, a), (_, b))| a == b)
+        .last()
+        .map(|((i, c), _)| i + c.len_utf8())
+        .unwrap_or(0);
+    // Longest common suffix, not overlapping the shared prefix.
+    let max_suffix = (current.len() - prefix_bytes).min(target.len() - prefix_bytes);
+    let mut suffix_bytes = 0;
+    while suffix_bytes < max_suffix {
+        let ca = current[..current.len() - suffix_bytes].chars().next_back();
+        let cb = target[..target.len() - suffix_bytes].chars().next_back();
+        match (ca, cb) {
+            (Some(a), Some(b)) if a == b && suffix_bytes + a.len_utf8() <= max_suffix => {
+                suffix_bytes += a.len_utf8();
+            }
+            _ => break,
+        }
+    }
+    let offset = current[..prefix_bytes].encode_utf16().count();
+    let del_len = current[prefix_bytes..current.len() - suffix_bytes]
+        .encode_utf16()
+        .count();
+    (
+        offset,
+        del_len,
+        &target[prefix_bytes..target.len() - suffix_bytes],
+    )
 }
 
 #[derive(Default)]
@@ -97,12 +207,7 @@ impl RoomRegistry {
         if let Some(room) = rooms.get(&doc.id) {
             return room.clone();
         }
-        let ydoc = Doc::new();
-        let text = ydoc.get_or_insert_text("source");
-        if !doc.source.is_empty() {
-            let mut txn = ydoc.transact_mut();
-            text.insert(&mut txn, 0, &doc.source);
-        }
+        let ydoc = build_room_doc(state, doc).await;
         let room = Arc::new(Room {
             doc_id: doc.id,
             project_id: doc.project_id,
@@ -114,7 +219,6 @@ impl RoomRegistry {
             persisted: AtomicU64::new(0),
         });
         rooms.insert(doc.id, room.clone());
-        let _ = state; // (state used by callers for persistence)
         room
     }
 
@@ -530,12 +634,17 @@ async fn persist_now(state: &AppState, room: &Arc<Room>) {
     if room.persisted.swap(generation, Ordering::SeqCst) == generation {
         return; // nothing new since the last persist
     }
-    let source = room.text_content().await;
-    if let Err(e) = sqlx::query("UPDATE docs SET source = $1, updated_at = now() WHERE id = $2")
-        .bind(&source)
-        .bind(room.doc_id)
-        .execute(&state.db)
-        .await
+    // The CRDT state is stored with the text so a re-created room resumes
+    // this operation history instead of minting a rival one (migration 0003).
+    let (source, crdt_state) = room.snapshot().await;
+    if let Err(e) = sqlx::query(
+        "UPDATE docs SET source = $1, crdt_state = $2, updated_at = now() WHERE id = $3",
+    )
+    .bind(&source)
+    .bind(&crdt_state)
+    .bind(room.doc_id)
+    .execute(&state.db)
+    .await
     {
         log::error!("persisting doc {} failed: {e}", room.doc_id);
         return;

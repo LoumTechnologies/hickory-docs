@@ -116,15 +116,46 @@ impl GitStore {
         Ok(out.trim().parse().unwrap_or(0))
     }
 
-    /// Copy a finished run's working tree (minus `.git`) back into the
-    /// project repo and commit whatever changed — this is how woven outputs
-    /// become the committed baseline that `check` verifies against.
-    pub async fn commit_outputs(&self, project_id: Uuid, src: &Path, message: &str) -> Result<()> {
+    /// Copy a finished run's *declared outputs* back into the project repo and
+    /// commit whatever changed — this is how woven markdown and generated
+    /// files become the committed baseline that `check` verifies against.
+    ///
+    /// Only the paths the pipeline declared as outputs are copied, never the
+    /// whole run tree. Execs routinely leave heavy incidental artifacts in
+    /// their working directory (a duckdb database, a build cache); those are
+    /// not part of any drift comparison — `hickory check` only diffs the
+    /// files the pipeline produces — but committing them made the project
+    /// repo grow without bound, and *every* render, run and LSP session pays
+    /// for that by copying the tree again in `seed_checkout`. Declared
+    /// outputs (including binary ones) are still committed byte-for-byte, so
+    /// the drift baseline is unchanged.
+    pub async fn commit_outputs(
+        &self,
+        project_id: Uuid,
+        src: &Path,
+        outputs: &[String],
+        message: &str,
+    ) -> Result<()> {
         let dir = self.project_dir(project_id);
         if !dir.join(".git").exists() {
             self.init_project(project_id).await?;
         }
-        copy_tree(src, &dir)?;
+        for rel in outputs {
+            if Self::validate_path(rel).is_err() {
+                log::warn!("skipping output with unsafe path: {rel}");
+                continue;
+            }
+            let from = src.join(rel);
+            if !from.is_file() {
+                continue;
+            }
+            let to = dir.join(rel);
+            if let Some(parent) = to.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            std::fs::copy(&from, &to)
+                .with_context(|| format!("copying run output {rel} into the project repo"))?;
+        }
         self.git(&dir, &["add", "-A"]).await?;
         let status = self.git(&dir, &["status", "--porcelain"]).await?;
         if !status.trim().is_empty() {
@@ -135,12 +166,23 @@ impl GitStore {
 
     /// Copy the project working tree (minus `.git`) into `dest` — the
     /// per-run temp dir seeding.
+    ///
+    /// Synchronous, and proportional to the size of the project tree. Callers
+    /// on an async runtime must use [`GitStore::seed_checkout_async`]; calling
+    /// this directly from a request handler blocks a runtime worker thread.
     pub fn seed_checkout(&self, project_id: Uuid, dest: &Path) -> Result<()> {
         let src = self.project_dir(project_id);
         if src.is_dir() {
             copy_tree(&src, dest)?;
         }
         Ok(())
+    }
+
+    /// [`GitStore::seed_checkout`] on the blocking pool, for request paths.
+    pub async fn seed_checkout_async(&self, project_id: Uuid, dest: &Path) -> Result<()> {
+        let this = self.clone();
+        let dest = dest.to_path_buf();
+        tokio::task::spawn_blocking(move || this.seed_checkout(project_id, &dest)).await?
     }
 }
 

@@ -106,6 +106,10 @@ pub async fn put_doc(
 /// Render the block model for the doc's current source, overlaying the last
 /// finished run's per-exec status + transcript. Blocks whose source changed
 /// after that run (doc updated later) are marked `stale`.
+///
+/// The weave is served from `AppState::renders` when nothing it depends on
+/// has changed (see `crate::render_cache`); the run overlay below is always
+/// recomputed, so statuses and transcripts are never cached.
 pub async fn render_doc(
     State(state): State<AppState>,
     MaybeUser(user): MaybeUser,
@@ -114,9 +118,31 @@ pub async fn render_doc(
     let doc = load_doc(&state, id).await?;
     check_read(&doc, user.as_ref())?;
 
-    let blocks = crate::runs::weave_blocks(&state, &doc)
-        .await
-        .map_err(|e| ApiError::unprocessable(format!("render failed: {e}")))?;
+    // Project-wide revisions: newest doc save (includes) and newest finished
+    // run (committed outputs in the checkout the weave reads).
+    let (docs_revision, outputs_revision): (Option<DateTime<Utc>>, Option<DateTime<Utc>>) =
+        sqlx::query_as(
+            "SELECT (SELECT max(updated_at) FROM docs WHERE project_id = $1),
+                    (SELECT max(finished_at) FROM runs r
+                       JOIN docs d ON d.id = r.doc_id
+                      WHERE d.project_id = $1)",
+        )
+        .bind(doc.project_id)
+        .fetch_one(&state.db)
+        .await?;
+    let cache_key =
+        crate::render_cache::RenderKey::new(doc.id, &doc.source, docs_revision, outputs_revision);
+
+    let woven: Value = match state.renders.get(&cache_key) {
+        Some(hit) => hit,
+        None => {
+            let value = crate::runs::weave_blocks_json(&state, &doc)
+                .await
+                .map_err(|e| ApiError::unprocessable(format!("render failed: {e}")))?;
+            state.renders.insert(cache_key, value.clone());
+            value
+        }
+    };
 
     // Last finished run for this doc.
     let last_run: Option<(Value, Option<DateTime<Utc>>)> = sqlx::query_as(
@@ -128,10 +154,10 @@ pub async fn render_doc(
     .fetch_optional(&state.db)
     .await?;
 
-    let mut rendered: Vec<Value> = blocks
-        .iter()
-        .map(|b| serde_json::to_value(b).expect("serializable block"))
-        .collect();
+    let mut rendered: Vec<Value> = match woven {
+        Value::Array(blocks) => blocks,
+        other => vec![other],
+    };
 
     if let Some((run_blocks, finished_at)) = last_run {
         let stale = finished_at.is_some_and(|t| doc.updated_at > t);

@@ -82,6 +82,25 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   return (await res.json()) as T;
 }
 
+// Rendering a document is the most expensive thing the API does, and the app
+// asks for it from several independent places (initial load, save, run
+// events, lineage edits). Concurrent requests for the SAME document are
+// collapsed onto one in-flight promise: a render started 10 ms ago cannot
+// have a different answer from one started now, and the callers all want the
+// same value. The entry is cleared as soon as it settles, so the next call
+// always fetches fresh state.
+const inFlightRenders = new Map<string, Promise<RenderResponse>>();
+
+function dedupedRender(id: string): Promise<RenderResponse> {
+  const existing = inFlightRenders.get(id);
+  if (existing) return existing;
+  const p = request<RenderResponse>("GET", `/api/docs/${id}/render`).finally(() => {
+    if (inFlightRenders.get(id) === p) inFlightRenders.delete(id);
+  });
+  inFlightRenders.set(id, p);
+  return p;
+}
+
 export const api = {
   signup: (email: string, password: string) =>
     request<AuthResponse>("POST", "/api/auth/signup", { email, password }),
@@ -100,7 +119,7 @@ export const api = {
   doc: (id: string) => request<Doc>("GET", `/api/docs/${id}`),
   saveDoc: (id: string, source: string) =>
     request<Doc>("PUT", `/api/docs/${id}`, { source }),
-  render: (id: string) => request<RenderResponse>("GET", `/api/docs/${id}/render`),
+  render: (id: string) => dedupedRender(id),
 
   outputs: (docId: string) =>
     request<OutputsResponse>("GET", `/api/docs/${docId}/outputs`),

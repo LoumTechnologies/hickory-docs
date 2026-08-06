@@ -115,7 +115,10 @@ async fn run_agent_session(
     // Workspace: temp dir seeded from the project checkout (the agent's
     // scripts and its session file live here until persisted to git).
     let tmp = tempfile::tempdir()?;
-    state.git.seed_checkout(doc.project_id, tmp.path())?;
+    state
+        .git
+        .seed_checkout_async(doc.project_id, tmp.path())
+        .await?;
     let doc_file = tmp.path().join(&doc.path);
     if let Some(parent) = doc_file.parent() {
         std::fs::create_dir_all(parent)?;

@@ -175,7 +175,10 @@ async fn execute_run(
     // Per-run temp dir seeded from the project git checkout; the doc's
     // current DB source wins over whatever is committed.
     let tmp = tempfile::tempdir()?;
-    state.git.seed_checkout(doc.project_id, tmp.path())?;
+    state
+        .git
+        .seed_checkout_async(doc.project_id, tmp.path())
+        .await?;
     let doc_file = tmp.path().join(&doc.path);
     if let Some(parent) = doc_file.parent() {
         std::fs::create_dir_all(parent)?;
@@ -293,11 +296,29 @@ async fn execute_run(
                 // Materialize woven markdown + generated files into the run
                 // tree first — run_pipeline_live returns them in memory.
                 hickory_cli::write_outputs(&run, None)?;
+                // Only the pipeline's declared outputs go back into the repo
+                // (see GitStore::commit_outputs), plus the doc itself, which
+                // is the seed every later run/render reads. Output paths are
+                // relative to the document's directory; the repo mirrors the
+                // run tree, so re-root them on the doc's parent.
+                let prefix = std::path::Path::new(&doc.path)
+                    .parent()
+                    .unwrap_or(std::path::Path::new(""));
+                let mut outputs: Vec<String> = run
+                    .result
+                    .files
+                    .keys()
+                    .map(|k| prefix.join(k).to_string_lossy().into_owned())
+                    .collect();
+                outputs.push(doc.path.clone());
+                outputs.sort();
+                outputs.dedup();
                 state
                     .git
                     .commit_outputs(
                         doc.project_id,
                         tmp.path(),
+                        &outputs,
                         &format!("hickory run: outputs of {}", doc.path),
                     )
                     .await?;
@@ -397,21 +418,50 @@ async fn store_blocks(state: &AppState, run_id: Uuid, blocks: &[Value]) -> anyho
 /// Weave (no-execute) render of a doc from its project checkout, used by
 /// `GET /api/docs/:id/render`. Runs against the real checkout dir so
 /// includes resolve; nothing is executed in weave mode.
+///
+/// Every step here is either synchronous filesystem work (the checkout seed,
+/// which copies the project tree) or CPU-bound parsing/weaving. Running that
+/// on an async runtime worker starves every other request on the same
+/// thread — under render load `GET /api/health` stopped answering at all —
+/// so the whole body runs on the blocking pool.
 pub async fn weave_blocks(state: &AppState, doc: &DocRow) -> anyhow::Result<Vec<Block>> {
-    // Render from a temp seed too: the DB source may be newer than git.
-    let tmp = tempfile::tempdir()?;
-    state.git.seed_checkout(doc.project_id, tmp.path())?;
-    let doc_file = tmp.path().join(&doc.path);
-    if let Some(parent) = doc_file.parent() {
-        std::fs::create_dir_all(parent)?;
-    }
-    std::fs::write(&doc_file, &doc.source)?;
-    let run = hickory_cli::run_doc(
-        &doc_file,
-        &[],
-        hickory_cli::RunMode::Weave,
-        hickory_cli::ExecutorChoice::Local,
-    )
-    .await?;
-    Ok(hickory_cli::block_model(&run))
+    let git = state.git.clone();
+    let doc = doc.clone();
+    let handle = tokio::runtime::Handle::current();
+    tokio::task::spawn_blocking(move || {
+        // Render from a temp seed too: the DB source may be newer than git.
+        let tmp = tempfile::tempdir()?;
+        git.seed_checkout(doc.project_id, tmp.path())?;
+        let doc_file = tmp.path().join(&doc.path);
+        if let Some(parent) = doc_file.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(&doc_file, &doc.source)?;
+        // `run_doc` is `async` but performs no I/O await in weave mode; this
+        // thread is already off the runtime's worker pool.
+        let run = handle.block_on(hickory_cli::run_doc(
+            &doc_file,
+            &[],
+            hickory_cli::RunMode::Weave,
+            hickory_cli::ExecutorChoice::Local,
+        ))?;
+        Ok(hickory_cli::block_model(&run))
+    })
+    .await?
+}
+
+/// [`weave_blocks`] as the JSON array the render route caches and serves.
+/// Serialization is part of the blocking task for the same reason the weave
+/// is: it is CPU work proportional to document size.
+pub async fn weave_blocks_json(state: &AppState, doc: &DocRow) -> anyhow::Result<Value> {
+    let blocks = weave_blocks(state, doc).await?;
+    Ok(tokio::task::spawn_blocking(move || {
+        Value::Array(
+            blocks
+                .iter()
+                .map(|b| serde_json::to_value(b).expect("serializable block"))
+                .collect(),
+        )
+    })
+    .await?)
 }
