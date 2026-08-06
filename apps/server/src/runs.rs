@@ -270,6 +270,22 @@ async fn execute_run(
                 }
             }
             store_blocks(state, run_id, &run_blocks_from_model(&blocks)).await?;
+            // A successful `run` commits its outputs (woven markdown,
+            // generated files) back to the project repo — that commit is the
+            // baseline later `check` runs verify drift against.
+            if kind == RunKind::Run && ok {
+                // Materialize woven markdown + generated files into the run
+                // tree first — run_pipeline_live returns them in memory.
+                hickory_cli::write_outputs(&run, None)?;
+                state
+                    .git
+                    .commit_outputs(
+                        doc.project_id,
+                        tmp.path(),
+                        &format!("hickory run: outputs of {}", doc.path),
+                    )
+                    .await?;
+            }
             executor.shutdown().await.ok();
             Ok(ok)
         }

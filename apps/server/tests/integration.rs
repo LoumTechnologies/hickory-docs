@@ -629,3 +629,85 @@ async fn health_and_agent_stub() {
     assert_eq!(status, 503);
     assert_eq!(v["error"], "agent not configured (ANTHROPIC_API_KEY unset)");
 }
+
+// ---------------------------------------------------------------------------
+// Run commits a woven baseline; check passes against it and fails on drift
+// (regression for the "output file missing on disk" first-check failure).
+// ---------------------------------------------------------------------------
+
+const WEAVE_DOC: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="weave.md">
+# Baseline test
+
+<hick:container name="shell" image="alpine:3.20" />
+
+<hick:exec container="shell">
+echo hello
+<hick:expect match="exact">hello
+</hick:expect>
+</hick:exec>
+</hick:doc>
+"#;
+
+#[tokio::test]
+async fn run_commits_baseline_then_check_passes_and_drift_fails() {
+    let app = setup().await;
+    let (token, _) = app.signup("baseline@example.com").await;
+    let (_, project) = app
+        .post("/api/projects", Some(&token), json!({ "name": "base", "visibility": "private" }))
+        .await;
+    let project_id = project["id"].as_str().unwrap();
+    let (_, doc) = app
+        .post(
+            &format!("/api/projects/{project_id}/docs"),
+            Some(&token),
+            json!({ "path": "weave.hick", "source": WEAVE_DOC }),
+        )
+        .await;
+    let doc_id = doc["id"].as_str().unwrap().to_string();
+
+    let wait = |run_id: String| {
+        let app = &app;
+        let token = token.clone();
+        async move {
+            let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
+            loop {
+                let (_, r) = app.get(&format!("/api/runs/{run_id}"), Some(&token)).await;
+                let status = r["status"].as_str().unwrap_or("").to_string();
+                if status == "ok" || status == "failed" {
+                    return r;
+                }
+                assert!(tokio::time::Instant::now() < deadline, "run never finished: {r}");
+                tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+            }
+        }
+    };
+
+    // Run: succeeds and commits the woven baseline into the project repo.
+    let (status, v) = app
+        .post(&format!("/api/docs/{doc_id}/run"), Some(&token), json!({}))
+        .await;
+    assert_eq!(status, 202, "{v}");
+    let r = wait(v["run_id"].as_str().unwrap().to_string()).await;
+    assert_eq!(r["status"], "ok", "{r}");
+
+    // Check now passes against that baseline.
+    let (status, v) = app
+        .post(&format!("/api/docs/{doc_id}/check"), Some(&token), json!({}))
+        .await;
+    assert_eq!(status, 202, "{v}");
+    let c = wait(v["run_id"].as_str().unwrap().to_string()).await;
+    assert_eq!(c["status"], "ok", "{c}");
+
+    // Drift the expectation: check fails and the reason is in the response.
+    let drifted = WEAVE_DOC.replace(">hello\n", ">goodbye\n");
+    app.put(&format!("/api/docs/{doc_id}"), Some(&token), json!({ "source": drifted }))
+        .await;
+    let (_, v) = app
+        .post(&format!("/api/docs/{doc_id}/check"), Some(&token), json!({}))
+        .await;
+    let c = wait(v["run_id"].as_str().unwrap().to_string()).await;
+    assert_eq!(c["status"], "failed", "{c}");
+    let err = c["error"].as_str().unwrap_or("");
+    assert!(err.contains("expectation failed"), "error not surfaced: {c}");
+}

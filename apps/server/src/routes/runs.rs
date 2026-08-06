@@ -61,21 +61,26 @@ pub async fn get_run(
     MaybeUser(user): MaybeUser,
     Path(id): Path<Uuid>,
 ) -> ApiResult<Json<Value>> {
-    let row: Option<(Uuid, Uuid, String, DateTime<Utc>, Value)> = sqlx::query_as(
-        "SELECT id, doc_id, status, started_at, blocks FROM runs WHERE id = $1",
+    type RunRow = (Uuid, Uuid, String, DateTime<Utc>, Value, Option<String>);
+    let row: Option<RunRow> = sqlx::query_as(
+        "SELECT id, doc_id, status, started_at, blocks, error FROM runs WHERE id = $1",
     )
     .bind(id)
     .fetch_optional(&state.db)
     .await?;
-    let Some((run_id, doc_id, status, started_at, blocks)) = row else {
+    let Some((run_id, doc_id, status, started_at, blocks, error)) = row else {
         return Err(ApiError::not_found("run not found"));
     };
     let doc = load_doc(&state, doc_id).await?;
     check_read(&doc, user.as_ref())?;
-    Ok(Json(json!({
+    let mut body = json!({
         "id": run_id,
         "status": status,
         "started_at": started_at.to_rfc3339(),
         "blocks": blocks,
-    })))
+    });
+    if let Some(error) = error {
+        body["error"] = json!(error);
+    }
+    Ok(Json(body))
 }

@@ -113,6 +113,28 @@ impl GitStore {
         Ok(out.trim().parse().unwrap_or(0))
     }
 
+    /// Copy a finished run's working tree (minus `.git`) back into the
+    /// project repo and commit whatever changed — this is how woven outputs
+    /// become the committed baseline that `check` verifies against.
+    pub async fn commit_outputs(
+        &self,
+        project_id: Uuid,
+        src: &Path,
+        message: &str,
+    ) -> Result<()> {
+        let dir = self.project_dir(project_id);
+        if !dir.join(".git").exists() {
+            self.init_project(project_id).await?;
+        }
+        copy_tree(src, &dir)?;
+        self.git(&dir, &["add", "-A"]).await?;
+        let status = self.git(&dir, &["status", "--porcelain"]).await?;
+        if !status.trim().is_empty() {
+            self.git(&dir, &["commit", "-q", "-m", message]).await?;
+        }
+        Ok(())
+    }
+
     /// Copy the project working tree (minus `.git`) into `dest` — the
     /// per-run temp dir seeding.
     pub fn seed_checkout(&self, project_id: Uuid, dest: &Path) -> Result<()> {
