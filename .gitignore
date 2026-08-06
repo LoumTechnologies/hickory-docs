@@ -9,3 +9,5 @@ dist/
 *.t.err
 .DS_Store
 *.tsbuildinfo
+.dev/
+data/
