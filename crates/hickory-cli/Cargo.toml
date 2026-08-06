@@ -21,6 +21,7 @@ hick-lang.workspace = true
 hick-literate = { path = "../hick-literate" }
 hickory-agent = { path = "../hickory-agent" }
 hickory-executor = { path = "../hickory-executor" }
+hickory-executor-canopy = { path = "../hickory-executor-canopy" }
 log = "0.4"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

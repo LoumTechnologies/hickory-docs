@@ -35,14 +35,14 @@ impl ExecutorChoice {
         }
     }
 
-    /// Build the executor. Canopy is a later phase and errors for now.
+    /// Build the executor. Canopy reads its `CANOPY_*` env config here
+    /// (connection to the node agent is lazy — first use).
     pub fn build(self) -> Result<Arc<dyn Executor>> {
         match self {
             ExecutorChoice::Local => Ok(Arc::new(LocalExecutor::new()?)),
-            ExecutorChoice::Canopy => bail!(
-                "canopy executor not yet wired: the hickory-executor-canopy crate \
-                 lands in a later phase. Unset HICKORY_EXECUTOR or set it to \"local\"."
-            ),
+            ExecutorChoice::Canopy => Ok(Arc::new(
+                hickory_executor_canopy::CanopyExecutor::from_env()?,
+            )),
         }
     }
 }

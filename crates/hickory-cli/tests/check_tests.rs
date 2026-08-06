@@ -202,7 +202,12 @@ fn json_block_model_has_spans_transcripts_statuses() {
 }
 
 #[test]
-fn canopy_executor_not_yet_wired() {
+fn canopy_executor_without_config_fails_actionably() {
+    // The canopy executor is wired, but without its env config the run must
+    // fail fast with an actionable message (which env var to set, and the
+    // way back to the local executor). The agent endpoint env name itself is
+    // asserted only loosely: canopy API knowledge stays in the adapter crate
+    // (docs/guarantees/execution/canopy-api-isolated-to-one-crate.md).
     let dir = tempfile::tempdir().unwrap();
     let doc = write_doc(dir.path(), "passing.hick", PASSING_DOC);
     let out = hickory()
@@ -213,5 +218,6 @@ fn canopy_executor_not_yet_wired() {
         .unwrap();
     assert!(!out.status.success());
     let stderr = String::from_utf8_lossy(&out.stderr);
-    assert!(stderr.contains("canopy executor not yet wired"), "{stderr}");
+    assert!(stderr.contains("is not set"), "{stderr}");
+    assert!(stderr.contains("HICKORY_EXECUTOR=local"), "{stderr}");
 }
