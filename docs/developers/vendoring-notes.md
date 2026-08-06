@@ -222,3 +222,56 @@ not a byte-for-byte vendor:
   `agent_memory` / `agent_skills` / `agentignore` / `project_context` /
   `suggestion_gen` / `session_bundle_reader`, and the eval/plan-runner
   crates (`hick-eval-store`, `hick-plan-runner`).
+
+---
+
+# Phase C: LSP + Zed extension (2026-08-06)
+
+## `crates/hick-lsp`
+
+Vendored from the standalone `hick-lang` repo
+(`/home/loumtech/Documents/src/hick-lang`, `crates/hick-lsp`) at HEAD
+**`a543ba5b805e15277d4efdbee7e25d85ad505639`** ("Preserve child diagnostics
+across document re-parses" — so the vendored copy includes that fix). It is
+an LSP multiplexer: virtual files per `hick:file` block, child language
+servers (rust-analyzer, pyright-langserver, typescript-language-server,
+gopls), bidirectional position mapping, merged diagnostics. The binary name
+stays `hick-lsp`.
+
+**Compatibility with our `hick-lang`**: none of the feared drift
+materialized. The LSP uses only `parse`, `dedent`, `ParseError` (incl.
+`UnclosedComment`), `HickDocument`/`HickNode`/`HickTag`, and `SourceSpan` —
+all present and signature-identical in our monorepo-derived `hick-lang`
+(which is a superset adding `SessionDocument`). It compiled against
+`crates/hick-lang` with zero API changes; all 30 upstream unit tests pass.
+
+Deviations from upstream (all this-repo-only; upstream stays frozen):
+
+1. **lib/bin split fixed**: upstream's `main.rs` re-declared every module
+   (`mod backend;` etc.) instead of using the library, so the lib target was
+   all dead code under `-D warnings`. Now `main.rs` does
+   `use hick_lsp::backend;`, `lib.rs` gained `pub mod backend;` and the
+   facade export `pub use backend::HickBackend;`.
+2. **`pub(crate)` → `pub`** across all modules (mechanical sed), required by
+   the split above; the intended public API remains the `pub use` facade in
+   `lib.rs` per repo convention.
+3. **Clippy (`-D warnings`) fixes, behavior-preserving**: collapsed nested
+   `if`s (backend.rs, child_lsp.rs — via `clippy --fix`), `loop`/`match` →
+   `while let` in the child-LSP reader task, `is_some()`+`unwrap()` →
+   `if let` in `PositionMap::build`, and a `ChildDiagnosticsStore` type alias
+   for the two `type_complexity` hits in backend.rs.
+4. `Cargo.toml` unchanged except as copied (already used
+   `edition.workspace`/`publish.workspace`, which match our workspace).
+
+## `editors/zed-hick`
+
+Vendored from `/home/loumtech/Documents/src/hick-zed-extension`. That
+directory is **not a git repository** (no `.git`), so there is no source
+hash; it was copied as-is on 2026-08-06. Dropped: `target/`,
+`extension.wasm`, `Cargo.lock` (build artifacts). Kept: `Cargo.toml`,
+`extension.toml`, `languages/hick/config.toml`, `src/lib.rs`.
+
+Deviations: added an empty `[workspace]` table to its `Cargo.toml` (and
+`exclude = ["editors/zed-hick"]` in the root manifest) so this
+wasm32-wasip1 cdylib stays a standalone crate built by Zed's extension
+toolchain rather than joining the workspace.

@@ -10,6 +10,7 @@ members = [
     "crates/hick-grove",
     "crates/hick-handlers",
     "crates/hick-lang",
+    "crates/hick-lsp",
     "crates/hick-merge",
     "crates/hick-secrets",
     "crates/hick-sink",
@@ -23,6 +24,9 @@ members = [
     "crates/hickory-cli",
     "apps/server",
 ]
+# editors/zed-hick is a standalone wasm extension crate built by Zed's
+# toolchain, not part of this workspace.
+exclude = ["editors/zed-hick"]
 
 [workspace.package]
 edition = "2024"

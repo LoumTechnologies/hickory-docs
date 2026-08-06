@@ -1,0 +1,10 @@
+id = "hick"
+name = "Hick"
+version = "0.0.1"
+schema_version = 1
+authors = ["loumtech"]
+description = "Hick language support for Zed"
+
+[language_servers.hick-lsp]
+name = "Hick LSP"
+languages = ["Hick"]

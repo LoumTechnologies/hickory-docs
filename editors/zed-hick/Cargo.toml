@@ -1,0 +1,14 @@
+# Standalone crate: built by Zed's extension toolchain for wasm32-wasip1,
+# deliberately NOT a member of the root workspace (see [workspace] below).
+[workspace]
+
+[package]
+name = "hick-zed"
+version = "0.0.1"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+zed_extension_api = "0.5.0"
