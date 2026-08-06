@@ -94,6 +94,9 @@ pub struct AnthropicClient {
     effort: Option<Effort>,
     context_editing: bool,
     prefix_checked: AtomicBool,
+    /// Messages endpoint. Overridable for gateways, proxies, and recording
+    /// harnesses; `count_tokens` is derived from it.
+    base_url: String,
 }
 
 impl AnthropicClient {
@@ -109,6 +112,26 @@ impl AnthropicClient {
             effort: None,
             context_editing: false,
             prefix_checked: AtomicBool::new(false),
+            base_url: std::env::var("ANTHROPIC_BASE_URL")
+                .unwrap_or_else(|_| ANTHROPIC_API_BASE.to_string()),
+        }
+    }
+
+    /// Point this client at a different Messages endpoint — an enterprise
+    /// gateway, a proxy, or a local harness that records requests.
+    ///
+    /// `count_tokens` follows the same host: it is the messages URL with
+    /// `/count_tokens` appended, matching the real API's layout.
+    pub fn with_base_url(mut self, base_url: impl Into<String>) -> Self {
+        self.base_url = base_url.into();
+        self
+    }
+
+    fn count_tokens_url(&self) -> String {
+        if self.base_url == ANTHROPIC_API_BASE {
+            ANTHROPIC_COUNT_TOKENS_URL.to_string()
+        } else {
+            format!("{}/count_tokens", self.base_url.trim_end_matches('/'))
         }
     }
 
@@ -194,7 +217,7 @@ impl AnthropicClient {
             messages: body.messages,
         };
         let resp = self
-            .request_builder(ANTHROPIC_COUNT_TOKENS_URL, &count_body)
+            .request_builder(&self.count_tokens_url(), &count_body)
             .send()
             .await?;
         let status = resp.status();
@@ -248,6 +271,7 @@ impl AnthropicClient {
             effort: self.effort,
             context_editing: self.context_editing,
             prefix_checked: AtomicBool::new(true),
+            base_url: self.base_url.clone(),
         };
         let messages: Vec<Message> = messages.to_vec();
         handle.spawn(async move {
@@ -480,10 +504,7 @@ impl LlmClient for AnthropicClient {
     async fn complete_with_usage(&self, messages: Vec<Message>) -> anyhow::Result<(String, Usage)> {
         self.spawn_prefix_check(&messages);
         let body = self.request_body(&messages, false);
-        let resp = self
-            .request_builder(ANTHROPIC_API_BASE, &body)
-            .send()
-            .await?;
+        let resp = self.request_builder(&self.base_url, &body).send().await?;
 
         let status = resp.status();
         if !status.is_success() {
@@ -505,10 +526,7 @@ impl LlmClient for AnthropicClient {
     async fn complete_stream(&self, messages: Vec<Message>) -> anyhow::Result<ChatStream> {
         self.spawn_prefix_check(&messages);
         let body = self.request_body(&messages, true);
-        let resp = self
-            .request_builder(ANTHROPIC_API_BASE, &body)
-            .send()
-            .await?;
+        let resp = self.request_builder(&self.base_url, &body).send().await?;
 
         let status = resp.status();
         if !status.is_success() {

@@ -281,6 +281,44 @@ async fn run_agent_session(
 
     let outcome = outcome?;
 
+    // Write the agent's document edits back.
+    //
+    // The agent works in a temp checkout, so `edit_doc` / `edit_output` change
+    // a file that is about to be deleted. Without this the tool truthfully
+    // reports "the document was updated through lineage and re-woven" and the
+    // user sees absolutely nothing change — the whole premise that agent
+    // output is literate-programming state in git, silently dropped on the
+    // floor.
+    let edited = std::fs::read_to_string(&doc_file).unwrap_or_default();
+    if !edited.is_empty() && edited != doc.source {
+        sqlx::query("UPDATE docs SET source = $1, updated_at = now() WHERE id = $2")
+            .bind(&edited)
+            .bind(doc.id)
+            .execute(&state.db)
+            .await?;
+        // Anyone with the document open holds their own CRDT copy, which would
+        // otherwise win the next persist and revert the agent's work.
+        state
+            .rooms
+            .apply_external_source(state, doc.id, &edited)
+            .await;
+        state
+            .git
+            .save_file(
+                doc.project_id,
+                &doc.path,
+                &edited,
+                &format!("Agent edit: {}", doc.path),
+            )
+            .await?;
+        log::info!(
+            "agent session {session_id} rewrote {} ({} -> {} bytes)",
+            doc.path,
+            doc.source.len(),
+            edited.len()
+        );
+    }
+
     // Persist the hick:session document into the project (git + doc row).
     let rel_path = outcome
         .session_path
