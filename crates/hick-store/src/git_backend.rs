@@ -47,6 +47,12 @@ impl GitVersionStore {
     fn git_cmd(&self) -> Command {
         let mut cmd = Command::new("git");
         cmd.env("GIT_DIR", &self.git_dir);
+        // Snapshot commits need an identity even on hosts with no git
+        // config (CI runners); this store's history is machine-authored.
+        cmd.env("GIT_AUTHOR_NAME", "hick-store");
+        cmd.env("GIT_AUTHOR_EMAIL", "store@hickorydocs.invalid");
+        cmd.env("GIT_COMMITTER_NAME", "hick-store");
+        cmd.env("GIT_COMMITTER_EMAIL", "store@hickorydocs.invalid");
         cmd
     }
 
