@@ -22,6 +22,10 @@ export function DocumentView({ docId }: { docId: string }) {
   const [saving, setSaving] = useState(false);
 
   const checkRunRef = useRef<string | null>(null);
+  // Fast local runs can finish (and emit their terminal WS message) before
+  // the POST /check response delivers the run_id — remember terminals so
+  // verify() can resolve the banner after the fact.
+  const terminalStatusesRef = useRef<Map<string, string>>(new Map());
   const startedCellsRef = useRef<Set<string>>(new Set());
 
   const realtime: Realtime = useMemo(() => {
@@ -53,6 +57,7 @@ export function DocumentView({ docId }: { docId: string }) {
     return realtime.onRunEvent((msg) => {
       if (!("event" in msg)) {
         // Terminal run status.
+        terminalStatusesRef.current.set(msg.run_id, msg.status);
         if (msg.run_id === checkRunRef.current) {
           checkRunRef.current = null;
           setBanner(
@@ -126,7 +131,17 @@ export function DocumentView({ docId }: { docId: string }) {
     startedCellsRef.current = new Set();
     try {
       const { run_id } = await api.check(docId);
-      checkRunRef.current = run_id;
+      const already = terminalStatusesRef.current.get(run_id);
+      if (already !== undefined) {
+        setBanner(
+          already === "ok"
+            ? { kind: "pass", text: "Verification passed — no drift, all expectations met." }
+            : { kind: "fail", text: "Verification failed — expectation mismatch or output drift." },
+        );
+        api.render(docId).then((r) => setBlocks(r.blocks), () => undefined);
+      } else {
+        checkRunRef.current = run_id;
+      }
     } catch (e) {
       setBanner({ kind: "fail", text: e instanceof Error ? e.message : String(e) });
     }
