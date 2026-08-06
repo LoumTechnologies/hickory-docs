@@ -85,6 +85,43 @@ export function DocumentEditor({
     () => envRegistry.subscribe(() => setEnvSlots(envRegistry.list())),
     [envRegistry],
   );
+
+  // Widget DOM is filled by React portals AFTER CodeMirror measures the
+  // (initially empty) slot elements, and panel content keeps changing size
+  // (transcripts stream in, replay toggles). CM caches per-line heights, so
+  // without a re-measure every vertical cursor motion works from stale
+  // geometry — the classic "ArrowUp jumps half a screen" bug. Observe every
+  // slot and ask CM to re-measure whenever one resizes.
+  useEffect(() => {
+    if (typeof ResizeObserver === "undefined") return;
+    let last = new Map<Element, number>();
+    let scheduled = false;
+    const observer = new ResizeObserver((entries) => {
+      // Only re-measure when a slot's height actually changed — Chrome fires
+      // an initial callback per observe(), and an unconditional
+      // requestMeasure can feed back into layout and loop.
+      let changed = false;
+      for (const e of entries) {
+        const h = Math.round(e.contentRect.height);
+        if (last.get(e.target) !== h) {
+          last.set(e.target, h);
+          changed = true;
+        }
+      }
+      if (!changed || scheduled) return;
+      scheduled = true;
+      requestAnimationFrame(() => {
+        scheduled = false;
+        viewRef.current?.requestMeasure();
+      });
+    });
+    for (const slot of slots) observer.observe(slot.el);
+    for (const slot of envSlots) observer.observe(slot.el);
+    return () => {
+      observer.disconnect();
+      last = new Map();
+    };
+  }, [slots, envSlots]);
   useEffect(() => {
     api.executor().then(setExecutorInfo, () => setExecutorInfo(null));
   }, []);
@@ -102,11 +139,21 @@ export function DocumentEditor({
     });
     realtime.bindDoc(ydoc, awareness);
 
-    // Seed only when the shared doc is empty (fresh doc / mock mode); when
-    // collaborating, the server's sync step supplies the content.
-    if (ytext.length === 0 && initialSource.length > 0) {
-      ytext.insert(0, initialSource);
-    }
+    // Seed ONLY after the server's sync state has been applied and the doc
+    // is STILL empty. Deciding on the local (always-fresh) Y.Doc before sync
+    // duplicated the entire document on every page load. 3s fallback covers
+    // a server that never answers (offline dev).
+    let cancelled = false;
+    const seed = () => {
+      if (!cancelled && ytext.length === 0 && initialSource.length > 0) {
+        ytext.insert(0, initialSource);
+      }
+    };
+    const fallback = setTimeout(seed, 3000);
+    void realtime.whenSynced().then(() => {
+      clearTimeout(fallback);
+      seed();
+    });
 
     const view = new EditorView({
       parent: host,
@@ -125,10 +172,17 @@ export function DocumentEditor({
       }),
     });
     viewRef.current = view;
+    // Debug handle for driving the editor from automation (kept out of the
+    // normal path; enable with localStorage "hickory.debug" = "1").
+    if (localStorage.getItem("hickory.debug") === "1") {
+      (window as unknown as { __hickoryView?: EditorView }).__hickoryView = view;
+    }
     setSlots(registry.list());
     setEnvSlots(envRegistry.list());
 
     return () => {
+      cancelled = true;
+      clearTimeout(fallback);
       view.destroy();
       viewRef.current = null;
       awareness.destroy();

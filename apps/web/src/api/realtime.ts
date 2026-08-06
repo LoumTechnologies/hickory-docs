@@ -17,6 +17,9 @@ export interface Realtime {
   onRunEvent(cb: (msg: RunWsMessage) => void): () => void;
   /** Bind a Y.Doc + Awareness to the socket for collaborative editing. */
   bindDoc(doc: Y.Doc, awareness: Awareness): void;
+  /** Resolves once the server's initial sync state has been applied (or
+   *  immediately when there is no server, e.g. mock mode). */
+  whenSynced(): Promise<void>;
   close(): void;
 }
 
@@ -80,8 +83,12 @@ export class WsRealtime implements Realtime {
       if (messageType === 0) {
         // sync message
         encoding.writeVarUint(encoder, 0);
-        syncProtocol.readSyncMessage(decoder, encoder, this.doc, this);
+        const syncType = syncProtocol.readSyncMessage(decoder, encoder, this.doc, this);
         if (encoding.length(encoder) > 1) this.sendYjs(encoding.toUint8Array(encoder));
+        // Step 2 carries the server's state: only AFTER applying it can a
+        // client decide the shared doc is genuinely empty. Seeding before
+        // this point duplicated the document on every load.
+        if (syncType === syncProtocol.messageYjsSyncStep2) this.markSynced();
       } else if (messageType === 1) {
         // awareness message
         applyAwarenessUpdate(this.awareness, decoding.readVarUint8Array(decoder), this);
@@ -95,6 +102,21 @@ export class WsRealtime implements Realtime {
     encoding.writeVarUint(encoder, 0);
     syncProtocol.writeSyncStep1(encoder, this.doc);
     this.sendYjs(encoding.toUint8Array(encoder));
+  }
+
+  private synced = false;
+  private syncWaiters: (() => void)[] = [];
+
+  private markSynced() {
+    if (this.synced) return;
+    this.synced = true;
+    for (const fn of this.syncWaiters) fn();
+    this.syncWaiters = [];
+  }
+
+  whenSynced(): Promise<void> {
+    if (this.synced) return Promise.resolve();
+    return new Promise((resolve) => this.syncWaiters.push(resolve));
   }
 
   bindDoc(doc: Y.Doc, awareness: Awareness) {
@@ -144,6 +166,10 @@ export function getSharedRealtime(): Realtime | null {
 /** In-browser realtime for VITE_MOCK=1: no network; run events are pushed locally. */
 export class LocalRealtime implements Realtime {
   private runListeners = new Set<(msg: RunWsMessage) => void>();
+
+  whenSynced(): Promise<void> {
+    return Promise.resolve();
+  }
 
   emit(msg: RunWsMessage) {
     for (const cb of this.runListeners) cb(msg);

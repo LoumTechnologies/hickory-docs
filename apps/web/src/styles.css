@@ -607,7 +607,8 @@ textarea:focus {
   border-top: 1px solid var(--border);
   border-top-left-radius: 8px;
   border-top-right-radius: 8px;
-  margin-top: 0.5rem;
+  /* CM cannot measure margins; spacing must be padding (in the box). */
+  padding-top: 0.2rem;
 }
 .cm-cell-last { border-bottom: 1px solid var(--border); }
 
@@ -625,14 +626,13 @@ textarea:focus {
   border-bottom: 1px solid var(--border);
   border-bottom-left-radius: 8px;
   border-bottom-right-radius: 8px;
-  margin-bottom: 0.5rem;
+  padding-bottom: 0.2rem;
 }
 
 .cm-file-chip {
   display: flex;
   align-items: center;
   gap: 0.5rem;
-  margin-top: 0.5rem;
   padding: 0.3rem 0.8rem;
   background: var(--neutral-bg);
   border: 1px solid var(--border);
@@ -686,7 +686,7 @@ textarea:focus {
   border-bottom: 1px solid var(--border);
   border-bottom-left-radius: 8px;
   border-bottom-right-radius: 8px;
-  margin-bottom: 0.5rem;
+  padding-bottom: 0.2rem;
 }
 .cm-frag-cut {
   border-left-style: dashed;
@@ -697,7 +697,6 @@ textarea:focus {
   display: flex;
   align-items: baseline;
   gap: 0.5rem;
-  margin-top: 0.5rem;
   padding: 0.28rem 0.8rem;
   background: var(--neutral-bg);
   border: 1px solid var(--border);
@@ -745,7 +744,6 @@ textarea:focus {
   display: flex;
   align-items: baseline;
   gap: 0.55rem;
-  margin-top: 0.5rem;
   padding: 0.24rem 0.7rem;
   border: 1px solid var(--border);
   border-left: 3px solid var(--stale);
@@ -1090,3 +1088,9 @@ textarea:focus {
 .interval-toggle { margin-top: 1.5rem; }
 .enterprise-note { margin-top: 2rem; font-size: 0.88rem; }
 .enterprise-note a { color: var(--accent); }
+
+/* Widget spacing CM can measure: a transparent wrapper instead of margins. */
+.cm-widget-spacer { padding-top: 0.5rem; }
+/* flow-root: children's margins stay inside the widget box (measured). */
+/* flow-root: children's margins stay inside the widget box (measured). */
+.cm-cell-panel, .cm-env-card { display: flow-root; }

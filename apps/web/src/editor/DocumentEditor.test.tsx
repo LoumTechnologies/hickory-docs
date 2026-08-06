@@ -28,8 +28,10 @@ describe("DocumentEditor (WYSIWYG over raw source)", () => {
     );
     const content = container.querySelector(".cm-content");
     expect(content).toBeTruthy();
-    // Decorations only — the tag syntax stays visible, byte for byte.
-    expect(content!.textContent).toContain('<hick:file path="a.py" language="python">');
+    // Seeding happens after the (immediately-resolved) sync promise.
+    await waitFor(() =>
+      expect(content!.textContent).toContain('<hick:file path="a.py" language="python">'),
+    );
     expect(content!.textContent).toContain("# Title");
     // The exec cell got its panel widget below the block.
     await waitFor(() => expect(container.querySelector(".cm-cell-panel")).toBeTruthy());
@@ -120,7 +122,7 @@ describe("DocumentEditor (WYSIWYG over raw source)", () => {
     realtime.close();
   });
 
-  it("never corrupts text: decorations leave the document unchanged on malformed docs", () => {
+  it("never corrupts text: decorations leave the document unchanged on malformed docs", async () => {
     const realtime = new LocalRealtime();
     const source = "broken <hick:exec container=\"shell\">\nno close tag, raw < and ** unbalanced";
     const { container } = render(
@@ -133,10 +135,12 @@ describe("DocumentEditor (WYSIWYG over raw source)", () => {
         onRunCell={() => undefined}
       />,
     );
-    const lines = Array.from(container.querySelectorAll(".cm-line")).map(
-      (el) => el.textContent ?? "",
-    );
-    expect(lines.join("\n")).toBe(source);
+    await waitFor(() => {
+      const lines = Array.from(container.querySelectorAll(".cm-line")).map(
+        (el) => el.textContent ?? "",
+      );
+      expect(lines.join("\n")).toBe(source);
+    });
     realtime.close();
   });
 });
