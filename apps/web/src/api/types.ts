@@ -178,3 +178,17 @@ export interface ExecutorInfo {
   kind: "local" | "canopy";
   images: Record<string, string> | null;
 }
+
+/** One exchange in a document's agent conversation.
+ *
+ * The conversation is a TREE: `parent_id` is the turn this one continues from,
+ * so rewinding and sending again forks a branch instead of destroying history. */
+export interface AgentTurn {
+  id: string;
+  parent_id: string | null;
+  prompt: string;
+  answer: string | null;
+  status: "running" | "ok" | "error" | string;
+  error: string | null;
+  created_at: string;
+}

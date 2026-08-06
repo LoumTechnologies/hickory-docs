@@ -1,6 +1,7 @@
 import { ApiError, installMockHandler, setToken } from "../api/client";
 import { LocalRealtime } from "../api/realtime";
 import type {
+  AgentTurn,
   Block,
   Doc,
   ExecBlock,
@@ -38,6 +39,7 @@ const state = {
     Object.entries(MOCK_BLOCKS).map(([id, blocks]) => [id, blocks.map((b) => ({ ...b }))]),
   ) as Record<string, Block[]>,
   runs: new Map<string, Run>(),
+  agentTurns: [] as (AgentTurn & { doc_id: string })[],
   nextId: 1,
 };
 
@@ -301,8 +303,23 @@ export function installMockApi() {
     if (route === "POST /api/billing/checkout") {
       return { checkout_url: `https://checkout.stripe.com/mock/${String(b.price_key)}` };
     }
+    if ((m = path.match(/^\/api\/docs\/([^/]+)\/agent\/turns$/))) {
+      return { turns: state.agentTurns.filter((t) => t.doc_id === m![1]).map(({ doc_id: _d, ...t }) => t) };
+    }
     if ((m = path.match(/^\/api\/docs\/([^/]+)\/agent$/))) {
-      return { session_id: streamAgentSession(m![1], String(b.prompt)) };
+      const docId = m![1];
+      const id = streamAgentSession(docId, String(b.prompt));
+      state.agentTurns.push({
+        doc_id: docId,
+        id,
+        parent_id: (b.parent_id as string | null) ?? null,
+        prompt: String(b.prompt),
+        answer: "Mock agent: nothing was actually executed.",
+        status: "ok",
+        error: null,
+        created_at: new Date().toISOString(),
+      });
+      return { session_id: id };
     }
     if (route === "GET /api/health") return { ok: true, executor: "local", db: true };
     // Environment cards: mock runs everything on the "local" executor.

@@ -41,6 +41,19 @@ pub struct AgentConfig {
     /// Container image recorded for the agent workspace (LocalExecutor
     /// ignores it).
     pub image: String,
+    /// Earlier exchanges to replay as conversation history, oldest first.
+    ///
+    /// This is what makes a chat a chat rather than a series of unrelated
+    /// sessions — and what makes rewinding cheap: a branch is just a different
+    /// ancestor chain, replayed into a fresh loop.
+    pub prior_turns: Vec<PriorTurn>,
+}
+
+/// One completed exchange being replayed as history.
+#[derive(Debug, Clone)]
+pub struct PriorTurn {
+    pub prompt: String,
+    pub answer: String,
 }
 
 impl AgentConfig {
@@ -53,6 +66,7 @@ impl AgentConfig {
             project_dir: project_dir.into(),
             max_turns: 20,
             image: "host".into(),
+            prior_turns: Vec::new(),
         }
     }
 }
@@ -137,6 +151,13 @@ pub async fn run_agent(
     }
     if !session_context.is_empty() {
         history.push(Message::new(Role::System, session_context));
+    }
+    // Replay earlier exchanges before the new prompt. They go AFTER the system
+    // messages so the frozen cache prefix stays byte-identical, and the growing
+    // conversation extends that prefix instead of invalidating it.
+    for turn in &config.prior_turns {
+        history.push(Message::new(Role::User, turn.prompt.clone()));
+        history.push(Message::new(Role::Assistant, turn.answer.clone()));
     }
     history.push(Message::new(Role::User, config.prompt.clone()));
     session.record(SessionEvent::User {

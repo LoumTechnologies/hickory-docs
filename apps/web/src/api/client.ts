@@ -1,4 +1,5 @@
 import type {
+  AgentTurn,
   AuthResponse,
   Doc,
   DocSummary,
@@ -148,6 +149,14 @@ export const api = {
 
   executor: () => request<ExecutorInfo>("GET", "/api/executor"),
 
-  agent: (docId: string, prompt: string) =>
-    request<{ session_id: string }>("POST", `/api/docs/${docId}/agent`, { prompt }),
+  /** Start a turn. `parentId` continues from that turn — naming an older one
+   * forks a branch (rewind) rather than overwriting what followed it. */
+  agent: (docId: string, prompt: string, parentId?: string | null) =>
+    request<{ session_id: string }>("POST", `/api/docs/${docId}/agent`, {
+      prompt,
+      parent_id: parentId ?? null,
+    }),
+
+  agentTurns: (docId: string) =>
+    request<{ turns: AgentTurn[] }>("GET", `/api/docs/${docId}/agent/turns`),
 };

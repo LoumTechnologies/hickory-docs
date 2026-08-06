@@ -72,12 +72,12 @@ pub use protocol::correction_message;
 pub use protocol::parse_response;
 /// Parse the `<hick:tool>` element out of a tool response.
 pub use protocol::parse_tool_invocation;
-/// Configuration for one agent run.
-pub use react_loop::AgentConfig;
 /// The result of a completed agent run.
 pub use react_loop::AgentOutcome;
 /// Run the script-first ReAct loop to completion.
 pub use react_loop::run_agent;
+/// Configuration for one agent run.
+pub use react_loop::{AgentConfig, PriorTurn};
 /// The container name the agent runs in.
 pub use script::AGENT_CONTAINER;
 /// A code block extracted from an LLM response.

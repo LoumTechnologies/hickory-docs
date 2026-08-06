@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, MOCK } from "../api/client";
 import { WsRealtime, getSharedRealtime, type Realtime } from "../api/realtime";
 import type { Block, Doc, ExecBlock, SourceEdit } from "../api/types";
-import { AgentPanel } from "../components/AgentPanel";
+import { ChatDock } from "../components/ChatDock";
 import { ReferencesPanel } from "../components/ReferencesPanel";
 import { byteToChar } from "../lib/offsets";
 import { useLsp } from "../lsp/useLsp";
@@ -30,7 +30,11 @@ export function DocumentView({ docId }: { docId: string }) {
     typeof window.matchMedia === "function" ? window.matchMedia(SPLIT_MIN_WIDTH).matches : false,
   );
   const [splitHint, setSplitHint] = useState(false);
-  const [showAgent, setShowAgent] = useState(false);
+  // The dock is part of the workspace, not a mode: it is always mounted and
+  // remembers whether the log is expanded.
+  const [chatCollapsed, setChatCollapsed] = useState(
+    () => localStorage.getItem("hickory.chatCollapsed") === "1",
+  );
   const [runningCells, setRunningCells] = useState<Set<string>>(new Set());
   const [banner, setBanner] = useState<Banner>(null);
   const [selectSpan, setSelectSpan] = useState<[number, number] | null>(null);
@@ -354,7 +358,7 @@ export function DocumentView({ docId }: { docId: string }) {
 
   return (
     <div
-      className={`doc-page${showAgent ? " with-agent" : ""}${view === "split" ? " split-mode" : ""}`}
+      className={`doc-page with-chat${view === "split" ? " split-mode" : ""}`}
     >
       <div className="doc-main">
         <header className="doc-toolbar">
@@ -421,13 +425,6 @@ export function DocumentView({ docId }: { docId: string }) {
             <button className="btn btn-primary" onClick={() => void verify()}>
               Verify
             </button>
-            <button
-              className={`btn${showAgent ? " on" : ""}`}
-              aria-pressed={showAgent}
-              onClick={() => setShowAgent((v) => !v)}
-            >
-              Agent
-            </button>
           </div>
         </header>
         {banner && (
@@ -485,7 +482,18 @@ export function DocumentView({ docId }: { docId: string }) {
           onClose={() => setReferences(null)}
         />
       )}
-      {showAgent && <AgentPanel docId={docId} realtime={realtime} />}
+      <ChatDock
+        docId={docId}
+        realtime={realtime}
+        collapsed={chatCollapsed}
+        onToggleCollapsed={() =>
+          setChatCollapsed((v) => {
+            localStorage.setItem("hickory.chatCollapsed", v ? "0" : "1");
+            return !v;
+          })
+        }
+        onAgentFinished={refresh}
+      />
     </div>
   );
 }

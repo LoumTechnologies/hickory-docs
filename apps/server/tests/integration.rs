@@ -1661,3 +1661,86 @@ async fn health_stays_responsive_while_renders_are_in_flight() {
         assert_eq!(r.await.unwrap().unwrap().status().as_u16(), 200);
     }
 }
+
+/// The agent conversation is a TREE: rewinding to an earlier turn and sending
+/// again must fork a branch, leaving what followed that turn intact on its own
+/// branch. This drives the storage and the read model directly (running a real
+/// agent turn needs an API key, which CI does not have).
+#[tokio::test(flavor = "multi_thread")]
+async fn agent_turns_form_a_branching_tree() {
+    let app = setup().await;
+    let (token, user_id) = app.signup("branches@example.com").await;
+    let user_id: uuid::Uuid = user_id.parse().unwrap();
+    let (_, project) = app
+        .post(
+            "/api/projects",
+            Some(&token),
+            json!({ "name": "chat", "visibility": "private" }),
+        )
+        .await;
+    let project_id = project["id"].as_str().unwrap();
+    let (_, doc) = app
+        .post(
+            &format!("/api/projects/{project_id}/docs"),
+            Some(&token),
+            json!({ "path": "chat.hick", "source": "<hick:doc xmlns:hick=\"http://www.hickorydocs.com/1.0\">hi</hick:doc>" }),
+        )
+        .await;
+    let doc_id: uuid::Uuid = doc["id"].as_str().unwrap().parse().unwrap();
+
+    let mut ids = Vec::new();
+    // root → a → a2, and root → b (the fork produced by rewinding to root).
+    for (prompt, parent) in [
+        ("root", None),
+        ("a", Some(0usize)),
+        ("a2", Some(1usize)),
+        ("b", Some(0usize)),
+    ] {
+        let id = uuid::Uuid::new_v4();
+        sqlx::query(
+            "INSERT INTO agent_turns (id, doc_id, user_id, parent_id, prompt, answer, status)
+             VALUES ($1, $2, $3, $4, $5, $6, 'ok')",
+        )
+        .bind(id)
+        .bind(doc_id)
+        .bind(user_id)
+        .bind(parent.map(|i| ids[i]))
+        .bind(prompt)
+        .bind(format!("answer to {prompt}"))
+        .execute(&app.db)
+        .await
+        .unwrap();
+        ids.push(id);
+    }
+
+    let (status, v) = app
+        .get(&format!("/api/docs/{doc_id}/agent/turns"), Some(&token))
+        .await;
+    assert_eq!(status, 200, "{v}");
+    let turns = v["turns"].as_array().unwrap();
+    assert_eq!(turns.len(), 4, "every branch is kept, none overwritten");
+
+    // The fork: two distinct children of root, so the rewind did not destroy
+    // the turns that followed it.
+    let root = ids[0].to_string();
+    let children: Vec<&str> = turns
+        .iter()
+        .filter(|t| t["parent_id"].as_str() == Some(root.as_str()))
+        .map(|t| t["prompt"].as_str().unwrap())
+        .collect();
+    assert_eq!(children, vec!["a", "b"]);
+
+    // Ordering is chronological, which is what the client walks.
+    let prompts: Vec<&str> = turns
+        .iter()
+        .map(|t| t["prompt"].as_str().unwrap())
+        .collect();
+    assert_eq!(prompts, vec!["root", "a", "a2", "b"]);
+
+    // Another user cannot read this conversation.
+    let (other, _) = app.signup("nosy@example.com").await;
+    let (status, _) = app
+        .get(&format!("/api/docs/{doc_id}/agent/turns"), Some(&other))
+        .await;
+    assert_eq!(status, 403);
+}

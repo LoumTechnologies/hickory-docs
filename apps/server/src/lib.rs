@@ -105,6 +105,7 @@ pub fn build_router(state: AppState) -> Router {
         .route("/docs/{id}/run", post(routes::runs::run_doc))
         .route("/docs/{id}/check", post(routes::runs::check_doc))
         .route("/docs/{id}/agent", post(routes::agent::start_agent))
+        .route("/docs/{id}/agent/turns", get(routes::agent::list_turns))
         .route("/runs/{id}", get(routes::runs::get_run))
         .route("/billing/plans", get(routes::billing::get_plans))
         .route("/billing/checkout", post(routes::billing::checkout))

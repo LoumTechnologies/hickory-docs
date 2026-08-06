@@ -12,7 +12,9 @@ use std::time::Instant;
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
-use hickory_agent::{AGENT_EXEC_ID, AgentConfig, AgentEvent, AnthropicClient, run_agent};
+use hickory_agent::{
+    AGENT_EXEC_ID, AgentConfig, AgentEvent, AnthropicClient, PriorTurn, run_agent,
+};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use uuid::Uuid;
@@ -25,6 +27,77 @@ use crate::routes::docs::{DocRow, load_doc};
 #[derive(Deserialize)]
 pub struct AgentRequest {
     pub prompt: String,
+    /// Turn this message continues from. Omitted starts a new conversation;
+    /// naming an OLDER turn forks a branch from there (rewind), leaving the
+    /// turns that followed it in place on their own branch.
+    #[serde(default)]
+    pub parent_id: Option<Uuid>,
+}
+
+/// One turn as the client sees it.
+#[derive(serde::Serialize, sqlx::FromRow)]
+pub struct TurnRow {
+    pub id: Uuid,
+    pub parent_id: Option<Uuid>,
+    pub prompt: String,
+    pub answer: Option<String>,
+    pub status: String,
+    pub error: Option<String>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+/// GET /api/docs/:id/agent/turns — the whole conversation tree for a document.
+pub async fn list_turns(
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
+    Path(id): Path<Uuid>,
+) -> ApiResult<Json<Value>> {
+    let doc = load_doc(&state, id).await?;
+    if doc.owner_id != user.id {
+        return Err(ApiError::forbidden("not your document"));
+    }
+    let turns: Vec<TurnRow> = sqlx::query_as(
+        "SELECT id, parent_id, prompt, answer, status, error, created_at
+         FROM agent_turns WHERE doc_id = $1 ORDER BY created_at",
+    )
+    .bind(doc.id)
+    .fetch_all(&state.db)
+    .await?;
+    Ok(Json(json!({ "turns": turns })))
+}
+
+/// Walk `parent_id` up to the root and return the exchanges oldest-first.
+///
+/// Only turns that actually produced an answer are replayed: a failed or
+/// still-running ancestor has nothing to contribute, and inventing an empty
+/// assistant message would teach the model that silence is a valid reply.
+async fn ancestor_turns(
+    state: &AppState,
+    doc_id: Uuid,
+    mut cursor: Option<Uuid>,
+) -> Result<Vec<PriorTurn>, ApiError> {
+    let mut chain = Vec::new();
+    // The chain is bounded by construction (each parent is strictly older),
+    // but a cycle introduced by a bad write must not hang the request.
+    for _ in 0..200 {
+        let Some(id) = cursor else { break };
+        let row: Option<(Option<Uuid>, String, Option<String>)> = sqlx::query_as(
+            "SELECT parent_id, prompt, answer FROM agent_turns WHERE id = $1 AND doc_id = $2",
+        )
+        .bind(id)
+        .bind(doc_id)
+        .fetch_optional(&state.db)
+        .await?;
+        let Some((parent_id, prompt, answer)) = row else {
+            break;
+        };
+        if let Some(answer) = answer {
+            chain.push(PriorTurn { prompt, answer });
+        }
+        cursor = parent_id;
+    }
+    chain.reverse();
+    Ok(chain)
 }
 
 pub async fn start_agent(
@@ -50,6 +123,11 @@ pub async fn start_agent(
     // Agent runs execute through the same metered executor time.
     crate::runs::check_exec_quota(&state, &user).await?;
 
+    // The conversation so far, along the branch this message continues.
+    let prior_turns = ancestor_turns(&state, doc.id, body.parent_id).await?;
+
+    // One id identifies the turn, the run, and the WS stream: the client
+    // subscribes to `run_id` before this response even arrives.
     let session_id = Uuid::new_v4();
     sqlx::query(
         "INSERT INTO runs (id, doc_id, user_id, kind, status) VALUES ($1, $2, $3, 'agent', 'running')",
@@ -57,6 +135,16 @@ pub async fn start_agent(
     .bind(session_id)
     .bind(doc.id)
     .bind(user.id)
+    .execute(&state.db)
+    .await?;
+    sqlx::query(
+        "INSERT INTO agent_turns (id, doc_id, user_id, parent_id, prompt) VALUES ($1, $2, $3, $4, $5)",
+    )
+    .bind(session_id)
+    .bind(doc.id)
+    .bind(user.id)
+    .bind(body.parent_id)
+    .bind(&body.prompt)
     .execute(&state.db)
     .await?;
 
@@ -71,10 +159,34 @@ pub async fn start_agent(
     let state2 = state.clone();
     tokio::spawn(async move {
         let started = Instant::now();
-        let status = match run_agent_session(&state2, session_id, &doc, &prompt, &api_key).await {
-            Ok(()) => "ok",
+        let status = match run_agent_session(
+            &state2,
+            session_id,
+            &doc,
+            &prompt,
+            prior_turns,
+            &api_key,
+        )
+        .await
+        {
+            Ok(summary) => {
+                let _ =
+                    sqlx::query("UPDATE agent_turns SET answer = $1, status = 'ok' WHERE id = $2")
+                        .bind(&summary)
+                        .bind(session_id)
+                        .execute(&state2.db)
+                        .await;
+                "ok"
+            }
             Err(e) => {
                 log::warn!("agent session {session_id} failed: {e:#}");
+                let _ = sqlx::query(
+                    "UPDATE agent_turns SET status = 'error', error = $1 WHERE id = $2",
+                )
+                .bind(format!("{e:#}"))
+                .bind(session_id)
+                .execute(&state2.db)
+                .await;
                 let _ = sqlx::query("UPDATE runs SET error = $1 WHERE id = $2")
                     .bind(format!("{e:#}"))
                     .bind(session_id)
@@ -110,8 +222,9 @@ async fn run_agent_session(
     session_id: Uuid,
     doc: &DocRow,
     prompt: &str,
+    prior_turns: Vec<PriorTurn>,
     api_key: &str,
-) -> anyhow::Result<()> {
+) -> anyhow::Result<String> {
     // Workspace: temp dir seeded from the project checkout (the agent's
     // scripts and its session file live here until persisted to git).
     let tmp = tempfile::tempdir()?;
@@ -150,7 +263,13 @@ async fn run_agent_session(
     let executor = crate::executor::build_executor(state.config.executor)?;
     let llm = AnthropicClient::new().with_api_key(api_key);
     let mut config = AgentConfig::new(prompt, tmp.path());
+    // Naming the primary document is what enables the document tool set
+    // (read_doc / read_output / edit_output / edit_doc / verify). Without it
+    // the agent could only write scripts and hope — the doctrine this product
+    // is built around would be off in the product itself.
+    config.doc_path = Some(doc_file.clone());
     config.doc_context = Some(doc.source.clone());
+    config.prior_turns = prior_turns;
 
     let mut on_event = |event: AgentEvent| {
         let _ = event_tx.send(event);
@@ -195,5 +314,5 @@ async fn run_agent_session(
         "agent session {session_id} done in {} turns → {rel_path}",
         outcome.turns
     );
-    Ok(())
+    Ok(outcome.summary)
 }
