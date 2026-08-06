@@ -3,6 +3,9 @@
 //! - `GET  /api/docs/:id/outputs/file?path=…` — content + `Provenance[]`
 //! - `POST /api/docs/:id/outputs/edit`        — map output edits to source edits,
 //!   apply them to the doc source (Postgres row + git commit), return them.
+//! - `POST /api/docs/:id/outputs/nav`         — LSP bridge v0.3: map an output
+//!   byte offset through provenance into source coordinates, ask a short-lived
+//!   hick-lsp session for definition/references, map results back.
 
 use axum::Json;
 use axum::extract::{Path, Query, State};
@@ -240,4 +243,222 @@ pub async fn edit_outputs(
         "source_edits": source_edits,
         "applied": true,
     })))
+}
+
+// ---------------------------------------------------------------------------
+// POST /api/docs/:id/outputs/nav — LSP bridge v0.3
+// ---------------------------------------------------------------------------
+
+#[derive(Deserialize)]
+pub struct NavRequest {
+    pub path: String,
+    pub offset: usize,
+    pub kind: String,
+}
+
+/// `{path, offset, kind: "definition"|"references"}` →
+/// `{targets: [{uri, range: {start, end}}]}` (byte offsets).
+///
+/// The output byte offset is mapped through the last run's provenance into
+/// source-document coordinates, a short-lived hick-lsp session answers the
+/// request over the seeded checkout, and results are mapped back: locations
+/// in `.hick` docs become `hick:///<doc-path>` byte ranges; locations that
+/// stay inside generated outputs are re-mapped through provenance where
+/// possible, else returned as `hick-output:///<output-path>` byte ranges.
+/// Read access follows doc visibility, like every other doc read.
+pub async fn outputs_nav(
+    State(state): State<AppState>,
+    MaybeUser(user): MaybeUser,
+    Path(id): Path<Uuid>,
+    Json(body): Json<NavRequest>,
+) -> ApiResult<Json<Value>> {
+    use hick_lsp::structural::{byte_to_position, position_to_byte};
+
+    let method = match body.kind.as_str() {
+        "definition" => "textDocument/definition",
+        "references" => "textDocument/references",
+        other => {
+            return Err(ApiError::bad_request(format!(
+                "kind must be \"definition\" or \"references\", got {other:?}"
+            )));
+        }
+    };
+
+    let doc = load_doc(&state, id).await?;
+    check_read(&doc, user.as_ref())?;
+    let row = load_output(&state, id, &body.path).await?;
+    if body.offset > row.content.len() {
+        return Err(ApiError::bad_request("offset out of bounds for output"));
+    }
+    let provenance: Vec<Provenance> = serde_json::from_value(row.provenance)
+        .map_err(|e| ApiError::internal(format!("stored provenance unreadable: {e}")))?;
+
+    // Output byte → source-document byte through provenance. Synthetic bytes
+    // have no source position: no targets.
+    let Some((src_doc_path, src_offset)) = provenance
+        .iter()
+        .find(|p| p.start <= body.offset && body.offset < p.end)
+        .and_then(|p| {
+            let (doc_path, s, _) = p.origin.location()?;
+            Some((doc_path.to_string(), s + (body.offset - p.start)))
+        })
+    else {
+        return Ok(Json(json!({ "targets": [] })));
+    };
+
+    // All project doc sources: the request doc, the provenance target doc,
+    // and any doc a result location may land in.
+    let doc_sources: std::collections::HashMap<String, String> =
+        sqlx::query_as::<_, (String, String)>(
+            "SELECT path, source FROM docs WHERE project_id = $1",
+        )
+        .bind(doc.project_id)
+        .fetch_all(&state.db)
+        .await?
+        .into_iter()
+        .collect();
+    let src_source = doc_sources
+        .get(&src_doc_path)
+        .ok_or_else(|| ApiError::conflict("provenance references a doc that no longer exists"))?;
+    let (line, character) = byte_to_position(src_source, src_offset);
+
+    // Short-lived hick-lsp session over the seeded checkout.
+    let (mut session, mut rx) = crate::lsp::LspSession::start(&state.git, doc.project_id)
+        .await
+        .map_err(|e| ApiError::internal(format!("could not start hick-lsp session: {e:#}")))?;
+    let workdir_uri = session.workdir_uri().to_string();
+    let doc_uri = format!("{workdir_uri}{src_doc_path}");
+
+    session
+        .send(&json!({
+            "jsonrpc": "2.0",
+            "method": "textDocument/didOpen",
+            "params": { "textDocument": {
+                "uri": doc_uri,
+                "languageId": "hick",
+                "version": 1,
+                "text": src_source,
+            }},
+        }))
+        .await
+        .map_err(|e| ApiError::internal(format!("hick-lsp didOpen failed: {e:#}")))?;
+
+    // Ask (with a few retries: didOpen is a notification, its processing can
+    // land after the first request), collecting the matching response.
+    let mut result = Value::Null;
+    'attempts: for attempt in 0..20u32 {
+        let req_id = format!("nav:{attempt}");
+        let mut params = json!({
+            "textDocument": { "uri": format!("{workdir_uri}{src_doc_path}") },
+            "position": { "line": line, "character": character },
+        });
+        if method == "textDocument/references"
+            && let Some(obj) = params.as_object_mut()
+        {
+            obj.insert("context".into(), json!({ "includeDeclaration": false }));
+        }
+        session
+            .send(&json!({ "jsonrpc": "2.0", "id": req_id, "method": method, "params": params }))
+            .await
+            .map_err(|e| ApiError::internal(format!("hick-lsp request failed: {e:#}")))?;
+
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
+        loop {
+            let msg = match tokio::time::timeout_at(deadline, rx.recv()).await {
+                Ok(Some(msg)) => msg,
+                _ => break 'attempts,
+            };
+            if msg.get("id").and_then(|i| i.as_str()) == Some(req_id.as_str()) {
+                result = msg.get("result").cloned().unwrap_or(Value::Null);
+                break;
+            }
+        }
+        let empty = result.is_null() || result.as_array().is_some_and(|a| a.is_empty());
+        if !empty {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+    session.shutdown().await;
+
+    // Normalize Location | Location[] | LocationLink[] into targets.
+    let locations: Vec<Value> = match result {
+        Value::Array(items) => items,
+        Value::Null => Vec::new(),
+        one => vec![one],
+    };
+    let mut targets = Vec::new();
+    for loc in &locations {
+        let (uri, range) = match (loc.get("uri"), loc.get("targetUri")) {
+            (Some(Value::String(u)), _) => (u.clone(), loc.get("range")),
+            (_, Some(Value::String(u))) => (u.clone(), loc.get("targetRange")),
+            _ => continue,
+        };
+        let Some(range) = range else { continue };
+        let range_bytes = |content: &str| -> Option<(usize, usize)> {
+            let sl = range.pointer("/start/line")?.as_u64()? as u32;
+            let sc = range.pointer("/start/character")?.as_u64()? as u32;
+            let el = range.pointer("/end/line")?.as_u64()? as u32;
+            let ec = range.pointer("/end/character")?.as_u64()? as u32;
+            Some((
+                position_to_byte(content, sl, sc)?,
+                position_to_byte(content, el, ec)?,
+            ))
+        };
+
+        if let Some(doc_path) = uri.strip_prefix(&workdir_uri) {
+            // A .hick source location.
+            if let Some(source) = doc_sources.get(doc_path)
+                && let Some((s, e)) = range_bytes(source)
+            {
+                targets.push(json!({
+                    "uri": format!("hick:///{doc_path}"),
+                    "range": { "start": s, "end": e },
+                }));
+            }
+        } else if let Some(out_path) = crate::lsp::vfile_output_path(&uri) {
+            // A generated-output location: provenance-map when possible.
+            let out_row: Option<(String, Value)> = sqlx::query_as(
+                "SELECT o.content, o.provenance FROM run_outputs o
+                 JOIN runs r ON r.id = o.run_id
+                 WHERE r.doc_id = $1 AND r.kind = 'run' AND r.status = 'ok' AND o.path = $2
+                 ORDER BY r.started_at DESC LIMIT 1",
+            )
+            .bind(id)
+            .bind(out_path)
+            .fetch_optional(&state.db)
+            .await?;
+            let Some((content, prov)) = out_row else {
+                continue;
+            };
+            let Some((s, e)) = range_bytes(&content) else {
+                continue;
+            };
+            let prov: Vec<Provenance> = serde_json::from_value(prov).unwrap_or_default();
+            let map_byte = |b: usize| -> Option<(String, usize)> {
+                let p = prov
+                    .iter()
+                    .find(|p| p.start <= b && b < p.end)
+                    .or_else(|| prov.iter().find(|p| p.end == b && p.start < p.end))?;
+                let (d, ps, _) = p.origin.location()?;
+                Some((d.to_string(), ps + (b - p.start)))
+            };
+            match (map_byte(s), map_byte(e)) {
+                (Some((d1, ms)), Some((d2, me))) if d1 == d2 && ms <= me => {
+                    targets.push(json!({
+                        "uri": format!("hick:///{d1}"),
+                        "range": { "start": ms, "end": me },
+                    }));
+                }
+                _ => {
+                    targets.push(json!({
+                        "uri": format!("hick-output:///{out_path}"),
+                        "range": { "start": s, "end": e },
+                    }));
+                }
+            }
+        }
+    }
+
+    Ok(Json(json!({ "targets": targets })))
 }

@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use futures::StreamExt as _;
+use futures::{SinkExt as _, StreamExt as _};
 use hickory_server::config::{AppEnv, Config, ExecutorKind, StripeConfig};
 use hickory_server::{build_router, build_state};
 use hmac::{Hmac, Mac as _};
@@ -1093,4 +1093,277 @@ async fn output_edit_overlapping_synthetic_separator_is_422() {
     // The doc source was not touched.
     let (_, doc) = app.get(&format!("/api/docs/{doc_id}"), Some(&token)).await;
     assert_eq!(doc["source"].as_str().unwrap(), SEPARATOR_DOC);
+}
+
+// ---------------------------------------------------------------------------
+// Editor intelligence — LSP bridge (api.md v0.3)
+// ---------------------------------------------------------------------------
+
+const LSP_PY_DOC: &str = r##"<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
+# LSP bridge test
+
+<hick:file path="app.py">
+def greet():
+    return "hi"
+
+greet()
+</hick:file>
+</hick:doc>
+"##;
+
+/// 0-based (line, UTF-16 character) of `needle` + `delta` bytes in an ASCII
+/// source.
+fn pos_of(source: &str, needle: &str, delta: usize) -> (u32, u32) {
+    let offset = source.find(needle).expect("needle present") + delta;
+    let before = &source[..offset];
+    let line = before.bytes().filter(|&b| b == b'\n').count() as u32;
+    let col = (offset - before.rfind('\n').map(|i| i + 1).unwrap_or(0)) as u32;
+    (line, col)
+}
+
+type Ws =
+    tokio_tungstenite::WebSocketStream<tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>>;
+
+async fn lsp_send(ws: &mut Ws, msg: &Value) {
+    let json = serde_json::to_vec(msg).unwrap();
+    let mut frame = Vec::with_capacity(json.len() + 1);
+    frame.push(0x02);
+    frame.extend_from_slice(&json);
+    ws.send(TtMessage::Binary(frame)).await.unwrap();
+}
+
+/// Read frames (skipping other channels and unrelated LSP messages) until the
+/// response with `id` arrives.
+async fn lsp_response(ws: &mut Ws, id: i64, deadline: tokio::time::Instant) -> Value {
+    loop {
+        let frame = tokio::time::timeout_at(deadline, ws.next())
+            .await
+            .expect("timed out waiting for LSP response")
+            .expect("socket closed early")
+            .unwrap();
+        let data = match frame {
+            TtMessage::Binary(b) => b,
+            _ => continue,
+        };
+        if data.is_empty() || data[0] != 0x02 {
+            continue;
+        }
+        let msg: Value = serde_json::from_slice(&data[1..]).unwrap();
+        if msg.get("id").and_then(|i| i.as_i64()) == Some(id) {
+            return msg;
+        }
+    }
+}
+
+async fn lsp_ws(app: &TestApp, token: &str, doc_id: &str) -> Ws {
+    let ws_url = format!(
+        "ws://127.0.0.1:{}/api/ws?doc=doc:{doc_id}&token={token}",
+        app.port
+    );
+    let (ws, _) = tokio_tungstenite::connect_async(&ws_url).await.unwrap();
+    ws
+}
+
+fn lsp_did_open(path: &str, source: &str) -> Value {
+    json!({
+        "jsonrpc": "2.0",
+        "method": "textDocument/didOpen",
+        "params": { "textDocument": {
+            "uri": format!("hick:///{path}"),
+            "languageId": "hick",
+            "version": 1,
+            "text": source,
+        }},
+    })
+}
+
+/// Hover/definition inside a `hick:file` python block: with pyright absent the
+/// bridge degrades to structural/no-result answers — a `result` (possibly
+/// null), NEVER an error frame or a dead channel.
+#[tokio::test(flavor = "multi_thread")]
+async fn ws_lsp_channel_degrades_gracefully_without_child_servers() {
+    let app = setup().await;
+    let (token, _) = app.signup("lsp@example.com").await;
+    let (_, project) = app
+        .post(
+            "/api/projects",
+            Some(&token),
+            json!({ "name": "lsp", "visibility": "public" }),
+        )
+        .await;
+    let project_id = project["id"].as_str().unwrap();
+    let (_, doc) = app
+        .post(
+            &format!("/api/projects/{project_id}/docs"),
+            Some(&token),
+            json!({ "path": "lsp.hick", "source": LSP_PY_DOC }),
+        )
+        .await;
+    let doc_id = doc["id"].as_str().unwrap().to_string();
+
+    let mut ws = lsp_ws(&app, &token, &doc_id).await;
+    lsp_send(&mut ws, &lsp_did_open("lsp.hick", LSP_PY_DOC)).await;
+
+    let (line, character) = pos_of(LSP_PY_DOC, "def greet", 4);
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
+    for (id, method) in [(1i64, "textDocument/hover"), (2, "textDocument/definition")] {
+        lsp_send(
+            &mut ws,
+            &json!({
+                "jsonrpc": "2.0",
+                "id": id,
+                "method": method,
+                "params": {
+                    "textDocument": { "uri": "hick:///lsp.hick" },
+                    "position": { "line": line, "character": character },
+                },
+            }),
+        )
+        .await;
+        let resp = lsp_response(&mut ws, id, deadline).await;
+        assert!(
+            resp.get("error").is_none(),
+            "{method} must not error the channel: {resp}"
+        );
+        assert!(
+            resp.as_object().unwrap().contains_key("result"),
+            "{method} must answer with a result: {resp}"
+        );
+    }
+    ws.close(None).await.ok();
+}
+
+/// References round-trip where the definition target lives in the same
+/// virtual file: at the `alpha` copy block, references resolve to both its
+/// paste sites (structural answers — no child server required), translated to
+/// `hick:///` URIs with .hick coordinates.
+#[tokio::test(flavor = "multi_thread")]
+async fn ws_lsp_references_round_trip_in_same_virtual_file() {
+    let app = setup().await;
+    let (token, _) = app.signup("lsp-refs@example.com").await;
+    let (_, project) = app
+        .post(
+            "/api/projects",
+            Some(&token),
+            json!({ "name": "lsp-refs", "visibility": "public" }),
+        )
+        .await;
+    let project_id = project["id"].as_str().unwrap();
+    let (_, doc) = app
+        .post(
+            &format!("/api/projects/{project_id}/docs"),
+            Some(&token),
+            json!({ "path": "lineage.hick", "source": LINEAGE_DOC }),
+        )
+        .await;
+    let doc_id = doc["id"].as_str().unwrap().to_string();
+
+    let mut ws = lsp_ws(&app, &token, &doc_id).await;
+    lsp_send(&mut ws, &lsp_did_open("lineage.hick", LINEAGE_DOC)).await;
+
+    // Cursor on the copy definition tag. didOpen is a notification, so allow
+    // the request to land before processing finishes: retry until non-empty.
+    let (line, character) = pos_of(LINEAGE_DOC, r#"<hick:copy id="alpha">"#, 12);
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
+    let mut refs: Vec<Value> = Vec::new();
+    for id in 10i64.. {
+        lsp_send(
+            &mut ws,
+            &json!({
+                "jsonrpc": "2.0",
+                "id": id,
+                "method": "textDocument/references",
+                "params": {
+                    "textDocument": { "uri": "hick:///lineage.hick" },
+                    "position": { "line": line, "character": character },
+                    "context": { "includeDeclaration": true },
+                },
+            }),
+        )
+        .await;
+        let resp = lsp_response(&mut ws, id, deadline).await;
+        assert!(resp.get("error").is_none(), "references errored: {resp}");
+        if let Some(items) = resp["result"].as_array()
+            && !items.is_empty()
+        {
+            refs = items.clone();
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "references never returned results"
+        );
+    }
+    ws.close(None).await.ok();
+
+    // Declaration + the alpha paste site, all in .hick coordinates.
+    assert!(
+        refs.len() >= 2,
+        "expected declaration + paste site: {refs:?}"
+    );
+    for r in &refs {
+        assert_eq!(r["uri"], "hick:///lineage.hick", "{r}");
+    }
+    let (paste_line, paste_col) = pos_of(LINEAGE_DOC, r##"<hick:paste select="#alpha" />"##, 0);
+    assert!(
+        refs.iter().any(|r| {
+            r["range"]["start"]["line"].as_u64() == Some(paste_line as u64)
+                && r["range"]["start"]["character"].as_u64() == Some(paste_col as u64)
+        }),
+        "expected a reference at the paste site {paste_line}:{paste_col}: {refs:?}"
+    );
+}
+
+/// Output-view navigation: an offset inside the woven `alpha` bytes of gen.rs
+/// maps through provenance to the source doc, and definition lands back on
+/// the `<hick:copy id="alpha">` block as a `hick:///` byte range.
+#[tokio::test(flavor = "multi_thread")]
+async fn outputs_nav_definition_maps_back_to_copy_block() {
+    let app = setup().await;
+    let (token, _) = app.signup("lsp-nav@example.com").await;
+    let (_, doc_id) = app.seed_and_run(&token, "lineage.hick", LINEAGE_DOC).await;
+
+    // Byte 3 of "fn alpha() {}\n…" is inside the pasted alpha bytes.
+    let (status, v) = app
+        .post(
+            &format!("/api/docs/{doc_id}/outputs/nav"),
+            Some(&token),
+            json!({ "path": "gen.rs", "offset": 3, "kind": "definition" }),
+        )
+        .await;
+    assert_eq!(status, 200, "{v}");
+    let targets = v["targets"].as_array().unwrap();
+    assert!(!targets.is_empty(), "expected a definition target: {v}");
+    let t = &targets[0];
+    assert_eq!(t["uri"], "hick:///lineage.hick", "{t}");
+    let start = t["range"]["start"].as_u64().unwrap() as usize;
+    let end = t["range"]["end"].as_u64().unwrap() as usize;
+    assert!(
+        LINEAGE_DOC[start..end].starts_with(r#"<hick:copy id="alpha""#),
+        "definition should land on the copy block, got: {:?}",
+        &LINEAGE_DOC[start..end]
+    );
+
+    // Same owner/visibility rules as other doc reads: the project is private,
+    // anonymous access is rejected.
+    let (status, _) = app
+        .post(
+            &format!("/api/docs/{doc_id}/outputs/nav"),
+            None,
+            json!({ "path": "gen.rs", "offset": 3, "kind": "definition" }),
+        )
+        .await;
+    assert_ne!(status, 200);
+
+    // Unknown kinds are a 400, not a crash.
+    let (status, _) = app
+        .post(
+            &format!("/api/docs/{doc_id}/outputs/nav"),
+            Some(&token),
+            json!({ "path": "gen.rs", "offset": 3, "kind": "rename" }),
+        )
+        .await;
+    assert_eq!(status, 400);
 }

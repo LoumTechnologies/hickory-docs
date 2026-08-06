@@ -23,6 +23,7 @@ futures = "0.3"
 hex = "0.4"
 hick-lang.workspace = true
 hick-literate = { path = "../../crates/hick-literate" }
+hick-lsp = { path = "../../crates/hick-lsp" }
 hickory-cli = { path = "../../crates/hickory-cli" }
 hickory-agent = { path = "../../crates/hickory-agent" }
 hickory-executor = { path = "../../crates/hickory-executor" }

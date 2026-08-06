@@ -17,7 +17,7 @@ COPY crates/ crates/
 COPY apps/server/ apps/server/
 # The workspace lists apps/server as its only app member needed here; prune
 # nothing — a full copy keeps the build simple and correct.
-RUN cargo build --release -p hickory-server
+RUN cargo build --release -p hickory-server -p hick-lsp
 
 # --- runtime ---
 FROM debian:bookworm-slim
@@ -26,6 +26,8 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=build /src/target/release/hickory-server /app/hickory-server
+# The LSP bridge spawns hick-lsp next to the server binary (see src/lsp.rs).
+COPY --from=build /src/target/release/hick-lsp /app/hick-lsp
 COPY --from=web /src/dist /app/web-dist
 ENV WEB_DIST_DIR=/app/web-dist \
     GIT_DATA_DIR=/data/git \

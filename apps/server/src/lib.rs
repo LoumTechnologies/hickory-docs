@@ -8,6 +8,7 @@ pub mod config;
 pub mod error;
 pub mod executor;
 pub mod gitstore;
+pub mod lsp;
 pub mod plans;
 pub mod routes;
 pub mod runs;
@@ -25,6 +26,7 @@ pub use config::Config;
 /// WS channel prefixes (api.md).
 pub const CHANNEL_YJS: u8 = 0x00;
 pub const CHANNEL_RUN: u8 = 0x01;
+pub const CHANNEL_LSP: u8 = 0x02;
 
 #[derive(Clone)]
 pub struct AppState {
@@ -95,6 +97,7 @@ pub fn build_router(state: AppState) -> Router {
             "/docs/{id}/outputs/edit",
             post(routes::outputs::edit_outputs),
         )
+        .route("/docs/{id}/outputs/nav", post(routes::outputs::outputs_nav))
         .route("/docs/{id}/run", post(routes::runs::run_doc))
         .route("/docs/{id}/check", post(routes::runs::check_doc))
         .route("/docs/{id}/agent", post(routes::agent::start_agent))

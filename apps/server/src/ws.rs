@@ -3,6 +3,9 @@
 //! One socket, message-framed by a 1-byte channel prefix:
 //! - `0x00` + Yjs sync/awareness bytes (y-websocket protocol, `yrs`).
 //! - `0x01` + JSON run event (server → client broadcast).
+//! - `0x02` + one JSON-RPC 2.0 message (no Content-Length): the LSP bridge to
+//!   a per-connection `hick-lsp` session (see `crate::lsp`), lazily started
+//!   on the first 0x02 frame and shut down with the socket.
 //!
 //! The web client (apps/web/src/api/realtime.ts) processes exactly one
 //! protocol message per frame, so the server never packs two messages into
@@ -28,7 +31,7 @@ use yrs::{Doc, GetString as _, ReadTxn as _, Text as _, Transact as _, Update};
 use crate::auth::verify_token;
 use crate::error::ApiError;
 use crate::routes::docs::{DocRow, load_doc};
-use crate::{AppState, CHANNEL_RUN, CHANNEL_YJS};
+use crate::{AppState, CHANNEL_LSP, CHANNEL_RUN, CHANNEL_YJS};
 
 // ---------------------------------------------------------------------------
 // Rooms
@@ -257,6 +260,9 @@ async fn run_socket(state: AppState, doc: DocRow, socket: WebSocket) -> anyhow::
 
     let (mut sink, mut stream) = socket.split();
 
+    // Per-connection LSP bridge, lazily started on the first 0x02 frame.
+    let mut lsp_bridge: Option<LspBridge> = None;
+
     // Writer task: forward framed bytes to the socket.
     let writer = tokio::spawn(async move {
         while let Some(frame) = rx.recv().await {
@@ -296,16 +302,148 @@ async fn run_socket(state: AppState, doc: DocRow, socket: WebSocket) -> anyhow::
             }
             // Run channel is server → client only; ignore anything inbound.
             CHANNEL_RUN => {}
+            CHANNEL_LSP => {
+                handle_lsp_frame(&state, &doc, &mut lsp_bridge, &tx, &data[1..]).await;
+            }
             _ => {}
         }
     }
 
+    if let Some(bridge) = lsp_bridge.take() {
+        bridge.shutdown().await;
+    }
     room.clients.lock().unwrap().remove(&client_id);
     writer.abort();
     // Flush any pending edits before potentially dropping the room.
     persist_now(&state, &room).await;
     state.rooms.drop_if_empty(doc_id).await;
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// LSP bridge (channel 0x02)
+// ---------------------------------------------------------------------------
+
+/// One hick-lsp session per (project, WS connection): the child process plus
+/// the pump task that translates its output back into client URI space.
+struct LspBridge {
+    session: crate::lsp::LspSession,
+    pump: tokio::task::JoinHandle<()>,
+}
+
+impl LspBridge {
+    async fn start(
+        state: &AppState,
+        doc: &DocRow,
+        tx: &mpsc::UnboundedSender<Vec<u8>>,
+    ) -> anyhow::Result<LspBridge> {
+        let (session, mut rx) = crate::lsp::LspSession::start(&state.git, doc.project_id).await?;
+        let workdir_uri = session.workdir_uri().to_string();
+        let pump_state = state.clone();
+        let (doc_id, project_id) = (doc.id, doc.project_id);
+        let pump_tx = tx.clone();
+        let pump = tokio::spawn(async move {
+            while let Some(msg) = rx.recv().await {
+                let msg = crate::lsp::rewrite_outbound(
+                    &pump_state,
+                    doc_id,
+                    project_id,
+                    &workdir_uri,
+                    msg,
+                )
+                .await;
+                if pump_tx.send(lsp_frame(&msg)).is_err() {
+                    break;
+                }
+            }
+        });
+        Ok(LspBridge { session, pump })
+    }
+
+    async fn shutdown(self) {
+        self.session.shutdown().await;
+        self.pump.abort();
+    }
+}
+
+fn lsp_frame(msg: &serde_json::Value) -> Vec<u8> {
+    let json = serde_json::to_vec(msg).expect("serializable LSP message");
+    let mut frame = Vec::with_capacity(json.len() + 1);
+    frame.push(CHANNEL_LSP);
+    frame.extend_from_slice(&json);
+    frame
+}
+
+/// Handle one inbound 0x02 frame. The channel never carries transport errors:
+/// when the session cannot start (hick-lsp binary missing) or the child dies,
+/// client *requests* are answered with `result: null` and notifications are
+/// dropped.
+async fn handle_lsp_frame(
+    state: &AppState,
+    doc: &DocRow,
+    bridge: &mut Option<LspBridge>,
+    tx: &mpsc::UnboundedSender<Vec<u8>>,
+    payload: &[u8],
+) {
+    let Ok(mut msg) = serde_json::from_slice::<serde_json::Value>(payload) else {
+        log::debug!("dropping unparseable LSP frame on doc {}", doc.id);
+        return;
+    };
+    let id = msg.get("id").cloned();
+    let method = msg
+        .get("method")
+        .and_then(|m| m.as_str())
+        .unwrap_or_default()
+        .to_string();
+
+    // The server owns the LSP lifecycle: `initialize` is answered here (the
+    // contract lets clients start straight at `didOpen`), and shutdown/exit
+    // never reach the child — the session dies with the socket.
+    match method.as_str() {
+        "initialize" => {
+            let _ = tx.send(lsp_frame(&serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": id,
+                "result": crate::lsp::bridge_initialize_result(),
+            })));
+            return;
+        }
+        "initialized" | "exit" => return,
+        "shutdown" => {
+            let _ = tx.send(lsp_frame(&serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": id,
+                "result": null,
+            })));
+            return;
+        }
+        _ => {}
+    }
+
+    if bridge.is_none() {
+        match LspBridge::start(state, doc, tx).await {
+            Ok(b) => *bridge = Some(b),
+            Err(e) => {
+                log::warn!("LSP session for doc {} unavailable: {e:#}", doc.id);
+            }
+        }
+    }
+
+    let sent = match bridge.as_mut() {
+        Some(b) => {
+            crate::lsp::rewrite_inbound(&mut msg, b.session.workdir_uri());
+            b.session.send(&msg).await.is_ok()
+        }
+        None => false,
+    };
+    if !sent && let Some(id) = id {
+        // Degrade, never error the channel: unanswerable requests get null.
+        let _ = tx.send(lsp_frame(&serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": id,
+            "result": null,
+        })));
+    }
 }
 
 fn send_yjs(tx: &mpsc::UnboundedSender<Vec<u8>>, msg: &Message) {

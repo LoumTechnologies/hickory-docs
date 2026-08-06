@@ -2797,6 +2797,7 @@ dependencies = [
  "hex",
  "hick-lang",
  "hick-literate",
+ "hick-lsp",
  "hickory-agent",
  "hickory-cli",
  "hickory-executor",

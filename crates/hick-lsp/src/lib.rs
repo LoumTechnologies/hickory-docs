@@ -11,6 +11,7 @@ pub mod dispatcher;
 pub mod document;
 pub mod lang_detect;
 pub mod position_map;
+pub mod structural;
 pub mod virtual_file;
 
 /// The tower-lsp backend implementing the hick LSP multiplexer.
