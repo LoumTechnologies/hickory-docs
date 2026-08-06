@@ -4109,7 +4109,7 @@ dependencies = [
  "quinn-udp",
  "rustc-hash 2.1.3",
  "rustls 0.23.43",
- "socket2 0.5.10",
+ "socket2 0.6.5",
  "thiserror 2.0.19",
  "tokio",
  "tracing",
@@ -4147,9 +4147,9 @@ dependencies = [
  "cfg_aliases",
  "libc",
  "once_cell",
- "socket2 0.5.10",
+ "socket2 0.6.5",
  "tracing",
- "windows-sys 0.52.0",
+ "windows-sys 0.61.2",
 ]
 
 [[package]]
@@ -4307,13 +4307,9 @@ dependencies = [
  "sync_wrapper",
  "tokio",
  "tokio-native-tls",
-<<<<<<< HEAD
  "tokio-rustls 0.26.4",
  "tokio-util",
- "tower",
-=======
  "tower 0.5.3",
->>>>>>> e9a58b8 (Add hickory-executor-canopy: Cloud Canopy executor over vendored gRPC proto)
  "tower-http",
  "tower-service",
  "url",
@@ -5266,7 +5262,7 @@ dependencies = [
  "indexmap 1.9.3",
  "pin-project",
  "pin-project-lite",
- "rand",
+ "rand 0.8.7",
  "slab",
  "tokio",
  "tokio-util",
