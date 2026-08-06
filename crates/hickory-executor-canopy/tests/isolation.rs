@@ -60,8 +60,8 @@ fn rust_files_under(dir: &Path, out: &mut Vec<PathBuf>) {
         let path = entry.path();
         if path.is_dir() {
             let name = path.file_name().unwrap_or_default().to_string_lossy();
-            if name == "target" || name == ".git" || name == "node_modules" {
-                continue;
+            if name == "target" || name == "node_modules" || name.starts_with('.') {
+                continue; // hidden dirs include .git and .claude/worktrees
             }
             rust_files_under(&path, out);
         } else if path.extension().is_some_and(|e| e == "rs") {
