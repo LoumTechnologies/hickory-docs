@@ -193,3 +193,32 @@ decision made during the port:
   `show="output"` so the generated SVG contains only the command's stdout
   (the default `show="all"` would have prefixed the SVG with `$ ...` command
   lines).
+
+## Agent port (`crates/hickory-agent`)
+
+Ported 2026-08-05 from the monorepo's `hick-agent/crates/hick-agent-sdk` and
+`hick-agent/crates/hick-agent-script-first` (same source commit `e384c5e`).
+The port is a minimal, clean rewrite onto this repo's `Executor` boundary —
+not a byte-for-byte vendor:
+
+- **Kept**: `LlmClient` trait + Anthropic Messages API client (streaming
+  SSE), the script-first `<hick:next>` ReAct protocol and loop, code-block
+  extraction (trimmed to shell + python), and session logging. The old
+  `XmlSessionLog` (a purpose-built `log:` namespace bundle) was replaced by
+  `HickSessionLog`, which writes `hick:session` documents directly so
+  sessions parse with `hick_lang::parse_session` and promote with
+  `hickory promote`.
+- **Adapted**: the old wasm `ContainerBackend` execution was replaced by an
+  adapter over `hickory_executor::Executor` — scripts are written into the
+  agent container's workspace via `execute_with_stdin` and run as
+  shell/python; stdout/stderr/exit come back from the executor transcript.
+- **Skipped for now** (revisit when the product needs them):
+  `network_filter` / `sink_guard` / `security_config` / `tool_gate` /
+  `pane_csp` (the security stack), all MCP layers (`mcp_client`,
+  `mcp_config`, `mcp_format`, `mcp_install`, `mcp_project_config`),
+  `conversation_tree`, the TUI (`hick-agent-tui`) and `ui_event` /
+  `agent_ui_bridge` / `web_server`, `relay_client` (and `hick-relay`),
+  the OpenAI-compat + local-llama backends and `model_router`,
+  `agent_memory` / `agent_skills` / `agentignore` / `project_context` /
+  `suggestion_gen` / `session_bundle_reader`, and the eval/plan-runner
+  crates (`hick-eval-store`, `hick-plan-runner`).

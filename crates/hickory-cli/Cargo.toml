@@ -19,6 +19,7 @@ env_logger = "0.11"
 hick-exec.workspace = true
 hick-lang.workspace = true
 hick-literate = { path = "../hick-literate" }
+hickory-agent = { path = "../hickory-agent" }
 hickory-executor = { path = "../hickory-executor" }
 log = "0.4"
 serde = { version = "1", features = ["derive"] }

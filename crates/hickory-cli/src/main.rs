@@ -31,6 +31,9 @@ enum Command {
     Weave(WeaveArgs),
     /// Promote a session document into a clean pipeline document.
     Promote(PromoteArgs),
+    /// Run the AI agent on a prompt; the session is written as a
+    /// hick:session document under the project's sessions/ directory.
+    Agent(AgentArgs),
 }
 
 #[derive(clap::Args)]
@@ -88,6 +91,24 @@ struct PromoteArgs {
     out: Option<PathBuf>,
 }
 
+#[derive(clap::Args)]
+struct AgentArgs {
+    /// The task prompt for the agent.
+    prompt: String,
+    /// A `.hick` document to give the agent as context.
+    #[arg(long = "doc")]
+    doc: Option<PathBuf>,
+    /// Project directory (sessions land in `<dir>/sessions/`; default: cwd).
+    #[arg(long = "dir")]
+    dir: Option<PathBuf>,
+    /// Anthropic model id override (default: the current Sonnet-class alias).
+    #[arg(long = "model")]
+    model: Option<String>,
+    /// Maximum LLM turns before giving up.
+    #[arg(long = "max-turns", default_value_t = 20)]
+    max_turns: usize,
+}
+
 fn main() -> ExitCode {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn")).init();
     let cli = Cli::parse();
@@ -99,6 +120,7 @@ fn main() -> ExitCode {
             Command::Check(args) => cmd_check(args).await,
             Command::Weave(args) => cmd_weave(args).await,
             Command::Promote(args) => cmd_promote(args),
+            Command::Agent(args) => cmd_agent(args).await,
         }
     });
 
@@ -268,6 +290,90 @@ fn cmd_promote(args: PromoteArgs) -> Result<ExitCode> {
         }
         None => print!("{}", result.promoted_source),
     }
+    Ok(ExitCode::SUCCESS)
+}
+
+async fn cmd_agent(args: AgentArgs) -> Result<ExitCode> {
+    use std::io::Write as _;
+
+    use hickory_agent::{AgentConfig, AgentEvent, AnthropicClient, run_agent};
+
+    if std::env::var("ANTHROPIC_API_KEY").is_err() {
+        anyhow::bail!("ANTHROPIC_API_KEY is not set (required by `hickory agent`)");
+    }
+
+    let project_dir = match &args.dir {
+        Some(dir) => dir.clone(),
+        None => std::env::current_dir()?,
+    };
+    let doc_context = match &args.doc {
+        Some(path) => Some(
+            std::fs::read_to_string(path)
+                .with_context(|| format!("failed to read {}", path.display()))?,
+        ),
+        None => None,
+    };
+
+    let mut llm = AnthropicClient::new();
+    if let Some(model) = &args.model {
+        llm = llm.with_model(model.clone());
+    }
+    // Executor selection follows HICKORY_EXECUTOR, same as run/check.
+    let executor = ExecutorChoice::from_env()?.build()?;
+
+    let mut config = AgentConfig::new(args.prompt, &project_dir);
+    config.doc_context = doc_context;
+    config.max_turns = args.max_turns;
+
+    let mut on_event = |event: AgentEvent| {
+        let mut stdout = std::io::stdout();
+        match &event {
+            AgentEvent::SessionStarted {
+                model,
+                session_path,
+            } => eprintln!("agent: model {model}, session {session_path}"),
+            AgentEvent::Token { data } => {
+                let _ = write!(stdout, "{data}");
+                let _ = stdout.flush();
+            }
+            AgentEvent::ResponseComplete { .. } => {
+                let _ = writeln!(stdout);
+            }
+            AgentEvent::ScriptStarted { lang, .. } => eprintln!("agent: running {lang} script"),
+            AgentEvent::ScriptFinished { result } => {
+                if !result.stdout.is_empty() {
+                    let _ = write!(stdout, "{}", result.stdout);
+                }
+                if !result.stderr.is_empty() {
+                    eprint!("{}", result.stderr);
+                }
+                eprintln!(
+                    "agent: script exited with {}",
+                    result
+                        .exit_code
+                        .map(|c| c.to_string())
+                        .unwrap_or_else(|| "unknown".into())
+                );
+            }
+            AgentEvent::Reprompt { reason, .. } => {
+                eprintln!("agent: re-prompting after malformed response ({reason})");
+            }
+            AgentEvent::Error { message } => eprintln!("agent: error: {message}"),
+            AgentEvent::UserMessage { .. }
+            | AgentEvent::Thinking
+            | AgentEvent::Done { .. } => {}
+        }
+    };
+
+    let outcome = run_agent(&llm, executor.as_ref(), &config, &mut on_event).await?;
+    executor.shutdown().await?;
+
+    eprintln!(
+        "agent: finished in {} turn(s); session written to {}",
+        outcome.turns,
+        outcome.session_path.display()
+    );
+    println!("{}", outcome.session_path.display());
     Ok(ExitCode::SUCCESS)
 }
 
