@@ -1,0 +1,235 @@
+// Vendored wire contract for the Cloud Canopy node agent.
+//
+// Source repo:  cloud-canopy (local checkout: ~/Documents/src/cloud-canopy)
+// Source file:  crates/canopy-proto/proto/canopy.proto
+// Commit:       54a06e7d188127c5f66f00f6301713e436364046
+//
+// This copy IS the entire coupling between Hickory Docs and Cloud Canopy
+// (see docs/guarantees/execution/canopy-api-isolated-to-one-crate.md).
+// Never add a path or git dependency on any cloud-canopy crate; re-vendor
+// this file (and update the commit above) when the contract changes.
+
+// canopy-agent RPC surface (see docs/specs/freeform/ground-layer.md).
+//
+// Payload fields carry the JSON encoding of the shared Rust types in
+// canopy-types — that crate is the single source of truth for the closed
+// operation set and ledger shapes; gRPC is the transport frame. When the C#
+// control plane arrives it deserializes the same JSON contract.
+syntax = "proto3";
+package canopy.v1;
+
+service CanopyAgent {
+  // Observed state + folded expected state + per-resource head hashes.
+  rpc GetState(GetStateRequest) returns (GetStateResponse);
+  // Drift: diff of expected vs observed, classified. Appends
+  // DriftDetected transitions to the ledger when status changes.
+  rpc Diff(DiffRequest) returns (DiffResponse);
+  // CAS-checked append + execute of one migration.
+  rpc ApplyMigration(ApplyMigrationRequest) returns (ApplyMigrationResponse);
+  // Full entry stream for one resource.
+  rpc GetLedger(GetLedgerRequest) returns (GetLedgerResponse);
+  // Fold live state for one drifted resource back in as the new baseline.
+  rpc AdoptDrift(AdoptDriftRequest) returns (AdoptDriftResponse);
+
+  // Ephemeral sandbox lifecycle. Deliberately NOT migrations: a sandbox run
+  // is not ledger state (see "The two-tier lifecycle" in
+  // docs/specs/freeform/tenant-execution-layer.md). The pool it is spawned
+  // from IS ledger state, and the agent reads that pool's declared envelope
+  // out of the ledger fold — which is what makes it impossible for a sandbox
+  // to exceed limits the ledger did not authorize.
+  rpc SpawnSandbox(SpawnSandboxRequest) returns (SpawnSandboxResponse);
+  rpc DestroySandbox(DestroySandboxRequest) returns (DestroySandboxResponse);
+  rpc ListSandboxes(ListSandboxesRequest) returns (ListSandboxesResponse);
+
+  // What the calling subject may run here.
+  //
+  // Exists so a caller can be shown its allowance instead of discovering it
+  // by being refused — a console that guesses defaults will guess wrong for
+  // somebody.
+  rpc GetMyLimits(GetMyLimitsRequest) returns (GetMyLimitsResponse);
+
+  // Bridge a sandbox's guest channel as a byte stream.
+  //
+  // Streaming rather than a socket path because the caller is not
+  // necessarily on this node: a control plane serving a browser terminal
+  // reaches the guest through here, so the channel stops being something
+  // only a process on the same machine can use.
+  //
+  // The first message must carry `sandbox_id`; every message after it is
+  // raw bytes in either direction, and the server does not interpret them.
+  rpc AttachSandbox(stream AttachSandboxRequest) returns (stream AttachSandboxChunk);
+
+  // Ask what to do about a guest reaching a host its token did not allow.
+  //
+  // Called by the egress proxy, and it BLOCKS: the guest's connection is
+  // held open while this is outstanding. The proxy is on the same machine
+  // and reaches this over the local socket, so no capability is involved —
+  // being able to open that socket is already root on the node.
+  //
+  // Always returns, and returns `false` if nothing resolves it in time. A
+  // held connection with nobody watching must become a refusal rather than
+  // a guest that hangs forever.
+  rpc RequestEgressDecision(RequestEgressDecisionRequest) returns (RequestEgressDecisionResponse);
+
+  // Prompts currently waiting on a human, for the calling subject.
+  //
+  // Scoped to the caller: a prompt names a host somebody's guest tried to
+  // reach, which is exactly the kind of thing one tenant should not learn
+  // about another.
+  rpc PendingEgress(PendingEgressRequest) returns (PendingEgressResponse);
+
+  // Answer a waiting prompt.
+  rpc DecideEgress(DecideEgressRequest) returns (DecideEgressResponse);
+}
+
+message RequestEgressDecisionRequest {
+  string sandbox_id = 1;
+  string host = 2;
+  uint32 port = 3;
+  // Which subject's policy governs, and who gets asked. Trusted because
+  // this call arrives over the node-local socket from the proxy, which read
+  // it out of a verified capability.
+  string subject = 4;
+}
+
+message RequestEgressDecisionResponse {
+  bool allow = 1;
+  // Why, for the proxy's 403 body and the node's log. The guest sees this,
+  // so it says what happened without disclosing another tenant's policy.
+  string reason = 2;
+}
+
+message PendingEgressRequest {}
+
+message PendingEgressResponse {
+  repeated PendingEgressPrompt prompts = 1;
+}
+
+message PendingEgressPrompt {
+  string id = 1;
+  string sandbox_id = 2;
+  string host = 3;
+  uint32 port = 4;
+  string subject = 5;
+  // RFC3339. The console shows the wait, because a prompt that has been
+  // sitting for a minute is a guest that has been stalled for a minute.
+  string asked_at = 6;
+  // Seconds until this gives up and denies.
+  uint64 expires_in_secs = 7;
+}
+
+message DecideEgressRequest {
+  string prompt_id = 1;
+  bool allow = 2;
+  // Whether to write the answer to the ledger, so the same host is not
+  // asked about again.
+  bool remember = 3;
+}
+
+message DecideEgressResponse {
+  // False when the prompt had already timed out or been answered -- the
+  // console must say so rather than implying an effect it did not have.
+  bool applied = 1;
+  string detail = 2;
+}
+
+message SpawnSandboxRequest {
+  // What shape of machine is wanted. Checked against the caller's ledgered
+  // limits, which are bounds rather than a fixed configuration.
+  string image = 10;
+  uint32 vcpus = 11;
+  uint64 mem_mib = 12;
+  uint64 lifetime_secs = 13;
+  repeated string egress_hosts = 14;
+
+  string sandbox_id = 2;  // caller-chosen; unique per node
+}
+
+message SpawnSandboxResponse {
+  string sandbox_id = 1;
+  // Host-side unix socket carrying an ordered, reliable, bidirectional byte
+  // stream to the guest. The caller defines the protocol spoken over it.
+  string channel_path = 2;
+  string deadline = 3;  // RFC3339; the sandbox is killed at or after this
+  string error = 4;     // human-readable failure, empty on success
+}
+
+message DestroySandboxRequest { string sandbox_id = 1; }
+message DestroySandboxResponse { bool destroyed = 1; string error = 2; }
+
+message ListSandboxesRequest {}
+message ListSandboxesResponse { repeated string sandbox_ids = 1; }
+
+message GetStateRequest {}
+
+message GetStateResponse {
+  string observed_json = 1;  // canopy_types::state::ObservedState
+  string expected_json = 2;  // canopy_types::state::ExpectedState
+  map<string, string> head_hashes = 3;  // resource id -> head entry hash
+}
+
+message DiffRequest {}
+
+message DiffResponse {
+  string drift_report_json = 1;  // canopy_types::state::DriftReport
+}
+
+message ApplyMigrationRequest {
+  string migration_json = 1;  // canopy_types::migration::Migration
+
+  // Which ledger the targeted resource belongs to.
+  //
+  // A node holds several -- one per tenant sharing the machine -- so a
+  // resource id alone does not name a stream. Empty means the node's own
+  // default, which is what a local operator gets and what every caller got
+  // before ledgers could be told apart.
+  string ledger = 2;
+}
+
+message ApplyMigrationResponse {
+  bool applied = 1;
+  string entry_hash = 2;  // head after append (empty when rejected outright)
+  string error = 3;       // human-readable failure, empty on success
+}
+
+message GetLedgerRequest {
+  string resource_id = 1;  // "kind:name"
+  // No ledger field: a read is FILTERED by what the token permits, not
+  // addressed. A write must name its target (see ApplyMigrationRequest),
+  // because appending to the wrong tenant's stream is history rather than a
+  // mistake that can be edited out.
+}
+
+message GetLedgerResponse {
+  repeated string entries_json = 1;  // canopy_types::ledger::Entry each
+}
+
+message AdoptDriftRequest {
+  string resource = 1;  // "system" | "wireguard-peer:<pk>" | "volume:<id>"
+}
+
+message AdoptDriftResponse {
+  bool adopted = 1;
+  string adopted_json = 2;  // the value now baselined
+  string error = 3;
+}
+
+message AttachSandboxRequest {
+  // Set on the first message of a stream, ignored afterwards.
+  string sandbox_id = 1;
+  // Bytes to write to the guest.
+  bytes data = 2;
+}
+
+message AttachSandboxChunk {
+  bytes data = 1;
+}
+
+message GetMyLimitsRequest {}
+
+message GetMyLimitsResponse {
+  // Who the node resolved the caller to be.
+  string subject = 1;
+  // Serialized `Limits`, empty when the subject has none in force.
+  string limits_json = 2;
+}

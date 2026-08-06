@@ -19,6 +19,7 @@ members = [
     "crates/hick-literate",
     "crates/hickory-executor",
     "crates/hickory-agent",
+    "crates/hickory-executor-canopy",
     "crates/hickory-cli",
 ]
 
