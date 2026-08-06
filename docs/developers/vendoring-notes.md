@@ -95,3 +95,101 @@ Per-crate code is byte-identical to the monorepo except:
   `hick-classify`'s `host-mask` feature (arrow/parquet/blake3) are kept but
   remain off by default, as upstream.
 - `hick-store`'s optional `s3` feature (aws-sdk-s3) is kept, off by default.
+
+---
+
+# Phase B: executor surgery (2026-08-05)
+
+`crates/hick-literate` joined the workspace after replacing the wasm
+container runtime with the `Executor` trait boundary
+(`crates/hickory-executor`: trait + `LocalExecutor`). Every removal/stub
+decision made during the port:
+
+## Deleted from hick-literate
+
+- **`src/executor.rs`** (~1471 lines) — the wasm `ContainerExecutor` fused
+  with hick-container/wasmtime/hick-api. Replaced by the `Executor` trait;
+  `run_pipeline_live` now takes `Arc<dyn Executor>`. The filesystem `.wasm`
+  image model (`resolve_image_path`, `ensure_loadable_wasm_file`,
+  `PipelineConfig::images_dir`/`toolchain_dir`, `PipelineRunOpts::images_dir`)
+  is gone entirely: `image=` attributes are OCI-style references that
+  `LocalExecutor` records but ignores (host tools) and the future
+  `CanopyExecutor` maps via deployment config.
+- **`src/pool.rs`** — warm-pool logic for wasm containers. `LocalExecutor`
+  boot cost is ~0 so pooling is pointless; `PipelineResult` lost
+  `pool_hits`/`pool_boot_time_saved`.
+- **`src/auth.rs`** — the transparent auth-injection stack built on the
+  unvendored `hick-net` TLS-intercept crates. Guest networking (and thus
+  network-level capability enforcement and auth injection) does not exist in
+  `LocalExecutor`; capability tokens are still minted and container
+  capability parsing is unchanged (advisory until CanopyExecutor).
+- **`src/repl.rs`** — the interactive REPL was built directly on the wasm
+  executor + pool (rebuild-on-caps-change, warm adoption). Removed rather
+  than stubbed; the transcript builder (`src/transcript.rs`) it fed is kept.
+- **`src/main.rs` and `src/bin/{hick-equiv,hick-compact,hick-promote}.rs`**
+  — the old `hick` binary and helper bins are superseded by
+  `crates/hickory-cli` (`hickory`). The library modules they exposed
+  (`equiv`, `compact`, `promote`, `generate_matrix`, `pipeline`, `watch`)
+  remain; `hickory promote` wires the vendored promote cleanly.
+
+## Stubbed / degraded
+
+- **`<hick:script>` blocks** error at runtime with a clear message: they ran
+  through hick-shell's in-process wasm command interpreter, which was part of
+  the removed runtime. Use `<hick:exec>` instead.
+- **hick-live reactive handlers** are not registered (`hick-live` was not
+  vendored); `<hick:live>`-family tags are ignored by the tag registry.
+- **Session replay** (`run` on a `hick:session` file) executes through
+  `LocalExecutor`; the wasm-era preopen of the invoking directory at
+  `/workspace` no longer exists — replays run in the executor's temp workdir.
+- **Fork semantics** degrade to copying the source container's workdir when
+  the fork target starts (filesystem-state approximation of command-history
+  replay; in-memory state does not carry over). Documented in
+  `hickory-executor`'s crate docs.
+- **`watch.rs`** lost its container pool; each iteration builds a fresh
+  `LocalExecutor`.
+- **`visual_regression.rs`** was inspected and is not wasm-bound
+  (pure output-diffing); kept unchanged.
+
+## Modifications to other vendored crates
+
+- **`hick-exec/src/dag.rs`** — exec/script command text now excludes any
+  `<hick:expect>` subtree (`command_text()`), and `expect` children are
+  excluded from `stdin_children`. Expectations are verification metadata,
+  never command text or stdin.
+- **`hick-handlers`** — `TranscriptEntry` gained `source_line: Option<usize>`;
+  the exec handler renders only the entries produced by *its own* exec tag
+  when provenance is present (falling back to the whole container transcript
+  for legacy/reference execs), and `render_transcript` renders multi-line
+  commands under a single `$ ` prompt with indented continuation lines.
+- **Clippy fixes** (behavior-preserving, to satisfy `-D warnings`):
+  `hick-case/src/lib.rs` (`sort_by_key`), `hick-secrets/src/cache.rs`
+  (collapsed `if`), `hick-merge/src/llm_backend.rs` (unused test import),
+  `hick-literate/src/text.rs` (`sort_by_key` ×2), plus mechanical
+  `cargo clippy --fix` cleanups in `hick-exec/src/dag.rs` and
+  `hick-literate/tests/pipeline_tests.rs`.
+
+## Additions
+
+- **`crates/hickory-executor`** — `Executor` trait, transcript event types
+  (`{t, kind: cmd|out|err|exit, data}` with millisecond offsets for playback),
+  and `LocalExecutor` (containers = per-run temp workdirs, `sh -c` per exec,
+  volumes = tar in/out, **no sandboxing, images ignored** — loudly documented
+  in the crate docs).
+- **`crates/hickory-cli`** — the `hickory` binary (`run`, `check`, `weave`,
+  `promote`, `--param`, `--out`, `--json`) with its logic in a library
+  (`hickory_cli`) so the server can call the same code paths. Executor
+  selection via `HICKORY_EXECUTOR=local|canopy` (canopy errors "not yet
+  wired" until `hickory-executor-canopy` lands).
+- **`hick-literate/src/expect.rs`** — `<hick:expect>` parsing + evaluation
+  (`exact`, `regex-lines`); recorded on `run`, fatal on `check`.
+- **`hick-literate/src/render.rs`** — the block model from
+  `docs/specs/freeform/api.md` (prose HTML via pulldown-cmark, exec blocks
+  with spans/transcripts/statuses, file blocks).
+- **`docs/hick-guide.hick`** — vendored from the monorepo `docs/` tree
+  (commit `e384c5e`); `hick-literate`'s `test_guide_hick_file_processes`
+  includes it at compile time.
+- **`examples/bootstrap-ci.hick`** — the file-embedded exec gained
+  `show="output"` so the generated SVG contains only the command's stdout
+  (the default `show="all"` would have prefixed the SVG with `$ ...` command
+  lines).

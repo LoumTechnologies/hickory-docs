@@ -56,7 +56,7 @@ The histogram below is an SVG generated from the bootstrap distribution —
 regenerated on every build, so the figure can never drift from the data.
 
 <hick:file path="bootstrap-histogram.svg">
-<hick:exec container="py">
+<hick:exec container="py" show="output">
 python3 - <<'EOF'
 import random
 random.seed(7)

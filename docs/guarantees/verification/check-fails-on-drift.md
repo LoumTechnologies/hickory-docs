@@ -11,8 +11,23 @@ span — documentation drift is a build failure, never a warning.
 Last LLM verification:
 - Date: 2026-08-05
 - Reviewer: Claude (Fable 5)
-- Result: not verified (implementation pending — Phase B)
-- Evidence: design in `docs/specs/freeform/architecture.md` (Native
-  verification section).
-- Test coverage: to be added with `hickory-cli` check command; a deliberately
-  drifted fixture must fail.
+- Result: verified
+- Evidence: `hickory check` (crates/hickory-cli) re-executes each document
+  through the `Executor` boundary; `hick-literate/src/expect.rs` evaluates
+  every `<hick:expect>` (`exact` byte equality / `regex-lines` anchored
+  full-line regexes covering all output lines) and `check_failures` in
+  `crates/hickory-cli/src/lib.rs` turns any unmet expectation — or drift
+  between produced outputs and committed files — into a non-zero exit,
+  reporting doc path, block source line, byte span, and expected vs actual.
+  Verified live: `just verify examples/` exits 0 on both shipped examples;
+  `hickory check crates/hickory-cli/tests/fixtures/drifted-tour.hick`
+  (deliberately drifted copy: `apple 12` → `apple 13`) exits 1 listing the
+  failing block at line 45 with both outputs.
+- Test coverage: `crates/hickory-cli/tests/check_tests.rs` —
+  `check_fails_on_drifted_expectation` (the guarantee's test), plus
+  `check_fails_on_committed_output_drift`,
+  `check_fails_on_drifted_fixture_copy_of_shipped_example`,
+  `check_passes_on_matching_expectations`,
+  `regex_lines_expectations_pass_and_fail`, and
+  `run_succeeds_and_records_failed_expectation_without_failing`
+  (run records but never fails).
