@@ -111,6 +111,7 @@ pub async fn run_doc(
             let config = PipelineConfig {
                 working_dir: Some(project_dir.to_path_buf()),
                 max_rounds: 1,
+                on_exec: None,
             };
             run_pipeline_live(&sources, &config, params, None, executor).await?
         }

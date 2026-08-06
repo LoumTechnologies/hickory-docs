@@ -186,6 +186,7 @@ async fn run_pipeline_and_merge(
         let pipeline_config = crate::PipelineConfig {
             working_dir: None,
             max_rounds: 1,
+            on_exec: None,
         };
         let executor: Arc<dyn crate::Executor> = Arc::new(LocalExecutor::new()?);
         let result =

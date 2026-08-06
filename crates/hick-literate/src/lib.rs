@@ -494,6 +494,12 @@ pub async fn run_pipeline_with_authority(
 // Live pipeline (real container execution)
 // ---------------------------------------------------------------------------
 
+/// Callback fired after each exec block completes (success, cache hit, or
+/// failure): `(container, exec source line, transcript entry)`. The block id
+/// in the rendered block model is `"{container}:{line}"`, so callers can key
+/// streamed events exactly like `render` does.
+pub type ExecEventHook = Arc<dyn Fn(&str, usize, &ExecTranscriptEntry) + Send + Sync>;
+
 /// Configuration for live pipeline execution.
 #[derive(Default)]
 pub struct PipelineConfig {
@@ -503,6 +509,8 @@ pub struct PipelineConfig {
     /// Higher values enable reactive re-evaluation of paste selectors that
     /// reference content from container-generated `.hick` files.
     pub max_rounds: usize,
+    /// Optional per-exec live event hook (server run streaming).
+    pub on_exec: Option<ExecEventHook>,
 }
 
 /// Run the pipeline with real command execution through an [`Executor`].
@@ -644,6 +652,14 @@ pub async fn run_pipeline_live(
                         .entry(exec_info.container.clone())
                         .or_default()
                         .push(exec_info.source_line);
+                    if let Some(hook) = &config.on_exec
+                        && let Some(entry) = executor
+                            .transcripts()
+                            .get(&exec_info.container)
+                            .and_then(|v| v.last())
+                    {
+                        hook(&exec_info.container, exec_info.source_line, entry);
+                    }
                     continue;
                 } else if cc.freeze {
                     anyhow::bail!(
@@ -728,15 +744,26 @@ pub async fn run_pipeline_live(
                     None
                 };
 
-                let output = if let Some(stdin_data) = &stdin_content {
+                let exec_result = if let Some(stdin_data) = &stdin_content {
                     executor
                         .execute_with_stdin(&exec_info.container, &exec_info.command, stdin_data)
-                        .await?
+                        .await
                 } else {
                     executor
                         .execute(&exec_info.container, &exec_info.command)
-                        .await?
+                        .await
                 };
+                // Fire the live hook even on failure: the transcript entry
+                // (with its exit event) is recorded before the error returns.
+                if let Some(hook) = &config.on_exec
+                    && let Some(entry) = executor
+                        .transcripts()
+                        .get(&exec_info.container)
+                        .and_then(|v| v.last())
+                {
+                    hook(&exec_info.container, exec_info.source_line, entry);
+                }
+                let output = exec_result?;
                 exec_lines
                     .entry(exec_info.container.clone())
                     .or_default()
@@ -1835,6 +1862,7 @@ pub async fn run_pipeline_cmd(opts: PipelineRunOpts) -> Result<()> {
         let pipeline_config = PipelineConfig {
             working_dir: None,
             max_rounds: 1,
+            on_exec: None,
         };
         let executor: Arc<dyn Executor> = Arc::new(LocalExecutor::new()?);
         run_pipeline_live(&sources, &pipeline_config, &params, cc.as_ref(), executor).await?
