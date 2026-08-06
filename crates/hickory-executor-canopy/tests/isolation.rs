@@ -40,7 +40,7 @@ const FORBIDDEN_API_TOKENS: &[&str] = &[
 
 /// Crates allowed to depend on the adapter: the executor-selection points
 /// that construct it behind the `Executor` trait.
-const ADAPTER_DEPENDENTS_ALLOWED: &[&str] = &["hickory-cli"];
+const ADAPTER_DEPENDENTS_ALLOWED: &[&str] = &["hickory-cli", "hickory-server"];
 
 const ADAPTER_CRATE: &str = "hickory-executor-canopy";
 

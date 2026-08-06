@@ -73,6 +73,7 @@ async fn setup() -> TestApp {
         posthog: None,
         web_dist_dir: None,
         plan_set: None,
+        anthropic_api_key: None,
     };
 
     let db = hickory_server::init_db(&test_url).await.unwrap();
@@ -623,6 +624,8 @@ async fn health_and_agent_stub() {
             json!({ "prompt": "write docs" }),
         )
         .await;
-    assert_eq!(status, 501);
-    assert_eq!(v["error"], "agent not yet enabled");
+    // hickory-agent is wired, but this test config has no ANTHROPIC_API_KEY:
+    // the endpoint no-ops with a clear 503 (graceful degradation).
+    assert_eq!(status, 503);
+    assert_eq!(v["error"], "agent not configured (ANTHROPIC_API_KEY unset)");
 }

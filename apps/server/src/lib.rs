@@ -51,7 +51,8 @@ pub async fn init_db(database_url: &str) -> Result<sqlx::PgPool> {
     Ok(pool)
 }
 
-pub fn build_state(config: Config, db: sqlx::PgPool) -> Result<AppState> {
+pub fn build_state(mut config: Config, db: sqlx::PgPool) -> Result<AppState> {
+    executor::validate_executor(&mut config)?;
     let git = gitstore::GitStore::new(&config.git_data_dir)?;
     let catalog = Arc::new(plans::Catalog::load().context("parsing embedded plans.json")?);
     let analytics = analytics::Analytics::new(config.posthog.clone());

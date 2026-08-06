@@ -20,7 +20,7 @@ these at boot (`apps/server/src/config.rs`) and validates them:
 | `DATABASE_URL` | strict: yes | `postgres://hickory:hickory@localhost:5433/hickory` | Postgres; sqlx migrations run at boot |
 | `JWT_SECRET` | strict: yes (≥32 bytes) | insecure dev constant | HS256 signing secret |
 | `GIT_DATA_DIR` | no | `./data/git` | One plain git repo per project lives here; mount a persistent volume in deploys |
-| `HICKORY_EXECUTOR` | no | `local` | `local` \| `canopy`. `canopy` refuses to boot in strict mode until `hickory-executor-canopy` lands (dev falls back to local with a warning) |
+| `HICKORY_EXECUTOR` | no | `local` | `local` \| `canopy`. With `canopy`, the canopy env below is validated at boot: strict mode fails fast on invalid values; dev falls back to local with a warning |
 | `APP_BASE_URL` | no | `http://localhost:<PORT>` | Public base URL used for Stripe redirect URLs |
 | `WEB_DIST_DIR` | no | `./apps/web/dist` if present | Static web app served with SPA fallback |
 
@@ -32,6 +32,12 @@ these at boot (`apps/server/src/config.rs`) and validates them:
 | `STRIPE_WEBHOOK_SECRET` | Required in strict mode whenever Stripe is configured |
 | `PLAN_SET` | Explicit plan-set override; otherwise the PostHog flag `hickory-plan-set`, else `default` |
 
+## Agent (optional — absent ⇒ `POST /api/docs/:id/agent` answers 503)
+
+| Variable | Notes |
+|---|---|
+| `ANTHROPIC_API_KEY` | Enables the server-side agent (hickory-agent ReAct loop; sessions stream on the WS run channel and persist as `hick:session` docs in the project git repo) |
+
 ## Analytics (optional — absent ⇒ capture is a no-op)
 
 | Variable | Notes |
@@ -39,7 +45,7 @@ these at boot (`apps/server/src/config.rs`) and validates them:
 | `POSTHOG_API_KEY` | Project API key; enables server-side capture (`signup`, `doc_run`, `doc_check`, billing events) and plan-set flag lookup |
 | `POSTHOG_HOST` | Default `https://us.i.posthog.com` |
 
-## Cloud Canopy (optional; only read once `hickory-executor-canopy` lands)
+## Cloud Canopy (read when `HICKORY_EXECUTOR=canopy`)
 
 | Variable | Notes |
 |---|---|

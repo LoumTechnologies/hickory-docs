@@ -18,14 +18,14 @@ Last LLM verification:
   cloud-canopy crate (`crates/hickory-executor-canopy/Cargo.toml`). The
   adapter (`src/executor.rs`, `src/frame.rs`, `src/config.rs`) is the only
   code speaking gRPC/`AttachSandbox`/the guest pty protocol or reading
-  `CANOPY_*` env. `hickory-cli` constructs `CanopyExecutor` behind
+  `CANOPY_*` env. `hickory-cli` and `hickory-server` construct `CanopyExecutor` behind
   `Arc<dyn Executor>` (`crates/hickory-cli/src/lib.rs`,
   `ExecutorChoice::build`) and knows nothing else about canopy.
 - Test coverage: `crates/hickory-executor-canopy/tests/isolation.rs` scans
   every Rust file in the repo for canopy API tokens (proto package, RPC
   names, metadata key, sentinels, `CANOPY_*` env names) outside the adapter
   crate, and restricts dependents/importers of the adapter to an explicit
-  allowlist (currently `hickory-cli`). The bare word "canopy" stays legal
+  allowlist (currently `hickory-cli` and `hickory-server`, the two executor-selection points). The bare word "canopy" stays legal
   outside (executor selection and docs name the backend without knowing its
   API). Contract fidelity is covered by `tests/contract.rs` (mock
   `CanopyAgent` gRPC server + fake pty guest, full execute round-trip).

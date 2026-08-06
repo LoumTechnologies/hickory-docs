@@ -23,12 +23,13 @@ serves the built web app; Postgres is a Railway plugin.
    APP_ENV=staging                # or production, once promoted
    JWT_SECRET=<openssl rand -hex 32>
    APP_BASE_URL=https://<your-domain>
-   HICKORY_EXECUTOR=local         # canopy once hickory-executor-canopy lands
+   HICKORY_EXECUTOR=local         # or canopy (set the CANOPY_* vars below)
    # optional:
    STRIPE_SECRET_KEY=sk_test_...  # sandbox until the readiness gate in
    STRIPE_WEBHOOK_SECRET=whsec_...#   pricing-strategy.md is met
    POSTHOG_API_KEY=phc_...
    POSTHOG_HOST=https://us.i.posthog.com
+   ANTHROPIC_API_KEY=sk-ant-...   # enables the agent endpoint
    ```
 
    Boot is strict in staging/production: a missing `JWT_SECRET` or
@@ -51,7 +52,9 @@ hardware. The Railway app reaches it through a **portzero tunnel** (or,
 later, canopy's nginx/ACME `domain` option): expose the control plane via
 the tunnel, then set `CANOPY_URL` to the tunnel URL plus `CANOPY_TOKEN`,
 `CANOPY_NODE`, and `CANOPY_IMAGE_MAP`. These variables are ignored while
-`HICKORY_EXECUTOR=local`; the canopy adapter boundary is
+`HICKORY_EXECUTOR=local`; with `HICKORY_EXECUTOR=canopy` they are validated
+at boot (strict mode fails fast on invalid values). The canopy adapter
+boundary is `crates/hickory-executor-canopy`, selected only in
 `apps/server/src/executor.rs` (see `docs/specs/freeform/canopy-integration.md`).
 
 ## Image notes

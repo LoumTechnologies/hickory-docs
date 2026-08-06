@@ -68,6 +68,8 @@ pub struct Config {
     pub web_dist_dir: Option<PathBuf>,
     /// Explicit plan-set override (else PostHog flag, else "default").
     pub plan_set: Option<String>,
+    /// `None` → the agent endpoint answers 503 "agent not configured".
+    pub anthropic_api_key: Option<String>,
 }
 
 fn env_opt(name: &str) -> Option<String> {
@@ -119,26 +121,21 @@ impl Config {
             env_opt("GIT_DATA_DIR").unwrap_or_else(|| "./data/git".to_string()),
         );
 
+        // Canopy configuration itself is validated in
+        // apps/server/src/executor.rs (the only module that may know
+        // canopy's API), called from build_state.
         let executor = match env_opt("HICKORY_EXECUTOR").as_deref() {
             None | Some("local") => ExecutorKind::Local,
-            Some("canopy") => {
-                // The hickory-executor-canopy crate has not landed yet; the
-                // adapter boundary is apps/server/src/executor.rs.
-                if strict {
-                    bail!(
-                        "HICKORY_EXECUTOR=canopy but the canopy executor is not \
-                         built into this binary (hickory-executor-canopy has not \
-                         landed); refusing to boot in strict mode"
-                    );
-                }
-                log::warn!(
-                    "HICKORY_EXECUTOR=canopy but the canopy executor is not built \
-                     in; falling back to local (dev graceful degradation)"
-                );
-                ExecutorKind::Local
-            }
+            Some("canopy") => ExecutorKind::Canopy,
             Some(other) => bail!("invalid HICKORY_EXECUTOR '{other}' (local|canopy)"),
         };
+
+        let anthropic_api_key = env_opt("ANTHROPIC_API_KEY");
+        if anthropic_api_key.is_none() {
+            log::info!(
+                "Anthropic not configured (ANTHROPIC_API_KEY unset); the agent endpoint answers 503"
+            );
+        }
 
         let stripe = match env_opt("STRIPE_SECRET_KEY") {
             Some(secret_key) => {
@@ -199,6 +196,7 @@ impl Config {
             posthog,
             web_dist_dir,
             plan_set: env_opt("PLAN_SET"),
+            anthropic_api_key,
         })
     }
 }

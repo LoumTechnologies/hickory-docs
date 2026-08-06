@@ -67,7 +67,7 @@ pub async fn check_exec_quota(state: &AppState, user: &User) -> ApiResult<()> {
     Ok(())
 }
 
-async fn record_usage(state: &AppState, user_id: Uuid, wall_ms: i64) {
+pub(crate) async fn record_usage(state: &AppState, user_id: Uuid, wall_ms: i64) {
     let res = sqlx::query(
         "INSERT INTO usage_ms (user_id, month, wall_ms) VALUES ($1, $2, $3)
          ON CONFLICT (user_id, month) DO UPDATE SET wall_ms = usage_ms.wall_ms + EXCLUDED.wall_ms",
