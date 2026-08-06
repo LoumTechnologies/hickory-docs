@@ -79,22 +79,33 @@ export type RunWsMessage =
   | { run_id: string; status: RunStatus };
 
 // Billing. The contract says "the active plan set from plans.json (shaped for
-// the pricing page)" without pinning the shape; this is the shape the web app
-// expects the server to emit.
+// the pricing page)" without pinning the response shape; this is the shape the
+// web app expects — a faithful projection of the repo's plans.json (plans in
+// plan-set order, base prices per interval, features derived server-side from
+// entitlements).
+export interface PlanPrice {
+  key: string;
+  interval: "month" | "year";
+  amount_cents: number;
+  currency: string;
+  per_seat?: boolean;
+}
+
 export interface Plan {
   key: string;
   name: string;
   description: string;
-  price_key: string;
-  amount_cents: number;
-  currency: string;
-  interval: "month" | "year";
-  features: string[];
+  trial_days?: number;
   highlight?: boolean;
+  /** Active base (non-per-seat) prices; empty for the free tier. */
+  prices: PlanPrice[];
+  /** Human-readable feature bullets derived from entitlements. */
+  features: string[];
 }
 
 export interface PlansResponse {
   plans: Plan[];
+  enterprise?: { contact: boolean; description: string };
 }
 
 export interface Health {

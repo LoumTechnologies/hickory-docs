@@ -233,48 +233,78 @@ export const MOCK_BLOCKS: Record<string, Block[]> = {
   d2: PAPER_BLOCKS,
 };
 
+// Mirrors the repo's plans.json (default plan set), shaped for the pricing
+// page the way the server is expected to shape it.
 export const MOCK_PLANS: Plan[] = [
   {
-    key: "free",
-    name: "Free",
-    description: "Public projects, local execution, community support.",
-    price_key: "free",
-    amount_cents: 0,
-    currency: "usd",
-    interval: "month",
-    features: ["Unlimited public projects", "Local executor", "Transcript playback", "Community support"],
+    key: "open",
+    name: "Open",
+    description: "For open source and evaluation. Unlimited public projects.",
+    prices: [],
+    features: [
+      "Unlimited public projects",
+      "1 private project",
+      "300 execution minutes/mo",
+      "Agent with your own API key",
+    ],
   },
   {
     key: "pro",
     name: "Pro",
-    description: "Private projects and Canopy microVM execution.",
-    price_key: "price_pro_monthly",
-    amount_cents: 1800,
-    currency: "usd",
-    interval: "month",
-    features: [
-      "Everything in Free",
-      "Private projects",
-      "Canopy microVM execution (500 min/mo)",
-      "AI agent sessions",
-      "Email support",
+    description: "For individuals shipping commercial docs.",
+    trial_days: 14,
+    prices: [
+      { key: "pro-monthly-v1", interval: "month", amount_cents: 2900, currency: "usd" },
+      { key: "pro-annual-v1", interval: "year", amount_cents: 29000, currency: "usd" },
     ],
-    highlight: true,
+    features: [
+      "10 private projects",
+      "3 editors",
+      "2,000 execution minutes/mo",
+      "CI verification",
+      "Agent with your own API key",
+    ],
   },
   {
     key: "team",
     name: "Team",
-    description: "Shared workspaces, verification in CI, priority execution.",
-    price_key: "price_team_monthly",
-    amount_cents: 6000,
-    currency: "usd",
-    interval: "month",
+    description: "The default for devtools and platform teams: doc drift is a CI failure.",
+    trial_days: 14,
+    highlight: true,
+    prices: [
+      { key: "team-monthly-v1", interval: "month", amount_cents: 14900, currency: "usd" },
+      { key: "team-annual-v1", interval: "year", amount_cents: 149000, currency: "usd" },
+      { key: "team-extra-editor-monthly-v1", interval: "month", amount_cents: 1200, currency: "usd", per_seat: true },
+    ],
     features: [
-      "Everything in Pro",
-      "Shared workspaces & live collaboration",
-      "CI verification tokens",
-      "Priority microVM pool (2,000 min/mo)",
-      "Priority support",
+      "Unlimited private projects",
+      "10 editors (+$12/mo per extra)",
+      "10,000 execution minutes/mo",
+      "CI verification & review workflow",
+      "Metered agent allowance",
+      "Priority execution",
+    ],
+  },
+  {
+    key: "business",
+    name: "Business",
+    description: "For data and research orgs: SSO, audit provenance, your own execution nodes.",
+    prices: [
+      { key: "business-monthly-v1", interval: "month", amount_cents: 44900, currency: "usd" },
+      { key: "business-annual-v1", interval: "year", amount_cents: 449000, currency: "usd" },
+      { key: "business-extra-editor-monthly-v1", interval: "month", amount_cents: 1000, currency: "usd", per_seat: true },
+    ],
+    features: [
+      "Everything in Team",
+      "30 editors (+$10/mo per extra)",
+      "30,000 execution minutes/mo",
+      "SSO & audit export",
+      "Bring your own execution nodes",
     ],
   },
 ];
+
+export const MOCK_ENTERPRISE = {
+  contact: true,
+  description: "Self-hosted control plane, custom nodes, SLA.",
+};

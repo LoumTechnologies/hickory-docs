@@ -30,6 +30,12 @@ describe("mock API", () => {
     expect(render.blocks.some((b) => b.kind === "exec")).toBe(true);
     const plans = await client.api.plans();
     expect(plans.plans.length).toBeGreaterThan(0);
-    expect(plans.plans.every((p) => typeof p.amount_cents === "number")).toBe(true);
+    expect(
+      plans.plans.every((p) =>
+        p.prices.every((price) => typeof price.amount_cents === "number"),
+      ),
+    ).toBe(true);
+    // Mirrors plans.json's default plan set.
+    expect(plans.plans.map((p) => p.key)).toEqual(["open", "pro", "team", "business"]);
   });
 });

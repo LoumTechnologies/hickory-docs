@@ -612,3 +612,7 @@ textarea:focus {
 }
 
 .plan-card .btn { margin-top: 0.5rem; }
+
+.interval-toggle { margin-top: 1.5rem; }
+.enterprise-note { margin-top: 2rem; font-size: 0.88rem; }
+.enterprise-note a { color: var(--accent); }

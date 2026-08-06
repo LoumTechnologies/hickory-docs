@@ -8,7 +8,14 @@ import type {
   TranscriptEvent,
   User,
 } from "../api/types";
-import { MOCK_BLOCKS, MOCK_DOCS, MOCK_PLANS, MOCK_PROJECTS, PAPER_CHART_SVG } from "./mockData";
+import {
+  MOCK_BLOCKS,
+  MOCK_DOCS,
+  MOCK_ENTERPRISE,
+  MOCK_PLANS,
+  MOCK_PROJECTS,
+  PAPER_CHART_SVG,
+} from "./mockData";
 
 // In-browser mock API (VITE_MOCK=1): implements the api.md contract, including
 // fake streaming runs over the LocalRealtime "socket", so `npm run dev:mock`
@@ -240,7 +247,8 @@ export function installMockApi() {
     if ((m = path.match(/^\/api\/runs\/([^/]+)$/))) {
       return state.runs.get(m![1]) ?? notFound(path);
     }
-    if (route === "GET /api/billing/plans") return { plans: MOCK_PLANS };
+    if (route === "GET /api/billing/plans")
+      return { plans: MOCK_PLANS, enterprise: MOCK_ENTERPRISE };
     if (route === "POST /api/billing/checkout") {
       return { checkout_url: `https://checkout.stripe.com/mock/${String(b.price_key)}` };
     }
