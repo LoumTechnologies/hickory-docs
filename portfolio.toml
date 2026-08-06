@@ -1,0 +1,24 @@
+[project]
+slug = "hickory-docs"
+name = "Hickory Docs"
+status = "building"
+tier = "full"
+created = "2026-08-05"
+decision_deadline = "2026-11-05"
+budget_monthly_usd = 40
+
+[domains]
+production = ""
+staging = ""
+
+[digitalocean]
+project_production = ""
+project_staging = ""
+tag = "product:hickory-docs"
+
+[stripe]
+mode = "sandbox"
+
+[vendors]
+sendgrid = true
+posthog = true

@@ -1,0 +1,10 @@
+/target
+node_modules/
+dist/
+.env
+.env.*
+!.env.example
+.hick-cache/
+*.t
+*.t.err
+.DS_Store
