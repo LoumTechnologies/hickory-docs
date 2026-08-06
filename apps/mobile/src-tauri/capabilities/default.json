@@ -1,0 +1,8 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Default capability for the main Hickory Docs window",
+  "windows": ["main"],
+  "platforms": ["linux", "macOS", "windows", "iOS", "android"],
+  "permissions": ["core:default"]
+}

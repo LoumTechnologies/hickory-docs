@@ -1,0 +1,23 @@
+# Tauri v2 shell around apps/web. Deliberately excluded from the root Cargo
+# workspace (empty [workspace] below) so mobile SDK requirements never break
+# `cargo check --workspace` at the repo root.
+[package]
+name = "hickory-mobile"
+version = "0.1.0"
+description = "Hickory Docs — Tauri shell for iOS/Android/desktop"
+edition = "2021"
+publish = false
+
+[workspace]
+
+[lib]
+name = "hickory_mobile_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
