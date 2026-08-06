@@ -32,7 +32,9 @@ pub async fn run_doc(
 ) -> ApiResult<(StatusCode, Json<Value>)> {
     let doc = load_doc(&state, id).await?;
     if doc.owner_id != user.id {
-        return Err(ApiError::forbidden("only the project owner can run this doc"));
+        return Err(ApiError::forbidden(
+            "only the project owner can run this doc",
+        ));
     }
     if let Some(Json(req)) = &body
         && req.cells.as_ref().is_some_and(|c| !c.is_empty())
@@ -50,7 +52,9 @@ pub async fn check_doc(
 ) -> ApiResult<(StatusCode, Json<Value>)> {
     let doc = load_doc(&state, id).await?;
     if doc.owner_id != user.id {
-        return Err(ApiError::forbidden("only the project owner can check this doc"));
+        return Err(ApiError::forbidden(
+            "only the project owner can check this doc",
+        ));
     }
     let run_id = start_run(&state, doc, &user, RunKind::Check).await?;
     Ok((StatusCode::ACCEPTED, Json(json!({ "run_id": run_id }))))

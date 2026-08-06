@@ -371,7 +371,10 @@ impl CanopyExecutor {
             let mut state = self.state.lock().unwrap();
             state.spawned.push(sandbox_id.clone());
         }
-        info!("[canopy:{container}] spawned sandbox '{sandbox_id}' (deadline {})", resp.deadline);
+        info!(
+            "[canopy:{container}] spawned sandbox '{sandbox_id}' (deadline {})",
+            resp.deadline
+        );
 
         self.wait_ready(&sandbox_id).await?;
         Ok((sandbox_id, started.elapsed()))

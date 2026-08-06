@@ -35,7 +35,9 @@ pub async fn start_agent(
 ) -> ApiResult<(StatusCode, Json<Value>)> {
     let doc = load_doc(&state, id).await?;
     if doc.owner_id != user.id {
-        return Err(ApiError::forbidden("only the project owner can start an agent session"));
+        return Err(ApiError::forbidden(
+            "only the project owner can start an agent session",
+        ));
     }
     let Some(api_key) = state.config.anthropic_api_key.clone() else {
         return Err(ApiError::service_unavailable(
@@ -97,7 +99,10 @@ pub async fn start_agent(
             .await;
     });
 
-    Ok((StatusCode::ACCEPTED, Json(json!({ "session_id": session_id }))))
+    Ok((
+        StatusCode::ACCEPTED,
+        Json(json!({ "session_id": session_id })),
+    ))
 }
 
 async fn run_agent_session(

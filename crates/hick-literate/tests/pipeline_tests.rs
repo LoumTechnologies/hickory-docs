@@ -454,7 +454,8 @@ async fn test_include_circular_detected() {
     .unwrap();
 
     let src = std::fs::read_to_string(dir.join("a.hick")).unwrap();
-    let result = hick_literate::run_pipeline(&[(dir.join("a.hick").to_str().unwrap(), &src)], &[]).await;
+    let result =
+        hick_literate::run_pipeline(&[(dir.join("a.hick").to_str().unwrap(), &src)], &[]).await;
     assert!(result.is_err(), "circular include should fail");
 
     let _ = std::fs::remove_dir_all(&dir);
@@ -2276,20 +2277,22 @@ fn test_hick_init_creates_pipeline_config() {
 #[test]
 fn test_hick_init_does_not_overwrite_existing_pipeline_config() {
     let dir = tempfile::tempdir().unwrap();
-    std::fs::write(
-        dir.path().join("_hick.yml"),
-        "files:\n  - custom.hick\n",
-    )
-    .unwrap();
+    std::fs::write(dir.path().join("_hick.yml"), "files:\n  - custom.hick\n").unwrap();
 
     let config = hick_literate::agents::InitConfig {
         project_dir: dir.path().to_path_buf(),
         no_agents: true,
     };
     let result = hick_literate::agents::init_agents(&config).unwrap();
-    assert!(!result.pipeline_initialized, "should not overwrite existing _hick.yml");
+    assert!(
+        !result.pipeline_initialized,
+        "should not overwrite existing _hick.yml"
+    );
     let content = std::fs::read_to_string(dir.path().join("_hick.yml")).unwrap();
-    assert!(content.contains("custom.hick"), "original content preserved");
+    assert!(
+        content.contains("custom.hick"),
+        "original content preserved"
+    );
 }
 
 #[test]
@@ -2349,10 +2352,7 @@ async fn test_multi_session_hick_run_reproduces_all_files() {
     // Running both session files together simulates running the full pipeline
     // after two agent sessions have each appended their own .hick file.
     let result_combined = hick_literate::run_pipeline(
-        &[
-            ("session1.hick", &session1),
-            ("session2.hick", &session2),
-        ],
+        &[("session1.hick", &session1), ("session2.hick", &session2)],
         &[],
     )
     .await
@@ -2399,7 +2399,10 @@ async fn test_copy_paste_provenance_carries_source_spans() {
         .to_string();
     assert_eq!(content, "fn alpha() {}\nfn beta() {}\n");
 
-    let map = result.provenance_maps.get("gen.rs").expect("provenance map");
+    let map = result
+        .provenance_maps
+        .get("gen.rs")
+        .expect("provenance map");
     // Every output byte is covered, and every paste span with a source
     // location is byte-identical to the source bytes it points at.
     let mut covered = 0usize;

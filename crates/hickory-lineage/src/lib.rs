@@ -34,11 +34,26 @@ pub struct Provenance {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(tag = "kind", rename_all = "lowercase")]
 pub enum Origin {
-    Literal { doc_path: String, span: (usize, usize) },
-    Paste { doc_path: String, span: (usize, usize) },
-    Exec { doc_path: String, span: (usize, usize) },
-    Variable { doc_path: String, span: (usize, usize) },
-    Substitution { doc_path: String, span: (usize, usize) },
+    Literal {
+        doc_path: String,
+        span: (usize, usize),
+    },
+    Paste {
+        doc_path: String,
+        span: (usize, usize),
+    },
+    Exec {
+        doc_path: String,
+        span: (usize, usize),
+    },
+    Variable {
+        doc_path: String,
+        span: (usize, usize),
+    },
+    Substitution {
+        doc_path: String,
+        span: (usize, usize),
+    },
     Synthetic,
 }
 

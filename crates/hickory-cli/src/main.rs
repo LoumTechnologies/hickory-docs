@@ -12,7 +12,10 @@ use hickory_cli::{
 };
 
 #[derive(Parser)]
-#[command(name = "hickory", about = "Reproducible, verifiable, executable documents")]
+#[command(
+    name = "hickory",
+    about = "Reproducible, verifiable, executable documents"
+)]
 struct Cli {
     #[command(subcommand)]
     command: Command,
@@ -320,7 +323,13 @@ async fn cmd_weave(args: WeaveArgs) -> Result<ExitCode> {
 /// the server serves from GET /api/docs/:id/outputs/file, computed locally
 /// from a weave (no execution).
 async fn cmd_lineage(args: LineageArgs) -> Result<ExitCode> {
-    let run = run_doc(&args.doc, &args.params, RunMode::Weave, ExecutorChoice::Local).await?;
+    let run = run_doc(
+        &args.doc,
+        &args.params,
+        RunMode::Weave,
+        ExecutorChoice::Local,
+    )
+    .await?;
     let provenance = hickory_cli::output_lineage(&run, &args.output)?;
     if args.json {
         println!("{}", serde_json::to_string_pretty(&provenance)?);
@@ -458,9 +467,7 @@ async fn cmd_agent(args: AgentArgs) -> Result<ExitCode> {
                 eprintln!("agent: re-prompting after malformed response ({reason})");
             }
             AgentEvent::Error { message } => eprintln!("agent: error: {message}"),
-            AgentEvent::UserMessage { .. }
-            | AgentEvent::Thinking
-            | AgentEvent::Done { .. } => {}
+            AgentEvent::UserMessage { .. } | AgentEvent::Thinking | AgentEvent::Done { .. } => {}
         }
     };
 

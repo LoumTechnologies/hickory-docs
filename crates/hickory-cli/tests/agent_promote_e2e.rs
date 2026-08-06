@@ -46,7 +46,10 @@ async fn agent_session_promotes_to_checked_pipeline() {
     .expect("agent run failed");
 
     assert_eq!(outcome.turns, 2);
-    assert_eq!(outcome.summary, "Registered greeting.txt with the pipeline.");
+    assert_eq!(
+        outcome.summary,
+        "Registered greeting.txt with the pipeline."
+    );
     assert!(
         events
             .iter()
@@ -54,13 +57,18 @@ async fn agent_session_promotes_to_checked_pipeline() {
     );
 
     // 2. The session file landed in sessions/ and parses as a SessionDocument.
-    assert!(outcome.session_path.starts_with(project_dir.join("sessions")));
+    assert!(
+        outcome
+            .session_path
+            .starts_with(project_dir.join("sessions"))
+    );
     let session_source = std::fs::read_to_string(&outcome.session_path).unwrap();
     let session = hick_lang::parse_session(&session_source).expect("session must parse");
     assert!(matches!(session.nodes[0], SessionNode::User { .. }));
-    let has_action = session.nodes.iter().any(|n| {
-        matches!(n, SessionNode::Assistant { actions, .. } if !actions.is_empty())
-    });
+    let has_action = session
+        .nodes
+        .iter()
+        .any(|n| matches!(n, SessionNode::Assistant { actions, .. } if !actions.is_empty()));
     assert!(has_action, "session must contain the executed action");
     assert!(
         session
@@ -79,7 +87,11 @@ async fn agent_session_promotes_to_checked_pipeline() {
     .expect("promotion failed");
     assert_eq!(promoted.surviving_writes, 1);
     assert!(promoted.promoted_source.contains("greeting.txt"));
-    assert!(promoted.promoted_source.contains("hello from hickory agent"));
+    assert!(
+        promoted
+            .promoted_source
+            .contains("hello from hickory agent")
+    );
 
     // 4. The promoted document is a valid hick:doc that `hickory check`
     //    accepts once its outputs are committed.

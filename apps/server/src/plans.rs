@@ -147,9 +147,10 @@ pub fn resolve(
     billing_status: &str,
 ) -> Entitlements {
     if billing_status == "past_due"
-        && let Some(open) = catalog.plans.get("open") {
-            return Entitlements::from_plan("open", open);
-        }
+        && let Some(open) = catalog.plans.get("open")
+    {
+        return Entitlements::from_plan("open", open);
+    }
     if let Some(pk) = price_key
         && let Some((key, def)) = catalog.plan_for_price(pk)
     {
@@ -320,5 +321,8 @@ pub fn plans_response(catalog: &Catalog, plan_set: &str) -> PlansOut {
             features: features_of(def),
         })
         .collect();
-    PlansOut { plans, enterprise: catalog.enterprise.clone() }
+    PlansOut {
+        plans,
+        enterprise: catalog.enterprise.clone(),
+    }
 }

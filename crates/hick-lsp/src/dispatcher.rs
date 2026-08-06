@@ -43,11 +43,7 @@ impl Dispatcher {
         root_uri: &str,
     ) -> Result<&ChildLspHandle, ChildLspError> {
         if !self.children.contains_key(language_id) {
-            let handle = ChildLspHandle::spawn(
-                language_id,
-                self.notification_tx.clone(),
-            )
-            .await?;
+            let handle = ChildLspHandle::spawn(language_id, self.notification_tx.clone()).await?;
             handle.initialize(root_uri).await?;
             self.children.insert(language_id.to_string(), handle);
         }
@@ -61,10 +57,7 @@ impl Dispatcher {
     /// Get an existing child LSP handle without spawning.
     ///
     /// Returns `Err` if no child exists for the given language.
-    pub fn get_child(
-        &self,
-        language_id: &str,
-    ) -> Result<&ChildLspHandle, ChildLspError> {
+    pub fn get_child(&self, language_id: &str) -> Result<&ChildLspHandle, ChildLspError> {
         self.children
             .get(language_id)
             .ok_or_else(|| ChildLspError::UnknownLanguage {

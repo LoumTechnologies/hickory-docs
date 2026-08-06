@@ -1406,9 +1406,11 @@ mod tests {
     #[test]
     fn embedded_verify_roundtrips_through_parse() {
         // Simulate what happens: extract command string from hick file, then parse it
-        let embedded_cmds = ["[backend] cargo test",
+        let embedded_cmds = [
+            "[backend] cargo test",
             "[spa+backend] npm run e2e",
-            "cargo check"];
+            "cargo check",
+        ];
 
         let parsed: Vec<VerifyCommand> = embedded_cmds
             .iter()

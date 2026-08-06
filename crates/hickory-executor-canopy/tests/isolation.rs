@@ -110,9 +110,16 @@ fn only_allowlisted_crates_depend_on_the_adapter() {
     let root = workspace_root();
     let crates_dir = root.join("crates");
     let mut violations = Vec::new();
-    for entry in std::fs::read_dir(&crates_dir).expect("crates/ exists").flatten() {
+    for entry in std::fs::read_dir(&crates_dir)
+        .expect("crates/ exists")
+        .flatten()
+    {
         let crate_dir = entry.path();
-        let name = crate_dir.file_name().unwrap_or_default().to_string_lossy().into_owned();
+        let name = crate_dir
+            .file_name()
+            .unwrap_or_default()
+            .to_string_lossy()
+            .into_owned();
         if name == ADAPTER_CRATE {
             continue;
         }

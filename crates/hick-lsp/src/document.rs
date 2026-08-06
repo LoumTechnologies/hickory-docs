@@ -43,11 +43,12 @@ fn walk_for_copies(nodes: &[HickNode], registry: &mut HashMap<String, String>) {
     for node in nodes {
         if let HickNode::Tag(tag) = node {
             if tag.name == "copy"
-                && let Some(id) = tag.get_attribute("id") {
-                    let text = tag.text_content();
-                    let dedented = hick_lang::dedent(&text, tag.source_column);
-                    registry.insert(id.to_string(), dedented);
-                }
+                && let Some(id) = tag.get_attribute("id")
+            {
+                let text = tag.text_content();
+                let dedented = hick_lang::dedent(&text, tag.source_column);
+                registry.insert(id.to_string(), dedented);
+            }
             walk_for_copies(&tag.children, registry);
         }
     }

@@ -110,7 +110,11 @@ pub async fn start_run(
 
     state.analytics.capture(
         &user.id.to_string(),
-        if kind == RunKind::Check { "doc_check" } else { "doc_run" },
+        if kind == RunKind::Check {
+            "doc_check"
+        } else {
+            "doc_run"
+        },
         json!({ "doc_id": doc.id, "project_id": doc.project_id, "run_id": run_id }),
     );
 
@@ -120,7 +124,11 @@ pub async fn start_run(
         let started = Instant::now();
         let status = match execute_run(&state, run_id, &doc, kind).await {
             Ok(ok) => {
-                if ok { "ok" } else { "failed" }
+                if ok {
+                    "ok"
+                } else {
+                    "failed"
+                }
             }
             Err(e) => {
                 log::warn!("run {run_id} errored: {e:#}");
@@ -181,9 +189,11 @@ async fn execute_run(
         tokio::sync::mpsc::unbounded_channel::<(String, usize, ExecTranscriptEntry)>();
     let hook: ExecEventHook = {
         let event_tx = event_tx.clone();
-        Arc::new(move |container: &str, line: usize, entry: &ExecTranscriptEntry| {
-            let _ = event_tx.send((container.to_string(), line, entry.clone()));
-        })
+        Arc::new(
+            move |container: &str, line: usize, entry: &ExecTranscriptEntry| {
+                let _ = event_tx.send((container.to_string(), line, entry.clone()));
+            },
+        )
     };
     drop(event_tx);
 
@@ -217,12 +227,7 @@ async fn execute_run(
     let doc_name = doc.path.clone();
     let sources = vec![(doc_name.as_str(), doc.source.as_str())];
     let config = PipelineConfig {
-        working_dir: Some(
-            doc_file
-                .parent()
-                .unwrap_or(tmp.path())
-                .to_path_buf(),
-        ),
+        working_dir: Some(doc_file.parent().unwrap_or(tmp.path()).to_path_buf()),
         max_rounds: 1,
         on_exec: Some(hook),
     };
@@ -233,8 +238,8 @@ async fn execute_run(
 
     match pipeline {
         Ok(result) => {
-            let parsed = hick_lang::parse(&doc.source)
-                .map_err(|e| anyhow::anyhow!("parse error: {e}"))?;
+            let parsed =
+                hick_lang::parse(&doc.source).map_err(|e| anyhow::anyhow!("parse error: {e}"))?;
             let run = hickory_cli::DocRun {
                 doc_path: doc_file.clone(),
                 source: doc.source.clone(),
@@ -242,10 +247,12 @@ async fn execute_run(
                 result,
             };
             let blocks = hickory_cli::block_model(&run);
-            let mut ok = !blocks.iter().any(|b| matches!(
-                b,
-                Block::Exec { status, .. } if status == "failed"
-            ));
+            let mut ok = !blocks.iter().any(|b| {
+                matches!(
+                    b,
+                    Block::Exec { status, .. } if status == "failed"
+                )
+            });
             if kind == RunKind::Check {
                 let failures = hickory_cli::check_failures(&run, None)?;
                 if !failures.is_empty() {
@@ -257,7 +264,11 @@ async fn execute_run(
                                 "expectation failed in '{}' at line {}: {}",
                                 o.container, o.line, o.detail
                             ),
-                            hickory_cli::CheckFailure::Drift { output_path, detail, .. } => {
+                            hickory_cli::CheckFailure::Drift {
+                                output_path,
+                                detail,
+                                ..
+                            } => {
                                 format!("drift in {}: {detail}", output_path.display())
                             }
                         })
@@ -323,7 +334,12 @@ pub fn run_blocks_from_model(blocks: &[Block]) -> Vec<Value> {
     blocks
         .iter()
         .filter_map(|b| match b {
-            Block::Exec { id, status, transcript, .. } => Some(json!({
+            Block::Exec {
+                id,
+                status,
+                transcript,
+                ..
+            } => Some(json!({
                 "exec_id": id,
                 "status": status,
                 "transcript": transcript.clone().unwrap_or_default(),

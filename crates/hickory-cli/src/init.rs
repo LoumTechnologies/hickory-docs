@@ -224,12 +224,7 @@ fn install_hook_block(hook_path: &Path) -> Result<bool> {
 /// Replace the sentinel-delimited region (inclusive) in `content` with
 /// `block`. Returns `Ok(None)` if no start sentinel is present, an error if
 /// the block is malformed (start without end).
-fn replace_between(
-    content: &str,
-    start: &str,
-    end: &str,
-    block: &str,
-) -> Result<Option<String>> {
+fn replace_between(content: &str, start: &str, end: &str, block: &str) -> Result<Option<String>> {
     let Some(start_idx) = content.find(start) else {
         return Ok(None);
     };
@@ -365,9 +360,18 @@ pub fn print_init_report(report: &InitReport) {
         report.hook_path.display(),
         describe(report.hook_changed)
     );
-    eprintln!(".gitignore (.hick-cache/): {}", describe(report.gitignore_changed));
-    eprintln!("AGENTS.md managed section: {}", describe(report.agents_md_changed));
-    eprintln!("CLAUDE.md @AGENTS.md include: {}", describe(report.claude_md_changed));
+    eprintln!(
+        ".gitignore (.hick-cache/): {}",
+        describe(report.gitignore_changed)
+    );
+    eprintln!(
+        "AGENTS.md managed section: {}",
+        describe(report.agents_md_changed)
+    );
+    eprintln!(
+        "CLAUDE.md @AGENTS.md include: {}",
+        describe(report.claude_md_changed)
+    );
     if report.missing_language_servers.is_empty() {
         eprintln!("toolchain: all common child language servers found");
     } else {
@@ -387,7 +391,12 @@ mod tests {
     use super::*;
 
     fn git(dir: &Path, args: &[&str]) {
-        let out = Command::new("git").arg("-C").arg(dir).args(args).output().unwrap();
+        let out = Command::new("git")
+            .arg("-C")
+            .arg(dir)
+            .args(args)
+            .output()
+            .unwrap();
         assert!(out.status.success(), "git {args:?} failed: {out:?}");
     }
 
@@ -454,7 +463,10 @@ mod tests {
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt as _;
-            let mode = std::fs::metadata(&report.hook_path).unwrap().permissions().mode();
+            let mode = std::fs::metadata(&report.hook_path)
+                .unwrap()
+                .permissions()
+                .mode();
             assert_eq!(mode & 0o111, 0o111, "hook not executable: {mode:o}");
         }
     }
@@ -501,7 +513,11 @@ mod tests {
     #[test]
     fn agents_md_section_appended_to_existing_and_refreshed() {
         let repo = init_repo();
-        std::fs::write(repo.path().join("AGENTS.md"), "# My repo\n\nHand-written.\n").unwrap();
+        std::fs::write(
+            repo.path().join("AGENTS.md"),
+            "# My repo\n\nHand-written.\n",
+        )
+        .unwrap();
         run_init(repo.path()).unwrap();
         let content = std::fs::read_to_string(repo.path().join("AGENTS.md")).unwrap();
         assert!(content.starts_with("# My repo\n\nHand-written.\n"));

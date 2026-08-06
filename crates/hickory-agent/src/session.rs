@@ -203,7 +203,11 @@ fn slugify(text: &str) -> String {
         }
     }
     let slug = slug.trim_matches('-').to_string();
-    if slug.is_empty() { "session".into() } else { slug }
+    if slug.is_empty() {
+        "session".into()
+    } else {
+        slug
+    }
 }
 
 #[cfg(test)]

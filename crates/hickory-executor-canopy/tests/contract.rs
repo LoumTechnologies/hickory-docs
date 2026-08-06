@@ -68,11 +68,19 @@ async fn run_fake_guest(
 ) {
     let send = |tx: tokio::sync::mpsc::Sender<Result<pb::AttachSandboxChunk, Status>>,
                 s: String| async move {
-        let _ = tx.send(Ok(pb::AttachSandboxChunk { data: s.into_bytes() })).await;
+        let _ = tx
+            .send(Ok(pb::AttachSandboxChunk {
+                data: s.into_bytes(),
+            }))
+            .await;
     };
 
     // Connection handed to a shell: banner, then a bracketed-paste prompt.
-    send(tx.clone(), "\u{1b}[?2004hcanopy-guest ready\r\n$ ".to_string()).await;
+    send(
+        tx.clone(),
+        "\u{1b}[?2004hcanopy-guest ready\r\n$ ".to_string(),
+    )
+    .await;
 
     let mut buf: Vec<u8> = first_payload;
     loop {
@@ -191,7 +199,9 @@ impl CanopyAgent for MockAgent {
             .transpose()?
             .ok_or_else(|| Status::invalid_argument("stream closed before naming a sandbox"))?;
         if first.sandbox_id.is_empty() {
-            return Err(Status::invalid_argument("first message must set sandbox_id"));
+            return Err(Status::invalid_argument(
+                "first message must set sandbox_id",
+            ));
         }
         let workdir = self
             .state
@@ -297,8 +307,14 @@ fn config_for(mock: &Mock, token: Option<Vec<u8>>) -> CanopyConfig {
         token,
         node: Some("mock-node".into()),
         image_map: [
-            ("python:3.12".to_string(), "/nix/store/aaaa-py-img".to_string()),
-            ("alpine:3.20".to_string(), "/nix/store/bbbb-alpine-img".to_string()),
+            (
+                "python:3.12".to_string(),
+                "/nix/store/aaaa-py-img".to_string(),
+            ),
+            (
+                "alpine:3.20".to_string(),
+                "/nix/store/bbbb-alpine-img".to_string(),
+            ),
         ]
         .into_iter()
         .collect(),
@@ -390,7 +406,10 @@ async fn stdin_is_honored() {
     let mock = start_mock(None).await;
     let ex = CanopyExecutor::new(config_for(&mock, None));
     ex.ensure_started("c", "alpine:3.20").await.unwrap();
-    let out = ex.execute_with_stdin("c", "cat", "piped input").await.unwrap();
+    let out = ex
+        .execute_with_stdin("c", "cat", "piped input")
+        .await
+        .unwrap();
     assert_eq!(out, "piped input");
 }
 
@@ -426,7 +445,14 @@ async fn volume_roundtrip_via_base64_tar_over_the_attach_stream() {
     let mut names = Vec::new();
     let mut archive = tar::Archive::new(&tar_bytes[..]);
     for entry in archive.entries().unwrap() {
-        names.push(entry.unwrap().path().unwrap().to_string_lossy().into_owned());
+        names.push(
+            entry
+                .unwrap()
+                .path()
+                .unwrap()
+                .to_string_lossy()
+                .into_owned(),
+        );
     }
     assert!(
         names.iter().any(|n| n.ends_with("file.txt")),
@@ -434,7 +460,9 @@ async fn volume_roundtrip_via_base64_tar_over_the_attach_stream() {
     );
 
     ex.ensure_started("r", "alpine:3.20").await.unwrap();
-    ex.inject_volume("r", "/incoming", &tar_bytes).await.unwrap();
+    ex.inject_volume("r", "/incoming", &tar_bytes)
+        .await
+        .unwrap();
     let out = ex.execute("r", "cat incoming/file.txt").await.unwrap();
     assert_eq!(out, "v1\n");
 }
@@ -443,7 +471,11 @@ async fn volume_roundtrip_via_base64_tar_over_the_attach_stream() {
 async fn unknown_image_fails_before_spawning_and_lists_configured_images() {
     let mock = start_mock(None).await;
     let ex = CanopyExecutor::new(config_for(&mock, None));
-    let err = ex.ensure_started("c", "node:22").await.unwrap_err().to_string();
+    let err = ex
+        .ensure_started("c", "node:22")
+        .await
+        .unwrap_err()
+        .to_string();
     assert!(err.contains("node:22"), "err: {err}");
     assert!(err.contains("alpine:3.20"), "err: {err}");
     assert!(err.contains("python:3.12"), "err: {err}");

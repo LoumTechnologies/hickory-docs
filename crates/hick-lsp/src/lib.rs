@@ -6,12 +6,12 @@
 //! `.hick` source coordinates and virtual file coordinates.
 
 pub mod backend;
+pub mod child_lsp;
+pub mod dispatcher;
+pub mod document;
 pub mod lang_detect;
 pub mod position_map;
 pub mod virtual_file;
-pub mod document;
-pub mod child_lsp;
-pub mod dispatcher;
 
 /// The tower-lsp backend implementing the hick LSP multiplexer.
 pub use backend::HickBackend;

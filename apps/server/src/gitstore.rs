@@ -56,7 +56,8 @@ impl GitStore {
     pub async fn init_project(&self, project_id: Uuid) -> Result<()> {
         let dir = self.project_dir(project_id);
         std::fs::create_dir_all(&dir)?;
-        self.git(&dir, &["init", "--initial-branch=master", "-q"]).await?;
+        self.git(&dir, &["init", "--initial-branch=master", "-q"])
+            .await?;
         Ok(())
     }
 
@@ -99,7 +100,9 @@ impl GitStore {
         std::fs::write(&full, content)?;
         self.git(&dir, &["add", "--", rel_path]).await?;
         // Commit only when the index actually changed.
-        let status = self.git(&dir, &["status", "--porcelain", "--", rel_path]).await?;
+        let status = self
+            .git(&dir, &["status", "--porcelain", "--", rel_path])
+            .await?;
         if !status.trim().is_empty() {
             self.git(&dir, &["commit", "-q", "-m", message]).await?;
         }
@@ -116,12 +119,7 @@ impl GitStore {
     /// Copy a finished run's working tree (minus `.git`) back into the
     /// project repo and commit whatever changed — this is how woven outputs
     /// become the committed baseline that `check` verifies against.
-    pub async fn commit_outputs(
-        &self,
-        project_id: Uuid,
-        src: &Path,
-        message: &str,
-    ) -> Result<()> {
+    pub async fn commit_outputs(&self, project_id: Uuid, src: &Path, message: &str) -> Result<()> {
         let dir = self.project_dir(project_id);
         if !dir.join(".git").exists() {
             self.init_project(project_id).await?;

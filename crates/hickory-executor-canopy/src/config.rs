@@ -160,7 +160,10 @@ mod tests {
     #[test]
     fn known_image_maps_to_store_path() {
         let c = cfg(&[("python:3.12", "/nix/store/abc-img")]);
-        assert_eq!(c.resolve_image("python:3.12").unwrap(), "/nix/store/abc-img");
+        assert_eq!(
+            c.resolve_image("python:3.12").unwrap(),
+            "/nix/store/abc-img"
+        );
     }
 
     #[test]

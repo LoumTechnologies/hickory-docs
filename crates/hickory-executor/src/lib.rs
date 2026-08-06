@@ -654,7 +654,9 @@ mod tests {
         let tar_bytes = ex.extract_volume("w", "/data").await.unwrap();
 
         ex.ensure_started("r", "alpine").await.unwrap();
-        ex.inject_volume("r", "/incoming", &tar_bytes).await.unwrap();
+        ex.inject_volume("r", "/incoming", &tar_bytes)
+            .await
+            .unwrap();
         let out = ex.execute("r", "cat incoming/file.txt").await.unwrap();
         assert_eq!(out, "v1\n");
     }

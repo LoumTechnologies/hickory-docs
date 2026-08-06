@@ -36,11 +36,7 @@ struct OutputRow {
     provenance: Value,
 }
 
-async fn load_output(
-    state: &AppState,
-    doc_id: Uuid,
-    path: &str,
-) -> ApiResult<OutputRow> {
+async fn load_output(state: &AppState, doc_id: Uuid, path: &str) -> ApiResult<OutputRow> {
     let run_id = last_ok_run(state, doc_id)
         .await?
         .ok_or_else(|| ApiError::not_found("no successful run for this doc yet"))?;
@@ -67,12 +63,10 @@ pub async fn list_outputs(
     let files: Vec<(String, String)> = match last_ok_run(&state, id).await? {
         None => Vec::new(),
         Some(run_id) => {
-            sqlx::query_as(
-                "SELECT path, language FROM run_outputs WHERE run_id = $1 ORDER BY path",
-            )
-            .bind(run_id)
-            .fetch_all(&state.db)
-            .await?
+            sqlx::query_as("SELECT path, language FROM run_outputs WHERE run_id = $1 ORDER BY path")
+                .bind(run_id)
+                .fetch_all(&state.db)
+                .await?
         }
     };
     let files: Vec<Value> = files
@@ -138,15 +132,16 @@ pub async fn edit_outputs(
     let provenance: Vec<Provenance> = serde_json::from_value(row.provenance)
         .map_err(|e| ApiError::internal(format!("stored provenance unreadable: {e}")))?;
 
-    let source_edits =
-        hickory_lineage::map_edits(&row.content, &body.edits, &provenance).map_err(|e| match e {
+    let source_edits = hickory_lineage::map_edits(&row.content, &body.edits, &provenance).map_err(
+        |e| match e {
             LineageError::SyntheticOverlap { start, end } => ApiError::unprocessable(format!(
                 "edit overlaps a synthetic (non-editable) output range at bytes {start}..{end}"
             ))
             .with_detail(json!({ "range": { "start": start, "end": end } })),
             LineageError::InvalidEdit(m) => ApiError::bad_request(m),
             LineageError::Conflict(m) => ApiError::unprocessable(m),
-        })?;
+        },
+    )?;
 
     // Resolve each referenced source doc within the same project and verify
     // the mapped spans still hold the bytes the run's output was built from —
@@ -156,10 +151,8 @@ pub async fn edit_outputs(
     touched.sort();
     touched.dedup();
 
-    let mut sources: std::collections::HashMap<String, String> =
-        std::collections::HashMap::new();
-    let mut doc_rows: std::collections::HashMap<String, DocRow> =
-        std::collections::HashMap::new();
+    let mut sources: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    let mut doc_rows: std::collections::HashMap<String, DocRow> = std::collections::HashMap::new();
     for doc_path in &touched {
         let target = if *doc_path == doc.path {
             doc.clone()
@@ -214,9 +207,7 @@ pub async fn edit_outputs(
     // Reject edits that break the doc: the next run must reproduce them.
     for (doc_path, new_source) in &updated {
         hick_lang::parse(new_source).map_err(|e| {
-            ApiError::unprocessable(format!(
-                "edit would make {doc_path} unparseable: {e}"
-            ))
+            ApiError::unprocessable(format!("edit would make {doc_path} unparseable: {e}"))
         })?;
     }
 

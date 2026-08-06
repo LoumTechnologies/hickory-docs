@@ -161,5 +161,8 @@ fn drifted_doc_blocks_commit_via_hook_script() {
     std::fs::write(repo.path().join("drifted.hick"), DRIFTED_DOC).unwrap();
     git(repo.path(), &["add", "."]);
     let out = run_hook(repo.path());
-    assert!(!out.status.success(), "drifted repo passed the hook: {out:?}");
+    assert!(
+        !out.status.success(),
+        "drifted repo passed the hook: {out:?}"
+    );
 }

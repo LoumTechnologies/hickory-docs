@@ -1,8 +1,8 @@
 //! Password hashing (argon2) + JWT bearer auth (HS256).
 
+use argon2::Argon2;
 use argon2::password_hash::rand_core::OsRng;
 use argon2::password_hash::{PasswordHash, PasswordHasher as _, PasswordVerifier as _, SaltString};
-use argon2::Argon2;
 use axum::extract::FromRequestParts;
 use axum::http::request::Parts;
 use chrono::Utc;
@@ -102,8 +102,8 @@ impl FromRequestParts<AppState> for AuthUser {
         parts: &mut Parts,
         state: &AppState,
     ) -> Result<Self, Self::Rejection> {
-        let token = bearer_token(parts)
-            .ok_or_else(|| ApiError::unauthorized("missing bearer token"))?;
+        let token =
+            bearer_token(parts).ok_or_else(|| ApiError::unauthorized("missing bearer token"))?;
         let claims = verify_token(&state.config.jwt_secret, &token)?;
         Ok(AuthUser(load_user(state, claims.sub).await?))
     }

@@ -38,7 +38,10 @@ pub async fn get_plans(
             .as_ref()
             .map(|u| u.id.to_string())
             .unwrap_or_else(|| "anonymous".to_string());
-        set = state.analytics.feature_flag(&distinct_id, PLAN_SET_FLAG).await;
+        set = state
+            .analytics
+            .feature_flag(&distinct_id, PLAN_SET_FLAG)
+            .await;
     }
     let set = set.unwrap_or_else(|| "default".to_string());
     Ok(Json(plans::plans_response(&state.catalog, &set)))
@@ -62,7 +65,10 @@ pub async fn checkout(
         return Err(ApiError::service_unavailable("billing not configured"));
     };
     let Some((plan_key, plan, price)) = state.catalog.price(&body.price_key) else {
-        return Err(ApiError::bad_request(format!("unknown price key '{}'", body.price_key)));
+        return Err(ApiError::bad_request(format!(
+            "unknown price key '{}'",
+            body.price_key
+        )));
     };
     if price.active == Some(false) {
         return Err(ApiError::bad_request("this price is no longer offered"));
@@ -89,27 +95,51 @@ pub async fn checkout(
 
     let mut form: Vec<(String, String)> = vec![
         ("mode".into(), "subscription".into()),
-        ("success_url".into(), format!("{base}/billing/success?session_id={{CHECKOUT_SESSION_ID}}")),
+        (
+            "success_url".into(),
+            format!("{base}/billing/success?session_id={{CHECKOUT_SESSION_ID}}"),
+        ),
         ("cancel_url".into(), format!("{base}/pricing")),
         ("client_reference_id".into(), user.id.to_string()),
         ("metadata[user_id]".into(), user.id.to_string()),
         ("metadata[price_key]".into(), price.key.clone()),
         ("metadata[plan_key]".into(), plan_key.to_string()),
-        ("subscription_data[metadata][user_id]".into(), user.id.to_string()),
-        ("subscription_data[metadata][price_key]".into(), price.key.clone()),
-        ("subscription_data[metadata][plan_key]".into(), plan_key.to_string()),
+        (
+            "subscription_data[metadata][user_id]".into(),
+            user.id.to_string(),
+        ),
+        (
+            "subscription_data[metadata][price_key]".into(),
+            price.key.clone(),
+        ),
+        (
+            "subscription_data[metadata][plan_key]".into(),
+            plan_key.to_string(),
+        ),
         ("line_items[0][quantity]".into(), "1".into()),
     ];
     if let Some(trial) = plan.trial_days {
-        form.push(("subscription_data[trial_period_days]".into(), trial.to_string()));
+        form.push((
+            "subscription_data[trial_period_days]".into(),
+            trial.to_string(),
+        ));
     }
     match stripe_price_id {
         Some(id) => form.push(("line_items[0][price]".into(), id)),
         None => {
             form.extend([
-                ("line_items[0][price_data][currency]".into(), price.currency.clone()),
-                ("line_items[0][price_data][unit_amount]".into(), price.amount_cents.to_string()),
-                ("line_items[0][price_data][recurring][interval]".into(), interval.to_string()),
+                (
+                    "line_items[0][price_data][currency]".into(),
+                    price.currency.clone(),
+                ),
+                (
+                    "line_items[0][price_data][unit_amount]".into(),
+                    price.amount_cents.to_string(),
+                ),
+                (
+                    "line_items[0][price_data][recurring][interval]".into(),
+                    interval.to_string(),
+                ),
                 (
                     "line_items[0][price_data][product_data][name]".into(),
                     format!("Hickory Docs {}", plan.name),
@@ -161,12 +191,7 @@ pub async fn checkout(
 // ---------------------------------------------------------------------------
 
 /// Verify a `Stripe-Signature` header (t=...,v1=...) against the payload.
-pub fn verify_stripe_signature(
-    secret: &str,
-    header: &str,
-    payload: &[u8],
-    now_unix: i64,
-) -> bool {
+pub fn verify_stripe_signature(secret: &str, header: &str, payload: &[u8], now_unix: i64) -> bool {
     let mut timestamp: Option<i64> = None;
     let mut sigs: Vec<String> = Vec::new();
     for part in header.split(',') {
@@ -226,7 +251,10 @@ pub async fn webhook(
         .and_then(Value::as_str)
         .unwrap_or("")
         .to_string();
-    let object = event.pointer("/data/object").cloned().unwrap_or(Value::Null);
+    let object = event
+        .pointer("/data/object")
+        .cloned()
+        .unwrap_or(Value::Null);
 
     // Second-layer event log: skip already-seen event ids.
     let claimed: Option<(String,)> = sqlx::query_as(
@@ -266,7 +294,9 @@ async fn handle_event(state: &AppState, event_type: &str, object: &Value) -> any
 }
 
 fn meta_str<'a>(object: &'a Value, key: &str) -> Option<&'a str> {
-    object.pointer(&format!("/metadata/{key}")).and_then(Value::as_str)
+    object
+        .pointer(&format!("/metadata/{key}"))
+        .and_then(Value::as_str)
 }
 
 async fn checkout_completed(state: &AppState, object: &Value) -> anyhow::Result<()> {
@@ -333,7 +363,10 @@ async fn subscription_updated(state: &AppState, object: &Value) -> anyhow::Resul
         .get("id")
         .and_then(Value::as_str)
         .ok_or_else(|| anyhow::anyhow!("subscription event without id"))?;
-    let status = object.get("status").and_then(Value::as_str).unwrap_or("active");
+    let status = object
+        .get("status")
+        .and_then(Value::as_str)
+        .unwrap_or("active");
     let row: Option<(Uuid,)> = sqlx::query_as(
         "UPDATE subscriptions SET status = $1, updated_at = now()
          WHERE stripe_subscription_id = $2 RETURNING user_id",

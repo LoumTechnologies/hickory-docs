@@ -8,13 +8,13 @@
 //! responses (to waiting request futures) and notifications (to a channel).
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicI64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicI64, Ordering};
 
 use serde_json::Value;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, Command};
-use tokio::sync::{mpsc, oneshot, Mutex};
+use tokio::sync::{Mutex, mpsc, oneshot};
 use tokio::task::JoinHandle;
 
 /// A notification received from a child LSP server.
@@ -68,12 +68,14 @@ impl ChildLspHandle {
                 source,
             })?;
 
-        let child_stdin = child.stdin.take().expect(
-            "stdin was configured as piped but take() returned None; this is a tokio bug",
-        );
-        let child_stdout = child.stdout.take().expect(
-            "stdout was configured as piped but take() returned None; this is a tokio bug",
-        );
+        let child_stdin = child
+            .stdin
+            .take()
+            .expect("stdin was configured as piped but take() returned None; this is a tokio bug");
+        let child_stdout = child
+            .stdout
+            .take()
+            .expect("stdout was configured as piped but take() returned None; this is a tokio bug");
 
         let pending: Arc<Mutex<HashMap<i64, oneshot::Sender<Value>>>> =
             Arc::new(Mutex::new(HashMap::new()));
@@ -85,13 +87,14 @@ impl ChildLspHandle {
             while let Ok(msg) = read_message(&mut stdout).await {
                 // Response (has "id" and no "method")?
                 if let Some(id) = msg.get("id").and_then(|v| v.as_i64())
-                    && msg.get("method").is_none() {
-                        let mut pending = pending_clone.lock().await;
-                        if let Some(tx) = pending.remove(&id) {
-                            let _ = tx.send(msg);
-                        }
-                        continue;
+                    && msg.get("method").is_none()
+                {
+                    let mut pending = pending_clone.lock().await;
+                    if let Some(tx) = pending.remove(&id) {
+                        let _ = tx.send(msg);
                     }
+                    continue;
+                }
                 // Notification (has "method", no "id" or "id" is null)?
                 if let Some(method) = msg.get("method").and_then(|m| m.as_str()) {
                     let _ = notification_tx.send(ChildNotification {
@@ -118,11 +121,7 @@ impl ChildLspHandle {
     }
 
     /// Send an LSP request and wait for the matching response.
-    pub async fn request(
-        &self,
-        method: &str,
-        params: Value,
-    ) -> Result<Value, ChildLspError> {
+    pub async fn request(&self, method: &str, params: Value) -> Result<Value, ChildLspError> {
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
 
         let (tx, rx) = oneshot::channel();
@@ -156,11 +155,7 @@ impl ChildLspHandle {
     }
 
     /// Send an LSP notification (no response expected).
-    pub async fn notify(
-        &self,
-        method: &str,
-        params: Value,
-    ) -> Result<(), ChildLspError> {
+    pub async fn notify(&self, method: &str, params: Value) -> Result<(), ChildLspError> {
         let message = serde_json::json!({
             "jsonrpc": "2.0",
             "method": method,
@@ -171,10 +166,7 @@ impl ChildLspHandle {
     }
 
     /// Initialize the child LSP server with the given workspace root.
-    pub async fn initialize(
-        &self,
-        root_uri: &str,
-    ) -> Result<Value, ChildLspError> {
+    pub async fn initialize(&self, root_uri: &str) -> Result<Value, ChildLspError> {
         let params = serde_json::json!({
             "processId": std::process::id(),
             "rootUri": root_uri,
@@ -331,22 +323,15 @@ pub enum ChildLspError {
 pub fn lsp_command(language_id: &str) -> Result<Vec<String>, ChildLspError> {
     match language_id {
         "rust" => Ok(vec!["rust-analyzer".into()]),
-        "python" => Ok(vec![
-            "pyright-langserver".into(),
-            "--stdio".into(),
-        ]),
-        "typescript" | "javascript" | "typescriptreact" | "javascriptreact" => Ok(vec![
-            "typescript-language-server".into(),
-            "--stdio".into(),
-        ]),
+        "python" => Ok(vec!["pyright-langserver".into(), "--stdio".into()]),
+        "typescript" | "javascript" | "typescriptreact" | "javascriptreact" => {
+            Ok(vec!["typescript-language-server".into(), "--stdio".into()])
+        }
         "go" => Ok(vec!["gopls".into()]),
         "c" | "cpp" => Ok(vec!["clangd".into()]),
         "lua" => Ok(vec!["lua-language-server".into()]),
         "zig" => Ok(vec!["zls".into()]),
-        "json" => Ok(vec![
-            "vscode-json-language-server".into(),
-            "--stdio".into(),
-        ]),
+        "json" => Ok(vec!["vscode-json-language-server".into(), "--stdio".into()]),
         "nix" => Ok(vec!["nil".into()]),
         _ => Err(ChildLspError::UnknownLanguage {
             language_id: language_id.to_string(),
@@ -376,7 +361,10 @@ mod tests {
             "nix",
         ] {
             let result = lsp_command(lang);
-            assert!(result.is_ok(), "expected Ok for language '{lang}', got {result:?}");
+            assert!(
+                result.is_ok(),
+                "expected Ok for language '{lang}', got {result:?}"
+            );
             assert!(
                 !result.unwrap().is_empty(),
                 "expected non-empty command for language '{lang}'"

@@ -1,8 +1,8 @@
 //! GET/POST /api/projects, GET/POST /api/projects/:id/docs.
 
+use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
-use axum::Json;
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -55,7 +55,9 @@ pub async fn create_project(
         return Err(ApiError::bad_request("project name required"));
     }
     if !matches!(body.visibility.as_str(), "public" | "private") {
-        return Err(ApiError::bad_request("visibility must be public or private"));
+        return Err(ApiError::bad_request(
+            "visibility must be public or private",
+        ));
     }
 
     // Entitlement: private-project count.
@@ -121,9 +123,7 @@ pub async fn list_docs(
     .await?;
     Ok(Json(Value::Array(
         rows.iter()
-            .map(|(id, path, at)| {
-                json!({ "id": id, "path": path, "updated_at": at.to_rfc3339() })
-            })
+            .map(|(id, path, at)| json!({ "id": id, "path": path, "updated_at": at.to_rfc3339() }))
             .collect(),
     )))
 }
@@ -147,7 +147,9 @@ pub async fn create_doc(
     match owner {
         None => return Err(ApiError::not_found("project not found")),
         Some((owner_id,)) if owner_id != user.id => {
-            return Err(ApiError::forbidden("only the project owner can create docs"));
+            return Err(ApiError::forbidden(
+                "only the project owner can create docs",
+            ));
         }
         _ => {}
     }
@@ -169,7 +171,12 @@ pub async fn create_doc(
     };
     state
         .git
-        .save_file(project_id, &body.path, &body.source, &format!("Create {}", body.path))
+        .save_file(
+            project_id,
+            &body.path,
+            &body.source,
+            &format!("Create {}", body.path),
+        )
         .await?;
     Ok((
         StatusCode::CREATED,

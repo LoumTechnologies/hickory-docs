@@ -34,9 +34,9 @@ impl ExecutorChoice {
         match std::env::var("HICKORY_EXECUTOR").as_deref() {
             Err(_) | Ok("") | Ok("local") => Ok(ExecutorChoice::Local),
             Ok("canopy") => Ok(ExecutorChoice::Canopy),
-            Ok(other) => bail!(
-                "unknown HICKORY_EXECUTOR value '{other}' (expected \"local\" or \"canopy\")"
-            ),
+            Ok(other) => {
+                bail!("unknown HICKORY_EXECUTOR value '{other}' (expected \"local\" or \"canopy\")")
+            }
         }
     }
 
@@ -199,8 +199,7 @@ pub fn check_failures(run: &DocRun, out_dir: Option<&Path>) -> Result<Vec<CheckF
             Err(_) => failures.push(CheckFailure::Drift {
                 doc: run.doc_path.clone(),
                 output_path: full,
-                detail: "output file missing on disk (run `hickory run` and commit it)"
-                    .to_string(),
+                detail: "output file missing on disk (run `hickory run` and commit it)".to_string(),
             }),
         }
     }
@@ -227,17 +226,22 @@ pub fn block_model_json(run: &DocRun) -> Result<serde_json::Value> {
 /// Byte-precise lineage of one generated output file: the api.md
 /// `Provenance[]` shape (identical to what the server's
 /// `GET /api/docs/:id/outputs/file` returns).
-pub fn output_lineage(
-    run: &DocRun,
-    output_path: &str,
-) -> Result<Vec<hickory_lineage::Provenance>> {
+pub fn output_lineage(run: &DocRun, output_path: &str) -> Result<Vec<hickory_lineage::Provenance>> {
     let map = run.result.provenance_maps.get(output_path).ok_or_else(|| {
-        let mut available: Vec<&str> =
-            run.result.provenance_maps.keys().map(String::as_str).collect();
+        let mut available: Vec<&str> = run
+            .result
+            .provenance_maps
+            .keys()
+            .map(String::as_str)
+            .collect();
         available.sort();
         anyhow::anyhow!(
             "no output named '{output_path}' — available outputs: {}",
-            if available.is_empty() { "(none)".to_string() } else { available.join(", ") }
+            if available.is_empty() {
+                "(none)".to_string()
+            } else {
+                available.join(", ")
+            }
         )
     })?;
     Ok(hickory_lineage::from_provenance_map(map))

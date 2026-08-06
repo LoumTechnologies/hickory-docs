@@ -60,7 +60,10 @@ impl PositionMap {
     /// Map a virtual file position to a .hick source position.
     /// Returns (source_line_0based, source_col_0based).
     pub fn to_source(&self, virtual_line: u32, virtual_col: u32) -> Option<(u32, u32)> {
-        let mapping = self.mappings.iter().find(|m| m.virtual_line == virtual_line)?;
+        let mapping = self
+            .mappings
+            .iter()
+            .find(|m| m.virtual_line == virtual_line)?;
         let source_col = if mapping.column_offset >= 0 {
             virtual_col + mapping.column_offset as u32
         } else {
@@ -72,7 +75,10 @@ impl PositionMap {
     /// Map a .hick source position to a virtual file position.
     /// Returns (virtual_line_0based, virtual_col_0based).
     pub fn to_virtual(&self, source_line: u32, source_col: u32) -> Option<(u32, u32)> {
-        let mapping = self.mappings.iter().find(|m| m.source_line == source_line)?;
+        let mapping = self
+            .mappings
+            .iter()
+            .find(|m| m.source_line == source_line)?;
         let virtual_col = if mapping.column_offset >= 0 {
             source_col.checked_sub(mapping.column_offset as u32)?
         } else {
@@ -123,10 +129,7 @@ mod tests {
 
     #[test]
     fn multiple_segments() {
-        let segments = vec![
-            seg("aaa\n", 2, 0),
-            seg("bbb\nccc\n", 5, 4),
-        ];
+        let segments = vec![seg("aaa\n", 2, 0), seg("bbb\nccc\n", 5, 4)];
         let map = PositionMap::build(&segments);
 
         assert_eq!(map.mappings.len(), 3);

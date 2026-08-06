@@ -5,15 +5,15 @@
 //! and file output collection — all without touching the filesystem.
 
 pub mod agents;
-pub mod pipeline;
 pub mod cache;
 pub mod compact;
 pub mod config;
-pub mod expect;
-pub mod promote;
 pub mod equiv;
+pub mod expect;
 pub mod generate_matrix;
 pub mod output_cleanup;
+pub mod pipeline;
+pub mod promote;
 pub mod render;
 pub mod store_config;
 mod text;
@@ -542,7 +542,9 @@ pub async fn run_pipeline_live(
 
     // Register fork definitions with the executor
     for (from, to, additional_caps) in &fork_registrations {
-        executor.register_fork(to, from, additional_caps.clone()).await?;
+        executor
+            .register_fork(to, from, additional_caps.clone())
+            .await?;
     }
 
     // Collect <hick:expect> expectations per (container, exec source line).
@@ -785,11 +787,17 @@ pub async fn run_pipeline_live(
 
                 // Store result in cache after successful execution
                 if let Some(cc) = cache_config {
-                    let caps_canonical = cache::canonical_caps(&container_defs, &exec_info.container);
-                    let secret_names = cache::secret_names_for(&container_defs, &exec_info.container);
+                    let caps_canonical =
+                        cache::canonical_caps(&container_defs, &exec_info.container);
+                    let secret_names =
+                        cache::secret_names_for(&container_defs, &exec_info.container);
                     let secret_refs: Vec<&str> = secret_names.iter().map(|s| s.as_str()).collect();
-                    let key =
-                        cache::exec_cache_key(image, &caps_canonical, &exec_info.command, &secret_refs);
+                    let key = cache::exec_cache_key(
+                        image,
+                        &caps_canonical,
+                        &exec_info.command,
+                        &secret_refs,
+                    );
 
                     // Get the last transcript entry that was just added
                     if let Some(entries) = executor.transcripts().get(&exec_info.container)
@@ -940,7 +948,8 @@ pub async fn run_pipeline_weave(
                 let caps_canonical = cache::canonical_caps(&container_defs, &info.container);
                 let secret_names = cache::secret_names_for(&container_defs, &info.container);
                 let secret_refs: Vec<&str> = secret_names.iter().map(|s| s.as_str()).collect();
-                let key = cache::exec_cache_key(image, &caps_canonical, &info.command, &secret_refs);
+                let key =
+                    cache::exec_cache_key(image, &caps_canonical, &info.command, &secret_refs);
                 cache::cache_lookup(cc, &info.container, &key)?
             } else {
                 None
@@ -1653,8 +1662,8 @@ fn extract_verify_from_nodes(
 /// - If `path` is a directory with `_hick.yml`, use that config to resolve files.
 /// - If `path` is a directory without config, expand `**/*.hick`.
 pub fn expand_path_arg(path: &Path) -> Result<(Vec<PathBuf>, Option<PathBuf>)> {
+    use anyhow::{Context as _, bail};
     use config::HickConfig;
-    use anyhow::{bail, Context as _};
     if path.is_file() {
         let parent_config = path
             .parent()
@@ -1726,11 +1735,11 @@ pub struct PipelineRunOpts {
 /// both the `hick` binary and the unified `hick` binary produced by the
 /// `hick-agent` package.
 pub async fn run_pipeline_cmd(opts: PipelineRunOpts) -> Result<()> {
-    use std::time::Instant;
-    use anyhow::{bail, Context as _};
-    use log::{debug, info};
-    use config::{HickConfig, find_config};
+    use anyhow::{Context as _, bail};
     use cache::CacheConfig;
+    use config::{HickConfig, find_config};
+    use log::{debug, info};
+    use std::time::Instant;
 
     let pipeline_start = Instant::now();
 
@@ -1867,8 +1876,7 @@ pub async fn run_pipeline_cmd(opts: PipelineRunOpts) -> Result<()> {
         run_pipeline_live(&sources, &pipeline_config, &params, cc.as_ref(), executor).await?
     };
 
-    let mut expected_paths: std::collections::HashSet<PathBuf> =
-        std::collections::HashSet::new();
+    let mut expected_paths: std::collections::HashSet<PathBuf> = std::collections::HashSet::new();
     let mut files_written = 0usize;
     let mut files_unchanged = 0usize;
 
@@ -2039,8 +2047,8 @@ async fn pipeline_session_replay(file_path: &Path, source: &str, verbose: bool) 
                         "node" | "js" | "javascript" => "node",
                         _ => "sh",
                     };
-                    let encoded = base64::engine::general_purpose::STANDARD
-                        .encode(action.code.as_bytes());
+                    let encoded =
+                        base64::engine::general_purpose::STANDARD.encode(action.code.as_bytes());
                     let script_path = format!("/tmp/__hick_action_{action_idx}");
                     let cmd = format!(
                         "printf '%s' '{encoded}' | base64 -d > {script_path} && \

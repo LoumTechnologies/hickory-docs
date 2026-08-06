@@ -17,7 +17,11 @@ pub struct ApiError {
 
 impl ApiError {
     pub fn new(status: StatusCode, message: impl Into<String>) -> Self {
-        ApiError { status, message: message.into(), detail: None }
+        ApiError {
+            status,
+            message: message.into(),
+            detail: None,
+        }
     }
 
     /// Attach extra top-level fields (a JSON object) to the error body.

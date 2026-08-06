@@ -85,17 +85,16 @@ impl TagHandler for ScriptHandler {
         // Script blocks use synthetic container names like "_script_N".
         // We need to find which synthetic name corresponds to this tag.
         // Use a tag attribute or fall back to searching transcripts.
-        let container_name = tag_attr(tag, "container")
-            .unwrap_or_else(|| {
-                // Search for a matching transcript by convention:
-                // the DAG assigns _script_N based on document order.
-                // When no explicit container attr, try all _script_ prefixed transcripts.
-                ctx.transcripts
-                    .keys()
-                    .find(|k| k.starts_with("_script_"))
-                    .cloned()
-                    .unwrap_or_default()
-            });
+        let container_name = tag_attr(tag, "container").unwrap_or_else(|| {
+            // Search for a matching transcript by convention:
+            // the DAG assigns _script_N based on document order.
+            // When no explicit container attr, try all _script_ prefixed transcripts.
+            ctx.transcripts
+                .keys()
+                .find(|k| k.starts_with("_script_"))
+                .cloned()
+                .unwrap_or_default()
+        });
 
         if let Some(entries) = ctx.transcripts.get(&container_name) {
             let rendered = render_transcript(entries, show);

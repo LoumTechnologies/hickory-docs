@@ -206,12 +206,11 @@ mod tests {
         let mut p = FrameParser::new();
         // The pty echoes the command we sent; it contains both sentinels but
         // must be ignored entirely.
-        let echoed = format!("echo {SENTINEL_START}; echo QUJD | base64 -d | /bin/sh; echo {SENTINEL_END}$?\r\n");
-        assert_eq!(p.push(echoed.as_bytes()), vec![]);
-        assert_eq!(
-            p.push(format!("{SENTINEL_START}\r\n").as_bytes()),
-            vec![]
+        let echoed = format!(
+            "echo {SENTINEL_START}; echo QUJD | base64 -d | /bin/sh; echo {SENTINEL_END}$?\r\n"
         );
+        assert_eq!(p.push(echoed.as_bytes()), vec![]);
+        assert_eq!(p.push(format!("{SENTINEL_START}\r\n").as_bytes()), vec![]);
         assert_eq!(
             p.push(b"hello\r\n"),
             vec![FrameItem::Line("hello\n".into())]
@@ -224,9 +223,8 @@ mod tests {
 
     #[test]
     fn frames_survive_arbitrary_chunk_boundaries() {
-        let full = format!(
-            "\u{1b}[?2004l{SENTINEL_START}\r\nline one\r\nline two\r\n{SENTINEL_END}7\r\n"
-        );
+        let full =
+            format!("\u{1b}[?2004l{SENTINEL_START}\r\nline one\r\nline two\r\n{SENTINEL_END}7\r\n");
         let bytes = full.as_bytes();
         // Feed one byte at a time — the cruellest chunking.
         let mut p = FrameParser::new();

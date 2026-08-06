@@ -101,7 +101,11 @@ pub fn pipeline_status(project_dir: &Path) -> Result<()> {
 
     for (output_path, src) in &owned {
         let exists = config_dir.join(output_path).is_file();
-        if !exists && !pipeline_present.iter().any(|(p, _)| *p == output_path.as_str()) {
+        if !exists
+            && !pipeline_present
+                .iter()
+                .any(|(p, _)| *p == output_path.as_str())
+        {
             pipeline_missing.push((output_path.as_str(), src.as_str()));
         }
     }

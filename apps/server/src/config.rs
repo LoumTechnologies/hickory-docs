@@ -96,8 +96,7 @@ impl Config {
             Some(u) => u,
             None if strict => bail!("DATABASE_URL is required in staging/production"),
             None => {
-                let fallback =
-                    "postgres://hickory:hickory@localhost:5433/hickory".to_string();
+                let fallback = "postgres://hickory:hickory@localhost:5433/hickory".to_string();
                 log::warn!("DATABASE_URL not set; using dev default {fallback}");
                 fallback
             }
@@ -117,9 +116,8 @@ impl Config {
             }
         };
 
-        let git_data_dir = PathBuf::from(
-            env_opt("GIT_DATA_DIR").unwrap_or_else(|| "./data/git".to_string()),
-        );
+        let git_data_dir =
+            PathBuf::from(env_opt("GIT_DATA_DIR").unwrap_or_else(|| "./data/git".to_string()));
 
         // Canopy configuration itself is validated in
         // apps/server/src/executor.rs (the only module that may know
@@ -148,16 +146,21 @@ impl Config {
                 let webhook_secret = env_opt("STRIPE_WEBHOOK_SECRET");
                 if webhook_secret.is_none() {
                     if strict {
-                        bail!("STRIPE_WEBHOOK_SECRET is required when Stripe is configured in staging/production");
+                        bail!(
+                            "STRIPE_WEBHOOK_SECRET is required when Stripe is configured in staging/production"
+                        );
                     }
-                    log::warn!(
-                        "STRIPE_WEBHOOK_SECRET not set; webhook endpoint disabled"
-                    );
+                    log::warn!("STRIPE_WEBHOOK_SECRET not set; webhook endpoint disabled");
                 }
-                Some(StripeConfig { secret_key, webhook_secret })
+                Some(StripeConfig {
+                    secret_key,
+                    webhook_secret,
+                })
             }
             None => {
-                log::info!("Stripe not configured (STRIPE_SECRET_KEY unset); billing endpoints answer 503");
+                log::info!(
+                    "Stripe not configured (STRIPE_SECRET_KEY unset); billing endpoints answer 503"
+                );
                 None
             }
         };
@@ -169,20 +172,20 @@ impl Config {
                     .unwrap_or_else(|| "https://us.i.posthog.com".to_string()),
             }),
             None => {
-                log::info!("PostHog not configured (POSTHOG_API_KEY unset); analytics capture is a no-op");
+                log::info!(
+                    "PostHog not configured (POSTHOG_API_KEY unset); analytics capture is a no-op"
+                );
                 None
             }
         };
 
-        let web_dist_dir = env_opt("WEB_DIST_DIR")
-            .map(PathBuf::from)
-            .or_else(|| {
-                let default = PathBuf::from("./apps/web/dist");
-                default.is_dir().then_some(default)
-            });
+        let web_dist_dir = env_opt("WEB_DIST_DIR").map(PathBuf::from).or_else(|| {
+            let default = PathBuf::from("./apps/web/dist");
+            default.is_dir().then_some(default)
+        });
 
-        let app_base_url = env_opt("APP_BASE_URL")
-            .unwrap_or_else(|| format!("http://localhost:{port}"));
+        let app_base_url =
+            env_opt("APP_BASE_URL").unwrap_or_else(|| format!("http://localhost:{port}"));
 
         Ok(Config {
             app_env,

@@ -171,10 +171,13 @@ fn exec_block(
     let line = tag.source_line;
     let id = format!("{container}:{line}");
 
-    let expect = tag.child_tags().find(|t| t.name == "expect").map(|t| ExpectInfo {
-        match_mode: tag_attr(t, "match").unwrap_or_else(|| "exact".to_string()),
-        body: t.text_content(),
-    });
+    let expect = tag
+        .child_tags()
+        .find(|t| t.name == "expect")
+        .map(|t| ExpectInfo {
+            match_mode: tag_attr(t, "match").unwrap_or_else(|| "exact".to_string()),
+            body: t.text_content(),
+        });
 
     let entry = input
         .transcripts

@@ -153,7 +153,10 @@ fn diff_detail(expected: &str, actual: &str) -> String {
     let act_lines: Vec<&str> = actual.lines().collect();
     for (i, (e, a)) in exp_lines.iter().zip(act_lines.iter()).enumerate() {
         if e != a {
-            return format!("first mismatch at output line {}: expected {e:?}, got {a:?}", i + 1);
+            return format!(
+                "first mismatch at output line {}: expected {e:?}, got {a:?}",
+                i + 1
+            );
         }
     }
     if exp_lines.len() != act_lines.len() {
@@ -196,7 +199,10 @@ fn match_regex_lines(expected: &str, actual: &str) -> (bool, String) {
                 }
             }
             Err(e) => {
-                return (false, format!("invalid regex on expectation line {}: {e}", i + 1));
+                return (
+                    false,
+                    format!("invalid regex on expectation line {}: {e}", i + 1),
+                );
             }
         }
     }
@@ -233,7 +239,7 @@ mod tests {
 
     #[test]
     fn regex_lines_full_line_anchoring() {
-        assert!(evaluate(&spec(MatchMode::RegexLines, r"n = \d+" ), "d", "n = 30\n").passed);
+        assert!(evaluate(&spec(MatchMode::RegexLines, r"n = \d+"), "d", "n = 30\n").passed);
         // Partial matches must not pass: pattern is anchored to the full line.
         assert!(!evaluate(&spec(MatchMode::RegexLines, r"\d+"), "d", "n = 30\n").passed);
     }

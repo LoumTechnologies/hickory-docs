@@ -1,12 +1,12 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use tokio::sync::{mpsc, Mutex, RwLock};
+use tokio::sync::{Mutex, RwLock, mpsc};
 use tower_lsp::jsonrpc::Result;
 use tower_lsp::lsp_types::*;
 use tower_lsp::{Client, LanguageServer};
 
-use crate::child_lsp::{lsp_command, ChildNotification};
+use crate::child_lsp::{ChildNotification, lsp_command};
 use crate::dispatcher::Dispatcher;
 use crate::document::HickDocumentState;
 use crate::position_map::PositionMap;
@@ -95,8 +95,14 @@ impl HickBackend {
                         hick_uri.clone(),
                         vec![Diagnostic {
                             range: Range {
-                                start: Position { line: lsp_line, character: 0 },
-                                end: Position { line: lsp_line, character: u32::MAX },
+                                start: Position {
+                                    line: lsp_line,
+                                    character: 0,
+                                },
+                                end: Position {
+                                    line: lsp_line,
+                                    character: u32::MAX,
+                                },
                             },
                             severity: Some(DiagnosticSeverity::ERROR),
                             source: Some("hick-lsp".to_string()),
@@ -139,9 +145,7 @@ impl HickBackend {
 
         let vfile_version = {
             let docs = self.documents.read().await;
-            docs.get(hick_uri)
-                .map(|e| e.vfile_version + 1)
-                .unwrap_or(1)
+            docs.get(hick_uri).map(|e| e.vfile_version + 1).unwrap_or(1)
         };
 
         // 5. Write all virtual files to disk so that tools like
@@ -331,19 +335,14 @@ impl HickBackend {
                 );
                 if notif.method == "textDocument/publishDiagnostics"
                     && let Err(e) =
-                        handle_child_diagnostics(
-                            &client,
-                            &vfile_index,
-                            &child_diagnostics,
-                            &notif,
-                        )
-                        .await
-                    {
-                        tracing::debug!(
-                            error = %e,
-                            "failed to process child diagnostics"
-                        );
-                    }
+                        handle_child_diagnostics(&client, &vfile_index, &child_diagnostics, &notif)
+                            .await
+                {
+                    tracing::debug!(
+                        error = %e,
+                        "failed to process child diagnostics"
+                    );
+                }
             }
             tracing::debug!("notification handler exited");
         });
@@ -405,14 +404,18 @@ async fn handle_child_diagnostics(
             None => continue,
         };
 
-        let start_line =
-            range.pointer("/start/line").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+        let start_line = range
+            .pointer("/start/line")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0) as u32;
         let start_char = range
             .pointer("/start/character")
             .and_then(|v| v.as_u64())
             .unwrap_or(0) as u32;
-        let end_line =
-            range.pointer("/end/line").and_then(|v| v.as_u64()).unwrap_or(0) as u32;
+        let end_line = range
+            .pointer("/end/line")
+            .and_then(|v| v.as_u64())
+            .unwrap_or(0) as u32;
         let end_char = range
             .pointer("/end/character")
             .and_then(|v| v.as_u64())
@@ -476,9 +479,7 @@ async fn handle_child_diagnostics(
         per_hick.values().flatten().cloned().collect::<Vec<_>>()
     };
 
-    client
-        .publish_diagnostics(hick_uri, merged, None)
-        .await;
+    client.publish_diagnostics(hick_uri, merged, None).await;
 
     Ok(())
 }
@@ -548,10 +549,7 @@ impl LanguageServer for HickBackend {
         docs.remove(&uri);
     }
 
-    async fn completion(
-        &self,
-        _params: CompletionParams,
-    ) -> Result<Option<CompletionResponse>> {
+    async fn completion(&self, _params: CompletionParams) -> Result<Option<CompletionResponse>> {
         Ok(None)
     }
 

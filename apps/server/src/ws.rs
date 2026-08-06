@@ -289,8 +289,7 @@ async fn run_socket(state: AppState, doc: DocRow, socket: WebSocket) -> anyhow::
         }
         match data[0] {
             CHANNEL_YJS => {
-                if let Err(e) =
-                    handle_yjs_payload(&state, &room, client_id, &tx, &data[1..]).await
+                if let Err(e) = handle_yjs_payload(&state, &room, client_id, &tx, &data[1..]).await
                 {
                     log::debug!("yjs message error on doc {doc_id}: {e:#}");
                 }

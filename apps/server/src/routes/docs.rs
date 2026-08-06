@@ -78,7 +78,9 @@ pub async fn put_doc(
 ) -> ApiResult<Json<Value>> {
     let mut doc = load_doc(&state, id).await?;
     if doc.owner_id != user.id {
-        return Err(ApiError::forbidden("only the project owner can save this doc"));
+        return Err(ApiError::forbidden(
+            "only the project owner can save this doc",
+        ));
     }
     let row = sqlx::query_as::<_, (DateTime<Utc>,)>(
         "UPDATE docs SET source = $1, updated_at = now() WHERE id = $2 RETURNING updated_at",
@@ -89,7 +91,12 @@ pub async fn put_doc(
     .await?;
     state
         .git
-        .save_file(doc.project_id, &doc.path, &body.source, &format!("Save {}", doc.path))
+        .save_file(
+            doc.project_id,
+            &doc.path,
+            &body.source,
+            &format!("Save {}", doc.path),
+        )
         .await?;
     doc.source = body.source;
     doc.updated_at = row.0;
@@ -140,12 +147,15 @@ pub async fn render_doc(
             if block.get("kind").and_then(Value::as_str) != Some("exec") {
                 continue;
             }
-            let Some(bid) = block.get("id").and_then(Value::as_str) else { continue };
+            let Some(bid) = block.get("id").and_then(Value::as_str) else {
+                continue;
+            };
             if let Some(run_block) = by_id.get(bid) {
                 let obj = block.as_object_mut().unwrap();
-                if let Some(t) = run_block.get("transcript").filter(|t| {
-                    t.as_array().is_some_and(|a| !a.is_empty())
-                }) {
+                if let Some(t) = run_block
+                    .get("transcript")
+                    .filter(|t| t.as_array().is_some_and(|a| !a.is_empty()))
+                {
                     obj.insert("transcript".to_string(), t.clone());
                 }
                 let status = if stale {

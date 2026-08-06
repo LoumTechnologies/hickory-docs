@@ -29,7 +29,9 @@ pub async fn signup(
         return Err(ApiError::bad_request("invalid email address"));
     }
     if body.password.len() < 8 {
-        return Err(ApiError::bad_request("password must be at least 8 characters"));
+        return Err(ApiError::bad_request(
+            "password must be at least 8 characters",
+        ));
     }
     let id = Uuid::new_v4();
     let hash = hash_password(&body.password)?;
@@ -43,13 +45,19 @@ pub async fn signup(
     .execute(&state.db)
     .await?;
     if inserted.rows_affected() == 0 {
-        return Err(ApiError::conflict("an account with this email already exists"));
+        return Err(ApiError::conflict(
+            "an account with this email already exists",
+        ));
     }
     let token = issue_token(&state.config.jwt_secret, id, &email)?;
-    state
-        .analytics
-        .capture(&id.to_string(), "signup", json!({ "email_domain": email.split('@').nth(1) }));
-    Ok(Json(json!({ "token": token, "user": user_json(id, &email, "open") })))
+    state.analytics.capture(
+        &id.to_string(),
+        "signup",
+        json!({ "email_domain": email.split('@').nth(1) }),
+    );
+    Ok(Json(
+        json!({ "token": token, "user": user_json(id, &email, "open") }),
+    ))
 }
 
 pub async fn login(
@@ -70,7 +78,9 @@ pub async fn login(
         return Err(ApiError::unauthorized("invalid email or password"));
     }
     let token = issue_token(&state.config.jwt_secret, id, &email)?;
-    Ok(Json(json!({ "token": token, "user": user_json(id, &email, &plan) })))
+    Ok(Json(
+        json!({ "token": token, "user": user_json(id, &email, &plan) }),
+    ))
 }
 
 pub async fn me(AuthUser(user): AuthUser) -> Json<Value> {

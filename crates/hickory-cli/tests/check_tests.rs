@@ -76,7 +76,14 @@ fn check_passes_on_matching_expectations() {
     let dir = tempfile::tempdir().unwrap();
     let doc = write_doc(dir.path(), "passing.hick", PASSING_DOC);
     // First run writes the woven output so check has committed files.
-    assert!(hickory().args(["run"]).arg(&doc).status().unwrap().success());
+    assert!(
+        hickory()
+            .args(["run"])
+            .arg(&doc)
+            .status()
+            .unwrap()
+            .success()
+    );
     let out = hickory().args(["check"]).arg(&doc).output().unwrap();
     assert!(
         out.status.success(),
@@ -110,7 +117,14 @@ fn check_fails_on_committed_output_drift() {
     // fails check, even when expectations pass.
     let dir = tempfile::tempdir().unwrap();
     let doc = write_doc(dir.path(), "passing.hick", PASSING_DOC);
-    assert!(hickory().args(["run"]).arg(&doc).status().unwrap().success());
+    assert!(
+        hickory()
+            .args(["run"])
+            .arg(&doc)
+            .status()
+            .unwrap()
+            .success()
+    );
     // Tamper with the committed woven markdown.
     let woven = dir.path().join("passing.md");
     std::fs::write(&woven, "stale hand-edited content\n").unwrap();

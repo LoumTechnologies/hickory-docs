@@ -498,9 +498,7 @@ impl<'a> Parser<'a> {
                 self.advance(4 + end + 3);
                 Ok(true)
             }
-            None => Err(ParseError::UnclosedComment {
-                line: comment_line,
-            }),
+            None => Err(ParseError::UnclosedComment { line: comment_line }),
         }
     }
 
@@ -1244,9 +1242,7 @@ This is removed from output.
 
     #[test]
     fn parse_session_assistant_without_action() {
-        let src = minimal_session(
-            "<hick:assistant>Here is the final answer.</hick:assistant>",
-        );
+        let src = minimal_session("<hick:assistant>Here is the final answer.</hick:assistant>");
         let doc = parse_session(&src).unwrap();
         assert_eq!(
             doc.nodes[0],
@@ -1919,8 +1915,14 @@ before<!-- comment -->after
             })
             .collect();
         let combined = texts.join("");
-        assert!(combined.contains("before"), "missing 'before': {combined:?}");
+        assert!(
+            combined.contains("before"),
+            "missing 'before': {combined:?}"
+        );
         assert!(combined.contains("after"), "missing 'after': {combined:?}");
-        assert!(!combined.contains("comment"), "comment leaked: {combined:?}");
+        assert!(
+            !combined.contains("comment"),
+            "comment leaked: {combined:?}"
+        );
     }
 }

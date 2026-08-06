@@ -206,11 +206,10 @@ fn find_call(code: &str, from: usize, needle: &str) -> Option<usize> {
 }
 
 /// Return the `(pos, kind, marker)` tuple with the smallest `pos` among Some values.
-fn smallest_some<T: Ord>(options: [Option<(T, WriteKind, &'static str)>; 3]) -> Option<(T, WriteKind, &'static str)> {
-    options
-        .into_iter()
-        .flatten()
-        .min_by(|a, b| a.0.cmp(&b.0))
+fn smallest_some<T: Ord>(
+    options: [Option<(T, WriteKind, &'static str)>; 3],
+) -> Option<(T, WriteKind, &'static str)> {
+    options.into_iter().flatten().min_by(|a, b| a.0.cmp(&b.0))
 }
 
 /// Parse `hick.pipeline_write(path, content [, slot=...])` arguments.
@@ -324,9 +323,8 @@ fn parse_python_string(code: &str, pos: usize) -> Option<(String, usize)> {
     }
 
     // Check for triple quotes.
-    let is_triple = pos + 2 < code.len()
-        && code.as_bytes()[pos + 1] == ch
-        && code.as_bytes()[pos + 2] == ch;
+    let is_triple =
+        pos + 2 < code.len() && code.as_bytes()[pos + 1] == ch && code.as_bytes()[pos + 2] == ch;
 
     if is_triple {
         let delim: &str = if ch == b'\'' { "'''" } else { "\"\"\"" };
@@ -379,7 +377,9 @@ fn parse_python_string(code: &str, pos: usize) -> Option<(String, usize)> {
 fn skip_ws(code: &str, pos: usize) -> usize {
     let bytes = code.as_bytes();
     let mut p = pos;
-    while p < bytes.len() && (bytes[p] == b' ' || bytes[p] == b'\t' || bytes[p] == b'\n' || bytes[p] == b'\r') {
+    while p < bytes.len()
+        && (bytes[p] == b' ' || bytes[p] == b'\t' || bytes[p] == b'\n' || bytes[p] == b'\r')
+    {
         p += 1;
     }
     p
@@ -410,10 +410,7 @@ fn scan_pipeline_owned(project_dir: &Path) -> HashMap<String, PipelineFile> {
     let mut owned: HashMap<String, PipelineFile> = HashMap::new();
 
     // Look for *.hick files in the project root and common subdirectories.
-    let search_paths = [
-        project_dir.to_path_buf(),
-        project_dir.join("src"),
-    ];
+    let search_paths = [project_dir.to_path_buf(), project_dir.join("src")];
 
     for base in &search_paths {
         let Ok(entries) = std::fs::read_dir(base) else {
@@ -435,10 +432,7 @@ fn scan_pipeline_owned(project_dir: &Path) -> HashMap<String, PipelineFile> {
                     continue;
                 };
                 let paste_slots = collect_paste_slots(file_tag);
-                owned.insert(
-                    output_path.to_string(),
-                    PipelineFile { paste_slots },
-                );
+                owned.insert(output_path.to_string(), PipelineFile { paste_slots });
             }
         }
     }
@@ -447,26 +441,25 @@ fn scan_pipeline_owned(project_dir: &Path) -> HashMap<String, PipelineFile> {
     let config_path = project_dir.join("_hick.yml");
     if let Ok(yaml) = std::fs::read_to_string(&config_path)
         && let Ok(val) = serde_yaml::from_str::<serde_yaml::Value>(&yaml)
-            && let Some(files) = val.get("files").and_then(|v| v.as_sequence()) {
-                for f in files {
-                    if let Some(pattern) = f.as_str() {
-                        let full = project_dir.join(pattern);
-                        if let Ok(content) = std::fs::read_to_string(&full)
-                            && let Ok(doc) = hick_lang::parse(&content) {
-                                for file_tag in doc.find_tags("file") {
-                                    let Some(output_path) = file_tag.get_attribute("path") else {
-                                        continue;
-                                    };
-                                    let paste_slots = collect_paste_slots(file_tag);
-                                    owned.insert(
-                                        output_path.to_string(),
-                                        PipelineFile { paste_slots },
-                                    );
-                                }
-                            }
+        && let Some(files) = val.get("files").and_then(|v| v.as_sequence())
+    {
+        for f in files {
+            if let Some(pattern) = f.as_str() {
+                let full = project_dir.join(pattern);
+                if let Ok(content) = std::fs::read_to_string(&full)
+                    && let Ok(doc) = hick_lang::parse(&content)
+                {
+                    for file_tag in doc.find_tags("file") {
+                        let Some(output_path) = file_tag.get_attribute("path") else {
+                            continue;
+                        };
+                        let paste_slots = collect_paste_slots(file_tag);
+                        owned.insert(output_path.to_string(), PipelineFile { paste_slots });
                     }
                 }
             }
+        }
+    }
 
     owned
 }
@@ -552,11 +545,17 @@ fn escape_xml(s: &str) -> String {
 }
 
 fn make_file_element(path: &str, content: &str) -> String {
-    format!("<hick:file path=\"{path}\">{}</hick:file>", escape_xml(content))
+    format!(
+        "<hick:file path=\"{path}\">{}</hick:file>",
+        escape_xml(content)
+    )
 }
 
 fn make_copy_element(slot: &str, content: &str) -> String {
-    format!("<hick:copy target=\"{slot}\">{}</hick:copy>", escape_xml(content))
+    format!(
+        "<hick:copy target=\"{slot}\">{}</hick:copy>",
+        escape_xml(content)
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -792,9 +791,7 @@ pub struct Foo {
 
     #[test]
     fn command_shell_writes_detected() {
-        let src = session(
-            r#"<hick:command>echo hello > greeting.txt</hick:command>"#,
-        );
+        let src = session(r#"<hick:command>echo hello > greeting.txt</hick:command>"#);
         let result = promote_str(&src);
         assert_eq!(result.total_writes, 1);
         assert_eq!(writes_for_path(&result.promoted_source, "greeting.txt"), 1);

@@ -35,7 +35,9 @@ async fn live_spawn_exec_destroy() {
             .expect("CANOPY_IMAGE_MAP must configure at least one image")
     });
 
-    ex.ensure_started("live-smoke", &image).await.expect("spawn + boot");
+    ex.ensure_started("live-smoke", &image)
+        .await
+        .expect("spawn + boot");
     let out = ex
         .execute("live-smoke", "echo hickory-live-ok")
         .await

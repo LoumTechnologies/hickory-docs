@@ -120,7 +120,8 @@ mod tests {
 
     #[test]
     fn valid_code_turn() {
-        let turn = parse_response("<hick:next>code</hick:next>\nLet me look.\n```python\nprint(1)\n```");
+        let turn =
+            parse_response("<hick:next>code</hick:next>\nLet me look.\n```python\nprint(1)\n```");
         match turn {
             Turn::Code { thought, block } => {
                 assert_eq!(thought.as_deref(), Some("Let me look."));

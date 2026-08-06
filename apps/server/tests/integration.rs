@@ -44,7 +44,9 @@ async fn setup() -> TestApp {
             .expect("docker compose must be available for integration tests");
         assert!(status.success(), "docker compose up db failed");
     }
-    let admin = sqlx::PgPool::connect(&admin_url).await.expect("postgres reachable");
+    let admin = sqlx::PgPool::connect(&admin_url)
+        .await
+        .expect("postgres reachable");
 
     // Fresh database per test.
     let dbname = format!("hickory_test_{}", uuid::Uuid::new_v4().simple());
@@ -133,7 +135,11 @@ impl TestApp {
 
     async fn signup(&self, email: &str) -> (String, String) {
         let (status, v) = self
-            .post("/api/auth/signup", None, json!({ "email": email, "password": "password123" }))
+            .post(
+                "/api/auth/signup",
+                None,
+                json!({ "email": email, "password": "password123" }),
+            )
             .await;
         assert_eq!(status, 200, "signup failed: {v}");
         (
@@ -174,28 +180,47 @@ async fn auth_projects_docs_and_git() {
 
     // login
     let (status, v) = app
-        .post("/api/auth/login", None, json!({ "email": "alice@example.com", "password": "password123" }))
+        .post(
+            "/api/auth/login",
+            None,
+            json!({ "email": "alice@example.com", "password": "password123" }),
+        )
         .await;
     assert_eq!(status, 200);
     assert!(v["token"].is_string());
 
     // bad login
     let (status, _) = app
-        .post("/api/auth/login", None, json!({ "email": "alice@example.com", "password": "wrong-pass" }))
+        .post(
+            "/api/auth/login",
+            None,
+            json!({ "email": "alice@example.com", "password": "wrong-pass" }),
+        )
         .await;
     assert_eq!(status, 401);
 
     // Private project (open plan allows exactly one).
     let (status, project) = app
-        .post("/api/projects", Some(&token), json!({ "name": "p1", "visibility": "private" }))
+        .post(
+            "/api/projects",
+            Some(&token),
+            json!({ "name": "p1", "visibility": "private" }),
+        )
         .await;
     assert_eq!(status, 201, "{project}");
     let project_id = project["id"].as_str().unwrap().to_string();
 
     let (status, err) = app
-        .post("/api/projects", Some(&token), json!({ "name": "p2", "visibility": "private" }))
+        .post(
+            "/api/projects",
+            Some(&token),
+            json!({ "name": "p2", "visibility": "private" }),
+        )
         .await;
-    assert_eq!(status, 403, "second private project must hit the plan limit");
+    assert_eq!(
+        status, 403,
+        "second private project must hit the plan limit"
+    );
     assert!(err["error"].as_str().unwrap().contains("upgrade"));
 
     // Doc create + save → git commits.
@@ -210,7 +235,11 @@ async fn auth_projects_docs_and_git() {
     let doc_id = doc["id"].as_str().unwrap().to_string();
 
     let (status, saved) = app
-        .put(&format!("/api/docs/{doc_id}"), Some(&token), json!({ "source": "# v2\n" }))
+        .put(
+            &format!("/api/docs/{doc_id}"),
+            Some(&token),
+            json!({ "source": "# v2\n" }),
+        )
         .await;
     assert_eq!(status, 200);
     assert_eq!(saved["source"], "# v2\n");
@@ -233,12 +262,18 @@ async fn auth_projects_docs_and_git() {
     let (status, _) = app.get(&format!("/api/docs/{doc_id}"), None).await;
     assert_eq!(status, 403);
     let (bob_token, _) = app.signup("bob@example.com").await;
-    let (status, _) = app.get(&format!("/api/docs/{doc_id}"), Some(&bob_token)).await;
+    let (status, _) = app
+        .get(&format!("/api/docs/{doc_id}"), Some(&bob_token))
+        .await;
     assert_eq!(status, 403);
 
     // Public project docs are readable anonymously.
     let (_, public_project) = app
-        .post("/api/projects", Some(&token), json!({ "name": "pub", "visibility": "public" }))
+        .post(
+            "/api/projects",
+            Some(&token),
+            json!({ "name": "pub", "visibility": "public" }),
+        )
         .await;
     let pub_id = public_project["id"].as_str().unwrap();
     let (_, pub_doc) = app
@@ -249,7 +284,10 @@ async fn auth_projects_docs_and_git() {
         )
         .await;
     let (status, fetched) = app
-        .get(&format!("/api/docs/{}", pub_doc["id"].as_str().unwrap()), None)
+        .get(
+            &format!("/api/docs/{}", pub_doc["id"].as_str().unwrap()),
+            None,
+        )
         .await;
     assert_eq!(status, 200);
     assert_eq!(fetched["source"], "# public\n");
@@ -264,7 +302,11 @@ async fn run_streams_transcript_events() {
     let app = setup().await;
     let (token, _) = app.signup("runner@example.com").await;
     let (_, project) = app
-        .post("/api/projects", Some(&token), json!({ "name": "runs", "visibility": "public" }))
+        .post(
+            "/api/projects",
+            Some(&token),
+            json!({ "name": "runs", "visibility": "public" }),
+        )
         .await;
     let project_id = project["id"].as_str().unwrap();
     let (_, doc) = app
@@ -277,7 +319,10 @@ async fn run_streams_transcript_events() {
     let doc_id = doc["id"].as_str().unwrap().to_string();
 
     // Connect the realtime socket first so run events reach us.
-    let ws_url = format!("ws://127.0.0.1:{}/api/ws?doc=doc:{doc_id}&token={token}", app.port);
+    let ws_url = format!(
+        "ws://127.0.0.1:{}/api/ws?doc=doc:{doc_id}&token={token}",
+        app.port
+    );
     let (mut ws, _) = tokio_tungstenite::connect_async(&ws_url).await.unwrap();
 
     // Start the run.
@@ -327,12 +372,12 @@ async fn run_streams_transcript_events() {
     for e in &events {
         let exec_id = e["exec_id"].as_str().unwrap();
         assert!(exec_id.starts_with("shell:"), "exec_id {exec_id}");
-        assert!(e["event"]["t"].is_u64(), "t must be ms since run start: {e}");
+        assert!(
+            e["event"]["t"].is_u64(),
+            "t must be ms since run start: {e}"
+        );
     }
-    let out = events
-        .iter()
-        .find(|e| e["event"]["kind"] == "out")
-        .unwrap();
+    let out = events.iter().find(|e| e["event"]["kind"] == "out").unwrap();
     assert!(out["event"]["data"].as_str().unwrap().contains("hello"));
 
     // Stored run.
@@ -362,13 +407,19 @@ async fn run_streams_transcript_events() {
 
     // /check also works end to end (expectation passes).
     let (status, v) = app
-        .post(&format!("/api/docs/{doc_id}/check"), Some(&token), json!({}))
+        .post(
+            &format!("/api/docs/{doc_id}/check"),
+            Some(&token),
+            json!({}),
+        )
         .await;
     assert_eq!(status, 202);
     let check_id = v["run_id"].as_str().unwrap().to_string();
     let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
     loop {
-        let (_, run) = app.get(&format!("/api/runs/{check_id}"), Some(&token)).await;
+        let (_, run) = app
+            .get(&format!("/api/runs/{check_id}"), Some(&token))
+            .await;
         match run["status"].as_str().unwrap() {
             "ok" => break,
             "failed" => panic!("check failed: {run}"),
@@ -392,7 +443,11 @@ async fn plans_endpoint_matches_pinned_shape() {
 
     let plans = v["plans"].as_array().expect("plans array");
     let keys: Vec<&str> = plans.iter().map(|p| p["key"].as_str().unwrap()).collect();
-    assert_eq!(keys, vec!["open", "pro", "team", "business"], "plan-set order");
+    assert_eq!(
+        keys,
+        vec!["open", "pro", "team", "business"],
+        "plan-set order"
+    );
 
     for plan in plans {
         for field in ["key", "name", "description"] {
@@ -496,7 +551,10 @@ async fn webhook_fulfillment_races_to_exactly_one() {
     .fetch_one(&app.db)
     .await
     .unwrap();
-    assert_eq!(subs, 1, "exactly one subscription row despite {N} racing events");
+    assert_eq!(
+        subs, 1,
+        "exactly one subscription row despite {N} racing events"
+    );
 
     let (plan, price): (String, Option<String>) =
         sqlx::query_as("SELECT plan_key, price_key FROM users WHERE email = 'buyer@example.com'")
@@ -608,7 +666,11 @@ async fn health_and_agent_stub() {
 
     let (token, _) = app.signup("agent@example.com").await;
     let (_, project) = app
-        .post("/api/projects", Some(&token), json!({ "name": "a", "visibility": "public" }))
+        .post(
+            "/api/projects",
+            Some(&token),
+            json!({ "name": "a", "visibility": "public" }),
+        )
         .await;
     let (_, doc) = app
         .post(
@@ -654,7 +716,11 @@ async fn run_commits_baseline_then_check_passes_and_drift_fails() {
     let app = setup().await;
     let (token, _) = app.signup("baseline@example.com").await;
     let (_, project) = app
-        .post("/api/projects", Some(&token), json!({ "name": "base", "visibility": "private" }))
+        .post(
+            "/api/projects",
+            Some(&token),
+            json!({ "name": "base", "visibility": "private" }),
+        )
         .await;
     let project_id = project["id"].as_str().unwrap();
     let (_, doc) = app
@@ -677,7 +743,10 @@ async fn run_commits_baseline_then_check_passes_and_drift_fails() {
                 if status == "ok" || status == "failed" {
                     return r;
                 }
-                assert!(tokio::time::Instant::now() < deadline, "run never finished: {r}");
+                assert!(
+                    tokio::time::Instant::now() < deadline,
+                    "run never finished: {r}"
+                );
                 tokio::time::sleep(std::time::Duration::from_millis(200)).await;
             }
         }
@@ -693,7 +762,11 @@ async fn run_commits_baseline_then_check_passes_and_drift_fails() {
 
     // Check now passes against that baseline.
     let (status, v) = app
-        .post(&format!("/api/docs/{doc_id}/check"), Some(&token), json!({}))
+        .post(
+            &format!("/api/docs/{doc_id}/check"),
+            Some(&token),
+            json!({}),
+        )
         .await;
     assert_eq!(status, 202, "{v}");
     let c = wait(v["run_id"].as_str().unwrap().to_string()).await;
@@ -701,15 +774,26 @@ async fn run_commits_baseline_then_check_passes_and_drift_fails() {
 
     // Drift the expectation: check fails and the reason is in the response.
     let drifted = WEAVE_DOC.replace(">hello\n", ">goodbye\n");
-    app.put(&format!("/api/docs/{doc_id}"), Some(&token), json!({ "source": drifted }))
-        .await;
+    app.put(
+        &format!("/api/docs/{doc_id}"),
+        Some(&token),
+        json!({ "source": drifted }),
+    )
+    .await;
     let (_, v) = app
-        .post(&format!("/api/docs/{doc_id}/check"), Some(&token), json!({}))
+        .post(
+            &format!("/api/docs/{doc_id}/check"),
+            Some(&token),
+            json!({}),
+        )
         .await;
     let c = wait(v["run_id"].as_str().unwrap().to_string()).await;
     assert_eq!(c["status"], "failed", "{c}");
     let err = c["error"].as_str().unwrap_or("");
-    assert!(err.contains("expectation failed"), "error not surfaced: {c}");
+    assert!(
+        err.contains("expectation failed"),
+        "error not surfaced: {c}"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -776,7 +860,10 @@ impl TestApp {
                 "ok" => return,
                 "failed" => panic!("run failed: {r}"),
                 _ => {
-                    assert!(tokio::time::Instant::now() < deadline, "run never finished: {r}");
+                    assert!(
+                        tokio::time::Instant::now() < deadline,
+                        "run never finished: {r}"
+                    );
                     tokio::time::sleep(std::time::Duration::from_millis(200)).await;
                 }
             }
@@ -794,7 +881,9 @@ async fn outputs_listing_and_byte_precise_provenance() {
     let (_, doc_id) = app.seed_and_run(&token, "lineage.hick", LINEAGE_DOC).await;
 
     // Listing shows the generated file with its detected language.
-    let (status, v) = app.get(&format!("/api/docs/{doc_id}/outputs"), Some(&token)).await;
+    let (status, v) = app
+        .get(&format!("/api/docs/{doc_id}/outputs"), Some(&token))
+        .await;
     assert_eq!(status, 200, "{v}");
     let files = v["files"].as_array().unwrap();
     let gen_file = files
@@ -805,7 +894,10 @@ async fn outputs_listing_and_byte_precise_provenance() {
 
     // File content + provenance.
     let (status, v) = app
-        .get(&format!("/api/docs/{doc_id}/outputs/file?path=gen.rs"), Some(&token))
+        .get(
+            &format!("/api/docs/{doc_id}/outputs/file?path=gen.rs"),
+            Some(&token),
+        )
         .await;
     assert_eq!(status, 200, "{v}");
     assert_eq!(v["path"], "gen.rs");
@@ -843,7 +935,10 @@ async fn outputs_listing_and_byte_precise_provenance() {
     let (status, _) = app.get(&format!("/api/docs/{doc_id}/outputs"), None).await;
     assert_eq!(status, 403);
     let (status, _) = app
-        .get(&format!("/api/docs/{doc_id}/outputs/file?path=gen.rs"), None)
+        .get(
+            &format!("/api/docs/{doc_id}/outputs/file?path=gen.rs"),
+            None,
+        )
         .await;
     assert_eq!(status, 403);
 }
@@ -858,7 +953,10 @@ async fn output_edit_round_trips_byte_for_byte() {
     let (project_id, doc_id) = app.seed_and_run(&token, "rt.hick", LINEAGE_DOC).await;
 
     let (_, v) = app
-        .get(&format!("/api/docs/{doc_id}/outputs/file?path=gen.rs"), Some(&token))
+        .get(
+            &format!("/api/docs/{doc_id}/outputs/file?path=gen.rs"),
+            Some(&token),
+        )
         .await;
     let content = v["content"].as_str().unwrap().to_string();
     let start = content.find("alpha").unwrap();
@@ -891,7 +989,11 @@ async fn output_edit_round_trips_byte_for_byte() {
     assert_eq!(source_edits[0]["text"], "gamma");
     let s = source_edits[0]["span"][0].as_u64().unwrap() as usize;
     let e = source_edits[0]["span"][1].as_u64().unwrap() as usize;
-    assert_eq!(&LINEAGE_DOC[s..e], "alpha", "source edit targets the copy block bytes");
+    assert_eq!(
+        &LINEAGE_DOC[s..e],
+        "alpha",
+        "source edit targets the copy block bytes"
+    );
 
     // The doc source was updated in the DB…
     let (_, doc) = app.get(&format!("/api/docs/{doc_id}"), Some(&token)).await;
@@ -903,7 +1005,15 @@ async fn output_edit_round_trips_byte_for_byte() {
     let project_uuid: uuid::Uuid = project_id.parse().unwrap();
     let repo = app.git.project_dir(project_uuid);
     let log = std::process::Command::new("git")
-        .args(["-C", repo.to_str().unwrap(), "log", "-1", "--format=%s", "--", "rt.hick"])
+        .args([
+            "-C",
+            repo.to_str().unwrap(),
+            "log",
+            "-1",
+            "--format=%s",
+            "--",
+            "rt.hick",
+        ])
         .output()
         .unwrap();
     let subject = String::from_utf8_lossy(&log.stdout);
@@ -912,7 +1022,10 @@ async fn output_edit_round_trips_byte_for_byte() {
     // Re-run: the next run reproduces the edited output byte-for-byte.
     app.run_and_wait(&token, &doc_id).await;
     let (status, v) = app
-        .get(&format!("/api/docs/{doc_id}/outputs/file?path=gen.rs"), Some(&token))
+        .get(
+            &format!("/api/docs/{doc_id}/outputs/file?path=gen.rs"),
+            Some(&token),
+        )
         .await;
     assert_eq!(status, 200, "{v}");
     assert_eq!(
@@ -931,7 +1044,10 @@ async fn output_edit_overlapping_synthetic_separator_is_422() {
     let (_, doc_id) = app.seed_and_run(&token, "sep.hick", SEPARATOR_DOC).await;
 
     let (_, v) = app
-        .get(&format!("/api/docs/{doc_id}/outputs/file?path=all.rs"), Some(&token))
+        .get(
+            &format!("/api/docs/{doc_id}/outputs/file?path=all.rs"),
+            Some(&token),
+        )
         .await;
     let content = v["content"].as_str().unwrap().to_string();
     let sep_start = content.find(" // SEP ").expect("separator in output");
@@ -957,10 +1073,15 @@ async fn output_edit_overlapping_synthetic_separator_is_422() {
         .await;
     assert_eq!(status, 422, "{v}");
     // Pinned 422 body: {error, range: {start, end}} (api.md).
-    let range = v["range"].as_object().expect("422 body carries the offending range");
+    let range = v["range"]
+        .as_object()
+        .expect("422 body carries the offending range");
     let r0 = range["start"].as_u64().unwrap() as usize;
     let r1 = range["end"].as_u64().unwrap() as usize;
-    assert!(r0 >= sep_start && r1 <= sep_end, "offending range {r0}..{r1} within separator");
+    assert!(
+        r0 >= sep_start && r1 <= sep_end,
+        "offending range {r0}..{r1} within separator"
+    );
     assert!(v["error"].as_str().unwrap().contains("synthetic"));
 
     // The doc source was not touched.
