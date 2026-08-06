@@ -130,4 +130,5 @@ docs/  guarantees/  specs/freeform/  users/  developers/
 - Substrate: **Railway** (managed PaaS; server + Postgres). The app reaches the
   local Cloud Canopy node via a portzero tunnel (or later canopy's nginx/ACME
   public console); node endpoint + token are environment config.
-- Open source (license: Apache-2.0) once Nate flips repos public; private until then.
+- Open source (license: MIT, matching the prior hick codebases) once Nate
+  flips repos public; private until then.
