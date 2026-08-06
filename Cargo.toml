@@ -21,6 +21,7 @@ members = [
     "crates/hickory-agent",
     "crates/hickory-executor-canopy",
     "crates/hickory-cli",
+    "apps/server",
 ]
 
 [workspace.package]
