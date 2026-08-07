@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="domain.md">
+# Todo app — domain model
+
+<hick:upstream file="meetings/2026-08-07-kickoff.hick" />
+
+The vocabulary. Terms are tagged `.glossary` so downstream documents can pull
+the whole set by class. Decisions are NOT restated here — they arrive from the
+meeting by reference, so each is written down in exactly one place and every
+document below this one goes stale together when it changes.
+
+## Terms
+
+<hick:copy id="t-task" class="glossary">
+**Task** — one thing to do. Has an id, a title, and a state. Nothing else;
+every field anyone proposed beyond these was left as an open question.
+</hick:copy>
+
+<hick:copy id="t-state" class="glossary">
+**State** — which of open, done, or dropped a task is in. Exactly one at a
+time; there is no "partially done".
+</hick:copy>
+
+<hick:copy id="t-dropped" class="glossary">
+**Dropped** — decided against, deliberately retained. Distinct from deleted,
+which the app does not offer. Dropping is a decision worth keeping a record
+of.
+</hick:copy>
+
+<hick:copy id="t-list" class="glossary">
+**List** — the whole set of tasks, in creation order. There is one list; the
+app has no concept of multiple lists or projects.
+</hick:copy>
+
+## Decisions this model rests on
+
+<hick:paste select=".decision" />
+
+## Why dropped is not deleted
+
+The state decision above is the one that shapes the data model. A deleted
+task leaves no trace, so "why isn't this in the list any more" has no answer.
+A dropped task answers it. That costs nothing here — the file keeps every
+task regardless — and it is the difference between a log and a list.
+</hick:doc>

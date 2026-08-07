@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="requirements.md">
+# Todo app — requirements
+
+<hick:upstream file="domain.hick" />
+
+One edge declared. The glossary comes from the domain model one hop up, and
+the decisions come from the kickoff meeting **two** hops up — this document
+never names the meeting, and does not have to. Change a decision in the
+meeting notes and this document, its tickets, and the domain model all go
+stale together.
+
+## Vocabulary in force
+
+<hick:paste select=".glossary" />
+
+## Decisions in force
+
+<hick:paste select=".decision" />
+
+## Requirements
+
+Each requirement below is also a ticket. The ticket files under `work/` are
+tangled from these fragments — the requirement and the ticket are the same
+bytes, so they cannot drift. Editing the requirement IS editing the ticket.
+
+<hick:copy id="r-add">
+`todo add "<title>"` creates an open task and prints its id. The id is short,
+opaque, and assigned at creation; it is never derived from the title.
+</hick:copy>
+
+<hick:copy id="r-list">
+`todo list` prints every task in creation order as `<id> <state> <title>`.
+Dropped tasks are included — retaining them is pointless if the default view
+hides them. `--state open|done|dropped` filters.
+</hick:copy>
+
+<hick:copy id="r-done">
+`todo done <id>` moves a task to done. `todo drop <id>` moves it to dropped.
+Both are idempotent: re-running on a task already in that state succeeds and
+changes nothing, so a retried command is never an error.
+</hick:copy>
+
+<hick:copy id="r-storage">
+Tasks persist to `tasks.json` in the working directory, created on first
+write. A missing file reads as an empty list, not an error — the first run of
+a fresh install must behave like every later run.
+</hick:copy>
+
+<hick:file path="work/task-add.task.md">
+---
+slug: task-add
+title: Create a task
+status: todo
+---
+
+<hick:paste select="#r-add" />
+</hick:file>
+
+<hick:file path="work/task-list.task.md">
+---
+slug: task-list
+title: List tasks
+status: todo
+---
+
+<hick:paste select="#r-list" />
+</hick:file>
+
+<hick:file path="work/task-transitions.task.md">
+---
+slug: task-transitions
+title: Complete and drop tasks
+status: todo
+---
+
+<hick:paste select="#r-done" />
+</hick:file>
+
+<hick:file path="work/task-storage.task.md">
+---
+slug: task-storage
+title: Persist tasks to disk
+status: todo
+---
+
+<hick:paste select="#r-storage" />
+</hick:file>
+</hick:doc>
