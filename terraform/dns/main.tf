@@ -6,11 +6,11 @@
 # subdomain, so it is described here alongside production rather than in a
 # parallel copy of the same zone.
 #
-# The zone predates this configuration and is not empty. Everything already in
-# it is declared below and must be IMPORTED before the first apply — see
-# docs/operators/dns.md. Applying without importing would append a second set
-# of apex records rather than replacing the existing ones, and the domain would
-# round-robin between Fly and an origin that is not there.
+# The zone's previous contents are disposable and are cleared by hand before
+# the first apply — see docs/operators/dns.md. That is why nothing here is
+# imported: starting from an empty zone means this file is the whole truth
+# about it, which is the only state in which "the config describes the zone" is
+# actually a true sentence.
 
 # --- the app -----------------------------------------------------------------
 
@@ -54,39 +54,15 @@ resource "cloudflare_dns_record" "www_v6" {
   comment = "Fly.io ingress — hickory-docs-production"
 }
 
-# --- inbound mail (pre-existing) ---------------------------------------------
+# --- inbound mail ------------------------------------------------------------
 #
-# Porkbun email forwarding. Declared here because this file claims to describe
-# the zone, and a config that silently omits live records is worse than no
-# config: the next person reads it as complete and removes what they cannot
-# see. Sending (SendGrid) and receiving (Porkbun) are different directions and
-# coexist fine.
-
-resource "cloudflare_dns_record" "mx_primary" {
-  zone_id  = var.zone_id
-  name     = "hickorydocs.com"
-  type     = "MX"
-  content  = "fwd1.porkbun.com"
-  priority = 10
-  ttl      = 1
-  comment  = "Porkbun email forwarding — do not remove without moving inbound mail"
-}
-
-resource "cloudflare_dns_record" "mx_secondary" {
-  zone_id  = var.zone_id
-  name     = "hickorydocs.com"
-  type     = "MX"
-  content  = "fwd2.porkbun.com"
-  priority = 20
-  ttl      = 1
-  comment  = "Porkbun email forwarding — do not remove without moving inbound mail"
-}
-
-resource "cloudflare_dns_record" "spf" {
-  zone_id = var.zone_id
-  name    = "hickorydocs.com"
-  type    = "TXT"
-  content = "\"v=spf1 include:_spf.porkbun.com ~all\""
-  ttl     = 1
-  comment = "SPF. SendGrid authenticates its own return-path subdomain, so outbound mail does not need an include here — check what SendGrid asks for rather than editing this by hand."
-}
+# Deliberately empty. The zone previously carried Porkbun forwarding
+# (fwd1/fwd2.porkbun.com plus an SPF include); that is being replaced and is
+# not re-declared here, because declaring it would recreate exactly what is
+# meant to go away.
+#
+# When the mail provider is configured, its MX / SPF / DKIM records belong
+# HERE rather than in the dashboard, so this file keeps describing the whole
+# zone. Add them from what the provider's setup screen asks for — do not
+# hand-write SPF, and take care that adding a second sending service means
+# ONE merged SPF record, never two TXT records each claiming to be SPF.

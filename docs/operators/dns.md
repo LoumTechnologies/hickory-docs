@@ -7,16 +7,19 @@ a gate rather than a branch push.
 
 ## Read this before the first apply
 
-**The zone is not empty, and Terraform does not know about it yet.**
+**Clear the zone first.** Cloudflare currently holds apex and `www` records
+pointing at its own proxy, a wildcard `*.hickorydocs.com`, Porkbun MX records
+and an SPF TXT record. None of it is in use, and all of it is going away.
 
-Cloudflare currently holds apex and `www` records pointing at its own proxy,
-Porkbun MX records, an SPF TXT record, and a **wildcard `*.hickorydocs.com`**.
-`terraform/dns/main.tf` declares everything except the wildcard.
+This matters mechanically, not just tidily: Cloudflare permits several A
+records on one name, so applying over the existing apex records would **add**
+Fly's addresses beside them rather than replace them. The domain would then
+round-robin between Fly and an origin that is not there, and roughly half of
+all requests would fail.
 
-Cloudflare permits several A records on one name, so an apply against an
-un-imported zone would **add** Fly's addresses beside the existing ones rather
-than replace them. The domain would then round-robin between Fly and an origin
-that is not there, and roughly half of all requests would fail. Import first.
+Deleting the old records first — rather than importing them — is what lets
+`terraform/dns/main.tf` be the whole truth about this zone. Nothing is
+imported, so there is no hidden state to reconcile later.
 
 ## One-time bootstrap
 
@@ -45,45 +48,44 @@ far larger blast radius than this stack needs.
 **4. A `production` GitHub Environment** with whatever reviewers you want. The
 apply job targets it, so it cannot run until they approve.
 
-**5. Import what already exists.**
+**5. Empty the zone.** In Cloudflare → DNS, delete every record except the
+nameservers: the apex A/AAAA, the `www` records, the wildcard, the two Porkbun
+MX records, and the SPF TXT. (Check nothing else is using the domain first —
+`dig hickorydocs.com ANY` and a look at the dashboard.)
+
+**6. First plan and apply.**
 
 ```sh
 cd terraform/dns
 export CLOUDFLARE_API_TOKEN=...  AWS_ACCESS_KEY_ID=...  AWS_SECRET_ACCESS_KEY=...
 export TF_VAR_zone_id=...
 terraform init -backend-config="endpoints={s3=\"https://<account-id>.r2.cloudflarestorage.com\"}"
-
-# List the live records and their ids:
-curl -s -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
-  "https://api.cloudflare.com/client/v4/zones/$TF_VAR_zone_id/dns_records" \
-  | python3 -m json.tool | grep -E '"id"|"name"|"type"|"content"'
-
-# Then, for each one (id from above):
-terraform import cloudflare_dns_record.apex_v4     "$TF_VAR_zone_id/<record-id>"
-terraform import cloudflare_dns_record.apex_v6     "$TF_VAR_zone_id/<record-id>"
-terraform import cloudflare_dns_record.www_v4      "$TF_VAR_zone_id/<record-id>"
-terraform import cloudflare_dns_record.www_v6      "$TF_VAR_zone_id/<record-id>"
-terraform import cloudflare_dns_record.mx_primary  "$TF_VAR_zone_id/<record-id>"
-terraform import cloudflare_dns_record.mx_secondary "$TF_VAR_zone_id/<record-id>"
-terraform import cloudflare_dns_record.spf         "$TF_VAR_zone_id/<record-id>"
-
-terraform plan   # apex/www should show IN-PLACE UPDATES, never creations
+terraform plan    # four creations: apex A/AAAA and www A/AAAA. Nothing else.
 ```
 
-**A plan that wants to *create* apex or www records means the import did not
-take.** Stop and fix it rather than applying.
+Then apply through the workflow (Actions → Terraform → Run workflow → apply)
+so the first change goes through the same gate every later one does.
+
+**A plan showing anything other than those four creations means the zone was
+not emptied.** Stop and look rather than applying.
+
+## Mail records
+
+The zone carries no mail records at all right now — the Porkbun forwarding that
+used to be there is being replaced and was not carried over.
+
+When the provider is configured, **put its records in `terraform/dns/main.tf`**
+rather than the dashboard, under the "inbound mail" heading that is waiting for
+them. Two things to get right:
+
+- **Take the records from the provider's setup screen.** Do not hand-write SPF
+  or DKIM.
+- **One SPF record, ever.** A domain with two TXT records that each begin
+  `v=spf1` is a domain that fails SPF everywhere — if two services send as
+  `@hickorydocs.com`, their includes merge into a single record.
 
 ## Records not managed here, and why
 
-- **The wildcard `*.hickorydocs.com`.** Every name resolves today
-  (`random123.hickorydocs.com` answers), so a wildcard exists. It is not
-  declared because its intent is unknown — deleting it could break something
-  outside this repo. Decide what it is for, then either bring it in or remove
-  it. Explicit records win over a wildcard, so it does not block anything here.
-- **SendGrid's authentication records.** Domain authentication generates CNAMEs
-  on a per-account subdomain (`em####`, plus two DKIM names). Add whatever
-  SendGrid's UI asks for; do not hand-write them, and do not edit the root SPF
-  to compensate — SendGrid authenticates its own return-path subdomain.
 - **Fly's ACME challenge.** Handled by Fly against the A/AAAA records; nothing
   to add.
 
