@@ -837,12 +837,16 @@ async fn test_guide_hick_file_processes() {
         result.containers.contains_key("guide-verifier"),
         "guide-verifier container should be defined"
     );
+    // Relative, not `/out/...`: mounts resolve UNDER the container workdir on
+    // both executors, so an absolute path in a COMMAND reaches the real
+    // filesystem root and fails. This assertion previously pinned the broken
+    // spelling, which is how the guide shipped failing `hickory check`.
     assert!(
-        guide.contains("$ cat /out/stamp.txt"),
+        guide.contains("$ cat out/stamp.txt"),
         "dry-run transcript for guide-verifier should appear in output, got: {guide}"
     );
     assert!(
-        guide.contains("echo \"Built by hick\" > /out/stamp.txt"),
+        guide.contains("echo \"Built by hick\" > out/stamp.txt"),
         "pasted build-cmd should appear in output"
     );
 }
