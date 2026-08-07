@@ -5,10 +5,12 @@
 pub mod analytics;
 pub mod auth;
 pub mod config;
+pub mod email_tokens;
 pub mod error;
 pub mod executor;
 pub mod gitstore;
 pub mod lsp;
+pub mod mail;
 pub mod plans;
 pub mod render_cache;
 pub mod routes;
@@ -42,6 +44,10 @@ pub struct AppState {
     pub http: reqwest::Client,
     /// Bounded in-process cache of woven block models (see `render_cache`).
     pub renders: Arc<render_cache::RenderCache>,
+    /// Transactional email. A `NullMailer` when unconfigured, which reports
+    /// `is_configured() == false` so verification is not *required* on a
+    /// deployment that cannot send it.
+    pub mailer: Arc<dyn mail::Mailer>,
 }
 
 pub static MIGRATOR: sqlx::migrate::Migrator = sqlx::migrate!("./migrations");
@@ -62,7 +68,17 @@ pub fn build_state(mut config: Config, db: sqlx::PgPool) -> Result<AppState> {
     let git = gitstore::GitStore::new(&config.git_data_dir)?;
     let catalog = Arc::new(plans::Catalog::load().context("parsing embedded plans.json")?);
     let analytics = analytics::Analytics::new(config.posthog.clone());
+    let mailer: Arc<dyn mail::Mailer> = match &config.sendgrid {
+        Some(sg) => Arc::new(mail::SendGridMailer::new(
+            sg.api_key.clone(),
+            sg.from_email.clone(),
+            sg.from_name.clone(),
+        )),
+        None => Arc::new(mail::NullMailer),
+    };
+
     Ok(AppState {
+        mailer,
         config: Arc::new(config),
         db,
         git,
@@ -80,6 +96,13 @@ pub fn build_router(state: AppState) -> Router {
         .route("/auth/signup", post(routes::auth::signup))
         .route("/auth/login", post(routes::auth::login))
         .route("/me", get(routes::auth::me))
+        .route("/auth/verify/send", post(routes::auth::send_verification))
+        .route(
+            "/auth/verify/confirm",
+            post(routes::auth::confirm_verification),
+        )
+        .route("/auth/reset/request", post(routes::auth::request_reset))
+        .route("/auth/reset/confirm", post(routes::auth::confirm_reset))
         .route(
             "/projects",
             get(routes::projects::list_projects).post(routes::projects::create_project),

@@ -68,11 +68,13 @@ pub struct User {
     pub plan_key: String,
     pub price_key: Option<String>,
     pub billing_status: String,
+    pub email_verified: bool,
 }
 
 pub async fn load_user(state: &AppState, id: Uuid) -> Result<User, ApiError> {
     sqlx::query_as::<_, User>(
-        "SELECT id, email, plan_key, price_key, billing_status FROM users WHERE id = $1",
+        "SELECT id, email, plan_key, price_key, billing_status, email_verified \
+         FROM users WHERE id = $1",
     )
     .bind(id)
     .fetch_optional(&state.db)

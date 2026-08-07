@@ -47,6 +47,12 @@ impl ApiError {
     pub fn unprocessable(msg: impl Into<String>) -> Self {
         Self::new(StatusCode::UNPROCESSABLE_ENTITY, msg)
     }
+    /// Too Many Requests (429), used by the mail endpoints — an uncapped
+    /// send is a free mail cannon aimed at any address an attacker names.
+    pub fn too_many_requests(msg: impl Into<String>) -> Self {
+        Self::new(StatusCode::TOO_MANY_REQUESTS, msg)
+    }
+
     pub fn service_unavailable(msg: impl Into<String>) -> Self {
         Self::new(StatusCode::SERVICE_UNAVAILABLE, msg)
     }

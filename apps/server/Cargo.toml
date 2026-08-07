@@ -16,6 +16,7 @@ path = "src/lib.rs"
 [dependencies]
 anyhow = "1"
 argon2 = "0.5"
+base64 = "0.22"
 async-trait = "0.1"
 axum = { version = "0.8", features = ["ws", "macros"] }
 chrono = { version = "0.4", features = ["serde"] }

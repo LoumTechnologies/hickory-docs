@@ -43,6 +43,14 @@ impl ExecutorKind {
 }
 
 #[derive(Debug, Clone)]
+pub struct SendGridConfig {
+    pub api_key: String,
+    /// Sender address. Must be a verified sender identity in SendGrid.
+    pub from_email: String,
+    pub from_name: String,
+}
+
+#[derive(Debug, Clone)]
 pub struct StripeConfig {
     pub secret_key: String,
     pub webhook_secret: Option<String>,
@@ -76,6 +84,8 @@ pub struct Config {
     /// The selected provider, set whether or not a key was found, so the
     /// 503 can name the variable that is actually missing.
     pub agent_provider: String,
+    /// `None` → email cannot be sent; verification is not required.
+    pub sendgrid: Option<SendGridConfig>,
     /// Who may create an account. Empty = anyone.
     ///
     /// A public deployment with open signup, unverified emails, and container
@@ -187,6 +197,32 @@ impl Config {
             );
         }
 
+        // MAIL_FROM must be an address SendGrid has authenticated for this
+        // account, or every send is rejected. There is no sensible default,
+        // so an API key without one is a configuration error rather than a
+        // silent fallback to something that cannot deliver.
+        let sendgrid = match env_opt("SENDGRID_API_KEY") {
+            Some(api_key) => {
+                let from_email = env_opt("MAIL_FROM").context(
+                    "SENDGRID_API_KEY is set but MAIL_FROM is not — it must be an address \
+                     verified as a sender identity in your SendGrid account",
+                )?;
+                Some(SendGridConfig {
+                    api_key,
+                    from_email,
+                    from_name: env_opt("MAIL_FROM_NAME")
+                        .unwrap_or_else(|| "Hickory Docs".to_string()),
+                })
+            }
+            None => {
+                log::info!(
+                    "email not configured (SENDGRID_API_KEY unset); verification and password \
+                     reset are disabled"
+                );
+                None
+            }
+        };
+
         let stripe = match env_opt("STRIPE_SECRET_KEY") {
             Some(secret_key) => {
                 if app_env == AppEnv::Production && !secret_key.starts_with("sk_live_") {
@@ -253,6 +289,7 @@ impl Config {
             plan_set: env_opt("PLAN_SET"),
             agent_llm,
             agent_provider: provider,
+            sendgrid,
             signup_allowlist: parse_allowlist(env_opt("SIGNUP_ALLOWLIST").as_deref()),
         })
     }

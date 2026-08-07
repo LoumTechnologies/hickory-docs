@@ -8,7 +8,9 @@ use uuid::Uuid;
 
 use crate::AppState;
 use crate::auth::{AuthUser, hash_password, issue_token, verify_password};
+use crate::email_tokens;
 use crate::error::{ApiError, ApiResult};
+use crate::mail::Message;
 
 #[derive(Deserialize)]
 pub struct Credentials {
@@ -111,4 +113,189 @@ pub async fn login(
 
 pub async fn me(AuthUser(user): AuthUser) -> Json<Value> {
     Json(user_json(user.id, &user.email, &user.plan_key))
+}
+
+// ---------------------------------------------------------------------------
+// Email verification and password reset
+// ---------------------------------------------------------------------------
+
+/// How many links of one purpose a user may be sent per hour.
+///
+/// Without a cap the send endpoint is a free mail cannon pointed at whatever
+/// address is named, and a sending domain's reputation is not recoverable on
+/// the timescale that matters.
+const MAX_SENDS_PER_HOUR: i64 = 5;
+
+/// Send (or re-send) a verification link to the authenticated user.
+pub async fn send_verification(
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
+) -> ApiResult<Json<Value>> {
+    if !state.mailer.is_configured() {
+        return Err(ApiError::service_unavailable(
+            "email is not configured on this instance (SENDGRID_API_KEY unset)",
+        ));
+    }
+    let already: Option<(bool,)> = sqlx::query_as("SELECT email_verified FROM users WHERE id = $1")
+        .bind(user.id)
+        .fetch_optional(&state.db)
+        .await?;
+    if already.map(|(v,)| v).unwrap_or(false) {
+        return Ok(Json(json!({ "status": "already_verified" })));
+    }
+
+    let since = chrono::Utc::now() - chrono::Duration::hours(1);
+    if email_tokens::issued_since(&state.db, user.id, email_tokens::Purpose::Verify, since).await?
+        >= MAX_SENDS_PER_HOUR
+    {
+        return Err(ApiError::too_many_requests(
+            "too many verification emails requested; try again later",
+        ));
+    }
+
+    let token = email_tokens::issue(&state.db, user.id, email_tokens::Purpose::Verify).await?;
+    let link = format!(
+        "{}/#/verify?token={token}",
+        state.config.app_base_url.trim_end_matches('/')
+    );
+    send_or_log(
+        &state,
+        Message {
+            to: user.email.clone(),
+            subject: "Confirm your email".to_string(),
+            body: format!(
+                "Confirm your address to finish setting up your Hickory Docs account:\n\n\
+                 {link}\n\nThe link is good for 24 hours. If you did not create an \
+                 account, ignore this message."
+            ),
+        },
+    )
+    .await;
+    Ok(Json(json!({ "status": "sent" })))
+}
+
+#[derive(Deserialize)]
+pub struct TokenBody {
+    pub token: String,
+}
+
+/// Redeem a verification link.
+pub async fn confirm_verification(
+    State(state): State<AppState>,
+    Json(body): Json<TokenBody>,
+) -> ApiResult<Json<Value>> {
+    let Some(user_id) =
+        email_tokens::redeem(&state.db, &body.token, email_tokens::Purpose::Verify).await?
+    else {
+        // One message for unknown, expired, already-used, and wrong-purpose:
+        // distinguishing them tells an attacker which tokens exist.
+        return Err(ApiError::bad_request(
+            "this link is invalid or has expired; request a new one",
+        ));
+    };
+    sqlx::query("UPDATE users SET email_verified = true WHERE id = $1")
+        .bind(user_id)
+        .execute(&state.db)
+        .await?;
+    Ok(Json(json!({ "status": "verified" })))
+}
+
+#[derive(Deserialize)]
+pub struct EmailBody {
+    pub email: String,
+}
+
+/// Begin a password reset.
+///
+/// Always answers 200, whether or not the address has an account. Anything
+/// else turns this endpoint into an account-existence oracle, which is the
+/// classic way a reset flow leaks the user list.
+pub async fn request_reset(
+    State(state): State<AppState>,
+    Json(body): Json<EmailBody>,
+) -> ApiResult<Json<Value>> {
+    let email = body.email.trim().to_lowercase();
+    let found: Option<(Uuid,)> = sqlx::query_as("SELECT id FROM users WHERE email = $1")
+        .bind(&email)
+        .fetch_optional(&state.db)
+        .await?;
+
+    if let Some((user_id,)) = found
+        && state.mailer.is_configured()
+    {
+        let since = chrono::Utc::now() - chrono::Duration::hours(1);
+        let recent =
+            email_tokens::issued_since(&state.db, user_id, email_tokens::Purpose::Reset, since)
+                .await?;
+        if recent < MAX_SENDS_PER_HOUR {
+            let token =
+                email_tokens::issue(&state.db, user_id, email_tokens::Purpose::Reset).await?;
+            let link = format!(
+                "{}/#/reset?token={token}",
+                state.config.app_base_url.trim_end_matches('/')
+            );
+            send_or_log(
+                &state,
+                Message {
+                    to: email.clone(),
+                    subject: "Reset your password".to_string(),
+                    body: format!(
+                        "Use this link to choose a new password:\n\n{link}\n\n\
+                         The link is good for one hour and can be used once. If you did \
+                         not ask for this, ignore this message — your password has not \
+                         changed."
+                    ),
+                },
+            )
+            .await;
+        }
+    }
+    Ok(Json(json!({ "status": "sent" })))
+}
+
+#[derive(Deserialize)]
+pub struct ResetBody {
+    pub token: String,
+    pub password: String,
+}
+
+/// Complete a password reset.
+pub async fn confirm_reset(
+    State(state): State<AppState>,
+    Json(body): Json<ResetBody>,
+) -> ApiResult<Json<Value>> {
+    if body.password.len() < 8 {
+        return Err(ApiError::bad_request(
+            "password must be at least 8 characters",
+        ));
+    }
+    let Some(user_id) =
+        email_tokens::redeem(&state.db, &body.token, email_tokens::Purpose::Reset).await?
+    else {
+        return Err(ApiError::bad_request(
+            "this link is invalid or has expired; request a new one",
+        ));
+    };
+    let hash = hash_password(&body.password)?;
+    // Completing a reset proves control of the mailbox, so it also settles
+    // the verification question — leaving the account unverified afterwards
+    // would be asking for the same proof twice.
+    sqlx::query("UPDATE users SET password_hash = $1, email_verified = true WHERE id = $2")
+        .bind(&hash)
+        .bind(user_id)
+        .execute(&state.db)
+        .await?;
+    Ok(Json(json!({ "status": "reset" })))
+}
+
+/// Send, logging failures rather than propagating them.
+///
+/// A provider outage must not fail the request: the user's account exists and
+/// the send endpoint is retryable, so a 500 here would lose more than it
+/// protects.
+async fn send_or_log(state: &AppState, message: Message) {
+    let to = message.to.clone();
+    if let Err(e) = state.mailer.send(message).await {
+        log::error!("failed to send mail to {to}: {e:#}");
+    }
 }

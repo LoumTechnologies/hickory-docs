@@ -21,6 +21,7 @@ struct TestApp {
     _git_dir: tempfile::TempDir,
     git: hickory_server::gitstore::GitStore,
     renders: Arc<hickory_server::render_cache::RenderCache>,
+    mailer: Arc<hickory_server::mail::CapturingMailer>,
 }
 
 fn repo_root() -> std::path::PathBuf {
@@ -89,10 +90,15 @@ async fn setup_with_agent(agent_key: Option<String>) -> TestApp {
         }),
         agent_provider: "anthropic".to_string(),
         signup_allowlist: Vec::new(),
+        sendgrid: None,
     };
 
     let db = hickory_server::init_db(&test_url).await.unwrap();
-    let state = build_state(config, db.clone()).unwrap();
+    let mut state = build_state(config, db.clone()).unwrap();
+    // Capture mail instead of sending it: the verification tests assert on
+    // the link, and a test suite must never touch a real provider.
+    let mailer = Arc::new(hickory_server::mail::CapturingMailer::new());
+    state.mailer = mailer.clone();
     let git = state.git.clone();
     let renders = state.renders.clone();
     let router = build_router(state);
@@ -111,6 +117,7 @@ async fn setup_with_agent(agent_key: Option<String>) -> TestApp {
         _git_dir: git_dir,
         git,
         renders,
+        mailer,
     }
 }
 
@@ -157,10 +164,47 @@ impl TestApp {
             )
             .await;
         assert_eq!(status, 200, "signup failed: {v}");
+        let id = v["user"]["id"].as_str().unwrap().to_string();
+        // Most tests are about documents and execution, not about proving an
+        // address, so this helper hands back a VERIFIED account. The
+        // verification flow itself is tested through the real endpoints in
+        // `email_verification.rs`, which deliberately does not use this.
+        sqlx::query("UPDATE users SET email_verified = true WHERE id = $1")
+            .bind(uuid::Uuid::parse_str(&id).unwrap())
+            .execute(&self.db)
+            .await
+            .unwrap();
+        (v["token"].as_str().unwrap().to_string(), id)
+    }
+
+    /// Sign up WITHOUT marking the account verified — for the tests that
+    /// exercise verification itself.
+    async fn signup_unverified(&self, email: &str) -> (String, String) {
+        let (status, v) = self
+            .post(
+                "/api/auth/signup",
+                None,
+                json!({ "email": email, "password": "password123" }),
+            )
+            .await;
+        assert_eq!(status, 200, "signup failed: {v}");
         (
             v["token"].as_str().unwrap().to_string(),
             v["user"]["id"].as_str().unwrap().to_string(),
         )
+    }
+
+    /// The token out of the most recent mail, pulled from the link.
+    fn last_token(&self) -> String {
+        let sent = self.mailer.sent();
+        let body = &sent.last().expect("no mail was sent").body;
+        body.split("token=")
+            .nth(1)
+            .expect("no token= in the link")
+            .split_whitespace()
+            .next()
+            .unwrap()
+            .to_string()
     }
 }
 
@@ -2042,4 +2086,206 @@ async fn the_signup_allowlist_admits_exactly_who_it_should() {
         "x@y.z",
         &parse_allowlist(Some("  "))
     ));
+}
+
+// ---------------------------------------------------------------------------
+// Email verification and password reset
+// ---------------------------------------------------------------------------
+
+/// Verification gates EXECUTION, not login.
+///
+/// Guarantee: docs/guarantees/collaboration/an-unproven-address-cannot-run-code.md
+#[tokio::test]
+async fn an_unverified_account_can_read_and_write_but_not_run() {
+    let app = setup().await;
+    let (token, _) = app.signup_unverified("unverified@test.dev").await;
+
+    // Reading and writing cost nothing and reach nobody, so they stay open —
+    // otherwise someone whose mail is slow cannot even look around.
+    let (status, project) = app
+        .post(
+            "/api/projects",
+            Some(&token),
+            json!({ "name": "p", "visibility": "private" }),
+        )
+        .await;
+    assert_eq!(
+        status, 201,
+        "an unverified user must still create projects: {project}"
+    );
+    let pid = project["id"].as_str().unwrap();
+
+    let (status, doc) = app
+        .post(
+            &format!("/api/projects/{pid}/docs"),
+            Some(&token),
+            json!({ "path": "d.hick", "source": TEST_DOC }),
+        )
+        .await;
+    assert_eq!(status, 201, "writing documents must stay open: {doc}");
+
+    // Running code costs compute — that is the lever an abuser wants, so
+    // that is where the proof is required.
+    let (status, body) = app
+        .post(
+            &format!("/api/docs/{}/run", doc["id"].as_str().unwrap()),
+            Some(&token),
+            json!({}),
+        )
+        .await;
+    assert_eq!(status, 403, "an unproven address must not run code: {body}");
+    assert!(
+        body["error"]
+            .as_str()
+            .unwrap()
+            .contains("confirm your email"),
+        "the refusal must say what to do: {body}"
+    );
+}
+
+#[tokio::test]
+async fn verifying_an_address_unlocks_execution() {
+    let app = setup().await;
+    let (token, _) = app.signup_unverified("confirm@test.dev").await;
+
+    let (status, v) = app
+        .post("/api/auth/verify/send", Some(&token), json!({}))
+        .await;
+    assert_eq!(status, 200, "{v}");
+    assert_eq!(app.mailer.sent().len(), 1, "no mail was sent");
+    assert_eq!(app.mailer.sent()[0].to, "confirm@test.dev");
+
+    let link_token = app.last_token();
+    let (status, v) = app
+        .post(
+            "/api/auth/verify/confirm",
+            None,
+            json!({ "token": link_token }),
+        )
+        .await;
+    assert_eq!(status, 200, "{v}");
+    assert_eq!(v["status"], "verified");
+
+    // Single use: a link sitting in an inbox or a mail archive must not stay
+    // live once it has been redeemed.
+    let (status, v) = app
+        .post(
+            "/api/auth/verify/confirm",
+            None,
+            json!({ "token": link_token }),
+        )
+        .await;
+    assert_eq!(status, 400, "a redeemed link must not work twice: {v}");
+}
+
+#[tokio::test]
+async fn a_verification_token_cannot_reset_a_password() {
+    // Purpose is part of the redemption lookup. Without it, anyone who could
+    // obtain a verification link could take over the account.
+    let app = setup().await;
+    let (token, _) = app.signup_unverified("purpose@test.dev").await;
+    app.post("/api/auth/verify/send", Some(&token), json!({}))
+        .await;
+    let verify_token = app.last_token();
+
+    let (status, v) = app
+        .post(
+            "/api/auth/reset/confirm",
+            None,
+            json!({ "token": verify_token, "password": "a-new-password" }),
+        )
+        .await;
+    assert_eq!(status, 400, "a verify token must not reset a password: {v}");
+}
+
+#[tokio::test]
+async fn password_reset_round_trips_and_never_reveals_who_has_an_account() {
+    let app = setup().await;
+    app.signup_unverified("resetme@test.dev").await;
+
+    // An unknown address must answer exactly like a known one, or this
+    // endpoint becomes an account-existence oracle.
+    let (unknown_status, unknown_body) = app
+        .post(
+            "/api/auth/reset/request",
+            None,
+            json!({ "email": "nobody@test.dev" }),
+        )
+        .await;
+    let (known_status, known_body) = app
+        .post(
+            "/api/auth/reset/request",
+            None,
+            json!({ "email": "resetme@test.dev" }),
+        )
+        .await;
+    assert_eq!(unknown_status, known_status);
+    assert_eq!(
+        unknown_body, known_body,
+        "the responses must be indistinguishable"
+    );
+    assert_eq!(
+        app.mailer.sent().len(),
+        1,
+        "mail must go only to the address that exists"
+    );
+
+    let reset_token = app.last_token();
+    let (status, v) = app
+        .post(
+            "/api/auth/reset/confirm",
+            None,
+            json!({ "token": reset_token, "password": "a-brand-new-password" }),
+        )
+        .await;
+    assert_eq!(status, 200, "{v}");
+
+    // The new password works and the old one does not.
+    let (status, _) = app
+        .post(
+            "/api/auth/login",
+            None,
+            json!({ "email": "resetme@test.dev", "password": "a-brand-new-password" }),
+        )
+        .await;
+    assert_eq!(status, 200, "the new password must work");
+    let (status, _) = app
+        .post(
+            "/api/auth/login",
+            None,
+            json!({ "email": "resetme@test.dev", "password": "password123" }),
+        )
+        .await;
+    assert_eq!(status, 401, "the old password must stop working");
+
+    // Completing a reset proves control of the mailbox, so it settles
+    // verification too — asking for the same proof twice is pointless.
+    let (verified,): (bool,) =
+        sqlx::query_as("SELECT email_verified FROM users WHERE email = 'resetme@test.dev'")
+            .fetch_one(&app.db)
+            .await
+            .unwrap();
+    assert!(verified, "a completed reset must also verify the address");
+}
+
+#[tokio::test]
+async fn verification_sends_are_rate_limited() {
+    // Uncapped, this endpoint is a free mail cannon aimed at whatever address
+    // is named, and a sending domain's reputation does not recover quickly.
+    let app = setup().await;
+    let (token, _) = app.signup_unverified("flood@test.dev").await;
+
+    let mut last = 0;
+    for _ in 0..8 {
+        let (status, _) = app
+            .post("/api/auth/verify/send", Some(&token), json!({}))
+            .await;
+        last = status;
+    }
+    assert_eq!(last, 429, "sends must be capped");
+    assert!(
+        app.mailer.sent().len() <= 5,
+        "more mail went out than the cap allows: {}",
+        app.mailer.sent().len()
+    );
 }

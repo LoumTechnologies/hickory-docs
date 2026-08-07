@@ -42,6 +42,30 @@ Optional: `STRIPE_SECRET_KEY` / `STRIPE_WEBHOOK_SECRET` (billing endpoints
 answer 503 when unset), `POSTHOG_API_KEY`, and `HICKORY_LLM_PROVIDER` +
 that provider's key.
 
+## Email and who may sign up
+
+```sh
+fly secrets set \
+  SENDGRID_API_KEY='SG.…' \
+  MAIL_FROM='noreply@yourdomain.com' \
+  MAIL_FROM_NAME='Hickory Docs' \
+  SIGNUP_ALLOWLIST='you@yourdomain.com,@yourcompany.com'
+```
+
+`MAIL_FROM` must be an address SendGrid has authenticated as a sender identity
+for your account, or every send is rejected. Setting the key without it is a
+startup error rather than a silent failure to deliver.
+
+With email configured, an account must confirm its address before it can run
+documents or start an agent — reading and writing stay open. Without it, that
+gate is a no-op, because a deployment cannot require proof it has no way to
+request.
+
+`SIGNUP_ALLOWLIST` accepts exact addresses and whole domains (`@example.com`).
+Unset means anyone may sign up. **On a public deployment, set one.** Until the
+web app has a verification screen, the allowlist is the practical gate: the URL
+is public, and an account that gets past signup can execute code.
+
 ## Execution: read this before you rely on it
 
 `fly.toml` sets `HICKORY_EXECUTOR=docker`, which is the executor that makes a

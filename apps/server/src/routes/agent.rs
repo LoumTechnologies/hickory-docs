@@ -125,6 +125,7 @@ pub async fn start_agent(
         return Err(ApiError::bad_request("prompt required"));
     }
     // Agent runs execute through the same metered executor time.
+    crate::runs::check_email_verified(&state, &user)?;
     crate::runs::check_exec_quota(&state, &user).await?;
 
     // The conversation so far, along the branch this message continues.

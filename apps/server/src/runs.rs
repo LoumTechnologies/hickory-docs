@@ -39,6 +39,27 @@ fn month_key() -> String {
     Utc::now().format("%Y-%m").to_string()
 }
 
+/// Refuse execution to an account whose address has never been proven.
+///
+/// The gate is on EXECUTION, not on login. Someone with an unconfirmed
+/// address can still sign in, read, and write documents — the things that
+/// cost nothing and reach nobody. Running code costs compute and is the lever
+/// an abuser actually wants, so that is where the proof is required.
+///
+/// A deployment with no mailer configured cannot require what it cannot send,
+/// so this is a no-op there rather than a lockout caused by one unset
+/// environment variable.
+pub fn check_email_verified(state: &AppState, user: &User) -> ApiResult<()> {
+    if !state.mailer.is_configured() || user.email_verified {
+        return Ok(());
+    }
+    Err(ApiError::new(
+        StatusCode::FORBIDDEN,
+        "confirm your email address before running documents — \
+         POST /api/auth/verify/send to get a new link",
+    ))
+}
+
 /// Enforce the execution-minutes quota (hard stop + upgrade prompt).
 pub async fn check_exec_quota(state: &AppState, user: &User) -> ApiResult<()> {
     let ents = plans::resolve(
@@ -90,6 +111,7 @@ pub async fn start_run(
     user: &User,
     kind: RunKind,
 ) -> ApiResult<Uuid> {
+    check_email_verified(state, user)?;
     check_exec_quota(state, user).await?;
 
     // Fail fast on unparseable docs so the client gets a 422, not a
