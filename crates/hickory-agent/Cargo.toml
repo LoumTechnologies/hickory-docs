@@ -4,6 +4,7 @@ version = "0.1.0"
 edition.workspace = true
 publish.workspace = true
 description = "Script-first ReAct agent whose sessions are literate hick:session documents"
+license.workspace = true
 
 [dependencies]
 anyhow = "1"

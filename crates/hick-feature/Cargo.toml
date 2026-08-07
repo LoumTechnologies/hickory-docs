@@ -3,6 +3,7 @@ name = "hick-feature"
 version = "0.1.0"
 edition = "2024"
 description = "Feature system with dependency validation for conditional code generation"
+license.workspace = true
 
 [lib]
 name = "hick_feature"

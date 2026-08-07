@@ -41,14 +41,35 @@ apple,9
 diff — if the tool's behavior ever changes. `match="regex-lines"` handles
 timestamps and hashes.
 
-## Try it
+## Install
+
+Hickory is a single binary you run on your own machine. There is no service to
+sign up for and nothing phones home.
+
+```sh
+cargo install --git https://github.com/LoumTechnologies/hickory-docs hickory-cli
+```
+
+Or from a clone:
 
 ```sh
 git clone https://github.com/LoumTechnologies/hickory-docs
 cd hickory-docs
-cargo run -p hickory-cli -- run examples/text-tools-tour.hick
-cargo run -p hickory-cli -- check examples/
+cargo install --path crates/hickory-cli --locked
 ```
+
+Requires a recent stable Rust. That puts `hickory` on your PATH.
+
+## Try it
+
+```sh
+hickory run examples/text-tools-tour.hick
+hickory check examples/text-tools-tour.hick
+```
+
+That one needs only a POSIX shell. The other examples invoke more tools —
+local execution runs cells against your **host** toolchain, so see
+[examples/README.md](examples/README.md) for what each needs.
 
 The second example, `examples/bootstrap-ci.hick`, is a small statistical
 paper: it generates its data from a fixed seed, computes a bootstrap
@@ -73,6 +94,11 @@ computed from the data on every run.
 `hickory agent "add a section benchmarking sort vs awk"` runs an AI agent
 whose *entire session* — your prompt, its reasoning, every script it ran,
 every observation — is saved as a replayable `hick:session` document.
+
+Bring your own key. Anthropic, OpenAI, DeepSeek, and Grok are supported;
+`--provider` picks one and the matching `*_API_KEY` environment variable is
+read. An unknown provider or a missing key fails before the first request,
+naming the variable to set.
 `hickory promote` compacts a session into a clean pipeline: last-write wins,
 dead ends dropped. The agent's work product is a literate program in your git
 history, not a chat log that evaporated.
@@ -89,12 +115,14 @@ history, not a chat log that evaporated.
   `editors/zed-hick` — see
   [docs/users/editor-setup.md](docs/users/editor-setup.md). Using AI agents
   with either mode: [docs/users/ai-agents.md](docs/users/ai-agents.md).
-- The collaborative web app (notebook UI, live CRDT editing, hosted
-  execution) and Tauri iOS/Android shells are in `apps/` — hosted beta in
-  progress.
+- A collaborative web app (notebook UI, live CRDT editing) and Tauri
+  iOS/Android shells live in `apps/`. You can run the server yourself; it is
+  part of this repository and under the same licence. Hickory is not a
+  hosted service.
 - Local execution is **not sandboxed** — it runs your documents' commands as
-  your user, like `make`. Sandboxed execution is what the Cloud Canopy
-  backend is for.
+  your user, like `make`, and `image=` is recorded but ignored. Treat running
+  an untrusted document the way you would treat running an untrusted
+  Makefile. Sandboxed execution is what the Cloud Canopy backend is for.
 - This is not a Markdown preprocessor: documents are DAGs with containers,
   capabilities, forks, and volumes, so a doc can prove things like "the
   report generator never talks to the network."
@@ -106,6 +134,14 @@ history, not a chat log that evaporated.
 - `hickory weave <doc>` — render from cached transcripts without executing
 - `hickory agent "<prompt>"` — run an agent session (writes `sessions/*.hick`)
 - `hickory promote <session.hick>` — compact a session into a pipeline
+- `hickory refresh <doc>` — rewrite stale `hick:transform` passages
+- `hickory init` — install the pre-commit drift gate in a git repo
 - Language reference: `docs/` · Architecture: `docs/specs/freeform/architecture.md`
 
-MIT.
+## Licence
+
+GPL-3.0-or-later. See [LICENSE](LICENSE).
+
+Hickory is free software: you may run, study, share, and modify it. If you
+distribute a modified version, or run one as the basis of a network service
+you distribute, those changes must be available under the same licence.

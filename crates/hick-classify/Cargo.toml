@@ -3,6 +3,7 @@ name = "hick-classify"
 version = "0.1.0"
 edition = "2024"
 publish = false
+license.workspace = true
 
 [dependencies]
 serde = { version = "1", features = ["derive"] }

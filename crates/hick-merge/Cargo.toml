@@ -3,6 +3,7 @@ name = "hick-merge"
 version = "0.1.0"
 edition = "2024"
 publish = false
+license.workspace = true
 
 [dependencies]
 hick-store = { path = "../hick-store" }

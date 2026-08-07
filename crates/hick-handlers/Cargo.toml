@@ -2,6 +2,7 @@
 name = "hick-handlers"
 version = "0.1.0"
 edition = "2024"
+license.workspace = true
 
 [dependencies]
 hick-exec.workspace = true

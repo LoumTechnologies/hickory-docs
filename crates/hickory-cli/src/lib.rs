@@ -139,9 +139,29 @@ pub fn transform_input(doc: &hick_lang::HickDocument, select: &str) -> String {
 }
 
 /// Expand a path argument (file or directory) into `.hick` documents.
+///
+/// Expanding a DIRECTORY skips agent session documents. A session is a
+/// record of what an agent did, not a pipeline to re-run: it embeds the
+/// document that was under discussion, `hick:upstream` and all, so checking
+/// one resolves those edges relative to `sessions/` and fails on paths that
+/// were correct where they were written. `hickory check docs/` should not
+/// start failing the moment an agent runs in that tree.
+///
+/// Naming a session file EXPLICITLY still works — `hickory weave` on a
+/// session is a real thing to want.
 pub fn expand_docs(path: &Path) -> Result<Vec<PathBuf>> {
     let (files, _config) = expand_path_arg(path)?;
-    Ok(files)
+    if path.is_file() {
+        return Ok(files);
+    }
+    Ok(files
+        .into_iter()
+        .filter(|f| {
+            std::fs::read_to_string(f)
+                .map(|s| !hick_lang::is_session_source(&s))
+                .unwrap_or(true)
+        })
+        .collect())
 }
 
 /// Run one document. Each document gets its own executor instance so
@@ -165,6 +185,11 @@ pub async fn run_doc(
     // Not gated on the executor: both resolve mounts under the workdir.
     for warning in absolute_mount_warnings(&doc) {
         log::warn!("{}: {warning}", doc_path.display());
+    }
+    if executor_choice == ExecutorChoice::Local && mode == RunMode::Execute
+        && let Some(warning) = ignored_image_warning(&doc)
+    {
+        log::info!("{}: {warning}", doc_path.display());
     }
 
     let doc_name = doc_path.display().to_string();
@@ -441,6 +466,36 @@ pub fn absolute_mount_warnings(doc: &hick_lang::HickDocument) -> Vec<String> {
         }
     }
     out
+}
+
+/// Containers declaring an image the local executor will not honour.
+///
+/// `LocalExecutor` records `image=` and ignores it: cells run against the
+/// HOST toolchain. A document declaring `image="duckdb/duckdb:v1.5.5"` then
+/// fails with `duckdb: not found` on a machine without duckdb — an error
+/// that reads like a broken document rather than a missing local dependency,
+/// and it is the first thing a new user hits after `cargo install`.
+///
+/// One line per document, listing the images, so the reader knows which
+/// tools they are expected to have.
+pub fn ignored_image_warning(doc: &hick_lang::HickDocument) -> Option<String> {
+    let mut images: Vec<&str> = doc
+        .tags()
+        .filter(|t| t.name == "container")
+        .filter_map(|t| t.get_attribute("image"))
+        .filter(|i| *i != "host")
+        .collect();
+    images.sort_unstable();
+    images.dedup();
+    if images.is_empty() {
+        return None;
+    }
+    Some(format!(
+        "the local executor ignores image= — these cells run against your HOST \
+         toolchain, so the tools in {} must be installed locally. Declared: {}",
+        if images.len() == 1 { "this image" } else { "these images" },
+        images.join(", ")
+    ))
 }
 
 /// Output paths this document declares `volatile="true"`, excluded from

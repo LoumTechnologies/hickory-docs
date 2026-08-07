@@ -3,6 +3,7 @@ name = "hick-lsp"
 version = "0.1.0"
 edition.workspace = true
 publish.workspace = true
+license.workspace = true
 
 [dependencies]
 hick-lang = { path = "../hick-lang" }

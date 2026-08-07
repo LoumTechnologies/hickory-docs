@@ -3,6 +3,7 @@ name = "hick-case"
 version = "0.1.0"
 edition = "2024"
 description = "Case transformation utilities for text substitution patterns"
+license.workspace = true
 
 [lib]
 name = "hick_case"

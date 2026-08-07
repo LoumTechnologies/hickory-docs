@@ -14,6 +14,7 @@ use hickory_cli::{
 #[derive(Parser)]
 #[command(
     name = "hickory",
+    version,
     about = "Reproducible, verifiable, executable documents"
 )]
 struct Cli {

@@ -47,6 +47,23 @@ write. A missing file reads as an empty list, not an error — the first run of
 a fresh install must behave like every later run.
 </hick:copy>
 
+<hick:copy id="r-rename">
+`todo rename <id> "<new title>"` changes a task's title, leaving its id and
+state untouched. This is the requirement the opaque-id decision exists for:
+anything referencing a task must survive a retitle. An unknown id exits
+nonzero, like the other commands that take one.
+</hick:copy>
+
+<hick:file path="work/task-rename.task.md">
+---
+slug: task-rename
+title: Rename a task
+status: todo
+---
+
+<hick:paste select="#r-rename" />
+</hick:file>
+
 <hick:file path="work/task-add.task.md">
 ---
 slug: task-add
