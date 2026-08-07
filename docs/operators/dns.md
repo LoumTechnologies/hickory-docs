@@ -71,18 +71,41 @@ not emptied.** Stop and look rather than applying.
 
 ## Mail records
 
+Two providers, opposite directions, and they do not overlap:
+
+| | Provider | Contributes |
+|---|---|---|
+| **Receiving** `@hickorydocs.com` | MyMangoMail | MX records (and whatever else its setup screen asks for) |
+| **Sending** (verification, password reset) | SendGrid | Three CNAMEs from Domain Authentication |
+
 The zone carries no mail records at all right now — the Porkbun forwarding that
-used to be there is being replaced and was not carried over.
+used to be there is being replaced and was not carried over. Put both sets in
+`terraform/dns/main.tf`, under the "inbound mail" heading that is waiting for
+them, rather than in the dashboard.
 
-When the provider is configured, **put its records in `terraform/dns/main.tf`**
-rather than the dashboard, under the "inbound mail" heading that is waiting for
-them. Two things to get right:
+### SendGrid
 
-- **Take the records from the provider's setup screen.** Do not hand-write SPF
-  or DKIM.
-- **One SPF record, ever.** A domain with two TXT records that each begin
-  `v=spf1` is a domain that fails SPF everywhere — if two services send as
-  `@hickorydocs.com`, their includes merge into a single record.
+Settings → Sender Authentication → **Authenticate Your Domain**. It generates
+three CNAMEs on subdomains — roughly `em####`, `s1._domainkey`, `s2._domainkey`
+— pointing into `sendgrid.net`. Take the exact names from that screen; they
+embed your account id.
+
+**This does not need a root SPF include.** Domain authentication moves the
+envelope sender (the return path) to the `em####.hickorydocs.com` subdomain, so
+SPF is evaluated against *that* name, whose record SendGrid controls. It also
+means DKIM signs as `hickorydocs.com`, so DMARC aligns.
+
+Until this is done, **every send fails** — SendGrid refuses to send from an
+address on a domain it has not authenticated, regardless of a valid API key.
+The failure is visible rather than silent: the banner says "We could not send
+that email" and the server log carries SendGrid's exact reason.
+
+### The one thing that bites
+
+**One SPF record, ever.** A domain with two TXT records that each begin
+`v=spf1` fails SPF everywhere — the spec treats it as an error, not as a union.
+If MyMangoMail asks for an SPF include and something else already has one, the
+includes merge into a *single* record. Never add a second.
 
 ## Records not managed here, and why
 

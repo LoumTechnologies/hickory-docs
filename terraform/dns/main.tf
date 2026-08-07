@@ -54,15 +54,20 @@ resource "cloudflare_dns_record" "www_v6" {
   comment = "Fly.io ingress — hickory-docs-production"
 }
 
-# --- inbound mail ------------------------------------------------------------
+# --- mail --------------------------------------------------------------------
 #
-# Deliberately empty. The zone previously carried Porkbun forwarding
-# (fwd1/fwd2.porkbun.com plus an SPF include); that is being replaced and is
+# Deliberately empty, and both halves belong here when they exist:
+#
+#   receiving  @hickorydocs.com  -> MyMangoMail, via MX records
+#   sending    verification/reset -> SendGrid, via three Domain Authentication
+#                                    CNAMEs (em####, s1._domainkey, s2._domainkey)
+#
+# The zone previously carried Porkbun forwarding; that is being replaced and is
 # not re-declared here, because declaring it would recreate exactly what is
 # meant to go away.
 #
-# When the mail provider is configured, its MX / SPF / DKIM records belong
-# HERE rather than in the dashboard, so this file keeps describing the whole
-# zone. Add them from what the provider's setup screen asks for — do not
-# hand-write SPF, and take care that adding a second sending service means
-# ONE merged SPF record, never two TXT records each claiming to be SPF.
+# SendGrid needs no root SPF include: domain authentication moves the return
+# path onto its own subdomain, so SPF is evaluated there. If MyMangoMail asks
+# for an SPF record, that is the ONLY one this zone may ever have — two TXT
+# records each beginning v=spf1 is an error under the spec, not a union, and
+# fails SPF everywhere. See docs/operators/dns.md.
