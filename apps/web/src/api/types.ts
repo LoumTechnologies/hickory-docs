@@ -4,6 +4,13 @@ export interface User {
   id: string;
   email: string;
   plan?: string;
+  /** Whether this address has been confirmed. */
+  email_verified?: boolean;
+  /**
+   * Whether the deployment can send mail at all. When false there is nothing
+   * a user could do about being unverified, so the UI must not prompt.
+   */
+  verification_required?: boolean;
 }
 
 export interface AuthResponse {

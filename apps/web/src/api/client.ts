@@ -109,6 +109,18 @@ export const api = {
     request<AuthResponse>("POST", "/api/auth/login", { email, password }),
   me: () => request<User>("GET", "/api/me"),
 
+  sendVerification: () =>
+    request<{ status: string }>("POST", "/api/auth/verify/send", {}),
+  confirmVerification: (token: string) =>
+    request<{ status: string }>("POST", "/api/auth/verify/confirm", { token }),
+  requestReset: (email: string) =>
+    request<{ status: string }>("POST", "/api/auth/reset/request", { email }),
+  confirmReset: (token: string, password: string) =>
+    request<{ status: string }>("POST", "/api/auth/reset/confirm", {
+      token,
+      password,
+    }),
+
   projects: () => request<Project[]>("GET", "/api/projects"),
   createProject: (name: string, visibility: "public" | "private") =>
     request<Project>("POST", "/api/projects", { name, visibility }),

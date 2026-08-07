@@ -64,6 +64,15 @@ export function LoginView({ onAuth }: { onAuth: (user: User) => void }) {
         >
           {mode === "login" ? "New here? Create an account" : "Have an account? Log in"}
         </button>
+        {mode === "login" && (
+          <button
+            type="button"
+            className="btn btn-link"
+            onClick={() => navigate("/forgot")}
+          >
+            Forgot your password?
+          </button>
+        )}
       </form>
     </div>
   );

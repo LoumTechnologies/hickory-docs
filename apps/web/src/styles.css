@@ -391,6 +391,20 @@ textarea:focus {
 .banner-fail { background: var(--fail-bg); color: var(--fail); border-color: color-mix(in srgb, var(--fail) 30%, transparent); }
 .banner-pending { background: var(--neutral-bg); color: var(--fg-muted); }
 
+/* Account-level notice (unconfirmed email). Laid out as a row so the action
+   sits with the message rather than below it — this banner is persistent
+   until acted on, so it must stay one line tall. */
+.banner-warn {
+  background: color-mix(in srgb, #b8860b 12%, transparent);
+  color: var(--fg);
+  border-color: color-mix(in srgb, #b8860b 35%, transparent);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
 /* --- blocks --- */
 .blocks {
   display: flex;

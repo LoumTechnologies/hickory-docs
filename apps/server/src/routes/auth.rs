@@ -18,8 +18,21 @@ pub struct Credentials {
     pub password: String,
 }
 
-fn user_json(id: Uuid, email: &str, plan: &str) -> Value {
-    json!({ "id": id, "email": email, "plan": plan })
+/// The user shape every auth endpoint returns.
+///
+/// `email_verified` lets the client decide whether to prompt;
+/// `verification_required` tells it whether prompting means anything at all,
+/// since a deployment with no mailer cannot require proof it cannot request.
+/// Without the second field the UI would nag every user of an unconfigured
+/// instance about something they can never resolve.
+fn user_json(state: &AppState, user: &crate::auth::User) -> Value {
+    json!({
+        "id": user.id,
+        "email": user.email,
+        "plan": user.plan_key,
+        "email_verified": user.email_verified,
+        "verification_required": state.mailer.is_configured(),
+    })
 }
 
 /// Whether `email` may create an account.
@@ -83,8 +96,16 @@ pub async fn signup(
         "signup",
         json!({ "email_domain": email.split('@').nth(1) }),
     );
+    let user = crate::auth::User {
+        id,
+        email: email.clone(),
+        plan_key: "open".to_string(),
+        price_key: None,
+        billing_status: "active".to_string(),
+        email_verified: false,
+    };
     Ok(Json(
-        json!({ "token": token, "user": user_json(id, &email, "open") }),
+        json!({ "token": token, "user": user_json(&state, &user) }),
     ))
 }
 
@@ -93,26 +114,26 @@ pub async fn login(
     Json(body): Json<Credentials>,
 ) -> ApiResult<Json<Value>> {
     let email = body.email.trim().to_lowercase();
-    let row = sqlx::query_as::<_, (Uuid, String, String)>(
-        "SELECT id, password_hash, plan_key FROM users WHERE email = $1",
-    )
-    .bind(&email)
-    .fetch_optional(&state.db)
-    .await?;
-    let Some((id, hash, plan)) = row else {
+    let row =
+        sqlx::query_as::<_, (Uuid, String)>("SELECT id, password_hash FROM users WHERE email = $1")
+            .bind(&email)
+            .fetch_optional(&state.db)
+            .await?;
+    let Some((id, hash)) = row else {
         return Err(ApiError::unauthorized("invalid email or password"));
     };
     if !verify_password(&body.password, &hash) {
         return Err(ApiError::unauthorized("invalid email or password"));
     }
     let token = issue_token(&state.config.jwt_secret, id, &email)?;
+    let user = crate::auth::load_user(&state, id).await?;
     Ok(Json(
-        json!({ "token": token, "user": user_json(id, &email, &plan) }),
+        json!({ "token": token, "user": user_json(&state, &user) }),
     ))
 }
 
-pub async fn me(AuthUser(user): AuthUser) -> Json<Value> {
-    Json(user_json(user.id, &user.email, &user.plan_key))
+pub async fn me(State(state): State<AppState>, AuthUser(user): AuthUser) -> Json<Value> {
+    Json(user_json(&state, &user))
 }
 
 // ---------------------------------------------------------------------------
@@ -158,7 +179,7 @@ pub async fn send_verification(
         "{}/#/verify?token={token}",
         state.config.app_base_url.trim_end_matches('/')
     );
-    send_or_log(
+    let delivered = send_or_log(
         &state,
         Message {
             to: user.email.clone(),
@@ -171,7 +192,14 @@ pub async fn send_verification(
         },
     )
     .await;
-    Ok(Json(json!({ "status": "sent" })))
+    // Still 200: the token was issued and the link works if it ever arrives.
+    // But the caller is authenticated, so there is nothing to leak by saying
+    // the send failed — and "check your inbox" is bad advice when the mail
+    // was rejected. (Deliberately NOT done for password reset, where varying
+    // the response would turn it into an account-existence oracle.)
+    Ok(Json(json!({
+        "status": if delivered { "sent" } else { "send_failed" }
+    })))
 }
 
 #[derive(Deserialize)]
@@ -234,7 +262,7 @@ pub async fn request_reset(
                 "{}/#/reset?token={token}",
                 state.config.app_base_url.trim_end_matches('/')
             );
-            send_or_log(
+            let _ = send_or_log(
                 &state,
                 Message {
                     to: email.clone(),
@@ -293,9 +321,13 @@ pub async fn confirm_reset(
 /// A provider outage must not fail the request: the user's account exists and
 /// the send endpoint is retryable, so a 500 here would lose more than it
 /// protects.
-async fn send_or_log(state: &AppState, message: Message) {
+async fn send_or_log(state: &AppState, message: Message) -> bool {
     let to = message.to.clone();
-    if let Err(e) = state.mailer.send(message).await {
-        log::error!("failed to send mail to {to}: {e:#}");
+    match state.mailer.send(message).await {
+        Ok(()) => true,
+        Err(e) => {
+            log::error!("failed to send mail to {to}: {e:#}");
+            false
+        }
     }
 }

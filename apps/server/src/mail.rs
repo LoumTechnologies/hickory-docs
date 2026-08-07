@@ -43,7 +43,14 @@ pub struct SendGridMailer {
     api_key: String,
     from_email: String,
     from_name: String,
+    /// Overridable via `SENDGRID_BASE_URL` for gateways and for a local
+    /// capture server. Without this the only way to exercise the real client
+    /// is to send real mail.
+    base_url: String,
 }
+
+/// SendGrid's live send endpoint.
+pub const SENDGRID_URL: &str = "https://api.sendgrid.com/v3/mail/send";
 
 impl SendGridMailer {
     pub fn new(api_key: String, from_email: String, from_name: String) -> Self {
@@ -52,6 +59,10 @@ impl SendGridMailer {
             api_key,
             from_email,
             from_name,
+            base_url: std::env::var("SENDGRID_BASE_URL")
+                .ok()
+                .filter(|v| !v.trim().is_empty())
+                .unwrap_or_else(|| SENDGRID_URL.to_string()),
         }
     }
 }
@@ -67,7 +78,7 @@ impl Mailer for SendGridMailer {
         });
         let resp = self
             .client
-            .post("https://api.sendgrid.com/v3/mail/send")
+            .post(&self.base_url)
             .bearer_auth(&self.api_key)
             .json(&body)
             .send()

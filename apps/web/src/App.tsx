@@ -6,6 +6,10 @@ import { LoginView } from "./views/LoginView";
 import { ProjectsView } from "./views/ProjectsView";
 import { DocumentView } from "./views/DocumentView";
 import { PricingView } from "./views/PricingView";
+import { VerifyView } from "./views/VerifyView";
+import { ResetView } from "./views/ResetView";
+import { ForgotView } from "./views/ForgotView";
+import { VerifyBanner } from "./components/VerifyBanner";
 
 export function App() {
   const route = useRoute();
@@ -38,7 +42,15 @@ export function App() {
   if (!checked) return null;
 
   const authed = user !== null;
-  const needsAuth = route.name !== "login" && route.name !== "pricing";
+  // Routes reached from an email link must work while signed out: the link is
+  // often opened on a different device or browser from the one that signed up.
+  const publicRoute =
+    route.name === "login" ||
+    route.name === "pricing" ||
+    route.name === "verify" ||
+    route.name === "reset" ||
+    route.name === "forgot";
+  const needsAuth = !publicRoute;
 
   return (
     <div className="app">
@@ -65,8 +77,20 @@ export function App() {
         </div>
       </nav>
       <main className="content">
+        {authed && <VerifyBanner user={user} />}
         {route.name === "pricing" ? (
           <PricingView />
+        ) : route.name === "verify" ? (
+          <VerifyView
+            token={route.token}
+            onVerified={() =>
+              setUser((u) => (u ? { ...u, email_verified: true } : u))
+            }
+          />
+        ) : route.name === "reset" ? (
+          <ResetView token={route.token} />
+        ) : route.name === "forgot" ? (
+          <ForgotView />
         ) : !authed && needsAuth ? (
           <LoginView onAuth={setUser} />
         ) : route.name === "login" ? (
