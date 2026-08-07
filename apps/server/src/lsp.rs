@@ -108,7 +108,20 @@ impl LspSession {
             .stderr(Stdio::null())
             .kill_on_drop(true)
             .spawn()
-            .with_context(|| format!("spawning hick-lsp at {}", program.display()))?;
+            .with_context(|| {
+                // The overwhelmingly common cause is a workspace that has not
+                // been built: `cargo test` alone does not produce the
+                // `hick-lsp` binary these tests spawn, so a fresh clone fails
+                // here with a bare "No such file or directory" that names
+                // neither the binary nor the fix. (CI builds first; a human
+                // running `cargo test` in a new checkout does not.)
+                format!(
+                    "spawning hick-lsp at {}. If that path does not exist, build the \
+                     workspace first (`cargo build --workspace`, or `just test` which \
+                     does it for you), or point HICK_LSP_BIN at the binary.",
+                    program.display()
+                )
+            })?;
 
         let stdin = BufWriter::new(child.stdin.take().expect("piped stdin"));
         let stdout = child.stdout.take().expect("piped stdout");

@@ -60,6 +60,10 @@ cargo install --path crates/hickory-cli --locked
 
 Requires a recent stable Rust. That puts `hickory` on your PATH.
 
+Working on hickory itself? Build before testing — the server's LSP tests
+spawn the `hick-lsp` binary, which `cargo test` alone does not produce.
+`just test` does both.
+
 ## Try it
 
 ```sh
