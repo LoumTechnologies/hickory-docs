@@ -16,3 +16,12 @@ data/
 
 # Agent session transcripts from demo runs (records, not sources)
 docs/todo-app/sessions/
+
+# Terraform: provider binaries and any local state/plan artefacts. State lives
+# in R2 and holds credentials; a stray local copy is a leak.
+terraform/**/.terraform/
+terraform/**/*.tfstate
+terraform/**/*.tfstate.*
+terraform/**/tfplan
+terraform/**/plan.txt
+terraform/**/.terraform.lock.hcl.bak
