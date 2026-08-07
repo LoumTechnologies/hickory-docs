@@ -24,8 +24,7 @@ async fn an_exhausted_budget_returns_a_handoff_instead_of_failing() {
         busy.to_string(),
         busy.to_string(),
         // The wrap-up call. Asked for a handoff, gives one.
-        "<hick:next>done</hick:next>\nWrote nothing yet; next I would run the tests."
-            .to_string(),
+        "<hick:next>done</hick:next>\nWrote nothing yet; next I would run the tests.".to_string(),
     ]);
 
     let executor: Arc<dyn Executor> = Arc::new(LocalExecutor::new().unwrap());
@@ -57,4 +56,73 @@ async fn an_exhausted_budget_returns_a_handoff_instead_of_failing() {
         session.contains("next I would run the tests"),
         "the handoff must be in the session document too:\n{session}"
     );
+}
+
+/// A blank model response must not kill the session.
+///
+/// Guarantee: docs/guarantees/agent/an-empty-response-never-kills-a-session.md
+///
+/// Found live: the agent returned an empty turn 12 edits into a chain
+/// propagation. The correction path replayed it verbatim, Anthropic answered
+/// 400 "text content blocks must be non-empty", and the whole session died —
+/// the recovery mechanism destroying the run it existed to rescue.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_empty_response_is_corrected_not_replayed() {
+    let project = tempfile::tempdir().unwrap();
+    let llm = ScriptedLlmClient::new(vec![
+        String::new(),
+        "   \n  ".to_string(),
+        "<hick:next>done</hick:next>\nRecovered.".to_string(),
+    ]);
+
+    let executor: Arc<dyn Executor> = Arc::new(LocalExecutor::new().unwrap());
+    let mut config = AgentConfig::new("do something", project.path());
+    config.max_turns = 6;
+
+    let mut on_event = |_: AgentEvent| {};
+    let outcome = run_agent(&llm, executor.clone(), &config, &mut on_event)
+        .await
+        .expect("two blank turns must not fail the run");
+    executor.shutdown().await.ok();
+
+    assert!(outcome.summary.contains("Recovered"), "{}", outcome.summary);
+}
+
+/// The wire-level backstop: no request ever carries an empty content block,
+/// whatever the loop above it does.
+#[test]
+fn neither_client_ever_sends_an_empty_content_block() {
+    use hickory_agent::{AnthropicClient, Message, OpenAiCompatClient, Provider, Role};
+
+    let messages = vec![
+        Message::new(Role::System, "system"),
+        Message::new(Role::User, "hello"),
+        Message::new(Role::Assistant, ""),
+        Message::new(Role::Assistant, "   \n "),
+        Message::new(Role::User, "still here"),
+    ];
+
+    let body = AnthropicClient::new()
+        .with_api_key("k")
+        .request_body_bytes(&messages, false);
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    for m in json["messages"].as_array().unwrap() {
+        for block in m["content"].as_array().unwrap() {
+            assert!(
+                !block["text"].as_str().unwrap().trim().is_empty(),
+                "anthropic request carried an empty block: {json}"
+            );
+        }
+    }
+    assert_eq!(json["messages"].as_array().unwrap().len(), 2);
+
+    let body = OpenAiCompatClient::new(Provider::OpenAi).request_body_bytes(&messages, false);
+    let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    for m in json["messages"].as_array().unwrap() {
+        assert!(
+            !m["content"].as_str().unwrap().trim().is_empty(),
+            "openai request carried an empty message: {json}"
+        );
+    }
+    assert_eq!(json["messages"].as_array().unwrap().len(), 3);
 }

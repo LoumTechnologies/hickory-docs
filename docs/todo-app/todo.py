@@ -8,7 +8,7 @@ import secrets
 import sys
 
 PATH = os.environ.get("TODO_FILE", "tasks.json")
-STATES = ("open", "done", "dropped")
+STATES = ("open", "blocked", "done", "dropped")
 
 
 def load():
@@ -65,7 +65,7 @@ def rename(task_id, new_title):
 
 def main(argv):
     if not argv:
-        print("usage: todo add|list|done|drop", file=sys.stderr)
+        print("usage: todo add|list|done|drop|block", file=sys.stderr)
         return 2
     cmd, rest = argv[0], argv[1:]
     if cmd == "add":
@@ -77,8 +77,8 @@ def main(argv):
             tasks = [t for t in tasks if t["state"] == rest[1]]
         sys.stdout.write(render(tasks))
         return 0
-    if cmd in ("done", "drop"):
-        state = "done" if cmd == "done" else "dropped"
+    if cmd in ("done", "drop", "block"):
+        state = {"done": "done", "drop": "dropped", "block": "blocked"}[cmd]
         if not transition(rest[0], state):
             print(f"no such task: {rest[0]}", file=sys.stderr)
             return 1

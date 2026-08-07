@@ -31,14 +31,15 @@ opaque, and assigned at creation; it is never derived from the title.
 
 <hick:copy id="r-list">
 `todo list` prints every task in creation order as `<id> <state> <title>`.
-Dropped tasks are included — retaining them is pointless if the default view
-hides them. `--state open|done|dropped` filters.
+Dropped and blocked tasks are included — retaining them is pointless if the
+default view hides them. `--state open|blocked|done|dropped` filters.
 </hick:copy>
 
 <hick:copy id="r-done">
 `todo done <id>` moves a task to done. `todo drop <id>` moves it to dropped.
-Both are idempotent: re-running on a task already in that state succeeds and
-changes nothing, so a retried command is never an error.
+`todo block <id>` moves it to blocked. All are idempotent: re-running on a
+task already in that state succeeds and changes nothing, so a retried
+command is never an error.
 </hick:copy>
 
 <hick:copy id="r-storage">

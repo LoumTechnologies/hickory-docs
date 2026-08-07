@@ -32,6 +32,8 @@ jobs:
           sudo apt-get install -y --no-install-recommends r-base r-cran-ggplot2
       - name: Verify the shipped example documents (docs drift is a build failure)
         run: cargo run -p hickory-cli -- check examples/
+      - name: Verify the documentation chain (meeting -> domain -> requirements -> code)
+        run: cargo run -p hickory-cli -- check docs/
       - name: Grand tour with the R section enabled (run, then verify reproducibility)
         run: |
           cargo run -p hickory-cli -- run examples/grand-tour.hick --features with-r --out /tmp/grand-tour-with-r

@@ -709,7 +709,10 @@ async fn health_and_agent_stub() {
     // hickory-agent is wired, but this test config has no ANTHROPIC_API_KEY:
     // the endpoint no-ops with a clear 503 (graceful degradation).
     assert_eq!(status, 503);
-    assert_eq!(v["error"], "agent not configured (ANTHROPIC_API_KEY unset for provider anthropic)");
+    assert_eq!(
+        v["error"],
+        "agent not configured (ANTHROPIC_API_KEY unset for provider anthropic)"
+    );
 }
 
 // ---------------------------------------------------------------------------

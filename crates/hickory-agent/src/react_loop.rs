@@ -220,7 +220,19 @@ pub async fn run_agent(
                     reason: reason.clone(),
                     attempt: consecutive_invalid,
                 });
-                history.push(Message::new(Role::Assistant, response));
+                // An empty response is a malformed response, and replaying it
+                // verbatim is fatal: every provider rejects an empty content
+                // block (Anthropic: 400 "text content blocks must be
+                // non-empty"), so the correction turn kills the session it was
+                // trying to rescue — losing every edit made so far. Say what
+                // happened instead, which is also more useful to the model
+                // than a blank turn.
+                let recorded = if response.trim().is_empty() {
+                    "(no output)".to_string()
+                } else {
+                    response
+                };
+                history.push(Message::new(Role::Assistant, recorded));
                 history.push(Message::new(Role::User, correction_message(&reason)));
             }
             Turn::Code { thought, block } => {
@@ -234,8 +246,7 @@ pub async fn run_agent(
                     data: block.code.clone(),
                 });
 
-                let result =
-                    run_script(
+                let result = run_script(
                     executor.as_ref(),
                     &config.container,
                     &block,

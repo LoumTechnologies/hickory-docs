@@ -152,7 +152,10 @@ mod tests {
         assert_eq!(ProviderSelection::parse("opennai"), None);
         let err = err_of(client_for("opennai", None, None));
         assert!(err.contains("unknown provider"), "{err}");
-        assert!(err.contains("deepseek"), "the error must list valid ones: {err}");
+        assert!(
+            err.contains("deepseek"),
+            "the error must list valid ones: {err}"
+        );
     }
 
     #[test]

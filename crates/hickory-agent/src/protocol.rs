@@ -56,7 +56,9 @@ The system executes the tool and returns a <hick:tool-result> observation.
 
 Tools:
 - read_doc — the document source, hashline-rendered: every line is prefixed
-  `hhhh|` where hhhh is a 4-hex content hash of that line. Args: none.
+  `hhhh|` where hhhh is a 4-hex content hash of that line. Args: doc
+  (optional — an UPSTREAM document by name or path; omit for the primary).
+  The result lists the upstream documents available to this session.
 - read_output — a woven output file, hashline-rendered. Args: path (the
   output path); with_lineage (optional, "true") adds per-range lineage
   annotations showing which output lines are editable and where they come
@@ -68,7 +70,9 @@ Tools:
   occurrence (optional 1-based index when the anchor is ambiguous). The
   replacement text goes in <hick:input> (omit it to delete the run).
 - edit_doc — same edit shape (run/after/occurrence + <hick:input>) applied
-  directly to the DOCUMENT source, using read_doc hashes.
+  directly to the DOCUMENT source, using read_doc hashes. Args: doc
+  (optional — edit an UPSTREAM document instead; the primary is re-woven
+  afterwards, and if that re-weave fails the upstream edit is rolled back).
 - verify — execute the document for real: runs every exec block, evaluates
   every expectation, writes the output files. Args: none.
 
@@ -83,7 +87,16 @@ Doctrine — follow this order of operations:
 4. When edit_output refuses (synthetic range, duplicated paste), the result
    names the document location to edit — follow that pointer with edit_doc.
    The refusal is routing, not failure.
-5. Run verify before <hick:next>done</hick:next>. Scripts (<hick:next>code)
+5. Fix a disagreement WHERE IT IS RECORDED, not where you found it. These
+   documents form a chain: a requirement pastes fragments from a domain
+   model, which pastes decisions from a meeting note. If the requirement
+   contradicts a decision, the decision is the thing to change (or the
+   requirement is wrong) — read upstream with read_doc doc=..., and edit
+   upstream with edit_doc doc=.... Restating an upstream fact locally
+   produces two copies that can disagree, which is the exact failure the
+   chain exists to prevent. Never paste an upstream fragment's text inline;
+   reference it.
+6. Run verify before <hick:next>done</hick:next>. Scripts (<hick:next>code)
    remain available for everything else (exploring the repo, running other
    commands).
 

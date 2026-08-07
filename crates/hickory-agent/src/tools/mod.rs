@@ -75,6 +75,17 @@ struct WeaveState {
 /// state.
 pub struct EditSession {
     doc_path: PathBuf,
+    /// Documents the primary reaches through `hick:upstream`, nearest first.
+    ///
+    /// A session scoped to ONE document cannot do lifecycle work: the fix for
+    /// "the requirements are wrong" is usually a decision recorded in a
+    /// meeting note two hops up, and an agent that can only edit the document
+    /// in front of it will instead paper over the disagreement where it found
+    /// it — writing the contradiction into the very chain built to prevent
+    /// contradictions. The editable set is the pipeline closure, which the
+    /// documents declare themselves; it is not a flag anyone has to remember
+    /// to pass.
+    upstream: std::collections::BTreeMap<PathBuf, String>,
     /// The name the document is known by in pipeline sources and
     /// provenance `doc_path` fields.
     doc_name: String,
@@ -90,8 +101,10 @@ impl EditSession {
             .with_context(|| format!("failed to read {}", doc_path.display()))?;
         let doc_name = doc_path.display().to_string();
         let weave = weave_source(doc_path, &doc_name, &source, params).await?;
+        let upstream = upstream_closure(doc_path);
         Ok(Self {
             doc_path: doc_path.to_path_buf(),
+            upstream,
             doc_name,
             params: params.to_vec(),
             source,
@@ -146,11 +159,132 @@ impl EditSession {
 
     // -- read_doc ----------------------------------------------------------
 
-    fn read_doc(&self) -> ToolOutcome {
-        let index = LineIndex::new(&self.source);
+    fn read_doc(&self, inv: &ToolInvocation) -> ToolOutcome {
+        let Some((name, source)) = self.resolve_target(inv.arg("doc")) else {
+            return ToolOutcome::err("read_doc", self.unknown_doc(inv.arg("doc").unwrap_or("")));
+        };
+        let index = LineIndex::new(&source);
+        let mut text = format!("doc: {name}\n{}", index.render());
+        if self.upstream.is_empty() {
+            return ToolOutcome::ok("read_doc", text);
+        }
+        // Name the rest of the chain, or the agent has no way to learn that a
+        // decision it needs to change lives one document up.
+        text.push_str(&format!(
+            "\nupstream of this session (readable and editable by passing \
+             <hick:arg name=\"doc\">NAME</hick:arg>): {}\n",
+            self.upstream_names()
+        ));
+        ToolOutcome::ok("read_doc", text)
+    }
+
+    /// Apply an edit to an upstream document and re-weave the primary.
+    ///
+    /// The order matters: parse, then write, then re-weave. A re-weave that
+    /// fails after the write would leave the chain edited and the session
+    /// describing a weave that no longer holds, so the write is rolled back
+    /// and the outcome says nothing changed.
+    async fn edit_upstream(&mut self, inv: &ToolInvocation, doc: &str) -> ToolOutcome {
+        const NAME: &str = "edit_doc";
+        let Some((path, source)) = self
+            .upstream
+            .iter()
+            .find(|(p, _)| Self::path_matches(p, doc))
+            .map(|(p, s)| (p.clone(), s.clone()))
+        else {
+            return ToolOutcome::err(NAME, self.unknown_doc(doc));
+        };
+
+        let index = LineIndex::new(&source);
+        let edit = match resolve_edit(&index, inv, false) {
+            Ok(e) => e,
+            Err(text) => return ToolOutcome::err(NAME, text),
+        };
+        let mut new_source = source.clone();
+        new_source.replace_range(edit.start..edit.end, &edit.text);
+
+        if let Err(e) = hick_lang::parse(&new_source) {
+            return ToolOutcome::err(
+                NAME,
+                format!(
+                    "that edit would break {}: parse error: {e}; nothing was changed",
+                    path.display()
+                ),
+            );
+        }
+        if let Err(e) = std::fs::write(&path, &new_source) {
+            return ToolOutcome::err(NAME, format!("could not write {}: {e}", path.display()));
+        }
+        if let Err(e) = self.reweave().await {
+            let _ = std::fs::write(&path, &source);
+            let _ = self.reweave().await;
+            return ToolOutcome::err(
+                NAME,
+                format!(
+                    "that edit parses but breaks the weave of {} ({e}); {} was restored and \
+                     nothing changed",
+                    self.doc_name,
+                    path.display()
+                ),
+            );
+        }
+        self.upstream.insert(path.clone(), new_source.clone());
+
+        let new_index = LineIndex::new(&new_source);
         ToolOutcome::ok(
-            "read_doc",
-            format!("doc: {}\n{}", self.doc_name, index.render()),
+            NAME,
+            format!(
+                "edited {} and re-wove {}.\n{}\noutputs now: {}",
+                path.display(),
+                self.doc_name,
+                new_index.render(),
+                self.output_names()
+            ),
+        )
+    }
+
+    /// The upstream documents, nearest first, as a display list.
+    fn upstream_names(&self) -> String {
+        self.upstream
+            .keys()
+            .map(|p| p.display().to_string())
+            .collect::<Vec<_>>()
+            .join(", ")
+    }
+
+    /// Resolve a `doc` argument to (display name, source). `None` selects the
+    /// primary document, which keeps every existing single-document call site
+    /// working unchanged.
+    fn resolve_target(&self, doc: Option<&str>) -> Option<(String, String)> {
+        let Some(doc) = doc else {
+            return Some((self.doc_name.clone(), self.source.clone()));
+        };
+        if doc == self.doc_name || Path::new(doc) == self.doc_path {
+            return Some((self.doc_name.clone(), self.source.clone()));
+        }
+        self.upstream
+            .iter()
+            .find(|(p, _)| Self::path_matches(p, doc))
+            .map(|(p, s)| (p.display().to_string(), s.clone()))
+    }
+
+    /// Match on the full path or the file name, so an agent can say
+    /// `billing.hick` without reconstructing the relative path.
+    fn path_matches(path: &Path, needle: &str) -> bool {
+        path == Path::new(needle)
+            || path.ends_with(needle)
+            || path.file_name().is_some_and(|f| f == needle)
+    }
+
+    fn unknown_doc(&self, asked: &str) -> String {
+        format!(
+            "no document '{asked}' in this session. The primary document is {}{}",
+            self.doc_name,
+            if self.upstream.is_empty() {
+                String::new()
+            } else {
+                format!("; upstream: {}", self.upstream_names())
+            }
         )
     }
 
@@ -427,6 +561,14 @@ impl EditSession {
 
     async fn edit_doc(&mut self, inv: &ToolInvocation) -> ToolOutcome {
         const NAME: &str = "edit_doc";
+        // An upstream edit takes a separate path: it is not the woven
+        // document, so it has no provenance of its own here — but the primary
+        // must be re-woven afterwards, because it pastes fragments from it.
+        if let Some(doc) = inv.arg("doc")
+            && !(doc == self.doc_name || Path::new(doc) == self.doc_path)
+        {
+            return self.edit_upstream(inv, doc).await;
+        }
         let resynced = match self.sync_with_disk().await {
             Ok(r) => r,
             Err(e) => return ToolOutcome::err(NAME, e),
@@ -600,7 +742,7 @@ pub async fn execute_tool(
     inv: &ToolInvocation,
 ) -> ToolOutcome {
     match inv.name.as_str() {
-        "read_doc" => session.read_doc(),
+        "read_doc" => session.read_doc(inv),
         "read_output" => session.read_output(inv),
         "edit_output" => session.edit_output(inv).await,
         "edit_doc" => session.edit_doc(inv).await,
@@ -786,4 +928,49 @@ async fn weave_source(
         .map(|(p, m)| (p.clone(), hickory_lineage::from_provenance_map(m)))
         .collect();
     Ok(WeaveState { files, provenance })
+}
+
+/// Every document reachable from `doc_path` through `hick:upstream`, nearest
+/// first, mapped to its current source.
+///
+/// Breadth-first with a visited set, so a diamond is loaded once and a cycle
+/// terminates. Unreadable or unparseable edges are skipped rather than
+/// failing the session: an agent opening a document should not be blocked by
+/// a broken document elsewhere in the chain — that is what `hickory check`
+/// is for, and the agent may well have been called to fix it.
+fn upstream_closure(doc_path: &Path) -> std::collections::BTreeMap<PathBuf, String> {
+    let mut out = std::collections::BTreeMap::new();
+    let mut seen: std::collections::HashSet<PathBuf> = std::collections::HashSet::new();
+    let mut queue = vec![doc_path.to_path_buf()];
+    seen.insert(normalize(doc_path));
+
+    while let Some(current) = queue.pop() {
+        let Ok(source) = std::fs::read_to_string(&current) else {
+            continue;
+        };
+        let Ok(doc) = hick_lang::parse(&source) else {
+            continue;
+        };
+        let dir = current.parent().unwrap_or(Path::new("."));
+        for tag in doc.tags().filter(|t| t.name == "upstream") {
+            let Some(file) = tag.get_attribute("file") else {
+                continue;
+            };
+            let path = dir.join(file);
+            if !seen.insert(normalize(&path)) {
+                continue;
+            }
+            if let Ok(text) = std::fs::read_to_string(&path) {
+                out.insert(path.clone(), text);
+                queue.push(path);
+            }
+        }
+    }
+    out
+}
+
+/// Canonicalize for identity comparison, falling back to the path itself so a
+/// file that does not exist still de-duplicates against itself.
+fn normalize(path: &Path) -> PathBuf {
+    std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
 }

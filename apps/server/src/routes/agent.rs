@@ -12,9 +12,7 @@ use std::time::Instant;
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
-use hickory_agent::{
-    AGENT_EXEC_ID, AgentConfig, AgentEvent, PriorTurn, run_agent,
-};
+use hickory_agent::{AGENT_EXEC_ID, AgentConfig, AgentEvent, PriorTurn, run_agent};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use uuid::Uuid;
@@ -165,42 +163,37 @@ pub async fn start_agent(
     let state2 = state.clone();
     tokio::spawn(async move {
         let started = Instant::now();
-        let status = match run_agent_session(
-            &state2,
-            session_id,
-            &doc,
-            &prompt,
-            prior_turns,
-            &llm_config,
-        )
-        .await
-        {
-            Ok(summary) => {
-                let _ =
-                    sqlx::query("UPDATE agent_turns SET answer = $1, status = 'ok' WHERE id = $2")
-                        .bind(&summary)
-                        .bind(session_id)
-                        .execute(&state2.db)
-                        .await;
-                "ok"
-            }
-            Err(e) => {
-                log::warn!("agent session {session_id} failed: {e:#}");
-                let _ = sqlx::query(
-                    "UPDATE agent_turns SET status = 'error', error = $1 WHERE id = $2",
-                )
-                .bind(format!("{e:#}"))
-                .bind(session_id)
-                .execute(&state2.db)
-                .await;
-                let _ = sqlx::query("UPDATE runs SET error = $1 WHERE id = $2")
+        let status =
+            match run_agent_session(&state2, session_id, &doc, &prompt, prior_turns, &llm_config)
+                .await
+            {
+                Ok(summary) => {
+                    let _ = sqlx::query(
+                        "UPDATE agent_turns SET answer = $1, status = 'ok' WHERE id = $2",
+                    )
+                    .bind(&summary)
+                    .bind(session_id)
+                    .execute(&state2.db)
+                    .await;
+                    "ok"
+                }
+                Err(e) => {
+                    log::warn!("agent session {session_id} failed: {e:#}");
+                    let _ = sqlx::query(
+                        "UPDATE agent_turns SET status = 'error', error = $1 WHERE id = $2",
+                    )
                     .bind(format!("{e:#}"))
                     .bind(session_id)
                     .execute(&state2.db)
                     .await;
-                "failed"
-            }
-        };
+                    let _ = sqlx::query("UPDATE runs SET error = $1 WHERE id = $2")
+                        .bind(format!("{e:#}"))
+                        .bind(session_id)
+                        .execute(&state2.db)
+                        .await;
+                    "failed"
+                }
+            };
         let wall_ms = started.elapsed().as_millis() as i64;
         let _ = sqlx::query(
             "UPDATE runs SET status = $1, finished_at = now(), wall_ms = $2 WHERE id = $3",

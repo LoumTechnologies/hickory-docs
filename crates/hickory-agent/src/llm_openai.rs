@@ -196,6 +196,9 @@ impl OpenAiCompatClient {
     fn request_body(&self, messages: &[Message], stream: bool) -> serde_json::Value {
         let msgs: Vec<WireMessage> = messages
             .iter()
+            // Empty content is rejected upstream and carries nothing; see the
+            // matching backstop in `llm_anthropic`.
+            .filter(|m| !m.content.trim().is_empty())
             .map(|m| WireMessage {
                 role: match m.role {
                     Role::System => "system",
@@ -260,7 +263,10 @@ impl LlmClient for OpenAiCompatClient {
             .filter_map(|c| c.message.and_then(|m| m.content))
             .collect::<Vec<_>>()
             .join("");
-        Ok((text, parsed.usage.map(WireUsage::into_usage).unwrap_or_default()))
+        Ok((
+            text,
+            parsed.usage.map(WireUsage::into_usage).unwrap_or_default(),
+        ))
     }
 
     async fn complete_stream(&self, messages: Vec<Message>) -> anyhow::Result<ChatStream> {
@@ -513,7 +519,12 @@ mod tests {
         assert_eq!(body["stream_options"]["include_usage"], true);
         // Non-streaming reports usage unconditionally; the option is
         // rejected there by some gateways.
-        assert!(client.request_body(&[], false).get("stream_options").is_none());
+        assert!(
+            client
+                .request_body(&[], false)
+                .get("stream_options")
+                .is_none()
+        );
     }
 
     #[test]

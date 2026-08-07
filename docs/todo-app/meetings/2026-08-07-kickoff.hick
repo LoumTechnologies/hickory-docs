@@ -31,10 +31,11 @@ chain, not an install.
 </hick:copy>
 
 <hick:copy id="d-states" class="decision">
-A task is in exactly one of three states: **open**, **done**, or
-**dropped**. Dropped is not deleted — it stays in the file and stays
-listable, because "what did we decide not to do" is the question people
-actually come back for.
+A task is in exactly one of four states: **open**, **blocked**, **done**, or
+**dropped**. Blocked means work cannot proceed until something external
+changes; it is not done and not dropped. Dropped is not deleted — it stays
+in the file and stays listable, because "what did we decide not to do" is
+the question people actually come back for.
 </hick:copy>
 
 <hick:copy id="d-identity" class="decision">

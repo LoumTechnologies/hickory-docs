@@ -26,7 +26,7 @@ import secrets
 import sys
 
 PATH = os.environ.get("TODO_FILE", "tasks.json")
-STATES = ("open", "done", "dropped")
+STATES = ("open", "blocked", "done", "dropped")
 
 
 def load():
@@ -91,7 +91,7 @@ def rename(task_id, new_title):
 
 def main(argv):
     if not argv:
-        print("usage: todo add|list|done|drop", file=sys.stderr)
+        print("usage: todo add|list|done|drop|block", file=sys.stderr)
         return 2
     cmd, rest = argv[0], argv[1:]
     if cmd == "add":
@@ -103,8 +103,8 @@ def main(argv):
             tasks = [t for t in tasks if t["state"] == rest[1]]
         sys.stdout.write(render(tasks))
         return 0
-    if cmd in ("done", "drop"):
-        state = "done" if cmd == "done" else "dropped"
+    if cmd in ("done", "drop", "block"):
+        state = {"done": "done", "drop": "dropped", "block": "blocked"}[cmd]
         if not transition(rest[0], state):
             print(f"no such task: {rest[0]}", file=sys.stderr)
             return 1
@@ -191,6 +191,19 @@ python3 todo.py rename nosuchid "x" 2>/dev/null || echo "yes"
 <hick:expect match="exact">open ship it today
 --- id survived the retitle:
 yes
+--- unknown id exits nonzero:
+yes
+</hick:expect>
+</hick:exec>
+<hick:exec container="app" mount="src:/project">
+cd project && export TODO_FILE=/tmp/todo-acceptance.json
+id=$(python3 todo.py list --state open | head -1 | cut -d' ' -f1)
+python3 todo.py block "$id"
+python3 todo.py block "$id"   # idempotent: a retry is never an error
+python3 todo.py list --state blocked | awk '{$1=""; print substr($0,2)}'
+echo "--- unknown id exits nonzero:"
+python3 todo.py block nosuchid 2>/dev/null || echo "yes"
+<hick:expect match="exact">blocked ship it today
 --- unknown id exits nonzero:
 yes
 </hick:expect>

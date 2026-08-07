@@ -399,7 +399,9 @@ mod tests {
             language: Language::Shell,
             code: "echo out; echo err >&2".into(),
         };
-        let result = run_script(&ex, AGENT_CONTAINER, &block, 0, ScriptLimits::default()).await.unwrap();
+        let result = run_script(&ex, AGENT_CONTAINER, &block, 0, ScriptLimits::default())
+            .await
+            .unwrap();
         assert_eq!(result.stdout, "out\n");
         assert_eq!(result.stderr, "err\n");
         assert_eq!(result.exit_code, Some(0));
@@ -413,7 +415,9 @@ mod tests {
             language: Language::Shell,
             code: "echo oops >&2; exit 3".into(),
         };
-        let result = run_script(&ex, AGENT_CONTAINER, &block, 0, ScriptLimits::default()).await.unwrap();
+        let result = run_script(&ex, AGENT_CONTAINER, &block, 0, ScriptLimits::default())
+            .await
+            .unwrap();
         assert_eq!(result.exit_code, Some(3));
         assert!(result.stderr.contains("oops"));
     }
@@ -471,7 +475,11 @@ mod limit_tests {
             started.elapsed() < std::time::Duration::from_secs(20),
             "the timeout did not fire; the script ran to completion"
         );
-        assert_eq!(result.exit_code, Some(124), "expected the timeout exit code");
+        assert_eq!(
+            result.exit_code,
+            Some(124),
+            "expected the timeout exit code"
+        );
         assert!(
             result.stderr.contains("agent script timeout"),
             "a bare 124 reads as an ordinary failure: {}",
@@ -486,8 +494,9 @@ mod limit_tests {
         let block = CodeBlock {
             language: Language::Shell,
             // ~2 MB, the shape of one `grep -r` over a large repo.
-            code: "for i in $(seq 1 40000); do echo 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'; done"
-                .into(),
+            code:
+                "for i in $(seq 1 40000); do echo 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'; done"
+                    .into(),
         };
         let limits = ScriptLimits {
             max_output_bytes: 4096,

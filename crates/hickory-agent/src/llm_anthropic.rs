@@ -436,6 +436,14 @@ pub(crate) fn build_request(
     let mut api_messages: Vec<AnthropicMessage> = Vec::new();
 
     for m in messages {
+        // An empty content block is a 400 on every provider ("text content
+        // blocks must be non-empty"), and it carries nothing, so dropping it
+        // is strictly better than failing the request. This is a backstop:
+        // callers should not produce them (see `react_loop`'s malformed
+        // -response path), but one blank turn must never kill a session.
+        if m.content.trim().is_empty() {
+            continue;
+        }
         match m.role {
             Role::System => system_blocks.push(TextBlock::new(m.content.clone())),
             Role::User | Role::Assistant => {

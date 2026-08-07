@@ -186,7 +186,8 @@ pub async fn run_doc(
     for warning in absolute_mount_warnings(&doc) {
         log::warn!("{}: {warning}", doc_path.display());
     }
-    if executor_choice == ExecutorChoice::Local && mode == RunMode::Execute
+    if executor_choice == ExecutorChoice::Local
+        && mode == RunMode::Execute
         && let Some(warning) = ignored_image_warning(&doc)
     {
         log::info!("{}: {warning}", doc_path.display());
@@ -493,7 +494,11 @@ pub fn ignored_image_warning(doc: &hick_lang::HickDocument) -> Option<String> {
     Some(format!(
         "the local executor ignores image= — these cells run against your HOST \
          toolchain, so the tools in {} must be installed locally. Declared: {}",
-        if images.len() == 1 { "this image" } else { "these images" },
+        if images.len() == 1 {
+            "this image"
+        } else {
+            "these images"
+        },
         images.join(", ")
     ))
 }

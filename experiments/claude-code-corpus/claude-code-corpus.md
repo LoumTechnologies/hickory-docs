@@ -119,19 +119,19 @@ for name, n in tools.most_common(4):
 
 
 $ python3 project/corpus_scan.py
-sessions: 504
-sessions using tools: 405
-tool calls: 38128
-median rounds: 54
-p90 rounds: 184
-over budget: 291
+sessions: 510
+sessions using tools: 411
+tool calls: 38534
+median rounds: 53
+p90 rounds: 180
+over budget: 296
 median files: 11
-multi file sessions: 319
+multi file sessions: 325
 git sessions: 322
-tool Bash: 20489
-tool Edit: 6810
-tool Read: 4638
-tool Write: 1838
+tool Bash: 20751
+tool Edit: 6895
+tool Read: 4675
+tool Write: 1850
 
 
 

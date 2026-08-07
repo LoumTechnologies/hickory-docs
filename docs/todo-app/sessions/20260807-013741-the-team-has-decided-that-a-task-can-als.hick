@@ -1,0 +1,881 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<hick:session xmlns:hick="http://www.hickorydocs.com/1.0" start="2026-08-07T01:37:41Z">
+<hick:user>The team has decided that a task can also be in a "blocked" state, alongside open, done and dropped. Record that decision where decisions are recorded, and propagate it through the chain so every document and the code agree. Run verify before you finish.</hick:user>
+<hick:usage turn="0" input="4" cache-write="3636" cache-read="0" output="59" cost-usd="0.014532"/>
+<hick:assistant>
+<hick:tool name="read_doc">
+</hick:tool>
+</hick:assistant>
+<hick:tool-result name="read_doc" ok="true">
+doc: implementation.hick
+83e1|<?xml version="1.0" encoding="UTF-8"?>
+9117|<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="implementation.md">
+e32e|# Todo app — implementation
+f011|
+d031|<hick:upstream file="requirements.hick" />
+f011|
+6e53|The code lives here, in prose order, and is tangled into `todo.py`. The cells
+9443|at the bottom run the real CLI and pin its output, so this document is both
+bab5|the source and the acceptance test: `hickory check` fails if the code stops
+a15c|satisfying the requirements it was written from.
+f011|
+5a3e|## Requirements being implemented
+f011|
+4d16|<hick:paste select="#r-add,#r-list,#r-done,#r-storage,#r-rename" />
+f011|
+5d42|<hick:container name="app" image="host" />
+f011|
+4db9|## Storage
+f011|
+6ec5|<hick:copy id="c-storage" class="todo-py">
+7e1c|"""A todo list. Tangled from docs/todo-app/implementation.hick — edit the
+0536|document, not this file."""
+b5f4|import json
+d6f0|import os
+be1b|import secrets
+3beb|import sys
+f011|
+a7c5|PATH = os.environ.get("TODO_FILE", "tasks.json")
+2328|STATES = ("open", "done", "dropped")
+f011|
+f011|
+f92a|def load():
+4ec1|    """A missing file reads as an empty list — first run behaves like any."""
+fc73|    if not os.path.exists(PATH):
+4ebf|        return []
+849b|    with open(PATH) as fh:
+cd9d|        return json.load(fh)
+f011|
+f011|
+9579|def save(tasks):
+d752|    with open(PATH, "w") as fh:
+7ad7|        json.dump(tasks, fh, indent=2)
+ae0e|</hick:copy>
+f011|
+09d2|## Commands
+f011|
+a66d|<hick:copy id="c-commands" class="todo-py">
+f011|
+f011|
+32a1|def add(title):
+2998|    """Ids are opaque and assigned at creation, never derived from the title."""
+fd12|    tasks = load()
+7cfc|    task = {"id": secrets.token_hex(3), "title": title, "state": "open"}
+b8a3|    tasks.append(task)
+f682|    save(tasks)
+46cf|    return task["id"]
+f011|
+f011|
+3c64|def transition(task_id, state):
+43c2|    """Idempotent: re-running on a task already in that state changes nothing,
+a110|    so a retried command is never an error."""
+fd12|    tasks = load()
+36af|    for task in tasks:
+4c43|        if task["id"] == task_id:
+e853|            task["state"] = state
+282e|            save(tasks)
+b9d5|            return True
+4314|    return False
+f011|
+f011|
+0531|def render(tasks):
+4d69|    return "".join(f"{t['id']} {t['state']} {t['title']}\n" for t in tasks)
+f011|
+f011|
+c68f|def rename(task_id, new_title):
+d2c1|    """Renaming leaves id and state untouched, so anything referencing this
+80d7|    task survives a retitle."""
+fd12|    tasks = load()
+36af|    for task in tasks:
+4c43|        if task["id"] == task_id:
+f617|            task["title"] = new_title
+282e|            save(tasks)
+b9d5|            return True
+4314|    return False
+ae0e|</hick:copy>
+f011|
+4322|## Entry point
+f011|
+d1eb|<hick:copy id="c-main" class="todo-py">
+f011|
+f011|
+3cf3|def main(argv):
+0223|    if not argv:
+94f4|        print("usage: todo add|list|done|drop", file=sys.stderr)
+a46a|        return 2
+8356|    cmd, rest = argv[0], argv[1:]
+5268|    if cmd == "add":
+92e6|        print(add(rest[0]))
+a100|        return 0
+d9b0|    if cmd == "list":
+7177|        tasks = load()
+70b7|        if len(rest) == 2 and rest[0] == "--state":
+93ab|            tasks = [t for t in tasks if t["state"] == rest[1]]
+997a|        sys.stdout.write(render(tasks))
+a100|        return 0
+07bb|    if cmd in ("done", "drop"):
+5112|        state = "done" if cmd == "done" else "dropped"
+af61|        if not transition(rest[0], state):
+e58e|            print(f"no such task: {rest[0]}", file=sys.stderr)
+37be|            return 1
+a100|        return 0
+af7d|    if cmd == "rename":
+e1e4|        if not rename(rest[0], rest[1]):
+e58e|            print(f"no such task: {rest[0]}", file=sys.stderr)
+37be|            return 1
+a100|        return 0
+fb51|    print(f"unknown command: {cmd}", file=sys.stderr)
+3d1f|    return 2
+f011|
+f011|
+6397|if __name__ == "__main__":
+5341|    sys.exit(main(sys.argv[1:]))
+ae0e|</hick:copy>
+f011|
+ecfd|<hick:file path="todo.py">
+6ae6|<hick:paste select=".todo-py" />
+d718|</hick:file>
+f011|
+a3b6|## Acceptance
+f011|
+5094|These cells run the real CLI. Ids are opaque and random, so the tests set
+00c0|titles and filter on state rather than pinning ids — pinning a random id
+0a21|would make the document fail on every run for no reason.
+f011|
+1de7|<hick:volume name="src" input="." />
+f011|
+dbe4|<hick:exec container="app" mount="src:/project">
+76b1|cd project && rm -f /tmp/todo-acceptance.json && export TODO_FILE=/tmp/todo-acceptance.json
+c04a|python3 todo.py list
+c788|echo "--- empty file reads as empty list, no error: $?"
+b168|<hick:expect match="exact">--- empty file reads as empty list, no error: 0
+1cc3|</hick:expect>
+32f2|</hick:exec>
+f011|
+dbe4|<hick:exec container="app" mount="src:/project">
+96df|cd project && export TODO_FILE=/tmp/todo-acceptance.json
+ba84|python3 todo.py add "write the spec" > /dev/null
+70db|python3 todo.py add "ship it" > /dev/null
+198c|python3 todo.py add "abandon this one" > /dev/null
+3862|python3 todo.py list | awk '{$1=""; print substr($0,2)}'
+823e|<hick:expect match="exact">open write the spec
+5378|open ship it
+92f8|open abandon this one
+1cc3|</hick:expect>
+32f2|</hick:exec>
+f011|
+dbe4|<hick:exec container="app" mount="src:/project">
+96df|cd project && export TODO_FILE=/tmp/todo-acceptance.json
+a849|first=$(python3 todo.py list | head -1 | cut -d' ' -f1)
+6872|last=$(python3 todo.py list | tail -1 | cut -d' ' -f1)
+a7d5|python3 todo.py done "$first"
+1c94|python3 todo.py done "$first"   # idempotent: a retry is never an error
+f0d8|python3 todo.py drop "$last"
+3862|python3 todo.py list | awk '{$1=""; print substr($0,2)}'
+ed0f|<hick:expect match="exact">done write the spec
+5378|open ship it
+9c38|dropped abandon this one
+1cc3|</hick:expect>
+32f2|</hick:exec>
+f011|
+dbe4|<hick:exec container="app" mount="src:/project">
+96df|cd project && export TODO_FILE=/tmp/todo-acceptance.json
+db70|python3 todo.py list --state open | awk '{$1=""; print substr($0,2)}'
+8626|echo "--- unknown id exits nonzero:"
+4196|python3 todo.py done nosuchid 2>/dev/null || echo "yes"
+573a|<hick:expect match="exact">open ship it
+706e|--- unknown id exits nonzero:
+0137|yes
+1cc3|</hick:expect>
+32f2|</hick:exec>
+f011|
+dbe4|<hick:exec container="app" mount="src:/project">
+96df|cd project && export TODO_FILE=/tmp/todo-acceptance.json
+774e|id=$(python3 todo.py list --state open | head -1 | cut -d' ' -f1)
+7c36|python3 todo.py rename "$id" "ship it today"
+db70|python3 todo.py list --state open | awk '{$1=""; print substr($0,2)}'
+73aa|echo "--- id survived the retitle:"
+255a|python3 todo.py list --state open | head -1 | cut -d' ' -f1 | grep -qx "$id" && echo "yes"
+8626|echo "--- unknown id exits nonzero:"
+4511|python3 todo.py rename nosuchid "x" 2>/dev/null || echo "yes"
+9650|<hick:expect match="exact">open ship it today
+f131|--- id survived the retitle:
+0137|yes
+706e|--- unknown id exits nonzero:
+0137|yes
+1cc3|</hick:expect>
+32f2|</hick:exec>
+de5c|</hick:doc>
+
+upstream of this session (readable and editable by passing <hick:arg name="doc">NAME</hick:arg>): domain.hick, meetings/2026-08-07-kickoff.hick, requirements.hick
+</hick:tool-result>
+<hick:usage turn="1" input="4" cache-write="6790" cache-read="3636" output="101" cost-usd="0.028080"/>
+<hick:assistant>
+<hick:tool name="read_doc">
+<hick:arg name="doc">meetings/2026-08-07-kickoff.hick</hick:arg>
+</hick:tool>
+</hick:assistant>
+<hick:tool-result name="read_doc" ok="true">
+doc: meetings/2026-08-07-kickoff.hick
+83e1|<?xml version="1.0" encoding="UTF-8"?>
+0d8f|<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="2026-08-07-kickoff.md">
+0ff7|# Todo app — kickoff, 7 Aug 2026
+f011|
+f488|Raw notes. This is the top of the chain: everything downstream reaches these
+b4ee|decisions by reference, so a decision is written down exactly once and the
+6d0f|documents that depend on it fail when it changes.
+f011|
+e592|Present: Nate. Notes taken live.
+f011|
+5d87|## What we're building
+f011|
+6535|A todo app. Deliberately small — it exists to exercise the whole lifecycle,
+3008|meeting through shipped code, not to be a product.
+f011|
+dbec|## Decisions
+f011|
+477e|Pasted back into these notes deliberately. `hick:copy` blocks are EXTRACTED,
+346c|not rendered — without this the notes weave to an empty section, and the one
+3ff2|document where a decision is actually written down becomes the one document
+6b7e|you cannot read it in. It also makes this document's own drift check
+1727|meaningful: change a decision and these notes go stale too, not just the
+cea7|documents downstream.
+f011|
+dff3|<hick:paste select=".decision" />
+f011|
+79d8|<hick:copy id="d-storage" class="decision">
+20fa|Tasks persist to a single JSON file on disk. No database. The app must run
+40c1|with no service dependencies, because the point is to exercise the document
+54dc|chain, not an install.
+ae0e|</hick:copy>
+f011|
+1778|<hick:copy id="d-states" class="decision">
+cb92|A task is in exactly one of three states: **open**, **done**, or
+c028|**dropped**. Dropped is not deleted — it stays in the file and stays
+33a4|listable, because "what did we decide not to do" is the question people
+4eaa|actually come back for.
+ae0e|</hick:copy>
+f011|
+edfb|<hick:copy id="d-identity" class="decision">
+85c1|Tasks are identified by a short opaque id assigned on creation, never by
+9391|their title. Titles are editable; anything that references a task must
+e547|survive a retitle.
+ae0e|</hick:copy>
+f011|
+1488|<hick:copy id="d-interface" class="decision">
+38ef|The interface is a CLI. No web UI in the first cut — a UI would double the
+32bc|surface without exercising any part of the lifecycle that the CLI does not.
+ae0e|</hick:copy>
+f011|
+c39b|## Open questions
+f011|
+40ff|Not decisions yet, deliberately left loose:
+f011|
+6129|- Does a task need a due date? Nobody argued for it. Left out.
+a8e3|- Sub-tasks? Same. If it comes up twice, it becomes a decision.
+f011|
+4427|## Not discussed
+f011|
+4975|Multi-user, sync, auth. Out of scope for the first cut.
+de5c|</hick:doc>
+
+upstream of this session (readable and editable by passing <hick:arg name="doc">NAME</hick:arg>): domain.hick, meetings/2026-08-07-kickoff.hick, requirements.hick
+</hick:tool-result>
+<hick:usage turn="2" input="4" cache-write="2498" cache-read="10426" output="80" cost-usd="0.013707"/>
+<hick:assistant>
+<hick:tool name="read_doc">
+<hick:arg name="doc">domain.hick</hick:arg>
+</hick:tool>
+</hick:assistant>
+<hick:tool-result name="read_doc" ok="true">
+doc: domain.hick
+83e1|<?xml version="1.0" encoding="UTF-8"?>
+35bf|<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="domain.md">
+d159|# Todo app — domain model
+f011|
+ce0d|<hick:upstream file="meetings/2026-08-07-kickoff.hick" />
+f011|
+5a37|The vocabulary. Terms are tagged `.glossary` so downstream documents can pull
+dc66|the whole set by class. Decisions are NOT restated here — they arrive from the
+80b2|meeting by reference, so each is written down in exactly one place and every
+539b|document below this one goes stale together when it changes.
+f011|
+02f5|## Terms
+f011|
+3f79|<hick:copy id="t-task" class="glossary">
+3e6f|**Task** — one thing to do. Has an id, a title, and a state. Nothing else;
+c5e0|every field anyone proposed beyond these was left as an open question.
+ae0e|</hick:copy>
+f011|
+e00f|<hick:copy id="t-state" class="glossary">
+96c7|**State** — which of open, done, or dropped a task is in. Exactly one at a
+3fa6|time; there is no "partially done".
+ae0e|</hick:copy>
+f011|
+bd0c|<hick:copy id="t-dropped" class="glossary">
+ed0c|**Dropped** — decided against, deliberately retained. Distinct from deleted,
+f905|which the app does not offer. Dropping is a decision worth keeping a record
+2b4d|of.
+ae0e|</hick:copy>
+f011|
+7d9c|<hick:copy id="t-list" class="glossary">
+0826|**List** — the whole set of tasks, in creation order. There is one list; the
+37b3|app has no concept of multiple lists or projects.
+ae0e|</hick:copy>
+f011|
+43df|## Decisions this model rests on
+f011|
+dff3|<hick:paste select=".decision" />
+f011|
+505c|## Why dropped is not deleted
+f011|
+5a6b|The state decision above is the one that shapes the data model. A deleted
+509e|task leaves no trace, so "why isn't this in the list any more" has no answer.
+f064|A dropped task answers it. That costs nothing here — the file keeps every
+a41e|task regardless — and it is the difference between a log and a list.
+de5c|</hick:doc>
+
+upstream of this session (readable and editable by passing <hick:arg name="doc">NAME</hick:arg>): domain.hick, meetings/2026-08-07-kickoff.hick, requirements.hick
+</hick:tool-result>
+<hick:usage turn="3" input="4" cache-write="1974" cache-read="12924" output="77" cost-usd="0.012447"/>
+<hick:assistant>
+<hick:tool name="read_doc">
+<hick:arg name="doc">requirements.hick</hick:arg>
+</hick:tool>
+</hick:assistant>
+<hick:tool-result name="read_doc" ok="true">
+doc: requirements.hick
+83e1|<?xml version="1.0" encoding="UTF-8"?>
+fc06|<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="requirements.md">
+328e|# Todo app — requirements
+f011|
+fd80|<hick:upstream file="domain.hick" />
+f011|
+c83e|One edge declared. The glossary comes from the domain model one hop up, and
+122e|the decisions come from the kickoff meeting **two** hops up — this document
+a807|never names the meeting, and does not have to. Change a decision in the
+fc8f|meeting notes and this document, its tickets, and the domain model all go
+1fea|stale together.
+f011|
+b097|## Vocabulary in force
+f011|
+1dfd|<hick:paste select=".glossary" />
+f011|
+043b|## Decisions in force
+f011|
+dff3|<hick:paste select=".decision" />
+f011|
+211a|## Requirements
+f011|
+fde9|Each requirement below is also a ticket. The ticket files under `work/` are
+c80d|tangled from these fragments — the requirement and the ticket are the same
+4a47|bytes, so they cannot drift. Editing the requirement IS editing the ticket.
+f011|
+98c5|<hick:copy id="r-add">
+b92d|`todo add "<title>"` creates an open task and prints its id. The id is short,
+85e9|opaque, and assigned at creation; it is never derived from the title.
+ae0e|</hick:copy>
+f011|
+2075|<hick:copy id="r-list">
+6010|`todo list` prints every task in creation order as `<id> <state> <title>`.
+3d2e|Dropped tasks are included — retaining them is pointless if the default view
+e53b|hides them. `--state open|done|dropped` filters.
+ae0e|</hick:copy>
+f011|
+6d79|<hick:copy id="r-done">
+b81a|`todo done <id>` moves a task to done. `todo drop <id>` moves it to dropped.
+0049|Both are idempotent: re-running on a task already in that state succeeds and
+d788|changes nothing, so a retried command is never an error.
+ae0e|</hick:copy>
+f011|
+b2d8|<hick:copy id="r-storage">
+4826|Tasks persist to `tasks.json` in the working directory, created on first
+24cb|write. A missing file reads as an empty list, not an error — the first run of
+a00b|a fresh install must behave like every later run.
+ae0e|</hick:copy>
+f011|
+471e|<hick:copy id="r-rename">
+d792|`todo rename <id> "<new title>"` changes a task's title, leaving its id and
+971b|state untouched. This is the requirement the opaque-id decision exists for:
+8af0|anything referencing a task must survive a retitle. An unknown id exits
+20f3|nonzero, like the other commands that take one.
+ae0e|</hick:copy>
+f011|
+7f85|<hick:file path="work/task-rename.task.md">
+f636|---
+a908|slug: task-rename
+b412|title: Rename a task
+b95d|status: todo
+f636|---
+f011|
+2a2d|<hick:paste select="#r-rename" />
+d718|</hick:file>
+f011|
+1e43|<hick:file path="work/task-add.task.md">
+f636|---
+8885|slug: task-add
+06ea|title: Create a task
+b95d|status: todo
+f636|---
+f011|
+8492|<hick:paste select="#r-add" />
+d718|</hick:file>
+f011|
+c62b|<hick:file path="work/task-list.task.md">
+f636|---
+cf86|slug: task-list
+e1ac|title: List tasks
+b95d|status: todo
+f636|---
+f011|
+4341|<hick:paste select="#r-list" />
+d718|</hick:file>
+f011|
+41cf|<hick:file path="work/task-transitions.task.md">
+f636|---
+8aa3|slug: task-transitions
+c189|title: Complete and drop tasks
+b95d|status: todo
+f636|---
+f011|
+209c|<hick:paste select="#r-done" />
+d718|</hick:file>
+f011|
+3e3c|<hick:file path="work/task-storage.task.md">
+f636|---
+778a|slug: task-storage
+ae47|title: Persist tasks to disk
+b95d|status: todo
+f636|---
+f011|
+f8f9|<hick:paste select="#r-storage" />
+d718|</hick:file>
+de5c|</hick:doc>
+
+upstream of this session (readable and editable by passing <hick:arg name="doc">NAME</hick:arg>): domain.hick, meetings/2026-08-07-kickoff.hick, requirements.hick
+</hick:tool-result>
+<hick:usage turn="4" input="4" cache-write="3372" cache-read="14898" output="2086" cost-usd="0.048416"/>
+<hick:assistant>
+<hick:tool name="read_output">
+<hick:arg name="path">todo.py</hick:arg>
+<hick:arg name="with_lineage">true</hick:arg>
+</hick:tool>
+</hick:assistant>
+<hick:tool-result name="read_output" ok="true">
+output: todo.py
+f011|
+f011|
+7e1c|"""A todo list. Tangled from docs/todo-app/implementation.hick — edit the
+0536|document, not this file."""
+b5f4|import json
+d6f0|import os
+be1b|import secrets
+3beb|import sys
+f011|
+a7c5|PATH = os.environ.get("TODO_FILE", "tasks.json")
+2328|STATES = ("open", "done", "dropped")
+f011|
+f011|
+f92a|def load():
+4ec1|    """A missing file reads as an empty list — first run behaves like any."""
+fc73|    if not os.path.exists(PATH):
+4ebf|        return []
+849b|    with open(PATH) as fh:
+cd9d|        return json.load(fh)
+f011|
+f011|
+9579|def save(tasks):
+d752|    with open(PATH, "w") as fh:
+7ad7|        json.dump(tasks, fh, indent=2)
+f011|
+f011|
+f011|
+32a1|def add(title):
+2998|    """Ids are opaque and assigned at creation, never derived from the title."""
+fd12|    tasks = load()
+7cfc|    task = {"id": secrets.token_hex(3), "title": title, "state": "open"}
+b8a3|    tasks.append(task)
+f682|    save(tasks)
+46cf|    return task["id"]
+f011|
+f011|
+3c64|def transition(task_id, state):
+43c2|    """Idempotent: re-running on a task already in that state changes nothing,
+a110|    so a retried command is never an error."""
+fd12|    tasks = load()
+36af|    for task in tasks:
+4c43|        if task["id"] == task_id:
+e853|            task["state"] = state
+282e|            save(tasks)
+b9d5|            return True
+4314|    return False
+f011|
+f011|
+0531|def render(tasks):
+4d69|    return "".join(f"{t['id']} {t['state']} {t['title']}\n" for t in tasks)
+f011|
+f011|
+c68f|def rename(task_id, new_title):
+d2c1|    """Renaming leaves id and state untouched, so anything referencing this
+80d7|    task survives a retitle."""
+fd12|    tasks = load()
+36af|    for task in tasks:
+4c43|        if task["id"] == task_id:
+f617|            task["title"] = new_title
+282e|            save(tasks)
+b9d5|            return True
+4314|    return False
+f011|
+f011|
+f011|
+3cf3|def main(argv):
+0223|    if not argv:
+94f4|        print("usage: todo add|list|done|drop", file=sys.stderr)
+a46a|        return 2
+8356|    cmd, rest = argv[0], argv[1:]
+5268|    if cmd == "add":
+92e6|        print(add(rest[0]))
+a100|        return 0
+d9b0|    if cmd == "list":
+7177|        tasks = load()
+70b7|        if len(rest) == 2 and rest[0] == "--state":
+93ab|            tasks = [t for t in tasks if t["state"] == rest[1]]
+997a|        sys.stdout.write(render(tasks))
+a100|        return 0
+07bb|    if cmd in ("done", "drop"):
+5112|        state = "done" if cmd == "done" else "dropped"
+af61|        if not transition(rest[0], state):
+e58e|            print(f"no such task: {rest[0]}", file=sys.stderr)
+37be|            return 1
+a100|        return 0
+af7d|    if cmd == "rename":
+e1e4|        if not rename(rest[0], rest[1]):
+e58e|            print(f"no such task: {rest[0]}", file=sys.stderr)
+37be|            return 1
+a100|        return 0
+fb51|    print(f"unknown command: {cmd}", file=sys.stderr)
+3d1f|    return 2
+f011|
+f011|
+6397|if __name__ == "__main__":
+5341|    sys.exit(main(sys.argv[1:]))
+f011|
+
+lineage:
+  line 1: literal — editable via edit_output (from implementation.hick lines 125-125)
+  lines 2-24: literal — editable via edit_output (from implementation.hick lines 20-42)
+  lines 25-62: literal — editable via edit_output (from implementation.hick lines 47-84)
+  lines 63-96: literal — editable via edit_output (from implementation.hick lines 89-122)
+  line 97: literal — editable via edit_output (from implementation.hick lines 126-126)
+</hick:tool-result>
+<hick:usage turn="5" input="4" cache-write="3248" cache-read="18270" output="3309" cost-usd="0.067308"/>
+<hick:assistant>
+<hick:tool name="read_doc">
+<hick:arg name="doc">meetings/2026-08-07-kickoff.hick</hick:arg>
+</hick:tool>
+</hick:assistant>
+<hick:tool-result name="read_doc" ok="true">
+doc: meetings/2026-08-07-kickoff.hick
+83e1|<?xml version="1.0" encoding="UTF-8"?>
+0d8f|<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="2026-08-07-kickoff.md">
+0ff7|# Todo app — kickoff, 7 Aug 2026
+f011|
+f488|Raw notes. This is the top of the chain: everything downstream reaches these
+b4ee|decisions by reference, so a decision is written down exactly once and the
+6d0f|documents that depend on it fail when it changes.
+f011|
+e592|Present: Nate. Notes taken live.
+f011|
+5d87|## What we're building
+f011|
+6535|A todo app. Deliberately small — it exists to exercise the whole lifecycle,
+3008|meeting through shipped code, not to be a product.
+f011|
+dbec|## Decisions
+f011|
+477e|Pasted back into these notes deliberately. `hick:copy` blocks are EXTRACTED,
+346c|not rendered — without this the notes weave to an empty section, and the one
+3ff2|document where a decision is actually written down becomes the one document
+6b7e|you cannot read it in. It also makes this document's own drift check
+1727|meaningful: change a decision and these notes go stale too, not just the
+cea7|documents downstream.
+f011|
+dff3|<hick:paste select=".decision" />
+f011|
+79d8|<hick:copy id="d-storage" class="decision">
+20fa|Tasks persist to a single JSON file on disk. No database. The app must run
+40c1|with no service dependencies, because the point is to exercise the document
+54dc|chain, not an install.
+ae0e|</hick:copy>
+f011|
+1778|<hick:copy id="d-states" class="decision">
+cb92|A task is in exactly one of three states: **open**, **done**, or
+c028|**dropped**. Dropped is not deleted — it stays in the file and stays
+33a4|listable, because "what did we decide not to do" is the question people
+4eaa|actually come back for.
+ae0e|</hick:copy>
+f011|
+edfb|<hick:copy id="d-identity" class="decision">
+85c1|Tasks are identified by a short opaque id assigned on creation, never by
+9391|their title. Titles are editable; anything that references a task must
+e547|survive a retitle.
+ae0e|</hick:copy>
+f011|
+1488|<hick:copy id="d-interface" class="decision">
+38ef|The interface is a CLI. No web UI in the first cut — a UI would double the
+32bc|surface without exercising any part of the lifecycle that the CLI does not.
+ae0e|</hick:copy>
+f011|
+c39b|## Open questions
+f011|
+40ff|Not decisions yet, deliberately left loose:
+f011|
+6129|- Does a task need a due date? Nobody argued for it. Left out.
+a8e3|- Sub-tasks? Same. If it comes up twice, it becomes a decision.
+f011|
+4427|## Not discussed
+f011|
+4975|Multi-user, sync, auth. Out of scope for the first cut.
+de5c|</hick:doc>
+
+upstream of this session (readable and editable by passing <hick:arg name="doc">NAME</hick:arg>): domain.hick, meetings/2026-08-07-kickoff.hick, requirements.hick
+</hick:tool-result>
+<hick:usage turn="6" input="4" cache-write="2498" cache-read="21518" output="219" cost-usd="0.019120"/>
+<hick:assistant>
+<hick:tool name="edit_doc" doc="meetings/2026-08-07-kickoff.hick" run="cb92..4eaa">
+<hick:input>A task is in exactly one of four states: **open**, **blocked**, **done**, or
+**dropped**. Blocked means work cannot proceed until something external
+changes; it is not done and not dropped. Dropped is not deleted — it stays
+in the file and stays listable, because "what did we decide not to do" is
+the question people actually come back for.
+</hick:input>
+</hick:tool>
+</hick:assistant>
+<hick:tool-result name="edit_doc" ok="false">
+missing anchor: give run="first..last" (or one hash) to replace lines, or after="hash" (or "^") to insert
+</hick:tool-result>
+<hick:usage turn="7" input="4" cache-write="534" cache-read="24016" output="342" cost-usd="0.014349"/>
+<hick:usage turn="8" input="4" cache-write="756" cache-read="24550" output="209" cost-usd="0.013347"/>
+<hick:assistant>
+<hick:tool name="edit_doc" doc="meetings/2026-08-07-kickoff.hick">
+<hick:arg name="run">cb92..4eaa</hick:arg>
+<hick:input>A task is in exactly one of four states: **open**, **blocked**, **done**, or
+**dropped**. Blocked means work cannot proceed until something external
+changes; it is not done and not dropped. Dropped is not deleted — it stays
+in the file and stays listable, because "what did we decide not to do" is
+the question people actually come back for.
+</hick:input>
+</hick:tool>
+</hick:assistant>
+<hick:tool-result name="edit_doc" ok="false">
+anchor run="cb92..4eaa" matches no lines in the current content — the text may have changed; re-read the surface and use fresh hashes
+</hick:tool-result>
+<hick:usage turn="9" input="4" cache-write="576" cache-read="25306" output="154" cost-usd="0.012074"/>
+<hick:assistant>
+<hick:tool name="read_doc">
+<hick:arg name="doc">meetings/2026-08-07-kickoff.hick</hick:arg>
+</hick:tool>
+</hick:assistant>
+<hick:tool-result name="read_doc" ok="true">
+doc: meetings/2026-08-07-kickoff.hick
+83e1|<?xml version="1.0" encoding="UTF-8"?>
+0d8f|<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="2026-08-07-kickoff.md">
+0ff7|# Todo app — kickoff, 7 Aug 2026
+f011|
+f488|Raw notes. This is the top of the chain: everything downstream reaches these
+b4ee|decisions by reference, so a decision is written down exactly once and the
+6d0f|documents that depend on it fail when it changes.
+f011|
+e592|Present: Nate. Notes taken live.
+f011|
+5d87|## What we're building
+f011|
+6535|A todo app. Deliberately small — it exists to exercise the whole lifecycle,
+3008|meeting through shipped code, not to be a product.
+f011|
+dbec|## Decisions
+f011|
+477e|Pasted back into these notes deliberately. `hick:copy` blocks are EXTRACTED,
+346c|not rendered — without this the notes weave to an empty section, and the one
+3ff2|document where a decision is actually written down becomes the one document
+6b7e|you cannot read it in. It also makes this document's own drift check
+1727|meaningful: change a decision and these notes go stale too, not just the
+cea7|documents downstream.
+f011|
+dff3|<hick:paste select=".decision" />
+f011|
+79d8|<hick:copy id="d-storage" class="decision">
+20fa|Tasks persist to a single JSON file on disk. No database. The app must run
+40c1|with no service dependencies, because the point is to exercise the document
+54dc|chain, not an install.
+ae0e|</hick:copy>
+f011|
+1778|<hick:copy id="d-states" class="decision">
+cb92|A task is in exactly one of three states: **open**, **done**, or
+c028|**dropped**. Dropped is not deleted — it stays in the file and stays
+33a4|listable, because "what did we decide not to do" is the question people
+4eaa|actually come back for.
+ae0e|</hick:copy>
+f011|
+edfb|<hick:copy id="d-identity" class="decision">
+85c1|Tasks are identified by a short opaque id assigned on creation, never by
+9391|their title. Titles are editable; anything that references a task must
+e547|survive a retitle.
+ae0e|</hick:copy>
+f011|
+1488|<hick:copy id="d-interface" class="decision">
+38ef|The interface is a CLI. No web UI in the first cut — a UI would double the
+32bc|surface without exercising any part of the lifecycle that the CLI does not.
+ae0e|</hick:copy>
+f011|
+c39b|## Open questions
+f011|
+40ff|Not decisions yet, deliberately left loose:
+f011|
+6129|- Does a task need a due date? Nobody argued for it. Left out.
+a8e3|- Sub-tasks? Same. If it comes up twice, it becomes a decision.
+f011|
+4427|## Not discussed
+f011|
+4975|Multi-user, sync, auth. Out of scope for the first cut.
+de5c|</hick:doc>
+
+upstream of this session (readable and editable by passing <hick:arg name="doc">NAME</hick:arg>): domain.hick, meetings/2026-08-07-kickoff.hick, requirements.hick
+</hick:tool-result>
+<hick:usage turn="10" input="4" cache-write="2498" cache-read="25882" output="455" cost-usd="0.023969"/>
+<hick:assistant>
+<hick:tool name="edit_doc">
+<hick:arg name="doc">meetings/2026-08-07-kickoff.hick</hick:arg>
+<hick:arg name="run">cb92..4eaa</hick:arg>
+<hick:input>A task is in exactly one of four states: **open**, **blocked**, **done**, or
+**dropped**. Blocked means work cannot proceed until something external
+changes; it is not done and not dropped. Dropped is not deleted — it stays
+in the file and stays listable, because "what did we decide not to do" is
+the question people actually come back for.
+</hick:input>
+</hick:tool>
+</hick:assistant>
+<hick:tool-result name="edit_doc" ok="true">
+edited meetings/2026-08-07-kickoff.hick and re-wove implementation.hick.
+83e1|<?xml version="1.0" encoding="UTF-8"?>
+0d8f|<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="2026-08-07-kickoff.md">
+0ff7|# Todo app — kickoff, 7 Aug 2026
+f011|
+f488|Raw notes. This is the top of the chain: everything downstream reaches these
+b4ee|decisions by reference, so a decision is written down exactly once and the
+6d0f|documents that depend on it fail when it changes.
+f011|
+e592|Present: Nate. Notes taken live.
+f011|
+5d87|## What we're building
+f011|
+6535|A todo app. Deliberately small — it exists to exercise the whole lifecycle,
+3008|meeting through shipped code, not to be a product.
+f011|
+dbec|## Decisions
+f011|
+477e|Pasted back into these notes deliberately. `hick:copy` blocks are EXTRACTED,
+346c|not rendered — without this the notes weave to an empty section, and the one
+3ff2|document where a decision is actually written down becomes the one document
+6b7e|you cannot read it in. It also makes this document's own drift check
+1727|meaningful: change a decision and these notes go stale too, not just the
+cea7|documents downstream.
+f011|
+dff3|<hick:paste select=".decision" />
+f011|
+79d8|<hick:copy id="d-storage" class="decision">
+20fa|Tasks persist to a single JSON file on disk. No database. The app must run
+40c1|with no service dependencies, because the point is to exercise the document
+54dc|chain, not an install.
+ae0e|</hick:copy>
+f011|
+1778|<hick:copy id="d-states" class="decision">
+541c|A task is in exactly one of four states: **open**, **blocked**, **done**, or
+de3e|**dropped**. Blocked means work cannot proceed until something external
+784c|changes; it is not done and not dropped. Dropped is not deleted — it stays
+76b5|in the file and stays listable, because "what did we decide not to do" is
+212a|the question people actually come back for.
+ae0e|</hick:copy>
+f011|
+edfb|<hick:copy id="d-identity" class="decision">
+85c1|Tasks are identified by a short opaque id assigned on creation, never by
+9391|their title. Titles are editable; anything that references a task must
+e547|survive a retitle.
+ae0e|</hick:copy>
+f011|
+1488|<hick:copy id="d-interface" class="decision">
+38ef|The interface is a CLI. No web UI in the first cut — a UI would double the
+32bc|surface without exercising any part of the lifecycle that the CLI does not.
+ae0e|</hick:copy>
+f011|
+c39b|## Open questions
+f011|
+40ff|Not decisions yet, deliberately left loose:
+f011|
+6129|- Does a task need a due date? Nobody argued for it. Left out.
+a8e3|- Sub-tasks? Same. If it comes up twice, it becomes a decision.
+f011|
+4427|## Not discussed
+f011|
+4975|Multi-user, sync, auth. Out of scope for the first cut.
+de5c|</hick:doc>
+
+outputs now: implementation.md, todo.py
+</hick:tool-result>
+<hick:usage turn="11" input="4" cache-write="2786" cache-read="28380" output="1461" cost-usd="0.040889"/>
+<hick:assistant>
+<hick:tool name="read_doc">
+<hick:arg name="doc">domain.hick</hick:arg>
+</hick:tool>
+</hick:assistant>
+<hick:tool-result name="read_doc" ok="true">
+doc: domain.hick
+83e1|<?xml version="1.0" encoding="UTF-8"?>
+35bf|<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="domain.md">
+d159|# Todo app — domain model
+f011|
+ce0d|<hick:upstream file="meetings/2026-08-07-kickoff.hick" />
+f011|
+5a37|The vocabulary. Terms are tagged `.glossary` so downstream documents can pull
+dc66|the whole set by class. Decisions are NOT restated here — they arrive from the
+80b2|meeting by reference, so each is written down in exactly one place and every
+539b|document below this one goes stale together when it changes.
+f011|
+02f5|## Terms
+f011|
+3f79|<hick:copy id="t-task" class="glossary">
+3e6f|**Task** — one thing to do. Has an id, a title, and a state. Nothing else;
+c5e0|every field anyone proposed beyond these was left as an open question.
+ae0e|</hick:copy>
+f011|
+e00f|<hick:copy id="t-state" class="glossary">
+96c7|**State** — which of open, done, or dropped a task is in. Exactly one at a
+3fa6|time; there is no "partially done".
+ae0e|</hick:copy>
+f011|
+bd0c|<hick:copy id="t-dropped" class="glossary">
+ed0c|**Dropped** — decided against, deliberately retained. Distinct from deleted,
+f905|which the app does not offer. Dropping is a decision worth keeping a record
+2b4d|of.
+ae0e|</hick:copy>
+f011|
+7d9c|<hick:copy id="t-list" class="glossary">
+0826|**List** — the whole set of tasks, in creation order. There is one list; the
+37b3|app has no concept of multiple lists or projects.
+ae0e|</hick:copy>
+f011|
+43df|## Decisions this model rests on
+f011|
+dff3|<hick:paste select=".decision" />
+f011|
+505c|## Why dropped is not deleted
+f011|
+5a6b|The state decision above is the one that shapes the data model. A deleted
+509e|task leaves no trace, so "why isn't this in the list any more" has no answer.
+f064|A dropped task answers it. That costs nothing here — the file keeps every
+a41e|task regardless — and it is the difference between a log and a list.
+de5c|</hick:doc>
+
+upstream of this session (readable and editable by passing <hick:arg name="doc">NAME</hick:arg>): domain.hick, meetings/2026-08-07-kickoff.hick, requirements.hick
+</hick:tool-result>
+<hick:usage turn="12" input="4" cache-write="1974" cache-read="31166" output="47" cost-usd="0.017469"/>

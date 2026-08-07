@@ -17,7 +17,7 @@ every field anyone proposed beyond these was left as an open question.
 </hick:copy>
 
 <hick:copy id="t-state" class="glossary">
-**State** — which of open, done, or dropped a task is in. Exactly one at a
+**State** — which of open, blocked, done, or dropped a task is in. Exactly one at a
 time; there is no "partially done".
 </hick:copy>
 

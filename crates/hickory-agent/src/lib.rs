@@ -60,12 +60,10 @@ pub use llm_batch::AnthropicBatchClient;
 pub use llm_batch::BatchEntry;
 /// Terminal result of one batch entry.
 pub use llm_batch::BatchResult;
-/// An OpenAI-compatible vendor (OpenAI, DeepSeek, xAI/Grok).
-pub use llm_openai::Provider;
 /// Chat client for any OpenAI-compatible provider.
 pub use llm_openai::OpenAiCompatClient;
-/// Build the client for a provider selector (`anthropic`/`openai`/…).
-pub use provider::{ProviderSelection, client_for};
+/// An OpenAI-compatible vendor (OpenAI, DeepSeek, xAI/Grok).
+pub use llm_openai::Provider;
 /// Default system prompt for the script-first strategy.
 pub use protocol::SYSTEM_PROMPT;
 /// System prompt addendum enabling the document edit tool set.
@@ -80,6 +78,8 @@ pub use protocol::correction_message;
 pub use protocol::parse_response;
 /// Parse the `<hick:tool>` element out of a tool response.
 pub use protocol::parse_tool_invocation;
+/// Build the client for a provider selector (`anthropic`/`openai`/…).
+pub use provider::{ProviderSelection, client_for};
 /// The result of a completed agent run.
 pub use react_loop::AgentOutcome;
 /// Run the script-first ReAct loop to completion.
@@ -92,10 +92,10 @@ pub use script::AGENT_CONTAINER;
 pub use script::CodeBlock;
 /// Execution backend for an extracted code block (shell / python).
 pub use script::Language;
-/// Result of executing a script.
-pub use script::ScriptResult;
 /// Timeout and output limits applied to every agent script.
 pub use script::ScriptLimits;
+/// Result of executing a script.
+pub use script::ScriptResult;
 /// Extract supported fenced code blocks from an LLM response.
 pub use script::extract_code_blocks;
 /// Run one code block through an executor and capture the result.
