@@ -25,10 +25,11 @@ Tasks persist to a single JSON file on disk. No database. The app must run
 with no service dependencies, because the point is to exercise the document
 chain, not an install.
 
-A task is in exactly one of three states: **open**, **done**, or
-**dropped**. Dropped is not deleted — it stays in the file and stays
-listable, because "what did we decide not to do" is the question people
-actually come back for.
+A task is in exactly one of four states: **open**, **blocked**, **done**, or
+**dropped**. Blocked means work cannot proceed until something external
+changes; it is not done and not dropped. Dropped is not deleted — it stays
+in the file and stays listable, because "what did we decide not to do" is
+the question people actually come back for.
 
 Tasks are identified by a short opaque id assigned on creation, never by
 their title. Titles are editable; anything that references a task must

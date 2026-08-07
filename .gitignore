@@ -13,3 +13,6 @@ dist/
 data/
 
 .claude/worktrees/
+
+# Agent session transcripts from demo runs (records, not sources)
+docs/todo-app/sessions/

@@ -107,3 +107,30 @@ Pick two or three; they are written to stand alone.
 - Shipped a language server that multiplexes real language servers (rust-analyzer,
   pyright) into code blocks embedded in documents, mapping positions between the
   document and per-language virtual files.
+
+---
+
+## Demo to show
+
+`docs/todo-app/` is a complete lifecycle in five documents:
+
+```
+meetings/2026-08-07-kickoff.hick   decisions, written down once
+        ↓ hick:upstream
+domain.hick                        glossary + the decisions, by reference
+        ↓ hick:upstream
+requirements.hick                  requirements, tangled into work/*.task.md
+        ↓ hick:upstream
+implementation.hick                the code, plus acceptance cells that run it
+        ↓ hick:file
+todo.py                            the shipped program
+```
+
+Change one sentence in the meeting note and every document below it fails
+`hickory check` — including the code, because the acceptance cells stop
+matching. That is the demo: it takes ten seconds and it is not a mockup.
+
+An AI agent working in this tree can read and edit the whole chain, so asked
+to add a task state it amends the *decision* in the meeting note rather than
+patching the requirement in front of it — then propagates down to the Python
+and reruns the acceptance cells.

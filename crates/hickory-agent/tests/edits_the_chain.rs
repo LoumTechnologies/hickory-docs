@@ -19,6 +19,8 @@ const DECISIONS: &str = r##"<?xml version="1.0" encoding="UTF-8"?>
 <hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="decisions.md">
 # Decisions
 
+<hick:paste select=".decision" />
+
 <hick:copy id="d-retention" class="decision">
 Records are retained for 30 days.
 </hick:copy>
@@ -157,4 +159,72 @@ async fn an_upstream_edit_rewrites_the_source_and_reaches_the_primary() {
         !requirements.contains("90 days") && !requirements.contains("30 days"),
         "the fact was copied downstream instead of referenced:\n{requirements}"
     );
+}
+
+/// `verify` must cover everything the agent can edit.
+///
+/// Guarantee: docs/guarantees/agent/verify-covers-the-whole-editable-set.md
+///
+/// Observed live: an agent edited a decision two hops upstream, ran verify,
+/// got PASS, and reported success in good faith — while `hickory check`
+/// failed on six documents whose outputs had never been re-woven. A feedback
+/// loop narrower than the edit scope does not just miss problems, it actively
+/// certifies them.
+#[tokio::test(flavor = "multi_thread")]
+async fn verify_reweaves_upstream_outputs_too() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = |n: &str| dir.path().join(n);
+    std::fs::write(path("decisions.hick"), DECISIONS).unwrap();
+    std::fs::write(path("domain.hick"), DOMAIN).unwrap();
+    std::fs::write(path("requirements.hick"), REQUIREMENTS).unwrap();
+
+    let hash = hickory_agent::hashline::LineIndex::new(DECISIONS)
+        .render()
+        .lines()
+        .find(|l| l.contains("retained for 30 days"))
+        .and_then(|l| l.split('|').next())
+        .expect("hashed line")
+        .to_string();
+
+    let llm = ScriptedLlmClient::new(vec![
+        format!(
+            "<hick:next>tool</hick:next>\nFixing it at the source.\n\
+             <hick:tool name=\"edit_doc\">\n\
+             <hick:arg name=\"doc\">decisions.hick</hick:arg>\n\
+             <hick:arg name=\"run\">{hash}</hick:arg>\n\
+             <hick:input>Records are retained for 90 days.</hick:input>\n</hick:tool>"
+        ),
+        "<hick:next>tool</hick:next>\nVerifying.\n\
+         <hick:tool name=\"verify\">\n</hick:tool>"
+            .to_string(),
+        "<hick:next>done</hick:next>\nDone.".to_string(),
+    ]);
+
+    let executor: Arc<dyn Executor> = Arc::new(LocalExecutor::new().unwrap());
+    let mut config = AgentConfig::new("Retention should be 90 days.", dir.path());
+    config.doc_path = Some(path("requirements.hick"));
+    config.max_turns = 6;
+
+    let mut on_event = |_: AgentEvent| {};
+    let outcome = run_agent(&llm, executor.clone(), &config, &mut on_event)
+        .await
+        .expect("agent session");
+    executor.shutdown().await.ok();
+
+    let session = std::fs::read_to_string(&outcome.session_path).unwrap();
+    assert!(
+        session.contains("re-wove") && session.contains("upstream document"),
+        "verify did not report re-weaving upstream:\n{session}"
+    );
+
+    // The actual point: every upstream document's committed output is now
+    // current, so a `hickory check` over the tree would pass.
+    for name in ["decisions.md", "domain.md"] {
+        let woven = std::fs::read_to_string(path(name))
+            .unwrap_or_else(|e| panic!("{name} was never written: {e}"));
+        assert!(
+            woven.contains("90 days"),
+            "{name} still carries the old decision — verify left it stale:\n{woven}"
+        );
+    }
 }

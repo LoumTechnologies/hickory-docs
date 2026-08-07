@@ -633,6 +633,15 @@ impl EditSession {
         if let Err(e) = self.sync_with_disk().await {
             return ToolOutcome::err(NAME, e);
         }
+        // Verify the WHOLE editable set, not just the primary.
+        //
+        // The agent can edit any document in the closure, so a verify scoped
+        // to the primary is a feedback loop that lies: edit a decision two
+        // hops up, run verify, get PASS — while that document's own outputs
+        // were never re-woven and `hickory check` fails on every one of them.
+        // Observed exactly once in a live run, where the agent then reported
+        // success in good faith. Verification scope must equal edit scope.
+        let upstream_report = self.verify_upstream(executor.clone()).await;
         let project_dir = self
             .doc_path
             .parent()
@@ -707,18 +716,20 @@ impl EditSession {
         self.weave = WeaveState { files, provenance };
 
         let checked = result.expectations.len();
+        failures.extend(upstream_report.failures);
         if failures.is_empty() {
             ToolOutcome::ok(
                 NAME,
                 format!(
                     "PASS — executed the document: {checked} expectation(s) met; wrote {} output \
-                     file(s): {}",
+                     file(s): {}{}",
                     written.len(),
                     if written.is_empty() {
                         "(none)".to_string()
                     } else {
                         written.join(", ")
-                    }
+                    },
+                    upstream_report.note
                 ),
             )
         } else {
@@ -732,6 +743,94 @@ impl EditSession {
             )
         }
     }
+
+    /// Re-run every upstream document and write its outputs.
+    ///
+    /// Each is executed on its own, in its own directory, because that is
+    /// where its outputs are committed — an upstream document woven into the
+    /// primary's directory would create files nobody checks and leave the
+    /// real ones stale.
+    async fn verify_upstream(&self, executor: Arc<dyn Executor>) -> UpstreamReport {
+        let mut failures = Vec::new();
+        let mut verified = 0usize;
+        for (path, _) in self.upstream.iter() {
+            let Ok(source) = std::fs::read_to_string(path) else {
+                failures.push(format!("upstream {}: could not be read", path.display()));
+                continue;
+            };
+            let name = path.display().to_string();
+            let dir = path.parent().unwrap_or(Path::new(".")).to_path_buf();
+            let config = hick_literate::PipelineConfig {
+                working_dir: Some(dir.clone()),
+                max_rounds: 1,
+                on_exec: None,
+            };
+            let sources = vec![(name.as_str(), source.as_str())];
+            let result = match hick_literate::run_pipeline_live(
+                &sources,
+                &config,
+                &self.params,
+                None,
+                executor.clone(),
+            )
+            .await
+            {
+                Ok(r) => r,
+                Err(e) => {
+                    failures.push(format!("upstream {name}: execution failed: {e}"));
+                    continue;
+                }
+            };
+            for outcome in &result.expectations {
+                if !outcome.passed {
+                    failures.push(format!(
+                        "upstream {name}: expectation at line {} failed: {}",
+                        outcome.line, outcome.detail
+                    ));
+                }
+            }
+            for (rel_path, content) in &result.files {
+                let full = dir.join(rel_path);
+                if let Some(parent) = full.parent()
+                    && !parent.as_os_str().is_empty()
+                    && let Err(e) = std::fs::create_dir_all(parent)
+                {
+                    failures.push(format!("upstream {name}: could not create {parent:?}: {e}"));
+                    continue;
+                }
+                let write = match content {
+                    FileContent::Text(t) => std::fs::write(&full, t),
+                    FileContent::Binary(d) => match d.to_bytes() {
+                        Ok(b) => std::fs::write(&full, b),
+                        Err(e) => {
+                            failures
+                                .push(format!("upstream {name}: could not encode {rel_path}: {e}"));
+                            continue;
+                        }
+                    },
+                };
+                if let Err(e) = write {
+                    failures.push(format!(
+                        "upstream {name}: could not write {}: {e}",
+                        full.display()
+                    ));
+                }
+            }
+            verified += 1;
+        }
+        let note = if verified == 0 {
+            String::new()
+        } else {
+            format!("; also re-wove {verified} upstream document(s)")
+        };
+        UpstreamReport { failures, note }
+    }
+}
+
+/// Result of re-running the upstream documents during `verify`.
+struct UpstreamReport {
+    failures: Vec<String>,
+    note: String,
 }
 
 /// Execute one tool invocation against the session. Failures are tool

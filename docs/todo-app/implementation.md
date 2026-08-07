@@ -194,9 +194,15 @@ yes
 yes
 
 
-$ cd project && rm -f /tmp/todo-acceptance.json && export TODO_FILE=/tmp/todo-acceptance.json
-  python3 todo.py list
-  echo "--- empty file reads as empty list, no error: $?"
---- empty file reads as empty list, no error: 0
+$ cd project && export TODO_FILE=/tmp/todo-acceptance.json
+  id=$(python3 todo.py list --state open | head -1 | cut -d' ' -f1)
+  python3 todo.py block "$id"
+  python3 todo.py block "$id"   # idempotent: a retry is never an error
+  python3 todo.py list --state blocked | awk '{$1=""; print substr($0,2)}'
+  echo "--- unknown id exits nonzero:"
+  python3 todo.py block nosuchid 2>/dev/null || echo "yes"
+blocked ship it today
+--- unknown id exits nonzero:
+yes
 
 

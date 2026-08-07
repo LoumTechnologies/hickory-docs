@@ -15,7 +15,7 @@ stale together.
 **Task** — one thing to do. Has an id, a title, and a state. Nothing else;
 every field anyone proposed beyond these was left as an open question.
 
-**State** — which of open, done, or dropped a task is in. Exactly one at a
+**State** — which of open, blocked, done, or dropped a task is in. Exactly one at a
 time; there is no "partially done".
 
 **Dropped** — decided against, deliberately retained. Distinct from deleted,
@@ -33,10 +33,11 @@ Tasks persist to a single JSON file on disk. No database. The app must run
 with no service dependencies, because the point is to exercise the document
 chain, not an install.
 
-A task is in exactly one of three states: **open**, **done**, or
-**dropped**. Dropped is not deleted — it stays in the file and stays
-listable, because "what did we decide not to do" is the question people
-actually come back for.
+A task is in exactly one of four states: **open**, **blocked**, **done**, or
+**dropped**. Blocked means work cannot proceed until something external
+changes; it is not done and not dropped. Dropped is not deleted — it stays
+in the file and stays listable, because "what did we decide not to do" is
+the question people actually come back for.
 
 Tasks are identified by a short opaque id assigned on creation, never by
 their title. Titles are editable; anything that references a task must
@@ -113,8 +114,8 @@ status: todo
 
 
 `todo list` prints every task in creation order as `<id> <state> <title>`.
-Dropped tasks are included — retaining them is pointless if the default view
-hides them. `--state open|done|dropped` filters.
+Dropped and blocked tasks are included — retaining them is pointless if the
+default view hides them. `--state open|blocked|done|dropped` filters.
 
 ```
 
@@ -132,8 +133,9 @@ status: todo
 
 
 `todo done <id>` moves a task to done. `todo drop <id>` moves it to dropped.
-Both are idempotent: re-running on a task already in that state succeeds and
-changes nothing, so a retried command is never an error.
+`todo block <id>` moves it to blocked. All are idempotent: re-running on a
+task already in that state succeeds and changes nothing, so a retried
+command is never an error.
 
 ```
 
