@@ -130,6 +130,15 @@ pub struct HickDocument {
     /// Path for weave output (literate programming documentation).
     /// Set from the `weave` attribute on the root `<hick:doc>` element.
     pub weave_path: Option<String>,
+    /// Whether the woven output is a REPORT rather than a reproducible
+    /// artifact, from `volatile="true"` on the root `<hick:doc>` element.
+    ///
+    /// Drift checking asks "do these bytes reproduce", which is only
+    /// meaningful when the inputs are fixed. A document over live data — a
+    /// growing corpus, a dashboard — answers no every time, and a check that
+    /// always fails is one people learn to ignore. Expectations still apply:
+    /// `hick:expect` asks "did the claim hold", which stays meaningful.
+    pub volatile: bool,
 }
 
 // ---------------------------------------------------------------------------
@@ -721,6 +730,7 @@ impl<'a> Parser<'a> {
 
         // Extract weave path from the doc tag attributes
         let weave_path = tag.get_attribute("weave").map(|s| s.to_string());
+        let volatile = tag.get_attribute("volatile") == Some("true");
 
         // Parse children until </PREFIX:doc>
         let nodes = self.parse_children("doc", tag.source_line)?;
@@ -730,6 +740,7 @@ impl<'a> Parser<'a> {
             source: self.input.to_string(),
             prefix: self.prefix.clone(),
             weave_path,
+            volatile,
         })
     }
 

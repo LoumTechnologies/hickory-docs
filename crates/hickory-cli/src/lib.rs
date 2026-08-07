@@ -157,6 +157,16 @@ pub async fn run_doc(
     let doc = hick_lang::parse(&source)
         .map_err(|e| anyhow::anyhow!("parse error in {}: {e}", doc_path.display()))?;
 
+    // Warn BEFORE executing. The failure this predicts kills the run, so a
+    // warning emitted afterwards is a warning nobody ever sees.
+    for warning in escaping_warnings(&doc) {
+        log::warn!("{}: {warning}", doc_path.display());
+    }
+    // Not gated on the executor: both resolve mounts under the workdir.
+    for warning in absolute_mount_warnings(&doc) {
+        log::warn!("{}: {warning}", doc_path.display());
+    }
+
     let doc_name = doc_path.display().to_string();
     let sources = vec![(doc_name.as_str(), source.as_str())];
 
@@ -164,6 +174,22 @@ pub async fn run_doc(
 
     let result = match mode {
         RunMode::Execute => {
+            // Stage the woven files before executing, so a cell can run a
+            // file its own document assembles on the FIRST run. Volumes are
+            // seeded from the working directory before execution, while
+            // `hick:file` content is a result of the content phase — without
+            // this, the central move of literate programming only ever works
+            // on the second run.
+            //
+            // This lives inside `run_doc` rather than in the CLI commands
+            // because the server already staged separately and the CLI did
+            // not: the same document ran through the web app and failed
+            // through `hickory run`. One place, every caller.
+            //
+            // Guarantee:
+            // docs/guarantees/execution/first-run-behaves-like-every-later-run.md
+            stage_woven_files(doc_path, &sources, params).await;
+
             let executor = executor_choice.build()?;
             let config = PipelineConfig {
                 working_dir: Some(project_dir.to_path_buf()),
@@ -186,6 +212,26 @@ pub async fn run_doc(
         doc,
         result,
     })
+}
+
+/// Weave without executing and write only the output files that do not yet
+/// exist, next to the document.
+///
+/// MISSING files only: a file already on disk is the committed baseline that
+/// `check` compares against, and overwriting it with a weave-mode copy would
+/// manufacture drift.
+///
+/// Never fails a run. A document that cannot be woven will fail the real run
+/// a moment later with a better message, so a staging error is swallowed
+/// rather than pre-empting it.
+async fn stage_woven_files(doc_path: &Path, sources: &[(&str, &str)], params: &[(String, String)]) {
+    let project_dir = doc_path.parent().unwrap_or(Path::new("."));
+    let cc = cache::CacheConfig::new(project_dir, true, false);
+    let cache_config = cc.cache_dir.is_dir().then_some(&cc);
+    let Ok(result) = run_pipeline_weave(sources, params, cache_config).await else {
+        return;
+    };
+    let _ = write_files_if_absent(&result.files, project_dir);
 }
 
 /// Write a run's output files under `out_dir` (default: the document's
@@ -233,8 +279,17 @@ pub fn write_missing_outputs(run: &DocRun, out_dir: Option<&Path>) -> Result<Vec
             .unwrap_or(Path::new("."))
             .to_path_buf(),
     };
+    write_files_if_absent(&run.result.files, &base)
+}
+
+/// The write half of [`write_missing_outputs`], over the file map alone, so
+/// staging can reuse it without inventing a [`DocRun`].
+fn write_files_if_absent(
+    files: &std::collections::HashMap<String, FileContent>,
+    base: &Path,
+) -> Result<Vec<PathBuf>> {
     let mut written = Vec::new();
-    for (rel_path, content) in &run.result.files {
+    for (rel_path, content) in files {
         let full = base.join(rel_path);
         if full.exists() {
             continue;
@@ -272,7 +327,21 @@ pub fn check_failures(run: &DocRun, out_dir: Option<&Path>) -> Result<Vec<CheckF
             .unwrap_or(Path::new("."))
             .to_path_buf(),
     };
+    let volatile = volatile_outputs(&run.doc);
     for (rel_path, content) in &run.result.files {
+        // A volatile output is a REPORT, not a reproducible artifact. Drift
+        // checking asks "do these bytes reproduce", which is only a
+        // meaningful question when the inputs are fixed. For a document over
+        // live data — a corpus that grows, a dashboard, anything sampling the
+        // world — the answer is always no, and a check that always fails
+        // teaches people to ignore it.
+        //
+        // Expectations are unaffected: `hick:expect` asks "did the claim
+        // hold", which stays meaningful over live data and is exactly how a
+        // volatile document still gets verified.
+        if volatile.contains(rel_path.as_str()) {
+            continue;
+        }
         let full = base.join(rel_path);
         let produced: Vec<u8> = match content {
             FileContent::Text(s) => s.clone().into_bytes(),
@@ -293,6 +362,115 @@ pub fn check_failures(run: &DocRun, out_dir: Option<&Path>) -> Result<Vec<CheckF
         }
     }
     Ok(failures)
+}
+
+/// XML entities that reached a command verbatim.
+///
+/// hick's no-escaping invariant means `&lt;` inside an exec body is five
+/// literal characters handed to the shell, not `<`. That is the correct and
+/// deliberate behaviour — but it is also the single most likely mistake for
+/// anyone who has ever written XML, and it fails far from its cause: the
+/// shell reports `Syntax error: "&" unexpected` and says nothing about
+/// escaping. (Written by an agent that made exactly this mistake while
+/// dogfooding, and spent a cycle on the shell error before seeing it.)
+///
+/// A warning, never an error: a document may legitimately discuss entities.
+/// Documents ABOUT hick use the `h:` prefix, so their examples are text and
+/// never reach here.
+pub fn escaping_warnings(doc: &hick_lang::HickDocument) -> Vec<String> {
+    const ENTITIES: &[(&str, char)] = &[
+        ("&lt;", '<'),
+        ("&gt;", '>'),
+        ("&amp;", '&'),
+        ("&quot;", '"'),
+        ("&apos;", '\''),
+    ];
+    let mut out = Vec::new();
+    for tag in doc.tags().filter(|t| t.name == "exec") {
+        let body = hick_lang::tag_text(tag);
+        for (entity, literal) in ENTITIES {
+            if body.contains(entity) {
+                out.push(format!(
+                    "line {}: exec body contains `{entity}` — hick does not \
+                     unescape, so the shell receives those characters \
+                     literally. Write `{literal}` directly.",
+                    tag.source_line
+                ));
+                break;
+            }
+        }
+    }
+    out
+}
+
+/// Mounts at absolute paths, which the local executor cannot honour.
+///
+/// Both executors map `mount="v:/out"` to `/out` UNDER the container workdir
+/// — `LocalExecutor` to `<tmp>/<container>/out`, `CanopyExecutor` to
+/// `/hickory-work/out`, and there is a test in the canopy crate
+/// (`mount_dir_mirrors_local_executor_semantics`) asserting they agree. A
+/// command that then writes to the ABSOLUTE `/out` addresses the real
+/// filesystem root and fails with `cannot create /out/...: Directory
+/// nonexistent`, an error naming neither the mount nor the cause.
+///
+/// So this is not a dev/prod divergence: such a document is broken on every
+/// executor. It stays a warning rather than an error because only the
+/// commands know which paths they use, and this checks the declaration.
+pub fn absolute_mount_warnings(doc: &hick_lang::HickDocument) -> Vec<String> {
+    let mut out = Vec::new();
+    for tag in doc.tags().filter(|t| t.name == "exec") {
+        let Some(mount) = tag.get_attribute("mount") else {
+            continue;
+        };
+        for spec in mount.split(',') {
+            let Some((_vol, path)) = spec.split_once(':') else {
+                continue;
+            };
+            let path = path.trim();
+            if !path.starts_with('/') {
+                continue;
+            }
+            let rel = path.trim_start_matches('/');
+            out.push(format!(
+                "line {}: mounts at `{path}`, but mounts resolve UNDER the \
+                 container workdir — `{path}` becomes `<workdir>{path}`. \
+                 Commands must address it relatively (`{rel}/...`); an \
+                 absolute `{path}` reaches the real filesystem root and fails.",
+                tag.source_line
+            ));
+        }
+    }
+    out
+}
+
+/// Output paths this document declares `volatile="true"`, excluded from
+/// drift comparison.
+///
+/// Both `<hick:file path="..." volatile="true">` and a volatile document
+/// root (`<hick:doc weave="..." volatile="true">`, which marks the woven
+/// markdown) are honoured.
+fn volatile_outputs(doc: &hick_lang::HickDocument) -> HashSet<String> {
+    fn is_volatile(tag: &hick_lang::HickTag) -> bool {
+        matches!(tag.get_attribute("volatile"), Some("true"))
+    }
+    let mut out = HashSet::new();
+    for tag in doc.find_tags("file") {
+        if is_volatile(tag)
+            && let Some(path) = tag.get_attribute("path")
+        {
+            out.insert(path.to_string());
+        }
+    }
+    // The root `hick:doc` is the document itself, not one of its child
+    // nodes, so its attributes are not reachable via `find_tags` — they are
+    // parsed onto `HickDocument`. Reading the root through `find_tags` looked
+    // right and silently matched nothing.
+    if doc.volatile
+        && let Some(weave) = &doc.weave_path
+    {
+        out.insert(weave.clone());
+    }
+    out
 }
 
 /// Build the block model (`docs/specs/freeform/api.md`) for a run.

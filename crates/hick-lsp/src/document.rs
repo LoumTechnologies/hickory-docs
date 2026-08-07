@@ -65,6 +65,7 @@ mod tests {
             source: String::new(),
             prefix: "hick".to_string(),
             weave_path: None,
+            volatile: false,
         }
     }
 

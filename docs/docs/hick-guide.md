@@ -1,68 +1,4 @@
-<?xml version="1.0" encoding="UTF-8"?>
-<!--
-  Living documentation for the hick language.
 
-  This file uses the short prefix "h:" so that "hick:" appears as literal
-  text in examples. Both prefixes bind to the same namespace — the parser
-  detects which prefix to use from the xmlns declaration.
-
-  Run:  cargo run -p hick -- docs/hick-guide.hick
--->
-<h:doc xmlns:h="http://www.hickorydocs.com/1.0">
-
-<!-- ================================================================== -->
-<!-- Reusable content blocks (cut = available to paste, hidden from output) -->
-<!-- ================================================================== -->
-
-<h:cut id="ns-uri">http://www.hickorydocs.com/1.0</h:cut>
-
-<!-- ================================================================== -->
-<!-- Variables used in the live demo section                             -->
-<!-- ================================================================== -->
-
-<h:var name="guide-version">0.2.0</h:var>
-<h:var name="show-features">yes</h:var>
-
-<!-- ================================================================== -->
-<!-- Live container demo: exercises the full pipeline                   -->
-<!-- ================================================================== -->
-
-<h:container name="guide-builder" image="alpine:3.20">
-  <h:deny network="*" />
-  <h:allow file-write="/out/*" />
-</h:container>
-
-<h:container name="guide-verifier" image="alpine:3.20">
-  <h:deny network="*" />
-  <h:allow file-read="/out/*" />
-</h:container>
-
-<h:volume name="guide-artifacts" />
-
-<h:copy id="build-cmd">echo "Built by hick" > out/stamp.txt</h:copy>
-
-<h:exec container="guide-builder" mount="guide-artifacts:/out">
-echo "Built by hick" > out/stamp.txt
-</h:exec>
-
-<h:exec container="guide-verifier" mount="guide-artifacts:/out">
-cat out/stamp.txt
-</h:exec>
-
-<!-- Fork demo: clone guide-builder's state into a restricted container -->
-<h:fork from="guide-builder" to="guide-forked">
-  <h:deny network="*" />
-</h:fork>
-
-<h:exec container="guide-forked" mount="guide-artifacts:/out">
-cat out/stamp.txt && echo "Fork inherited builder state"
-</h:exec>
-
-<!-- ================================================================== -->
-<!-- File output: the guide itself                                      -->
-<!-- ================================================================== -->
-
-<h:file path="docs/hick-guide.md">
 # The Hick Language
 
 Hick is a document format for describing secure, containerised workflows.
@@ -70,7 +6,7 @@ A `.hick` file is XML that uses a single namespace to define containers,
 capabilities, execution steps, and file outputs — all validated as a
 directed acyclic graph before anything runs.
 
-Namespace URI: `<h:paste select="#ns-uri" />`
+Namespace URI: `http://www.hickorydocs.com/1.0`
 
 ---
 
@@ -83,7 +19,7 @@ works as long as the xmlns points to the right URI.
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
 <hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
-  <!-- your content here -->
+  
 </hick:doc>
 ```
 
@@ -468,7 +404,7 @@ fed as sources to a subsequent pipeline stage. This enables containers
 to generate hick documents that drive further execution.
 
 ```xml
-<!-- Stage 1: a container generates a .hick file -->
+
 <hick:container name="scaffolder" image="alpine" />
 <hick:exec container="scaffolder">
 cat &gt; /output/build.hick &lt;&lt;'EOF'
@@ -637,7 +573,10 @@ guide-forked    (forked from guide-builder, network denied)
 The following block is an exec tag rendered by the pipeline — it shows
 the full transcript for the referenced container (commands and output):
 
-> <h:exec container="guide-verifier">cat out/stamp.txt</h:exec>
+> $ cat out/stamp.txt
+Built by hick
+
+
 
 ### Forked container transcript
 
@@ -647,23 +586,27 @@ re-running the original commands on the original container. The fork
 also adds a network deny rule, further restricting the builder's
 capabilities:
 
-> <h:exec container="guide-forked">cat out/stamp.txt && echo "Fork inherited builder state"</h:exec>
+> $ cat out/stamp.txt && echo "Fork inherited builder state"
+Built by hick
+Fork inherited builder state
+
+
 
 ### Pasted build command
 
 The builder's command is captured with `<hick:copy>` and pasted here:
 
-> `<h:paste select="#build-cmd" />`
+> `echo "Built by hick" > out/stamp.txt`
 
 ### Variables and conditionals
 
 This guide defines variables and uses conditional rendering:
 
-> Guide version: <h:val name="guide-version" />
+> Guide version: 0.2.0
 
 The following line only appears because `show-features` is defined:
 
-<h:when test="show-features">> Feature list is enabled via conditional rendering.</h:when>
+> Feature list is enabled via conditional rendering.
 
 ### Pipeline features exercised
 
@@ -677,10 +620,3 @@ The following line only appears because `show-features` is defined:
 - **Variables** — `guide-version` declared with `<hick:var>`, rendered with `<hick:val>`
 - **Conditional content** — `<hick:when>` block controlled by `show-features` variable
 - **File output** — this entire document
-</h:file>
-
-<!-- ================================================================== -->
-<!-- End                                                                -->
-<!-- ================================================================== -->
-
-</h:doc>

@@ -38,6 +38,23 @@ run DOC *ARGS:
 verify DOC *ARGS:
     cargo run -p hickory-cli -- check {{DOC}} {{ARGS}}
 
+# Run the agent on a prompt. Loads .env first, which is where API keys live —
+# the CLI itself does not read .env, so calling `hickory agent` directly needs
+# the key already exported.
+#   just agent "fix the failing test" --provider deepseek
+agent PROMPT *ARGS:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    set -a; [ -f .env ] && source .env; set +a
+    cargo run -q -p hickory-cli -- agent "{{PROMPT}}" {{ARGS}}
+
+# Rewrite stale hick:transform passages. Loads .env, same as `just agent`.
+refresh DOC *ARGS:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    set -a; [ -f .env ] && source .env; set +a
+    cargo run -q -p hickory-cli -- refresh {{DOC}} {{ARGS}}
+
 # Regenerate experiments/token-economics/report.md from the raw run JSONL.
 tokens-report:
     cargo run -q -p hickory-agent --bin token_economics -- report
