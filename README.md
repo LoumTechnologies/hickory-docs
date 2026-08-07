@@ -41,51 +41,32 @@ apple,9
 diff — if the tool's behavior ever changes. `match="regex-lines"` handles
 timestamps and hashes.
 
-## Install
+## Run it
 
-Hickory is a single binary you run on your own machine. There is no service to
-sign up for and nothing phones home.
+Hickory is a hosted, collaborative platform: teams work on the same documents
+in the browser, with live editing, shared execution, and their own LLM keys.
 
-Download a release for Linux or macOS (x86-64 and arm64) from
-[Releases](https://github.com/LoumTechnologies/hickory-docs/releases) — each
-archive carries a `.sha256` alongside it:
+It is GPL-3.0-or-later, so you can run your own instance — the whole thing
+(server, web app, executor) is in this repository and deploys to Fly.io from
+the included `fly.toml` and `Dockerfile`. See
+[docs/operators/deploy-fly.md](docs/operators/deploy-fly.md).
 
-```sh
-tar -xzf hickory-<version>-<target>.tar.gz
-./hickory-<version>-<target>/hickory --version
-```
-
-Or build it, if you have Rust:
+The `hickory` CLI in `crates/hickory-cli` is the same engine, used for CI
+verification and local development of documents:
 
 ```sh
-cargo install --git https://github.com/LoumTechnologies/hickory-docs hickory-cli
+cargo run -p hickory-cli -- check examples/text-tools-tour.hick
 ```
 
-Or from a clone:
+The examples are executable documents you can run against either executor:
 
 ```sh
-git clone https://github.com/LoumTechnologies/hickory-docs
-cd hickory-docs
-cargo install --path crates/hickory-cli --locked
+HICKORY_EXECUTOR=docker cargo run -p hickory-cli -- check examples/
 ```
 
-The two `cargo install` routes need a recent stable Rust; both put
-`hickory` on your PATH. The download does not need Rust at all.
-
-Working on hickory itself? Build before testing — the server's LSP tests
-spawn the `hick-lsp` binary, which `cargo test` alone does not produce.
-`just test` does both.
-
-## Try it
-
-```sh
-hickory run examples/text-tools-tour.hick
-hickory check examples/text-tools-tour.hick
-```
-
-That one needs only a POSIX shell. The other examples invoke more tools —
-local execution runs cells against your **host** toolchain, so see
-[examples/README.md](examples/README.md) for what each needs.
+With `docker`, each document's `image=` is the environment it runs in. With
+`local`, cells run against your host toolchain and `image=` is ignored — see
+[examples/README.md](examples/README.md) for what each example needs.
 
 The second example, `examples/bootstrap-ci.hick`, is a small statistical
 paper: it generates its data from a fixed seed, computes a bootstrap

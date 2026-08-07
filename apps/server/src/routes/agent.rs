@@ -273,7 +273,7 @@ async fn run_agent_session(
         })
     };
 
-    let executor = crate::executor::build_executor(state.config.executor)?;
+    let executor = crate::executor::build_executor(state.config.executor).await?;
     let llm = hickory_agent::client_for(
         &llm_config.provider,
         llm_config.model.as_deref(),

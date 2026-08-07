@@ -264,7 +264,7 @@ async fn execute_run(
         })
     };
 
-    let executor = build_executor(state.config.executor)?;
+    let executor = build_executor(state.config.executor).await?;
     let doc_name = doc.path.clone();
     let sources = vec![(doc_name.as_str(), doc.source.as_str())];
     let config = PipelineConfig {

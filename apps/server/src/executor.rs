@@ -40,9 +40,18 @@ pub fn canopy_image_map() -> std::collections::HashMap<String, String> {
 }
 
 /// Build a fresh executor for one run.
-pub fn build_executor(kind: ExecutorKind) -> Result<Arc<dyn Executor>> {
+///
+/// Async because the docker backend probes the daemon before returning: an
+/// unreachable Docker should fail the run with one clear message, not a cell
+/// halfway through the document.
+pub async fn build_executor(kind: ExecutorKind) -> Result<Arc<dyn Executor>> {
     match kind {
         ExecutorKind::Local => Ok(Arc::new(LocalExecutor::new()?)),
+        ExecutorKind::Docker => Ok(Arc::new(
+            hickory_executor_docker::DockerExecutor::new()
+                .await
+                .context("building docker executor")?,
+        )),
         ExecutorKind::Canopy => Ok(Arc::new(
             CanopyExecutor::from_env().context("building canopy executor")?,
         )),

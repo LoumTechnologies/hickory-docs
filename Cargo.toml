@@ -21,6 +21,7 @@ members = [
     "crates/hickory-executor",
     "crates/hickory-agent",
     "crates/hickory-executor-canopy",
+    "crates/hickory-executor-docker",
     "crates/hickory-cli",
     "crates/hickory-lineage",
     "apps/server",

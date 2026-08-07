@@ -28,6 +28,7 @@ impl AppEnv {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExecutorKind {
     Local,
+    Docker,
     Canopy,
 }
 
@@ -35,6 +36,7 @@ impl ExecutorKind {
     pub fn as_str(self) -> &'static str {
         match self {
             ExecutorKind::Local => "local",
+            ExecutorKind::Docker => "docker",
             ExecutorKind::Canopy => "canopy",
         }
     }
@@ -142,8 +144,9 @@ impl Config {
         // canopy's API), called from build_state.
         let executor = match env_opt("HICKORY_EXECUTOR").as_deref() {
             None | Some("local") => ExecutorKind::Local,
+            Some("docker") => ExecutorKind::Docker,
             Some("canopy") => ExecutorKind::Canopy,
-            Some(other) => bail!("invalid HICKORY_EXECUTOR '{other}' (local|canopy)"),
+            Some(other) => bail!("invalid HICKORY_EXECUTOR '{other}' (local|docker|canopy)"),
         };
 
         // The provider decides which key variable is read, so switching

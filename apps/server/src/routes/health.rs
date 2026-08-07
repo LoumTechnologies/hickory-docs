@@ -22,7 +22,9 @@ pub async fn health(State(state): State<AppState>) -> Json<Value> {
 pub async fn executor(State(state): State<AppState>) -> Json<Value> {
     let kind = state.config.executor;
     let images = match kind {
-        ExecutorKind::Local => Value::Null,
+        // Docker honours `image=` directly — the ref IS the environment, so
+        // there is no ref→store-path indirection to report.
+        ExecutorKind::Local | ExecutorKind::Docker => Value::Null,
         ExecutorKind::Canopy => json!(crate::executor::canopy_image_map()),
     };
     Json(json!({ "kind": kind.as_str(), "images": images }))

@@ -23,6 +23,9 @@ pub mod volume_state;
 pub mod watch;
 mod weave;
 
+/// Image used when neither the exec nor its container declares one.
+const DEFAULT_IMAGE: &str = "alpine";
+
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -90,6 +93,10 @@ struct PreparedPipeline<'a> {
     documents: Vec<(&'a str, HickDocument)>,
     state: Arc<MultiDocumentState>,
     container_defs: HashMap<String, ContainerCapabilities>,
+    /// Image each container declares, so the executor is told which
+    /// environment to provide. Capabilities and images are collected from the
+    /// same tag but were not carried together.
+    container_images: HashMap<String, String>,
     /// Fork registrations: (from, to, additional_caps).
     /// Needed by live pipeline to register forks with the executor.
     fork_registrations: Vec<(String, String, Option<ContainerCapabilities>)>,
@@ -164,6 +171,12 @@ fn prepare_pipeline<'a>(
 
     // Collect container definitions
     let mut container_defs: HashMap<String, ContainerCapabilities> = HashMap::new();
+    // ...and the image each container declares. This was collected nowhere
+    // for a long time: `<hick:container image="python:3.12">` was parsed for
+    // capabilities and its image dropped, so the executor only ever saw an
+    // image when one appeared on the `<hick:exec>` tag itself. `LocalExecutor`
+    // ignores images, so nothing surfaced it until a backend honoured them.
+    let mut container_images: HashMap<String, String> = HashMap::new();
     for node in &all_nodes {
         if let HickNode::Tag(tag) = node
             && tag.name == "container"
@@ -171,6 +184,9 @@ fn prepare_pipeline<'a>(
             let name = tag_attr(tag, "name").unwrap_or_default();
             let caps = build_capabilities_from_tag(tag);
             debug!("Container '{name}': {:?}", caps);
+            if let Some(image) = tag_attr(tag, "image") {
+                container_images.insert(name.clone(), image);
+            }
             container_defs.insert(name, caps);
         }
     }
@@ -199,6 +215,9 @@ fn prepare_pipeline<'a>(
                 container_defs.insert(to.clone(), caps);
             }
 
+            if let Some(image) = container_images.get(&from).cloned() {
+                container_images.entry(to.clone()).or_insert(image);
+            }
             fork_registrations.push((from, to, additional_caps));
         }
     }
@@ -215,6 +234,7 @@ fn prepare_pipeline<'a>(
         documents,
         state,
         container_defs,
+        container_images,
         fork_registrations,
     })
 }
@@ -537,6 +557,7 @@ pub async fn run_pipeline_live(
         documents,
         state,
         container_defs,
+        container_images,
         fork_registrations,
     } = prepared;
 
@@ -619,7 +640,17 @@ pub async fn run_pipeline_live(
         for exec_id in flow_dag.topological_order() {
             let exec_info = flow_dag.execs.iter().find(|e| e.id == exec_id).unwrap();
 
-            let image = exec_info.image.as_deref().unwrap_or("alpine");
+            // Precedence: an `image=` on the exec overrides the container's
+            // declaration, which overrides the historical default.
+            let image = exec_info
+                .image
+                .as_deref()
+                .or_else(|| {
+                    container_images
+                        .get(&exec_info.container)
+                        .map(String::as_str)
+                })
+                .unwrap_or(DEFAULT_IMAGE);
 
             // Check cache before executing
             if let Some(cc) = cache_config {
@@ -929,6 +960,7 @@ pub async fn run_pipeline_weave(
         documents,
         state,
         container_defs,
+        container_images,
         ..
     } = prepared;
 
@@ -944,7 +976,11 @@ pub async fn run_pipeline_weave(
             let commands: Vec<String> = vec![info.command.trim().to_string()];
 
             let cached = if let Some(cc) = cache_config {
-                let image = info.image.as_deref().unwrap_or("alpine");
+                let image = info
+                    .image
+                    .as_deref()
+                    .or_else(|| container_images.get(&info.container).map(String::as_str))
+                    .unwrap_or(DEFAULT_IMAGE);
                 let caps_canonical = cache::canonical_caps(&container_defs, &info.container);
                 let secret_names = cache::secret_names_for(&container_defs, &info.container);
                 let secret_refs: Vec<&str> = secret_names.iter().map(|s| s.as_str()).collect();

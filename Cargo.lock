@@ -2732,6 +2732,7 @@ dependencies = [
  "hickory-agent",
  "hickory-executor",
  "hickory-executor-canopy",
+ "hickory-executor-docker",
  "hickory-lineage",
  "log",
  "serde",
@@ -2778,6 +2779,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "hickory-executor-docker"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "hick-token",
+ "hickory-executor",
+ "log",
+ "tar",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
 name = "hickory-lineage"
 version = "0.1.0"
 dependencies = [
@@ -2806,6 +2821,7 @@ dependencies = [
  "hickory-cli",
  "hickory-executor",
  "hickory-executor-canopy",
+ "hickory-executor-docker",
  "hickory-lineage",
  "hmac 0.12.1",
  "jsonwebtoken",

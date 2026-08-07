@@ -25,6 +25,7 @@ use hick_literate::{
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExecutorChoice {
     Local,
+    Docker,
     Canopy,
 }
 
@@ -33,18 +34,27 @@ impl ExecutorChoice {
     pub fn from_env() -> Result<Self> {
         match std::env::var("HICKORY_EXECUTOR").as_deref() {
             Err(_) | Ok("") | Ok("local") => Ok(ExecutorChoice::Local),
+            Ok("docker") => Ok(ExecutorChoice::Docker),
             Ok("canopy") => Ok(ExecutorChoice::Canopy),
-            Ok(other) => {
-                bail!("unknown HICKORY_EXECUTOR value '{other}' (expected \"local\" or \"canopy\")")
-            }
+            Ok(other) => bail!(
+                "unknown HICKORY_EXECUTOR value '{other}' (expected \"local\", \"docker\", \
+                 or \"canopy\")"
+            ),
         }
     }
 
     /// Build the executor. Canopy reads its `CANOPY_*` env config here
     /// (connection to the node agent is lazy — first use).
-    pub fn build(self) -> Result<Arc<dyn Executor>> {
+    ///
+    /// Docker probes the daemon eagerly, so an unreachable Docker is a clear
+    /// startup error rather than a cell that fails halfway through a run —
+    /// which means this is `async`.
+    pub async fn build(self) -> Result<Arc<dyn Executor>> {
         match self {
             ExecutorChoice::Local => Ok(Arc::new(LocalExecutor::new()?)),
+            ExecutorChoice::Docker => Ok(Arc::new(
+                hickory_executor_docker::DockerExecutor::new().await?,
+            )),
             ExecutorChoice::Canopy => Ok(Arc::new(
                 hickory_executor_canopy::CanopyExecutor::from_env()?,
             )),
@@ -216,7 +226,7 @@ pub async fn run_doc(
             // docs/guarantees/execution/first-run-behaves-like-every-later-run.md
             stage_woven_files(doc_path, &sources, params).await;
 
-            let executor = executor_choice.build()?;
+            let executor = executor_choice.build().await?;
             let config = PipelineConfig {
                 working_dir: Some(project_dir.to_path_buf()),
                 max_rounds: 1,

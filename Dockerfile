@@ -21,8 +21,13 @@ RUN cargo build --release -p hickory-server -p hick-lsp
 
 # --- runtime ---
 FROM debian:bookworm-slim
+# docker-cli (not the daemon): HICKORY_EXECUTOR=docker drives a daemon
+# reachable over DOCKER_HOST or a mounted socket. The image deliberately does
+# not run a daemon of its own — nested containers need privileges this is not
+# guaranteed to have, and a runtime that silently degrades is worse than one
+# that fails on the first run with a clear message.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates git \
+    && apt-get install -y --no-install-recommends ca-certificates git docker.io \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=build /src/target/release/hickory-server /app/hickory-server

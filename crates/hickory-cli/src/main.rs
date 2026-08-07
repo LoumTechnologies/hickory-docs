@@ -457,7 +457,7 @@ async fn cmd_agent(args: AgentArgs) -> Result<ExitCode> {
     // before anything is executed.
     let llm = client_for(&args.provider, args.model.as_deref(), None)?;
     // Executor selection follows HICKORY_EXECUTOR, same as run/check.
-    let executor = ExecutorChoice::from_env()?.build()?;
+    let executor = ExecutorChoice::from_env()?.build().await?;
 
     let mut config = AgentConfig::new(args.prompt, &project_dir);
     // `--doc` is the session's primary document: it enables the edit tool

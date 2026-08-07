@@ -23,6 +23,7 @@ hick-literate = { path = "../hick-literate" }
 hickory-agent = { path = "../hickory-agent" }
 hickory-executor = { path = "../hickory-executor" }
 hickory-executor-canopy = { path = "../hickory-executor-canopy" }
+hickory-executor-docker = { path = "../hickory-executor-docker" }
 hickory-lineage = { path = "../hickory-lineage" }
 log = "0.4"
 serde = { version = "1", features = ["derive"] }
