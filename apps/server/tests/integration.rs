@@ -88,6 +88,7 @@ async fn setup_with_agent(agent_key: Option<String>) -> TestApp {
             model: None,
         }),
         agent_provider: "anthropic".to_string(),
+        signup_allowlist: Vec::new(),
     };
 
     let db = hickory_server::init_db(&test_url).await.unwrap();
@@ -1998,4 +1999,47 @@ async fn agent_replays_branch_history_and_writes_its_edits_back() {
         "not every scripted reply was consumed"
     );
     unsafe { std::env::remove_var("ANTHROPIC_BASE_URL") };
+}
+
+/// Signup is gated when SIGNUP_ALLOWLIST is set.
+///
+/// Guarantee: docs/guarantees/collaboration/signups-can-be-closed.md
+///
+/// A public deployment with open signup, unverified emails, and container
+/// execution is a standing invitation to anyone scanning for one. Until email
+/// verification exists this is the gate.
+#[tokio::test]
+async fn the_signup_allowlist_admits_exactly_who_it_should() {
+    use hickory_server::parse_allowlist;
+
+    let list = parse_allowlist(Some(" Nate@Example.com , @loum.dev "));
+    assert_eq!(list, vec!["nate@example.com", "@loum.dev"]);
+
+    // Exact address, case-insensitively (the handler lowercases first).
+    assert!(hickory_server::signup_allowed("nate@example.com", &list));
+    // Whole domain.
+    assert!(hickory_server::signup_allowed("anyone@loum.dev", &list));
+    // A near miss on the domain must not pass — the check is on the part
+    // after the LAST '@', so a lookalike address cannot smuggle it in.
+    assert!(!hickory_server::signup_allowed(
+        "nate@example.com.evil.dev",
+        &list
+    ));
+    assert!(!hickory_server::signup_allowed(
+        "someone@example.com",
+        &list
+    ));
+    assert!(!hickory_server::signup_allowed("nate@loum.dev.evil", &list));
+
+    // Unset means open, so existing deployments are not locked out.
+    let open = parse_allowlist(None);
+    assert!(open.is_empty());
+    assert!(hickory_server::signup_allowed(
+        "anybody@anywhere.test",
+        &open
+    ));
+    assert!(hickory_server::signup_allowed(
+        "x@y.z",
+        &parse_allowlist(Some("  "))
+    ));
 }

@@ -20,6 +20,26 @@ fn user_json(id: Uuid, email: &str, plan: &str) -> Value {
     json!({ "id": id, "email": email, "plan": plan })
 }
 
+/// Whether `email` may create an account.
+///
+/// An empty allowlist means open signup, so existing deployments are
+/// unaffected. An entry beginning with `@` matches a whole domain; anything
+/// else must match the address exactly. `email` is already trimmed and
+/// lowercased by the caller, and the allowlist is lowercased at parse time,
+/// so this comparison is case-insensitive on both sides.
+pub fn signup_allowed(email: &str, allowlist: &[String]) -> bool {
+    if allowlist.is_empty() {
+        return true;
+    }
+    allowlist.iter().any(|entry| {
+        if let Some(domain) = entry.strip_prefix('@') {
+            email.rsplit_once('@').is_some_and(|(_, d)| d == domain)
+        } else {
+            email == entry
+        }
+    })
+}
+
 pub async fn signup(
     State(state): State<AppState>,
     Json(body): Json<Credentials>,
@@ -32,6 +52,12 @@ pub async fn signup(
         return Err(ApiError::bad_request(
             "password must be at least 8 characters",
         ));
+    }
+    if !signup_allowed(&email, &state.config.signup_allowlist) {
+        // Deliberately does not say whether the address exists or why it was
+        // refused — a closed deployment should not confirm which addresses
+        // would work.
+        return Err(ApiError::forbidden("signups are not open on this instance"));
     }
     let id = Uuid::new_v4();
     let hash = hash_password(&body.password)?;

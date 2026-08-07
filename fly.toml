@@ -5,7 +5,7 @@
 # daemon reachable over DOCKER_HOST, which a Fly Machine does not provide by
 # itself.
 
-app = "hickory-docs"
+app = "hickory-docs-production"
 primary_region = "iad"
 
 [build]
@@ -15,7 +15,11 @@ primary_region = "iad"
   APP_ENV = "production"
   PORT = "8080"
   GIT_DATA_DIR = "/data/git"
-  HICKORY_EXECUTOR = "docker"
+  # A Fly Machine provides no Docker daemon, so the docker executor cannot
+  # run here (see docs/operators/deploy-fly.md). `local` means image= is
+  # IGNORED and cells run against this image's toolchain — a real limitation,
+  # stated rather than silently degraded to.
+  HICKORY_EXECUTOR = "local"
   # Containers get no network unless a deployment opts in. A document that
   # needs the network is the exception; the default should not be
   # "exfiltration is possible".

@@ -76,6 +76,13 @@ pub struct Config {
     /// The selected provider, set whether or not a key was found, so the
     /// 503 can name the variable that is actually missing.
     pub agent_provider: String,
+    /// Who may create an account. Empty = anyone.
+    ///
+    /// A public deployment with open signup, unverified emails, and container
+    /// execution is a standing invitation to anyone scanning for one. Until
+    /// email verification exists this is the gate, and it is deliberately the
+    /// crudest thing that works.
+    pub signup_allowlist: Vec<String>,
 }
 
 /// Which model the agent endpoint runs on, and the key to reach it.
@@ -90,6 +97,19 @@ pub struct AgentLlmConfig {
     pub api_key: String,
     /// `None` → the provider's default model.
     pub model: Option<String>,
+}
+
+/// Parse `SIGNUP_ALLOWLIST`: comma-separated addresses (`me@example.com`) or
+/// whole domains (`@example.com`), case-insensitive.
+///
+/// An unset or blank value means "anyone", because turning a gate on by
+/// default would silently lock every existing deployment out of signup.
+pub fn parse_allowlist(raw: Option<&str>) -> Vec<String> {
+    raw.unwrap_or_default()
+        .split(',')
+        .map(|e| e.trim().to_ascii_lowercase())
+        .filter(|e| !e.is_empty())
+        .collect()
 }
 
 fn env_opt(name: &str) -> Option<String> {
@@ -233,6 +253,7 @@ impl Config {
             plan_set: env_opt("PLAN_SET"),
             agent_llm,
             agent_provider: provider,
+            signup_allowlist: parse_allowlist(env_opt("SIGNUP_ALLOWLIST").as_deref()),
         })
     }
 }

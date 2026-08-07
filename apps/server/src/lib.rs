@@ -22,7 +22,8 @@ use axum::Router;
 use axum::routing::{get, post};
 use sqlx::postgres::PgPoolOptions;
 
-pub use config::{AgentLlmConfig, Config};
+pub use config::{AgentLlmConfig, Config, parse_allowlist};
+pub use routes::auth::signup_allowed;
 
 /// WS channel prefixes (api.md).
 pub const CHANNEL_YJS: u8 = 0x00;
