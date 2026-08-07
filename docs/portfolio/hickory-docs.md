@@ -76,9 +76,11 @@ Rust workspace, 23 crates, ~870 tests, zero clippy warnings. React + TypeScript
 front end shared between web and Tauri (iOS/Android). Yrs/Yjs CRDTs over
 WebSocket for live collaboration; git for durable history.
 
-### Licence
+### Licence and distribution
 
-GPL-3.0-or-later. Installable with one `cargo install`; not a hosted service.
+GPL-3.0-or-later. Ships as a 4 MB download for Linux and macOS (x86-64 and
+arm64) with checksums, or one `cargo install`. Not a hosted service — there is
+nothing to sign up for and nothing phones home.
 
 ---
 

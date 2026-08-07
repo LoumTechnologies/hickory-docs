@@ -38,3 +38,14 @@ repository = "https://github.com/LoumTechnologies/hickory-docs"
 [workspace.dependencies]
 hick-lang = { version = "0.1", path = "crates/hick-lang" }
 hick-exec = { version = "0.1", path = "crates/hick-exec" }
+
+# Settings for the binaries people download. `cargo build` and CI's test run
+# use the dev profile, so the inner loop is unaffected.
+[profile.release]
+# Debug symbols are a large share of an unstripped binary, and nobody
+# debugging a downloaded release has the matching source checkout anyway.
+strip = true
+# Whole-program optimization across crate boundaries: this is a 23-crate
+# workspace, so most inlining opportunities are cross-crate.
+lto = "thin"
+codegen-units = 1

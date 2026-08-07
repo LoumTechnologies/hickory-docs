@@ -46,6 +46,17 @@ timestamps and hashes.
 Hickory is a single binary you run on your own machine. There is no service to
 sign up for and nothing phones home.
 
+Download a release for Linux or macOS (x86-64 and arm64) from
+[Releases](https://github.com/LoumTechnologies/hickory-docs/releases) — each
+archive carries a `.sha256` alongside it:
+
+```sh
+tar -xzf hickory-<version>-<target>.tar.gz
+./hickory-<version>-<target>/hickory --version
+```
+
+Or build it, if you have Rust:
+
 ```sh
 cargo install --git https://github.com/LoumTechnologies/hickory-docs hickory-cli
 ```
@@ -58,7 +69,8 @@ cd hickory-docs
 cargo install --path crates/hickory-cli --locked
 ```
 
-Requires a recent stable Rust. That puts `hickory` on your PATH.
+The two `cargo install` routes need a recent stable Rust; both put
+`hickory` on your PATH. The download does not need Rust at all.
 
 Working on hickory itself? Build before testing — the server's LSP tests
 spawn the `hick-lsp` binary, which `cargo test` alone does not produce.
