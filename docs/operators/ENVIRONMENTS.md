@@ -16,12 +16,12 @@ these at boot (`apps/server/src/config.rs`) and validates them:
 | Variable | Required | Default (dev) | Notes |
 |---|---|---|---|
 | `APP_ENV` | no | `dev` | `dev` \| `staging` \| `production` |
-| `PORT` | no | `8080` | HTTP listen port |
+| `PORT` | no | `8080` | HTTP listen port. `just dev` sets `0` (kernel picks; Port Zero publishes it by name) |
 | `DATABASE_URL` | strict: yes | `postgres://hickory:hickory@localhost:5433/hickory` | Postgres; sqlx migrations run at boot |
 | `JWT_SECRET` | strict: yes (≥32 bytes) | insecure dev constant | HS256 signing secret |
 | `GIT_DATA_DIR` | no | `./data/git` | One plain git repo per project lives here; mount a persistent volume in deploys |
 | `HICKORY_EXECUTOR` | no | `local` | `local` \| `canopy`. With `canopy`, the canopy env below is validated at boot: strict mode fails fast on invalid values; dev falls back to local with a warning |
-| `APP_BASE_URL` | no | `http://localhost:<PORT>` | Public base URL used for Stripe redirect URLs |
+| `APP_BASE_URL` | no | `http://localhost:<PORT>` | Public base URL used for Stripe redirect URLs. Dev: `http://hickory.portzero.local` |
 | `WEB_DIST_DIR` | no | `./apps/web/dist` if present | Static web app served with SPA fallback |
 
 ## Billing (optional — absent ⇒ billing endpoints answer 503 "billing not configured")
@@ -61,5 +61,29 @@ See `docs/specs/freeform/canopy-integration.md` for the full canopy contract.
 
 `just dev` copies `.env.example` to `.env` when missing, boots Postgres via
 docker compose, then the server and the Vite dev server (proxying `/api`,
-including WS, to the server). Ports come from `.env` (`PORT`, `WEB_PORT`,
-`POSTGRES_PORT`) — nothing is hardcoded. `just dev-stop` shuts it down.
+including WS, to the server). `just dev-stop` shuts it down.
+
+Dev does not pick port numbers. The server binds port `0` and the kernel hands
+out a free one; Vite has no port-0 support, so it falls back to its own
+increment-until-free default. Either way nothing has to agree on a number: the
+[Port Zero](https://portzero.net) daemon discovers each process by its
+`PZ_TUNNEL` environment variable and publishes whatever port it landed on at a
+stable name:
+
+| URL | Service |
+|---|---|
+| `http://hickory.portzero.local` | Vite dev server (the one you open) |
+| `http://api.hickory.portzero.local` | `hickory-server` |
+| `db.hickory.portzero.local:5432` | Postgres |
+
+`PZ_NAMESPACE` in `.env` renames all three at once, so a second checkout or a
+git worktree can run a complete parallel stack with no port coordination —
+set it and point `DATABASE_URL` at the matching `db.<namespace>` host.
+`just dev` requires the `portzero` daemon and starts it if it is not running.
+
+Postgres is the deliberate exception: it still publishes a fixed host port
+(`POSTGRES_PORT`, default `5433`) *in addition to* its tunnel name. CI has no
+Postgres service, and `apps/server/tests/integration.rs` bootstraps one with
+`docker compose up -d --wait db`, reaching it at the hardcoded
+`localhost:5433` fallback. Dev uses the name; tests and CI use the port, and
+neither needs the daemon.
