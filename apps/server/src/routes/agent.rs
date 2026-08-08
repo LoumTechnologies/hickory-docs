@@ -13,8 +13,8 @@ use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use hickory_agent::{AGENT_EXEC_ID, AgentConfig, AgentEvent, PriorTurn, run_agent};
-use serde::Deserialize;
-use serde_json::{Value, json};
+use serde::{Deserialize, Serialize};
+use serde_json::json;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
@@ -34,7 +34,7 @@ pub struct AgentRequest {
 }
 
 /// One turn as the client sees it.
-#[derive(serde::Serialize, sqlx::FromRow)]
+#[derive(Debug, Serialize, ToSchema, sqlx::FromRow)]
 pub struct TurnRow {
     pub id: Uuid,
     pub parent_id: Option<Uuid>,
@@ -45,19 +45,29 @@ pub struct TurnRow {
     pub created_at: chrono::DateTime<chrono::Utc>,
 }
 
+#[derive(Debug, Serialize, ToSchema)]
+pub struct TurnsOut {
+    pub turns: Vec<TurnRow>,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct AgentStartOut {
+    pub session_id: Uuid,
+}
+
 /// GET /api/docs/:id/agent/turns — the whole conversation tree for a document.
 #[utoipa::path(
     get,
     path = "/api/docs/{id}/agent/turns",
     params(("id" = Uuid, Path, description = "doc id")),
-    responses((status = 200, description = "the turn tree", body = Value)),
+    responses((status = 200, description = "the turn tree", body = TurnsOut)),
     tag = "agent"
 )]
 pub async fn list_turns(
     State(state): State<AppState>,
     AuthUser(user): AuthUser,
     Path(id): Path<Uuid>,
-) -> ApiResult<Json<Value>> {
+) -> ApiResult<Json<TurnsOut>> {
     let doc = load_doc(&state, id).await?;
     if doc.owner_id != user.id {
         return Err(ApiError::forbidden("not your document"));
@@ -69,7 +79,7 @@ pub async fn list_turns(
     .bind(doc.id)
     .fetch_all(&state.db)
     .await?;
-    Ok(Json(json!({ "turns": turns })))
+    Ok(Json(TurnsOut { turns }))
 }
 
 /// Walk `parent_id` up to the root and return the exchanges oldest-first.
@@ -111,7 +121,7 @@ async fn ancestor_turns(
     path = "/api/docs/{id}/agent",
     params(("id" = Uuid, Path, description = "doc id")),
     request_body = AgentRequest,
-    responses((status = 202, description = "agent session started", body = Value)),
+    responses((status = 202, description = "agent session started", body = AgentStartOut)),
     tag = "agent"
 )]
 pub async fn start_agent(
@@ -119,7 +129,7 @@ pub async fn start_agent(
     AuthUser(user): AuthUser,
     Path(id): Path<Uuid>,
     Json(body): Json<AgentRequest>,
-) -> ApiResult<(StatusCode, Json<Value>)> {
+) -> ApiResult<(StatusCode, Json<AgentStartOut>)> {
     let doc = load_doc(&state, id).await?;
     if doc.owner_id != user.id {
         return Err(ApiError::forbidden(
@@ -227,10 +237,7 @@ pub async fn start_agent(
             .await;
     });
 
-    Ok((
-        StatusCode::ACCEPTED,
-        Json(json!({ "session_id": session_id })),
-    ))
+    Ok((StatusCode::ACCEPTED, Json(AgentStartOut { session_id })))
 }
 
 /// The document's first `hick:container` declaration, as `(name, image)`.

@@ -10,7 +10,7 @@
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use hickory_lineage::{LineageError, OutputEdit, Provenance, SourceEdit};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
@@ -62,19 +62,30 @@ pub(crate) async fn load_output(
     .ok_or_else(|| ApiError::not_found("no such output file for the last successful run"))
 }
 
+#[derive(Debug, Serialize, ToSchema)]
+pub struct OutputFileMeta {
+    pub path: String,
+    pub language: String,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct OutputsListOut {
+    pub files: Vec<OutputFileMeta>,
+}
+
 /// GET /api/docs/:id/outputs → `{files: [{path, language}]}`
 #[utoipa::path(
     get,
     path = "/api/docs/{id}/outputs",
     params(("id" = Uuid, Path, description = "doc id")),
-    responses((status = 200, description = "files from the last successful run", body = Value)),
+    responses((status = 200, description = "files from the last successful run", body = OutputsListOut)),
     tag = "outputs"
 )]
 pub async fn list_outputs(
     State(state): State<AppState>,
     MaybeUser(user): MaybeUser,
     Path(id): Path<Uuid>,
-) -> ApiResult<Json<Value>> {
+) -> ApiResult<Json<OutputsListOut>> {
     let doc = load_doc(&state, id).await?;
     check_read(&doc, user.as_ref())?;
 
@@ -87,16 +98,28 @@ pub async fn list_outputs(
                 .await?
         }
     };
-    let files: Vec<Value> = files
+    let files = files
         .into_iter()
-        .map(|(path, language)| json!({ "path": path, "language": language }))
+        .map(|(path, language)| OutputFileMeta { path, language })
         .collect();
-    Ok(Json(json!({ "files": files })))
+    Ok(Json(OutputsListOut { files }))
 }
 
 #[derive(Deserialize, IntoParams)]
 pub struct FileQuery {
     pub path: String,
+}
+
+/// `provenance` is `hickory_lineage::Provenance[]` — an external crate type
+/// with no `ToSchema` impl, kept generic rather than pulling utoipa into
+/// `hickory-lineage`.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct OutputFileOut {
+    pub path: String,
+    pub language: String,
+    pub content: String,
+    #[schema(value_type = Vec<Object>)]
+    pub provenance: Value,
 }
 
 /// GET /api/docs/:id/outputs/file?path=<rel> →
@@ -105,7 +128,7 @@ pub struct FileQuery {
     get,
     path = "/api/docs/{id}/outputs/file",
     params(("id" = Uuid, Path, description = "doc id"), FileQuery),
-    responses((status = 200, description = "output file content + provenance", body = Value)),
+    responses((status = 200, description = "output file content + provenance", body = OutputFileOut)),
     tag = "outputs"
 )]
 pub async fn get_output_file(
@@ -113,16 +136,16 @@ pub async fn get_output_file(
     MaybeUser(user): MaybeUser,
     Path(id): Path<Uuid>,
     Query(q): Query<FileQuery>,
-) -> ApiResult<Json<Value>> {
+) -> ApiResult<Json<OutputFileOut>> {
     let doc = load_doc(&state, id).await?;
     check_read(&doc, user.as_ref())?;
     let row = load_output(&state, id, &q.path).await?;
-    Ok(Json(json!({
-        "path": row.path,
-        "language": row.language,
-        "content": row.content,
-        "provenance": row.provenance,
-    })))
+    Ok(Json(OutputFileOut {
+        path: row.path,
+        language: row.language,
+        content: row.content,
+        provenance: row.provenance,
+    }))
 }
 
 #[derive(Deserialize, ToSchema)]
@@ -261,13 +284,22 @@ pub async fn apply_output_edits(
     Ok(source_edits)
 }
 
+/// `source_edits` is `hickory_lineage::SourceEdit[]` — same external-type
+/// rationale as `EditRequest::edits` above.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct EditOutputsOut {
+    #[schema(value_type = Vec<Object>)]
+    pub source_edits: Vec<SourceEdit>,
+    pub applied: bool,
+}
+
 /// POST /api/docs/:id/outputs/edit → `{source_edits, applied: true}`
 #[utoipa::path(
     post,
     path = "/api/docs/{id}/outputs/edit",
     params(("id" = Uuid, Path, description = "doc id")),
     request_body = EditRequest,
-    responses((status = 200, description = "applied source edits", body = Value)),
+    responses((status = 200, description = "applied source edits", body = EditOutputsOut)),
     tag = "outputs"
 )]
 pub async fn edit_outputs(
@@ -275,7 +307,7 @@ pub async fn edit_outputs(
     AuthUser(user): AuthUser,
     Path(id): Path<Uuid>,
     Json(body): Json<EditRequest>,
-) -> ApiResult<Json<Value>> {
+) -> ApiResult<Json<EditOutputsOut>> {
     let doc = load_doc(&state, id).await?;
     if doc.owner_id != user.id {
         return Err(ApiError::forbidden(
@@ -294,10 +326,10 @@ pub async fn edit_outputs(
         json!({ "doc_id": doc.id, "project_id": doc.project_id, "output_path": body.path }),
     );
 
-    Ok(Json(json!({
-        "source_edits": source_edits,
-        "applied": true,
-    })))
+    Ok(Json(EditOutputsOut {
+        source_edits,
+        applied: true,
+    }))
 }
 
 // ---------------------------------------------------------------------------
@@ -309,6 +341,16 @@ pub struct NavRequest {
     pub path: String,
     pub offset: usize,
     pub kind: String,
+}
+
+/// `targets` items are `{uri, range: {start, end}}`, built ad hoc from the
+/// LSP response's `Location | Location[] | LocationLink[]` union below —
+/// kept generic rather than asserting a schema over an upstream union this
+/// handler only partially normalizes.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct NavOut {
+    #[schema(value_type = Vec<Object>)]
+    pub targets: Vec<Value>,
 }
 
 /// `{path, offset, kind: "definition"|"references"}` →
@@ -326,7 +368,7 @@ pub struct NavRequest {
     path = "/api/docs/{id}/outputs/nav",
     params(("id" = Uuid, Path, description = "doc id")),
     request_body = NavRequest,
-    responses((status = 200, description = "definition/reference targets", body = Value)),
+    responses((status = 200, description = "definition/reference targets", body = NavOut)),
     tag = "outputs"
 )]
 pub async fn outputs_nav(
@@ -334,7 +376,7 @@ pub async fn outputs_nav(
     MaybeUser(user): MaybeUser,
     Path(id): Path<Uuid>,
     Json(body): Json<NavRequest>,
-) -> ApiResult<Json<Value>> {
+) -> ApiResult<Json<NavOut>> {
     use hick_lsp::structural::{byte_to_position, position_to_byte};
 
     let method = match body.kind.as_str() {
@@ -366,7 +408,7 @@ pub async fn outputs_nav(
             Some((doc_path.to_string(), s + (body.offset - p.start)))
         })
     else {
-        return Ok(Json(json!({ "targets": [] })));
+        return Ok(Json(NavOut { targets: vec![] }));
     };
 
     // All project doc sources: the request doc, the provenance target doc,
@@ -523,5 +565,5 @@ pub async fn outputs_nav(
         }
     }
 
-    Ok(Json(json!({ "targets": targets })))
+    Ok(Json(NavOut { targets }))
 }

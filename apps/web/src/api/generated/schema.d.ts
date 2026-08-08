@@ -458,6 +458,17 @@ export interface components {
             parent_id?: string | null;
             prompt: string;
         };
+        AgentStartOut: {
+            /** Format: uuid */
+            session_id: string;
+        };
+        AuthOut: {
+            token: string;
+            user: components["schemas"]["UserOut"];
+        };
+        CheckoutOut: {
+            checkout_url: string;
+        };
         CheckoutRequest: {
             price_key: string;
         };
@@ -473,6 +484,31 @@ export interface components {
             email: string;
             password: string;
         };
+        /**
+         * @description `GET /api/docs/:id`, `PUT /api/docs/:id`, and the doc-creation responses
+         *     in `routes::projects` all return this exact shape.
+         */
+        DocOut: {
+            /** Format: uuid */
+            id: string;
+            path: string;
+            source: string;
+            updated_at: string;
+        };
+        DocSummaryOut: {
+            /** Format: uuid */
+            id: string;
+            path: string;
+            updated_at: string;
+        };
+        /**
+         * @description `source_edits` is `hickory_lineage::SourceEdit[]` — same external-type
+         *     rationale as `EditRequest::edits` above.
+         */
+        EditOutputsOut: {
+            applied: boolean;
+            source_edits: Record<string, never>[];
+        };
         EditRequest: {
             /**
              * @description `hickory_lineage::OutputEdit` — an external crate type with no
@@ -485,10 +521,48 @@ export interface components {
         EmailBody: {
             email: string;
         };
+        ExecutorOut: {
+            images?: {
+                [key: string]: string;
+            } | null;
+            kind: string;
+        };
+        HealthOut: {
+            db: boolean;
+            executor: string;
+            ok: boolean;
+        };
+        /**
+         * @description `targets` items are `{uri, range: {start, end}}`, built ad hoc from the
+         *     LSP response's `Location | Location[] | LocationLink[]` union below —
+         *     kept generic rather than asserting a schema over an upstream union this
+         *     handler only partially normalizes.
+         */
+        NavOut: {
+            targets: Record<string, never>[];
+        };
         NavRequest: {
             kind: string;
             offset: number;
             path: string;
+        };
+        OutputFileMeta: {
+            language: string;
+            path: string;
+        };
+        /**
+         * @description `provenance` is `hickory_lineage::Provenance[]` — an external crate type
+         *     with no `ToSchema` impl, kept generic rather than pulling utoipa into
+         *     `hickory-lineage`.
+         */
+        OutputFileOut: {
+            content: string;
+            language: string;
+            path: string;
+            provenance: Record<string, never>[];
+        };
+        OutputsListOut: {
+            files: components["schemas"]["OutputFileMeta"][];
         };
         PlanOut: {
             description: string;
@@ -512,9 +586,40 @@ export interface components {
             enterprise?: Record<string, never>;
             plans: components["schemas"]["PlanOut"][];
         };
+        ProjectOut: {
+            created_at: string;
+            /** Format: uuid */
+            id: string;
+            name: string;
+            visibility: string;
+        };
+        /**
+         * @description `blocks` is `hick_literate::render::Block`, overlaid in place with run
+         *     status/transcript as generic JSON below — the overlay reads/writes fields
+         *     by name (`kind`, `id`, `status`, `transcript`) on `serde_json::Value`
+         *     rather than through `Block`'s own enum variants, so the response is kept
+         *     as a generic array rather than asserting a schema the handler doesn't
+         *     actually construct through the typed enum.
+         */
+        RenderOut: {
+            blocks: Record<string, never>[];
+        };
         ResetBody: {
             password: string;
             token: string;
+        };
+        /**
+         * @description `blocks` is the persisted `[{exec_id, status, transcript}]` projection
+         *     (`crate::runs::run_blocks_from_model`) — kept generic rather than
+         *     deserialized back into a struct the handler doesn't otherwise need.
+         */
+        RunOut: {
+            blocks: Record<string, never>;
+            error?: string | null;
+            /** Format: uuid */
+            id: string;
+            started_at: string;
+            status: string;
         };
         RunRequest: {
             /**
@@ -525,11 +630,55 @@ export interface components {
              */
             cells?: string[] | null;
         };
+        RunStartOut: {
+            /** Format: uuid */
+            run_id: string;
+        };
         SaveDoc: {
             source: string;
         };
+        StatusOut: {
+            status: string;
+        };
         TokenBody: {
             token: string;
+        };
+        /** @description One turn as the client sees it. */
+        TurnRow: {
+            answer?: string | null;
+            /** Format: date-time */
+            created_at: string;
+            error?: string | null;
+            /** Format: uuid */
+            id: string;
+            /** Format: uuid */
+            parent_id?: string | null;
+            prompt: string;
+            status: string;
+        };
+        TurnsOut: {
+            turns: components["schemas"]["TurnRow"][];
+        };
+        /**
+         * @description The user shape every auth endpoint returns.
+         *
+         *     `email_verified` lets the client decide whether to prompt;
+         *     `verification_required` tells it whether prompting means anything at all,
+         *     since a deployment with no mailer cannot require proof it cannot request.
+         *     Without the second field the UI would nag every user of an unconfigured
+         *     instance about something they can never resolve.
+         */
+        UserOut: {
+            email: string;
+            email_verified: boolean;
+            /** Format: uuid */
+            id: string;
+            plan: string;
+            verification_required: boolean;
+        };
+        WebhookOut: {
+            duplicate?: boolean | null;
+            received: boolean;
         };
     };
     responses: never;
@@ -559,7 +708,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["AuthOut"];
                 };
             };
         };
@@ -583,7 +732,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["StatusOut"];
                 };
             };
         };
@@ -607,7 +756,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["StatusOut"];
                 };
             };
         };
@@ -631,7 +780,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["AuthOut"];
                 };
             };
         };
@@ -655,7 +804,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["StatusOut"];
                 };
             };
         };
@@ -675,7 +824,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["StatusOut"];
                 };
             };
         };
@@ -699,7 +848,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["CheckoutOut"];
                 };
             };
         };
@@ -742,7 +891,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["WebhookOut"];
                 };
             };
         };
@@ -765,7 +914,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["DocOut"];
                 };
             };
         };
@@ -792,7 +941,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["DocOut"];
                 };
             };
         };
@@ -819,7 +968,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["AgentStartOut"];
                 };
             };
         };
@@ -842,7 +991,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["TurnsOut"];
                 };
             };
         };
@@ -865,7 +1014,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["RunStartOut"];
                 };
             };
         };
@@ -888,7 +1037,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["OutputsListOut"];
                 };
             };
         };
@@ -915,7 +1064,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["EditOutputsOut"];
                 };
             };
         };
@@ -939,7 +1088,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["OutputFileOut"];
                 };
             };
         };
@@ -966,7 +1115,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["NavOut"];
                 };
             };
         };
@@ -989,7 +1138,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["RenderOut"];
                 };
             };
         };
@@ -1017,7 +1166,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["RunStartOut"];
                 };
             };
         };
@@ -1037,7 +1186,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["ExecutorOut"];
                 };
             };
         };
@@ -1057,7 +1206,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["HealthOut"];
                 };
             };
         };
@@ -1077,7 +1226,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["UserOut"];
                 };
             };
         };
@@ -1097,7 +1246,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["ProjectOut"][];
                 };
             };
         };
@@ -1121,7 +1270,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["ProjectOut"];
                 };
             };
         };
@@ -1144,7 +1293,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["DocSummaryOut"][];
                 };
             };
         };
@@ -1171,7 +1320,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["DocOut"];
                 };
             };
         };
@@ -1194,7 +1343,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["RunOut"];
                 };
             };
         };

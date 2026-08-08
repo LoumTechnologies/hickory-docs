@@ -4,8 +4,7 @@ use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use chrono::{DateTime, Utc};
-use serde::Deserialize;
-use serde_json::{Value, json};
+use serde::{Deserialize, Serialize};
 use utoipa::ToSchema;
 use uuid::Uuid;
 
@@ -14,37 +13,46 @@ use crate::auth::AuthUser;
 use crate::error::{ApiError, ApiResult};
 use crate::gitstore::GitStore;
 use crate::plans;
+use crate::routes::docs::DocOut;
 
-fn project_json(id: Uuid, name: &str, visibility: &str, created_at: DateTime<Utc>) -> Value {
-    json!({
-        "id": id,
-        "name": name,
-        "visibility": visibility,
-        "created_at": created_at.to_rfc3339(),
-    })
+#[derive(Debug, Serialize, ToSchema)]
+pub struct ProjectOut {
+    pub id: Uuid,
+    pub name: String,
+    pub visibility: String,
+    pub created_at: String,
+}
+
+fn project_out(id: Uuid, name: &str, visibility: &str, created_at: DateTime<Utc>) -> ProjectOut {
+    ProjectOut {
+        id,
+        name: name.to_string(),
+        visibility: visibility.to_string(),
+        created_at: created_at.to_rfc3339(),
+    }
 }
 
 #[utoipa::path(
     get,
     path = "/api/projects",
-    responses((status = 200, description = "the caller's projects", body = Value)),
+    responses((status = 200, description = "the caller's projects", body = Vec<ProjectOut>)),
     tag = "projects"
 )]
 pub async fn list_projects(
     State(state): State<AppState>,
     AuthUser(user): AuthUser,
-) -> ApiResult<Json<Value>> {
+) -> ApiResult<Json<Vec<ProjectOut>>> {
     let rows = sqlx::query_as::<_, (Uuid, String, String, DateTime<Utc>)>(
         "SELECT id, name, visibility, created_at FROM projects WHERE owner_id = $1 ORDER BY created_at",
     )
     .bind(user.id)
     .fetch_all(&state.db)
     .await?;
-    Ok(Json(Value::Array(
+    Ok(Json(
         rows.iter()
-            .map(|(id, name, vis, at)| project_json(*id, name, vis, *at))
+            .map(|(id, name, vis, at)| project_out(*id, name, vis, *at))
             .collect(),
-    )))
+    ))
 }
 
 #[derive(Deserialize, ToSchema)]
@@ -57,14 +65,14 @@ pub struct CreateProject {
     post,
     path = "/api/projects",
     request_body = CreateProject,
-    responses((status = 201, description = "project created", body = Value)),
+    responses((status = 201, description = "project created", body = ProjectOut)),
     tag = "projects"
 )]
 pub async fn create_project(
     State(state): State<AppState>,
     AuthUser(user): AuthUser,
     Json(body): Json<CreateProject>,
-) -> ApiResult<(StatusCode, Json<Value>)> {
+) -> ApiResult<(StatusCode, Json<ProjectOut>)> {
     if body.name.trim().is_empty() {
         return Err(ApiError::bad_request("project name required"));
     }
@@ -109,22 +117,29 @@ pub async fn create_project(
     state.git.init_project(id).await?;
     Ok((
         StatusCode::CREATED,
-        Json(project_json(id, body.name.trim(), &body.visibility, row.0)),
+        Json(project_out(id, body.name.trim(), &body.visibility, row.0)),
     ))
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct DocSummaryOut {
+    pub id: Uuid,
+    pub path: String,
+    pub updated_at: String,
 }
 
 #[utoipa::path(
     get,
     path = "/api/projects/{project_id}/docs",
     params(("project_id" = Uuid, Path, description = "project id")),
-    responses((status = 200, description = "docs in the project", body = Value)),
+    responses((status = 200, description = "docs in the project", body = Vec<DocSummaryOut>)),
     tag = "projects"
 )]
 pub async fn list_docs(
     State(state): State<AppState>,
     AuthUser(user): AuthUser,
     Path(project_id): Path<Uuid>,
-) -> ApiResult<Json<Value>> {
+) -> ApiResult<Json<Vec<DocSummaryOut>>> {
     let owner: Option<(Uuid, String)> =
         sqlx::query_as("SELECT owner_id, visibility FROM projects WHERE id = $1")
             .bind(project_id)
@@ -142,11 +157,15 @@ pub async fn list_docs(
     .bind(project_id)
     .fetch_all(&state.db)
     .await?;
-    Ok(Json(Value::Array(
+    Ok(Json(
         rows.iter()
-            .map(|(id, path, at)| json!({ "id": id, "path": path, "updated_at": at.to_rfc3339() }))
+            .map(|(id, path, at)| DocSummaryOut {
+                id: *id,
+                path: path.clone(),
+                updated_at: at.to_rfc3339(),
+            })
             .collect(),
-    )))
+    ))
 }
 
 #[derive(Deserialize, ToSchema)]
@@ -160,7 +179,7 @@ pub struct CreateDoc {
     path = "/api/projects/{project_id}/docs",
     params(("project_id" = Uuid, Path, description = "project id")),
     request_body = CreateDoc,
-    responses((status = 201, description = "doc created", body = Value)),
+    responses((status = 201, description = "doc created", body = DocOut)),
     tag = "projects"
 )]
 pub async fn create_doc(
@@ -168,7 +187,7 @@ pub async fn create_doc(
     AuthUser(user): AuthUser,
     Path(project_id): Path<Uuid>,
     Json(body): Json<CreateDoc>,
-) -> ApiResult<(StatusCode, Json<Value>)> {
+) -> ApiResult<(StatusCode, Json<DocOut>)> {
     let owner: Option<(Uuid,)> = sqlx::query_as("SELECT owner_id FROM projects WHERE id = $1")
         .bind(project_id)
         .fetch_optional(&state.db)
@@ -209,11 +228,11 @@ pub async fn create_doc(
         .await?;
     Ok((
         StatusCode::CREATED,
-        Json(json!({
-            "id": id,
-            "path": body.path,
-            "source": body.source,
-            "updated_at": updated_at.to_rfc3339(),
-        })),
+        Json(DocOut {
+            id,
+            path: body.path,
+            source: body.source,
+            updated_at: updated_at.to_rfc3339(),
+        }),
     ))
 }

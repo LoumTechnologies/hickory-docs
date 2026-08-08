@@ -1,14 +1,16 @@
 //! The generated OpenAPI spec (`just codegen` → `apps/server/openapi.json` →
 //! `apps/web/src/api/generated/schema.d.ts`). Purely macro-derived from the
 //! `#[utoipa::path]`/`ToSchema` annotations on the route handlers and
-//! request structs below — no `AppState`, no DB, no env vars needed to build
-//! it (see `src/bin/print_openapi.rs`).
+//! request/response structs below — no `AppState`, no DB, no env vars needed
+//! to build it (see `src/bin/print_openapi.rs`).
 //!
-//! Response bodies are intentionally untyped (`serde_json::Value`) for now —
-//! most handlers still build ad-hoc `json!()` responses rather than typed
-//! structs. Typing them is tracked as a separate follow-up, done
-//! route-by-route; only `GET /api/billing/plans` already returns a typed
-//! struct (`plans::PlansOut`) and is documented as such.
+//! Every handler now returns a typed response struct. A few fields stay
+//! `serde_json::Value` on purpose, documented at each site: values sourced
+//! from an external crate with no `ToSchema` impl (`hickory_lineage::{
+//! OutputEdit, SourceEdit, Provenance}`), or genuinely dynamic shapes the
+//! handler builds by mutating/normalizing JSON in place rather than through
+//! a fixed Rust type (`docs::render_doc`'s run-status overlay,
+//! `outputs::outputs_nav`'s LSP location union).
 
 use utoipa::OpenApi;
 
@@ -46,6 +48,7 @@ use utoipa::OpenApi;
         crate::routes::health::executor,
     ),
     components(schemas(
+        // Requests
         crate::routes::auth::Credentials,
         crate::routes::auth::TokenBody,
         crate::routes::auth::EmailBody,
@@ -58,6 +61,28 @@ use utoipa::OpenApi;
         crate::routes::runs::RunRequest,
         crate::routes::agent::AgentRequest,
         crate::routes::billing::CheckoutRequest,
+        // Responses
+        crate::routes::auth::UserOut,
+        crate::routes::auth::AuthOut,
+        crate::routes::auth::StatusOut,
+        crate::routes::projects::ProjectOut,
+        crate::routes::projects::DocSummaryOut,
+        crate::routes::docs::DocOut,
+        crate::routes::docs::RenderOut,
+        crate::routes::outputs::OutputFileMeta,
+        crate::routes::outputs::OutputsListOut,
+        crate::routes::outputs::OutputFileOut,
+        crate::routes::outputs::EditOutputsOut,
+        crate::routes::outputs::NavOut,
+        crate::routes::runs::RunStartOut,
+        crate::routes::runs::RunOut,
+        crate::routes::agent::TurnRow,
+        crate::routes::agent::TurnsOut,
+        crate::routes::agent::AgentStartOut,
+        crate::routes::billing::CheckoutOut,
+        crate::routes::billing::WebhookOut,
+        crate::routes::health::HealthOut,
+        crate::routes::health::ExecutorOut,
         crate::plans::PlansOut,
         crate::plans::PlanOut,
         crate::plans::PlanPriceOut,

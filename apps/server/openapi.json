@@ -31,7 +31,9 @@
             "description": "signed in",
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/AuthOut"
+                }
               }
             }
           }
@@ -60,7 +62,9 @@
             "description": "password reset",
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/StatusOut"
+                }
               }
             }
           }
@@ -90,7 +94,9 @@
             "description": "reset email queued if the address exists",
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/StatusOut"
+                }
               }
             }
           }
@@ -118,7 +124,9 @@
             "description": "account created",
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/AuthOut"
+                }
               }
             }
           }
@@ -147,7 +155,9 @@
             "description": "email verified",
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/StatusOut"
+                }
               }
             }
           }
@@ -166,7 +176,9 @@
             "description": "verification email queued",
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/StatusOut"
+                }
               }
             }
           }
@@ -194,7 +206,9 @@
             "description": "Stripe Checkout session url",
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/CheckoutOut"
+                }
               }
             }
           }
@@ -243,7 +257,9 @@
             "description": "event acknowledged",
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/WebhookOut"
+                }
               }
             }
           }
@@ -273,7 +289,9 @@
             "description": "the doc",
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/DocOut"
+                }
               }
             }
           }
@@ -311,7 +329,9 @@
             "description": "the saved doc",
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/DocOut"
+                }
               }
             }
           }
@@ -351,7 +371,9 @@
             "description": "agent session started",
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/AgentStartOut"
+                }
               }
             }
           }
@@ -382,7 +404,9 @@
             "description": "the turn tree",
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/TurnsOut"
+                }
               }
             }
           }
@@ -412,7 +436,9 @@
             "description": "verification run started",
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/RunStartOut"
+                }
               }
             }
           }
@@ -443,7 +469,9 @@
             "description": "files from the last successful run",
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/OutputsListOut"
+                }
               }
             }
           }
@@ -484,7 +512,9 @@
             "description": "applied source edits",
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/EditOutputsOut"
+                }
               }
             }
           }
@@ -523,7 +553,9 @@
             "description": "output file content + provenance",
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/OutputFileOut"
+                }
               }
             }
           }
@@ -565,7 +597,9 @@
             "description": "definition/reference targets",
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/NavOut"
+                }
               }
             }
           }
@@ -597,7 +631,9 @@
             "description": "rendered block model",
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/RenderOut"
+                }
               }
             }
           }
@@ -638,7 +674,9 @@
             "description": "run started",
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/RunStartOut"
+                }
               }
             }
           }
@@ -657,7 +695,9 @@
             "description": "active executor kind + image map",
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/ExecutorOut"
+                }
               }
             }
           }
@@ -675,7 +715,9 @@
             "description": "liveness + DB reachability",
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/HealthOut"
+                }
               }
             }
           }
@@ -693,7 +735,9 @@
             "description": "current user",
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/UserOut"
+                }
               }
             }
           }
@@ -711,7 +755,12 @@
             "description": "the caller's projects",
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ProjectOut"
+                  }
+                }
               }
             }
           }
@@ -737,7 +786,9 @@
             "description": "project created",
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectOut"
+                }
               }
             }
           }
@@ -767,7 +818,12 @@
             "description": "docs in the project",
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/DocSummaryOut"
+                  }
+                }
               }
             }
           }
@@ -805,7 +861,9 @@
             "description": "doc created",
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/DocOut"
+                }
               }
             }
           }
@@ -835,7 +893,9 @@
             "description": "run status",
             "content": {
               "application/json": {
-                "schema": {}
+                "schema": {
+                  "$ref": "#/components/schemas/RunOut"
+                }
               }
             }
           }
@@ -860,6 +920,44 @@
             "description": "Turn this message continues from. Omitted starts a new conversation;\nnaming an OLDER turn forks a branch from there (rewind), leaving the\nturns that followed it in place on their own branch."
           },
           "prompt": {
+            "type": "string"
+          }
+        }
+      },
+      "AgentStartOut": {
+        "type": "object",
+        "required": [
+          "session_id"
+        ],
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
+      "AuthOut": {
+        "type": "object",
+        "required": [
+          "token",
+          "user"
+        ],
+        "properties": {
+          "token": {
+            "type": "string"
+          },
+          "user": {
+            "$ref": "#/components/schemas/UserOut"
+          }
+        }
+      },
+      "CheckoutOut": {
+        "type": "object",
+        "required": [
+          "checkout_url"
+        ],
+        "properties": {
+          "checkout_url": {
             "type": "string"
           }
         }
@@ -920,6 +1018,70 @@
           }
         }
       },
+      "DocOut": {
+        "type": "object",
+        "description": "`GET /api/docs/:id`, `PUT /api/docs/:id`, and the doc-creation responses\nin `routes::projects` all return this exact shape.",
+        "required": [
+          "id",
+          "path",
+          "source",
+          "updated_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "path": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string"
+          }
+        }
+      },
+      "DocSummaryOut": {
+        "type": "object",
+        "required": [
+          "id",
+          "path",
+          "updated_at"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "path": {
+            "type": "string"
+          },
+          "updated_at": {
+            "type": "string"
+          }
+        }
+      },
+      "EditOutputsOut": {
+        "type": "object",
+        "description": "`source_edits` is `hickory_lineage::SourceEdit[]` — same external-type\nrationale as `EditRequest::edits` above.",
+        "required": [
+          "source_edits",
+          "applied"
+        ],
+        "properties": {
+          "applied": {
+            "type": "boolean"
+          },
+          "source_edits": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
+        }
+      },
       "EditRequest": {
         "type": "object",
         "required": [
@@ -950,6 +1112,63 @@
           }
         }
       },
+      "ExecutorOut": {
+        "type": "object",
+        "required": [
+          "kind"
+        ],
+        "properties": {
+          "images": {
+            "type": [
+              "object",
+              "null"
+            ],
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "type": "string"
+            }
+          },
+          "kind": {
+            "type": "string"
+          }
+        }
+      },
+      "HealthOut": {
+        "type": "object",
+        "required": [
+          "ok",
+          "executor",
+          "db"
+        ],
+        "properties": {
+          "db": {
+            "type": "boolean"
+          },
+          "executor": {
+            "type": "string"
+          },
+          "ok": {
+            "type": "boolean"
+          }
+        }
+      },
+      "NavOut": {
+        "type": "object",
+        "description": "`targets` items are `{uri, range: {start, end}}`, built ad hoc from the\nLSP response's `Location | Location[] | LocationLink[]` union below —\nkept generic rather than asserting a schema over an upstream union this\nhandler only partially normalizes.",
+        "required": [
+          "targets"
+        ],
+        "properties": {
+          "targets": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
+        }
+      },
       "NavRequest": {
         "type": "object",
         "required": [
@@ -967,6 +1186,62 @@
           },
           "path": {
             "type": "string"
+          }
+        }
+      },
+      "OutputFileMeta": {
+        "type": "object",
+        "required": [
+          "path",
+          "language"
+        ],
+        "properties": {
+          "language": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          }
+        }
+      },
+      "OutputFileOut": {
+        "type": "object",
+        "description": "`provenance` is `hickory_lineage::Provenance[]` — an external crate type\nwith no `ToSchema` impl, kept generic rather than pulling utoipa into\n`hickory-lineage`.",
+        "required": [
+          "path",
+          "language",
+          "content",
+          "provenance"
+        ],
+        "properties": {
+          "content": {
+            "type": "string"
+          },
+          "language": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "provenance": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
+        }
+      },
+      "OutputsListOut": {
+        "type": "object",
+        "required": [
+          "files"
+        ],
+        "properties": {
+          "files": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/OutputFileMeta"
+            }
           }
         }
       },
@@ -1064,6 +1339,45 @@
           }
         }
       },
+      "ProjectOut": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "visibility",
+          "created_at"
+        ],
+        "properties": {
+          "created_at": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "visibility": {
+            "type": "string"
+          }
+        }
+      },
+      "RenderOut": {
+        "type": "object",
+        "description": "`blocks` is `hick_literate::render::Block`, overlaid in place with run\nstatus/transcript as generic JSON below — the overlay reads/writes fields\nby name (`kind`, `id`, `status`, `transcript`) on `serde_json::Value`\nrather than through `Block`'s own enum variants, so the response is kept\nas a generic array rather than asserting a schema the handler doesn't\nactually construct through the typed enum.",
+        "required": [
+          "blocks"
+        ],
+        "properties": {
+          "blocks": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          }
+        }
+      },
       "ResetBody": {
         "type": "object",
         "required": [
@@ -1075,6 +1389,37 @@
             "type": "string"
           },
           "token": {
+            "type": "string"
+          }
+        }
+      },
+      "RunOut": {
+        "type": "object",
+        "description": "`blocks` is the persisted `[{exec_id, status, transcript}]` projection\n(`crate::runs::run_blocks_from_model`) — kept generic rather than\ndeserialized back into a struct the handler doesn't otherwise need.",
+        "required": [
+          "id",
+          "status",
+          "started_at",
+          "blocks"
+        ],
+        "properties": {
+          "blocks": {
+            "type": "object"
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "started_at": {
+            "type": "string"
+          },
+          "status": {
             "type": "string"
           }
         }
@@ -1094,6 +1439,18 @@
           }
         }
       },
+      "RunStartOut": {
+        "type": "object",
+        "required": [
+          "run_id"
+        ],
+        "properties": {
+          "run_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        }
+      },
       "SaveDoc": {
         "type": "object",
         "required": [
@@ -1101,6 +1458,17 @@
         ],
         "properties": {
           "source": {
+            "type": "string"
+          }
+        }
+      },
+      "StatusOut": {
+        "type": "object",
+        "required": [
+          "status"
+        ],
+        "properties": {
+          "status": {
             "type": "string"
           }
         }
@@ -1113,6 +1481,111 @@
         "properties": {
           "token": {
             "type": "string"
+          }
+        }
+      },
+      "TurnRow": {
+        "type": "object",
+        "description": "One turn as the client sees it.",
+        "required": [
+          "id",
+          "prompt",
+          "status",
+          "created_at"
+        ],
+        "properties": {
+          "answer": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "error": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "parent_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "prompt": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        }
+      },
+      "TurnsOut": {
+        "type": "object",
+        "required": [
+          "turns"
+        ],
+        "properties": {
+          "turns": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TurnRow"
+            }
+          }
+        }
+      },
+      "UserOut": {
+        "type": "object",
+        "description": "The user shape every auth endpoint returns.\n\n`email_verified` lets the client decide whether to prompt;\n`verification_required` tells it whether prompting means anything at all,\nsince a deployment with no mailer cannot require proof it cannot request.\nWithout the second field the UI would nag every user of an unconfigured\ninstance about something they can never resolve.",
+        "required": [
+          "id",
+          "email",
+          "plan",
+          "email_verified",
+          "verification_required"
+        ],
+        "properties": {
+          "email": {
+            "type": "string"
+          },
+          "email_verified": {
+            "type": "boolean"
+          },
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "plan": {
+            "type": "string"
+          },
+          "verification_required": {
+            "type": "boolean"
+          }
+        }
+      },
+      "WebhookOut": {
+        "type": "object",
+        "required": [
+          "received"
+        ],
+        "properties": {
+          "duplicate": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "received": {
+            "type": "boolean"
           }
         }
       }

@@ -10,7 +10,7 @@ use axum::Json;
 use axum::extract::State;
 use axum::http::HeaderMap;
 use hmac::{Hmac, Mac as _};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::Sha256;
 use utoipa::ToSchema;
@@ -63,18 +63,23 @@ pub struct CheckoutRequest {
     pub price_key: String,
 }
 
+#[derive(Debug, Serialize, ToSchema)]
+pub struct CheckoutOut {
+    pub checkout_url: String,
+}
+
 #[utoipa::path(
     post,
     path = "/api/billing/checkout",
     request_body = CheckoutRequest,
-    responses((status = 200, description = "Stripe Checkout session url", body = Value)),
+    responses((status = 200, description = "Stripe Checkout session url", body = CheckoutOut)),
     tag = "billing"
 )]
 pub async fn checkout(
     State(state): State<AppState>,
     AuthUser(user): AuthUser,
     Json(body): Json<CheckoutRequest>,
-) -> ApiResult<Json<Value>> {
+) -> ApiResult<Json<CheckoutOut>> {
     let Some(stripe) = &state.config.stripe else {
         return Err(ApiError::service_unavailable("billing not configured"));
     };
@@ -197,7 +202,9 @@ pub async fn checkout(
             "currency": price.currency,
         }),
     );
-    Ok(Json(json!({ "checkout_url": url })))
+    Ok(Json(CheckoutOut {
+        checkout_url: url.to_string(),
+    }))
 }
 
 // ---------------------------------------------------------------------------
@@ -234,18 +241,25 @@ pub fn verify_stripe_signature(secret: &str, header: &str, payload: &[u8], now_u
     })
 }
 
+#[derive(Debug, Serialize, ToSchema)]
+pub struct WebhookOut {
+    pub received: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub duplicate: Option<bool>,
+}
+
 #[utoipa::path(
     post,
     path = "/api/billing/webhook",
     params(("stripe-signature" = String, Header, description = "Stripe webhook signature")),
-    responses((status = 200, description = "event acknowledged", body = Value)),
+    responses((status = 200, description = "event acknowledged", body = WebhookOut)),
     tag = "billing"
 )]
 pub async fn webhook(
     State(state): State<AppState>,
     headers: HeaderMap,
     body: axum::body::Bytes,
-) -> ApiResult<Json<Value>> {
+) -> ApiResult<Json<WebhookOut>> {
     let Some(stripe) = &state.config.stripe else {
         return Err(ApiError::service_unavailable("billing not configured"));
     };
@@ -285,7 +299,10 @@ pub async fn webhook(
     .fetch_optional(&state.db)
     .await?;
     if claimed.is_none() {
-        return Ok(Json(json!({ "received": true, "duplicate": true })));
+        return Ok(Json(WebhookOut {
+            received: true,
+            duplicate: Some(true),
+        }));
     }
 
     let result = handle_event(&state, &event_type, &object).await;
@@ -298,7 +315,10 @@ pub async fn webhook(
             .await;
         return Err(ApiError::internal(format!("webhook handler failed: {e}")));
     }
-    Ok(Json(json!({ "received": true })))
+    Ok(Json(WebhookOut {
+        received: true,
+        duplicate: None,
+    }))
 }
 
 async fn handle_event(state: &AppState, event_type: &str, object: &Value) -> anyhow::Result<()> {

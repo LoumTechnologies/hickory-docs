@@ -4,8 +4,8 @@ use axum::Json;
 use axum::extract::{Path, State};
 use chrono::{DateTime, Utc};
 use hick_literate::render::Block;
-use serde::Deserialize;
-use serde_json::{Value, json};
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
@@ -47,30 +47,40 @@ pub fn check_read(doc: &DocRow, user: Option<&User>) -> Result<(), ApiError> {
     }
 }
 
-fn doc_json(doc: &DocRow) -> Value {
-    json!({
-        "id": doc.id,
-        "path": doc.path,
-        "source": doc.source,
-        "updated_at": doc.updated_at.to_rfc3339(),
-    })
+/// `GET /api/docs/:id`, `PUT /api/docs/:id`, and the doc-creation responses
+/// in `routes::projects` all return this exact shape.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct DocOut {
+    pub id: Uuid,
+    pub path: String,
+    pub source: String,
+    pub updated_at: String,
+}
+
+fn doc_out(doc: &DocRow) -> DocOut {
+    DocOut {
+        id: doc.id,
+        path: doc.path.clone(),
+        source: doc.source.clone(),
+        updated_at: doc.updated_at.to_rfc3339(),
+    }
 }
 
 #[utoipa::path(
     get,
     path = "/api/docs/{id}",
     params(("id" = Uuid, Path, description = "doc id")),
-    responses((status = 200, description = "the doc", body = Value)),
+    responses((status = 200, description = "the doc", body = DocOut)),
     tag = "docs"
 )]
 pub async fn get_doc(
     State(state): State<AppState>,
     MaybeUser(user): MaybeUser,
     Path(id): Path<Uuid>,
-) -> ApiResult<Json<Value>> {
+) -> ApiResult<Json<DocOut>> {
     let doc = load_doc(&state, id).await?;
     check_read(&doc, user.as_ref())?;
-    Ok(Json(doc_json(&doc)))
+    Ok(Json(doc_out(&doc)))
 }
 
 #[derive(Deserialize, ToSchema)]
@@ -83,7 +93,7 @@ pub struct SaveDoc {
     path = "/api/docs/{id}",
     params(("id" = Uuid, Path, description = "doc id")),
     request_body = SaveDoc,
-    responses((status = 200, description = "the saved doc", body = Value)),
+    responses((status = 200, description = "the saved doc", body = DocOut)),
     tag = "docs"
 )]
 pub async fn put_doc(
@@ -91,7 +101,7 @@ pub async fn put_doc(
     AuthUser(user): AuthUser,
     Path(id): Path<Uuid>,
     Json(body): Json<SaveDoc>,
-) -> ApiResult<Json<Value>> {
+) -> ApiResult<Json<DocOut>> {
     let mut doc = load_doc(&state, id).await?;
     if doc.owner_id != user.id {
         return Err(ApiError::forbidden(
@@ -124,7 +134,19 @@ pub async fn put_doc(
         .await?;
     doc.source = body.source;
     doc.updated_at = row.0;
-    Ok(Json(doc_json(&doc)))
+    Ok(Json(doc_out(&doc)))
+}
+
+/// `blocks` is `hick_literate::render::Block`, overlaid in place with run
+/// status/transcript as generic JSON below — the overlay reads/writes fields
+/// by name (`kind`, `id`, `status`, `transcript`) on `serde_json::Value`
+/// rather than through `Block`'s own enum variants, so the response is kept
+/// as a generic array rather than asserting a schema the handler doesn't
+/// actually construct through the typed enum.
+#[derive(Debug, Serialize, ToSchema)]
+pub struct RenderOut {
+    #[schema(value_type = Vec<Object>)]
+    pub blocks: Vec<Value>,
 }
 
 /// Render the block model for the doc's current source, overlaying the last
@@ -138,14 +160,14 @@ pub async fn put_doc(
     get,
     path = "/api/docs/{id}/render",
     params(("id" = Uuid, Path, description = "doc id")),
-    responses((status = 200, description = "rendered block model", body = Value)),
+    responses((status = 200, description = "rendered block model", body = RenderOut)),
     tag = "docs"
 )]
 pub async fn render_doc(
     State(state): State<AppState>,
     MaybeUser(user): MaybeUser,
     Path(id): Path<Uuid>,
-) -> ApiResult<Json<Value>> {
+) -> ApiResult<Json<RenderOut>> {
     let doc = load_doc(&state, id).await?;
     check_read(&doc, user.as_ref())?;
 
@@ -228,5 +250,5 @@ pub async fn render_doc(
     }
 
     let _unused: Option<&Block> = None; // (type anchor: rendered mirrors render::Block)
-    Ok(Json(json!({ "blocks": rendered })))
+    Ok(Json(RenderOut { blocks: rendered }))
 }

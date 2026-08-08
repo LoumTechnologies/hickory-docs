@@ -2,8 +2,8 @@
 
 use axum::Json;
 use axum::extract::State;
-use serde::Deserialize;
-use serde_json::{Value, json};
+use serde::{Deserialize, Serialize};
+use serde_json::json;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
@@ -26,14 +26,34 @@ pub struct Credentials {
 /// since a deployment with no mailer cannot require proof it cannot request.
 /// Without the second field the UI would nag every user of an unconfigured
 /// instance about something they can never resolve.
-fn user_json(state: &AppState, user: &crate::auth::User) -> Value {
-    json!({
-        "id": user.id,
-        "email": user.email,
-        "plan": user.plan_key,
-        "email_verified": user.email_verified,
-        "verification_required": state.mailer.is_configured(),
-    })
+#[derive(Debug, Serialize, ToSchema)]
+pub struct UserOut {
+    pub id: Uuid,
+    pub email: String,
+    pub plan: String,
+    pub email_verified: bool,
+    pub verification_required: bool,
+}
+
+fn user_out(state: &AppState, user: &crate::auth::User) -> UserOut {
+    UserOut {
+        id: user.id,
+        email: user.email.clone(),
+        plan: user.plan_key.clone(),
+        email_verified: user.email_verified,
+        verification_required: state.mailer.is_configured(),
+    }
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct AuthOut {
+    pub token: String,
+    pub user: UserOut,
+}
+
+#[derive(Debug, Serialize, ToSchema)]
+pub struct StatusOut {
+    pub status: String,
 }
 
 /// Whether `email` may create an account.
@@ -60,13 +80,13 @@ pub fn signup_allowed(email: &str, allowlist: &[String]) -> bool {
     post,
     path = "/api/auth/signup",
     request_body = Credentials,
-    responses((status = 200, description = "account created", body = Value)),
+    responses((status = 200, description = "account created", body = AuthOut)),
     tag = "auth"
 )]
 pub async fn signup(
     State(state): State<AppState>,
     Json(body): Json<Credentials>,
-) -> ApiResult<Json<Value>> {
+) -> ApiResult<Json<AuthOut>> {
     let email = body.email.trim().to_lowercase();
     if !email.contains('@') {
         return Err(ApiError::bad_request("invalid email address"));
@@ -112,22 +132,23 @@ pub async fn signup(
         billing_status: "active".to_string(),
         email_verified: false,
     };
-    Ok(Json(
-        json!({ "token": token, "user": user_json(&state, &user) }),
-    ))
+    Ok(Json(AuthOut {
+        token,
+        user: user_out(&state, &user),
+    }))
 }
 
 #[utoipa::path(
     post,
     path = "/api/auth/login",
     request_body = Credentials,
-    responses((status = 200, description = "signed in", body = Value)),
+    responses((status = 200, description = "signed in", body = AuthOut)),
     tag = "auth"
 )]
 pub async fn login(
     State(state): State<AppState>,
     Json(body): Json<Credentials>,
-) -> ApiResult<Json<Value>> {
+) -> ApiResult<Json<AuthOut>> {
     let email = body.email.trim().to_lowercase();
     let row =
         sqlx::query_as::<_, (Uuid, String)>("SELECT id, password_hash FROM users WHERE email = $1")
@@ -142,19 +163,20 @@ pub async fn login(
     }
     let token = issue_token(&state.config.jwt_secret, id, &email)?;
     let user = crate::auth::load_user(&state, id).await?;
-    Ok(Json(
-        json!({ "token": token, "user": user_json(&state, &user) }),
-    ))
+    Ok(Json(AuthOut {
+        token,
+        user: user_out(&state, &user),
+    }))
 }
 
 #[utoipa::path(
     get,
     path = "/api/me",
-    responses((status = 200, description = "current user", body = Value)),
+    responses((status = 200, description = "current user", body = UserOut)),
     tag = "auth"
 )]
-pub async fn me(State(state): State<AppState>, AuthUser(user): AuthUser) -> Json<Value> {
-    Json(user_json(&state, &user))
+pub async fn me(State(state): State<AppState>, AuthUser(user): AuthUser) -> Json<UserOut> {
+    Json(user_out(&state, &user))
 }
 
 // ---------------------------------------------------------------------------
@@ -172,13 +194,13 @@ const MAX_SENDS_PER_HOUR: i64 = 5;
 #[utoipa::path(
     post,
     path = "/api/auth/verify/send",
-    responses((status = 200, description = "verification email queued", body = Value)),
+    responses((status = 200, description = "verification email queued", body = StatusOut)),
     tag = "auth"
 )]
 pub async fn send_verification(
     State(state): State<AppState>,
     AuthUser(user): AuthUser,
-) -> ApiResult<Json<Value>> {
+) -> ApiResult<Json<StatusOut>> {
     if !state.mailer.is_configured() {
         return Err(ApiError::service_unavailable(
             "email is not configured on this instance (SENDGRID_API_KEY unset)",
@@ -189,7 +211,9 @@ pub async fn send_verification(
         .fetch_optional(&state.db)
         .await?;
     if already.map(|(v,)| v).unwrap_or(false) {
-        return Ok(Json(json!({ "status": "already_verified" })));
+        return Ok(Json(StatusOut {
+            status: "already_verified".to_string(),
+        }));
     }
 
     let since = chrono::Utc::now() - chrono::Duration::hours(1);
@@ -224,9 +248,9 @@ pub async fn send_verification(
     // the send failed — and "check your inbox" is bad advice when the mail
     // was rejected. (Deliberately NOT done for password reset, where varying
     // the response would turn it into an account-existence oracle.)
-    Ok(Json(json!({
-        "status": if delivered { "sent" } else { "send_failed" }
-    })))
+    Ok(Json(StatusOut {
+        status: if delivered { "sent" } else { "send_failed" }.to_string(),
+    }))
 }
 
 #[derive(Deserialize, ToSchema)]
@@ -239,13 +263,13 @@ pub struct TokenBody {
     post,
     path = "/api/auth/verify/confirm",
     request_body = TokenBody,
-    responses((status = 200, description = "email verified", body = Value)),
+    responses((status = 200, description = "email verified", body = StatusOut)),
     tag = "auth"
 )]
 pub async fn confirm_verification(
     State(state): State<AppState>,
     Json(body): Json<TokenBody>,
-) -> ApiResult<Json<Value>> {
+) -> ApiResult<Json<StatusOut>> {
     let Some(user_id) =
         email_tokens::redeem(&state.db, &body.token, email_tokens::Purpose::Verify).await?
     else {
@@ -259,7 +283,9 @@ pub async fn confirm_verification(
         .bind(user_id)
         .execute(&state.db)
         .await?;
-    Ok(Json(json!({ "status": "verified" })))
+    Ok(Json(StatusOut {
+        status: "verified".to_string(),
+    }))
 }
 
 #[derive(Deserialize, ToSchema)]
@@ -276,13 +302,13 @@ pub struct EmailBody {
     post,
     path = "/api/auth/reset/request",
     request_body = EmailBody,
-    responses((status = 200, description = "reset email queued if the address exists", body = Value)),
+    responses((status = 200, description = "reset email queued if the address exists", body = StatusOut)),
     tag = "auth"
 )]
 pub async fn request_reset(
     State(state): State<AppState>,
     Json(body): Json<EmailBody>,
-) -> ApiResult<Json<Value>> {
+) -> ApiResult<Json<StatusOut>> {
     let email = body.email.trim().to_lowercase();
     let found: Option<(Uuid,)> = sqlx::query_as("SELECT id FROM users WHERE email = $1")
         .bind(&email)
@@ -319,7 +345,9 @@ pub async fn request_reset(
             .await;
         }
     }
-    Ok(Json(json!({ "status": "sent" })))
+    Ok(Json(StatusOut {
+        status: "sent".to_string(),
+    }))
 }
 
 #[derive(Deserialize, ToSchema)]
@@ -333,13 +361,13 @@ pub struct ResetBody {
     post,
     path = "/api/auth/reset/confirm",
     request_body = ResetBody,
-    responses((status = 200, description = "password reset", body = Value)),
+    responses((status = 200, description = "password reset", body = StatusOut)),
     tag = "auth"
 )]
 pub async fn confirm_reset(
     State(state): State<AppState>,
     Json(body): Json<ResetBody>,
-) -> ApiResult<Json<Value>> {
+) -> ApiResult<Json<StatusOut>> {
     if body.password.len() < 8 {
         return Err(ApiError::bad_request(
             "password must be at least 8 characters",
@@ -361,7 +389,9 @@ pub async fn confirm_reset(
         .bind(user_id)
         .execute(&state.db)
         .await?;
-    Ok(Json(json!({ "status": "reset" })))
+    Ok(Json(StatusOut {
+        status: "reset".to_string(),
+    }))
 }
 
 /// Send, logging failures rather than propagating them.
