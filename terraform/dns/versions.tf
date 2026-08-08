@@ -22,7 +22,7 @@ terraform {
   # semantics the provider assumes, hence the skips below — without them every
   # operation fails on a checksum mismatch rather than anything meaningful.
   backend "s3" {
-    bucket = "hickory-tfstate"
+    bucket = "hickorydocs-terraform-state"
     key    = "dns/terraform.tfstate"
     region = "auto"
 

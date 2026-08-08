@@ -54,20 +54,57 @@ resource "cloudflare_dns_record" "www_v6" {
   comment = "Fly.io ingress — hickory-docs-production"
 }
 
-# --- mail --------------------------------------------------------------------
+# --- outbound mail (SendGrid) ------------------------------------------------
 #
-# Deliberately empty, and both halves belong here when they exist:
+# SendGrid Domain Authentication. Created through SendGrid's UI and imported
+# here, because a config that omits live records is one the next reader takes
+# as complete and prunes against.
 #
-#   receiving  @hickorydocs.com  -> MyMangoMail, via MX records
-#   sending    verification/reset -> SendGrid, via three Domain Authentication
-#                                    CNAMEs (em####, s1._domainkey, s2._domainkey)
+# `em4579` is the branded return path: it is what moves the envelope sender
+# onto a subdomain SendGrid controls, which is why this zone needs NO root SPF
+# record for SendGrid to pass. The two `_domainkey` names carry DKIM, which is
+# what makes DMARC align.
 #
-# The zone previously carried Porkbun forwarding; that is being replaced and is
-# not re-declared here, because declaring it would recreate exactly what is
-# meant to go away.
-#
-# SendGrid needs no root SPF include: domain authentication moves the return
-# path onto its own subdomain, so SPF is evaluated there. If MyMangoMail asks
-# for an SPF record, that is the ONLY one this zone may ever have — two TXT
-# records each beginning v=spf1 is an error under the spec, not a union, and
-# fails SPF everywhere. See docs/operators/dns.md.
+# There is deliberately no MX record and no SPF record: nothing receives mail
+# at this domain. If that changes, note that a zone may only ever have ONE SPF
+# record — two TXT records each beginning v=spf1 is an error under the spec,
+# not a union, and fails SPF everywhere.
+
+resource "cloudflare_dns_record" "sendgrid_return_path" {
+  zone_id = var.zone_id
+  name    = "em4579.hickorydocs.com"
+  type    = "CNAME"
+  content = "u60828890.wl141.sendgrid.net"
+  ttl     = 1
+  proxied = false # a proxied CNAME would break the return path
+  comment = "SendGrid domain authentication — branded return path"
+}
+
+resource "cloudflare_dns_record" "sendgrid_dkim1" {
+  zone_id = var.zone_id
+  name    = "s1._domainkey.hickorydocs.com"
+  type    = "CNAME"
+  content = "s1.domainkey.u60828890.wl141.sendgrid.net"
+  ttl     = 1
+  proxied = false
+  comment = "SendGrid domain authentication — DKIM"
+}
+
+resource "cloudflare_dns_record" "sendgrid_dkim2" {
+  zone_id = var.zone_id
+  name    = "s2._domainkey.hickorydocs.com"
+  type    = "CNAME"
+  content = "s2.domainkey.u60828890.wl141.sendgrid.net"
+  ttl     = 1
+  proxied = false
+  comment = "SendGrid domain authentication — DKIM"
+}
+
+resource "cloudflare_dns_record" "dmarc" {
+  zone_id = var.zone_id
+  name    = "_dmarc.hickorydocs.com"
+  type    = "TXT"
+  content = "\"v=DMARC1; p=none;\""
+  ttl     = 1
+  comment = "p=none: report only. Tighten to quarantine/reject once reports show DKIM aligning."
+}

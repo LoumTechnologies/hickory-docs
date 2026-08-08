@@ -26,7 +26,7 @@ imported, so there is no hidden state to reconcile later.
 Done once, by hand, and deliberately not automated — it creates the credentials
 everything else depends on.
 
-**1. R2 bucket for state.** In Cloudflare → R2, create `hickory-tfstate`.
+**1. R2 bucket for state.** In Cloudflare → R2, create `hickorydocs-terraform-state`.
 Create an R2 API token with Object Read & Write on that bucket. Note the
 account id from the R2 overview page.
 
@@ -35,7 +35,18 @@ Permissions: `Zone → DNS → Edit` **and** `Zone → Zone → Read`, scoped to
 `hickorydocs.com` only. A token that can edit every zone in the account is a
 far larger blast radius than this stack needs.
 
-**3. Repository secrets** (Settings → Secrets and variables → Actions):
+**3. Environment secrets.** Nothing is stored at the repository level — every
+secret lives in a GitHub Environment, so the set of jobs that can read it is
+explicit rather than "anything in this repo".
+
+There are two environments, because plan and apply want opposite things:
+
+| Environment | Protection | Used by | Why |
+|---|---|---|---|
+| `production-plan` | none | `plan` | Runs on every PR. A plan that needs approval before it renders is a plan nobody reads. |
+| `production` | required reviewer | `apply` | The gate. Nothing reaches the zone without a human. |
+
+Both hold the same five secrets:
 
 | Secret | Where it comes from |
 |---|---|
@@ -45,8 +56,12 @@ far larger blast radius than this stack needs.
 | `R2_ACCESS_KEY_ID` | step 1 |
 | `R2_SECRET_ACCESS_KEY` | step 1 |
 
-**4. A `production` GitHub Environment** with whatever reviewers you want. The
-apply job targets it, so it cannot run until they approve.
+**Both copies are currently write-capable, which is worth improving.**
+`production-plan` only needs to *read* Cloudflare and to read/write the state
+lock, so a Cloudflare token scoped to `Zone:Zone:Read` + `Zone:DNS:Read` would
+mean an ungated job could never change DNS even if the workflow were
+subverted. That is the version to move to; the same token is in both today
+only because one existed.
 
 **5. Empty the zone.** In Cloudflare → DNS, delete every record except the
 nameservers: the apex A/AAAA, the `www` records, the wildcard, the two Porkbun
