@@ -178,7 +178,7 @@ pub fn resolve(
 // GET /api/billing/plans response (shape pinned in api.md / web types.ts)
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct PlanPriceOut {
     pub key: String,
     pub interval: String,
@@ -188,7 +188,7 @@ pub struct PlanPriceOut {
     pub per_seat: Option<bool>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct PlanOut {
     pub key: String,
     pub name: String,
@@ -201,10 +201,11 @@ pub struct PlanOut {
     pub features: Vec<String>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct PlansOut {
     pub plans: Vec<PlanOut>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    #[schema(value_type = Object)]
     pub enterprise: Option<Value>,
 }
 

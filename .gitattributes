@@ -1,0 +1,2 @@
+apps/server/openapi.json          linguist-generated=true -diff
+apps/web/src/api/generated/**     linguist-generated=true -diff

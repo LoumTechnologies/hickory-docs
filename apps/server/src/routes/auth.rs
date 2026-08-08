@@ -4,6 +4,7 @@ use axum::Json;
 use axum::extract::State;
 use serde::Deserialize;
 use serde_json::{Value, json};
+use utoipa::ToSchema;
 use uuid::Uuid;
 
 use crate::AppState;
@@ -12,7 +13,7 @@ use crate::email_tokens;
 use crate::error::{ApiError, ApiResult};
 use crate::mail::Message;
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 pub struct Credentials {
     pub email: String,
     pub password: String,
@@ -55,6 +56,13 @@ pub fn signup_allowed(email: &str, allowlist: &[String]) -> bool {
     })
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/auth/signup",
+    request_body = Credentials,
+    responses((status = 200, description = "account created", body = Value)),
+    tag = "auth"
+)]
 pub async fn signup(
     State(state): State<AppState>,
     Json(body): Json<Credentials>,
@@ -109,6 +117,13 @@ pub async fn signup(
     ))
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/auth/login",
+    request_body = Credentials,
+    responses((status = 200, description = "signed in", body = Value)),
+    tag = "auth"
+)]
 pub async fn login(
     State(state): State<AppState>,
     Json(body): Json<Credentials>,
@@ -132,6 +147,12 @@ pub async fn login(
     ))
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/me",
+    responses((status = 200, description = "current user", body = Value)),
+    tag = "auth"
+)]
 pub async fn me(State(state): State<AppState>, AuthUser(user): AuthUser) -> Json<Value> {
     Json(user_json(&state, &user))
 }
@@ -148,6 +169,12 @@ pub async fn me(State(state): State<AppState>, AuthUser(user): AuthUser) -> Json
 const MAX_SENDS_PER_HOUR: i64 = 5;
 
 /// Send (or re-send) a verification link to the authenticated user.
+#[utoipa::path(
+    post,
+    path = "/api/auth/verify/send",
+    responses((status = 200, description = "verification email queued", body = Value)),
+    tag = "auth"
+)]
 pub async fn send_verification(
     State(state): State<AppState>,
     AuthUser(user): AuthUser,
@@ -202,12 +229,19 @@ pub async fn send_verification(
     })))
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 pub struct TokenBody {
     pub token: String,
 }
 
 /// Redeem a verification link.
+#[utoipa::path(
+    post,
+    path = "/api/auth/verify/confirm",
+    request_body = TokenBody,
+    responses((status = 200, description = "email verified", body = Value)),
+    tag = "auth"
+)]
 pub async fn confirm_verification(
     State(state): State<AppState>,
     Json(body): Json<TokenBody>,
@@ -228,7 +262,7 @@ pub async fn confirm_verification(
     Ok(Json(json!({ "status": "verified" })))
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 pub struct EmailBody {
     pub email: String,
 }
@@ -238,6 +272,13 @@ pub struct EmailBody {
 /// Always answers 200, whether or not the address has an account. Anything
 /// else turns this endpoint into an account-existence oracle, which is the
 /// classic way a reset flow leaks the user list.
+#[utoipa::path(
+    post,
+    path = "/api/auth/reset/request",
+    request_body = EmailBody,
+    responses((status = 200, description = "reset email queued if the address exists", body = Value)),
+    tag = "auth"
+)]
 pub async fn request_reset(
     State(state): State<AppState>,
     Json(body): Json<EmailBody>,
@@ -281,13 +322,20 @@ pub async fn request_reset(
     Ok(Json(json!({ "status": "sent" })))
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 pub struct ResetBody {
     pub token: String,
     pub password: String,
 }
 
 /// Complete a password reset.
+#[utoipa::path(
+    post,
+    path = "/api/auth/reset/confirm",
+    request_body = ResetBody,
+    responses((status = 200, description = "password reset", body = Value)),
+    tag = "auth"
+)]
 pub async fn confirm_reset(
     State(state): State<AppState>,
     Json(body): Json<ResetBody>,

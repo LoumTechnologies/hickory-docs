@@ -6,6 +6,7 @@ use axum::http::StatusCode;
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
 use serde_json::{Value, json};
+use utoipa::ToSchema;
 use uuid::Uuid;
 
 use crate::AppState;
@@ -14,7 +15,7 @@ use crate::error::{ApiError, ApiResult};
 use crate::routes::docs::{check_read, load_doc};
 use crate::runs::{RunKind, start_run};
 
-#[derive(Deserialize, Default)]
+#[derive(Deserialize, Default, ToSchema)]
 pub struct RunRequest {
     /// Requested cell subset. v0 executes the whole document regardless:
     /// exec blocks form a dependency DAG, so partial runs need a dependency
@@ -24,6 +25,14 @@ pub struct RunRequest {
     pub cells: Option<Vec<String>>,
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/docs/{id}/run",
+    params(("id" = Uuid, Path, description = "doc id")),
+    request_body(content = RunRequest, description = "optional cell subset (v0 ignores it)"),
+    responses((status = 202, description = "run started", body = Value)),
+    tag = "runs"
+)]
 pub async fn run_doc(
     State(state): State<AppState>,
     AuthUser(user): AuthUser,
@@ -45,6 +54,13 @@ pub async fn run_doc(
     Ok((StatusCode::ACCEPTED, Json(json!({ "run_id": run_id }))))
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/docs/{id}/check",
+    params(("id" = Uuid, Path, description = "doc id")),
+    responses((status = 202, description = "verification run started", body = Value)),
+    tag = "runs"
+)]
 pub async fn check_doc(
     State(state): State<AppState>,
     AuthUser(user): AuthUser,
@@ -60,6 +76,13 @@ pub async fn check_doc(
     Ok((StatusCode::ACCEPTED, Json(json!({ "run_id": run_id }))))
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/runs/{id}",
+    params(("id" = Uuid, Path, description = "run id")),
+    responses((status = 200, description = "run status", body = Value)),
+    tag = "runs"
+)]
 pub async fn get_run(
     State(state): State<AppState>,
     MaybeUser(user): MaybeUser,

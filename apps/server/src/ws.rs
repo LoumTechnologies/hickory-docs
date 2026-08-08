@@ -387,7 +387,11 @@ pub struct WsParams {
 /// Shared auth + entitlement gate for both the doc room and output room
 /// channels: loads the doc, checks read/collab access, and enforces the
 /// account's `editors` entitlement (distinct concurrent collaborators).
-async fn authorize(state: &AppState, doc_id: Uuid, token: &str) -> Result<(DocRow, Uuid), ApiError> {
+async fn authorize(
+    state: &AppState,
+    doc_id: Uuid,
+    token: &str,
+) -> Result<(DocRow, Uuid), ApiError> {
     let claims = verify_token(&state.config.jwt_secret, token)?;
     let doc = load_doc(state, doc_id).await?;
     let user = crate::auth::load_user(state, claims.sub).await?;

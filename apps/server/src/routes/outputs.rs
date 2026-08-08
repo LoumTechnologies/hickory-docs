@@ -12,6 +12,7 @@ use axum::extract::{Path, Query, State};
 use hickory_lineage::{LineageError, OutputEdit, Provenance, SourceEdit};
 use serde::Deserialize;
 use serde_json::{Value, json};
+use utoipa::{IntoParams, ToSchema};
 use uuid::Uuid;
 
 use crate::AppState;
@@ -42,7 +43,11 @@ pub(crate) struct OutputRow {
 /// Shared with `crate::output_rooms`, which seeds and reconciles a live
 /// output room from the same "last successful run" row this serves to REST
 /// clients.
-pub(crate) async fn load_output(state: &AppState, doc_id: Uuid, path: &str) -> ApiResult<OutputRow> {
+pub(crate) async fn load_output(
+    state: &AppState,
+    doc_id: Uuid,
+    path: &str,
+) -> ApiResult<OutputRow> {
     let run_id = last_ok_run(state, doc_id)
         .await?
         .ok_or_else(|| ApiError::not_found("no successful run for this doc yet"))?;
@@ -58,6 +63,13 @@ pub(crate) async fn load_output(state: &AppState, doc_id: Uuid, path: &str) -> A
 }
 
 /// GET /api/docs/:id/outputs → `{files: [{path, language}]}`
+#[utoipa::path(
+    get,
+    path = "/api/docs/{id}/outputs",
+    params(("id" = Uuid, Path, description = "doc id")),
+    responses((status = 200, description = "files from the last successful run", body = Value)),
+    tag = "outputs"
+)]
 pub async fn list_outputs(
     State(state): State<AppState>,
     MaybeUser(user): MaybeUser,
@@ -82,13 +94,20 @@ pub async fn list_outputs(
     Ok(Json(json!({ "files": files })))
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, IntoParams)]
 pub struct FileQuery {
     pub path: String,
 }
 
 /// GET /api/docs/:id/outputs/file?path=<rel> →
 /// `{path, language, content, provenance: Provenance[]}`
+#[utoipa::path(
+    get,
+    path = "/api/docs/{id}/outputs/file",
+    params(("id" = Uuid, Path, description = "doc id"), FileQuery),
+    responses((status = 200, description = "output file content + provenance", body = Value)),
+    tag = "outputs"
+)]
 pub async fn get_output_file(
     State(state): State<AppState>,
     MaybeUser(user): MaybeUser,
@@ -106,9 +125,13 @@ pub async fn get_output_file(
     })))
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 pub struct EditRequest {
     pub path: String,
+    /// `hickory_lineage::OutputEdit` — an external crate type with no
+    /// `ToSchema` impl, so it's documented as a generic JSON array rather
+    /// than pulling utoipa into `hickory-lineage`.
+    #[schema(value_type = Vec<Object>)]
     pub edits: Vec<OutputEdit>,
 }
 
@@ -131,16 +154,15 @@ pub async fn apply_output_edits(
     let provenance: Vec<Provenance> = serde_json::from_value(row.provenance)
         .map_err(|e| ApiError::internal(format!("stored provenance unreadable: {e}")))?;
 
-    let source_edits = hickory_lineage::map_edits(&row.content, edits, &provenance).map_err(
-        |e| match e {
+    let source_edits =
+        hickory_lineage::map_edits(&row.content, edits, &provenance).map_err(|e| match e {
             LineageError::SyntheticOverlap { start, end } => ApiError::unprocessable(format!(
                 "edit overlaps a synthetic (non-editable) output range at bytes {start}..{end}"
             ))
             .with_detail(json!({ "range": { "start": start, "end": end } })),
             LineageError::InvalidEdit(m) => ApiError::bad_request(m),
             LineageError::Conflict(m) => ApiError::unprocessable(m),
-        },
-    )?;
+        })?;
 
     // Resolve each referenced source doc within the same project and verify
     // the mapped spans still hold the bytes the run's output was built from —
@@ -240,6 +262,14 @@ pub async fn apply_output_edits(
 }
 
 /// POST /api/docs/:id/outputs/edit → `{source_edits, applied: true}`
+#[utoipa::path(
+    post,
+    path = "/api/docs/{id}/outputs/edit",
+    params(("id" = Uuid, Path, description = "doc id")),
+    request_body = EditRequest,
+    responses((status = 200, description = "applied source edits", body = Value)),
+    tag = "outputs"
+)]
 pub async fn edit_outputs(
     State(state): State<AppState>,
     AuthUser(user): AuthUser,
@@ -274,7 +304,7 @@ pub async fn edit_outputs(
 // POST /api/docs/:id/outputs/nav — LSP bridge v0.3
 // ---------------------------------------------------------------------------
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 pub struct NavRequest {
     pub path: String,
     pub offset: usize,
@@ -291,6 +321,14 @@ pub struct NavRequest {
 /// stay inside generated outputs are re-mapped through provenance where
 /// possible, else returned as `hick-output:///<output-path>` byte ranges.
 /// Read access follows doc visibility, like every other doc read.
+#[utoipa::path(
+    post,
+    path = "/api/docs/{id}/outputs/nav",
+    params(("id" = Uuid, Path, description = "doc id")),
+    request_body = NavRequest,
+    responses((status = 200, description = "definition/reference targets", body = Value)),
+    tag = "outputs"
+)]
 pub async fn outputs_nav(
     State(state): State<AppState>,
     MaybeUser(user): MaybeUser,

@@ -15,6 +15,7 @@ use axum::http::StatusCode;
 use hickory_agent::{AGENT_EXEC_ID, AgentConfig, AgentEvent, PriorTurn, run_agent};
 use serde::Deserialize;
 use serde_json::{Value, json};
+use utoipa::ToSchema;
 use uuid::Uuid;
 
 use crate::AppState;
@@ -22,7 +23,7 @@ use crate::auth::AuthUser;
 use crate::error::{ApiError, ApiResult};
 use crate::routes::docs::{DocRow, load_doc};
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 pub struct AgentRequest {
     pub prompt: String,
     /// Turn this message continues from. Omitted starts a new conversation;
@@ -45,6 +46,13 @@ pub struct TurnRow {
 }
 
 /// GET /api/docs/:id/agent/turns — the whole conversation tree for a document.
+#[utoipa::path(
+    get,
+    path = "/api/docs/{id}/agent/turns",
+    params(("id" = Uuid, Path, description = "doc id")),
+    responses((status = 200, description = "the turn tree", body = Value)),
+    tag = "agent"
+)]
 pub async fn list_turns(
     State(state): State<AppState>,
     AuthUser(user): AuthUser,
@@ -98,6 +106,14 @@ async fn ancestor_turns(
     Ok(chain)
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/docs/{id}/agent",
+    params(("id" = Uuid, Path, description = "doc id")),
+    request_body = AgentRequest,
+    responses((status = 202, description = "agent session started", body = Value)),
+    tag = "agent"
+)]
 pub async fn start_agent(
     State(state): State<AppState>,
     AuthUser(user): AuthUser,

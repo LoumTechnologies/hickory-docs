@@ -30,6 +30,23 @@ dev:
 dev-stop:
     ./scripts/dev.sh stop
 
+# Stop, then delete this worktree's containers/volumes (never another
+# worktree's, never a pulled base image).
+dev-clean:
+    ./scripts/dev.sh clean
+
+# Idempotent seed data via the real signup endpoint (never a DB insert).
+dev-seed:
+    ./scripts/dev-seed.sh
+
+# Regenerate the OpenAPI spec + typed web client. No infra required.
+codegen:
+    ./scripts/codegen.sh
+
+# codegen + fail if the committed output is stale. CI + pre-commit entry point.
+check-codegen:
+    ./scripts/check-codegen.sh
+
 # Run a hick document with the local executor.
 run DOC *ARGS:
     cargo run -p hickory-cli -- run {{DOC}} {{ARGS}}

@@ -476,10 +476,7 @@ async fn store_run_outputs(
         // text — reconcile it the same diff-and-patch way a source room
         // reconciles an out-of-band edit, so an in-progress collaborator's
         // edit survives instead of being stomped by the new weave.
-        state
-            .output_rooms
-            .reconcile_rerun(doc_id, path, text)
-            .await;
+        state.output_rooms.reconcile_rerun(doc_id, path, text).await;
     }
     Ok(())
 }

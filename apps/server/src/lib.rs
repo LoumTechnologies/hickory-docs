@@ -11,6 +11,7 @@ pub mod executor;
 pub mod gitstore;
 pub mod lsp;
 pub mod mail;
+pub mod openapi;
 pub mod output_rooms;
 pub mod plans;
 pub mod render_cache;

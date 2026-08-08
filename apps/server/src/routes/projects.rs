@@ -6,6 +6,7 @@ use axum::http::StatusCode;
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
 use serde_json::{Value, json};
+use utoipa::ToSchema;
 use uuid::Uuid;
 
 use crate::AppState;
@@ -23,6 +24,12 @@ fn project_json(id: Uuid, name: &str, visibility: &str, created_at: DateTime<Utc
     })
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/projects",
+    responses((status = 200, description = "the caller's projects", body = Value)),
+    tag = "projects"
+)]
 pub async fn list_projects(
     State(state): State<AppState>,
     AuthUser(user): AuthUser,
@@ -40,12 +47,19 @@ pub async fn list_projects(
     )))
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 pub struct CreateProject {
     pub name: String,
     pub visibility: String,
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/projects",
+    request_body = CreateProject,
+    responses((status = 201, description = "project created", body = Value)),
+    tag = "projects"
+)]
 pub async fn create_project(
     State(state): State<AppState>,
     AuthUser(user): AuthUser,
@@ -99,6 +113,13 @@ pub async fn create_project(
     ))
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/projects/{project_id}/docs",
+    params(("project_id" = Uuid, Path, description = "project id")),
+    responses((status = 200, description = "docs in the project", body = Value)),
+    tag = "projects"
+)]
 pub async fn list_docs(
     State(state): State<AppState>,
     AuthUser(user): AuthUser,
@@ -128,12 +149,20 @@ pub async fn list_docs(
     )))
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 pub struct CreateDoc {
     pub path: String,
     pub source: String,
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/projects/{project_id}/docs",
+    params(("project_id" = Uuid, Path, description = "project id")),
+    request_body = CreateDoc,
+    responses((status = 201, description = "doc created", body = Value)),
+    tag = "projects"
+)]
 pub async fn create_doc(
     State(state): State<AppState>,
     AuthUser(user): AuthUser,

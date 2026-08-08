@@ -1647,8 +1647,12 @@ async fn drain_until(
         if done(&text.get_string(&ydoc.transact())) {
             return;
         }
-        assert!(tokio::time::Instant::now() < deadline, "drain_until timed out");
-        let Ok(Some(Ok(TtMessage::Binary(bytes)))) = tokio::time::timeout_at(deadline, ws.next()).await
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "drain_until timed out"
+        );
+        let Ok(Some(Ok(TtMessage::Binary(bytes)))) =
+            tokio::time::timeout_at(deadline, ws.next()).await
         else {
             continue;
         };
@@ -1665,7 +1669,8 @@ async fn drain_until(
                 frame.extend_from_slice(&Message::Sync(SyncMessage::SyncStep2(update)).encode_v1());
                 ws.send(TtMessage::Binary(frame)).await.unwrap();
             }
-            Message::Sync(SyncMessage::SyncStep2(bytes)) | Message::Sync(SyncMessage::Update(bytes)) => {
+            Message::Sync(SyncMessage::SyncStep2(bytes))
+            | Message::Sync(SyncMessage::Update(bytes)) => {
                 if let Ok(update) = yrs::Update::decode_v1(&bytes) {
                     ydoc.transact_mut().apply_update(update).unwrap();
                 }
@@ -1709,8 +1714,14 @@ async fn output_room_broadcasts_live_edits_to_other_clients() {
         frame.extend_from_slice(&Message::Sync(SyncMessage::SyncStep1(sv)).encode_v1());
         ws_b.send(TtMessage::Binary(frame)).await.unwrap();
     }
-    drain_until(&mut ws_a, &ydoc_a, &text_a, deadline, |s| s == expected_seed).await;
-    drain_until(&mut ws_b, &ydoc_b, &text_b, deadline, |s| s == expected_seed).await;
+    drain_until(&mut ws_a, &ydoc_a, &text_a, deadline, |s| {
+        s == expected_seed
+    })
+    .await;
+    drain_until(&mut ws_b, &ydoc_b, &text_b, deadline, |s| {
+        s == expected_seed
+    })
+    .await;
 
     let before_sv = ydoc_a.transact().state_vector();
     {
@@ -1727,7 +1738,10 @@ async fn output_room_broadcasts_live_edits_to_other_clients() {
 
     // Client B must receive A's edit live, without polling REST.
     let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
-    drain_until(&mut ws_b, &ydoc_b, &text_b, deadline, |s| s.contains("delta")).await;
+    drain_until(&mut ws_b, &ydoc_b, &text_b, deadline, |s| {
+        s.contains("delta")
+    })
+    .await;
 }
 
 // ---------------------------------------------------------------------------

@@ -13,6 +13,7 @@ use hmac::{Hmac, Mac as _};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use sha2::Sha256;
+use utoipa::ToSchema;
 use uuid::Uuid;
 
 use crate::AppState;
@@ -27,6 +28,12 @@ use crate::plans;
 /// PostHog feature-flag key selecting the plan set (experiment hook).
 const PLAN_SET_FLAG: &str = "hickory-plan-set";
 
+#[utoipa::path(
+    get,
+    path = "/api/billing/plans",
+    responses((status = 200, description = "plan catalog for the caller's plan set", body = plans::PlansOut)),
+    tag = "billing"
+)]
 pub async fn get_plans(
     State(state): State<AppState>,
     MaybeUser(user): MaybeUser,
@@ -51,11 +58,18 @@ pub async fn get_plans(
 // POST /api/billing/checkout
 // ---------------------------------------------------------------------------
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 pub struct CheckoutRequest {
     pub price_key: String,
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/billing/checkout",
+    request_body = CheckoutRequest,
+    responses((status = 200, description = "Stripe Checkout session url", body = Value)),
+    tag = "billing"
+)]
 pub async fn checkout(
     State(state): State<AppState>,
     AuthUser(user): AuthUser,
@@ -220,6 +234,13 @@ pub fn verify_stripe_signature(secret: &str, header: &str, payload: &[u8], now_u
     })
 }
 
+#[utoipa::path(
+    post,
+    path = "/api/billing/webhook",
+    params(("stripe-signature" = String, Header, description = "Stripe webhook signature")),
+    responses((status = 200, description = "event acknowledged", body = Value)),
+    tag = "billing"
+)]
 pub async fn webhook(
     State(state): State<AppState>,
     headers: HeaderMap,

@@ -4,10 +4,18 @@ version = "0.1.0"
 edition.workspace = true
 publish.workspace = true
 license.workspace = true
+# Adding the print-openapi bin made `cargo run -p hickory-server` (no --bin)
+# ambiguous; this keeps every existing bare callsite (scripts/dev.sh, `just
+# agent`, a plain `cargo run -p hickory-server`) pointed at the server.
+default-run = "hickory-server"
 
 [[bin]]
 name = "hickory-server"
 path = "src/main.rs"
+
+[[bin]]
+name = "print-openapi"
+path = "src/bin/print_openapi.rs"
 
 [lib]
 name = "hickory_server"
@@ -47,6 +55,7 @@ tower = "0.5"
 tower-http = { version = "0.6", features = ["fs", "trace"] }
 uuid = { version = "1", features = ["v4", "serde"] }
 yrs = { version = "0.21", features = ["sync"] }
+utoipa = { version = "5.5.0", features = ["uuid", "chrono"] }
 
 [dev-dependencies]
 tokio-tungstenite = "0.24"

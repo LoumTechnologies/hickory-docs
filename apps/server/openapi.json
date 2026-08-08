@@ -1,0 +1,1121 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Hickory Docs API",
+    "description": "",
+    "license": {
+      "name": "GPL-3.0-or-later",
+      "identifier": "GPL-3.0-or-later"
+    },
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/api/auth/login": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "operationId": "login",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Credentials"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "signed in",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/reset/confirm": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Complete a password reset.",
+        "operationId": "confirm_reset",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResetBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "password reset",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/reset/request": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Begin a password reset.",
+        "description": "Always answers 200, whether or not the address has an account. Anything\nelse turns this endpoint into an account-existence oracle, which is the\nclassic way a reset flow leaks the user list.",
+        "operationId": "request_reset",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EmailBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "reset email queued if the address exists",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/signup": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "operationId": "signup",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Credentials"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "account created",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/verify/confirm": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Redeem a verification link.",
+        "operationId": "confirm_verification",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TokenBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "email verified",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/auth/verify/send": {
+      "post": {
+        "tags": [
+          "auth"
+        ],
+        "summary": "Send (or re-send) a verification link to the authenticated user.",
+        "operationId": "send_verification",
+        "responses": {
+          "200": {
+            "description": "verification email queued",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/billing/checkout": {
+      "post": {
+        "tags": [
+          "billing"
+        ],
+        "operationId": "checkout",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CheckoutRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Stripe Checkout session url",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/billing/plans": {
+      "get": {
+        "tags": [
+          "billing"
+        ],
+        "operationId": "get_plans",
+        "responses": {
+          "200": {
+            "description": "plan catalog for the caller's plan set",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlansOut"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/billing/webhook": {
+      "post": {
+        "tags": [
+          "billing"
+        ],
+        "operationId": "webhook",
+        "parameters": [
+          {
+            "name": "stripe-signature",
+            "in": "header",
+            "description": "Stripe webhook signature",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "event acknowledged",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/docs/{id}": {
+      "get": {
+        "tags": [
+          "docs"
+        ],
+        "operationId": "get_doc",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "doc id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "the doc",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "docs"
+        ],
+        "operationId": "put_doc",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "doc id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SaveDoc"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "the saved doc",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/docs/{id}/agent": {
+      "post": {
+        "tags": [
+          "agent"
+        ],
+        "operationId": "start_agent",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "doc id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AgentRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "agent session started",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/docs/{id}/agent/turns": {
+      "get": {
+        "tags": [
+          "agent"
+        ],
+        "summary": "GET /api/docs/:id/agent/turns — the whole conversation tree for a document.",
+        "operationId": "list_turns",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "doc id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "the turn tree",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/docs/{id}/check": {
+      "post": {
+        "tags": [
+          "runs"
+        ],
+        "operationId": "check_doc",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "doc id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "verification run started",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/docs/{id}/outputs": {
+      "get": {
+        "tags": [
+          "outputs"
+        ],
+        "summary": "GET /api/docs/:id/outputs → `{files: [{path, language}]}`",
+        "operationId": "list_outputs",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "doc id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "files from the last successful run",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/docs/{id}/outputs/edit": {
+      "post": {
+        "tags": [
+          "outputs"
+        ],
+        "summary": "POST /api/docs/:id/outputs/edit → `{source_edits, applied: true}`",
+        "operationId": "edit_outputs",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "doc id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EditRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "applied source edits",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/docs/{id}/outputs/file": {
+      "get": {
+        "tags": [
+          "outputs"
+        ],
+        "summary": "GET /api/docs/:id/outputs/file?path=<rel> →\n`{path, language, content, provenance: Provenance[]}`",
+        "operationId": "get_output_file",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "doc id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "path",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "output file content + provenance",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/docs/{id}/outputs/nav": {
+      "post": {
+        "tags": [
+          "outputs"
+        ],
+        "summary": "`{path, offset, kind: \"definition\"|\"references\"}` →\n`{targets: [{uri, range: {start, end}}]}` (byte offsets).",
+        "description": "The output byte offset is mapped through the last run's provenance into\nsource-document coordinates, a short-lived hick-lsp session answers the\nrequest over the seeded checkout, and results are mapped back: locations\nin `.hick` docs become `hick:///<doc-path>` byte ranges; locations that\nstay inside generated outputs are re-mapped through provenance where\npossible, else returned as `hick-output:///<output-path>` byte ranges.\nRead access follows doc visibility, like every other doc read.",
+        "operationId": "outputs_nav",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "doc id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NavRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "definition/reference targets",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/docs/{id}/render": {
+      "get": {
+        "tags": [
+          "docs"
+        ],
+        "summary": "Render the block model for the doc's current source, overlaying the last\nfinished run's per-exec status + transcript. Blocks whose source changed\nafter that run (doc updated later) are marked `stale`.",
+        "description": "The weave is served from `AppState::renders` when nothing it depends on\nhas changed (see `crate::render_cache`); the run overlay below is always\nrecomputed, so statuses and transcripts are never cached.",
+        "operationId": "render_doc",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "doc id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "rendered block model",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/docs/{id}/run": {
+      "post": {
+        "tags": [
+          "runs"
+        ],
+        "operationId": "run_doc",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "doc id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "description": "optional cell subset (v0 ignores it)",
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RunRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "run started",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/executor": {
+      "get": {
+        "tags": [
+          "health"
+        ],
+        "summary": "`GET /api/executor` — where cells run (api.md). `images` is the image\nref → store path map on canopy; `null` on local, where the image\nattribute is recorded provenance, not an enforced sandbox.",
+        "operationId": "executor",
+        "responses": {
+          "200": {
+            "description": "active executor kind + image map",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/health": {
+      "get": {
+        "tags": [
+          "health"
+        ],
+        "operationId": "health",
+        "responses": {
+          "200": {
+            "description": "liveness + DB reachability",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/me": {
+      "get": {
+        "tags": [
+          "auth"
+        ],
+        "operationId": "me",
+        "responses": {
+          "200": {
+            "description": "current user",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/projects": {
+      "get": {
+        "tags": [
+          "projects"
+        ],
+        "operationId": "list_projects",
+        "responses": {
+          "200": {
+            "description": "the caller's projects",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "projects"
+        ],
+        "operationId": "create_project",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateProject"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "project created",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/projects/{project_id}/docs": {
+      "get": {
+        "tags": [
+          "projects"
+        ],
+        "operationId": "list_docs",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "description": "project id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "docs in the project",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "projects"
+        ],
+        "operationId": "create_doc",
+        "parameters": [
+          {
+            "name": "project_id",
+            "in": "path",
+            "description": "project id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateDoc"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "doc created",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/runs/{id}": {
+      "get": {
+        "tags": [
+          "runs"
+        ],
+        "operationId": "get_run",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "description": "run id",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "run status",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AgentRequest": {
+        "type": "object",
+        "required": [
+          "prompt"
+        ],
+        "properties": {
+          "parent_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid",
+            "description": "Turn this message continues from. Omitted starts a new conversation;\nnaming an OLDER turn forks a branch from there (rewind), leaving the\nturns that followed it in place on their own branch."
+          },
+          "prompt": {
+            "type": "string"
+          }
+        }
+      },
+      "CheckoutRequest": {
+        "type": "object",
+        "required": [
+          "price_key"
+        ],
+        "properties": {
+          "price_key": {
+            "type": "string"
+          }
+        }
+      },
+      "CreateDoc": {
+        "type": "object",
+        "required": [
+          "path",
+          "source"
+        ],
+        "properties": {
+          "path": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          }
+        }
+      },
+      "CreateProject": {
+        "type": "object",
+        "required": [
+          "name",
+          "visibility"
+        ],
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "visibility": {
+            "type": "string"
+          }
+        }
+      },
+      "Credentials": {
+        "type": "object",
+        "required": [
+          "email",
+          "password"
+        ],
+        "properties": {
+          "email": {
+            "type": "string"
+          },
+          "password": {
+            "type": "string"
+          }
+        }
+      },
+      "EditRequest": {
+        "type": "object",
+        "required": [
+          "path",
+          "edits"
+        ],
+        "properties": {
+          "edits": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            },
+            "description": "`hickory_lineage::OutputEdit` — an external crate type with no\n`ToSchema` impl, so it's documented as a generic JSON array rather\nthan pulling utoipa into `hickory-lineage`."
+          },
+          "path": {
+            "type": "string"
+          }
+        }
+      },
+      "EmailBody": {
+        "type": "object",
+        "required": [
+          "email"
+        ],
+        "properties": {
+          "email": {
+            "type": "string"
+          }
+        }
+      },
+      "NavRequest": {
+        "type": "object",
+        "required": [
+          "path",
+          "offset",
+          "kind"
+        ],
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "offset": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "path": {
+            "type": "string"
+          }
+        }
+      },
+      "PlanOut": {
+        "type": "object",
+        "required": [
+          "key",
+          "name",
+          "description",
+          "prices",
+          "features"
+        ],
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "features": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "highlight": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "key": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "prices": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PlanPriceOut"
+            }
+          },
+          "trial_days": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "format": "int32",
+            "minimum": 0
+          }
+        }
+      },
+      "PlanPriceOut": {
+        "type": "object",
+        "required": [
+          "key",
+          "interval",
+          "amount_cents",
+          "currency"
+        ],
+        "properties": {
+          "amount_cents": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "interval": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          },
+          "per_seat": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          }
+        }
+      },
+      "PlansOut": {
+        "type": "object",
+        "required": [
+          "plans"
+        ],
+        "properties": {
+          "enterprise": {
+            "type": "object"
+          },
+          "plans": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PlanOut"
+            }
+          }
+        }
+      },
+      "ResetBody": {
+        "type": "object",
+        "required": [
+          "token",
+          "password"
+        ],
+        "properties": {
+          "password": {
+            "type": "string"
+          },
+          "token": {
+            "type": "string"
+          }
+        }
+      },
+      "RunRequest": {
+        "type": "object",
+        "properties": {
+          "cells": {
+            "type": [
+              "array",
+              "null"
+            ],
+            "items": {
+              "type": "string"
+            },
+            "description": "Requested cell subset. v0 executes the whole document regardless:\nexec blocks form a dependency DAG, so partial runs need a dependency\nclosure the pipeline does not expose yet. Accepted for forward\ncompatibility."
+          }
+        }
+      },
+      "SaveDoc": {
+        "type": "object",
+        "required": [
+          "source"
+        ],
+        "properties": {
+          "source": {
+            "type": "string"
+          }
+        }
+      },
+      "TokenBody": {
+        "type": "object",
+        "required": [
+          "token"
+        ],
+        "properties": {
+          "token": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

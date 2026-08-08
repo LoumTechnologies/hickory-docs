@@ -6,6 +6,7 @@ use chrono::{DateTime, Utc};
 use hick_literate::render::Block;
 use serde::Deserialize;
 use serde_json::{Value, json};
+use utoipa::ToSchema;
 use uuid::Uuid;
 
 use crate::AppState;
@@ -55,6 +56,13 @@ fn doc_json(doc: &DocRow) -> Value {
     })
 }
 
+#[utoipa::path(
+    get,
+    path = "/api/docs/{id}",
+    params(("id" = Uuid, Path, description = "doc id")),
+    responses((status = 200, description = "the doc", body = Value)),
+    tag = "docs"
+)]
 pub async fn get_doc(
     State(state): State<AppState>,
     MaybeUser(user): MaybeUser,
@@ -65,11 +73,19 @@ pub async fn get_doc(
     Ok(Json(doc_json(&doc)))
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, ToSchema)]
 pub struct SaveDoc {
     pub source: String,
 }
 
+#[utoipa::path(
+    put,
+    path = "/api/docs/{id}",
+    params(("id" = Uuid, Path, description = "doc id")),
+    request_body = SaveDoc,
+    responses((status = 200, description = "the saved doc", body = Value)),
+    tag = "docs"
+)]
 pub async fn put_doc(
     State(state): State<AppState>,
     AuthUser(user): AuthUser,
@@ -118,6 +134,13 @@ pub async fn put_doc(
 /// The weave is served from `AppState::renders` when nothing it depends on
 /// has changed (see `crate::render_cache`); the run overlay below is always
 /// recomputed, so statuses and transcripts are never cached.
+#[utoipa::path(
+    get,
+    path = "/api/docs/{id}/render",
+    params(("id" = Uuid, Path, description = "doc id")),
+    responses((status = 200, description = "rendered block model", body = Value)),
+    tag = "docs"
+)]
 pub async fn render_doc(
     State(state): State<AppState>,
     MaybeUser(user): MaybeUser,
