@@ -1,0 +1,4 @@
+interface:
+  display_name: "Implement Dev Environment"
+  short_description: "Wire up a worktree-safe, offline-friendly local dev environment"
+  default_prompt: "Use $implement-dev-environment to set up this repo's local dev environment: just dev/dev-stop/dev-clean/dev-seed via docker-compose (never a bare docker run), no hardcoded ports/names so multiple git worktrees can run at once (PortZero + an untracked per-worktree config file), an auto-generated REST API client from the OpenAPI spec (openapi-typescript + openapi-fetch, never hand-edited or hand-merged), graceful offline degradation for any combination of present/absent third-party accounts, idempotent seed data with real logins, and pre-commit hooks that can never pass something CI then fails."

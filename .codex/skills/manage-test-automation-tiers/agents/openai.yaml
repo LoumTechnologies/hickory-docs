@@ -1,0 +1,4 @@
+interface:
+  display_name: "Manage Test Automation Tiers"
+  short_description: "Grade tests eyeball → watched → automated, demote on code-change blast radius"
+  default_prompt: "Use $manage-test-automation-tiers to set up a trust ladder (eyeball → watched → automated) for this project's tests/flows, tracking state in a single test-tiers.yaml and using code-review-graph's blast-radius analysis against each test's real code-coverage report to demote a test back to human eyeballs whenever a code change touches lines it actually covers, promoting it back after enough confirmed clean runs."

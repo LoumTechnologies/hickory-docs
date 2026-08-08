@@ -1,0 +1,4 @@
+interface:
+  display_name: "Bootstrap Tauri App"
+  short_description: "Single entry point for a new Tauri v2 app: structure, feedback loop, optional CLI twins, optional mobile"
+  default_prompt: "Use $bootstrap-tauri-app to create a new Tauri v2 app: a shell composing ordinary Rust core crates and React/TypeScript UI packages without a plugin framework, wired up with the $retrofit-tauri-loop feedback loop from the start, and optionally CLI twins and iPhone/Android/desktop-everywhere support based on what the user wants."

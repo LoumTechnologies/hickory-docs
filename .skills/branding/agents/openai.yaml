@@ -1,0 +1,4 @@
+interface:
+  display_name: "Branding"
+  short_description: "Swappable visual-identity system for pages and product"
+  default_prompt: "Use $branding to produce a product's visual system — palette, typography, logo/mark direction, imagery style, spacing, and reusable tokens — as a swappable system (light and dark, AA-contrast) rather than one-off page styling. Grade taste against the target cohort/persona's trust signals, mirror $dataviz's palette-swap default so builds are never blocked, hand the tokens to $landing-pages, and refine from the message/proof learnings it reports back."

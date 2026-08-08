@@ -1,0 +1,4 @@
+interface:
+  display_name: "Implement Growth Experiments"
+  short_description: "Experiment registry, instrumentation, and regression readouts"
+  default_prompt: "Use $implement-growth-experiments to add the experiments.toml registry, PostHog/UTM instrumentation, and regression-ready observation exports to an app."

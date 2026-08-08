@@ -1,0 +1,4 @@
+interface:
+  display_name: "Recommend SaaS Pricing Strategy"
+  short_description: "Evaluate business model pricing strategy"
+  default_prompt: "Use $recommend-saas-pricing-strategy to evaluate my SaaS business model and recommend a pricing strategy."

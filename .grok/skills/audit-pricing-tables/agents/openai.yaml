@@ -1,0 +1,4 @@
+interface:
+  display_name: "Audit Pricing Tables"
+  short_description: "Reconcile plans.json against displayed pricing tables and gates"
+  default_prompt: "Use $audit-pricing-tables to audit plans.json against every pricing table, comparison grid, gate, and upgrade prompt in this repo, verify claimed features are actually implemented, confirm gates match plans.json limits, and check PostHog tracks usage of gated features."

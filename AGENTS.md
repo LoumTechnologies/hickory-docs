@@ -31,3 +31,22 @@ first — it is the authoritative design.
   fixes happen here, not there.
 - cloud-canopy is being modified concurrently by another agent — only
   `hickory-executor-canopy` may know its API; never edit the cloud-canopy repo.
+
+@.instructions/api-client-codegen.md
+@.instructions/config-and-environments.md
+@.instructions/continuous-delivery-paas.md
+@.instructions/continuous-delivery-shared.md
+@.instructions/continuous-integration.md
+@.instructions/dev-environment.md
+@.instructions/documentation-layout.md
+@.instructions/framework-agnostic-system-tests.md
+@.instructions/github-issues.md
+@.instructions/just.md
+@.instructions/one-man-team.md
+@.instructions/pre-commit-ci-parity.md
+@.instructions/pre-launch.md
+@.instructions/semble.md
+@.instructions/specification-levels.md
+@.instructions/start-with-production.md
+@.instructions/third-party-integration-mocking.md
+@.instructions/user-facing-errors.md

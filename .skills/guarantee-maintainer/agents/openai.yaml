@@ -1,0 +1,4 @@
+interface:
+  display_name: "Guarantee Maintainer"
+  short_description: "Discover and maintain guarantee specs"
+  default_prompt: "Use $guarantee-maintainer to infer guarantees from this codebase and create human-reviewable specs."

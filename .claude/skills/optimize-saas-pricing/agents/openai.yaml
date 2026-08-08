@@ -1,0 +1,4 @@
+interface:
+  display_name: "Optimize SaaS Pricing Experiments"
+  short_description: "Design SaaS pricing experiments"
+  default_prompt: "Use $optimize-saas-pricing to design and implement a SaaS pricing experiment."

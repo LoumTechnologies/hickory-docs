@@ -1,0 +1,4 @@
+interface:
+  display_name: "Implement Billing Chassis"
+  short_description: "Experiment-ready Stripe billing, plans, and entitlements"
+  default_prompt: "Use $implement-billing-chassis to implement plans.json-driven Stripe billing with PostHog-flagged plan sets, idempotent webhooks, and grandfather-safe entitlements."

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Audit Feature Test Coverage"
+  short_description: "Close E2E test gaps and enable agent-driven per-plan flow QA"
+  default_prompt: "Use $audit-feature-test-coverage to audit test coverage of every advertised feature, set up Playwright-driven happy-path flows per plan tier using dedicated production test accounts, and fix any code or environment issues those flows uncover."
