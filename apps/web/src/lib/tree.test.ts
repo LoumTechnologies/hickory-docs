@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildTree } from "./OutputTree";
+import { buildTree } from "./tree";
 
 describe("buildTree", () => {
   it("groups paths into directories, keeping full paths on the leaves", () => {

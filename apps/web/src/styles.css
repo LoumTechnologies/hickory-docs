@@ -119,6 +119,9 @@ pre {
 }
 
 .wordmark {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
   font-weight: 650;
   letter-spacing: 0.01em;
   font-size: 1rem;
@@ -128,6 +131,8 @@ pre {
   cursor: pointer;
   padding: 0;
 }
+
+.wordmark svg { color: var(--accent); }
 
 .nav-actions {
   display: flex;
@@ -256,47 +261,136 @@ textarea:focus {
   font-size: 0.9rem;
 }
 
-/* --- projects --- */
-.projects-page {
-  display: grid;
-  grid-template-columns: minmax(16rem, 22rem) 1fr;
-  gap: 2rem;
-  max-width: 70rem;
-  margin: 0 auto;
-  padding: 2rem 1.25rem;
+/* --- projects: a Drive-style rail + main pane --- */
+.drive-page {
+  display: flex;
+  height: calc(100vh - 3rem);
 }
 
-.projects-page h1 { font-size: 1.25rem; margin: 0 0 1rem; }
-.projects-page h2 { font-size: 1.05rem; margin: 0 0 1rem; }
+.drive-rail {
+  width: 16rem;
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  background: var(--bg-sunken);
+  border-right: 1px solid var(--border);
+  padding: 1.1rem 0.9rem;
+  overflow-y: auto;
+}
 
-.projects-page ul {
+.drive-rail-header {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  color: var(--fg-muted);
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  font-weight: 650;
+  padding: 0 0.15rem 0.3rem;
+}
+
+.drive-rail-header svg { color: var(--accent); }
+
+.drive-new-btn {
+  font: inherit;
+  font-weight: 600;
+  font-size: 0.88rem;
+  text-align: left;
+  padding: 0.55rem 0.9rem;
+  border: 1px solid var(--accent);
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--bg-raised);
+  cursor: pointer;
+}
+
+.drive-new-btn:hover { opacity: 0.92; }
+
+.drive-new-form { padding: 0 0.1rem; }
+
+.drive-rail-loading { padding: 0 0.15rem; }
+
+.drive-project-list {
   list-style: none;
-  margin: 0 0 1rem;
+  margin: 0.3rem 0 0;
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 0.35rem;
+  gap: 0.1rem;
 }
 
-.row-btn {
+.drive-project-row {
   width: 100%;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
+  gap: 0.5rem;
   font: inherit;
+  font-size: 0.86rem;
   text-align: left;
-  padding: 0.55rem 0.8rem;
-  background: var(--bg-raised);
+  padding: 0.45rem 0.6rem;
+  background: none;
   color: var(--fg);
-  border: 1px solid var(--border);
+  border: none;
   border-radius: 8px;
   cursor: pointer;
 }
 
-.row-btn:hover { border-color: var(--fg-muted); }
-.row-btn.selected { border-color: var(--accent); }
-.row-name { font-weight: 500; }
+.drive-project-row:hover { background: var(--bg-raised); }
+.drive-project-row.selected {
+  background: var(--bg-raised);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.drive-project-icon { color: var(--fg-muted); font-size: 0.7rem; }
+.drive-project-row.selected .drive-project-icon { color: var(--accent); }
+.drive-project-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.drive-visibility-dot {
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 999px;
+  flex: none;
+}
+.drive-visibility-public { background: var(--ok); }
+.drive-visibility-private { background: var(--fg-muted); }
+
+.drive-main {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  padding: 1.75rem 2.25rem;
+}
+
+.drive-breadcrumb {
+  color: var(--fg-muted);
+  font-size: 0.85rem;
+  margin: 0 0 1.1rem;
+}
+.drive-breadcrumb-sep { margin: 0 0.15rem; }
+
+.drive-empty {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.6rem;
+  color: var(--fg-muted);
+}
+.drive-empty svg { color: var(--border); }
+
+@media (max-width: 44rem) {
+  .drive-page { flex-direction: column; height: auto; }
+  .drive-rail {
+    width: auto;
+    max-height: 40vh;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+}
 
 .inline-form {
   display: flex;
@@ -305,9 +399,43 @@ textarea:focus {
 
 .inline-form input { flex: 1; }
 
-@media (max-width: 44rem) {
-  .projects-page { grid-template-columns: 1fr; }
+.doc-tree { margin-bottom: 1rem; }
+.tree-root-row {
+  justify-content: space-between;
+  padding-left: 0.4rem;
+  margin-bottom: 0.2rem;
 }
+.tree-toggle {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex: 1;
+  min-width: 0;
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+.tree-dir { justify-content: space-between; }
+.tree-add-btn {
+  background: none;
+  border: none;
+  color: var(--fg-muted);
+  cursor: pointer;
+  font-size: 0.85rem;
+  line-height: 1;
+  padding: 0.1rem 0.35rem;
+  border-radius: 4px;
+  opacity: 0;
+}
+.tree-row:hover .tree-add-btn,
+.tree-root-row .tree-add-btn {
+  opacity: 1;
+}
+.tree-add-btn:hover { background: var(--neutral-bg); color: var(--fg); }
 
 /* --- document view --- */
 /* The workspace is an APP SHELL, not a scrolling page: a fixed-height column

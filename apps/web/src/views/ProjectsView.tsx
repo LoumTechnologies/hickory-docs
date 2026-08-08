@@ -2,12 +2,23 @@ import { useEffect, useState } from "react";
 import { api } from "../api/client";
 import type { DocSummary, Project } from "../api/types";
 import { navigate } from "../router";
+import { ProjectDocTree } from "../components/ProjectDocTree";
+import { TreeMark } from "../components/icons";
+
+const STARTER_SOURCE = `<?xml version="1.0" encoding="UTF-8"?>
+<h:doc xmlns:h="http://www.hickorydocs.com/1.0">
+
+</h:doc>
+`;
 
 export function ProjectsView({ projectId }: { projectId?: string }) {
   const [projects, setProjects] = useState<Project[] | null>(null);
   const [docs, setDocs] = useState<DocSummary[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [showNewProject, setShowNewProject] = useState(false);
   const [newName, setNewName] = useState("");
+  const [newDocPrefix, setNewDocPrefix] = useState<string | null>(null);
+  const [newDocName, setNewDocName] = useState("");
 
   useEffect(() => {
     api.projects().then(setProjects, (e) => setError(String(e.message ?? e)));
@@ -15,6 +26,7 @@ export function ProjectsView({ projectId }: { projectId?: string }) {
 
   useEffect(() => {
     setDocs(null);
+    setNewDocPrefix(null);
     if (projectId) {
       api.projectDocs(projectId).then(setDocs, (e) => setError(String(e.message ?? e)));
     }
@@ -27,68 +39,126 @@ export function ProjectsView({ projectId }: { projectId?: string }) {
     const project = await api.createProject(name, "private");
     setProjects((prev) => [...(prev ?? []), project]);
     setNewName("");
+    setShowNewProject(false);
+    navigate(`/projects/${project.id}`);
+  };
+
+  const createDoc = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!projectId || newDocPrefix === null) return;
+    const leaf = newDocName.trim();
+    if (!leaf) return;
+    const name = leaf.includes(".") ? leaf : `${leaf}.hick`;
+    const path = newDocPrefix ? `${newDocPrefix}/${name}` : name;
+    try {
+      const doc = await api.createDoc(projectId, path, STARTER_SOURCE);
+      setDocs((prev) => [...(prev ?? []), { id: doc.id, path: doc.path, updated_at: doc.updated_at }]);
+      setNewDocPrefix(null);
+      setNewDocName("");
+      navigate(`/docs/${doc.id}`);
+    } catch (err: any) {
+      setError(String(err.message ?? err));
+    }
   };
 
   const selected = projects?.find((p) => p.id === projectId);
 
   return (
-    <div className="projects-page">
-      <section className="project-list">
-        <h1>Projects</h1>
+    <div className="drive-page">
+      <aside className="drive-rail">
+        <div className="drive-rail-header">
+          <TreeMark size={16} />
+          <span>My Projects</span>
+        </div>
+
+        <button
+          type="button"
+          className="drive-new-btn"
+          onClick={() => setShowNewProject((v) => !v)}
+        >
+          + New
+        </button>
+        {showNewProject && (
+          <form className="inline-form drive-new-form" onSubmit={createProject}>
+            <input
+              autoFocus
+              placeholder="Project name"
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+            />
+            <button className="btn">Create</button>
+          </form>
+        )}
+
         {error && <p className="error">{error}</p>}
         {projects === null ? (
-          <p className="muted">Loading…</p>
+          <p className="muted drive-rail-loading">Loading…</p>
+        ) : projects.length === 0 ? (
+          <p className="muted drive-rail-loading">No projects yet.</p>
         ) : (
-          <ul>
+          <ul className="drive-project-list">
             {projects.map((p) => (
               <li key={p.id}>
                 <button
-                  className={`row-btn${p.id === projectId ? " selected" : ""}`}
+                  className={`drive-project-row${p.id === projectId ? " selected" : ""}`}
                   onClick={() => navigate(`/projects/${p.id}`)}
                 >
-                  <span className="row-name">{p.name}</span>
-                  <span className={`chip chip-${p.visibility}`}>{p.visibility}</span>
+                  <span className="drive-project-icon" aria-hidden="true">
+                    ▸
+                  </span>
+                  <span className="drive-project-name">{p.name}</span>
+                  <span
+                    className={`drive-visibility-dot drive-visibility-${p.visibility}`}
+                    title={p.visibility}
+                  />
                 </button>
               </li>
             ))}
           </ul>
         )}
-        <form className="inline-form" onSubmit={createProject}>
-          <input
-            placeholder="New project name"
-            value={newName}
-            onChange={(e) => setNewName(e.target.value)}
-          />
-          <button className="btn">Create</button>
-        </form>
-      </section>
-      <section className="doc-list">
+      </aside>
+
+      <main className="drive-main">
         {selected ? (
           <>
-            <h2>{selected.name}</h2>
+            <p className="drive-breadcrumb">
+              My Projects <span className="drive-breadcrumb-sep">/</span> {selected.name}
+            </p>
             {docs === null ? (
               <p className="muted">Loading…</p>
-            ) : docs.length === 0 ? (
-              <p className="muted">No documents yet.</p>
             ) : (
-              <ul>
-                {docs.map((d) => (
-                  <li key={d.id}>
-                    <button className="row-btn" onClick={() => navigate(`/docs/${d.id}`)}>
-                      <span className="row-name mono">{d.path}</span>
-                      <span className="muted">
-                        {new Date(d.updated_at).toLocaleDateString()}
-                      </span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
+              <ProjectDocTree
+                docs={docs}
+                activeDocId={null}
+                onSelect={(id) => navigate(`/docs/${id}`)}
+                onCreate={(prefix) => {
+                  setNewDocPrefix(prefix);
+                  setNewDocName("");
+                }}
+              />
+            )}
+            {newDocPrefix !== null && (
+              <form className="inline-form" onSubmit={createDoc}>
+                <input
+                  autoFocus
+                  placeholder={newDocPrefix ? `New document in ${newDocPrefix}/` : "New document name"}
+                  value={newDocName}
+                  onChange={(e) => setNewDocName(e.target.value)}
+                />
+                <button className="btn">Create</button>
+                <button type="button" className="btn-link" onClick={() => setNewDocPrefix(null)}>
+                  Cancel
+                </button>
+              </form>
             )}
           </>
         ) : (
-          <p className="muted">Select a project to see its documents.</p>
+          <div className="drive-empty">
+            <TreeMark size={28} />
+            <p>Select a project to see its documents.</p>
+          </div>
         )}
-      </section>
+      </main>
     </div>
   );
 }

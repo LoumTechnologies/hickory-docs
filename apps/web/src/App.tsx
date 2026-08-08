@@ -10,6 +10,7 @@ import { VerifyView } from "./views/VerifyView";
 import { ResetView } from "./views/ResetView";
 import { ForgotView } from "./views/ForgotView";
 import { VerifyBanner } from "./components/VerifyBanner";
+import { TreeMark } from "./components/icons";
 
 export function App() {
   const route = useRoute();
@@ -56,6 +57,7 @@ export function App() {
     <div className="app">
       <nav className="topnav">
         <button className="wordmark" onClick={() => navigate(authed ? "/projects" : "/login")}>
+          <TreeMark size={17} />
           Hickory Docs
         </button>
         <div className="nav-actions">
