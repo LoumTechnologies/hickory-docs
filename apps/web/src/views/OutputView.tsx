@@ -7,8 +7,9 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "../api/client";
-import type { OutputFile, OutputFileMeta, Provenance, SourceEdit } from "../api/types";
+import type { OutputFile, OutputFileMeta, Provenance } from "../api/types";
 import { OutputEditorPane, provToChars, type ProvChar } from "../components/OutputEditorPane";
+import { useOutputRealtime } from "../api/useOutputRealtime";
 import type { OutputProvenance } from "../lsp/outputMapping";
 import type { Extension } from "@codemirror/state";
 
@@ -19,8 +20,6 @@ function originLabel(p: Provenance): string {
 
 export interface OutputViewProps {
   docId: string;
-  /** Called after a successful edit-back so the parent refreshes the doc. */
-  onSourceEdited: (edits: SourceEdit[]) => void;
   /** Jump to a source span in the Document view (lineage click-through). */
   onSelectSpan: (span: [number, number]) => void;
   /** Build LSP bindings for an output buffer, given its position mapper. */
@@ -31,7 +30,6 @@ export interface OutputViewProps {
 
 export function OutputView({
   docId,
-  onSourceEdited,
   onSelectSpan,
   makeOutputLsp,
   outputTarget,
@@ -41,6 +39,7 @@ export function OutputView({
   const [file, setFile] = useState<OutputFile | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [activeProv, setActiveProv] = useState<ProvChar[]>([]);
+  const outputRealtime = useOutputRealtime(docId, activePath);
 
   useEffect(() => {
     api.outputs(docId).then(
@@ -78,11 +77,6 @@ export function OutputView({
     () => (makeOutputLsp && file ? makeOutputLsp(provToChars(file)) : []),
     [makeOutputLsp, file],
   );
-
-  const onSaved = (edits: SourceEdit[]) => {
-    loadFile();
-    onSourceEdited(edits);
-  };
 
   if (error) {
     return (
@@ -129,14 +123,13 @@ export function OutputView({
       </div>
 
       <div className="output-body">
-        {file ? (
+        {file && outputRealtime ? (
           <OutputEditorPane
             key={file.path}
-            docId={docId}
             file={file}
+            realtime={outputRealtime}
             extensions={outputLsp}
             onLineage={setActiveProv}
-            onSaved={onSaved}
           />
         ) : (
           <p className="muted">Loading output…</p>

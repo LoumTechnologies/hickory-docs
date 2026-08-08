@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { SplitView } from "./SplitView";
 import { installMockApi } from "../mock/mockApi";
 import { WEAVE_SOURCE } from "../mock/mockData";
-import { LocalRealtime } from "../api/realtime";
+import { LocalRealtime, setSharedRealtime } from "../api/realtime";
 
 afterEach(cleanup);
 
@@ -12,6 +12,10 @@ describe("SplitView (document | ribbons | output)", () => {
   it("mounts the editor left, the woven output right, and the ribbon layer", async () => {
     installMockApi();
     const realtime = new LocalRealtime();
+    // SplitView also opens a live room for the active output file
+    // (useOutputRealtime); registering the shared bus is what main.tsx does
+    // for VITE_MOCK=1, and is this test's seam for the same behavior.
+    setSharedRealtime(realtime);
     const { container } = render(
       <SplitView
         docId="d3"
@@ -24,7 +28,6 @@ describe("SplitView (document | ribbons | output)", () => {
         execBlocks={[]}
         runningCells={new Set()}
         onRunCell={() => undefined}
-      onSourceEdited={() => undefined}
       />,
     );
     // Left: the WYSIWYG editor over the raw source.

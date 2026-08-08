@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api, MOCK } from "../api/client";
 import { WsRealtime, getSharedRealtime, type Realtime } from "../api/realtime";
-import type { Block, Doc, ExecBlock, SourceEdit } from "../api/types";
+import type { Block, Doc, ExecBlock } from "../api/types";
 import { ChatDock } from "../components/ChatDock";
 import { ReferencesPanel } from "../components/ReferencesPanel";
 import { byteToChar } from "../lib/offsets";
@@ -42,6 +42,9 @@ export function DocumentView({ docId }: { docId: string }) {
   const [wide, setWide] = useState<boolean>(() =>
     typeof window.matchMedia === "function" ? window.matchMedia(SPLIT_MIN_WIDTH).matches : false,
   );
+  // null while unknown (don't disable the toggle on a flash of missing
+  // data); false only once a check has actually come back empty.
+  const [hasOutputs, setHasOutputs] = useState<boolean | null>(null);
   // The dock is part of the workspace, not a mode: it is always mounted and
   // remembers whether the log is expanded.
   const [chatCollapsed, setChatCollapsed] = useState(
@@ -54,9 +57,6 @@ export function DocumentView({ docId }: { docId: string }) {
   // "saved" once the CRDT room's debounced persist has certainly landed and the
   // server render caught up; "editing" while the user is still typing.
   const [syncState, setSyncState] = useState<"idle" | "editing" | "saved">("idle");
-  // Bumped when an /outputs/edit rewrote the source out-of-band so the
-  // Document editor reseeds its Y.Doc from the freshly fetched source.
-  const [editorEpoch, setEditorEpoch] = useState(0);
   // Find-references results, and a pending "open this output file here" jump
   // produced by LSP navigation into a generated file.
   const [references, setReferences] = useState<{ locations: LspLocation[]; query: string } | null>(
@@ -92,13 +92,21 @@ export function DocumentView({ docId }: { docId: string }) {
   // Coalesce them into one trailing fetch; `api.render` additionally collapses
   // anything still in flight.
   const renderTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const refreshOutputs = useCallback(() => {
+    api.outputs(docId).then(
+      (r) => setHasOutputs(r.files.length > 0),
+      () => undefined,
+    );
+  }, [docId]);
   const scheduleRender = useCallback(() => {
     if (renderTimer.current !== null) return;
     renderTimer.current = setTimeout(() => {
       renderTimer.current = null;
       api.render(docId).then((r) => setBlocks(r.blocks), () => undefined);
+      // A run event lands right about when new output files could exist.
+      refreshOutputs();
     }, 150);
-  }, [docId]);
+  }, [docId, refreshOutputs]);
   useEffect(
     () => () => {
       if (renderTimer.current !== null) clearTimeout(renderTimer.current);
@@ -124,6 +132,7 @@ export function DocumentView({ docId }: { docId: string }) {
   }, [docId]);
 
   useEffect(refresh, [refresh]);
+  useEffect(refreshOutputs, [refreshOutputs]);
 
   // Track viewport width; Split degrades to Document when the window shrinks.
   useEffect(() => {
@@ -133,9 +142,15 @@ export function DocumentView({ docId }: { docId: string }) {
     mq.addEventListener("change", onChange);
     return () => mq.removeEventListener("change", onChange);
   }, []);
+  // Split needs both a wide viewport and something to show in its right
+  // pane; Output needs the latter alone. Neither toggle can stay selected
+  // once its precondition goes away.
   useEffect(() => {
     if (!wide) setView((v) => (v === "split" ? "document" : v));
   }, [wide]);
+  useEffect(() => {
+    if (hasOutputs === false) setView("document");
+  }, [hasOutputs]);
 
 
   // Live run events: append to the matching cell's transcript.
@@ -267,20 +282,6 @@ export function DocumentView({ docId }: { docId: string }) {
     );
   };
 
-  // An output edit rewrote the source through provenance: re-fetch doc and
-  // render, and reseed the Document editor from the new source.
-  const onSourceEdited = (_edits: SourceEdit[]) => {
-    setDirtySource(null);
-    api.doc(docId).then(
-      (d) => {
-        setDoc(d);
-        setEditorEpoch((n) => n + 1);
-      },
-      () => undefined,
-    );
-    api.render(docId).then((r) => setBlocks(r.blocks), () => undefined);
-  };
-
   // ---- editor intelligence ------------------------------------------------
   //
   // One LSP session per document, shared by both editors. It is fed the LIVE
@@ -395,6 +396,8 @@ export function DocumentView({ docId }: { docId: string }) {
                 role="tab"
                 aria-selected={view === "output"}
                 className={view === "output" ? "on" : ""}
+                disabled={hasOutputs === false}
+                title={hasOutputs === false ? "This document has no generated output yet" : undefined}
                 onClick={() => setView("output")}
               >
                 Output
@@ -404,6 +407,8 @@ export function DocumentView({ docId }: { docId: string }) {
                   role="tab"
                   aria-selected={view === "split"}
                   className={view === "split" ? "on" : ""}
+                  disabled={hasOutputs === false}
+                  title={hasOutputs === false ? "This document has no generated output yet" : undefined}
                   onClick={() => setView("split")}
                 >
                   Split
@@ -439,7 +444,7 @@ export function DocumentView({ docId }: { docId: string }) {
         )}
         {view === "document" ? (
           <DocumentEditor
-            key={`${docId}:${editorEpoch}`}
+            key={docId}
             docId={docId}
             initialSource={doc.source}
             realtime={realtime}
@@ -456,14 +461,13 @@ export function DocumentView({ docId }: { docId: string }) {
             docId={docId}
             docPath={doc.path}
             docSource={doc.source}
-            editorKey={`${docId}:${editorEpoch}`}
+            editorKey={docId}
             realtime={realtime}
             onChange={setDirtySource}
             selectSpan={selectSpan}
             execBlocks={execBlocks}
             runningCells={runningCells}
             onRunCell={(id) => void runCell(id)}
-            onSourceEdited={onSourceEdited}
             lspExtensions={lspExtensions}
             lspDiagnostics={lsp.diagnostics}
             makeOutputLsp={makeOutputLsp}
@@ -472,7 +476,6 @@ export function DocumentView({ docId }: { docId: string }) {
         ) : (
           <OutputView
             docId={docId}
-            onSourceEdited={onSourceEdited}
             onSelectSpan={onSelectSpan}
             makeOutputLsp={makeOutputLsp}
             outputTarget={outputTarget}

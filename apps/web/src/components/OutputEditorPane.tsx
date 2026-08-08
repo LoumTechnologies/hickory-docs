@@ -1,24 +1,30 @@
 // The generated-output editor, shared by the Output view and the right pane of
-// Split. It is EDITABLE ON ARRIVAL — there is no mode to enter. You type in
-// woven output and the edit is resolved backwards through provenance into the
-// source document (POST /outputs/edit), so the next run reproduces exactly what
-// you typed.
+// Split. It is EDITABLE ON ARRIVAL and LIVE COLLABORATIVE — a Yjs CRDT room
+// per (doc, output path), symmetric to the Document editor's own room
+// (editor/DocumentEditor.tsx). You type in woven output and the server
+// resolves the edit backwards through provenance into the source document on
+// its own debounce (apps/server/src/output_rooms.rs) — there is no save
+// button and no REST call from here; applying is as invisible to this
+// component as the Document room's persist is to DocumentEditor.
 //
-// Because the buffer can now diverge from the server's copy, provenance offsets
-// are mapped through every change since load (`changesRef`), which keeps the
-// lineage highlight under your cursor honest while you edit instead of drifting
-// a character per keystroke.
+// Because the buffer can diverge from the server's last-woven copy — by a
+// local edit OR a remote collaborator's — provenance offsets are mapped
+// through every change since load (`changesRef`), which keeps the lineage
+// highlight under your cursor honest instead of drifting a character per
+// keystroke, from either side.
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { ChangeDesc, EditorState, StateEffect, StateField, RangeSetBuilder } from "@codemirror/state";
 import type { Extension } from "@codemirror/state";
 import { Decoration, EditorView, keymap } from "@codemirror/view";
 import type { DecorationSet } from "@codemirror/view";
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
-import { api, ApiError } from "../api/client";
-import type { OutputFile, Provenance, SourceEdit, SyntheticRangeError } from "../api/types";
+import * as Y from "yjs";
+import { Awareness } from "y-protocols/awareness";
+import { yCollab } from "y-codemirror.next";
+import type { Realtime } from "../api/realtime";
+import type { OutputFile, Provenance } from "../api/types";
 import { languageExtensions } from "../editor/languages";
-import { computeEdits, toByteEdits } from "../lib/diff";
 import { byteToChar } from "../lib/offsets";
 
 export interface HighlightRange {
@@ -62,8 +68,11 @@ export function provToChars(file: OutputFile): ProvChar[] {
 }
 
 export interface OutputEditorPaneProps {
-  docId: string;
   file: OutputFile;
+  /** This file's own live room connection — a fresh channel per (doc,
+   * path), scoped and owned by the parent (SplitView/OutputView) the same
+   * way DocumentView owns the Document room's `realtime`. */
+  realtime: Realtime;
   className?: string;
   testId?: string;
   /** Extra CodeMirror extensions (LSP navigation, ribbon highlights, …). */
@@ -72,35 +81,25 @@ export interface OutputEditorPaneProps {
   onViewReady?: (view: EditorView | null) => void;
   /** Provenance entries under the cursor/pointer, for a lineage readout. */
   onLineage?: (hits: ProvChar[]) => void;
-  /** Applied source edits, after a successful save. */
-  onSaved: (edits: SourceEdit[]) => void;
-  /** Dirty-state changes, so a parent toolbar can show its own affordance. */
-  onDirty?: (dirty: boolean) => void;
 }
 
 export function OutputEditorPane({
-  docId,
   file,
+  realtime,
   className = "output-editor",
   testId = "output-editor",
   extensions,
   onViewReady,
   onLineage,
-  onSaved,
-  onDirty,
 }: OutputEditorPaneProps) {
-  const [dirty, setDirty] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [summary, setSummary] = useState<SourceEdit[] | null>(null);
-
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
   const provRef = useRef<ProvChar[]>([]);
-  // Every change since this buffer was loaded, so provenance offsets (which
-  // index the server's copy) can be mapped onto the buffer as it is edited.
+  // Every change since this buffer was loaded — local OR a remote
+  // collaborator's, now that this is a live room — so provenance offsets
+  // (which index the server's last-woven copy) can be mapped onto the
+  // buffer as it changes.
   const changesRef = useRef<ChangeDesc | null>(null);
-  const saveRef = useRef<() => void>(() => undefined);
   const onLineageRef = useRef(onLineage);
   onLineageRef.current = onLineage;
 
@@ -111,6 +110,12 @@ export function OutputEditorPane({
     const hits: ProvChar[] = [];
     const marks: HighlightRange[] = [];
     for (const p of provRef.current) {
+      // A changeset only covers positions up to its pre-change length —
+      // provenance offsets are indexed against `file.content`, but the very
+      // first change this pane sees in mock mode is the programmatic seed
+      // insert (empty -> file.content), whose changeset has pre-change
+      // length 0. Mapping through it would throw; skip rather than crash.
+      if (changes && (p.charFrom > changes.length || p.charTo > changes.length)) continue;
       const a = changes ? changes.mapPos(p.charFrom, 1) : p.charFrom;
       const b = changes ? changes.mapPos(p.charTo, -1) : p.charTo;
       if (b <= a) continue;
@@ -127,87 +132,58 @@ export function OutputEditorPane({
     viewRef.current?.dispatch({ effects: setHighlights.of(marks) });
   }, []);
 
-  const save = useCallback(async () => {
-    const view = viewRef.current;
-    if (!view || saving) return;
-    const edited = view.state.doc.toString();
-    const charEdits = computeEdits(file.content, edited);
-    if (charEdits.length === 0) {
-      setDirty(false);
-      onDirty?.(false);
-      return;
-    }
-    setSaving(true);
-    setError(null);
-    try {
-      const res = await api.editOutput(docId, file.path, toByteEdits(file.content, charEdits));
-      setSummary(res.source_edits);
-      setDirty(false);
-      onDirty?.(false);
-      onSaved(res.source_edits);
-    } catch (e) {
-      if (e instanceof ApiError && e.status === 422) {
-        const body = e.body as SyntheticRangeError | undefined;
-        setError(e.message);
-        const v = viewRef.current;
-        if (body?.range && v) {
-          const changes = changesRef.current;
-          const raw = [
-            byteToChar(file.content, body.range.start),
-            byteToChar(file.content, body.range.end),
-          ] as const;
-          const max = v.state.doc.length;
-          const from = Math.min(changes ? changes.mapPos(raw[0], 1) : raw[0], max);
-          const to = Math.min(changes ? changes.mapPos(raw[1], -1) : raw[1], max);
-          v.dispatch({
-            effects: setHighlights.of([{ from, to, cls: "cm-prov-error" }]),
-            selection: { anchor: from },
-            scrollIntoView: true,
-          });
-        }
-      } else {
-        setError(e instanceof Error ? e.message : String(e));
-      }
-    } finally {
-      setSaving(false);
-    }
-  }, [docId, file, saving, onSaved, onDirty]);
-  saveRef.current = () => void save();
-
   useEffect(() => {
     const host = hostRef.current;
     if (!host) return;
     changesRef.current = null;
+
+    const ydoc = new Y.Doc();
+    const ytext = ydoc.getText("source");
+    const awareness = new Awareness(ydoc);
+    awareness.setLocalStateField("user", {
+      name: localStorage.getItem("hickory.name") ?? "anonymous",
+      color: "#8f6f3f",
+    });
+    realtime.bindDoc(ydoc, awareness);
+
+    // Same reasoning as DocumentEditor: only a realtime with no server
+    // behind it (mock mode) may seed — the server builds a fresh room from
+    // the last-woven `run_outputs` row, and seeding on top of that doubles
+    // the content on every connect.
+    let cancelled = false;
+    if (!realtime.serverAuthoritative) {
+      void realtime.whenSynced().then(() => {
+        if (!cancelled && ytext.length === 0 && file.content.length > 0) {
+          ytext.insert(0, file.content);
+          // The seed insert reaches the editor through the same
+          // updateListener as any other change (yCollab observes the
+          // Y.Text and dispatches a CM transaction) and would otherwise be
+          // folded into `changesRef` as if it were an edit made SINCE
+          // `file.content` loaded — but it's what *produces* that exact
+          // state, so provenance (already indexed against `file.content`)
+          // needs to map through nothing here, not through an
+          // empty-to-seeded changeset.
+          changesRef.current = null;
+        }
+      });
+    }
+
     const view = new EditorView({
       parent: host,
       state: EditorState.create({
-        doc: file.content,
+        doc: ytext.toString(),
         extensions: [
           highlightField,
           ...languageExtensions(file.language),
           history(),
-          keymap.of([
-            {
-              key: "Mod-s",
-              preventDefault: true,
-              run: () => {
-                saveRef.current();
-                return true;
-              },
-            },
-            ...defaultKeymap,
-            ...historyKeymap,
-            indentWithTab,
-          ]),
+          keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab]),
           EditorView.lineWrapping,
+          yCollab(ytext, awareness),
           EditorView.updateListener.of((u) => {
             if (u.docChanged) {
               changesRef.current = changesRef.current
                 ? changesRef.current.composeDesc(u.changes.desc)
                 : u.changes.desc;
-              const isDirty = u.state.doc.toString() !== file.content;
-              setDirty(isDirty);
-              onDirty?.(isDirty);
             }
             if (u.selectionSet || u.docChanged) {
               const sel = u.state.selection.main;
@@ -228,47 +204,29 @@ export function OutputEditorPane({
     view.dom.addEventListener("mousemove", onMove);
 
     return () => {
+      cancelled = true;
       view.dom.removeEventListener("mousemove", onMove);
       onViewReady?.(null);
       view.destroy();
       viewRef.current = null;
+      awareness.destroy();
+      ydoc.destroy();
+      // `realtime` is owned by the parent (a fresh one per file, but the
+      // parent decides its lifecycle — same split of responsibility as
+      // DocumentEditor never closing the `realtime` prop it's handed).
     };
     // The buffer is rebuilt per file; `extensions` is captured once per file
     // deliberately — re-creating the editor on every parent render would throw
-    // away the user's cursor and undo history mid-edit.
+    // away the user's cursor, undo history, and live room mid-edit.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [file, updateLineage]);
-
-  // Reset transient banners when a DIFFERENT file is opened — not when this
-  // same file reloads. Saving reloads it, so keying on the object identity
-  // wiped the "applied N source edits" confirmation the instant it appeared,
-  // leaving no sign the edit had landed.
-  useEffect(() => {
-    setError(null);
-    setSummary(null);
-    setDirty(false);
-  }, [file.path]);
+  }, [file, realtime, updateLineage]);
 
   return (
     <div className="output-pane">
       <div className="output-pane-status" role="status">
-        {error ? (
-          <span className="pane-error">{error}</span>
-        ) : dirty ? (
-          <>
-            <span className="pane-dirty">Edited — will be resolved back through provenance</span>
-            <button className="btn btn-primary btn-sm" disabled={saving} onClick={() => void save()}>
-              {saving ? "Applying…" : "Apply to document (⌘S)"}
-            </button>
-          </>
-        ) : summary ? (
-          <span className="pane-ok">
-            Applied {summary.length} source edit{summary.length === 1 ? "" : "s"} to{" "}
-            {[...new Set(summary.map((s) => s.doc_path))].join(", ")}
-          </span>
-        ) : (
-          <span className="pane-hint">Edit freely — changes resolve back into the document.</span>
-        )}
+        <span className="pane-hint">
+          Edit freely — changes resolve back into the document automatically.
+        </span>
       </div>
       <div ref={hostRef} className={className} data-testid={testId} />
     </div>

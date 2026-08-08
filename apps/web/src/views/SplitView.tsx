@@ -23,8 +23,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { StateEffect } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { api } from "../api/client";
-import type { ExecBlock, OutputFile, OutputFileMeta, SourceEdit } from "../api/types";
+import type { ExecBlock, OutputFile, OutputFileMeta } from "../api/types";
 import type { Realtime } from "../api/realtime";
+import { useOutputRealtime } from "../api/useOutputRealtime";
 import { DocumentEditor } from "../editor/DocumentEditor";
 import { OutputEditorPane, type ProvChar } from "../components/OutputEditorPane";
 import { OutputTree } from "../components/OutputTree";
@@ -49,8 +50,6 @@ export interface SplitViewProps {
   execBlocks: ExecBlock[];
   runningCells: Set<string>;
   onRunCell: (execId: string) => void;
-  /** An output edit resolved back into the document. */
-  onSourceEdited: (edits: SourceEdit[]) => void;
   /** LSP bindings for the document editor. */
   lspExtensions?: Extension[];
   lspDiagnostics?: LspDiagnostic[];
@@ -106,7 +105,6 @@ export function SplitView({
   execBlocks,
   runningCells,
   onRunCell,
-  onSourceEdited,
   lspExtensions,
   lspDiagnostics,
   makeOutputLsp,
@@ -126,6 +124,7 @@ export function SplitView({
   const rowsRef = useRef(new Map<string, HTMLElement>());
 
   const file = activePath ? (loaded.get(activePath) ?? null) : null;
+  const outputRealtime = useOutputRealtime(docId, activePath);
 
   // ----- output files: the tree, and provenance for every file -------------
 
@@ -561,17 +560,16 @@ export function SplitView({
       <div className="split-pane split-right">
         {files !== null && files.length === 0 ? (
           <p className="muted">No generated outputs yet — run the document to weave its files.</p>
-        ) : file ? (
+        ) : file && outputRealtime ? (
           <OutputEditorPane
             key={file.path}
-            docId={docId}
             file={file}
+            realtime={outputRealtime}
             className="split-output-editor"
             testId="split-output"
             extensions={rightExtensions}
             onViewReady={setRightView}
             onLineage={setLineage}
-            onSaved={onSourceEdited}
           />
         ) : (
           <p className="muted">Loading output…</p>
