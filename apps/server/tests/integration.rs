@@ -1227,6 +1227,16 @@ async fn lsp_ws(app: &TestApp, token: &str, doc_id: &str) -> Ws {
     ws
 }
 
+/// Connect to the live collaborative room for one generated output file.
+async fn output_ws(app: &TestApp, token: &str, doc_id: &str, path: &str) -> Ws {
+    let ws_url = format!(
+        "ws://127.0.0.1:{}/api/ws?doc=output:{doc_id}:{path}&token={token}",
+        app.port
+    );
+    let (ws, _) = tokio_tungstenite::connect_async(&ws_url).await.unwrap();
+    ws
+}
+
 fn lsp_did_open(path: &str, source: &str) -> Value {
     json!({
         "jsonrpc": "2.0",
@@ -1548,6 +1558,176 @@ async fn reconnecting_does_not_duplicate_the_document() {
         .await
         .unwrap();
     assert_eq!(stored, TEST_DOC, "persisted source picked up a duplicate");
+}
+
+// ---------------------------------------------------------------------------
+// Live collaborative Output rooms.
+// ---------------------------------------------------------------------------
+
+/// A live edit in an output room's Yjs buffer resolves into the source
+/// document on its own — no REST call — once the room's debounce (750ms)
+/// fires. Same edit, same assertion shape as `output_edit_round_trips_byte_for_byte`,
+/// but driven through the live room instead of `POST /outputs/edit`.
+#[tokio::test(flavor = "multi_thread")]
+async fn output_room_live_edit_resolves_into_source() {
+    use yrs::sync::{Message, SyncMessage};
+    use yrs::updates::encoder::Encode as _;
+    use yrs::{GetString as _, ReadTxn as _, Text as _, Transact as _};
+
+    let app = setup().await;
+    let (token, _) = app.signup("liveroom@example.com").await;
+    let (_, doc_id) = app.seed_and_run(&token, "live.hick", LINEAGE_DOC).await;
+
+    let mut ws = output_ws(&app, &token, &doc_id, "gen.rs").await;
+    let ydoc = yrs::Doc::new();
+    let text = ydoc.get_or_insert_text("source");
+    yjs_sync(&mut ws, &ydoc).await;
+    assert_eq!(
+        text.get_string(&ydoc.transact()),
+        "fn alpha() {}\nfn beta() {}\n",
+        "room must seed from the last successful run's output"
+    );
+
+    // Edit "alpha" -> "gamma" on the client's own Y.Doc and send the diff.
+    let before_sv = ydoc.transact().state_vector();
+    {
+        let mut txn = ydoc.transact_mut();
+        let s = text.get_string(&txn);
+        let start = s.find("alpha").unwrap() as u32;
+        text.remove_range(&mut txn, start, "alpha".len() as u32);
+        text.insert(&mut txn, start, "gamma");
+    }
+    let update = ydoc.transact().encode_diff_v1(&before_sv);
+    let mut frame = vec![0x00u8];
+    frame.extend_from_slice(&Message::Sync(SyncMessage::Update(update)).encode_v1());
+    ws.send(TtMessage::Binary(frame)).await.unwrap();
+
+    // Past the room's 750ms debounce, the edit must have resolved through
+    // provenance into the source document — no REST call made here at all.
+    tokio::time::sleep(std::time::Duration::from_millis(1200)).await;
+    let (status, doc) = app.get(&format!("/api/docs/{doc_id}"), Some(&token)).await;
+    assert_eq!(status, 200, "{doc}");
+    let source = doc["source"].as_str().unwrap();
+    assert!(
+        source.contains("fn gamma() {}"),
+        "live output edit did not resolve into source: {source}"
+    );
+    assert!(!source.contains("fn alpha() {}"));
+}
+
+/// Two clients open the same output room; an edit from one is broadcast live
+/// to the other — the collaborative-safety property the client-local
+/// debounce/lock design this feature replaced could never provide.
+///
+/// Keeps applying every Sync-typed frame it receives (replying to any
+/// `SyncStep1` the way `yjs_sync` does) until `text`'s content satisfies
+/// `done`. Unlike `yjs_sync` — which treats the FIRST non-`SyncStep1` frame
+/// as "sync complete" — this does not stop early on a stray broadcast, which
+/// matters once a second concurrent client is also mid-handshake: that
+/// client's own (often empty) reply to the server's proactive `SyncStep1` is
+/// itself broadcast to every other connection (`ws.rs`/`output_rooms.rs`
+/// broadcast every mutating Sync message, not just genuine edits), and a
+/// naive "first message wins" reader can be satisfied by that noise before
+/// its own real content ever arrives. A real browser client (`yCollab`)
+/// never "finishes" syncing this way either — it just keeps applying
+/// whatever arrives, which is what this mirrors.
+async fn drain_until(
+    ws: &mut Ws,
+    ydoc: &yrs::Doc,
+    text: &yrs::TextRef,
+    deadline: tokio::time::Instant,
+    done: impl Fn(&str) -> bool,
+) {
+    use yrs::sync::{Message, SyncMessage};
+    use yrs::updates::decoder::Decode as _;
+    use yrs::updates::encoder::Encode as _;
+    use yrs::{GetString as _, ReadTxn as _, Transact as _};
+
+    loop {
+        if done(&text.get_string(&ydoc.transact())) {
+            return;
+        }
+        assert!(tokio::time::Instant::now() < deadline, "drain_until timed out");
+        let Ok(Some(Ok(TtMessage::Binary(bytes)))) = tokio::time::timeout_at(deadline, ws.next()).await
+        else {
+            continue;
+        };
+        if bytes.first() != Some(&0x00) {
+            continue;
+        }
+        let Ok(message) = Message::decode_v1(&bytes[1..]) else {
+            continue;
+        };
+        match message {
+            Message::Sync(SyncMessage::SyncStep1(their_sv)) => {
+                let update = ydoc.transact().encode_state_as_update_v1(&their_sv);
+                let mut frame = vec![0x00u8];
+                frame.extend_from_slice(&Message::Sync(SyncMessage::SyncStep2(update)).encode_v1());
+                ws.send(TtMessage::Binary(frame)).await.unwrap();
+            }
+            Message::Sync(SyncMessage::SyncStep2(bytes)) | Message::Sync(SyncMessage::Update(bytes)) => {
+                if let Ok(update) = yrs::Update::decode_v1(&bytes) {
+                    ydoc.transact_mut().apply_update(update).unwrap();
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn output_room_broadcasts_live_edits_to_other_clients() {
+    use yrs::sync::{Message, SyncMessage};
+    use yrs::updates::encoder::Encode as _;
+    use yrs::{GetString as _, ReadTxn as _, Text as _, Transact as _};
+
+    let app = setup().await;
+    let (token, _) = app.signup("tworoom@example.com").await;
+    let (_, doc_id) = app.seed_and_run(&token, "two.hick", LINEAGE_DOC).await;
+    let expected_seed = "fn alpha() {}\nfn beta() {}\n";
+
+    let mut ws_a = output_ws(&app, &token, &doc_id, "gen.rs").await;
+    let mut ws_b = output_ws(&app, &token, &doc_id, "gen.rs").await;
+    let ydoc_a = yrs::Doc::new();
+    let ydoc_b = yrs::Doc::new();
+    let text_a = ydoc_a.get_or_insert_text("source");
+    let text_b = ydoc_b.get_or_insert_text("source");
+
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
+    // Both connections announce their (empty) state before either is drained,
+    // exactly like two browser tabs opening the same room within moments of
+    // each other — the scenario `drain_until`'s doc comment describes.
+    {
+        let sv = ydoc_a.transact().state_vector();
+        let mut frame = vec![0x00u8];
+        frame.extend_from_slice(&Message::Sync(SyncMessage::SyncStep1(sv)).encode_v1());
+        ws_a.send(TtMessage::Binary(frame)).await.unwrap();
+    }
+    {
+        let sv = ydoc_b.transact().state_vector();
+        let mut frame = vec![0x00u8];
+        frame.extend_from_slice(&Message::Sync(SyncMessage::SyncStep1(sv)).encode_v1());
+        ws_b.send(TtMessage::Binary(frame)).await.unwrap();
+    }
+    drain_until(&mut ws_a, &ydoc_a, &text_a, deadline, |s| s == expected_seed).await;
+    drain_until(&mut ws_b, &ydoc_b, &text_b, deadline, |s| s == expected_seed).await;
+
+    let before_sv = ydoc_a.transact().state_vector();
+    {
+        let mut txn = ydoc_a.transact_mut();
+        let s = text_a.get_string(&txn);
+        let start = s.find("beta").unwrap() as u32;
+        text_a.remove_range(&mut txn, start, "beta".len() as u32);
+        text_a.insert(&mut txn, start, "delta");
+    }
+    let update = ydoc_a.transact().encode_diff_v1(&before_sv);
+    let mut frame = vec![0x00u8];
+    frame.extend_from_slice(&Message::Sync(SyncMessage::Update(update)).encode_v1());
+    ws_a.send(TtMessage::Binary(frame)).await.unwrap();
+
+    // Client B must receive A's edit live, without polling REST.
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
+    drain_until(&mut ws_b, &ydoc_b, &text_b, deadline, |s| s.contains("delta")).await;
 }
 
 // ---------------------------------------------------------------------------

@@ -472,6 +472,14 @@ async fn store_run_outputs(
         .bind(serde_json::to_value(&provenance)?)
         .execute(&state.db)
         .await?;
+        // A live output room for this file must not keep serving pre-rerun
+        // text — reconcile it the same diff-and-patch way a source room
+        // reconciles an out-of-band edit, so an in-progress collaborator's
+        // edit survives instead of being stomped by the new weave.
+        state
+            .output_rooms
+            .reconcile_rerun(doc_id, path, text)
+            .await;
     }
     Ok(())
 }

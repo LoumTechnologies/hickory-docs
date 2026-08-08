@@ -151,8 +151,16 @@ async fn build_room_doc(state: &AppState, doc: &DocRow) -> Doc {
 /// documents containing non-ASCII — `remove_range` clips the wrong span and the
 /// replacement text is spliced mid-character.
 fn new_room_doc(doc_id: Uuid) -> Doc {
+    doc_with_client_id(stable_client_id(doc_id))
+}
+
+/// A room's Y.Doc, given an already-derived stable client id. Shared with
+/// `crate::output_rooms`, whose rooms are keyed by `(doc_id, path)` rather
+/// than a bare `Uuid`, so the id derivation differs but the doc shape (UTF-16
+/// offsets — see above) must not.
+pub(crate) fn doc_with_client_id(client_id: u64) -> Doc {
     Doc::with_options(Options {
-        client_id: stable_client_id(doc_id),
+        client_id,
         offset_kind: OffsetKind::Utf16,
         ..Options::default()
     })
@@ -171,9 +179,11 @@ fn stable_client_id(doc_id: Uuid) -> u64 {
     u32::from_le_bytes([b[0], b[1], b[2], b[3]]) as u64
 }
 
-/// Minimal replace turning `current` into `target`, in UTF-16 code units
-/// (Yjs text indices): `(offset, units_to_delete, text_to_insert)`.
-fn text_delta<'a>(current: &str, target: &'a str) -> (usize, usize, &'a str) {
+/// Minimal replace turning `current` into `target`, in raw byte offsets:
+/// `(start_byte, bytes_to_delete, text_to_insert)`. This is the shared core —
+/// `text_delta` below wraps it for Yjs's UTF-16 indexing, and `crate::output_rooms`
+/// uses it directly since `OutputEdit`/`SourceEdit` are byte-offset types.
+pub(crate) fn byte_delta<'a>(current: &str, target: &'a str) -> (usize, usize, &'a str) {
     let prefix_bytes = current
         .char_indices()
         .zip(target.char_indices())
@@ -194,15 +204,23 @@ fn text_delta<'a>(current: &str, target: &'a str) -> (usize, usize, &'a str) {
             _ => break,
         }
     }
-    let offset = current[..prefix_bytes].encode_utf16().count();
-    let del_len = current[prefix_bytes..current.len() - suffix_bytes]
-        .encode_utf16()
-        .count();
     (
-        offset,
-        del_len,
+        prefix_bytes,
+        current.len() - prefix_bytes - suffix_bytes,
         &target[prefix_bytes..target.len() - suffix_bytes],
     )
+}
+
+/// Minimal replace turning `current` into `target`, in UTF-16 code units
+/// (Yjs text indices): `(offset, units_to_delete, text_to_insert)`. Shared
+/// with `crate::output_rooms`, whose rooms reconcile the same way.
+pub(crate) fn text_delta<'a>(current: &str, target: &'a str) -> (usize, usize, &'a str) {
+    let (prefix_bytes, del_bytes, insert) = byte_delta(current, target);
+    let offset = current[..prefix_bytes].encode_utf16().count();
+    let del_len = current[prefix_bytes..prefix_bytes + del_bytes]
+        .encode_utf16()
+        .count();
+    (offset, del_len, insert)
 }
 
 /// Hard ceiling on a live document's text. Well above any real document and
@@ -366,29 +384,20 @@ pub struct WsParams {
     token: String,
 }
 
-pub async fn ws_handler(
-    State(state): State<AppState>,
-    Query(params): Query<WsParams>,
-    upgrade: WebSocketUpgrade,
-) -> Result<Response, ApiError> {
-    let claims = verify_token(&state.config.jwt_secret, &params.token)?;
-    let doc_id: Uuid = params
-        .doc
-        .strip_prefix("doc:")
-        .and_then(|s| s.parse().ok())
-        .ok_or_else(|| ApiError::bad_request("doc must be doc:<uuid>"))?;
-
-    let doc = load_doc(&state, doc_id).await?;
-    let user = crate::auth::load_user(&state, claims.sub).await?;
+/// Shared auth + entitlement gate for both the doc room and output room
+/// channels: loads the doc, checks read/collab access, and enforces the
+/// account's `editors` entitlement (distinct concurrent collaborators).
+async fn authorize(state: &AppState, doc_id: Uuid, token: &str) -> Result<(DocRow, Uuid), ApiError> {
+    let claims = verify_token(&state.config.jwt_secret, token)?;
+    let doc = load_doc(state, doc_id).await?;
+    let user = crate::auth::load_user(state, claims.sub).await?;
     let is_owner = doc.owner_id == user.id;
     if !is_owner && doc.visibility != "public" {
         return Err(ApiError::forbidden("no access to this document"));
     }
 
-    // Editors entitlement: distinct concurrent collaborators on this
-    // account's docs (the owner always counts as one of them).
     if !state.editors.contains(doc.owner_id, user.id) {
-        let owner = crate::auth::load_user(&state, doc.owner_id).await?;
+        let owner = crate::auth::load_user(state, doc.owner_id).await?;
         let ents = crate::plans::resolve(
             &state.catalog,
             &owner.plan_key,
@@ -407,7 +416,46 @@ pub async fn ws_handler(
         }
     }
 
-    let user_id = user.id;
+    Ok((doc, user.id))
+}
+
+pub async fn ws_handler(
+    State(state): State<AppState>,
+    Query(params): Query<WsParams>,
+    upgrade: WebSocketUpgrade,
+) -> Result<Response, ApiError> {
+    if let Some(rest) = params.doc.strip_prefix("output:") {
+        // `output:<doc-uuid>:<path>` — the path may itself contain `:` only
+        // if a doc path ever does (it can't, `GitStore::validate_path`
+        // forbids it), so splitting on the first `:` is unambiguous.
+        let (doc_id_str, output_path) = rest
+            .split_once(':')
+            .ok_or_else(|| ApiError::bad_request("output channel must be output:<uuid>:<path>"))?;
+        let doc_id: Uuid = doc_id_str
+            .parse()
+            .map_err(|_| ApiError::bad_request("output channel must be output:<uuid>:<path>"))?;
+        let (doc, user_id) = authorize(&state, doc_id, &params.token).await?;
+        let output_path = output_path.to_string();
+        return Ok(upgrade.on_upgrade(move |socket| async move {
+            state.editors.add(doc.owner_id, user_id);
+            let owner_id = doc.owner_id;
+            let result =
+                crate::output_rooms::run_output_socket(state.clone(), doc, output_path, socket)
+                    .await;
+            state.editors.remove(owner_id, user_id);
+            if let Err(e) = result {
+                log::debug!("output ws session ended: {e:#}");
+            }
+        }));
+    }
+
+    let doc_id: Uuid = params
+        .doc
+        .strip_prefix("doc:")
+        .and_then(|s| s.parse().ok())
+        .ok_or_else(|| ApiError::bad_request("doc must be doc:<uuid> or output:<uuid>:<path>"))?;
+    let (doc, user_id) = authorize(&state, doc_id, &params.token).await?;
+
     Ok(upgrade.on_upgrade(move |socket| async move {
         state.editors.add(doc.owner_id, user_id);
         let owner_id = doc.owner_id;
@@ -616,7 +664,9 @@ async fn handle_lsp_frame(
     }
 }
 
-fn send_yjs(tx: &mpsc::UnboundedSender<Vec<u8>>, msg: &Message) {
+/// Send one framed Yjs protocol message to a single client. Shared with
+/// `crate::output_rooms`.
+pub(crate) fn send_yjs(tx: &mpsc::UnboundedSender<Vec<u8>>, msg: &Message) {
     let payload = msg.encode_v1();
     let mut frame = Vec::with_capacity(payload.len() + 1);
     frame.push(CHANNEL_YJS);
@@ -624,7 +674,8 @@ fn send_yjs(tx: &mpsc::UnboundedSender<Vec<u8>>, msg: &Message) {
     let _ = tx.send(frame);
 }
 
-fn yjs_frame(msg: &Message) -> Vec<u8> {
+/// Frame a Yjs protocol message for the wire. Shared with `crate::output_rooms`.
+pub(crate) fn yjs_frame(msg: &Message) -> Vec<u8> {
     let payload = msg.encode_v1();
     let mut frame = Vec::with_capacity(payload.len() + 1);
     frame.push(CHANNEL_YJS);
@@ -779,6 +830,30 @@ mod tests {
         let b = Uuid::new_v4();
         assert_eq!(stable_client_id(a), stable_client_id(a));
         assert_ne!(stable_client_id(a), stable_client_id(b));
+    }
+
+    /// `byte_delta` is the core `text_delta` wraps for Yjs's UTF-16 indexing,
+    /// and the same core `output_rooms` uses directly (byte offsets match
+    /// `OutputEdit`/`SourceEdit`'s wire shape). Must produce `target` exactly
+    /// when the (start, del_len, insert) triple is applied as a raw byte
+    /// splice — including across multi-byte characters, where a byte offset
+    /// and a UTF-16 offset diverge.
+    #[test]
+    fn byte_delta_reconciles_non_ascii_documents_exactly() {
+        let cases = [
+            ("héllo — wörld", "héllo — brave wörld"),
+            ("héllo — wörld", "héllo wörld"),
+            ("", "ünicode ⚡ start"),
+            ("drop everything", ""),
+            ("<hick:doc>é</hick:doc>", "<hick:doc>é—ü</hick:doc>"),
+            ("same", "same"),
+        ];
+        for (current, target) in cases {
+            let (start, del_len, insert) = byte_delta(current, target);
+            let mut spliced = current.to_string();
+            spliced.replace_range(start..start + del_len, insert);
+            assert_eq!(spliced, target, "reconciling {current:?} -> {target:?}");
+        }
     }
 
     /// The reconcile path in `build_room_doc` computes indices in UTF-16 code

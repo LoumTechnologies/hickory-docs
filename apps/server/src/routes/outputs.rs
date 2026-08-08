@@ -9,7 +9,7 @@
 
 use axum::Json;
 use axum::extract::{Path, Query, State};
-use hickory_lineage::{LineageError, OutputEdit, Provenance};
+use hickory_lineage::{LineageError, OutputEdit, Provenance, SourceEdit};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use uuid::Uuid;
@@ -32,14 +32,17 @@ async fn last_ok_run(state: &AppState, doc_id: Uuid) -> ApiResult<Option<Uuid>> 
 }
 
 #[derive(sqlx::FromRow)]
-struct OutputRow {
-    path: String,
-    language: String,
-    content: String,
-    provenance: Value,
+pub(crate) struct OutputRow {
+    pub(crate) path: String,
+    pub(crate) language: String,
+    pub(crate) content: String,
+    pub(crate) provenance: Value,
 }
 
-async fn load_output(state: &AppState, doc_id: Uuid, path: &str) -> ApiResult<OutputRow> {
+/// Shared with `crate::output_rooms`, which seeds and reconciles a live
+/// output room from the same "last successful run" row this serves to REST
+/// clients.
+pub(crate) async fn load_output(state: &AppState, doc_id: Uuid, path: &str) -> ApiResult<OutputRow> {
     let run_id = last_ok_run(state, doc_id)
         .await?
         .ok_or_else(|| ApiError::not_found("no successful run for this doc yet"))?;
@@ -109,33 +112,26 @@ pub struct EditRequest {
     pub edits: Vec<OutputEdit>,
 }
 
-/// POST /api/docs/:id/outputs/edit → `{source_edits, applied: true}`
-///
 /// Maps output-range edits through the stored provenance to source-document
-/// edits, applies them to the doc source (Postgres row + one git commit per
-/// batch), and returns them. Edits overlapping `synthetic` ranges → 422 with
-/// the offending range.
-pub async fn edit_outputs(
-    State(state): State<AppState>,
-    AuthUser(user): AuthUser,
-    Path(id): Path<Uuid>,
-    Json(body): Json<EditRequest>,
-) -> ApiResult<Json<Value>> {
-    let doc = load_doc(&state, id).await?;
-    if doc.owner_id != user.id {
-        return Err(ApiError::forbidden(
-            "only the project owner can edit generated outputs",
-        ));
-    }
-    if body.edits.is_empty() {
-        return Err(ApiError::bad_request("edits must not be empty"));
-    }
-
-    let row = load_output(&state, id, &body.path).await?;
+/// edits and applies them (Postgres row + live-room reconcile + one git
+/// commit per touched doc). Shared by the REST endpoint below and the
+/// output room's own debounced persist (`crate::output_rooms`).
+///
+/// Edits overlapping a `synthetic` range → 422 with the offending range.
+/// A source doc that has moved since the run this output was woven from →
+/// 409 (byte-precise provenance invariant — see the two staleness checks
+/// below).
+pub async fn apply_output_edits(
+    state: &AppState,
+    doc: &DocRow,
+    output_path: &str,
+    edits: &[OutputEdit],
+) -> ApiResult<Vec<SourceEdit>> {
+    let row = load_output(state, doc.id, output_path).await?;
     let provenance: Vec<Provenance> = serde_json::from_value(row.provenance)
         .map_err(|e| ApiError::internal(format!("stored provenance unreadable: {e}")))?;
 
-    let source_edits = hickory_lineage::map_edits(&row.content, &body.edits, &provenance).map_err(
+    let source_edits = hickory_lineage::map_edits(&row.content, edits, &provenance).map_err(
         |e| match e {
             LineageError::SyntheticOverlap { start, end } => ApiError::unprocessable(format!(
                 "edit overlaps a synthetic (non-editable) output range at bytes {start}..{end}"
@@ -227,7 +223,7 @@ pub async fn edit_outputs(
         // writes that stale text back over the row we just updated.
         state
             .rooms
-            .apply_external_source(&state, target.id, new_source)
+            .apply_external_source(state, target.id, new_source)
             .await;
         state
             .git
@@ -235,10 +231,32 @@ pub async fn edit_outputs(
                 doc.project_id,
                 doc_path,
                 new_source,
-                &format!("lineage edit via {}", body.path),
+                &format!("lineage edit via {output_path}"),
             )
             .await?;
     }
+
+    Ok(source_edits)
+}
+
+/// POST /api/docs/:id/outputs/edit → `{source_edits, applied: true}`
+pub async fn edit_outputs(
+    State(state): State<AppState>,
+    AuthUser(user): AuthUser,
+    Path(id): Path<Uuid>,
+    Json(body): Json<EditRequest>,
+) -> ApiResult<Json<Value>> {
+    let doc = load_doc(&state, id).await?;
+    if doc.owner_id != user.id {
+        return Err(ApiError::forbidden(
+            "only the project owner can edit generated outputs",
+        ));
+    }
+    if body.edits.is_empty() {
+        return Err(ApiError::bad_request("edits must not be empty"));
+    }
+
+    let source_edits = apply_output_edits(&state, &doc, &body.path, &body.edits).await?;
 
     state.analytics.capture(
         &user.id.to_string(),

@@ -11,6 +11,7 @@ pub mod executor;
 pub mod gitstore;
 pub mod lsp;
 pub mod mail;
+pub mod output_rooms;
 pub mod plans;
 pub mod render_cache;
 pub mod routes;
@@ -40,6 +41,7 @@ pub struct AppState {
     pub catalog: Arc<plans::Catalog>,
     pub analytics: analytics::Analytics,
     pub rooms: Arc<ws::RoomRegistry>,
+    pub output_rooms: Arc<output_rooms::OutputRoomRegistry>,
     pub editors: Arc<ws::EditorTracker>,
     pub http: reqwest::Client,
     /// Bounded in-process cache of woven block models (see `render_cache`).
@@ -85,6 +87,7 @@ pub fn build_state(mut config: Config, db: sqlx::PgPool) -> Result<AppState> {
         catalog,
         analytics,
         rooms: Arc::new(ws::RoomRegistry::default()),
+        output_rooms: Arc::new(output_rooms::OutputRoomRegistry::default()),
         editors: Arc::new(ws::EditorTracker::default()),
         http: reqwest::Client::new(),
         renders: Arc::new(render_cache::RenderCache::default()),
