@@ -138,6 +138,7 @@ pub fn build_router(state: AppState) -> Router {
         .route("/billing/plans", get(routes::billing::get_plans))
         .route("/billing/checkout", post(routes::billing::checkout))
         .route("/billing/webhook", post(routes::billing::webhook))
+        .route("/analytics/capture", post(routes::analytics::capture))
         .route("/ws", get(ws::ws_handler))
         .route("/health", get(routes::health::health))
         .route("/executor", get(routes::health::executor));

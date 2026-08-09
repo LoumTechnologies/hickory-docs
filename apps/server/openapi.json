@@ -10,6 +10,39 @@
     "version": "0.1.0"
   },
   "paths": {
+    "/api/analytics/capture": {
+      "post": {
+        "tags": [
+          "analytics"
+        ],
+        "operationId": "capture",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CaptureRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "event queued (or no-opped when PostHog is unconfigured)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaptureOut"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "unknown event name, or a property the beacon will not forward"
+          }
+        }
+      }
+    },
     "/api/auth/login": {
       "post": {
         "tags": [
@@ -948,6 +981,43 @@
           },
           "user": {
             "$ref": "#/components/schemas/UserOut"
+          }
+        }
+      },
+      "CaptureOut": {
+        "type": "object",
+        "required": [
+          "accepted"
+        ],
+        "properties": {
+          "accepted": {
+            "type": "boolean",
+            "description": "`true` once the event is queued for forwarding. Also `true` when\nPostHog is unconfigured: capture is a no-op then, and a caller that\ntreated that as failure would retry forever against a working server."
+          }
+        }
+      },
+      "CaptureRequest": {
+        "type": "object",
+        "required": [
+          "distinct_id",
+          "event"
+        ],
+        "properties": {
+          "distinct_id": {
+            "type": "string",
+            "description": "Anonymous id generated in the browser and stable for that browser.\nNever an account id — this endpoint predates the visitor having one."
+          },
+          "event": {
+            "type": "string",
+            "description": "One of `ALLOWED_EVENTS`."
+          },
+          "properties": {
+            "type": "object",
+            "description": "Flat property bag. Values are scalars only (string, number, bool);\na nested object or array is rejected rather than silently flattened,\nbecause PostHog would store a shape no query here expects.",
+            "additionalProperties": {},
+            "propertyNames": {
+              "type": "string"
+            }
           }
         }
       },

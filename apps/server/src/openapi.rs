@@ -44,6 +44,7 @@ use utoipa::OpenApi;
         crate::routes::billing::get_plans,
         crate::routes::billing::checkout,
         crate::routes::billing::webhook,
+        crate::routes::analytics::capture,
         crate::routes::health::health,
         crate::routes::health::executor,
     ),
@@ -61,6 +62,7 @@ use utoipa::OpenApi;
         crate::routes::runs::RunRequest,
         crate::routes::agent::AgentRequest,
         crate::routes::billing::CheckoutRequest,
+        crate::routes::analytics::CaptureRequest,
         // Responses
         crate::routes::auth::UserOut,
         crate::routes::auth::AuthOut,
@@ -81,6 +83,7 @@ use utoipa::OpenApi;
         crate::routes::agent::AgentStartOut,
         crate::routes::billing::CheckoutOut,
         crate::routes::billing::WebhookOut,
+        crate::routes::analytics::CaptureOut,
         crate::routes::health::HealthOut,
         crate::routes::health::ExecutorOut,
         crate::plans::PlansOut,

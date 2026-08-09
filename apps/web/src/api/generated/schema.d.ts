@@ -4,6 +4,22 @@
  */
 
 export interface paths {
+    "/api/analytics/capture": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post: operations["capture"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/auth/login": {
         parameters: {
             query?: never;
@@ -466,6 +482,31 @@ export interface components {
             token: string;
             user: components["schemas"]["UserOut"];
         };
+        CaptureOut: {
+            /**
+             * @description `true` once the event is queued for forwarding. Also `true` when
+             *     PostHog is unconfigured: capture is a no-op then, and a caller that
+             *     treated that as failure would retry forever against a working server.
+             */
+            accepted: boolean;
+        };
+        CaptureRequest: {
+            /**
+             * @description Anonymous id generated in the browser and stable for that browser.
+             *     Never an account id — this endpoint predates the visitor having one.
+             */
+            distinct_id: string;
+            /** @description One of `ALLOWED_EVENTS`. */
+            event: string;
+            /**
+             * @description Flat property bag. Values are scalars only (string, number, bool);
+             *     a nested object or array is rejected rather than silently flattened,
+             *     because PostHog would store a shape no query here expects.
+             */
+            properties?: {
+                [key: string]: unknown;
+            };
+        };
         CheckoutOut: {
             checkout_url: string;
         };
@@ -689,6 +730,37 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    capture: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CaptureRequest"];
+            };
+        };
+        responses: {
+            /** @description event queued (or no-opped when PostHog is unconfigured) */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["CaptureOut"];
+                };
+            };
+            /** @description unknown event name, or a property the beacon will not forward */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
     login: {
         parameters: {
             query?: never;

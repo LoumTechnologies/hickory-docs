@@ -3,6 +3,10 @@ import { useEffect, useState } from "react";
 // Tiny hash router — deliberately no routing dependency.
 
 export type Route =
+  // The public front door. Signed-out visitors at "/" get the marketing page;
+  // signed-in ones get their projects, so a returning user is never made to
+  // read a pitch for software they already bought.
+  | { name: "landing" }
   | { name: "login" }
   | { name: "projects" }
   | { name: "project"; id: string }
@@ -17,6 +21,7 @@ export type Route =
 export function parseRoute(hash: string): Route {
   const path = hash.replace(/^#/, "") || "/";
   let m: RegExpMatchArray | null;
+  if (path === "/") return { name: "landing" };
   if (path === "/login") return { name: "login" };
   if (path === "/pricing") return { name: "pricing" };
   if (path === "/forgot") return { name: "forgot" };

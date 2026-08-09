@@ -1717,3 +1717,182 @@ textarea:focus {
   color: var(--fg);
 }
 .chat-note { font-size: 0.74rem; margin: 0; }
+
+/* --- landing (discovery page at "/") ---------------------------------------
+   No new colors: everything below reads the tokens declared at the top of this
+   file, so the marketing page and the app cannot drift into two visual
+   identities, and both dark modes come for free. When $branding produces a
+   real token set, replacing the :root block restyles this page with it. */
+
+.landing {
+  max-width: 46rem;
+  margin: 0 auto;
+  padding: 2.5rem 1.25rem 4rem;
+}
+
+.landing-hero h1 {
+  font-size: clamp(1.7rem, 4.5vw, 2.5rem);
+  line-height: 1.15;
+  letter-spacing: -0.015em;
+  margin: 0 0 0.85rem;
+}
+
+.landing-sub {
+  font-size: 1.02rem;
+  color: var(--fg-muted);
+  margin: 0 0 1.5rem;
+  max-width: 38rem;
+}
+
+.landing-sub code {
+  font-size: 0.92em;
+  background: var(--bg-sunken);
+  border-radius: 4px;
+  padding: 0.05em 0.3em;
+}
+
+.landing-cta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+
+.landing-cta .btn {
+  font-size: 0.95rem;
+  padding: 0.5rem 1.1rem;
+}
+
+.landing-interests {
+  margin: 3rem 0 0;
+  border-top: 1px solid var(--border);
+}
+
+.landing-interests-lead {
+  color: var(--fg-muted);
+  font-size: 0.9rem;
+  margin: 1.5rem 0 0.5rem;
+}
+
+.interest {
+  border-bottom: 1px solid var(--border);
+  padding: 0.9rem 0;
+}
+
+.interest h3 {
+  margin: 0;
+  font-size: 1rem;
+}
+
+/* The whole heading is the hit target: a caret-only toggle is a fine mouse
+   affordance and a poor thumb one, and this page is opened on phones. */
+.interest h3 button {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: none;
+  font: inherit;
+  font-weight: 600;
+  color: var(--fg);
+  text-align: left;
+  cursor: pointer;
+}
+
+.interest h3 button:hover .interest-title {
+  color: var(--accent);
+}
+
+.interest-caret {
+  color: var(--fg-muted);
+  font-size: 0.8em;
+  flex: none;
+}
+
+.interest-teaser {
+  margin: 0.3rem 0 0 1.15rem;
+  color: var(--fg-muted);
+  font-size: 0.9rem;
+}
+
+.interest-body {
+  margin: 0.85rem 0 0.35rem 1.15rem;
+}
+
+.interest-body p {
+  margin: 0 0 0.75rem;
+  font-size: 0.94rem;
+}
+
+.interest-sample {
+  background: var(--bg-sunken);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.7rem 0.85rem;
+  font-size: 0.82rem;
+  overflow-x: auto;
+}
+
+.interest-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin: 0.5rem 0 0;
+  font-size: 0.9rem;
+}
+
+.interest-links a {
+  color: var(--accent-2);
+}
+
+.landing-anchor {
+  margin: 2.5rem 0 0;
+  padding: 1.1rem 1.2rem;
+  background: var(--bg-sunken);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+
+.landing-anchor-q {
+  margin: 0 0 0.75rem;
+  font-size: 0.9rem;
+  color: var(--fg-muted);
+}
+
+.landing-anchor-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+/* Quiet on purpose. This question is optional and changes nothing on the
+   page; styling it as a primary action would buy answers by pressure and
+   make the declared-vs-revealed comparison worthless. */
+.btn-quiet {
+  background: var(--bg-raised);
+  color: var(--fg-muted);
+  font-size: 0.83rem;
+}
+
+.btn-quiet:hover {
+  color: var(--fg);
+  border-color: var(--accent);
+}
+
+.landing-foot {
+  margin: 3rem 0 0;
+  padding-top: 2rem;
+  border-top: 1px solid var(--border);
+  text-align: center;
+}
+
+.landing-foot .btn {
+  font-size: 0.95rem;
+  padding: 0.5rem 1.1rem;
+}
+
+.landing-foot .muted {
+  margin: 0.8rem 0 0;
+  font-size: 0.85rem;
+}

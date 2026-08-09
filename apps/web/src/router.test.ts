@@ -32,6 +32,13 @@ describe("email-link routes", () => {
     expect(parseRoute("#/verify")).toEqual({ name: "projects" });
   });
 
+  // Protects docs/guarantees/landing/discovery-page-is-interest-organized.md
+  it("routes the bare domain to the landing page, not straight to a login form", () => {
+    expect(parseRoute("")).toEqual({ name: "landing" });
+    expect(parseRoute("#")).toEqual({ name: "landing" });
+    expect(parseRoute("#/")).toEqual({ name: "landing" });
+  });
+
   it("still parses the routes that existed before", () => {
     expect(parseRoute("#/login")).toEqual({ name: "login" });
     expect(parseRoute("#/docs/abc")).toEqual({ name: "doc", id: "abc" });

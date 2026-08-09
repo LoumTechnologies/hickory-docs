@@ -43,8 +43,16 @@ these at boot (`apps/server/src/config.rs`) and validates them:
 
 | Variable | Notes |
 |---|---|
-| `POSTHOG_API_KEY` | Project API key; enables server-side capture (`signup`, `doc_run`, `doc_check`, billing events) and plan-set flag lookup |
+| `POSTHOG_API_KEY` | Project API key; enables server-side capture (`signup`, `doc_run`, `doc_check`, billing events), plan-set flag lookup, **and** the landing page's events, which the browser posts to `POST /api/analytics/capture` for the server to forward |
 | `POSTHOG_HOST` | Default `https://us.i.posthog.com` |
+
+There is deliberately **no `VITE_POSTHOG_KEY`**. `import.meta.env.VITE_*` is
+inlined when the web bundle is built — the `web` stage of `Dockerfile` — so a
+build-time key would bake one environment's project id into the very image the
+promote path then ships to the other environment. Routing browser events
+through the server keeps one canonical variable name, one promotable image,
+and no analytics credential in the bundle. See
+`docs/specs/freeform/landing-discovery.md`.
 
 ## Cloud Canopy (read when `HICKORY_EXECUTOR=canopy`)
 

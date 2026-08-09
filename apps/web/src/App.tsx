@@ -5,6 +5,7 @@ import { navigate, useRoute } from "./router";
 import { LoginView } from "./views/LoginView";
 import { ProjectsView } from "./views/ProjectsView";
 import { DocumentView } from "./views/DocumentView";
+import { LandingView } from "./views/LandingView";
 import { PricingView } from "./views/PricingView";
 import { VerifyView } from "./views/VerifyView";
 import { ResetView } from "./views/ResetView";
@@ -46,6 +47,7 @@ export function App() {
   // Routes reached from an email link must work while signed out: the link is
   // often opened on a different device or browser from the one that signed up.
   const publicRoute =
+    route.name === "landing" ||
     route.name === "login" ||
     route.name === "pricing" ||
     route.name === "verify" ||
@@ -56,7 +58,7 @@ export function App() {
   return (
     <div className="app">
       <nav className="topnav">
-        <button className="wordmark" onClick={() => navigate(authed ? "/projects" : "/login")}>
+        <button className="wordmark" onClick={() => navigate(authed ? "/projects" : "/")}>
           <TreeMark size={17} />
           Hickory Docs
         </button>
@@ -80,7 +82,13 @@ export function App() {
       </nav>
       <main className="content">
         {authed && <VerifyBanner user={user} />}
-        {route.name === "pricing" ? (
+        {route.name === "landing" ? (
+          authed ? (
+            <ProjectsView />
+          ) : (
+            <LandingView />
+          )
+        ) : route.name === "pricing" ? (
           <PricingView />
         ) : route.name === "verify" ? (
           <VerifyView
