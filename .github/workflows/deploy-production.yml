@@ -39,11 +39,18 @@ jobs:
     if: github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
     # Every vars.*/secrets.* reference must live in a GitHub Environment
-    # (.instructions/config-and-environments.md). This environment
-    # deliberately has no required reviewer — one would pause every deploy
-    # waiting for a click, which is exactly what this pipeline exists not to do.
+    # (.instructions/config-and-environments.md).
+    #
+    # `production-deploy`, NOT `production`. They point at the same running
+    # system but carry opposite policies, and one environment cannot hold
+    # both: this one is ungated so the app rolls forward on every green build,
+    # while `production` keeps its required reviewer so a Terraform apply
+    # against DNS or the analytics project still needs a human. Removing the
+    # reviewer from `production` to make deploys automatic would silently
+    # ungate the infrastructure applies too — that is the mistake this split
+    # exists to prevent. Keep the deploy credentials here.
     environment:
-      name: production
+      name: production-deploy
       url: ${{ vars.APP_BASE_URL }}
     steps:
       - uses: actions/checkout@v4

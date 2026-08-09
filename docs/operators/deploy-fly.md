@@ -56,13 +56,19 @@ which in production is a deliberate refusal to start (see
 ### Deploy credentials
 
 The workflow authenticates with `FLY_API_TOKEN`, a deploy-scoped token held in
-the repository's **production** GitHub Environment alongside the
-`APP_BASE_URL` variable. It expires one year from issue. To replace it:
+the **`production-deploy`** GitHub Environment alongside `APP_BASE_URL`. It
+expires one year from issue. To replace it:
 
 ```sh
 fly tokens create deploy --app hickory-docs-production --name github-actions-deploy --expiry 8760h \
-  | gh secret set FLY_API_TOKEN --env production
+  | gh secret set FLY_API_TOKEN --env production-deploy
 ```
+
+`production-deploy` is ungated; the separate `production` environment keeps a
+required reviewer and is used only by Terraform applies. Putting the deploy
+token in `production` would make every app deploy wait for a click; removing
+that reviewer instead would ungate DNS and analytics changes. Hence two
+environments. See `docs/operators/analytics.md` for the full table.
 
 ## What it costs when nobody is using it
 

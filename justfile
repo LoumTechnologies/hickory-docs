@@ -83,3 +83,13 @@ tokens-run SPEC:
 # Static token measurement of files via count_tokens (needs ANTHROPIC_API_KEY).
 tokens-count *FILES:
     cargo run -q -p hickory-agent --bin token_economics -- count-tokens {{FILES}}
+
+# Terraform creates the analytics project and knows its write key; the server
+# needs that key as POSTHOG_API_KEY. No provider bridges the two, so this is
+# the explicit hand-off (the documented fallback in
+# .instructions/continuous-delivery-paas.md). Run it after applying the
+# posthog stack. Details: docs/operators/analytics.md.
+
+# Push the Terraform-owned PostHog project key to the Fly app.
+posthog-sync-key:
+    ./scripts/posthog-sync-key.sh

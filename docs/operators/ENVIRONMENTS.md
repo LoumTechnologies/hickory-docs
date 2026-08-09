@@ -43,8 +43,13 @@ these at boot (`apps/server/src/config.rs`) and validates them:
 
 | Variable | Notes |
 |---|---|
-| `POSTHOG_API_KEY` | Project API key; enables server-side capture (`signup`, `doc_run`, `doc_check`, billing events), plan-set flag lookup, **and** the landing page's events, which the browser posts to `POST /api/analytics/capture` for the server to forward |
+| `POSTHOG_API_KEY` | Project **write** key (`phc_…`); enables server-side capture (`signup`, `doc_run`, `doc_check`, billing events), plan-set flag lookup, **and** the landing page's events, which the browser posts to `POST /api/analytics/capture` for the server to forward. The project is Terraform-owned (`terraform/posthog`); get the key onto Fly with `just posthog-sync-key`, never by copying it out of the dashboard. Leave it unset in local dev — dev traffic in the production project cannot be separated out afterwards. |
 | `POSTHOG_HOST` | Default `https://us.i.posthog.com` |
+
+Do not confuse `POSTHOG_API_KEY` with `POSTHOG_PERSONAL_API_KEY`. The first is
+a project write key that can only send events; the second is a personal key
+that can create and destroy projects, lives only in GitHub Environments, and
+is never given to the running server. See `docs/operators/analytics.md`.
 
 There is deliberately **no `VITE_POSTHOG_KEY`**. `import.meta.env.VITE_*` is
 inlined when the web bundle is built — the `web` stage of `Dockerfile` — so a
