@@ -2,7 +2,7 @@
 import { describe, expect, it } from "vitest";
 import { installMockApi } from "./mockApi";
 import { WEAVE_SOURCE } from "./mockData";
-import { mapEditsToSource, weaveOutputs, SyntheticRangeViolation } from "./weave";
+import { mapEditsToSource, weaveOutputs, SyntheticRangeViolation } from "../lib/weave";
 import { api, ApiError } from "../api/client";
 import type { SyntheticRangeError } from "../api/types";
 import { byteLength, byteToChar, charToByte } from "../lib/offsets";

@@ -26,7 +26,15 @@ export type LandingEvent =
   /** The visitor answered the light identity anchor. */
   | { name: "segment_declared"; declared_segment: string }
   /** A call to action was taken. */
-  | { name: "cta_clicked"; cta_id: string };
+  | { name: "cta_clicked"; cta_id: string }
+  /**
+   * The visitor drove one of the home page's demos. `step` is which part they
+   * reached — the walkthrough step id, or the interaction ("round-trip",
+   * "pull") for the demos that are not stepped. This is revealed interest at
+   * its strongest: it costs effort, so it separates people who read the page
+   * from people who tried the product.
+   */
+  | { name: "demo_engaged"; demo_id: string; step: string; autoplay?: boolean };
 
 /**
  * Properties every event carries, so declared-vs-intended is answerable from

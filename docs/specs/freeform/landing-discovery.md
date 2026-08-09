@@ -33,6 +33,44 @@ be compared against what they actually opened. It is quiet, one click, and
 gates nothing — the moment it starts buying answers by pressure, the
 comparison it exists for stops meaning anything.
 
+## The three demos
+
+Above the interest sections the page runs the product, in the visitor's own
+browser, with no account:
+
+1. **Knowledge work** — a six-step walkthrough in which meeting notes become
+   Jira issues, the lineage between note and ticket is drawn as a Sankey, and
+   an edit made on the ticket is carried back into the note it came from.
+2. **Software** — a document that explains an algorithm and *is* the program,
+   tangled into a module and its test from one shared fragment.
+3. **Collaboration** — two live CRDT clients on one document, with a git strip
+   underneath.
+
+They are the page's main claim and its main risk, so two rules govern them:
+
+- **The mechanism is real.** The demos parse, weave, derive provenance and
+  draw ribbons with the same modules the signed-in workspace uses
+  (`lib/weave`, `lib/ribbons`, `lib/ribbonGeometry`) — see
+  `docs/guarantees/landing/home-demos-run-the-real-mechanism.md`. A recorded
+  animation would be cheaper and would make the page a liar the first time a
+  visitor tried to reproduce what they saw.
+- **What is faked says so on screen.** No demo contacts a third-party
+  service: the Jira half and the git remote are simulated, and both are
+  labelled next to the thing that is faked rather than in a footnote.
+
+The walkthrough can also **play itself**. A visitor who will not click
+anything still gets the story, and the ones who take the wheel are the signal
+— which is why `demo_engaged` carries `autoplay` and autoplay stops before the
+hands-on steps rather than clicking past the part it is trying to get someone
+to try.
+
+Their instrumentation value is different in kind from the interest sections':
+opening a section costs a click, driving a demo costs effort. `demo_engaged`
+with `autoplay: false` is therefore the page's strongest revealed-interest
+signal, and *which* demo someone drives is a segment hypothesis in itself — the knowledge-work
+walkthrough and the literate-programming one describe the same mechanism to
+two populations that may share nothing else.
+
 ## Instrumentation
 
 Events, all defined in `apps/web/src/analytics/events.ts` and allowlisted in
@@ -45,6 +83,7 @@ Events, all defined in `apps/web/src/analytics/events.ts` and allowlisted in
 | `interest_clicked` | link inside a section followed | `interest_id`, `link_id` |
 | `segment_declared` | identity anchor answered | `declared_segment` |
 | `cta_clicked` | a call to action taken | `cta_id` |
+| `demo_engaged` | a home-page demo was driven | `demo_id`, `step`, `autoplay` |
 | `segment_corrected` | *(confirmation posture — no UI yet)* | `from_segment`, `to_segment` |
 
 Every event additionally carries `intended_segment`, `declared_segment`,
@@ -97,6 +136,14 @@ to mistake *measurable* for *true*.
 - **Why someone left.** Nothing here captures intent, only behaviour.
   Confusion is diagnosed by walking a persona through the page
   (`$persona-walkthrough`), not by reading this funnel.
+- **Whether a demo taught anything.** `demo_engaged` says how far someone
+  got, not whether they understood it. Someone who clicks to step 6 and
+  leaves confused is indistinguishable here from someone who got it — that
+  question belongs to `$persona-walkthrough`, not to this funnel.
+- **Phones see a different page.** Below 950px the three-column Sankey stacks
+  and the ribbon layer is hidden, because a diagram drawn across 40px
+  channels would misrepresent the product. Mobile `demo_engaged` counts are
+  therefore not comparable with desktop ones.
 - **No rate limiting yet** on the public beacon, so event counts are
   inflatable by an untrusted caller. Acceptable pre-launch; not acceptable
   once these numbers inform spend.

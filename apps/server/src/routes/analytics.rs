@@ -41,6 +41,7 @@ const ALLOWED_EVENTS: &[&str] = &[
     "segment_declared",
     "segment_corrected",
     "cta_clicked",
+    "demo_engaged",
 ];
 
 /// Anonymous ids are client-generated UUIDs; anything longer is not one.

@@ -3,6 +3,9 @@ import { useEffect, useState } from "react";
 import { declaredSegment } from "../analytics/attribution";
 import { emit } from "../analytics/events";
 import { InterestSection } from "../components/InterestSection";
+import { CollaborationDemo } from "../landing/demos/CollaborationDemo";
+import { KnowledgeWorkDemo } from "../landing/demos/KnowledgeWorkDemo";
+import { ProgramDemo } from "../landing/demos/ProgramDemo";
 import { DECLARED_SEGMENTS, INTERESTS } from "../landing/interests";
 import { navigate } from "../router";
 
@@ -48,11 +51,12 @@ export function LandingView() {
   return (
     <div className="landing">
       <header className="landing-hero">
-        <h1>Documents that run, and fail loudly when they lie.</h1>
+        <h1>An AI agent whose work you can trace, byte by byte.</h1>
         <p className="landing-sub">
-          A <code>.hick</code> file is prose, a program, a test suite, and an audit trail at
-          once. Its examples execute on every commit; when the output drifts from what the
-          document claims, the build goes red.
+          Hickory Docs sits where an ordinary agent session, literate programming, and the
+          semantic web meet: the agent works inside a document, every artifact it produces is
+          woven from a named piece of that document, and the path between the two stays
+          walkable in both directions.
         </p>
         <div className="landing-cta">
           <button className="btn btn-primary" onClick={cta("hero-start", "/login")}>
@@ -63,6 +67,33 @@ export function LandingView() {
           </button>
         </div>
       </header>
+
+      <section className="landing-demo" aria-labelledby="demo-knowledge-h">
+        <h2 id="demo-knowledge-h">Here is how it works</h2>
+        <p className="landing-demo-lead">
+          Walk the six steps. Everything below runs in this page — no account, no sign-up.
+        </p>
+        <KnowledgeWorkDemo />
+      </section>
+
+      <section className="landing-demo" aria-labelledby="demo-program-h">
+        <h2 id="demo-program-h">The point is information flow, in any kind of work</h2>
+        <p className="landing-demo-lead">
+          Tracking where a claim came from is not a software problem, and Hickory Docs is not a
+          software tool that happens to do prose. It is the other way round — which is why the
+          same document can also <em>be</em> the program it describes.
+        </p>
+        <ProgramDemo />
+      </section>
+
+      <section className="landing-demo" aria-labelledby="demo-collab-h">
+        <h2 id="demo-collab-h">Two people, one document, stored in your own repository</h2>
+        <p className="landing-demo-lead">
+          Live collaboration on top of git. Notes, documentation and source code live in the
+          same place, with the same history, on GitHub.
+        </p>
+        <CollaborationDemo />
+      </section>
 
       <div className="landing-interests">
         <p className="landing-interests-lead">

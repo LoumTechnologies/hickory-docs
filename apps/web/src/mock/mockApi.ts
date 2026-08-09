@@ -22,7 +22,7 @@ import {
   applySourceEdits,
   mapEditsToSource,
   weaveOutputs,
-} from "./weave";
+} from "../lib/weave";
 import type { OutputEdit } from "../api/types";
 
 // In-browser mock API (VITE_MOCK=1): implements the api.md contract, including

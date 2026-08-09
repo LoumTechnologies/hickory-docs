@@ -1724,10 +1724,22 @@ textarea:focus {
    identities, and both dark modes come for free. When $branding produces a
    real token set, replacing the :root block restyles this page with it. */
 
+/* The page is as wide as its widest element — the demos — and the reading
+   column is a max-width on the prose inside it, not a narrower centred page
+   with the demos breaking out of it. Centring two different widths gives two
+   different left edges, and the ragged result reads as a layout bug on the
+   one page whose job is to look deliberate. */
 .landing {
-  max-width: 46rem;
+  max-width: 78rem;
   margin: 0 auto;
   padding: 2.5rem 1.25rem 4rem;
+}
+
+.landing-hero,
+.landing-interests,
+.landing-demo > h2,
+.landing-demo-lead {
+  max-width: 46rem;
 }
 
 .landing-hero h1 {
@@ -1895,4 +1907,395 @@ textarea:focus {
 .landing-foot .muted {
   margin: 0.8rem 0 0;
   font-size: 0.85rem;
+}
+
+/* ---------------------------------------------------------------------------
+   Home-page demos
+   ---------------------------------------------------------------------------
+   The demos are the widest thing on the page and must be, because the gaps
+   between the three columns ARE the Sankey diagram — the same rule the
+   workspace's split view lives by (see .split-view, and the invariant asserted
+   in styles.test.ts). The prose column stays narrow for reading; each demo
+   breaks out of it.
+*/
+
+.landing-demo {
+  margin: 3.5rem 0 0;
+}
+
+.landing-demo h2 {
+  font-size: clamp(1.25rem, 2.6vw, 1.6rem);
+  letter-spacing: -0.01em;
+  margin: 0 0 0.5rem;
+}
+
+.landing-demo-lead {
+  color: var(--fg-muted);
+  margin: 0 0 1.25rem;
+  max-width: 42rem;
+}
+
+.demo {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--bg-raised);
+  padding: 0.9rem;
+  box-shadow: var(--shadow);
+}
+
+/* ---- walkthrough steps ---- */
+
+.demo-steps {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  list-style: none;
+  margin: 0 0 0.75rem;
+  padding: 0;
+  counter-reset: none;
+}
+
+.demo-step {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.78rem;
+  text-align: left;
+  padding: 0.3rem 0.6rem 0.3rem 0.35rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg);
+  color: var(--fg-muted);
+  cursor: pointer;
+}
+
+.demo-step:hover { border-color: var(--accent); color: var(--fg); }
+
+.demo-step.on {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--fg);
+  font-weight: 600;
+}
+
+.demo-step.done { color: var(--fg); }
+
+.demo-step-n {
+  display: inline-grid;
+  place-items: center;
+  width: 1.25rem;
+  height: 1.25rem;
+  border-radius: 50%;
+  background: var(--neutral-bg);
+  font-size: 0.7rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.demo-step.on .demo-step-n { background: var(--accent); color: var(--bg-raised); }
+
+/* ---- control bar ---- */
+
+.demo-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.9rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.7rem;
+}
+
+.demo-bar-nav { display: flex; gap: 0.4rem; }
+
+.demo-hint {
+  margin: 0;
+  font-size: 0.85rem;
+  color: var(--fg-muted);
+  flex: 1 1 18rem;
+}
+
+.demo-bar-git { align-items: flex-end; }
+
+.demo-commit-msg { display: flex; flex-direction: column; gap: 0.15rem; flex: 1 1 16rem; }
+.demo-commit-msg span { font-size: 0.72rem; }
+.demo-commit-msg input {
+  font: inherit;
+  font-size: 0.85rem;
+  padding: 0.3rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--fg);
+}
+
+/* ---- agent activity, reconciliation notices, transcripts ---- */
+
+.demo-activity {
+  list-style: none;
+  margin: 0 0 0.7rem;
+  padding: 0.5rem 0.7rem;
+  border-left: 3px solid var(--accent);
+  background: var(--bg-sunken);
+  border-radius: 0 8px 8px 0;
+  font-size: 0.78rem;
+  color: var(--fg-muted);
+}
+
+.demo-reconcile,
+.demo-reject {
+  margin: 0 0 0.7rem;
+  padding: 0.5rem 0.7rem;
+  border-radius: 8px;
+  font-size: 0.85rem;
+}
+
+.demo-reconcile { background: var(--ok-bg); color: var(--fg); }
+.demo-reject { background: var(--fail-bg); color: var(--fg); }
+
+.demo-transcript {
+  background: var(--term-bg);
+  color: var(--term-fg);
+  border-radius: 8px;
+  padding: 0.6rem 0.8rem;
+  margin-bottom: 0.7rem;
+  font-size: 0.78rem;
+  overflow-x: auto;
+}
+
+.demo-transcript p { margin: 0; }
+.demo-transcript-cmd { color: var(--tok-literal); }
+.demo-transcript-out { opacity: 0.9; }
+/* Inside the terminal box the page's `.muted` is the wrong grey entirely —
+   light-theme muted on near-black is unreadable. Tint the terminal's own
+   foreground instead, in both themes. */
+.demo-transcript-note {
+  margin-top: 0.5rem !important;
+  font-size: 0.72rem;
+  color: color-mix(in srgb, var(--term-fg) 68%, var(--term-bg));
+}
+
+.demo-foot {
+  margin: 0.75rem 0 0;
+  font-size: 0.78rem;
+}
+
+/* ---- the split itself ---- */
+
+.demo-split {
+  position: relative;
+  display: flex;
+  /* Ribbon channels. Same reason as .split-view: squeezed, the Sankey
+     collapses into vertical bars with nothing to follow. */
+  gap: 2.25rem;
+  align-items: stretch;
+  /* Tall enough that several fragments are on screen at once. Every anchor
+     scrolled out of view becomes a faded stub clamped to the pane edge, and a
+     Sankey made mostly of stubs reads as smudges rather than as flow. */
+  height: 34rem;
+}
+
+.demo-split-compact { height: 20rem; gap: 1.5rem; }
+
+/* Nothing generated yet: one document, full width, sized to what it holds.
+   Two empty columns explaining their own emptiness is not a diagram, and a
+   34rem box holding two lines of text is not a document — it is a hole. The
+   pane grows into the full split height as the document fills up, which is
+   itself the thing being demonstrated. */
+.demo-split-solo { gap: 0; height: auto; }
+.demo-split-solo .demo-pane-source { flex: 1; }
+.demo-split-solo .demo-editor { max-height: 34rem; }
+.demo-split-solo .demo-editor .cm-editor { height: auto; max-height: 34rem; }
+
+.demo-pane {
+  flex: 1;
+  min-width: 0;
+  /* min-height:0 + column is what lets the editor scroll itself instead of
+     overflowing the box unreachably. */
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+
+.demo-pane-source { flex: 1.15; }
+
+.demo-pane-caption {
+  margin: 0;
+  font-size: 0.7rem;
+  color: var(--fg-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Says "this one is yours to type in" without a border that shouts. */
+.demo-editable-chip {
+  margin-left: 0.5rem;
+  padding: 0.05rem 0.4rem;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--fg);
+  font-size: 0.62rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.demo-editor-editable { border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); }
+.demo-editor-editable:focus-within { border-color: var(--accent); }
+
+.demo-editor {
+  flex: 1;
+  min-height: 0;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg);
+  overflow: hidden;
+}
+
+.demo-editor .cm-editor { height: 100%; font-size: 0.88rem; }
+
+/* The document side reads as a document, exactly as it does in the app: the
+   wysiwyg decorations are global classes, but the proportional type and
+   measure they sit in are scoped to the workspace's own editor shell. */
+.demo-editor-hick .cm-scroller {
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  line-height: 1.6;
+}
+
+.demo-editor .cm-scroller { scrollbar-gutter: stable; }
+.demo-editor .cm-content { padding: 0.6rem 0.75rem 1.5rem; max-width: none; }
+.demo-editor .cm-focused { outline: none; }
+
+/* ---- middle column: the waypoint the ribbons pass through ---- */
+
+.demo-nodes {
+  flex: 0 0 11rem;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding-top: 1.1rem;
+  overflow-y: auto;
+  overflow-x: hidden;
+  scrollbar-gutter: stable;
+}
+
+.demo-split-compact .demo-nodes { flex-basis: 9rem; }
+
+.demo-nodes-heading {
+  margin: 0 0 0.15rem;
+  font-size: 0.66rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--fg-muted);
+  font-weight: 600;
+}
+
+.demo-nodes-empty { font-size: 0.75rem; margin: 0; }
+.demo-nodes-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  /* Centred down the column, not stacked at the top: the nodes are a stage of
+     the diagram, and ribbons that fan up to a huddle in the corner read as
+     converging on nothing. */
+  flex: 1;
+  justify-content: center;
+}
+
+.demo-node {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  width: 100%;
+  text-align: left;
+  padding: 0.35rem 0.5rem;
+  font-size: 0.75rem;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-left: 3px solid transparent;
+  border-radius: 7px;
+  cursor: pointer;
+}
+
+.demo-node:hover { background: var(--neutral-bg); }
+
+.demo-node.on {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  font-weight: 600;
+}
+
+.demo-node-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.demo-node-bytes {
+  margin-left: auto;
+  padding-left: 0.35rem;
+  font-size: 0.66rem;
+  color: var(--fg-muted);
+  /* "495 B" wrapping to two lines changes the node's height, and a node's
+     height is its share of the diagram. */
+  white-space: nowrap;
+}
+
+/* ---- collaboration: two clients, one document ---- */
+
+/* The two clients stack rather than sit side by side. Halving the width would
+   halve the ribbon channels too, and a Sankey drawn across 40px of gap is a
+   worse lie than showing one editor at a time — so each client gets the full
+   measure, and "two people" is carried by the presence strip and the fact
+   that typing in one moves the other. */
+.demo-sides { display: grid; gap: 1.1rem; }
+.demo-side { min-width: 0; display: flex; flex-direction: column; gap: 0.35rem; }
+
+.demo-side-who {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0;
+  font-size: 0.78rem;
+  color: var(--fg-muted);
+}
+
+.demo-dot { width: 0.6rem; height: 0.6rem; border-radius: 50%; display: inline-block; }
+
+.demo-log {
+  list-style: none;
+  margin: 0 0 0.7rem;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  font-size: 0.78rem;
+}
+
+.demo-log li {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.25rem 0.6rem;
+  border-top: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.demo-log li:first-child { border-top: none; }
+.demo-log li.unpushed { background: var(--stale-bg); }
+.demo-log-sha { color: var(--fg-muted); font-size: 0.72rem; }
+.demo-log-msg { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.demo-log-who { margin-left: auto; font-size: 0.72rem; }
+.demo-log-flag { font-size: 0.68rem; color: var(--stale); }
+
+/* ---- narrow screens ---------------------------------------------------
+   Below this width the three columns cannot hold a readable measure, and a
+   Sankey drawn across 40px channels is a lie about what the product looks
+   like. Stack instead, and drop the ribbon layer with them: the node list
+   still says what flows where, which is the honest thing a phone can show.
+*/
+
+@media (max-width: 950px) {
+  .demo-split { flex-direction: column; height: auto; gap: 0.75rem; }
+  .demo-pane { height: 18rem; }
+  .demo-nodes { flex: 0 0 auto; padding-top: 0; }
+  .demo-nodes-list { grid-auto-flow: column; grid-auto-columns: minmax(7rem, 1fr); }
+  .demo-split .ribbon-layer { display: none; }
 }

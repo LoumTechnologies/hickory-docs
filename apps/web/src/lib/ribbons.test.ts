@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { deriveRibbons, RIBBON_PALETTE_SIZE } from "./ribbons";
-import { weaveOutputs } from "../mock/weave";
+import { weaveOutputs } from "./weave";
 import { WEAVE_SOURCE } from "../mock/mockData";
 import type { OutputFile } from "../api/types";
 

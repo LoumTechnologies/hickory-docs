@@ -1,8 +1,13 @@
-// Mock-mode weaver: turns a .hick source into its generated output files with
+// In-browser weaver: turns a .hick source into its generated output files with
 // real provenance ranges, and maps output edits back to source-document edits.
 // This mirrors what the server's /outputs endpoints do (hick-literate weave),
-// scoped to the tags the mock documents use: hick:file bodies with
+// scoped to the tags a client-side document uses: hick:file bodies with
 // hick:paste slots filled from hick:copy blocks.
+//
+// Two callers, both without a server behind them: mock mode (src/mock/mockApi)
+// and the landing page's demos (src/landing/demos), which weave and re-weave
+// entirely in the visitor's browser so a stranger can drive the lineage
+// picture without an account.
 //
 // All offsets on the wire are UTF-8 BYTES (the contract in api/types.ts) —
 // and the mock honours that for real: both the weave-demo source and the
@@ -25,6 +30,19 @@ function trimContent(source: string, from: number, to: number): [number, number]
   if (from < to && source[from] === "\n") from++;
   if (to > from && source[to - 1] === "\n") to--;
   return [from, to];
+}
+
+/**
+ * The synthetic first line of a woven file, commented the way that file's
+ * language comments. A `//` on line 1 of a generated Markdown ticket is
+ * visible prose, not a comment — the banner has to speak each language or it
+ * corrupts the output it is annotating.
+ */
+function banner(language: string, docPath: string): string {
+  const text = `woven by hickory from ${docPath} — edit the doc or the slots below`;
+  if (language === "python" || language === "shell") return `# ${text}\n`;
+  if (language === "markdown" || language === "html") return `<!-- ${text} -->\n`;
+  return `// ${text}\n`;
 }
 
 /** Weave all hick:file outputs of `source`, with provenance into the doc. */
@@ -60,10 +78,7 @@ export function weaveOutputs(source: string, docPath: string): OutputFile[] {
     };
 
     // Synthetic banner the weaver adds — not present in any source span.
-    const comment = language === "python" || language === "shell" ? "#" : "//";
-    push(`${comment} woven by hickory from ${docPath} — edit the doc or the slots below\n`, {
-      kind: "synthetic",
-    });
+    push(banner(language, docPath), { kind: "synthetic" });
 
     // Paste tags inside the file body, in order.
     const pastes = structure.tags.filter(
