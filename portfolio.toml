@@ -8,13 +8,16 @@ decision_deadline = "2026-11-05"
 budget_monthly_usd = 40
 
 [domains]
-production = ""
+production = "hickorydocs.com"
+# No staging environment — production is continuously deployed from master.
+# See .instructions/continuous-delivery-shared.md (pre-launch exception).
 staging = ""
 
-[digitalocean]
-project_production = ""
-project_staging = ""
-tag = "product:hickory-docs"
+# Substrate is Fly.io, not DigitalOcean and not Railway. Terraform here owns
+# DNS only (terraform/dns); the app is described by the committed fly.toml.
+[fly]
+app_production = "hickory-docs-production"
+primary_region = "iad"
 
 [stripe]
 mode = "sandbox"

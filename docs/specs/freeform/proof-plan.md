@@ -79,9 +79,11 @@ namespaces as capability vocabulary) intact.
    NixOS builder / colo-1 after its ledger re-init), declare it in the ledger,
    set `CANOPY_*` env → the live smoke test (`HICKORY_CANOPY_LIVE=1`) closes
    the last gap. The adapter is ready.
-2. **Deploy to Railway**: Dockerfile + railway.json + operator docs exist;
-   needs your Railway account, a Postgres add-on, and a portzero tunnel (or
-   canopy's nginx/ACME domain) for the node.
+2. ~~**Deploy to Railway**~~ — done, on Fly.io instead: `hickory-docs-production`
+   serves hickorydocs.com, and every green CI run on `master` deploys to it
+   automatically (`.github/workflows/deploy-production.yml`). Still open: a
+   portzero tunnel (or canopy's nginx/ACME domain) so the deployed app can
+   reach the canopy node.
 3. **Agent live run**: set `ANTHROPIC_API_KEY` and try `hickory agent` for
    real (only the scripted-LLM path ran tonight — no key in env).
 4. Mobile: Tauri v2 scaffolds are configured (`apps/mobile/README-mobile.md`);

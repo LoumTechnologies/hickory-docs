@@ -125,10 +125,19 @@ docs/  guarantees/  specs/freeform/  users/  developers/
 ## Delivery
 
 - Portfolio conventions: `master` branch only, `portfolio.toml` (tier=full),
-  `justfile` at root, `docs/guarantees/`, PostHog per environment, Stripe catalog
-  from `plans.json` (Terraform-owned), staging + gated production promote.
-- Substrate: **Railway** (managed PaaS; server + Postgres). The app reaches the
-  local Cloud Canopy node via a portzero tunnel (or later canopy's nginx/ACME
-  public console); node endpoint + token are environment config.
+  `justfile` at root, `docs/guarantees/`, Stripe catalog from `plans.json`.
+- Substrate: **Fly.io** (managed PaaS; server + Postgres), app
+  `hickory-docs-production`, described by the committed `fly.toml`. Railway was
+  evaluated and dropped. The app reaches the local Cloud Canopy node via a
+  portzero tunnel (or later canopy's nginx/ACME public console); node endpoint
+  + token are environment config.
+- Delivery: **continuous deployment to production**. Every green CI run on
+  `master` deploys to hickorydocs.com (`.github/workflows/deploy-production.yml`).
+  There is no staging environment and no promote gate — a deliberate pre-launch
+  exception whose expiry conditions live in
+  `.instructions/continuous-delivery-shared.md`. One consequence worth stating:
+  with no staging, PostHog has a single production project rather than one per
+  environment, so local-dev events must stay unconfigured rather than pointed
+  at it.
 - Open source (license: MIT, matching the prior hick codebases) once Nate
   flips repos public; private until then.

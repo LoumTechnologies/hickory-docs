@@ -24,6 +24,41 @@ downloads. That is a separate axis — product shape, not substrate — so a
 downloadable product still enables this module, plus a substrate module only if
 it actually owns infrastructure (e.g. a Stripe catalog or licence service).
 
+## Pre-launch exception — ACTIVE IN THIS REPO (adopted 2026-08-09)
+
+**Hickory Docs continuously deploys to production.** Every green CI run on
+`master` ships to hickorydocs.com via **Deploy Production**
+(`.github/workflows/deploy-production.yml`). There is no staging environment,
+no promote workflow, and no required reviewer on the `production` GitHub
+Environment. This overrides the staging and promotion rules below wherever
+they conflict; the rest of this module still applies in full.
+
+Why this is defensible *right now*: the product is pre-launch (`pre-launch`
+module enabled), has no real users and no live payments, and has one
+maintainer (`one-man-team`). A promote gate whose only reviewer is the person
+who wrote the commit is ceremony, not control, and a staging environment
+nobody looks at is cost without signal. Shipping on green keeps the feedback
+loop short while that is true.
+
+What it costs, stated plainly rather than discovered later:
+
+- A bug that CI does not catch reaches the live domain immediately.
+- Rollback is "revert the commit and push" — which does **not** undo a
+  database migration. Destructive migrations need a forward fix.
+- There is no environment to rehearse an infrastructure or migration change
+  in. The first real execution of any such change is production.
+- With one environment there is one PostHog project, so local-dev analytics
+  must stay unconfigured rather than pointed at production.
+
+**End this exception when any of these becomes true** — at which point restore
+the staging + gated promote path described below, and delete this section:
+
+1. Real users depend on the service (switch `pre-launch` → `post-launch`), or
+2. live payments are enabled, or
+3. a second person commits regularly (switch `one-man-team` →
+   `multiple-team-members`), or
+4. a bad deploy causes an incident anyone outside the team notices.
+
 ## Branch policy
 
 - There must **always** be a long-lived **`master`** branch.
@@ -42,6 +77,7 @@ names for cloud workflows. Cloud Actions UI names are **promote** language;
 
 | Workflow `name:` (Actions UI) | Trigger | What it does |
 |-------------------------------|---------|--------------|
+| **Deploy Production** *(this repo, pre-launch exception)* | Green **CI** run on `master` | Ungated auto-deploy to production. Replaces the three rows below while the exception at the top of this file is active. |
 | **Deploy Staging** | Push to `master` | Ungated auto-deploy to the **cloud** staging environment + live E2E. Staging stays as similar to production as possible (real TLS, separate secrets, same substrate class). Never host staging on a developer machine. |
 | **Trigger Promote to Production** | `workflow_dispatch` only, `production` GitHub Environment gate | Human-approved gate: choose the ref to promote (default: `master` tip), optional version `bump` (`patch` / `minor` / `major` / `none`), then start **Promote to Production**. With `bump: none` and an older ref/tag, redeploy without cutting a new tag. |
 | **Promote to Production** | Started by the trigger workflow (or an equivalent production-gated path) | Deploy the chosen ref to production infra, health-check it, then stamp immutable `vX.Y.Z` when `bump != none`. Idempotent enough to re-run for rollback with an older ref and `bump: none`. |
@@ -52,6 +88,10 @@ the workflow `name:` field is what operators see. Prefer names that say
 **promote**, not **release**, for cloud.
 
 ## Promotion rules
+
+> Superseded in this repo by the pre-launch exception at the top of this file:
+> `master` deploys straight to production and there is no staging environment.
+> The rules below are what to restore when that exception ends.
 
 - Github Actions must automatically deploy `master` to the cloud staging
   environment (**Deploy Staging**) on every update.

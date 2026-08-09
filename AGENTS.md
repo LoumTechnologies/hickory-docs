@@ -15,7 +15,13 @@ first — it is the authoritative design.
   (Cloud Canopy GraphQL + capability tokens). NEVER reintroduce the wasm
   container runtime, and NEVER integrate third-party CLIs (cram, VHS, etc.) —
   verification and transcript capture are first-party.
-- Substrate: Railway (PaaS). Branch: `master` only; production is a gated promote.
+- Substrate: **Fly.io** (PaaS), app `hickory-docs-production`, config in the
+  committed `fly.toml`. Railway was evaluated and dropped — do not reintroduce
+  it. Branch: `master` only. **Production is continuously deployed**: every
+  green CI run on `master` ships to hickorydocs.com via the Deploy Production
+  workflow. There is no staging environment and no promote gate; this is a
+  deliberate pre-launch exception, recorded with its expiry conditions in
+  `.instructions/continuous-delivery-shared.md`.
 
 ## Rules
 

@@ -23,8 +23,9 @@ launch. No sales team. That mandates clear public packaging and a free tier
 that produces the distribution (public docs hosted free = marketing surface,
 same mechanic as ReadMe/Observable).
 
-**Cost structure (portfolio accounting)**: Railway app + Postgres are the
-marginal costs (~$10–20/mo at launch); execution runs on Nate's own Cloud
+**Cost structure (portfolio accounting)**: Fly.io app + Postgres are the
+marginal costs (~$10–20/mo at launch, and less while the machine scales to
+zero between visitors); execution runs on Nate's own Cloud
 Canopy node, so compute margin is effectively hardware amortization until
 third-party nodes are added. PostHog/SendGrid are shared portfolio overhead.
 True floor per paying customer is near zero; price is set by value, not cost.

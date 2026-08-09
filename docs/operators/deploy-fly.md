@@ -3,6 +3,67 @@
 The server, the web app, and the LSP bridge are one image. `fly.toml` and
 `Dockerfile` in the repository root are the whole deployment.
 
+## You do not deploy by hand
+
+**Pushing to `master` deploys to production.** CI runs first; if it passes,
+**Deploy Production** (`.github/workflows/deploy-production.yml`) deploys that
+exact commit to `hickory-docs-production` and then health-checks
+<https://hickorydocs.com/api/health>. A red CI run deploys nothing.
+
+There is no staging environment and no promote gate. That is deliberate and
+temporary — the reasoning and the conditions that should end it are in
+`.instructions/continuous-delivery-shared.md`.
+
+The commands below are for the **first** deploy, for setting secrets, and for
+the times automation is not available. A manual `fly deploy` from a laptop
+deploys your working tree, not a commit anyone can identify later — reach for
+it only when you mean it.
+
+### Rolling back
+
+Revert the commit and push. The revert goes through CI and deploys like any
+other change.
+
+**A revert does not undo a database migration.** Migrations run at boot and are
+forward-only, so a deploy that added a destructive migration needs a *forward*
+fix — a new migration restoring what the last one removed. Rolling the app
+image back under a migrated database gives you an old binary against a new
+schema, which is usually worse than the bug you were fixing.
+
+To get back on your feet faster than a revert allows:
+
+```sh
+fly releases --app hickory-docs-production          # find the last good version
+fly deploy --image <image-ref-from-that-release> --app hickory-docs-production
+```
+
+Then still push the revert, or the next green build redeploys the bad code.
+
+### When the health check fails
+
+The deploy already happened — a failed health check does not roll anything
+back. Start here:
+
+```sh
+fly logs --app hickory-docs-production
+fly status --app hickory-docs-production
+```
+
+The most common cause is not a bad build: it is a missing or invalid secret,
+which in production is a deliberate refusal to start (see
+`docs/operators/ENVIRONMENTS.md`) rather than a silent degrade.
+
+### Deploy credentials
+
+The workflow authenticates with `FLY_API_TOKEN`, a deploy-scoped token held in
+the repository's **production** GitHub Environment alongside the
+`APP_BASE_URL` variable. It expires one year from issue. To replace it:
+
+```sh
+fly tokens create deploy --app hickory-docs-production --name github-actions-deploy --expiry 8760h \
+  | gh secret set FLY_API_TOKEN --env production
+```
+
 ## What it costs when nobody is using it
 
 `auto_stop_machines = "stop"` with `min_machines_running = 0` means the machine

@@ -1,0 +1,98 @@
+# Continuous deployment to production.
+#
+# This repo deliberately has NO staging environment and NO manual promote gate
+# — every green build of `master` ships to hickorydocs.com. That is a
+# considered pre-launch choice, not an oversight; the reasoning and the
+# conditions that should end it are written down in
+# .instructions/continuous-delivery-shared.md under "Pre-launch exception".
+# Do not "restore" a promote gate here without changing that file too.
+#
+# Rollback: revert the offending commit and push. That is the whole procedure,
+# and it is why the deploy must stay fast and boring. Reverting does NOT undo a
+# database migration — a destructive migration needs a forward fix, not a
+# revert (see docs/operators/deploy-fly.md).
+name: Deploy Production
+
+on:
+  # Chained off CI rather than off `push` so a red build cannot reach the live
+  # domain. `workflow_run` fires for failed runs too, hence the conclusion
+  # check on the job below.
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [master]
+
+concurrency:
+  # Never let two deploys interleave. Not `cancel-in-progress`: killing a
+  # half-finished `flyctl deploy` is how you get a machine running an image
+  # nobody has a record of.
+  group: deploy-production
+  cancel-in-progress: false
+
+env:
+  # Pinned like every other tool this repo installs in CI, so a broken flyctl
+  # release cannot take production with it.
+  FLYCTL_VERSION: 0.4.79
+
+jobs:
+  deploy:
+    if: github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    # Every vars.*/secrets.* reference must live in a GitHub Environment
+    # (.instructions/config-and-environments.md). This environment
+    # deliberately has no required reviewer — one would pause every deploy
+    # waiting for a click, which is exactly what this pipeline exists not to do.
+    environment:
+      name: production
+      url: ${{ vars.APP_BASE_URL }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # `workflow_run` defaults to the default branch's tip, which can have
+          # moved past what CI actually verified. Deploying the exact commit
+          # that went green is the entire safety property of chaining off CI.
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - name: Install flyctl
+        run: |
+          curl -fsSL https://fly.io/install.sh | sh -s "$FLYCTL_VERSION"
+          echo "$HOME/.fly/bin" >> "$GITHUB_PATH"
+
+      - name: Deploy
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
+        # App name, region, mounts, and VM size come from the committed
+        # fly.toml — the platform's own config file is the record of intent
+        # (.instructions/continuous-delivery-paas.md), so they are not
+        # duplicated here. Secrets the server needs at boot (DATABASE_URL,
+        # JWT_SECRET, …) are held by Fly, set with `fly secrets set`.
+        # `--remote-only` builds on Fly's builders: no Docker daemon needed
+        # on the runner, and the image never transits this job.
+        run: flyctl deploy --remote-only --wait-timeout 600
+
+      - name: Health check
+        env:
+          APP_BASE_URL: ${{ vars.APP_BASE_URL }}
+        # A deploy that reports success and serves 502 is a failed deploy. The
+        # retry loop is for cold start, not for flakiness: fly.toml scales to
+        # zero, so the first request after a deploy pays machine boot plus
+        # migrations before it can answer.
+        run: |
+          for attempt in $(seq 1 10); do
+            code=$(curl -fsS -o /tmp/health.json -w '%{http_code}' --max-time 20 \
+              "$APP_BASE_URL/api/health" || echo 000)
+            if [ "$code" = "200" ]; then
+              echo "healthy after ${attempt} attempt(s):"
+              cat /tmp/health.json
+              exit 0
+            fi
+            echo "attempt ${attempt}: HTTP ${code}, retrying in 15s"
+            sleep 15
+          done
+          echo
+          echo "::error::Production did not become healthy at $APP_BASE_URL/api/health."
+          echo "The new version IS deployed — this check failing does not roll it back."
+          echo "Inspect it with:  flyctl logs --app hickory-docs-production"
+          echo "Roll back by reverting the commit and pushing; a bad migration"
+          echo "needs a forward fix instead (docs/operators/deploy-fly.md)."
+          exit 1
