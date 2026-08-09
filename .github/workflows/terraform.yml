@@ -103,13 +103,36 @@ jobs:
               ;;
           esac
 
+      - name: Check the state-backend account id
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+        # A malformed account id produces "dial tcp: lookup
+        # ***.r2.cloudflarestorage.com: no such host" three steps later, which
+        # reads like a network outage. It is not: Cloudflare wildcard-resolves
+        # every valid *.r2.cloudflarestorage.com name, so a lookup failure
+        # means the value is not a bare account id — most often it was pasted
+        # as a full endpoint URL, or with a trailing newline.
+        run: |
+          if ! printf '%s' "$R2_ACCOUNT_ID" | grep -qE '^[0-9a-f]{32}$'; then
+            echo "::error::R2_ACCOUNT_ID is not a bare 32-character hex account id."
+            echo "It must be JUST the id (Cloudflare dashboard → R2 → Account ID),"
+            echo "not https://<id>.r2.cloudflarestorage.com and with no trailing"
+            echo "whitespace or newline. Fix it in BOTH GitHub Environments:"
+            echo "  printf '%s' <account-id> | gh secret set R2_ACCOUNT_ID --env production-plan"
+            echo "  printf '%s' <account-id> | gh secret set R2_ACCOUNT_ID --env production"
+            exit 1
+          fi
+
       - name: Init
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          # Referenced as a shell variable rather than interpolated into the
+          # script text, so the value cannot be parsed as shell.
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
         run: |
           terraform init \
-            -backend-config="endpoints={s3=\"https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com\"}"
+            -backend-config="endpoints={s3=\"https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com\"}"
 
       - name: Format check
         run: terraform fmt -check -recursive
@@ -208,13 +231,36 @@ jobs:
               ;;
           esac
 
+      - name: Check the state-backend account id
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+        # A malformed account id produces "dial tcp: lookup
+        # ***.r2.cloudflarestorage.com: no such host" three steps later, which
+        # reads like a network outage. It is not: Cloudflare wildcard-resolves
+        # every valid *.r2.cloudflarestorage.com name, so a lookup failure
+        # means the value is not a bare account id — most often it was pasted
+        # as a full endpoint URL, or with a trailing newline.
+        run: |
+          if ! printf '%s' "$R2_ACCOUNT_ID" | grep -qE '^[0-9a-f]{32}$'; then
+            echo "::error::R2_ACCOUNT_ID is not a bare 32-character hex account id."
+            echo "It must be JUST the id (Cloudflare dashboard → R2 → Account ID),"
+            echo "not https://<id>.r2.cloudflarestorage.com and with no trailing"
+            echo "whitespace or newline. Fix it in BOTH GitHub Environments:"
+            echo "  printf '%s' <account-id> | gh secret set R2_ACCOUNT_ID --env production-plan"
+            echo "  printf '%s' <account-id> | gh secret set R2_ACCOUNT_ID --env production"
+            exit 1
+          fi
+
       - name: Init
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          # Referenced as a shell variable rather than interpolated into the
+          # script text, so the value cannot be parsed as shell.
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
         run: |
           terraform init \
-            -backend-config="endpoints={s3=\"https://${{ secrets.R2_ACCOUNT_ID }}.r2.cloudflarestorage.com\"}"
+            -backend-config="endpoints={s3=\"https://${R2_ACCOUNT_ID}.r2.cloudflarestorage.com\"}"
 
       - uses: actions/download-artifact@v4
         with:
