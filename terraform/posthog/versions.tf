@@ -24,6 +24,10 @@ terraform {
     key    = "posthog/terraform.tfstate"
     region = "auto"
 
+    # R2 is path-style only; see terraform/dns/versions.tf for what the
+    # default virtual-hosted addressing fails with.
+    use_path_style = true
+
     use_lockfile                 = true
     skip_credentials_validation  = true
     skip_metadata_api_check      = true

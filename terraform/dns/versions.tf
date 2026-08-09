@@ -26,6 +26,13 @@ terraform {
     key    = "dns/terraform.tfstate"
     region = "auto"
 
+    # R2 serves only path-style URLs (endpoint/bucket/key). The AWS SDK
+    # defaults to virtual-hosted style (bucket.endpoint/key), whose hostname
+    # simply does not resolve on R2 — the failure surfaces as
+    # "dial tcp: lookup <bucket>.<account>.r2.cloudflarestorage.com: no such
+    # host", which reads like a network fault rather than an addressing mode.
+    use_path_style = true
+
     use_lockfile                 = true
     skip_credentials_validation  = true
     skip_metadata_api_check      = true
