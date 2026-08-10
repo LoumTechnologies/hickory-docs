@@ -56,6 +56,94 @@ use crate::expect::ExpectationOutcome;
 use hick_condition::Condition;
 
 // ---------------------------------------------------------------------------
+// Cell identity and missing baselines
+// ---------------------------------------------------------------------------
+
+/// Identity of one cell in a document.
+///
+/// An `<hick:exec>` cell names the container it runs in. A cell with **no**
+/// container — the agent cell described in
+/// `docs/specs/freeform/agent-cells.md` — leaves `container` `None`. That is
+/// why this is a struct rather than the `(container, source_line)` tuple it
+/// replaces: a key that assumes a container cannot name a cell that has none.
+#[derive(Clone, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+pub struct CellId {
+    /// The container this cell executes in, when it has one.
+    pub container: Option<String>,
+    /// Line of the cell's opening tag in its source document.
+    pub source_line: usize,
+}
+
+impl CellId {
+    /// A cell that runs inside a container (`<hick:exec container="…">`).
+    pub fn exec(container: impl Into<String>, source_line: usize) -> Self {
+        Self {
+            container: Some(container.into()),
+            source_line,
+        }
+    }
+
+    /// A cell with no container of its own.
+    pub fn containerless(source_line: usize) -> Self {
+        Self {
+            container: None,
+            source_line,
+        }
+    }
+
+    /// The container name, when this cell has one.
+    pub fn container(&self) -> Option<&str> {
+        self.container.as_deref()
+    }
+}
+
+impl std::fmt::Display for CellId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match &self.container {
+            Some(c) => write!(f, "line {} (container '{c}')", self.source_line),
+            None => write!(f, "line {}", self.source_line),
+        }
+    }
+}
+
+/// Why a cell has no baseline to be verified against.
+///
+/// This is the *unverifiable* half of `check`'s verdict: nothing was ever
+/// established for the cell, which is a different fact from "what was
+/// established has since changed" (drift). See
+/// `docs/guarantees/verification/check-separates-unverifiable-from-drifted.md`.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum NoBaseline {
+    /// Weave or dry-run: nothing is executed, and no recording answered this
+    /// cell.
+    NotExecuted,
+    /// The cell must not execute (it is frozen) and no recording exists for
+    /// it. `frozen_by_cell` distinguishes `freeze="true"` on the cell itself
+    /// from a run-wide freeze the cell merely inherited.
+    FrozenWithoutRecording {
+        /// First non-empty command line, so a report can name the cell.
+        command: String,
+        frozen_by_cell: bool,
+    },
+    /// The cell declares `freeze="true"`, but this run has no cache directory
+    /// at all — there is nowhere for a recording to live.
+    FrozenWithoutCacheDirectory { command: String },
+}
+
+/// Cells with no baseline, keyed by cell.
+pub type NeverRun = std::collections::BTreeMap<CellId, NoBaseline>;
+
+/// The first non-empty line of a command, for naming a cell in a report.
+fn first_command_line(command: &str) -> String {
+    command
+        .lines()
+        .map(str::trim)
+        .find(|l| !l.is_empty())
+        .unwrap_or("?")
+        .to_string()
+}
+
+// ---------------------------------------------------------------------------
 // Pipeline result
 // ---------------------------------------------------------------------------
 
@@ -79,9 +167,11 @@ pub struct PipelineResult {
     /// Expectation (`<hick:expect>`) outcomes, in execution order. Recorded
     /// but non-fatal on `run`; `check` turns failures into a non-zero exit.
     pub expectations: Vec<ExpectationOutcome>,
-    /// Exec blocks that never ran, as `(container, source_line)` pairs
-    /// (dry-run and weave-without-cache modes).
-    pub never_run: std::collections::HashSet<(String, usize)>,
+    /// Cells with no baseline, and why: they neither executed nor were
+    /// answered from a recording. Populated by dry-run and
+    /// weave-without-cache modes always, and by the live pipeline when
+    /// [`PipelineConfig::collect_unverifiable`] is set.
+    pub never_run: NeverRun,
 }
 
 // ---------------------------------------------------------------------------
@@ -506,14 +596,16 @@ pub async fn run_pipeline_with_authority(
 
     // Build dry-run transcripts: collect commands per container in DAG order
     let mut transcripts: HashMap<String, Vec<ExecTranscriptEntry>> = HashMap::new();
-    let mut never_run: std::collections::HashSet<(String, usize)> =
-        std::collections::HashSet::new();
+    let mut never_run: NeverRun = NeverRun::new();
     for (_, doc) in &documents {
         let flow_dag = dag::build_dag(doc).unwrap();
         for exec_id in flow_dag.topological_order() {
             let info = flow_dag.execs.iter().find(|e| e.id == exec_id).unwrap();
             let commands: Vec<String> = vec![info.command.trim().to_string()];
-            never_run.insert((info.container.clone(), info.source_line));
+            never_run.insert(
+                CellId::exec(&info.container, info.source_line),
+                NoBaseline::NotExecuted,
+            );
             transcripts
                 .entry(info.container.clone())
                 .or_default()
@@ -564,6 +656,16 @@ pub struct PipelineConfig {
     pub max_rounds: usize,
     /// Optional per-exec live event hook (server run streaming).
     pub on_exec: Option<ExecEventHook>,
+    /// Collect cells with no baseline into [`PipelineResult::never_run`]
+    /// instead of aborting the run (default: abort).
+    ///
+    /// `run` aborts: it asks "what is the answer now", and a cell that cannot
+    /// answer is a hard stop the user should see immediately. `check` sets
+    /// this, because it asks "does this document still verify" — a question
+    /// whose honest answer is *unverifiable*, reported for every affected
+    /// cell in one pass with its own exit code, not a single abort at the
+    /// first one.
+    pub collect_unverifiable: bool,
 }
 
 /// Run the pipeline with real command execution through an [`Executor`].
@@ -631,6 +733,10 @@ pub async fn run_pipeline_live(
     let mut expectations: Vec<ExpectationOutcome> = Vec::new();
     // Per-container source lines, in the order entries were appended.
     let mut exec_lines: HashMap<String, Vec<usize>> = HashMap::new();
+    // Cells that could not be verified because nothing was ever recorded for
+    // them. Only ever non-empty when `config.collect_unverifiable` is set;
+    // otherwise the same conditions abort the run.
+    let mut never_run: NeverRun = NeverRun::new();
 
     // Volume declarations were collected during preparation (their access
     // rules are part of container capabilities); set up the store over them.
@@ -707,6 +813,18 @@ pub async fn run_pipeline_live(
             };
 
             if exec_info.freeze == Some(true) && cache_config.is_none() {
+                // No cache directory means no recording can exist, so this
+                // cell has no baseline. `check` collects that verdict; every
+                // other caller stops here.
+                if config.collect_unverifiable {
+                    never_run.insert(
+                        CellId::exec(&exec_info.container, exec_info.source_line),
+                        NoBaseline::FrozenWithoutCacheDirectory {
+                            command: first_command_line(&exec_info.command),
+                        },
+                    );
+                    continue;
+                }
                 anyhow::bail!(
                     "the exec in container '{}' at line {} declares freeze=\"true\", but this \
                      run has no cache directory, so there is no recording to check it \
@@ -768,6 +886,19 @@ pub async fn run_pipeline_live(
                     }
                     continue;
                 } else if require_cache {
+                    // Frozen, and nothing was ever recorded for it: no
+                    // baseline exists. Not drift — drift needs a baseline to
+                    // have drifted FROM.
+                    if config.collect_unverifiable {
+                        never_run.insert(
+                            CellId::exec(&exec_info.container, exec_info.source_line),
+                            NoBaseline::FrozenWithoutRecording {
+                                command: first_command_line(&exec_info.command),
+                                frozen_by_cell: exec_info.freeze == Some(true),
+                            },
+                        );
+                        continue;
+                    }
                     let scope = if exec_info.freeze == Some(true) {
                         "this cell declares freeze=\"true\""
                     } else {
@@ -1077,7 +1208,7 @@ pub async fn run_pipeline_live(
         resource_stats,
         transcripts,
         expectations,
-        never_run: std::collections::HashSet::new(),
+        never_run,
     })
 }
 
@@ -1119,8 +1250,7 @@ pub async fn run_pipeline_weave(
     } = prepared;
 
     let mut transcripts: Transcripts = HashMap::new();
-    let mut never_run: std::collections::HashSet<(String, usize)> =
-        std::collections::HashSet::new();
+    let mut never_run: NeverRun = NeverRun::new();
 
     for (name, doc) in &documents {
         let flow_dag = dag::build_dag(doc)
@@ -1153,7 +1283,10 @@ pub async fn run_pipeline_weave(
                     source_line: Some(info.source_line),
                 },
                 None => {
-                    never_run.insert((info.container.clone(), info.source_line));
+                    never_run.insert(
+                        CellId::exec(&info.container, info.source_line),
+                        NoBaseline::NotExecuted,
+                    );
                     ExecTranscriptEntry {
                         commands,
                         output: "[never run]".to_string(),
@@ -2056,6 +2189,7 @@ pub async fn run_pipeline_cmd(opts: PipelineRunOpts) -> Result<()> {
             working_dir: None,
             max_rounds: 1,
             on_exec: None,
+            ..Default::default()
         };
         let executor: Arc<dyn Executor> = Arc::new(LocalExecutor::new()?);
         run_pipeline_live(&sources, &pipeline_config, &params, cc.as_ref(), executor).await?
@@ -2294,6 +2428,27 @@ async fn pipeline_session_replay(file_path: &Path, source: &str, verbose: bool) 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // Protects the "key does not assume a container" clause of
+    // docs/guarantees/verification/check-separates-unverifiable-from-drifted.md.
+    #[test]
+    fn a_cell_with_no_container_can_be_named_and_keyed() {
+        let agentish = CellId::containerless(12);
+        assert_eq!(agentish.container(), None);
+        assert_eq!(agentish.to_string(), "line 12");
+
+        let exec = CellId::exec("build", 12);
+        assert_eq!(exec.container(), Some("build"));
+        assert_eq!(exec.to_string(), "line 12 (container 'build')");
+
+        // Same line, different cells: the key distinguishes them.
+        let mut never_run = NeverRun::new();
+        never_run.insert(agentish.clone(), NoBaseline::NotExecuted);
+        never_run.insert(exec.clone(), NoBaseline::NotExecuted);
+        assert_eq!(never_run.len(), 2);
+        assert!(never_run.contains_key(&agentish));
+        assert!(never_run.contains_key(&exec));
+    }
 
     #[test]
     fn extract_single_verify_command() {

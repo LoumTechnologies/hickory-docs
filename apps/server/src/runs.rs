@@ -293,6 +293,7 @@ async fn execute_run(
         working_dir: Some(doc_file.parent().unwrap_or(tmp.path()).to_path_buf()),
         max_rounds: 1,
         on_exec: Some(hook),
+        ..Default::default()
     };
     let pipeline = run_pipeline_live(&sources, &config, &[], None, executor.clone()).await;
     // Closing the hook's channel ends the forwarder.
@@ -343,6 +344,9 @@ async fn execute_run(
                                     "line {line}: the passage written from '{select}' no longer \
                                  matches its input — run `hickory refresh`"
                                 )
+                            }
+                            hickory_cli::CheckFailure::Unverifiable { doc, cell, reason } => {
+                                hickory_cli::unverifiable_message(doc, cell, reason)
                             }
                         })
                         .collect();

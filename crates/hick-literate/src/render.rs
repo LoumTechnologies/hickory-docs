@@ -61,9 +61,10 @@ pub struct BlockModelInput<'a> {
     pub expectations: &'a [ExpectationOutcome],
     /// Final rendered file outputs, when available (`<hick:file>` bodies).
     pub files: Option<&'a HashMap<String, FileContent>>,
-    /// Exec blocks known to have never run (weave-without-cache), as
-    /// `(container, source_line)` pairs.
-    pub never_run: &'a std::collections::HashSet<(String, usize)>,
+    /// Cells known to have no baseline — they neither executed nor were
+    /// answered from a recording — keyed by [`crate::CellId`] so a cell with
+    /// no container can be named too.
+    pub never_run: &'a crate::NeverRun,
 }
 
 /// Build the block model for one document.
@@ -192,7 +193,11 @@ fn exec_block(
         .iter()
         .find(|o| o.container == container && o.line == line);
 
-    let status = if input.never_run.contains(&(container.clone(), line)) || entry.is_none() {
+    let status = if input
+        .never_run
+        .contains_key(&crate::CellId::exec(&container, line))
+        || entry.is_none()
+    {
         "never-run"
     } else if let Some(o) = outcome {
         if o.passed { "ok" } else { "failed" }

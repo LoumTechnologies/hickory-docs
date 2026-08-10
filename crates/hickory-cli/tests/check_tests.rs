@@ -235,3 +235,167 @@ fn canopy_executor_without_config_fails_actionably() {
     assert!(stderr.contains("is not set"), "{stderr}");
     assert!(stderr.contains("HICKORY_EXECUTOR=local"), "{stderr}");
 }
+
+// ---------------------------------------------------------------------------
+// Three outcomes: verified / drifted / unverifiable
+//
+// These protect
+// docs/guarantees/verification/check-separates-unverifiable-from-drifted.md.
+// ---------------------------------------------------------------------------
+
+/// The frozen cell's command, shared between the document and the recording
+/// so the cache key the pipeline computes is the one the test wrote.
+const FROZEN_COMMAND: &str = "\nprintf 'one\\ntwo\\n'\n";
+
+fn frozen_doc() -> String {
+    format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="frozen.md">
+# Frozen
+
+<hick:container name="c" image="alpine:3.20" />
+
+<hick:exec container="c" freeze="true">{FROZEN_COMMAND}</hick:exec>
+</hick:doc>
+"#
+    )
+}
+
+/// Pre-record what a run would have stored for the frozen cell, without
+/// running it — the same shape `crates/hick-literate/tests/freeze_tests.rs`
+/// uses.
+fn record_frozen_cell(project_dir: &Path, output: &str) {
+    let cc = hick_literate::cache::CacheConfig::new(project_dir, false, false);
+    let key = hick_literate::cache::exec_cache_key("alpine:3.20", "", FROZEN_COMMAND, &[]);
+    hick_literate::cache::cache_store(
+        &cc,
+        "c",
+        &key,
+        &hick_literate::cache::ExecCacheEntry {
+            commands: vec![FROZEN_COMMAND.trim().to_string()],
+            output: output.to_string(),
+            output_hash: hick_literate::cache::sha256_hex(output),
+        },
+    )
+    .unwrap();
+}
+
+#[test]
+fn check_exits_verified_when_nothing_changed() {
+    let dir = tempfile::tempdir().unwrap();
+    let doc = write_doc(dir.path(), "passing.hick", PASSING_DOC);
+    assert!(hickory().arg("run").arg(&doc).status().unwrap().success());
+    let out = hickory().arg("check").arg(&doc).output().unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "verified is exit 0: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+#[test]
+fn check_exits_drifted_when_something_changed() {
+    let dir = tempfile::tempdir().unwrap();
+    let doc = write_doc(dir.path(), "drifted.hick", DRIFTED_DOC);
+    let out = hickory().arg("check").arg(&doc).output().unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(1),
+        "drifted is exit 1: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+#[test]
+fn check_exits_unverifiable_when_a_cell_has_no_baseline() {
+    // The bug this closes: a document whose cell never ran used to pass
+    // `check`. A frozen cell with no recording never executes AND has
+    // nothing to be checked against — nothing was ever established, which is
+    // not the same fact as "something changed".
+    let dir = tempfile::tempdir().unwrap();
+    let doc = write_doc(dir.path(), "frozen.hick", &frozen_doc());
+    let out = hickory().arg("check").arg(&doc).output().unwrap();
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(
+        out.status.code(),
+        Some(2),
+        "unverifiable gets its own exit code, not drift's: {stderr}"
+    );
+    // Per .instructions/user-facing-errors.md: which cell, why, what to do.
+    assert!(
+        stderr.contains("frozen.hick"),
+        "names the document: {stderr}"
+    );
+    assert!(stderr.contains("container 'c'"), "names the cell: {stderr}");
+    assert!(
+        stderr.contains("line 7") || stderr.contains("line 8"),
+        "names the source line of the exec: {stderr}"
+    );
+    assert!(
+        stderr.contains("freeze=\"true\""),
+        "says why there is no baseline: {stderr}"
+    );
+    assert!(
+        stderr.contains("remove freeze=\"true\""),
+        "says what to do about it: {stderr}"
+    );
+    // #6: `hickory run` has no --cache flag, so the fix must not name one as
+    // if it were runnable today.
+    assert!(
+        !stderr.contains("run `hick run --cache`") && !stderr.contains("hickory run --cache"),
+        "must not tell the user to run a flag the binary does not accept: {stderr}"
+    );
+}
+
+#[test]
+fn check_reports_unverifiable_when_the_recording_directory_exists_but_the_cell_is_not_in_it() {
+    // A recording directory with the wrong (or no) entry for this cell is
+    // still no baseline for THIS cell.
+    let dir = tempfile::tempdir().unwrap();
+    record_frozen_cell(dir.path(), "one\ntwo\n");
+    // Retire the recording the way an edit would: a different command means a
+    // different key, so the directory exists but this cell is not in it.
+    let doc = write_doc(
+        dir.path(),
+        "frozen.hick",
+        &frozen_doc().replace("printf 'one\\ntwo\\n'", "printf 'changed\\n'"),
+    );
+    let out = hickory().arg("check").arg(&doc).output().unwrap();
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(out.status.code(), Some(2), "{stderr}");
+    assert!(
+        stderr.contains("printf 'changed"),
+        "names the command that has no recording: {stderr}"
+    );
+}
+
+#[test]
+fn a_frozen_cell_served_from_its_recording_is_verified_not_unverifiable() {
+    // The interaction that must not regress: freeze is a baseline, not the
+    // absence of one. A frozen cell WITH a recording has been verified
+    // against something, and must report verified.
+    let dir = tempfile::tempdir().unwrap();
+    let doc = write_doc(dir.path(), "frozen.hick", &frozen_doc());
+    record_frozen_cell(dir.path(), "one\ntwo\n");
+
+    // `run` serves the frozen cell from the recording and writes frozen.md.
+    let run_out = hickory().arg("run").arg(&doc).output().unwrap();
+    assert!(
+        run_out.status.success(),
+        "run: {}",
+        String::from_utf8_lossy(&run_out.stderr)
+    );
+
+    let out = hickory().arg("check").arg(&doc).output().unwrap();
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "a frozen cell with a recording HAS a baseline: {stderr}"
+    );
+    assert!(
+        !stderr.contains("UNVERIFIABLE"),
+        "must not be reported unverifiable: {stderr}"
+    );
+}

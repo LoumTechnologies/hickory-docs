@@ -187,6 +187,7 @@ async fn run_pipeline_and_merge(
             working_dir: None,
             max_rounds: 1,
             on_exec: None,
+            ..Default::default()
         };
         let executor: Arc<dyn crate::Executor> = Arc::new(LocalExecutor::new()?);
         let result =

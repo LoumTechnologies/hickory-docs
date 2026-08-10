@@ -652,6 +652,7 @@ impl EditSession {
             working_dir: Some(project_dir.clone()),
             max_rounds: 1,
             on_exec: None,
+            ..Default::default()
         };
         let result =
             match hick_literate::run_pipeline_live(&sources, &config, &self.params, None, executor)
@@ -764,6 +765,7 @@ impl EditSession {
                 working_dir: Some(dir.clone()),
                 max_rounds: 1,
                 on_exec: None,
+                ..Default::default()
             };
             let sources = vec![(name.as_str(), source.as_str())];
             let result = match hick_literate::run_pipeline_live(

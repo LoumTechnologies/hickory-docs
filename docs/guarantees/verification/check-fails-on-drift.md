@@ -6,6 +6,10 @@ expectation (`exact` byte equality, or `regex-lines` full-line regex match),
 then the command exits non-zero and reports the failing block with its source
 span — documentation drift is a build failure, never a warning.
 
+Drift is exit code `1` specifically; a cell that was never verified against
+anything is a *different* outcome with its own code. See
+`check-separates-unverifiable-from-drifted.md`.
+
 ---
 
 Last LLM verification:

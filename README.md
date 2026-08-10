@@ -127,13 +127,34 @@ history, not a chat log that evaporated.
 ## Reference
 
 - `hickory run <doc|dir>` — execute, weave, write outputs
-- `hickory check <doc|dir>` — verify; non-zero exit on any drift
+- `hickory check <doc|dir>` — verify; three outcomes, three exit codes (below)
 - `hickory weave <doc>` — render from cached transcripts without executing
 - `hickory agent "<prompt>"` — run an agent session (writes `sessions/*.hick`)
 - `hickory promote <session.hick>` — compact a session into a pipeline
 - `hickory refresh <doc>` — rewrite stale `hick:transform` passages
 - `hickory init` — install the pre-commit drift gate in a git repo
 - Language reference: `docs/` · Architecture: `docs/specs/freeform/architecture.md`
+
+### `hickory check` exit codes
+
+CI branches on these, so they are part of the CLI's public contract.
+
+| Code | Outcome | Meaning |
+|---|---|---|
+| `0` | verified | Re-derivation matches what is committed. |
+| `1` | drifted | Something changed: an unmet `<hick:expect>`, a committed output that no longer reproduces, or a stale `<hick:transform>` passage. |
+| `2` | unverifiable | A cell has no baseline at all — it neither executed nor was answered from a recording — so there was nothing to compare re-derivation against. |
+
+Drift means someone changed something; unverifiable means nothing was ever
+established. Conflating them is how "we have verification" quietly becomes
+"we have verification for the parts that ran." When a document has both, the
+exit code is `2`: drift computed from a document that could not fully derive
+is not trustworthy, so the unverifiable cells are reported and drift
+comparison is skipped until they are fixed.
+
+A cell served from a recording (`freeze="true"`, see the guide) **is**
+verified, not unverifiable: it has a baseline — the recording — and is
+checked against it.
 
 ## Licence
 

@@ -17,8 +17,8 @@ use anyhow::{Context as _, Result, bail};
 use hick_exec::node::FileContent;
 use hick_literate::render::{Block, BlockModelInput, build_block_model};
 use hick_literate::{
-    Executor, LocalExecutor, PipelineConfig, PipelineResult, cache, expand_path_arg,
-    run_pipeline_live, run_pipeline_weave,
+    CellId, Executor, LocalExecutor, NoBaseline, PipelineConfig, PipelineResult, cache,
+    expand_path_arg, run_pipeline_live, run_pipeline_weave,
 };
 
 /// Which executor backend to use, from `HICKORY_EXECUTOR`.
@@ -65,11 +65,54 @@ impl ExecutorChoice {
 /// How to obtain transcripts for a document.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RunMode {
-    /// Execute every exec block through the executor.
+    /// Execute every exec block through the executor. A cell that cannot be
+    /// executed and has no recording aborts the run.
     Execute,
+    /// Execute like [`RunMode::Execute`], but collect cells with no baseline
+    /// as *unverifiable* instead of aborting, so `check` can report every
+    /// such cell in one pass and exit with the unverifiable code.
+    Verify,
     /// Never execute: use cached transcripts where present, mark the rest
     /// never-run.
     Weave,
+}
+
+impl RunMode {
+    /// Whether this mode really runs commands through the executor.
+    pub fn executes(self) -> bool {
+        matches!(self, RunMode::Execute | RunMode::Verify)
+    }
+}
+
+/// What `check` concluded about a document.
+///
+/// The three are deliberately distinct: drift means someone changed
+/// something, unverifiable means nothing was ever established. CI has to be
+/// able to respond differently to those, so each gets its own exit code. See
+/// `docs/guarantees/verification/check-separates-unverifiable-from-drifted.md`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum CheckOutcome {
+    /// Re-derivation matches what is committed.
+    Verified,
+    /// Something changed: an unmet expectation, a committed output that no
+    /// longer reproduces, or a stale `hick:transform` passage.
+    Drifted,
+    /// At least one cell has no baseline at all, so there is nothing for
+    /// re-derivation to be compared against.
+    Unverifiable,
+}
+
+impl CheckOutcome {
+    /// The process exit code for this outcome. **This is a user-facing
+    /// contract** — CI scripts branch on it — so these numbers are as stable
+    /// as any other part of the CLI surface.
+    pub fn exit_code(self) -> u8 {
+        match self {
+            CheckOutcome::Verified => 0,
+            CheckOutcome::Drifted => 1,
+            CheckOutcome::Unverifiable => 2,
+        }
+    }
 }
 
 /// The result of processing one document.
@@ -103,6 +146,95 @@ pub enum CheckFailure {
         select: String,
         instruct: String,
     },
+    /// A cell has no baseline: it neither executed nor was answered from a
+    /// recording, so re-derivation has nothing to compare against. This is
+    /// NOT drift — drift needs a baseline to have drifted from.
+    Unverifiable {
+        doc: PathBuf,
+        cell: CellId,
+        reason: NoBaseline,
+    },
+}
+
+impl CheckFailure {
+    /// Which outcome this failure implies on its own.
+    pub fn outcome(&self) -> CheckOutcome {
+        match self {
+            CheckFailure::Unverifiable { .. } => CheckOutcome::Unverifiable,
+            _ => CheckOutcome::Drifted,
+        }
+    }
+}
+
+/// The report for one unverifiable cell: which cell, why it has no baseline,
+/// and what to do about it.
+///
+/// The "what to do" is deliberately checked against what the shipped binary
+/// actually accepts. `hickory run` has **no** `--cache` or `--freeze` flag
+/// yet (hickory issue #6), so no CLI path can write a recording — telling
+/// someone to run one would send them after a flag that does not exist.
+/// Until that lands, the only real fix is to let the cell execute.
+pub fn unverifiable_message(doc: &Path, cell: &CellId, reason: &NoBaseline) -> String {
+    const KEYED_BY: &str = "A recording is keyed by the container image, capabilities, command \
+         text, and secret names together, so editing any of them retires the old recording — \
+         this can also mean \"the cell changed since it was recorded\".";
+    const NO_WRITER: &str = "Note: the `hickory` CLI cannot write a recording yet — there is no \
+         `--cache` flag (hickory issue #6) — so letting the cell run is the only way to \
+         establish a baseline today.";
+
+    let head = format!("UNVERIFIABLE {} {cell}", doc.display());
+    match reason {
+        NoBaseline::NotExecuted => format!(
+            "{head}: no recorded transcript, and this mode never executes cells, so nothing \
+             was ever established for it.\n  \
+             Next steps: run `hickory run {}` to execute the document, then commit its \
+             outputs; `hickory weave` only renders what has already been recorded.",
+            doc.display()
+        ),
+        NoBaseline::FrozenWithoutRecording {
+            command,
+            frozen_by_cell,
+        } => {
+            let why = if *frozen_by_cell {
+                "the cell declares freeze=\"true\", so it must not execute"
+            } else {
+                "this run is frozen run-wide, so the cell must not execute"
+            };
+            format!(
+                "{head}: {why}, and no recording exists for it (command: {command}). Nothing \
+                 was ever established for this cell — that is not drift, which needs a \
+                 baseline to have drifted from.\n  \
+                 Next steps: remove freeze=\"true\" from the cell (or set freeze=\"false\") so \
+                 `hickory check` executes it and verifies its real output.\n  \
+                 {NO_WRITER}\n  \
+                 {KEYED_BY}"
+            )
+        }
+        NoBaseline::FrozenWithoutCacheDirectory { command } => format!(
+            "{head}: the cell declares freeze=\"true\" (command: {command}), but there is no \
+             recording directory (.hick-cache/transcripts/) next to the document, so no \
+             recording can exist. Nothing was ever established for this cell.\n  \
+             Next steps: remove freeze=\"true\" from the cell (or set freeze=\"false\") so it \
+             executes and is verified for real.\n  \
+             Common causes: the document was moved away from its project's .hick-cache/, or \
+             the recording directory was never created.\n  \
+             {NO_WRITER}"
+        ),
+    }
+}
+
+/// The verdict for a whole set of failures.
+///
+/// Unverifiable outranks drifted: when a cell has no baseline, the drift
+/// verdict for the document it is part of is not trustworthy, and the
+/// stronger statement ("this document is not actually verified") is the one
+/// CI needs to hear.
+pub fn check_outcome(failures: &[CheckFailure]) -> CheckOutcome {
+    failures
+        .iter()
+        .map(CheckFailure::outcome)
+        .max()
+        .unwrap_or(CheckOutcome::Verified)
 }
 
 /// Every `hick:transform` in `source` whose inputs have changed since the
@@ -197,7 +329,7 @@ pub async fn run_doc(
         log::warn!("{}: {warning}", doc_path.display());
     }
     if executor_choice == ExecutorChoice::Local
-        && mode == RunMode::Execute
+        && mode.executes()
         && let Some(warning) = ignored_image_warning(&doc)
     {
         log::info!("{}: {warning}", doc_path.display());
@@ -209,7 +341,7 @@ pub async fn run_doc(
     let project_dir = doc_path.parent().unwrap_or(Path::new("."));
 
     let result = match mode {
-        RunMode::Execute => {
+        RunMode::Execute | RunMode::Verify => {
             // Stage the woven files before executing, so a cell can run a
             // file its own document assembles on the FIRST run. Volumes are
             // seeded from the working directory before execution, while
@@ -231,6 +363,9 @@ pub async fn run_doc(
                 working_dir: Some(project_dir.to_path_buf()),
                 max_rounds: 1,
                 on_exec: None,
+                // `check` wants every cell with no baseline reported as
+                // unverifiable; `run` wants the first one to stop the run.
+                collect_unverifiable: mode == RunMode::Verify,
             };
             // Hand the pipeline the project's transcript cache when it
             // exists, but with run-wide caching OFF: `run` asks "what is the
@@ -354,14 +489,32 @@ fn write_files_if_absent(
     Ok(written)
 }
 
-/// Collect check failures: unmet expectations plus drift between produced
-/// outputs and the committed files on disk.
+/// Collect check failures: cells with no baseline (unverifiable), unmet
+/// expectations, and drift between produced outputs and the committed files
+/// on disk.
+///
+/// Drift comparison is SKIPPED for a document that has an unverifiable cell.
+/// A cell that could not run contributes nothing to the woven output, so
+/// every file it feeds would "differ from disk" — drift reported as a
+/// consequence of a missing baseline is noise that buries the real finding.
+/// Expectations are unaffected: an unverifiable cell never evaluates one, so
+/// the expectations that remain are all about cells that really ran.
 pub fn check_failures(run: &DocRun, out_dir: Option<&Path>) -> Result<Vec<CheckFailure>> {
     let mut failures = Vec::new();
+    for (cell, reason) in &run.result.never_run {
+        failures.push(CheckFailure::Unverifiable {
+            doc: run.doc_path.clone(),
+            cell: cell.clone(),
+            reason: reason.clone(),
+        });
+    }
     for outcome in &run.result.expectations {
         if !outcome.passed {
             failures.push(CheckFailure::Expectation(outcome.clone()));
         }
+    }
+    if !run.result.never_run.is_empty() {
+        return Ok(failures);
     }
 
     let base = match out_dir {
@@ -554,7 +707,7 @@ fn volatile_outputs(doc: &hick_lang::HickDocument) -> HashSet<String> {
 
 /// Build the block model (`docs/specs/freeform/api.md`) for a run.
 pub fn block_model(run: &DocRun) -> Vec<Block> {
-    let never_run: HashSet<(String, usize)> = run.result.never_run.clone();
+    let never_run = run.result.never_run.clone();
     build_block_model(&BlockModelInput {
         doc: &run.doc,
         transcripts: &run.result.transcripts,

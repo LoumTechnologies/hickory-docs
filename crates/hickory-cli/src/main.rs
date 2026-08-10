@@ -7,8 +7,8 @@ use anyhow::{Context as _, Result};
 use clap::{Parser, Subcommand};
 
 use hickory_cli::{
-    CheckFailure, DocRun, ExecutorChoice, RunMode, block_model_json, check_failures, expand_docs,
-    run_doc, write_outputs,
+    CheckFailure, CheckOutcome, DocRun, ExecutorChoice, RunMode, block_model_json, check_failures,
+    check_outcome, expand_docs, run_doc, unverifiable_message, write_outputs,
 };
 
 #[derive(Parser)]
@@ -27,8 +27,24 @@ enum Command {
     /// Execute a document (or every document in a directory) and write its
     /// outputs, including woven markdown.
     Run(RunArgs),
-    /// Verification mode: re-execute and fail on any unmet <hick:expect>
-    /// expectation or drift between produced outputs and committed files.
+    /// Verification mode: re-execute and report drift or missing baselines.
+    ///
+    /// Three outcomes, each with its own exit code — a user-facing contract
+    /// CI scripts branch on:
+    ///
+    ///   0  verified      re-derivation matches what is committed
+    ///   1  drifted       something changed: an unmet <hick:expect>, a
+    ///                    committed output that no longer reproduces, or a
+    ///                    stale <hick:transform> passage
+    ///   2  unverifiable  a cell has no baseline at all — it neither executed
+    ///                    nor was answered from a recording, so there is
+    ///                    nothing for re-derivation to be compared against
+    ///
+    /// Drift means someone changed something; unverifiable means nothing was
+    /// ever established. When both are present the exit code is 2: drift
+    /// computed from a document that could not fully derive is not
+    /// trustworthy.
+    #[command(verbatim_doc_comment)]
     Check(CheckArgs),
     /// Weave without executing: cached transcripts where present, otherwise
     /// blocks are marked never-run.
@@ -264,10 +280,12 @@ async fn cmd_check(args: CheckArgs) -> Result<ExitCode> {
     let executor_choice = ExecutorChoice::from_env()?;
     let docs = expand_docs(&args.path)?;
     let params = params_with_features(&args.params, &args.features);
-    let mut any_failed = false;
+    let mut worst = CheckOutcome::Verified;
     let mut json_blocks = Vec::new();
     for doc_path in &docs {
-        let run = run_doc(doc_path, &params, RunMode::Execute, executor_choice).await?;
+        // Verify, not Execute: a cell with no baseline must be REPORTED as
+        // unverifiable, not abort the run at the first one.
+        let run = run_doc(doc_path, &params, RunMode::Verify, executor_choice).await?;
         let mut failures = check_failures(&run, args.out.as_deref())?;
         // Transform passages are checked from the SOURCE, not from a re-run:
         // no model is called, so this stays free and deterministic in CI.
@@ -279,7 +297,7 @@ async fn cmd_check(args: CheckArgs) -> Result<ExitCode> {
             eprintln!("ok: {}", doc_path.display());
             continue;
         }
-        any_failed = true;
+        worst = worst.max(check_outcome(&failures));
         for failure in &failures {
             match failure {
                 CheckFailure::Expectation(o) => {
@@ -323,18 +341,24 @@ async fn cmd_check(args: CheckArgs) -> Result<ExitCode> {
                         doc.display(),
                     );
                 }
+                CheckFailure::Unverifiable { doc, cell, reason } => {
+                    eprintln!("{}", unverifiable_message(doc, cell, reason));
+                }
             }
         }
     }
     if args.json {
         emit_json(json_blocks)?;
     }
-    Ok(if any_failed {
-        eprintln!("hickory check: documentation drift detected");
-        ExitCode::FAILURE
-    } else {
-        ExitCode::SUCCESS
-    })
+    match worst {
+        CheckOutcome::Verified => {}
+        CheckOutcome::Drifted => eprintln!("hickory check: documentation drift detected"),
+        CheckOutcome::Unverifiable => eprintln!(
+            "hickory check: NOT VERIFIED — at least one cell has no baseline, so this \
+             document was not actually checked against anything"
+        ),
+    }
+    Ok(ExitCode::from(worst.exit_code()))
 }
 
 async fn cmd_weave(args: WeaveArgs) -> Result<ExitCode> {
