@@ -53,6 +53,40 @@ pub struct VolumeAccessRule {
     pub access: VolumeAccess,
 }
 
+/// How much of a volume one container may touch, in one direction.
+///
+/// `check_read`/`check_write` answer "may this container touch this path";
+/// enforcement also needs the question the other way round — "what may this
+/// container touch at all" — because the pipeline moves a whole volume in and
+/// out of a container as a tar archive, and has to decide whether to hand
+/// over everything, some of it, or nothing.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AccessScope {
+    /// Nothing: the container has no rule granting this direction.
+    None,
+    /// Every path in the volume — either an explicit `**` rule, or the
+    /// backward-compatible case of a volume that declares no rules at all.
+    All,
+    /// Only paths matching at least one of these glob patterns.
+    Patterns(Vec<String>),
+}
+
+impl AccessScope {
+    /// Whether this scope permits touching `path`.
+    pub fn permits(&self, path: &str) -> bool {
+        match self {
+            AccessScope::None => false,
+            AccessScope::All => true,
+            AccessScope::Patterns(patterns) => patterns.iter().any(|p| glob_matches(path, p)),
+        }
+    }
+
+    /// Whether this scope permits nothing at all.
+    pub fn is_none(&self) -> bool {
+        matches!(self, AccessScope::None)
+    }
+}
+
 /// A volume declaration parsed from `<hick:volume>`.
 #[derive(Debug, Clone)]
 pub struct VolumeDeclaration {
@@ -89,6 +123,57 @@ impl VolumeDeclaration {
             .iter()
             .filter(|r| r.container == container)
             .any(|r| r.access.permits_write(path))
+    }
+
+    /// What `container` may read from this volume.
+    ///
+    /// A volume with no `<hick:allow>` children is unrestricted, matching
+    /// `check_read`: documents written before access rules existed keep
+    /// working. A volume that does declare rules grants nothing to a
+    /// container it does not name.
+    pub fn read_scope(&self, container: &str) -> AccessScope {
+        // Write implies read, so both rule kinds contribute patterns here.
+        self.scope_for(container, |access| match access {
+            VolumeAccess::Read(pattern) | VolumeAccess::Write(pattern) => Some(pattern.as_str()),
+        })
+    }
+
+    /// What `container` may write to this volume.
+    pub fn write_scope(&self, container: &str) -> AccessScope {
+        self.scope_for(container, |access| match access {
+            VolumeAccess::Write(pattern) => Some(pattern.as_str()),
+            VolumeAccess::Read(_) => None,
+        })
+    }
+
+    fn scope_for(
+        &self,
+        container: &str,
+        pattern_of: impl Fn(&VolumeAccess) -> Option<&str>,
+    ) -> AccessScope {
+        if self.access_rules.is_empty() {
+            return AccessScope::All;
+        }
+        let mut patterns = Vec::new();
+        for rule in self
+            .access_rules
+            .iter()
+            .filter(|r| r.container == container)
+        {
+            if let Some(pattern) = pattern_of(&rule.access) {
+                if pattern == "**" {
+                    return AccessScope::All;
+                }
+                if !patterns.iter().any(|p: &String| p == pattern) {
+                    patterns.push(pattern.to_string());
+                }
+            }
+        }
+        if patterns.is_empty() {
+            AccessScope::None
+        } else {
+            AccessScope::Patterns(patterns)
+        }
     }
 
     /// Get the set of containers that have any write access on this volume.
@@ -232,6 +317,74 @@ mod tests {
 
         // unknown container has no access
         assert!(!vol.check_read("unknown", "anything"));
+    }
+
+    /// Protects docs/guarantees/execution/declared-capabilities-are-enforced.md
+    #[test]
+    fn access_scopes_say_how_much_of_a_volume_a_container_may_touch() {
+        let vol = VolumeDeclaration {
+            name: "project".to_string(),
+            kind: VolumeKind::Ephemeral,
+            access_rules: vec![
+                VolumeAccessRule {
+                    container: "scaffolder".to_string(),
+                    access: VolumeAccess::Write("**".to_string()),
+                },
+                VolumeAccessRule {
+                    container: "linter".to_string(),
+                    access: VolumeAccess::Read("**".to_string()),
+                },
+                VolumeAccessRule {
+                    container: "patcher".to_string(),
+                    access: VolumeAccess::Read("**".to_string()),
+                },
+                VolumeAccessRule {
+                    container: "patcher".to_string(),
+                    access: VolumeAccess::Write("Controllers/**".to_string()),
+                },
+                VolumeAccessRule {
+                    container: "docs".to_string(),
+                    access: VolumeAccess::Read("public/**".to_string()),
+                },
+            ],
+        };
+
+        // Write implies read, so a full writer reads everything.
+        assert_eq!(vol.read_scope("scaffolder"), AccessScope::All);
+        assert_eq!(vol.write_scope("scaffolder"), AccessScope::All);
+
+        // A reader may not write anything at all.
+        assert_eq!(vol.read_scope("linter"), AccessScope::All);
+        assert_eq!(vol.write_scope("linter"), AccessScope::None);
+
+        // A partial writer: everything readable, one subtree writable.
+        assert_eq!(vol.read_scope("patcher"), AccessScope::All);
+        let write = vol.write_scope("patcher");
+        assert!(write.permits("Controllers/Home.cs"));
+        assert!(!write.permits("Models/User.cs"));
+
+        // A partial reader.
+        let read = vol.read_scope("docs");
+        assert!(read.permits("public/index.md"));
+        assert!(!read.permits("private/keys.txt"));
+
+        // A container the rules never name gets nothing in either direction.
+        assert_eq!(vol.read_scope("stranger"), AccessScope::None);
+        assert_eq!(vol.write_scope("stranger"), AccessScope::None);
+        assert!(vol.read_scope("stranger").is_none());
+    }
+
+    /// Protects docs/guarantees/execution/declared-capabilities-are-enforced.md
+    #[test]
+    fn a_volume_with_no_rules_grants_everything_to_everyone() {
+        // Backward compatibility: rules bind only once someone is named.
+        let vol = VolumeDeclaration {
+            name: "shared".to_string(),
+            kind: VolumeKind::Ephemeral,
+            access_rules: vec![],
+        };
+        assert_eq!(vol.read_scope("anyone"), AccessScope::All);
+        assert_eq!(vol.write_scope("anyone"), AccessScope::All);
     }
 
     #[test]

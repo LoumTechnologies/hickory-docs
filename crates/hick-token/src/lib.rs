@@ -404,6 +404,33 @@ impl ContainerCapabilities {
         self
     }
 
+    /// Whether these capabilities ask for **any** outbound network access:
+    /// true exactly when at least one `Allow` rule is present.
+    ///
+    /// This is the question a sandbox can actually answer. A container is
+    /// confined by a switch — the docker executor's `--network` — so the
+    /// choice is connectivity or none, and only an explicit
+    /// `<hick:allow network="host:port">` turns it on. `DenyAll` alone, or
+    /// no rules at all, means no network.
+    ///
+    /// **This is deliberately stricter than [`Self::check_network`], which
+    /// answers a different question.** `check_network` is the policy
+    /// predicate: with no `DenyAll` present it treats the container as
+    /// unconstrained, because a document that says nothing about the network
+    /// has stated no policy. At the enforcement boundary silence must mean
+    /// *no*, or every legacy document would be handed connectivity the
+    /// moment capabilities started driving the sandbox.
+    ///
+    /// Note the coarseness in the other direction: the host and port in an
+    /// `Allow` rule are **not** enforced by a switch, so a container granted
+    /// `github.com:443` can reach whatever the chosen network reaches.
+    /// Narrowing that needs an egress proxy.
+    pub fn allows_network(&self) -> bool {
+        self.network_rules
+            .iter()
+            .any(|r| matches!(r, NetworkRule::Allow { .. }))
+    }
+
     /// Intersect two capability sets, producing the most restrictive combination.
     ///
     /// For attenuation: the result only contains capabilities present in both sets.
@@ -986,6 +1013,38 @@ mod tests {
         authority.verify(&token).unwrap();
         // Attenuated also verifies
         authority.verify(&attenuated).unwrap();
+    }
+
+    /// Protects docs/guarantees/execution/declared-capabilities-are-enforced.md
+    #[test]
+    fn allows_network_is_deny_by_default() {
+        // Silence is not consent: a document that never mentions the network
+        // gets none, which is the opposite of `check_network`'s reading and
+        // the reason the two are separate methods.
+        assert!(!ContainerCapabilities::new().allows_network());
+        assert!(
+            !ContainerCapabilities::new()
+                .deny_all_network()
+                .allows_network()
+        );
+        assert!(
+            !ContainerCapabilities::new()
+                .allow_file_read("/input/*")
+                .allows_network()
+        );
+
+        // An explicit grant, with or without a surrounding default-deny.
+        assert!(
+            ContainerCapabilities::new()
+                .allow_network("github.com", "443")
+                .allows_network()
+        );
+        assert!(
+            ContainerCapabilities::new()
+                .deny_all_network()
+                .allow_network("pypi.org", "443")
+                .allows_network()
+        );
     }
 
     #[test]

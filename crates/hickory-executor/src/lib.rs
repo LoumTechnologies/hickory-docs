@@ -114,6 +114,28 @@ pub struct ContainerResourceStats {
 /// take `&self` and use interior mutability.
 #[async_trait]
 pub trait Executor: Send + Sync {
+    /// Declare a container's document-derived capabilities.
+    ///
+    /// The pipeline calls this for every container it knows about *before*
+    /// any of them starts, which is what lets `<hick:allow>` / `<hick:deny>`
+    /// decide how the container is confined rather than merely describing it.
+    /// `ensure_started` takes only a name and an image on purpose: a
+    /// container's capabilities are a property of the document, not of the
+    /// exec that happens to reach it first.
+    ///
+    /// Enforcement is per-executor and may be coarser than the declaration
+    /// (see [`ContainerCapabilities::allows_network`]). An executor that
+    /// cannot confine anything — `LocalExecutor` — records the declaration
+    /// and imposes nothing; the default implementation drops it.
+    async fn declare_capabilities(
+        &self,
+        container: &str,
+        capabilities: ContainerCapabilities,
+    ) -> Result<()> {
+        let _ = (container, capabilities);
+        Ok(())
+    }
+
     /// Ensure a container exists and is ready. Idempotent.
     ///
     /// `image` is an OCI-style reference (`python:3.12`); whether it is
@@ -187,6 +209,9 @@ struct LocalState {
     transcripts: Transcripts,
     /// target → (from, advisory caps)
     forks: HashMap<String, (String, Option<ContainerCapabilities>)>,
+    /// container → declared capabilities. Recorded, never imposed: this
+    /// executor has no sandbox to impose them with.
+    declared: HashMap<String, ContainerCapabilities>,
     epoch: Option<Instant>,
 }
 
@@ -210,6 +235,14 @@ impl LocalExecutor {
             root,
             state: Mutex::new(LocalState::default()),
         })
+    }
+
+    /// The capabilities declared for a container, if any were.
+    ///
+    /// Present so a caller can *show* what a document asked for; this
+    /// executor never acts on it.
+    pub fn declared_capabilities(&self, container: &str) -> Option<ContainerCapabilities> {
+        self.state.lock().unwrap().declared.get(container).cloned()
     }
 
     /// The workdir of a container, if started.
@@ -402,6 +435,24 @@ fn copy_dir_recursive(src: &Path, dst: &Path) -> Result<()> {
 
 #[async_trait]
 impl Executor for LocalExecutor {
+    /// Recorded, not imposed. This executor runs commands as the invoking
+    /// user with full host access; pretending a declaration confined them
+    /// would be worse than admitting it did not. Sandboxed backends
+    /// (`DockerExecutor`) are where a declaration changes what runs.
+    async fn declare_capabilities(
+        &self,
+        container: &str,
+        capabilities: ContainerCapabilities,
+    ) -> Result<()> {
+        debug!("[local:{container}] capabilities recorded (not enforced): {capabilities:?}");
+        self.state
+            .lock()
+            .unwrap()
+            .declared
+            .insert(container.to_string(), capabilities);
+        Ok(())
+    }
+
     async fn ensure_started(&self, container: &str, image: &str) -> Result<()> {
         let fork_source = {
             let state = self.state.lock().unwrap();

@@ -7,6 +7,7 @@
 
 use std::sync::Arc;
 
+use hick_token::ContainerCapabilities;
 use hickory_executor::Executor;
 use hickory_executor_docker::{DockerExecutor, DockerLimits};
 
@@ -186,6 +187,131 @@ async fn containers_have_no_network_by_default() {
         result.is_err(),
         "the container reached the network with --network none"
     );
+}
+
+/// Protects docs/guarantees/execution/declared-capabilities-are-enforced.md
+#[tokio::test(flavor = "multi_thread")]
+async fn a_containers_network_is_whatever_its_document_declared() {
+    // Both directions against a real daemon: the document — not the
+    // deployment — decides which of these two containers can talk out.
+    let Ok(ex) = DockerExecutor::new().await else {
+        eprintln!("skipping: docker unavailable");
+        return;
+    };
+    if ex.limits_network() != "none" {
+        eprintln!("skipping: HICKORY_DOCKER_NETWORK overridden in this environment");
+        return;
+    }
+
+    ex.declare_capabilities(
+        "granted",
+        ContainerCapabilities::new().allow_network("github.com", "443"),
+    )
+    .await
+    .unwrap();
+    ex.declare_capabilities("denied", ContainerCapabilities::new())
+        .await
+        .unwrap();
+
+    // The image must already be present: the denied container has no network
+    // to pull with.
+    if ex.ensure_started("granted", IMAGE).await.is_err() {
+        eprintln!("skipping: {IMAGE} not cached locally");
+        return;
+    }
+    ex.ensure_started("denied", IMAGE).await.unwrap();
+
+    let granted = network_mode_of(&ex, "granted");
+    let denied = network_mode_of(&ex, "denied");
+    ex.shutdown().await.ok();
+
+    assert_eq!(granted, "bridge", "a declared network grant was ignored");
+    assert_eq!(
+        denied, "none",
+        "a container that declared nothing was given a network"
+    );
+}
+
+/// Protects docs/guarantees/execution/declared-capabilities-are-enforced.md
+#[tokio::test(flavor = "multi_thread")]
+async fn a_running_container_cannot_be_re_declared_into_a_different_confinement() {
+    // One executor serves several documents in a row, so the same container
+    // name can be declared twice. Repeating a declaration is fine; changing
+    // it after the container exists is not, because `docker run` flags are
+    // fixed at creation.
+    let limits = DockerLimits {
+        network: "none".to_string(),
+        allowed_network: "bridge".to_string(),
+        ..DockerLimits::default()
+    };
+    let Ok(ex) = DockerExecutor::with_limits(limits).await else {
+        eprintln!("skipping: docker unavailable");
+        return;
+    };
+    ex.declare_capabilities("reused", ContainerCapabilities::new())
+        .await
+        .unwrap();
+    // Offline, so the image must already be cached.
+    if ex.ensure_started("reused", IMAGE).await.is_err() {
+        eprintln!("skipping: {IMAGE} not cached locally");
+        return;
+    }
+
+    ex.declare_capabilities("reused", ContainerCapabilities::new())
+        .await
+        .expect("repeating the same declaration must be a no-op");
+
+    let err = ex
+        .declare_capabilities(
+            "reused",
+            ContainerCapabilities::new().allow_network("github.com", "443"),
+        )
+        .await
+        .expect_err("a conflicting declaration was accepted");
+    ex.shutdown().await.ok();
+
+    let msg = err.to_string();
+    assert!(
+        msg.contains("already running") && msg.contains("Next steps"),
+        "unhelpful refusal: {msg}"
+    );
+}
+
+/// Ask the daemon — not the executor — what a container actually got.
+fn network_mode_of(ex: &DockerExecutor, container: &str) -> String {
+    // The executor's name for a container is `hickory-<pid>-<seq>-<name>`,
+    // so anchoring on the suffix finds this run's container and not another
+    // test binary's.
+    let out = std::process::Command::new("docker")
+        .args([
+            "ps",
+            "-a",
+            "--filter",
+            &format!("name=-{container}$"),
+            "--format",
+            "{{.Names}}",
+        ])
+        .output()
+        .unwrap();
+    let listed = String::from_utf8_lossy(&out.stdout);
+    let full = listed
+        .lines()
+        .next()
+        .unwrap_or_else(|| panic!("container '{container}' not found by the daemon"));
+
+    let out = std::process::Command::new("docker")
+        .args(["inspect", "--format", "{{.HostConfig.NetworkMode}}", full])
+        .output()
+        .unwrap();
+    // The executor's own view must match the daemon's, or `network_mode` is
+    // lying to whoever asks it to explain a container.
+    let observed = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    assert_eq!(
+        observed,
+        ex.network_mode(container),
+        "the executor reports a different network than the container has"
+    );
+    observed
 }
 
 #[tokio::test(flavor = "multi_thread")]

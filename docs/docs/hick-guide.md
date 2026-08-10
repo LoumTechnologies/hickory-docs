@@ -52,8 +52,13 @@ capability grants. The security model is deny-by-default when a
 | `<hick:allow network="*:443" />` | Wildcard port or host |
 | `<hick:deny network="*" />` | Deny all not explicitly allowed |
 
-Without a `deny` rule, all network traffic is permitted. Once a `deny`
-is present, only explicit `allow` rules are honoured.
+**What is enforced.** A container gets a network only when it carries at
+least one `allow network=` rule; a container that says nothing about the
+network has none. The rule's host and port are not enforced by the
+sandbox — a container granted `github.com:443` can reach whatever its
+network reaches — so `deny network="*"` documents intent alongside an
+allowlist, and on its own means "no network", which is already the
+default.
 
 ### File rules
 
@@ -331,6 +336,13 @@ others read) with fine-grained permissions.
   <hick:allow container="patcher" read="**" write="Controllers/**" />
 </hick:volume>
 ```
+
+**What is enforced.** A container the rules never name cannot mount the
+volume at all — the run stops and says so. A container granted part of a
+volume is handed that part and nothing else, and only its granted paths
+are merged back in when it finishes; everything it wrote elsewhere stays
+inside it. A volume with no `allow` children keeps the old heuristic and
+stays unrestricted, so rules bind everyone only once anyone is named.
 
 ### Volume kinds
 

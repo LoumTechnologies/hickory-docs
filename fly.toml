@@ -20,9 +20,12 @@ primary_region = "iad"
   # IGNORED and cells run against this image's toolchain — a real limitation,
   # stated rather than silently degraded to.
   HICKORY_EXECUTOR = "local"
-  # Containers get no network unless a deployment opts in. A document that
-  # needs the network is the exception; the default should not be
-  # "exfiltration is possible".
+  # The network a container gets when its document asks for none — which is
+  # every document that does not carry `<hick:allow network="host:port">`.
+  # A document that needs the network is the exception; the default should
+  # not be "exfiltration is possible". What "yes" resolves to is
+  # HICKORY_DOCKER_ALLOWED_NETWORK (default `bridge`); both are inert while
+  # HICKORY_EXECUTOR is `local`.
   HICKORY_DOCKER_NETWORK = "none"
 
 # Durable document history. Postgres holds live state and the CRDT holds the

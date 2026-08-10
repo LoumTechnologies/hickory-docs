@@ -100,6 +100,11 @@ struct PreparedPipeline<'a> {
     /// Fork registrations: (from, to, additional_caps).
     /// Needed by live pipeline to register forks with the executor.
     fork_registrations: Vec<(String, String, Option<ContainerCapabilities>)>,
+    /// Volume declarations across every document, by volume name. Collected
+    /// here rather than in the live pipeline because their `<hick:allow>`
+    /// children are part of a container's capabilities, and capabilities are
+    /// minted into tokens here.
+    volumes: HashMap<String, hick_exec::volume::VolumeDeclaration>,
 }
 
 /// Shared prologue: parse sources, resolve includes, set up state, process
@@ -154,6 +159,7 @@ fn prepare_pipeline<'a>(
     }
 
     // Build and validate DAG for each document (after conditional filtering)
+    let mut volumes: HashMap<String, hick_exec::volume::VolumeDeclaration> = HashMap::new();
     for (name, doc) in &documents {
         let dag_result = hick_exec::dag::build_dag(doc)
             .map_err(|e| anyhow::anyhow!("DAG validation failed in {name}: {e}"))?;
@@ -161,6 +167,9 @@ fn prepare_pipeline<'a>(
             "DAG validated for {name}: {} exec nodes",
             dag_result.execs.len()
         );
+        for (vol_name, vol_decl) in &dag_result.volumes {
+            volumes.insert(vol_name.clone(), vol_decl.clone());
+        }
     }
 
     // Collect all nodes across documents (after filtering)
@@ -222,6 +231,30 @@ fn prepare_pipeline<'a>(
         }
     }
 
+    // Carry each volume's `<hick:allow>` rules into the capabilities of the
+    // container they name. The rules used to exist only inside the volume
+    // declaration, where the DAG builder read them to order execs — so a
+    // container's token said nothing about the data it was about to be
+    // handed. A container named by a rule but never `<hick:container>`-
+    // declared still gets an entry: it is a real container, and an empty
+    // capability set is the correct (deny-everything-else) description of it.
+    for decl in volumes.values() {
+        for rule in &decl.access_rules {
+            let caps = container_defs.entry(rule.container.clone()).or_default();
+            let vol_rule = match &rule.access {
+                hick_exec::volume::VolumeAccess::Read(pattern) => {
+                    hick_token::VolumeRule::read(&decl.name, pattern)
+                }
+                hick_exec::volume::VolumeAccess::Write(pattern) => {
+                    hick_token::VolumeRule::write(&decl.name, pattern)
+                }
+            };
+            if !caps.volume_rules.contains(&vol_rule) {
+                caps.volume_rules.push(vol_rule);
+            }
+        }
+    }
+
     // Mint tokens for each container
     for (name, caps) in &container_defs {
         let _token = authority
@@ -236,6 +269,7 @@ fn prepare_pipeline<'a>(
         container_defs,
         container_images,
         fork_registrations,
+        volumes,
     })
 }
 
@@ -559,6 +593,7 @@ pub async fn run_pipeline_live(
         container_defs,
         container_images,
         fork_registrations,
+        volumes: all_volume_decls,
     } = prepared;
 
     // Register fork definitions with the executor
@@ -566,6 +601,14 @@ pub async fn run_pipeline_live(
         executor
             .register_fork(to, from, additional_caps.clone())
             .await?;
+    }
+
+    // Hand every container's declared capabilities to the executor BEFORE
+    // anything starts. A sandboxed backend confines a container at start
+    // time, so a declaration that arrives with the first exec is a
+    // declaration that arrives too late.
+    for (name, caps) in &container_defs {
+        executor.declare_capabilities(name, caps.clone()).await?;
     }
 
     // Collect <hick:expect> expectations per (container, exec source line).
@@ -584,19 +627,10 @@ pub async fn run_pipeline_live(
     // Per-container source lines, in the order entries were appended.
     let mut exec_lines: HashMap<String, Vec<usize>> = HashMap::new();
 
-    // Collect volume declarations and set up volume store
+    // Volume declarations were collected during preparation (their access
+    // rules are part of container capabilities); set up the store over them.
     let mut volume_store = volume_state::VolumeStore::new();
-    let mut all_volume_decls: HashMap<String, hick_exec::volume::VolumeDeclaration> =
-        HashMap::new();
     let mut volume_provenance: HashMap<String, Vec<String>> = HashMap::new();
-
-    for (name, doc) in &documents {
-        let flow_dag = dag::build_dag(doc)
-            .map_err(|e| anyhow::anyhow!("DAG validation failed in {name}: {e}"))?;
-        for (vol_name, vol_decl) in &flow_dag.volumes {
-            all_volume_decls.insert(vol_name.clone(), vol_decl.clone());
-        }
-    }
 
     // Seed input volumes from host directories
     let working_dir = config
@@ -719,12 +753,48 @@ pub async fn run_pipeline_live(
 
                 // Inject volumes before exec (or just create the mount point
                 // for the first writer when the volume is still empty).
+                //
+                // A volume's `<hick:allow>` rules decide what crosses this
+                // boundary. A container the rules do not name gets nothing —
+                // and is told so, rather than running against an empty
+                // directory and reporting a confusing missing-file error. A
+                // container named for part of the volume gets that part.
                 for (vol_name, mount_path) in &exec_info.mounts {
+                    let read_scope = all_volume_decls
+                        .get(vol_name)
+                        .map(|decl| decl.read_scope(&exec_info.container))
+                        .unwrap_or(hick_exec::volume::AccessScope::All);
+
+                    if read_scope.is_none() {
+                        anyhow::bail!(
+                            "container '{}' mounts volume '{vol_name}' at {mount_path} but the \
+                             volume grants it no access (line {}).\n\
+                             Next steps: add `<hick:allow container=\"{}\" read=\"**\" />` (or a \
+                             narrower glob, or `write=` for write access) inside \
+                             `<hick:volume name=\"{vol_name}\">`, or drop the mount from this \
+                             exec.\n\
+                             Note: a volume with no `<hick:allow>` children at all is \
+                             unrestricted — access rules apply to every container once any \
+                             container is named.",
+                            exec_info.container,
+                            exec_info.source_line,
+                            exec_info.container,
+                        );
+                    }
+
                     if let Some(tar_data) = volume_store.get(vol_name) {
                         info!(
                             "Injecting volume '{vol_name}' into container '{}' at {mount_path}",
                             exec_info.container
                         );
+                        let scoped;
+                        let tar_data = match &read_scope {
+                            hick_exec::volume::AccessScope::All => tar_data,
+                            scope => {
+                                scoped = volume_state::filter_tar(tar_data, |p| scope.permits(p))?;
+                                &scoped
+                            }
+                        };
                         executor
                             .inject_volume(&exec_info.container, mount_path, tar_data)
                             .await?;
@@ -844,28 +914,46 @@ pub async fn run_pipeline_live(
                     }
                 }
 
-                // Extract volumes after exec (if container has write access)
+                // Extract volumes after exec, as far as the container's write
+                // grant reaches. A reader's changes never leave its own
+                // container; a partial writer's changes are merged in only
+                // for the paths it was granted, so `write="Controllers/**"`
+                // means what it says instead of being either ignored (writes
+                // dropped entirely) or over-honoured (whole volume replaced).
                 for (vol_name, mount_path) in &exec_info.mounts {
-                    let has_write = if let Some(decl) = all_volume_decls.get(vol_name) {
-                        decl.check_write(&exec_info.container, "**") || decl.access_rules.is_empty()
-                    } else {
-                        true // no declaration = unrestricted
-                    };
+                    let write_scope = all_volume_decls
+                        .get(vol_name)
+                        .map(|decl| decl.write_scope(&exec_info.container))
+                        .unwrap_or(hick_exec::volume::AccessScope::All);
 
-                    if has_write {
-                        info!(
-                            "Extracting volume '{vol_name}' from container '{}' at {mount_path}",
+                    if write_scope.is_none() {
+                        debug!(
+                            "Not extracting volume '{vol_name}' from '{}': read-only access",
                             exec_info.container
                         );
-                        let tar_data = executor
-                            .extract_volume(&exec_info.container, mount_path)
-                            .await?;
-                        volume_store.update(vol_name, tar_data);
-                        volume_provenance
-                            .entry(vol_name.clone())
-                            .or_default()
-                            .push(exec_info.container.clone());
+                        continue;
                     }
+
+                    info!(
+                        "Extracting volume '{vol_name}' from container '{}' at {mount_path}",
+                        exec_info.container
+                    );
+                    let tar_data = executor
+                        .extract_volume(&exec_info.container, mount_path)
+                        .await?;
+                    let tar_data = match &write_scope {
+                        hick_exec::volume::AccessScope::All => tar_data,
+                        scope => volume_state::merge_permitted_writes(
+                            volume_store.get(vol_name),
+                            &tar_data,
+                            |p| scope.permits(p),
+                        )?,
+                    };
+                    volume_store.update(vol_name, tar_data);
+                    volume_provenance
+                        .entry(vol_name.clone())
+                        .or_default()
+                        .push(exec_info.container.clone());
                 }
             }
         }

@@ -8,7 +8,9 @@
 //! that agree on the image agree on the result.
 //!
 //! It also makes isolation real rather than declared. Containers run with no
-//! network, a memory cap, and a PID cap by default; `hick:fork` is a genuine
+//! network unless the document's own `<hick:allow network="host:port">` asks
+//! for one (see [`Executor::declare_capabilities`]), plus a memory cap and a
+//! PID cap regardless; `hick:fork` is a genuine
 //! `docker commit` of the source container, so a fork inherits filesystem
 //! state exactly as the language says it does.
 //!
@@ -54,6 +56,10 @@ const NAME_PREFIX: &str = "hickory-";
 struct DockerContainer {
     /// The `--name` given to Docker (not the hick container name).
     docker_name: String,
+    /// The `--network` it was actually started with. Kept so a later
+    /// declaration for the same name can be checked against what it got,
+    /// rather than silently disagreeing with reality.
+    network: String,
     total_exec: Duration,
     command_durations: Vec<Duration>,
 }
@@ -73,14 +79,26 @@ pub struct DockerLimits {
     pub cpus: String,
     /// `--pids-limit`: the cheapest defence against a fork bomb.
     pub pids: u32,
-    /// `--network`: `none` by default.
+    /// `--network` for a container that was **not** granted network access:
+    /// `none` by default.
     ///
     /// Documents that genuinely need the network are the exception, and a
     /// default of "connected" is a default of "exfiltration is possible".
-    /// `hick:allow network=` cannot drive this yet — capabilities are parsed
-    /// from the document but `Executor::ensure_started` has no parameter to
-    /// carry them, so this is per-executor until that plumbing exists.
     pub network: String,
+    /// `--network` for a container whose document grants it network access
+    /// with `<hick:allow network="host:port">`: `bridge` by default.
+    ///
+    /// Two knobs rather than one because they answer different questions.
+    /// `network` is the floor every undeclared container sits on;
+    /// `allowed_network` is what "yes, this one may talk out" resolves to on
+    /// this host — a deployment that routes egress through a filtering
+    /// network names it here (`HICKORY_DOCKER_ALLOWED_NETWORK`).
+    ///
+    /// Docker's `--network` is on/off, so the host and port in the
+    /// declaration are **not** enforced here: a container granted
+    /// `github.com:443` can reach anything the chosen network can. Narrowing
+    /// that needs an egress proxy and is deliberately out of scope.
+    pub allowed_network: String,
 }
 
 impl Default for DockerLimits {
@@ -90,7 +108,24 @@ impl Default for DockerLimits {
             cpus: env_or("HICKORY_DOCKER_CPUS", "1.0"),
             pids: env_or("HICKORY_DOCKER_PIDS", "256").parse().unwrap_or(256),
             network: env_or("HICKORY_DOCKER_NETWORK", "none"),
+            allowed_network: env_or("HICKORY_DOCKER_ALLOWED_NETWORK", "bridge"),
         }
+    }
+}
+
+/// The `--network` a container starts with, given what its document declared.
+///
+/// Pure so the decision is testable without a Docker daemon: it is the whole
+/// of "a document declaring network access gets it; one that does not,
+/// does not".
+///
+/// A container with no declaration at all falls to `limits.network` — the
+/// executor-wide floor. That is the same answer as an explicit declaration
+/// that grants nothing, and deliberately so: silence is not consent.
+fn network_mode_for(limits: &DockerLimits, capabilities: Option<&ContainerCapabilities>) -> String {
+    match capabilities {
+        Some(caps) if caps.allows_network() => limits.allowed_network.clone(),
+        _ => limits.network.clone(),
     }
 }
 
@@ -113,6 +148,10 @@ pub struct DockerExecutor {
     fork_images: Mutex<Vec<String>>,
     /// Forks registered before their target started: target -> source.
     pending_forks: Mutex<HashMap<String, String>>,
+    /// Capabilities the document declared, per container. Consulted at
+    /// `docker run` time, which is why the pipeline declares them before
+    /// anything starts.
+    declared: Mutex<HashMap<String, ContainerCapabilities>>,
 }
 
 impl DockerExecutor {
@@ -148,6 +187,7 @@ impl DockerExecutor {
             transcripts: Mutex::new(HashMap::new()),
             fork_images: Mutex::new(Vec::new()),
             pending_forks: Mutex::new(HashMap::new()),
+            declared: Mutex::new(HashMap::new()),
         })
     }
 
@@ -167,6 +207,17 @@ impl DockerExecutor {
     /// The configured `--network` value, for tests that assert the default.
     pub fn limits_network(&self) -> &str {
         &self.limits.network
+    }
+
+    /// The `--network` `container` has, or would get if started now.
+    ///
+    /// A running container answers with what it was actually started with,
+    /// so this never describes a confinement the container does not have.
+    pub fn network_mode(&self, container: &str) -> String {
+        if let Some(running) = self.containers.lock().unwrap().get(container) {
+            return running.network.clone();
+        }
+        network_mode_for(&self.limits, self.declared.lock().unwrap().get(container))
     }
 
     fn docker_name(&self, container: &str) -> String {
@@ -287,6 +338,7 @@ impl DockerExecutor {
         };
 
         let name = self.docker_name(container);
+        let network = self.network_mode(container);
         // `sleep infinity` is not portable (busybox ash lacks it); a loop is.
         let out = Command::new("docker")
             .args([
@@ -303,7 +355,7 @@ impl DockerExecutor {
                 "--pids-limit",
                 &self.limits.pids.to_string(),
                 "--network",
-                &self.limits.network,
+                &network,
                 "--entrypoint",
                 "/bin/sh",
                 &image,
@@ -324,11 +376,12 @@ impl DockerExecutor {
             container.to_string(),
             DockerContainer {
                 docker_name: name,
+                network: network.clone(),
                 total_exec: Duration::ZERO,
                 command_durations: Vec::new(),
             },
         );
-        log::info!("[docker:{container}] started from image '{image}'");
+        log::info!("[docker:{container}] started from image '{image}' (network {network})");
         Ok(())
     }
 
@@ -357,6 +410,40 @@ impl DockerExecutor {
 
 #[async_trait]
 impl Executor for DockerExecutor {
+    async fn declare_capabilities(
+        &self,
+        container: &str,
+        capabilities: ContainerCapabilities,
+    ) -> Result<()> {
+        // One executor can serve several documents in a row (the agent runs
+        // a document and its upstreams through the same one), so the same
+        // container name can be declared again after it started. That is
+        // fine while the declaration asks for the confinement the container
+        // already has; it is not fine when it asks for a different one,
+        // because `docker run` flags cannot be changed after the fact and
+        // pretending otherwise would leave a container confined differently
+        // from what its document says.
+        let wanted = network_mode_for(&self.limits, Some(&capabilities));
+        if let Some(running) = self.containers.lock().unwrap().get(container) {
+            if running.network != wanted {
+                bail!(
+                    "container '{container}' is already running with `--network {}`, so a \
+                     declaration asking for `--network {wanted}` cannot be applied.\n\
+                     Next steps: run this document with a fresh executor, or give the \
+                     container a distinct name — a container's capabilities must be \
+                     declared before it starts.",
+                    running.network
+                );
+            }
+            return Ok(());
+        }
+        self.declared
+            .lock()
+            .unwrap()
+            .insert(container.to_string(), capabilities);
+        Ok(())
+    }
+
     async fn ensure_started(&self, container: &str, image: &str) -> Result<()> {
         if self.containers.lock().unwrap().contains_key(container) {
             return Ok(());
@@ -565,6 +652,42 @@ mod tests {
         assert_eq!(DockerExecutor::mount_dir("/data"), "/work/data");
         assert_eq!(DockerExecutor::mount_dir("data"), "/work/data");
         assert_eq!(DockerExecutor::mount_dir("/"), "/work");
+    }
+
+    /// Protects docs/guarantees/execution/declared-capabilities-are-enforced.md
+    #[test]
+    fn the_document_decides_whether_a_container_has_a_network() {
+        let limits = DockerLimits {
+            network: "none".to_string(),
+            allowed_network: "bridge".to_string(),
+            ..DockerLimits::default()
+        };
+
+        // Declared nothing, or declared and granted nothing: the floor.
+        assert_eq!(network_mode_for(&limits, None), "none");
+        assert_eq!(
+            network_mode_for(&limits, Some(&ContainerCapabilities::new())),
+            "none"
+        );
+        assert_eq!(
+            network_mode_for(
+                &limits,
+                Some(&ContainerCapabilities::new().deny_all_network())
+            ),
+            "none"
+        );
+
+        // Declared network access: granted.
+        let allowed = ContainerCapabilities::new().allow_network("github.com", "443");
+        assert_eq!(network_mode_for(&limits, Some(&allowed)), "bridge");
+
+        // `<hick:deny network="*">` alongside an allowlist is the language's
+        // "default deny, except these" — the container still needs a network
+        // to reach the exceptions, and a switch cannot express the rest.
+        let allowlisted = ContainerCapabilities::new()
+            .deny_all_network()
+            .allow_network("github.com", "443");
+        assert_eq!(network_mode_for(&limits, Some(&allowlisted)), "bridge");
     }
 
     #[test]
