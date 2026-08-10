@@ -1,8 +1,8 @@
 # Agent cells (`hick:agent`)
 
-Status: **design settled, placement unresolved** (2026-08-09). One blocking
-question remains — see "The open question" — and it is being decided by a spike
-rather than by argument.
+Status: **design settled** (2026-08-09). The last open question — node
+placement — was decided by a spike rather than by argument; see
+"Placement: settled" and `docs/specs/freeform/agent-placement-spike.md`.
 
 An agent cell puts a reasoning step *inside* a document, alongside `hick:exec`,
 instead of leaving the agent as a CLI verb that acts on documents from outside.
@@ -155,26 +155,53 @@ cost — a frozen cell's `hick:expect` assertions pass trivially, so freeze
 verifies "the document still produces what we recorded," not "the world still
 agrees." See `docs/guarantees/verification/freeze-is-declared-per-cell.md`.
 
-## The open question
+## Placement: settled — **exec**
 
-**Where does the agent node live?** `hick-flow` assembles and traces;
-`hick-exec` schedules; weave runs after exec. An agent whose only write channel
-is `edit_doc`/`edit_output` edits the document *currently being evaluated to
-produce the graph it is running in*. `EditSession` re-weaves after every edit
-today, which is fine outside a converge and re-entrant inside one.
+**The agent node is a DAG vertex that runs before weave.** Decided 2026-08-09
+by the spike in `docs/specs/freeform/agent-placement-spike.md`
+(`crates/hickory-cli/tests/spike_agent_placement.rs`, 11 offline tests). The
+flow placement — a node converged during weave — is **deleted**. Placement
+does not ship as a document attribute (`mode=`), and there is no second
+ordering in the vocabulary.
 
-Two coherent placements:
+Both placements were built and measured against the six criteria declared
+before either existed. Two of them ended it independently:
 
-- **flow** — a node converged during weave, per the Node semantics above.
-- **exec** — a DAG vertex that runs before weave, whose edits trigger
-  re-evaluation.
+- **`check` parity failed.** The same never-run agent cell yields `Verified`
+  (exit 0) under flow and `Unverifiable` (exit 2) under exec. A flow-placed
+  cell is not a DAG cell, so it contributes no `never_run` entry and `check`
+  reports a document verified whose agent cell has never run. Under exec the
+  per-cell `freeze` machinery covers the cell for free, in both the
+  no-baseline and the replay direction.
+- **Ordering worked in only one direction under flow.** An agent consuming an
+  exec's output works either way, but an exec consuming the agent's edits is
+  impossible in a single flow-placed pass: every exec in the document has
+  already finished by the time a node converges. Supporting one direction only
+  was declared disqualifying.
 
-This is being decided by a spike with pre-declared criteria and a deletion
-condition, because the answer depends on exec→weave ordering that argument
-cannot settle. See the tracking issue. **Placement must not ship as a document
-attribute** (`mode=`): two orderings in the vocabulary means every future
-feature works twice, and `check` semantics would have to be provably identical
-across modes or verification differs by mode.
+Re-entrancy, termination, and lineage point the same way. A flow-placed
+agent's `edit_doc` re-enters `run_pipeline_weave` from inside the converge —
+which corrupts nothing, but the run cannot observe its own edit, because
+`process_pipeline_outputs` assembles and closes the whole graph (and finishes
+its `max_rounds` re-evaluation) *before* convergence begins. A node that fails
+to complete blocks `converge` with no per-cell bound, taking its literal
+siblings with it; an exec cell's failure is named and scoped. And bytes a flow
+node emits carry no source span, so `hickory lineage` cannot resolve them and
+`map_edits` would refuse to edit through them — whereas an exec-placed agent's
+bytes reach lineage as ordinary `Literal` spans, because `edit_doc` puts them
+in the document before the graph is built.
+
+Cost was identical (same turns, same four-way split, same USD) and separated
+nothing.
+
+The Node semantics above still hold for the cell — settling is completion, the
+cell emits once at settle, the loop lives inside the vertex, and `max_turns`
+is a graph invariant — but the vertex is scheduled by `hick-exec`'s
+topological loop rather than converged by `hick-flow`. The spike write-up
+records what exec placement still owes: an `ExecInfo`/`build_dag` shape that
+does not assume a container and a command, a cache key that includes the
+prompt and model, a bounded re-prepare after an agent edits the source, and a
+`hick:expect` key that does not assume a container.
 
 ## Hazards
 

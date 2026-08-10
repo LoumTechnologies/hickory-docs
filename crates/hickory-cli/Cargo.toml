@@ -32,3 +32,5 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 
 [dev-dependencies]
 tempfile = "3"
+# SPIKE ONLY (issue #4, tests/spike_agent_placement.rs). Remove with the spike.
+futures = "0.3"
