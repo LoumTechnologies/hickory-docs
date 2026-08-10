@@ -203,4 +203,61 @@ mod tests {
             other => panic!("Expected Synthetic, got {:?}", other),
         }
     }
+
+    // Protects docs/guarantees/lineage/agent-lineage-degrades-without-a-session.md
+    #[cfg(feature = "serde")]
+    #[test]
+    fn agent_origin_round_trips_and_is_additive() {
+        let origin = SourceOrigin::Agent {
+            session: Arc::from("abc123"),
+            turn: 7,
+            file: Some(Arc::from("doc.hick")),
+            span: Some(SourceSpan::new(10, 20, 3, 0)),
+        };
+        let json = serde_json::to_string(&origin).unwrap();
+        assert!(json.contains(r#""type":"Agent""#), "{json}");
+        match serde_json::from_str::<SourceOrigin>(&json).unwrap() {
+            SourceOrigin::Agent {
+                session,
+                turn,
+                file,
+                span,
+            } => {
+                assert_eq!(session.as_ref(), "abc123");
+                assert_eq!(turn, 7);
+                assert_eq!(file.as_deref(), Some("doc.hick"));
+                assert_eq!(span.unwrap().start, 10);
+            }
+            other => panic!("Expected Agent, got {other:?}"),
+        }
+
+        // The document span is optional: an origin serialized without it
+        // still deserializes, so adding the variant cannot break a stored map.
+        let minimal = r#"{"type":"Agent","session":"abc123","turn":7}"#;
+        match serde_json::from_str::<SourceOrigin>(minimal).unwrap() {
+            SourceOrigin::Agent {
+                session,
+                turn,
+                file,
+                span,
+            } => {
+                assert_eq!(session.as_ref(), "abc123");
+                assert_eq!(turn, 7);
+                assert!(file.is_none());
+                assert!(span.is_none());
+            }
+            other => panic!("Expected Agent, got {other:?}"),
+        }
+
+        // And the pre-existing variants are undisturbed.
+        let literal = SourceOrigin::Literal {
+            file: Arc::from("main.hick"),
+            span: SourceSpan::new(0, 5, 1, 0),
+        };
+        let json = serde_json::to_string(&literal).unwrap();
+        assert!(matches!(
+            serde_json::from_str::<SourceOrigin>(&json).unwrap(),
+            SourceOrigin::Literal { .. }
+        ));
+    }
 }

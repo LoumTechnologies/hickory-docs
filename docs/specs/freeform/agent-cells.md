@@ -95,10 +95,26 @@ honest than pretending to prevent it.
 
 ## Provenance and authorship
 
-`SourceOrigin::Agent { session, turn }` — a new, additive variant on a
-serde-tagged enum. `converge_with_provenance` already walks a trace backward to
-the nearest origin, so lineage works as soon as the variant exists and turns are
-injected where exec output is injected today.
+**Shipped** (issue #5): `SourceOrigin::Agent { session, turn, file, span }` —
+an additive variant on the serde-tagged enum (`crates/hick-flow/src/node.rs`).
+`converge_with_provenance` already walks a trace backward to the nearest
+origin, so lineage works as soon as the variant exists and turns are injected
+where exec output is injected today. `file`/`span` are optional and default to
+absent: they carry the document region the agent's edit landed in when the
+bytes are byte-identical to it, which is what gives `git blame` a line to
+answer for. An origin serialized without them still deserializes.
+
+The read path is complete and tested: `hickory_lineage::Origin::Agent`
+(the one origin kind that never degrades to `synthetic` — losing the session id
+is precisely the failure the variant exists to prevent),
+`hickory_cli::agent_lineage`, and the `hickory lineage` rendering. See
+`docs/guarantees/lineage/agent-lineage-degrades-without-a-session.md`.
+
+**Still waiting on issue #7**: nothing *produces* an `Agent` origin yet.
+Injection needs the exec-placement DAG work — a `build_dag` arm for `"agent"`,
+an `ExecInfo` that describes an agent cell rather than a container and a
+command, and a cache key that includes the prompt and model. Until then, agent
+origins exist only as synthetically constructed spans in tests.
 
 **No `author` field.** Authorship composes instead: `hickory lineage` maps an
 output byte to a document span, and `git blame` on that span gives the commit
@@ -123,7 +139,13 @@ result is accountable, not the model.
   rather than gitignored.
 - **Unresolvable lineage is a designed outcome, not an error.** A byte whose
   session you cannot read still reports the session id, the turn, and the
-  committing author.
+  committing author. **Shipped** (issue #5): `resolve_reasoning` resolves
+  `<project_dir>/sessions/<id>.hick` and reports *why* it could not — missing,
+  unreadable, unparseable, or a turn the session does not record — rather than
+  raising. `blame` does the same for authorship: no git, no repository, an
+  untracked file, and an uncommitted line each resolve to a stated outcome, and
+  an uncommitted line is attributed to the reader's own configured identity,
+  because uncommitted work is theirs by definition.
 - **`promote` is what makes a document publicly verifiable.** It strips the
   agent cell, leaving the `hick:file` / `hick:exec` cells the agent authored,
   each carrying its `SourceOrigin::Agent` reference. A promoted document

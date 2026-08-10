@@ -412,6 +412,15 @@ async fn cmd_lineage(args: LineageArgs) -> Result<ExitCode> {
                 hickory_lineage::Origin::Synthetic => {
                     println!("{:>8}..{:<8} synthetic", p.start, p.end);
                 }
+                // Agent bytes are reported by session and turn, with
+                // authorship derived from git — printed after the table so a
+                // long line never breaks the columns.
+                hickory_lineage::Origin::Agent { session, turn, .. } => {
+                    println!(
+                        "{:>8}..{:<8} {:<12} session {session} turn {turn}",
+                        p.start, p.end, "agent"
+                    );
+                }
                 origin => {
                     let (doc_path, s, e) = origin.location().unwrap_or(("?", 0, 0));
                     let kind = match origin {
@@ -420,13 +429,23 @@ async fn cmd_lineage(args: LineageArgs) -> Result<ExitCode> {
                         hickory_lineage::Origin::Exec { .. } => "exec",
                         hickory_lineage::Origin::Variable { .. } => "variable",
                         hickory_lineage::Origin::Substitution { .. } => "substitution",
-                        hickory_lineage::Origin::Synthetic => unreachable!(),
+                        hickory_lineage::Origin::Agent { .. }
+                        | hickory_lineage::Origin::Synthetic => unreachable!(),
                     };
                     println!(
                         "{:>8}..{:<8} {kind:<12} {doc_path} bytes {s}..{e}",
                         p.start, p.end
                     );
                 }
+            }
+        }
+        // Sessions are per-author and may be private; an unresolvable one is
+        // reported, not an error.
+        let agent = hickory_cli::agent_lineage_report(&run, &args.output)?;
+        if !agent.is_empty() {
+            println!();
+            for entry in &agent {
+                println!("{entry}");
             }
         }
     }

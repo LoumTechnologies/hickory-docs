@@ -2517,6 +2517,7 @@ name = "hick-flow"
 version = "0.1.0"
 dependencies = [
  "futures",
+ "hick-flow",
  "hick-lang",
  "log",
  "serde",
@@ -2728,6 +2729,7 @@ dependencies = [
  "env_logger",
  "futures",
  "hick-exec",
+ "hick-flow",
  "hick-lang",
  "hick-literate",
  "hickory-agent",

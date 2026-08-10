@@ -19,3 +19,8 @@ serde = ["dep:serde", "hick-lang/serde"]
 [dev-dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 serde_json = "1"
+# Self-dependency so `cargo test -p hick-flow` builds with `serde` on. Without
+# it nothing in the workspace enables the feature, and every
+# `#[cfg(feature = "serde")]` test silently compiles out — including the
+# `SourceOrigin` round-trip that `docs/guarantees/lineage/` relies on.
+hick-flow = { path = ".", features = ["serde"] }

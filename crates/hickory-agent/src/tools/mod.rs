@@ -981,6 +981,7 @@ fn origin_kind(p: &Provenance) -> &'static str {
         Origin::Exec { .. } => "exec",
         Origin::Variable { .. } => "variable",
         Origin::Substitution { .. } => "substitution",
+        Origin::Agent { .. } => "agent",
         Origin::Synthetic => "synthetic",
     }
 }

@@ -48,6 +48,31 @@ pub enum SourceOrigin {
         #[cfg_attr(feature = "serde", serde(default))]
         span: Option<SourceSpan>,
     },
+    /// Bytes authored by an agent cell (`hick:agent`).
+    ///
+    /// `session` names the `hick:session` document that recorded the
+    /// reasoning; `turn` is the zero-based turn within it. There is
+    /// deliberately **no `author` field**: authorship composes instead —
+    /// lineage maps a byte to a document span and `git blame` on that span
+    /// gives the commit author, which is anchored in a commit and can be
+    /// signed, rather than asserted by whoever ran `promote`.
+    ///
+    /// Sessions are per-author and may be private, so a reader who cannot
+    /// open the session still learns the session id and the turn. See
+    /// `docs/guarantees/lineage/agent-lineage-degrades-without-a-session.md`.
+    ///
+    /// `file`/`span` carry the document region the agent's edit landed in
+    /// when the emitted bytes are byte-identical to it (the cell writes
+    /// through `edit_doc`, so ordinarily they are). Both default to absent,
+    /// so an origin serialized without them still deserializes.
+    Agent {
+        session: Arc<str>,
+        turn: usize,
+        #[cfg_attr(feature = "serde", serde(default))]
+        file: Option<Arc<str>>,
+        #[cfg_attr(feature = "serde", serde(default))]
+        span: Option<SourceSpan>,
+    },
     /// Value of a variable.
     Variable { name: Arc<str> },
     /// Output from a shell script execution.

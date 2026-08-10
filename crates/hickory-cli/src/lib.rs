@@ -4,10 +4,16 @@
 //! so the server can drive the same run/check/weave/render code paths via
 //! library calls instead of shelling out.
 
+pub mod agent_lineage;
 pub mod init;
 
 /// `hickory init` entry points: idempotent local git-repo setup.
 pub use init::{InitReport, print_init_report, run_init};
+
+/// Lineage for agent-authored bytes: session + turn from provenance,
+/// authorship from `git blame`, graceful degradation when the session is
+/// private or absent.
+pub use agent_lineage::{AgentLineage, Authorship, Reasoning};
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -744,4 +750,57 @@ pub fn output_lineage(run: &DocRun, output_path: &str) -> Result<Vec<hickory_lin
         )
     })?;
     Ok(hickory_lineage::from_provenance_map(map))
+}
+
+/// Human-readable lineage for every agent-authored range of one output.
+///
+/// One entry per `Origin::Agent` provenance span, in output order:
+///
+/// ```text
+/// foo.rs:42 ← session abc123 turn 7 · committed by … · reasoning not available to you
+/// ```
+///
+/// Authorship is derived from `git blame` on the document span the bytes map
+/// to, never from a stored `author` field. An unreadable session, an absent
+/// span, and an uncommitted working tree are all reported, never errors — see
+/// `docs/guarantees/lineage/agent-lineage-degrades-without-a-session.md`.
+pub fn agent_lineage_report(run: &DocRun, output_path: &str) -> Result<Vec<AgentLineage>> {
+    let provenance = output_lineage(run, output_path)?;
+    let content = match run.result.files.get(output_path) {
+        Some(FileContent::Text(s)) => s.as_str(),
+        _ => "",
+    };
+    // The document is the thing git blames; sessions live beside it.
+    let project_dir = run
+        .doc_path
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_else(|| PathBuf::from("."));
+    let doc_name = run
+        .doc_path
+        .file_name()
+        .map(PathBuf::from)
+        .unwrap_or_else(|| run.doc_path.clone());
+
+    Ok(provenance
+        .iter()
+        .filter_map(|p| {
+            let (session, turn) = p.origin.agent()?;
+            // A span in the document gives a line to blame. Absent one, the
+            // report still carries session, turn, and an honest "unknown".
+            let doc_span = p
+                .origin
+                .location()
+                .map(|(_, start, _)| agent_lineage::line_of(&run.source, start))
+                .map(|line| (doc_name.as_path(), line));
+            Some(agent_lineage::describe(
+                &project_dir,
+                output_path,
+                agent_lineage::line_of(content, p.start),
+                session,
+                turn,
+                doc_span,
+            ))
+        })
+        .collect())
 }

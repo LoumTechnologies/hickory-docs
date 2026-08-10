@@ -50,6 +50,18 @@ pub enum Origin {
         doc_path: String,
         span: (usize, usize),
     },
+    /// Bytes authored by an agent cell. Always carries the session id and
+    /// turn; carries a document span only when the bytes are byte-identical
+    /// to one. A reader who cannot open the session still gets the id and
+    /// turn — that is the designed outcome, not an error.
+    Agent {
+        session: String,
+        turn: usize,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        doc_path: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        span: Option<(usize, usize)>,
+    },
     Substitution {
         doc_path: String,
         span: (usize, usize),
@@ -67,7 +79,20 @@ impl Origin {
             | Origin::Exec { doc_path, span }
             | Origin::Variable { doc_path, span }
             | Origin::Substitution { doc_path, span } => Some((doc_path, span.0, span.1)),
-            Origin::Synthetic => None,
+            Origin::Agent {
+                doc_path: Some(doc_path),
+                span: Some(span),
+                ..
+            } => Some((doc_path, span.0, span.1)),
+            Origin::Agent { .. } | Origin::Synthetic => None,
+        }
+    }
+
+    /// The agent session and turn behind these bytes, if any.
+    pub fn agent(&self) -> Option<(&str, usize)> {
+        match self {
+            Origin::Agent { session, turn, .. } => Some((session, *turn)),
+            _ => None,
         }
     }
 
@@ -81,6 +106,14 @@ impl Origin {
             Origin::Literal { doc_path, span } | Origin::Paste { doc_path, span } => {
                 Some((doc_path, span.0, span.1))
             }
+            // An agent writes through `edit_doc`, so its bytes are in the
+            // document and editable — but only when a byte-precise span was
+            // recorded. Without one it behaves like any other derived value.
+            Origin::Agent {
+                doc_path: Some(doc_path),
+                span: Some(span),
+                ..
+            } => Some((doc_path, span.0, span.1)),
             _ => None,
         }
     }
@@ -110,6 +143,32 @@ pub fn from_provenance_map(map: &ProvenanceMap) -> Vec<Provenance> {
                     doc_path: file.to_string(),
                     span: (span.start, span.end),
                 },
+                // Never degrades to `synthetic`: the session id and turn are
+                // the whole point of the variant, and they survive even when
+                // no byte-precise document span was recorded.
+                SourceOrigin::Agent {
+                    session,
+                    turn,
+                    file,
+                    span,
+                } => {
+                    let located = match (file, span) {
+                        (Some(f), Some(sp)) if sp.len() == out_len => {
+                            Some((f.to_string(), (sp.start, sp.end)))
+                        }
+                        _ => None,
+                    };
+                    let (doc_path, span) = match located {
+                        Some((f, sp)) => (Some(f), Some(sp)),
+                        None => (None, None),
+                    };
+                    Origin::Agent {
+                        session: session.to_string(),
+                        turn: *turn,
+                        doc_path,
+                        span,
+                    }
+                }
                 _ => Origin::Synthetic,
             };
             Provenance {
@@ -559,6 +618,73 @@ mod tests {
             json,
             serde_json::json!({"start": 5, "end": 8, "origin": {"kind": "synthetic"}})
         );
+    }
+
+    // Protects docs/guarantees/lineage/agent-lineage-degrades-without-a-session.md
+    #[test]
+    fn agent_origin_keeps_session_and_turn_with_or_without_a_span() {
+        let mut map = ProvenanceMap::new();
+        map.push(ProvenanceSpan {
+            output_start: 0,
+            output_end: 5,
+            origin: SourceOrigin::Agent {
+                session: Arc::from("abc123"),
+                turn: 7,
+                file: Some(Arc::from("a.hick")),
+                span: Some(SourceSpan::new(10, 15, 1, 0)),
+            },
+        });
+        // No document span recorded: still an agent origin, never synthetic —
+        // losing the session id is exactly the failure this variant exists to
+        // prevent.
+        map.push(ProvenanceSpan {
+            output_start: 5,
+            output_end: 9,
+            origin: SourceOrigin::Agent {
+                session: Arc::from("def456"),
+                turn: 0,
+                file: None,
+                span: None,
+            },
+        });
+        // A length-mismatched span is not byte-precise, so the span is
+        // dropped while the session survives.
+        map.push(ProvenanceSpan {
+            output_start: 9,
+            output_end: 11,
+            origin: SourceOrigin::Agent {
+                session: Arc::from("ghi789"),
+                turn: 3,
+                file: Some(Arc::from("a.hick")),
+                span: Some(SourceSpan::new(50, 60, 5, 0)),
+            },
+        });
+
+        let p = from_provenance_map(&map);
+        assert_eq!(p[0].origin.agent(), Some(("abc123", 7)));
+        assert_eq!(p[0].origin.location(), Some(("a.hick", 10, 15)));
+        // Agent bytes are written through the document, so they are editable
+        // when byte-precise.
+        assert_eq!(p[0].origin.source(), Some(("a.hick", 10, 15)));
+
+        assert_eq!(p[1].origin.agent(), Some(("def456", 0)));
+        assert_eq!(p[1].origin.location(), None);
+        assert_eq!(p[1].origin.source(), None);
+
+        assert_eq!(p[2].origin.agent(), Some(("ghi789", 3)));
+        assert_eq!(p[2].origin.location(), None);
+
+        // Serde shape: additive `kind`, span omitted rather than null.
+        assert_eq!(
+            serde_json::to_value(&p[1]).unwrap(),
+            serde_json::json!({
+                "start": 5, "end": 9,
+                "origin": {"kind": "agent", "session": "def456", "turn": 0}
+            })
+        );
+        let round: Provenance =
+            serde_json::from_value(serde_json::to_value(&p[0]).unwrap()).unwrap();
+        assert_eq!(round.origin, p[0].origin);
     }
 
     #[test]
