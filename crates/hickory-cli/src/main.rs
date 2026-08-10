@@ -30,21 +30,26 @@ enum Command {
     Run(RunArgs),
     /// Verification mode: re-execute and report drift or missing baselines.
     ///
-    /// Three outcomes, each with its own exit code — a user-facing contract
+    /// Four outcomes, each with its own exit code — a user-facing contract
     /// CI scripts branch on:
     ///
-    ///   0  verified      re-derivation matches what is committed
-    ///   1  drifted       something changed: an unmet <hick:expect>, a
-    ///                    committed output that no longer reproduces, or a
-    ///                    stale <hick:transform> passage
+    ///   0  verified      re-derivation matches what is committed; nothing to do
+    ///   1  drifted       a committed output or <hick:transform> passage is out
+    ///                    of date — re-run `hickory run` (or `hickory refresh`)
+    ///                    and commit the result; safe for CI to auto-fix
     ///   2  unverifiable  a cell has no baseline at all — it neither executed
-    ///                    nor was answered from a recording, so there is
-    ///                    nothing for re-derivation to be compared against
+    ///                    nor was answered from a recording — so nothing was
+    ///                    checked; give it a baseline or stop freezing it
+    ///   3  expectation   a <hick:expect> did not hold: the document claims
+    ///      failed        something untrue of its own output. A human decides
+    ///                    whether the claim or the code is wrong; never auto-fix
     ///
-    /// Drift means someone changed something; unverifiable means nothing was
-    /// ever established. When both are present the exit code is 2: drift
-    /// computed from a document that could not fully derive is not
-    /// trustworthy.
+    /// When more than one is present the strongest wins, in the order
+    /// verified < drifted < unverifiable < expectation-failed. Unverifiable
+    /// beats drift because drift computed from a document that could not
+    /// fully derive is not trustworthy; a failed expectation beats both
+    /// because it is the only one that says something is definitely wrong,
+    /// and the only one no automation may act on by itself.
     #[command(verbatim_doc_comment)]
     Check(CheckArgs),
     /// Weave without executing: cached transcripts where present, otherwise
@@ -399,10 +404,19 @@ async fn cmd_check(args: CheckArgs) -> Result<ExitCode> {
     }
     match worst {
         CheckOutcome::Verified => {}
-        CheckOutcome::Drifted => eprintln!("hickory check: documentation drift detected"),
+        CheckOutcome::Drifted => eprintln!(
+            "hickory check: DRIFTED (exit 1) — committed output is out of date with what \
+             the document produces. Re-run `hickory run <doc>` (or `hickory refresh <doc>` \
+             for a stale hick:transform) and commit the result."
+        ),
         CheckOutcome::Unverifiable => eprintln!(
-            "hickory check: NOT VERIFIED — at least one cell has no baseline, so this \
+            "hickory check: NOT VERIFIED (exit 2) — at least one cell has no baseline, so this \
              document was not actually checked against anything"
+        ),
+        CheckOutcome::ExpectationFailed => eprintln!(
+            "hickory check: EXPECTATION FAILED (exit 3) — a hick:expect did not hold, so the \
+             document claims something untrue of its own output. This is not drift and must \
+             not be regenerated away: decide whether the claim or the code is wrong."
         ),
     }
     Ok(ExitCode::from(worst.exit_code()))

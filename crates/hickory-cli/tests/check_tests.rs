@@ -237,7 +237,7 @@ fn canopy_executor_without_config_fails_actionably() {
 }
 
 // ---------------------------------------------------------------------------
-// Three outcomes: verified / drifted / unverifiable
+// Four outcomes: verified / drifted / unverifiable / expectation-failed
 //
 // These protect
 // docs/guarantees/verification/check-separates-unverifiable-from-drifted.md.
@@ -295,15 +295,67 @@ fn check_exits_verified_when_nothing_changed() {
 }
 
 #[test]
-fn check_exits_drifted_when_something_changed() {
+fn check_exits_drifted_when_a_committed_output_is_out_of_date() {
+    // Drift is "you forgot to regenerate": every expectation holds, but the
+    // committed bytes no longer match what the document produces. A CI job
+    // may reasonably auto-fix this one, so it must not share a code with a
+    // failed expectation.
+    let dir = tempfile::tempdir().unwrap();
+    let doc = write_doc(dir.path(), "passing.hick", PASSING_DOC);
+    assert!(hickory().arg("run").arg(&doc).status().unwrap().success());
+    std::fs::write(dir.path().join("passing.md"), "hand-edited\n").unwrap();
+    let out = hickory().arg("check").arg(&doc).output().unwrap();
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(out.status.code(), Some(1), "drifted is exit 1: {stderr}");
+    assert!(stderr.contains("DRIFTED"), "names the outcome: {stderr}");
+}
+
+#[test]
+fn check_exits_expectation_failed_when_a_claim_is_false() {
+    // A failed hick:expect is NOT drift: the document says something untrue
+    // of its own output, and no amount of regenerating fixes that. It gets
+    // its own code (3) so CI can auto-fix drift and never auto-fix this.
     let dir = tempfile::tempdir().unwrap();
     let doc = write_doc(dir.path(), "drifted.hick", DRIFTED_DOC);
+    // Commit the woven output first, so the ONLY finding is the expectation.
+    assert!(hickory().arg("run").arg(&doc).status().unwrap().success());
     let out = hickory().arg("check").arg(&doc).output().unwrap();
+    let stderr = String::from_utf8_lossy(&out.stderr);
     assert_eq!(
         out.status.code(),
-        Some(1),
-        "drifted is exit 1: {}",
-        String::from_utf8_lossy(&out.stderr)
+        Some(3),
+        "a failed expectation is exit 3, not drift's 1: {stderr}"
+    );
+    assert!(
+        stderr.contains("EXPECTATION FAILED"),
+        "names the outcome: {stderr}"
+    );
+    assert!(
+        stderr.contains("three") && stderr.contains("two"),
+        "shows expected vs actual: {stderr}"
+    );
+}
+
+#[test]
+fn a_failed_expectation_outranks_drift() {
+    // Both present: the exit code must be the one that says "a human decides",
+    // or a CI job that auto-regenerates on drift would quietly bury a false
+    // claim by committing over it.
+    let dir = tempfile::tempdir().unwrap();
+    let doc = write_doc(dir.path(), "drifted.hick", DRIFTED_DOC);
+    assert!(hickory().arg("run").arg(&doc).status().unwrap().success());
+    std::fs::write(dir.path().join("drifted.md"), "hand-edited\n").unwrap();
+    let out = hickory().arg("check").arg(&doc).output().unwrap();
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(
+        out.status.code(),
+        Some(3),
+        "expectation-failed outranks drifted: {stderr}"
+    );
+    // Both are still REPORTED — only the exit code is a single verdict.
+    assert!(
+        stderr.contains("drifted.md"),
+        "drift reported too: {stderr}"
     );
 }
 
@@ -374,6 +426,65 @@ fn check_reports_unverifiable_when_the_recording_directory_exists_but_the_cell_i
         stderr.contains("printf 'changed"),
         "names the command that has no recording: {stderr}"
     );
+}
+
+#[test]
+fn unverifiable_outranks_drift() {
+    // A cell with no baseline makes the whole document's drift verdict
+    // untrustworthy, so the stronger "nothing was established" wins even
+    // though the committed output is also stale.
+    let dir = tempfile::tempdir().unwrap();
+    let doc = write_doc(dir.path(), "frozen.hick", &frozen_doc());
+    std::fs::write(dir.path().join("frozen.md"), "hand-edited\n").unwrap();
+    let out = hickory().arg("check").arg(&doc).output().unwrap();
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(
+        out.status.code(),
+        Some(2),
+        "unverifiable outranks drifted: {stderr}"
+    );
+    assert!(stderr.contains("UNVERIFIABLE"), "{stderr}");
+}
+
+#[test]
+fn a_failed_expectation_outranks_unverifiable() {
+    // An unverifiable cell never evaluates an expectation, so a failed
+    // expectation always belongs to a cell that really ran: it is a genuine
+    // finding, not a consequence of the missing baseline, and it is the one
+    // outcome no automation may act on by itself.
+    let dir = tempfile::tempdir().unwrap();
+    let doc = write_doc(
+        dir.path(),
+        "mixed.hick",
+        &format!(
+            r#"<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="mixed.md">
+# Mixed
+
+<hick:container name="c" image="alpine:3.20" />
+
+<hick:exec container="c" freeze="true">{FROZEN_COMMAND}</hick:exec>
+
+<hick:exec container="c">
+printf 'one\ntwo\n'
+<hick:expect match="exact">one
+three
+</hick:expect>
+</hick:exec>
+</hick:doc>
+"#
+        ),
+    );
+    let out = hickory().arg("check").arg(&doc).output().unwrap();
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(
+        out.status.code(),
+        Some(3),
+        "expectation-failed outranks unverifiable: {stderr}"
+    );
+    // Both findings are still printed; only the verdict is singular.
+    assert!(stderr.contains("UNVERIFIABLE"), "{stderr}");
+    assert!(stderr.contains("EXPECTATION FAILED"), "{stderr}");
 }
 
 #[test]

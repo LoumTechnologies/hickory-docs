@@ -92,31 +92,46 @@ impl RunMode {
 
 /// What `check` concluded about a document.
 ///
-/// The three are deliberately distinct: drift means someone changed
-/// something, unverifiable means nothing was ever established. CI has to be
-/// able to respond differently to those, so each gets its own exit code. See
+/// The four are deliberately distinct, because the fix for each is
+/// different: drift means someone forgot to regenerate, a failed expectation
+/// means a claim the document makes is false, unverifiable means nothing was
+/// ever established. CI has to be able to respond differently to those — most
+/// concretely, a job may auto-regenerate drift and must never auto-anything a
+/// false claim — so each gets its own exit code. See
 /// `docs/guarantees/verification/check-separates-unverifiable-from-drifted.md`.
+///
+/// The **`Ord` order is the precedence order**, not the exit-code order:
+/// [`check_outcome`] takes the maximum of the outcomes present, and the
+/// numbers attached by [`CheckOutcome::exit_code`] are frozen where issue #3
+/// left them so existing CI keeps working.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum CheckOutcome {
     /// Re-derivation matches what is committed.
     Verified,
-    /// Something changed: an unmet expectation, a committed output that no
-    /// longer reproduces, or a stale `hick:transform` passage.
+    /// A committed output no longer reproduces, or a `hick:transform` passage
+    /// is stale. The document did derive; what is on disk is out of date.
     Drifted,
     /// At least one cell has no baseline at all, so there is nothing for
     /// re-derivation to be compared against.
     Unverifiable,
+    /// A `hick:expect` did not hold: the document states something that is
+    /// not true of what its own cells produced.
+    ExpectationFailed,
 }
 
 impl CheckOutcome {
     /// The process exit code for this outcome. **This is a user-facing
     /// contract** — CI scripts branch on it — so these numbers are as stable
-    /// as any other part of the CLI surface.
+    /// as any other part of the CLI surface. `3` is the newest, and is
+    /// deliberately appended rather than slotted in between: renumbering
+    /// `unverifiable` would silently change the meaning of every existing
+    /// `if [ $? -eq 2 ]`.
     pub fn exit_code(self) -> u8 {
         match self {
             CheckOutcome::Verified => 0,
             CheckOutcome::Drifted => 1,
             CheckOutcome::Unverifiable => 2,
+            CheckOutcome::ExpectationFailed => 3,
         }
     }
 }
@@ -164,10 +179,18 @@ pub enum CheckFailure {
 
 impl CheckFailure {
     /// Which outcome this failure implies on its own.
+    ///
+    /// A stale `hick:transform` counts as drift rather than a failed
+    /// expectation: like a woven file that no longer reproduces, it says the
+    /// committed bytes are out of date with their inputs, and the fix is to
+    /// regenerate (`hickory refresh`). No claim was falsified.
     pub fn outcome(&self) -> CheckOutcome {
         match self {
+            CheckFailure::Expectation(_) => CheckOutcome::ExpectationFailed,
             CheckFailure::Unverifiable { .. } => CheckOutcome::Unverifiable,
-            _ => CheckOutcome::Drifted,
+            CheckFailure::Drift { .. } | CheckFailure::StaleTransform { .. } => {
+                CheckOutcome::Drifted
+            }
         }
     }
 }
@@ -242,10 +265,20 @@ pub fn unverifiable_message(doc: &Path, cell: &CellId, reason: &NoBaseline) -> S
 
 /// The verdict for a whole set of failures.
 ///
+/// Precedence, weakest to strongest:
+/// `Verified < Drifted < Unverifiable < ExpectationFailed`.
+///
 /// Unverifiable outranks drifted: when a cell has no baseline, the drift
 /// verdict for the document it is part of is not trustworthy, and the
 /// stronger statement ("this document is not actually verified") is the one
 /// CI needs to hear.
+///
+/// A failed expectation outranks both, because it is the only outcome that
+/// asserts something is *definitely* wrong rather than out of date or
+/// unknown, and it is the one no automation may act on by itself. It is also
+/// never contaminated by a missing baseline: an unverifiable cell never
+/// evaluates an expectation, so every expectation that failed belongs to a
+/// cell that really ran.
 pub fn check_outcome(failures: &[CheckFailure]) -> CheckOutcome {
     failures
         .iter()

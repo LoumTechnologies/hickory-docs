@@ -134,7 +134,7 @@ history, not a chat log that evaporated.
   - `--freeze` — freeze every cell that does not say otherwise: answer it
     from its recording, never execute it. A cell's own `freeze="false"` still
     wins. Records nothing; a cell with no recording is an error.
-- `hickory check <doc|dir>` — verify; three outcomes, three exit codes (below)
+- `hickory check <doc|dir>` — verify; four outcomes, four exit codes (below)
   - `--freeze` — verify against recordings without executing. There is no
     `--cache` here on purpose: a check that can write its own baseline is not
     a check, so an unrecorded cell is reported unverifiable (exit `2`).
@@ -149,18 +149,28 @@ history, not a chat log that evaporated.
 
 CI branches on these, so they are part of the CLI's public contract.
 
-| Code | Outcome | Meaning |
+| Code | Outcome | What to do about it |
 |---|---|---|
-| `0` | verified | Re-derivation matches what is committed. |
-| `1` | drifted | Something changed: an unmet `<hick:expect>`, a committed output that no longer reproduces, or a stale `<hick:transform>` passage. |
-| `2` | unverifiable | A cell has no baseline at all — it neither executed nor was answered from a recording — so there was nothing to compare re-derivation against. |
+| `0` | verified | Re-derivation matches what is committed. Nothing to do. |
+| `1` | drifted | A committed output no longer reproduces, or a `<hick:transform>` passage is stale — you forgot to regenerate. Re-run `hickory run <doc>` (or `hickory refresh <doc>` for a transform) and commit the result. Safe for CI to auto-fix. |
+| `2` | unverifiable | A cell has no baseline at all — it neither executed nor was answered from a recording — so nothing was checked. Give it a recording (`hickory run --cache <doc>`) or stop freezing it. |
+| `3` | expectation failed | A `<hick:expect>` did not hold: the document claims something untrue of its own output. A human decides whether the claim or the code is wrong — never regenerate this away. |
 
-Drift means someone changed something; unverifiable means nothing was ever
-established. Conflating them is how "we have verification" quietly becomes
-"we have verification for the parts that ran." When a document has both, the
-exit code is `2`: drift computed from a document that could not fully derive
-is not trustworthy, so the unverifiable cells are reported and drift
-comparison is skipped until they are fixed.
+Each is a different problem with a different fix, which is the whole point of
+separating them. Drift means someone forgot to regenerate; unverifiable means
+nothing was ever established; a failed expectation means a claim is false. A
+CI job may reasonably auto-regenerate `1` and must never auto-anything `3`,
+which is impossible if they share a code.
+
+When more than one is present the strongest wins, in the order
+verified < drifted < unverifiable < expectation failed. Unverifiable beats
+drift because drift computed from a document that could not fully derive is
+not trustworthy (those cells are reported and drift comparison is skipped
+until they are fixed). A failed expectation beats both because it is the only
+outcome asserting something is *definitely* wrong rather than out of date or
+unknown — and it is never contaminated by a missing baseline, since an
+unverifiable cell never evaluates an expectation. Every finding is still
+printed; only the exit code is a single verdict.
 
 A cell served from a recording (`freeze="true"`, see the guide) **is**
 verified, not unverifiable: it has a baseline — the recording — and is
