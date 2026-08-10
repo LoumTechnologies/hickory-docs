@@ -53,11 +53,12 @@ Last LLM verification:
     and in the reference section of `README.md`.
   - `CheckFailure::Unverifiable { doc, cell, reason }` carries the cell and the
     reason; `hickory_cli::unverifiable_message` renders which cell, why, and
-    the next step. It deliberately does **not** name `hickory run --cache`:
-    that flag does not exist (issue #6), and the message says so rather than
-    sending the reader after it. The pre-existing `run`-path bail text in
-    `crates/hick-literate/src/lib.rs` still names `hick run --cache` and is
-    issue #6's to fix.
+    the next step. Since issue #6 the flag exists, so the message names the
+    real sequence — un-freeze the cell, `hickory run --cache <doc>`, re-freeze
+    — and states that `check` itself has no `--cache` on purpose. The
+    `run`-path bail text in `crates/hick-literate/src/lib.rs` names the same
+    command; the two no longer disagree. See
+    `recordings-are-written-only-when-asked-for.md`.
   - `check_failures` (`crates/hickory-cli/src/lib.rs`) turns every entry of
     `PipelineResult::never_run` into an `Unverifiable` failure and returns
     early — before the drift loop — when any exist.
@@ -79,8 +80,9 @@ Last LLM verification:
   `check_exits_verified_when_nothing_changed`,
   `check_exits_drifted_when_something_changed`,
   `check_exits_unverifiable_when_a_cell_has_no_baseline` (also asserts the
-  message names the cell, the reason, the remedy, and does **not** name a
-  non-existent `--cache` flag),
+  message names the cell, the reason, the remedy, and the real
+  `hickory run --cache` command rather than the `hick` binary that never
+  existed),
   `check_reports_unverifiable_when_the_recording_directory_exists_but_the_cell_is_not_in_it`,
   and `a_frozen_cell_served_from_its_recording_is_verified_not_unverifiable`
   (the frozen-cell interaction).

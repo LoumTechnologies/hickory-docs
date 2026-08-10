@@ -7,8 +7,9 @@ use anyhow::{Context as _, Result};
 use clap::{Parser, Subcommand};
 
 use hickory_cli::{
-    CheckFailure, CheckOutcome, DocRun, ExecutorChoice, RunMode, block_model_json, check_failures,
-    check_outcome, expand_docs, run_doc, unverifiable_message, write_outputs,
+    CachePolicy, CheckFailure, CheckOutcome, DocRun, ExecutorChoice, RunMode, block_model_json,
+    check_failures, check_outcome, expand_docs, run_doc, run_doc_cached, unverifiable_message,
+    write_outputs,
 };
 
 #[derive(Parser)]
@@ -81,6 +82,20 @@ struct RunArgs {
     /// Output directory (default: each document's own directory).
     #[arg(long = "out")]
     out: Option<PathBuf>,
+    /// Record every executed cell into the project's
+    /// `.hick-cache/transcripts/`, and answer a cell from its recording when
+    /// one still matches. This is the only way a recording is ever written,
+    /// so it is how a `freeze="true"` cell gets the baseline it is checked
+    /// against — a frozen cell is never executed, so record it with
+    /// `freeze="false"` first, then restore the attribute.
+    #[arg(long)]
+    cache: bool,
+    /// Freeze every cell that does not declare otherwise: answer it from its
+    /// recording and never execute it. A cell's own `freeze="false"` still
+    /// wins. This records nothing — a cell with no recording is an error,
+    /// not something to go and record.
+    #[arg(long)]
+    freeze: bool,
     /// Emit the block model as JSON on stdout instead of a summary.
     #[arg(long)]
     json: bool,
@@ -101,6 +116,15 @@ struct CheckArgs {
     /// directory).
     #[arg(long = "out")]
     out: Option<PathBuf>,
+    /// Freeze every cell that does not declare otherwise: verify it against
+    /// its recording instead of executing it, and report any cell with no
+    /// recording as unverifiable (exit 2).
+    ///
+    /// There is deliberately no --cache here: `check` must never write the
+    /// baseline it then compares against. Record with
+    /// `hickory run --cache <doc>`.
+    #[arg(long)]
+    freeze: bool,
     /// Emit the block model as JSON on stdout in addition to failures.
     #[arg(long)]
     json: bool,
@@ -262,7 +286,17 @@ async fn cmd_run(args: RunArgs) -> Result<ExitCode> {
     let params = params_with_features(&args.params, &args.features);
     let mut json_blocks = Vec::new();
     for doc_path in &docs {
-        let run = run_doc(doc_path, &params, RunMode::Execute, executor_choice).await?;
+        let run = run_doc_cached(
+            doc_path,
+            &params,
+            RunMode::Execute,
+            executor_choice,
+            CachePolicy {
+                cache: args.cache,
+                freeze: args.freeze,
+            },
+        )
+        .await?;
         let written = write_outputs(&run, args.out.as_deref())?;
         if args.json {
             json_blocks.push(block_model_json(&run)?);
@@ -285,7 +319,20 @@ async fn cmd_check(args: CheckArgs) -> Result<ExitCode> {
     for doc_path in &docs {
         // Verify, not Execute: a cell with no baseline must be REPORTED as
         // unverifiable, not abort the run at the first one.
-        let run = run_doc(doc_path, &params, RunMode::Verify, executor_choice).await?;
+        let run = run_doc_cached(
+            doc_path,
+            &params,
+            RunMode::Verify,
+            executor_choice,
+            // `cache: false` is the load-bearing half: `check` reads
+            // recordings but must never write one, or it would manufacture
+            // the baseline it then reports as verified.
+            CachePolicy {
+                cache: false,
+                freeze: args.freeze,
+            },
+        )
+        .await?;
         let mut failures = check_failures(&run, args.out.as_deref())?;
         // Transform passages are checked from the SOURCE, not from a re-run:
         // no model is called, so this stays free and deterministic in CI.

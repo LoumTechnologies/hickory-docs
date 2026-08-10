@@ -176,17 +176,27 @@ impl CheckFailure {
 /// and what to do about it.
 ///
 /// The "what to do" is deliberately checked against what the shipped binary
-/// actually accepts. `hickory run` has **no** `--cache` or `--freeze` flag
-/// yet (hickory issue #6), so no CLI path can write a recording — telling
-/// someone to run one would send them after a flag that does not exist.
-/// Until that lands, the only real fix is to let the cell execute.
+/// actually accepts: every command named here is one `hickory` really runs.
+/// `hickory run --cache` writes recordings; `hickory check` never does, so
+/// that it can never manufacture the baseline it then compares against.
 pub fn unverifiable_message(doc: &Path, cell: &CellId, reason: &NoBaseline) -> String {
     const KEYED_BY: &str = "A recording is keyed by the container image, capabilities, command \
          text, and secret names together, so editing any of them retires the old recording — \
          this can also mean \"the cell changed since it was recorded\".";
-    const NO_WRITER: &str = "Note: the `hickory` CLI cannot write a recording yet — there is no \
-         `--cache` flag (hickory issue #6) — so letting the cell run is the only way to \
-         establish a baseline today.";
+
+    // `hickory run --cache` records a cell it EXECUTES, and a frozen cell is
+    // never executed — so recording one means temporarily un-freezing it.
+    // `check` deliberately has no `--cache`: a verifier that can write its
+    // own baseline verifies nothing.
+    let record_it = format!(
+        "To record a baseline instead: set freeze=\"false\" on the cell, run \
+         `hickory run --cache {}` once to record it, then restore freeze=\"true\" and re-run \
+         `hickory check {}` — the recording is keyed by the command, not by the freeze \
+         attribute, so it still matches. `hickory check` has no --cache flag on purpose: a \
+         check that writes its own baseline is not a check.",
+        doc.display(),
+        doc.display()
+    );
 
     let head = format!("UNVERIFIABLE {} {cell}", doc.display());
     match reason {
@@ -212,7 +222,7 @@ pub fn unverifiable_message(doc: &Path, cell: &CellId, reason: &NoBaseline) -> S
                  baseline to have drifted from.\n  \
                  Next steps: remove freeze=\"true\" from the cell (or set freeze=\"false\") so \
                  `hickory check` executes it and verifies its real output.\n  \
-                 {NO_WRITER}\n  \
+                 {record_it}\n  \
                  {KEYED_BY}"
             )
         }
@@ -223,8 +233,9 @@ pub fn unverifiable_message(doc: &Path, cell: &CellId, reason: &NoBaseline) -> S
              Next steps: remove freeze=\"true\" from the cell (or set freeze=\"false\") so it \
              executes and is verified for real.\n  \
              Common causes: the document was moved away from its project's .hick-cache/, or \
-             the recording directory was never created.\n  \
-             {NO_WRITER}"
+             the recording directory was never created — `hickory run --cache` is what \
+             creates it.\n  \
+             {record_it}"
         ),
     }
 }
@@ -312,13 +323,62 @@ pub fn expand_docs(path: &Path) -> Result<Vec<PathBuf>> {
         .collect())
 }
 
-/// Run one document. Each document gets its own executor instance so
-/// container namespaces never collide across documents.
+/// What a run is allowed to do with the project's transcript cache
+/// (`.hick-cache/transcripts/` next to the document).
+///
+/// The default is neither half: `hickory run` asks *"what is the answer
+/// now"*, so no cell is answered from a recording and nothing is recorded.
+/// `--cache` and `--freeze` turn the two halves on, and they are the only
+/// way a recording ever comes into existence — a `freeze="true"` cell has no
+/// baseline until some run wrote one.
+///
+/// Guarantee: `docs/guarantees/verification/recordings-are-written-only-when-asked-for.md`
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct CachePolicy {
+    /// `--cache`: record every executed cell, and answer a cell from its
+    /// recording when the recording still matches its cache key.
+    pub cache: bool,
+    /// `--freeze`: the **run-wide default** for freeze. A cell's own
+    /// `freeze=` attribute still wins in either direction.
+    pub freeze: bool,
+}
+
+impl CachePolicy {
+    /// Neither half: execute everything, record nothing. What every embedded
+    /// caller (server preview, watch, agent tools) wants.
+    pub const OFF: Self = Self {
+        cache: false,
+        freeze: false,
+    };
+
+    /// Whether the cache is consulted run-wide, rather than only by a cell
+    /// that declares `freeze="true"` for itself.
+    fn enabled(self) -> bool {
+        self.cache || self.freeze
+    }
+}
+
+/// Run one document with the default cache policy ([`CachePolicy::OFF`]).
+///
+/// Every cell executes and nothing is recorded, which is what every caller
+/// that has no `--cache`/`--freeze` flags to offer wants.
 pub async fn run_doc(
     doc_path: &Path,
     params: &[(String, String)],
     mode: RunMode,
     executor_choice: ExecutorChoice,
+) -> Result<DocRun> {
+    run_doc_cached(doc_path, params, mode, executor_choice, CachePolicy::OFF).await
+}
+
+/// Run one document. Each document gets its own executor instance so
+/// container namespaces never collide across documents.
+pub async fn run_doc_cached(
+    doc_path: &Path,
+    params: &[(String, String)],
+    mode: RunMode,
+    executor_choice: ExecutorChoice,
+    cache_policy: CachePolicy,
 ) -> Result<DocRun> {
     let source = std::fs::read_to_string(doc_path)
         .with_context(|| format!("failed to read {}", doc_path.display()))?;
@@ -374,14 +434,36 @@ pub async fn run_doc(
                 collect_unverifiable: mode == RunMode::Verify,
             };
             // Hand the pipeline the project's transcript cache when it
-            // exists, but with run-wide caching OFF: `run` asks "what is the
-            // answer now", so no cell is answered from a recording and
-            // nothing is recorded. The only reader here is a cell that
-            // declares `freeze="true"` — it needs the directory to find the
-            // recording it is checked against. Same read-only stance as
-            // weave mode below.
-            let cc = cache::CacheConfig::new(project_dir, false, false);
-            let cache_config = cc.cache_dir.is_dir().then_some(&cc);
+            // exists. With no `--cache`/`--freeze` the directory is opened
+            // READ-ONLY: `run` asks "what is the answer now", so no cell is
+            // answered from a recording and nothing is recorded. The only
+            // reader then is a cell that declares `freeze="true"` — it needs
+            // the directory to find the recording it is checked against.
+            //
+            // `--cache` flips both halves on, and is the ONLY way a
+            // recording is ever written, so it also has to bring the
+            // directory into existence: gating on `is_dir()` alone would
+            // make the first `--cache` run in a fresh project silently
+            // record nothing.
+            let cc =
+                cache::CacheConfig::new(project_dir, cache_policy.enabled(), cache_policy.freeze);
+            if cache_policy.cache {
+                std::fs::create_dir_all(&cc.cache_dir).with_context(|| {
+                    format!(
+                        "failed to create the recording directory {}\n  \
+                         Next steps: check that {} is writable, then re-run \
+                         `hickory run --cache {}`.",
+                        cc.cache_dir.display(),
+                        project_dir.display(),
+                        doc_path.display()
+                    )
+                })?;
+            }
+            // Once either flag is set the cache config is handed over even if
+            // the directory does not exist yet, so `--freeze` against a
+            // project with no recordings fails loudly instead of quietly
+            // executing every cell it was told not to execute.
+            let cache_config = (cache_policy.enabled() || cc.cache_dir.is_dir()).then_some(&cc);
             run_pipeline_live(&sources, &config, params, cache_config, executor).await?
         }
         RunMode::Weave => {

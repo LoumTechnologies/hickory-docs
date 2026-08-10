@@ -802,7 +802,7 @@ pub async fn run_pipeline_live(
             // the recorded answer still hold", so it is never executed. The
             // `freeze=` attribute on the exec wins over the run-wide flag in
             // both directions: `freeze="false"` keeps a cell live even under
-            // `hick run --freeze`.
+            // `hickory run --freeze`.
             let (serve_from_cache, require_cache) = match exec_info.freeze {
                 Some(true) => (true, true),
                 Some(false) => (false, false),
@@ -831,8 +831,10 @@ pub async fn run_pipeline_live(
                      against.\n\
                      Next steps: create the project's recording directory \
                      (.hick-cache/transcripts/ next to the document) by running the \
-                     document once with caching on, or drop the freeze=\"true\" attribute \
-                     if this cell should simply execute.\n\
+                     document once with `hickory run --cache <document.hick>` — set \
+                     freeze=\"false\" on this cell for that one run, since a frozen cell \
+                     is never executed and so is never recorded — or drop the \
+                     freeze=\"true\" attribute if this cell should simply execute.\n\
                      Common cause: embedded run paths — the server's live preview, watch \
                      mode, and the agent's own tool calls — deliberately run with no cache \
                      at all, so a frozen cell cannot be evaluated there no matter what is \
@@ -909,9 +911,11 @@ pub async fn run_pipeline_live(
                          (command: {}), and {scope}, so it must not be executed.\n\
                          A frozen cell is checked against a recording rather than run, so a \
                          recording has to exist first.\n\
-                         Next steps: record it with `hick run --cache` while the cell is not \
-                         frozen, then re-run; or drop the freeze declaration if this cell \
-                         should execute every time.\n\
+                         Next steps: record it with `hickory run --cache <document.hick>` \
+                         while the cell is not frozen (set freeze=\"false\" for that one \
+                         run — a frozen cell is never executed, so it is never recorded), \
+                         then restore the freeze declaration and re-run; or drop the freeze \
+                         declaration if this cell should execute every time.\n\
                          A recording is keyed by the container image, capabilities, command \
                          text, and secret names together — editing any of them retires the old \
                          recording, so this error also means \"the cell changed since it was \

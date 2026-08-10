@@ -35,7 +35,7 @@ pub struct CacheConfig {
     /// This can be `false` while the cache directory is still consulted — a
     /// cell that declares `freeze="true"` reads its recording regardless.
     pub enabled: bool,
-    /// The **run-wide default** for freeze, set by `hick run --freeze`.
+    /// The **run-wide default** for freeze, set by `hickory run --freeze`.
     ///
     /// Freeze is a per-cell property: a `freeze=` attribute on an exec cell
     /// overrides this value in either direction. A frozen cell is checked

@@ -8,9 +8,13 @@ the pipeline runs, then each cell's freeze state is decided independently:
   error naming the container, the source line, the command, and how to record
   it.
 - `freeze="false"` — the cell is **always executed** and is never satisfied
-  from a recording, *even when the run was started with `hick run --freeze`*.
+  from a recording, *even when the run was started with `hickory run
+  --freeze`*.
 - attribute absent — the cell inherits the run-wide default: frozen under
-  `hick run --freeze`, live otherwise.
+  `hickory run --freeze`, live otherwise.
+
+Where that recording comes from is a separate guarantee:
+`recordings-are-written-only-when-asked-for.md`.
 
 A value that is neither `true` nor `false` is rejected at DAG-build time rather
 than being treated as false, because a typo in a verification switch must never
@@ -50,10 +54,13 @@ Last LLM verification:
   `CacheConfig::{enabled, freeze}` — so `CacheConfig::freeze` is now only the
   run-wide *default*. `run_pipeline_cmd` always constructs a `CacheConfig`
   (with `enabled = cache || freeze`) so a cell-level freeze can find the
-  `.hick-cache/` directory even when neither flag was passed, and `run_doc` in
-  `crates/hickory-cli/src/lib.rs` hands `hickory run` the same directory
-  read-only (`enabled = false`) when it exists — nothing is reused or recorded
-  there, but a frozen cell can find what it is checked against. Embedded run
+  `.hick-cache/` directory even when neither flag was passed, and
+  `run_doc_cached` in `crates/hickory-cli/src/lib.rs` hands a flagless
+  `hickory run` the same directory read-only (`enabled = false`) when it
+  exists — nothing is reused or recorded there, but a frozen cell can find
+  what it is checked against. `hickory run --cache` / `--freeze` set the
+  run-wide halves through `CachePolicy`
+  (`recordings-are-written-only-when-asked-for.md`). Embedded run
   paths that pass `None` reject a frozen cell with an explicit error rather
   than silently ignoring the declaration.
 - Test coverage: `crates/hick-literate/tests/freeze_tests.rs` —

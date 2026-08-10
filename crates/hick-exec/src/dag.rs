@@ -197,7 +197,7 @@ pub enum DagValidationError {
         "exec at line {line} has freeze=\"{value}\", which is not a boolean.\n\
          Next steps: write freeze=\"true\" to check this cell against its recorded \
          output instead of running it, or freeze=\"false\" to always run it. Omit the \
-         attribute entirely to inherit the run-wide default set by `hick run --freeze`.\n\
+         attribute entirely to inherit the run-wide default set by `hickory run --freeze`.\n\
          Accepted values are exactly `true` and `false` (case-insensitive); `1`, `yes`, \
          and `on` are not accepted."
     )]

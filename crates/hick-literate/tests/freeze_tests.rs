@@ -162,8 +162,10 @@ echo never recorded
         "frozen",              // which container
         "echo never recorded", // which command
         "freeze=\"true\"",     // why it was frozen
-        "hick run --cache",    // the next step
-        "container image",     // why an edit invalidates the recording
+        // The next step, named as a command the shipped binary really
+        // accepts — see docs/guarantees/verification/recordings-are-written-only-when-asked-for.md
+        "hickory run --cache",
+        "container image", // why an edit invalidates the recording
     ] {
         assert!(
             msg.contains(expected),
@@ -178,7 +180,7 @@ echo never recorded
 
 #[tokio::test]
 async fn global_freeze_requires_every_cell_to_be_recorded() {
-    // The pre-existing behaviour of `hick run --freeze`, unchanged: cells that
+    // The pre-existing behaviour of `hickory run --freeze`, unchanged: cells that
     // declare nothing inherit the run-wide default.
     let scratch = Scratch::new("global");
     let cc = CacheConfig::new(scratch.path(), true, true);

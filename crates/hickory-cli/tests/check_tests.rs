@@ -340,11 +340,17 @@ fn check_exits_unverifiable_when_a_cell_has_no_baseline() {
         stderr.contains("remove freeze=\"true\""),
         "says what to do about it: {stderr}"
     );
-    // #6: `hickory run` has no --cache flag, so the fix must not name one as
-    // if it were runnable today.
+    // #6: the fix must name a command the binary really accepts. `hickory
+    // run --cache` now exists, so it is what the message points at — and
+    // `hick run --cache`, the binary that never existed, is not.
+    // docs/guarantees/verification/recordings-are-written-only-when-asked-for.md
     assert!(
-        !stderr.contains("run `hick run --cache`") && !stderr.contains("hickory run --cache"),
-        "must not tell the user to run a flag the binary does not accept: {stderr}"
+        stderr.contains("hickory run --cache"),
+        "must name the command that writes a recording: {stderr}"
+    );
+    assert!(
+        !stderr.contains("hick run --cache"),
+        "must not name a binary that does not exist: {stderr}"
     );
 }
 

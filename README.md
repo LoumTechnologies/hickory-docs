@@ -127,7 +127,17 @@ history, not a chat log that evaporated.
 ## Reference
 
 - `hickory run <doc|dir>` — execute, weave, write outputs
+  - `--cache` — record each executed cell under `.hick-cache/transcripts/`,
+    and answer a cell from its recording while the recording still matches.
+    This is the only command that writes a recording, so it is how a
+    `freeze="true"` cell gets its baseline.
+  - `--freeze` — freeze every cell that does not say otherwise: answer it
+    from its recording, never execute it. A cell's own `freeze="false"` still
+    wins. Records nothing; a cell with no recording is an error.
 - `hickory check <doc|dir>` — verify; three outcomes, three exit codes (below)
+  - `--freeze` — verify against recordings without executing. There is no
+    `--cache` here on purpose: a check that can write its own baseline is not
+    a check, so an unrecorded cell is reported unverifiable (exit `2`).
 - `hickory weave <doc>` — render from cached transcripts without executing
 - `hickory agent "<prompt>"` — run an agent session (writes `sessions/*.hick`)
 - `hickory promote <session.hick>` — compact a session into a pipeline
