@@ -20,7 +20,7 @@ remembering: an empty block carries no information and is rejected by every
 provider, so dropping it is strictly better than failing the request.
 
 The half-applied state itself was handled correctly by the rest of the system
-— `hickory check` reported three stale documents immediately, and the chain
+— `hickory test` reported three stale documents immediately, and the chain
 could be finished by a second session. That is the intended failure mode. The
 crash was not.
 

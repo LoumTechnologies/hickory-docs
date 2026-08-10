@@ -98,7 +98,7 @@ impl RunMode {
 /// ever established. CI has to be able to respond differently to those — most
 /// concretely, a job may auto-regenerate drift and must never auto-anything a
 /// false claim — so each gets its own exit code. See
-/// `docs/guarantees/verification/check-separates-unverifiable-from-drifted.md`.
+/// `docs/guarantees/verification/test-separates-unverifiable-from-drifted.md`.
 ///
 /// The **`Ord` order is the precedence order**, not the exit-code order:
 /// [`check_outcome`] takes the maximum of the outcomes present, and the
@@ -200,7 +200,7 @@ impl CheckFailure {
 ///
 /// The "what to do" is deliberately checked against what the shipped binary
 /// actually accepts: every command named here is one `hickory` really runs.
-/// `hickory run --cache` writes recordings; `hickory check` never does, so
+/// `hickory run --cache` writes recordings; `hickory test` never does, so
 /// that it can never manufacture the baseline it then compares against.
 pub fn unverifiable_message(doc: &Path, cell: &CellId, reason: &NoBaseline) -> String {
     const KEYED_BY: &str = "A recording is keyed by the container image, capabilities, command \
@@ -214,8 +214,8 @@ pub fn unverifiable_message(doc: &Path, cell: &CellId, reason: &NoBaseline) -> S
     let record_it = format!(
         "To record a baseline instead: set freeze=\"false\" on the cell, run \
          `hickory run --cache {}` once to record it, then restore freeze=\"true\" and re-run \
-         `hickory check {}` — the recording is keyed by the command, not by the freeze \
-         attribute, so it still matches. `hickory check` has no --cache flag on purpose: a \
+         `hickory test {}` — the recording is keyed by the command, not by the freeze \
+         attribute, so it still matches. `hickory test` has no --cache flag on purpose: a \
          check that writes its own baseline is not a check.",
         doc.display(),
         doc.display()
@@ -244,7 +244,7 @@ pub fn unverifiable_message(doc: &Path, cell: &CellId, reason: &NoBaseline) -> S
                  was ever established for this cell — that is not drift, which needs a \
                  baseline to have drifted from.\n  \
                  Next steps: remove freeze=\"true\" from the cell (or set freeze=\"false\") so \
-                 `hickory check` executes it and verifies its real output.\n  \
+                 `hickory test` executes it and verifies its real output.\n  \
                  {record_it}\n  \
                  {KEYED_BY}"
             )
@@ -336,7 +336,7 @@ pub fn transform_input(doc: &hick_lang::HickDocument, select: &str) -> String {
 /// record of what an agent did, not a pipeline to re-run: it embeds the
 /// document that was under discussion, `hick:upstream` and all, so checking
 /// one resolves those edges relative to `sessions/` and fails on paths that
-/// were correct where they were written. `hickory check docs/` should not
+/// were correct where they were written. `hickory test docs/` should not
 /// start failing the moment an agent runs in that tree.
 ///
 /// Naming a session file EXPLICITLY still works — `hickory weave` on a

@@ -464,11 +464,11 @@ container image, capabilities, command text, and secret names.
 ```
 hickory run --cache file.hick   # Record results, reuse on match
 hickory run --freeze file.hick  # Require recorded results, never execute
-hickory check --freeze file.hick # Verify against recordings, never execute
+hickory test --freeze file.hick # Verify against recordings, never execute
 ```
 
 `hickory run --cache` is the only command that writes a recording.
-`hickory check` deliberately has no `--cache`: a check that can write the
+`hickory test` deliberately has no `--cache`: a check that can write the
 baseline it then compares against is not a check — it reports a cell with
 no recording as **unverifiable** (exit `2`) instead.
 

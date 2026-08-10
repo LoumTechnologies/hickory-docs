@@ -86,7 +86,7 @@ Code is the tested one — a first-class alternative:
    teaches the agent the hick grammar essentials and the golden rules:
    - edit `.hick` sources, never generated outputs (unless using lineage
      tooling);
-   - after editing, run `hickory run <doc>` then `hickory check <doc>`;
+   - after editing, run `hickory run <doc>` then `hickory test <doc>`;
    - sessions live in `sessions/*.hick`.
 2. The agent edits documents like any other source file, with `hick-lsp`
    available for diagnostics and the CLI for ground truth.

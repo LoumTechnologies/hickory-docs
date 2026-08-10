@@ -2,7 +2,7 @@
 //!
 //! a canned LLM drives the ReAct loop (no network) → the session is written
 //! as a `hick:session` file → `hick-lang` parses it → `hickory promote`
-//! produces a clean `hick:doc` pipeline → `hickory check` accepts it.
+//! produces a clean `hick:doc` pipeline → `hickory test` accepts it.
 
 use hick_lang::SessionNode;
 use hick_literate::promote::{PromoteOpts, promote};
@@ -94,7 +94,7 @@ async fn agent_session_promotes_to_checked_pipeline() {
             .contains("hello from hickory agent")
     );
 
-    // 4. The promoted document is a valid hick:doc that `hickory check`
+    // 4. The promoted document is a valid hick:doc that `hickory test`
     //    accepts once its outputs are committed.
     let doc_path = project_dir.join("promoted.hick");
     std::fs::write(&doc_path, &promoted.promoted_source).unwrap();
@@ -110,11 +110,11 @@ async fn agent_session_promotes_to_checked_pipeline() {
         "promoted doc must produce greeting.txt, wrote: {written:?}"
     );
 
-    // Re-run and verify: no expectation failures, no drift — `hickory check`
+    // Re-run and verify: no expectation failures, no drift — `hickory test`
     // exits successfully on this document.
     let check_run = run_doc(&doc_path, &[], RunMode::Execute, ExecutorChoice::Local)
         .await
         .expect("check run must execute");
     let failures = check_failures(&check_run, None).unwrap();
-    assert!(failures.is_empty(), "hickory check failures: {failures:?}");
+    assert!(failures.is_empty(), "hickory test failures: {failures:?}");
 }

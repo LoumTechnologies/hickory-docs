@@ -627,7 +627,7 @@ impl EditSession {
 
     /// Execute the document for real through the session's executor,
     /// evaluate every expectation, and write the produced output files next
-    /// to the document (so a following `hickory check` sees no drift).
+    /// to the document (so a following `hickory test` sees no drift).
     async fn verify(&mut self, executor: Arc<dyn Executor>) -> ToolOutcome {
         const NAME: &str = "verify";
         if let Err(e) = self.sync_with_disk().await {
@@ -638,7 +638,7 @@ impl EditSession {
         // The agent can edit any document in the closure, so a verify scoped
         // to the primary is a feedback loop that lies: edit a decision two
         // hops up, run verify, get PASS — while that document's own outputs
-        // were never re-woven and `hickory check` fails on every one of them.
+        // were never re-woven and `hickory test` fails on every one of them.
         // Observed exactly once in a live run, where the agent then reported
         // success in good faith. Verification scope must equal edit scope.
         let upstream_report = self.verify_upstream(executor.clone()).await;
@@ -1038,7 +1038,7 @@ async fn weave_source(
 /// Breadth-first with a visited set, so a diamond is loaded once and a cycle
 /// terminates. Unreadable or unparseable edges are skipped rather than
 /// failing the session: an agent opening a document should not be blocked by
-/// a broken document elsewhere in the chain — that is what `hickory check`
+/// a broken document elsewhere in the chain — that is what `hickory test`
 /// is for, and the agent may well have been called to fix it.
 fn upstream_closure(doc_path: &Path) -> std::collections::BTreeMap<PathBuf, String> {
     let mut out = std::collections::BTreeMap::new();

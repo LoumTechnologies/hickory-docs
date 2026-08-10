@@ -22,14 +22,14 @@ use crate::{AppState, plans};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RunKind {
     Run,
-    Check,
+    Test,
 }
 
 impl RunKind {
     fn as_str(self) -> &'static str {
         match self {
             RunKind::Run => "run",
-            RunKind::Check => "check",
+            RunKind::Test => "test",
         }
     }
 }
@@ -132,8 +132,8 @@ pub async fn start_run(
 
     state.analytics.capture(
         &user.id.to_string(),
-        if kind == RunKind::Check {
-            "doc_check"
+        if kind == RunKind::Test {
+            "doc_test"
         } else {
             "doc_run"
         },
@@ -317,7 +317,7 @@ async fn execute_run(
                     Block::Exec { status, .. } if status == "failed"
                 )
             });
-            if kind == RunKind::Check {
+            if kind == RunKind::Test {
                 let mut failures = hickory_cli::check_failures(&run, None)?;
                 // Transform passages are attested, not reproduced: their check
                 // is a fingerprint comparison against the source, and never

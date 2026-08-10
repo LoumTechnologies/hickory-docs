@@ -13,7 +13,7 @@
 //!   expectation must cover ALL output lines (same line count).
 //!
 //! During `hickory run`, expectations are evaluated and recorded but never
-//! fail the run. `hickory check` turns any unmet expectation into a
+//! fail the run. `hickory test` turns any unmet expectation into a
 //! non-zero exit.
 
 use hick_lang::{HickNode, HickTag, SourceSpan};

@@ -4,7 +4,7 @@
 This is an executable document. Every number, table, chart, and file you see
 below is produced by running the document itself — `hickory run` executes the
 cells, weaves this markdown, and writes the generated artifacts;
-`hickory check` re-executes everything and fails the build if any output has
+`hickory test` re-executes everything and fails the build if any output has
 drifted from what is committed. Nothing here is pasted in by hand.
 
 The tour covers four things Hickory does that notebooks and static docs
@@ -130,7 +130,7 @@ if __name__ == "__main__":
 The `h:file` block pastes every fragment with class `analysis-py`, in
 document order, and requires exactly four of them — a wrong count is a build
 error, not a silent omission. This is the file that gets written to disk and
-committed; `hickory check` fails if it ever drifts from the document:
+committed; `hickory test` fails if it ever drifts from the document:
 
 
 ### `analysis.py`
@@ -194,7 +194,7 @@ The pipeline mounts the document's own directory as an input volume, so the
 cell below executes the committed `analysis.py` — the very file assembled
 above, which the drift check guarantees is identical to these sections. The
 expected output is pinned byte-for-byte: change any fragment above without
-re-running the document and `hickory check` fails, either here or on the
+re-running the document and `hickory test` fails, either here or on the
 file diff.
 
 
@@ -327,7 +327,7 @@ data, the fitted line, and a slider that moves a probe along `x` while the
 predicted `y` updates live. The coefficients are baked in as JS constants at
 generation time — no external libraries, no network, one file you can open
 from disk. It is committed next to this document as `regression-explorer.html`,
-and `hickory check` regenerates it on every verification, so the widget can
+and `hickory test` regenerates it on every verification, so the widget can
 never disagree with the model above:
 
 
@@ -362,5 +362,5 @@ One document produced: a woven markdown report, an assembled and executed
 Python module, verified DuckDB tables, a fitted regression, an interactive
 HTML explorer with the model baked in, and (feature-gated) a ggplot chart —
 each output either pinned by an expectation or drift-checked byte-for-byte
-against the committed artifact. Run `hickory check examples/grand-tour.hick`
+against the committed artifact. Run `hickory test examples/grand-tour.hick`
 any time; if it exits 0, everything you just read is still true.

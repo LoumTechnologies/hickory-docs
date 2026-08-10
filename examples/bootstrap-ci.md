@@ -69,6 +69,6 @@ regenerated on every build, so the figure can never drift from the data.
 ## Why this matters
 
 Most published figures cannot be regenerated from their paper. This one is
-regenerated on every run of `hickory run`, and `hickory check` fails the
+regenerated on every run of `hickory run`, and `hickory test` fails the
 build if the computed interval stops matching the prose above. The document
 is the analysis.

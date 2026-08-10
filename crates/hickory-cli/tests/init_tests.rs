@@ -73,9 +73,9 @@ two
 </hick:doc>
 "#;
 
-const DRIFTED_DOC: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
-<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="drifted.md">
-# Drifted
+const FALSE_CLAIM_DOC: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="false-claim.md">
+# False claim
 
 <hick:container name="c" image="alpine:3.20" />
 
@@ -115,7 +115,7 @@ fn hook_passes_with_no_hick_docs() {
 }
 
 #[test]
-fn hook_passes_with_clean_doc_and_fails_on_drift() {
+fn hook_passes_with_clean_doc_and_fails_on_a_false_claim() {
     let repo = init_repo();
     run_init(repo.path());
 
@@ -135,34 +135,78 @@ fn hook_passes_with_clean_doc_and_fails_on_drift() {
         String::from_utf8_lossy(&out.stderr)
     );
 
-    // Add a tracked drifted doc: hook must fail and say why.
-    std::fs::write(repo.path().join("drifted.hick"), DRIFTED_DOC).unwrap();
-    git(repo.path(), &["add", "drifted.hick"]);
+    // Add a tracked doc whose <hick:expect> is false: the hook must fail
+    // and name THAT outcome. This document does not drift — its committed
+    // output is absent, not stale — so a blanket "documentation drift"
+    // message would send the author to the wrong fix (regenerate) for a
+    // failure that must never be regenerated away.
+    std::fs::write(repo.path().join("false-claim.hick"), FALSE_CLAIM_DOC).unwrap();
+    git(repo.path(), &["add", "false-claim.hick"]);
     let out = run_hook(repo.path());
     assert!(
         !out.status.success(),
-        "hook passed despite drift: stdout={} stderr={}",
+        "hook passed despite a false claim: stdout={} stderr={}",
         String::from_utf8_lossy(&out.stdout),
         String::from_utf8_lossy(&out.stderr)
     );
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(
-        stderr.contains("documentation drift"),
-        "missing drift message: {stderr}"
+        stderr.contains("FAILED EXPECTATION (exit 3)"),
+        "hook did not name the failed-expectation outcome: {stderr}"
+    );
+    assert!(
+        !stderr.contains("documentation drift"),
+        "hook still reports every failure as drift: {stderr}"
     );
 }
 
 #[test]
-fn drifted_doc_blocks_commit_via_hook_script() {
-    // The full gate: a repo with a drifted tracked doc must fail the
+fn failing_doc_blocks_commit_via_hook_script() {
+    // The full gate: a repo with a tracked failing doc must fail the
     // pre-commit hook exactly as `git commit` would invoke it.
     let repo = init_repo();
     run_init(repo.path());
-    std::fs::write(repo.path().join("drifted.hick"), DRIFTED_DOC).unwrap();
+    std::fs::write(repo.path().join("false-claim.hick"), FALSE_CLAIM_DOC).unwrap();
     git(repo.path(), &["add", "."]);
     let out = run_hook(repo.path());
     assert!(
         !out.status.success(),
-        "drifted repo passed the hook: {out:?}"
+        "failing repo passed the hook: {out:?}"
+    );
+}
+
+/// The hook must name DRIFT for a stale committed output, and must not
+/// describe it with the failed-expectation wording. Before this, every
+/// non-zero exit printed "documentation drift", which was accurate for
+/// exactly this case and misleading for the other two.
+#[test]
+fn hook_names_drift_when_a_committed_output_is_stale() {
+    let repo = init_repo();
+    run_init(repo.path());
+
+    std::fs::write(repo.path().join("passing.hick"), PASSING_DOC).unwrap();
+    let out = Command::new(hickory_bin())
+        .arg("run")
+        .arg(repo.path().join("passing.hick"))
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "hickory run failed: {out:?}");
+    git(repo.path(), &["add", "."]);
+
+    // Every expectation still holds; only the woven output is out of date.
+    std::fs::write(repo.path().join("passing.md"), "stale hand-edited bytes\n").unwrap();
+    let out = run_hook(repo.path());
+    assert!(
+        !out.status.success(),
+        "hook passed despite a stale committed output: {out:?}"
+    );
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("found DRIFT (exit 1)"),
+        "hook did not name the drift outcome: {stderr}"
+    );
+    assert!(
+        !stderr.contains("FAILED EXPECTATION"),
+        "hook confused drift with a false claim: {stderr}"
     );
 }

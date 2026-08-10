@@ -91,7 +91,7 @@ pub async fn check_doc(
             "only the project owner can check this doc",
         ));
     }
-    let run_id = start_run(&state, doc, &user, RunKind::Check).await?;
+    let run_id = start_run(&state, doc, &user, RunKind::Test).await?;
     Ok((StatusCode::ACCEPTED, Json(RunStartOut { run_id })))
 }
 

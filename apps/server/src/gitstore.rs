@@ -123,7 +123,7 @@ impl GitStore {
     /// Only the paths the pipeline declared as outputs are copied, never the
     /// whole run tree. Execs routinely leave heavy incidental artifacts in
     /// their working directory (a duckdb database, a build cache); those are
-    /// not part of any drift comparison — `hickory check` only diffs the
+    /// not part of any drift comparison — `hickory test` only diffs the
     /// files the pipeline produces — but committing them made the project
     /// repo grow without bound, and *every* render, run and LSP session pays
     /// for that by copying the tree again in `seed_checkout`. Declared

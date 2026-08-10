@@ -7,7 +7,7 @@ import type { Block, Doc, Plan, Project, TranscriptEvent } from "../api/types";
 export const CLI_SOURCE = `# hickory quickstart
 
 Hickory Docs turns documentation into a verified pipeline. Every example
-below executes on \`hickory check\`; drift between docs and binary is a
+below executes on \`hickory test\`; drift between docs and binary is a
 build failure.
 
 Everything below runs in one declared environment:
@@ -63,7 +63,7 @@ const initTranscript: TranscriptEvent[] = [
 export const CLI_BLOCKS: Block[] = [
   {
     kind: "prose",
-    html: "<h1>hickory quickstart</h1><p>Hickory Docs turns documentation into a verified pipeline. Every example below executes on <code>hickory check</code>; drift between docs and binary is a build failure.</p><p>Install the CLI, then confirm the version:</p>",
+    html: "<h1>hickory quickstart</h1><p>Hickory Docs turns documentation into a verified pipeline. Every example below executes on <code>hickory test</code>; drift between docs and binary is a build failure.</p><p>Install the CLI, then confirm the version:</p>",
     span: [0, CLI_SOURCE.indexOf("<hick:exec")],
   },
   {

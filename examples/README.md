@@ -14,10 +14,10 @@ Start here — it works everywhere:
 
 ```sh
 hickory run examples/text-tools-tour.hick
-hickory check examples/text-tools-tour.hick
+hickory test examples/text-tools-tour.hick
 ```
 
-`hickory check examples/` runs all three and needs the full set above. The R
+`hickory test examples/` runs all three and needs the full set above. The R
 chapter of the grand tour is behind a feature flag and stays off unless you
 ask for it:
 
@@ -26,5 +26,5 @@ hickory run examples/grand-tour.hick --features with-r
 ```
 
 Every `.md` and generated artifact beside these documents is committed output.
-`hickory check` re-executes and fails if any of it has drifted, which is how
+`hickory test` re-executes and fails if any of it has drifted, which is how
 these examples stay honest.

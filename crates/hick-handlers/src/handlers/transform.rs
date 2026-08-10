@@ -39,7 +39,7 @@ impl TagHandler for TransformHandler {
 
     fn process(&self, tag: &HickTag, ctx: &ProcessingContext) -> Result<TagResult> {
         // The pinned passage IS the output. A transform that regenerated here
-        // would call a model during `hickory check`, making verification cost
+        // would call a model during `hickory test`, making verification cost
         // money and return different bytes every run.
         let body = hick_lang::dedent(&hick_lang::tag_text(tag), ctx.indent);
         let _ = tag_attr(tag, "select");

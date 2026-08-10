@@ -37,7 +37,7 @@ apple,9
 </hick:exec>
 ```
 
-`hickory run` executes it. `hickory check` fails — with the line number and a
+`hickory run` executes it. `hickory test` fails — with the line number and a
 diff — if the tool's behavior ever changes. `match="regex-lines"` handles
 timestamps and hashes.
 
@@ -55,13 +55,13 @@ The `hickory` CLI in `crates/hickory-cli` is the same engine, used for CI
 verification and local development of documents:
 
 ```sh
-cargo run -p hickory-cli -- check examples/text-tools-tour.hick
+cargo run -p hickory-cli -- test examples/text-tools-tour.hick
 ```
 
 The examples are executable documents you can run against either executor:
 
 ```sh
-HICKORY_EXECUTOR=docker cargo run -p hickory-cli -- check examples/
+HICKORY_EXECUTOR=docker cargo run -p hickory-cli -- test examples/
 ```
 
 With `docker`, each document's `image=` is the environment it runs in. With
@@ -134,10 +134,15 @@ history, not a chat log that evaporated.
   - `--freeze` — freeze every cell that does not say otherwise: answer it
     from its recording, never execute it. A cell's own `freeze="false"` still
     wins. Records nothing; a cell with no recording is an error.
-- `hickory check <doc|dir>` — verify; four outcomes, four exit codes (below)
+- `hickory test <doc|dir>` — verify; four outcomes, four exit codes (below).
+  It is `test`, not `check`, because it re-executes every cell in the
+  document — the slowest, most side-effecting verb here. `cargo check`
+  promises the opposite ("don't build, don't run"), so that name described
+  a command hickory does not have.
   - `--freeze` — verify against recordings without executing. There is no
-    `--cache` here on purpose: a check that can write its own baseline is not
-    a check, so an unrecorded cell is reported unverifiable (exit `2`).
+    `--cache` here on purpose: a verifier that can write its own baseline is
+    not verifying anything, so an unrecorded cell is reported unverifiable
+    (exit `2`).
 - `hickory weave <doc>` — render from cached transcripts without executing
 - `hickory agent "<prompt>"` — run an agent session (writes `sessions/*.hick`)
 - `hickory promote <session.hick>` — compact a session into a pipeline
@@ -145,7 +150,7 @@ history, not a chat log that evaporated.
 - `hickory init` — install the pre-commit drift gate in a git repo
 - Language reference: `docs/` · Architecture: `docs/specs/freeform/architecture.md`
 
-### `hickory check` exit codes
+### `hickory test` exit codes
 
 CI branches on these, so they are part of the CLI's public contract.
 

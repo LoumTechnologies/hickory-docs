@@ -98,7 +98,7 @@ Mapping (`scripts/affected-checks.sh`):
 |---|---|
 | `apps/server/**`, `crates/**`, `Cargo.toml`, `Cargo.lock` | `rust`, `check-codegen` |
 | `apps/web/**` | `web`, `check-codegen` |
-| `docs/**`, `examples/**` | `rust` — this repo's `rust` job also verifies docs/examples drift (`hickory-cli check docs/`, `check examples/`), so a docs-only change genuinely needs it |
+| `docs/**`, `examples/**` | `rust` — this repo's `rust` job also verifies docs/examples drift (`hickory-cli test docs/`, `check examples/`), so a docs-only change genuinely needs it |
 | `docker-compose.yml`, `scripts/dev*.sh`, `justfile` | `rust`, `web` — deliberately the full suites; there is no separate fast dev-environment smoke test yet (follow-up work) |
 | anything else (e.g. `README.md`, `LICENSE`) | nothing |
 

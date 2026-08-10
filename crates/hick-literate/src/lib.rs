@@ -111,7 +111,7 @@ impl std::fmt::Display for CellId {
 /// This is the *unverifiable* half of `check`'s verdict: nothing was ever
 /// established for the cell, which is a different fact from "what was
 /// established has since changed" (drift). See
-/// `docs/guarantees/verification/check-separates-unverifiable-from-drifted.md`.
+/// `docs/guarantees/verification/test-separates-unverifiable-from-drifted.md`.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum NoBaseline {
     /// Weave or dry-run: nothing is executed, and no recording answered this
@@ -2434,7 +2434,7 @@ mod tests {
     use super::*;
 
     // Protects the "key does not assume a container" clause of
-    // docs/guarantees/verification/check-separates-unverifiable-from-drifted.md.
+    // docs/guarantees/verification/test-separates-unverifiable-from-drifted.md.
     #[test]
     fn a_cell_with_no_container_can_be_named_and_keyed() {
         let agentish = CellId::containerless(12);

@@ -15,7 +15,7 @@ says the right thing.
 
 So the editable set is the pipeline closure, and the documents declare it
 themselves. There is no flag to remember and no path to pass; the same
-`hick:upstream` edges that `hickory check` follows are the ones the agent may
+`hick:upstream` edges that `hickory test` follows are the ones the agent may
 edit. The system prompt names the rule directly — fix a disagreement where it
 is recorded, never restate an upstream fragment inline.
 
@@ -23,7 +23,7 @@ Closure loading is breadth-first with a visited set, so a diamond loads once
 and a cycle terminates. Unreadable or unparseable edges are skipped rather
 than failing the session: an agent should not be blocked from opening a
 document because a different document in the chain is broken — that is what
-`hickory check` reports, and fixing it may be exactly why the agent was
+`hickory test` reports, and fixing it may be exactly why the agent was
 called.
 
 An upstream edit parses, then writes, then re-weaves the primary. If the

@@ -30,6 +30,12 @@ enum Command {
     Run(RunArgs),
     /// Verification mode: re-execute and report drift or missing baselines.
     ///
+    /// This is `test` and not `check` on purpose: `cargo check` promises
+    /// "don't build, don't run", while this re-executes every cell in the
+    /// document — the slowest, most side-effecting verb here. It is the
+    /// same verb as `cargo test` / `npm test`: run it all, tell me what
+    /// broke.
+    ///
     /// Four outcomes, each with its own exit code — a user-facing contract
     /// CI scripts branch on:
     ///
@@ -51,7 +57,7 @@ enum Command {
     /// because it is the only one that says something is definitely wrong,
     /// and the only one no automation may act on by itself.
     #[command(verbatim_doc_comment)]
-    Check(CheckArgs),
+    Test(TestArgs),
     /// Weave without executing: cached transcripts where present, otherwise
     /// blocks are marked never-run.
     Weave(WeaveArgs),
@@ -107,7 +113,7 @@ struct RunArgs {
 }
 
 #[derive(clap::Args)]
-struct CheckArgs {
+struct TestArgs {
     /// A `.hick` document or a directory of documents.
     path: PathBuf,
     /// Parameter overrides, `key=value` (repeatable).
@@ -125,7 +131,7 @@ struct CheckArgs {
     /// its recording instead of executing it, and report any cell with no
     /// recording as unverifiable (exit 2).
     ///
-    /// There is deliberately no --cache here: `check` must never write the
+    /// There is deliberately no --cache here: `test` must never write the
     /// baseline it then compares against. Record with
     /// `hickory run --cache <doc>`.
     #[arg(long)]
@@ -232,7 +238,7 @@ fn main() -> ExitCode {
     let outcome = runtime.block_on(async {
         match cli.command {
             Command::Run(args) => cmd_run(args).await,
-            Command::Check(args) => cmd_check(args).await,
+            Command::Test(args) => cmd_test(args).await,
             Command::Weave(args) => cmd_weave(args).await,
             Command::Lineage(args) => cmd_lineage(args).await,
             Command::Promote(args) => cmd_promote(args),
@@ -315,7 +321,7 @@ async fn cmd_run(args: RunArgs) -> Result<ExitCode> {
     Ok(ExitCode::SUCCESS)
 }
 
-async fn cmd_check(args: CheckArgs) -> Result<ExitCode> {
+async fn cmd_test(args: TestArgs) -> Result<ExitCode> {
     let executor_choice = ExecutorChoice::from_env()?;
     let docs = expand_docs(&args.path)?;
     let params = params_with_features(&args.params, &args.features);
@@ -329,7 +335,7 @@ async fn cmd_check(args: CheckArgs) -> Result<ExitCode> {
             &params,
             RunMode::Verify,
             executor_choice,
-            // `cache: false` is the load-bearing half: `check` reads
+            // `cache: false` is the load-bearing half: `test` reads
             // recordings but must never write one, or it would manufacture
             // the baseline it then reports as verified.
             CachePolicy {
@@ -405,16 +411,16 @@ async fn cmd_check(args: CheckArgs) -> Result<ExitCode> {
     match worst {
         CheckOutcome::Verified => {}
         CheckOutcome::Drifted => eprintln!(
-            "hickory check: DRIFTED (exit 1) — committed output is out of date with what \
+            "hickory test: DRIFTED (exit 1) — committed output is out of date with what \
              the document produces. Re-run `hickory run <doc>` (or `hickory refresh <doc>` \
              for a stale hick:transform) and commit the result."
         ),
         CheckOutcome::Unverifiable => eprintln!(
-            "hickory check: NOT VERIFIED (exit 2) — at least one cell has no baseline, so this \
+            "hickory test: NOT VERIFIED (exit 2) — at least one cell has no baseline, so this \
              document was not actually checked against anything"
         ),
         CheckOutcome::ExpectationFailed => eprintln!(
-            "hickory check: EXPECTATION FAILED (exit 3) — a hick:expect did not hold, so the \
+            "hickory test: EXPECTATION FAILED (exit 3) — a hick:expect did not hold, so the \
              document claims something untrue of its own output. This is not drift and must \
              not be regenerated away: decide whether the claim or the code is wrong."
         ),
@@ -560,7 +566,7 @@ async fn cmd_agent(args: AgentArgs) -> Result<ExitCode> {
     // `client_for` reports an unknown provider or a missing key by name,
     // before anything is executed.
     let llm = client_for(&args.provider, args.model.as_deref(), None)?;
-    // Executor selection follows HICKORY_EXECUTOR, same as run/check.
+    // Executor selection follows HICKORY_EXECUTOR, same as run/test.
     let executor = ExecutorChoice::from_env()?.build().await?;
 
     let mut config = AgentConfig::new(args.prompt, &project_dir);
@@ -676,7 +682,7 @@ fn indent(s: &str) -> String {
 /// `hickory refresh` — rewrite stale transform passages from their inputs.
 ///
 /// This is the only command in the tool that calls a model, and that is a
-/// deliberate boundary: `run`, `check`, and `weave` stay free, offline, and
+/// deliberate boundary: `run`, `test`, and `weave` stay free, offline, and
 /// deterministic, so a document containing LLM-written prose is still safe to
 /// verify in CI.
 ///

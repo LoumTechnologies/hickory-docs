@@ -122,7 +122,7 @@ fn a_frozen_cell_gets_its_baseline_entirely_through_the_cli() {
     // Freezing the cell does not change its command, so the recording still
     // matches its cache key.
     std::fs::write(&doc, doc_source(Some(true))).unwrap();
-    let out = hickory().arg("check").arg(&doc).output().unwrap();
+    let out = hickory().arg("test").arg(&doc).output().unwrap();
     assert_eq!(
         out.status.code(),
         Some(0),
@@ -199,20 +199,20 @@ fn run_freeze_without_a_recording_fails_and_names_the_recording_command() {
 }
 
 #[test]
-fn check_refuses_a_cache_flag() {
+fn test_refuses_a_cache_flag() {
     // `check` must never be able to write the baseline it then compares
     // against — the circularity `unverifiable` exists to prevent.
     let dir = tempfile::tempdir().unwrap();
     let doc = write_doc(dir.path(), None);
     let out = hickory()
-        .arg("check")
+        .arg("test")
         .arg("--cache")
         .arg(&doc)
         .output()
         .unwrap();
     assert!(
         !out.status.success(),
-        "`hickory check --cache` must not be accepted"
+        "`hickory test --cache` must not be accepted"
     );
     assert!(
         recordings(dir.path()).is_empty(),
@@ -221,13 +221,13 @@ fn check_refuses_a_cache_flag() {
 }
 
 #[test]
-fn check_freeze_reports_an_unrecorded_cell_as_unverifiable() {
+fn test_freeze_reports_an_unrecorded_cell_as_unverifiable() {
     // Read-only freeze on the verifier: nothing to compare against is exit 2,
     // not a silent pass and not a recording written on the spot.
     let dir = tempfile::tempdir().unwrap();
     let doc = write_doc(dir.path(), None);
     let out = hickory()
-        .arg("check")
+        .arg("test")
         .arg("--freeze")
         .arg(&doc)
         .output()

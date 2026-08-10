@@ -33,11 +33,11 @@ passing suite; it is a suite that did not run. This is the trade a cell makes
 deliberately when its output legitimately moves over time (lockfiles, network
 fetches, timestamps); an integration test must never make it.
 
-`hickory check` is the one caller that does not abort: it reports a frozen
+`hickory test` is the one caller that does not abort: it reports a frozen
 cell with no recording as **unverifiable** (exit `2`) so every such cell is
 listed in one pass. A frozen cell that DOES have a recording is verified, not
 unverifiable — the recording is its baseline. See
-`check-separates-unverifiable-from-drifted.md`.
+`test-separates-unverifiable-from-drifted.md`.
 
 ---
 

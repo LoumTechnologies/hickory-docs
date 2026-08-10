@@ -1,4 +1,4 @@
-# Recordings Are Written Only When A Run Is Asked To Write One, And Never By `check`
+# Recordings Are Written Only When A Run Is Asked To Write One, And Never By `test`
 
 Given a document with `<hick:exec>` cells, when it is driven through the
 shipped `hickory` binary, then:
@@ -19,15 +19,15 @@ shipped `hickory` binary, then:
   never executed. A cell with no recording **fails the run** — it is never
   silently executed, and never recorded on the spot. A cell's own
   `freeze="false"` still wins.
-- `hickory check <doc>` has a `--freeze` flag and **deliberately has no
+- `hickory test <doc>` has a `--freeze` flag and **deliberately has no
   `--cache`**. A verifier that can write the baseline it then compares against
   verifies nothing; that circularity is exactly what the `unverifiable`
-  outcome exists to prevent. `check` reports a cell with no baseline as
+  outcome exists to prevent. `test` reports a cell with no baseline as
   unverifiable (exit `2`) rather than establishing one.
 
 The whole freeze lifecycle is therefore reachable from the CLI alone: set
 `freeze="false"`, run `hickory run --cache <doc>` once to record the cell,
-restore `freeze="true"`, and `hickory check <doc>` verifies it. A recording is
+restore `freeze="true"`, and `hickory test <doc>` verifies it. A recording is
 keyed by the container image, capabilities, command text, and secret names —
 not by the `freeze` attribute — so freezing a cell after recording it does not
 retire its recording.
@@ -45,7 +45,7 @@ Last LLM verification:
 - Reviewer: Claude (Opus 5)
 - Result: verified
 - Evidence: the flags are declared on `RunArgs` (`--cache`, `--freeze`) and
-  `CheckArgs` (`--freeze` only) in `crates/hickory-cli/src/main.rs`, and are
+  `TestArgs` (`--freeze` only) in `crates/hickory-cli/src/main.rs`, and are
   carried as `hickory_cli::CachePolicy` into `run_doc_cached`
   (`crates/hickory-cli/src/lib.rs`). `run_doc` keeps its old signature and
   delegates with `CachePolicy::OFF`, so every embedded caller (the server's
@@ -57,7 +57,7 @@ Last LLM verification:
   and hands the config to `run_pipeline_live` whenever either flag is set even
   if the directory does not exist — which is what makes `--freeze` against an
   unrecorded project fail loudly instead of executing. `cmd_check` passes
-  `cache: false` unconditionally; there is no code path from `check` to
+  `cache: false` unconditionally; there is no code path from `test` to
   `cache::cache_store`. The per-cell decision itself is unchanged and lives in
   `run_pipeline_live` (`crates/hick-literate/src/lib.rs`) — see
   `freeze-is-declared-per-cell.md`.
@@ -68,15 +68,15 @@ Last LLM verification:
   `run_freeze_serves_the_recording_instead_of_executing` (proved by doctoring
   the recording on disk and finding the doctored text in the woven output),
   `run_freeze_without_a_recording_fails_and_names_the_recording_command`,
-  `check_refuses_a_cache_flag`, and
-  `check_freeze_reports_an_unrecorded_cell_as_unverifiable`. The message
-  wording is pinned by `check_exits_unverifiable_when_a_cell_has_no_baseline`
-  in `crates/hickory-cli/tests/check_tests.rs` (must contain `hickory run
+  `test_refuses_a_cache_flag`, and
+  `test_freeze_reports_an_unrecorded_cell_as_unverifiable`. The message
+  wording is pinned by `test_exits_unverifiable_when_a_cell_has_no_baseline`
+  in `crates/hickory-cli/tests/test_command_tests.rs` (must contain `hickory run
   --cache`, must not contain `hick run --cache`) and by
   `a_frozen_cell_without_a_recording_fails_with_an_actionable_error` in
   `crates/hick-literate/tests/freeze_tests.rs`.
 - Caveat requiring LLM review: nothing mechanically stops a future `--cache`
-  flag from being added to `check`; `check_refuses_a_cache_flag` catches it
+  flag from being added to `test`; `test_refuses_a_cache_flag` catches it
   only because clap rejects unknown arguments. Also out of scope by decision:
   hickory issue #10 proposes that a frozen cell with no recording should
   record on first run instead of erroring. Until that is decided, "a frozen

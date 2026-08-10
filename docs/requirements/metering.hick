@@ -4,7 +4,7 @@
 
 Written against the decisions of 6 Aug and the billing domain model. The
 term and the decisions below are imported, not restated: if either changes
-upstream, this document changes with it and `hickory check` fails until the
+upstream, this document changes with it and `hickory test` fails until the
 generated artifact is regenerated.
 
 <hick:upstream file="../domain/billing.hick" />
@@ -54,7 +54,7 @@ drift from it.
 
 The same numbers, in prose, for readers who are not reading JSON. This
 passage is WRITTEN FROM the table above rather than being a second copy of
-it: `hickory check` fails if the table changes and the sentence does not.
+it: `hickory test` fails if the table changes and the sentence does not.
 
 <hick:transform select="#limits" from="438fb5e6"
                 instruct="One or two sentences naming each plan and its monthly execution-minute allowance. Numbers must be exact. Plain prose, no list, no heading.">

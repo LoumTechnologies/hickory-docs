@@ -3,7 +3,7 @@
 
 Written against the decisions of 6 Aug and the billing domain model. The
 term and the decisions below are imported, not restated: if either changes
-upstream, this document changes with it and `hickory check` fails until the
+upstream, this document changes with it and `hickory test` fails until the
 generated artifact is regenerated.
 
 
@@ -65,7 +65,7 @@ drift from it.
 
 The same numbers, in prose, for readers who are not reading JSON. This
 passage is WRITTEN FROM the table above rather than being a second copy of
-it: `hickory check` fails if the table changes and the sentence does not.
+it: `hickory test` fails if the table changes and the sentence does not.
 
 The Open plan includes 300 execution minutes per month, Pro 2,000, Team 10,000, and Business 30,000.
 

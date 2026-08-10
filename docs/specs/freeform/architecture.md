@@ -85,7 +85,7 @@ the node's ledger. Documents don't change shape; the mapping is deployment confi
 - `<hick:exec ...>` bodies already capture transcripts. New: `<hick:expect>`
   as a child of `hick:exec` — expected stdout, with `match="exact|regex-lines"`
   (regex-lines: each line is a full-line regex, for timestamps/hashes).
-- `hickory check <doc|dir>`: re-runs the pipeline, fails on any expectation
+- `hickory test <doc|dir>`: re-runs the pipeline, fails on any expectation
   mismatch or output drift vs the committed woven output. Exit code drives CI
   and the pre-commit hook (`hickory init` installs a sentinel-delimited hook,
   same idempotent design exedocs used — but implemented here, no cram).

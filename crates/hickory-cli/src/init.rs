@@ -23,22 +23,42 @@ pub const AGENTS_BLOCK_END: &str = "<!-- END HICKORY -->";
 ///
 /// Discovers tracked `*.hick` documents at commit time (so newly added docs
 /// are covered without re-running `hickory init`), skips cleanly when there
-/// are none, and blocks the commit if `hickory check` reports drift.
+/// are none, and blocks the commit if `hickory test` reports a failure.
+///
+/// The message names which of the four outcomes actually happened. "Drift"
+/// used to be printed for every non-zero exit, which was wrong for two of
+/// them: an unverifiable cell was never checked against anything, and a
+/// failed expectation is a false claim that must NOT be regenerated away.
+/// Those need different fixes, so they get different sentences.
+///
+/// Exit codes are ranked by number, which is the same order the CLI ranks
+/// outcomes in: verified(0) < drifted(1) < unverifiable(2) < expectation(3).
 const HOOK_BODY: &str = r#"# Managed by `hickory init` — do not edit inside this block.
 # Re-run `hickory init` to refresh it.
 hick_docs=$(git ls-files -- '*.hick')
 if [ -n "$hick_docs" ]; then
     if command -v hickory >/dev/null 2>&1; then
-        hick_status=0
+        hick_worst=0
         for hick_doc in $hick_docs; do
-            hickory check "$hick_doc" || hick_status=1
+            hick_code=0
+            hickory test "$hick_doc" || hick_code=$?
+            if [ "$hick_code" -gt "$hick_worst" ]; then
+                hick_worst=$hick_code
+            fi
         done
-        if [ "$hick_status" -ne 0 ]; then
-            echo "pre-commit: \`hickory check\` failed — documentation drift; commit blocked" >&2
-            exit 1
-        fi
+        case "$hick_worst" in
+            0) ;;
+            1) echo "pre-commit: \`hickory test\` found DRIFT (exit 1) — a committed output is out of date with what the document produces. Re-run \`hickory run <doc>\` (or \`hickory refresh <doc>\` for a stale hick:transform) and commit the result. Commit blocked." >&2
+               exit 1 ;;
+            2) echo "pre-commit: \`hickory test\` could NOT VERIFY (exit 2) — a cell has no baseline, so nothing was actually checked. Record one with \`hickory run --cache <doc>\`, or stop freezing that cell. Commit blocked." >&2
+               exit 1 ;;
+            3) echo "pre-commit: \`hickory test\` found a FAILED EXPECTATION (exit 3) — a hick:expect did not hold, so the document claims something untrue of its own output. Do not regenerate this away: decide whether the claim or the code is wrong. Commit blocked." >&2
+               exit 1 ;;
+            *) echo "pre-commit: \`hickory test\` exited $hick_worst — see the output above. Commit blocked." >&2
+               exit 1 ;;
+        esac
     else
-        echo "pre-commit: hickory not found on PATH; skipping .hick drift check" >&2
+        echo "pre-commit: hickory not found on PATH; skipping .hick verification" >&2
     fi
 fi"#;
 
@@ -47,7 +67,7 @@ const AGENTS_BODY: &str = r#"## Hickory executable documents
 
 This repository contains `.hick` documents: reproducible, verifiable,
 executable documents. Every example in a `.hick` file actually runs, and
-drift between the document and reality fails `hickory check` (a pre-commit
+drift between the document and reality fails `hickory test` (a pre-commit
 hook enforces this).
 
 ### Grammar essentials
@@ -62,7 +82,7 @@ paste in verbatim.
 - `<hick:container name="c" image="..." />` declares an execution container.
 - `<hick:exec container="c">` holds commands, run in that container.
 - `<hick:expect match="exact">…</hick:expect>` (or `match="regex-lines"`)
-  inside an exec pins the expected output; mismatch fails `hickory check`.
+  inside an exec pins the expected output; mismatch fails `hickory test`.
 - `<hick:file path="out/x.py">` blocks are generated files, written on run.
 - Execution order is the dependency DAG (containers, volumes, copy/paste
   references) — not source order.
@@ -73,7 +93,7 @@ paste in verbatim.
    `hick:file` products) — those are overwritten on every run. Use the
    lineage tooling if you must trace an output byte back to its source span.
 2. After editing a document, run `hickory run <doc>` to regenerate outputs,
-   then `hickory check <doc>` and fix whatever fails before committing.
+   then `hickory test <doc>` and fix whatever fails before committing.
 3. Agent sessions live in `sessions/*.hick` (`hick:session` documents);
    `hickory promote <session>` compacts one into a clean pipeline doc.
 "#;
@@ -449,7 +469,7 @@ mod tests {
 
         // Tamper inside the block; re-init must restore it without
         // duplicating and without touching the user's line.
-        let tampered = content.replace("hickory check", "hickory chekc");
+        let tampered = content.replace("hickory test", "hickory tset");
         std::fs::write(&hook_path, tampered).unwrap();
         run_init(repo.path()).unwrap();
         let refreshed = std::fs::read_to_string(&hook_path).unwrap();

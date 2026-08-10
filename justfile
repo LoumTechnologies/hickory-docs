@@ -53,7 +53,7 @@ run DOC *ARGS:
 
 # Verify documents (drift/expectations). CI + pre-commit entry point.
 verify DOC *ARGS:
-    cargo run -p hickory-cli -- check {{DOC}} {{ARGS}}
+    cargo run -p hickory-cli -- test {{DOC}} {{ARGS}}
 
 # Run the agent on a prompt. Loads .env first, which is where API keys live —
 # the CLI itself does not read .env, so calling `hickory agent` directly needs

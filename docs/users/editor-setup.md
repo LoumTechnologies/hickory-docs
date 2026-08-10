@@ -115,5 +115,5 @@ When you open a `.hick` file, `hick-lsp`:
   rust-analyzer needs a `Cargo.toml` to be useful, the same applies to
   embedded Rust.
 - **`h:exec` shell blocks get no diagnostics** — only `h:file` blocks with a
-  recognized extension do. Drift in exec blocks is caught by `hickory check`,
+  recognized extension do. Drift in exec blocks is caught by `hickory test`,
   not the editor.

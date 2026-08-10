@@ -11,7 +11,7 @@ a hosted workspace.*
 | Where documents live | Per-project server-side git, mirrored to Postgres | `.hick` files in your repo |
 | Editing | Web/mobile notebook UI with live CRDT sync (multiple cursors, offline merge) | Your editor + `hick-lsp` ([editor setup](editor-setup.md)) |
 | Execution | Firecracker microVMs on Cloud Canopy nodes | `hickory` CLI, executor of your choice (below) |
-| Drift gate | Server re-checks on save/run | `hickory init` pre-commit hook + `hickory check` in CI |
+| Drift gate | Server re-checks on save/run | `hickory init` pre-commit hook + `hickory test` in CI |
 | Agent | Built-in Agent panel / `hickory agent` | Either the built-in agent or your own coding agent ([ai-agents](ai-agents.md)) |
 
 The document format is identical in both. A repo can graduate to a cloud
@@ -31,12 +31,12 @@ hickory init
 1. installs a **pre-commit hook** (a sentinel-delimited `### HICKORY ###`
    block, appended to any hook you already have; `core.hooksPath` is
    respected). At commit time the hook discovers all tracked `*.hick` files
-   and runs `hickory check` on each; any drift blocks the commit. No `.hick`
+   and runs `hickory test` on each; any drift blocks the commit. No `.hick`
    files, no-op.
 2. adds `.hick-cache/` to `.gitignore` (cached transcripts).
 3. writes a managed `<!-- HICKORY -->` section into `AGENTS.md` teaching
    coding agents the hick grammar and the golden rules (edit sources, run
-   `hickory run` then `hickory check`), and points `CLAUDE.md` at it.
+   `hickory run` then `hickory test`), and points `CLAUDE.md` at it.
 4. prints a toolchain doctor: warnings (non-fatal) for missing child language
    servers like `rust-analyzer` or `pyright-langserver`.
 
@@ -45,7 +45,7 @@ Daily loop:
 ```sh
 $EDITOR docs/quickstart.hick
 hickory run docs/quickstart.hick    # execute, weave quickstart.md, write outputs
-hickory check docs/quickstart.hick  # verify — same command the hook runs
+hickory test docs/quickstart.hick  # verify — same command the hook runs
 git add -A && git commit            # hook re-checks every tracked .hick doc
 ```
 
@@ -91,7 +91,7 @@ platforms.
 - **The pre-commit hook checks *tracked* `.hick` files, not just staged
   ones** — a doc drifted by someone else's change still blocks your commit,
   which is the point.
-- **`hickory check` re-executes documents.** A slow document makes commits
+- **`hickory test` re-executes documents.** A slow document makes commits
   slow; keep heavyweight docs out of the hook by not tracking them, or gate
   them in CI only.
 - **`.hick-cache/` is disposable** — never commit it; `hickory weave` uses it

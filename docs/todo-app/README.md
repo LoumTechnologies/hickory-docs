@@ -19,14 +19,14 @@ todo.py                              the shipped program
 ## Try the demo
 
 ```sh
-hickory check docs/todo-app/          # all four documents pass
+hickory test docs/todo-app/          # all four documents pass
 ```
 
 Now change one sentence — in `meetings/2026-08-07-kickoff.hick`, make the
 states decision say "four states" instead of "three":
 
 ```sh
-hickory check docs/todo-app/          # the meeting, the domain model, and
+hickory test docs/todo-app/          # the meeting, the domain model, and
                                       # the requirements all fail together
 ```
 

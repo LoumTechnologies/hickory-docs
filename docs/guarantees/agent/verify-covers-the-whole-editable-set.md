@@ -14,7 +14,7 @@ the rest of the chain stale.
 This was observed exactly once, in a live run. An agent asked to propagate a
 new task state amended the decision in the meeting note two hops upstream —
 correctly — then ran `verify`, got `PASS`, and reported success in good faith.
-`hickory check` failed on six documents whose `.md` and tangled ticket outputs
+`hickory test` failed on six documents whose `.md` and tangled ticket outputs
 had never been regenerated. The agent was not wrong to trust its tool; the
 tool was wrong.
 

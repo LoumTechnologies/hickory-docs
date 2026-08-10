@@ -10,9 +10,9 @@ command you can run or a test that already gates CI.
 |---|---|
 | The language + abilities work without the wasm runtime | `cargo test --workspace -- --test-threads=1` — 55 suites, 0 failures; no wasmtime in the tree |
 | Docs really execute and self-verify | `just run examples/text-tools-tour.hick && just verify examples/` (also a CI step) |
-| Drift is a build failure with a precise message | `cargo run -p hickory-cli -- check crates/hickory-cli/tests/fixtures/drifted-tour.hick` → exit 1, line + diff |
+| Drift is a build failure with a precise message | `cargo run -p hickory-cli -- test crates/hickory-cli/tests/fixtures/drifted-tour.hick` → exit 1, line + diff |
 | A statistical paper reproduces its own figure | `just run examples/bootstrap-ci.hick` → regenerates `bootstrap-histogram.svg` from seeded data |
-| The flagship demo: weaving, SQL, Polars, feature gates | `cargo run -p hickory-cli -- check examples/grand-tour.hick` — assembles + runs `analysis.py` from prose sections, verifies DuckDB tables exactly, fits a Polars regression and regenerates `regression-explorer.html`; add `--features with-r` for the ggplot section (CI does; locally needs `sudo apt install r-base r-cran-ggplot2`) |
+| The flagship demo: weaving, SQL, Polars, feature gates | `cargo run -p hickory-cli -- test examples/grand-tour.hick` — assembles + runs `analysis.py` from prose sections, verifies DuckDB tables exactly, fits a Polars regression and regenerates `regression-explorer.html`; add `--features with-r` for the ggplot section (CI does; locally needs `sudo apt install r-base r-cran-ggplot2`) |
 | Agent output is literate programming in git | `cargo test -p hickory-cli --test agent_promote_e2e` — scripted LLM → `hick:session` file → parses → promotes to a `hick:doc` → passes check, zero network |
 | Canopy protocol correctness | `cargo test -p hickory-executor-canopy` — 9-test mock-gRPC contract suite (pty framing, forks, tar volumes, tokens); live dev-agent smoke reached authz + spawn, blocked only on a real guest image |
 | Canopy API stays in one crate | `tests/isolation.rs` scans the whole workspace (guarantee doc: verified) |

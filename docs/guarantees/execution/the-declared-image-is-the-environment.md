@@ -20,7 +20,7 @@ Resolution order is now: an `image=` on the exec, then the container's
 declaration, then the historical `alpine` default. A fork inherits its
 source's image unless it declares its own.
 
-The consequence is that `hickory check` finally means what it says. A document
+The consequence is that `hickory test` finally means what it says. A document
 verified under the docker executor is verified for the environment it names,
 so two machines that agree on the image agree on the result.
 
