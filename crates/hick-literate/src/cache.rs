@@ -29,9 +29,18 @@ pub struct ExecCacheEntry {
 pub struct CacheConfig {
     /// Root directory for cached transcripts.
     pub cache_dir: PathBuf,
-    /// Whether caching is enabled.
+    /// Whether run-wide caching is enabled: results are recorded, and a
+    /// matching recording is reused instead of executing.
+    ///
+    /// This can be `false` while the cache directory is still consulted — a
+    /// cell that declares `freeze="true"` reads its recording regardless.
     pub enabled: bool,
-    /// Freeze mode: require all execs to be cached, never re-execute.
+    /// The **run-wide default** for freeze, set by `hick run --freeze`.
+    ///
+    /// Freeze is a per-cell property: a `freeze=` attribute on an exec cell
+    /// overrides this value in either direction. A frozen cell is checked
+    /// against its recording and never executed, so a missing recording is an
+    /// error rather than a reason to run.
     pub freeze: bool,
 }
 

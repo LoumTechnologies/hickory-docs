@@ -407,6 +407,49 @@ Cached transcripts are stored in `.hick-cache/transcripts/`. In freeze
 mode, any uncached exec step is an error — useful in CI to ensure
 reproducible builds.
 
+### Freezing a single cell
+
+`--freeze` sets the default for the whole run, but freeze is really a
+property of one cell. Declare it with a `freeze` attribute on the exec:
+
+```xml
+<hick:exec container="deps" freeze="true">
+cargo generate-lockfile
+</hick:exec>
+
+<hick:exec container="tests" freeze="false">
+cargo test --test integration
+</hick:exec>
+```
+
+The first cell is answered from its recording and never runs; the second
+runs every time, even under `hick --freeze`.
+
+The rules:
+
+- `freeze="true"` — this cell is answered from its recording and never
+  run. With no matching recording the run fails and tells you to record
+  one first (`hick --cache`).
+- `freeze="false"` — this cell always runs, and is never answered from a
+  recording, even when the run was started with `--freeze`.
+- attribute omitted — the cell inherits the run-wide default.
+
+Only `true` and `false` are accepted. A value like `freeze="yes"` is an
+error rather than a silent `false`, because a typo in a verification
+switch must never quietly turn verification off.
+
+#### What freeze does *not* verify
+
+A frozen cell is not executed, so its `<hick:expect>` assertions are
+checked against the **recorded** output and therefore always pass. Freeze
+verifies *"the document still produces what we recorded"* — not *"the
+world still agrees."*
+
+A document in which every cell is frozen is not a passing suite; it is a
+suite that did not run. Freeze the cells whose output legitimately moves
+over time — lockfiles, network fetches, timestamps — and leave your
+integration tests unfrozen, which is exactly what per-cell freeze is for.
+
 ---
 
 ## 14. Multi-Stage Pipeline
@@ -545,7 +588,9 @@ Common options:
   --images-dir <path>      Pre-converted .wasm images
   --dry-run                Produce placeholders instead of running containers
   --cache                  Cache exec results, reuse on match
-  --freeze                 Require cached results, never re-execute
+  --freeze                 Default every cell to frozen: require cached
+                           results, never re-execute. Per-cell freeze="…"
+                           overrides this either way (see §13)
   --clear-cache            Clear cache before running
   -v, --verbose            Enable verbose logging
 

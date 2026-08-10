@@ -88,6 +88,14 @@ pub struct ExecInfo {
     /// True when this exec represents a `<hick:script>` block dispatched
     /// via the lightweight shell interpreter instead of a container.
     pub is_script: bool,
+    /// Per-cell freeze declaration from `freeze="true"`/`freeze="false"`.
+    ///
+    /// `None` means the cell inherits the run-wide default (`hick run
+    /// --freeze`). `Some(true)` means this cell is checked against its
+    /// recorded output and never executed; `Some(false)` means this cell is
+    /// always executed and never satisfied from a recording, even under a
+    /// run-wide freeze.
+    pub freeze: Option<bool>,
     /// Path to the WASM toolchain directory (only for script blocks).
     pub toolchain: Option<String>,
 }
@@ -184,6 +192,16 @@ pub enum DagValidationError {
         volume: String,
         access: String,
     },
+
+    #[error(
+        "exec at line {line} has freeze=\"{value}\", which is not a boolean.\n\
+         Next steps: write freeze=\"true\" to check this cell against its recorded \
+         output instead of running it, or freeze=\"false\" to always run it. Omit the \
+         attribute entirely to inherit the run-wide default set by `hick run --freeze`.\n\
+         Accepted values are exactly `true` and `false` (case-insensitive); `1`, `yes`, \
+         and `on` are not accepted."
+    )]
+    InvalidFreeze { line: usize, value: String },
 }
 
 // ---------------------------------------------------------------------------
@@ -214,13 +232,11 @@ pub fn build_dag(doc: &HickDocument) -> Result<FlowDag, DagValidationError> {
                     }
                 }
                 "exec" => {
-                    let info = extract_exec_info(tag, exec_index);
-                    execs.push(info);
+                    execs.push(extract_exec_info(tag, exec_index)?);
                     exec_index += 1;
                 }
                 "script" => {
-                    let info = extract_script_info(tag, exec_index);
-                    execs.push(info);
+                    execs.push(extract_script_info(tag, exec_index)?);
                     exec_index += 1;
                 }
                 "fork" => {
@@ -239,7 +255,7 @@ pub fn build_dag(doc: &HickDocument) -> Result<FlowDag, DagValidationError> {
                 }
                 "file" => {
                     // Files can contain nested execs
-                    collect_nested_execs(tag, &mut execs, &mut exec_index);
+                    collect_nested_execs(tag, &mut execs, &mut exec_index)?;
                 }
                 _ => {}
             }
@@ -431,7 +447,27 @@ pub fn build_dag(doc: &HickDocument) -> Result<FlowDag, DagValidationError> {
 // Extraction helpers
 // ---------------------------------------------------------------------------
 
-fn extract_exec_info(tag: &HickTag, index: usize) -> ExecInfo {
+/// Parse a `freeze="…"` attribute into a per-cell freeze declaration.
+///
+/// Absent means "inherit the run-wide default"; anything other than an exact
+/// `true`/`false` is rejected rather than silently treated as false, because a
+/// typo in a verification switch that quietly disables verification is the
+/// worst possible failure mode for this attribute.
+fn parse_freeze(tag: &HickTag) -> Result<Option<bool>, DagValidationError> {
+    match tag.get_attribute("freeze") {
+        None => Ok(None),
+        Some(raw) => match raw.trim().to_ascii_lowercase().as_str() {
+            "true" => Ok(Some(true)),
+            "false" => Ok(Some(false)),
+            _ => Err(DagValidationError::InvalidFreeze {
+                line: tag.source_line,
+                value: raw.to_string(),
+            }),
+        },
+    }
+}
+
+fn extract_exec_info(tag: &HickTag, index: usize) -> Result<ExecInfo, DagValidationError> {
     let container = tag
         .get_attribute("container")
         .unwrap_or("default")
@@ -475,7 +511,7 @@ fn extract_exec_info(tag: &HickTag, index: usize) -> ExecInfo {
         .cloned()
         .collect();
 
-    ExecInfo {
+    Ok(ExecInfo {
         id: ExecId(index),
         container,
         image,
@@ -487,7 +523,8 @@ fn extract_exec_info(tag: &HickTag, index: usize) -> ExecInfo {
         stdin_children,
         is_script: false,
         toolchain: None,
-    }
+        freeze: parse_freeze(tag)?,
+    })
 }
 
 /// Extract script info from a `<hick:script>` tag.
@@ -496,7 +533,7 @@ fn extract_exec_info(tag: &HickTag, index: usize) -> ExecInfo {
 /// participate in the DAG without creating container-state edges between
 /// unrelated scripts. Each script is independent unless connected by
 /// explicit volume or copy/paste dependencies.
-fn extract_script_info(tag: &HickTag, index: usize) -> ExecInfo {
+fn extract_script_info(tag: &HickTag, index: usize) -> Result<ExecInfo, DagValidationError> {
     let container = format!("_script_{index}");
     let toolchain = tag.get_attribute("toolchain").map(|s| s.to_string());
 
@@ -522,7 +559,7 @@ fn extract_script_info(tag: &HickTag, index: usize) -> ExecInfo {
 
     let command = command_text(tag);
 
-    ExecInfo {
+    Ok(ExecInfo {
         id: ExecId(index),
         container,
         image: None,
@@ -534,7 +571,8 @@ fn extract_script_info(tag: &HickTag, index: usize) -> ExecInfo {
         stdin_children: Vec::new(),
         is_script: true,
         toolchain,
-    }
+        freeze: parse_freeze(tag)?,
+    })
 }
 
 /// The command text of an exec/script tag: all text content EXCLUDING any
@@ -624,22 +662,25 @@ fn parse_volume_declaration(tag: &HickTag) -> Option<VolumeDeclaration> {
     })
 }
 
-fn collect_nested_execs(tag: &HickTag, execs: &mut Vec<ExecInfo>, index: &mut usize) {
+fn collect_nested_execs(
+    tag: &HickTag,
+    execs: &mut Vec<ExecInfo>,
+    index: &mut usize,
+) -> Result<(), DagValidationError> {
     for child in &tag.children {
         if let HickNode::Tag(child_tag) = child {
             if child_tag.name == "exec" {
-                let info = extract_exec_info(child_tag, *index);
-                execs.push(info);
+                execs.push(extract_exec_info(child_tag, *index)?);
                 *index += 1;
             } else if child_tag.name == "script" {
-                let info = extract_script_info(child_tag, *index);
-                execs.push(info);
+                execs.push(extract_script_info(child_tag, *index)?);
                 *index += 1;
             } else {
-                collect_nested_execs(child_tag, execs, index);
+                collect_nested_execs(child_tag, execs, index)?;
             }
         }
     }
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -705,6 +746,59 @@ mod tests {
     fn parse_and_build(src: &str) -> Result<FlowDag, DagValidationError> {
         let doc = hick_lang::parse(src).expect("parse failed");
         build_dag(&doc)
+    }
+
+    // The three tests below protect
+    // docs/guarantees/verification/freeze-is-declared-per-cell.md — the
+    // attribute-parsing half of it.
+
+    #[test]
+    fn freeze_attribute_parses_both_values() {
+        let src = r#"<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
+<hick:exec container="frozen" image="alpine" freeze="true">
+cat lockfile
+</hick:exec>
+<hick:exec container="live" image="alpine" freeze="FALSE">
+run the integration test
+</hick:exec>
+</hick:doc>"#;
+        let dag = parse_and_build(src).unwrap();
+        assert_eq!(dag.execs[0].freeze, Some(true));
+        assert_eq!(dag.execs[1].freeze, Some(false));
+    }
+
+    #[test]
+    fn freeze_attribute_defaults_to_inherit() {
+        let src = r#"<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
+<hick:exec container="demo" image="alpine">
+echo hello
+</hick:exec>
+</hick:doc>"#;
+        let dag = parse_and_build(src).unwrap();
+        assert_eq!(
+            dag.execs[0].freeze, None,
+            "an absent attribute must mean 'inherit the run-wide default', \
+             not 'live' — otherwise --freeze would stop working"
+        );
+    }
+
+    #[test]
+    fn freeze_attribute_rejects_non_boolean() {
+        let src = r#"<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
+<hick:exec container="demo" image="alpine" freeze="yes">
+echo hello
+</hick:exec>
+</hick:doc>"#;
+        let err = parse_and_build(src).expect_err("freeze=\"yes\" must not be accepted");
+        assert!(
+            matches!(err, DagValidationError::InvalidFreeze { ref value, .. } if value == "yes"),
+            "unexpected error: {err}"
+        );
+        let msg = err.to_string();
+        assert!(msg.contains("freeze=\"true\"") && msg.contains("freeze=\"false\""));
     }
 
     #[test]

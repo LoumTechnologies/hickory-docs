@@ -232,7 +232,16 @@ pub async fn run_doc(
                 max_rounds: 1,
                 on_exec: None,
             };
-            run_pipeline_live(&sources, &config, params, None, executor).await?
+            // Hand the pipeline the project's transcript cache when it
+            // exists, but with run-wide caching OFF: `run` asks "what is the
+            // answer now", so no cell is answered from a recording and
+            // nothing is recorded. The only reader here is a cell that
+            // declares `freeze="true"` — it needs the directory to find the
+            // recording it is checked against. Same read-only stance as
+            // weave mode below.
+            let cc = cache::CacheConfig::new(project_dir, false, false);
+            let cache_config = cc.cache_dir.is_dir().then_some(&cc);
+            run_pipeline_live(&sources, &config, params, cache_config, executor).await?
         }
         RunMode::Weave => {
             // Use the project's transcript cache when it exists.

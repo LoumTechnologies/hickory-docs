@@ -572,9 +572,14 @@ pub struct PipelineConfig {
 /// this function runs commands via the supplied executor and captures output
 /// (including timed transcript events).
 ///
-/// When `cache_config` is `Some`, execution results are cached and reused
-/// on subsequent runs if the cache key matches. In freeze mode, missing
-/// cache entries produce an error instead of re-executing.
+/// When `cache_config` is `Some` and enabled, execution results are cached and
+/// reused on subsequent runs if the cache key matches.
+///
+/// Freeze is decided per exec cell: `CacheConfig::freeze` is the run-wide
+/// default and a `freeze=` attribute on the cell overrides it in either
+/// direction. A frozen cell is never executed — a missing recording is an
+/// error — while a cell with `freeze="false"` is always executed, even under a
+/// run-wide freeze.
 pub async fn run_pipeline_live(
     sources: &[(&str, &str)],
     config: &PipelineConfig,
@@ -686,8 +691,43 @@ pub async fn run_pipeline_live(
                 })
                 .unwrap_or(DEFAULT_IMAGE);
 
+            // Freeze is a per-cell property with a run-wide default. `run`
+            // asks "what is the answer now"; a frozen cell instead asks "does
+            // the recorded answer still hold", so it is never executed. The
+            // `freeze=` attribute on the exec wins over the run-wide flag in
+            // both directions: `freeze="false"` keeps a cell live even under
+            // `hick run --freeze`.
+            let (serve_from_cache, require_cache) = match exec_info.freeze {
+                Some(true) => (true, true),
+                Some(false) => (false, false),
+                None => (
+                    cache_config.is_some_and(|cc| cc.enabled),
+                    cache_config.is_some_and(|cc| cc.freeze),
+                ),
+            };
+
+            if exec_info.freeze == Some(true) && cache_config.is_none() {
+                anyhow::bail!(
+                    "the exec in container '{}' at line {} declares freeze=\"true\", but this \
+                     run has no cache directory, so there is no recording to check it \
+                     against.\n\
+                     Next steps: create the project's recording directory \
+                     (.hick-cache/transcripts/ next to the document) by running the \
+                     document once with caching on, or drop the freeze=\"true\" attribute \
+                     if this cell should simply execute.\n\
+                     Common cause: embedded run paths — the server's live preview, watch \
+                     mode, and the agent's own tool calls — deliberately run with no cache \
+                     at all, so a frozen cell cannot be evaluated there no matter what is \
+                     on disk.",
+                    exec_info.container,
+                    exec_info.source_line,
+                );
+            }
+
             // Check cache before executing
-            if let Some(cc) = cache_config {
+            if let Some(cc) = cache_config
+                && (serve_from_cache || require_cache)
+            {
                 let caps_canonical = cache::canonical_caps(&container_defs, &exec_info.container);
                 let secret_names = cache::secret_names_for(&container_defs, &exec_info.container);
                 let secret_refs: Vec<&str> = secret_names.iter().map(|s| s.as_str()).collect();
@@ -727,11 +767,32 @@ pub async fn run_pipeline_live(
                         hook(&exec_info.container, exec_info.source_line, entry);
                     }
                     continue;
-                } else if cc.freeze {
+                } else if require_cache {
+                    let scope = if exec_info.freeze == Some(true) {
+                        "this cell declares freeze=\"true\""
+                    } else {
+                        "this run was started with --freeze"
+                    };
                     anyhow::bail!(
-                        "Freeze mode: no cached result for exec in '{}' (command: {})",
+                        "no recorded output for the exec in container '{}' at line {} \
+                         (command: {}), and {scope}, so it must not be executed.\n\
+                         A frozen cell is checked against a recording rather than run, so a \
+                         recording has to exist first.\n\
+                         Next steps: record it with `hick run --cache` while the cell is not \
+                         frozen, then re-run; or drop the freeze declaration if this cell \
+                         should execute every time.\n\
+                         A recording is keyed by the container image, capabilities, command \
+                         text, and secret names together — editing any of them retires the old \
+                         recording, so this error also means \"the cell changed since it was \
+                         recorded\".",
                         exec_info.container,
-                        exec_info.command.lines().next().unwrap_or("?"),
+                        exec_info.source_line,
+                        exec_info
+                            .command
+                            .lines()
+                            .map(str::trim)
+                            .find(|l| !l.is_empty())
+                            .unwrap_or("?"),
                     );
                 }
             }
@@ -886,8 +947,13 @@ pub async fn run_pipeline_live(
                     expectations.push(outcome);
                 }
 
-                // Store result in cache after successful execution
-                if let Some(cc) = cache_config {
+                // Store result in cache after successful execution. A cell
+                // that opted out of freeze still refreshes its recording when
+                // the run is caching — opting out means "run me", not "keep me
+                // out of the record".
+                if let Some(cc) = cache_config
+                    && cc.enabled
+                {
                     let caps_canonical =
                         cache::canonical_caps(&container_defs, &exec_info.container);
                     let secret_names =
@@ -1971,22 +2037,17 @@ pub async fn run_pipeline_cmd(opts: PipelineRunOpts) -> Result<()> {
         .map(|(name, content)| (name.as_str(), content.as_str()))
         .collect();
 
-    let cache_enabled = opts.cache || opts.freeze;
-    let cc = if cache_enabled {
-        let cc = CacheConfig::new(config_dir, true, opts.freeze);
-        if opts.clear_cache {
-            cache::cache_clear(&cc)?;
-            info!("Cache cleared");
-        }
-        Some(cc)
-    } else if opts.clear_cache {
-        let cc = CacheConfig::new(config_dir, false, false);
+    // A cache config always exists on this path, even when neither --cache nor
+    // --freeze was passed: `enabled = false` means nothing is recorded or
+    // reused run-wide, but a cell that declares freeze="true" still needs the
+    // cache directory to find its recording. Making this Option::None again
+    // would silently turn per-cell freeze into a no-op.
+    let cc = CacheConfig::new(config_dir, opts.cache || opts.freeze, opts.freeze);
+    if opts.clear_cache {
         cache::cache_clear(&cc)?;
         info!("Cache cleared");
-        None
-    } else {
-        None
-    };
+    }
+    let cc = Some(cc);
 
     let result = if opts.dry_run {
         run_pipeline(&sources, &params).await?

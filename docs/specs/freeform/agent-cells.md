@@ -147,10 +147,13 @@ unverifiable means nothing was ever established. Conflating them is how "we have
 verification" quietly becomes "we have verification for the parts that ran."
 
 `freeze` is the mechanism for cells whose output legitimately moves — lockfiles,
-network fetches, timestamps. It must become **per-cell**: a lockfile cell wants
-freeze and an integration test must not have it. Note the honest cost — a frozen
-cell's `hick:expect` assertions pass trivially, so freeze verifies "the document
-still produces what we recorded," not "the world still agrees."
+network fetches, timestamps. It is now **per-cell**: `freeze="true"` on an exec
+freezes that cell alone, `freeze="false"` keeps a cell live even under a
+run-wide `--freeze`, and an omitted attribute inherits the run-wide default. So
+a lockfile cell gets freeze and an integration test does not. Note the honest
+cost — a frozen cell's `hick:expect` assertions pass trivially, so freeze
+verifies "the document still produces what we recorded," not "the world still
+agrees." See `docs/guarantees/verification/freeze-is-declared-per-cell.md`.
 
 ## The open question
 
