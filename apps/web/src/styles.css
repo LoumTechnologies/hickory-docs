@@ -1279,7 +1279,8 @@ textarea:focus {
   color: var(--fg-muted);
 }
 .document-editor .cm-foldGutter .cm-gutterElement {
-  padding: 0 0.15rem 0 0.35rem;
+  min-width: 1.5rem;
+  padding: 0 0.25rem 0 0.6rem;
 }
 .cm-fold-marker {
   display: inline-block;
