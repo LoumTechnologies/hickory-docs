@@ -31,6 +31,9 @@ use anyhow::Result;
 pub enum Relay {
     /// Not requested: the session is loopback- or LAN-only.
     None,
+    /// Our own relay: a tunnel is opened once the listener exists, and the
+    /// address comes back from it. Requires `hickory login`.
+    Hickory { base: String, token: String },
     /// A public base URL the host arranged themselves.
     Explicit(String),
     /// A PortZero tunnel this process was launched under.
@@ -48,6 +51,9 @@ impl Relay {
     pub fn base_url(&self) -> Option<&str> {
         match self {
             Relay::None => None,
+            // Not known until the tunnel is open; `serve` fills the address in
+            // from the relay's answer.
+            Relay::Hickory { .. } => None,
             Relay::Explicit(url) => Some(url),
             Relay::PortZero { url, .. } => Some(url),
         }
@@ -57,6 +63,7 @@ impl Relay {
     pub fn is_public(&self) -> bool {
         match self {
             Relay::None => false,
+            Relay::Hickory { .. } => true,
             Relay::Explicit(_) => true,
             Relay::PortZero { public, .. } => *public,
         }
@@ -74,6 +81,10 @@ pub struct RelayEnv {
     pub explicit_url: Option<String>,
     /// `PZ_TUNNEL`, the domain PortZero's daemon will publish this process as.
     pub pz_tunnel: Option<String>,
+    /// The relay's base URL (`HICKORY_RELAY_URL`, else the default).
+    pub relay_base: String,
+    /// A stored GitHub token, when the host has run `hickory login`.
+    pub hickory_token: Option<String>,
     /// Resolve a PortZero domain to a URL (`portzero url <domain>`). Injected
     /// so a test does not need a daemon.
     pub resolve_pz: fn(&str) -> Option<String>,
@@ -103,6 +114,21 @@ pub fn discover(env: &RelayEnv) -> Result<Relay> {
         return Ok(Relay::Explicit(url.trim_end_matches('/').to_string()));
     }
 
+    // Our own relay, when the host is signed in. Second rather than first:
+    // someone who set HICKORY_PUBLIC_URL has told us which tunnel they want,
+    // and overriding that would be presumptuous.
+    if let Some(token) = env
+        .hickory_token
+        .as_deref()
+        .map(str::trim)
+        .filter(|t| !t.is_empty())
+    {
+        return Ok(Relay::Hickory {
+            base: env.relay_base.trim_end_matches('/').to_string(),
+            token: token.to_string(),
+        });
+    }
+
     if let Some(domain) = env
         .pz_tunnel
         .as_deref()
@@ -127,7 +153,11 @@ pub fn discover(env: &RelayEnv) -> Result<Relay> {
     anyhow::bail!(
         "--public needs something to forward through, and none was found.\n\
          \n\
-         Either point at a tunnel you already run:\n  \
+         The simplest route is our relay, which needs a GitHub account so a tunnel \
+         pointed at the internet is attributable to somebody:\n  \
+           hickory login\n\
+         \n\
+         Or point at a tunnel you already run:\n  \
            HICKORY_PUBLIC_URL=https://your-tunnel.example hickory serve --share --public …\n\
          (Cloudflare Tunnel, ngrok, a Tailscale funnel, or any reverse proxy pointed at \
          this port.)\n\
@@ -137,6 +167,10 @@ pub fn discover(env: &RelayEnv) -> Result<Relay> {
          (`portzero login` first — a tunnel reaching the internet is a cloud tunnel.)"
     );
 }
+
+/// Where the relay lives unless told otherwise. Overridable so a test — or a
+/// self-hoster — can point at their own.
+pub const DEFAULT_RELAY_URL: &str = "https://relay.hickorydocs.com";
 
 /// Ask the `portzero` CLI to resolve a domain. `None` when the binary is
 /// missing, the daemon is down, or the domain is not published yet.
@@ -163,6 +197,8 @@ mod tests {
             shared,
             explicit_url: None,
             pz_tunnel: None,
+            relay_base: DEFAULT_RELAY_URL.to_string(),
+            hickory_token: None,
             resolve_pz: |_| None,
         }
     }
@@ -222,6 +258,27 @@ mod tests {
     }
 
     #[test]
+    fn being_signed_in_is_enough_on_its_own() {
+        let mut e = env(true, true);
+        e.hickory_token = Some("gho_token".into());
+        assert_eq!(
+            discover(&e).unwrap(),
+            Relay::Hickory {
+                base: DEFAULT_RELAY_URL.to_string(),
+                token: "gho_token".into()
+            }
+        );
+
+        // …but a tunnel the host explicitly named still wins: they said which
+        // one they wanted.
+        e.explicit_url = Some("https://mine.example".into());
+        assert_eq!(
+            discover(&e).unwrap(),
+            Relay::Explicit("https://mine.example".into())
+        );
+    }
+
+    #[test]
     fn with_no_provider_the_error_teaches_both_paths() {
         let err = discover(&env(true, true)).unwrap_err().to_string();
         assert!(err.contains("HICKORY_PUBLIC_URL"), "{err}");
@@ -229,5 +286,7 @@ mod tests {
         // Naming alternatives matters: this is the one error where the fix is
         // "adopt some tunnel", and the host should not have to guess which.
         assert!(err.contains("ngrok") || err.contains("Cloudflare"), "{err}");
+        // The route we actually want people to take is named first.
+        assert!(err.contains("hickory login"), "{err}");
     }
 }

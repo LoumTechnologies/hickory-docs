@@ -8,6 +8,7 @@ pub mod agent_cell_runner;
 pub mod agent_lineage;
 pub mod doc_tools;
 pub mod init;
+pub mod login;
 pub mod mcp;
 pub mod serve;
 

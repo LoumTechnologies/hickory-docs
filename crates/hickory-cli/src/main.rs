@@ -98,6 +98,13 @@ enum Command {
     /// Grok CLI, or any other MCP client. `hickory init` writes the
     /// registration for the harnesses it finds.
     Mcp(McpArgs),
+    /// Sign in with GitHub, so `hickory serve --public` can open a tunnel on
+    /// the relay. Nothing else needs an account.
+    Login,
+    /// Forget the stored credentials on this machine.
+    Logout,
+    /// Show who this machine is signed in as.
+    Whoami,
     /// Open a document in the collaborative editor, hosted by this machine.
     /// Others can join over your network with `--share`; edits land in your
     /// files as they happen.
@@ -434,6 +441,9 @@ fn main() -> ExitCode {
             Command::Refresh(args) => cmd_refresh(args).await,
             Command::Init(args) => cmd_init(args),
             Command::Doc(cmd) => cmd_doc(cmd).await,
+            Command::Login => cmd_login().await,
+            Command::Logout => cmd_logout(),
+            Command::Whoami => cmd_whoami(),
             Command::Serve(args) => cmd_serve(args).await,
             Command::Mcp(args) => {
                 hickory_cli::mcp::serve(
@@ -1133,4 +1143,68 @@ async fn cmd_serve(args: ServeArgs) -> Result<ExitCode> {
     })
     .await?;
     Ok(ExitCode::SUCCESS)
+}
+
+/// `hickory login` — GitHub device flow.
+///
+/// The account exists for one reason: a relay tunnel points at the internet and
+/// has to be attributable to somebody. Everything else in this tool works
+/// signed out, and the output says so rather than implying an account is
+/// required to use hickory.
+async fn cmd_login() -> Result<ExitCode> {
+    use hickory_cli::login;
+
+    if let Some(existing) = login::load() {
+        eprintln!("Already signed in as @{}.", existing.login);
+        eprintln!("Run `hickory logout` first to sign in as someone else.");
+        return Ok(ExitCode::SUCCESS);
+    }
+
+    let client_id = login::client_id()?;
+    let endpoints = login::Endpoints::default();
+    let mut announce = |uri: &str, code: &str| {
+        eprintln!();
+        eprintln!("  Open {uri}");
+        eprintln!("  and enter this code:  {code}");
+        eprintln!();
+        eprintln!("  Waiting… (Ctrl-C to stop)");
+    };
+
+    let credentials = login::device_flow(&endpoints, &client_id, &mut announce).await?;
+    let path = login::save(&credentials)?;
+    eprintln!("Signed in as @{}.", credentials.login);
+    eprintln!("Stored in {} (readable only by you).", path.display());
+    Ok(ExitCode::SUCCESS)
+}
+
+/// `hickory logout` — forget the token on this machine.
+fn cmd_logout() -> Result<ExitCode> {
+    match hickory_cli::login::forget()? {
+        true => {
+            eprintln!("Signed out on this machine.");
+            // Said plainly because it is a real limitation: deleting a local
+            // file does not revoke anything at GitHub, and implying otherwise
+            // would leave someone believing a token is dead when it is not.
+            eprintln!(
+                "The GitHub token itself is still valid — revoke it at \
+                 https://github.com/settings/applications if you need it gone."
+            );
+        }
+        false => eprintln!("Not signed in on this machine."),
+    }
+    Ok(ExitCode::SUCCESS)
+}
+
+/// `hickory whoami` — who this machine is signed in as.
+fn cmd_whoami() -> Result<ExitCode> {
+    match hickory_cli::login::load() {
+        Some(credentials) => {
+            println!("@{}", credentials.login);
+            Ok(ExitCode::SUCCESS)
+        }
+        None => {
+            eprintln!("Not signed in. Run `hickory login` — only the relay needs it.");
+            Ok(ExitCode::from(1))
+        }
+    }
 }

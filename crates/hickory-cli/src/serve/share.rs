@@ -364,6 +364,9 @@ pub fn print_banner(
     lan: bool,
     guard: &ShareGuard,
     relay: &Relay,
+    // The address a tunnel handed back, when one was opened. Known only after
+    // the relay answers, so it cannot come from `Relay` itself.
+    public_url: Option<&str>,
 ) {
     let host = if lan {
         local_ip().unwrap_or_else(|| "0.0.0.0".to_string())
@@ -373,7 +376,7 @@ pub fn print_banner(
     let host_url = format!("http://127.0.0.1:{}/?t={}", addr.port(), state.host_token);
     // A relay's base URL already carries scheme and host; the LAN address is
     // the fallback.
-    let guest_url = match relay.base_url() {
+    let guest_url = match public_url.or_else(|| relay.base_url()) {
         Some(base) => format!("{base}/?t={}", state.guest_token),
         None => format!("http://{host}:{}/?t={}", addr.port(), state.guest_token),
     };
@@ -405,7 +408,7 @@ pub fn print_banner(
                 "             {domain} reaches machines on your PortZero overlay, not the \
                  internet — `portzero login` for a cloud tunnel"
             ),
-            Relay::Explicit(_) => {}
+            Relay::Explicit(_) | Relay::Hickory { .. } => {}
         }
     } else {
         eprintln!("  Loopback only — add --share to let others on your network join.");

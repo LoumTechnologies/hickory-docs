@@ -133,17 +133,36 @@ HICKORY_EXECUTOR=docker hickory serve docs/tour.hick --share --scope run
 
 ### Someone who isn't on your network
 
-`--public` publishes an address that reaches further, through a tunnel:
+`--public` publishes an address that reaches further:
+
+```sh
+hickory login                                   # once, with GitHub
+hickory serve docs/tour.hick --share --public
+```
+
+That prints a link anyone can open, forwarded to your machine by our relay.
+The relay carries bytes and nothing else: it never stores your document, never
+runs it, and keeps nothing after you press Ctrl-C.
+
+**Why signing in is required for this and nothing else.** A relay is a byte
+forwarder pointed at the internet. Anonymous, it becomes a free tunnel service
+for whatever a stranger wants to expose — so a tunnel is tied to a GitHub
+account, which is what makes a quota enforceable and misuse attributable. The
+login asks for **no scopes**: it can read your public profile and nothing else.
+Three tunnels at a time, eight hours each.
+
+Prefer your own tunnel? `--public` uses it if you have one:
 
 ```sh
 # any tunnel you already run — Cloudflare, ngrok, Tailscale, an SSH reverse tunnel
 HICKORY_PUBLIC_URL=https://your-tunnel.example hickory serve doc.hick --share --public
 
-# or PortZero, which the daemon picks up from the environment at launch
+# or PortZero, which its daemon picks up from the environment at launch
 PZ_TUNNEL=hickory hickory serve doc.hick --share --public
 ```
 
-With neither, `--public` refuses rather than printing a link that cannot open.
+With none of the three, `--public` refuses rather than printing a link that
+cannot open.
 
 ### If the editor does not appear
 
@@ -169,3 +188,9 @@ a release does not carry the client yet.
 - **A share link is a credential.** Anyone it is forwarded to has whatever the
   link's scope allows, it does not expire, and the only way to revoke it is to
   end the session (Ctrl-C) and start a new one.
+- **A public link is not end-to-end encrypted.** Traffic is encrypted to the
+  relay and again from it, but forwarding means reading: the relay sees the
+  bytes as they pass. It keeps none of them, and we would rather say this
+  plainly than let "encrypted" imply more than it does.
+- **`hickory logout` forgets the token on your machine**, which is not the same
+  as revoking it. Revoke it at github.com/settings/applications.

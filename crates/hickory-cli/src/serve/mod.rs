@@ -28,6 +28,7 @@ pub mod relay;
 pub mod share;
 pub mod socket;
 pub mod store;
+pub mod tunnel;
 
 use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
@@ -394,6 +395,9 @@ pub async fn prepare(opts: ServeOptions) -> Result<Prepared> {
         shared: opts.lan,
         explicit_url: std::env::var("HICKORY_PUBLIC_URL").ok(),
         pz_tunnel: std::env::var("PZ_TUNNEL").ok(),
+        relay_base: std::env::var("HICKORY_RELAY_URL")
+            .unwrap_or_else(|_| relay::DEFAULT_RELAY_URL.to_string()),
+        hickory_token: crate::login::load().map(|c| c.access_token),
         resolve_pz: relay::resolve_portzero,
     })?;
 
@@ -446,6 +450,32 @@ pub async fn serve(opts: ServeOptions) -> Result<()> {
         .with_context(|| format!("binding {addr}"))?;
     let bound = listener.local_addr()?;
 
+    // Our relay needs the router and the listener to exist before it can hand
+    // out an address, so it is the one provider resolved here rather than in
+    // `prepare`.
+    let mut public_url = prepared.relay.base_url().map(str::to_string);
+    if let relay::Relay::Hickory { base, token } = &prepared.relay {
+        // Guest WebSockets arriving through the tunnel are bridged back into
+        // this process's own listener, so the local handler — capability check
+        // included — is the only door there is.
+        let handle = tunnel::open(
+            base,
+            token,
+            None,
+            prepared.router.clone(),
+            &format!("ws://127.0.0.1:{}", bound.port()),
+        )
+        .await
+        .context("opening a tunnel on the relay")?;
+        log::info!(
+            "tunnel open as {} for {} (up to {}h)",
+            handle.slug,
+            handle.account,
+            handle.expires_in_secs / 3600
+        );
+        public_url = Some(handle.url);
+    }
+
     let index = prepared.state.index.clone();
     share::print_banner(
         &prepared.state,
@@ -454,6 +484,7 @@ pub async fn serve(opts: ServeOptions) -> Result<()> {
         lan,
         &prepared.guard,
         &prepared.relay,
+        public_url.as_deref(),
     );
 
     axum::serve(
