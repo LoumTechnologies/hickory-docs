@@ -2,8 +2,9 @@
 //!
 //! These protect
 //! `docs/guarantees/verification/recordings-are-written-only-when-asked-for.md`:
-//! a recording exists only because a run was asked to write one, `check`
-//! cannot ask, and the whole freeze lifecycle is reachable from the CLI.
+//! a recording exists only because a run was asked to write one — by a flag,
+//! or by the cell's own `freeze="true"` — `hickory test` can never ask, and
+//! the whole freeze lifecycle is reachable from the CLI.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -104,30 +105,57 @@ fn run_cache_writes_a_recording() {
 
 #[test]
 fn a_frozen_cell_gets_its_baseline_entirely_through_the_cli() {
-    // The whole point of issue #6: with no library access and no hand-written
-    // JSON, record the cell with `run --cache`, freeze it, and have `check`
-    // verify it — exit 0, not 2.
+    // Issue #6, then #10: the cell is written frozen from the start, and one
+    // plain `hickory run` — no flag, no edit to the document — gives it the
+    // baseline `hickory test` then verifies. Exit 0, not 2.
     let dir = tempfile::tempdir().unwrap();
-    let doc = write_doc(dir.path(), Some(false));
-    assert!(
-        hickory()
-            .arg("run")
-            .arg("--cache")
-            .arg(&doc)
-            .status()
-            .unwrap()
-            .success()
+    let doc = write_doc(dir.path(), Some(true));
+    assert!(hickory().arg("run").arg(&doc).status().unwrap().success());
+    assert_eq!(
+        recordings(dir.path()).len(),
+        1,
+        "the first run of a frozen cell must leave exactly one recording"
     );
 
-    // Freezing the cell does not change its command, so the recording still
-    // matches its cache key.
-    std::fs::write(&doc, doc_source(Some(true))).unwrap();
     let out = hickory().arg("test").arg(&doc).output().unwrap();
     assert_eq!(
         out.status.code(),
         Some(0),
-        "the frozen cell has a baseline now, so check is verified: {}",
+        "the frozen cell has a baseline now, so test is verified: {}",
         String::from_utf8_lossy(&out.stderr)
+    );
+}
+
+#[test]
+fn a_frozen_cell_is_the_only_thing_a_flagless_run_records() {
+    // The default stays "ask the world, remember nothing" for every cell that
+    // did not ask to be remembered. Only the frozen cell is recorded.
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("mixed.hick");
+    std::fs::write(
+        &path,
+        format!(
+            r#"<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="mixed.md">
+# Mixed
+
+<hick:container name="c" image="alpine:3.20" />
+
+<hick:exec container="c" freeze="true">{COMMAND}</hick:exec>
+<hick:exec container="c">
+printf 'live'
+</hick:exec>
+</hick:doc>
+"#
+        ),
+    )
+    .unwrap();
+
+    assert!(hickory().arg("run").arg(&path).status().unwrap().success());
+    assert_eq!(
+        recordings(dir.path()).len(),
+        1,
+        "only the cell that declared freeze=\"true\" asked to be recorded"
     );
 }
 
@@ -172,9 +200,12 @@ fn run_freeze_serves_the_recording_instead_of_executing() {
 }
 
 #[test]
-fn run_freeze_without_a_recording_fails_and_names_the_recording_command() {
-    // Never silently execute what the operator asked not to execute, and per
-    // .instructions/user-facing-errors.md name the command that fixes it.
+fn run_freeze_records_a_cell_that_has_no_recording_yet() {
+    // `--freeze` is the run-wide spelling of the same three-valued setting a
+    // cell declares, so a miss means the same thing either way: no baseline
+    // yet, and `run` is what establishes one. The strict read-only assertion
+    // — "every cell is already recorded, execute nothing" — is `hickory test
+    // --freeze`, which is exercised below.
     let dir = tempfile::tempdir().unwrap();
     let doc = write_doc(dir.path(), None);
     let out = hickory()
@@ -184,17 +215,36 @@ fn run_freeze_without_a_recording_fails_and_names_the_recording_command() {
         .output()
         .unwrap();
     assert!(
-        !out.status.success(),
-        "an unrecorded cell must fail a frozen run rather than execute"
+        out.status.success(),
+        "an unrecorded cell is a cell with no baseline, not an error: {}",
+        String::from_utf8_lossy(&out.stderr)
     );
-    let stderr = String::from_utf8_lossy(&out.stderr);
-    assert!(
-        stderr.contains("hickory run --cache"),
-        "should name the command that writes a recording: {stderr}"
+    assert_eq!(
+        recordings(dir.path()).len(),
+        1,
+        "the run that executed it must record it"
     );
+
+    // Doctor the recording: a second --freeze run can only produce this text
+    // by replaying, which is what "executes at most once" means.
+    let recording = recordings(dir.path()).remove(0);
+    let doctored = std::fs::read_to_string(&recording)
+        .unwrap()
+        .replace("one", "SERVED-FROM-RECORDING");
+    std::fs::write(&recording, doctored).unwrap();
     assert!(
-        recordings(dir.path()).is_empty(),
-        "--freeze must not record anything of its own"
+        hickory()
+            .arg("run")
+            .arg("--freeze")
+            .arg(&doc)
+            .status()
+            .unwrap()
+            .success()
+    );
+    let woven = std::fs::read_to_string(dir.path().join("cached.md")).unwrap();
+    assert!(
+        woven.contains("SERVED-FROM-RECORDING"),
+        "the second run must replay the recording the first one wrote: {woven}"
     );
 }
 

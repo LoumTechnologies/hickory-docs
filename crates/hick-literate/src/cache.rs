@@ -24,35 +24,94 @@ pub struct ExecCacheEntry {
     pub output_hash: String,
 }
 
+/// What a cell does about its recording — one setting on one axis, rather
+/// than two booleans with an impossible fourth state.
+///
+/// The axis is **what a missing recording means**, and the three answers are
+/// the only three there are: it means nothing (`Off`), it means "execute and
+/// remember this" (`Reuse`), or it means "there is no baseline yet" —
+/// `Require`, which `run` answers by establishing one and `test` answers by
+/// reporting the cell unverifiable.
+///
+/// This is both the run-wide default (`hickory run` with no flag is `Off`,
+/// `--cache` is `Reuse`, `--freeze` is `Require`) and, after a cell's own
+/// `freeze=` attribute has had its say, the per-cell decision:
+/// `freeze="true"` is `Require` and `freeze="false"` is `Off`, whatever the
+/// run-wide default is.
+///
+/// Guarantee: `docs/guarantees/verification/freeze-is-declared-per-cell.md`
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum CacheMode {
+    /// Execute the cell, ignore any recording it has, and record nothing.
+    #[default]
+    Off,
+    /// Answer the cell from a recording that still matches its cache key;
+    /// on a miss, execute it and record the result.
+    Reuse,
+    /// The cell should execute at most once, ever: its recording is the
+    /// answer. On a miss there is no baseline — `hickory run` establishes one
+    /// by executing the cell once and recording it, while `hickory test`
+    /// reports the cell as *unverifiable* and writes nothing, so a verifier
+    /// can never manufacture the baseline it then compares against.
+    Require,
+}
+
+impl CacheMode {
+    /// Whether a recording is looked up for this cell at all.
+    pub fn consults(self) -> bool {
+        self != CacheMode::Off
+    }
+
+    /// Whether executing this cell leaves a recording behind.
+    pub fn records(self) -> bool {
+        self != CacheMode::Off
+    }
+}
+
 /// Configuration for the cache subsystem.
 #[derive(Debug)]
 pub struct CacheConfig {
     /// Root directory for cached transcripts.
     pub cache_dir: PathBuf,
-    /// Whether run-wide caching is enabled: results are recorded, and a
-    /// matching recording is reused instead of executing.
+    /// The **run-wide default** mode, set by `hickory run`'s `--cache` /
+    /// `--freeze` flags.
     ///
-    /// This can be `false` while the cache directory is still consulted — a
-    /// cell that declares `freeze="true"` reads its recording regardless.
-    pub enabled: bool,
-    /// The **run-wide default** for freeze, set by `hickory run --freeze`.
-    ///
-    /// Freeze is a per-cell property: a `freeze=` attribute on an exec cell
-    /// overrides this value in either direction. A frozen cell is checked
-    /// against its recording and never executed, so a missing recording is an
-    /// error rather than a reason to run.
-    pub freeze: bool,
+    /// Freeze is a per-cell property: a `freeze=` attribute on a cell
+    /// overrides this value in either direction, so a run can be `Off`
+    /// while one cell in it is `Require`. That is the ordinary case — a
+    /// document that declares `freeze="true"` on one cell and is run with
+    /// plain `hickory run`.
+    pub mode: CacheMode,
 }
 
 impl CacheConfig {
     /// Create a new cache config rooted at `project_dir/.hick-cache/transcripts`.
-    pub fn new(project_dir: &Path, enabled: bool, freeze: bool) -> Self {
+    pub fn new(project_dir: &Path, mode: CacheMode) -> Self {
         Self {
             cache_dir: project_dir.join(".hick-cache").join("transcripts"),
-            enabled,
-            freeze,
+            mode,
         }
     }
+
+    /// The mode for one cell: its own `freeze=` attribute if it declared one,
+    /// else the run-wide default.
+    pub fn mode_for(&self, freeze: Option<bool>) -> CacheMode {
+        match freeze {
+            Some(true) => CacheMode::Require,
+            Some(false) => CacheMode::Off,
+            None => self.mode,
+        }
+    }
+}
+
+/// The mode for one cell when the run may have no cache config at all.
+///
+/// A run with no cache directory (the server's preview, watch, the agent's
+/// own tool calls) can neither read nor write a recording, so `Require`
+/// degrades to `Off`: the cell executes. It is a declaration this caller
+/// cannot honour, not an error — see `run_pipeline_live`.
+pub fn cell_mode(cache_config: Option<&CacheConfig>, freeze: Option<bool>) -> CacheMode {
+    cache_config.map_or(CacheMode::Off, |cc| cc.mode_for(freeze))
 }
 
 /// Compute the cache key (SHA-256 hex) for an exec step.
@@ -276,7 +335,7 @@ mod tests {
     fn cache_store_and_lookup() {
         let dir = std::env::temp_dir().join("hick-cache-test-store");
         let _ = std::fs::remove_dir_all(&dir);
-        let config = CacheConfig::new(&dir, true, false);
+        let config = CacheConfig::new(&dir, CacheMode::Reuse);
 
         let entry = ExecCacheEntry {
             commands: vec!["echo hi".into()],
@@ -298,7 +357,7 @@ mod tests {
     fn cache_lookup_returns_none_for_missing() {
         let dir = std::env::temp_dir().join("hick-cache-test-miss");
         let _ = std::fs::remove_dir_all(&dir);
-        let config = CacheConfig::new(&dir, true, false);
+        let config = CacheConfig::new(&dir, CacheMode::Reuse);
 
         let found = cache_lookup(&config, "demo", "nonexistent").unwrap();
         assert!(found.is_none());
@@ -310,7 +369,7 @@ mod tests {
     fn cache_clear_removes_directory() {
         let dir = std::env::temp_dir().join("hick-cache-test-clear");
         let _ = std::fs::remove_dir_all(&dir);
-        let config = CacheConfig::new(&dir, true, false);
+        let config = CacheConfig::new(&dir, CacheMode::Reuse);
 
         let entry = ExecCacheEntry {
             commands: vec!["echo hi".into()],

@@ -1015,7 +1015,8 @@ async fn weave_source(
     hick_lang::parse(source).map_err(|e| anyhow::anyhow!("parse error in {doc_name}: {e}"))?;
 
     let project_dir = doc_path.parent().unwrap_or(Path::new("."));
-    let cc = hick_literate::cache::CacheConfig::new(project_dir, true, false);
+    let cc =
+        hick_literate::cache::CacheConfig::new(project_dir, hick_literate::cache::CacheMode::Reuse);
     let cache_config = cc.cache_dir.is_dir().then_some(&cc);
 
     let sources = vec![(doc_name, source)];

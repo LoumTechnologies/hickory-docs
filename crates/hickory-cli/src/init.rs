@@ -50,7 +50,7 @@ if [ -n "$hick_docs" ]; then
             0) ;;
             1) echo "pre-commit: \`hickory test\` found DRIFT (exit 1) — a committed output is out of date with what the document produces. Re-run \`hickory run <doc>\` (or \`hickory refresh <doc>\` for a stale hick:transform) and commit the result. Commit blocked." >&2
                exit 1 ;;
-            2) echo "pre-commit: \`hickory test\` could NOT VERIFY (exit 2) — a cell has no baseline, so nothing was actually checked. Record one with \`hickory run --cache <doc>\`, or stop freezing that cell. Commit blocked." >&2
+            2) echo "pre-commit: \`hickory test\` could NOT VERIFY (exit 2) — a cell has no baseline, so nothing was actually checked. Record one by running \`hickory run <doc>\` — a cell declaring freeze=true runs once and records itself — or stop freezing that cell. Commit blocked." >&2
                exit 1 ;;
             3) echo "pre-commit: \`hickory test\` found a FAILED EXPECTATION (exit 3) — a hick:expect did not hold, so the document claims something untrue of its own output. Do not regenerate this away: decide whether the claim or the code is wrong. Commit blocked." >&2
                exit 1 ;;

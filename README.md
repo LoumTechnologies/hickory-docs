@@ -163,22 +163,25 @@ details, including how to verify a download:
 ### Commands
 
 - `hickory run <doc|dir>` — execute, weave, write outputs
+  A cell that declares `freeze="true"` runs exactly once — on the run that
+  records it — and replays from then on, with no flag and no edit to the
+  document.
   - `--cache` — record each executed cell under `.hick-cache/transcripts/`,
     and answer a cell from its recording while the recording still matches.
-    This is the only command that writes a recording, so it is how a
-    `freeze="true"` cell gets its baseline.
+    Extends to the whole document what `freeze="true"` asks for one cell.
   - `--freeze` — freeze every cell that does not say otherwise: answer it
-    from its recording, never execute it. A cell's own `freeze="false"` still
-    wins. Records nothing; a cell with no recording is an error.
+    from its recording rather than executing it, and record the ones that
+    have no recording yet. A cell's own `freeze="false"` still wins.
 - `hickory test <doc|dir>` — verify; four outcomes, four exit codes (below).
   It is `test`, not `check`, because it re-executes every cell in the
   document — the slowest, most side-effecting verb here. `cargo check`
   promises the opposite ("don't build, don't run"), so that name described
   a command hickory does not have.
-  - `--freeze` — verify against recordings without executing. There is no
-    `--cache` here on purpose: a verifier that can write its own baseline is
-    not verifying anything, so an unrecorded cell is reported unverifiable
-    (exit `2`).
+  - `--freeze` — verify against recordings without executing. `test` writes
+    no recording under any flag, and has no `--cache`, on purpose: a verifier
+    that can write its own baseline is not verifying anything, so an
+    unrecorded cell is reported unverifiable (exit `2`). This is the CI
+    command for "is everything already recorded?".
 - `hickory weave <doc>` — render from cached transcripts without executing
 - `hickory agent "<prompt>"` — run an agent session (writes `sessions/*.hick`)
 - `hickory promote <session.hick>` — compact a session into a pipeline
@@ -194,7 +197,7 @@ CI branches on these, so they are part of the CLI's public contract.
 |---|---|---|
 | `0` | verified | Re-derivation matches what is committed. Nothing to do. |
 | `1` | drifted | A committed output no longer reproduces, or a `<hick:transform>` passage is stale — you forgot to regenerate. Re-run `hickory run <doc>` (or `hickory refresh <doc>` for a transform) and commit the result. Safe for CI to auto-fix. |
-| `2` | unverifiable | A cell has no baseline at all — it neither executed nor was answered from a recording — so nothing was checked. Give it a recording (`hickory run --cache <doc>`) or stop freezing it. |
+| `2` | unverifiable | A cell has no baseline at all — it neither executed nor was answered from a recording — so nothing was checked. Give it a recording (`hickory run <doc>` — a frozen cell records itself the first time) or stop freezing it. |
 | `3` | expectation failed | A `<hick:expect>` did not hold: the document claims something untrue of its own output. A human decides whether the claim or the code is wrong — never regenerate this away. |
 
 Each is a different problem with a different fix, which is the whole point of

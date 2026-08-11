@@ -265,7 +265,8 @@ fn frozen_doc() -> String {
 /// running it — the same shape `crates/hick-literate/tests/freeze_tests.rs`
 /// uses.
 fn record_frozen_cell(project_dir: &Path, output: &str) {
-    let cc = hick_literate::cache::CacheConfig::new(project_dir, false, false);
+    let cc =
+        hick_literate::cache::CacheConfig::new(project_dir, hick_literate::cache::CacheMode::Off);
     let key = hick_literate::cache::exec_cache_key("alpine:3.20", "", FROZEN_COMMAND, &[]);
     hick_literate::cache::cache_store(
         &cc,
@@ -390,19 +391,64 @@ fn test_exits_unverifiable_when_a_cell_has_no_baseline() {
     );
     assert!(
         stderr.contains("remove freeze=\"true\""),
-        "says what to do about it: {stderr}"
+        "says one thing to do about it: {stderr}"
     );
-    // #6: the fix must name a command the binary really accepts. `hickory
-    // run --cache` now exists, so it is what the message points at — and
-    // `hick run --cache`, the binary that never existed, is not.
+    // #10: the remedy must be the one that exists NOW. `hickory run` records
+    // a cell frozen from the start on its first run, so that is what the
+    // message points at — not the old un-freeze / record / re-freeze dance,
+    // and never `hick run --cache`, a binary that has never existed.
     // docs/guarantees/verification/recordings-are-written-only-when-asked-for.md
     assert!(
-        stderr.contains("hickory run --cache"),
+        stderr.contains("hickory run "),
         "must name the command that writes a recording: {stderr}"
     );
     assert!(
         !stderr.contains("hick run --cache"),
         "must not name a binary that does not exist: {stderr}"
+    );
+    assert!(
+        !stderr.contains("restore freeze"),
+        "the two-step dance is gone; no message may still describe it: {stderr}"
+    );
+    assert!(
+        !stderr.contains("hickory test --cache") && !stderr.contains("test --cache"),
+        "`hickory test` has no --cache flag: {stderr}"
+    );
+}
+
+#[test]
+fn run_records_a_cell_frozen_from_the_start_and_test_then_verifies_it() {
+    // Issue #10 end to end, through the shipped binary: write the cell frozen,
+    // `hickory run` once, and `hickory test` is verified — with no edit to the
+    // document in between, and no --cache flag anywhere.
+    let dir = tempfile::tempdir().unwrap();
+    let doc = write_doc(dir.path(), "frozen.hick", &frozen_doc());
+
+    let out = hickory().arg("test").arg(&doc).output().unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(2),
+        "before any run there is no baseline: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(
+        !dir.path().join(".hick-cache").exists(),
+        "`hickory test` must not create a recording, or it verifies its own work"
+    );
+
+    let out = hickory().arg("run").arg(&doc).output().unwrap();
+    assert!(
+        out.status.success(),
+        "run establishes the baseline instead of failing: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    let out = hickory().arg("test").arg(&doc).output().unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "the cell has a baseline now: {}",
+        String::from_utf8_lossy(&out.stderr)
     );
 }
 

@@ -205,7 +205,7 @@ async fn test_reports_an_agent_cell_with_no_baseline_as_unverifiable() {
 async fn a_recorded_agent_cell_verifies_without_a_model() {
     let dir = tempfile::tempdir().unwrap();
     let doc = write_doc(dir.path(), &doc_source());
-    let cc = cache::CacheConfig::new(dir.path(), true, false);
+    let cc = cache::CacheConfig::new(dir.path(), cache::CacheMode::Reuse);
     let runner: Arc<dyn AgentRunner> = Arc::new(LlmAgentRunner::new(
         scripted(),
         Arc::new(LocalExecutor::new().unwrap()),

@@ -10,8 +10,9 @@ Specifically:
 
 - exit `1` says DRIFT and tells the author to re-run `hickory run <doc>` (or
   `hickory refresh <doc>` for a stale `hick:transform`) and commit the result;
-- exit `2` says NOT VERIFIED and tells the author to record a baseline with
-  `hickory run --cache <doc>` or stop freezing the cell;
+- exit `2` says NOT VERIFIED and tells the author to record a baseline by
+  running `hickory run <doc>` — a cell declaring `freeze="true"` runs once
+  there and records itself — or stop freezing the cell;
 - exit `3` says FAILED EXPECTATION and explicitly tells the author **not** to
   regenerate it away, because the document claims something untrue of its own
   output and a human has to decide whether the claim or the code is wrong.

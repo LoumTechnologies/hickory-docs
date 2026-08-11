@@ -28,7 +28,8 @@ still weaves — the blast radius is the cell. The report says:
 - which cell (line number; an agent cell has **no** container to name),
 - its prompt,
 - that this run had no agent runner and why that is expected,
-- how to record a baseline (`hickory run --cache …` on a machine with a key),
+- how to record a baseline (`hickory run --cache …` on a machine with a key,
+  or plain `hickory run` when the cell declares `freeze="true"`),
 - and, when the cell declares no `model=`, that it should, because an agent
   recording is keyed by prompt *and* model and there is no runner here to ask
   which model would have run.

@@ -7,7 +7,7 @@ use anyhow::{Context as _, Result};
 use clap::{Parser, Subcommand};
 
 use hickory_cli::{
-    CachePolicy, CheckFailure, CheckOutcome, DocRun, ExecutorChoice, RunMode, block_model_json,
+    CacheMode, CheckFailure, CheckOutcome, DocRun, ExecutorChoice, RunMode, block_model_json,
     check_failures, check_outcome, expand_docs, run_doc, run_doc_cached, unverifiable_message,
     write_outputs,
 };
@@ -107,16 +107,17 @@ struct RunArgs {
     out: Option<PathBuf>,
     /// Record every executed cell into the project's
     /// `.hick-cache/transcripts/`, and answer a cell from its recording when
-    /// one still matches. This is the only way a recording is ever written,
-    /// so it is how a `freeze="true"` cell gets the baseline it is checked
-    /// against — a frozen cell is never executed, so record it with
-    /// `freeze="false"` first, then restore the attribute.
+    /// one still matches. A cell that declares `freeze="true"` records itself
+    /// on its first run without this flag; `--cache` extends the same
+    /// treatment to every other cell in the document.
     #[arg(long)]
     cache: bool,
     /// Freeze every cell that does not declare otherwise: answer it from its
-    /// recording and never execute it. A cell's own `freeze="false"` still
-    /// wins. This records nothing — a cell with no recording is an error,
-    /// not something to go and record.
+    /// recording rather than executing it. A cell's own `freeze="false"`
+    /// still wins. A cell with no recording yet is executed once and
+    /// recorded — establishing the baseline is what `run` is for. To assert
+    /// that every cell is already recorded, without executing anything, use
+    /// `hickory test --freeze`, which never records.
     #[arg(long)]
     freeze: bool,
     /// Emit the block model as JSON on stdout instead of a summary.
@@ -143,9 +144,9 @@ struct TestArgs {
     /// its recording instead of executing it, and report any cell with no
     /// recording as unverifiable (exit 2).
     ///
-    /// There is deliberately no --cache here: `test` must never write the
-    /// baseline it then compares against. Record with
-    /// `hickory run --cache <doc>`.
+    /// There is deliberately no --cache here, and `test` writes no recording
+    /// under any flag: it must never create the baseline it then compares
+    /// against. Record with `hickory run <doc>`.
     #[arg(long)]
     freeze: bool,
     /// Emit the block model as JSON on stdout in addition to failures.
@@ -316,10 +317,7 @@ async fn cmd_run(args: RunArgs) -> Result<ExitCode> {
             &params,
             RunMode::Execute,
             executor_choice,
-            CachePolicy {
-                cache: args.cache,
-                freeze: args.freeze,
-            },
+            hick_literate::cache_mode(args.cache, args.freeze),
         )
         .await?;
         let written = write_outputs(&run, args.out.as_deref())?;
@@ -349,12 +347,14 @@ async fn cmd_test(args: TestArgs) -> Result<ExitCode> {
             &params,
             RunMode::Verify,
             executor_choice,
-            // `cache: false` is the load-bearing half: `test` reads
-            // recordings but must never write one, or it would manufacture
-            // the baseline it then reports as verified.
-            CachePolicy {
-                cache: false,
-                freeze: args.freeze,
+            // No `--cache` half to pass: `test` reads recordings but must
+            // never write one, or it would manufacture the baseline it then
+            // reports as verified. `RunMode::Verify` enforces that in the
+            // pipeline whatever mode is selected here.
+            if args.freeze {
+                CacheMode::Require
+            } else {
+                CacheMode::Off
             },
         )
         .await?;

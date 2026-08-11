@@ -398,19 +398,25 @@ when inputs haven't changed. Cache keys are SHA-256 hashes of the
 container image, capabilities, command text, and secret names.
 
 ```
-hickory run --cache file.hick   # Record results, reuse on match
-hickory run --freeze file.hick  # Require recorded results, never execute
+hickory run --cache file.hick   # Record every cell, reuse on match
+hickory run --freeze file.hick  # Serve every cell from its recording
 hickory test --freeze file.hick # Verify against recordings, never execute
 ```
 
-`hickory run --cache` is the only command that writes a recording.
-`hickory test` deliberately has no `--cache`: a check that can write the
-baseline it then compares against is not a check — it reports a cell with
-no recording as **unverifiable** (exit `2`) instead.
+There is one setting here, not two switches, and it says **what a missing
+recording means**: nothing (the default — run the cell, remember nothing),
+"remember this" (`--cache`), or "this cell has no baseline yet"
+(`--freeze`, and the per-cell `freeze="true"` below).
 
-Cached transcripts are stored in `.hick-cache/transcripts/`. In freeze
-mode, any uncached exec step is an error — useful in CI to ensure
-reproducible builds.
+`hickory run` is what establishes a baseline: a cell with no recording
+that is not supposed to execute twice runs exactly once, on the run that
+records it. `hickory test` never writes a recording under any flag — a
+check that can write the baseline it then compares against is not a check,
+so it reports a cell with no recording as **unverifiable** (exit `2`)
+instead. That is the command to use in CI when the question is *"is
+everything already recorded?"*.
+
+Cached transcripts are stored in `.hick-cache/transcripts/`.
 
 ### Freezing a single cell
 
@@ -427,17 +433,23 @@ cargo test --test integration
 </hick:exec>
 ```
 
-The first cell is answered from its recording and never runs; the second
-runs every time, even under `hickory run --freeze`.
+The first cell runs once — on the run that records it — and is answered
+from that recording forever after; the second runs every time, even under
+`hickory run --freeze`.
 
 The rules:
 
-- `freeze="true"` — this cell is answered from its recording and never
-  run. With no matching recording the run fails and tells you to record
-  one first. Recording it means letting it run once: set
-  `freeze="false"`, run `hickory run --cache <doc>`, then restore
-  `freeze="true"`. The recording is keyed by the command, not by the
-  freeze attribute, so it still matches.
+- `freeze="true"` — this cell executes at most once, ever. The first
+  `hickory run` has no recording to answer it with, so it runs the cell
+  and records it; every run after that replays the recording. No flag,
+  and no edit to the document, is involved: declare a cell frozen the
+  moment you write it. `hickory test` never records, so it reports the
+  cell as **unverifiable** (exit `2`) until some `hickory run` has
+  established the baseline.
+  The recording is keyed by the container image, capabilities, command
+  text, and secret names — not by the freeze attribute — so editing the
+  command retires the recording and the next `hickory run` records the
+  new one.
 - `freeze="false"` — this cell always runs, and is never answered from a
   recording, even when the run was started with `--freeze`.
 - attribute omitted — the cell inherits the run-wide default.
@@ -596,9 +608,10 @@ Common options:
   --images-dir <path>      Pre-converted .wasm images
   --dry-run                Produce placeholders instead of running containers
   --cache                  Cache exec results, reuse on match
-  --freeze                 Default every cell to frozen: require cached
-                           results, never re-execute. Per-cell freeze="…"
-                           overrides this either way (see §13)
+  --freeze                 Default every cell to frozen: serve it from its
+                           recording, and record it on the one run that
+                           has none. Per-cell freeze="…" overrides this
+                           either way (see §13)
   --clear-cache            Clear cache before running
   -v, --verbose            Enable verbose logging
 

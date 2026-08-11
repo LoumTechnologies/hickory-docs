@@ -207,7 +207,7 @@ async fn an_agent_cell_without_a_runner_is_unverifiable_not_fatal() {
 async fn a_recorded_agent_cell_replays_without_a_runner() {
     let dir = tempfile::tempdir().unwrap();
     let doc = write_doc(dir.path(), doc_with_agent_between_two_execs());
-    let cc = cache::CacheConfig::new(dir.path(), true, false);
+    let cc = cache::CacheConfig::new(dir.path(), cache::CacheMode::Reuse);
 
     let runner = Arc::new(StubRunner::new(None));
     run(&doc, Some(runner), Some(&cc), false).await.unwrap();
@@ -240,7 +240,7 @@ async fn a_recorded_agent_cell_replays_without_a_runner() {
 async fn a_changed_prompt_retires_the_recording() {
     let dir = tempfile::tempdir().unwrap();
     let doc = write_doc(dir.path(), doc_with_agent_between_two_execs());
-    let cc = cache::CacheConfig::new(dir.path(), true, false);
+    let cc = cache::CacheConfig::new(dir.path(), cache::CacheMode::Reuse);
     run(
         &doc,
         Some(Arc::new(StubRunner::new(None))),

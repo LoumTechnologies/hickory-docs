@@ -326,7 +326,7 @@ hick
 # With caching
 hick run --cache file.hick
 
-# Freeze mode (require all results cached)
+# Freeze mode (serve every cell from its recording)
 hick run --freeze file.hick
 
 # Dry run (placeholder output)

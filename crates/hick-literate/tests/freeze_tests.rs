@@ -10,7 +10,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use hick_literate::cache::{CacheConfig, ExecCacheEntry, cache_store, sha256_hex};
+use hick_literate::cache::{CacheConfig, CacheMode, ExecCacheEntry, cache_store, sha256_hex};
 use hickory_executor::LocalExecutor;
 
 fn hick_doc(body: &str) -> String {
@@ -89,7 +89,7 @@ async fn a_frozen_cell_does_not_freeze_the_run() {
     // no run-wide freeze flag anywhere.
     let scratch = Scratch::new("one-cell");
     let marker = scratch.path().join("live-ran.txt");
-    let cc = CacheConfig::new(scratch.path(), false, false);
+    let cc = CacheConfig::new(scratch.path(), CacheMode::Off);
     record(&cc, "frozen", "alpine", "\necho recorded\n", "recorded\n");
 
     let src = hick_doc(&format!(
@@ -117,7 +117,7 @@ async fn a_frozen_cell_serves_its_recording_without_executing() {
     // marker file would exist.
     let scratch = Scratch::new("serves-recording");
     let marker = scratch.path().join("frozen-ran.txt");
-    let cc = CacheConfig::new(scratch.path(), false, false);
+    let cc = CacheConfig::new(scratch.path(), CacheMode::Off);
     let command = format!("\ntouch {}\n", marker.display());
     record(&cc, "frozen", "alpine", &command, "recorded output\n");
 
@@ -143,35 +143,95 @@ async fn a_frozen_cell_serves_its_recording_without_executing() {
 }
 
 #[tokio::test]
-async fn a_frozen_cell_without_a_recording_fails_with_an_actionable_error() {
-    let scratch = Scratch::new("no-recording");
-    let cc = CacheConfig::new(scratch.path(), false, false);
+async fn a_frozen_cell_without_a_recording_runs_once_and_records_itself() {
+    // Issue #10: declaring freeze="true" from the start has to work. The
+    // first run has no recording to serve, so it executes the cell and writes
+    // one; every later run replays it. The marker file counts executions, so
+    // "ran twice" is visible rather than inferred.
+    let scratch = Scratch::new("records-on-first-run");
+    let marker = scratch.path().join("runs.txt");
+    let cc = CacheConfig::new(scratch.path(), CacheMode::Off);
+    let command = format!("\nprintf x >> {}\n", marker.display());
 
-    let src = hick_doc(
+    let src = hick_doc(&format!(
         r#"<hick:container name="frozen" image="alpine" />
-<hick:exec container="frozen" freeze="true">
-echo never recorded
-</hick:exec>"#,
+<hick:exec container="frozen" freeze="true">{command}</hick:exec>"#
+    ));
+
+    run(&src, Some(&cc))
+        .await
+        .expect("the first run establishes the baseline instead of failing");
+    assert_eq!(
+        std::fs::read_to_string(&marker).unwrap(),
+        "x",
+        "a frozen cell with no recording must execute exactly once"
     );
 
-    let Err(err) = run(&src, Some(&cc)).await else {
-        panic!("a frozen cell with no recording must fail, not execute");
+    run(&src, Some(&cc)).await.expect("the second run replays");
+    assert_eq!(
+        std::fs::read_to_string(&marker).unwrap(),
+        "x",
+        "the recording written by the first run must be replayed, not re-executed"
+    );
+}
+
+#[tokio::test]
+async fn editing_a_frozen_cell_re_records_it_on_the_next_run() {
+    // The recording is keyed by the command, so editing the command retires
+    // it: the cell is unrecorded again, and `run` records it again.
+    let scratch = Scratch::new("re-records-after-edit");
+    let marker = scratch.path().join("runs.txt");
+    let cc = CacheConfig::new(scratch.path(), CacheMode::Off);
+
+    let doc_with = |suffix: &str| {
+        hick_doc(&format!(
+            r#"<hick:container name="frozen" image="alpine" />
+<hick:exec container="frozen" freeze="true">
+printf {suffix} >> {}
+</hick:exec>"#,
+            marker.display()
+        ))
     };
-    let msg = err.to_string();
-    for expected in [
-        "frozen",              // which container
-        "echo never recorded", // which command
-        "freeze=\"true\"",     // why it was frozen
-        // The next step, named as a command the shipped binary really
-        // accepts — see docs/guarantees/verification/recordings-are-written-only-when-asked-for.md
-        "hickory run --cache",
-        "container image", // why an edit invalidates the recording
-    ] {
-        assert!(
-            msg.contains(expected),
-            "error should mention {expected:?}: {msg}"
-        );
-    }
+
+    run(&doc_with("a"), Some(&cc)).await.unwrap();
+    run(&doc_with("a"), Some(&cc)).await.unwrap();
+    assert_eq!(std::fs::read_to_string(&marker).unwrap(), "a");
+
+    run(&doc_with("b"), Some(&cc)).await.unwrap();
+    run(&doc_with("b"), Some(&cc)).await.unwrap();
+    assert_eq!(
+        std::fs::read_to_string(&marker).unwrap(),
+        "ab",
+        "a changed command has no recording, so it must run once more and record that"
+    );
+}
+
+#[tokio::test]
+async fn a_frozen_cell_that_ran_once_is_not_re_recorded_over() {
+    // The recording is the baseline: a later run must serve it, not refresh
+    // it, or freeze would silently track the world instead of the record.
+    let scratch = Scratch::new("baseline-is-stable");
+    let cc = CacheConfig::new(scratch.path(), CacheMode::Off);
+    let command = "\necho live\n";
+    let src = hick_doc(&format!(
+        r#"<hick:container name="frozen" image="alpine" />
+<hick:exec container="frozen" freeze="true">{command}</hick:exec>"#
+    ));
+
+    run(&src, Some(&cc)).await.unwrap();
+    // Doctor the recording: only a replay can produce this text.
+    record(&cc, "frozen", "alpine", command, "DOCTORED\n");
+
+    let result = run(&src, Some(&cc)).await.unwrap();
+    assert_eq!(
+        result
+            .transcripts
+            .get("frozen")
+            .and_then(|e| e.last())
+            .map(|e| e.output.as_str()),
+        Some("DOCTORED\n"),
+        "the second run must answer from the recording, not execute and overwrite it"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -179,35 +239,52 @@ echo never recorded
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
-async fn global_freeze_requires_every_cell_to_be_recorded() {
-    // The pre-existing behaviour of `hickory run --freeze`, unchanged: cells that
-    // declare nothing inherit the run-wide default.
+async fn a_run_wide_freeze_serves_what_is_recorded_and_records_what_is_not() {
+    // Cells that declare nothing inherit the run-wide default, and the
+    // run-wide default is the same three-valued setting a cell can declare —
+    // so a miss under `hickory run --freeze` establishes the baseline exactly
+    // as a miss on a cell-declared freeze does. `hickory test --freeze` is
+    // the caller that refuses instead; see `test_command_tests.rs`.
     let scratch = Scratch::new("global");
-    let cc = CacheConfig::new(scratch.path(), true, true);
-    record(&cc, "a", "alpine", "\necho a\n", "a\n");
+    let marker = scratch.path().join("b-ran.txt");
+    let cc = CacheConfig::new(scratch.path(), CacheMode::Require);
+    record(&cc, "a", "alpine", "\necho a\n", "recorded a\n");
 
-    let src = hick_doc(
+    let src = hick_doc(&format!(
         r#"<hick:container name="a" image="alpine" />
 <hick:container name="b" image="alpine" />
 <hick:exec container="a">
 echo a
 </hick:exec>
 <hick:exec container="b">
-echo b
+printf x >> {}
 </hick:exec>"#,
+        marker.display()
+    ));
+
+    let result = run(&src, Some(&cc))
+        .await
+        .expect("an unrecorded cell has no baseline yet, and run establishes one");
+    assert_eq!(
+        result
+            .transcripts
+            .get("a")
+            .and_then(|e| e.last())
+            .map(|e| e.output.as_str()),
+        Some("recorded a\n"),
+        "the recorded cell must be served from its recording"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&marker).unwrap(),
+        "x",
+        "the unrecorded cell must execute once"
     );
 
-    let Err(err) = run(&src, Some(&cc)).await else {
-        panic!("the unrecorded cell must fail the run under --freeze");
-    };
-    let msg = err.to_string();
-    assert!(
-        msg.contains("echo b"),
-        "should name the unrecorded cell: {msg}"
-    );
-    assert!(
-        msg.contains("--freeze"),
-        "should say the run-wide flag is why: {msg}"
+    run(&src, Some(&cc)).await.unwrap();
+    assert_eq!(
+        std::fs::read_to_string(&marker).unwrap(),
+        "x",
+        "and be replayed from then on"
     );
 }
 
@@ -217,7 +294,7 @@ async fn a_cell_can_opt_out_of_a_run_wide_freeze() {
     // though the rest of the document is being checked against recordings.
     let scratch = Scratch::new("opt-out");
     let marker = scratch.path().join("integration-ran.txt");
-    let cc = CacheConfig::new(scratch.path(), true, true);
+    let cc = CacheConfig::new(scratch.path(), CacheMode::Require);
     record(&cc, "docs", "alpine", "\necho recorded\n", "recorded\n");
 
     let src = hick_doc(&format!(
@@ -248,7 +325,7 @@ async fn an_opted_out_cell_re_executes_instead_of_reusing_its_recording() {
     // test would silently stop testing the world.
     let scratch = Scratch::new("opt-out-ignores-recording");
     let marker = scratch.path().join("ran-again.txt");
-    let cc = CacheConfig::new(scratch.path(), true, true);
+    let cc = CacheConfig::new(scratch.path(), CacheMode::Require);
     let command = format!("\ntouch {}\n", marker.display());
     record(&cc, "integration", "alpine", &command, "stale\n");
 
@@ -284,23 +361,27 @@ echo hi
 }
 
 #[tokio::test]
-async fn a_frozen_cell_without_any_cache_directory_says_so() {
+async fn a_frozen_cell_without_any_cache_directory_executes_rather_than_failing() {
     // Embedded run paths (server preview, watch, agent tools) pass no cache
-    // config. A frozen cell there cannot be evaluated, and must say that
-    // rather than quietly executing as if it were never frozen.
-    let src = hick_doc(
+    // config at all: they can neither replay the cell nor record it. The
+    // declaration cannot be honoured there, and executing is the honest
+    // fallback — failing a live preview over a cell that would run fine under
+    // `hickory run` helps nobody. A warning names the situation.
+    let scratch = Scratch::new("no-cache-dir");
+    let marker = scratch.path().join("ran.txt");
+    let src = hick_doc(&format!(
         r#"<hick:container name="frozen" image="alpine" />
 <hick:exec container="frozen" freeze="true">
-echo hi
+touch {}
 </hick:exec>"#,
-    );
+        marker.display()
+    ));
 
-    let Err(err) = run(&src, None).await else {
-        panic!("a frozen cell with no cache directory must not silently execute");
-    };
-    let msg = err.to_string();
+    run(&src, None)
+        .await
+        .expect("a run with no recording directory executes the cell instead of failing");
     assert!(
-        msg.contains("no cache directory") && msg.contains("freeze=\"true\""),
-        "error should explain there is nothing to check against: {msg}"
+        marker.exists(),
+        "with nowhere to read or write a recording, the cell has to execute"
     );
 }

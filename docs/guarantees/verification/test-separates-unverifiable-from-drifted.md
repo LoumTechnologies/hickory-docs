@@ -81,11 +81,11 @@ Last LLM verification:
     and in the reference section of `README.md`.
   - `CheckFailure::Unverifiable { doc, cell, reason }` carries the cell and the
     reason; `hickory_cli::unverifiable_message` renders which cell, why, and
-    the next step. Since issue #6 the flag exists, so the message names the
-    real sequence — un-freeze the cell, `hickory run --cache <doc>`, re-freeze
-    — and states that `test` itself has no `--cache` on purpose. The
-    `run`-path bail text in `crates/hick-literate/src/lib.rs` names the same
-    command; the two no longer disagree. See
+    the next step. Since issue #10 that next step is a single command —
+    `hickory run <doc>`, which executes a cell frozen from the start exactly
+    once and records it — and the message states that `test` writes no
+    recording under any flag. There is no longer a `run`-path bail text to
+    disagree with it: `run` records instead of failing. See
     `recordings-are-written-only-when-asked-for.md`.
   - `check_failures` (`crates/hickory-cli/src/lib.rs`) turns every entry of
     `PipelineResult::never_run` into an `Unverifiable` failure, collects
@@ -95,13 +95,15 @@ Last LLM verification:
     has both.
   - `hickory test` runs documents in `RunMode::Verify`, which sets
     `PipelineConfig::collect_unverifiable`. In `run_pipeline_live`
-    (`crates/hick-literate/src/lib.rs`) that flag turns the two
-    no-baseline conditions — a frozen cell with no cache directory, and a
-    frozen cell whose recording is missing — into `never_run` entries
-    (`NoBaseline::FrozenWithoutCacheDirectory` /
-    `NoBaseline::FrozenWithoutRecording`) instead of aborting. `hickory run`
-    still uses `RunMode::Execute` and still aborts on the first such cell,
-    preserving `docs/guarantees/verification/freeze-is-declared-per-cell.md`.
+    (`crates/hick-literate/src/lib.rs`) that flag is what makes a missing
+    recording for a `CacheMode::Require` cell a `never_run` entry
+    (`NoBaseline::FrozenWithoutRecording`, or
+    `NoBaseline::FrozenWithoutCacheDirectory` when the transcript directory
+    does not exist at all) rather than a cell to execute. It also suppresses
+    every `cache_store` call, so `test` cannot write a baseline under any
+    flag combination. `hickory run` uses `RunMode::Execute`, where the same
+    miss executes the cell once and records it — see
+    `docs/guarantees/verification/freeze-is-declared-per-cell.md`.
   - `never_run` is `BTreeMap<CellId, NoBaseline>`, where `CellId` holds
     `Option<String>` container plus source line
     (`crates/hick-literate/src/lib.rs`). `CellId::containerless` exists for a
@@ -113,9 +115,9 @@ Last LLM verification:
   `test_exits_drifted_when_a_committed_output_is_out_of_date` (1, with every
   expectation holding, so drift is isolated from a failed claim),
   `test_exits_unverifiable_when_a_cell_has_no_baseline` (2, also asserting
-  the message names the cell, the reason, the remedy, and the real
-  `hickory run --cache` command rather than the `hick` binary that never
-  existed), and
+  the message names the cell, the reason, the remedy — the real `hickory
+  run` command rather than the `hick` binary that never existed, and no
+  trace of the retired un-freeze/record/re-freeze sequence), and
   `test_exits_expectation_failed_when_a_claim_is_false` (3, with the woven
   output committed first so the expectation is the only finding);
   plus one test per precedence pair:

@@ -118,9 +118,10 @@ pub enum NoBaseline {
     /// Weave or dry-run: nothing is executed, and no recording answered this
     /// cell.
     NotExecuted,
-    /// The cell must not execute (it is frozen) and no recording exists for
-    /// it. `frozen_by_cell` distinguishes `freeze="true"` on the cell itself
-    /// from a run-wide freeze the cell merely inherited.
+    /// The cell is frozen and no recording exists for it, in a mode that may
+    /// not establish one (`hickory test`). `frozen_by_cell` distinguishes
+    /// `freeze="true"` on the cell itself from a run-wide freeze the cell
+    /// merely inherited.
     FrozenWithoutRecording {
         /// First non-empty command line, so a report can name the cell.
         command: String,
@@ -836,14 +837,22 @@ pub struct PipelineConfig {
 /// this function runs commands via the supplied executor and captures output
 /// (including timed transcript events).
 ///
-/// When `cache_config` is `Some` and enabled, execution results are cached and
-/// reused on subsequent runs if the cache key matches.
+/// When `cache_config` is `Some` and its mode is not
+/// [`cache::CacheMode::Off`], execution results are recorded and reused on
+/// subsequent runs if the cache key matches.
 ///
-/// Freeze is decided per exec cell: `CacheConfig::freeze` is the run-wide
-/// default and a `freeze=` attribute on the cell overrides it in either
-/// direction. A frozen cell is never executed — a missing recording is an
-/// error — while a cell with `freeze="false"` is always executed, even under a
-/// run-wide freeze.
+/// Freeze is decided per cell: `CacheConfig::mode` is the run-wide default and
+/// a `freeze=` attribute on the cell overrides it in either direction
+/// ([`cache::CacheConfig::mode_for`]). A frozen cell is served from its
+/// recording rather than executed; a cell with `freeze="false"` is always
+/// executed, even under a run-wide freeze.
+///
+/// **A frozen cell with no recording is not an error here.** It has no
+/// baseline, and this pipeline is the one that establishes baselines: the cell
+/// executes once and is recorded. Only a verifier — `PipelineConfig::
+/// collect_unverifiable`, set by `hickory test` — stops instead, reporting the
+/// cell in `PipelineResult::never_run`, so verification can never manufacture
+/// the baseline it then compares against.
 pub async fn run_pipeline_live(
     sources: &[(&str, &str)],
     config: &PipelineConfig,
@@ -954,31 +963,18 @@ pub async fn run_pipeline_live(
                 // Freeze is decided exactly as it is for an exec cell — the
                 // point of exec placement is that an agent cell is covered by
                 // the same machinery, not by a parallel one.
-                let (serve_from_cache, require_cache) = match exec_info.freeze {
-                    Some(true) => (true, true),
-                    Some(false) => (false, false),
-                    None => (
-                        cache_config.is_some_and(|cc| cc.enabled),
-                        cache_config.is_some_and(|cc| cc.freeze),
-                    ),
-                };
+                let cell_mode = cache::cell_mode(cache_config, exec_info.freeze);
 
                 if exec_info.freeze == Some(true) && cache_config.is_none() {
-                    if config.collect_unverifiable {
-                        never_run.insert(
-                            cell,
-                            NoBaseline::FrozenWithoutCacheDirectory {
-                                command: first_command_line(&agent.prompt),
-                            },
-                        );
-                        continue;
-                    }
-                    anyhow::bail!(
+                    // No recording directory: the declaration cannot be
+                    // honoured here (see the exec branch). The cell falls
+                    // through to the runner, which an embedded caller without
+                    // credentials does not have — and then it is reported as
+                    // an agent cell with no runner, which it is.
+                    warn!(
                         "the agent cell at line {} declares freeze=\"true\", but this run has \
-                         no cache directory, so there is no recording to check it against.\n\
-                         Next steps: record it with `hickory run --cache <document.hick>` while \
-                         the cell is not frozen (set freeze=\"false\" for that one run), then \
-                         restore freeze=\"true\".",
+                         no recording directory, so it was not replayed and will not be \
+                         recorded. Run it with `hickory run` to establish its baseline.",
                         exec_info.source_line,
                     );
                 }
@@ -997,7 +993,7 @@ pub async fn run_pipeline_live(
 
                 let mut served = false;
                 if let (Some(cc), Some(model)) = (cache_config, model.as_deref())
-                    && (serve_from_cache || require_cache)
+                    && cell_mode.consults()
                 {
                     let key = cache::agent_cache_key(model, &agent.prompt);
                     if let Some(cached) = cache::cache_lookup(cc, &container, &key)? {
@@ -1019,29 +1015,25 @@ pub async fn run_pipeline_live(
                             .or_default()
                             .push(exec_info.source_line);
                         served = true;
-                    } else if require_cache {
-                        if config.collect_unverifiable {
-                            never_run.insert(
-                                cell,
+                    } else if cell_mode == cache::CacheMode::Require && config.collect_unverifiable
+                    {
+                        // A verifier stops here; `run` falls through to the
+                        // runner and records what it answers, which is how a
+                        // cell frozen from the start gets its baseline.
+                        never_run.insert(
+                            cell,
+                            if cc.cache_dir.is_dir() {
                                 NoBaseline::FrozenWithoutRecording {
                                     command: first_command_line(&agent.prompt),
                                     frozen_by_cell: exec_info.freeze == Some(true),
-                                },
-                            );
-                            continue;
-                        }
-                        anyhow::bail!(
-                            "no recorded answer for the agent cell at line {} (prompt: {}), and \
-                             it must not run.\n\
-                             Next steps: set freeze=\"false\" on the cell and run `hickory run \
-                             --cache <document.hick>` once to record it, then restore the freeze \
-                             declaration.\n\
-                             An agent recording is keyed by the prompt and the model together, \
-                             so editing either retires the old recording — this can also mean \
-                             \"the cell changed since it was recorded\".",
-                            exec_info.source_line,
-                            first_command_line(&agent.prompt),
+                                }
+                            } else {
+                                NoBaseline::FrozenWithoutCacheDirectory {
+                                    command: first_command_line(&agent.prompt),
+                                }
+                            },
                         );
+                        continue;
                     }
                 }
                 if served {
@@ -1109,7 +1101,8 @@ pub async fn run_pipeline_live(
                     expectations.push(expect::evaluate(spec, doc_name, &outcome.summary));
                 }
                 if let Some(cc) = cache_config
-                    && cc.enabled
+                    && !config.collect_unverifiable
+                    && (cc.mode.records() || cell_mode.records())
                 {
                     let key = cache::agent_cache_key(&outcome.model, &agent.prompt);
                     cache::cache_store(
@@ -1206,56 +1199,33 @@ pub async fn run_pipeline_live(
                 })
                 .unwrap_or(DEFAULT_IMAGE);
 
-            // Freeze is a per-cell property with a run-wide default. `run`
-            // asks "what is the answer now"; a frozen cell instead asks "does
-            // the recorded answer still hold", so it is never executed. The
-            // `freeze=` attribute on the exec wins over the run-wide flag in
-            // both directions: `freeze="false"` keeps a cell live even under
-            // `hickory run --freeze`.
-            let (serve_from_cache, require_cache) = match exec_info.freeze {
-                Some(true) => (true, true),
-                Some(false) => (false, false),
-                None => (
-                    cache_config.is_some_and(|cc| cc.enabled),
-                    cache_config.is_some_and(|cc| cc.freeze),
-                ),
-            };
+            // Freeze is a per-cell property with a run-wide default. A frozen
+            // cell asks "does the recorded answer still hold", so it is served
+            // from its recording rather than executed; the `freeze=` attribute
+            // wins over the run-wide flag in both directions, so
+            // `freeze="false"` keeps a cell live even under `hickory run
+            // --freeze`.
+            let cell_mode = cache::cell_mode(cache_config, exec_info.freeze);
 
             if exec_info.freeze == Some(true) && cache_config.is_none() {
-                // No cache directory means no recording can exist, so this
-                // cell has no baseline. `check` collects that verdict; every
-                // other caller stops here.
-                if config.collect_unverifiable {
-                    never_run.insert(
-                        CellId::exec(&exec_info.container, exec_info.source_line),
-                        NoBaseline::FrozenWithoutCacheDirectory {
-                            command: first_command_line(&exec_info.command),
-                        },
-                    );
-                    continue;
-                }
-                anyhow::bail!(
+                // Embedded run paths — the server's live preview, watch mode,
+                // the agent's own tool calls — have no recording directory at
+                // all, so they can neither replay this cell nor record it.
+                // The declaration cannot be honoured here; executing is the
+                // honest fallback, and saying so beats failing a preview over
+                // a cell that would run fine under `hickory run`.
+                warn!(
                     "the exec in container '{}' at line {} declares freeze=\"true\", but this \
-                     run has no cache directory, so there is no recording to check it \
-                     against.\n\
-                     Next steps: create the project's recording directory \
-                     (.hick-cache/transcripts/ next to the document) by running the \
-                     document once with `hickory run --cache <document.hick>` — set \
-                     freeze=\"false\" on this cell for that one run, since a frozen cell \
-                     is never executed and so is never recorded — or drop the \
-                     freeze=\"true\" attribute if this cell should simply execute.\n\
-                     Common cause: embedded run paths — the server's live preview, watch \
-                     mode, and the agent's own tool calls — deliberately run with no cache \
-                     at all, so a frozen cell cannot be evaluated there no matter what is \
-                     on disk.",
-                    exec_info.container,
-                    exec_info.source_line,
+                     run has no recording directory, so the cell executed and was not \
+                     recorded. Run it with `hickory run` (which records a frozen cell the \
+                     first time it runs) to establish its baseline.",
+                    exec_info.container, exec_info.source_line,
                 );
             }
 
             // Check cache before executing
             if let Some(cc) = cache_config
-                && (serve_from_cache || require_cache)
+                && cell_mode.consults()
             {
                 let caps_canonical = cache::canonical_caps(&container_defs, &exec_info.container);
                 let secret_names = cache::secret_names_for(&container_defs, &exec_info.container);
@@ -1296,48 +1266,27 @@ pub async fn run_pipeline_live(
                         hook(&exec_info.container, exec_info.source_line, entry);
                     }
                     continue;
-                } else if require_cache {
+                } else if cell_mode == cache::CacheMode::Require && config.collect_unverifiable {
                     // Frozen, and nothing was ever recorded for it: no
                     // baseline exists. Not drift — drift needs a baseline to
-                    // have drifted FROM.
-                    if config.collect_unverifiable {
-                        never_run.insert(
-                            CellId::exec(&exec_info.container, exec_info.source_line),
+                    // have drifted FROM. Only a verifier stops here: `run`
+                    // falls through, executes the cell once, and records it,
+                    // which is exactly the baseline a verifier must never
+                    // create for itself.
+                    never_run.insert(
+                        CellId::exec(&exec_info.container, exec_info.source_line),
+                        if cc.cache_dir.is_dir() {
                             NoBaseline::FrozenWithoutRecording {
                                 command: first_command_line(&exec_info.command),
                                 frozen_by_cell: exec_info.freeze == Some(true),
-                            },
-                        );
-                        continue;
-                    }
-                    let scope = if exec_info.freeze == Some(true) {
-                        "this cell declares freeze=\"true\""
-                    } else {
-                        "this run was started with --freeze"
-                    };
-                    anyhow::bail!(
-                        "no recorded output for the exec in container '{}' at line {} \
-                         (command: {}), and {scope}, so it must not be executed.\n\
-                         A frozen cell is checked against a recording rather than run, so a \
-                         recording has to exist first.\n\
-                         Next steps: record it with `hickory run --cache <document.hick>` \
-                         while the cell is not frozen (set freeze=\"false\" for that one \
-                         run — a frozen cell is never executed, so it is never recorded), \
-                         then restore the freeze declaration and re-run; or drop the freeze \
-                         declaration if this cell should execute every time.\n\
-                         A recording is keyed by the container image, capabilities, command \
-                         text, and secret names together — editing any of them retires the old \
-                         recording, so this error also means \"the cell changed since it was \
-                         recorded\".",
-                        exec_info.container,
-                        exec_info.source_line,
-                        exec_info
-                            .command
-                            .lines()
-                            .map(str::trim)
-                            .find(|l| !l.is_empty())
-                            .unwrap_or("?"),
+                            }
+                        } else {
+                            NoBaseline::FrozenWithoutCacheDirectory {
+                                command: first_command_line(&exec_info.command),
+                            }
+                        },
                     );
+                    continue;
                 }
             }
 
@@ -1491,12 +1440,21 @@ pub async fn run_pipeline_live(
                     expectations.push(outcome);
                 }
 
-                // Store result in cache after successful execution. A cell
-                // that opted out of freeze still refreshes its recording when
-                // the run is caching — opting out means "run me", not "keep me
-                // out of the record".
+                // Store the result after successful execution: because the
+                // run asked for recordings, or because this cell did. The
+                // second half is what lets `freeze="true"` work from the
+                // start — the first `hickory run` executes the cell once and
+                // records it, with no document edit in between. A cell that
+                // opted out of freeze still refreshes its recording when the
+                // run is caching: opting out means "run me", not "keep me out
+                // of the record".
+                //
+                // A verifier writes nothing at all, whatever the modes say:
+                // `collect_unverifiable` is set only by `hickory test`, and a
+                // check that can write its own baseline is not a check.
                 if let Some(cc) = cache_config
-                    && cc.enabled
+                    && !config.collect_unverifiable
+                    && (cc.mode.records() || cell_mode.records())
                 {
                     let caps_canonical =
                         cache::canonical_caps(&container_defs, &exec_info.container);
@@ -2459,6 +2417,16 @@ pub fn parse_param(s: &str) -> std::result::Result<(String, String), String> {
     Ok((key.to_string(), value.to_string()))
 }
 
+/// The run-wide [`cache::CacheMode`] the two CLI flags select. `--freeze`
+/// wins when both are given: it is the stronger statement about a miss.
+pub fn cache_mode(cache: bool, freeze: bool) -> cache::CacheMode {
+    match (freeze, cache) {
+        (true, _) => cache::CacheMode::Require,
+        (false, true) => cache::CacheMode::Reuse,
+        (false, false) => cache::CacheMode::Off,
+    }
+}
+
 /// Configuration for `run_pipeline_cmd`.
 pub struct PipelineRunOpts {
     pub files: Vec<PathBuf>,
@@ -2594,11 +2562,12 @@ pub async fn run_pipeline_cmd(opts: PipelineRunOpts) -> Result<()> {
         .collect();
 
     // A cache config always exists on this path, even when neither --cache nor
-    // --freeze was passed: `enabled = false` means nothing is recorded or
+    // --freeze was passed: `CacheMode::Off` means nothing is recorded or
     // reused run-wide, but a cell that declares freeze="true" still needs the
-    // cache directory to find its recording. Making this Option::None again
-    // would silently turn per-cell freeze into a no-op.
-    let cc = CacheConfig::new(config_dir, opts.cache || opts.freeze, opts.freeze);
+    // cache directory to find — or, on its first run, to write — its
+    // recording. Making this Option::None again would silently turn per-cell
+    // freeze into a no-op.
+    let cc = CacheConfig::new(config_dir, cache_mode(opts.cache, opts.freeze));
     if opts.clear_cache {
         cache::cache_clear(&cc)?;
         info!("Cache cleared");
