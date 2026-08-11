@@ -2,8 +2,15 @@
 
 Reproducible, verifiable, executable documents in the hick language, with
 Cloud Canopy execution, a React+TS web/mobile app, and an AI agent whose output
-is literate-programming files in git. Read `docs/specs/freeform/architecture.md`
-first — it is the authoritative design.
+is literate-programming files in git.
+
+Read two documents before changing anything:
+`docs/specs/freeform/local-first.md` for what the product **is** (a program you
+install; `hickory serve` hosts collaboration from the user's own machine; the
+cloud is a relay, billing, and a static site), then
+`docs/specs/freeform/architecture.md` for how it is **built** — accurate on the
+language, crates, execution boundary, and verification, and superseded on the
+hosted-workspace parts.
 
 ## Stack (settled — do not relitigate)
 
@@ -15,6 +22,10 @@ first — it is the authoritative design.
   (Cloud Canopy GraphQL + capability tokens). NEVER reintroduce the wasm
   container runtime, and NEVER integrate third-party CLIs (cram, VHS, etc.) —
   verification and transcript capture are first-party.
+- Product shape: **local-first** (`local-first.md`). `apps/server` is a hosted
+  workspace kept running while the relay is built, not the product's backend —
+  do not build new product features into it. New collaboration behaviour goes
+  in `hickory-collab` (shared by both hosts) or `hickory serve`.
 - Substrate: **Fly.io** (PaaS), app `hickory-docs-production`, config in the
   committed `fly.toml`. Railway was evaluated and dropped — do not reintroduce
   it. Branch: `master` only. **Production is continuously deployed**: every

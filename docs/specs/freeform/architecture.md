@@ -1,5 +1,14 @@
 # Hickory Docs — Architecture
 
+> **Partly superseded.** `local-first.md` (2026-08-11) settles the product's
+> shape: hickory is a program you install, `hickory serve` replaces the hosted
+> workspace, and the cloud shrinks to a relay, billing, and a static site. This
+> document stays accurate about the language, the vendored crates, the
+> execution boundary, and native verification — and is superseded on the
+> hosted-workspace parts: **Product architecture** (`apps/server` as the
+> product's backend), the **state model**'s Postgres role, and **Delivery**'s
+> hosted framing. Nothing is deleted yet; the sequence is in `local-first.md`.
+
 Reproducible, verifiable, executable documents. A `.hick` file is simultaneously
 prose, a program, a test suite, and an audit trail. Hickory Docs is an open-source
 Jupyter/RMarkdown-class tool built on the hick language, with execution on
