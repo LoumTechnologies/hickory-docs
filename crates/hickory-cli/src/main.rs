@@ -98,6 +98,45 @@ enum Command {
     /// Grok CLI, or any other MCP client. `hickory init` writes the
     /// registration for the harnesses it finds.
     Mcp(McpArgs),
+    /// Open a document in the collaborative editor, hosted by this machine.
+    /// Others can join over your network with `--share`; edits land in your
+    /// files as they happen.
+    Serve(ServeArgs),
+}
+
+#[derive(clap::Args)]
+struct ServeArgs {
+    /// A `.hick` document, or a directory of them. Default: the working
+    /// directory.
+    path: Option<PathBuf>,
+    /// Port to listen on. 0 lets the kernel pick one.
+    #[arg(long, default_value_t = 4321)]
+    port: u16,
+    /// Listen on every interface so others on your network can join, and
+    /// print a link they can use. Without this the session is loopback-only.
+    #[arg(long)]
+    share: bool,
+    /// What someone with the link may do: `read`, `edit` (default), or `run`.
+    /// `run` executes code on THIS machine, so it is refused for a shared
+    /// session unless the executor sandboxes (HICKORY_EXECUTOR=docker).
+    #[arg(long, default_value = "edit")]
+    scope: String,
+    /// Also publish an address that reaches beyond this network, through a
+    /// tunnel you already run (HICKORY_PUBLIC_URL) or PortZero (PZ_TUNNEL).
+    /// Implies nothing about scope: a public session is still edit-only
+    /// unless --scope says otherwise.
+    #[arg(long)]
+    public: bool,
+    /// Directory holding the built web client (default: HICKORY_WEB_DIST, or
+    /// apps/web/dist found upwards from here).
+    #[arg(long = "web-dist")]
+    web_dist: Option<PathBuf>,
+    /// Parameter overrides, `key=value` (repeatable).
+    #[arg(long = "param", value_parser = hick_literate::parse_param)]
+    params: Vec<(String, String)>,
+    /// Enable `<hick:feature>` flags (comma-separated, repeatable).
+    #[arg(long = "features", value_delimiter = ',')]
+    features: Vec<String>,
 }
 
 #[derive(clap::Args)]
@@ -395,6 +434,7 @@ fn main() -> ExitCode {
             Command::Refresh(args) => cmd_refresh(args).await,
             Command::Init(args) => cmd_init(args),
             Command::Doc(cmd) => cmd_doc(cmd).await,
+            Command::Serve(args) => cmd_serve(args).await,
             Command::Mcp(args) => {
                 hickory_cli::mcp::serve(
                     args.doc,
@@ -1062,4 +1102,35 @@ async fn cmd_doc(cmd: DocCommand) -> Result<ExitCode> {
     let outcome = run_doc_tool(&request).await?;
     let code = print_outcome(&outcome, request.format)?;
     Ok(ExitCode::from(code))
+}
+
+/// `hickory serve` — put the collaborative editor on this machine.
+///
+/// Everything interesting is in `hickory_cli::serve`; this only turns flags
+/// into options, and refuses a scope it does not recognise by name rather than
+/// silently falling back to the safest one (a silent fallback would make
+/// `--scope rnu` a read-only session that looks like it worked).
+async fn cmd_serve(args: ServeArgs) -> Result<ExitCode> {
+    use hickory_cli::serve::{ServeOptions, serve, share::Scope};
+
+    let scope = Scope::parse(&args.scope).ok_or_else(|| {
+        anyhow::anyhow!(
+            "unknown --scope {:?}; expected one of: {}",
+            args.scope,
+            Scope::ALL.join(", ")
+        )
+    })?;
+
+    serve(ServeOptions {
+        target: args.path.unwrap_or_else(|| PathBuf::from(".")),
+        port: args.port,
+        lan: args.share,
+        scope,
+        web_dist: args.web_dist,
+        params: params_with_features(&args.params, &args.features),
+        executor: ExecutorChoice::from_env()?,
+        public: args.public,
+    })
+    .await?;
+    Ok(ExitCode::SUCCESS)
 }

@@ -2703,22 +2703,44 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "axum 0.8.9",
  "clap",
  "env_logger",
+ "futures",
  "hick-exec",
  "hick-flow",
  "hick-lang",
  "hick-literate",
  "hickory-agent",
+ "hickory-collab",
  "hickory-executor",
  "hickory-executor-canopy",
  "hickory-executor-docker",
  "hickory-lineage",
  "log",
+ "reqwest",
  "serde",
  "serde_json",
  "tempfile",
  "tokio",
+ "tokio-tungstenite 0.24.0",
+ "tower 0.5.3",
+ "tower-http",
+ "yrs",
+]
+
+[[package]]
+name = "hickory-collab"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "async-trait",
+ "log",
+ "serde_json",
+ "tempfile",
+ "tokio",
+ "uuid",
+ "yrs",
 ]
 
 [[package]]
@@ -2801,6 +2823,7 @@ dependencies = [
  "hick-lsp",
  "hickory-agent",
  "hickory-cli",
+ "hickory-collab",
  "hickory-executor",
  "hickory-executor-canopy",
  "hickory-executor-docker",

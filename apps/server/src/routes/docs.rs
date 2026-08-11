@@ -121,7 +121,7 @@ pub async fn put_doc(
     // later — the same lost update that `/outputs/edit` had.
     state
         .rooms
-        .apply_external_source(&state, doc.id, &body.source)
+        .apply_external_source(&doc.id.to_string(), &body.source)
         .await;
     state
         .git

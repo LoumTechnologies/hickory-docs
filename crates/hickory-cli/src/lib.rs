@@ -9,6 +9,7 @@ pub mod agent_lineage;
 pub mod doc_tools;
 pub mod init;
 pub mod mcp;
+pub mod serve;
 
 /// `hickory init` entry points: idempotent local git-repo setup.
 pub use init::{InitReport, print_init_report, run_init};
@@ -44,6 +45,16 @@ pub enum ExecutorChoice {
 }
 
 impl ExecutorChoice {
+    /// The name this backend is known by — the `HICKORY_EXECUTOR` value, the
+    /// `GET /api/executor` field, and what the `hickory serve` banner prints.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            ExecutorChoice::Local => "local",
+            ExecutorChoice::Docker => "docker",
+            ExecutorChoice::Canopy => "canopy",
+        }
+    }
+
     /// Read `HICKORY_EXECUTOR` (default: `local`).
     pub fn from_env() -> Result<Self> {
         match std::env::var("HICKORY_EXECUTOR").as_deref() {

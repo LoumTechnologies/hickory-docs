@@ -268,7 +268,7 @@ pub async fn apply_output_edits(
         // writes that stale text back over the row we just updated.
         state
             .rooms
-            .apply_external_source(state, target.id, new_source)
+            .apply_external_source(&target.id.to_string(), new_source)
             .await;
         state
             .git

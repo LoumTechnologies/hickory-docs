@@ -117,6 +117,13 @@ docs/  guarantees/  specs/freeform/  users/  developers/
 - **Sharing state across web/iOS/Android**: all three are the same React+TS
   client speaking the same WS Yrs protocol; Tauri contributes native shell +
   offline file access, nothing else diverges.
+- **Where the server runs is not fixed**: `hickory serve` puts the same rooms,
+  the same client, and the same executor on a contributor's own machine, with
+  the `.hick` file standing in for Postgres. The collaboration layer is shared
+  (`crates/hickory-collab`, one `DocStore` trait, two implementations) rather
+  than reimplemented per host. See `local-collaboration.md` for the trust model
+  (capability links, and why a shared session that grants `run` refuses to
+  start on the unsandboxed local executor).
 - **AI agent**: `hick-agent-sdk`'s ReAct loop with `LlmClient` (Anthropic,
   `claude-sonnet-5` default), executing through the same `Executor`. Every
   session is written as a `hick:session` document; "promote" turns it into a

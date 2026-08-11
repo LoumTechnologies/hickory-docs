@@ -233,7 +233,10 @@ pub async fn start_agent(
         crate::runs::record_usage(&state2, user_id, wall_ms).await;
         state2
             .rooms
-            .publish_run_event(doc.id, &json!({ "run_id": session_id, "status": status }))
+            .publish_run_event(
+                &doc.id.to_string(),
+                &json!({ "run_id": session_id, "status": status }),
+            )
             .await;
     });
 
@@ -285,7 +288,7 @@ async fn run_agent_session(
                 state
                     .rooms
                     .publish_run_event(
-                        doc_id,
+                        &doc_id.to_string(),
                         &json!({
                             "run_id": session_id,
                             "exec_id": AGENT_EXEC_ID,
@@ -345,7 +348,7 @@ async fn run_agent_session(
         // otherwise win the next persist and revert the agent's work.
         state
             .rooms
-            .apply_external_source(state, doc.id, &edited)
+            .apply_external_source(&doc.id.to_string(), &edited)
             .await;
         state
             .git

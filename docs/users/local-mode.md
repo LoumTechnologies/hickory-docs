@@ -9,7 +9,7 @@ a hosted workspace.*
 | | Cloud workspace | Local git repo (this doc) |
 |---|---|---|
 | Where documents live | Per-project server-side git, mirrored to Postgres | `.hick` files in your repo |
-| Editing | Web/mobile notebook UI with live CRDT sync (multiple cursors, offline merge) | Your editor + `hick-lsp` ([editor setup](editor-setup.md)) |
+| Editing | Web/mobile notebook UI with live CRDT sync (multiple cursors, offline merge) | Your editor + `hick-lsp` ([editor setup](editor-setup.md)) — or the same notebook UI, hosted by your own machine (`hickory serve`, below) |
 | Execution | Firecracker microVMs on Cloud Canopy nodes | `hickory` CLI, executor of your choice (below) |
 | Drift gate | Server re-checks on save/run | `hickory init` pre-commit hook + `hickory test` in CI |
 | Agent | Built-in Agent panel / `hickory agent` | Either the built-in agent or your own coding agent ([ai-agents](ai-agents.md)) |
@@ -86,6 +86,72 @@ Firecracker requires **Linux with KVM**. Local sandboxed execution is
 If you only need verification — not isolation — `local` is fine on all three
 platforms.
 
+## Work on it together, from your machine
+
+```sh
+hickory serve docs/tour.hick              # just you: opens on 127.0.0.1
+hickory serve docs/tour.hick --share      # + a link for people on your network
+```
+
+The second form prints two URLs: yours, and one to send to whoever you are
+working with. They open it in a browser — no account, no install — and you are
+editing the same document live, with cursors, in the same notebook UI
+hickorydocs.com serves.
+
+What makes this different from a hosted workspace is where the state lives:
+
+- **Your file is the document.** Every edit anyone makes lands in
+  `docs/tour.hick` on your disk within a second, so your editor, `git diff`,
+  and `hickory test` see your collaborator's work as ordinary changes.
+- **Your machine runs the code.** Cells execute through your executor, on your
+  hardware, under your rules.
+- **The session is yours to end.** Ctrl-C and the link stops working. Nothing
+  outlives the process.
+
+You also get the **lineage ribbons** — the split view threading each generated
+byte back to the document span that produced it — for a file on your own disk,
+which is the one thing the CLI alone cannot show you.
+
+### Who can do what
+
+`--scope` decides what the *link* allows. You always have full control of your
+own session; the scope governs the people you sent the link to.
+
+| Scope | A guest may |
+| --- | --- |
+| `read` | read the document, its outputs, and the lineage |
+| `edit` (default) | …and change the document |
+| `run` | …and execute it on your machine |
+
+`--scope run` is refused for a shared session on the local executor, and says
+so: the local executor runs commands as you, with your files and your network,
+so a forwarded link would be a shell on your machine. Sandbox it first:
+
+```sh
+HICKORY_EXECUTOR=docker hickory serve docs/tour.hick --share --scope run
+```
+
+### Someone who isn't on your network
+
+`--public` publishes an address that reaches further, through a tunnel:
+
+```sh
+# any tunnel you already run — Cloudflare, ngrok, Tailscale, an SSH reverse tunnel
+HICKORY_PUBLIC_URL=https://your-tunnel.example hickory serve doc.hick --share --public
+
+# or PortZero, which the daemon picks up from the environment at launch
+PZ_TUNNEL=hickory hickory serve doc.hick --share --public
+```
+
+With neither, `--public` refuses rather than printing a link that cannot open.
+
+### If the editor does not appear
+
+`hickory serve` needs the built web client. It looks at `--web-dist`, then
+`HICKORY_WEB_DIST`, then `apps/web/dist` upwards from the working directory;
+with none of them it serves the API only and says so. A binary installed from
+a release does not carry the client yet.
+
 ## Don't assume
 
 - **The pre-commit hook checks *tracked* `.hick` files, not just staged
@@ -96,6 +162,10 @@ platforms.
   them in CI only.
 - **`.hick-cache/` is disposable** — never commit it; `hickory weave` uses it
   to render without executing.
-- **Local mode has no live sync.** Two people editing the same `.hick` file
-  merge through git like any other file. CRDT sync is a cloud-workspace
-  feature.
+- **Editing a file in your editor is still just a file.** `hickory serve` adds
+  live sync for the people connected to *that session*; two people editing the
+  same `.hick` in their own editors still merge through git like any other
+  file.
+- **A share link is a credential.** Anyone it is forwarded to has whatever the
+  link's scope allows, it does not expire, and the only way to revoke it is to
+  end the session (Ctrl-C) and start a new one.

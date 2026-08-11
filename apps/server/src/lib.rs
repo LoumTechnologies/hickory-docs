@@ -6,6 +6,7 @@ pub mod analytics;
 pub mod auth;
 pub mod byok;
 pub mod config;
+pub mod doc_store;
 pub mod email_tokens;
 pub mod error;
 pub mod executor;
@@ -31,10 +32,9 @@ use sqlx::postgres::PgPoolOptions;
 pub use config::{AgentLlmConfig, Config, parse_allowlist};
 pub use routes::auth::signup_allowed;
 
-/// WS channel prefixes (api.md).
-pub const CHANNEL_YJS: u8 = 0x00;
-pub const CHANNEL_RUN: u8 = 0x01;
-pub const CHANNEL_LSP: u8 = 0x02;
+/// WS channel prefixes (api.md), defined once in the collaboration crate so
+/// the hosted server and `hickory serve` cannot disagree about the framing.
+pub use hickory_collab::{CHANNEL_LSP, CHANNEL_RUN, CHANNEL_YJS};
 
 #[derive(Clone)]
 pub struct AppState {
@@ -43,7 +43,7 @@ pub struct AppState {
     pub git: gitstore::GitStore,
     pub catalog: Arc<plans::Catalog>,
     pub analytics: analytics::Analytics,
-    pub rooms: Arc<ws::RoomRegistry>,
+    pub rooms: Arc<hickory_collab::RoomRegistry>,
     pub output_rooms: Arc<output_rooms::OutputRoomRegistry>,
     pub editors: Arc<ws::EditorTracker>,
     pub http: reqwest::Client,
@@ -71,6 +71,9 @@ pub async fn init_db(database_url: &str) -> Result<sqlx::PgPool> {
 pub fn build_state(mut config: Config, db: sqlx::PgPool) -> Result<AppState> {
     executor::validate_executor(&mut config)?;
     let git = gitstore::GitStore::new(&config.git_data_dir)?;
+    // Rooms persist through this: the docs row for the fast path, the project
+    // git repo for the durable one.
+    let doc_store = doc_store::PostgresDocStore::new(db.clone(), git.clone());
     let catalog = Arc::new(plans::Catalog::load().context("parsing embedded plans.json")?);
     let analytics = analytics::Analytics::new(config.posthog.clone());
     let mailer: Arc<dyn mail::Mailer> = match &config.sendgrid {
@@ -89,7 +92,7 @@ pub fn build_state(mut config: Config, db: sqlx::PgPool) -> Result<AppState> {
         git,
         catalog,
         analytics,
-        rooms: Arc::new(ws::RoomRegistry::default()),
+        rooms: Arc::new(hickory_collab::RoomRegistry::new(doc_store)),
         output_rooms: Arc::new(output_rooms::OutputRoomRegistry::default()),
         editors: Arc::new(ws::EditorTracker::default()),
         http: reqwest::Client::new(),

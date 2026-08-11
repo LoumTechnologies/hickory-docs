@@ -50,7 +50,7 @@ use crate::AppState;
 use crate::error::ApiError;
 use crate::routes::docs::DocRow;
 use crate::routes::outputs::{apply_output_edits, load_output};
-use crate::ws::{byte_delta, doc_with_client_id, send_yjs, text_delta, yjs_frame};
+use hickory_collab::{byte_delta, doc_with_client_id, send_yjs, text_delta, yjs_frame};
 
 pub struct OutputRoom {
     doc_id: Uuid,

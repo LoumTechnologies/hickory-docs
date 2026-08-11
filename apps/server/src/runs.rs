@@ -174,7 +174,10 @@ pub async fn start_run(
         record_usage(&state, user_id, wall_ms).await;
         state
             .rooms
-            .publish_run_event(doc.id, &json!({ "run_id": run_id, "status": status }))
+            .publish_run_event(
+                &doc.id.to_string(),
+                &json!({ "run_id": run_id, "status": status }),
+            )
             .await;
     });
 
@@ -271,7 +274,7 @@ async fn execute_run(
                     state
                         .rooms
                         .publish_run_event(
-                            doc_id,
+                            &doc_id.to_string(),
                             &json!({
                                 "run_id": run_id,
                                 "exec_id": exec_id,
