@@ -1,0 +1,171 @@
+# The deliberate channel: a human chooses a commit and a version bump, and
+# gets an immutable `vX.Y.Z` tag with binaries attached.
+#
+# `workflow_dispatch` is the gate. There is no `production` GitHub Environment
+# on this workflow, and that is on purpose: `production` carries a required
+# reviewer so that Terraform applies against DNS and the analytics project
+# need a second look, and the only person who could approve a release here is
+# the person who just started it. Deciding to run this workflow, on a chosen
+# ref, with a chosen bump, *is* the deliberate act
+# (.instructions/one-man-team.md, and the pre-launch exception in
+# .instructions/continuous-delivery-shared.md). When a second person starts
+# committing, add `environment: production` to the publish job.
+#
+# Release language, not promote language: this ships a downloadable artifact.
+# Promoting the hosted service is Deploy Production's job and is unrelated —
+# nothing here touches it.
+name: Stable Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      bump:
+        description: Which part of the version to increase.
+        required: true
+        default: patch
+        type: choice
+        options: [patch, minor, major, none]
+      ref:
+        description: Commit, branch, or tag to release. Defaults to the tip of master.
+        required: false
+        default: master
+        type: string
+
+concurrency:
+  group: stable-release
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  version:
+    runs-on: ubuntu-latest
+    outputs:
+      sha: ${{ steps.v.outputs.sha }}
+      version: ${{ steps.v.outputs.version }}
+      tag: ${{ steps.v.outputs.tag }}
+      existing: ${{ steps.v.outputs.existing }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+          # Every `v*` tag, so "what was the last version" is answerable.
+          fetch-depth: 0
+
+      - id: v
+        env:
+          BUMP: ${{ inputs.bump }}
+        run: |
+          set -euo pipefail
+
+          sha=$(git rev-parse HEAD)
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+
+          latest=$(git tag --list 'v*' --sort=-v:refname | head -1)
+          if [ -z "$latest" ]; then
+            # No release has ever been cut. The workspace crates say 0.1.0,
+            # so that is the first stable version — a `patch` bump from
+            # nothing would otherwise invent 0.0.1 and never match the source.
+            case "$BUMP" in
+              major) version=1.0.0 ;;
+              minor) version=0.2.0 ;;
+              *)     version=0.1.0 ;;
+            esac
+          else
+            cur=${latest#v}
+            major=${cur%%.*}
+            rest=${cur#*.}
+            minor=${rest%%.*}
+            patch=${rest#*.}
+            case "$BUMP" in
+              major) version="$((major + 1)).0.0" ;;
+              minor) version="$major.$((minor + 1)).0" ;;
+              patch) version="$major.$minor.$((patch + 1))" ;;
+              none)  version="$cur" ;;
+            esac
+          fi
+
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "tag=v$version" >> "$GITHUB_OUTPUT"
+
+          # `bump: none` re-releases an existing version — the rollback case.
+          # Anything else must not land on a tag that already exists, because
+          # published versions are immutable.
+          if git rev-parse "refs/tags/v$version" >/dev/null 2>&1; then
+            if [ "$BUMP" != "none" ]; then
+              echo "::error::v$version already exists, and bump=$BUMP would have to overwrite it."
+              echo "::error::Published versions are immutable. Pick a different bump, or"
+              echo "::error::re-run with bump=none to rebuild and re-attach assets to v$version."
+              exit 1
+            fi
+            echo "existing=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "existing=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          echo "Releasing $sha as v$version (bump=$BUMP, previous=${latest:-none})"
+
+  build:
+    needs: [version]
+    uses: ./.github/workflows/release-build.yml
+    with:
+      ref: ${{ needs.version.outputs.sha }}
+      version: ${{ needs.version.outputs.version }}
+
+  publish:
+    needs: [version, build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.version.outputs.sha }}
+          fetch-depth: 0
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: hickory-*
+          merge-multiple: true
+          path: dist
+
+      - name: Publish ${{ needs.version.outputs.tag }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.version.outputs.tag }}
+          SHA: ${{ needs.version.outputs.sha }}
+          EXISTING: ${{ needs.version.outputs.existing }}
+        run: |
+          set -euo pipefail
+          ls -l dist
+
+          notes=$(printf '%s\n' \
+            "Install:" \
+            "" \
+            '```sh' \
+            "curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/master/scripts/install.sh | sh" \
+            '```' \
+            "" \
+            "Or download the archive for your platform below. Each one contains the" \
+            "\`hickory\` binary, the licence, and \`examples/\`, so \`hickory test examples/\`" \
+            "works straight out of it — no Rust toolchain, no clone." \
+            "" \
+            "Linux binaries need glibc 2.35 or newer (Ubuntu 22.04, Debian 12, RHEL 9);" \
+            "macOS binaries need macOS 11 or newer. Windows needs a POSIX \`sh\` (Git Bash" \
+            "or WSL) to execute documents; \`hickory --version\` and \`--help\` work without" \
+            "one." \
+            "" \
+            "Built from \`$SHA\`." )
+
+          if [ "$EXISTING" = "true" ] && gh release view "$TAG" >/dev/null 2>&1; then
+            # Rollback / rebuild of an already-published version. The tag is
+            # not moved — that is what makes it immutable — only the assets
+            # are replaced.
+            gh release upload "$TAG" dist/* --clobber
+            gh release edit "$TAG" --notes "$notes" --latest
+          else
+            gh release create "$TAG" dist/* \
+              --title "$TAG" \
+              --notes "$notes" \
+              --target "$SHA" \
+              --latest
+          fi

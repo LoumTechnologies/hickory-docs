@@ -12,10 +12,22 @@ use hickory_cli::{
     write_outputs,
 };
 
+/// What `hickory --version` reports.
+///
+/// A downloaded binary should name the release it came from, not the
+/// workspace's `Cargo.toml` number, which nobody bumps between releases and
+/// which would make every unstable build claim to be `0.1.0`.
+/// `scripts/dist.sh` sets `HICKORY_VERSION` when it builds an artifact; a
+/// plain `cargo build` leaves it unset and falls back to the crate version.
+const VERSION: &str = match option_env!("HICKORY_VERSION") {
+    Some(v) => v,
+    None => env!("CARGO_PKG_VERSION"),
+};
+
 #[derive(Parser)]
 #[command(
     name = "hickory",
-    version,
+    version = VERSION,
     about = "Reproducible, verifiable, executable documents"
 )]
 struct Cli {

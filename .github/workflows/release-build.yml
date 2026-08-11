@@ -1,0 +1,189 @@
+# Build the downloadable `hickory` artifacts. Called by both release
+# channels — Unstable Release and Stable Release — so the two ship binaries
+# produced exactly the same way; the only difference between the channels is
+# which commit they build and how the result is labelled.
+#
+# This is a `workflow_call` workflow, so it never runs on its own and never
+# publishes anything. It leaves artifacts in the calling run for the caller's
+# publish job to attach to a GitHub Release.
+#
+# Nothing here needs a self-hosted machine, a container registry, a cross-
+# compilation harness, or a paid runner class — only stock GitHub-hosted
+# runners, one per architecture, with no extra packages beyond NASM on
+# Windows.
+name: Release Build
+
+on:
+  workflow_call:
+    inputs:
+      ref:
+        description: The commit to build. Callers must pass an explicit SHA or tag.
+        required: true
+        type: string
+      version:
+        description: Version string baked into the binary and the archive names.
+        required: true
+        type: string
+
+jobs:
+  build:
+    name: ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      # One broken target should not hide whether the others built. The
+      # publish job requires the whole matrix anyway.
+      fail-fast: false
+      matrix:
+        include:
+          # Every Linux target is built on a runner of its own architecture.
+          # Cross-compiling looked tempting until the dependency tree was
+          # actually read: ring, libsodium-sys (autotools, not the cc crate),
+          # zstd-sys, bzip2-sys, and lzma-sys each compile C, so a cross build
+          # means getting a compiler, an archiver, and an autotools --host
+          # triple right five times over. A native runner needs none of that.
+          #
+          # ubuntu-22.04, not -latest: the binary links against the runner's
+          # glibc, so building on the oldest image still supported is what
+          # decides how old a user's distribution may be (glibc 2.35 —
+          # Ubuntu 22.04, Debian 12, RHEL 9).
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-22.04
+            smoke: native
+          # If arm64 Linux runners are not available on this account, this is
+          # the one line to delete: the other four artifacts are unaffected,
+          # and docs/users/install.md says to build from source.
+          - target: aarch64-unknown-linux-gnu
+            os: ubuntu-22.04-arm
+            smoke: native
+          # macos-14 is arm64. It builds the Apple Silicon binary natively and
+          # the Intel one through the same SDK — the one cross-compile kept,
+          # because Apple's toolchain treats its two architectures as a
+          # first-class case and libsodium-sys special-cases them by name.
+          - target: aarch64-apple-darwin
+            os: macos-14
+            smoke: native
+          - target: x86_64-apple-darwin
+            os: macos-14
+            # Rosetta is not guaranteed on the runner image; do not pretend.
+            smoke: none
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            smoke: version-only
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      - uses: dtolnay/rust-toolchain@1.96.1
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: release-${{ matrix.target }}
+
+      - name: Install NASM
+        if: runner.os == 'Windows'
+        # ring assembles its x86_64 primitives with NASM on MSVC targets, and
+        # the runner image does not guarantee it.
+        shell: bash
+        run: |
+          choco install nasm -y --no-progress
+          echo "C:\Program Files\NASM" >> "$GITHUB_PATH"
+
+      - name: Build and package
+        # bash on every OS (Git Bash on Windows) so one script serves all
+        # five targets and a maintainer can reproduce it with `just dist`.
+        shell: bash
+        run: scripts/dist.sh "${{ matrix.target }}" "${{ inputs.version }}"
+
+      - name: Smoke test the binary that was just built
+        if: matrix.smoke == 'native'
+        shell: bash
+        # Unpacked from the archive rather than run out of target/, so this
+        # tests the thing that gets uploaded, not the thing that got built.
+        run: |
+          set -euo pipefail
+          cd dist
+          tar -xzf "hickory-${{ inputs.version }}-${{ matrix.target }}.tar.gz"
+          cd "hickory-${{ inputs.version }}-${{ matrix.target }}"
+          ./hickory --version
+          ./hickory --help > /dev/null
+          # text-tools-tour needs nothing but a POSIX shell, so it is the one
+          # example that is a fair check on any machine.
+          ./hickory test examples/text-tools-tour.hick
+
+      - name: Smoke test the binary that was just built (Windows)
+        if: matrix.smoke == 'version-only'
+        shell: bash
+        # Windows gets --version only: executing a document shells out to
+        # `sh`, which Windows has no guarantee of (Git Bash and WSL both
+        # provide one, but the runner's presence of it proves nothing about
+        # a user's machine). Documented in docs/users/install.md.
+        run: |
+          set -euo pipefail
+          cd dist
+          7z x "hickory-${{ inputs.version }}-${{ matrix.target }}.zip" > /dev/null
+          "hickory-${{ inputs.version }}-${{ matrix.target }}/hickory.exe" --version
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hickory-${{ matrix.target }}
+          # Only the archives and their checksums; the staged directory is
+          # removed by scripts/dist.sh.
+          path: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/*.sha256
+          if-no-files-found: error
+          retention-days: 7
+
+  # The acceptance test from issue #12, run the way a stranger would: a clean
+  # machine with no Rust toolchain and no checkout, given nothing but the
+  # tarball. `hickory test examples/` re-executes every cell in all three
+  # example documents, so it exercises the executor, the parser, the weaver,
+  # and the drift comparison — not just `--version`.
+  clean-machine:
+    name: clean machine (no Rust toolchain)
+    needs: [build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: hickory-x86_64-unknown-linux-gnu
+          path: dist
+
+      - name: Install what the example documents themselves invoke
+        # Mirrors the same installs in ci.yml. These are the example
+        # documents' dependencies, not hickory's. The R chapter of the grand
+        # tour stays behind its feature flag, so R is not installed here.
+        #
+        # Note the runner: the artifact was built on ubuntu-22.04 and is run
+        # here on ubuntu-latest, so this also checks the binary is not tied to
+        # the image it was built on.
+        run: |
+          curl -fsSL -o /tmp/duckdb.zip \
+            https://github.com/duckdb/duckdb/releases/download/v1.5.5/duckdb_cli-linux-amd64.zip
+          sudo unzip -o /tmp/duckdb.zip -d /usr/local/bin
+          duckdb --version
+          curl -LsSf https://astral.sh/uv/install.sh | sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Prove there is no Rust toolchain in play
+        run: |
+          rustup self uninstall -y || true
+          if command -v cargo >/dev/null 2>&1; then
+            echo "::error::cargo is still on PATH; this job is meant to prove the"
+            echo "::error::downloaded binary needs no Rust toolchain."
+            exit 1
+          fi
+
+      - name: Unpack and run the examples
+        run: |
+          set -euo pipefail
+          cd dist
+          tar -xzf "hickory-${{ inputs.version }}-x86_64-unknown-linux-gnu.tar.gz"
+          cd "hickory-${{ inputs.version }}-x86_64-unknown-linux-gnu"
+          ./hickory --version
+          ./hickory test examples/

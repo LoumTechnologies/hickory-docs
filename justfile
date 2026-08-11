@@ -47,6 +47,15 @@ codegen:
 check-codegen:
     ./scripts/check-codegen.sh
 
+# Build one downloadable artifact (binary + LICENSE + examples) into dist/.
+# The same script the release workflows call, so a maintainer can reproduce
+# what CI ships. Targets:
+#   x86_64-unknown-linux-musl  aarch64-unknown-linux-musl
+#   aarch64-apple-darwin       x86_64-apple-darwin
+#   x86_64-pc-windows-msvc
+dist TARGET VERSION="":
+    ./scripts/dist.sh {{TARGET}} {{VERSION}}
+
 # Run a hick document with the local executor.
 run DOC *ARGS:
     cargo run -p hickory-cli -- run {{DOC}} {{ARGS}}

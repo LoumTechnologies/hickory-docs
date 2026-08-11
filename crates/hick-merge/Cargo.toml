@@ -9,7 +9,22 @@ license.workspace = true
 hick-store = { path = "../hick-store" }
 async-trait = "0.1"
 thiserror = "2"
-reqwest = { version = "0.12", features = ["json"] }
+# rustls, not the default native-tls: native-tls drags in `openssl-sys`, the
+# workspace's only C dependency, and that is what makes cross-compiling the
+# `hickory` CLI (musl, aarch64) need a cross toolchain. Every other crate here
+# already picks rustls; this was the odd one out.
+#
+# `http2` and `charset` are named explicitly because they used to arrive here
+# by accident: this crate was the only one asking for reqwest's defaults, so
+# every crate in the workspace got them through feature unification. Dropping
+# the defaults without naming these would have quietly turned HTTP/2 off for
+# the agent and the server too.
+reqwest = { version = "0.12", default-features = false, features = [
+    "charset",
+    "http2",
+    "json",
+    "rustls-tls",
+] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"

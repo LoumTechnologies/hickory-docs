@@ -1,0 +1,114 @@
+# The automatic channel: every green build of `master` publishes downloadable
+# binaries.
+#
+# "Unstable", not "edge" or "prerelease" — that is the word
+# .instructions/start-with-production.md fixes for the non-stable channel of a
+# downloadable product. GitHub's `prerelease: true` is used underneath purely
+# as a mechanic, so this release never answers `/releases/latest`.
+#
+# Release language here, promote language for the cloud: this workflow ships
+# an artifact somebody downloads, while Deploy Production ships the hosted
+# service. They are different products from the same commit and must not
+# borrow each other's vocabulary
+# (.instructions/continuous-delivery-shared.md).
+#
+# One rolling tag, `unstable`, force-moved on every publish — not a growing
+# pile of dated prereleases nobody prunes. `curl … | HICKORY_CHANNEL=unstable
+# sh` therefore always means "the tip of master that last went green".
+name: Unstable Release
+
+on:
+  # Chained off CI, exactly like Deploy Production, so a red build cannot
+  # produce a binary anyone can download. This does NOT interfere with that
+  # workflow: `workflow_run` fans out to every subscriber independently, and
+  # nothing here changes what CI reports.
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+    branches: [master]
+
+concurrency:
+  # Two runs racing to move the same tag would leave the release pointing at
+  # one commit with another commit's assets attached.
+  group: unstable-release
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  version:
+    if: github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    outputs:
+      ref: ${{ github.event.workflow_run.head_sha }}
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - id: v
+        # `0.1.0-unstable.<short sha>` — sorts below any 0.1.0 release under
+        # semver precedence, and says on sight which commit it came from,
+        # which is what a bug report off this channel needs.
+        run: |
+          base=$(echo "${{ github.event.workflow_run.head_sha }}" | cut -c1-8)
+          echo "version=0.1.0-unstable.$base" >> "$GITHUB_OUTPUT"
+
+  build:
+    needs: [version]
+    uses: ./.github/workflows/release-build.yml
+    with:
+      ref: ${{ needs.version.outputs.ref }}
+      version: ${{ needs.version.outputs.version }}
+
+  publish:
+    needs: [version, build]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.version.outputs.ref }}
+
+      - uses: actions/download-artifact@v4
+        with:
+          # Every hickory-<target> artifact the build matrix uploaded.
+          pattern: hickory-*
+          merge-multiple: true
+          path: dist
+
+      - name: Publish the rolling `unstable` release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.version.outputs.version }}
+          SHA: ${{ needs.version.outputs.ref }}
+        run: |
+          set -euo pipefail
+          ls -l dist
+
+          notes=$(printf '%s\n' \
+            "Built from \`master\` at \`$SHA\` after CI went green." \
+            "" \
+            "This is the **unstable** channel: it moves with every green build of" \
+            "\`master\` and carries no compatibility promise. For the channel that" \
+            "does, use the latest [stable release](https://github.com/${{ github.repository }}/releases/latest)." \
+            "" \
+            "Install:" \
+            "" \
+            '```sh' \
+            "curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/master/scripts/install.sh | HICKORY_CHANNEL=unstable sh" \
+            '```' \
+            "" \
+            "Every archive also contains \`examples/\`, so \`hickory test examples/\`" \
+            "works straight out of it — see the repository README." )
+
+          # Replaced wholesale, not edited: asset names carry the commit
+          # (`…-0.1.0-unstable.abcd1234-…`), so editing in place would leave
+          # every past build's archives attached to the same release and the
+          # installer would have several equally-valid assets to choose from.
+          # Deleting the tag with it also moves the tag, which
+          # `gh release edit --target` does not do.
+          gh release delete unstable --yes --cleanup-tag || true
+
+          gh release create unstable dist/* \
+            --title "Unstable ($VERSION)" \
+            --notes "$notes" \
+            --prerelease \
+            --target "$SHA"

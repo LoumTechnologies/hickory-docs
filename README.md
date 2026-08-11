@@ -52,7 +52,14 @@ the included `fly.toml` and `Dockerfile`. See
 [docs/operators/deploy-fly.md](docs/operators/deploy-fly.md).
 
 The `hickory` CLI in `crates/hickory-cli` is the same engine, used for CI
-verification and local development of documents:
+verification and local development of documents. Install it in one line
+(see [Reference](#install)) and run:
+
+```sh
+hickory test examples/text-tools-tour.hick
+```
+
+From a checkout, without installing anything:
 
 ```sh
 cargo run -p hickory-cli -- test examples/text-tools-tour.hick
@@ -125,6 +132,35 @@ history, not a chat log that evaporated.
   report generator never talks to the network."
 
 ## Reference
+
+### Install
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/LoumTechnologies/hickory-docs/master/scripts/install.sh | sh
+```
+
+That puts `hickory` in `~/.local/bin` — no Rust toolchain, no clone. Add
+`HICKORY_CHANNEL=unstable` for the build cut from the tip of `master` instead
+of the latest stable release, or `HICKORY_INSTALL_DIR=…` to put it elsewhere.
+
+Prefer to pick the file yourself? Every platform's archive is on the
+[releases page](https://github.com/LoumTechnologies/hickory-docs/releases):
+macOS (Apple Silicon and Intel, macOS 11+), Linux (x86_64 and aarch64,
+glibc 2.35+ — Ubuntu 22.04, Debian 12, RHEL 9 and later), and Windows. Each
+archive carries the binary, the licence, and `examples/`, so this works
+straight out of it:
+
+```sh
+hickory test examples/text-tools-tour.hick
+```
+
+Windows is a `.zip` rather than part of the installer, and executing documents
+there needs a POSIX `sh` — Git Bash or WSL both provide one. Building from
+source stays a one-liner too: `cargo build --release -p hickory-cli`. Full
+details, including how to verify a download:
+[docs/users/install.md](docs/users/install.md).
+
+### Commands
 
 - `hickory run <doc|dir>` — execute, weave, write outputs
   - `--cache` — record each executed cell under `.hick-cache/transcripts/`,
