@@ -36,7 +36,7 @@ these at boot (`apps/server/src/config.rs`) and validates them:
 
 | Variable | Required | Notes |
 |---|---|---|
-| `KEY_ENCRYPTION_KEY` | no, but see below | Base64 of 32 random bytes; encrypts every account's stored provider API key (`user_llm_keys`). Mint one with `just gen-key`. **One per environment, and keep it**: replacing it makes every stored key unreadable and each account has to paste its key again. A malformed value fails the boot in every environment rather than silently disabling the feature |
+| `KEY_ENCRYPTION_KEY` | no, but see below | Base64 of 32 random bytes; encrypts every account's stored provider API key (`user_llm_keys`). Mint one with `just gen-key`, or `openssl rand -base64 32` when scripting — the value ends in `=` padding, so `cut -d= -f2` on the `KEY=value` line truncates it. **One per environment, and keep it**: replacing it makes every stored key unreadable and each account has to paste its key again. A malformed value fails the boot in every environment rather than silently disabling the feature |
 
 Absent, `/api/me/llm-keys` answers 503 and accounts on a `byo_key` plan (Open,
 Pro in `plans.json`) have **no agent at all** — the entitlement is "the account

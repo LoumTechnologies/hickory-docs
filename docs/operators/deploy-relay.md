@@ -29,6 +29,8 @@ fly volumes create relay_data --size 1 --region iad -a hickory-relay-production
 # 2. The token secret. Generate it once and keep it — this is the value that
 #    signs every sign-in, and a new one invalidates all of them.
 fly secrets set RELAY_TOKEN_SECRET="$(openssl rand -base64 48)" -a hickory-relay-production
+#    (openssl rather than a helper: base64 ends in "=" padding, and piping a
+#     KEY=value line through `cut -d= -f2` silently truncates it.)
 
 # 3. Ship it.
 fly deploy --config apps/relay/fly.toml --dockerfile apps/relay/Dockerfile
