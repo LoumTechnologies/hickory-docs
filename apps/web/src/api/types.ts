@@ -13,6 +13,29 @@ export interface User {
   verification_required?: boolean;
 }
 
+/** One provider credential the account has stored (BYOK). The key itself is
+ * never returned by the API — `last4` is all there is to show. */
+export interface LlmKey {
+  provider: string;
+  last4: string;
+  model?: string | null;
+  /** Whether agent runs use this key. Exactly one key is active; with a
+   * single key stored it is active without anyone choosing. */
+  active: boolean;
+  created_at: string;
+  last_used_at?: string | null;
+}
+
+export interface LlmKeysResponse {
+  keys: LlmKey[];
+  /** False when the deployment has no KEY_ENCRYPTION_KEY: nothing the user
+   * can fix, so the UI explains rather than offering a form that must fail. */
+  storage_available: boolean;
+  /** `byo_key` — this plan runs the agent on the account's own key.
+   *  `metered_allowance` — the plan includes agent spend. */
+  plan_agent: string;
+}
+
 export interface AuthResponse {
   token: string;
   user: User;

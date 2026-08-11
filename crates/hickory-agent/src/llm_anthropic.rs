@@ -546,6 +546,15 @@ impl LlmClient for AnthropicClient {
         Ok(Box::pin(SseParser::new(byte_stream)))
     }
 
+    /// `count_tokens` rather than a completion: it authenticates the same
+    /// way, validates the model id, and bills nothing — so checking a key
+    /// costs the user who is pasting it exactly zero.
+    async fn validate_credentials(&self) -> anyhow::Result<()> {
+        self.count_tokens(&[Message::new(Role::User, "ping")])
+            .await
+            .map(|_| ())
+    }
+
     fn provider_name(&self) -> &str {
         "anthropic"
     }

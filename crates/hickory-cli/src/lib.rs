@@ -6,7 +6,9 @@
 
 pub mod agent_cell_runner;
 pub mod agent_lineage;
+pub mod doc_tools;
 pub mod init;
+pub mod mcp;
 
 /// `hickory init` entry points: idempotent local git-repo setup.
 pub use init::{InitReport, print_init_report, run_init};

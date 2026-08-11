@@ -4,6 +4,8 @@ import type {
   Doc,
   DocSummary,
   ExecutorInfo,
+  LlmKey,
+  LlmKeysResponse,
   OutputEdit,
   OutputEditResponse,
   OutputFile,
@@ -171,4 +173,23 @@ export const api = {
 
   agentTurns: (docId: string) =>
     request<{ turns: AgentTurn[] }>("GET", `/api/docs/${docId}/agent/turns`),
+
+  llmKeys: () => request<LlmKeysResponse>("GET", "/api/me/llm-keys"),
+  /** Store or replace this account's key for one provider. The server
+   * validates it against the vendor before saving, so a rejection here is a
+   * bad key and not a deferred surprise mid-run. */
+  saveLlmKey: (
+    provider: string,
+    apiKey: string,
+    opts?: { model?: string; preferred?: boolean },
+  ) =>
+    request<LlmKey>("PUT", `/api/me/llm-keys/${provider}`, {
+      api_key: apiKey,
+      model: opts?.model || null,
+      preferred: opts?.preferred ?? false,
+    }),
+  deleteLlmKey: (provider: string) =>
+    request<LlmKeysResponse>("DELETE", `/api/me/llm-keys/${provider}`),
+  selectLlmKey: (provider: string) =>
+    request<LlmKeysResponse>("PUT", "/api/me/llm-keys", { provider }),
 };

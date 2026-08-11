@@ -120,6 +120,56 @@ pub struct ToolInvocation {
 }
 
 impl ToolInvocation {
+    /// Build an invocation from values a caller already holds, rendering the
+    /// `raw_xml` a parsed one would have carried.
+    ///
+    /// This is what lets a caller that is NOT the ReAct loop — the `hickory
+    /// doc` subcommands, and through them any external coding agent — drive
+    /// the same tools the built-in agent uses. Rendering the XML rather than
+    /// leaving it empty keeps one invariant true: every invocation, whoever
+    /// made it, can be written into a `hick:session` document verbatim and
+    /// parsed back. A synthetic invocation with no `raw_xml` would produce a
+    /// session that says a tool ran but not what it was asked to do.
+    ///
+    /// No escaping is performed, and none is possible — that is the parser's
+    /// no-escaping invariant. A payload containing `</hick:input>` cannot be
+    /// represented, and is rejected here rather than silently truncating the
+    /// session file at that point.
+    pub fn synthetic(
+        name: impl Into<String>,
+        args: Vec<(String, String)>,
+        input: Option<String>,
+    ) -> Result<Self, String> {
+        let name = name.into();
+        let mut raw_xml = format!("<hick:tool name=\"{name}\">");
+        for (k, v) in &args {
+            if v.contains("</hick:arg>") {
+                return Err(format!(
+                    "the value of argument '{k}' contains </hick:arg>, which cannot be \
+                     represented in a session document"
+                ));
+            }
+            raw_xml.push_str(&format!("\n<hick:arg name=\"{k}\">{v}</hick:arg>"));
+        }
+        if let Some(payload) = &input {
+            if payload.contains("</hick:input>") {
+                return Err(
+                    "the replacement text contains </hick:input>, which cannot be represented \
+                     in a session document"
+                        .to_string(),
+                );
+            }
+            raw_xml.push_str(&format!("\n<hick:input>{payload}</hick:input>"));
+        }
+        raw_xml.push_str("\n</hick:tool>");
+        Ok(Self {
+            name,
+            args,
+            input,
+            raw_xml,
+        })
+    }
+
     /// First value of the named argument, if present.
     pub fn arg(&self, name: &str) -> Option<&str> {
         self.args

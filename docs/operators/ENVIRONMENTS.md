@@ -32,10 +32,30 @@ these at boot (`apps/server/src/config.rs`) and validates them:
 | `STRIPE_WEBHOOK_SECRET` | Required in strict mode whenever Stripe is configured |
 | `PLAN_SET` | Explicit plan-set override; otherwise the PostHog flag `hickory-plan-set`, else `default` |
 
-## Agent (optional — absent ⇒ `POST /api/docs/:id/agent` answers 503)
+## Bring your own key (optional — absent ⇒ accounts cannot store their own keys)
+
+| Variable | Required | Notes |
+|---|---|---|
+| `KEY_ENCRYPTION_KEY` | no, but see below | Base64 of 32 random bytes; encrypts every account's stored provider API key (`user_llm_keys`). Mint one with `just gen-key`. **One per environment, and keep it**: replacing it makes every stored key unreadable and each account has to paste its key again. A malformed value fails the boot in every environment rather than silently disabling the feature |
+
+Absent, `/api/me/llm-keys` answers 503 and accounts on a `byo_key` plan (Open,
+Pro in `plans.json`) have **no agent at all** — the entitlement is "the account
+brings a key", and there is nowhere to put one. On a deployment that sells
+those plans this variable is effectively required; it is not marked strict only
+because an existing deployment must not fail to boot the moment this feature
+ships.
+
+## Agent (optional — absent ⇒ accounts on a `metered_allowance` plan answer 503)
+
+The deployment's own key, spent by plans whose entitlement includes an agent
+allowance (Team, Business). Accounts on `byo_key` plans never reach it — see
+`docs/guarantees/agent/byok-plan-boundary.md`.
 
 | Variable | Notes |
 |---|---|
+| `HICKORY_LLM_PROVIDER` | `anthropic` (default) \| `openai` \| `deepseek` \| `grok`. Selects which key variable below is read |
+| `HICKORY_LLM_MODEL` | Model override; default is the provider's own |
+| `OPENAI_API_KEY` / `DEEPSEEK_API_KEY` / `XAI_API_KEY` | The key for the selected non-Anthropic provider |
 | `ANTHROPIC_API_KEY` | Enables the server-side agent (hickory-agent ReAct loop; sessions stream on the WS run channel and persist as `hick:session` docs in the project git repo) |
 | `ANTHROPIC_BASE_URL` | Messages endpoint for the agent. Defaults to `https://api.anthropic.com/v1/messages`; `count_tokens` follows the same host. Set it for an enterprise gateway or proxy — or for a local endpoint that records requests, which is how the conversation tests run without a real key |
 

@@ -89,6 +89,15 @@ async fn setup_with_agent(agent_key: Option<String>) -> TestApp {
             model: None,
         }),
         agent_provider: "anthropic".to_string(),
+        // A fresh key-encryption key per test app: BYOK paths are exercised
+        // for real (sealed rows, real decryption) and nothing outlives the
+        // test database it was written into.
+        key_vault: Some(
+            hickory_server::keyvault::KeyVault::from_base64(
+                &hickory_server::keyvault::KeyVault::generate_base64(),
+            )
+            .unwrap(),
+        ),
         signup_allowlist: Vec::new(),
         sendgrid: None,
     };
@@ -153,6 +162,29 @@ impl TestApp {
         let status = resp.status().as_u16();
         let v = resp.json().await.unwrap_or(Value::Null);
         (status, v)
+    }
+
+    async fn delete(&self, path: &str, token: Option<&str>) -> (u16, Value) {
+        let mut req = self.client.delete(format!("{}{path}", self.base));
+        if let Some(t) = token {
+            req = req.bearer_auth(t);
+        }
+        let resp = req.send().await.unwrap();
+        let status = resp.status().as_u16();
+        let v = resp.json().await.unwrap_or(Value::Null);
+        (status, v)
+    }
+
+    /// Put an account on a plan. Signup lands on `open`, whose agent
+    /// entitlement is `byo_key`; a test about the *included* allowance has to
+    /// say so explicitly rather than inherit it.
+    async fn set_plan(&self, user_id: &str, plan_key: &str) {
+        sqlx::query("UPDATE users SET plan_key = $1 WHERE id = $2")
+            .bind(plan_key)
+            .bind(uuid::Uuid::parse_str(user_id).unwrap())
+            .execute(&self.db)
+            .await
+            .unwrap();
     }
 
     async fn signup(&self, email: &str) -> (String, String) {
@@ -751,13 +783,14 @@ async fn health_and_agent_stub() {
             json!({ "prompt": "write docs" }),
         )
         .await;
-    // hickory-agent is wired, but this test config has no ANTHROPIC_API_KEY:
-    // the endpoint no-ops with a clear 503 (graceful degradation).
-    assert_eq!(status, 503);
-    assert_eq!(
-        v["error"],
-        "agent not configured (ANTHROPIC_API_KEY unset for provider anthropic)"
-    );
+    // A fresh account is on `open`, whose entitlement is `agent: byo_key`.
+    // With no key stored the answer is 402 and it says what to do — NOT a
+    // run on the deployment's credential, which is the whole point of the
+    // entitlement. Guarantee: docs/guarantees/agent/byok-plan-boundary.md
+    assert_eq!(status, 402);
+    let err = v["error"].as_str().unwrap();
+    assert!(err.contains("your own provider key"), "{err}");
+    assert!(err.contains("Settings → API keys"), "{err}");
 }
 
 // ---------------------------------------------------------------------------
@@ -2023,6 +2056,10 @@ struct FakeAnthropic {
     url: String,
     requests: Arc<std::sync::Mutex<Vec<Value>>>,
     replies: Arc<std::sync::Mutex<std::collections::VecDeque<String>>>,
+    /// Every `x-api-key` the far side actually received. This is how a test
+    /// can tell WHOSE credential a run spent — the one question the BYOK
+    /// entitlement turns on, and one no assertion about status codes answers.
+    api_keys: Arc<std::sync::Mutex<Vec<String>>>,
 }
 
 async fn fake_anthropic(replies: Vec<String>) -> FakeAnthropic {
@@ -2033,15 +2070,22 @@ async fn fake_anthropic(replies: Vec<String>) -> FakeAnthropic {
     let queue: Arc<std::sync::Mutex<std::collections::VecDeque<String>>> =
         Arc::new(std::sync::Mutex::new(replies.into_iter().collect()));
 
+    let api_keys: Arc<std::sync::Mutex<Vec<String>>> = Arc::new(std::sync::Mutex::new(Vec::new()));
+
     type St = (
         Arc<std::sync::Mutex<Vec<Value>>>,
         Arc<std::sync::Mutex<std::collections::VecDeque<String>>>,
+        Arc<std::sync::Mutex<Vec<String>>>,
     );
 
     async fn handle(
-        AxState((reqs, queue)): AxState<St>,
+        AxState((reqs, queue, keys)): AxState<St>,
+        headers: axum::http::HeaderMap,
         axum::Json(body): axum::Json<Value>,
     ) -> String {
+        if let Some(k) = headers.get("x-api-key").and_then(|v| v.to_str().ok()) {
+            keys.lock().unwrap().push(k.to_string());
+        }
         reqs.lock().unwrap().push(body);
         let reply = queue
             .lock()
@@ -2061,9 +2105,25 @@ async fn fake_anthropic(replies: Vec<String>) -> FakeAnthropic {
         )
     }
 
+    // The real `count_tokens` endpoint, which is what the Anthropic client
+    // uses to check a credential before it is stored. A fake that answered
+    // only `/v1/messages` would make every saved key look invalid.
+    async fn count_tokens(axum::Json(_): axum::Json<Value>) -> axum::Json<Value> {
+        axum::Json(json!({ "input_tokens": 3 }))
+    }
+
+    // The OpenAI-compatible shape, so the same harness can stand in for the
+    // other three vendors (OpenAI, DeepSeek, xAI/Grok) — which is what makes
+    // a multi-provider BYOK path testable at all.
+    async fn chat_completions(axum::Json(_): axum::Json<Value>) -> axum::Json<Value> {
+        axum::Json(json!({ "choices": [{ "message": { "content": "ok" } }] }))
+    }
+
     let app = axum::Router::new()
         .route("/v1/messages", post(handle))
-        .with_state((requests.clone(), queue.clone()));
+        .route("/v1/messages/count_tokens", post(count_tokens))
+        .route("/v1/chat/completions", post(chat_completions))
+        .with_state((requests.clone(), queue.clone(), api_keys.clone()));
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
     tokio::spawn(async move {
@@ -2073,6 +2133,7 @@ async fn fake_anthropic(replies: Vec<String>) -> FakeAnthropic {
         url: format!("http://127.0.0.1:{port}/v1/messages"),
         requests,
         replies: queue,
+        api_keys,
     }
 }
 
@@ -2135,7 +2196,12 @@ async fn agent_replays_branch_history_and_writes_its_edits_back() {
     unsafe { std::env::set_var("ANTHROPIC_BASE_URL", &fake.url) };
 
     let app = setup_with_agent(Some("local-harness-key".into())).await;
-    let (token, _) = app.signup("conversation@example.com").await;
+    let (token, user_id) = app.signup("conversation@example.com").await;
+    // This test is about conversation history, and it runs on the
+    // DEPLOYMENT's key — which only a plan with an included agent allowance
+    // may do. `open` would (correctly) answer 402 and demand the account's
+    // own key. Guarantee: docs/guarantees/agent/byok-plan-boundary.md
+    app.set_plan(&user_id, "team").await;
     let (_, doc_id) = app.seed_and_run(&token, "conv.hick", CONV_DOC).await;
 
     let say = async |prompt: &str, parent: Option<&str>| -> Value {
@@ -2482,4 +2548,245 @@ async fn verification_sends_are_rate_limited() {
         "more mail went out than the cap allows: {}",
         app.mailer.sent().len()
     );
+}
+
+// ---------------------------------------------------------------------------
+// Bring your own key.
+//
+// `plans.json` sells `agent: byo_key` on Open and Pro. These tests are the
+// difference between selling it and having it: a key the account supplies is
+// sealed at rest, never readable back, chosen without ceremony, and is the
+// credential the vendor actually sees on the wire — while an account with no
+// key of its own never reaches the deployment's.
+// ---------------------------------------------------------------------------
+
+/// Guarantees: docs/guarantees/agent/byok-key-at-rest.md,
+/// docs/guarantees/agent/byok-key-selection.md
+#[tokio::test(flavor = "multi_thread")]
+async fn a_stored_key_is_sealed_write_only_and_needs_no_choosing() {
+    let fake = fake_anthropic(Vec::new()).await;
+    unsafe { std::env::set_var("ANTHROPIC_BASE_URL", &fake.url) };
+    let app = setup().await;
+    let (token, user_id) = app.signup("byok@example.com").await;
+
+    // Nothing stored yet, and the account is told what its plan expects.
+    let (status, v) = app.get("/api/me/llm-keys", Some(&token)).await;
+    assert_eq!(status, 200, "{v}");
+    assert_eq!(v["keys"].as_array().unwrap().len(), 0);
+    assert_eq!(v["storage_available"], true);
+    assert_eq!(v["plan_agent"], "byo_key");
+
+    let (status, v) = app
+        .put(
+            "/api/me/llm-keys/anthropic",
+            Some(&token),
+            json!({ "api_key": "sk-ant-user-secret-value" }),
+        )
+        .await;
+    assert_eq!(status, 200, "{v}");
+    assert_eq!(v["provider"], "anthropic");
+    assert_eq!(v["last4"], "alue");
+    // One key: it is active without anyone having been asked which one.
+    assert_eq!(v["active"], true);
+
+    // At rest: the row is ciphertext. A dump of this table is not a bag of
+    // API keys.
+    let (ciphertext, last4): (Vec<u8>, String) =
+        sqlx::query_as("SELECT ciphertext, last4 FROM user_llm_keys WHERE user_id = $1")
+            .bind(uuid::Uuid::parse_str(&user_id).unwrap())
+            .fetch_one(&app.db)
+            .await
+            .unwrap();
+    let as_text = String::from_utf8_lossy(&ciphertext);
+    assert!(
+        !as_text.contains("sk-ant-user-secret-value"),
+        "the key was stored in the clear"
+    );
+    assert_eq!(last4, "alue", "only the display fragment is plaintext");
+
+    // Write-only over the API: no response anywhere carries the key back,
+    // not even to the account that saved it.
+    let (_, listing) = app.get("/api/me/llm-keys", Some(&token)).await;
+    assert!(
+        !listing.to_string().contains("sk-ant-user-secret-value"),
+        "the listing handed the key back: {listing}"
+    );
+
+    // A key the vendor rejects is refused at the form, not at run time.
+    let (status, v) = app
+        .put(
+            "/api/me/llm-keys/nonsense-vendor",
+            Some(&token),
+            json!({ "api_key": "whatever" }),
+        )
+        .await;
+    assert_eq!(status, 400, "{v}");
+    assert!(
+        v["error"].as_str().unwrap().contains("anthropic"),
+        "the error must list the providers that do work: {v}"
+    );
+}
+
+/// Guarantee: docs/guarantees/agent/byok-plan-boundary.md — an Open-plan run
+/// spends the account's own credential, and the vendor sees exactly that key.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_open_plan_account_runs_the_agent_on_the_key_it_brought() {
+    let fake = fake_anthropic(vec![
+        "<hick:next>done</hick:next>\nRan on the account's own key.".to_string(),
+    ])
+    .await;
+    unsafe { std::env::set_var("ANTHROPIC_BASE_URL", &fake.url) };
+
+    // The deployment ALSO holds a key. That is the interesting case: the
+    // account must still spend its own, or "bring your own key" is a label on
+    // a bill the operator pays.
+    let app = setup_with_agent(Some("deployment-key".into())).await;
+    let (token, _) = app.signup("brings-own@example.com").await;
+    let (_, project) = app
+        .post(
+            "/api/projects",
+            Some(&token),
+            json!({ "name": "byok", "visibility": "private" }),
+        )
+        .await;
+    let (_, doc) = app
+        .post(
+            &format!("/api/projects/{}/docs", project["id"].as_str().unwrap()),
+            Some(&token),
+            json!({ "path": "d.hick", "source": "<hick:doc xmlns:hick=\"http://www.hickorydocs.com/1.0\">hi</hick:doc>" }),
+        )
+        .await;
+    let doc_id = doc["id"].as_str().unwrap().to_string();
+
+    let (status, v) = app
+        .put(
+            "/api/me/llm-keys/anthropic",
+            Some(&token),
+            json!({ "api_key": "sk-ant-the-users-own-key" }),
+        )
+        .await;
+    assert_eq!(status, 200, "{v}");
+
+    let (status, v) = app
+        .post(
+            &format!("/api/docs/{doc_id}/agent"),
+            Some(&token),
+            json!({ "prompt": "say hello" }),
+        )
+        .await;
+    assert_eq!(status, 202, "an account with its own key may run: {v}");
+    let session_id = v["session_id"].as_str().unwrap().to_string();
+
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(60);
+    loop {
+        let (_, t) = app
+            .get(&format!("/api/docs/{doc_id}/agent/turns"), Some(&token))
+            .await;
+        let turn = t["turns"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|x| x["id"] == session_id.as_str())
+            .cloned();
+        if let Some(turn) = turn
+            && turn["status"] != "running"
+        {
+            assert_eq!(turn["status"], "ok", "{turn}");
+            break;
+        }
+        assert!(tokio::time::Instant::now() < deadline, "agent turn hung");
+        tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+    }
+
+    let seen = fake.api_keys.lock().unwrap().clone();
+    assert!(
+        seen.iter().any(|k| k == "sk-ant-the-users-own-key"),
+        "the vendor saw {seen:?}, not the account's own key"
+    );
+    assert!(
+        !seen.iter().any(|k| k == "deployment-key"),
+        "a byo_key plan spent the DEPLOYMENT's credential: {seen:?}"
+    );
+
+    // Removing the key removes the entitlement's foundation: back to the 402
+    // that says what to do, rather than a silent fallback to our key.
+    let (status, v) = app.delete("/api/me/llm-keys/anthropic", Some(&token)).await;
+    assert_eq!(status, 200, "{v}");
+    assert_eq!(v["keys"].as_array().unwrap().len(), 0);
+
+    let (status, v) = app
+        .post(
+            &format!("/api/docs/{doc_id}/agent"),
+            Some(&token),
+            json!({ "prompt": "say hello again" }),
+        )
+        .await;
+    assert_eq!(status, 402, "{v}");
+}
+
+/// Guarantee: docs/guarantees/agent/byok-key-selection.md — a second key
+/// creates a choice, and until it is made the run stops with a question it
+/// is possible to answer.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_second_key_creates_a_choice_and_says_so() {
+    let fake = fake_anthropic(Vec::new()).await;
+    unsafe { std::env::set_var("ANTHROPIC_BASE_URL", &fake.url) };
+    unsafe {
+        std::env::set_var(
+            "XAI_BASE_URL",
+            fake.url.replace("/v1/messages", "/v1/chat/completions"),
+        )
+    };
+    let app = setup().await;
+    let (token, _) = app.signup("twokeys@example.com").await;
+
+    for (provider, key) in [("anthropic", "sk-ant-one"), ("grok", "xai-two")] {
+        let (status, v) = app
+            .put(
+                &format!("/api/me/llm-keys/{provider}"),
+                Some(&token),
+                json!({ "api_key": key }),
+            )
+            .await;
+        assert_eq!(status, 200, "storing the {provider} key: {v}");
+    }
+
+    // Two keys, no preference: nothing is active, and the UI can say why.
+    let (_, v) = app.get("/api/me/llm-keys", Some(&token)).await;
+    let keys = v["keys"].as_array().unwrap();
+    assert_eq!(keys.len(), 2);
+    assert!(
+        keys.iter().all(|k| k["active"] == false),
+        "no key may be active while the choice is open: {v}"
+    );
+
+    let (status, v) = app
+        .put(
+            "/api/me/llm-keys",
+            Some(&token),
+            json!({ "provider": "grok" }),
+        )
+        .await;
+    assert_eq!(status, 200, "{v}");
+    let active: Vec<&str> = v["keys"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|k| k["active"] == true)
+        .map(|k| k["provider"].as_str().unwrap())
+        .collect();
+    // Stored under the vendor's canonical name even though the request used
+    // the model name people reach for.
+    assert_eq!(active, vec!["xai"]);
+
+    // Selecting a provider with no stored key is refused, and says so.
+    let (status, v) = app
+        .put(
+            "/api/me/llm-keys",
+            Some(&token),
+            json!({ "provider": "deepseek" }),
+        )
+        .await;
+    assert_eq!(status, 400, "{v}");
+    assert!(v["error"].as_str().unwrap().contains("deepseek"), "{v}");
 }

@@ -81,6 +81,14 @@ pub struct Config {
     pub plan_set: Option<String>,
     /// `None` → the agent endpoint answers 503 "agent not configured".
     pub agent_llm: Option<AgentLlmConfig>,
+    /// The deployment's key-encryption key, sealing accounts' own provider
+    /// keys at rest.
+    ///
+    /// `None` → the bring-your-own-key endpoints answer 503 and the agent
+    /// falls back to the deployment's key where the plan allows it. Storing
+    /// user credentials in the clear instead is not an option this
+    /// degradation offers.
+    pub key_vault: Option<crate::keyvault::KeyVault>,
     /// The selected provider, set whether or not a key was found, so the
     /// 503 can name the variable that is actually missing.
     pub agent_provider: String,
@@ -197,6 +205,27 @@ impl Config {
             );
         }
 
+        // A malformed key-encryption key is always a hard error, in every
+        // environment: the alternative is a deployment that boots, accepts
+        // keys, and cannot read any of them back.
+        let key_vault = match env_opt("KEY_ENCRYPTION_KEY") {
+            Some(raw) => Some(crate::keyvault::KeyVault::from_base64(&raw)?),
+            None => {
+                if strict {
+                    log::warn!(
+                        "KEY_ENCRYPTION_KEY unset; accounts cannot save their own provider \
+                         keys and BYOK plans have no agent. Mint one with `just gen-key`."
+                    );
+                } else {
+                    log::info!(
+                        "KEY_ENCRYPTION_KEY unset; bring-your-own-key endpoints answer 503 \
+                         (mint one with `just gen-key`)"
+                    );
+                }
+                None
+            }
+        };
+
         // MAIL_FROM must be an address SendGrid has authenticated for this
         // account, or every send is rejected. There is no sensible default,
         // so an API key without one is a configuration error rather than a
@@ -288,6 +317,7 @@ impl Config {
             web_dist_dir,
             plan_set: env_opt("PLAN_SET"),
             agent_llm,
+            key_vault,
             agent_provider: provider,
             sendgrid,
             signup_allowlist: parse_allowlist(env_opt("SIGNUP_ALLOWLIST").as_deref()),

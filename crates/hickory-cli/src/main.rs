@@ -89,6 +89,142 @@ enum Command {
     /// .gitignore entry, and an AGENTS.md section for coding agents.
     /// Idempotent — re-run any time to refresh the managed blocks.
     Init(InitArgs),
+    /// Read and edit a document through hashline anchors and lineage — the
+    /// same tool set the built-in agent uses, for any coding agent that can
+    /// run a command.
+    #[command(subcommand)]
+    Doc(DocCommand),
+    /// Serve the document tool set over MCP on stdio, for Claude Code, Codex,
+    /// Grok CLI, or any other MCP client. `hickory init` writes the
+    /// registration for the harnesses it finds.
+    Mcp(McpArgs),
+}
+
+#[derive(clap::Args)]
+struct McpArgs {
+    /// The document tool calls act on when they name none.
+    #[arg(long = "doc")]
+    doc: Option<PathBuf>,
+    /// Parameter overrides, `key=value` (repeatable).
+    #[arg(long = "param", value_parser = hick_literate::parse_param)]
+    params: Vec<(String, String)>,
+    /// Enable `<hick:feature>` flags (comma-separated, repeatable).
+    #[arg(long = "features", value_delimiter = ',')]
+    features: Vec<String>,
+}
+
+/// The document tool set. Every subcommand opens a session on DOC, runs one
+/// tool, and prints the observation.
+///
+/// The workflow they are built for: read a surface, edit against the hashes
+/// you just read, verify. Anchors are content hashes, so an edit against a
+/// line that has changed since you read it is refused rather than misapplied
+/// — re-read and try again.
+#[derive(Subcommand)]
+enum DocCommand {
+    /// Print the document source, every line prefixed with its 4-hex content
+    /// hash. Those hashes are the anchors `edit` takes.
+    Read(DocReadArgs),
+    /// Print a woven output file, hashline-rendered. `--lineage` also marks
+    /// which lines are editable and where each came from in the document.
+    ReadOutput(DocReadOutputArgs),
+    /// Edit an output file; the change is mapped back into the document
+    /// byte-exactly through lineage. This is how CODE should be edited.
+    EditOutput(DocEditArgs),
+    /// Edit the document source directly. This is how STRUCTURE and PROSE
+    /// should be edited — and where lineage refusals send you.
+    Edit(DocEditArgs),
+    /// Execute the document for real (every exec cell, every expectation) and
+    /// write its outputs. Run this before calling an edit done.
+    Verify(DocVerifyArgs),
+}
+
+#[derive(clap::Args)]
+struct DocCommonArgs {
+    /// Parameter overrides, `key=value` (repeatable).
+    #[arg(long = "param", value_parser = hick_literate::parse_param, global = true)]
+    params: Vec<(String, String)>,
+    /// Enable `<hick:feature>` flags (comma-separated, repeatable).
+    #[arg(long = "features", value_delimiter = ',', global = true)]
+    features: Vec<String>,
+    /// Print `{"tool", "ok", "text"}` instead of the observation alone.
+    #[arg(long = "json", global = true)]
+    json: bool,
+    /// Append this call and its result to a `hick:session` document, creating
+    /// it if needed. Defaults to `HICKORY_SESSION`; unset, nothing is
+    /// recorded. This is how work done by an OUTSIDE agent still produces a
+    /// session `hickory promote` can compact.
+    #[arg(long = "session", global = true)]
+    session: Option<PathBuf>,
+}
+
+#[derive(clap::Args)]
+struct DocReadArgs {
+    /// The `.hick` document. Omit when the working directory holds exactly
+    /// one.
+    doc: Option<PathBuf>,
+    /// Read an UPSTREAM document instead (by name or path). The primary
+    /// document's `hick:upstream` closure is listed in the output.
+    #[arg(long = "upstream")]
+    upstream: Option<String>,
+    #[command(flatten)]
+    common: DocCommonArgs,
+}
+
+#[derive(clap::Args)]
+struct DocReadOutputArgs {
+    /// The `.hick` document. Omit when the working directory holds exactly
+    /// one.
+    doc: Option<PathBuf>,
+    /// Which output file, as the document names it.
+    #[arg(long = "path")]
+    path: String,
+    /// Annotate each range with where it came from and whether it can be
+    /// edited through the output. Read this before editing.
+    #[arg(long = "lineage")]
+    lineage: bool,
+    #[command(flatten)]
+    common: DocCommonArgs,
+}
+
+#[derive(clap::Args)]
+struct DocEditArgs {
+    /// The `.hick` document. Omit when the working directory holds exactly
+    /// one.
+    doc: Option<PathBuf>,
+    /// Which output file (edit-output only).
+    #[arg(long = "path")]
+    path: Option<String>,
+    /// Replace this line run: `hash` for one line, `first..last` for a range.
+    #[arg(long = "run")]
+    run: Option<String>,
+    /// Insert BELOW this line instead of replacing anything; `^` inserts at
+    /// the top of the file.
+    #[arg(long = "after")]
+    after: Option<String>,
+    /// Which occurrence to use when the anchor matches more than one place
+    /// (1-based).
+    #[arg(long = "occurrence")]
+    occurrence: Option<usize>,
+    /// Edit an UPSTREAM document instead (edit only).
+    #[arg(long = "upstream")]
+    upstream: Option<String>,
+    /// The replacement text. Omit (or pass `-`) to read it from stdin, which
+    /// is what code should come through. Pass an empty string to DELETE the
+    /// anchored run.
+    #[arg(long = "input")]
+    input: Option<String>,
+    #[command(flatten)]
+    common: DocCommonArgs,
+}
+
+#[derive(clap::Args)]
+struct DocVerifyArgs {
+    /// The `.hick` document. Omit when the working directory holds exactly
+    /// one.
+    doc: Option<PathBuf>,
+    #[command(flatten)]
+    common: DocCommonArgs,
 }
 
 #[derive(clap::Args)]
@@ -258,6 +394,15 @@ fn main() -> ExitCode {
             Command::Agent(args) => cmd_agent(args).await,
             Command::Refresh(args) => cmd_refresh(args).await,
             Command::Init(args) => cmd_init(args),
+            Command::Doc(cmd) => cmd_doc(cmd).await,
+            Command::Mcp(args) => {
+                hickory_cli::mcp::serve(
+                    args.doc,
+                    params_with_features(&args.params, &args.features),
+                )
+                .await?;
+                Ok(ExitCode::SUCCESS)
+            }
         }
     });
 
@@ -829,4 +974,92 @@ fn restamp_from(source: &str, body_start: usize, fingerprint: &str) -> String {
     let mut out = source.to_string();
     out.replace_range(open..body_start, &replaced);
     out
+}
+
+/// `hickory doc <tool>` — one tool, one process, one observation.
+///
+/// The whole command group is a translation layer: arguments become a
+/// [`ToolInvocation`], `hickory_cli::doc_tools::run_doc_tool` executes it
+/// through the same `EditSession` the built-in agent drives, and the
+/// observation is printed. No editing logic lives here, which is the point —
+/// an external coding agent and our own agent must not be able to drift
+/// apart in what an edit means.
+async fn cmd_doc(cmd: DocCommand) -> Result<ExitCode> {
+    use hickory_cli::doc_tools::{
+        DocToolRequest, OutputFormat, edit_args, print_outcome, read_input, run_doc_tool,
+    };
+
+    /// Resolve the document: the one named, or the only one here.
+    fn resolve_doc(doc: Option<PathBuf>) -> Result<PathBuf> {
+        if let Some(d) = doc {
+            return Ok(d);
+        }
+        let cwd = std::env::current_dir()?;
+        hickory_cli::doc_tools::sole_document(&cwd).ok_or_else(|| {
+            anyhow::anyhow!(
+                "no document given, and {} does not hold exactly one .hick file.\n\
+                 Name the document: hickory doc <command> path/to/doc.hick",
+                cwd.display()
+            )
+        })
+    }
+
+    let (doc, tool, args, input, common) = match cmd {
+        DocCommand::Read(a) => {
+            let args = a
+                .upstream
+                .map(|u| vec![("doc".to_string(), u)])
+                .unwrap_or_default();
+            (resolve_doc(a.doc)?, "read_doc", args, None, a.common)
+        }
+        DocCommand::ReadOutput(a) => {
+            let mut args = vec![("path".to_string(), a.path)];
+            if a.lineage {
+                args.push(("with_lineage".to_string(), "true".to_string()));
+            }
+            (resolve_doc(a.doc)?, "read_output", args, None, a.common)
+        }
+        DocCommand::EditOutput(a) => {
+            if a.path.is_none() {
+                anyhow::bail!(
+                    "edit-output needs --path <output file>. \
+                     `hickory doc read-output --path …` lists what a document produces."
+                );
+            }
+            let args = edit_args(
+                a.path.as_deref(),
+                a.run.as_deref(),
+                a.after.as_deref(),
+                a.occurrence,
+            )?;
+            let input = read_input(a.input.as_deref())?;
+            (resolve_doc(a.doc)?, "edit_output", args, input, a.common)
+        }
+        DocCommand::Edit(a) => {
+            let mut args = edit_args(None, a.run.as_deref(), a.after.as_deref(), a.occurrence)?;
+            if let Some(u) = a.upstream {
+                args.insert(0, ("doc".to_string(), u));
+            }
+            let input = read_input(a.input.as_deref())?;
+            (resolve_doc(a.doc)?, "edit_doc", args, input, a.common)
+        }
+        DocCommand::Verify(a) => (resolve_doc(a.doc)?, "verify", Vec::new(), None, a.common),
+    };
+
+    let request = DocToolRequest {
+        doc,
+        tool: tool.to_string(),
+        args,
+        input,
+        params: params_with_features(&common.params, &common.features),
+        format: if common.json {
+            OutputFormat::Json
+        } else {
+            OutputFormat::Text
+        },
+        session: hickory_cli::doc_tools::session_from(common.session),
+    };
+    let outcome = run_doc_tool(&request).await?;
+    let code = print_outcome(&outcome, request.format)?;
+    Ok(ExitCode::from(code))
 }

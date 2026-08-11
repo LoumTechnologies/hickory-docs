@@ -4,11 +4,13 @@
 
 pub mod analytics;
 pub mod auth;
+pub mod byok;
 pub mod config;
 pub mod email_tokens;
 pub mod error;
 pub mod executor;
 pub mod gitstore;
+pub mod keyvault;
 pub mod lsp;
 pub mod mail;
 pub mod openapi;
@@ -100,6 +102,15 @@ pub fn build_router(state: AppState) -> Router {
         .route("/auth/signup", post(routes::auth::signup))
         .route("/auth/login", post(routes::auth::login))
         .route("/me", get(routes::auth::me))
+        .route(
+            "/me/llm-keys",
+            get(routes::llm_keys::list_llm_keys).put(routes::llm_keys::select_llm_key),
+        )
+        .route(
+            "/me/llm-keys/{provider}",
+            axum::routing::put(routes::llm_keys::save_llm_key)
+                .delete(routes::llm_keys::delete_llm_key),
+        )
         .route("/auth/verify/send", post(routes::auth::send_verification))
         .route(
             "/auth/verify/confirm",

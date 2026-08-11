@@ -777,6 +777,140 @@
         }
       }
     },
+    "/api/me/llm-keys": {
+      "get": {
+        "tags": [
+          "llm-keys"
+        ],
+        "summary": "GET /api/me/llm-keys — which keys this account has stored.",
+        "operationId": "list_llm_keys",
+        "responses": {
+          "200": {
+            "description": "stored provider keys",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LlmKeysOut"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "llm-keys"
+        ],
+        "summary": "PUT /api/me/llm-keys — choose which stored key agent runs use.",
+        "operationId": "select_llm_key",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SelectProvider"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "the stored keys, with the new active one",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LlmKeysOut"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "no key stored for that provider"
+          }
+        }
+      }
+    },
+    "/api/me/llm-keys/{provider}": {
+      "put": {
+        "tags": [
+          "llm-keys"
+        ],
+        "summary": "PUT /api/me/llm-keys/{provider} — store or replace a key.",
+        "operationId": "save_llm_key",
+        "parameters": [
+          {
+            "name": "provider",
+            "in": "path",
+            "description": "anthropic | openai | deepseek | grok",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SaveLlmKey"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "the stored key's metadata",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StoredKey"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "unknown provider, or the vendor rejected the key"
+          },
+          "503": {
+            "description": "this deployment cannot store keys"
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "llm-keys"
+        ],
+        "summary": "DELETE /api/me/llm-keys/{provider} — forget a key.",
+        "operationId": "delete_llm_key",
+        "parameters": [
+          {
+            "name": "provider",
+            "in": "path",
+            "description": "anthropic | openai | deepseek | grok",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "the remaining stored keys",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LlmKeysOut"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "no key stored for that provider"
+          }
+        }
+      }
+    },
     "/api/projects": {
       "get": {
         "tags": [
@@ -1224,6 +1358,30 @@
           }
         }
       },
+      "LlmKeysOut": {
+        "type": "object",
+        "required": [
+          "keys",
+          "storage_available",
+          "plan_agent"
+        ],
+        "properties": {
+          "keys": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/StoredKey"
+            }
+          },
+          "plan_agent": {
+            "type": "string",
+            "description": "`byo_key` (the account supplies the key) or `metered_allowance` (the\nplan includes agent spend)."
+          },
+          "storage_available": {
+            "type": "boolean",
+            "description": "True when the deployment can store keys at all (`KEY_ENCRYPTION_KEY`\nis set). The UI explains the gap rather than offering a form that\ncannot succeed."
+          }
+        }
+      },
       "NavOut": {
         "type": "object",
         "description": "`targets` items are `{uri, range: {start, end}}`, built ad hoc from the\nLSP response's `Location | Location[] | LocationLink[]` union below —\nkept generic rather than asserting a schema over an upstream union this\nhandler only partially normalizes.",
@@ -1532,6 +1690,40 @@
           }
         }
       },
+      "SaveLlmKey": {
+        "type": "object",
+        "required": [
+          "api_key"
+        ],
+        "properties": {
+          "api_key": {
+            "type": "string",
+            "description": "The provider key, as issued by the vendor."
+          },
+          "model": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Model override; omit for the provider's default."
+          },
+          "preferred": {
+            "type": "boolean",
+            "description": "Make this the key agent runs use. Ignored when it is the only key —\na single key is already the choice."
+          }
+        }
+      },
+      "SelectProvider": {
+        "type": "object",
+        "required": [
+          "provider"
+        ],
+        "properties": {
+          "provider": {
+            "type": "string"
+          }
+        }
+      },
       "StatusOut": {
         "type": "object",
         "required": [
@@ -1540,6 +1732,48 @@
         "properties": {
           "status": {
             "type": "string"
+          }
+        }
+      },
+      "StoredKey": {
+        "type": "object",
+        "description": "One stored credential, as the UI sees it: enough to identify the key,\nnever enough to use it.",
+        "required": [
+          "provider",
+          "last4",
+          "active",
+          "created_at"
+        ],
+        "properties": {
+          "active": {
+            "type": "boolean",
+            "description": "True when this is the key agent runs will use."
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "last4": {
+            "type": "string",
+            "description": "Last four characters of the key."
+          },
+          "last_used_at": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "date-time"
+          },
+          "model": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "description": "Model override, or `None` for the provider's default."
+          },
+          "provider": {
+            "type": "string",
+            "description": "`anthropic` | `openai` | `deepseek` | `grok`."
           }
         }
       },

@@ -17,6 +17,7 @@ use std::io::{BufWriter, Write as _};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
+use anyhow::Context as _;
 use chrono::Utc;
 
 /// A single event to be recorded into a session log.
@@ -126,6 +127,54 @@ impl HickSessionLog {
             writer,
             r#"<hick:session xmlns:hick="http://www.hickorydocs.com/1.0" start="{start}">"#
         )?;
+        writer.flush()?;
+        Ok(Self {
+            inner: Mutex::new(writer),
+            path,
+        })
+    }
+
+    /// Open an existing session file to append to, or create a new one.
+    ///
+    /// This is what makes a session survive across *processes*. The built-in
+    /// agent holds one log open for a whole run; an external coding agent
+    /// makes one `hickory doc` call per edit, each in a process of its own,
+    /// and without this each call would either truncate the session or refuse
+    /// to write it. The session is the product — losing it because the work
+    /// came from Claude Code rather than from our loop would make "bring your
+    /// own agent" a second-class path in exactly the place it matters.
+    ///
+    /// A closed session (`</hick:session>` at the end) is reopened by dropping
+    /// that line, so the file on disk is a valid, parseable document after
+    /// every command rather than only after the last one.
+    pub fn append_or_create(path: impl Into<PathBuf>) -> anyhow::Result<Self> {
+        use std::io::Write as _;
+
+        let path = path.into();
+        if !path.exists() {
+            return Self::create(path);
+        }
+        let existing = std::fs::read_to_string(&path)
+            .with_context(|| format!("reading the session file {}", path.display()))?;
+        // Refuse to append to a file that is not a session. Silently turning
+        // someone's document into a session log is unrecoverable.
+        if !existing.contains("<hick:session") {
+            anyhow::bail!(
+                "{} is not a hick:session document — refusing to append to it. \
+                 Point HICKORY_SESSION at a new file under sessions/.",
+                path.display()
+            );
+        }
+        let reopened = match existing.rfind("</hick:session>") {
+            Some(at) => existing[..at].to_string(),
+            None => existing,
+        };
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .truncate(true)
+            .open(&path)?;
+        file.write_all(reopened.as_bytes())?;
+        let mut writer = BufWriter::new(file);
         writer.flush()?;
         Ok(Self {
             inner: Mutex::new(writer),

@@ -412,6 +412,42 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/me/llm-keys": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** GET /api/me/llm-keys — which keys this account has stored. */
+        get: operations["list_llm_keys"];
+        /** PUT /api/me/llm-keys — choose which stored key agent runs use. */
+        put: operations["select_llm_key"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/me/llm-keys/{provider}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** PUT /api/me/llm-keys/{provider} — store or replace a key. */
+        put: operations["save_llm_key"];
+        post?: never;
+        /** DELETE /api/me/llm-keys/{provider} — forget a key. */
+        delete: operations["delete_llm_key"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/projects": {
         parameters: {
             query?: never;
@@ -573,6 +609,20 @@ export interface components {
             executor: string;
             ok: boolean;
         };
+        LlmKeysOut: {
+            keys: components["schemas"]["StoredKey"][];
+            /**
+             * @description `byo_key` (the account supplies the key) or `metered_allowance` (the
+             *     plan includes agent spend).
+             */
+            plan_agent: string;
+            /**
+             * @description True when the deployment can store keys at all (`KEY_ENCRYPTION_KEY`
+             *     is set). The UI explains the gap rather than offering a form that
+             *     cannot succeed.
+             */
+            storage_available: boolean;
+        };
         /**
          * @description `targets` items are `{uri, range: {start, end}}`, built ad hoc from the
          *     LSP response's `Location | Location[] | LocationLink[]` union below —
@@ -678,8 +728,40 @@ export interface components {
         SaveDoc: {
             source: string;
         };
+        SaveLlmKey: {
+            /** @description The provider key, as issued by the vendor. */
+            api_key: string;
+            /** @description Model override; omit for the provider's default. */
+            model?: string | null;
+            /**
+             * @description Make this the key agent runs use. Ignored when it is the only key —
+             *     a single key is already the choice.
+             */
+            preferred?: boolean;
+        };
+        SelectProvider: {
+            provider: string;
+        };
         StatusOut: {
             status: string;
+        };
+        /**
+         * @description One stored credential, as the UI sees it: enough to identify the key,
+         *     never enough to use it.
+         */
+        StoredKey: {
+            /** @description True when this is the key agent runs will use. */
+            active: boolean;
+            /** Format: date-time */
+            created_at: string;
+            /** @description Last four characters of the key. */
+            last4: string;
+            /** Format: date-time */
+            last_used_at?: string | null;
+            /** @description Model override, or `None` for the provider's default. */
+            model?: string | null;
+            /** @description `anthropic` | `openai` | `deepseek` | `grok`. */
+            provider: string;
         };
         TokenBody: {
             token: string;
@@ -1300,6 +1382,128 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["UserOut"];
                 };
+            };
+        };
+    };
+    list_llm_keys: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description stored provider keys */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LlmKeysOut"];
+                };
+            };
+        };
+    };
+    select_llm_key: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SelectProvider"];
+            };
+        };
+        responses: {
+            /** @description the stored keys, with the new active one */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LlmKeysOut"];
+                };
+            };
+            /** @description no key stored for that provider */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    save_llm_key: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description anthropic | openai | deepseek | grok */
+                provider: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SaveLlmKey"];
+            };
+        };
+        responses: {
+            /** @description the stored key's metadata */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StoredKey"];
+                };
+            };
+            /** @description unknown provider, or the vendor rejected the key */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description this deployment cannot store keys */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+        };
+    };
+    delete_llm_key: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description anthropic | openai | deepseek | grok */
+                provider: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description the remaining stored keys */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["LlmKeysOut"];
+                };
+            };
+            /** @description no key stored for that provider */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };

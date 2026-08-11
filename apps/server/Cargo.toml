@@ -17,6 +17,10 @@ path = "src/main.rs"
 name = "print-openapi"
 path = "src/bin/print_openapi.rs"
 
+[[bin]]
+name = "gen-key"
+path = "src/bin/gen_key.rs"
+
 [lib]
 name = "hickory_server"
 path = "src/lib.rs"
@@ -27,6 +31,7 @@ argon2 = "0.5"
 base64 = "0.22"
 async-trait = "0.1"
 axum = { version = "0.8", features = ["ws", "macros"] }
+chacha20poly1305 = "0.10"
 chrono = { version = "0.4", features = ["serde"] }
 env_logger = "0.11"
 futures = "0.3"

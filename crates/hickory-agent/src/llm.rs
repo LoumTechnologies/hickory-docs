@@ -96,6 +96,25 @@ pub trait LlmClient: Send + Sync {
         Ok(Box::pin(stream))
     }
 
+    /// Check that this client's credentials are accepted by the provider.
+    ///
+    /// For bring-your-own-key: a key is validated when it is *entered*, so a
+    /// typo is one message in a form rather than a 401 surfacing three layers
+    /// down in a streamed agent run, after the user has already described a
+    /// task and waited.
+    ///
+    /// The default asks for a one-token completion — the smallest request
+    /// every provider understands. Providers with a free credential-checking
+    /// endpoint should override (Anthropic uses `count_tokens`).
+    ///
+    /// A network failure is reported like a rejection, because from here the
+    /// two are indistinguishable and both mean "not usable right now".
+    async fn validate_credentials(&self) -> anyhow::Result<()> {
+        self.complete(vec![Message::new(Role::User, "ping")])
+            .await
+            .map(|_| ())
+    }
+
     /// Provider name for display (e.g. "anthropic").
     fn provider_name(&self) -> &str;
 
@@ -117,6 +136,10 @@ impl LlmClient for Arc<dyn LlmClient> {
 
     async fn complete_stream(&self, messages: Vec<Message>) -> anyhow::Result<ChatStream> {
         (**self).complete_stream(messages).await
+    }
+
+    async fn validate_credentials(&self) -> anyhow::Result<()> {
+        (**self).validate_credentials().await
     }
 
     fn provider_name(&self) -> &str {

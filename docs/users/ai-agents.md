@@ -18,6 +18,29 @@ hickory agent "add a section benchmarking sort vs awk" --doc docs/tour.hick
 
 (In a cloud workspace, this is the web Agent panel — same loop, hosted.)
 
+### Whose key it runs on
+
+The agent runs on a key from one of four vendors — Anthropic, OpenAI,
+DeepSeek, or xAI (Grok). Where that key comes from depends on where you are:
+
+| Where | Which key | How to set it |
+| --- | --- | --- |
+| CLI | Yours, from the environment | `--provider grok` (or `HICKORY_LLM_PROVIDER`) selects the vendor; the matching `XAI_API_KEY` / `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `DEEPSEEK_API_KEY` is read |
+| Hosted, Open or Pro plan | Yours | Settings → API keys. Paste it once; it is checked against the vendor immediately and encrypted before it is stored |
+| Hosted, Team or Business plan | Ours, from your plan's allowance | Nothing to do — unless you store your own key, in which case yours is used and the allowance is left alone |
+
+Two properties worth knowing because they change what you have to do:
+
+- **On a bring-your-own-key plan there is no fallback to our key.** With no key
+  stored the agent answers "add one in Settings" rather than running on our
+  account. That is the entitlement working, not an outage.
+- **A stored key is write-only.** We show the last four characters and nothing
+  else, and there is no endpoint that returns it — so keep your own copy from
+  the vendor. Replacing a key is a paste, not a recovery.
+
+With one key stored you are never asked which to use. Store a second and you
+choose once; until you do, agent runs stop and say so.
+
 What happens, procedurally:
 
 1. The agent gets your prompt (and `--doc` context), then loops: it proposes
@@ -78,25 +101,65 @@ The doctrine the agent follows (and that you can rely on when reviewing):
 
 ## Option 2: bring your own coding agent (local repo)
 
-On a local git repo, `hickory init` makes a general coding agent — Claude
-Code is the tested one — a first-class alternative:
+Claude Code, Codex, Grok CLI — any agent that can run a command gets the
+**same five tools** the built-in agent uses. It is not a lesser path.
 
-1. `hickory init` writes a managed `<!-- HICKORY -->` section into
-   `AGENTS.md` (and points `CLAUDE.md` at it via `@AGENTS.md`). The section
-   teaches the agent the hick grammar essentials and the golden rules:
-   - edit `.hick` sources, never generated outputs (unless using lineage
-     tooling);
-   - after editing, run `hickory run <doc>` then `hickory test <doc>`;
-   - sessions live in `sessions/*.hick`.
-2. The agent edits documents like any other source file, with `hick-lsp`
-   available for diagnostics and the CLI for ground truth.
-3. The pre-commit hook from `hickory init` is the backstop: if the agent
-   commits a drifted document, the commit fails with a diff — the same gate
-   you have.
+`hickory init` sets this up:
 
-Choose this when the `.hick` docs live inside a larger codebase and one
+1. A managed `<!-- HICKORY -->` section in `AGENTS.md` (which all three read;
+   `CLAUDE.md` is pointed at it via `@AGENTS.md`) teaching the grammar, the
+   golden rules, and the tool commands below.
+2. A `hickory` entry in the project's `.mcp.json`, so an MCP-speaking harness
+   picks the tools up on its own.
+3. The pre-commit drift gate, as the backstop.
+
+### The tools, as commands
+
+```sh
+hickory doc read <doc>                                  # source, each line prefixed hhhh|
+hickory doc read-output <doc> --path f.rs --lineage     # a generated file + provenance
+hickory doc edit-output <doc> --path f.rs --run aa12..bb34 < new.txt
+hickory doc edit <doc> --run aa12 < new.txt
+hickory doc verify <doc>
+```
+
+The `hhhh|` prefix on every line is a hash of that line's content, and it is
+what edits anchor on — never line numbers. Two consequences you can rely on:
+an edit built against a line that has since changed is **refused** rather
+than landing somewhere wrong, and an edit made through a *generated* file is
+mapped back into the document byte-exactly. A refusal from `edit-output`
+names the document location to use with `edit` instead.
+
+Add `--json` for `{"tool","ok","text"}` instead of bare text, which is easier
+for an agent to branch on.
+
+### The tools, over MCP
+
+```sh
+hickory mcp          # stdio MCP server; `hickory init` registers it in .mcp.json
+```
+
+Prefer this when your harness supports it. The server is one long-lived
+process, so it keeps the edit session open between calls and re-weaves after
+every edit — meaning a spent anchor is known to be stale immediately, without
+re-reading anything. For a harness that keeps MCP config in its own global
+file (Codex, Grok CLI), add a server named `hickory` running `hickory mcp`.
+
+### Getting a session out of it
+
+```sh
+export HICKORY_SESSION=sessions/refactor.hick
+```
+
+Every tool call your agent makes — through either surface, across as many
+processes as it likes — is appended to that `hick:session` document, and the
+file is valid and parseable after each one. What is captured is what was done
+to the document: the calls, the anchors, the text, the results. Your agent's
+own reasoning stays in its own transcript; we don't read other tools' logs.
+
+Choose this option when the `.hick` docs live inside a larger codebase and one
 agent should handle both, or you want your existing agent tooling
-(permissions, MCP servers, review flow).
+(permissions, review flow, MCP servers).
 
 ## Mixing them
 
@@ -109,11 +172,22 @@ which agent produced it.
 
 ## Don't assume
 
-- **A coding agent's chat log is not a session document.** Only
-  `hickory agent` (or the hosted Agent panel) produces replayable
-  `hick:session` files. Claude Code's work shows up as ordinary commits.
-- **The built-in agent needs `ANTHROPIC_API_KEY`** and executes scripts for
-  real — under `HICKORY_EXECUTOR=local` that means unsandboxed, as your user.
+- **A coding agent's chat log is not a session document.** With
+  `HICKORY_SESSION` set, an outside agent's *tool calls* are recorded as a
+  real `hick:session` — but its reasoning is not, and work it does by editing
+  files directly, without the tools, is invisible to the session entirely.
+- **`promote` has nothing to do on a tool-driven session.** It reconstructs a
+  pipeline from *script* writes; tool calls edit the document in place, so
+  there is nothing left to promote. That is not a failure — the document is
+  already the product, and the session is the record of how it got that way.
+- **The built-in agent needs a key** — `ANTHROPIC_API_KEY` (or the selected
+  provider's variable) on the CLI, a key stored in Settings in the hosted app.
+  It executes scripts for real: under `HICKORY_EXECUTOR=local` that means
+  unsandboxed, as your user.
+- **"Encrypted at rest" is not "we never see it."** Your key is sealed in our
+  database and unreadable from a dump, but the server holds it in memory to
+  make the request — it has to. If that is not acceptable, use the CLI, where
+  the key never leaves your machine.
 - **`promote` is lossy on purpose**: it keeps the last write to each output
   and drops dead ends. Keep the original session file if you want the full
   history (it's just a file in git).

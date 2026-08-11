@@ -23,7 +23,7 @@ import {
   mapEditsToSource,
   weaveOutputs,
 } from "../lib/weave";
-import type { OutputEdit } from "../api/types";
+import type { LlmKey, OutputEdit } from "../api/types";
 
 // In-browser mock API (VITE_MOCK=1): implements the api.md contract, including
 // fake streaming runs over the LocalRealtime "socket", so `npm run dev:mock`
@@ -38,6 +38,7 @@ const state = {
   blocks: Object.fromEntries(
     Object.entries(MOCK_BLOCKS).map(([id, blocks]) => [id, blocks.map((b) => ({ ...b }))]),
   ) as Record<string, Block[]>,
+  llmKeys: [] as LlmKey[],
   runs: new Map<string, Run>(),
   agentTurns: [] as (AgentTurn & { doc_id: string })[],
   nextId: 1,
@@ -207,6 +208,45 @@ export function installMockApi() {
     }
     if (route === "GET /api/me") {
       return state.user ?? { id: "u1", email: "dev@example.com", plan: "pro" };
+    }
+    // BYOK, in the demo: keys behave as they do for real (write-only, one
+    // active) so the mock never teaches a UI habit the server would refuse.
+    if (path === "/api/me/llm-keys" || path.startsWith("/api/me/llm-keys/")) {
+      const listing = () => ({
+        keys: state.llmKeys,
+        storage_available: true,
+        plan_agent: "byo_key",
+      });
+      if (method === "GET") return listing();
+      if ((m = path.match(/^\/api\/me\/llm-keys\/([^/]+)$/))) {
+        const provider = m[1] === "grok" ? "xai" : m[1];
+        if (method === "DELETE") {
+          state.llmKeys = state.llmKeys.filter((k) => k.provider !== provider);
+          if (state.llmKeys.length === 1) state.llmKeys[0].active = true;
+          return listing();
+        }
+        const key = String(b.api_key ?? "");
+        const stored = {
+          provider,
+          last4: key.slice(-4),
+          model: (b.model as string) ?? null,
+          active: state.llmKeys.length === 0,
+          created_at: new Date().toISOString(),
+          last_used_at: null,
+        };
+        state.llmKeys = [
+          ...state.llmKeys.filter((k) => k.provider !== provider),
+          stored,
+        ];
+        return stored;
+      }
+      // PUT /api/me/llm-keys — choose the active key.
+      const chosen = String(b.provider) === "grok" ? "xai" : String(b.provider);
+      state.llmKeys = state.llmKeys.map((k) => ({
+        ...k,
+        active: k.provider === chosen,
+      }));
+      return listing();
     }
     if (route === "GET /api/projects") return state.projects;
     if (route === "POST /api/projects") {

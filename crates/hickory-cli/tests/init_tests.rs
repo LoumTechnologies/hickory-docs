@@ -210,3 +210,59 @@ fn hook_names_drift_when_a_committed_output_is_stale() {
         "hook confused drift with a false claim: {stderr}"
     );
 }
+
+/// `hickory init` registers the MCP server for harnesses that read the
+/// project's `.mcp.json` — and must never damage what is already there.
+///
+/// Protects docs/guarantees/agent/byo-agent-tool-surface.md.
+#[test]
+fn init_registers_the_mcp_server_without_clobbering_other_entries() {
+    let repo = init_repo();
+    let mcp_path = repo.path().join(".mcp.json");
+
+    // A repo that already registers another server. Re-running init must be
+    // additive: an init that deleted someone's server would make the command
+    // unsafe to re-run, which is the one property it promises.
+    std::fs::write(
+        &mcp_path,
+        r#"{"mcpServers":{"other":{"command":"other-server","args":[]}}}"#,
+    )
+    .unwrap();
+
+    run_init(repo.path());
+    let parsed: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&mcp_path).unwrap()).unwrap();
+    assert_eq!(parsed["mcpServers"]["hickory"]["command"], "hickory");
+    assert_eq!(parsed["mcpServers"]["hickory"]["args"][0], "mcp");
+    assert_eq!(
+        parsed["mcpServers"]["other"]["command"], "other-server",
+        "init destroyed an unrelated MCP server"
+    );
+
+    // Idempotent: a second run rewrites nothing.
+    let first = std::fs::read_to_string(&mcp_path).unwrap();
+    run_init(repo.path());
+    assert_eq!(first, std::fs::read_to_string(&mcp_path).unwrap());
+}
+
+/// The managed AGENTS.md section teaches the tool surface, because an outside
+/// agent that only learns "edit .hick files" will hand-edit text and lose
+/// every guarantee the tools exist to provide.
+#[test]
+fn the_agents_section_points_coding_agents_at_the_document_tools() {
+    let repo = init_repo();
+    run_init(repo.path());
+    let agents = std::fs::read_to_string(repo.path().join("AGENTS.md")).unwrap();
+    for expected in [
+        "hickory doc read",
+        "hickory doc edit-output",
+        "hickory doc verify",
+        "hickory mcp",
+        "HICKORY_SESSION",
+    ] {
+        assert!(
+            agents.contains(expected),
+            "AGENTS.md never mentions {expected}"
+        );
+    }
+}

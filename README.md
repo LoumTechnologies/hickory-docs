@@ -99,10 +99,13 @@ computed from the data on every run.
 whose *entire session* — your prompt, its reasoning, every script it ran,
 every observation — is saved as a replayable `hick:session` document.
 
-Bring your own key. Anthropic, OpenAI, DeepSeek, and Grok are supported;
-`--provider` picks one and the matching `*_API_KEY` environment variable is
-read. An unknown provider or a missing key fails before the first request,
-naming the variable to set.
+Bring your own key. Anthropic, OpenAI, DeepSeek, and Grok are supported. On
+the CLI, `--provider` picks one and the matching `*_API_KEY` environment
+variable is read; in the hosted app you store a key under Settings → API keys,
+where it is encrypted at rest and never shown again. An unknown provider or a
+missing key fails before the first request, naming what to set. On the Open
+and Pro plans your key is the *only* one an agent run will spend — never
+ours.
 `hickory promote` compacts a session into a clean pipeline: last-write wins,
 dead ends dropped. The agent's work product is a literate program in your git
 history, not a chat log that evaporated.
@@ -111,8 +114,13 @@ history, not a chat log that evaporated.
 
 - The CLI, local execution, verification, weaving, and agent sessions work
   today (this repo, `cargo test` covers them).
+- Bring your own agent: `hickory doc read|read-output|edit|edit-output|verify`
+  gives Claude Code, Codex, Grok CLI — anything that can run a command — the
+  same hashline-anchored, lineage-backed tools the built-in agent uses, and
+  `hickory mcp` serves them over MCP. `HICKORY_SESSION` records the work as a
+  replayable `hick:session`.
 - Local git-repo mode works today: `hickory init` installs the pre-commit
-  drift gate and agent instructions — see
+  drift gate, the MCP registration, and agent instructions — see
   [docs/users/local-mode.md](docs/users/local-mode.md).
 - The LSP exists: `hick-lsp` (in `crates/hick-lsp`) multiplexes real language
   servers into `hick:file` blocks; a Zed extension lives in

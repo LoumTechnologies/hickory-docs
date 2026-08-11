@@ -12,6 +12,7 @@ export type Route =
   | { name: "project"; id: string }
   | { name: "doc"; id: string }
   | { name: "pricing" }
+  | { name: "settings" }
   // Token-bearing routes reached from an email link. The token stays in the
   // hash, which never reaches the server as a query string.
   | { name: "verify"; token: string }
@@ -24,6 +25,7 @@ export function parseRoute(hash: string): Route {
   if (path === "/") return { name: "landing" };
   if (path === "/login") return { name: "login" };
   if (path === "/pricing") return { name: "pricing" };
+  if (path === "/settings") return { name: "settings" };
   if (path === "/forgot") return { name: "forgot" };
   if ((m = path.match(/^\/verify\?token=(.+)$/)))
     return { name: "verify", token: decodeURIComponent(m[1]) };

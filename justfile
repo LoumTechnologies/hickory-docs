@@ -22,6 +22,11 @@ clippy:
 fmt:
     cargo fmt --all
 
+# Mint a KEY_ENCRYPTION_KEY (encrypts accounts' own provider API keys).
+# One per environment; replacing it invalidates every stored key.
+gen-key:
+    @cargo run -q -p hickory-server --bin gen-key
+
 # Run the server + web dev environment.
 dev:
     ./scripts/dev.sh

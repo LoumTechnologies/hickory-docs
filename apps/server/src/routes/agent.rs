@@ -136,17 +136,10 @@ pub async fn start_agent(
             "only the project owner can start an agent session",
         ));
     }
-    let Some(llm_config) = state.config.agent_llm.clone() else {
-        // Name the variable that is missing for the provider actually
-        // selected — "set some key somewhere" is not an error message.
-        let provider = &state.config.agent_provider;
-        let key_env = hickory_agent::ProviderSelection::parse(provider)
-            .map(|s| s.key_env())
-            .unwrap_or("ANTHROPIC_API_KEY");
-        return Err(ApiError::service_unavailable(format!(
-            "agent not configured ({key_env} unset for provider {provider})"
-        )));
-    };
+    // WHOSE key this run spends — the account's own on a bring-your-own-key
+    // plan, the deployment's on a plan with an included allowance. All of
+    // that reasoning, and the errors that explain it, live in `byok`.
+    let credential = crate::byok::resolve_agent_credential(&state, &user).await?;
     if body.prompt.trim().is_empty() {
         return Err(ApiError::bad_request("prompt required"));
     }
@@ -182,7 +175,14 @@ pub async fn start_agent(
     state.analytics.capture(
         &user.id.to_string(),
         "agent_session_started",
-        json!({ "doc_id": doc.id, "session_id": session_id }),
+        // `byo` is the field that answers "how much of our agent usage is
+        // costing us money?" — a pricing question, not a vanity metric.
+        json!({
+            "doc_id": doc.id,
+            "session_id": session_id,
+            "provider": credential.provider,
+            "byo_key": credential.byo,
+        }),
     );
 
     let prompt = body.prompt.clone();
@@ -191,7 +191,7 @@ pub async fn start_agent(
     tokio::spawn(async move {
         let started = Instant::now();
         let status =
-            match run_agent_session(&state2, session_id, &doc, &prompt, prior_turns, &llm_config)
+            match run_agent_session(&state2, session_id, &doc, &prompt, prior_turns, &credential)
                 .await
             {
                 Ok(summary) => {
@@ -260,7 +260,7 @@ async fn run_agent_session(
     doc: &DocRow,
     prompt: &str,
     prior_turns: Vec<PriorTurn>,
-    llm_config: &crate::config::AgentLlmConfig,
+    credential: &crate::byok::AgentCredential,
 ) -> anyhow::Result<String> {
     // Workspace: temp dir seeded from the project checkout (the agent's
     // scripts and its session file live here until persisted to git).
@@ -298,11 +298,7 @@ async fn run_agent_session(
     };
 
     let executor = crate::executor::build_executor(state.config.executor).await?;
-    let llm = hickory_agent::client_for(
-        &llm_config.provider,
-        llm_config.model.as_deref(),
-        Some(&llm_config.api_key),
-    )?;
+    let llm = crate::byok::client_for(credential)?;
     let mut config = AgentConfig::new(prompt, tmp.path());
     // Naming the primary document is what enables the document tool set
     // (read_doc / read_output / edit_output / edit_doc / verify). Without it

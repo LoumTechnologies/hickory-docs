@@ -7,6 +7,7 @@ import { ProjectsView } from "./views/ProjectsView";
 import { DocumentView } from "./views/DocumentView";
 import { LandingView } from "./views/LandingView";
 import { PricingView } from "./views/PricingView";
+import { SettingsView } from "./views/SettingsView";
 import { VerifyView } from "./views/VerifyView";
 import { ResetView } from "./views/ResetView";
 import { ForgotView } from "./views/ForgotView";
@@ -68,6 +69,9 @@ export function App() {
           </button>
           {authed ? (
             <>
+              <button className="btn btn-link" onClick={() => navigate("/settings")}>
+                Settings
+              </button>
               <span className="muted">{user.email}</span>
               <button className="btn btn-link" onClick={logout}>
                 Log out
@@ -109,6 +113,8 @@ export function App() {
           ) : (
             <LoginView onAuth={setUser} />
           )
+        ) : route.name === "settings" ? (
+          <SettingsView user={user!} />
         ) : route.name === "doc" ? (
           <DocumentView docId={route.id} />
         ) : route.name === "project" ? (

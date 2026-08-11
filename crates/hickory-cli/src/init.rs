@@ -96,6 +96,36 @@ paste in verbatim.
    then `hickory test <doc>` and fix whatever fails before committing.
 3. Agent sessions live in `sessions/*.hick` (`hick:session` documents);
    `hickory promote <session>` compacts one into a clean pipeline doc.
+
+### The document tools — prefer these over editing files by hand
+
+`hickory` exposes the same five tools its own agent uses. Use them: they
+anchor on **content hashes**, so an edit against a line that changed since
+you read it is refused instead of landing in the wrong place, and an edit
+made through a generated output is mapped back into the document
+byte-exactly.
+
+```sh
+hickory doc read <doc>                       # source, each line prefixed hhhh|
+hickory doc read-output <doc> --path f --lineage   # a generated file + provenance
+hickory doc edit-output <doc> --path f --run aa12..bb34 < new.txt   # edit CODE
+hickory doc edit <doc> --run aa12 < new.txt        # edit STRUCTURE or PROSE
+hickory doc verify <doc>                     # execute for real; do this before done
+```
+
+The order that works: read the surface, edit against the hashes you just
+read, verify. Code goes through `edit-output`; structure and prose go
+through `edit`. A refusal from `edit-output` is routing — it names the
+document location to use with `edit` instead.
+
+If your harness speaks MCP, `hickory mcp` serves the same five tools over
+stdio and keeps the edit session open between calls, which is strictly
+better than the per-command path. This repo's `.mcp.json` registers it.
+
+Set `HICKORY_SESSION=sessions/<name>.hick` and every tool call you make is
+appended to a replayable `hick:session` document — the same artifact the
+built-in agent produces. (Your own reasoning is not captured there; only
+what you did to the document.)
 "#;
 
 /// Everything `hickory init` did (or verified), for reporting.
@@ -111,6 +141,8 @@ pub struct InitReport {
     pub agents_md_changed: bool,
     /// True if `@AGENTS.md` was prepended to an existing CLAUDE.md.
     pub claude_md_changed: bool,
+    /// True if `.mcp.json` was created or its `hickory` entry changed.
+    pub mcp_json_changed: bool,
     /// Names of commonly needed child language servers missing from PATH.
     pub missing_language_servers: Vec<&'static str>,
 }
@@ -126,6 +158,7 @@ pub fn run_init(dir: &Path) -> Result<InitReport> {
     report.gitignore_changed = ensure_gitignore_line(&root.join(".gitignore"), ".hick-cache/")?;
     report.agents_md_changed = write_agents_section(&root.join("AGENTS.md"))?;
     report.claude_md_changed = ensure_claude_md_include(&root.join("CLAUDE.md"))?;
+    report.mcp_json_changed = ensure_mcp_registration(&root.join(".mcp.json"))?;
     report.missing_language_servers = missing_language_servers();
 
     Ok(report)
@@ -342,6 +375,76 @@ fn ensure_claude_md_include(path: &Path) -> Result<bool> {
     Ok(true)
 }
 
+/// Register `hickory mcp` in the project's `.mcp.json`.
+///
+/// `.mcp.json` is the project-scoped MCP configuration Claude Code reads (and
+/// which several other MCP clients accept). It is checked in, so registering
+/// it once covers everyone who clones the repo rather than every developer
+/// configuring their own harness by hand.
+///
+/// Only the `hickory` entry is managed. Another server already listed there
+/// belongs to whoever put it there, and an init that clobbered it would make
+/// re-running `hickory init` a destructive act — which it must never be.
+///
+/// Harnesses that keep MCP configuration elsewhere (Codex and Grok CLI read
+/// their own global config files) are covered by the printed instructions in
+/// [`print_init_report`] rather than by writing files this tool has no
+/// business guessing the shape of.
+fn ensure_mcp_registration(path: &Path) -> Result<bool> {
+    use serde_json::{Map, Value, json};
+
+    let managed = json!({
+        "command": "hickory",
+        "args": ["mcp"],
+    });
+
+    let existing = match std::fs::read_to_string(path) {
+        Ok(s) => Some(s),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => None,
+        Err(e) => return Err(e).with_context(|| format!("failed to read {}", path.display())),
+    };
+
+    let mut root: Value = match &existing {
+        None => json!({ "mcpServers": {} }),
+        Some(content) => serde_json::from_str(content).with_context(|| {
+            format!(
+                "{} is not valid JSON — fix or remove it, then re-run `hickory init` \
+                 (it will not overwrite a file it cannot understand)",
+                path.display()
+            )
+        })?,
+    };
+    if !root.is_object() {
+        bail!(
+            "{} does not contain a JSON object; refusing to overwrite it",
+            path.display()
+        );
+    }
+    let obj = root.as_object_mut().expect("checked above");
+    let servers = obj
+        .entry("mcpServers")
+        .or_insert_with(|| Value::Object(Map::new()));
+    if !servers.is_object() {
+        bail!(
+            "{}: \"mcpServers\" is not an object; refusing to overwrite it",
+            path.display()
+        );
+    }
+    let servers = servers.as_object_mut().expect("checked above");
+    if servers.get("hickory") == Some(&managed) {
+        return Ok(false);
+    }
+    servers.insert("hickory".to_string(), managed);
+
+    let rendered = format!("{}\n", serde_json::to_string_pretty(&root)?);
+    let changed = existing.as_deref() != Some(rendered.as_str());
+    if changed {
+        std::fs::write(path, &rendered)
+            .with_context(|| format!("failed to write {}", path.display()))?;
+    }
+    Ok(changed)
+}
+
 /// Child language servers `hick-lsp` commonly spawns for `hick:file` blocks.
 /// Missing ones are reported as warnings (non-fatal): docs still run and
 /// check fine; you just won't get in-editor diagnostics for that language.
@@ -391,6 +494,19 @@ pub fn print_init_report(report: &InitReport) {
     eprintln!(
         "CLAUDE.md @AGENTS.md include: {}",
         describe(report.claude_md_changed)
+    );
+    eprintln!(
+        ".mcp.json (hickory server): {}",
+        describe(report.mcp_json_changed)
+    );
+    // Named rather than implied: a user whose harness is not the one we can
+    // configure from here should not have to discover that by finding the
+    // tools missing.
+    eprintln!(
+        "  Claude Code picks this up from the repo. For a harness that keeps MCP config \n\
+         \x20 elsewhere (Codex, Grok CLI), add a server named `hickory` running `hickory mcp`, \n\
+         \x20 or skip MCP entirely — `hickory doc read|read-output|edit|edit-output|verify` \n\
+         \x20 gives the same tools to anything that can run a command."
     );
     if report.missing_language_servers.is_empty() {
         eprintln!("toolchain: all common child language servers found");
