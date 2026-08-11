@@ -42,7 +42,10 @@ use hickory_executor::{
 };
 use log::{debug, info, warn};
 use tokio_stream::StreamExt as _;
-use tonic::transport::{Channel, Endpoint, Uri};
+use tonic::transport::{Channel, Endpoint};
+// Only the unix-socket connector names the (placeholder) URI type.
+#[cfg(unix)]
+use tonic::transport::Uri;
 
 use crate::config::CanopyConfig;
 use crate::frame::{FrameItem, FrameParser, READY_BANNER, exec_line, shell_quote};
@@ -91,6 +94,52 @@ pub struct CanopyExecutor {
     channel: tokio::sync::Mutex<Option<Channel>>,
 }
 
+/// Dial a canopy node agent listening on a unix domain socket.
+///
+/// Split out of [`CanopyExecutor::channel`] and `cfg`-gated because unix
+/// domain sockets do not exist on Windows: `tokio::net::UnixStream` is not
+/// compiled there at all, so the *only* thing that keeps this crate — and
+/// therefore the whole `hickory` binary — from building for
+/// `x86_64-pc-windows-msvc` is this one connector. Gating it here keeps the
+/// mesh (`host:port`) path, which is plain TCP, working identically on every
+/// platform. See `docs/guarantees/release/a-download-runs-without-a-rust-toolchain.md`.
+#[cfg(unix)]
+async fn connect_unix_socket(target: &str) -> Result<Channel> {
+    let path = target.to_string();
+    // The URI is a placeholder; the connector ignores it.
+    Endpoint::try_from("http://[::]:1")?
+        .connect_with_connector(tower::service_fn(move |_: Uri| {
+            let path = path.clone();
+            async move {
+                let stream = tokio::net::UnixStream::connect(&path).await?;
+                Ok::<_, std::io::Error>(hyper_util::rt::TokioIo::new(stream))
+            }
+        }))
+        .await
+        .with_context(|| {
+            format!(
+                "could not connect to canopy-agent at unix socket {target}. Is the \
+                 agent running on this machine? For a remote node set CANOPY_AGENT \
+                 to its mesh host:port instead"
+            )
+        })
+}
+
+/// The Windows stand-in for the connector above: everything else about the
+/// canopy executor works here, so this fails only at the point where a unix
+/// socket was actually asked for, and says what to set instead.
+#[cfg(not(unix))]
+async fn connect_unix_socket(target: &str) -> Result<Channel> {
+    bail!(
+        "CANOPY_AGENT={target} is a unix socket path, and this platform has no \
+         unix domain sockets. A local canopy node agent can only be reached over \
+         a unix socket, so it cannot be used from here. Point CANOPY_AGENT at the \
+         agent's mesh address instead (e.g. CANOPY_AGENT=10.77.0.1:7433, with \
+         CANOPY_TOKEN set to the capability token minted for that node), or run \
+         documents locally with HICKORY_EXECUTOR=local"
+    )
+}
+
 impl CanopyExecutor {
     /// Build from explicit configuration.
     pub fn new(config: CanopyConfig) -> Self {
@@ -136,24 +185,7 @@ impl CanopyExecutor {
         }
         let target = self.config.agent.clone();
         let channel = if target.starts_with('/') {
-            let path = target.clone();
-            // The URI is a placeholder; the connector ignores it.
-            Endpoint::try_from("http://[::]:1")?
-                .connect_with_connector(tower::service_fn(move |_: Uri| {
-                    let path = path.clone();
-                    async move {
-                        let stream = tokio::net::UnixStream::connect(&path).await?;
-                        Ok::<_, std::io::Error>(hyper_util::rt::TokioIo::new(stream))
-                    }
-                }))
-                .await
-                .with_context(|| {
-                    format!(
-                        "could not connect to canopy-agent at unix socket {target}. Is the \
-                         agent running on this machine? For a remote node set CANOPY_AGENT \
-                         to its mesh host:port instead"
-                    )
-                })?
+            connect_unix_socket(&target).await?
         } else {
             Endpoint::try_from(format!("http://{target}"))?
                 .connect()

@@ -64,10 +64,18 @@ cherry 7
 
 Documentation often claims "this is fast" or "this handles the edge case."
 Here the claim *is* the test. An empty input produces no output — and the
-document proves it:
+document proves it.
+
+The `tr -d ' '` is not decoration. GNU `wc -l` prints `0`, while the BSD
+`wc` that ships with macOS right-aligns the count in an eight-column field
+and prints `       0`. Both are correct; only one of them matches a literal
+`0`. A document that runs on more than one machine has to say which of the
+two it means, and stripping the padding is how this one says it — the
+alternative is an expectation that passes on Linux and fails on a Mac for a
+reason that has nothing to do with the claim being made.
 
 <hick:exec container="shell">
-printf '' | awk -F, '{sum[$1]+=$2} END {for (k in sum) print k, sum[k]}' | wc -l
+printf '' | awk -F, '{sum[$1]+=$2} END {for (k in sum) print k, sum[k]}' | wc -l | tr -d ' '
 <hick:expect match="exact">0
 </hick:expect>
 </hick:exec>

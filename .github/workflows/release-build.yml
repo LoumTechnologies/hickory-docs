@@ -64,8 +64,12 @@ jobs:
             smoke: native
           - target: x86_64-apple-darwin
             os: macos-14
-            # Rosetta is not guaranteed on the runner image; do not pretend.
-            smoke: none
+            # Asks for the native smoke test like everyone else. The step
+            # itself notices it was cross-compiled from an arm64 runner and
+            # skips, saying so in the log — see its comment. Rosetta is not
+            # guaranteed on the runner image, so running it is not an option
+            # and pretending it ran is worse.
+            smoke: native
           - target: x86_64-pc-windows-msvc
             os: windows-latest
             smoke: version-only
@@ -101,10 +105,33 @@ jobs:
       - name: Smoke test the binary that was just built
         if: matrix.smoke == 'native'
         shell: bash
+        env:
+          TARGET: ${{ matrix.target }}
         # Unpacked from the archive rather than run out of target/, so this
         # tests the thing that gets uploaded, not the thing that got built.
         run: |
           set -euo pipefail
+
+          # A cross-compiled artifact cannot be run here, and the failure it
+          # produces ("cannot execute binary file", or on macOS an opaque
+          # Rosetta error) looks exactly like a broken build. Decide from the
+          # target triple and `uname -m` rather than from a hand-maintained
+          # matrix flag, so adding a target cannot silently arrange for a
+          # binary to be executed on the wrong machine.
+          target_arch="${TARGET%%-*}"
+          case "$(uname -m)" in
+            arm64|aarch64) runner_arch=aarch64 ;;
+            amd64|x86_64)  runner_arch=x86_64 ;;
+            *)             runner_arch="$(uname -m)" ;;
+          esac
+          if [ "$target_arch" != "$runner_arch" ]; then
+            echo "::notice title=Smoke test skipped::$TARGET was cross-compiled on a" \
+                 "$runner_arch runner, which cannot execute a $target_arch binary." \
+                 "The archive is still uploaded and published; what it promises is" \
+                 "recorded in docs/guarantees/release/a-download-runs-without-a-rust-toolchain.md."
+            exit 0
+          fi
+
           cd dist
           tar -xzf "hickory-${{ inputs.version }}-${{ matrix.target }}.tar.gz"
           cd "hickory-${{ inputs.version }}-${{ matrix.target }}"

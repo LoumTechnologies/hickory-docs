@@ -87,6 +87,15 @@ reachable. With `HICKORY_EXECUTOR=local`, canopy vars are ignored.
 the CLI and server share; connection to the agent is lazy, so selection
 succeeds before the agent is reachable and the first use carries the error.
 
+**Windows.** The crate builds and the mesh (`host:port`) path works, because
+that is plain TCP. The unix-socket path does not exist there — Windows has no
+unix domain sockets, so a `CANOPY_AGENT` beginning with `/` fails on first
+use with a message naming the mesh alternative. That is a deliberate `cfg`
+gate in `crates/hickory-executor-canopy/src/executor.rs`
+(`connect_unix_socket`), not an oversight: the whole `hickory` binary would
+otherwise not build for `x86_64-pc-windows-msvc` at all. A local node agent
+is unreachable from Windows in any case — it only ever listens on a socket.
+
 ## Live smoke status (2026-08-05)
 
 The env-gated live test (`tests/live.rs`, `#[ignore]`, needs

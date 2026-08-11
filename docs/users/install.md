@@ -78,7 +78,8 @@ the README).
   one. On Windows, use Git Bash or WSL; `hickory --version`, `--help`, and the
   parser work without one, but executing a document does not.
 - **Whatever the document invokes.** `examples/text-tools-tour.hick` needs
-  only `sort` and `awk`. `examples/bootstrap-ci.hick` needs `python3`.
+  `sort`, `awk`, `wc`, and `tr` — all POSIX, all present on macOS and Linux.
+  `examples/bootstrap-ci.hick` needs `python3`.
   `examples/grand-tour.hick` needs `python3` with `polars` and the `duckdb`
   CLI, and its R chapter — off unless you pass `--features with-r` — needs
   `Rscript` with `ggplot2`. See [examples/README.md](../../examples/README.md).
