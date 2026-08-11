@@ -143,7 +143,8 @@ optional. So the hosted service sells what a laptop cannot:
 - **the relay** — reachability is the one thing the host genuinely cannot
   provide itself, and it is the honest metered unit;
 - **continuity** — the document outlives the laptop, keeps its URL, and is
-  still there tomorrow;
+  still there tomorrow. *Deferred, not built* — see the decision below; this
+  is the reserve, the thing to build when someone asks for it;
 - **identity and access control** — named collaborators, revocation, an audit
   trail, instead of a link anyone can forward;
 - **CI verification and the hosted agent**, which never depended on seats.
@@ -192,6 +193,25 @@ building; nothing above it changes. Note the honesty requirement in the
 implementation: a `*.portzero.local` domain reaches machines on the overlay,
 not the internet, and the banner says so rather than calling that link public.
 
+## Decided: the session is ephemeral, and that is the product (2026-08-11)
+
+**A document lives on the host's machine and the session dies with the
+process.** No continuity, no permanent URL, nothing that outlives Ctrl-C. This
+is accepted deliberately rather than deferred, because it is what lets the
+mode stay simple: no accounts, no server-side document store, no sync service,
+no "where did my document go" support surface.
+
+What it costs, stated rather than discovered: a collaborator who joins a
+session and comes back tomorrow has nothing to come back to, and the person
+whose laptop it was is the only one holding the file. The mitigation is that
+the file is a *file* — in a git repo, in their editor, in their normal backup
+path — not a row in a database only we can read.
+
+**Revisit when** someone wants a document to be addressable when its author is
+offline, or a team asks where the shared copy lives. That is the point at
+which continuity becomes a feature worth building rather than a limitation
+worth explaining — and it is the thing a hosted workspace sells.
+
 ## Open questions
 
 - **Does the guest's browser need the web assets from the host, or from
@@ -201,8 +221,10 @@ not the internet, and the banner says so rather than calling that link public.
   (`--web-dist`, `HICKORY_WEB_DIST`, or `apps/web/dist` found upwards), which
   means a *shipped binary* has no client to serve yet. Embedding it behind a
   feature flag is the next step and the reason this is still open.
-- **What happens to a guest's in-flight edits when the host disappears?** The
-  CRDT state is in their browser; the honest options are "offer a download" or
+- **What happens to a guest's in-flight edits when the host disappears?**
+  Narrowed by the decision above: the *session* ending is intended, but a guest
+  watching their last few keystrokes evaporate is a bug, not a design. Their
+  CRDT state is still in the browser, so the options are "offer a download" or
   "reconnect when the host returns". Not yet decided.
 - **Does the hosted pricing follow?** `plans.json` still meters `editors`,
   which a capability link routes around. Changing that is a pricing decision,
