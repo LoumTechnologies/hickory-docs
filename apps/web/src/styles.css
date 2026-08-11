@@ -2379,3 +2379,47 @@ textarea:focus {
   color: var(--fg-muted);
   flex: 1 1 12rem;
 }
+
+/* ---- install call to action ---- */
+
+.install-command {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.55rem 0.6rem 0.55rem 0.9rem;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  max-width: 100%;
+}
+
+/* The command must stay readable and selectable on a phone: it is the product's
+   front door, and a truncated one cannot be copied by hand. */
+.install-command code {
+  font-size: 0.85rem;
+  overflow-x: auto;
+  white-space: nowrap;
+  scrollbar-width: none;
+}
+
+.install-command code::-webkit-scrollbar { display: none; }
+
+.landing-cta-secondary {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.landing-install-note {
+  margin-top: 0.9rem;
+  font-size: 0.9rem;
+}
+
+.pricing-note {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  align-items: flex-start;
+  text-align: left;
+}

@@ -22,6 +22,36 @@ clippy:
 fmt:
     cargo fmt --all
 
+# Build the static marketing site into apps/web/dist — no server, no accounts,
+# no billing. Deploy the directory anywhere that serves files.
+#   just site                      # analytics disabled
+#   POSTHOG_KEY=phc_… just site    # with browser-side capture
+site:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    key="${POSTHOG_KEY:-}"
+    # Fail before building, not in the visitor's browser: a personal API key
+    # (phx_…) inlined into a public bundle would hand out project admin.
+    if [ -n "$key" ] && [ "${key#phc_}" = "$key" ]; then
+      echo "POSTHOG_KEY must be a PostHog PROJECT write key (phc_…), not '${key:0:4}…'." >&2
+      echo "A personal API key (phx_…) can create and destroy projects and must" >&2
+      echo "never reach a browser bundle. See docs/operators/analytics.md." >&2
+      exit 1
+    fi
+    # The install command the site advertises is
+    # `curl -fsSL https://hickorydocs.com/install.sh | sh`, so the site has to
+    # serve that script. Copied at build time rather than committed twice:
+    # scripts/install.sh stays the single source.
+    mkdir -p apps/web/public
+    cp scripts/install.sh apps/web/public/install.sh
+    cd apps/web
+    VITE_POSTHOG_KEY="$key" npm run build
+    echo
+    echo "Static site built: apps/web/dist"
+    echo "It needs no backend. The landing page and its demos run in the browser."
+    echo "Serves /install.sh — note that the installer pulls from GitHub releases,"
+    echo "which strangers can only reach once the repository is public."
+
 # Mint a KEY_ENCRYPTION_KEY (encrypts accounts' own provider API keys).
 # One per environment; replacing it invalidates every stored key.
 gen-key:

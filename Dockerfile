@@ -7,6 +7,11 @@ WORKDIR /src
 COPY apps/web/package.json apps/web/package-lock.json ./
 RUN npm ci
 COPY apps/web/ ./
+# This image IS the hosted workspace: it has accounts and Stripe, so the client
+# offers them. Every other build of the same bundle — the static marketing site,
+# and the client `hickory serve` hands to collaborators — defaults to neither.
+# See docs/specs/freeform/local-first.md.
+ENV VITE_HOSTED=1
 RUN npm run build
 
 # --- server ---

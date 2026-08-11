@@ -2,11 +2,13 @@ import { useEffect, useState } from "react";
 
 import { declaredSegment } from "../analytics/attribution";
 import { emit } from "../analytics/events";
+import { InstallCommand } from "../components/InstallCommand";
 import { InterestSection } from "../components/InterestSection";
 import { CollaborationDemo } from "../landing/demos/CollaborationDemo";
 import { KnowledgeWorkDemo } from "../landing/demos/KnowledgeWorkDemo";
 import { ProgramDemo } from "../landing/demos/ProgramDemo";
 import { DECLARED_SEGMENTS, INTERESTS } from "../landing/interests";
+import { config } from "../config";
 import { navigate } from "../router";
 
 // React StrictMode mounts every component twice in development. Without this
@@ -58,14 +60,28 @@ export function LandingView() {
           woven from a named piece of that document, and the path between the two stays
           walkable in both directions.
         </p>
+        {/* The call to action is what the product IS. hickory is a program you
+            install (docs/specs/freeform/local-first.md), so the primary action
+            is installing it — not signing up for a workspace that no longer
+            exists. The hosted app keeps its own front door while it runs. */}
         <div className="landing-cta">
-          <button className="btn btn-primary" onClick={cta("hero-start", "/login")}>
-            Start free
-          </button>
-          <button className="btn" onClick={cta("hero-pricing", "/pricing")}>
-            See pricing
-          </button>
+          <InstallCommand />
+          <div className="landing-cta-secondary">
+            <button className="btn" onClick={cta("hero-pricing", "/pricing")}>
+              See pricing
+            </button>
+            {config.hosted && (
+              <button className="btn" onClick={cta("hero-start", "/login")}>
+                Or use the hosted workspace
+              </button>
+            )}
+          </div>
         </div>
+        <p className="landing-sub landing-install-note">
+          Runs on your machine, on your files, in your repo. Share a live
+          session with <code>hickory serve --share</code> — no account, for
+          you or for them.
+        </p>
       </header>
 
       <section className="landing-demo" aria-labelledby="demo-knowledge-h">
@@ -124,11 +140,10 @@ export function LandingView() {
       </aside>
 
       <footer className="landing-foot">
-        <button className="btn btn-primary" onClick={cta("foot-start", "/login")}>
-          Start free
-        </button>
+        <InstallCommand />
         <p className="muted">
-          Open plan: unlimited public projects, 300 execution minutes a month, no card.
+          Free, and yours: documents are files in your own repository, execution
+          happens on your own hardware, and nothing needs an account.
         </p>
       </footer>
     </div>

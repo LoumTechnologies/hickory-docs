@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api, getToken, setToken } from "./api/client";
 import type { User } from "./api/types";
+import { config } from "./config";
 import { navigate, useRoute } from "./router";
 import { LoginView } from "./views/LoginView";
 import { ProjectsView } from "./views/ProjectsView";
@@ -78,9 +79,13 @@ export function App() {
               </button>
             </>
           ) : (
-            <button className="btn btn-link" onClick={() => navigate("/login")}>
-              Log in
-            </button>
+            // No accounts outside the hosted workspace: a sign-in link on the
+            // static site would lead to a form that cannot succeed.
+            config.hosted && (
+              <button className="btn btn-link" onClick={() => navigate("/login")}>
+                Log in
+              </button>
+            )
           )}
         </div>
       </nav>

@@ -1,0 +1,112 @@
+{
+  "plans": [
+    {
+      "key": "open",
+      "name": "Open",
+      "description": "For open source and evaluation. Unlimited public projects.",
+      "prices": [],
+      "features": [
+        "Unlimited public projects",
+        "1 private project",
+        "1 editor",
+        "300 execution minutes/mo",
+        "AI agent (bring your own API key)"
+      ]
+    },
+    {
+      "key": "pro",
+      "name": "Pro",
+      "description": "For individuals shipping commercial docs.",
+      "trial_days": 14,
+      "prices": [
+        {
+          "key": "pro-monthly-v1",
+          "interval": "month",
+          "amount_cents": 2900,
+          "currency": "usd"
+        },
+        {
+          "key": "pro-annual-v1",
+          "interval": "year",
+          "amount_cents": 29000,
+          "currency": "usd"
+        }
+      ],
+      "features": [
+        "Unlimited public projects",
+        "10 private projects",
+        "Up to 3 editors",
+        "2,000 execution minutes/mo",
+        "CI verification checks + badge",
+        "AI agent (bring your own API key)"
+      ]
+    },
+    {
+      "key": "team",
+      "name": "Team",
+      "description": "The default for devtools and platform teams: doc drift is a CI failure.",
+      "trial_days": 14,
+      "highlight": true,
+      "prices": [
+        {
+          "key": "team-monthly-v1",
+          "interval": "month",
+          "amount_cents": 14900,
+          "currency": "usd"
+        },
+        {
+          "key": "team-annual-v1",
+          "interval": "year",
+          "amount_cents": 149000,
+          "currency": "usd"
+        }
+      ],
+      "features": [
+        "Unlimited public projects",
+        "Unlimited private projects",
+        "Up to 10 editors",
+        "10,000 execution minutes/mo",
+        "CI verification checks + badge",
+        "AI agent allowance included ($20/mo LLM budget)",
+        "Review workflow",
+        "Priority execution"
+      ]
+    },
+    {
+      "key": "business",
+      "name": "Business",
+      "description": "For data and research orgs: SSO, audit provenance, your own execution nodes.",
+      "prices": [
+        {
+          "key": "business-monthly-v1",
+          "interval": "month",
+          "amount_cents": 44900,
+          "currency": "usd"
+        },
+        {
+          "key": "business-annual-v1",
+          "interval": "year",
+          "amount_cents": 449000,
+          "currency": "usd"
+        }
+      ],
+      "features": [
+        "Unlimited public projects",
+        "Unlimited private projects",
+        "Up to 30 editors",
+        "30,000 execution minutes/mo",
+        "CI verification checks + badge",
+        "AI agent allowance included ($60/mo LLM budget)",
+        "Review workflow",
+        "Priority execution",
+        "SSO/SAML",
+        "Audit provenance export",
+        "Bring your own execution node"
+      ]
+    }
+  ],
+  "enterprise": {
+    "contact": true,
+    "description": "Self-hosted control plane, custom nodes, SLA."
+  }
+}

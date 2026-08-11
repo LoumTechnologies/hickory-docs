@@ -89,21 +89,37 @@ Events, all defined in `apps/web/src/analytics/events.ts` and allowlisted in
 Every event additionally carries `intended_segment`, `declared_segment`,
 `referring_domain`, and the current `utm_*` values.
 
-### Why a first-party beacon rather than a vendor SDK
+### Two deliveries, and why the beacon stopped being the only one
 
-The browser holds no analytics key. It posts to `/api/analytics/capture`, and
-the server forwards using the `POSTHOG_API_KEY` it already has.
+*Revised 2026-08-11 (`local-first.md`): the marketing site is a static file
+with no server behind it, so a same-origin beacon has nothing to post to.*
 
-- **The deploy image stays promotable.** `import.meta.env.VITE_*` is inlined
-  at `docker build` time (the `web` stage of `Dockerfile`), so a build-time
-  key would bake one environment's project id into the image that the promote
-  path then ships to the other. A runtime-configured server does not have
-  this problem.
-- **One canonical variable name set.** No `VITE_POSTHOG_KEY` twin of
-  `POSTHOG_API_KEY` to keep in sync across GitHub Environments — which is what
-  `.instructions/config-and-environments.md` asks for.
-- **It keeps measuring.** A third-party analytics script is among the
-  most-blocked requests on the web; a same-origin `/api` POST is not.
+Delivery is chosen by configuration, not by a branch in the page:
+
+- **Direct to PostHog** when `VITE_POSTHOG_KEY` is set — a project write key
+  (`phc_…`) can only send events, so inlining it is safe. This is what a static
+  deployment uses.
+- **The server's beacon** (`/api/analytics/capture`) when it is not, which is
+  how the hosted app has always worked.
+
+The original argument for the beacon alone was that `import.meta.env.VITE_*` is
+inlined at build time, so a key would bake one environment's project into an
+image the promote path ships to another. With a single production environment
+there is nothing to promote, and that objection no longer holds. The two
+arguments that survive, and are the reason the beacon is kept rather than
+deleted:
+
+- **It keeps measuring.** A third-party analytics request is among the
+  most-blocked on the web; a same-origin `/api` POST is not. A static site pays
+  this cost — some visitors will simply not be counted.
+- **A deployment that prefers no key in its bundle should not have to have
+  one.** The key is public by construction, which is fine for a write-only
+  project key and is still a choice worth leaving open.
+
+Guarded in two places, because a *personal* API key (`phx_…`) can create and
+destroy projects: `just site` refuses to build with one, and `src/config.ts`
+refuses to use one — logging and disabling capture rather than throwing, since
+a white-screened marketing page is a worse outcome than a missing event.
 
 The cost is that the page gets no autocapture, no session replay, and no
 client-side feature flags for free. None of those are needed to answer the

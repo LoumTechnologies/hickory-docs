@@ -91,10 +91,12 @@ describe("the discovery landing page", () => {
     // The event must carry the NEW claim, not the stale one read before it.
     expect(declared[0].properties.declared_segment).toBe(segment.id);
 
-    fireEvent.click(screen.getAllByRole("button", { name: /start free/i })[0]);
+    // The primary call to action is installing the tool — there is no signup
+    // to click now that the product is a program you run (local-first.md).
+    fireEvent.click(screen.getAllByRole("button", { name: /copy install command/i })[0]);
     const cta = eventsNamed("cta_clicked");
     expect(cta[0].properties).toMatchObject({
-      cta_id: "hero-start",
+      cta_id: "install",
       declared_segment: segment.id,
     });
   });
@@ -106,7 +108,9 @@ describe("the discovery landing page", () => {
     fireEvent.click(screen.getByRole("button", { name: segment.label }));
     expect(screen.queryByRole("button", { name: segment.label })).toBeNull();
     // The CTA was reachable before the question was ever answered.
-    expect(screen.getAllByRole("button", { name: /start free/i }).length).toBeGreaterThan(0);
+    expect(
+      screen.getAllByRole("button", { name: /copy install command/i }).length,
+    ).toBeGreaterThan(0);
   });
 
   // Protects docs/guarantees/analytics/landing-declared-vs-revealed.md

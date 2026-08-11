@@ -13,4 +13,10 @@ cargo run -q -p hickory-server --bin print-openapi > apps/server/openapi.json
 echo "Generating typed web client from the spec..."
 (cd apps/web && npx --no-install openapi-typescript ../../apps/server/openapi.json -o src/api/generated/schema.d.ts)
 
-echo "Codegen done: apps/server/openapi.json, apps/web/src/api/generated/schema.d.ts"
+# The pricing catalogue, projected by the same code the server's endpoint uses
+# (apps/server/src/plans.rs), so a static site renders the same pricing without
+# calling an API.
+echo "Generating the pricing catalogue..."
+cargo run -q -p hickory-server --bin print-plans > apps/web/src/api/generated/plans.json
+
+echo "Codegen done: apps/server/openapi.json, apps/web/src/api/generated/{schema.d.ts,plans.json}"

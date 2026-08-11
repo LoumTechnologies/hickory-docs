@@ -1,6 +1,9 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { api } from "../api/client";
+import generatedPlans from "../api/generated/plans.json";
+import { config } from "../config";
 import type { Plan, PlanPrice, PlansResponse } from "../api/types";
+import { InstallCommand } from "../components/InstallCommand";
 
 function priceFor(plan: Plan, interval: "month" | "year"): PlanPrice | null {
   return plan.prices.find((p) => p.interval === interval && !p.per_seat) ?? null;
@@ -15,16 +18,17 @@ function formatAmount(price: PlanPrice): string {
   return `${amount}/${price.interval === "month" ? "mo" : "yr"}`;
 }
 
-// Prices come exclusively from GET /api/billing/plans — never hard-coded here.
+// Prices are never hard-coded here. They come from `plans.json` through the
+// server's own projection (`plans::plans_response`), generated at `just
+// codegen` into api/generated/plans.json — so a static site shows the same
+// pricing the hosted endpoint would have served, with no request to make.
+const PLANS = generatedPlans as PlansResponse;
+
 export function PricingView() {
-  const [data, setData] = useState<PlansResponse | null>(null);
   const [interval, setInterval] = useState<"month" | "year">("month");
   const [error, setError] = useState<string | null>(null);
   const [busyKey, setBusyKey] = useState<string | null>(null);
-
-  useEffect(() => {
-    api.plans().then(setData, (e) => setError(String(e.message ?? e)));
-  }, []);
+  const data = PLANS;
 
   const checkout = async (price: PlanPrice) => {
     setBusyKey(price.key);
@@ -43,10 +47,18 @@ export function PricingView() {
       <h1>Pricing</h1>
       <p className="muted">Verified documents, from local runs to Canopy microVMs.</p>
       {error && <p className="error">{error}</p>}
-      {data === null ? (
-        <p className="muted">Loading plans…</p>
-      ) : (
-        <>
+      {!config.hosted && (
+        <div className="banner banner-warn pricing-note">
+          <p>
+            <strong>These plans are for the hosted workspace.</strong> The tool
+            itself — running documents, verification, the agent, and live
+            sessions you host from your own machine — is free and needs no
+            account.
+          </p>
+          <InstallCommand />
+        </div>
+      )}
+      <>
           <div className="segmented interval-toggle" role="tablist">
             <button
               role="tab"
@@ -79,7 +91,7 @@ export function PricingView() {
                       <li key={f}>{f}</li>
                     ))}
                   </ul>
-                  {free ? (
+                  {!config.hosted ? null : free ? (
                     <button className="btn" disabled>
                       Current plan
                     </button>
@@ -106,8 +118,7 @@ export function PricingView() {
               <a href="mailto:nate@loumtechnologies.com">Contact us.</a>
             </p>
           )}
-        </>
-      )}
+      </>
     </div>
   );
 }

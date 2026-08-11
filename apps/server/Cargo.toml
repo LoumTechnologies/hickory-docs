@@ -18,6 +18,10 @@ name = "print-openapi"
 path = "src/bin/print_openapi.rs"
 
 [[bin]]
+name = "print-plans"
+path = "src/bin/print_plans.rs"
+
+[[bin]]
 name = "gen-key"
 path = "src/bin/gen_key.rs"
 
