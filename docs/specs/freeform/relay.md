@@ -6,8 +6,9 @@ Adopted 2026-08-11. The one cloud service `local-first.md` keeps.*
 A session runs on someone's machine. `--share` binds it to the local network,
 which covers two people in a room. Everyone else needs an address, and a laptop
 behind NAT does not have one. The relay is the thing that forwards bytes, and
-**nothing else**: it does not execute documents, does not store them, and holds
-no state that outlives the session.
+**nothing else**: it does not execute documents and does not store them. Its
+only durable state is a table of accounts, because a quota has to be counted
+against something that outlives a process.
 
 ```
 guest browser ──HTTPS──►  relay.hickorydocs.com  ──existing outbound WS──►  hickory serve
@@ -19,48 +20,73 @@ The direction of the arrow on the right is the whole trick: the laptop dials
 connection. Nothing needs to be forwarded, opened, or configured on the host's
 network.
 
-## Identity: GitHub OAuth, device flow
+## Identity: an account, obtained one of two ways
 
-Opening a tunnel requires a GitHub account. Not because the product needs to
-know who you are — the tool works with no account at all — but because a relay
-is a general-purpose byte forwarder pointed at the internet, and an anonymous
-one becomes a free tunnel service for whatever a stranger wants to expose. The
-account is the thing that makes a quota enforceable and abuse attributable.
+Opening a tunnel requires an account. Not because the product needs to know who
+you are — the tool works with no account at all — but because a relay is a
+general-purpose byte forwarder pointed at the internet, and an anonymous one
+becomes a free tunnel service for whatever a stranger wants to expose. The
+account is what makes a quota enforceable and abuse attributable.
 
-**Device flow**, not the web redirect flow:
+**The relay says which ways in it has**, and the CLI asks before offering
+anything:
 
 ```
-$ hickory login
-  Open https://github.com/login/device and enter:  WDJB-MJHT
-  Waiting…
-  Signed in as @nate
+GET /_relay/auth/methods → {"password": true, "github": {"client_id": "Iv1.…"}}
 ```
 
-A CLI has no browser to redirect back to, and a developer may be on a remote
-machine over SSH. Device flow is designed for exactly that: the CLI polls, the
-human authenticates wherever their browser already is. No callback server, no
-localhost port, no client secret on the user's machine.
+A relay with no OAuth app omits the `github` field entirely, and `hickory
+login` then never mentions GitHub. That is the difference between an option
+hidden because it does not exist and an option offered that fails at the last
+step — which is the worst possible place to learn a feature is unconfigured.
 
-Scope requested: **none**. The default (no scopes) grants a token that can read
-a public profile and nothing else — no repositories, no email, no
-organisations. The relay needs exactly one fact, "which GitHub account is
-this", and asking for more would be asking for trust the feature does not need.
+**Email and password** is always available:
+
+```
+$ hickory login --signup
+  Email: nate@example.com
+  Choose a password: ␣
+  Signed in as nate@example.com.
+```
+
+**GitHub, device flow**, when configured — not the web redirect flow. A CLI has
+no browser to redirect back to, and a developer may be on a remote machine over
+SSH. Device flow is designed for that: the CLI polls, the human authenticates
+wherever their browser already is. No callback server, no localhost port, no
+client secret anywhere. Scope requested: **none** — the default grants a token
+that can read a public profile and nothing else.
+
+### Whichever way in, the relay issues its own token
+
+The GitHub token is exchanged, once, at sign-in; what the CLI stores is a token
+*this relay* signed. Three consequences, all of them the reason it works this
+way:
+
+- a tunnel handshake verifies a signature locally and calls nobody, so a page
+  load through the relay costs no third-party round trip;
+- GitHub being down does not stop an already-signed-in session;
+- a self-hosted relay works with its own OAuth app and no CLI rebuild, because
+  the client id comes from `/methods`.
 
 Credentials land in `~/.config/hickory/credentials.json`, mode `0600`, never in
-the repository. `hickory logout` deletes the file and nothing else — GitHub
-tokens are revoked by the user at GitHub, and we say so rather than implying we
-can do it for them.
+the repository. `hickory logout` deletes that file and nothing else — the
+token the relay issued stays valid until it expires, and we say so rather than
+implying otherwise.
 
-### What the relay verifies
+### The relay does persist accounts, and that is a change
 
-On each tunnel open the relay calls `GET https://api.github.com/user` with the
-presented token, once, and keeps the resulting login for the life of the
-connection. No user table, no sessions, no password reset, no email. The
-account exists at GitHub; we borrow it.
+The first version of this design said "no user table". Email/password made that
+false: an account has to outlive the process it signed in from. So the relay
+now keeps **one SQLite table** — id, email, password hash, GitHub login — and
+nothing else. Tunnels, streams, and quotas are still memory-only and still die
+with the process.
 
-A revoked token therefore stops working at the *next* connection, not
-mid-session. That is the right trade for a session measured in hours, and it is
-recorded here rather than discovered.
+**Email/password is weaker attribution than GitHub.** A GitHub account is one
+somebody else already vouched for; an address typed into a form is not, and
+this relay sends no mail, so it cannot even prove the address exists. Password
+accounts are therefore cheap to mint, which puts more weight on the quota. If
+abuse becomes real, the answers are email verification or requiring GitHub —
+both deliberately deferred rather than pre-built.
 
 ## The tunnel protocol
 
@@ -115,16 +141,18 @@ These are deliberately small and deliberately not configurable per user: the
 first version of a quota system that has exceptions is a billing system, and
 pricing is not settled (`local-first.md`).
 
-Nothing is persisted. A relay restart drops every tunnel, and every client
-reconnects — which is also the entire disaster-recovery plan, and is
-sufficient because the relay holds nothing anyone would miss.
+No *tunnel* state is persisted. A relay restart drops every tunnel and every
+client reconnects, which is the entire disaster-recovery plan for the
+forwarding half — sufficient because it holds nothing anyone would miss. The
+accounts table is the exception, and the only thing worth backing up.
 
 ## The abuse surface, stated plainly
 
 A byte forwarder pointed at the internet will be misused. What limits the
 damage:
 
-- **Every tunnel is attributable** to a GitHub account.
+- **Every tunnel is attributable** to an account — a GitHub identity, or an
+  email address that at least had to be typed and kept.
 - **Tunnels are short-lived** and few per account.
 - **The relay does not fetch anything** on a guest's behalf: it only forwards
   to the one laptop that opened the tunnel. It is not an open proxy, and it
@@ -142,9 +170,16 @@ answer is rate limits and a block list, not architecture.
 
 - **DNS**: a wildcard `*.relay.hickorydocs.com` record.
 - **TLS**: a wildcard certificate (Fly issues these with DNS validation).
-- **A GitHub OAuth app**, whose client id ships in the CLI (public by
-  construction in device flow) and whose secret the relay never needs — device
-  flow for a public client does not use one.
+- **A GitHub OAuth app** — *optional*. Without one, the relay offers email and
+  password only and the CLI hides the GitHub option. With one, set
+  `GH_OAUTH_CLIENT_ID`; the client id is public by construction in device flow
+  and the secret is never needed.
+- **`RELAY_TOKEN_SECRET`** (≥32 bytes), which signs the tokens the relay
+  issues. Required, and stable: a value that changed between restarts would
+  sign everyone out.
+- **`RELAY_DATABASE_URL`**, e.g. `sqlite:///data/relay.db` on a Fly volume.
+  Absent, the relay still forwards for anyone holding a token it signed
+  earlier, but nobody new can sign in.
 - **Deployment**: the relay is a second Fly app, or a second process in the
   existing one. It shares nothing with the hosted workspace and should outlive
   it.

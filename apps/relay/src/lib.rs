@@ -19,6 +19,8 @@
 //! one — the account exists so abuse is attributable and a quota is
 //! enforceable, not so we can have users.
 
+pub mod accounts;
+pub mod auth_routes;
 pub mod github;
 pub mod tunnel;
 
@@ -43,9 +45,17 @@ pub struct RelayState {
     pub tunnels: Arc<TunnelRegistry>,
     pub census: Arc<Mutex<TunnelCensus>>,
     pub quota: Quota,
-    /// Resolves a token to an account. Swapped for a stub in tests, which is
-    /// the only reason it is a trait object.
+    /// Resolves a GitHub token to a login, at sign-in only. Swapped for a
+    /// stub in tests, which is the only reason it is a trait object.
     pub identifier: Arc<dyn Identifier>,
+    /// The account store. `None` means this relay cannot sign anyone in, which
+    /// is a configuration state rather than a crash.
+    pub accounts: Option<sqlx::SqlitePool>,
+    /// Signs the tokens this relay issues and accepts.
+    pub token_secret: String,
+    /// Set when a GitHub OAuth app is configured. Its absence is what makes
+    /// the CLI hide the GitHub option rather than offer one that cannot work.
+    pub github_client_id: Option<String>,
     /// The apex the relay answers on, e.g. `relay.hickorydocs.com`. A guest
     /// address is `<slug>.<apex>`.
     pub apex: String,
@@ -84,6 +94,19 @@ pub fn router(state: RelayState) -> Router {
     Router::new()
         .route("/_relay/tunnel", get(open_tunnel))
         .route("/_relay/health", get(health))
+        .route("/_relay/auth/methods", get(auth_routes::methods))
+        .route(
+            "/_relay/auth/signup",
+            axum::routing::post(auth_routes::signup),
+        )
+        .route(
+            "/_relay/auth/login",
+            axum::routing::post(auth_routes::login),
+        )
+        .route(
+            "/_relay/auth/github",
+            axum::routing::post(auth_routes::github),
+        )
         .fallback(forward)
         .with_state(state)
 }
@@ -157,6 +180,9 @@ mod tests {
             census: Arc::new(Mutex::new(TunnelCensus::default())),
             quota: Quota::default(),
             identifier: Arc::new(github::StubIdentifier::new("nate")),
+            accounts: None,
+            token_secret: "a-test-secret-that-is-long-enough".into(),
+            github_client_id: None,
             apex: "relay.hickorydocs.com".into(),
             scheme: "https".into(),
         }

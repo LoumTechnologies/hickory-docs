@@ -22,6 +22,15 @@ use hickory_relay_server::tunnel::TunnelRegistry;
 use hickory_relay_server::{RelayState, router as relay_router};
 use tokio::sync::Mutex;
 
+/// Signs the tokens the test relay issues and accepts.
+const TOKEN_SECRET: &str = "a-test-secret-that-is-long-enough-to-sign";
+
+/// A token the relay would have issued after a sign-in. The handshake verifies
+/// its own signature, so a test does not need to run a sign-in first.
+fn account_token(label: &str) -> String {
+    hickory_identity::issue_token(TOKEN_SECRET, "acc-test", label, 1).unwrap()
+}
+
 const DOC: &str = r##"<?xml version="1.0" encoding="UTF-8"?>
 <hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="demo.md">
 # Demo
@@ -53,6 +62,13 @@ async fn start_relay(account: &str) -> Relay {
         census: Arc::new(Mutex::new(TunnelCensus::default())),
         quota: Quota::default(),
         identifier: identifier.clone(),
+        accounts: Some(
+            hickory_relay_server::accounts::open("sqlite::memory:")
+                .await
+                .unwrap(),
+        ),
+        token_secret: TOKEN_SECRET.to_string(),
+        github_client_id: None,
         apex: apex.clone(),
         scheme: "http".into(),
     };
@@ -108,7 +124,7 @@ async fn start_session(relay: &Relay, scope: Scope) -> (Session, tunnel::TunnelH
 
     let handle = tunnel::open(
         &relay.base,
-        "gho_test_token",
+        &account_token("nate@example.com"),
         None,
         router,
         &format!("ws://127.0.0.1:{port}"),
@@ -157,7 +173,7 @@ async fn a_guest_outside_the_network_reaches_the_document_through_the_relay() {
         "{}",
         handle.url
     );
-    assert_eq!(handle.account, "nate");
+    assert_eq!(handle.account, "nate@example.com");
 
     // The document itself, fetched by someone who knows only the public URL.
     let (status, body) = guest_get(
@@ -181,10 +197,11 @@ async fn a_guest_outside_the_network_reaches_the_document_through_the_relay() {
     assert_eq!(status, 200, "{body}");
     assert!(body.contains("\"kind\":\"paste\""), "{body}");
 
-    // The relay asked GitHub who this was exactly once, at connect — not per
-    // request. A relay that phoned GitHub on every page load would be rate
-    // limited into uselessness.
-    assert_eq!(relay.identifier.calls(), 1);
+    // GitHub is never called during a session: the handshake verifies a token
+    // the relay signed at sign-in. A relay that phoned a third party on every
+    // page load would be rate limited into uselessness — and would stop
+    // working whenever GitHub did.
+    assert_eq!(relay.identifier.calls(), 0);
 }
 
 /// Guarantee: arriving through the relay is not a way around the session's own
@@ -283,7 +300,7 @@ async fn the_quota_stops_an_account_opening_tunnels_without_end() {
 
     let err = tunnel::open(
         &relay.base,
-        "gho_test_token",
+        &account_token("nate@example.com"),
         None,
         prepared.router,
         "ws://127.0.0.1:1",
@@ -297,10 +314,11 @@ async fn the_quota_stops_an_account_opening_tunnels_without_end() {
     assert!(message.contains("Close one"), "{message}");
 }
 
+/// A token this relay did not sign — expired, forged, or issued by a different
+/// relay — cannot open a tunnel.
 #[tokio::test(flavor = "multi_thread")]
-async fn a_rejected_token_is_refused_with_github_s_own_words() {
+async fn a_token_this_relay_did_not_sign_opens_nothing() {
     let relay = start_relay("nate").await;
-    relay.identifier.set_reject(true);
 
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("demo.hick"), DOC).unwrap();

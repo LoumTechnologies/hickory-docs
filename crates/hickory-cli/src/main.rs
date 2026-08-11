@@ -3,7 +3,7 @@
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use anyhow::{Context as _, Result};
+use anyhow::{Context as _, Result, bail};
 use clap::{Parser, Subcommand};
 
 use hickory_cli::{
@@ -98,9 +98,9 @@ enum Command {
     /// Grok CLI, or any other MCP client. `hickory init` writes the
     /// registration for the harnesses it finds.
     Mcp(McpArgs),
-    /// Sign in with GitHub, so `hickory serve --public` can open a tunnel on
-    /// the relay. Nothing else needs an account.
-    Login,
+    /// Sign in, so `hickory serve --public` can open a tunnel on the relay.
+    /// Nothing else needs an account.
+    Login(LoginArgs),
     /// Forget the stored credentials on this machine.
     Logout,
     /// Show who this machine is signed in as.
@@ -109,6 +109,23 @@ enum Command {
     /// Others can join over your network with `--share`; edits land in your
     /// files as they happen.
     Serve(ServeArgs),
+}
+
+#[derive(clap::Args)]
+struct LoginArgs {
+    /// Create the account rather than signing in to an existing one.
+    #[arg(long)]
+    signup: bool,
+    /// Email address, so it need not be typed at the prompt.
+    #[arg(long)]
+    email: Option<String>,
+    /// Use GitHub instead of an email and password. Only offered by relays
+    /// that have an OAuth app configured.
+    #[arg(long)]
+    github: bool,
+    /// The relay to sign in to (default: HICKORY_RELAY_URL, else ours).
+    #[arg(long = "relay")]
+    relay: Option<String>,
 }
 
 #[derive(clap::Args)]
@@ -441,7 +458,7 @@ fn main() -> ExitCode {
             Command::Refresh(args) => cmd_refresh(args).await,
             Command::Init(args) => cmd_init(args),
             Command::Doc(cmd) => cmd_doc(cmd).await,
-            Command::Login => cmd_login().await,
+            Command::Login(args) => cmd_login(args).await,
             Command::Logout => cmd_logout(),
             Command::Whoami => cmd_whoami(),
             Command::Serve(args) => cmd_serve(args).await,
@@ -1145,36 +1162,102 @@ async fn cmd_serve(args: ServeArgs) -> Result<ExitCode> {
     Ok(ExitCode::SUCCESS)
 }
 
-/// `hickory login` — GitHub device flow.
+/// `hickory login` — sign in to a relay.
 ///
-/// The account exists for one reason: a relay tunnel points at the internet and
-/// has to be attributable to somebody. Everything else in this tool works
-/// signed out, and the output says so rather than implying an account is
-/// required to use hickory.
-async fn cmd_login() -> Result<ExitCode> {
+/// The relay is asked what it accepts before anything is offered, so a
+/// deployment with no GitHub OAuth app never shows a GitHub option. That is
+/// the difference between "hidden because unconfigured" and "offered and then
+/// broken at the last step".
+async fn cmd_login(args: LoginArgs) -> Result<ExitCode> {
     use hickory_cli::login;
+    use hickory_cli::serve::relay::DEFAULT_RELAY_URL;
 
     if let Some(existing) = login::load() {
-        eprintln!("Already signed in as @{}.", existing.login);
+        eprintln!("Already signed in as {}.", existing.login);
         eprintln!("Run `hickory logout` first to sign in as someone else.");
         return Ok(ExitCode::SUCCESS);
     }
 
-    let client_id = login::client_id()?;
-    let endpoints = login::Endpoints::default();
-    let mut announce = |uri: &str, code: &str| {
-        eprintln!();
-        eprintln!("  Open {uri}");
-        eprintln!("  and enter this code:  {code}");
-        eprintln!();
-        eprintln!("  Waiting… (Ctrl-C to stop)");
+    let relay_url = args
+        .relay
+        .or_else(|| std::env::var("HICKORY_RELAY_URL").ok())
+        .unwrap_or_else(|| DEFAULT_RELAY_URL.to_string());
+    let methods = login::methods(&relay_url).await?;
+
+    let github_offered = methods.github.is_some();
+    let credentials = if args.github {
+        let Some(github) = methods.github.clone() else {
+            // Named plainly: this is a property of the relay, not of the
+            // machine running the CLI, and the fix is a different flag.
+            bail!(
+                "the relay at {relay_url} does not offer GitHub sign-in.\n\
+                 Sign in with an email and password instead: hickory login"
+            );
+        };
+        let endpoints = login::Endpoints::default();
+        let mut announce = |uri: &str, code: &str| {
+            eprintln!();
+            eprintln!("  Open {uri}");
+            eprintln!("  and enter this code:  {code}");
+            eprintln!();
+            eprintln!("  Waiting… (Ctrl-C to stop)");
+        };
+        let github_token = login::device_flow(&endpoints, &github.client_id, &mut announce).await?;
+        login::exchange_github(&relay_url, &github_token).await?
+    } else {
+        if !methods.password {
+            bail!(
+                "the relay at {relay_url} does not offer email and password sign-in.{}",
+                if github_offered {
+                    " Use: hickory login --github"
+                } else {
+                    " It offers no sign-in at all — ask its operator."
+                }
+            );
+        }
+        let email = match args.email {
+            Some(email) => email,
+            None => prompt("Email: ")?,
+        };
+        let password = prompt_password(if args.signup {
+            "Choose a password: "
+        } else {
+            "Password: "
+        })?;
+        login::with_password(&relay_url, &email, &password, args.signup).await?
     };
 
-    let credentials = login::device_flow(&endpoints, &client_id, &mut announce).await?;
     let path = login::save(&credentials)?;
-    eprintln!("Signed in as @{}.", credentials.login);
+    eprintln!("Signed in as {}.", credentials.login);
     eprintln!("Stored in {} (readable only by you).", path.display());
+    if !args.github && github_offered {
+        // Only mentioned when it exists.
+        eprintln!("(GitHub sign-in is also available: hickory login --github)");
+    }
     Ok(ExitCode::SUCCESS)
+}
+
+/// Read a line from the terminal.
+fn prompt(label: &str) -> Result<String> {
+    use std::io::Write as _;
+    eprint!("{label}");
+    std::io::stderr().flush()?;
+    let mut line = String::new();
+    std::io::stdin().read_line(&mut line)?;
+    let line = line.trim().to_string();
+    if line.is_empty() {
+        bail!("nothing entered");
+    }
+    Ok(line)
+}
+
+/// Read a password without echoing it.
+fn prompt_password(label: &str) -> Result<String> {
+    let password = rpassword::prompt_password(label).context("reading the password")?;
+    if password.is_empty() {
+        bail!("nothing entered");
+    }
+    Ok(password)
 }
 
 /// `hickory logout` — forget the token on this machine.
@@ -1183,11 +1266,11 @@ fn cmd_logout() -> Result<ExitCode> {
         true => {
             eprintln!("Signed out on this machine.");
             // Said plainly because it is a real limitation: deleting a local
-            // file does not revoke anything at GitHub, and implying otherwise
-            // would leave someone believing a token is dead when it is not.
+            // file does not invalidate the token the relay signed, which stays
+            // valid until it expires.
             eprintln!(
-                "The GitHub token itself is still valid — revoke it at \
-                 https://github.com/settings/applications if you need it gone."
+                "The token the relay issued stays valid until it expires; this only \
+                 removes the copy stored here."
             );
         }
         false => eprintln!("Not signed in on this machine."),
@@ -1199,7 +1282,7 @@ fn cmd_logout() -> Result<ExitCode> {
 fn cmd_whoami() -> Result<ExitCode> {
     match hickory_cli::login::load() {
         Some(credentials) => {
-            println!("@{}", credentials.login);
+            println!("{}", credentials.login);
             Ok(ExitCode::SUCCESS)
         }
         None => {

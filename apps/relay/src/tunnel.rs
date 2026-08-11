@@ -423,10 +423,13 @@ pub async fn serve_agent(state: RelayState, socket: WebSocket) -> Result<()> {
         return Ok(());
     }
 
-    let account = match state.identifier.identify(&token).await {
-        Ok(account) => account,
+    // The token is one this relay issued, whichever way the host signed in.
+    // Verifying our own signature means a tunnel costs no call to GitHub, and
+    // an already-signed-in host is unaffected by GitHub being down.
+    let account = match hickory_identity::verify_token(&state.token_secret, &token) {
+        Ok(claims) => claims.label,
         Err(e) => {
-            refuse(&mut sink, format!("{e:#}")).await;
+            refuse(&mut sink, format!("{e} — run `hickory login`")).await;
             return Ok(());
         }
     };

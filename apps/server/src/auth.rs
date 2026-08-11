@@ -1,35 +1,23 @@
-//! Password hashing (argon2) + JWT bearer auth (HS256).
+//! Bearer auth for the hosted server.
+//!
+//! The primitives — argon2 hashing, HS256 tokens — live in `hickory-identity`,
+//! shared with the relay. What stays here is what is specific to this server:
+//! its `users` table, its extractors, and mapping a token failure onto an
+//! `ApiError`.
 
-use argon2::Argon2;
-use argon2::password_hash::rand_core::OsRng;
-use argon2::password_hash::{PasswordHash, PasswordHasher as _, PasswordVerifier as _, SaltString};
 use axum::extract::FromRequestParts;
 use axum::http::request::Parts;
-use chrono::Utc;
-use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 use crate::AppState;
 use crate::error::ApiError;
 
-pub fn hash_password(password: &str) -> anyhow::Result<String> {
-    let salt = SaltString::generate(&mut OsRng);
-    let hash = Argon2::default()
-        .hash_password(password.as_bytes(), &salt)
-        .map_err(|e| anyhow::anyhow!("argon2 hashing failed: {e}"))?;
-    Ok(hash.to_string())
-}
+pub use hickory_identity::{hash_password, verify_password};
 
-pub fn verify_password(password: &str, hash: &str) -> bool {
-    match PasswordHash::new(hash) {
-        Ok(parsed) => Argon2::default()
-            .verify_password(password.as_bytes(), &parsed)
-            .is_ok(),
-        Err(_) => false,
-    }
-}
-
+/// This server's claims. Distinct from `hickory_identity::Claims` because the
+/// subject is a `Uuid` here and the field is named `email`; changing either
+/// would invalidate every token already issued to a signed-in user.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Claims {
     pub sub: Uuid,
@@ -41,20 +29,20 @@ pub fn issue_token(secret: &str, user_id: Uuid, email: &str) -> anyhow::Result<S
     let claims = Claims {
         sub: user_id,
         email: email.to_string(),
-        exp: (Utc::now() + chrono::Duration::days(30)).timestamp(),
+        exp: (chrono::Utc::now() + chrono::Duration::days(30)).timestamp(),
     };
     Ok(jsonwebtoken::encode(
-        &Header::default(),
+        &jsonwebtoken::Header::default(),
         &claims,
-        &EncodingKey::from_secret(secret.as_bytes()),
+        &jsonwebtoken::EncodingKey::from_secret(secret.as_bytes()),
     )?)
 }
 
 pub fn verify_token(secret: &str, token: &str) -> Result<Claims, ApiError> {
     jsonwebtoken::decode::<Claims>(
         token,
-        &DecodingKey::from_secret(secret.as_bytes()),
-        &Validation::default(),
+        &jsonwebtoken::DecodingKey::from_secret(secret.as_bytes()),
+        &jsonwebtoken::Validation::default(),
     )
     .map(|d| d.claims)
     .map_err(|_| ApiError::unauthorized("invalid or expired token"))

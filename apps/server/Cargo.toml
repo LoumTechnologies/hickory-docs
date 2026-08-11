@@ -46,6 +46,7 @@ hick-lsp = { path = "../../crates/hick-lsp" }
 hickory-cli = { path = "../../crates/hickory-cli" }
 hickory-agent = { path = "../../crates/hickory-agent" }
 hickory-collab = { path = "../../crates/hickory-collab" }
+hickory-identity = { path = "../../crates/hickory-identity" }
 hickory-executor = { path = "../../crates/hickory-executor" }
 hickory-executor-canopy = { path = "../../crates/hickory-executor-canopy" }
 hickory-executor-docker = { path = "../../crates/hickory-executor-docker" }

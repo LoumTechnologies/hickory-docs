@@ -136,7 +136,7 @@ HICKORY_EXECUTOR=docker hickory serve docs/tour.hick --share --scope run
 `--public` publishes an address that reaches further:
 
 ```sh
-hickory login                                   # once, with GitHub
+hickory login --signup                          # once: email and password
 hickory serve docs/tour.hick --share --public
 ```
 
@@ -146,10 +146,16 @@ runs it, and keeps nothing after you press Ctrl-C.
 
 **Why signing in is required for this and nothing else.** A relay is a byte
 forwarder pointed at the internet. Anonymous, it becomes a free tunnel service
-for whatever a stranger wants to expose — so a tunnel is tied to a GitHub
-account, which is what makes a quota enforceable and misuse attributable. The
-login asks for **no scopes**: it can read your public profile and nothing else.
-Three tunnels at a time, eight hours each.
+for whatever a stranger wants to expose — so a tunnel is tied to an account,
+which is what makes a quota enforceable and misuse attributable. Three tunnels
+at a time, eight hours each.
+
+`hickory login` asks the relay how it lets people in. Email and password always
+works. If that relay has a GitHub app configured, `hickory login --github` uses
+device flow instead — you type a code in a browser, nothing is redirected
+anywhere, and **no scopes are requested** (it can read your public profile and
+nothing else). If the relay has no GitHub app, the option is not offered,
+because an option that fails at the last step is worse than one you never saw.
 
 Prefer your own tunnel? `--public` uses it if you have one:
 
@@ -193,4 +199,4 @@ a release does not carry the client yet.
   bytes as they pass. It keeps none of them, and we would rather say this
   plainly than let "encrypted" imply more than it does.
 - **`hickory logout` forgets the token on your machine**, which is not the same
-  as revoking it. Revoke it at github.com/settings/applications.
+  as revoking it: the token the relay issued stays valid until it expires.

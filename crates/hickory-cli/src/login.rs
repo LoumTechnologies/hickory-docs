@@ -1,20 +1,26 @@
-//! `hickory login` — GitHub OAuth, device flow.
+//! `hickory login` — getting a token to open a relay tunnel with.
 //!
-//! The tool itself needs no account. This exists for exactly one thing: opening
-//! a tunnel on the relay, which forwards bytes to a stranger's browser and
-//! therefore has to be attributable to somebody (`docs/specs/freeform/relay.md`).
+//! The tool itself needs no account. This exists for exactly one thing:
+//! opening a tunnel on the relay, which forwards bytes to a stranger's browser
+//! and therefore has to be attributable to somebody
+//! (`docs/specs/freeform/relay.md`).
 //!
-//! **Device flow, not the redirect flow.** A CLI has no browser to redirect
-//! back to, and the person running it may be on a remote machine over SSH.
-//! Device flow is built for that: the CLI polls while the human authenticates
-//! wherever their browser already is. No callback listener, no localhost port,
-//! and no client secret on anyone's machine — a public client does not have
-//! one to leak.
+//! **The relay says which ways in it has.** `GET /_relay/auth/methods` returns
+//! whether it accepts an email and password, and whether a GitHub OAuth app is
+//! configured. The CLI asks before it offers anything, so a relay without
+//! GitHub never shows a GitHub option — instead of showing one that fails at
+//! the last step, which is the worst place to learn a feature does not exist.
 //!
-//! **No scopes requested.** The default grants a token that can read a public
-//! profile and nothing else: no repositories, no email, no organisations. The
-//! relay needs one fact — which account is this — and asking for more would be
-//! asking for trust the feature does not need.
+//! **Device flow for GitHub, not the redirect flow.** A CLI has no browser to
+//! redirect back to, and the person running it may be on a remote machine over
+//! SSH. Device flow is built for that: the CLI polls while the human
+//! authenticates wherever their browser already is. No callback listener, no
+//! localhost port, and no client secret on anyone's machine — a public client
+//! does not have one to leak. No scopes are requested: the relay needs one
+//! fact, which account this is.
+//!
+//! Either way the result is the same — a token the *relay* signed, which is
+//! what the tunnel handshake presents.
 
 use std::path::PathBuf;
 use std::time::Duration;
@@ -27,24 +33,108 @@ use serde::{Deserialize, Serialize};
 pub const GITHUB_BASE: &str = "https://github.com";
 pub const GITHUB_API_BASE: &str = "https://api.github.com";
 
-/// The OAuth app the CLI identifies itself as.
-///
-/// Public by construction — device flow has no client secret, and the id is
-/// visible in every request the CLI makes. It is *not* compiled in as a
-/// constant because this repository has no registered app yet: whoever
-/// registers one sets `HICKORY_GH_CLIENT_ID`, and until then the failure says
-/// exactly that rather than sending people at a 404.
-pub fn client_id() -> Result<String> {
-    match std::env::var("HICKORY_GH_CLIENT_ID") {
-        Ok(id) if !id.trim().is_empty() => Ok(id.trim().to_string()),
-        _ => bail!(
-            "no GitHub OAuth app is configured for this build.\n\
-             Set HICKORY_GH_CLIENT_ID to the client id of a GitHub OAuth app with device \
-             flow enabled (GitHub → Settings → Developer settings → OAuth Apps → \
-             \"Enable Device Flow\").\n\
-             This is only needed to use the relay; everything else works signed out."
-        ),
+/// What a relay accepts. Absent fields mean "not offered".
+#[derive(Debug, Clone, Deserialize)]
+pub struct Methods {
+    #[serde(default)]
+    pub password: bool,
+    #[serde(default)]
+    pub github: Option<GithubMethod>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct GithubMethod {
+    pub client_id: String,
+}
+
+/// Ask a relay how it lets people in.
+pub async fn methods(relay_url: &str) -> Result<Methods> {
+    let url = format!("{}/_relay/auth/methods", relay_url.trim_end_matches('/'));
+    let resp = reqwest::Client::new()
+        .get(&url)
+        .send()
+        .await
+        .with_context(|| format!("asking {url} how to sign in"))?;
+    if !resp.status().is_success() {
+        bail!(
+            "the relay at {relay_url} answered {} when asked how to sign in",
+            resp.status()
+        );
     }
+    resp.json()
+        .await
+        .context("the relay's answer was not what we expected")
+}
+
+/// What the relay hands back once someone is signed in.
+#[derive(Debug, Deserialize)]
+pub struct Issued {
+    pub token: String,
+    pub account: String,
+}
+
+/// Sign in (or sign up) with an email and a password.
+pub async fn with_password(
+    relay_url: &str,
+    email: &str,
+    password: &str,
+    create: bool,
+) -> Result<Credentials> {
+    let path = if create { "signup" } else { "login" };
+    let url = format!("{}/_relay/auth/{path}", relay_url.trim_end_matches('/'));
+    let resp = reqwest::Client::new()
+        .post(&url)
+        .json(&serde_json::json!({ "email": email, "password": password }))
+        .send()
+        .await
+        .with_context(|| format!("contacting {url}"))?;
+
+    if !resp.status().is_success() {
+        // The relay writes its refusals for a person to read; passing the text
+        // through unchanged is the point of them.
+        let body: serde_json::Value = resp.json().await.unwrap_or_default();
+        let message = body
+            .get("error")
+            .and_then(|e| e.as_str())
+            .unwrap_or("the relay refused the sign-in");
+        bail!("{message}");
+    }
+
+    let issued: Issued = resp
+        .json()
+        .await
+        .context("the relay's answer was not what we expected")?;
+    Ok(Credentials {
+        access_token: issued.token,
+        login: issued.account,
+    })
+}
+
+/// Trade a GitHub access token for one the relay signed.
+pub async fn exchange_github(relay_url: &str, github_token: &str) -> Result<Credentials> {
+    let url = format!("{}/_relay/auth/github", relay_url.trim_end_matches('/'));
+    let resp = reqwest::Client::new()
+        .post(&url)
+        .json(&serde_json::json!({ "access_token": github_token }))
+        .send()
+        .await
+        .with_context(|| format!("contacting {url}"))?;
+    if !resp.status().is_success() {
+        let body: serde_json::Value = resp.json().await.unwrap_or_default();
+        let message = body
+            .get("error")
+            .and_then(|e| e.as_str())
+            .unwrap_or("the relay refused the sign-in");
+        bail!("{message}");
+    }
+    let issued: Issued = resp
+        .json()
+        .await
+        .context("the relay's answer was not what we expected")?;
+    Ok(Credentials {
+        access_token: issued.token,
+        login: issued.account,
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -53,10 +143,12 @@ pub fn client_id() -> Result<String> {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Credentials {
-    /// A GitHub access token. Held so the relay can be told who is calling.
+    /// A token the relay issued. Not a GitHub token: whichever way someone
+    /// signed in, what is stored is the relay's own, so the tunnel handshake
+    /// costs no third-party call.
     pub access_token: String,
-    /// The GitHub login it belongs to, resolved once at sign-in so `hickory
-    /// whoami` costs nothing.
+    /// How the account is named — an email address, or `@login` for one that
+    /// arrived through GitHub. Stored so `hickory whoami` costs nothing.
     pub login: String,
 }
 
@@ -176,7 +268,7 @@ pub async fn device_flow(
     endpoints: &Endpoints,
     client_id: &str,
     announce: &mut dyn FnMut(&str, &str),
-) -> Result<Credentials> {
+) -> Result<String> {
     let http = reqwest::Client::new();
 
     let device: DeviceCode = http
@@ -222,11 +314,9 @@ pub async fn device_flow(
             .context("GitHub's token answer was not what we expected")?;
 
         if let Some(token) = answer.access_token {
-            let login = whoami(endpoints, &token).await?;
-            return Ok(Credentials {
-                access_token: token,
-                login,
-            });
+            // Returned rather than stored: what gets stored is the token the
+            // relay issues in exchange for this one.
+            return Ok(token);
         }
 
         match answer.error.as_deref() {
@@ -309,12 +399,16 @@ mod tests {
     }
 
     #[test]
-    fn a_missing_oauth_app_says_what_to_register() {
-        unsafe { std::env::remove_var("HICKORY_GH_CLIENT_ID") };
-        let err = client_id().unwrap_err().to_string();
-        assert!(err.contains("HICKORY_GH_CLIENT_ID"), "{err}");
-        assert!(err.contains("Device Flow"), "{err}");
-        // Nobody should think this breaks the tool itself.
-        assert!(err.contains("works signed out"), "{err}");
+    fn a_relay_answer_without_github_offers_only_a_password() {
+        // The CLI decides what to offer from what the relay sent, so an
+        // answer with no `github` field must not deserialise into something
+        // that looks configured.
+        let methods: Methods = serde_json::from_str(r#"{"password":true}"#).unwrap();
+        assert!(methods.password);
+        assert!(methods.github.is_none());
+
+        let methods: Methods =
+            serde_json::from_str(r#"{"password":true,"github":{"client_id":"Iv1.x"}}"#).unwrap();
+        assert_eq!(methods.github.unwrap().client_id, "Iv1.x");
     }
 }
