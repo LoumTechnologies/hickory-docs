@@ -667,7 +667,10 @@ impl EditSession {
             if !outcome.passed {
                 failures.push(format!(
                     "expectation at {}:{} (container {}) failed: {}",
-                    outcome.doc, outcome.line, outcome.container, outcome.detail
+                    outcome.doc,
+                    outcome.line,
+                    outcome.container.as_deref().unwrap_or("agent cell"),
+                    outcome.detail
                 ));
             }
         }

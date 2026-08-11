@@ -10,10 +10,15 @@ A pipeline can then contain the reasoning that produced it, and that reasoning
 enters the provenance graph as a first-class origin.
 
 ```xml
-<hick:agent id="impl-tokenizer" max-turns="20">
+<hick:agent id="impl-tokenizer" max-turns="20" model="claude-sonnet-5">
   <hick:prompt>Implement the tokenizer described above; keep the examples passing.</hick:prompt>
 </hick:agent>
 ```
+
+`id=` identifies the cell across the agent's own edits — line numbers move the
+moment it inserts anything. `model=` is optional, and is what lets the cell be
+verified from its recording on a machine with no credentials. `freeze=` works
+exactly as it does on `<hick:exec>`.
 
 ## The central constraint: no write primitive
 
@@ -110,11 +115,17 @@ is precisely the failure the variant exists to prevent),
 `hickory_cli::agent_lineage`, and the `hickory lineage` rendering. See
 `docs/guarantees/lineage/agent-lineage-degrades-without-a-session.md`.
 
-**Still waiting on issue #7**: nothing *produces* an `Agent` origin yet.
-Injection needs the exec-placement DAG work — a `build_dag` arm for `"agent"`,
-an `ExecInfo` that describes an agent cell rather than a container and a
-command, and a cache key that includes the prompt and model. Until then, agent
-origins exist only as synthetically constructed spans in tests.
+**Issue #7 landed the vertex** (2026-08-10): `build_dag` has an `"agent"` arm,
+the cell is scheduled by the topological loop, and the recording key includes
+the prompt and the model. Its bytes reach lineage as ordinary `Literal` spans,
+because `edit_doc` puts them in the document before the graph is built — which
+is already what `hickory lineage` + `git blame` need.
+
+**Still outstanding**: nothing *names the session* on those spans yet, so
+nothing produces a `SourceOrigin::Agent`. That is now purely additive — attach
+`{ session, turn }` to the spans an agent's `edit_doc` produced — rather than
+blocked on the DAG. Until then, agent origins exist only as synthetically
+constructed spans in tests.
 
 **No `author` field.** Authorship composes instead: `hickory lineage` maps an
 output byte to a document span, and `git blame` on that span gives the commit
@@ -181,7 +192,7 @@ agrees." See `docs/guarantees/verification/freeze-is-declared-per-cell.md`.
 
 **The agent node is a DAG vertex that runs before weave.** Decided 2026-08-09
 by the spike in `docs/specs/freeform/agent-placement-spike.md`
-(`crates/hickory-cli/tests/spike_agent_placement.rs`, 11 offline tests). The
+(11 offline tests; the spike code was deleted with issue #7). The
 flow placement — a node converged during weave — is **deleted**. Placement
 does not ship as a document attribute (`mode=`), and there is no second
 ordering in the vocabulary.
@@ -219,11 +230,35 @@ nothing.
 The Node semantics above still hold for the cell — settling is completion, the
 cell emits once at settle, the loop lives inside the vertex, and `max_turns`
 is a graph invariant — but the vertex is scheduled by `hick-exec`'s
-topological loop rather than converged by `hick-flow`. The spike write-up
-records what exec placement still owes: an `ExecInfo`/`build_dag` shape that
-does not assume a container and a command, a cache key that includes the
-prompt and model, a bounded re-prepare after an agent edits the source, and a
-`hick:expect` key that does not assume a container.
+topological loop rather than converged by `hick-flow`.
+
+**The five follow-ups the spike recorded are done** (issue #7, 2026-08-10), and
+the spike code has been deleted. What was decided:
+
+- **The cell's edges are a barrier.** Everything declared before it precedes
+  it, everything after follows it. An agent's read-set and write-set are known
+  only after it runs, so the barrier is the sound closure over an unknown one —
+  and it is what makes "an exec consumes the agent's edits" work in a single
+  pass. `docs/guarantees/agent/an-agent-cell-is-a-dag-barrier.md`.
+- **`ExecInfo` was not restructured.** The agent cell takes a reserved
+  synthetic container name (`_agent_<index>`) and its prompt as the command, so
+  every container-keyed consumer keeps working; `ExecInfo` gained one additive
+  `agent: Option<AgentCell>` field. Cell *identity* — `never_run`,
+  `hick:expect` — is containerless, which is what `CellId.container` being an
+  `Option` was for.
+- **The recording key is the prompt and the model.** `max-turns` is not in it.
+  A cell that should replay on a machine with no credentials declares `model=`.
+  `docs/guarantees/agent/an-agent-recording-is-keyed-by-prompt-and-model.md`.
+- **Re-preparation has a declared fixed point and bound.** The pass finishes
+  when no agent cell edited the source; the bound is the number of agent cells
+  declared at first parse, and exceeding it fails rather than truncating —
+  the same class of invariant as `max_turns`.
+  `docs/guarantees/agent/re-preparation-terminates.md`.
+- **`hickory test` gets no agent runner at all**, even where credentials exist.
+  A verifier must not spend the reader's tokens, and re-running a
+  nondeterministic cell would not verify anything; a cell is checked against
+  its recording or reported unverifiable.
+  `docs/guarantees/agent/test-never-spends-tokens.md`.
 
 ## Hazards
 

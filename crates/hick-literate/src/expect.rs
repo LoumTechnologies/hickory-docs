@@ -19,7 +19,7 @@
 use hick_lang::{HickNode, HickTag, SourceSpan};
 use serde::Serialize;
 
-use crate::tag_attr;
+use crate::{CellId, tag_attr};
 
 /// How an expectation body is matched against output.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
@@ -50,12 +50,16 @@ impl MatchMode {
     }
 }
 
-/// A parsed expectation attached to one exec block.
+/// A parsed expectation attached to one cell.
 #[derive(Debug, Clone)]
 pub struct ExpectSpec {
-    /// Container of the owning exec tag.
-    pub container: String,
-    /// Source line of the owning `<hick:exec>` tag (1-based).
+    /// Which cell the expectation belongs to.
+    ///
+    /// A [`CellId`] rather than the `(container, exec_line)` pair this used to
+    /// be, for the same reason `never_run` was generalized: an agent cell has
+    /// no container, and a key that assumes one cannot name it.
+    pub cell: CellId,
+    /// Source line of the owning cell's tag (1-based).
     pub exec_line: usize,
     /// Source span of the owning exec tag, when available.
     pub exec_span: Option<SourceSpan>,
@@ -69,7 +73,10 @@ pub struct ExpectSpec {
 #[derive(Debug, Clone, Serialize)]
 pub struct ExpectationOutcome {
     pub doc: String,
-    pub container: String,
+    /// Container of the cell that produced the output, when it has one. An
+    /// agent cell has none.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub container: Option<String>,
     /// 1-based source line of the exec block.
     pub line: usize,
     /// Byte span of the exec block in the source, when known.
@@ -84,8 +91,13 @@ pub struct ExpectationOutcome {
 
 /// Collect all expectations declared in a document, in document order.
 ///
+/// Both `<hick:exec>` and `<hick:agent>` may carry one — an agent cell's
+/// expectation asserts something about the answer it settled on, which is as
+/// legitimate a claim as any about a command's stdout, and is why the key is
+/// a [`CellId`] rather than a container name.
+///
 /// Returns an error for malformed expectations (unknown match mode, multiple
-/// expect children on one exec).
+/// expect children on one cell).
 pub fn collect_expectations(nodes: &[HickNode]) -> Result<Vec<ExpectSpec>, String> {
     let mut specs = Vec::new();
     collect_from_nodes(nodes, &mut specs)?;
@@ -95,12 +107,21 @@ pub fn collect_expectations(nodes: &[HickNode]) -> Result<Vec<ExpectSpec>, Strin
 fn collect_from_nodes(nodes: &[HickNode], specs: &mut Vec<ExpectSpec>) -> Result<(), String> {
     for node in nodes {
         if let HickNode::Tag(tag) = node {
-            if tag.name == "exec" {
+            let cell = match tag.name.as_str() {
+                "exec" => Some(CellId::exec(
+                    tag_attr(tag, "container").unwrap_or_default(),
+                    tag.source_line,
+                )),
+                "agent" => Some(CellId::containerless(tag.source_line)),
+                _ => None,
+            };
+            if let Some(cell) = cell {
                 let expects: Vec<&HickTag> =
                     tag.child_tags().filter(|t| t.name == "expect").collect();
                 if expects.len() > 1 {
                     return Err(format!(
-                        "exec block at line {} has {} <hick:expect> children (max 1)",
+                        "{} block at line {} has {} <hick:expect> children (max 1)",
+                        tag.name,
                         tag.source_line,
                         expects.len()
                     ));
@@ -109,9 +130,9 @@ fn collect_from_nodes(nodes: &[HickNode], specs: &mut Vec<ExpectSpec>) -> Result
                     let mode = MatchMode::parse(tag_attr(expect_tag, "match").as_deref())
                         .map_err(|e| format!("line {}: {e}", expect_tag.source_line))?;
                     specs.push(ExpectSpec {
-                        container: tag_attr(tag, "container").unwrap_or_default(),
                         exec_line: tag.source_line,
                         exec_span: tag.source_span,
+                        cell,
                         mode,
                         body: expect_tag.text_content(),
                     });
@@ -137,7 +158,7 @@ pub fn evaluate(spec: &ExpectSpec, doc: &str, actual: &str) -> ExpectationOutcom
     };
     ExpectationOutcome {
         doc: doc.to_string(),
-        container: spec.container.clone(),
+        container: spec.cell.container().map(str::to_string),
         line: spec.exec_line,
         span: spec.exec_span.map(|s| (s.start, s.end)),
         mode: spec.mode,
@@ -215,7 +236,7 @@ mod tests {
 
     fn spec(mode: MatchMode, body: &str) -> ExpectSpec {
         ExpectSpec {
-            container: "c".into(),
+            cell: CellId::exec("c", 1),
             exec_line: 1,
             exec_span: None,
             mode,
@@ -266,7 +287,7 @@ echo hi
         assert_eq!(specs.len(), 1);
         assert_eq!(specs[0].mode, MatchMode::RegexLines);
         assert_eq!(specs[0].body, "h.\n");
-        assert_eq!(specs[0].container, "c");
+        assert_eq!(specs[0].cell, CellId::exec("c", 3));
     }
 
     #[test]

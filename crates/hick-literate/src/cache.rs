@@ -76,6 +76,32 @@ pub fn exec_cache_key(
     format!("{:x}", hasher.finalize())
 }
 
+/// Compute the cache key (SHA-256 hex) for a `<hick:agent>` cell.
+///
+/// **The prompt and the model are both in the key, and both have to be.** A
+/// recording answers the question "what did this cell produce last time"; for
+/// an agent cell the question is only well posed once you say *what was asked*
+/// and *who was asked*. Key on the prompt alone and editing the prompt serves
+/// the old recording — freeze would then verify a claim the document no longer
+/// makes. Key on the model alone and the same failure happens the other way.
+///
+/// Deliberately NOT in the key: `max-turns`. It bounds how hard the cell may
+/// try, not what it was asked, and a recording made under a larger budget is
+/// still an honest answer to the same question.
+///
+/// The domain separator differs from [`exec_cache_key`]'s (`agent:` vs
+/// `image:`), so an agent cell and an exec cell can never collide on a key
+/// even if their text matched byte for byte.
+pub fn agent_cache_key(model: &str, prompt: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(b"agent:");
+    hasher.update(b"\nmodel:");
+    hasher.update(model.as_bytes());
+    hasher.update(b"\nprompt:");
+    hasher.update(prompt.trim().as_bytes());
+    format!("{:x}", hasher.finalize())
+}
+
 /// Look up a cached exec result.
 pub fn cache_lookup(
     config: &CacheConfig,
@@ -205,6 +231,45 @@ mod tests {
         let k1 = exec_cache_key("alpine", "", "echo hi", &[]);
         let k2 = exec_cache_key("alpine", "", "echo hi", &["API_KEY"]);
         assert_ne!(k1, k2);
+    }
+
+    // The four tests below protect
+    // docs/guarantees/agent/an-agent-recording-is-keyed-by-prompt-and-model.md.
+
+    #[test]
+    fn agent_key_deterministic() {
+        assert_eq!(
+            agent_cache_key("claude-sonnet-5", "write the greeting"),
+            agent_cache_key("claude-sonnet-5", "write the greeting")
+        );
+    }
+
+    #[test]
+    fn agent_key_changes_with_prompt() {
+        assert_ne!(
+            agent_cache_key("claude-sonnet-5", "write the greeting"),
+            agent_cache_key("claude-sonnet-5", "write the farewell"),
+            "an edited prompt must retire its recording, or freeze verifies a \
+             claim the document no longer makes"
+        );
+    }
+
+    #[test]
+    fn agent_key_changes_with_model() {
+        assert_ne!(
+            agent_cache_key("claude-sonnet-5", "write the greeting"),
+            agent_cache_key("gpt-5", "write the greeting"),
+            "a different model is a different answer to the same question"
+        );
+    }
+
+    #[test]
+    fn agent_and_exec_keys_never_collide() {
+        // Same text on both sides; only the domain separator differs.
+        assert_ne!(
+            agent_cache_key("alpine", "echo hi"),
+            exec_cache_key("alpine", "", "echo hi", &[])
+        );
     }
 
     #[test]

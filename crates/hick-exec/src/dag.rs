@@ -47,6 +47,19 @@ pub enum DependencyReason {
     Fork { from: String, to: String },
     /// Attenuate depends on the container's previous exec.
     Attenuate { container: String },
+    /// An agent cell is a **barrier**: every cell declared before it precedes
+    /// it and every cell declared after it follows it.
+    ///
+    /// Every other edge in this graph is derived from a *declared* read or
+    /// write — a mount, a copy id, a container name. An agent cell declares
+    /// none of those, and cannot: its read-set and write-set are only known
+    /// after it has run, because they are whatever the model decided to look
+    /// at and edit. The sound closure over an unknown read/write set is
+    /// therefore "reads everything already produced, writes everything not
+    /// yet consumed", which is exactly a barrier in document order.
+    ///
+    /// See `docs/guarantees/agent/an-agent-cell-is-a-dag-barrier.md`.
+    AgentBarrier { agent: String },
 }
 
 impl fmt::Display for DependencyReason {
@@ -62,6 +75,101 @@ impl fmt::Display for DependencyReason {
             }
             DependencyReason::Fork { from, to } => write!(f, "fork ({from} → {to})"),
             DependencyReason::Attenuate { container } => write!(f, "attenuate ({container})"),
+            DependencyReason::AgentBarrier { agent } => write!(f, "agent barrier ({agent})"),
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Agent cells
+// ---------------------------------------------------------------------------
+
+/// Prefix of the **reserved synthetic container name** an agent cell is given.
+///
+/// `ExecInfo.container` is a plain `String`, and an agent cell has no
+/// container. Rather than restructure `ExecInfo` — and with it every consumer
+/// keyed on `(container, source_line)`: the recording cache directory, the
+/// executor's transcript map, the live event hook — an agent cell is given a
+/// reserved name no document can declare, because `<hick:container name="…">`
+/// names are written by hand and none of them starts with `_agent_`. The same
+/// trick `<hick:script>` already uses (`_script_N`).
+///
+/// The *cell identity* that reaches `never_run` and `hick:expect` is a
+/// `CellId` with **no** container, which is the honest shape; this name only
+/// keeps the container-keyed plumbing addressable. Note the asymmetry
+/// deliberately: identity is containerless, storage is named.
+pub const AGENT_CONTAINER_PREFIX: &str = "_agent_";
+
+/// The reserved container name for the agent cell at document index `index`.
+///
+/// Per-cell rather than one shared name, so two agent cells never acquire a
+/// [`DependencyReason::ContainerState`] edge between them — their ordering
+/// comes from [`DependencyReason::AgentBarrier`], which says something
+/// stronger and truer.
+pub fn agent_container_name(index: usize) -> String {
+    format!("{AGENT_CONTAINER_PREFIX}{index}")
+}
+
+/// Whether a container name is the reserved synthetic name of an agent cell.
+pub fn is_agent_container(container: &str) -> bool {
+    container.starts_with(AGENT_CONTAINER_PREFIX)
+}
+
+/// What a `<hick:agent>` cell declares.
+///
+/// This is the single additive field on [`ExecInfo`]. It is not a
+/// restructuring of `container`/`command`: those keep their shapes (a
+/// reserved synthetic name and the prompt text respectively) so that every
+/// consumer keyed on them keeps working unchanged.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AgentCell {
+    /// The cell's `id=`, when declared. This is what identifies the cell
+    /// across a re-preparation, after the agent's own edits have moved every
+    /// source line in the document.
+    pub id: Option<String>,
+    /// Ordinal among the agent cells of this document, in document order.
+    /// The fallback identity when no `id=` is declared.
+    pub ordinal: usize,
+    /// The prompt text (`<hick:prompt>`, or the cell's own text content).
+    pub prompt: String,
+    /// `max-turns=`, when declared. Absent means the runner's default.
+    pub max_turns: Option<usize>,
+    /// `model=`, when declared.
+    ///
+    /// The recording key for an agent cell is the prompt **and** the model, so
+    /// a declared model is what makes the cell replayable by a caller that has
+    /// no agent runner configured — `hickory weave`, a dry run, or CI with no
+    /// API key. Absent, the key can only be computed while a runner is present
+    /// to name the model it would have used.
+    pub model: Option<String>,
+}
+
+impl AgentCell {
+    /// Stable identity across a re-preparation: the declared `id=`, else the
+    /// cell's ordinal among agent cells.
+    pub fn key(&self) -> AgentKey {
+        match &self.id {
+            Some(id) => AgentKey::Id(id.clone()),
+            None => AgentKey::Ordinal(self.ordinal),
+        }
+    }
+}
+
+/// Identity of an agent cell that survives the agent editing its own document.
+///
+/// Source lines are useless here: an agent's first act is usually to insert
+/// text, which moves every line below it — including its own.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub enum AgentKey {
+    Id(String),
+    Ordinal(usize),
+}
+
+impl fmt::Display for AgentKey {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            AgentKey::Id(id) => write!(f, "id=\"{id}\""),
+            AgentKey::Ordinal(n) => write!(f, "agent cell #{n} (no id= declared)"),
         }
     }
 }
@@ -98,6 +206,19 @@ pub struct ExecInfo {
     pub freeze: Option<bool>,
     /// Path to the WASM toolchain directory (only for script blocks).
     pub toolchain: Option<String>,
+    /// Set when this vertex is a `<hick:agent>` cell rather than a command.
+    ///
+    /// `container` then holds the reserved synthetic name from
+    /// [`agent_container_name`] and `command` holds the prompt, so consumers
+    /// that only know about `(container, command, source_line)` keep working.
+    pub agent: Option<AgentCell>,
+}
+
+impl ExecInfo {
+    /// Whether this vertex is a `<hick:agent>` cell.
+    pub fn is_agent(&self) -> bool {
+        self.agent.is_some()
+    }
 }
 
 /// The validated information-flow DAG.
@@ -202,6 +323,25 @@ pub enum DagValidationError {
          and `on` are not accepted."
     )]
     InvalidFreeze { line: usize, value: String },
+
+    #[error(
+        "the agent cell at line {line} has max-turns=\"{value}\", which is not a positive whole \
+         number.\n\
+         Next steps: write max-turns=\"20\" (any positive integer), or omit the attribute to use \
+         the runner's default.\n\
+         max-turns is a graph invariant, not a cost knob: a cell that never settles blocks the \
+         document, so exhausting the budget is a failure rather than a partial result."
+    )]
+    InvalidMaxTurns { line: usize, value: String },
+
+    #[error(
+        "the agent cell at line {line} declares no prompt.\n\
+         Next steps: give it a <hick:prompt>…</hick:prompt> child describing the task, or put the \
+         prompt text directly inside the <hick:agent> element.\n\
+         An agent cell with no prompt has nothing to key its recording on, so it could never be \
+         frozen or verified."
+    )]
+    AgentWithoutPrompt { line: usize },
 }
 
 // ---------------------------------------------------------------------------
@@ -216,8 +356,9 @@ pub fn build_dag(doc: &HickDocument) -> Result<FlowDag, DagValidationError> {
     let mut forks: Vec<(String, String, usize)> = Vec::new(); // (from, to, doc_order)
     let mut attenuates: Vec<(String, usize)> = Vec::new(); // (container, doc_order)
 
-    // Pass 1: Collect containers, volumes, execs, forks, attenuates
+    // Pass 1: Collect containers, volumes, execs, agents, forks, attenuates
     let mut exec_index = 0usize;
+    let mut agent_ordinal = 0usize;
     for node in &doc.nodes {
         if let HickNode::Tag(tag) = node {
             match tag.name.as_str() {
@@ -238,6 +379,11 @@ pub fn build_dag(doc: &HickDocument) -> Result<FlowDag, DagValidationError> {
                 "script" => {
                     execs.push(extract_script_info(tag, exec_index)?);
                     exec_index += 1;
+                }
+                "agent" => {
+                    execs.push(extract_agent_info(tag, exec_index, agent_ordinal)?);
+                    exec_index += 1;
+                    agent_ordinal += 1;
                 }
                 "fork" => {
                     if let (Some(from), Some(to)) =
@@ -416,6 +562,42 @@ pub fn build_dag(doc: &HickDocument) -> Result<FlowDag, DagValidationError> {
     // Attenuate dependencies: attenuate is a barrier between execs in the same container
     // Already handled by container state sequential ordering
 
+    // Agent barriers. An agent cell's read-set and write-set are known only
+    // AFTER it runs, so no declared mount, copy id, or container name can tell
+    // us what it depends on. The only sound edge set over an unknown
+    // read/write set is the conservative closure: everything declared before
+    // the cell precedes it, everything declared after it follows it.
+    //
+    // Cheap to state, and it buys the property the placement spike found
+    // decisive — an `<hick:exec>` written after an agent cell really does
+    // observe that agent's edits in the same pass, because the barrier is what
+    // guarantees it has not run yet. It stays acyclic for free: every edge
+    // points from a lower document index to a higher one.
+    for agent in execs.iter().filter(|e| e.is_agent()) {
+        let name = agent
+            .agent
+            .as_ref()
+            .map(|a| a.key().to_string())
+            .unwrap_or_default();
+        for other in &execs {
+            if other.id == agent.id {
+                continue;
+            }
+            let (from, to) = if other.id.0 < agent.id.0 {
+                (other.id, agent.id)
+            } else {
+                (agent.id, other.id)
+            };
+            edges.push(DagEdge {
+                from,
+                to,
+                reason: DependencyReason::AgentBarrier {
+                    agent: name.clone(),
+                },
+            });
+        }
+    }
+
     // Validate
     let dag = FlowDag {
         execs,
@@ -524,6 +706,7 @@ fn extract_exec_info(tag: &HickTag, index: usize) -> Result<ExecInfo, DagValidat
         is_script: false,
         toolchain: None,
         freeze: parse_freeze(tag)?,
+        agent: None,
     })
 }
 
@@ -572,6 +755,66 @@ fn extract_script_info(tag: &HickTag, index: usize) -> Result<ExecInfo, DagValid
         is_script: true,
         toolchain,
         freeze: parse_freeze(tag)?,
+        agent: None,
+    })
+}
+
+/// Extract an agent cell from a `<hick:agent>` tag.
+///
+/// The cell gets the reserved synthetic container name from
+/// [`agent_container_name`] and its prompt as the `command`, so every consumer
+/// keyed on `(container, command, source_line)` keeps working without knowing
+/// what an agent cell is. What it *is* lives in [`ExecInfo::agent`].
+fn extract_agent_info(
+    tag: &HickTag,
+    index: usize,
+    ordinal: usize,
+) -> Result<ExecInfo, DagValidationError> {
+    // A `<hick:prompt>` child is the declared form; bare text inside the cell
+    // is accepted so a one-line agent cell need not nest a tag.
+    let prompt = match tag.child_tags().find(|t| t.name == "prompt") {
+        Some(prompt_tag) => prompt_tag.text_content(),
+        None => command_text(tag),
+    };
+    if prompt.trim().is_empty() {
+        return Err(DagValidationError::AgentWithoutPrompt {
+            line: tag.source_line,
+        });
+    }
+
+    let max_turns = match tag.get_attribute("max-turns") {
+        None => None,
+        Some(raw) => match raw.trim().parse::<usize>() {
+            Ok(n) if n > 0 => Some(n),
+            _ => {
+                return Err(DagValidationError::InvalidMaxTurns {
+                    line: tag.source_line,
+                    value: raw.to_string(),
+                });
+            }
+        },
+    };
+
+    Ok(ExecInfo {
+        id: ExecId(index),
+        container: agent_container_name(index),
+        image: None,
+        mounts: Vec::new(),
+        produces_copy: Vec::new(),
+        consumes_paste: Vec::new(),
+        command: prompt.clone(),
+        source_line: tag.source_line,
+        stdin_children: Vec::new(),
+        is_script: false,
+        toolchain: None,
+        freeze: parse_freeze(tag)?,
+        agent: Some(AgentCell {
+            id: tag.get_attribute("id").map(|s| s.to_string()),
+            ordinal,
+            prompt,
+            max_turns,
+            model: tag.get_attribute("model").map(|s| s.to_string()),
+        }),
     })
 }
 
@@ -674,6 +917,13 @@ fn collect_nested_execs(
                 *index += 1;
             } else if child_tag.name == "script" {
                 execs.push(extract_script_info(child_tag, *index)?);
+                *index += 1;
+            } else if child_tag.name == "agent" {
+                // A nested agent cell keeps counting ordinals from the ones
+                // already collected, so `AgentKey::Ordinal` stays document
+                // order regardless of nesting.
+                let ordinal = execs.iter().filter(|e| e.is_agent()).count();
+                execs.push(extract_agent_info(child_tag, *index, ordinal)?);
                 *index += 1;
             } else {
                 collect_nested_execs(child_tag, execs, index)?;
@@ -799,6 +1049,115 @@ echo hello
         );
         let msg = err.to_string();
         assert!(msg.contains("freeze=\"true\"") && msg.contains("freeze=\"false\""));
+    }
+
+    // The five tests below protect
+    // docs/guarantees/agent/an-agent-cell-is-a-dag-barrier.md.
+
+    #[test]
+    fn agent_cell_is_a_dag_vertex_with_a_reserved_container() {
+        let src = r#"<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
+<hick:agent id="a1" max-turns="7" model="claude-sonnet-5">
+<hick:prompt>write the greeting</hick:prompt>
+</hick:agent>
+</hick:doc>"#;
+        let dag = parse_and_build(src).unwrap();
+        assert_eq!(dag.execs.len(), 1, "an agent cell is a DAG vertex");
+        let cell = &dag.execs[0];
+        assert!(cell.is_agent());
+        assert!(
+            is_agent_container(&cell.container),
+            "reserved synthetic container name, not a declarable one: {}",
+            cell.container
+        );
+        let agent = cell.agent.as_ref().unwrap();
+        assert_eq!(agent.id.as_deref(), Some("a1"));
+        assert_eq!(agent.max_turns, Some(7));
+        assert_eq!(agent.model.as_deref(), Some("claude-sonnet-5"));
+        assert_eq!(agent.prompt.trim(), "write the greeting");
+        assert_eq!(
+            cell.command.trim(),
+            "write the greeting",
+            "command carries the prompt so consumers keyed on it keep working"
+        );
+    }
+
+    #[test]
+    fn an_agent_cell_is_a_barrier_in_both_directions() {
+        let src = r#"<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
+<hick:container name="a" image="alpine" />
+<hick:container name="b" image="alpine" />
+<hick:exec container="a">echo before</hick:exec>
+<hick:agent id="a1"><hick:prompt>do the thing</hick:prompt></hick:agent>
+<hick:exec container="b">echo after</hick:exec>
+</hick:doc>"#;
+        let dag = parse_and_build(src).unwrap();
+        // Without the barrier these two execs are in different containers and
+        // would be roots in parallel.
+        let barrier: Vec<_> = dag
+            .edges
+            .iter()
+            .filter(|e| matches!(&e.reason, DependencyReason::AgentBarrier { .. }))
+            .map(|e| (e.from, e.to))
+            .collect();
+        assert!(barrier.contains(&(ExecId(0), ExecId(1))), "before → agent");
+        assert!(barrier.contains(&(ExecId(1), ExecId(2))), "agent → after");
+        let order = dag.topological_order();
+        assert_eq!(order, vec![ExecId(0), ExecId(1), ExecId(2)]);
+        assert_eq!(
+            dag.roots,
+            vec![ExecId(0)],
+            "the barrier leaves exactly one root"
+        );
+    }
+
+    #[test]
+    fn two_agent_cells_are_ordered_by_barriers_not_container_state() {
+        let src = r#"<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
+<hick:agent id="first"><hick:prompt>one</hick:prompt></hick:agent>
+<hick:agent id="second"><hick:prompt>two</hick:prompt></hick:agent>
+</hick:doc>"#;
+        let dag = parse_and_build(src).unwrap();
+        assert_ne!(
+            dag.execs[0].container, dag.execs[1].container,
+            "each agent cell gets its own reserved name"
+        );
+        assert!(
+            dag.edges
+                .iter()
+                .all(|e| matches!(&e.reason, DependencyReason::AgentBarrier { .. })),
+            "ordering comes from the barrier, never from container state"
+        );
+        assert_eq!(dag.topological_order(), vec![ExecId(0), ExecId(1)]);
+        assert_eq!(dag.execs[0].agent.as_ref().unwrap().ordinal, 0);
+        assert_eq!(dag.execs[1].agent.as_ref().unwrap().ordinal, 1);
+    }
+
+    #[test]
+    fn an_agent_cell_without_a_prompt_is_rejected() {
+        let src = r#"<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
+<hick:agent id="a1" />
+</hick:doc>"#;
+        let err = parse_and_build(src).expect_err("a promptless agent cell must not build");
+        assert!(matches!(err, DagValidationError::AgentWithoutPrompt { .. }));
+        assert!(err.to_string().contains("<hick:prompt>"));
+    }
+
+    #[test]
+    fn a_non_numeric_max_turns_is_rejected() {
+        let src = r#"<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
+<hick:agent max-turns="lots"><hick:prompt>go</hick:prompt></hick:agent>
+</hick:doc>"#;
+        let err = parse_and_build(src).expect_err("max-turns=\"lots\" must not be accepted");
+        assert!(
+            matches!(err, DagValidationError::InvalidMaxTurns { ref value, .. } if value == "lots"),
+            "unexpected error: {err}"
+        );
     }
 
     #[test]

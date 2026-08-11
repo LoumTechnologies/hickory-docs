@@ -4,6 +4,7 @@
 //! so the server can drive the same run/check/weave/render code paths via
 //! library calls instead of shelling out.
 
+pub mod agent_cell_runner;
 pub mod agent_lineage;
 pub mod init;
 
@@ -14,6 +15,11 @@ pub use init::{InitReport, print_init_report, run_init};
 /// authorship from `git blame`, graceful degradation when the session is
 /// private or absent.
 pub use agent_lineage::{AgentLineage, Authorship, Reasoning};
+
+/// The binary's [`hick_literate::agent_cell::AgentRunner`]: settles one
+/// `<hick:agent>` DAG vertex through the real ReAct loop, or reports that no
+/// provider key is available so the cell is unverifiable rather than fatal.
+pub use agent_cell_runner::LlmAgentRunner;
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -249,6 +255,33 @@ pub fn unverifiable_message(doc: &Path, cell: &CellId, reason: &NoBaseline) -> S
                  {KEYED_BY}"
             )
         }
+        NoBaseline::AgentWithoutRunner {
+            prompt,
+            model_declared,
+        } => {
+            let replay = if *model_declared {
+                "This cell declares its model=, so a recording made on a machine with a key \
+                 replays here with no key at all — commit .hick-cache/transcripts/ for it."
+            } else {
+                "This cell declares no model=. Add one (model=\"…\") so a recording made \
+                 elsewhere can be found from here: an agent recording is keyed by the prompt \
+                 AND the model, and with no runner there is nothing to ask which model would \
+                 have run."
+            };
+            format!(
+                "{head}: this is an agent cell (prompt: {prompt}), no recording answered it, \
+                 and this run has no agent runner configured — no provider API key, so \
+                 nothing could have run it. Nothing was ever established for this cell; that \
+                 is not drift.\n  \
+                 Next steps: export the provider's key (ANTHROPIC_API_KEY, or \
+                 HICKORY_AGENT_PROVIDER plus that provider's key) and run `hickory run \
+                 --cache {}` once to establish a baseline, then commit it.\n  \
+                 {replay}\n  \
+                 This is the expected state in CI and on a fresh clone: the rest of the \
+                 document still ran, and only this cell is unverifiable.",
+                doc.display()
+            )
+        }
         NoBaseline::FrozenWithoutCacheDirectory { command } => format!(
             "{head}: the cell declares freeze=\"true\" (command: {command}), but there is no \
              recording directory (.hick-cache/transcripts/) next to the document, so no \
@@ -458,10 +491,28 @@ pub async fn run_doc_cached(
             stage_woven_files(doc_path, &sources, params).await;
 
             let executor = executor_choice.build().await?;
+            // An agent cell needs a model, and only `hickory run` may buy one.
+            //
+            // `hickory test` deliberately gets NO runner even on a machine
+            // that has a key: a verifier that spends the reader's tokens is a
+            // verifier nobody can safely point at a document they did not
+            // write, and `agent-cells.md` names that exact hazard. So an agent
+            // cell is verified against its recording or reported unverifiable
+            // — never re-run to see what it says this time, which would not be
+            // a verification anyway, the cell being nondeterministic.
+            //
+            // A machine with no provider key gets `None` here too, which is
+            // the ordinary state of CI: the cell is unverifiable, not fatal.
+            let agent_runner = (mode == RunMode::Execute)
+                .then(|| agent_cell_runner::LlmAgentRunner::from_env(executor.clone()))
+                .flatten()
+                .map(|r| Arc::new(r) as Arc<dyn hick_literate::agent_cell::AgentRunner>);
             let config = PipelineConfig {
                 working_dir: Some(project_dir.to_path_buf()),
                 max_rounds: 1,
                 on_exec: None,
+                agent_runner,
+                max_agent_reprepares: 0,
                 // `check` wants every cell with no baseline reported as
                 // unverifiable; `run` wants the first one to stop the run.
                 collect_unverifiable: mode == RunMode::Verify,

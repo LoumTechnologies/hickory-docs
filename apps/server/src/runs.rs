@@ -330,7 +330,9 @@ async fn execute_run(
                         .map(|f| match f {
                             hickory_cli::CheckFailure::Expectation(o) => format!(
                                 "expectation failed in '{}' at line {}: {}",
-                                o.container, o.line, o.detail
+                                o.container.as_deref().unwrap_or("agent cell"),
+                                o.line,
+                                o.detail
                             ),
                             hickory_cli::CheckFailure::Drift {
                                 output_path,

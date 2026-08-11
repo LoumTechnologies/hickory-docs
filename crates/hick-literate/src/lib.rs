@@ -4,6 +4,7 @@
 //! DAG validation, container capability extraction, copy/paste resolution,
 //! and file output collection — all without touching the filesystem.
 
+pub mod agent_cell;
 pub mod agents;
 pub mod cache;
 pub mod compact;
@@ -31,7 +32,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
-use anyhow::Result;
+use anyhow::{Context as _, Result};
 use log::{debug, info, warn};
 use rand::RngCore;
 
@@ -128,10 +129,38 @@ pub enum NoBaseline {
     /// The cell declares `freeze="true"`, but this run has no cache directory
     /// at all — there is nowhere for a recording to live.
     FrozenWithoutCacheDirectory { command: String },
+    /// The cell is a `<hick:agent>` cell, no recording answered it, and this
+    /// run has no agent runner configured — no model credentials, so nothing
+    /// could have run it.
+    ///
+    /// This is the ordinary state of CI and of any machine without an API key,
+    /// and it is deliberately *unverifiable* rather than fatal: the rest of
+    /// the document still runs, and the one cell nothing was established for
+    /// is named. `model_declared` records whether the cell says which model it
+    /// wants, because a cell that does can be replayed from a recording with
+    /// no runner at all, and a cell that does not never can.
+    AgentWithoutRunner {
+        prompt: String,
+        model_declared: bool,
+    },
 }
 
 /// Cells with no baseline, keyed by cell.
 pub type NeverRun = std::collections::BTreeMap<CellId, NoBaseline>;
+
+/// The [`CellId`] of a DAG vertex.
+///
+/// An agent cell is containerless — that is what `CellId::container` being an
+/// `Option` is for — even though `ExecInfo` gives it a reserved synthetic
+/// container name so the container-keyed plumbing (recording directory,
+/// transcript map) stays addressable.
+fn cell_id_of(info: &dag::ExecInfo) -> CellId {
+    if info.is_agent() {
+        CellId::containerless(info.source_line)
+    } else {
+        CellId::exec(&info.container, info.source_line)
+    }
+}
 
 /// The first non-empty line of a command, for naming a cell in a report.
 fn first_command_line(command: &str) -> String {
@@ -558,6 +587,124 @@ fn process_documents_round(
 // Pipeline entry point
 // ---------------------------------------------------------------------------
 
+/// Seed input volumes from host directories.
+///
+/// `skip` names volumes an exec has already written to in this pass: an agent
+/// cell's re-preparation re-seeds so the agent's edits are visible to later
+/// cells, and re-seeding a volume a cell already wrote would silently throw
+/// that write away.
+fn seed_input_volumes(
+    volume_store: &mut volume_state::VolumeStore,
+    volumes: &HashMap<String, hick_exec::volume::VolumeDeclaration>,
+    working_dir: &Path,
+    skip: &[String],
+) -> Result<()> {
+    for (vol_name, vol_decl) in volumes {
+        if skip.iter().any(|v| v == vol_name) {
+            continue;
+        }
+        let path = match &vol_decl.kind {
+            hick_exec::volume::VolumeKind::Input { path }
+            | hick_exec::volume::VolumeKind::InputOutput { input: path, .. } => path,
+            _ => continue,
+        };
+        let abs_path = if Path::new(path).is_absolute() {
+            PathBuf::from(path)
+        } else {
+            working_dir.join(path)
+        };
+        if abs_path.is_dir() {
+            info!(
+                "Seeding input volume '{vol_name}' from {}",
+                abs_path.display()
+            );
+            volume_store.seed_from_directory(vol_name, &abs_path)?;
+        } else {
+            warn!(
+                "Input volume '{vol_name}' path does not exist: {}",
+                abs_path.display()
+            );
+        }
+    }
+    Ok(())
+}
+
+/// Collect every document's `<hick:expect>` declarations, keyed by cell.
+fn collect_expect_specs(
+    documents: &[(&str, HickDocument)],
+) -> Result<HashMap<CellId, (String, expect::ExpectSpec)>> {
+    let mut out = HashMap::new();
+    for (name, doc) in documents {
+        let specs = expect::collect_expectations(&doc.nodes)
+            .map_err(|e| anyhow::anyhow!("invalid <hick:expect> in {name}: {e}"))?;
+        for spec in specs {
+            out.insert(spec.cell.clone(), (name.to_string(), spec));
+        }
+    }
+    Ok(out)
+}
+
+/// Collect `<hick:container>` capabilities and images into the run's maps.
+///
+/// Used once during preparation and again after an agent cell edits a
+/// document, so a container the agent declared is a container the rest of the
+/// pass can use.
+fn collect_container_defs(
+    nodes: &[HickNode],
+    container_defs: &mut HashMap<String, ContainerCapabilities>,
+    container_images: &mut HashMap<String, String>,
+) {
+    for node in nodes {
+        if let HickNode::Tag(tag) = node {
+            if tag.name == "container" {
+                let name = tag_attr(tag, "name").unwrap_or_default();
+                if let Some(image) = tag_attr(tag, "image") {
+                    container_images.insert(name.clone(), image);
+                }
+                container_defs.insert(name, build_capabilities_from_tag(tag));
+            }
+            collect_container_defs(&tag.children, container_defs, container_images);
+        }
+    }
+}
+
+/// Re-read and re-prepare one document after an agent cell edited it on disk.
+///
+/// Mirrors the per-document half of [`prepare_pipeline`]: parse, resolve
+/// includes, register vars, filter conditionals. Deliberately NOT re-run:
+/// feature processing and token minting, which are run-wide and already
+/// happened — an agent that needs a new capability declares it and the run
+/// says so, rather than silently minting one mid-pass.
+fn reprepare_document(name: &str, state: &MultiDocumentState) -> Result<HickDocument> {
+    let source = std::fs::read_to_string(name).with_context(|| {
+        format!(
+            "failed to re-read {name} after an agent cell edited it.\n  \
+             Next steps: check the file still exists and is readable — an agent's only write \
+             channel is edit_doc/edit_output on this path, so a missing file here means \
+             something outside the run deleted or moved it."
+        )
+    })?;
+    let mut doc = hick_lang::parse(&source).map_err(|e| {
+        anyhow::anyhow!(
+            "parse error in {name} after an agent cell edited it: {e}\n  \
+             Next steps: inspect the document — the agent wrote hick markup that no longer \
+             parses, and the edit is on disk, so `git diff {name}` shows exactly what it did."
+        )
+    })?;
+    let base_dir = std::path::Path::new(name)
+        .parent()
+        .unwrap_or(std::path::Path::new("."));
+    let mut seen = std::collections::HashSet::new();
+    if let Ok(canonical) = std::fs::canonicalize(name) {
+        seen.insert(canonical);
+    }
+    hick_lang::resolve_includes(&mut doc, base_dir, &mut seen)
+        .map_err(|e| anyhow::anyhow!("include error in {name}: {e}"))?;
+    scan_and_register_vars(&doc.nodes, state);
+    filter_conditionals(&mut doc.nodes, state);
+    Ok(doc)
+}
+
 /// Run the full hick pipeline on in-memory sources.
 ///
 /// Each entry in `sources` is `(document_name, hick_source)`. The pipeline
@@ -602,10 +749,7 @@ pub async fn run_pipeline_with_authority(
         for exec_id in flow_dag.topological_order() {
             let info = flow_dag.execs.iter().find(|e| e.id == exec_id).unwrap();
             let commands: Vec<String> = vec![info.command.trim().to_string()];
-            never_run.insert(
-                CellId::exec(&info.container, info.source_line),
-                NoBaseline::NotExecuted,
-            );
+            never_run.insert(cell_id_of(info), NoBaseline::NotExecuted);
             transcripts
                 .entry(info.container.clone())
                 .or_default()
@@ -666,6 +810,24 @@ pub struct PipelineConfig {
     /// cell in one pass with its own exit code, not a single abort at the
     /// first one.
     pub collect_unverifiable: bool,
+    /// How to run a `<hick:agent>` cell, when this caller can run one at all.
+    ///
+    /// `None` is the normal state of CI and of any machine with no model
+    /// credentials: agent cells are then reported as unverifiable (or served
+    /// from a recording, when the cell declares its `model=`) instead of
+    /// failing the run. See [`crate::agent_cell`].
+    pub agent_runner: Option<Arc<dyn agent_cell::AgentRunner>>,
+    /// Hard ceiling on how many times one document may be re-prepared because
+    /// an agent cell edited its source.
+    ///
+    /// `0` (the default) means "the number of agent cells this document
+    /// declared when it was first parsed", which is the bound the fixed point
+    /// implies: every re-preparation is caused by a distinct agent cell
+    /// running, and a cell runs at most once per pass. A positive value
+    /// overrides it. Exceeding the bound is a failure, not a truncation —
+    /// the same class of invariant as `max_turns`. See
+    /// `docs/guarantees/agent/re-preparation-terminates.md`.
+    pub max_agent_reprepares: usize,
 }
 
 /// Run the pipeline with real command execution through an [`Executor`].
@@ -695,12 +857,12 @@ pub async fn run_pipeline_live(
 
     let prepared = prepare_pipeline(sources, &authority, params)?;
     let PreparedPipeline {
-        documents,
+        mut documents,
         state,
-        container_defs,
-        container_images,
+        mut container_defs,
+        mut container_images,
         fork_registrations,
-        volumes: all_volume_decls,
+        volumes: mut all_volume_decls,
     } = prepared;
 
     // Register fork definitions with the executor
@@ -718,18 +880,10 @@ pub async fn run_pipeline_live(
         executor.declare_capabilities(name, caps.clone()).await?;
     }
 
-    // Collect <hick:expect> expectations per (container, exec source line).
-    let mut expect_specs: HashMap<(String, usize), (String, expect::ExpectSpec)> = HashMap::new();
-    for (name, doc) in &documents {
-        let specs = expect::collect_expectations(&doc.nodes)
-            .map_err(|e| anyhow::anyhow!("invalid <hick:expect> in {name}: {e}"))?;
-        for spec in specs {
-            expect_specs.insert(
-                (spec.container.clone(), spec.exec_line),
-                (name.to_string(), spec),
-            );
-        }
-    }
+    // Collect <hick:expect> expectations per cell. Keyed by `CellId` rather
+    // than by `(container, line)` so an agent cell — which has no container —
+    // can carry one too.
+    let mut expect_specs = collect_expect_specs(&documents)?;
     let mut expectations: Vec<ExpectationOutcome> = Vec::new();
     // Per-container source lines, in the order entries were appended.
     let mut exec_lines: HashMap<String, Vec<usize>> = HashMap::new();
@@ -748,42 +902,297 @@ pub async fn run_pipeline_live(
         .working_dir
         .clone()
         .unwrap_or_else(|| std::env::current_dir().unwrap_or_default());
-    for (vol_name, vol_decl) in &all_volume_decls {
-        match &vol_decl.kind {
-            hick_exec::volume::VolumeKind::Input { path }
-            | hick_exec::volume::VolumeKind::InputOutput { input: path, .. } => {
-                let abs_path = if Path::new(path).is_absolute() {
-                    PathBuf::from(path)
-                } else {
-                    working_dir.join(path)
-                };
-                if abs_path.is_dir() {
-                    info!(
-                        "Seeding input volume '{vol_name}' from {}",
-                        abs_path.display()
-                    );
-                    volume_store.seed_from_directory(vol_name, &abs_path)?;
-                } else {
-                    warn!(
-                        "Input volume '{vol_name}' path does not exist: {}",
-                        abs_path.display()
-                    );
-                }
-            }
-            _ => {}
-        }
-    }
+    seed_input_volumes(&mut volume_store, &all_volume_decls, &working_dir, &[])?;
 
-    for (name, doc) in &documents {
-        let flow_dag = dag::build_dag(doc)
+    for doc_index in 0..documents.len() {
+        let name = documents[doc_index].0;
+        let mut flow_dag = dag::build_dag(&documents[doc_index].1)
             .map_err(|e| anyhow::anyhow!("DAG validation failed in {name}: {e}"))?;
         info!(
             "DAG validated for {name}: {} exec nodes, running in topological order",
             flow_dag.execs.len()
         );
 
-        for exec_id in flow_dag.topological_order() {
-            let exec_info = flow_dag.execs.iter().find(|e| e.id == exec_id).unwrap();
+        // The re-preparation bound. An agent cell may edit the document it
+        // lives in, which changes the graph the rest of this pass runs
+        // against; the pipeline therefore re-prepares the document and resumes
+        // after that cell's barrier. Left unbounded, a document whose agent
+        // writes another agent cell re-prepares forever.
+        //
+        // Fixed point: a pass in which no agent cell edited the source.
+        // Bound: the number of agent cells the document declared when it was
+        // first parsed — every re-preparation is caused by a distinct agent
+        // cell running, and a cell runs at most once per pass. Exceeding it is
+        // a failure, not a truncation, exactly as an exhausted `max_turns` is.
+        // See docs/guarantees/agent/re-preparation-terminates.md.
+        let reprepare_budget = if config.max_agent_reprepares > 0 {
+            config.max_agent_reprepares
+        } else {
+            flow_dag.execs.iter().filter(|e| e.is_agent()).count()
+        };
+        let mut reprepares = 0usize;
+
+        let mut order = flow_dag.topological_order();
+        let mut cursor = 0usize;
+        while cursor < order.len() {
+            let exec_id = order[cursor];
+            cursor += 1;
+            // Cloned because an agent cell may replace `flow_dag` underneath
+            // us when it re-prepares the document.
+            let exec_info = flow_dag
+                .execs
+                .iter()
+                .find(|e| e.id == exec_id)
+                .unwrap()
+                .clone();
+            let exec_info = &exec_info;
+
+            if let Some(agent) = exec_info.agent.clone() {
+                let cell = CellId::containerless(exec_info.source_line);
+                let container = exec_info.container.clone();
+
+                // Freeze is decided exactly as it is for an exec cell — the
+                // point of exec placement is that an agent cell is covered by
+                // the same machinery, not by a parallel one.
+                let (serve_from_cache, require_cache) = match exec_info.freeze {
+                    Some(true) => (true, true),
+                    Some(false) => (false, false),
+                    None => (
+                        cache_config.is_some_and(|cc| cc.enabled),
+                        cache_config.is_some_and(|cc| cc.freeze),
+                    ),
+                };
+
+                if exec_info.freeze == Some(true) && cache_config.is_none() {
+                    if config.collect_unverifiable {
+                        never_run.insert(
+                            cell,
+                            NoBaseline::FrozenWithoutCacheDirectory {
+                                command: first_command_line(&agent.prompt),
+                            },
+                        );
+                        continue;
+                    }
+                    anyhow::bail!(
+                        "the agent cell at line {} declares freeze=\"true\", but this run has \
+                         no cache directory, so there is no recording to check it against.\n\
+                         Next steps: record it with `hickory run --cache <document.hick>` while \
+                         the cell is not frozen (set freeze=\"false\" for that one run), then \
+                         restore freeze=\"true\".",
+                        exec_info.source_line,
+                    );
+                }
+
+                // The model the recording is keyed on: what the cell declares,
+                // else what the configured runner says it would use. With
+                // neither there is no key to look anything up with — which is
+                // why a cell meant to be replayable in CI should declare
+                // `model=`.
+                let model = agent.model.clone().or_else(|| {
+                    config
+                        .agent_runner
+                        .as_ref()
+                        .map(|r| r.model_name().to_string())
+                });
+
+                let mut served = false;
+                if let (Some(cc), Some(model)) = (cache_config, model.as_deref())
+                    && (serve_from_cache || require_cache)
+                {
+                    let key = cache::agent_cache_key(model, &agent.prompt);
+                    if let Some(cached) = cache::cache_lookup(cc, &container, &key)? {
+                        info!("Cache hit for agent cell at line {}", exec_info.source_line);
+                        if let Some((doc_name, spec)) = expect_specs.get(&cell) {
+                            expectations.push(expect::evaluate(spec, doc_name, &cached.output));
+                        }
+                        executor.inject_transcript_entry(
+                            &container,
+                            ExecTranscriptEntry {
+                                commands: cached.commands,
+                                output: cached.output,
+                                events: Vec::new(),
+                                source_line: Some(exec_info.source_line),
+                            },
+                        );
+                        exec_lines
+                            .entry(container.clone())
+                            .or_default()
+                            .push(exec_info.source_line);
+                        served = true;
+                    } else if require_cache {
+                        if config.collect_unverifiable {
+                            never_run.insert(
+                                cell,
+                                NoBaseline::FrozenWithoutRecording {
+                                    command: first_command_line(&agent.prompt),
+                                    frozen_by_cell: exec_info.freeze == Some(true),
+                                },
+                            );
+                            continue;
+                        }
+                        anyhow::bail!(
+                            "no recorded answer for the agent cell at line {} (prompt: {}), and \
+                             it must not run.\n\
+                             Next steps: set freeze=\"false\" on the cell and run `hickory run \
+                             --cache <document.hick>` once to record it, then restore the freeze \
+                             declaration.\n\
+                             An agent recording is keyed by the prompt and the model together, \
+                             so editing either retires the old recording — this can also mean \
+                             \"the cell changed since it was recorded\".",
+                            exec_info.source_line,
+                            first_command_line(&agent.prompt),
+                        );
+                    }
+                }
+                if served {
+                    continue;
+                }
+
+                let Some(runner) = config.agent_runner.clone() else {
+                    if config.collect_unverifiable {
+                        never_run.insert(
+                            cell,
+                            NoBaseline::AgentWithoutRunner {
+                                prompt: first_command_line(&agent.prompt),
+                                model_declared: agent.model.is_some(),
+                            },
+                        );
+                        continue;
+                    }
+                    anyhow::bail!(
+                        "the agent cell at line {} needs a model to run, and this run has no \
+                         agent runner configured (prompt: {}).\n\
+                         Next steps: export the provider's API key (`ANTHROPIC_API_KEY`, or the \
+                         key for whichever provider you use) and re-run; or record the cell once \
+                         with `hickory run --cache` on a machine that has one, declare \
+                         model=\"…\" on the cell so the recording can be found, and commit the \
+                         recording.\n\
+                         Common cause: CI and the server's live preview deliberately run with no \
+                         credentials — an agent cell there is reported by `hickory test` as \
+                         unverifiable rather than executed.",
+                        exec_info.source_line,
+                        first_command_line(&agent.prompt),
+                    );
+                };
+
+                let outcome = runner
+                    .run(agent_cell::AgentRequest {
+                        doc_path: PathBuf::from(name),
+                        project_dir: working_dir.clone(),
+                        prompt: agent.prompt.clone(),
+                        max_turns: agent.max_turns,
+                        model: agent.model.clone(),
+                        source_line: exec_info.source_line,
+                    })
+                    .await
+                    .with_context(|| {
+                        format!(
+                            "the agent cell at line {} in {name} did not settle",
+                            exec_info.source_line
+                        )
+                    })?;
+
+                executor.inject_transcript_entry(
+                    &container,
+                    ExecTranscriptEntry {
+                        commands: vec![agent.prompt.trim().to_string()],
+                        output: outcome.summary.clone(),
+                        events: Vec::new(),
+                        source_line: Some(exec_info.source_line),
+                    },
+                );
+                exec_lines
+                    .entry(container.clone())
+                    .or_default()
+                    .push(exec_info.source_line);
+                if let Some((doc_name, spec)) = expect_specs.get(&cell) {
+                    expectations.push(expect::evaluate(spec, doc_name, &outcome.summary));
+                }
+                if let Some(cc) = cache_config
+                    && cc.enabled
+                {
+                    let key = cache::agent_cache_key(&outcome.model, &agent.prompt);
+                    cache::cache_store(
+                        cc,
+                        &container,
+                        &key,
+                        &cache::ExecCacheEntry {
+                            commands: vec![agent.prompt.trim().to_string()],
+                            output: outcome.summary.clone(),
+                            output_hash: cache::sha256_hex(&outcome.summary),
+                        },
+                    )?;
+                }
+
+                if !outcome.edited_source {
+                    continue;
+                }
+
+                // The agent changed the document. Everything after this cell
+                // is now a different graph, so re-prepare and resume after
+                // this cell's barrier — which is exactly the set of cells that
+                // have not run yet, because the barrier is what guarantees it.
+                reprepares += 1;
+                if reprepares > reprepare_budget {
+                    anyhow::bail!(
+                        "{name}: agent cells re-prepared the document {reprepares} times, past \
+                         the bound of {reprepare_budget}.\n\
+                         The bound is the number of agent cells the document declared when it \
+                         was first parsed, because each one runs at most once per pass — so \
+                         exceeding it means an agent authored another agent cell, and the \
+                         document has no fixed point.\n\
+                         Next steps: have the agent write `hick:file` and `hick:exec` cells \
+                         rather than another `hick:agent` cell, or raise the bound deliberately \
+                         if the extra round is intended.\n\
+                         This is the same class of invariant as max-turns: a run that cannot \
+                         reach a fixed point fails rather than reporting a partial result."
+                    );
+                }
+                info!(
+                    "{name}: agent cell {} edited the source; re-preparing (round {reprepares} \
+                     of {reprepare_budget})",
+                    agent.key()
+                );
+
+                let reprepared = reprepare_document(name, &state)?;
+                collect_container_defs(
+                    &reprepared.nodes,
+                    &mut container_defs,
+                    &mut container_images,
+                );
+                documents[doc_index].1 = reprepared;
+                flow_dag = dag::build_dag(&documents[doc_index].1)
+                    .map_err(|e| anyhow::anyhow!("DAG validation failed in {name}: {e}"))?;
+                for (vol_name, vol_decl) in &flow_dag.volumes {
+                    all_volume_decls
+                        .entry(vol_name.clone())
+                        .or_insert_with(|| vol_decl.clone());
+                }
+                // Pick up files the agent wrote, without discarding what
+                // earlier cells in this same pass already wrote into a volume.
+                let written: Vec<String> = volume_provenance.keys().cloned().collect();
+                seed_input_volumes(&mut volume_store, &all_volume_decls, &working_dir, &written)?;
+                expect_specs = collect_expect_specs(&documents)?;
+
+                order = flow_dag.topological_order();
+                let key = agent.key();
+                let resumed = flow_dag
+                    .execs
+                    .iter()
+                    .find(|e| e.agent.as_ref().is_some_and(|a| a.key() == key))
+                    .and_then(|e| order.iter().position(|id| *id == e.id));
+                cursor = match resumed {
+                    Some(pos) => pos + 1,
+                    None => anyhow::bail!(
+                        "{name}: the agent cell {key} edited the document and is no longer in \
+                         it, so the run cannot say where to resume.\n\
+                         Next steps: an agent cell must not delete or rename itself; give it an \
+                         id= so it stays identifiable across its own edits, and have it edit the \
+                         document around itself rather than over itself."
+                    ),
+                };
+                continue;
+            }
 
             // Precedence: an `image=` on the exec overrides the container's
             // declaration, which overrides the historical default.
@@ -861,7 +1270,7 @@ pub async fn run_pipeline_live(
                         &key[..12]
                     );
                     if let Some((doc_name, spec)) =
-                        expect_specs.get(&(exec_info.container.clone(), exec_info.source_line))
+                        expect_specs.get(&CellId::exec(&exec_info.container, exec_info.source_line))
                     {
                         expectations.push(expect::evaluate(spec, doc_name, &cached.output));
                     }
@@ -1070,7 +1479,7 @@ pub async fn run_pipeline_live(
                 // Evaluate the block's <hick:expect> expectation, if any.
                 // Failures are recorded, never fatal here — `check` decides.
                 if let Some((doc_name, spec)) =
-                    expect_specs.get(&(exec_info.container.clone(), exec_info.source_line))
+                    expect_specs.get(&CellId::exec(&exec_info.container, exec_info.source_line))
                 {
                     let outcome = expect::evaluate(spec, doc_name, &output);
                     if !outcome.passed {
@@ -1263,20 +1672,33 @@ pub async fn run_pipeline_weave(
             let info = flow_dag.execs.iter().find(|e| e.id == exec_id).unwrap();
             let commands: Vec<String> = vec![info.command.trim().to_string()];
 
-            let cached = if let Some(cc) = cache_config {
-                let image = info
-                    .image
-                    .as_deref()
-                    .or_else(|| container_images.get(&info.container).map(String::as_str))
-                    .unwrap_or(DEFAULT_IMAGE);
-                let caps_canonical = cache::canonical_caps(&container_defs, &info.container);
-                let secret_names = cache::secret_names_for(&container_defs, &info.container);
-                let secret_refs: Vec<&str> = secret_names.iter().map(|s| s.as_str()).collect();
-                let key =
-                    cache::exec_cache_key(image, &caps_canonical, &info.command, &secret_refs);
-                cache::cache_lookup(cc, &info.container, &key)?
-            } else {
-                None
+            let cached = match (cache_config, info.agent.as_ref()) {
+                // An agent cell replays only from its declared `model=`: the
+                // recording is keyed by prompt AND model, and weave has no
+                // runner to ask which model would have run. A cell that wants
+                // to be woven offline says which model wrote it.
+                (Some(cc), Some(agent)) => match agent.model.as_deref() {
+                    Some(model) => cache::cache_lookup(
+                        cc,
+                        &info.container,
+                        &cache::agent_cache_key(model, &agent.prompt),
+                    )?,
+                    None => None,
+                },
+                (Some(cc), None) => {
+                    let image = info
+                        .image
+                        .as_deref()
+                        .or_else(|| container_images.get(&info.container).map(String::as_str))
+                        .unwrap_or(DEFAULT_IMAGE);
+                    let caps_canonical = cache::canonical_caps(&container_defs, &info.container);
+                    let secret_names = cache::secret_names_for(&container_defs, &info.container);
+                    let secret_refs: Vec<&str> = secret_names.iter().map(|s| s.as_str()).collect();
+                    let key =
+                        cache::exec_cache_key(image, &caps_canonical, &info.command, &secret_refs);
+                    cache::cache_lookup(cc, &info.container, &key)?
+                }
+                (None, _) => None,
             };
 
             let entry = match cached {
@@ -1287,10 +1709,7 @@ pub async fn run_pipeline_weave(
                     source_line: Some(info.source_line),
                 },
                 None => {
-                    never_run.insert(
-                        CellId::exec(&info.container, info.source_line),
-                        NoBaseline::NotExecuted,
-                    );
+                    never_run.insert(cell_id_of(info), NoBaseline::NotExecuted);
                     ExecTranscriptEntry {
                         commands,
                         output: "[never run]".to_string(),

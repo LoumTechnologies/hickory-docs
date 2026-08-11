@@ -12,6 +12,18 @@ pub mod volume;
 /// Combines multiple async streams, emitting the latest merged value whenever any source updates.
 pub use combine_latest::DynamicCombineLatest;
 
+/// What a `<hick:agent>` cell declares: prompt, model, turn budget, identity.
+pub use dag::AgentCell;
+
+/// Identity of an agent cell that survives the agent editing its own document.
+pub use dag::AgentKey;
+
+/// The reserved synthetic container name of the agent cell at a given index.
+pub use dag::agent_container_name;
+
+/// Whether a container name is an agent cell's reserved synthetic name.
+pub use dag::is_agent_container;
+
 /// An edge in the information-flow DAG representing a dependency between exec elements.
 pub use dag::DagEdge;
 

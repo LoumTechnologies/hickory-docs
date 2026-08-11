@@ -286,7 +286,9 @@ fn print_run_summary(run: &DocRun, written: &[PathBuf]) {
         if !outcome.passed {
             eprintln!(
                 "  expectation FAILED ({} line {}): {}",
-                outcome.container, outcome.line, outcome.detail
+                outcome.container.as_deref().unwrap_or("agent cell"),
+                outcome.line,
+                outcome.detail
             );
         }
     }
@@ -379,7 +381,7 @@ async fn cmd_test(args: TestArgs) -> Result<ExitCode> {
                         "FAIL {}:{}{span} [container '{}', match {}]\n  {}\n  expected:\n{}\n  actual:\n{}",
                         o.doc,
                         o.line,
-                        o.container,
+                        o.container.as_deref().unwrap_or("agent cell"),
                         o.mode,
                         o.detail,
                         indent(&o.expected),

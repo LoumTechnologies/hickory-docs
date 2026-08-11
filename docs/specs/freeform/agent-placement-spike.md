@@ -3,10 +3,15 @@
 Status: **decided — exec** (2026-08-09). Closes the one open question in
 `docs/specs/freeform/agent-cells.md`; tracked as GitHub issue #4.
 
-Spike code: `crates/hickory-cli/tests/spike_agent_placement.rs` (11 tests, all
-passing, **zero API calls** — both arms are driven by `ScriptedLlmClient`).
-It is throwaway and is not wired into the `hickory` binary. Delete it when the
-losing placement is deleted.
+Spike code: `crates/hickory-cli/tests/spike_agent_placement.rs` — **deleted**
+(2026-08-10, issue #7), as it always said it would be once the losing placement
+was gone. It had 11 tests and made zero API calls; both arms were driven by
+`ScriptedLlmClient`. Deletion was forced as well as planned: `<hick:agent>` is
+now a real DAG vertex, so the spike's flow-arm *fixture document* is read by
+the product as an exec-placed cell and the flow arm can no longer be
+constructed. What the exec arm measured is now covered by shipped tests —
+`crates/hick-literate/tests/agent_cells.rs` and
+`crates/hickory-cli/tests/agent_cell_vertex.rs` — against the real vertex.
 
 ## The question
 
@@ -210,40 +215,69 @@ placement is not an experiment dimension, it is a decision.
 Not a close call, and not a "no clear winner" result: criteria 1 and 3 each
 end it independently, and 2, 4, and 5 point the same way.
 
-## What exec placement now owes
+## What exec placement owed — **paid** (issue #7, 2026-08-10)
 
-Recorded so the follow-up work is not discovered later:
+Recorded so the follow-up work was not discovered later. All five landed;
+`docs/guarantees/agent/` carries the reasoning for each decision.
 
-1. `ExecInfo.container` is a plain `String` and `command: String` — neither
-   describes an agent cell. `CellId.container` is already `Option<String>`
-   (`415d430`), so the pattern is set; `ExecInfo` has to follow, or the agent
-   cell gets a reserved synthetic container name and every consumer keyed on
-   `(container, source_line)` keeps working unchanged. Prefer the latter until
-   something forces the former.
-2. `build_dag`'s pass-1 match (`crates/hick-exec/src/dag.rs`) needs an
-   `"agent"` arm, and its edges must come from something other than
-   copy/paste and volumes — an agent cell's read-set and write-set are known
-   only after it runs.
-3. `cache::exec_cache_key(image, caps, command, secrets)` has no input that
-   describes an agent turn. A recording key for an agent cell has to include
-   the prompt and the model, or freeze silently verifies the wrong thing.
-4. Re-preparing the pipeline after an agent vertex edits the source needs a
-   declared fixed point and a bound, or a document with two agent cells can
-   re-prepare forever.
-5. `expect::collect_expectations` keys on `(container, exec_line)`; a
-   containerless cell needs a different key if `hick:expect` is ever allowed
-   on an agent cell.
+1. **`ExecInfo`.** The reserved synthetic name won, as predicted: an agent
+   cell is `_agent_<index>` with its prompt as the `command`, so the recording
+   directory, the transcript map, and the live exec hook keep working
+   unchanged. `ExecInfo` gained exactly one additive field —
+   `agent: Option<AgentCell>` — and `container`/`command` were not
+   restructured. Identity is containerless (`CellId::containerless`); storage
+   is named.
+2. **`build_dag`'s `"agent"` arm.** Its edges are a **barrier**: everything
+   before precedes, everything after follows. An agent's read/write set is
+   knowable only after it runs, and the barrier is the sound closure over an
+   unknown one — which is also what buys criterion 3(b) in one pass. See
+   `docs/guarantees/agent/an-agent-cell-is-a-dag-barrier.md`.
+3. **The recording key.** `cache::agent_cache_key(model, prompt)`, with its own
+   domain separator so it cannot collide with `exec_cache_key`. `max-turns` is
+   deliberately out of the key. A cell that wants to replay without
+   credentials declares `model=`. See
+   `docs/guarantees/agent/an-agent-recording-is-keyed-by-prompt-and-model.md`.
+4. **Re-preparation.** Fixed point: a pass that reaches the end of the
+   topological order with no agent cell having edited the source. Bound: the
+   number of agent cells declared at first parse, which is what the fixed
+   point implies. Exceeding it fails, exactly as an exhausted `max_turns`
+   does. See `docs/guarantees/agent/re-preparation-terminates.md`.
+5. **`expect::collect_expectations`.** Keys on `CellId`, and collects from
+   `<hick:agent>` as well as `<hick:exec>` — the same generalization
+   `never_run` already had.
 
-## Threat to validity
+One thing the spike did not anticipate came out of doing it: **`hickory test`
+gets no agent runner at all**, even on a machine holding an API key. A verifier
+that spends the reader's tokens cannot safely be pointed at someone else's
+document, and re-running a nondeterministic cell would not be a verification
+anyway. See `docs/guarantees/agent/test-never-spends-tokens.md`.
 
-The exec arm models "runs before the output phase" by running the loop before
+## Threat to validity — **closed** (issue #7, 2026-08-10)
+
+The exec arm modelled "runs before the output phase" by running the loop before
 `run_pipeline_weave` / `run_doc` rather than from inside the topological loop,
-because putting it inside the loop requires the `build_dag` and `ExecInfo`
-changes listed above — which is work the spike deliberately does not do. The
-ordering property being measured (exec phase strictly precedes output phase)
-is a property of `run_pipeline_live`'s control flow, not of where the call
-sits, so the substitution does not affect criteria 2, 3, or 5. It does mean
-criterion 4's exec half is measured on a *frozen exec cell* standing in for an
-agent cell rather than on a real agent vertex; the claim it supports — one
-unverifiable cell is reported rather than fatal, and the rest of the document
-still weaves — is a property of the loop the agent vertex would live in.
+because putting it inside the loop required the `build_dag` and `ExecInfo`
+changes listed above — work the spike deliberately did not do. The ordering
+property being measured (exec phase strictly precedes output phase) is a
+property of `run_pipeline_live`'s control flow, not of where the call sits, so
+the substitution did not affect criteria 2, 3, or 5. It did mean criterion 4's
+exec half was measured on a *frozen exec cell* standing in for an agent cell.
+
+The vertex now runs from inside the topological loop, and the substituted
+measurements have been retaken against it:
+
+- **Criterion 3(b)** — `an_exec_the_agent_writes_runs_in_the_same_pass` and
+  `the_shipped_runner_settles_the_vertex_and_its_edit_lands_in_the_document`:
+  a cell the agent authors runs in the same pass, via the re-preparation at the
+  agent's barrier.
+- **Criterion 4** — `an_agent_cell_without_a_runner_is_unverifiable_not_fatal`:
+  measured on a real agent vertex, not a stand-in. One unverifiable cell is
+  named and the rest of the document still weaves.
+- **Criterion 1** — `test_reports_an_agent_cell_with_no_baseline_as_unverifiable`
+  and `a_recorded_agent_cell_verifies_without_a_model`: both directions, on the
+  real cell, through the shipped `run_doc`.
+
+The one substitution that remains is deliberate rather than owed: the flow arm
+is gone, so the comparison itself is no longer reproducible. It does not need
+to be — placement was a decision, not an experiment dimension, and the losing
+side has been deleted from the product.

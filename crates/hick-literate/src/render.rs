@@ -191,7 +191,7 @@ fn exec_block(
     let outcome = input
         .expectations
         .iter()
-        .find(|o| o.container == container && o.line == line);
+        .find(|o| o.container.as_deref() == Some(container.as_str()) && o.line == line);
 
     let status = if input
         .never_run

@@ -15,6 +15,7 @@ path = "src/lib.rs"
 
 [dependencies]
 anyhow = "1"
+async-trait = "0.1"
 clap = { version = "4", features = ["derive"] }
 env_logger = "0.11"
 hick-exec.workspace = true
@@ -32,8 +33,6 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 
 [dev-dependencies]
 tempfile = "3"
-# Agent-origin provenance spans are constructed synthetically in
-# tests/agent_lineage.rs until the `hick:agent` DAG vertex lands (issue #7).
+# tests/agent_lineage.rs constructs `SourceOrigin::Agent` spans directly, to
+# exercise the lineage read path independently of an agent run.
 hick-flow = { path = "../hick-flow", features = ["serde"] }
-# SPIKE ONLY (issue #4, tests/spike_agent_placement.rs). Remove with the spike.
-futures = "0.3"
