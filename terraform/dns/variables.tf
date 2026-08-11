@@ -31,3 +31,22 @@ variable "proxied" {
   type        = bool
   default     = false
 }
+
+variable "relay_fly_ipv4" {
+  description = <<-EOT
+    Fly's shared IPv4 ingress for the RELAY app (hickory-relay-production).
+    Usually the same shared address as the workspace app — Fly routes on SNI —
+    but kept separate so the two can diverge without editing records by hand.
+  EOT
+  type        = string
+  default     = "66.241.125.95"
+}
+
+variable "relay_fly_ipv6" {
+  description = <<-EOT
+    Fly's dedicated IPv6 ingress for the relay app. Get it from
+    `fly ips list -a hickory-relay-production` after the first deploy; a
+    dedicated v6 is allocated automatically and is free.
+  EOT
+  type        = string
+}

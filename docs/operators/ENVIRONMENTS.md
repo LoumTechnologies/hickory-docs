@@ -59,6 +59,20 @@ allowance (Team, Business). Accounts on `byo_key` plans never reach it — see
 | `ANTHROPIC_API_KEY` | Enables the server-side agent (hickory-agent ReAct loop; sessions stream on the WS run channel and persist as `hick:session` docs in the project git repo) |
 | `ANTHROPIC_BASE_URL` | Messages endpoint for the agent. Defaults to `https://api.anthropic.com/v1/messages`; `count_tokens` follows the same host. Set it for an enterprise gateway or proxy — or for a local endpoint that records requests, which is how the conversation tests run without a real key |
 
+## The relay (`hickory-relay-production` — a separate Fly app)
+
+Set on the relay app, not the workspace app. See
+`docs/operators/deploy-relay.md`.
+
+| Variable | Required | Notes |
+|---|---|---|
+| `RELAY_APEX` | yes | The domain sessions hang off (`relay.hickorydocs.com`). Must match the wildcard DNS record and certificate; the relay cannot guess its own public name |
+| `RELAY_TOKEN_SECRET` | yes (≥32 bytes) | Signs every token the relay issues. **Stable across restarts** — a new value signs everyone out. `openssl rand -base64 48` |
+| `RELAY_DATABASE_URL` | yes in practice | SQLite for the accounts table, e.g. `sqlite:///data/relay.db?mode=rwc` on the mounted volume. Absent, existing tokens still work but nobody new can sign in |
+| `RELAY_SCHEME` | no (`https`) | `http` only for a relay running locally without TLS |
+| `GH_OAUTH_CLIENT_ID` | no | Enables GitHub sign-in. Absent, the relay offers email/password only and the CLI hides the GitHub option entirely. Device flow needs no client secret |
+| `GITHUB_API_BASE` | no | Override for testing against a stand-in |
+
 ## Analytics (optional — absent ⇒ capture is a no-op)
 
 | Variable | Notes |

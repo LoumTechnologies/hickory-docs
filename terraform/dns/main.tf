@@ -54,6 +54,63 @@ resource "cloudflare_dns_record" "www_v6" {
   comment = "Fly.io ingress — hickory-docs-production"
 }
 
+# --- the relay ---------------------------------------------------------------
+#
+# Every collaborative session opened with `hickory serve --public` is reachable
+# at <slug>.relay.hickorydocs.com, where the slug is minted per session. That
+# is why this is a WILDCARD rather than a list: the names are created and
+# destroyed by people running a CLI, and a DNS change per session would make
+# the feature unusable.
+#
+# `relay.hickorydocs.com` itself is the apex the CLI signs in and dials
+# through; it is not a page anyone visits.
+#
+# NOT proxied, and this one cannot be reconsidered later the way the app
+# records can: the tunnel is a long-lived WebSocket carrying every guest's
+# traffic, and putting Cloudflare's proxy in front of it adds a second
+# terminator with its own idle timeouts between two ends that are already
+# talking over TLS.
+
+resource "cloudflare_dns_record" "relay_v4" {
+  zone_id = var.zone_id
+  name    = "relay.hickorydocs.com"
+  type    = "A"
+  content = var.relay_fly_ipv4
+  ttl     = 1
+  proxied = false
+  comment = "Fly.io ingress — hickory-relay-production"
+}
+
+resource "cloudflare_dns_record" "relay_v6" {
+  zone_id = var.zone_id
+  name    = "relay.hickorydocs.com"
+  type    = "AAAA"
+  content = var.relay_fly_ipv6
+  ttl     = 1
+  proxied = false
+  comment = "Fly.io ingress — hickory-relay-production"
+}
+
+resource "cloudflare_dns_record" "relay_wildcard_v4" {
+  zone_id = var.zone_id
+  name    = "*.relay.hickorydocs.com"
+  type    = "A"
+  content = var.relay_fly_ipv4
+  ttl     = 1
+  proxied = false
+  comment = "Session addresses — one per `hickory serve --public`"
+}
+
+resource "cloudflare_dns_record" "relay_wildcard_v6" {
+  zone_id = var.zone_id
+  name    = "*.relay.hickorydocs.com"
+  type    = "AAAA"
+  content = var.relay_fly_ipv6
+  ttl     = 1
+  proxied = false
+  comment = "Session addresses — one per `hickory serve --public`"
+}
+
 # --- outbound mail (SendGrid) ------------------------------------------------
 #
 # SendGrid Domain Authentication. Created through SendGrid's UI and imported

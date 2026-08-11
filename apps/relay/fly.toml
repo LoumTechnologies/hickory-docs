@@ -1,0 +1,62 @@
+# The relay — a second Fly app, sharing nothing with the hosted workspace.
+#
+# Separate on purpose: `local-first.md` expects the workspace to retire and the
+# relay to outlive it. An app that shared its machine would have to be
+# disentangled later, at exactly the moment nobody wants to be doing that.
+#
+# Deploy from the repository root:
+#   fly deploy --config apps/relay/fly.toml --dockerfile apps/relay/Dockerfile
+
+app = "hickory-relay-production"
+primary_region = "iad"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  # The domain sessions hang off. A tunnel is reachable at <slug>.<RELAY_APEX>,
+  # so this must match the wildcard DNS record and the certificate.
+  RELAY_APEX = "relay.hickorydocs.com"
+  RELAY_SCHEME = "https"
+  # Accounts. SQLite on the volume below — one table, and the only thing this
+  # process persists.
+  RELAY_DATABASE_URL = "sqlite:///data/relay.db?mode=rwc"
+  PORT = "8080"
+
+# Accounts outlive the machine. Without this mount, every restart forgets
+# everyone who ever signed in — and unlike the tunnels, that is data nobody can
+# recreate by reconnecting.
+[[mounts]]
+  source = "relay_data"
+  destination = "/data"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  # NOT scale-to-zero, unlike the workspace app. A relay that stopped when idle
+  # would drop every open tunnel the moment traffic paused, and a guest's next
+  # request would arrive at a machine that had forgotten the session existed.
+  # The cost of an always-on shared-cpu-1x is the price of a link that keeps
+  # working while two people think about a document.
+  auto_stop_machines = "off"
+  auto_start_machines = true
+  min_machines_running = 1
+  processes = ["app"]
+
+  [http_service.concurrency]
+    # Every guest connection is a stream on a long-lived socket, so connections
+    # — not requests — are the meaningful limit.
+    type = "connections"
+    hard_limit = 400
+    soft_limit = 300
+
+  [[http_service.checks]]
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "10s"
+    method = "GET"
+    path = "/_relay/health"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
