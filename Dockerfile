@@ -20,8 +20,12 @@ WORKDIR /src
 COPY Cargo.toml Cargo.lock plans.json ./
 COPY crates/ crates/
 COPY apps/server/ apps/server/
-# The workspace lists apps/server as its only app member needed here; prune
-# nothing — a full copy keeps the build simple and correct.
+# The relay is a workspace member, so cargo needs its manifest present even to
+# build a different package — without it the build dies on "failed to load
+# manifest for workspace member". Its source comes along because a manifest
+# pointing at absent code fails just as hard; the relay's own image is built
+# from apps/relay/Dockerfile and this copy costs a few kilobytes.
+COPY apps/relay/ apps/relay/
 RUN cargo build --release -p hickory-server -p hick-lsp
 
 # --- runtime ---
