@@ -16,9 +16,13 @@ RUN cargo build --release -p hickory-relay-server
 
 # --- runtime ---
 FROM debian:bookworm-slim
-# ca-certificates only: the relay's one outbound call is to GitHub, at sign-in.
+# ca-certificates for the one outbound call (GitHub, at sign-in), and the
+# sqlite3 CLI because the accounts table is the only thing here worth backing
+# up — and `.backup` against a live database is the only correct way to do it.
+# Copying the file out from under an open connection can catch a half-written
+# page; a 1.5 MB binary is a cheap way not to find that out during an incident.
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates \
+    && apt-get install -y --no-install-recommends ca-certificates sqlite3 \
     && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 COPY --from=build /src/target/release/hickory-relay-server /app/hickory-relay-server
