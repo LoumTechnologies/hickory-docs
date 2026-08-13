@@ -123,6 +123,33 @@ jobs:
             exit 1
           fi
 
+      - name: Check the state-backend credentials
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        # Same reasoning as the account id above: a malformed key surfaces from
+        # the S3 API as `InvalidArgument: Credential access key has length 1,
+        # should be 32` during `init`, which reads like a Terraform or backend
+        # fault rather than a secret that was never set properly. R2 access key
+        # ids are 32 hex characters; the secret is longer and not fixed-width,
+        # so it is only checked for being plausibly present.
+        run: |
+          if ! printf '%s' "$R2_ACCESS_KEY_ID" | grep -qE '^[0-9a-f]{32}$'; then
+            echo "::error::R2_ACCESS_KEY_ID is not a 32-character hex R2 access key id."
+            echo "Mint a pair in the Cloudflare dashboard → R2 → API →"
+            echo "Manage API Tokens → Create API Token, with Object Read & Write"
+            echo "on the hickorydocs-terraform-state bucket. Then, in BOTH"
+            echo "environments, and with printf so no newline is appended:"
+            echo "  printf '%s' <access-key-id> | gh secret set R2_ACCESS_KEY_ID --env production-plan"
+            echo "  printf '%s' <access-key-id> | gh secret set R2_ACCESS_KEY_ID --env production"
+            exit 1
+          fi
+          if [ "$(printf '%s' "$R2_SECRET_ACCESS_KEY" | wc -c)" -lt 32 ]; then
+            echo "::error::R2_SECRET_ACCESS_KEY looks too short to be an R2 secret."
+            echo "It is issued alongside the access key id; set both together."
+            exit 1
+          fi
+
       - name: Init
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
@@ -248,6 +275,33 @@ jobs:
             echo "whitespace or newline. Fix it in BOTH GitHub Environments:"
             echo "  printf '%s' <account-id> | gh secret set R2_ACCOUNT_ID --env production-plan"
             echo "  printf '%s' <account-id> | gh secret set R2_ACCOUNT_ID --env production"
+            exit 1
+          fi
+
+      - name: Check the state-backend credentials
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        # Same reasoning as the account id above: a malformed key surfaces from
+        # the S3 API as `InvalidArgument: Credential access key has length 1,
+        # should be 32` during `init`, which reads like a Terraform or backend
+        # fault rather than a secret that was never set properly. R2 access key
+        # ids are 32 hex characters; the secret is longer and not fixed-width,
+        # so it is only checked for being plausibly present.
+        run: |
+          if ! printf '%s' "$R2_ACCESS_KEY_ID" | grep -qE '^[0-9a-f]{32}$'; then
+            echo "::error::R2_ACCESS_KEY_ID is not a 32-character hex R2 access key id."
+            echo "Mint a pair in the Cloudflare dashboard → R2 → API →"
+            echo "Manage API Tokens → Create API Token, with Object Read & Write"
+            echo "on the hickorydocs-terraform-state bucket. Then, in BOTH"
+            echo "environments, and with printf so no newline is appended:"
+            echo "  printf '%s' <access-key-id> | gh secret set R2_ACCESS_KEY_ID --env production-plan"
+            echo "  printf '%s' <access-key-id> | gh secret set R2_ACCESS_KEY_ID --env production"
+            exit 1
+          fi
+          if [ "$(printf '%s' "$R2_SECRET_ACCESS_KEY" | wc -c)" -lt 32 ]; then
+            echo "::error::R2_SECRET_ACCESS_KEY looks too short to be an R2 secret."
+            echo "It is issued alongside the access key id; set both together."
             exit 1
           fi
 

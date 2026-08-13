@@ -5,6 +5,15 @@ posted on pull requests; applying is a gated `workflow_dispatch`, because this
 zone serves production and `plan-deploy-shared` puts production changes behind
 a gate rather than a branch push.
 
+## State of play
+
+**This zone is already under Terraform management.** Every record it owns
+carries the `comment` its resource sets, which is how you can tell from the
+dashboard alone that they were not made by hand. State lives in R2 and a
+previous apply succeeded, so a DNS change is an ordinary `plan` then `apply` —
+the bootstrap below is history, kept for the reasoning rather than as a
+procedure to repeat.
+
 ## Read this before the first apply
 
 **Clear the zone first.** Cloudflare currently holds apex and `www` records
