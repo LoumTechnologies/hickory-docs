@@ -113,14 +113,17 @@ stdin, rather than into a file.
 Only after a deploy has succeeded and the `*.pages.dev` URL serves the page:
 
 ```sh
-cd terraform/dns
-export CLOUDFLARE_API_TOKEN=…          # the zone-scoped one, not the Pages token
-export TF_VAR_zone_id=90bc4539c95be534f2533ff909949627
-export AWS_ACCESS_KEY_ID=…             # R2_ACCESS_KEY_ID
-export AWS_SECRET_ACCESS_KEY=…         # R2_SECRET_ACCESS_KEY
-terraform init -backend-config='endpoints={s3="https://437ea403f048c8547b4242bf10b891c5.r2.cloudflarestorage.com"}'
-terraform apply
+gh workflow run terraform.yml -f stack=dns -f apply=false   # plan
+gh run watch
+# read the plan — apex and www become proxied CNAMEs, SendGrid and DMARC
+# untouched — then:
+gh workflow run terraform.yml -f stack=dns -f apply=true
 ```
+
+Through the workflow rather than locally: the credentials are already in the
+GitHub environments, and the workflow pins the Terraform version. A local
+`apply` from a newer binary would stamp the state with a version CI can no
+longer read. See `docs/operators/dns.md` for running it locally anyway.
 
 `pages_hostname` defaults to the project name the workflow creates, so there is
 nothing to pass.

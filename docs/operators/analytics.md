@@ -56,19 +56,18 @@ same environment the app deploy uses — see "Environments" below.
 Terraform knows the write key; the **Deploy Site** workflow needs it to build
 the bundle. No provider bridges the two, so the hand-off is explicit:
 
-```sh
-cd terraform/posthog
-export AWS_ACCESS_KEY_ID=…      # R2_ACCESS_KEY_ID
-export AWS_SECRET_ACCESS_KEY=…  # R2_SECRET_ACCESS_KEY
-terraform init -backend-config='endpoints={s3="https://437ea403f048c8547b4242bf10b891c5.r2.cloudflarestorage.com"}'
+Take it from the **PostHog dashboard**: Project Settings → Project ID / API
+key, or Settings → Project → General. It is the `phc_…` value.
 
-terraform output -raw project_api_key
+```sh
 gh secret set POSTHOG_KEY --env production   # paste it
 ```
 
-`terraform output` needs the backend initialised, and the backend needs that
-endpoint: the state is in R2, and R2's endpoint embeds the account id, so it is
-passed at init rather than committed.
+It is *also* a `terraform output` of the `posthog` stack, but do not get it
+that way. Printing it from the Terraform workflow would write a live
+credential into CI logs, and reading it locally needs the R2 state
+credentials — a lot of ceremony to retrieve a value the dashboard shows on
+one screen.
 
 Check it is a `phc_…` **project** key before pasting. A `phx_…` personal key
 can create and destroy projects and must never reach a browser bundle; `just

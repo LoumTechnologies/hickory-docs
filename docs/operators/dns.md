@@ -70,19 +70,49 @@ MX records, and the SPF TXT. (Check nothing else is using the domain first —
 
 **6. First plan and apply.**
 
-The state lives in R2, which is S3-compatible but needs its endpoint passed at
-init time — it embeds the account id, so it is not in the committed config.
+**Run it through the workflow, not locally:**
+
+```sh
+gh workflow run terraform.yml -f stack=dns -f apply=false   # plan
+gh run watch
+# read the plan, then:
+gh workflow run terraform.yml -f stack=dns -f apply=true
+```
+
+The credentials are already in the `production-plan` and `production`
+environments, so there is nothing to fetch, and the workflow pins the
+Terraform version.
+
+**That pin is the reason to prefer it.** CI runs `TF_VERSION` (1.9.8); a
+workstation is likely to have something much newer. Terraform stamps the
+version into state and refuses to read state written by a newer one — so a
+single local `apply` from a newer binary locks CI out of the state until
+someone upgrades the pin. The state is shared; the binary that writes it
+should be too.
+
+### Running it locally anyway
+
+Sometimes you need `terraform output`, or to debug a plan interactively. Then
+you need the R2 credentials — which cannot be read back out of GitHub, so
+either you have them saved or you mint a fresh pair (Cloudflare → **R2** →
+**Manage R2 API Tokens** → **Create API Token**, Object Read & Write on
+`hickorydocs-terraform-state`). Creating a new pair does not invalidate the
+old one.
 
 ```sh
 cd terraform/dns
 export CLOUDFLARE_API_TOKEN=…          # Zone:DNS:Edit + Zone:Zone:Read
 export TF_VAR_zone_id=90bc4539c95be534f2533ff909949627
-export AWS_ACCESS_KEY_ID=…             # R2_ACCESS_KEY_ID
-export AWS_SECRET_ACCESS_KEY=…         # R2_SECRET_ACCESS_KEY
+export AWS_ACCESS_KEY_ID=…             # the R2 access key id
+export AWS_SECRET_ACCESS_KEY=…         # the R2 secret
 
 terraform init -backend-config='endpoints={s3="https://437ea403f048c8547b4242bf10b891c5.r2.cloudflarestorage.com"}'
 terraform plan
 ```
+
+Match the pinned version if you intend to `apply` (`tfenv install 1.9.8`, or
+bump `TF_VERSION` in the workflow and let CI move first). `plan` and `output`
+are read-only and safe from any version.
 
 The same `init` line works for `terraform/posthog`, which shares the bucket
 under a different key.
