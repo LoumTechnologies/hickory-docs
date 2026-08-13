@@ -128,9 +128,9 @@ decision made during the port:
   than stubbed; the transcript builder (`src/transcript.rs`) it fed is kept.
 - **`src/main.rs` and `src/bin/{hick-equiv,hick-compact,hick-promote}.rs`**
   — the old `hick` binary and helper bins are superseded by
-  `crates/hickory-cli` (`hickory`). The library modules they exposed
+  `crates/hickory-cli` (`hick`). The library modules they exposed
   (`equiv`, `compact`, `promote`, `generate_matrix`, `pipeline`, `watch`)
-  remain; `hickory promote` wires the vendored promote cleanly.
+  remain; `hick promote` wires the vendored promote cleanly.
 
 ## Stubbed / degraded
 
@@ -176,7 +176,7 @@ decision made during the port:
   and `LocalExecutor` (containers = per-run temp workdirs, `sh -c` per exec,
   volumes = tar in/out, **no sandboxing, images ignored** — loudly documented
   in the crate docs).
-- **`crates/hickory-cli`** — the `hickory` binary (`run`, `check`, `weave`,
+- **`crates/hickory-cli`** — the `hick` binary (`run`, `check`, `weave`,
   `promote`, `--param`, `--out`, `--json`) with its logic in a library
   (`hickory_cli`) so the server can call the same code paths. Executor
   selection via `HICKORY_EXECUTOR=local|canopy` (canopy errors "not yet
@@ -207,7 +207,7 @@ not a byte-for-byte vendor:
   `XmlSessionLog` (a purpose-built `log:` namespace bundle) was replaced by
   `HickSessionLog`, which writes `hick:session` documents directly so
   sessions parse with `hick_lang::parse_session` and promote with
-  `hickory promote`.
+  `hick promote`.
 - **Adapted**: the old wasm `ContainerBackend` execution was replaced by an
   adapter over `hickory_executor::Executor` — scripts are written into the
   agent container's workspace via `execute_with_stdin` and run as

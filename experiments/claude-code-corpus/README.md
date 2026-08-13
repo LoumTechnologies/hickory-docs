@@ -9,7 +9,7 @@ person's machine. CI has no such logs, so the assertions would be measuring an
 empty set — and a document that asserts nothing is worse than no document.
 
 ```sh
-hickory run experiments/claude-code-corpus/claude-code-corpus.hick
+hick run experiments/claude-code-corpus/claude-code-corpus.hick
 ```
 
 The woven report is marked `volatile="true"`: the corpus grows every time the

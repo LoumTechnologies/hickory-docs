@@ -298,7 +298,7 @@ pub async fn run_agent(
                         name: invocation.name.clone(),
                         ok: false,
                         text: "no primary document in this session — document tools need \
-                               `hickory agent --doc <file.hick>`; use a script instead"
+                               `hick agent --doc <file.hick>`; use a script instead"
                             .to_string(),
                     },
                 };

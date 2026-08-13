@@ -69,8 +69,8 @@ jobs:
 
       - uses: actions/download-artifact@v4
         with:
-          # Every hickory-<target> artifact the build matrix uploaded.
-          pattern: hickory-*
+          # Every hick-<target> artifact the build matrix uploaded.
+          pattern: hick-*
           merge-multiple: true
           path: dist
 
@@ -96,7 +96,7 @@ jobs:
             "curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/master/scripts/install.sh | HICKORY_CHANNEL=unstable sh" \
             '```' \
             "" \
-            "Every archive also contains \`examples/\`, so \`hickory test examples/\`" \
+            "Every archive also contains \`examples/\`, so \`hick test examples/\`" \
             "works straight out of it — see the repository README." )
 
           # Replaced wholesale, not edited: asset names carry the commit

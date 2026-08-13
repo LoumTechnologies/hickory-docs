@@ -1,7 +1,7 @@
 //! Anthropic Message Batches API client (E5: verification fan-out).
 //!
 //! Batches are 50% cheaper than interactive calls and latency-insensitive —
-//! exactly the shape of `hickory test` across many documents. Results
+//! exactly the shape of `hick test` across many documents. Results
 //! arrive in ANY order, so everything is keyed by `custom_id`; poll until
 //! `processing_status == "ended"`, then fetch the results JSONL.
 //!
@@ -11,7 +11,7 @@
 //! rest. Inside a batch the scheduler decides; do not rely on cache reads
 //! between batch entries.
 //!
-//! Wiring into `hickory test` itself lives in `hickory-cli` (owned by
+//! Wiring into `hick test` itself lives in `hickory-cli` (owned by
 //! another workstream); this client is the complete transport it needs:
 //! build one [`BatchEntry`] per document's verification prompt, `submit`,
 //! `wait_until_ended`, `results`, and key pass/fail by document path used

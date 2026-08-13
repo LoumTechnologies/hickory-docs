@@ -6,17 +6,15 @@
 // can never silently receive `undefined` from a typo'd variable name
 // (.instructions/config-and-environments.md).
 //
-// One bundle, three deployments:
+// One source tree, two builds:
 //
-// - **static site** (marketing): no API, no accounts, no billing. The default.
-// - **hosted app** (hickorydocs.com): accounts and Stripe exist, so the app
-//   offers them. `VITE_HOSTED=1`, set by the deploy image's build.
-// - **`hickory serve`**: the same default build, opened with a session token
-//   injected into the HTML — it never sees the landing or pricing pages.
+// - **the static site** (`site.html`): the marketing page and its in-browser
+//   demos. No API client, no accounts, nothing to buy. Deployed to
+//   hickorydocs.com.
+// - **the desktop app** (`index.html`): the editor, bundled by Tauri and
+//   talking only to the local server in its own process.
 //
-// Local-first (docs/specs/freeform/local-first.md) is why the *default* is the
-// one with no server: the product is the binary, and the hosted workspace is
-// the exception that has to ask for itself.
+// There is no third. See `docs/specs/freeform/local-only.md`.
 
 /** PostHog project write keys are `phc_…`. */
 const PROJECT_KEY_PREFIX = "phc_";
@@ -48,8 +46,6 @@ function readPosthogKey(): string | null {
 export interface WebConfig {
   /** Demo profile: no network at all (`npm run dev:mock`). */
   readonly mock: boolean;
-  /** This build is served by the hosted app, which has accounts and billing. */
-  readonly hosted: boolean;
   /** PostHog project write key; `null` disables browser-side capture. */
   readonly posthogKey: string | null;
   readonly posthogHost: string;
@@ -59,7 +55,6 @@ export interface WebConfig {
 
 export const config: WebConfig = Object.freeze({
   mock: import.meta.env.VITE_MOCK === "1",
-  hosted: import.meta.env.VITE_HOSTED === "1",
   posthogKey: readPosthogKey(),
   posthogHost: (import.meta.env.VITE_POSTHOG_HOST ?? "https://us.i.posthog.com").replace(
     /\/+$/,

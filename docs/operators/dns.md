@@ -11,11 +11,11 @@ a gate rather than a branch push.
 pointing at its own proxy, a wildcard `*.hickorydocs.com`, Porkbun MX records
 and an SPF TXT record. None of it is in use, and all of it is going away.
 
-This matters mechanically, not just tidily: Cloudflare permits several A
-records on one name, so applying over the existing apex records would **add**
-Fly's addresses beside them rather than replace them. The domain would then
-round-robin between Fly and an origin that is not there, and roughly half of
-all requests would fail.
+This matters mechanically, not just tidily: Cloudflare permits several records
+on one name, so applying over an existing apex would **add** the new target
+beside the old one rather than replace it. The domain would then round-robin
+between Pages and an origin that is not there, and roughly half of all requests
+would fail.
 
 Deleting the old records first — rather than importing them — is what lets
 `terraform/dns/main.tf` be the whole truth about this zone. Nothing is
@@ -124,15 +124,25 @@ includes merge into a *single* record. Never add a second.
 
 ## Records not managed here, and why
 
-- **Fly's ACME challenge.** Handled by Fly against the A/AAAA records; nothing
-  to add.
+- **The Pages project itself.** Creating it needs an account-scoped API token;
+  the token this stack uses is scoped to one zone's DNS and nothing else. See
+  `static-site.md` for the one-time setup.
+- **Pages' certificate.** Cloudflare issues and renews it for a custom domain
+  attached to the project. Nothing to add, and nothing to remember to renew.
 
 ## Proxying
 
-`var.proxied` is `false` and must stay false until `fly certs check
-hickorydocs.com` reports the certificate issued. A proxied record makes
-Cloudflare answer the ACME challenge with its own certificate, so Fly's
-issuance never completes. Turning it on afterwards is possible, but it also
-places a second TLS terminator in front of the WebSocket connections the
-collaborative editor uses — worth being deliberate about rather than leaving on
-by default.
+The site records are **proxied** (`proxied = true`), and this is not optional.
+Cloudflare Pages has no fixed origin address, so the records are CNAMEs to the
+project's `*.pages.dev` hostname; unproxied, that resolves but serves *that*
+hostname's certificate rather than ours.
+
+This is a reversal of the previous arrangement, which kept proxying off so an
+origin server could complete its own ACME challenge and so no second TLS
+terminator sat in front of the editor's WebSockets. Both reasons are gone:
+there is no origin server, and the editor's WebSocket now runs on the user's
+own machine over loopback, which never crosses a network at all.
+
+The apex being a CNAME is only legal because Cloudflare flattens it at the
+edge. Moving this zone to a registrar without CNAME flattening would mean
+finding an A record for a service that does not publish one.

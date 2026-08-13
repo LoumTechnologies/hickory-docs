@@ -1,4 +1,4 @@
-//! Library core of the `hickory` CLI.
+//! Library core of the `hick` CLI.
 //!
 //! The binary (`src/main.rs`) is a thin argument parser over these functions,
 //! so the server can drive the same run/check/weave/render code paths via
@@ -8,11 +8,11 @@ pub mod agent_cell_runner;
 pub mod agent_lineage;
 pub mod doc_tools;
 pub mod init;
-pub mod login;
 pub mod mcp;
 pub mod serve;
+pub mod up;
 
-/// `hickory init` entry points: idempotent local git-repo setup.
+/// `hick init` entry points: idempotent local git-repo setup.
 pub use init::{InitReport, print_init_report, run_init};
 
 /// Lineage for agent-authored bytes: session + turn from provenance,
@@ -47,7 +47,7 @@ pub enum ExecutorChoice {
 
 impl ExecutorChoice {
     /// The name this backend is known by — the `HICKORY_EXECUTOR` value, the
-    /// `GET /api/executor` field, and what the `hickory serve` banner prints.
+    /// `GET /api/executor` field, and what the `hick serve` banner prints.
     pub fn as_str(self) -> &'static str {
         match self {
             ExecutorChoice::Local => "local",
@@ -182,7 +182,7 @@ pub enum CheckFailure {
     },
     /// A `hick:transform` passage was written from bytes that have since
     /// changed. Unlike drift this is not a mismatch that can be recomputed —
-    /// an LLM wrote the passage, so the fix is `hickory refresh`, not a re-run.
+    /// an LLM wrote the passage, so the fix is `hick refresh`, not a re-run.
     StaleTransform {
         doc: PathBuf,
         line: usize,
@@ -205,7 +205,7 @@ impl CheckFailure {
     /// A stale `hick:transform` counts as drift rather than a failed
     /// expectation: like a woven file that no longer reproduces, it says the
     /// committed bytes are out of date with their inputs, and the fix is to
-    /// regenerate (`hickory refresh`). No claim was falsified.
+    /// regenerate (`hick refresh`). No claim was falsified.
     pub fn outcome(&self) -> CheckOutcome {
         match self {
             CheckFailure::Expectation(_) => CheckOutcome::ExpectationFailed,
@@ -221,22 +221,22 @@ impl CheckFailure {
 /// and what to do about it.
 ///
 /// The "what to do" is deliberately checked against what the shipped binary
-/// actually accepts: every command named here is one `hickory` really runs.
-/// `hickory run --cache` writes recordings; `hickory test` never does, so
+/// actually accepts: every command named here is one `hick` really runs.
+/// `hick run --cache` writes recordings; `hick test` never does, so
 /// that it can never manufacture the baseline it then compares against.
 pub fn unverifiable_message(doc: &Path, cell: &CellId, reason: &NoBaseline) -> String {
     const KEYED_BY: &str = "A recording is keyed by the container image, capabilities, command \
          text, and secret names together, so editing any of them retires the old recording — \
          this can also mean \"the cell changed since it was recorded\".";
 
-    // `hickory run` is what establishes a baseline: a cell frozen from the
+    // `hick run` is what establishes a baseline: a cell frozen from the
     // start executes exactly once, on the run that records it, with no edit
     // to the document. `test` deliberately has no `--cache` and never
     // records: a verifier that can write its own baseline verifies nothing.
     let record_it = format!(
-        "To record a baseline: run `hickory run {}` once — a frozen cell with no recording \
+        "To record a baseline: run `hick run {}` once — a frozen cell with no recording \
          executes exactly once, on the run that records it, and replays from then on. Then \
-         re-run `hickory test {}`. `hickory test` never writes a recording, on purpose: a \
+         re-run `hick test {}`. `hick test` never writes a recording, on purpose: a \
          check that writes its own baseline is not a check.",
         doc.display(),
         doc.display()
@@ -247,8 +247,8 @@ pub fn unverifiable_message(doc: &Path, cell: &CellId, reason: &NoBaseline) -> S
         NoBaseline::NotExecuted => format!(
             "{head}: no recorded transcript, and this mode never executes cells, so nothing \
              was ever established for it.\n  \
-             Next steps: run `hickory run {}` to execute the document, then commit its \
-             outputs; `hickory weave` only renders what has already been recorded.",
+             Next steps: run `hick run {}` to execute the document, then commit its \
+             outputs; `hick weave` only renders what has already been recorded.",
             doc.display()
         ),
         NoBaseline::FrozenWithoutRecording {
@@ -256,9 +256,9 @@ pub fn unverifiable_message(doc: &Path, cell: &CellId, reason: &NoBaseline) -> S
             frozen_by_cell,
         } => {
             let why = if *frozen_by_cell {
-                "the cell declares freeze=\"true\", so `hickory test` will not run it"
+                "the cell declares freeze=\"true\", so `hick test` will not run it"
             } else {
-                "this run is frozen run-wide, so `hickory test` will not run the cell"
+                "this run is frozen run-wide, so `hick test` will not run the cell"
             };
             format!(
                 "{head}: {why}, and no recording exists for it (command: {command}). Nothing \
@@ -266,7 +266,7 @@ pub fn unverifiable_message(doc: &Path, cell: &CellId, reason: &NoBaseline) -> S
                  baseline to have drifted from.\n  \
                  Next steps: {record_it}\n  \
                  Or remove freeze=\"true\" from the cell (set freeze=\"false\") so \
-                 `hickory test` executes it and verifies its real output every time.\n  \
+                 `hick test` executes it and verifies its real output every time.\n  \
                  {KEYED_BY}"
             )
         }
@@ -289,9 +289,9 @@ pub fn unverifiable_message(doc: &Path, cell: &CellId, reason: &NoBaseline) -> S
                  nothing could have run it. Nothing was ever established for this cell; that \
                  is not drift.\n  \
                  Next steps: export the provider's key (ANTHROPIC_API_KEY, or \
-                 HICKORY_AGENT_PROVIDER plus that provider's key) and run `hickory run \
+                 HICKORY_AGENT_PROVIDER plus that provider's key) and run `hick run \
                  --cache {}` once to establish a baseline, then commit it — or declare \
-                 freeze=\"true\" on the cell, which makes plain `hickory run` record it \
+                 freeze=\"true\" on the cell, which makes plain `hick run` record it \
                  once and replay it after that.\n  \
                  {replay}\n  \
                  This is the expected state in CI and on a fresh clone: the rest of the \
@@ -307,8 +307,8 @@ pub fn unverifiable_message(doc: &Path, cell: &CellId, reason: &NoBaseline) -> S
              Or remove freeze=\"true\" from the cell (set freeze=\"false\") so it executes \
              and is verified for real every time.\n  \
              Common causes: the document was moved away from its project's .hick-cache/, or \
-             it has never been run — `hickory run` creates the recording directory, and \
-             `hickory test` never does."
+             it has never been run — `hick run` creates the recording directory, and \
+             `hick test` never does."
         ),
     }
 }
@@ -386,10 +386,10 @@ pub fn transform_input(doc: &hick_lang::HickDocument, select: &str) -> String {
 /// record of what an agent did, not a pipeline to re-run: it embeds the
 /// document that was under discussion, `hick:upstream` and all, so checking
 /// one resolves those edges relative to `sessions/` and fails on paths that
-/// were correct where they were written. `hickory test docs/` should not
+/// were correct where they were written. `hick test docs/` should not
 /// start failing the moment an agent runs in that tree.
 ///
-/// Naming a session file EXPLICITLY still works — `hickory weave` on a
+/// Naming a session file EXPLICITLY still works — `hick weave` on a
 /// session is a real thing to want.
 pub fn expand_docs(path: &Path) -> Result<Vec<PathBuf>> {
     let (files, _config) = expand_path_arg(path)?;
@@ -411,7 +411,7 @@ pub fn expand_docs(path: &Path) -> Result<Vec<PathBuf>> {
 ///
 /// One setting on one axis — what a missing recording means — so there is no
 /// impossible fourth state to defend against. The run-wide default is
-/// [`CacheMode::Off`]: `hickory run` asks *"what is the answer now"*, so no
+/// [`CacheMode::Off`]: `hick run` asks *"what is the answer now"*, so no
 /// cell is answered from a recording and nothing is recorded. `--cache`
 /// selects [`CacheMode::Reuse`] and `--freeze` selects
 /// [`CacheMode::Require`]; a cell's own `freeze=` attribute overrides
@@ -480,16 +480,16 @@ pub async fn run_doc_cached(
             // This lives inside `run_doc` rather than in the CLI commands
             // because the server already staged separately and the CLI did
             // not: the same document ran through the web app and failed
-            // through `hickory run`. One place, every caller.
+            // through `hick run`. One place, every caller.
             //
             // Guarantee:
             // docs/guarantees/execution/first-run-behaves-like-every-later-run.md
             stage_woven_files(doc_path, &sources, params).await;
 
             let executor = executor_choice.build().await?;
-            // An agent cell needs a model, and only `hickory run` may buy one.
+            // An agent cell needs a model, and only `hick run` may buy one.
             //
-            // `hickory test` deliberately gets NO runner even on a machine
+            // `hick test` deliberately gets NO runner even on a machine
             // that has a key: a verifier that spends the reader's tokens is a
             // verifier nobody can safely point at a document they did not
             // write, and `agent-cells.md` names that exact hazard. So an agent
@@ -529,7 +529,7 @@ pub async fn run_doc_cached(
                     format!(
                         "failed to create the recording directory {}\n  \
                          Next steps: check that {} is writable, then re-run \
-                         `hickory run --cache {}`.",
+                         `hick run --cache {}`.",
                         cc.cache_dir.display(),
                         project_dir.display(),
                         doc_path.display()
@@ -574,6 +574,13 @@ async fn stage_woven_files(doc_path: &Path, sources: &[(&str, &str)], params: &[
     let _ = write_files_if_absent(&result.files, project_dir);
 }
 
+/// Drop a file's read-only bit if it has one. Absent files and permission
+/// systems that will not cooperate are both fine to ignore — the write that
+/// follows reports the real problem with better context than this could.
+fn clear_read_only(path: &Path) {
+    let _ = crate::up::state::set_read_only(path, false);
+}
+
 /// Write a run's output files under `out_dir` (default: the document's
 /// directory). Returns the paths written.
 pub fn write_outputs(run: &DocRun, out_dir: Option<&Path>) -> Result<Vec<PathBuf>> {
@@ -593,9 +600,16 @@ pub fn write_outputs(run: &DocRun, out_dir: Option<&Path>) -> Result<Vec<PathBuf
         {
             std::fs::create_dir_all(parent)?;
         }
+        // A woven output can be on disk read-only: `hick up` marks a fully
+        // generated file that way so an editor refuses it before the user
+        // types. Regenerating that file is exactly what is meant to overwrite
+        // it, so clear the mark rather than failing on a permission error.
+        clear_read_only(&full);
         match content {
-            FileContent::Text(s) => std::fs::write(&full, s)?,
-            FileContent::Binary(data) => std::fs::write(&full, data.to_bytes()?)?,
+            FileContent::Text(s) => std::fs::write(&full, s)
+                .with_context(|| format!("failed to write {}", full.display()))?,
+            FileContent::Binary(data) => std::fs::write(&full, data.to_bytes()?)
+                .with_context(|| format!("failed to write {}", full.display()))?,
         }
         written.push(full);
     }
@@ -715,7 +729,7 @@ pub fn check_failures(run: &DocRun, out_dir: Option<&Path>) -> Result<Vec<CheckF
             Err(_) => failures.push(CheckFailure::Drift {
                 doc: run.doc_path.clone(),
                 output_path: full,
-                detail: "output file missing on disk (run `hickory run` and commit it)".to_string(),
+                detail: "output file missing on disk (run `hick run` and commit it)".to_string(),
             }),
         }
     }

@@ -1,8 +1,8 @@
 //! End-to-end proof that "agent output is literate programming state in git":
 //!
 //! a canned LLM drives the ReAct loop (no network) → the session is written
-//! as a `hick:session` file → `hick-lang` parses it → `hickory promote`
-//! produces a clean `hick:doc` pipeline → `hickory test` accepts it.
+//! as a `hick:session` file → `hick-lang` parses it → `hick promote`
+//! produces a clean `hick:doc` pipeline → `hick test` accepts it.
 
 use hick_lang::SessionNode;
 use hick_literate::promote::{PromoteOpts, promote};
@@ -11,7 +11,7 @@ use hickory_cli::{ExecutorChoice, RunMode, check_failures, run_doc, write_output
 use hickory_executor::LocalExecutor;
 
 /// Turn 1: run a python script that registers a new pipeline file. The
-/// `hick.pipeline_new_file(...)` call is what `hickory promote` extracts;
+/// `hick.pipeline_new_file(...)` call is what `hick promote` extracts;
 /// the local shim keeps the script runnable without any real `hick` module.
 const TURN_CODE: &str = r#"<hick:next>code</hick:next>
 I'll register the greeting file with the pipeline.
@@ -22,7 +22,7 @@ def _register(*args):
 class hick:
     pipeline_new_file = _register
 
-hick.pipeline_new_file('greeting.txt', 'hello from hickory agent')
+hick.pipeline_new_file('greeting.txt', 'hello from hick agent')
 print('registered greeting.txt')
 ```"#;
 
@@ -88,13 +88,9 @@ async fn agent_session_promotes_to_checked_pipeline() {
     .expect("promotion failed");
     assert_eq!(promoted.surviving_writes, 1);
     assert!(promoted.promoted_source.contains("greeting.txt"));
-    assert!(
-        promoted
-            .promoted_source
-            .contains("hello from hickory agent")
-    );
+    assert!(promoted.promoted_source.contains("hello from hick agent"));
 
-    // 4. The promoted document is a valid hick:doc that `hickory test`
+    // 4. The promoted document is a valid hick:doc that `hick test`
     //    accepts once its outputs are committed.
     let doc_path = project_dir.join("promoted.hick");
     std::fs::write(&doc_path, &promoted.promoted_source).unwrap();
@@ -110,11 +106,11 @@ async fn agent_session_promotes_to_checked_pipeline() {
         "promoted doc must produce greeting.txt, wrote: {written:?}"
     );
 
-    // Re-run and verify: no expectation failures, no drift — `hickory test`
+    // Re-run and verify: no expectation failures, no drift — `hick test`
     // exits successfully on this document.
     let check_run = run_doc(&doc_path, &[], RunMode::Execute, ExecutorChoice::Local)
         .await
         .expect("check run must execute");
     let failures = check_failures(&check_run, None).unwrap();
-    assert!(failures.is_empty(), "hickory test failures: {failures:?}");
+    assert!(failures.is_empty(), "hick test failures: {failures:?}");
 }

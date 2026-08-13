@@ -6,7 +6,7 @@
 
 The code lives here, in prose order, and is tangled into `todo.py`. The cells
 at the bottom run the real CLI and pin its output, so this document is both
-the source and the acceptance test: `hickory test` fails if the code stops
+the source and the acceptance test: `hick test` fails if the code stops
 satisfying the requirements it was written from.
 
 ## Requirements being implemented

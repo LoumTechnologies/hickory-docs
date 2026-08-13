@@ -112,14 +112,14 @@ answer for. An origin serialized without them still deserializes.
 The read path is complete and tested: `hickory_lineage::Origin::Agent`
 (the one origin kind that never degrades to `synthetic` — losing the session id
 is precisely the failure the variant exists to prevent),
-`hickory_cli::agent_lineage`, and the `hickory lineage` rendering. See
+`hickory_cli::agent_lineage`, and the `hick lineage` rendering. See
 `docs/guarantees/lineage/agent-lineage-degrades-without-a-session.md`.
 
 **Issue #7 landed the vertex** (2026-08-10): `build_dag` has an `"agent"` arm,
 the cell is scheduled by the topological loop, and the recording key includes
 the prompt and the model. Its bytes reach lineage as ordinary `Literal` spans,
 because `edit_doc` puts them in the document before the graph is built — which
-is already what `hickory lineage` + `git blame` need.
+is already what `hick lineage` + `git blame` need.
 
 **Still outstanding**: nothing *names the session* on those spans yet, so
 nothing produces a `SourceOrigin::Agent`. That is now purely additive — attach
@@ -127,7 +127,7 @@ nothing produces a `SourceOrigin::Agent`. That is now purely additive — attach
 blocked on the DAG. Until then, agent origins exist only as synthetically
 constructed spans in tests.
 
-**No `author` field.** Authorship composes instead: `hickory lineage` maps an
+**No `author` field.** Authorship composes instead: `hick lineage` maps an
 output byte to a document span, and `git blame` on that span gives the commit
 author.
 
@@ -219,7 +219,7 @@ which corrupts nothing, but the run cannot observe its own edit, because
 its `max_rounds` re-evaluation) *before* convergence begins. A node that fails
 to complete blocks `converge` with no per-cell bound, taking its literal
 siblings with it; an exec cell's failure is named and scoped. And bytes a flow
-node emits carry no source span, so `hickory lineage` cannot resolve them and
+node emits carry no source span, so `hick lineage` cannot resolve them and
 `map_edits` would refuse to edit through them — whereas an exec-placed agent's
 bytes reach lineage as ordinary `Literal` spans, because `edit_doc` puts them
 in the document before the graph is built.
@@ -254,7 +254,7 @@ the spike code has been deleted. What was decided:
   declared at first parse, and exceeding it fails rather than truncating —
   the same class of invariant as `max_turns`.
   `docs/guarantees/agent/re-preparation-terminates.md`.
-- **`hickory test` gets no agent runner at all**, even where credentials exist.
+- **`hick test` gets no agent runner at all**, even where credentials exist.
   A verifier must not spend the reader's tokens, and re-running a
   nondeterministic cell would not verify anything; a cell is checked against
   its recording or reported unverifiable.

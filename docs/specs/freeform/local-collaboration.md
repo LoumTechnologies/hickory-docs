@@ -1,10 +1,10 @@
 # Local collaboration: the host is the server
 
-*Status: design of record for `hickory serve`. Adopted 2026-08-11. Extends
-`architecture.md`, which already names `serve` as a `hickory` subcommand and
+*Status: design of record for `hick serve`. Adopted 2026-08-11. Extends
+`architecture.md`, which already names `serve` as a `hick` subcommand and
 already reaches a non-cloud machine through a PortZero tunnel.*
 
-Someone runs `hickory serve` on their own machine, gets a link, and sends it to
+Someone runs `hick serve` on their own machine, gets a link, and sends it to
 whoever they are working with. Those people open it and edit the document
 together — live, in the same web app hickorydocs.com serves — while the
 document stays a file in the host's git repository and every cell that runs,
@@ -23,7 +23,7 @@ Four problems collapse into one answer:
   by a database row. There has been no way to see the ribbons for a `.hick`
   file on your own disk. A local server answers those endpoints from the file
   and the ribbons appear, with nothing in the client changed.
-- **The downloadable CLI had no reason to exist** beyond `hickory test` in CI.
+- **The downloadable CLI had no reason to exist** beyond `hick test` in CI.
   Now it is how you collaborate.
 - **Execution cost and execution risk both move to the host.** Production runs
   `HICKORY_EXECUTOR=local` on a shared Fly machine, which is why open signup is
@@ -35,7 +35,7 @@ Four problems collapse into one answer:
 
 ## The three roles
 
-**Host** — runs `hickory serve [doc|dir]`. Owns the files, the git repo, the
+**Host** — runs `hick serve [doc|dir]`. Owns the files, the git repo, the
 executor, and the session's lifetime. Closing the laptop ends the session; that
 is a real limit, not a bug (see *What hosted still sells*).
 
@@ -67,7 +67,7 @@ host's machine". It is addressed directly rather than hedged.
 3. **A session that grants `run` requires a sandboxing executor.**
    `LocalExecutor` runs commands as the host's user with the host's filesystem
    and network — fine for the host's own work, not fine for someone with a
-   link. `hickory serve --share` with `run` scope therefore **refuses to start**
+   link. `hick serve --share` with `run` scope therefore **refuses to start**
    unless `HICKORY_EXECUTOR=docker` (or canopy), and says so, naming the flag.
    Refusing is the house style: a silent degrade here would be a silent grant.
 4. **Writes stay inside the served root.** Every path that arrives from
@@ -150,13 +150,13 @@ optional. So the hosted service sells what a laptop cannot:
 - **CI verification and the hosted agent**, which never depended on seats.
 
 `plans.json` needs to follow this — that is a pricing change, tracked
-separately, not something `hickory serve` decides.
+separately, not something `hick serve` decides.
 
 ## What shipped
 
 All three stages, in this order:
 
-1. **`hickory serve [doc|dir]`** — loopback by default, `--share` to bind the
+1. **`hick serve [doc|dir]`** — loopback by default, `--share` to bind the
    LAN. Serves the client, answers the API from files, runs the rooms.
 2. **Capability links** — `--scope read|edit|run`, two tokens (the host's,
    always full; the guest's, carrying the scope), one middleware in front of
@@ -169,7 +169,7 @@ Two decisions worth recording, because both were arrived at by writing the
 code and neither was obvious from the design:
 
 - **The host is not a guest.** The first version applied the link's scope to
-  everyone, which meant `hickory serve doc.hick` could not run its own
+  everyone, which meant `hick serve doc.hick` could not run its own
   document. Two tokens fixed it: the scope governs the people the link was
   sent to.
 - **Write permission is per *message*, not per socket.** Dropping every
@@ -217,7 +217,7 @@ worth explaining — and it is the thing a hosted workspace sells.
 - **Does the guest's browser need the web assets from the host, or from
   hickorydocs.com?** Serving them from the host makes a session work with no
   internet at all; serving them from the CDN keeps the binary small and the
-  client always current. Today `hickory serve` serves a directory
+  client always current. Today `hick serve` serves a directory
   (`--web-dist`, `HICKORY_WEB_DIST`, or `apps/web/dist` found upwards), which
   means a *shipped binary* has no client to serve yet. Embedding it behind a
   feature flag is the next step and the reason this is still open.

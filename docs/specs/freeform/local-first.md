@@ -1,9 +1,15 @@
 # Local-first: the product is the binary, the cloud is a relay
 
-*Status: design of record for the product's shape. Adopted 2026-08-11.
-**Supersedes** the hosted-workspace parts of `architecture.md` — see
-[What this supersedes](#what-this-supersedes). Builds on
-`local-collaboration.md`, which is the mechanism this decision is made of.*
+*Status: **SUPERSEDED** by `local-only.md` (2026-08-12), which removes the
+relay, the pricing model, and the client shared with a hosted server. Read this
+document for how the hosted workspace was killed and why — that reasoning still
+holds and is not repeated there. Do not read it for what the product is: there
+is no cloud component left, and the retirement list below has become a deletion
+list.*
+
+*Originally adopted 2026-08-11. **Superseded** the hosted-workspace parts of
+`architecture.md` — see [What this supersedes](#what-this-supersedes). Built on
+`local-collaboration.md`, which is the mechanism that decision was made of.*
 
 Hickory Docs is a program you install. It runs on your machine, edits files in
 your repository, executes on your hardware, and shares a live session by
@@ -25,7 +31,7 @@ hosted agent, accounts, email verification — is not part of the product.
 
 Four facts, none of them speculative, all of them already in this repo:
 
-1. **`hickory serve` covers the hosted workspace.** The same client, the same
+1. **`hick serve` covers the hosted workspace.** The same client, the same
    Yjs protocol, the same rooms, with the file standing in for the database
    (`local-collaboration.md`). The one thing it does *better* is lineage: a
    local weave is computed from the file in front of you, while the hosted one
@@ -59,7 +65,7 @@ boundary, and native verification. These parts of it are superseded:
   service. The product's delivery path is the release channels
   (`unstable-release.yml`, `stable-release.yml`) and the one-line installer.
 - **Sharing state across web/iOS/Android** — still true of the client, but the
-  server it talks to is now usually `hickory serve` on someone's machine.
+  server it talks to is now usually `hick serve` on someone's machine.
 
 `architecture.md` gets a pointer at the top rather than a rewrite: it is an
 accurate record of how the system was built, and this document is what the
@@ -85,12 +91,12 @@ written now so nobody keeps building on it:
 
 | Retires | Why |
 |---|---|
-| `apps/server` REST: projects, docs, render, outputs, runs, checks | `hickory serve` answers all of it, from files |
+| `apps/server` REST: projects, docs, render, outputs, runs, checks | `hick serve` answers all of it, from files |
 | The WS handler, `output_rooms`, `EditorTracker` | Rooms moved to `hickory-collab`; seats stop existing |
 | Postgres and every migration | No server-side documents, accounts, or runs |
 | The git store (`gitstore.rs`, the Fly volume) | The user's own repo is the store |
 | Cloud execution + `hickory-executor-canopy` in the server | Execution is the author's machine |
-| The hosted agent route | `hickory agent` and `hickory mcp`, with the user's own key |
+| The hosted agent route | `hick agent` and `hick mcp`, with the user's own key |
 | Auth: signup, login, verification, password reset | No accounts |
 | Server-side BYOK (`byok.rs`, `keyvault.rs`, `routes/llm_keys.rs`, migration 0007, `SettingsView`) | Built 2026-08-11 to let the *hosted* agent spend a user's key; the CLI reads the key from the environment and never needed it |
 
@@ -112,7 +118,7 @@ Every entitlement in `plans.json` today measures something the cloud does:
 | `private_projects` | Meaningless — they are directories in your repo |
 | `editors` | Meaningless — a capability link has no seats |
 | `exec_minutes_month` | Meaningless — your CPU |
-| `ci_verification` | Free — it is `hickory test` in *your* CI |
+| `ci_verification` | Free — it is `hick test` in *your* CI |
 | `agent` (`byo_key` / `metered_allowance`) | Your key, your machine |
 | `sso`, `review_workflow`, `priority_execution`, `byon` | Attached to a workspace that no longer exists |
 
@@ -147,13 +153,13 @@ claims otherwise.
 - **The repository must go public** for the installer to work for anyone who
   is not us: `scripts/install.sh` currently needs `HICKORY_GITHUB_TOKEN`
   against a private repo. `architecture.md` already plans MIT.
-- **A shipped binary carries no web client yet.** `hickory serve` finds
+- **A shipped binary carries no web client yet.** `hick serve` finds
   `apps/web/dist` in a checkout; a release build has nothing to serve.
   Embedding the client is a prerequisite for local-first being usable by
   anyone who did not clone the repo.
 - **The relay needs identity from day one.** A relay that forwards arbitrary
   traffic to a laptop, unauthenticated and unmetered, is a free tunnel service
-  that will be used for things that are not hickory documents. Retrofitting
+  that will be used for things that are not hick documents. Retrofitting
   abuse controls onto a live open relay is misery; a licence key or an OAuth
   identity at the door is not.
 - **Sessions are ephemeral by decision** (`local-collaboration.md`): a document

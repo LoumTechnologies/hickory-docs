@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build one downloadable `hickory` artifact.
+# Build one downloadable `hick` artifact.
 #
 # Usage: scripts/dist.sh <target-triple> [version]
 #
@@ -8,11 +8,11 @@
 # scripts/check-codegen.sh serving both the hook and CI).
 #
 # Output, under dist/:
-#   hickory-<version>-<target>.tar.gz   (unix)  or  .zip (windows)
-#   hickory-<version>-<target>.<ext>.sha256
+#   hick-<version>-<target>.tar.gz   (unix)  or  .zip (windows)
+#   hick-<version>-<target>.<ext>.sha256
 #
 # The archive holds the binary plus README, LICENCE, and examples/, so a
-# stranger who downloads it can run `hickory test examples/` immediately —
+# stranger who downloads it can run `hick test examples/` immediately —
 # that is the acceptance test for this whole path (see
 # docs/guarantees/release/a-download-runs-without-a-rust-toolchain.md).
 set -euo pipefail
@@ -27,7 +27,7 @@ if [ -z "$VERSION" ]; then
   exit 1
 fi
 
-# `hickory --version` should report the version of the artifact somebody
+# `hick --version` should report the version of the artifact somebody
 # downloaded, not the workspace's stale Cargo.toml number. main.rs prefers
 # this over CARGO_PKG_VERSION when it is set at compile time.
 export HICKORY_VERSION="$VERSION"
@@ -49,14 +49,14 @@ case "$TARGET" in
     ;;
 esac
 
-echo "==> building hickory $VERSION for $TARGET"
+echo "==> building hick $VERSION for $TARGET"
 cargo build --release --locked -p hickory-cli --target "$TARGET"
 
-BIN=hickory
+BIN=hick
 EXT=tar.gz
 case "$TARGET" in
   *-windows-*)
-    BIN=hickory.exe
+    BIN=hick.exe
     EXT=zip
     ;;
 esac
@@ -69,7 +69,7 @@ if [ ! -f "$BUILT" ]; then
   exit 1
 fi
 
-NAME="hickory-$VERSION-$TARGET"
+NAME="hick-$VERSION-$TARGET"
 STAGE="dist/$NAME"
 rm -rf "$STAGE"
 mkdir -p "$STAGE"

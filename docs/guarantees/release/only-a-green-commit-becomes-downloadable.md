@@ -42,9 +42,9 @@ Last LLM verification:
     downstream job `needs` it, so a red CI run produces nothing. The commit
     built is `github.event.workflow_run.head_sha`, passed as the `ref` input
     to the reusable build workflow, which checks it out explicitly.
-  - `.github/workflows/deploy-production.yml` is unmodified by this change
-    (`git diff` shows no hunk in it), and its own trigger is an independent
-    `workflow_run` subscription.
+  - There is no deploy-to-production workflow to interact with: the product
+    ships as a download, and `deploy-site.yml` publishes only the marketing
+    site, on a `push` trigger of its own.
   - `ci.yml` is unmodified, so what CI reports — and therefore what the deploy
     gate keys off — is unchanged.
   - Immutability: the `version` job in `stable-release.yml` checks

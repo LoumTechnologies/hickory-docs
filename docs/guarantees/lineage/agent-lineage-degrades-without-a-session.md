@@ -79,5 +79,5 @@ Last LLM verification:
   the prompt and model — is issue #7. Every test here therefore constructs
   agent-origin spans synthetically. When #7 lands, re-verify that the spans it
   emits carry a byte-precise document span whenever the agent wrote through
-  `edit_doc`, and that `hickory lineage` on a real agent-authored output prints
+  `edit_doc`, and that `hick lineage` on a real agent-authored output prints
   the shape above.

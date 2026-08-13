@@ -1,6 +1,6 @@
 # A Report Is Not a Reproducible Artifact
 
-Given a document whose root declares `volatile="true"`, when `hickory test`
+Given a document whose root declares `volatile="true"`, when `hick test`
 runs, then its woven output is excluded from drift comparison while every
 other output of that document is still compared byte-for-byte, and every
 `hick:expect` expectation is still enforced.

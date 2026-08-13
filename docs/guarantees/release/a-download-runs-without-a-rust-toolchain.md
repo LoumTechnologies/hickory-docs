@@ -2,13 +2,13 @@
 
 Given a machine with no Rust toolchain, no C compiler, and no checkout of this
 repository, when a person downloads the release archive matching their
-platform and unpacks it, then `hickory --version` and `hickory test examples/`
+platform and unpacks it, then `hick --version` and `hick test examples/`
 both work — using only the archive's own contents plus whatever the example
 documents themselves invoke.
 
 Every published archive therefore carries four things and not just a binary:
-the `hickory` executable, `LICENSE`, `README.md`, and the full `examples/`
-tree including its committed outputs. `hickory test` compares re-derived
+the `hick` executable, `LICENSE`, `README.md`, and the full `examples/`
+tree including its committed outputs. `hick test` compares re-derived
 output against committed output, so shipping the examples without their `.md`,
 `.svg`, and `.html` products would ship something that cannot be verified.
 
@@ -29,7 +29,7 @@ target triple's architecture against `uname -m` and skips itself — saying so
 with a `::notice` in the log — when they differ, rather than failing on a
 cross-compiled artifact it was never able to run. So:
 
-| Artifact | Built | `--version` run | `hickory test` run |
+| Artifact | Built | `--version` run | `hick test` run |
 |---|---|---|---|
 | `x86_64-unknown-linux-gnu` | yes | yes | yes, plus the `clean-machine` job |
 | `aarch64-unknown-linux-gnu` | yes | yes | yes |
@@ -58,13 +58,13 @@ canopy would.
 
 That last point is a build constraint, not a nicety. `tokio::net::UnixStream`
 does not exist on Windows, so before it was `cfg`-gated it was the single
-symbol preventing the whole `hickory` binary from building for
+symbol preventing the whole `hick` binary from building for
 `x86_64-pc-windows-msvc` — every other crate in the tree, including the C
 dependencies, compiled there.
 
 **The example documents must be portable, not merely Linux-correct.** Each
 archive ships `examples/` and the README tells a stranger to run
-`hickory test examples/`, so an example whose expectation encodes GNU
+`hick test examples/`, so an example whose expectation encodes GNU
 coreutils behaviour turns a working download into a failing one on macOS.
 `hick:expect match="exact"` compares bytes, and BSD `wc -l` right-aligns its
 count in eight columns where GNU `wc -l` does not — so cells are written to
@@ -85,15 +85,15 @@ Last LLM verification:
     binary, `README.md`, `LICENSE`, and `examples/` into
     `dist/hickory-<version>-<target>/` before archiving, then writes a
     `.sha256` beside the archive. The binary path it reads
-    (`target/<triple>/release/hickory[.exe]`) follows from
-    `[[bin]] name = "hickory"` in `crates/hickory-cli/Cargo.toml`, and the
+    (`target/<triple>/release/hick[.exe]`) follows from
+    `[[bin]] name = "hick"` in `crates/hickory-cli/Cargo.toml`, and the
     script fails loudly, naming that manifest, if the file is absent.
   - Run end to end on this machine for `x86_64-unknown-linux-gnu`
     (`./scripts/dist.sh x86_64-unknown-linux-gnu 0.0.0-localtest`): 1m11s,
     producing a 4.0 MB tarball around a 9.2 MB stripped binary, plus a
     `.sha256` that `sha256sum -c` accepts. Unpacked into a directory outside
-    the repository, that binary reported `hickory 0.0.0-localtest` and then
-    `hickory test examples/` exited 0 with all three example documents `ok` —
+    the repository, that binary reported `hick 0.0.0-localtest` and then
+    `hick test examples/` exited 0 with all three example documents `ok` —
     run entirely against the archive's own copy of `examples/`.
   - `.github/workflows/release-build.yml` builds all five targets by calling
     that same script — the same entry point `just dist` uses, so CI cannot
@@ -101,13 +101,13 @@ Last LLM verification:
   - Its `clean-machine` job is the direct test of this guarantee: it downloads
     only the x86_64 Linux artifact onto a runner with no checkout, runs
     `rustup self uninstall` and asserts `cargo` is gone from `PATH`, then
-    unpacks the tarball and runs `hickory test examples/`. It runs on
+    unpacks the tarball and runs `hick test examples/`. It runs on
     `ubuntu-latest` while the artifact is built on `ubuntu-22.04`, so it also
     catches a binary tied to its build image.
   - Version reporting: `crates/hickory-cli/src/main.rs` prefers
     `option_env!("HICKORY_VERSION")` over `CARGO_PKG_VERSION`, and
     `scripts/dist.sh` exports it. Verified locally — a plain build reports
-    `hickory 0.1.0`, one with `HICKORY_VERSION=9.9.9-test` reports that.
+    `hick 0.1.0`, one with `HICKORY_VERSION=9.9.9-test` reports that.
   - Why the matrix has no cross-compilation: `cargo tree -p hickory-cli`
     shows `ring`, `libsodium-sys` (autotools, not the `cc` crate),
     `zstd-sys`, `bzip2-sys`, and `lzma-sys` all compiling C. Each Linux
@@ -131,7 +131,7 @@ Last LLM verification:
       ways out. The `Uri` import moved under the same gate. The TCP path is
       untouched and identical on every platform.
     - `aarch64-apple-darwin` built and its binary **ran** — the log shows
-      `hickory 0.1.0-unstable.9d329eb0` — then exited 3 on
+      `hick 0.1.0-unstable.9d329eb0` — then exited 3 on
       `examples/text-tools-tour.hick:69`: `expected "0", got "       0"`.
       That was BSD `wc -l`'s eight-column padding, i.e. a portability bug in
       the shipped example rather than anything about the release path. Fixed
@@ -162,7 +162,7 @@ Last LLM verification:
     under the new smoke gate it never will be on the current runner images.
     Its row in the table above says so; if this matters, the fix is an
     Intel macOS runner, not a change to the gate.
-  - The macOS `hickory test examples/` path is now proven only for
+  - The macOS `hick test examples/` path is now proven only for
     `text-tools-tour.hick`, which is all the smoke test runs. The other two
     example documents need `python3`/`polars`/`duckdb`, and their macOS
     behaviour is unobserved — the `clean-machine` job runs the full

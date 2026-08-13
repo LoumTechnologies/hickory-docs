@@ -138,7 +138,7 @@ pub struct AgentCell {
     ///
     /// The recording key for an agent cell is the prompt **and** the model, so
     /// a declared model is what makes the cell replayable by a caller that has
-    /// no agent runner configured — `hickory weave`, a dry run, or CI with no
+    /// no agent runner configured — `hick weave`, a dry run, or CI with no
     /// API key. Absent, the key can only be computed while a runner is present
     /// to name the model it would have used.
     pub model: Option<String>,
@@ -318,7 +318,7 @@ pub enum DagValidationError {
         "exec at line {line} has freeze=\"{value}\", which is not a boolean.\n\
          Next steps: write freeze=\"true\" to check this cell against its recorded \
          output instead of running it, or freeze=\"false\" to always run it. Omit the \
-         attribute entirely to inherit the run-wide default set by `hickory run --freeze`.\n\
+         attribute entirely to inherit the run-wide default set by `hick run --freeze`.\n\
          Accepted values are exactly `true` and `false` (case-insensitive); `1`, `yes`, \
          and `on` are not accepted."
     )]

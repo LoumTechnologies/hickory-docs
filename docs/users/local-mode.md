@@ -9,10 +9,10 @@ a hosted workspace.*
 | | Cloud workspace | Local git repo (this doc) |
 |---|---|---|
 | Where documents live | Per-project server-side git, mirrored to Postgres | `.hick` files in your repo |
-| Editing | Web/mobile notebook UI with live CRDT sync (multiple cursors, offline merge) | Your editor + `hick-lsp` ([editor setup](editor-setup.md)) — or the same notebook UI, hosted by your own machine (`hickory serve`, below) |
-| Execution | Firecracker microVMs on Cloud Canopy nodes | `hickory` CLI, executor of your choice (below) |
-| Drift gate | Server re-checks on save/run | `hickory init` pre-commit hook + `hickory test` in CI |
-| Agent | Built-in Agent panel / `hickory agent` | Either the built-in agent or your own coding agent ([ai-agents](ai-agents.md)) |
+| Editing | Web/mobile notebook UI with live CRDT sync (multiple cursors, offline merge) | Your editor + `hick-lsp` ([editor setup](editor-setup.md)) — or the same notebook UI, hosted by your own machine (`hick serve`, below) |
+| Execution | Firecracker microVMs on Cloud Canopy nodes | `hick` CLI, executor of your choice (below) |
+| Drift gate | Server re-checks on save/run | `hick init` pre-commit hook + `hick test` in CI |
+| Agent | Built-in Agent panel / `hick agent` | Either the built-in agent or your own coding agent ([ai-agents](ai-agents.md)) |
 
 The document format is identical in both. A repo can graduate to a cloud
 workspace later (the server's durable state is also git), and cloud projects
@@ -21,22 +21,22 @@ can be cloned down.
 ## Set up a local repo
 
 ```sh
-cargo install --path crates/hickory-cli   # installs `hickory`
+cargo install --path crates/hickory-cli   # installs `hick`
 cd your-repo
-hickory init
+hick init
 ```
 
-`hickory init` is idempotent — run it again any time. It:
+`hick init` is idempotent — run it again any time. It:
 
 1. installs a **pre-commit hook** (a sentinel-delimited `### HICKORY ###`
    block, appended to any hook you already have; `core.hooksPath` is
    respected). At commit time the hook discovers all tracked `*.hick` files
-   and runs `hickory test` on each; any drift blocks the commit. No `.hick`
+   and runs `hick test` on each; any drift blocks the commit. No `.hick`
    files, no-op.
 2. adds `.hick-cache/` to `.gitignore` (cached transcripts).
 3. writes a managed `<!-- HICKORY -->` section into `AGENTS.md` teaching
    coding agents the hick grammar and the golden rules (edit sources, run
-   `hickory run` then `hickory test`), and points `CLAUDE.md` at it.
+   `hick run` then `hick test`), and points `CLAUDE.md` at it.
 4. prints a toolchain doctor: warnings (non-fatal) for missing child language
    servers like `rust-analyzer` or `pyright-langserver`.
 
@@ -44,14 +44,52 @@ Daily loop:
 
 ```sh
 $EDITOR docs/quickstart.hick
-hickory run docs/quickstart.hick    # execute, weave quickstart.md, write outputs
-hickory test docs/quickstart.hick  # verify — same command the hook runs
+hick run docs/quickstart.hick    # execute, weave quickstart.md, write outputs
+hick test docs/quickstart.hick  # verify — same command the hook runs
 git add -A && git commit            # hook re-checks every tracked .hick doc
 ```
 
+## Editing with any editor: `hick up`
+
+`hick run` is a one-shot. `hick up` is the same thing, kept going:
+
+```sh
+hick up docs/          # weave everything, then watch. Ctrl-C to stop.
+```
+
+It writes every document's output files and then watches the folder. Change a
+document and its outputs are rewritten. **Change one of the generated files
+and the change lands back in the document it came from** — so you can open
+`analysis.py` in whatever editor you already use, edit it as an ordinary
+Python file, and the `.hick` document it lives in is what actually changes.
+
+Some of a generated file comes from the document and some of it does not.
+Command output, transcripts, and interpolated values have no source to carry
+an edit back to, so:
+
+- A file with **nothing** editable in it — a woven report, a pure transcript —
+  is marked **read-only** while `hick up` runs. Your editor will say so when
+  you open it. The mark comes off when `hick up` exits.
+- A file that mixes the two stays writable. If a save touches generated text,
+  that save is refused, the file is put back, and the message names the line
+  and points you at the document.
+
+By default nothing is executed: cells are answered from the transcripts in
+`.hick-cache/`, and a cell with no recording is marked never-run. Add `--run`
+to execute a changed document in full on every save:
+
+```sh
+hick up docs/ --run    # re-execute on every change
+```
+
+Use `--run` when the cells are quick and you want the numbers live; leave it
+off when they are slow, or when you would rather not run code every time you
+hit save. One `hick up` at a time per folder — a second one refuses to start,
+because two of them would each mistake the other's writes for your edits.
+
 ## Choosing an executor
 
-`hickory run`/`check` execute each `h:exec` block through an executor,
+`hick run`/`check` execute each `h:exec` block through an executor,
 selected by the `HICKORY_EXECUTOR` environment variable:
 
 - **`HICKORY_EXECUTOR=local` (the default).** Commands run as ordinary host
@@ -81,7 +119,7 @@ Firecracker requires **Linux with KVM**. Local sandboxed execution is
   - Or just use `HICKORY_EXECUTOR=local` (unsandboxed) or a cloud workspace.
 - **Windows**: run the canopy node inside **WSL2** with nested virtualization
   enabled (KVM inside WSL2 works on current Windows 11 builds). Point
-  `hickory` on either side at it.
+  `hick` on either side at it.
 
 If you only need verification — not isolation — `local` is fine on all three
 platforms.
@@ -89,8 +127,8 @@ platforms.
 ## Work on it together, from your machine
 
 ```sh
-hickory serve docs/tour.hick              # just you: opens on 127.0.0.1
-hickory serve docs/tour.hick --share      # + a link for people on your network
+hick serve docs/tour.hick              # just you: opens on 127.0.0.1
+hick serve docs/tour.hick --share      # + a link for people on your network
 ```
 
 The second form prints two URLs: yours, and one to send to whoever you are
@@ -102,7 +140,7 @@ What makes this different from a hosted workspace is where the state lives:
 
 - **Your file is the document.** Every edit anyone makes lands in
   `docs/tour.hick` on your disk within a second, so your editor, `git diff`,
-  and `hickory test` see your collaborator's work as ordinary changes.
+  and `hick test` see your collaborator's work as ordinary changes.
 - **Your machine runs the code.** Cells execute through your executor, on your
   hardware, under your rules.
 - **The session is yours to end.** Ctrl-C and the link stops working. Nothing
@@ -128,7 +166,7 @@ so: the local executor runs commands as you, with your files and your network,
 so a forwarded link would be a shell on your machine. Sandbox it first:
 
 ```sh
-HICKORY_EXECUTOR=docker hickory serve docs/tour.hick --share --scope run
+HICKORY_EXECUTOR=docker hick serve docs/tour.hick --share --scope run
 ```
 
 ### Someone who isn't on your network
@@ -136,8 +174,8 @@ HICKORY_EXECUTOR=docker hickory serve docs/tour.hick --share --scope run
 `--public` publishes an address that reaches further:
 
 ```sh
-hickory login --signup                          # once: email and password
-hickory serve docs/tour.hick --share --public
+hick login --signup                          # once: email and password
+hick serve docs/tour.hick --share --public
 ```
 
 That prints a link anyone can open, forwarded to your machine by our relay.
@@ -150,8 +188,8 @@ for whatever a stranger wants to expose — so a tunnel is tied to an account,
 which is what makes a quota enforceable and misuse attributable. Three tunnels
 at a time, eight hours each.
 
-`hickory login` asks the relay how it lets people in. Email and password always
-works. If that relay has a GitHub app configured, `hickory login --github` uses
+`hick login` asks the relay how it lets people in. Email and password always
+works. If that relay has a GitHub app configured, `hick login --github` uses
 device flow instead — you type a code in a browser, nothing is redirected
 anywhere, and **no scopes are requested** (it can read your public profile and
 nothing else). If the relay has no GitHub app, the option is not offered,
@@ -161,10 +199,10 @@ Prefer your own tunnel? `--public` uses it if you have one:
 
 ```sh
 # any tunnel you already run — Cloudflare, ngrok, Tailscale, an SSH reverse tunnel
-HICKORY_PUBLIC_URL=https://your-tunnel.example hickory serve doc.hick --share --public
+HICKORY_PUBLIC_URL=https://your-tunnel.example hick serve doc.hick --share --public
 
 # or PortZero, which its daemon picks up from the environment at launch
-PZ_TUNNEL=hickory hickory serve doc.hick --share --public
+PZ_TUNNEL=hick hick serve doc.hick --share --public
 ```
 
 With none of the three, `--public` refuses rather than printing a link that
@@ -172,7 +210,7 @@ cannot open.
 
 ### If the editor does not appear
 
-`hickory serve` needs the built web client. It looks at `--web-dist`, then
+`hick serve` needs the built web client. It looks at `--web-dist`, then
 `HICKORY_WEB_DIST`, then `apps/web/dist` upwards from the working directory;
 with none of them it serves the API only and says so. A binary installed from
 a release does not carry the client yet.
@@ -182,12 +220,12 @@ a release does not carry the client yet.
 - **The pre-commit hook checks *tracked* `.hick` files, not just staged
   ones** — a doc drifted by someone else's change still blocks your commit,
   which is the point.
-- **`hickory test` re-executes documents.** A slow document makes commits
+- **`hick test` re-executes documents.** A slow document makes commits
   slow; keep heavyweight docs out of the hook by not tracking them, or gate
   them in CI only.
-- **`.hick-cache/` is disposable** — never commit it; `hickory weave` uses it
+- **`.hick-cache/` is disposable** — never commit it; `hick weave` uses it
   to render without executing.
-- **Editing a file in your editor is still just a file.** `hickory serve` adds
+- **Editing a file in your editor is still just a file.** `hick serve` adds
   live sync for the people connected to *that session*; two people editing the
   same `.hick` in their own editors still merge through git like any other
   file.
@@ -198,5 +236,5 @@ a release does not carry the client yet.
   relay and again from it, but forwarding means reading: the relay sees the
   bytes as they pass. It keeps none of them, and we would rather say this
   plainly than let "encrypted" imply more than it does.
-- **`hickory logout` forgets the token on your machine**, which is not the same
+- **`hick logout` forgets the token on your machine**, which is not the same
   as revoking it: the token the relay issued stays valid until it expires.

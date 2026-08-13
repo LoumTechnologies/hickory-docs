@@ -1,34 +1,35 @@
-//! `hickory serve` — the same collaborative editor, hosted by whoever is
-//! working on the document.
+//! The local document server — the engine behind the desktop app's window.
 //!
-//! One process on a contributor's machine serves the React client, answers the
-//! subset of the API a document view needs (from files, not a database), and
-//! runs the rooms `hickory-collab` defines. What that buys, in order of how
-//! much it matters:
+//! One process on the user's own machine answers the subset of the API a
+//! document view needs (from files, not a database) and runs the rooms
+//! `hickory-collab` defines. What that buys:
 //!
 //! - the lineage ribbons for a `.hick` file on your own disk, which nothing
 //!   else can show you;
-//! - collaborative editing whose durable state is your working tree, so your
-//!   editor and `git diff` see every keystroke your collaborator makes;
-//! - execution on your hardware, under your executor, subject to your policy.
+//! - an editor whose durable state is your working tree, so your other editor
+//!   and `git diff` see every keystroke;
+//! - execution on your hardware, under your executor.
 //!
-//! It is the same client and the same protocol as hickorydocs.com, because the
-//! whole design of `local-collaboration.md` is that the server *role* moves,
-//! not the product.
+//! ## This is a library, not a command
 //!
-//! ## The one rule worth reading before changing this module
+//! There is no `hick serve`. The desktop app links this module and runs it
+//! in-process on loopback, loading the React client Tauri bundles with it;
+//! `hick up` is headless and never starts it. That is why nothing here serves
+//! static files, and why there is no `--web-dist`.
 //!
-//! A capability link is a credential that anyone it is forwarded to can use.
-//! Scopes are therefore enforced in one place ([`LocalState::require_scope_*`])
-//! and `run` is never granted implicitly. A shared session that can execute
-//! refuses to start on the unsandboxed local executor — see [`ShareGuard`].
+//! ## Why there is no authorization
+//!
+//! This server binds `127.0.0.1` and answers exactly one person: the one whose
+//! machine it is. There is no second principal to distinguish from the first,
+//! so there is no token, no scope, and no capability link. A check that can
+//! only ever pass is worse than no check, because it reads like protection.
+//!
+//! Sharing is not a feature this product has — not disabled, not deferred.
+//! See `docs/specs/freeform/local-only.md`.
 
 pub mod api;
-pub mod relay;
-pub mod share;
 pub mod socket;
 pub mod store;
-pub mod tunnel;
 
 use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
@@ -43,31 +44,24 @@ use serde_json::{Value, json};
 
 use crate::{ExecutorChoice, RunMode};
 use api::{ApiError, ApiResult};
-use share::{Caller, Scope, ShareGuard};
 use store::{DocIndex, FileDocStore};
 
-/// How a session was asked to run.
+/// How a local session was asked to run.
+///
+/// There is no `lan`, `scope`, `public`, or `web_dist` field, and there will
+/// not be: this server binds loopback, answers one user — the one whose
+/// machine it is — and has no UI of its own. The desktop app bundles the
+/// client; the CLI does not serve HTML. See
+/// `docs/specs/freeform/local-only.md`.
 pub struct ServeOptions {
     /// The document, or the directory of documents, to serve.
     pub target: PathBuf,
     /// Port to listen on. 0 lets the kernel choose.
     pub port: u16,
-    /// Bind to every interface (LAN sharing) rather than loopback only.
-    ///
-    /// Off by default: a process that starts listening on 0.0.0.0 because
-    /// someone typed a two-word command has made a decision the person did
-    /// not.
-    pub lan: bool,
-    /// What a holder of the share link may do.
-    pub scope: Scope,
-    /// Where the built web client lives.
-    pub web_dist: Option<PathBuf>,
     /// Parameter overrides passed to every weave and run.
     pub params: Vec<(String, String)>,
     /// Executor for runs (`HICKORY_EXECUTOR`).
     pub executor: ExecutorChoice,
-    /// Ask for an address that reaches beyond this network (`--public`).
-    pub public: bool,
 }
 
 /// One recorded run, in the shape `GET /api/runs/:id` returns.
@@ -84,37 +78,11 @@ pub struct LocalState {
     pub index: Arc<DocIndex>,
     pub rooms: Arc<RoomRegistry>,
     pub runs: Arc<Mutex<HashMap<String, RunRecord>>>,
-    /// The host's own credential, printed on the console. Always full
-    /// capability: this is the person whose machine it is.
-    pub host_token: Arc<String>,
-    /// The credential in the share link, carrying `guest_scope`. Minted even
-    /// for an unshared session so nothing has to branch on its absence.
-    pub guest_token: Arc<String>,
-    pub guest_scope: Scope,
     pub params: Arc<Vec<(String, String)>>,
     pub executor: ExecutorChoice,
 }
 
 impl LocalState {
-    /// Resolve a presented token into what its holder may do.
-    ///
-    /// Unknown tokens resolve to `None` — the caller answers 403 without
-    /// saying which token was wrong, because "close" is information.
-    pub fn caller_for(&self, token: &str) -> Option<Caller> {
-        if token == *self.host_token {
-            return Some(Caller::host());
-        }
-        if token == *self.guest_token {
-            return Some(Caller::guest(self.guest_scope));
-        }
-        None
-    }
-
-    /// What `GET /api/me` calls this session.
-    pub fn identity(&self) -> String {
-        format!("{}@local", whoami())
-    }
-
     pub fn executor_kind(&self) -> &'static str {
         self.executor.as_str()
     }
@@ -301,9 +269,18 @@ impl LocalState {
 // Router
 // ---------------------------------------------------------------------------
 
-fn router(state: LocalState, web_dist: Option<PathBuf>) -> Router {
+/// The routes a document view needs, and nothing else.
+///
+/// No authorization layer: this server binds loopback and answers the person
+/// whose machine it is. There is no second principal to distinguish from the
+/// first, so there is no token to check — and a check that can only ever pass
+/// is worse than none, because it reads like protection.
+///
+/// No `/me`, `/billing/plans`, or `/analytics/capture` either. Those existed
+/// because the React client was shared with a hosted product and asked for
+/// them on load. It is not shared any more.
+fn router(state: LocalState) -> Router {
     let api = Router::new()
-        .route("/me", get(api::me))
         .route("/projects", get(api::projects))
         .route("/projects/{id}/docs", get(api::project_docs))
         .route("/docs/{id}", get(api::get_doc).put(api::put_doc))
@@ -316,25 +293,11 @@ fn router(state: LocalState, web_dist: Option<PathBuf>) -> Router {
         .route("/docs/{id}/agent", post(api::agent_unavailable))
         .route("/docs/{id}/agent/turns", get(api::agent_turns))
         .route("/runs/{id}", get(api::get_run))
-        .route("/billing/plans", get(api::plans))
-        .route("/analytics/capture", post(api::capture))
         .route("/executor", get(api::executor))
         .route("/health", get(api::health))
         .route("/ws", get(socket::ws_handler));
 
-    // Every /api route requires a valid session token and carries the
-    // resolved capability into the handler. Static assets do not: the browser
-    // fetches the bundle before it has a token, and the bundle is the same
-    // public artifact hickorydocs.com serves.
-    let api = api.layer(axum::middleware::from_fn_with_state(
-        state.clone(),
-        share::authorize,
-    ));
-    let mut router = Router::new().nest("/api", api);
-    if let Some(dist) = web_dist {
-        router = router.fallback(share::web_fallback(dist));
-    }
-    router.with_state(state)
+    Router::new().nest("/api", api).with_state(state)
 }
 
 /// A prepared session: the router, and the state a caller that wants its own
@@ -342,15 +305,13 @@ fn router(state: LocalState, web_dist: Option<PathBuf>) -> Router {
 pub struct Prepared {
     pub router: Router,
     pub state: LocalState,
-    pub guard: ShareGuard,
-    pub relay: relay::Relay,
 }
 
 /// Build a session without binding a socket.
 ///
 /// Split out from [`serve`] so the collaboration guarantees can be driven by a
-/// test over a real socket on an ephemeral port, rather than asserted about
-/// code that only ever runs inside `main`.
+/// test over a real socket on an ephemeral port, and so the desktop app can
+/// mount this router on a listener it owns.
 pub async fn prepare(opts: ServeOptions) -> Result<Prepared> {
     let target = opts
         .target
@@ -369,123 +330,49 @@ pub async fn prepare(opts: ServeOptions) -> Result<Prepared> {
     // the directory that contains it: rooms and path resolution work from the
     // root, so a single-file session can still follow `hick:upstream` beside
     // it.
-    // `expand_docs` reports an empty directory in the vocabulary of `hickory
-    // run`; a session that failed to start needs to hear about `hickory serve`.
     let found = DocIndex::scan(&target)
         .map(|index| index.entries().len())
         .unwrap_or(0);
     if found == 0 {
         anyhow::bail!(
-            "no .hick documents to serve under {}\n\
-             Point `hickory serve` at a document, or at a directory containing one.",
+            "no .hick documents to open under {}\n\
+             Point this at a document, or at a directory containing one.",
             target.display()
         );
     }
     let index = Arc::new(DocIndex::scan(&root)?);
-
-    // Refuse a shared, runnable session on an executor that would run a
-    // guest's code as the host.
-    let guard = ShareGuard::evaluate(opts.lan, opts.scope, opts.executor);
-    guard.enforce()?;
-
-    // Resolve reachability before binding: a session that advertises a public
-    // link it cannot actually provide is worse than one that refused to start.
-    let relay = relay::discover(&relay::RelayEnv {
-        requested: opts.public,
-        shared: opts.lan,
-        explicit_url: std::env::var("HICKORY_PUBLIC_URL").ok(),
-        pz_tunnel: std::env::var("PZ_TUNNEL").ok(),
-        relay_base: std::env::var("HICKORY_RELAY_URL")
-            .unwrap_or_else(|_| relay::DEFAULT_RELAY_URL.to_string()),
-        hickory_token: crate::login::load().map(|c| c.access_token),
-        resolve_pz: relay::resolve_portzero,
-    })?;
 
     let store = FileDocStore::new(index.clone());
     let state = LocalState {
         index: index.clone(),
         rooms: Arc::new(RoomRegistry::new(store)),
         runs: Arc::new(Mutex::new(HashMap::new())),
-        host_token: Arc::new(share::mint_token()),
-        guest_token: Arc::new(share::mint_token()),
-        guest_scope: opts.scope,
         params: Arc::new(opts.params),
         executor: opts.executor,
     };
 
-    let web_dist = match opts.web_dist.or_else(share::discover_web_dist) {
-        Some(dir) => Some(dir),
-        None => {
-            log::warn!(
-                "no built web client found; serving the API only. Pass --web-dist <dir> (or set HICKORY_WEB_DIST) to open the editor."
-            );
-            None
-        }
-    };
-
     Ok(Prepared {
-        router: router(state.clone(), web_dist),
+        router: router(state.clone()),
         state,
-        guard,
-        relay,
     })
 }
 
-/// Start the session and serve until interrupted.
+/// Start the session on loopback and serve until interrupted.
+///
+/// Loopback is not a default that a flag can change. A process that starts
+/// listening on `0.0.0.0` has made a decision about who may reach the user's
+/// files, and this product does not make that decision at all — see
+/// `docs/specs/freeform/local-only.md`.
 pub async fn serve(opts: ServeOptions) -> Result<()> {
-    let lan = opts.lan;
     let port = opts.port;
     let prepared = prepare(opts).await?;
 
-    let addr = SocketAddr::new(
-        if lan {
-            IpAddr::V4(Ipv4Addr::UNSPECIFIED)
-        } else {
-            IpAddr::V4(Ipv4Addr::LOCALHOST)
-        },
-        port,
-    );
+    let addr = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), port);
     let listener = tokio::net::TcpListener::bind(addr)
         .await
         .with_context(|| format!("binding {addr}"))?;
     let bound = listener.local_addr()?;
-
-    // Our relay needs the router and the listener to exist before it can hand
-    // out an address, so it is the one provider resolved here rather than in
-    // `prepare`.
-    let mut public_url = prepared.relay.base_url().map(str::to_string);
-    if let relay::Relay::Hickory { base, token } = &prepared.relay {
-        // Guest WebSockets arriving through the tunnel are bridged back into
-        // this process's own listener, so the local handler — capability check
-        // included — is the only door there is.
-        let handle = tunnel::open(
-            base,
-            token,
-            None,
-            prepared.router.clone(),
-            &format!("ws://127.0.0.1:{}", bound.port()),
-        )
-        .await
-        .context("opening a tunnel on the relay")?;
-        log::info!(
-            "tunnel open as {} for {} (up to {}h)",
-            handle.slug,
-            handle.account,
-            handle.expires_in_secs / 3600
-        );
-        public_url = Some(handle.url);
-    }
-
-    let index = prepared.state.index.clone();
-    share::print_banner(
-        &prepared.state,
-        &index,
-        bound,
-        lan,
-        &prepared.guard,
-        &prepared.relay,
-        public_url.as_deref(),
-    );
+    log::info!("local session on http://{bound}");
 
     axum::serve(
         listener,
@@ -500,12 +387,6 @@ pub async fn serve(opts: ServeOptions) -> Result<()> {
 // ---------------------------------------------------------------------------
 // Small helpers
 // ---------------------------------------------------------------------------
-
-fn whoami() -> String {
-    std::env::var("USER")
-        .or_else(|_| std::env::var("USERNAME"))
-        .unwrap_or_else(|_| "you".to_string())
-}
 
 fn now_rfc3339() -> String {
     let secs = std::time::SystemTime::now()

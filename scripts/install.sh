@@ -1,10 +1,10 @@
 #!/bin/sh
-# One-line installer for the `hickory` CLI.
+# One-line installer for the `hick` CLI.
 #
 #   curl -fsSL https://raw.githubusercontent.com/LoumTechnologies/hickory-docs/master/scripts/install.sh | sh
 #
 # Downloads the release archive matching this machine, checks its SHA-256
-# against the checksum published beside it, and puts `hickory` on your PATH.
+# against the checksum published beside it, and puts `hick` on your PATH.
 # No Rust toolchain, no clone, no build.
 #
 # Knobs (all optional, all environment variables so the piped-into-sh form
@@ -25,7 +25,7 @@ INSTALL_DIR="${HICKORY_INSTALL_DIR:-$HOME/.local/bin}"
 
 die() {
   echo "" >&2
-  echo "hickory install failed: $1" >&2
+  echo "hick install failed: $1" >&2
   shift
   for line in "$@"; do echo "  $line" >&2; done
   exit 1
@@ -52,8 +52,8 @@ case "$os" in
   Darwin) triple_os="apple-darwin" ;;
   MINGW*|MSYS*|CYGWIN*|Windows_NT)
     die "Windows is shipped as a .zip, not through this script." \
-      "Download hickory-<version>-x86_64-pc-windows-msvc.zip from" \
-      "https://github.com/$REPO/releases, unzip it, and put hickory.exe on" \
+      "Download hick-<version>-x86_64-pc-windows-msvc.zip from" \
+      "https://github.com/$REPO/releases, unzip it, and put hick.exe on" \
       "your PATH. Note that running documents needs a POSIX \`sh\` — Git Bash" \
       "or WSL both provide one."
     ;;
@@ -103,7 +103,7 @@ else
   die "unknown channel: $CHANNEL" "Valid values are 'stable' and 'unstable'."
 fi
 
-tmp="$(mktemp -d 2>/dev/null || mktemp -d -t hickory)"
+tmp="$(mktemp -d 2>/dev/null || mktemp -d -t hick)"
 trap 'rm -rf "$tmp"' EXIT INT TERM
 
 echo "Looking up $what for $TARGET…"
@@ -129,8 +129,8 @@ field() {
   printf '%s' "$1" | tr ',' '\n' | sed -n "s/^ *\"$2\": *\"\\([^\"]*\\)\".*/\\1/p" | head -1
 }
 
-asset_name="hickory-*-$TARGET.tar.gz"
-line="$(grep '"name": *"hickory-' "$tmp/assets" | grep -- "-$TARGET\.tar\.gz\"" | head -1 || true)"
+asset_name="hick-*-$TARGET.tar.gz"
+line="$(grep '"name": *"hick-' "$tmp/assets" | grep -- "-$TARGET\.tar\.gz\"" | head -1 || true)"
 
 [ -n "$line" ] || die \
   "$what has no artifact for this machine ($TARGET)." \
@@ -194,9 +194,9 @@ fi
 # --- install ----------------------------------------------------------------
 
 tar -xzf "$tmp/$file" -C "$tmp"
-extracted="$tmp/$(basename "$file" .tar.gz)/hickory"
+extracted="$tmp/$(basename "$file" .tar.gz)/hick"
 [ -f "$extracted" ] || die \
-  "the archive did not contain a \`hickory\` binary where one was expected." \
+  "the archive did not contain a \`hick\` binary where one was expected." \
   "Looked for: $extracted" \
   "This is a packaging bug — please report it at https://github.com/$REPO/issues"
 
@@ -205,14 +205,14 @@ mkdir -p "$INSTALL_DIR" || die \
   "Set HICKORY_INSTALL_DIR to somewhere writable, e.g." \
   "  curl … | HICKORY_INSTALL_DIR=\$HOME/bin sh"
 
-install -m 755 "$extracted" "$INSTALL_DIR/hickory" 2>/dev/null ||
-  { cp "$extracted" "$INSTALL_DIR/hickory" && chmod 755 "$INSTALL_DIR/hickory"; } || die \
-  "could not write $INSTALL_DIR/hickory." \
+install -m 755 "$extracted" "$INSTALL_DIR/hick" 2>/dev/null ||
+  { cp "$extracted" "$INSTALL_DIR/hick" && chmod 755 "$INSTALL_DIR/hick"; } || die \
+  "could not write $INSTALL_DIR/hick." \
   "Is it writable? Set HICKORY_INSTALL_DIR to somewhere that is."
 
 echo ""
-echo "Installed: $INSTALL_DIR/hickory"
-"$INSTALL_DIR/hickory" --version || true
+echo "Installed: $INSTALL_DIR/hick"
+"$INSTALL_DIR/hick" --version || true
 
 case ":$PATH:" in
   *":$INSTALL_DIR:"*) ;;
@@ -224,12 +224,12 @@ case ":$PATH:" in
     ;;
 esac
 
-EXAMPLES_DIR="${INSTALL_DIR%/bin}/share/hickory/examples"
+EXAMPLES_DIR="${INSTALL_DIR%/bin}/share/hick/examples"
 mkdir -p "$(dirname "$EXAMPLES_DIR")" 2>/dev/null || true
 rm -rf "$EXAMPLES_DIR"
 if cp -R "$tmp/$(basename "$file" .tar.gz)/examples" "$EXAMPLES_DIR" 2>/dev/null; then
   echo ""
-  echo "Try it:  hickory test $EXAMPLES_DIR/text-tools-tour.hick"
+  echo "Try it:  hick test $EXAMPLES_DIR/text-tools-tour.hick"
   echo "(the whole set — $EXAMPLES_DIR — also needs python3, polars, and the"
   echo " duckdb CLI; text-tools-tour needs only a POSIX shell.)"
 fi

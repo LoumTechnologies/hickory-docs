@@ -88,7 +88,7 @@ function fakeTranscript(cell: ExecBlock): TranscriptEvent[] {
   }
   return [
     { t: 0, kind: "cmd", data: cell.command },
-    { t: 400, kind: "out", data: "hickory 0.4.2\n" },
+    { t: 400, kind: "out", data: "hick 0.4.2\n" },
     { t: 450, kind: "exit", code: 0 },
   ];
 }
@@ -169,7 +169,7 @@ function streamAgentSession(docId: string, prompt: string): string {
     "Plan: add an <hick:expect> block to the unverified cell, then re-run it.\n",
     "Editing source (span 612..796)…\n",
     "Running cell to capture a fresh transcript…\n",
-    "$ hickory run demo/hello.hick\nconverged: 3 nodes, 0 stale\n",
+    "$ hick run demo/hello.hick\nconverged: 3 nodes, 0 stale\n",
     "Verification passes. Session committed as sessions/2026-08-05-a.hick\n",
   ];
   void (async () => {

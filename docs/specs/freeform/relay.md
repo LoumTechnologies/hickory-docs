@@ -1,6 +1,6 @@
 # The relay: making a laptop reachable
 
-*Status: design of record for `hickory serve --public` and `apps/relay`.
+*Status: design of record for `hick serve --public` and `apps/relay`.
 Adopted 2026-08-11. The one cloud service `local-first.md` keeps.*
 
 A session runs on someone's machine. `--share` binds it to the local network,
@@ -11,7 +11,7 @@ only durable state is a table of accounts, because a quota has to be counted
 against something that outlives a process.
 
 ```
-guest browser ──HTTPS──►  relay.hickorydocs.com  ──existing outbound WS──►  hickory serve
+guest browser ──HTTPS──►  relay.hickorydocs.com  ──existing outbound WS──►  hick serve
                           (public, ours)                                     (laptop, theirs)
 ```
 
@@ -35,7 +35,7 @@ anything:
 GET /_relay/auth/methods → {"password": true, "github": {"client_id": "Iv1.…"}}
 ```
 
-A relay with no OAuth app omits the `github` field entirely, and `hickory
+A relay with no OAuth app omits the `github` field entirely, and `hick
 login` then never mentions GitHub. That is the difference between an option
 hidden because it does not exist and an option offered that fails at the last
 step — which is the worst possible place to learn a feature is unconfigured.
@@ -43,7 +43,7 @@ step — which is the worst possible place to learn a feature is unconfigured.
 **Email and password** is always available:
 
 ```
-$ hickory login --signup
+$ hick login --signup
   Email: nate@example.com
   Choose a password: ␣
   Signed in as nate@example.com.
@@ -68,8 +68,8 @@ way:
 - a self-hosted relay works with its own OAuth app and no CLI rebuild, because
   the client id comes from `/methods`.
 
-Credentials land in `~/.config/hickory/credentials.json`, mode `0600`, never in
-the repository. `hickory logout` deletes that file and nothing else — the
+Credentials land in `~/.config/hick/credentials.json`, mode `0600`, never in
+the repository. `hick logout` deletes that file and nothing else — the
 token the relay issued stays valid until it expires, and we say so rather than
 implying otherwise.
 
@@ -121,7 +121,7 @@ protects the session — the slug is an address, not a secret).
 
 A subdomain rather than a path prefix, because the client is a single-page app
 that loads `/assets/…` and opens `/api/ws`: path-prefixing every URL in a
-bundle that is *also* served at the root by `hickory serve` means one build
+bundle that is *also* served at the root by `hick serve` means one build
 cannot serve both. The cost is infrastructure — a wildcard DNS record and a
 wildcard certificate — and that cost is paid once by us rather than by every
 URL in the client.

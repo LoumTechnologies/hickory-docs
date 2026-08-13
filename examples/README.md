@@ -13,18 +13,18 @@ needs whatever its cells invoke to be installed locally.
 Start here — it works everywhere:
 
 ```sh
-hickory run examples/text-tools-tour.hick
-hickory test examples/text-tools-tour.hick
+hick run examples/text-tools-tour.hick
+hick test examples/text-tools-tour.hick
 ```
 
-`hickory test examples/` runs all three and needs the full set above. The R
+`hick test examples/` runs all three and needs the full set above. The R
 chapter of the grand tour is behind a feature flag and stays off unless you
 ask for it:
 
 ```sh
-hickory run examples/grand-tour.hick --features with-r
+hick run examples/grand-tour.hick --features with-r
 ```
 
 Every `.md` and generated artifact beside these documents is committed output.
-`hickory test` re-executes and fails if any of it has drifted, which is how
+`hick test` re-executes and fails if any of it has drifted, which is how
 these examples stay honest.

@@ -1,4 +1,4 @@
-//! Integration tests for `hickory run` / `hickory test`.
+//! Integration tests for `hick run` / `hick test`.
 //!
 //! `test_fails_on_drifted_expectation` is the test backing the guarantee in
 //! `docs/guarantees/verification/test-fails-on-drift.md`.
@@ -6,8 +6,8 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-fn hickory() -> Command {
-    Command::new(env!("CARGO_BIN_EXE_hickory"))
+fn hick() -> Command {
+    Command::new(env!("CARGO_BIN_EXE_hick"))
 }
 
 fn fixture(name: &str) -> PathBuf {
@@ -57,11 +57,7 @@ fn run_succeeds_and_records_failed_expectation_without_failing() {
     // On `run`, expectations are evaluated and recorded but do NOT fail.
     let dir = tempfile::tempdir().unwrap();
     let doc = write_doc(dir.path(), "drifted.hick", DRIFTED_DOC);
-    let out = hickory()
-        .args(["run"])
-        .arg(&doc)
-        .output()
-        .expect("run hickory");
+    let out = hick().args(["run"]).arg(&doc).output().expect("run hick");
     assert!(
         out.status.success(),
         "run must not fail on unmet expectations: {}",
@@ -76,15 +72,8 @@ fn test_passes_on_matching_expectations() {
     let dir = tempfile::tempdir().unwrap();
     let doc = write_doc(dir.path(), "passing.hick", PASSING_DOC);
     // First run writes the woven output so check has committed files.
-    assert!(
-        hickory()
-            .args(["run"])
-            .arg(&doc)
-            .status()
-            .unwrap()
-            .success()
-    );
-    let out = hickory().args(["test"]).arg(&doc).output().unwrap();
+    assert!(hick().args(["run"]).arg(&doc).status().unwrap().success());
+    let out = hick().args(["test"]).arg(&doc).output().unwrap();
     assert!(
         out.status.success(),
         "check must pass: {}",
@@ -99,7 +88,7 @@ fn test_fails_on_drifted_expectation() {
     // expected-vs-actual.
     let dir = tempfile::tempdir().unwrap();
     let doc = write_doc(dir.path(), "drifted.hick", DRIFTED_DOC);
-    let out = hickory().args(["test"]).arg(&doc).output().unwrap();
+    let out = hick().args(["test"]).arg(&doc).output().unwrap();
     assert!(
         !out.status.success(),
         "check must exit non-zero on an unmet expectation"
@@ -117,18 +106,11 @@ fn test_fails_on_committed_output_drift() {
     // fails check, even when expectations pass.
     let dir = tempfile::tempdir().unwrap();
     let doc = write_doc(dir.path(), "passing.hick", PASSING_DOC);
-    assert!(
-        hickory()
-            .args(["run"])
-            .arg(&doc)
-            .status()
-            .unwrap()
-            .success()
-    );
+    assert!(hick().args(["run"]).arg(&doc).status().unwrap().success());
     // Tamper with the committed woven markdown.
     let woven = dir.path().join("passing.md");
     std::fs::write(&woven, "stale hand-edited content\n").unwrap();
-    let out = hickory().args(["test"]).arg(&doc).output().unwrap();
+    let out = hick().args(["test"]).arg(&doc).output().unwrap();
     assert!(!out.status.success(), "test must detect output drift");
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(stderr.contains("passing.md"), "stderr: {stderr}");
@@ -137,7 +119,7 @@ fn test_fails_on_committed_output_drift() {
 #[test]
 fn test_fails_on_drifted_fixture_copy_of_shipped_example() {
     // The shipped example, deliberately drifted (apple 12 -> apple 13).
-    let out = hickory()
+    let out = hick()
         .args(["test"])
         .arg(fixture("drifted-tour.hick"))
         .output()
@@ -165,7 +147,7 @@ echo "value: 42"
 </hick:doc>
 "#,
     );
-    let out = hickory().args(["test"]).arg(&doc).output().unwrap();
+    let out = hick().args(["test"]).arg(&doc).output().unwrap();
     assert!(
         out.status.success(),
         "regex-lines must match: {}",
@@ -187,7 +169,7 @@ printf 'a\nb\n'
 </hick:doc>
 "#,
     );
-    let out2 = hickory().args(["test"]).arg(&doc2).output().unwrap();
+    let out2 = hick().args(["test"]).arg(&doc2).output().unwrap();
     assert!(!out2.status.success(), "must fail when lines uncovered");
 }
 
@@ -195,11 +177,7 @@ printf 'a\nb\n'
 fn json_block_model_has_spans_transcripts_statuses() {
     let dir = tempfile::tempdir().unwrap();
     let doc = write_doc(dir.path(), "passing.hick", PASSING_DOC);
-    let out = hickory()
-        .args(["run", "--json"])
-        .arg(&doc)
-        .output()
-        .unwrap();
+    let out = hick().args(["run", "--json"]).arg(&doc).output().unwrap();
     assert!(out.status.success());
     let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
     let blocks = v["blocks"].as_array().unwrap();
@@ -224,7 +202,7 @@ fn canopy_executor_without_config_fails_actionably() {
     // (docs/guarantees/execution/canopy-api-isolated-to-one-crate.md).
     let dir = tempfile::tempdir().unwrap();
     let doc = write_doc(dir.path(), "passing.hick", PASSING_DOC);
-    let out = hickory()
+    let out = hick()
         .args(["run"])
         .arg(&doc)
         .env("HICKORY_EXECUTOR", "canopy")
@@ -267,7 +245,14 @@ fn frozen_doc() -> String {
 fn record_frozen_cell(project_dir: &Path, output: &str) {
     let cc =
         hick_literate::cache::CacheConfig::new(project_dir, hick_literate::cache::CacheMode::Off);
-    let key = hick_literate::cache::exec_cache_key("alpine:3.20", "", FROZEN_COMMAND, &[]);
+    let key = hick_literate::cache::exec_cache_key(
+        "alpine:3.20",
+        "",
+        FROZEN_COMMAND,
+        &[],
+        &hick_literate::cache::inputs_digest(&[]),
+        &[],
+    );
     hick_literate::cache::cache_store(
         &cc,
         "c",
@@ -285,8 +270,8 @@ fn record_frozen_cell(project_dir: &Path, output: &str) {
 fn test_exits_verified_when_nothing_changed() {
     let dir = tempfile::tempdir().unwrap();
     let doc = write_doc(dir.path(), "passing.hick", PASSING_DOC);
-    assert!(hickory().arg("run").arg(&doc).status().unwrap().success());
-    let out = hickory().arg("test").arg(&doc).output().unwrap();
+    assert!(hick().arg("run").arg(&doc).status().unwrap().success());
+    let out = hick().arg("test").arg(&doc).output().unwrap();
     assert_eq!(
         out.status.code(),
         Some(0),
@@ -303,9 +288,9 @@ fn test_exits_drifted_when_a_committed_output_is_out_of_date() {
     // failed expectation.
     let dir = tempfile::tempdir().unwrap();
     let doc = write_doc(dir.path(), "passing.hick", PASSING_DOC);
-    assert!(hickory().arg("run").arg(&doc).status().unwrap().success());
+    assert!(hick().arg("run").arg(&doc).status().unwrap().success());
     std::fs::write(dir.path().join("passing.md"), "hand-edited\n").unwrap();
-    let out = hickory().arg("test").arg(&doc).output().unwrap();
+    let out = hick().arg("test").arg(&doc).output().unwrap();
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert_eq!(out.status.code(), Some(1), "drifted is exit 1: {stderr}");
     assert!(stderr.contains("DRIFTED"), "names the outcome: {stderr}");
@@ -319,8 +304,8 @@ fn test_exits_expectation_failed_when_a_claim_is_false() {
     let dir = tempfile::tempdir().unwrap();
     let doc = write_doc(dir.path(), "drifted.hick", DRIFTED_DOC);
     // Commit the woven output first, so the ONLY finding is the expectation.
-    assert!(hickory().arg("run").arg(&doc).status().unwrap().success());
-    let out = hickory().arg("test").arg(&doc).output().unwrap();
+    assert!(hick().arg("run").arg(&doc).status().unwrap().success());
+    let out = hick().arg("test").arg(&doc).output().unwrap();
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert_eq!(
         out.status.code(),
@@ -344,9 +329,9 @@ fn a_failed_expectation_outranks_drift() {
     // claim by committing over it.
     let dir = tempfile::tempdir().unwrap();
     let doc = write_doc(dir.path(), "drifted.hick", DRIFTED_DOC);
-    assert!(hickory().arg("run").arg(&doc).status().unwrap().success());
+    assert!(hick().arg("run").arg(&doc).status().unwrap().success());
     std::fs::write(dir.path().join("drifted.md"), "hand-edited\n").unwrap();
-    let out = hickory().arg("test").arg(&doc).output().unwrap();
+    let out = hick().arg("test").arg(&doc).output().unwrap();
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert_eq!(
         out.status.code(),
@@ -368,7 +353,7 @@ fn test_exits_unverifiable_when_a_cell_has_no_baseline() {
     // not the same fact as "something changed".
     let dir = tempfile::tempdir().unwrap();
     let doc = write_doc(dir.path(), "frozen.hick", &frozen_doc());
-    let out = hickory().arg("test").arg(&doc).output().unwrap();
+    let out = hick().arg("test").arg(&doc).output().unwrap();
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert_eq!(
         out.status.code(),
@@ -393,13 +378,13 @@ fn test_exits_unverifiable_when_a_cell_has_no_baseline() {
         stderr.contains("remove freeze=\"true\""),
         "says one thing to do about it: {stderr}"
     );
-    // #10: the remedy must be the one that exists NOW. `hickory run` records
+    // #10: the remedy must be the one that exists NOW. `hick run` records
     // a cell frozen from the start on its first run, so that is what the
     // message points at — not the old un-freeze / record / re-freeze dance,
     // and never `hick run --cache`, a binary that has never existed.
     // docs/guarantees/verification/recordings-are-written-only-when-asked-for.md
     assert!(
-        stderr.contains("hickory run "),
+        stderr.contains("hick run "),
         "must name the command that writes a recording: {stderr}"
     );
     assert!(
@@ -411,20 +396,20 @@ fn test_exits_unverifiable_when_a_cell_has_no_baseline() {
         "the two-step dance is gone; no message may still describe it: {stderr}"
     );
     assert!(
-        !stderr.contains("hickory test --cache") && !stderr.contains("test --cache"),
-        "`hickory test` has no --cache flag: {stderr}"
+        !stderr.contains("hick test --cache") && !stderr.contains("test --cache"),
+        "`hick test` has no --cache flag: {stderr}"
     );
 }
 
 #[test]
 fn run_records_a_cell_frozen_from_the_start_and_test_then_verifies_it() {
     // Issue #10 end to end, through the shipped binary: write the cell frozen,
-    // `hickory run` once, and `hickory test` is verified — with no edit to the
+    // `hick run` once, and `hick test` is verified — with no edit to the
     // document in between, and no --cache flag anywhere.
     let dir = tempfile::tempdir().unwrap();
     let doc = write_doc(dir.path(), "frozen.hick", &frozen_doc());
 
-    let out = hickory().arg("test").arg(&doc).output().unwrap();
+    let out = hick().arg("test").arg(&doc).output().unwrap();
     assert_eq!(
         out.status.code(),
         Some(2),
@@ -433,17 +418,17 @@ fn run_records_a_cell_frozen_from_the_start_and_test_then_verifies_it() {
     );
     assert!(
         !dir.path().join(".hick-cache").exists(),
-        "`hickory test` must not create a recording, or it verifies its own work"
+        "`hick test` must not create a recording, or it verifies its own work"
     );
 
-    let out = hickory().arg("run").arg(&doc).output().unwrap();
+    let out = hick().arg("run").arg(&doc).output().unwrap();
     assert!(
         out.status.success(),
         "run establishes the baseline instead of failing: {}",
         String::from_utf8_lossy(&out.stderr)
     );
 
-    let out = hickory().arg("test").arg(&doc).output().unwrap();
+    let out = hick().arg("test").arg(&doc).output().unwrap();
     assert_eq!(
         out.status.code(),
         Some(0),
@@ -465,7 +450,7 @@ fn test_reports_unverifiable_when_the_recording_directory_exists_but_the_cell_is
         "frozen.hick",
         &frozen_doc().replace("printf 'one\\ntwo\\n'", "printf 'changed\\n'"),
     );
-    let out = hickory().arg("test").arg(&doc).output().unwrap();
+    let out = hick().arg("test").arg(&doc).output().unwrap();
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert_eq!(out.status.code(), Some(2), "{stderr}");
     assert!(
@@ -482,7 +467,7 @@ fn unverifiable_outranks_drift() {
     let dir = tempfile::tempdir().unwrap();
     let doc = write_doc(dir.path(), "frozen.hick", &frozen_doc());
     std::fs::write(dir.path().join("frozen.md"), "hand-edited\n").unwrap();
-    let out = hickory().arg("test").arg(&doc).output().unwrap();
+    let out = hick().arg("test").arg(&doc).output().unwrap();
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert_eq!(
         out.status.code(),
@@ -521,7 +506,7 @@ three
 "#
         ),
     );
-    let out = hickory().arg("test").arg(&doc).output().unwrap();
+    let out = hick().arg("test").arg(&doc).output().unwrap();
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert_eq!(
         out.status.code(),
@@ -543,14 +528,14 @@ fn a_frozen_cell_served_from_its_recording_is_verified_not_unverifiable() {
     record_frozen_cell(dir.path(), "one\ntwo\n");
 
     // `run` serves the frozen cell from the recording and writes frozen.md.
-    let run_out = hickory().arg("run").arg(&doc).output().unwrap();
+    let run_out = hick().arg("run").arg(&doc).output().unwrap();
     assert!(
         run_out.status.success(),
         "run: {}",
         String::from_utf8_lossy(&run_out.stderr)
     );
 
-    let out = hickory().arg("test").arg(&doc).output().unwrap();
+    let out = hick().arg("test").arg(&doc).output().unwrap();
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert_eq!(
         out.status.code(),
@@ -570,18 +555,14 @@ fn a_frozen_cell_served_from_its_recording_is_verified_not_unverifiable() {
 /// cell in the document.
 #[test]
 fn the_old_check_subcommand_is_gone() {
-    let out = hickory()
-        .arg("check")
-        .arg("some-doc.hick")
-        .output()
-        .unwrap();
+    let out = hick().arg("check").arg("some-doc.hick").output().unwrap();
     assert!(
         !out.status.success(),
-        "the removed `hickory check` subcommand still runs: {out:?}"
+        "the removed `hick check` subcommand still runs: {out:?}"
     );
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(
         stderr.contains("unrecognized subcommand"),
-        "`hickory check` did not fail as an unknown subcommand: {stderr}"
+        "`hick check` did not fail as an unknown subcommand: {stderr}"
     );
 }

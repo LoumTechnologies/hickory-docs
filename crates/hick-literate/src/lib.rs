@@ -119,7 +119,7 @@ pub enum NoBaseline {
     /// cell.
     NotExecuted,
     /// The cell is frozen and no recording exists for it, in a mode that may
-    /// not establish one (`hickory test`). `frozen_by_cell` distinguishes
+    /// not establish one (`hick test`). `frozen_by_cell` distinguishes
     /// `freeze="true"` on the cell itself from a run-wide freeze the cell
     /// merely inherited.
     FrozenWithoutRecording {
@@ -630,6 +630,96 @@ fn seed_input_volumes(
     Ok(())
 }
 
+/// Paths inside a volume that are this tool's own bookkeeping rather than
+/// anything the document reads.
+///
+/// `.hick-cache/` has to be excluded or the key eats itself: an input volume
+/// declared `input="."` seeds from the project directory, which *contains*
+/// the recordings. Each run writes a recording, which changes the volume, which
+/// changes the key, which writes a new recording under a new key — a cache
+/// that never hits and grows a file per run. `.git/` is excluded for the same
+/// reason with a slower fuse: committing anything would invalidate every cell.
+fn is_run_artifact(path: &str) -> bool {
+    let first = path.split(['/', '\\']).next().unwrap_or("");
+    first == ".hick-cache" || first == ".git"
+}
+
+/// Digest the contents of every volume mounted into a cell.
+///
+/// This is the term that makes a cell's *inputs* part of its cache key. A
+/// `<hick:file>` the document assembles is seeded into an input volume before
+/// the run; a cell that mounts that volume therefore re-executes when the file
+/// changes, without the command text having changed at all.
+///
+/// Mount paths are folded in as well as volume names: the same volume mounted
+/// at a different path is a different view of the filesystem, and a command
+/// addressing it relatively would behave differently.
+///
+/// A volume that is not in the store yet contributes its name and nothing
+/// else. That is the honest digest of "declared but empty", and it differs
+/// from the same volume once seeded, which is what matters.
+fn mounted_inputs_digest(
+    volume_store: &volume_state::VolumeStore,
+    mounts: &[(String, String)],
+) -> String {
+    let mut entries: Vec<(String, Vec<u8>)> = Vec::new();
+    for (vol_name, mount_path) in mounts {
+        let Some(tar) = volume_store.get(vol_name) else {
+            entries.push((format!("{vol_name}@{mount_path}/"), Vec::new()));
+            continue;
+        };
+        // Hash the unpacked entries, not the tar: a tar carries mtimes, so
+        // hashing it directly would give the same bytes a new key on every
+        // run and nothing would ever hit its recording.
+        match volume_state::read_tar_files(tar) {
+            Ok(files) => {
+                for (path, body) in files {
+                    if is_run_artifact(&path) {
+                        continue;
+                    }
+                    entries.push((format!("{vol_name}@{mount_path}/{path}"), body));
+                }
+            }
+            Err(e) => {
+                // An unreadable volume must not silently digest as empty —
+                // that would let two different states share a key. Fold the
+                // error in so the key changes rather than collides.
+                warn!("could not read volume '{vol_name}' to key the cache: {e}");
+                entries.push((
+                    format!("{vol_name}@{mount_path}/<unreadable>"),
+                    e.to_string().into_bytes(),
+                ));
+            }
+        }
+    }
+    cache::inputs_digest(&entries)
+}
+
+/// The cache keys of a cell's predecessors, in the DAG's own order.
+///
+/// A predecessor with no key yet is one that was served without a key being
+/// computed — an agent cell, or a cell reached on a re-prepared graph. It
+/// contributes a placeholder rather than being skipped, so that "this
+/// predecessor existed and we could not key it" never digests identically to
+/// "this predecessor was absent".
+fn upstream_keys(
+    flow_dag: &hick_exec::dag::FlowDag,
+    exec_id: hick_exec::dag::ExecId,
+    keys_by_exec: &HashMap<hick_exec::dag::ExecId, String>,
+) -> Vec<String> {
+    let mut predecessors = flow_dag.predecessors(exec_id);
+    predecessors.sort_by_key(|id| id.0);
+    predecessors
+        .into_iter()
+        .map(|id| {
+            keys_by_exec
+                .get(&id)
+                .cloned()
+                .unwrap_or_else(|| format!("unkeyed:{}", id.0))
+        })
+        .collect()
+}
+
 /// Collect every document's `<hick:expect>` declarations, keyed by cell.
 fn collect_expect_specs(
     documents: &[(&str, HickDocument)],
@@ -850,7 +940,7 @@ pub struct PipelineConfig {
 /// **A frozen cell with no recording is not an error here.** It has no
 /// baseline, and this pipeline is the one that establishes baselines: the cell
 /// executes once and is recorded. Only a verifier — `PipelineConfig::
-/// collect_unverifiable`, set by `hickory test` — stops instead, reporting the
+/// collect_unverifiable`, set by `hick test` — stops instead, reporting the
 /// cell in `PipelineResult::never_run`, so verification can never manufacture
 /// the baseline it then compares against.
 pub async fn run_pipeline_live(
@@ -941,6 +1031,11 @@ pub async fn run_pipeline_live(
         };
         let mut reprepares = 0usize;
 
+        // Each cell's cache key, so a downstream cell can chain its
+        // predecessors' keys into its own. Filled in topological order, which
+        // is why a predecessor's key is always present before it is needed.
+        let mut keys_by_exec: HashMap<hick_exec::dag::ExecId, String> = HashMap::new();
+
         let mut order = flow_dag.topological_order();
         let mut cursor = 0usize;
         while cursor < order.len() {
@@ -974,7 +1069,7 @@ pub async fn run_pipeline_live(
                     warn!(
                         "the agent cell at line {} declares freeze=\"true\", but this run has \
                          no recording directory, so it was not replayed and will not be \
-                         recorded. Run it with `hickory run` to establish its baseline.",
+                         recorded. Run it with `hick run` to establish its baseline.",
                         exec_info.source_line,
                     );
                 }
@@ -1056,11 +1151,11 @@ pub async fn run_pipeline_live(
                          agent runner configured (prompt: {}).\n\
                          Next steps: export the provider's API key (`ANTHROPIC_API_KEY`, or the \
                          key for whichever provider you use) and re-run; or record the cell once \
-                         with `hickory run --cache` on a machine that has one, declare \
+                         with `hick run --cache` on a machine that has one, declare \
                          model=\"…\" on the cell so the recording can be found, and commit the \
                          recording.\n\
                          Common cause: CI and the server's live preview deliberately run with no \
-                         credentials — an agent cell there is reported by `hickory test` as \
+                         credentials — an agent cell there is reported by `hick test` as \
                          unverifiable rather than executed.",
                         exec_info.source_line,
                         first_command_line(&agent.prompt),
@@ -1203,7 +1298,7 @@ pub async fn run_pipeline_live(
             // cell asks "does the recorded answer still hold", so it is served
             // from its recording rather than executed; the `freeze=` attribute
             // wins over the run-wide flag in both directions, so
-            // `freeze="false"` keeps a cell live even under `hickory run
+            // `freeze="false"` keeps a cell live even under `hick run
             // --freeze`.
             let cell_mode = cache::cell_mode(cache_config, exec_info.freeze);
 
@@ -1213,27 +1308,48 @@ pub async fn run_pipeline_live(
                 // all, so they can neither replay this cell nor record it.
                 // The declaration cannot be honoured here; executing is the
                 // honest fallback, and saying so beats failing a preview over
-                // a cell that would run fine under `hickory run`.
+                // a cell that would run fine under `hick run`.
                 warn!(
                     "the exec in container '{}' at line {} declares freeze=\"true\", but this \
                      run has no recording directory, so the cell executed and was not \
-                     recorded. Run it with `hickory run` (which records a frozen cell the \
+                     recorded. Run it with `hick run` (which records a frozen cell the \
                      first time it runs) to establish its baseline.",
                     exec_info.container, exec_info.source_line,
                 );
             }
 
+            // The cell's cache key, computed ONCE here — before the cell runs
+            // — and reused for both the lookup below and the store further
+            // down. Two things make the placement load-bearing: the key
+            // describes the cell's *inputs*, which stop being observable the
+            // moment the cell writes to a volume it also reads; and a lookup
+            // and a store that computed their keys separately could disagree,
+            // which would record every cell under a key nothing ever looks up.
+            let exec_key = {
+                let caps_canonical = cache::canonical_caps(&container_defs, &exec_info.container);
+                let secret_names = cache::secret_names_for(&container_defs, &exec_info.container);
+                let secret_refs: Vec<&str> = secret_names.iter().map(|s| s.as_str()).collect();
+                let input_digest = mounted_inputs_digest(&volume_store, &exec_info.mounts);
+                let upstream = upstream_keys(&flow_dag, exec_id, &keys_by_exec);
+                let upstream_refs: Vec<&str> = upstream.iter().map(String::as_str).collect();
+                cache::exec_cache_key(
+                    image,
+                    &caps_canonical,
+                    &exec_info.command,
+                    &secret_refs,
+                    &input_digest,
+                    &upstream_refs,
+                )
+            };
+            keys_by_exec.insert(exec_id, exec_key.clone());
+
             // Check cache before executing
             if let Some(cc) = cache_config
                 && cell_mode.consults()
             {
-                let caps_canonical = cache::canonical_caps(&container_defs, &exec_info.container);
-                let secret_names = cache::secret_names_for(&container_defs, &exec_info.container);
-                let secret_refs: Vec<&str> = secret_names.iter().map(|s| s.as_str()).collect();
-                let key =
-                    cache::exec_cache_key(image, &caps_canonical, &exec_info.command, &secret_refs);
+                let key = &exec_key;
 
-                if let Some(cached) = cache::cache_lookup(cc, &exec_info.container, &key)? {
+                if let Some(cached) = cache::cache_lookup(cc, &exec_info.container, key)? {
                     info!(
                         "Cache hit for exec in '{}': {}…",
                         exec_info.container,
@@ -1443,30 +1559,23 @@ pub async fn run_pipeline_live(
                 // Store the result after successful execution: because the
                 // run asked for recordings, or because this cell did. The
                 // second half is what lets `freeze="true"` work from the
-                // start — the first `hickory run` executes the cell once and
+                // start — the first `hick run` executes the cell once and
                 // records it, with no document edit in between. A cell that
                 // opted out of freeze still refreshes its recording when the
                 // run is caching: opting out means "run me", not "keep me out
                 // of the record".
                 //
                 // A verifier writes nothing at all, whatever the modes say:
-                // `collect_unverifiable` is set only by `hickory test`, and a
+                // `collect_unverifiable` is set only by `hick test`, and a
                 // check that can write its own baseline is not a check.
                 if let Some(cc) = cache_config
                     && !config.collect_unverifiable
                     && (cc.mode.records() || cell_mode.records())
                 {
-                    let caps_canonical =
-                        cache::canonical_caps(&container_defs, &exec_info.container);
-                    let secret_names =
-                        cache::secret_names_for(&container_defs, &exec_info.container);
-                    let secret_refs: Vec<&str> = secret_names.iter().map(|s| s.as_str()).collect();
-                    let key = cache::exec_cache_key(
-                        image,
-                        &caps_canonical,
-                        &exec_info.command,
-                        &secret_refs,
-                    );
+                    // The key computed before the cell ran. Recomputing it here
+                    // would key the recording on the volume contents this cell
+                    // just produced rather than the ones it read.
+                    let key = &exec_key;
 
                     // Get the last transcript entry that was just added
                     if let Some(entries) = executor.transcripts().get(&exec_info.container)
@@ -1477,7 +1586,7 @@ pub async fn run_pipeline_live(
                             output: last.output.clone(),
                             output_hash: cache::sha256_hex(&last.output),
                         };
-                        cache::cache_store(cc, &exec_info.container, &key, &cache_entry)?;
+                        cache::cache_store(cc, &exec_info.container, key, &cache_entry)?;
                         info!("Cached exec in '{}': {}…", exec_info.container, &key[..12]);
                     }
                 }
@@ -1617,8 +1726,19 @@ pub async fn run_pipeline_weave(
         state,
         container_defs,
         container_images,
+        volumes: all_volume_decls,
         ..
     } = prepared;
+
+    // Weave never executes, so it never seeds a volume for a cell to read.
+    // It has to seed them anyway: a cache key covers the cell's inputs, and a
+    // weave that skipped this term would compute a different key from the run
+    // that wrote the recording and would therefore find nothing — every cell
+    // reported never-run immediately after a successful `hick run`.
+    let mut volume_store = volume_state::VolumeStore::new();
+    if let Some(cc) = cache_config {
+        seed_input_volumes(&mut volume_store, &all_volume_decls, &cc.project_dir, &[])?;
+    }
 
     let mut transcripts: Transcripts = HashMap::new();
     let mut never_run: NeverRun = NeverRun::new();
@@ -1626,6 +1746,7 @@ pub async fn run_pipeline_weave(
     for (name, doc) in &documents {
         let flow_dag = dag::build_dag(doc)
             .map_err(|e| anyhow::anyhow!("DAG validation failed in {name}: {e}"))?;
+        let mut keys_by_exec: HashMap<hick_exec::dag::ExecId, String> = HashMap::new();
         for exec_id in flow_dag.topological_order() {
             let info = flow_dag.execs.iter().find(|e| e.id == exec_id).unwrap();
             let commands: Vec<String> = vec![info.command.trim().to_string()];
@@ -1652,8 +1773,18 @@ pub async fn run_pipeline_weave(
                     let caps_canonical = cache::canonical_caps(&container_defs, &info.container);
                     let secret_names = cache::secret_names_for(&container_defs, &info.container);
                     let secret_refs: Vec<&str> = secret_names.iter().map(|s| s.as_str()).collect();
-                    let key =
-                        cache::exec_cache_key(image, &caps_canonical, &info.command, &secret_refs);
+                    let input_digest = mounted_inputs_digest(&volume_store, &info.mounts);
+                    let upstream = upstream_keys(&flow_dag, exec_id, &keys_by_exec);
+                    let upstream_refs: Vec<&str> = upstream.iter().map(String::as_str).collect();
+                    let key = cache::exec_cache_key(
+                        image,
+                        &caps_canonical,
+                        &info.command,
+                        &secret_refs,
+                        &input_digest,
+                        &upstream_refs,
+                    );
+                    keys_by_exec.insert(exec_id, key.clone());
                     cache::cache_lookup(cc, &info.container, &key)?
                 }
                 (None, _) => None,

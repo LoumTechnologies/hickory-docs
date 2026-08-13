@@ -45,9 +45,9 @@ site:
     mkdir -p apps/web/public
     cp scripts/install.sh apps/web/public/install.sh
     cd apps/web
-    VITE_POSTHOG_KEY="$key" npm run build
+    VITE_POSTHOG_KEY="$key" npm run build:site
     echo
-    echo "Static site built: apps/web/dist"
+    echo "Static site built: apps/web/dist-site"
     echo "It needs no backend. The landing page and its demos run in the browser."
     echo "Serves /install.sh — note that the installer pulls from GitHub releases,"
     echo "which strangers can only reach once the repository is public."
@@ -74,14 +74,6 @@ dev-clean:
 dev-seed:
     ./scripts/dev-seed.sh
 
-# Regenerate the OpenAPI spec + typed web client. No infra required.
-codegen:
-    ./scripts/codegen.sh
-
-# codegen + fail if the committed output is stale. CI + pre-commit entry point.
-check-codegen:
-    ./scripts/check-codegen.sh
-
 # Build one downloadable artifact (binary + LICENSE + examples) into dist/.
 # The same script the release workflows call, so a maintainer can reproduce
 # what CI ships. Targets:
@@ -100,7 +92,7 @@ verify DOC *ARGS:
     cargo run -p hickory-cli -- test {{DOC}} {{ARGS}}
 
 # Run the agent on a prompt. Loads .env first, which is where API keys live —
-# the CLI itself does not read .env, so calling `hickory agent` directly needs
+# the CLI itself does not read .env, so calling `hick agent` directly needs
 # the key already exported.
 #   just agent "fix the failing test" --provider deepseek
 agent PROMPT *ARGS:
@@ -128,12 +120,3 @@ tokens-run SPEC:
 tokens-count *FILES:
     cargo run -q -p hickory-agent --bin token_economics -- count-tokens {{FILES}}
 
-# Terraform creates the analytics project and knows its write key; the server
-# needs that key as POSTHOG_API_KEY. No provider bridges the two, so this is
-# the explicit hand-off (the documented fallback in
-# .instructions/continuous-delivery-paas.md). Run it after applying the
-# posthog stack. Details: docs/operators/analytics.md.
-
-# Push the Terraform-owned PostHog project key to the Fly app.
-posthog-sync-key:
-    ./scripts/posthog-sync-key.sh

@@ -1,7 +1,7 @@
-//! `hickory init` — set up a plain local git repository for hickory's
+//! `hick init` — set up a plain local git repository for hick's
 //! local mode.
 //!
-//! Everything here is idempotent: running `hickory init` twice produces the
+//! Everything here is idempotent: running `hick init` twice produces the
 //! same files as running it once. Managed content lives between sentinel
 //! markers so user edits outside the blocks survive refreshes.
 
@@ -22,8 +22,8 @@ pub const AGENTS_BLOCK_END: &str = "<!-- END HICKORY -->";
 /// The managed body installed inside the pre-commit hook sentinels.
 ///
 /// Discovers tracked `*.hick` documents at commit time (so newly added docs
-/// are covered without re-running `hickory init`), skips cleanly when there
-/// are none, and blocks the commit if `hickory test` reports a failure.
+/// are covered without re-running `hick init`), skips cleanly when there
+/// are none, and blocks the commit if `hick test` reports a failure.
 ///
 /// The message names which of the four outcomes actually happened. "Drift"
 /// used to be printed for every non-zero exit, which was wrong for two of
@@ -33,32 +33,32 @@ pub const AGENTS_BLOCK_END: &str = "<!-- END HICKORY -->";
 ///
 /// Exit codes are ranked by number, which is the same order the CLI ranks
 /// outcomes in: verified(0) < drifted(1) < unverifiable(2) < expectation(3).
-const HOOK_BODY: &str = r#"# Managed by `hickory init` — do not edit inside this block.
-# Re-run `hickory init` to refresh it.
+const HOOK_BODY: &str = r#"# Managed by `hick init` — do not edit inside this block.
+# Re-run `hick init` to refresh it.
 hick_docs=$(git ls-files -- '*.hick')
 if [ -n "$hick_docs" ]; then
-    if command -v hickory >/dev/null 2>&1; then
+    if command -v hick >/dev/null 2>&1; then
         hick_worst=0
         for hick_doc in $hick_docs; do
             hick_code=0
-            hickory test "$hick_doc" || hick_code=$?
+            hick test "$hick_doc" || hick_code=$?
             if [ "$hick_code" -gt "$hick_worst" ]; then
                 hick_worst=$hick_code
             fi
         done
         case "$hick_worst" in
             0) ;;
-            1) echo "pre-commit: \`hickory test\` found DRIFT (exit 1) — a committed output is out of date with what the document produces. Re-run \`hickory run <doc>\` (or \`hickory refresh <doc>\` for a stale hick:transform) and commit the result. Commit blocked." >&2
+            1) echo "pre-commit: \`hick test\` found DRIFT (exit 1) — a committed output is out of date with what the document produces. Re-run \`hick run <doc>\` (or \`hick refresh <doc>\` for a stale hick:transform) and commit the result. Commit blocked." >&2
                exit 1 ;;
-            2) echo "pre-commit: \`hickory test\` could NOT VERIFY (exit 2) — a cell has no baseline, so nothing was actually checked. Record one by running \`hickory run <doc>\` — a cell declaring freeze=true runs once and records itself — or stop freezing that cell. Commit blocked." >&2
+            2) echo "pre-commit: \`hick test\` could NOT VERIFY (exit 2) — a cell has no baseline, so nothing was actually checked. Record one by running \`hick run <doc>\` — a cell declaring freeze=true runs once and records itself — or stop freezing that cell. Commit blocked." >&2
                exit 1 ;;
-            3) echo "pre-commit: \`hickory test\` found a FAILED EXPECTATION (exit 3) — a hick:expect did not hold, so the document claims something untrue of its own output. Do not regenerate this away: decide whether the claim or the code is wrong. Commit blocked." >&2
+            3) echo "pre-commit: \`hick test\` found a FAILED EXPECTATION (exit 3) — a hick:expect did not hold, so the document claims something untrue of its own output. Do not regenerate this away: decide whether the claim or the code is wrong. Commit blocked." >&2
                exit 1 ;;
-            *) echo "pre-commit: \`hickory test\` exited $hick_worst — see the output above. Commit blocked." >&2
+            *) echo "pre-commit: \`hick test\` exited $hick_worst — see the output above. Commit blocked." >&2
                exit 1 ;;
         esac
     else
-        echo "pre-commit: hickory not found on PATH; skipping .hick verification" >&2
+        echo "pre-commit: hick not found on PATH; skipping .hick verification" >&2
     fi
 fi"#;
 
@@ -67,7 +67,7 @@ const AGENTS_BODY: &str = r#"## Hickory executable documents
 
 This repository contains `.hick` documents: reproducible, verifiable,
 executable documents. Every example in a `.hick` file actually runs, and
-drift between the document and reality fails `hickory test` (a pre-commit
+drift between the document and reality fails `hick test` (a pre-commit
 hook enforces this).
 
 ### Grammar essentials
@@ -82,35 +82,40 @@ paste in verbatim.
 - `<hick:container name="c" image="..." />` declares an execution container.
 - `<hick:exec container="c">` holds commands, run in that container.
 - `<hick:expect match="exact">…</hick:expect>` (or `match="regex-lines"`)
-  inside an exec pins the expected output; mismatch fails `hickory test`.
+  inside an exec pins the expected output; mismatch fails `hick test`.
 - `<hick:file path="out/x.py">` blocks are generated files, written on run.
 - Execution order is the dependency DAG (containers, volumes, copy/paste
   references) — not source order.
 
 ### Golden rules for coding agents
 
-1. Edit `.hick` sources, never the generated outputs (woven `.md`,
-   `hick:file` products) — those are overwritten on every run. Use the
-   lineage tooling if you must trace an output byte back to its source span.
-2. After editing a document, run `hickory run <doc>` to regenerate outputs,
-   then `hickory test <doc>` and fix whatever fails before committing.
+1. Edit `.hick` sources, not the generated outputs (woven `.md`,
+   `hick:file` products) — those are overwritten on every run. The one
+   exception is a change made through lineage, which maps back into the
+   document byte-exactly: `hick doc edit-output` (below), or any editor
+   while `hick up` is running. A generated file edited any other way loses
+   the edit on the next run.
+2. After editing a document, run `hick run <doc>` to regenerate outputs,
+   then `hick test <doc>` and fix whatever fails before committing. `hick up`
+   does the regenerating half continuously while you work; it does not
+   replace `hick test`.
 3. Agent sessions live in `sessions/*.hick` (`hick:session` documents);
-   `hickory promote <session>` compacts one into a clean pipeline doc.
+   `hick promote <session>` compacts one into a clean pipeline doc.
 
 ### The document tools — prefer these over editing files by hand
 
-`hickory` exposes the same five tools its own agent uses. Use them: they
+`hick` exposes the same five tools its own agent uses. Use them: they
 anchor on **content hashes**, so an edit against a line that changed since
 you read it is refused instead of landing in the wrong place, and an edit
 made through a generated output is mapped back into the document
 byte-exactly.
 
 ```sh
-hickory doc read <doc>                       # source, each line prefixed hhhh|
-hickory doc read-output <doc> --path f --lineage   # a generated file + provenance
-hickory doc edit-output <doc> --path f --run aa12..bb34 < new.txt   # edit CODE
-hickory doc edit <doc> --run aa12 < new.txt        # edit STRUCTURE or PROSE
-hickory doc verify <doc>                     # execute for real; do this before done
+hick doc read <doc>                       # source, each line prefixed hhhh|
+hick doc read-output <doc> --path f --lineage   # a generated file + provenance
+hick doc edit-output <doc> --path f --run aa12..bb34 < new.txt   # edit CODE
+hick doc edit <doc> --run aa12 < new.txt        # edit STRUCTURE or PROSE
+hick doc verify <doc>                     # execute for real; do this before done
 ```
 
 The order that works: read the surface, edit against the hashes you just
@@ -118,7 +123,7 @@ read, verify. Code goes through `edit-output`; structure and prose go
 through `edit`. A refusal from `edit-output` is routing — it names the
 document location to use with `edit` instead.
 
-If your harness speaks MCP, `hickory mcp` serves the same five tools over
+If your harness speaks MCP, `hick mcp` serves the same five tools over
 stdio and keeps the edit session open between calls, which is strictly
 better than the per-command path. This repo's `.mcp.json` registers it.
 
@@ -128,7 +133,7 @@ built-in agent produces. (Your own reasoning is not captured there; only
 what you did to the document.)
 "#;
 
-/// Everything `hickory init` did (or verified), for reporting.
+/// Everything `hick init` did (or verified), for reporting.
 #[derive(Debug, Default)]
 pub struct InitReport {
     /// Path of the pre-commit hook that now contains the managed block.
@@ -141,13 +146,13 @@ pub struct InitReport {
     pub agents_md_changed: bool,
     /// True if `@AGENTS.md` was prepended to an existing CLAUDE.md.
     pub claude_md_changed: bool,
-    /// True if `.mcp.json` was created or its `hickory` entry changed.
+    /// True if `.mcp.json` was created or its `hick` entry changed.
     pub mcp_json_changed: bool,
     /// Names of commonly needed child language servers missing from PATH.
     pub missing_language_servers: Vec<&'static str>,
 }
 
-/// Run `hickory init` against `dir` (any directory inside a git work tree).
+/// Run `hick init` against `dir` (any directory inside a git work tree).
 pub fn run_init(dir: &Path) -> Result<InitReport> {
     let root = git_toplevel(dir)?;
     let mut report = InitReport::default();
@@ -174,7 +179,7 @@ fn git_toplevel(dir: &Path) -> Result<PathBuf> {
         .context("failed to run git (is git installed?)")?;
     if !out.status.success() {
         bail!(
-            "{} is not inside a git repository — `hickory init` sets up local git-repo mode. \
+            "{} is not inside a git repository — `hick init` sets up local git-repo mode. \
              Run `git init` first, or use a cloud workspace instead.",
             dir.display()
         );
@@ -285,7 +290,7 @@ fn replace_between(content: &str, start: &str, end: &str, block: &str) -> Result
     let Some(end_rel) = after_start.find(end) else {
         bail!(
             "found `{start}` without a matching `{end}` — refusing to touch the file; \
-             remove the stale block and re-run `hickory init`"
+             remove the stale block and re-run `hick init`"
         );
     };
     let mut end_idx = start_idx + end_rel + end.len();
@@ -375,16 +380,16 @@ fn ensure_claude_md_include(path: &Path) -> Result<bool> {
     Ok(true)
 }
 
-/// Register `hickory mcp` in the project's `.mcp.json`.
+/// Register `hick mcp` in the project's `.mcp.json`.
 ///
 /// `.mcp.json` is the project-scoped MCP configuration Claude Code reads (and
 /// which several other MCP clients accept). It is checked in, so registering
 /// it once covers everyone who clones the repo rather than every developer
 /// configuring their own harness by hand.
 ///
-/// Only the `hickory` entry is managed. Another server already listed there
+/// Only the `hick` entry is managed. Another server already listed there
 /// belongs to whoever put it there, and an init that clobbered it would make
-/// re-running `hickory init` a destructive act — which it must never be.
+/// re-running `hick init` a destructive act — which it must never be.
 ///
 /// Harnesses that keep MCP configuration elsewhere (Codex and Grok CLI read
 /// their own global config files) are covered by the printed instructions in
@@ -394,7 +399,7 @@ fn ensure_mcp_registration(path: &Path) -> Result<bool> {
     use serde_json::{Map, Value, json};
 
     let managed = json!({
-        "command": "hickory",
+        "command": "hick",
         "args": ["mcp"],
     });
 
@@ -408,7 +413,7 @@ fn ensure_mcp_registration(path: &Path) -> Result<bool> {
         None => json!({ "mcpServers": {} }),
         Some(content) => serde_json::from_str(content).with_context(|| {
             format!(
-                "{} is not valid JSON — fix or remove it, then re-run `hickory init` \
+                "{} is not valid JSON — fix or remove it, then re-run `hick init` \
                  (it will not overwrite a file it cannot understand)",
                 path.display()
             )
@@ -431,10 +436,10 @@ fn ensure_mcp_registration(path: &Path) -> Result<bool> {
         );
     }
     let servers = servers.as_object_mut().expect("checked above");
-    if servers.get("hickory") == Some(&managed) {
+    if servers.get("hick") == Some(&managed) {
         return Ok(false);
     }
-    servers.insert("hickory".to_string(), managed);
+    servers.insert("hick".to_string(), managed);
 
     let rendered = format!("{}\n", serde_json::to_string_pretty(&root)?);
     let changed = existing.as_deref() != Some(rendered.as_str());
@@ -496,7 +501,7 @@ pub fn print_init_report(report: &InitReport) {
         describe(report.claude_md_changed)
     );
     eprintln!(
-        ".mcp.json (hickory server): {}",
+        ".mcp.json (hick server): {}",
         describe(report.mcp_json_changed)
     );
     // Named rather than implied: a user whose harness is not the one we can
@@ -504,8 +509,8 @@ pub fn print_init_report(report: &InitReport) {
     // tools missing.
     eprintln!(
         "  Claude Code picks this up from the repo. For a harness that keeps MCP config \n\
-         \x20 elsewhere (Codex, Grok CLI), add a server named `hickory` running `hickory mcp`, \n\
-         \x20 or skip MCP entirely — `hickory doc read|read-output|edit|edit-output|verify` \n\
+         \x20 elsewhere (Codex, Grok CLI), add a server named `hick` running `hick mcp`, \n\
+         \x20 or skip MCP entirely — `hick doc read|read-output|edit|edit-output|verify` \n\
          \x20 gives the same tools to anything that can run a command."
     );
     if report.missing_language_servers.is_empty() {
@@ -585,7 +590,7 @@ mod tests {
 
         // Tamper inside the block; re-init must restore it without
         // duplicating and without touching the user's line.
-        let tampered = content.replace("hickory test", "hickory tset");
+        let tampered = content.replace("hick test", "hick tset");
         std::fs::write(&hook_path, tampered).unwrap();
         run_init(repo.path()).unwrap();
         let refreshed = std::fs::read_to_string(&hook_path).unwrap();

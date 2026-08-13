@@ -80,7 +80,7 @@ describe("the knowledge-work walkthrough", () => {
     // The woven banner is the first line of the file. `//` there is visible
     // prose in Markdown, so it would corrupt the very ticket it annotates.
     const file = weaveOutputs(last.source, KNOWLEDGE_DOC_PATH)[0];
-    expect(file.content.startsWith("<!-- woven by hickory")).toBe(true);
+    expect(file.content.startsWith("<!-- woven by hick")).toBe(true);
   });
 
   it("keeps the visitor's own edits when moving between steps that share a source", () => {

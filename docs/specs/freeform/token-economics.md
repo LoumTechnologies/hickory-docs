@@ -1,4 +1,4 @@
-# Token economics: does the hickory approach actually cost less?
+# Token economics: does the hick approach actually cost less?
 
 The product thesis has a measurable claim inside it: **anchoring agent edits in
 document provenance is cheaper than scripting file edits, and the document
@@ -37,7 +37,7 @@ content, and because a failed script costs a full retry loop.
   reword prose, add a new cell.
 - **Primary metric**: total cost per completed task (USD, from `usage`).
 - **Secondary**: turns to completion, output tokens, failure/retry rate,
-  `hickory test` pass rate at the end (a cheap wrong answer is not a win).
+  `hick test` pass rate at the end (a cheap wrong answer is not a win).
 - **Threshold to claim the result**: ≥25% median cost reduction with equal or
   better check-pass rate. Below that, report it as "no significant difference" —
   and say so publicly rather than quietly dropping the experiment.
@@ -75,7 +75,7 @@ turns, so total spend can fall as effort rises.
 
 ## E5 — Batch API for verification fan-out
 
-`hickory test` across many documents is latency-insensitive. Route bulk
+`hick test` across many documents is latency-insensitive. Route bulk
 verification through the Batch API (50% discount) and measure realized savings
 against the interactive path.
 
@@ -133,7 +133,7 @@ gated on `HICKORY_AGENT_LIVE=1`).
   implemented because history here is plain text, not content blocks.
 - **Batch API** (`llm_batch.rs`): `AnthropicBatchClient`
   (submit / wait_until_ended / results keyed by `custom_id`) is the
-  complete 50%-discount transport for `hickory test` fan-out (E5). Wiring
+  complete 50%-discount transport for `hick test` fan-out (E5). Wiring
   it into the `check` command lives in `hickory-cli` and is left to that
   workstream; note that concurrent identical-prefix requests cannot read a
   cache entry still being written — warm the cache with one request first.
@@ -173,4 +173,4 @@ HICKORY_AGENT_LIVE=1 cargo test -p hickory-agent -- --ignored       # E3 live ca
 ```
 
 Task `check_cmd`s invoke `${HICKORY_BIN:-hickory}`; point `HICKORY_BIN` at
-a built CLI (e.g. `target/debug/hickory`) for live runs.
+a built CLI (e.g. `target/debug/hick`) for live runs.

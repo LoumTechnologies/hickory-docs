@@ -479,7 +479,7 @@ pub fn tag_text(tag: &HickTag) -> String {
 /// Fingerprint of a transform's inputs: the bytes it was written from plus the
 /// instruction it was written under.
 ///
-/// This is what `hickory test` compares, and why checking a transform never
+/// This is what `hick test` compares, and why checking a transform never
 /// needs a model: an LLM-written passage cannot be re-derived byte-for-byte, so
 /// the document does not claim it reproduces — it claims it was written from
 /// EXACTLY these bytes under EXACTLY this instruction, and that neither has
@@ -1842,8 +1842,8 @@ curl --version
             "hick"
         );
         assert_eq!(
-            detect_prefix(r#"<hickory:doc xmlns:hickory="http://www.hickorydocs.com/1.0">"#),
-            "hickory"
+            detect_prefix(r#"<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">"#),
+            "hick"
         );
         // Single-quoted
         assert_eq!(

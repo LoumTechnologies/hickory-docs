@@ -1,5 +1,5 @@
 //! End-to-end shape of agent-authored lineage, from a `ProvenanceMap` to the
-//! line `hickory lineage` prints.
+//! line `hick lineage` prints.
 //!
 //! Protects docs/guarantees/lineage/agent-lineage-degrades-without-a-session.md
 //!

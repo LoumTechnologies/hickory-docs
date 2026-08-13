@@ -3,7 +3,7 @@
 """Aggregate the Claude Code session logs.
 
 Reads ~/.claude/projects/**/*.jsonl and emits counts only.
-Assembled by `hickory run` from docs/analysis/claude-code-corpus.hick.
+Assembled by `hick run` from docs/analysis/claude-code-corpus.hick.
 """
 import glob
 import json

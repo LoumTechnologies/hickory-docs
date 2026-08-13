@@ -22,29 +22,20 @@ use tokio::sync::mpsc;
 
 use super::LocalState;
 use super::api::ApiError;
-use super::share::Caller;
 
 static NEXT_CLIENT_ID: AtomicU64 = AtomicU64::new(1);
 
 #[derive(Deserialize)]
 pub struct WsParams {
     doc: String,
-    token: String,
 }
 
-/// `WS /api/ws?doc=doc:<id>&token=<session token>`.
+/// `WS /api/ws?doc=doc:<id>`.
 pub async fn ws_handler(
     State(state): State<LocalState>,
     Query(params): Query<WsParams>,
     upgrade: WebSocketUpgrade,
 ) -> Response {
-    // The socket carries its token in the query string: a WebSocket handshake
-    // from a browser cannot set an Authorization header. A mismatch is a flat
-    // refusal with no hint about which part was wrong.
-    let Some(caller) = state.caller_for(&params.token) else {
-        return ApiError::forbidden("this session link is not valid").into_response();
-    };
-
     // Output rooms (`output:<id>:<path>`) are a hosted feature: locally the
     // generated files are on disk, and the editor edits them through
     // `/outputs/edit`, which resolves into the document.
@@ -62,18 +53,13 @@ pub async fn ws_handler(
     }
 
     upgrade.on_upgrade(move |socket| async move {
-        if let Err(e) = run_socket(state, caller, doc_id, socket).await {
+        if let Err(e) = run_socket(state, doc_id, socket).await {
             log::debug!("local ws session ended: {e:#}");
         }
     })
 }
 
-async fn run_socket(
-    state: LocalState,
-    caller: Caller,
-    key: String,
-    socket: WebSocket,
-) -> anyhow::Result<()> {
+async fn run_socket(state: LocalState, key: String, socket: WebSocket) -> anyhow::Result<()> {
     let room = state.rooms.get_or_create(&key).await?;
     let client_id = NEXT_CLIENT_ID.fetch_add(1, Ordering::Relaxed);
     let (tx, mut rx) = mpsc::unbounded_channel::<Vec<u8>>();
@@ -107,7 +93,7 @@ async fn run_socket(
                 // messages that would change it.
                 if let Err(e) = state
                     .rooms
-                    .handle_yjs_payload(&room, client_id, &tx, &data[1..], caller.can_edit())
+                    .handle_yjs_payload(&room, client_id, &tx, &data[1..], true)
                     .await
                 {
                     log::debug!("yjs message error on {key}: {e:#}");

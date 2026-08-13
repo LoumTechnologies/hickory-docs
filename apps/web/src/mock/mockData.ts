@@ -4,10 +4,10 @@ import type { Block, Doc, Plan, Project, TranscriptEvent } from "../api/types";
 // Mock document 1: runnable CLI-tool documentation (the exedocs use case).
 // ---------------------------------------------------------------------------
 
-export const CLI_SOURCE = `# hickory quickstart
+export const CLI_SOURCE = `# hick quickstart
 
 Hickory Docs turns documentation into a verified pipeline. Every example
-below executes on \`hickory test\`; drift between docs and binary is a
+below executes on \`hick test\`; drift between docs and binary is a
 build failure.
 
 Everything below runs in one declared environment:
@@ -17,23 +17,23 @@ Everything below runs in one declared environment:
 Install the CLI, then confirm the version:
 
 <hick:exec container="shell" image="debian:12">
-hickory --version
+hick --version
 <hick:expect match="regex-lines">
-hickory \\d+\\.\\d+\\.\\d+
+hick \\d+\\.\\d+\\.\\d+
 </hick:expect>
 </hick:exec>
 
 Initialise a project. This installs the pre-commit verification hook:
 
 <hick:exec container="shell">
-hickory init demo && ls demo/.hick
+hick init demo && ls demo/.hick
 </hick:exec>
 
 Write a document and run it. Output below is captured as a timed
 transcript, replayable in the web UI:
 
 <hick:exec container="shell">
-hickory run demo/hello.hick
+hick run demo/hello.hick
 <hick:expect match="exact">
 converged: 3 nodes, 0 stale
 </hick:expect>
@@ -47,13 +47,13 @@ function span(source: string, needle: string): [number, number] {
 }
 
 const versionTranscript: TranscriptEvent[] = [
-  { t: 0, kind: "cmd", data: "hickory --version" },
-  { t: 350, kind: "out", data: "hickory 0.4.2\n" },
+  { t: 0, kind: "cmd", data: "hick --version" },
+  { t: 350, kind: "out", data: "hick 0.4.2\n" },
   { t: 380, kind: "exit", code: 0 },
 ];
 
 const initTranscript: TranscriptEvent[] = [
-  { t: 0, kind: "cmd", data: "hickory init demo && ls demo/.hick" },
+  { t: 0, kind: "cmd", data: "hick init demo && ls demo/.hick" },
   { t: 420, kind: "out", data: "initialised demo/\n" },
   { t: 700, kind: "out", data: "installed pre-commit hook (sentinel-delimited)\n" },
   { t: 1100, kind: "out", data: "cache  git  hooks\n" },
@@ -63,7 +63,7 @@ const initTranscript: TranscriptEvent[] = [
 export const CLI_BLOCKS: Block[] = [
   {
     kind: "prose",
-    html: "<h1>hickory quickstart</h1><p>Hickory Docs turns documentation into a verified pipeline. Every example below executes on <code>hickory test</code>; drift between docs and binary is a build failure.</p><p>Install the CLI, then confirm the version:</p>",
+    html: "<h1>hick quickstart</h1><p>Hickory Docs turns documentation into a verified pipeline. Every example below executes on <code>hick test</code>; drift between docs and binary is a build failure.</p><p>Install the CLI, then confirm the version:</p>",
     span: [0, CLI_SOURCE.indexOf("<hick:exec")],
   },
   {
@@ -71,10 +71,10 @@ export const CLI_BLOCKS: Block[] = [
     id: "cli-version",
     container: "shell",
     image: "debian:12",
-    command: "hickory --version",
-    span: span(CLI_SOURCE, '<hick:exec container="shell" image="debian:12">\nhickory --version\n<hick:expect match="regex-lines">\nhickory \\d+\\.\\d+\\.\\d+\n</hick:expect>\n</hick:exec>'),
+    command: "hick --version",
+    span: span(CLI_SOURCE, '<hick:exec container="shell" image="debian:12">\nhick --version\n<hick:expect match="regex-lines">\nhick \\d+\\.\\d+\\.\\d+\n</hick:expect>\n</hick:exec>'),
     transcript: versionTranscript,
-    expect: { match: "regex-lines", body: "hickory \\d+\\.\\d+\\.\\d+" },
+    expect: { match: "regex-lines", body: "hick \\d+\\.\\d+\\.\\d+" },
     status: "ok",
   },
   {
@@ -86,8 +86,8 @@ export const CLI_BLOCKS: Block[] = [
     kind: "exec",
     id: "cli-init",
     container: "shell",
-    command: "hickory init demo && ls demo/.hick",
-    span: span(CLI_SOURCE, '<hick:exec container="shell">\nhickory init demo && ls demo/.hick\n</hick:exec>'),
+    command: "hick init demo && ls demo/.hick",
+    span: span(CLI_SOURCE, '<hick:exec container="shell">\nhick init demo && ls demo/.hick\n</hick:exec>'),
     transcript: initTranscript,
     status: "ok",
   },
@@ -100,8 +100,8 @@ export const CLI_BLOCKS: Block[] = [
     kind: "exec",
     id: "cli-run",
     container: "shell",
-    command: "hickory run demo/hello.hick",
-    span: span(CLI_SOURCE, '<hick:exec container="shell">\nhickory run demo/hello.hick\n<hick:expect match="exact">\nconverged: 3 nodes, 0 stale\n</hick:expect>\n</hick:exec>'),
+    command: "hick run demo/hello.hick",
+    span: span(CLI_SOURCE, '<hick:exec container="shell">\nhick run demo/hello.hick\n<hick:expect match="exact">\nconverged: 3 nodes, 0 stale\n</hick:expect>\n</hick:exec>'),
     expect: { match: "exact", body: "converged: 3 nodes, 0 stale" },
     status: "never-run",
   },
@@ -214,7 +214,7 @@ export const PAPER_BLOCKS: Block[] = [
 export const WEAVE_SOURCE = `# Woven module demo
 
 This document **weaves** one Python module from two named slots. Edit the
-document *or* the generated output — hickory maps output edits back to the
+document *or* the generated output — hick maps output edits back to the
 source spans they came from (note: raw < and > need no escaping here).
 
 The loader slot:
@@ -255,7 +255,7 @@ python src/latency.py
 export const WEAVE_BLOCKS: Block[] = [
   {
     kind: "prose",
-    html: "<h1>Woven module demo</h1><p>This document <strong>weaves</strong> one Python module from two named slots. Edit the document <em>or</em> the generated output — hickory maps output edits back to the source spans they came from.</p>",
+    html: "<h1>Woven module demo</h1><p>This document <strong>weaves</strong> one Python module from two named slots. Edit the document <em>or</em> the generated output — hick maps output edits back to the source spans they came from.</p>",
     span: [0, WEAVE_SOURCE.indexOf("<hick:copy")],
   },
   {
@@ -284,7 +284,7 @@ export const WEAVE_BLOCKS: Block[] = [
 // ---------------------------------------------------------------------------
 
 export const MOCK_PROJECTS: Project[] = [
-  { id: "p1", name: "hickory", visibility: "public", created_at: "2026-07-02T10:00:00Z" },
+  { id: "p1", name: "hick", visibility: "public", created_at: "2026-07-02T10:00:00Z" },
   { id: "p2", name: "latency-paper", visibility: "private", created_at: "2026-07-20T09:30:00Z" },
 ];
 

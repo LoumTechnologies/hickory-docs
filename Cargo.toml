@@ -1,7 +1,6 @@
 [workspace]
 resolver = "3"
 members = [
-    "apps/relay",
     "crates/hick-case",
     "crates/hick-classify",
     "crates/hick-condition",
@@ -20,15 +19,12 @@ members = [
     "crates/hick-xml",
     "crates/hick-literate",
     "crates/hickory-executor",
-    "crates/hickory-identity",
     "crates/hickory-agent",
     "crates/hickory-executor-canopy",
     "crates/hickory-executor-docker",
     "crates/hickory-cli",
     "crates/hickory-collab",
     "crates/hickory-lineage",
-    "crates/hickory-relay",
-    "apps/server",
 ]
 # editors/zed-hick is a standalone wasm extension crate built by Zed's
 # toolchain, not part of this workspace.

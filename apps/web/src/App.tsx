@@ -1,126 +1,27 @@
-import { useEffect, useState } from "react";
-import { api, getToken, setToken } from "./api/client";
-import type { User } from "./api/types";
-import { config } from "./config";
 import { navigate, useRoute } from "./router";
-import { LoginView } from "./views/LoginView";
 import { ProjectsView } from "./views/ProjectsView";
 import { DocumentView } from "./views/DocumentView";
-import { LandingView } from "./views/LandingView";
-import { PricingView } from "./views/PricingView";
-import { SettingsView } from "./views/SettingsView";
-import { VerifyView } from "./views/VerifyView";
-import { ResetView } from "./views/ResetView";
-import { ForgotView } from "./views/ForgotView";
-import { VerifyBanner } from "./components/VerifyBanner";
 import { TreeMark } from "./components/icons";
 
+/// The desktop app's shell.
+///
+/// There is no authentication, no landing page, and no account menu. This UI
+/// only ever talks to the local server running in the same process, which
+/// answers one person: the one whose machine it is. The marketing site is a
+/// separate build — see `docs/specs/freeform/local-only.md`.
 export function App() {
   const route = useRoute();
-  const [user, setUser] = useState<User | null>(null);
-  const [checked, setChecked] = useState(false);
-
-  useEffect(() => {
-    if (!getToken()) {
-      setChecked(true);
-      return;
-    }
-    api.me().then(
-      (u) => {
-        setUser(u);
-        setChecked(true);
-      },
-      () => {
-        setToken(null);
-        setChecked(true);
-      },
-    );
-  }, []);
-
-  const logout = () => {
-    setToken(null);
-    setUser(null);
-    navigate("/login");
-  };
-
-  if (!checked) return null;
-
-  const authed = user !== null;
-  // Routes reached from an email link must work while signed out: the link is
-  // often opened on a different device or browser from the one that signed up.
-  const publicRoute =
-    route.name === "landing" ||
-    route.name === "login" ||
-    route.name === "pricing" ||
-    route.name === "verify" ||
-    route.name === "reset" ||
-    route.name === "forgot";
-  const needsAuth = !publicRoute;
 
   return (
     <div className="app">
       <nav className="topnav">
-        <button className="wordmark" onClick={() => navigate(authed ? "/projects" : "/")}>
+        <button className="wordmark" onClick={() => navigate("/projects")}>
           <TreeMark size={17} />
           Hickory Docs
         </button>
-        <div className="nav-actions">
-          <button className="btn btn-link" onClick={() => navigate("/pricing")}>
-            Pricing
-          </button>
-          {authed ? (
-            <>
-              <button className="btn btn-link" onClick={() => navigate("/settings")}>
-                Settings
-              </button>
-              <span className="muted">{user.email}</span>
-              <button className="btn btn-link" onClick={logout}>
-                Log out
-              </button>
-            </>
-          ) : (
-            // No accounts outside the hosted workspace: a sign-in link on the
-            // static site would lead to a form that cannot succeed.
-            config.hosted && (
-              <button className="btn btn-link" onClick={() => navigate("/login")}>
-                Log in
-              </button>
-            )
-          )}
-        </div>
       </nav>
       <main className="content">
-        {authed && <VerifyBanner user={user} />}
-        {route.name === "landing" ? (
-          authed ? (
-            <ProjectsView />
-          ) : (
-            <LandingView />
-          )
-        ) : route.name === "pricing" ? (
-          <PricingView />
-        ) : route.name === "verify" ? (
-          <VerifyView
-            token={route.token}
-            onVerified={() =>
-              setUser((u) => (u ? { ...u, email_verified: true } : u))
-            }
-          />
-        ) : route.name === "reset" ? (
-          <ResetView token={route.token} />
-        ) : route.name === "forgot" ? (
-          <ForgotView />
-        ) : !authed && needsAuth ? (
-          <LoginView onAuth={setUser} />
-        ) : route.name === "login" ? (
-          authed ? (
-            <ProjectsView />
-          ) : (
-            <LoginView onAuth={setUser} />
-          )
-        ) : route.name === "settings" ? (
-          <SettingsView user={user!} />
-        ) : route.name === "doc" ? (
+        {route.name === "doc" ? (
           <DocumentView docId={route.id} />
         ) : route.name === "project" ? (
           <ProjectsView projectId={route.id} />

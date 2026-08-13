@@ -1,4 +1,4 @@
-# Installing `hickory`
+# Installing `hick`
 
 For someone who wants to run executable documents and does not care how the
 project is built. No Rust toolchain is needed at any point.
@@ -10,7 +10,7 @@ curl -fsSL https://raw.githubusercontent.com/LoumTechnologies/hickory-docs/maste
 ```
 
 It works out which archive matches your machine, checks its SHA-256 against
-the checksum published beside it, and installs `hickory` to `~/.local/bin`. If
+the checksum published beside it, and installs `hick` to `~/.local/bin`. If
 that directory is not on your `PATH`, the script says so and prints the line
 to add.
 
@@ -51,7 +51,7 @@ Unpack it and you get the binary, `LICENSE`, `README.md`, and `examples/`:
 ```sh
 tar -xzf hickory-<version>-<target>.tar.gz
 cd hickory-<version>-<target>
-./hickory test examples/text-tools-tour.hick
+./hick test examples/text-tools-tour.hick
 ```
 
 ## Two channels
@@ -75,7 +75,7 @@ cell against **your** host toolchain — `image=` is recorded and ignored (see
 the README).
 
 - **`sh`.** Every cell is executed through a POSIX shell. macOS and Linux have
-  one. On Windows, use Git Bash or WSL; `hickory --version`, `--help`, and the
+  one. On Windows, use Git Bash or WSL; `hick --version`, `--help`, and the
   parser work without one, but executing a document does not.
 - **Whatever the document invokes.** `examples/text-tools-tour.hick` needs
   `sort`, `awk`, `wc`, and `tr` — all POSIX, all present on macOS and Linux.
@@ -92,7 +92,7 @@ found", naming the line in the document that invoked it.
 ```sh
 git clone https://github.com/LoumTechnologies/hickory-docs
 cd hickory-docs
-cargo build --release -p hickory-cli   # binary at target/release/hickory
+cargo build --release -p hickory-cli   # binary at target/release/hick
 ```
 
 This is also the answer for any platform not in the table above: musl distros,
@@ -104,6 +104,6 @@ are compiled from source as part of it — which on a Debian-family system means
 ## Uninstalling
 
 ```sh
-rm ~/.local/bin/hickory
-rm -rf ~/.local/share/hickory
+rm ~/.local/bin/hick
+rm -rf ~/.local/share/hick
 ```

@@ -2,7 +2,7 @@
 //!
 //! Every agent session is written **incrementally** as a `hick:session`
 //! document — the same format `hick-lang` parses ([`hick_lang::parse_session`])
-//! and `hickory promote` turns into a clean pipeline. The session file is the
+//! and `hick promote` turns into a clean pipeline. The session file is the
 //! durable, replayable record of the conversation: user turns, assistant
 //! responses with embedded `<hick:action>` script blocks, and captured
 //! `<hick:observation>` output.
@@ -138,7 +138,7 @@ impl HickSessionLog {
     ///
     /// This is what makes a session survive across *processes*. The built-in
     /// agent holds one log open for a whole run; an external coding agent
-    /// makes one `hickory doc` call per edit, each in a process of its own,
+    /// makes one `hick doc` call per edit, each in a process of its own,
     /// and without this each call would either truncate the session or refuse
     /// to write it. The session is the product — losing it because the work
     /// came from Claude Code rather than from our loop would make "bring your

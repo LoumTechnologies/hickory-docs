@@ -41,7 +41,7 @@ Last LLM verification:
   `an_unknown_selector_never_falls_back_to_the_default`,
   `a_missing_key_is_reported_by_variable_name`, and
   `an_explicit_key_is_used_instead_of_the_environment`. Driven end-to-end
-  against a local recording chat-completions endpoint: `hickory agent
+  against a local recording chat-completions endpoint: `hick agent
   --provider deepseek` and `--provider openai` each reported their own model,
   and the recorded requests confirm the per-provider output-cap field
   (`max_tokens` vs `max_completion_tokens`) that a shared client would

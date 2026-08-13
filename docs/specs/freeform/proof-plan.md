@@ -29,8 +29,8 @@ command you can run or a test that already gates CI.
 3. Click **Run** on a cell → live transcript streams in over the WebSocket;
    the player scrubs through timed output.
 4. Pricing page renders `plans.json` through the API (no hard-coded prices).
-5. CLI: `hickory agent "…"` works once `ANTHROPIC_API_KEY` is set — sessions
-   land in `sessions/*.hick`, `hickory promote` compacts them.
+5. CLI: `hick agent "…"` works once `ANTHROPIC_API_KEY` is set — sessions
+   land in `sessions/*.hick`, `hick promote` compacts them.
 6. The editor, live: the "smoke" project now has `weave-demo.hick` — open it
    to see the Typora-style Document view (syntax visible, styled like the
    render), then switch to **Output** → `pleasantries.py`: hover to see each
@@ -84,7 +84,7 @@ namespaces as capability vocabulary) intact.
    automatically (`.github/workflows/deploy-production.yml`). Still open: a
    portzero tunnel (or canopy's nginx/ACME domain) so the deployed app can
    reach the canopy node.
-3. **Agent live run**: set `ANTHROPIC_API_KEY` and try `hickory agent` for
+3. **Agent live run**: set `ANTHROPIC_API_KEY` and try `hick agent` for
    real (only the scripted-LLM path ran tonight — no key in env).
 4. Mobile: Tauri v2 scaffolds are configured (`apps/mobile/README-mobile.md`);
    iOS needs your Mac, Android needs an SDK.

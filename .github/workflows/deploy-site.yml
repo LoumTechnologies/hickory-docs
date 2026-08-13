@@ -1,0 +1,55 @@
+# Publish the static marketing site to Cloudflare Pages.
+#
+# The site is files. There is no server to deploy, no migration to run, and
+# nothing to roll back beyond publishing again — which is why this is a plain
+# push-to-master job with no environment gate. See
+# `.instructions/continuous-delivery-downloadable.md`.
+#
+# The *product* is not deployed here. It ships through the release workflows
+# as a download; this only publishes the page that links to it.
+name: Deploy Site
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - "apps/web/**"
+      - "scripts/install.sh"
+      - ".github/workflows/deploy-site.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-site
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+
+      - run: npm ci --prefix apps/web
+
+      # `just site` copies install.sh into the bundle and refuses a PostHog
+      # personal key before building, rather than after a visitor's browser
+      # has already received it.
+      - name: Build the site
+        env:
+          POSTHOG_KEY: ${{ secrets.POSTHOG_KEY }}
+        run: |
+          curl -fsSL https://github.com/casey/just/releases/download/1.36.0/just-1.36.0-x86_64-unknown-linux-musl.tar.gz \
+            | tar -xz -C /usr/local/bin just
+          just site
+
+      - name: Publish to Cloudflare Pages
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+          command: pages deploy apps/web/dist-site --project-name=${{ vars.CLOUDFLARE_PAGES_PROJECT }}

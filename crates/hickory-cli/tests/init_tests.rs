@@ -1,13 +1,13 @@
-//! Integration tests for `hickory init`: hook installation idempotency and
+//! Integration tests for `hick init`: hook installation idempotency and
 //! the pre-commit drift gate. The gate is exercised by running the installed
-//! hook script directly (not via `git commit`) with the built `hickory`
+//! hook script directly (not via `git commit`) with the built `hick`
 //! binary on PATH.
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 fn hickory_bin() -> PathBuf {
-    PathBuf::from(env!("CARGO_BIN_EXE_hickory"))
+    PathBuf::from(env!("CARGO_BIN_EXE_hick"))
 }
 
 fn git(dir: &Path, args: &[&str]) {
@@ -34,12 +34,12 @@ fn run_init(dir: &Path) -> Output {
         .arg(dir)
         .output()
         .unwrap();
-    assert!(out.status.success(), "hickory init failed: {out:?}");
+    assert!(out.status.success(), "hick init failed: {out:?}");
     out
 }
 
 /// Run the installed pre-commit hook script directly, from the repo root,
-/// with the directory containing the built `hickory` binary prepended to
+/// with the directory containing the built `hick` binary prepended to
 /// PATH (as it would be for a user who `cargo install`ed it).
 fn run_hook(repo: &Path) -> Output {
     let hook = repo.join(".git/hooks/pre-commit");
@@ -126,7 +126,7 @@ fn hook_passes_with_clean_doc_and_fails_on_a_false_claim() {
         .arg(repo.path().join("passing.hick"))
         .output()
         .unwrap();
-    assert!(out.status.success(), "hickory run failed: {out:?}");
+    assert!(out.status.success(), "hick run failed: {out:?}");
     git(repo.path(), &["add", "."]);
     let out = run_hook(repo.path());
     assert!(
@@ -190,7 +190,7 @@ fn hook_names_drift_when_a_committed_output_is_stale() {
         .arg(repo.path().join("passing.hick"))
         .output()
         .unwrap();
-    assert!(out.status.success(), "hickory run failed: {out:?}");
+    assert!(out.status.success(), "hick run failed: {out:?}");
     git(repo.path(), &["add", "."]);
 
     // Every expectation still holds; only the woven output is out of date.
@@ -211,7 +211,7 @@ fn hook_names_drift_when_a_committed_output_is_stale() {
     );
 }
 
-/// `hickory init` registers the MCP server for harnesses that read the
+/// `hick init` registers the MCP server for harnesses that read the
 /// project's `.mcp.json` — and must never damage what is already there.
 ///
 /// Protects docs/guarantees/agent/byo-agent-tool-surface.md.
@@ -232,8 +232,8 @@ fn init_registers_the_mcp_server_without_clobbering_other_entries() {
     run_init(repo.path());
     let parsed: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(&mcp_path).unwrap()).unwrap();
-    assert_eq!(parsed["mcpServers"]["hickory"]["command"], "hickory");
-    assert_eq!(parsed["mcpServers"]["hickory"]["args"][0], "mcp");
+    assert_eq!(parsed["mcpServers"]["hick"]["command"], "hick");
+    assert_eq!(parsed["mcpServers"]["hick"]["args"][0], "mcp");
     assert_eq!(
         parsed["mcpServers"]["other"]["command"], "other-server",
         "init destroyed an unrelated MCP server"
@@ -254,10 +254,10 @@ fn the_agents_section_points_coding_agents_at_the_document_tools() {
     run_init(repo.path());
     let agents = std::fs::read_to_string(repo.path().join("AGENTS.md")).unwrap();
     for expected in [
-        "hickory doc read",
-        "hickory doc edit-output",
-        "hickory doc verify",
-        "hickory mcp",
+        "hick doc read",
+        "hick doc edit-output",
+        "hick doc verify",
+        "hick mcp",
         "HICKORY_SESSION",
     ] {
         assert!(

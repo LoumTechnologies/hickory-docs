@@ -1,4 +1,4 @@
-//! The `hickory` binary's implementation of [`AgentRunner`]: run one
+//! The `hick` binary's implementation of [`AgentRunner`]: run one
 //! `<hick:agent>` cell through the real ReAct loop.
 //!
 //! `hick-literate` schedules the cell as a DAG vertex and asks this to settle
@@ -9,7 +9,7 @@
 //! **Absence is a first-class answer.** [`LlmAgentRunner::from_env`] returns
 //! `None` when no provider key is present, and every caller then runs the
 //! document with `agent_runner: None`, which reports each agent cell as
-//! *unverifiable* instead of failing. That is what makes `hickory test` usable
+//! *unverifiable* instead of failing. That is what makes `hick test` usable
 //! in CI, on a plane, and on a fresh clone.
 
 use std::sync::Arc;

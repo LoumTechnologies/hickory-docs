@@ -3,7 +3,7 @@
 
 Every number below is measured from the Claude Code session logs on this
 machine by the cells in this document. Nothing is pasted in by hand, and
-`hickory check` fails if re-running produces different numbers than the ones
+`hick check` fails if re-running produces different numbers than the ones
 committed — which is the point: this is a claim about a corpus that grows every
 day, and a stale claim about it should be loud rather than quiet.
 
@@ -23,7 +23,7 @@ every project directory.
 
 ## The three findings that bound the harness
 
-**Turn budget.** A hickory turn is one LLM call, so the comparable measure is
+**Turn budget.** A hick turn is one LLM call, so the comparable measure is
 LLM rounds that issued tools — not raw tool calls. The median session needs
 several times the default budget of 20.
 
@@ -45,7 +45,7 @@ git count covers is out of reach today.
 """Aggregate the Claude Code session logs.
 
 Reads ~/.claude/projects/**/*.jsonl and emits counts only.
-Assembled by `hickory run` from docs/analysis/claude-code-corpus.hick.
+Assembled by `hick run` from docs/analysis/claude-code-corpus.hick.
 """
 import glob
 import json
@@ -138,7 +138,7 @@ tool Write: 1850
 The numbers above are the live corpus, and they move every time the CLI runs —
 including the run that produced this page. The document root is therefore
 marked `volatile="true"`: the woven report is a *report*, not a reproducible
-artifact, so `hickory check` does not diff it. Asking "do these bytes
+artifact, so `hick check` does not diff it. Asking "do these bytes
 reproduce" of a corpus that grows by the hour has one answer, and a check that
 always fails is a check people learn to ignore.
 

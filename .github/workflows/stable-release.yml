@@ -124,7 +124,7 @@ jobs:
 
       - uses: actions/download-artifact@v4
         with:
-          pattern: hickory-*
+          pattern: hick-*
           merge-multiple: true
           path: dist
 
@@ -146,12 +146,12 @@ jobs:
             '```' \
             "" \
             "Or download the archive for your platform below. Each one contains the" \
-            "\`hickory\` binary, the licence, and \`examples/\`, so \`hickory test examples/\`" \
+            "\`hick\` binary, the licence, and \`examples/\`, so \`hick test examples/\`" \
             "works straight out of it — no Rust toolchain, no clone." \
             "" \
             "Linux binaries need glibc 2.35 or newer (Ubuntu 22.04, Debian 12, RHEL 9);" \
             "macOS binaries need macOS 11 or newer. Windows needs a POSIX \`sh\` (Git Bash" \
-            "or WSL) to execute documents; \`hickory --version\` and \`--help\` work without" \
+            "or WSL) to execute documents; \`hick --version\` and \`--help\` work without" \
             "one." \
             "" \
             "Built from \`$SHA\`." )

@@ -1,9 +1,9 @@
 # Recordings Are Written Only When A Run Is Asked To Write One, And Never By `test`
 
 Given a document with `<hick:exec>` cells, when it is driven through the
-shipped `hickory` binary, then:
+shipped `hick` binary, then:
 
-- `hickory run <doc>` with no cache flag **executes every cell and records
+- `hick run <doc>` with no cache flag **executes every cell and records
   nothing — except a cell that asked to be recorded.** It asks *"what is the
   answer now"*, so no ordinary cell is answered from a recording or leaves one
   behind. A cell that declares `freeze="true"` is the one exception, and it
@@ -11,33 +11,33 @@ shipped `hickory` binary, then:
   this run executes it exactly once and records it under
   `.hick-cache/transcripts/`, creating that directory if needed. Every later
   run replays it.
-- `hickory run --cache <doc>` **records every cell it executes** into
+- `hick run --cache <doc>` **records every cell it executes** into
   `.hick-cache/transcripts/<container>/<key>.json`, and answers a cell from its
   recording while the recording still matches the cell's cache key. It extends
   to the whole document what `freeze="true"` asks for one cell.
-- `hickory run --freeze <doc>` makes freeze the **run-wide default**: every
+- `hick run --freeze <doc>` makes freeze the **run-wide default**: every
   cell that does not declare otherwise is answered from its recording rather
   than executed. A cell with no recording has no baseline yet, so it is
   executed once and recorded, exactly as a cell-declared freeze is. A cell's
   own `freeze="false"` still wins.
-- `hickory test <doc>` **writes no recording under any flag**, and
+- `hick test <doc>` **writes no recording under any flag**, and
   deliberately has no `--cache`. A verifier that can write the baseline it then
   compares against verifies nothing; that circularity is exactly what the
   `unverifiable` outcome exists to prevent. `test` reports a cell with no
   baseline as unverifiable (exit `2`) rather than establishing one. This is
   therefore the command that answers *"is everything already recorded?"* —
-  `hickory test --freeze` asserts it for every cell in the document.
+  `hick test --freeze` asserts it for every cell in the document.
 
 The whole freeze lifecycle is therefore reachable from the CLI alone, in one
-step: write the cell with `freeze="true"`, run `hickory run <doc>` once, and
-`hickory test <doc>` verifies it. There is no un-freeze / record / re-freeze
+step: write the cell with `freeze="true"`, run `hick run <doc>` once, and
+`hick test <doc>` verifies it. There is no un-freeze / record / re-freeze
 sequence any more, and **no user-facing message may describe one**. A recording
 is keyed by the container image, capabilities, command text, and secret names —
 not by the `freeze` attribute — so editing the command retires the recording
-and the next `hickory run` records the new one.
+and the next `hick run` records the new one.
 
 Every user-facing message about a missing recording must name a command the
-shipped binary really accepts — `hickory run`, never `hick run --cache` (a
+shipped binary really accepts — `hick run`, never `hick run --cache` (a
 binary that has never existed).
 
 ---
@@ -67,7 +67,7 @@ Last LLM verification:
   binary — `run_without_the_flag_records_nothing`,
   `run_cache_writes_a_recording`,
   `a_frozen_cell_gets_its_baseline_entirely_through_the_cli` (frozen from the
-  start, one plain `hickory run`, then exit 0),
+  start, one plain `hick run`, then exit 0),
   `a_frozen_cell_is_the_only_thing_a_flagless_run_records`,
   `run_freeze_serves_the_recording_instead_of_executing` (proved by doctoring
   the recording on disk and finding the doctored text in the woven output),
@@ -75,11 +75,11 @@ Last LLM verification:
   the doctored recording), `test_refuses_a_cache_flag`, and
   `test_freeze_reports_an_unrecorded_cell_as_unverifiable`. The message wording
   is pinned by `test_exits_unverifiable_when_a_cell_has_no_baseline` in
-  `crates/hickory-cli/tests/test_command_tests.rs` (must name `hickory run`,
+  `crates/hickory-cli/tests/test_command_tests.rs` (must name `hick run`,
   must not contain `hick run --cache`, and must not still describe restoring a
   freeze attribute), and the end-to-end lifecycle by
   `run_records_a_cell_frozen_from_the_start_and_test_then_verifies_it` in the
-  same file, which also asserts that the `hickory test` run preceding it left
+  same file, which also asserts that the `hick test` run preceding it left
   no `.hick-cache/` behind.
 - Caveat requiring LLM review: nothing mechanically stops a future `--cache`
   flag from being added to `test`; `test_refuses_a_cache_flag` catches it only

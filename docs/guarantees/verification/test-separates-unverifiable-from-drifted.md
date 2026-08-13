@@ -1,13 +1,13 @@
-# `hickory test` Gives Each Kind Of Failure Its Own Exit Code
+# `hick test` Gives Each Kind Of Failure Its Own Exit Code
 
-Given a document being verified with `hickory test`, when re-derivation is
+Given a document being verified with `hick test`, when re-derivation is
 compared against what is committed, then the command reports exactly one of
 four outcomes and exits with that outcome's own code:
 
 - **verified** (exit `0`) — re-derivation matches what is committed.
 - **drifted** (exit `1`) — a committed output no longer reproduces, or a
   `<hick:transform>` passage is stale: someone forgot to regenerate. The fix
-  is `hickory run` (or `hickory refresh`) plus a commit.
+  is `hick run` (or `hick refresh`) plus a commit.
 - **unverifiable** (exit `2`) — at least one cell has **no baseline at all**:
   it neither executed nor was answered from a recording, so there was nothing
   for re-derivation to be compared against.
@@ -77,12 +77,12 @@ Last LLM verification:
     `Drifted`. `cmd_test` in `crates/hickory-cli/src/main.rs` returns
     `ExitCode::from(worst.exit_code())` and prints a distinct summary line per
     outcome naming the code and the next step. The table is repeated in
-    `hickory test --help` (a `verbatim_doc_comment` on the `Test` variant)
+    `hick test --help` (a `verbatim_doc_comment` on the `Test` variant)
     and in the reference section of `README.md`.
   - `CheckFailure::Unverifiable { doc, cell, reason }` carries the cell and the
     reason; `hickory_cli::unverifiable_message` renders which cell, why, and
     the next step. Since issue #10 that next step is a single command —
-    `hickory run <doc>`, which executes a cell frozen from the start exactly
+    `hick run <doc>`, which executes a cell frozen from the start exactly
     once and records it — and the message states that `test` writes no
     recording under any flag. There is no longer a `run`-path bail text to
     disagree with it: `run` records instead of failing. See
@@ -93,7 +93,7 @@ Last LLM verification:
     unverifiable entries exist. Expectations are collected *before* that early
     return, which is what lets exit `3` win over exit `2` in a document that
     has both.
-  - `hickory test` runs documents in `RunMode::Verify`, which sets
+  - `hick test` runs documents in `RunMode::Verify`, which sets
     `PipelineConfig::collect_unverifiable`. In `run_pipeline_live`
     (`crates/hick-literate/src/lib.rs`) that flag is what makes a missing
     recording for a `CacheMode::Require` cell a `never_run` entry
@@ -101,7 +101,7 @@ Last LLM verification:
     `NoBaseline::FrozenWithoutCacheDirectory` when the transcript directory
     does not exist at all) rather than a cell to execute. It also suppresses
     every `cache_store` call, so `test` cannot write a baseline under any
-    flag combination. `hickory run` uses `RunMode::Execute`, where the same
+    flag combination. `hick run` uses `RunMode::Execute`, where the same
     miss executes the cell once and records it — see
     `docs/guarantees/verification/freeze-is-declared-per-cell.md`.
   - `never_run` is `BTreeMap<CellId, NoBaseline>`, where `CellId` holds
@@ -115,7 +115,7 @@ Last LLM verification:
   `test_exits_drifted_when_a_committed_output_is_out_of_date` (1, with every
   expectation holding, so drift is isolated from a failed claim),
   `test_exits_unverifiable_when_a_cell_has_no_baseline` (2, also asserting
-  the message names the cell, the reason, the remedy — the real `hickory
+  the message names the cell, the reason, the remedy — the real `hick
   run` command rather than the `hick` binary that never existed, and no
   trace of the retired un-freeze/record/re-freeze sequence), and
   `test_exits_expectation_failed_when_a_claim_is_false` (3, with the woven
@@ -137,11 +137,11 @@ Last LLM verification:
     contract only. Worth revisiting when the server grows a cache-aware run
     path.
   - `NoBaseline::NotExecuted` (weave / dry-run) can be produced by the
-    pipeline but is not reachable from `hickory test`, which always executes.
+    pipeline but is not reachable from `hick test`, which always executes.
     It becomes reachable when agent cells land — an agent cell with no
     recorded session is the other unverifiable case the spec names.
   - The command was renamed `check` → `test` in issue #9 with no alias, so
-    the four exit codes are now `hickory test`'s contract. The codes and
+    the four exit codes are now `hick test`'s contract. The codes and
     their precedence did not change; only the verb did. The removal is
     pinned by `the_old_check_subcommand_is_gone`.
   - The precedence of a failed expectation over unverifiable is a judgement

@@ -1,10 +1,10 @@
-//! `hickory mcp` — the document tool set as an MCP server over stdio.
+//! `hick mcp` — the document tool set as an MCP server over stdio.
 //!
 //! Claude Code, Codex, and Grok CLI all speak the Model Context Protocol, so
 //! one stdio server registers three ways and gives each of them the same five
-//! tools the built-in agent uses. `hickory init` writes the registration.
+//! tools the built-in agent uses. `hick init` writes the registration.
 //!
-//! **Why this exists alongside `hickory doc`.** The commands are the universal
+//! **Why this exists alongside `hick doc`.** The commands are the universal
 //! surface — any harness can run a process, and so can CI. This is the *good*
 //! surface, and the difference is the session: the server is one long-lived
 //! process, so it keeps an [`EditSession`] open per document and re-weaves
@@ -19,7 +19,7 @@
 //!
 //! Everything the model sees — tool names, argument names, the doctrine in the
 //! descriptions — is the same vocabulary as the built-in agent's system
-//! prompt. An external agent that learns hickory here has learned the same
+//! prompt. An external agent that learns hick here has learned the same
 //! thing our agent knows.
 
 use std::collections::HashMap;
@@ -280,7 +280,7 @@ impl Server {
             "initialize" => Ok(json!({
                 "protocolVersion": PROTOCOL_VERSION,
                 "capabilities": { "tools": { "listChanged": false } },
-                "serverInfo": { "name": "hickory", "version": env!("CARGO_PKG_VERSION") },
+                "serverInfo": { "name": "hick", "version": env!("CARGO_PKG_VERSION") },
                 "instructions":
                     "Edit hick documents through these tools rather than by writing to the \
                      files directly. Read a surface first (read_doc / read_output with \

@@ -44,7 +44,7 @@ describe("DocumentEditor (WYSIWYG over raw source)", () => {
   it("renders the cell panel (status + Run) through the widget portal", async () => {
     const realtime = new LocalRealtime();
     const onRun = vi.fn();
-    const source = '<hick:exec container="shell" image="debian:12">\nhickory --version\n</hick:exec>\n';
+    const source = '<hick:exec container="shell" image="debian:12">\nhick --version\n</hick:exec>\n';
     render(
       <DocumentEditor
         docId="d1"

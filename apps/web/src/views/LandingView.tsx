@@ -8,8 +8,6 @@ import { CollaborationDemo } from "../landing/demos/CollaborationDemo";
 import { KnowledgeWorkDemo } from "../landing/demos/KnowledgeWorkDemo";
 import { ProgramDemo } from "../landing/demos/ProgramDemo";
 import { DECLARED_SEGMENTS, INTERESTS } from "../landing/interests";
-import { config } from "../config";
-import { navigate } from "../router";
 
 // React StrictMode mounts every component twice in development. Without this
 // the dev build reports two `landing_viewed` events per visit, which is the
@@ -40,11 +38,6 @@ export function LandingView() {
     emit({ name: "landing_viewed", path: location.hash || "#/" });
   }, []);
 
-  const cta = (ctaId: string, path: string) => () => {
-    emit({ name: "cta_clicked", cta_id: ctaId });
-    navigate(path);
-  };
-
   const declare = (segment: string) => () => {
     emit({ name: "segment_declared", declared_segment: segment });
     setDeclared(segment);
@@ -60,27 +53,16 @@ export function LandingView() {
           woven from a named piece of that document, and the path between the two stays
           walkable in both directions.
         </p>
-        {/* The call to action is what the product IS. hickory is a program you
+        {/* The call to action is what the product IS. hick is a program you
             install (docs/specs/freeform/local-first.md), so the primary action
             is installing it — not signing up for a workspace that no longer
             exists. The hosted app keeps its own front door while it runs. */}
         <div className="landing-cta">
           <InstallCommand />
-          <div className="landing-cta-secondary">
-            <button className="btn" onClick={cta("hero-pricing", "/pricing")}>
-              See pricing
-            </button>
-            {config.hosted && (
-              <button className="btn" onClick={cta("hero-start", "/login")}>
-                Or use the hosted workspace
-              </button>
-            )}
-          </div>
         </div>
         <p className="landing-sub landing-install-note">
-          Runs on your machine, on your files, in your repo. Share a live
-          session with <code>hickory serve --share</code> — no account, for
-          you or for them.
+          Runs on your machine, on your files, in your repo. Free, no account,
+          nothing to buy — and it never talks to us.
         </p>
       </header>
 

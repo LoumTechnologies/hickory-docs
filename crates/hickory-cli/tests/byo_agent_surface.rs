@@ -12,8 +12,8 @@ use std::io::Write as _;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
-fn hickory() -> Command {
-    Command::new(env!("CARGO_BIN_EXE_hickory"))
+fn hick() -> Command {
+    Command::new(env!("CARGO_BIN_EXE_hick"))
 }
 
 const DOC: &str = r##"<?xml version="1.0" encoding="UTF-8"?>
@@ -32,9 +32,9 @@ fn write_doc(dir: &Path) -> PathBuf {
     path
 }
 
-/// Run a `hickory doc` command with optional stdin. Returns (code, stdout).
+/// Run a `hick doc` command with optional stdin. Returns (code, stdout).
 fn doc_cmd(args: &[&str], stdin: Option<&str>, session: Option<&Path>) -> (i32, String) {
-    let mut cmd = hickory();
+    let mut cmd = hick();
     cmd.arg("doc")
         .args(args)
         .stdin(if stdin.is_some() {
@@ -180,7 +180,7 @@ fn a_command_that_names_no_document_explains_itself() {
     // file, so the command must refuse and say how to disambiguate.
     std::fs::write(dir.path().join("a.hick"), DOC).unwrap();
     std::fs::write(dir.path().join("b.hick"), DOC).unwrap();
-    let out = hickory()
+    let out = hick()
         .arg("doc")
         .arg("read")
         .current_dir(dir.path())
@@ -189,16 +189,16 @@ fn a_command_that_names_no_document_explains_itself() {
     assert!(!out.status.success());
     let err = String::from_utf8_lossy(&out.stderr);
     assert!(err.contains("exactly one .hick"), "{err}");
-    assert!(err.contains("hickory doc"), "{err}");
+    assert!(err.contains("hick doc"), "{err}");
 }
 
 // ---------------------------------------------------------------------------
 // MCP: the same tools, over the protocol every major coding agent speaks.
 // ---------------------------------------------------------------------------
 
-/// Feed newline-delimited JSON-RPC to `hickory mcp` and collect the replies.
+/// Feed newline-delimited JSON-RPC to `hick mcp` and collect the replies.
 fn mcp_exchange(doc: &Path, requests: &[serde_json::Value]) -> Vec<serde_json::Value> {
-    let mut child = hickory()
+    let mut child = hick()
         .arg("mcp")
         .arg("--doc")
         .arg(doc)
@@ -251,7 +251,7 @@ fn the_mcp_server_speaks_the_protocol_and_keeps_one_session_open() {
 
     // Five requests, five replies: the notification was not answered.
     assert_eq!(replies.len(), 5, "{replies:#?}");
-    assert_eq!(replies[0]["result"]["serverInfo"]["name"], "hickory");
+    assert_eq!(replies[0]["result"]["serverInfo"]["name"], "hick");
     let names: Vec<&str> = replies[1]["result"]["tools"]
         .as_array()
         .unwrap()

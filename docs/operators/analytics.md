@@ -23,7 +23,7 @@ the key the server uses, and the difference matters:
 
 | Key | Looks like | Can do | Lives in |
 |---|---|---|---|
-| Project write key | `phc_…` | Send events | Fly secret `POSTHOG_API_KEY` |
+| Project write key | `phc_…` | Send events | GitHub secret `POSTHOG_KEY`, in `production` |
 | Personal API key | `phx_…` | Create/destroy projects | GitHub secret `POSTHOG_PERSONAL_API_KEY` |
 
 The PostHog Terraform provider reads a `POSTHOG_API_KEY` environment variable
@@ -51,41 +51,42 @@ The plan renders first and ungated; the apply waits on the required reviewer
 of the `production` environment. That gate is intentional and is *not* the
 same environment the app deploy uses — see "Environments" below.
 
-## Getting the key to the server
+## Getting the key to the site
 
-Terraform knows the write key; Fly needs it. No provider bridges the two, so
-the hand-off is explicit:
+Terraform knows the write key; the **Deploy Site** workflow needs it to build
+the bundle. No provider bridges the two, so the hand-off is explicit:
 
 ```sh
-just posthog-sync-key
+terraform -chdir=terraform/posthog output -raw project_api_key
+gh secret set POSTHOG_KEY --env production   # paste it
 ```
 
-It reads `terraform output -raw project_api_key`, refuses to proceed if the
-value is empty or is not a `phc_…` project key, and sets the Fly secret —
-which restarts the machine, so it asks before overwriting an existing value.
+Check it is a `phc_…` **project** key before pasting. A `phx_…` personal key
+can create and destroy projects and must never reach a browser bundle; `just
+site` refuses to build with one, and the page refuses to use one at runtime,
+but neither guard helps if the wrong value is stored and nobody reads the
+build log.
 
-**Until this is run, analytics is a no-op.** The server accepts events and
-drops them: `POST /api/analytics/capture` answers `{"accepted":true}` whether
-or not PostHog is configured, deliberately, so a browser never retries
-forever against a healthy server. The cost of that design is that silent
-success looks identical to real capture from the outside. Verify with the
-smoke test the script prints, then confirm the event appears in PostHog's
-Activity view.
+**Until this is set, analytics is a no-op** — and visibly so, which is a change
+for the better. There is no server to accept events and silently drop them:
+with no key the page simply does not capture, and the absence is obvious in
+PostHog rather than indistinguishable from real traffic.
+
+The key affects **only the marketing site**. The downloaded product sends
+nothing, ever, and shares no key, build, or code path with the site.
 
 ## Environments
 
-Three GitHub Environments, and the distinction between them is load-bearing:
+Two GitHub Environments:
 
 | Environment | Gated? | Holds | Used by |
 |---|---|---|---|
-| `production` | **Yes** — required reviewer | Cloudflare + PostHog personal + R2 state creds | Terraform **apply** |
+| `production` | **Yes** — required reviewer | Cloudflare (zone + Pages) + PostHog personal + R2 state creds, `POSTHOG_KEY`, `CLOUDFLARE_PAGES_PROJECT` | Terraform **apply**, **Deploy Site** |
 | `production-plan` | No | Same, read-oriented | Terraform **plan** |
-| `production-deploy` | No | `FLY_API_TOKEN`, `APP_BASE_URL` | **Deploy Production** |
 
-The app deploys continuously and ungated; infrastructure does not. Those are
-opposite policies about the same running system, which is why they cannot
-share one environment. Removing the reviewer from `production` to make app
-deploys automatic would silently ungate DNS and analytics applies too.
+There is no `production-deploy`. It existed to hold `FLY_API_TOKEN` for a
+server that no longer exists; the only thing deployed now is a directory of
+files.
 
 ## Only one environment's worth of analytics
 

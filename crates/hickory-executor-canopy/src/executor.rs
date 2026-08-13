@@ -99,7 +99,7 @@ pub struct CanopyExecutor {
 /// Split out of [`CanopyExecutor::channel`] and `cfg`-gated because unix
 /// domain sockets do not exist on Windows: `tokio::net::UnixStream` is not
 /// compiled there at all, so the *only* thing that keeps this crate — and
-/// therefore the whole `hickory` binary — from building for
+/// therefore the whole `hick` binary — from building for
 /// `x86_64-pc-windows-msvc` is this one connector. Gating it here keeps the
 /// mesh (`host:port`) path, which is plain TCP, working identically on every
 /// platform. See `docs/guarantees/release/a-download-runs-without-a-rust-toolchain.md`.

@@ -83,5 +83,5 @@ Last LLM verification:
   covers the same loop under the shipped runner.
 - Caveat requiring LLM review: the two "not guaranteed" items are documented
   limits with no diagnostic. In particular, a cell the agent inserts *above*
-  its own cell is silently not run in that pass; only the next `hickory run`
+  its own cell is silently not run in that pass; only the next `hick run`
   picks it up.

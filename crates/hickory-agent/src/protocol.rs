@@ -123,7 +123,7 @@ impl ToolInvocation {
     /// Build an invocation from values a caller already holds, rendering the
     /// `raw_xml` a parsed one would have carried.
     ///
-    /// This is what lets a caller that is NOT the ReAct loop — the `hickory
+    /// This is what lets a caller that is NOT the ReAct loop — the `hick
     /// doc` subcommands, and through them any external coding agent — drive
     /// the same tools the built-in agent uses. Rendering the XML rather than
     /// leaving it empty keeps one invariant true: every invocation, whoever

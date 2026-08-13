@@ -13,7 +13,6 @@
 
 use std::sync::Arc;
 
-use axum::Extension;
 use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
@@ -21,7 +20,6 @@ use axum::response::{IntoResponse, Response};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-use super::share::Caller;
 use super::{LocalState, RunRecord};
 
 // ---------------------------------------------------------------------------
@@ -73,49 +71,9 @@ impl From<anyhow::Error> for ApiError {
 
 pub type ApiResult<T> = Result<T, ApiError>;
 
-/// Refuse a write the caller's capability does not carry.
-fn require_edit(caller: Caller) -> ApiResult<()> {
-    if caller.can_edit() {
-        return Ok(());
-    }
-    Err(ApiError::forbidden(
-        "this link is read-only — ask whoever shared it for an editing link          (`hickory serve --share --scope edit`).",
-    ))
-}
-
-/// Refuse a run the caller's capability does not carry.
-///
-/// Running executes code on someone else's machine, so it is granted
-/// separately from editing and never implied by it.
-fn require_run(caller: Caller) -> ApiResult<()> {
-    if caller.can_run() {
-        return Ok(());
-    }
-    Err(ApiError::forbidden(format!(
-        "this link may {}, but not run the document — running executes code on the machine \
-         hosting this session. Ask for a link made with `--scope run`.",
-        if caller.can_edit() { "edit" } else { "read" }
-    )))
-}
-
 // ---------------------------------------------------------------------------
 // Identity and project shape
 // ---------------------------------------------------------------------------
-
-/// `GET /api/me` — who the browser is talking to.
-///
-/// A local session has no accounts. The response describes the *capability*
-/// instead, in the shape the client already understands: an identity that is
-/// verified (nothing to verify) and needs no verification prompt.
-pub async fn me(State(state): State<LocalState>) -> Json<Value> {
-    Json(json!({
-        "id": "local",
-        "email": state.identity(),
-        "plan": "local",
-        "email_verified": true,
-        "verification_required": false,
-    }))
-}
 
 /// `GET /api/projects` — the served directory, as one project.
 pub async fn projects(State(state): State<LocalState>) -> Json<Value> {
@@ -128,7 +86,7 @@ fn project_of(state: &LocalState) -> Value {
         .root()
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
-        .unwrap_or_else(|| "hickory".to_string());
+        .unwrap_or_else(|| "hick".to_string());
     json!({
         "id": "local",
         "name": name,
@@ -229,11 +187,9 @@ pub struct SaveDoc {
 /// `PUT /api/docs/:id` — write the file, and tell the live room.
 pub async fn put_doc(
     State(state): State<LocalState>,
-    Extension(caller): Extension<Caller>,
     Path(id): Path<String>,
     Json(body): Json<SaveDoc>,
 ) -> ApiResult<Json<Value>> {
-    require_edit(caller)?;
     state.write_source(&id, &body.source)?;
     // A room holding the pre-save text would write it straight back over this
     // on its next debounce.
@@ -333,11 +289,9 @@ pub struct EditRequest {
 /// provenance to guard against, because there is no stored run.
 pub async fn edit_outputs(
     State(state): State<LocalState>,
-    Extension(caller): Extension<Caller>,
     Path(id): Path<String>,
     Json(body): Json<EditRequest>,
 ) -> ApiResult<Json<Value>> {
-    require_edit(caller)?;
     let run = state.weave(&id).await?;
     let content = run
         .result
@@ -436,10 +390,8 @@ pub struct RunRequest {
 /// channel.
 pub async fn run_doc(
     State(state): State<LocalState>,
-    Extension(caller): Extension<Caller>,
     Path(id): Path<String>,
 ) -> ApiResult<(StatusCode, Json<Value>)> {
-    require_run(caller)?;
     let run_id = state.start_run(&id, false).await?;
     Ok((StatusCode::ACCEPTED, Json(json!({ "run_id": run_id }))))
 }
@@ -447,10 +399,8 @@ pub async fn run_doc(
 /// `POST /api/docs/:id/check` — verify without writing outputs.
 pub async fn check_doc(
     State(state): State<LocalState>,
-    Extension(caller): Extension<Caller>,
     Path(id): Path<String>,
 ) -> ApiResult<(StatusCode, Json<Value>)> {
-    require_run(caller)?;
     let run_id = state.start_run(&id, true).await?;
     Ok((StatusCode::ACCEPTED, Json(json!({ "run_id": run_id }))))
 }
@@ -491,23 +441,6 @@ pub async fn health(State(state): State<LocalState>) -> Json<Value> {
     Json(json!({ "ok": true, "executor": state.executor_kind(), "db": false }))
 }
 
-/// `GET /api/billing/plans` — there is no billing in a local session.
-///
-/// An empty catalog rather than a 404: the client fetches this on load, and a
-/// 404 would surface as a broken deployment instead of an absent feature.
-pub async fn plans() -> Json<Value> {
-    Json(json!({ "plan_set": "local", "plans": [], "current": Value::Null }))
-}
-
-/// `POST /api/analytics/capture` — accepted and dropped.
-///
-/// Never forwarded: this process runs on someone's own machine, and shipping
-/// their editing behaviour to our analytics because they opened a document
-/// locally would be indefensible.
-pub async fn capture() -> StatusCode {
-    StatusCode::NO_CONTENT
-}
-
 #[derive(Serialize)]
 pub struct Unavailable {
     pub error: String,
@@ -518,7 +451,7 @@ pub async fn agent_unavailable() -> (StatusCode, Json<Unavailable>) {
     (
         StatusCode::SERVICE_UNAVAILABLE,
         Json(Unavailable {
-            error: "the hosted agent is not part of a local session — run `hickory agent \"…\"` \
+            error: "the hosted agent is not part of a local session — run `hick agent \"…\"` \
                     in this directory instead, or open the document on hickorydocs.com"
                 .to_string(),
         }),

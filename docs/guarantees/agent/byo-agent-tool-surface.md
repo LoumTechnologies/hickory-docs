@@ -1,6 +1,6 @@
 # An Outside Coding Agent Gets The Same Document Tools As The Built-In One
 
-Given a coding agent that is not hickory's own — Claude Code, Codex, Grok CLI,
+Given a coding agent that is not hick's own — Claude Code, Codex, Grok CLI,
 or anything else that can run a process — when it works on a `.hick` document,
 then it can reach the same five tools the built-in agent uses (`read_doc`,
 `read_output`, `edit_output`, `edit_doc`, `verify`) through two surfaces, and
@@ -15,14 +15,14 @@ gets the same guarantees from both:
    naming the document location to edit instead. A refusal is routing, not
    failure.
 3. **Real verification.** `verify` executes the document through the same
-   `Executor` as `hickory run` — same `HICKORY_EXECUTOR` selection, same
+   `Executor` as `hick run` — same `HICKORY_EXECUTOR` selection, same
    expectation checking.
 4. **A replayable session.** With `HICKORY_SESSION` set, every tool call and
    its result is appended to a `hick:session` document — across *separate
    processes* — and the file is a closed, parseable session after every call.
 
-The two surfaces are `hickory doc <tool>` (one process per call; works in any
-harness and in CI) and `hickory mcp` (stdio MCP; registered by `hickory init`
+The two surfaces are `hick doc <tool>` (one process per call; works in any
+harness and in CI) and `hick mcp` (stdio MCP; registered by `hick init`
 in the project's `.mcp.json`). They are the same implementation: both build a
 `ToolInvocation` and call `hickory_agent::execute_tool`. Neither reimplements
 an edit, so they cannot drift apart in what an edit means.
@@ -46,7 +46,7 @@ lives in that harness's own transcript in that vendor's own format. Importing
 those was considered and rejected — three private log shapes to maintain, for
 prose that nothing replays.
 
-A second, related limit: `hickory promote` extracts *script* writes from a
+A second, related limit: `hick promote` extracts *script* writes from a
 session. A tool-driven session edits the document in place, so promoting one
 yields an empty pipeline — correctly, because there is nothing left to
 reconstruct. Promote is for script-first sessions; for tool-driven work the
@@ -80,6 +80,6 @@ Last LLM verification:
   merge (including not clobbering another server) and that the managed
   AGENTS.md section names the tools.
 - Not covered by tests: registration in Codex's and Grok CLI's own global
-  config files. `hickory init` deliberately does not write those — it prints
+  config files. `hick init` deliberately does not write those — it prints
   what to add instead of guessing another tool's config shape — so there is
   nothing to assert beyond the printed instruction.

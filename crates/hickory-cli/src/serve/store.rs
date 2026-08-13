@@ -4,8 +4,8 @@
 //! CRDT state in a column beside it. Here the text *is* the `.hick` file on
 //! disk — which is the point of the whole mode: a collaborator's keystroke
 //! lands in the host's working tree, where their editor, their `git diff`, and
-//! `hickory test` all see it. The CRDT state, which no human reads, goes in a
-//! sidecar under `.hick-cache/` (already gitignored by `hickory init`).
+//! `hick test` all see it. The CRDT state, which no human reads, goes in a
+//! sidecar under `.hick-cache/` (already gitignored by `hick init`).
 //!
 //! See `docs/specs/freeform/local-collaboration.md`.
 
@@ -20,7 +20,7 @@ use hickory_collab::{DocKey, DocStore};
 /// Every `.hick` document under the served root, keyed by a stable id.
 ///
 /// Ids are derived from the path rather than minted, so a share link still
-/// resolves after the host restarts `hickory serve` — a link that dies when
+/// resolves after the host restarts `hick serve` — a link that dies when
 /// the laptop sleeps is not a link.
 pub struct DocIndex {
     root: PathBuf,
@@ -78,7 +78,7 @@ impl DocIndex {
         out
     }
 
-    /// The single document, when exactly one was found. `hickory serve
+    /// The single document, when exactly one was found. `hick serve
     /// doc.hick` opens straight into it rather than a one-item list.
     pub fn sole(&self) -> Option<(String, String)> {
         match self.entries().as_slice() {

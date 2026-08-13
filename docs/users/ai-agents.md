@@ -1,11 +1,11 @@
-# AI agents and hickory: built-in or bring your own
+# AI agents and hick: built-in or bring your own
 
 *For engineers deciding how AI should write and maintain their `.hick`
 documents: the platform's built-in agent, or a coding agent they already use
 (Claude Code, etc.) on a local repo.*
 
 Either way, the end product is the same: agent work lands as `hick:session`
-documents in `sessions/*.hick`, and `hickory promote` compacts a session into
+documents in `sessions/*.hick`, and `hick promote` compacts a session into
 a clean pipeline document. The choice is about *where the agent runs*, not
 what it produces.
 
@@ -13,7 +13,7 @@ what it produces.
 
 ```sh
 export ANTHROPIC_API_KEY=...
-hickory agent "add a section benchmarking sort vs awk" --doc docs/tour.hick
+hick agent "add a section benchmarking sort vs awk" --doc docs/tour.hick
 ```
 
 (In a cloud workspace, this is the web Agent panel — same loop, hosted.)
@@ -44,14 +44,14 @@ choose once; until you do, agent runs stop and say so.
 What happens, procedurally:
 
 1. The agent gets your prompt (and `--doc` context), then loops: it proposes
-   a shell or python script, hickory executes it through the same `Executor`
-   as `hickory run` (`HICKORY_EXECUTOR=local` or `=canopy`), and the
+   a shell or python script, hick executes it through the same `Executor`
+   as `hick run` (`HICKORY_EXECUTOR=local` or `=canopy`), and the
    observation goes back to the model.
 2. Every turn — prompt, reasoning, each script, each observation — is
    appended to a `hick:session` document under `sessions/`. The session *is*
    the log; there is no separate chat transcript to lose.
 3. When it's done, you review the session, then
-   `hickory promote sessions/<name>.hick --out docs/benchmark.hick` to keep
+   `hick promote sessions/<name>.hick --out docs/benchmark.hick` to keep
    only the surviving pipeline (last write wins, dead ends dropped).
 
 Choose this when you want sessions captured with full fidelity by
@@ -96,7 +96,7 @@ The doctrine the agent follows (and that you can rely on when reviewing):
    separator, or one occurrence of a copy block pasted twice cannot be
    reproduced exactly — the refusal names the document location to edit,
    and the agent follows the pointer with `edit_doc`.
-5. **`verify` before done** — same semantics as `hickory run` + expectation
+5. **`verify` before done** — same semantics as `hick run` + expectation
    checking, through the same executor as the agent's scripts.
 
 ## Option 2: bring your own coding agent (local repo)
@@ -104,23 +104,23 @@ The doctrine the agent follows (and that you can rely on when reviewing):
 Claude Code, Codex, Grok CLI — any agent that can run a command gets the
 **same five tools** the built-in agent uses. It is not a lesser path.
 
-`hickory init` sets this up:
+`hick init` sets this up:
 
 1. A managed `<!-- HICKORY -->` section in `AGENTS.md` (which all three read;
    `CLAUDE.md` is pointed at it via `@AGENTS.md`) teaching the grammar, the
    golden rules, and the tool commands below.
-2. A `hickory` entry in the project's `.mcp.json`, so an MCP-speaking harness
+2. A `hick` entry in the project's `.mcp.json`, so an MCP-speaking harness
    picks the tools up on its own.
 3. The pre-commit drift gate, as the backstop.
 
 ### The tools, as commands
 
 ```sh
-hickory doc read <doc>                                  # source, each line prefixed hhhh|
-hickory doc read-output <doc> --path f.rs --lineage     # a generated file + provenance
-hickory doc edit-output <doc> --path f.rs --run aa12..bb34 < new.txt
-hickory doc edit <doc> --run aa12 < new.txt
-hickory doc verify <doc>
+hick doc read <doc>                                  # source, each line prefixed hhhh|
+hick doc read-output <doc> --path f.rs --lineage     # a generated file + provenance
+hick doc edit-output <doc> --path f.rs --run aa12..bb34 < new.txt
+hick doc edit <doc> --run aa12 < new.txt
+hick doc verify <doc>
 ```
 
 The `hhhh|` prefix on every line is a hash of that line's content, and it is
@@ -136,14 +136,14 @@ for an agent to branch on.
 ### The tools, over MCP
 
 ```sh
-hickory mcp          # stdio MCP server; `hickory init` registers it in .mcp.json
+hick mcp          # stdio MCP server; `hick init` registers it in .mcp.json
 ```
 
 Prefer this when your harness supports it. The server is one long-lived
 process, so it keeps the edit session open between calls and re-weaves after
 every edit — meaning a spent anchor is known to be stale immediately, without
 re-reading anything. For a harness that keeps MCP config in its own global
-file (Codex, Grok CLI), add a server named `hickory` running `hickory mcp`.
+file (Codex, Grok CLI), add a server named `hick` running `hick mcp`.
 
 ### Getting a session out of it
 
@@ -164,9 +164,9 @@ agent should handle both, or you want your existing agent tooling
 ## Mixing them
 
 They compose. A common split: your coding agent does repo-wide work and
-document editing; `hickory agent` does exploratory data/tool work where the
+document editing; `hick agent` does exploratory data/tool work where the
 replayable session is the deliverable. Your coding agent can also *drive*
-the built-in one (`hickory agent "..."`) and then review and promote the
+the built-in one (`hick agent "..."`) and then review and promote the
 resulting session — promote works on any `hick:session` file regardless of
 which agent produced it.
 

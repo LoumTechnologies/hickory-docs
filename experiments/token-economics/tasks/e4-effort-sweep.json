@@ -23,7 +23,7 @@
     },
     {
       "id": "multi-file-refactor",
-      "prompt": "Working in {corpus}: rename the grand tour's `lcg` function to `linear_congruential` everywhere (definition, calls, prose), keeping `hickory check` green, then finish.",
+      "prompt": "Working in {corpus}: rename the grand tour's `lcg` function to `linear_congruential` everywhere (definition, calls, prose), keeping `hick check` green, then finish.",
       "doc": "grand-tour.hick",
       "outputs": ["grand-tour.md", "analysis.py"],
       "check_cmd": "${HICKORY_BIN:-hickory} check grand-tour.hick"

@@ -1,7 +1,7 @@
 //! One place that turns a provider selector into an [`LlmClient`].
 //!
 //! Every call site that wants a model — the CLI, the server's agent route,
-//! `hickory refresh` — needs the same three decisions: which vendor, which
+//! `hick refresh` — needs the same three decisions: which vendor, which
 //! model, and is a key present. Duplicating that logic is how a provider
 //! ends up working in one entry point and silently missing from another, so
 //! it lives here and each call site passes through what the user asked for.

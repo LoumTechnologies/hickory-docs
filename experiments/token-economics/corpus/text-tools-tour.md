@@ -3,7 +3,7 @@
 
 This document is executable. Every example below actually runs when the
 document is built, and the outputs shown are the outputs produced. If a
-future version of these tools changes behavior, `hickory check` fails and
+future version of these tools changes behavior, `hick check` fails and
 this document refuses to pretend otherwise.
 
 ## What runs where

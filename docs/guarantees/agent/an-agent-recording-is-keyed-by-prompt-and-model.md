@@ -33,7 +33,7 @@ the model comes from, in order:
 
 With neither there is no key, and the cell is reported unverifiable. This is
 why **a cell meant to be replayable without credentials should declare
-`model=`**: `hickory weave`, a dry run, and `hickory test` all have no runner
+`model=`**: `hick weave`, a dry run, and `hick test` all have no runner
 to ask, so only a declared model lets them find the recording. A runner that
 is handed a cell naming a model it is not running refuses rather than
 substituting one — the substituted answer would be filed under a key the

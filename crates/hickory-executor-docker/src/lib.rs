@@ -3,7 +3,7 @@
 //! This is the executor that makes `image=` mean something. `LocalExecutor`
 //! records the image and runs against the host toolchain, so a document's
 //! reproducibility claim only ever held on the machine that wrote it —
-//! `hickory test` proved the bytes reproduced with *your* Python, not with
+//! `hick test` proved the bytes reproduced with *your* Python, not with
 //! `python:3.12`. Here the declared image is the environment, so two machines
 //! that agree on the image agree on the result.
 //!

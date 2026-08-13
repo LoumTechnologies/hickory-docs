@@ -3,12 +3,12 @@
 *For whoever deploys hickorydocs.com. The site is a directory of files — no
 server, no database, no runtime configuration.*
 
-The landing page and its three interactive demos run entirely in the visitor's
-browser: they simulate git, script execution, and a collaborative room in
-TypeScript, and make no API calls. Pricing is generated from `plans.json` at
-build time. So the whole marketing surface is static, which is what
-`docs/specs/freeform/local-first.md` expects — the product is a program people
-install, not a workspace they sign into.
+The landing page and its interactive demos run entirely in the visitor's
+browser: they simulate git, script execution, and an editing room in
+TypeScript, and make no API calls. There is no pricing page, because there is
+nothing to buy. The whole marketing surface is static, which is what
+`docs/specs/freeform/local-only.md` expects — the product is a program people
+download, not a workspace they sign into.
 
 ## Build it
 
@@ -17,8 +17,18 @@ just site                          # no analytics
 POSTHOG_KEY=phc_… just site        # with browser-side capture
 ```
 
-Output is `apps/web/dist/`. Deploy that directory anywhere that serves files
-(Cloudflare Pages, Netlify, S3 + CloudFront, a static bucket, nginx).
+Output is `apps/web/dist-site/`. That is the **site** build (`site.html`); the
+default `npm run build` produces `dist/`, which is the desktop app's UI and
+must never be deployed here. Deploy `dist-site/` anywhere that serves files —
+Cloudflare Pages is what this project uses.
+
+## Analytics is the site's, never the product's
+
+The site measures its visitors with PostHog. The downloaded binary sends
+nothing, ever: no telemetry, no update check, no first-run ping. The two never
+share a key, a build, or a code path. Keep it that way — "we use analytics" and
+"the tool phones home" are the kind of pair that collapses into each other by
+accident.
 
 Two requirements of the host:
 
@@ -42,31 +52,37 @@ destroy projects. Two guards exist because that mix-up is easy to make:
 `just site` refuses to build with one, and the app refuses to use one at
 runtime (logging and disabling capture rather than crashing the page).
 
-Without the key, the page falls back to posting to `/api/analytics/capture` —
-which only exists when the bundle is served by the hosted app. On a static
-deployment, no key means no analytics, silently and harmlessly.
+Without the key there is no analytics, silently and harmlessly. There is no
+server-side fallback: `/api/analytics/capture` existed when the bundle was
+served by a hosted app, and that app is gone.
 
-Expect fewer events than the server-side beacon collected: a request to
-PostHog is among the most-blocked on the web, and a same-origin `/api` POST is
-not. That is the price of not running a server.
+Expect fewer events than a same-origin beacon would collect: a request to
+PostHog is among the most-blocked on the web. That is the price of not running
+a server, and it is the right price.
 
-## The same bundle, three ways
+## Deploying to Cloudflare Pages
 
-| Deployment | Build | What the visitor gets |
-|---|---|---|
-| Static site | `just site` | Landing, demos, pricing, install command. No accounts. |
-| Hosted app | `Dockerfile` (`VITE_HOSTED=1`) | The above, plus sign-in, workspaces, and Stripe checkout |
-| `hickory serve` | any build | The document editor, opened straight into a document with a session token |
+The project is created **once**, by hand, and then never touched: pushes to
+`master` publish through the **Deploy Site** workflow
+(`.github/workflows/deploy-site.yml`).
 
-`VITE_HOSTED` is the only switch: it adds the sign-in link and the subscribe
-buttons. The default is the deployment with no server, so a build that forgets
-to set anything is the safe one.
+Creating it needs an **account-scoped** API token. The token in `.env` is
+deliberately scoped to one zone's DNS and nothing else, so it cannot do this —
+that narrowness is the point, not an oversight.
 
-## Before the install command works for strangers
+1. Mint a token with **Account → Cloudflare Pages → Edit**.
+2. Create a Pages project (direct upload, no git integration — the workflow
+   uploads the build). Note its `*.pages.dev` hostname.
+3. Set in the repository's `production` GitHub Environment:
+   - `CLOUDFLARE_API_TOKEN` (secret) — the Pages-scoped token
+   - `CLOUDFLARE_ACCOUNT_ID` (secret)
+   - `CLOUDFLARE_PAGES_PROJECT` (variable) — the project name
+   - `POSTHOG_KEY` (secret) — the `phc_…` project write key
+4. Run **Deploy Site** once and confirm the `*.pages.dev` URL serves the page
+   and `/install.sh`.
+5. **Only then** point DNS at it — `terraform/dns` with `pages_hostname` set to
+   the `*.pages.dev` name. Flipping DNS first takes the site down for as long
+   as it takes to notice.
 
-`scripts/install.sh` downloads release assets from a **private** GitHub
-repository, so today it needs `HICKORY_GITHUB_TOKEN`. Publishing the site
-before the repository is public ships a call to action that fails for everyone
-who is not us. Either flip the repository (the plan of record — MIT, per
-`architecture.md`) or host the release archives somewhere public and point the
-script at them.
+Pages satisfies both host requirements above out of the box: unknown paths
+fall back to `index.html`, and `install.sh` is served as uploaded.

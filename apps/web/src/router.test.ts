@@ -42,6 +42,5 @@ describe("email-link routes", () => {
   it("still parses the routes that existed before", () => {
     expect(parseRoute("#/login")).toEqual({ name: "login" });
     expect(parseRoute("#/docs/abc")).toEqual({ name: "doc", id: "abc" });
-    expect(parseRoute("#/pricing")).toEqual({ name: "pricing" });
   });
 });

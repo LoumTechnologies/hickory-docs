@@ -39,7 +39,7 @@
     },
     {
       "id": "fix-expectation",
-      "prompt": "One expectation in {corpus}/grand-tour.hick asserts an exact figure from the quarterly table. Change the underlying computation to round to 2 decimal places and update the expectation so `hickory check` passes.",
+      "prompt": "One expectation in {corpus}/grand-tour.hick asserts an exact figure from the quarterly table. Change the underlying computation to round to 2 decimal places and update the expectation so `hick check` passes.",
       "doc": "grand-tour.hick",
       "outputs": ["grand-tour.md"],
       "check_cmd": "${HICKORY_BIN:-hickory} check grand-tour.hick"

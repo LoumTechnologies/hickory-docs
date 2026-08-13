@@ -19,14 +19,14 @@ todo.py                              the shipped program
 ## Try the demo
 
 ```sh
-hickory test docs/todo-app/          # all four documents pass
+hick test docs/todo-app/          # all four documents pass
 ```
 
 Now change one sentence — in `meetings/2026-08-07-kickoff.hick`, make the
 states decision say "four states" instead of "three":
 
 ```sh
-hickory test docs/todo-app/          # the meeting, the domain model, and
+hick test docs/todo-app/          # the meeting, the domain model, and
                                       # the requirements all fail together
 ```
 
@@ -41,7 +41,7 @@ Put it back and they pass again.
 - **Every requirement is also a ticket.** The files under `work/` are tangled
   from the requirement fragments, so a requirement and its ticket are the same
   bytes. Editing the requirement IS editing the ticket. They are in ticketry's
-  format, without hickory depending on ticketry.
+  format, without hick depending on ticketry.
 - **The acceptance cells run the real CLI.** They set titles and filter on
   state rather than pinning the random ids, because pinning a random id would
   fail every run for no reason.
@@ -52,7 +52,7 @@ Put it back and they pass again.
 
 ## What an agent did here
 
-The `blocked` task state was added by `hickory agent`, not by hand. Asked to
+The `blocked` task state was added by `hick agent`, not by hand. Asked to
 add it, the agent amended the *decision* in the kickoff notes — two hops
 upstream from the document it was pointed at — rather than patching the
 requirement in front of it, then propagated down through the glossary, the

@@ -92,7 +92,7 @@ that is plain TCP. The unix-socket path does not exist there — Windows has no
 unix domain sockets, so a `CANOPY_AGENT` beginning with `/` fails on first
 use with a message naming the mesh alternative. That is a deliberate `cfg`
 gate in `crates/hickory-executor-canopy/src/executor.rs`
-(`connect_unix_socket`), not an oversight: the whole `hickory` binary would
+(`connect_unix_socket`), not an oversight: the whole `hick` binary would
 otherwise not build for `x86_64-pc-windows-msvc` at all. A local node agent
 is unreachable from Windows in any case — it only ever listens on a socket.
 

@@ -33,7 +33,7 @@ pub struct ExecCacheEntry {
 /// `Require`, which `run` answers by establishing one and `test` answers by
 /// reporting the cell unverifiable.
 ///
-/// This is both the run-wide default (`hickory run` with no flag is `Off`,
+/// This is both the run-wide default (`hick run` with no flag is `Off`,
 /// `--cache` is `Reuse`, `--freeze` is `Require`) and, after a cell's own
 /// `freeze=` attribute has had its say, the per-cell decision:
 /// `freeze="true"` is `Require` and `freeze="false"` is `Off`, whatever the
@@ -49,8 +49,8 @@ pub enum CacheMode {
     /// on a miss, execute it and record the result.
     Reuse,
     /// The cell should execute at most once, ever: its recording is the
-    /// answer. On a miss there is no baseline — `hickory run` establishes one
-    /// by executing the cell once and recording it, while `hickory test`
+    /// answer. On a miss there is no baseline — `hick run` establishes one
+    /// by executing the cell once and recording it, while `hick test`
     /// reports the cell as *unverifiable* and writes nothing, so a verifier
     /// can never manufacture the baseline it then compares against.
     Require,
@@ -73,14 +73,22 @@ impl CacheMode {
 pub struct CacheConfig {
     /// Root directory for cached transcripts.
     pub cache_dir: PathBuf,
-    /// The **run-wide default** mode, set by `hickory run`'s `--cache` /
+    /// The directory the document's relative paths resolve against.
+    ///
+    /// Kept here because a cache key now covers the cell's inputs, and the
+    /// weave path — which never executes, and so never seeds a volume of its
+    /// own — has to seed the same volumes from the same place to arrive at
+    /// the same key. Without it a woven document could not find any of the
+    /// recordings a run had just written.
+    pub project_dir: PathBuf,
+    /// The **run-wide default** mode, set by `hick run`'s `--cache` /
     /// `--freeze` flags.
     ///
     /// Freeze is a per-cell property: a `freeze=` attribute on a cell
     /// overrides this value in either direction, so a run can be `Off`
     /// while one cell in it is `Require`. That is the ordinary case — a
     /// document that declares `freeze="true"` on one cell and is run with
-    /// plain `hickory run`.
+    /// plain `hick run`.
     pub mode: CacheMode,
 }
 
@@ -89,6 +97,7 @@ impl CacheConfig {
     pub fn new(project_dir: &Path, mode: CacheMode) -> Self {
         Self {
             cache_dir: project_dir.join(".hick-cache").join("transcripts"),
+            project_dir: project_dir.to_path_buf(),
             mode,
         }
     }
@@ -115,11 +124,37 @@ pub fn cell_mode(cache_config: Option<&CacheConfig>, freeze: Option<bool>) -> Ca
 }
 
 /// Compute the cache key (SHA-256 hex) for an exec step.
+///
+/// **The key covers the cell's inputs, not just its text.** A recording
+/// answers "what did this cell produce last time", and that question is only
+/// well posed once the answer is pinned to everything that could change the
+/// output. Four of those are properties of the cell itself — the image, the
+/// capabilities it was granted, the command, and which secrets were in scope.
+/// The other two are what it read:
+///
+/// * `input_digest` — the contents of the volumes mounted into this cell, from
+///   [`inputs_digest`]. This is what makes a `<hick:file>` product an input:
+///   the document assembles `analysis.py`, the file is seeded into a volume,
+///   and the cell that runs it re-executes when it changes. Keyed on the
+///   command alone, editing that file would serve the old recording and the
+///   document would report numbers produced by code it no longer contains.
+/// * `upstream_keys` — the keys of this cell's predecessors in the flow DAG.
+///   Chaining them makes invalidation transitive without hashing anything
+///   twice: if an upstream cell's inputs changed, its key changed, so every
+///   cell downstream of it has a different key too. Container state, volume
+///   flow, and copy/paste edges are all carried by this one term, because the
+///   DAG already models each of them as an edge.
+///
+/// Order matters for `upstream_keys`; callers pass them in the DAG's
+/// deterministic predecessor order so the same graph always yields the same
+/// key.
 pub fn exec_cache_key(
     container_image: &str,
     capabilities_canonical: &str,
     command: &str,
     secret_names: &[&str],
+    input_digest: &str,
+    upstream_keys: &[&str],
 ) -> String {
     let mut hasher = Sha256::new();
     hasher.update(b"image:");
@@ -131,6 +166,38 @@ pub fn exec_cache_key(
     for s in secret_names {
         hasher.update(b"\nsecret:");
         hasher.update(s.as_bytes());
+    }
+    hasher.update(b"\ninputs:");
+    hasher.update(input_digest.as_bytes());
+    for k in upstream_keys {
+        hasher.update(b"\nupstream:");
+        hasher.update(k.as_bytes());
+    }
+    format!("{:x}", hasher.finalize())
+}
+
+/// Digest the files a cell can read, as `(path, bytes)` pairs.
+///
+/// Sorted by path before hashing, because the order files come out of a volume
+/// is not a property of the volume — an unsorted digest would make the same
+/// inputs produce different keys on different runs and no cell would ever hit
+/// its recording. The length of each path and body is folded in so that
+/// `("ab", "c")` and `("a", "bc")` cannot collide.
+///
+/// An empty input set has its own digest rather than the empty string, so
+/// "this cell reads nothing" is a statement the key records rather than an
+/// absence it cannot distinguish from "inputs not computed".
+pub fn inputs_digest(files: &[(String, Vec<u8>)]) -> String {
+    let mut sorted: Vec<&(String, Vec<u8>)> = files.iter().collect();
+    sorted.sort_by(|a, b| a.0.cmp(&b.0));
+
+    let mut hasher = Sha256::new();
+    hasher.update(b"inputs-v1:");
+    for (path, body) in sorted {
+        hasher.update(path.len().to_le_bytes());
+        hasher.update(path.as_bytes());
+        hasher.update(body.len().to_le_bytes());
+        hasher.update(body);
     }
     format!("{:x}", hasher.finalize())
 }
@@ -257,39 +324,99 @@ pub fn sha256_hex(s: &str) -> String {
 mod tests {
     use super::*;
 
+    /// The digest of a cell that reads nothing, so the tests below vary one
+    /// term at a time.
+    fn no_inputs() -> String {
+        inputs_digest(&[])
+    }
+
     #[test]
     fn cache_key_deterministic() {
-        let k1 = exec_cache_key("alpine", "net:deny_all", "echo hi", &[]);
-        let k2 = exec_cache_key("alpine", "net:deny_all", "echo hi", &[]);
+        let k1 = exec_cache_key("alpine", "net:deny_all", "echo hi", &[], &no_inputs(), &[]);
+        let k2 = exec_cache_key("alpine", "net:deny_all", "echo hi", &[], &no_inputs(), &[]);
         assert_eq!(k1, k2);
     }
 
     #[test]
     fn cache_key_changes_with_command() {
-        let k1 = exec_cache_key("alpine", "", "echo a", &[]);
-        let k2 = exec_cache_key("alpine", "", "echo b", &[]);
+        let k1 = exec_cache_key("alpine", "", "echo a", &[], &no_inputs(), &[]);
+        let k2 = exec_cache_key("alpine", "", "echo b", &[], &no_inputs(), &[]);
         assert_ne!(k1, k2);
     }
 
     #[test]
     fn cache_key_changes_with_image() {
-        let k1 = exec_cache_key("alpine", "", "echo hi", &[]);
-        let k2 = exec_cache_key("python:3.12", "", "echo hi", &[]);
+        let k1 = exec_cache_key("alpine", "", "echo hi", &[], &no_inputs(), &[]);
+        let k2 = exec_cache_key("python:3.12", "", "echo hi", &[], &no_inputs(), &[]);
         assert_ne!(k1, k2);
     }
 
     #[test]
     fn cache_key_changes_with_caps() {
-        let k1 = exec_cache_key("alpine", "net:deny_all", "echo hi", &[]);
-        let k2 = exec_cache_key("alpine", "", "echo hi", &[]);
+        let k1 = exec_cache_key("alpine", "net:deny_all", "echo hi", &[], &no_inputs(), &[]);
+        let k2 = exec_cache_key("alpine", "", "echo hi", &[], &no_inputs(), &[]);
         assert_ne!(k1, k2);
     }
 
     #[test]
     fn cache_key_changes_with_secrets() {
-        let k1 = exec_cache_key("alpine", "", "echo hi", &[]);
-        let k2 = exec_cache_key("alpine", "", "echo hi", &["API_KEY"]);
+        let k1 = exec_cache_key("alpine", "", "echo hi", &[], &no_inputs(), &[]);
+        let k2 = exec_cache_key("alpine", "", "echo hi", &["API_KEY"], &no_inputs(), &[]);
         assert_ne!(k1, k2);
+    }
+
+    /// The point of the whole change: a cell whose command never changed, but
+    /// whose input file did, must not be answered from the old recording.
+    #[test]
+    fn cache_key_changes_with_inputs() {
+        let before = inputs_digest(&[("src@proj/analysis.py".into(), b"x = 1".to_vec())]);
+        let after = inputs_digest(&[("src@proj/analysis.py".into(), b"x = 2".to_vec())]);
+        let k1 = exec_cache_key("alpine", "", "python analysis.py", &[], &before, &[]);
+        let k2 = exec_cache_key("alpine", "", "python analysis.py", &[], &after, &[]);
+        assert_ne!(k1, k2);
+    }
+
+    /// Invalidation is transitive: a cell downstream of a changed cell has a
+    /// different key even though nothing about it changed directly.
+    #[test]
+    fn cache_key_changes_with_upstream() {
+        let k1 = exec_cache_key("alpine", "", "echo hi", &[], &no_inputs(), &["upstream-a"]);
+        let k2 = exec_cache_key("alpine", "", "echo hi", &[], &no_inputs(), &["upstream-b"]);
+        assert_ne!(k1, k2);
+        // And having an upstream at all is different from having none.
+        let k3 = exec_cache_key("alpine", "", "echo hi", &[], &no_inputs(), &[]);
+        assert_ne!(k1, k3);
+    }
+
+    #[test]
+    fn inputs_digest_is_order_independent() {
+        let a = inputs_digest(&[
+            ("b.py".into(), b"two".to_vec()),
+            ("a.py".into(), b"one".to_vec()),
+        ]);
+        let b = inputs_digest(&[
+            ("a.py".into(), b"one".to_vec()),
+            ("b.py".into(), b"two".to_vec()),
+        ]);
+        assert_eq!(a, b, "a volume's iteration order is not part of its state");
+    }
+
+    /// Length-prefixing means a path/body split cannot be shifted to produce
+    /// the same digest from different content.
+    #[test]
+    fn inputs_digest_does_not_collide_on_a_shifted_boundary() {
+        let a = inputs_digest(&[("ab".into(), b"c".to_vec())]);
+        let b = inputs_digest(&[("a".into(), b"bc".to_vec())]);
+        assert_ne!(a, b);
+    }
+
+    #[test]
+    fn inputs_digest_distinguishes_empty_from_present() {
+        assert_ne!(
+            inputs_digest(&[]),
+            inputs_digest(&[("a.py".into(), Vec::new())]),
+            "a cell that reads an empty file did not read nothing"
+        );
     }
 
     // The four tests below protect
@@ -327,7 +454,7 @@ mod tests {
         // Same text on both sides; only the domain separator differs.
         assert_ne!(
             agent_cache_key("alpine", "echo hi"),
-            exec_cache_key("alpine", "", "echo hi", &[])
+            exec_cache_key("alpine", "", "echo hi", &[], &no_inputs(), &[])
         );
     }
 

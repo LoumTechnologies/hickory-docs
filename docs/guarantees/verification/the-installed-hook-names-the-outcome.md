@@ -1,17 +1,17 @@
-# The Pre-Commit Hook `hickory init` Installs Names Which Outcome Blocked The Commit
+# The Pre-Commit Hook `hick init` Installs Names Which Outcome Blocked The Commit
 
-Given a repository set up by `hickory init`, when the installed pre-commit
-hook blocks a commit because `hickory test` exited non-zero, then the message
+Given a repository set up by `hick init`, when the installed pre-commit
+hook blocks a commit because `hick test` exited non-zero, then the message
 names the specific outcome that occurred — drift (exit `1`), not verified
 (exit `2`), or a failed expectation (exit `3`) — and states the fix for that
 outcome and only that outcome.
 
 Specifically:
 
-- exit `1` says DRIFT and tells the author to re-run `hickory run <doc>` (or
-  `hickory refresh <doc>` for a stale `hick:transform`) and commit the result;
+- exit `1` says DRIFT and tells the author to re-run `hick run <doc>` (or
+  `hick refresh <doc>` for a stale `hick:transform`) and commit the result;
 - exit `2` says NOT VERIFIED and tells the author to record a baseline by
-  running `hickory run <doc>` — a cell declaring `freeze="true"` runs once
+  running `hick run <doc>` — a cell declaring `freeze="true"` runs once
   there and records itself — or stop freezing the cell;
 - exit `3` says FAILED EXPECTATION and explicitly tells the author **not** to
   regenerate it away, because the document claims something untrue of its own
@@ -33,14 +33,14 @@ Last LLM verification:
 - Reviewer: Claude (Opus 5)
 - Result: verified
 - Evidence: `HOOK_BODY` in `crates/hickory-cli/src/init.rs` captures each
-  document's exit code (`hickory test "$hick_doc" || hick_code=$?`, written
+  document's exit code (`hick test "$hick_doc" || hick_code=$?`, written
   in that form so the block is safe to append to a user hook running under
   `set -e`), keeps the numeric maximum in `hick_worst`, and branches on it in
   a `case` with one message per outcome plus a catch-all for an unexpected
   code. The numeric maximum is the same precedence `CheckOutcome`'s `Ord`
   gives the CLI (`crates/hickory-cli/src/lib.rs`), because the exit codes are
   assigned in that order. Verified live in a scratch repository: a hook
-  containing a stale managed block was rewritten by `hickory init` to the new
+  containing a stale managed block was rewritten by `hick init` to the new
   body, and the surrounding user content was left untouched.
 - Test coverage: `crates/hickory-cli/tests/init_tests.rs` —
   `hook_names_drift_when_a_committed_output_is_stale` (exit `1`: asserts the

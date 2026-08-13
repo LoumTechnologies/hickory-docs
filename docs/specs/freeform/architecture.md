@@ -1,7 +1,7 @@
 # Hickory Docs — Architecture
 
 > **Partly superseded.** `local-first.md` (2026-08-11) settles the product's
-> shape: hickory is a program you install, `hickory serve` replaces the hosted
+> shape: hick is a program you install, `hick serve` replaces the hosted
 > workspace, and the cloud shrinks to a relay, billing, and a static site. This
 > document stays accurate about the language, the vendored crates, the
 > execution boundary, and native verification — and is superseded on the
@@ -94,9 +94,9 @@ the node's ledger. Documents don't change shape; the mapping is deployment confi
 - `<hick:exec ...>` bodies already capture transcripts. New: `<hick:expect>`
   as a child of `hick:exec` — expected stdout, with `match="exact|regex-lines"`
   (regex-lines: each line is a full-line regex, for timestamps/hashes).
-- `hickory test <doc|dir>`: re-runs the pipeline, fails on any expectation
+- `hick test <doc|dir>`: re-runs the pipeline, fails on any expectation
   mismatch or output drift vs the committed woven output. Exit code drives CI
-  and the pre-commit hook (`hickory init` installs a sentinel-delimited hook,
+  and the pre-commit hook (`hick init` installs a sentinel-delimited hook,
   same idempotent design exedocs used — but implemented here, no cram).
 - Recording: every run captures a timed transcript (JSON events: cmd, chunk,
   exit). The web UI plays these back as animated terminal sessions — replacing
@@ -115,7 +115,7 @@ crates/
   (vendored language + abilities crates, above)
   hickory-executor/        Executor trait + LocalExecutor
   hickory-executor-canopy/ CanopyExecutor
-  hickory-cli/             `hickory` binary: run, check, weave, promote, serve, init
+  hickory-cli/             `hick` binary: run, check, weave, promote, serve, init
 docs/  guarantees/  specs/freeform/  users/  developers/
 ```
 
@@ -126,7 +126,7 @@ docs/  guarantees/  specs/freeform/  users/  developers/
 - **Sharing state across web/iOS/Android**: all three are the same React+TS
   client speaking the same WS Yrs protocol; Tauri contributes native shell +
   offline file access, nothing else diverges.
-- **Where the server runs is not fixed**: `hickory serve` puts the same rooms,
+- **Where the server runs is not fixed**: `hick serve` puts the same rooms,
   the same client, and the same executor on a contributor's own machine, with
   the `.hick` file standing in for Postgres. The collaboration layer is shared
   (`crates/hickory-collab`, one `DocStore` trait, two implementations) rather

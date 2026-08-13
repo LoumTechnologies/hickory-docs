@@ -9,7 +9,8 @@
     "build": "tsc -b && vite build",
     "typecheck": "tsc -b --noEmit",
     "test": "vitest run",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "build:site": "tsc -b && vite build --config vite.site.config.ts"
   },
   "dependencies": {
     "@codemirror/commands": "^6.7.1",

@@ -39,7 +39,7 @@ function trimContent(source: string, from: number, to: number): [number, number]
  * corrupts the output it is annotating.
  */
 function banner(language: string, docPath: string): string {
-  const text = `woven by hickory from ${docPath} — edit the doc or the slots below`;
+  const text = `woven by hick from ${docPath} — edit the doc or the slots below`;
   if (language === "python" || language === "shell") return `# ${text}\n`;
   if (language === "markdown" || language === "html") return `<!-- ${text} -->\n`;
   return `// ${text}\n`;

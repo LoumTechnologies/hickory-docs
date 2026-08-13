@@ -189,7 +189,7 @@ independent restatement of one constraint* in this recon:
   cheap and **rewarded**.
 
 Three different decades, three different fields, one constraint. **Hickory
-already owns a forcing function none of the predecessors had: `hickory test`
+already owns a forcing function none of the predecessors had: `hick test`
 can fail the build on the taxonomy.** An annotation that gates CI is not unpaid
 work — it is load-bearing. That is the specific reason the operator's
 user-defined-taxonomy direction is defensible where RDF was not, and it is the

@@ -840,7 +840,7 @@ async fn test_guide_hick_file_processes() {
     // Relative, not `/out/...`: mounts resolve UNDER the container workdir on
     // both executors, so an absolute path in a COMMAND reaches the real
     // filesystem root and fails. This assertion previously pinned the broken
-    // spelling, which is how the guide shipped failing `hickory test`.
+    // spelling, which is how the guide shipped failing `hick test`.
     assert!(
         guide.contains("$ cat out/stamp.txt"),
         "dry-run transcript for guide-verifier should appear in output, got: {guide}"

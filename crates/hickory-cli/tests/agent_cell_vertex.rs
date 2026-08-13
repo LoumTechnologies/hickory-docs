@@ -151,7 +151,7 @@ async fn a_cell_naming_another_model_is_refused() {
     assert!(err.contains(MODEL), "{err}");
 }
 
-/// `hickory test` on a document whose agent cell has no baseline: unverifiable
+/// `hick test` on a document whose agent cell has no baseline: unverifiable
 /// (exit 2), named without a container, with a message that says what to do.
 ///
 /// This is hermetic on purpose — `run_doc` in `RunMode::Verify` attaches no
@@ -163,7 +163,7 @@ async fn test_reports_an_agent_cell_with_no_baseline_as_unverifiable() {
 
     let run = run_doc(&doc, &[], RunMode::Verify, ExecutorChoice::Local)
         .await
-        .expect("an agent cell with no baseline must not abort `hickory test`");
+        .expect("an agent cell with no baseline must not abort `hick test`");
 
     let cell = CellId::containerless(7);
     assert_eq!(
@@ -190,16 +190,16 @@ async fn test_reports_an_agent_cell_with_no_baseline_as_unverifiable() {
         !msg.contains("container"),
         "an agent cell has no container to name: {msg}"
     );
-    assert!(msg.contains("hickory run --cache"), "{msg}");
+    assert!(msg.contains("hick run --cache"), "{msg}");
     assert!(
         msg.contains("write the greeting"),
         "the message should name the prompt: {msg}"
     );
 }
 
-/// `hickory test` never spends a token: even where a runner exists, the verify
+/// `hick test` never spends a token: even where a runner exists, the verify
 /// path does not get one, so a cell either replays from its recording or is
-/// reported. Here the recording is written by a `hickory run`-shaped pass and
+/// reported. Here the recording is written by a `hick run`-shaped pass and
 /// the verify pass consumes it with no LLM in sight.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_recorded_agent_cell_verifies_without_a_model() {

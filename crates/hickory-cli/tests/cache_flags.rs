@@ -1,16 +1,16 @@
-//! `hickory run --cache` / `--freeze`, driven through the shipped binary.
+//! `hick run --cache` / `--freeze`, driven through the shipped binary.
 //!
 //! These protect
 //! `docs/guarantees/verification/recordings-are-written-only-when-asked-for.md`:
 //! a recording exists only because a run was asked to write one — by a flag,
-//! or by the cell's own `freeze="true"` — `hickory test` can never ask, and
+//! or by the cell's own `freeze="true"` — `hick test` can never ask, and
 //! the whole freeze lifecycle is reachable from the CLI.
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-fn hickory() -> Command {
-    Command::new(env!("CARGO_BIN_EXE_hickory"))
+fn hick() -> Command {
+    Command::new(env!("CARGO_BIN_EXE_hick"))
 }
 
 /// The one exec command, shared between the frozen and unfrozen spellings of
@@ -68,10 +68,10 @@ fn run_without_the_flag_records_nothing() {
     // recorded by accident would hand `check` a baseline nobody asked for.
     let dir = tempfile::tempdir().unwrap();
     let doc = write_doc(dir.path(), None);
-    assert!(hickory().arg("run").arg(&doc).status().unwrap().success());
+    assert!(hick().arg("run").arg(&doc).status().unwrap().success());
     assert!(
         recordings(dir.path()).is_empty(),
-        "plain `hickory run` must not write a recording"
+        "plain `hick run` must not write a recording"
     );
 }
 
@@ -79,12 +79,7 @@ fn run_without_the_flag_records_nothing() {
 fn run_cache_writes_a_recording() {
     let dir = tempfile::tempdir().unwrap();
     let doc = write_doc(dir.path(), None);
-    let out = hickory()
-        .arg("run")
-        .arg("--cache")
-        .arg(&doc)
-        .output()
-        .unwrap();
+    let out = hick().arg("run").arg("--cache").arg(&doc).output().unwrap();
     assert!(
         out.status.success(),
         "run --cache should succeed: {}",
@@ -106,18 +101,18 @@ fn run_cache_writes_a_recording() {
 #[test]
 fn a_frozen_cell_gets_its_baseline_entirely_through_the_cli() {
     // Issue #6, then #10: the cell is written frozen from the start, and one
-    // plain `hickory run` — no flag, no edit to the document — gives it the
-    // baseline `hickory test` then verifies. Exit 0, not 2.
+    // plain `hick run` — no flag, no edit to the document — gives it the
+    // baseline `hick test` then verifies. Exit 0, not 2.
     let dir = tempfile::tempdir().unwrap();
     let doc = write_doc(dir.path(), Some(true));
-    assert!(hickory().arg("run").arg(&doc).status().unwrap().success());
+    assert!(hick().arg("run").arg(&doc).status().unwrap().success());
     assert_eq!(
         recordings(dir.path()).len(),
         1,
         "the first run of a frozen cell must leave exactly one recording"
     );
 
-    let out = hickory().arg("test").arg(&doc).output().unwrap();
+    let out = hick().arg("test").arg(&doc).output().unwrap();
     assert_eq!(
         out.status.code(),
         Some(0),
@@ -151,7 +146,7 @@ printf 'live'
     )
     .unwrap();
 
-    assert!(hickory().arg("run").arg(&path).status().unwrap().success());
+    assert!(hick().arg("run").arg(&path).status().unwrap().success());
     assert_eq!(
         recordings(dir.path()).len(),
         1,
@@ -166,7 +161,7 @@ fn run_freeze_serves_the_recording_instead_of_executing() {
     let dir = tempfile::tempdir().unwrap();
     let doc = write_doc(dir.path(), None);
     assert!(
-        hickory()
+        hick()
             .arg("run")
             .arg("--cache")
             .arg(&doc)
@@ -181,7 +176,7 @@ fn run_freeze_serves_the_recording_instead_of_executing() {
         .replace("one", "SERVED-FROM-RECORDING");
     std::fs::write(&recording, doctored).unwrap();
 
-    let out = hickory()
+    let out = hick()
         .arg("run")
         .arg("--freeze")
         .arg(&doc)
@@ -204,11 +199,11 @@ fn run_freeze_records_a_cell_that_has_no_recording_yet() {
     // `--freeze` is the run-wide spelling of the same three-valued setting a
     // cell declares, so a miss means the same thing either way: no baseline
     // yet, and `run` is what establishes one. The strict read-only assertion
-    // — "every cell is already recorded, execute nothing" — is `hickory test
+    // — "every cell is already recorded, execute nothing" — is `hick test
     // --freeze`, which is exercised below.
     let dir = tempfile::tempdir().unwrap();
     let doc = write_doc(dir.path(), None);
-    let out = hickory()
+    let out = hick()
         .arg("run")
         .arg("--freeze")
         .arg(&doc)
@@ -233,7 +228,7 @@ fn run_freeze_records_a_cell_that_has_no_recording_yet() {
         .replace("one", "SERVED-FROM-RECORDING");
     std::fs::write(&recording, doctored).unwrap();
     assert!(
-        hickory()
+        hick()
             .arg("run")
             .arg("--freeze")
             .arg(&doc)
@@ -254,7 +249,7 @@ fn test_refuses_a_cache_flag() {
     // against — the circularity `unverifiable` exists to prevent.
     let dir = tempfile::tempdir().unwrap();
     let doc = write_doc(dir.path(), None);
-    let out = hickory()
+    let out = hick()
         .arg("test")
         .arg("--cache")
         .arg(&doc)
@@ -262,7 +257,7 @@ fn test_refuses_a_cache_flag() {
         .unwrap();
     assert!(
         !out.status.success(),
-        "`hickory test --cache` must not be accepted"
+        "`hick test --cache` must not be accepted"
     );
     assert!(
         recordings(dir.path()).is_empty(),
@@ -276,7 +271,7 @@ fn test_freeze_reports_an_unrecorded_cell_as_unverifiable() {
     // not a silent pass and not a recording written on the spot.
     let dir = tempfile::tempdir().unwrap();
     let doc = write_doc(dir.path(), None);
-    let out = hickory()
+    let out = hick()
         .arg("test")
         .arg("--freeze")
         .arg(&doc)

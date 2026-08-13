@@ -17,7 +17,7 @@ def mean(xs):
 stay literal.)
 
 Without an LSP, that Python is inert text — a typo surfaces only when
-`hickory run` fails. With `hick-lsp`, your editor shows pyright's diagnostics
+`hick run` fails. With `hick-lsp`, your editor shows pyright's diagnostics
 on those lines as you type, at the correct positions in the `.hick` file.
 
 ## 1. Install `hick-lsp`
@@ -41,7 +41,7 @@ servers, so install the ones for the languages your documents embed:
 | Go | `gopls` | `go install golang.org/x/tools/gopls@latest` |
 
 Missing servers are non-fatal: you just get no diagnostics for that language.
-`hickory init` warns about missing ones.
+`hick init` warns about missing ones.
 
 ## 2. Wire it into your editor
 
@@ -115,5 +115,5 @@ When you open a `.hick` file, `hick-lsp`:
   rust-analyzer needs a `Cargo.toml` to be useful, the same applies to
   embedded Rust.
 - **`h:exec` shell blocks get no diagnostics** — only `h:file` blocks with a
-  recognized extension do. Drift in exec blocks is caught by `hickory test`,
+  recognized extension do. Drift in exec blocks is caught by `hick test`,
   not the editor.

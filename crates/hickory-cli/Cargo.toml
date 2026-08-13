@@ -6,7 +6,7 @@ publish.workspace = true
 license.workspace = true
 
 [[bin]]
-name = "hickory"
+name = "hick"
 path = "src/main.rs"
 
 [lib]
@@ -20,12 +20,21 @@ axum = { version = "0.8", features = ["ws", "macros"] }
 clap = { version = "4", features = ["derive"] }
 futures = "0.3"
 env_logger = "0.11"
+# `hick up` holds an advisory lock for the directory it watches, so two
+# watchers can never fight over the same woven files.
+fs2 = "0.4"
+# Line-level diffing of a saved output file against the bytes we last wrote,
+# so an edit that touches two regions maps back as two edits rather than one
+# span wide enough to swallow the generated text between them.
+similar = "2"
+# Watching for editor saves. Already a hick-literate dependency; pinned to the
+# same major here so both halves of the workspace agree on event shapes.
+notify = "7"
 hick-exec.workspace = true
 hick-lang.workspace = true
 hick-literate = { path = "../hick-literate" }
 hickory-agent = { path = "../hickory-agent" }
 hickory-collab = { path = "../hickory-collab" }
-hickory-relay = { path = "../hickory-relay" }
 hickory-executor = { path = "../hickory-executor" }
 hickory-executor-canopy = { path = "../hickory-executor-canopy" }
 hickory-executor-docker = { path = "../hickory-executor-docker" }
@@ -41,8 +50,6 @@ tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 
 [dev-dependencies]
-hickory-identity = { path = "../hickory-identity" }
-hickory-relay-server = { path = "../../apps/relay" }
 tempfile = "3"
 tokio-tungstenite = "0.24"
 yrs = { version = "0.21", features = ["sync"] }

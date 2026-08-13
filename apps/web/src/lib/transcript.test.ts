@@ -9,8 +9,8 @@ import {
 } from "./transcript";
 
 const events: TranscriptEvent[] = [
-  { t: 0, kind: "cmd", data: "hickory --version" },
-  { t: 200, kind: "out", data: "hickory " },
+  { t: 0, kind: "cmd", data: "hick --version" },
+  { t: 200, kind: "out", data: "hick " },
   { t: 300, kind: "out", data: "0.4.2\n" },
   { t: 350, kind: "err", data: "warning: cache cold\n" },
   { t: 400, kind: "exit", code: 0 },
@@ -24,17 +24,17 @@ describe("transcript timing", () => {
 
   it("shows nothing before the first event, cmd at t=0", () => {
     expect(segmentsAt(events, -1)).toEqual([]);
-    expect(segmentsAt(events, 0)).toEqual([{ kind: "cmd", text: "hickory --version" }]);
+    expect(segmentsAt(events, 0)).toEqual([{ kind: "cmd", text: "hick --version" }]);
   });
 
   it("reveals output chunks as the playhead advances, merging same-kind runs", () => {
     const at250 = segmentsAt(events, 250);
     expect(at250).toEqual([
-      { kind: "cmd", text: "hickory --version" },
-      { kind: "out", text: "hickory " },
+      { kind: "cmd", text: "hick --version" },
+      { kind: "out", text: "hick " },
     ]);
     const at300 = segmentsAt(events, 300);
-    expect(at300[1]).toEqual({ kind: "out", text: "hickory 0.4.2\n" });
+    expect(at300[1]).toEqual({ kind: "out", text: "hick 0.4.2\n" });
   });
 
   it("keeps err separate from out and includes exit at the end", () => {
@@ -48,7 +48,7 @@ describe("transcript timing", () => {
   });
 
   it("stdoutOf concatenates only stdout", () => {
-    expect(stdoutOf(events)).toBe("hickory 0.4.2\n");
+    expect(stdoutOf(events)).toBe("hick 0.4.2\n");
   });
 
   it("exitCodeOf reports the last exit, or null when still running", () => {

@@ -49,7 +49,7 @@ async fn a_volatile_report_does_not_drift_but_its_files_still_do() {
     let doc_path = dir.path().join("doc.hick");
     std::fs::write(&doc_path, DOC).unwrap();
 
-    // Commit the outputs, exactly as a first `hickory run` would.
+    // Commit the outputs, exactly as a first `hick run` would.
     let run = run_doc(&doc_path, &[], RunMode::Execute, ExecutorChoice::Local)
         .await
         .expect("first run");

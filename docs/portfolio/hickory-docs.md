@@ -17,7 +17,7 @@ build.
 Hickory Docs is an executable-document toolchain written in Rust. A `.hick`
 file is prose, a program, and a test suite in one artifact: commands run in
 declared containers, their real transcripts are woven into the published
-Markdown, and `hickory test` fails with a line number and a diff the moment
+Markdown, and `hick test` fails with a line number and a diff the moment
 the tool's behaviour stops matching what the document claims. It ships with a
 byte-precise provenance system that maps every character of generated output
 back to the prose that produced it, a language server that multiplexes real
@@ -130,7 +130,7 @@ todo.py                            the shipped program
 ```
 
 Change one sentence in the meeting note and every document below it fails
-`hickory test` — including the code, because the acceptance cells stop
+`hick test` — including the code, because the acceptance cells stop
 matching. That is the demo: it takes ten seconds and it is not a mockup.
 
 An AI agent working in this tree can read and edit the whole chain, so asked

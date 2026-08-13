@@ -462,9 +462,9 @@ when inputs haven't changed. Cache keys are SHA-256 hashes of the
 container image, capabilities, command text, and secret names.
 
 ```
-hickory run --cache file.hick   # Record every cell, reuse on match
-hickory run --freeze file.hick  # Serve every cell from its recording
-hickory test --freeze file.hick # Verify against recordings, never execute
+hick run --cache file.hick   # Record every cell, reuse on match
+hick run --freeze file.hick  # Serve every cell from its recording
+hick test --freeze file.hick # Verify against recordings, never execute
 ```
 
 There is one setting here, not two switches, and it says **what a missing
@@ -472,9 +472,9 @@ recording means**: nothing (the default — run the cell, remember nothing),
 "remember this" (`--cache`), or "this cell has no baseline yet"
 (`--freeze`, and the per-cell `freeze="true"` below).
 
-`hickory run` is what establishes a baseline: a cell with no recording
+`hick run` is what establishes a baseline: a cell with no recording
 that is not supposed to execute twice runs exactly once, on the run that
-records it. `hickory test` never writes a recording under any flag — a
+records it. `hick test` never writes a recording under any flag — a
 check that can write the baseline it then compares against is not a check,
 so it reports a cell with no recording as **unverifiable** (exit `2`)
 instead. That is the command to use in CI when the question is *"is
@@ -499,20 +499,20 @@ cargo test --test integration
 
 The first cell runs once — on the run that records it — and is answered
 from that recording forever after; the second runs every time, even under
-`hickory run --freeze`.
+`hick run --freeze`.
 
 The rules:
 
 - `freeze="true"` — this cell executes at most once, ever. The first
-  `hickory run` has no recording to answer it with, so it runs the cell
+  `hick run` has no recording to answer it with, so it runs the cell
   and records it; every run after that replays the recording. No flag,
   and no edit to the document, is involved: declare a cell frozen the
-  moment you write it. `hickory test` never records, so it reports the
-  cell as **unverifiable** (exit `2`) until some `hickory run` has
+  moment you write it. `hick test` never records, so it reports the
+  cell as **unverifiable** (exit `2`) until some `hick run` has
   established the baseline.
   The recording is keyed by the container image, capabilities, command
   text, and secret names — not by the freeze attribute — so editing the
-  command retires the recording and the next `hickory run` records the
+  command retires the recording and the next `hick run` records the
   new one.
 - `freeze="false"` — this cell always runs, and is never answered from a
   recording, even when the run was started with `--freeze`.

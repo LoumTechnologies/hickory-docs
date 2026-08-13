@@ -6,15 +6,15 @@ decided independently:
 
 - `freeze="true"` — the cell **executes at most once, ever**. It is answered
   from its recording whenever one matches its cache key. When none does,
-  `hickory run` executes the cell that one time and records it, so a cell can
+  `hick run` executes the cell that one time and records it, so a cell can
   be declared frozen from the moment it is written — no flag, and no edit to
-  the document, is required to establish the baseline. `hickory test` never
+  the document, is required to establish the baseline. `hick test` never
   records: it reports such a cell as **unverifiable** (exit `2`) instead.
 - `freeze="false"` — the cell is **always executed** and is never satisfied
-  from a recording, *even when the run was started with `hickory run
+  from a recording, *even when the run was started with `hick run
   --freeze`*.
 - attribute absent — the cell inherits the run-wide default: frozen under
-  `hickory run --freeze`, recorded-and-reused under `hickory run --cache`,
+  `hick run --freeze`, recorded-and-reused under `hick run --cache`,
   live otherwise.
 
 This is **one setting on one axis**, not two booleans: what a missing
@@ -37,7 +37,7 @@ overridable per cell in both directions.
 A run with no recording directory at all — the server's live preview, watch
 mode, the agent's own tool calls — can neither replay a frozen cell nor record
 one. There the declaration cannot be honoured: the cell executes and a warning
-says so. Failing a live preview over a cell that would run fine under `hickory
+says so. Failing a live preview over a cell that would run fine under `hick
 run` helps nobody.
 
 ## The honest cost of freeze
@@ -51,7 +51,7 @@ run. This is the trade a cell makes deliberately when its output legitimately
 moves over time (lockfiles, network fetches, timestamps); an integration test
 must never make it.
 
-`hickory test` is the caller that refuses to establish a baseline: it reports a
+`hick test` is the caller that refuses to establish a baseline: it reports a
 frozen cell with no recording as **unverifiable** (exit `2`) so every such cell
 is listed in one pass, and writes nothing. A frozen cell that DOES have a
 recording is verified, not unverifiable — the recording is its baseline. See
@@ -73,13 +73,13 @@ Last LLM verification:
   no `CacheConfig` at all. `run_pipeline_live`
   (`crates/hick-literate/src/lib.rs`) consults a recording when
   `cell_mode.consults()`, and on a miss either stops (only when
-  `PipelineConfig::collect_unverifiable`, i.e. `hickory test`) or falls through
+  `PipelineConfig::collect_unverifiable`, i.e. `hick test`) or falls through
   to execution; the post-execution `cache_store` fires when
   `cc.mode.records() || cell_mode.records()` and never when
   `collect_unverifiable` is set. `run_doc_cached`
   (`crates/hickory-cli/src/lib.rs`) always hands the pipeline a `CacheConfig`
   rooted at the document's project directory — including for a flagless
-  `hickory run`, which is what lets a `freeze="true"` cell write its first
+  `hick run`, which is what lets a `freeze="true"` cell write its first
   recording — and `hick_literate::cache_mode` maps the `--cache` / `--freeze`
   flags onto the enum (`--freeze` wins when both are given).
 - Test coverage: `crates/hick-literate/tests/freeze_tests.rs` —

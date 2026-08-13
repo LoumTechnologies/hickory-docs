@@ -11,7 +11,7 @@ async-trait = "0.1"
 thiserror = "2"
 # rustls, not the default native-tls: native-tls drags in `openssl-sys`, the
 # workspace's only C dependency, and that is what makes cross-compiling the
-# `hickory` CLI (musl, aarch64) need a cross toolchain. Every other crate here
+# `hick` CLI (musl, aarch64) need a cross toolchain. Every other crate here
 # already picks rustls; this was the odd one out.
 #
 # `http2` and `charset` are named explicitly because they used to arrive here

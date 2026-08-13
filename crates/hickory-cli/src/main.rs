@@ -1,9 +1,9 @@
-//! `hickory` — run, verify, weave, and promote executable documents.
+//! `hick` — run, verify, weave, and promote executable documents.
 
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use anyhow::{Context as _, Result, bail};
+use anyhow::{Context as _, Result};
 use clap::{Parser, Subcommand};
 
 use hickory_cli::{
@@ -12,7 +12,7 @@ use hickory_cli::{
     write_outputs,
 };
 
-/// What `hickory --version` reports.
+/// What `hick --version` reports.
 ///
 /// A downloaded binary should name the release it came from, not the
 /// workspace's `Cargo.toml` number, which nobody bumps between releases and
@@ -26,7 +26,7 @@ const VERSION: &str = match option_env!("HICKORY_VERSION") {
 
 #[derive(Parser)]
 #[command(
-    name = "hickory",
+    name = "hick",
     version = VERSION,
     about = "Reproducible, verifiable, executable documents"
 )]
@@ -53,7 +53,7 @@ enum Command {
     ///
     ///   0  verified      re-derivation matches what is committed; nothing to do
     ///   1  drifted       a committed output or <hick:transform> passage is out
-    ///                    of date — re-run `hickory run` (or `hickory refresh`)
+    ///                    of date — re-run `hick run` (or `hick refresh`)
     ///                    and commit the result; safe for CI to auto-fix
     ///   2  unverifiable  a cell has no baseline at all — it neither executed
     ///                    nor was answered from a recording — so nothing was
@@ -70,6 +70,13 @@ enum Command {
     /// and the only one no automation may act on by itself.
     #[command(verbatim_doc_comment)]
     Test(TestArgs),
+    /// Weave a folder and keep it woven: write every document's output files,
+    /// then watch. A change to a document re-weaves it; a change saved in one
+    /// of the generated files is carried back into the document it came from.
+    ///
+    /// This is the command that makes `.hick` documents editable with any
+    /// editor. Runs until interrupted.
+    Up(UpArgs),
     /// Weave without executing: cached transcripts where present, otherwise
     /// blocks are marked never-run.
     Weave(WeaveArgs),
@@ -85,7 +92,7 @@ enum Command {
     /// Rewrite stale `<hick:transform>` passages from their current inputs.
     /// The ONLY command that calls a model.
     Refresh(RefreshArgs),
-    /// Set up a local git repository for hickory: pre-commit drift gate,
+    /// Set up a local git repository for hick: pre-commit drift gate,
     /// .gitignore entry, and an AGENTS.md section for coding agents.
     /// Idempotent — re-run any time to refresh the managed blocks.
     Init(InitArgs),
@@ -95,72 +102,9 @@ enum Command {
     #[command(subcommand)]
     Doc(DocCommand),
     /// Serve the document tool set over MCP on stdio, for Claude Code, Codex,
-    /// Grok CLI, or any other MCP client. `hickory init` writes the
+    /// Grok CLI, or any other MCP client. `hick init` writes the
     /// registration for the harnesses it finds.
     Mcp(McpArgs),
-    /// Sign in, so `hickory serve --public` can open a tunnel on the relay.
-    /// Nothing else needs an account.
-    Login(LoginArgs),
-    /// Forget the stored credentials on this machine.
-    Logout,
-    /// Show who this machine is signed in as.
-    Whoami,
-    /// Open a document in the collaborative editor, hosted by this machine.
-    /// Others can join over your network with `--share`; edits land in your
-    /// files as they happen.
-    Serve(ServeArgs),
-}
-
-#[derive(clap::Args)]
-struct LoginArgs {
-    /// Create the account rather than signing in to an existing one.
-    #[arg(long)]
-    signup: bool,
-    /// Email address, so it need not be typed at the prompt.
-    #[arg(long)]
-    email: Option<String>,
-    /// Use GitHub instead of an email and password. Only offered by relays
-    /// that have an OAuth app configured.
-    #[arg(long)]
-    github: bool,
-    /// The relay to sign in to (default: HICKORY_RELAY_URL, else ours).
-    #[arg(long = "relay")]
-    relay: Option<String>,
-}
-
-#[derive(clap::Args)]
-struct ServeArgs {
-    /// A `.hick` document, or a directory of them. Default: the working
-    /// directory.
-    path: Option<PathBuf>,
-    /// Port to listen on. 0 lets the kernel pick one.
-    #[arg(long, default_value_t = 4321)]
-    port: u16,
-    /// Listen on every interface so others on your network can join, and
-    /// print a link they can use. Without this the session is loopback-only.
-    #[arg(long)]
-    share: bool,
-    /// What someone with the link may do: `read`, `edit` (default), or `run`.
-    /// `run` executes code on THIS machine, so it is refused for a shared
-    /// session unless the executor sandboxes (HICKORY_EXECUTOR=docker).
-    #[arg(long, default_value = "edit")]
-    scope: String,
-    /// Also publish an address that reaches beyond this network, through a
-    /// tunnel you already run (HICKORY_PUBLIC_URL) or PortZero (PZ_TUNNEL).
-    /// Implies nothing about scope: a public session is still edit-only
-    /// unless --scope says otherwise.
-    #[arg(long)]
-    public: bool,
-    /// Directory holding the built web client (default: HICKORY_WEB_DIST, or
-    /// apps/web/dist found upwards from here).
-    #[arg(long = "web-dist")]
-    web_dist: Option<PathBuf>,
-    /// Parameter overrides, `key=value` (repeatable).
-    #[arg(long = "param", value_parser = hick_literate::parse_param)]
-    params: Vec<(String, String)>,
-    /// Enable `<hick:feature>` flags (comma-separated, repeatable).
-    #[arg(long = "features", value_delimiter = ',')]
-    features: Vec<String>,
 }
 
 #[derive(clap::Args)]
@@ -216,7 +160,7 @@ struct DocCommonArgs {
     /// Append this call and its result to a `hick:session` document, creating
     /// it if needed. Defaults to `HICKORY_SESSION`; unset, nothing is
     /// recorded. This is how work done by an OUTSIDE agent still produces a
-    /// session `hickory promote` can compact.
+    /// session `hick promote` can compact.
     #[arg(long = "session", global = true)]
     session: Option<PathBuf>,
 }
@@ -316,7 +260,7 @@ struct RunArgs {
     /// still wins. A cell with no recording yet is executed once and
     /// recorded — establishing the baseline is what `run` is for. To assert
     /// that every cell is already recorded, without executing anything, use
-    /// `hickory test --freeze`, which never records.
+    /// `hick test --freeze`, which never records.
     #[arg(long)]
     freeze: bool,
     /// Emit the block model as JSON on stdout instead of a summary.
@@ -345,12 +289,35 @@ struct TestArgs {
     ///
     /// There is deliberately no --cache here, and `test` writes no recording
     /// under any flag: it must never create the baseline it then compares
-    /// against. Record with `hickory run <doc>`.
+    /// against. Record with `hick run <doc>`.
     #[arg(long)]
     freeze: bool,
     /// Emit the block model as JSON on stdout in addition to failures.
     #[arg(long)]
     json: bool,
+}
+
+#[derive(clap::Args)]
+struct UpArgs {
+    /// A directory of documents, or a single `.hick` document.
+    /// Default: the working directory.
+    path: Option<PathBuf>,
+    /// Parameter overrides, `key=value` (repeatable).
+    #[arg(long = "param", value_parser = hick_literate::parse_param)]
+    params: Vec<(String, String)>,
+    /// Enable `<hick:feature>` flags (comma-separated, repeatable).
+    #[arg(long = "features", value_delimiter = ',')]
+    features: Vec<String>,
+    /// Execute exec cells on every change rather than weaving from recorded
+    /// transcripts.
+    ///
+    /// Without this, saving a file never runs anything: cells are answered
+    /// from `.hick-cache/transcripts/` and cells with no recording are marked
+    /// never-run. With it, a changed document is re-executed in full, so the
+    /// generated files always reflect code that really ran — at the cost of
+    /// running that code every time you save.
+    #[arg(long)]
+    run: bool,
 }
 
 #[derive(clap::Args)]
@@ -451,6 +418,7 @@ fn main() -> ExitCode {
         match cli.command {
             Command::Run(args) => cmd_run(args).await,
             Command::Test(args) => cmd_test(args).await,
+            Command::Up(args) => cmd_up(args).await,
             Command::Weave(args) => cmd_weave(args).await,
             Command::Lineage(args) => cmd_lineage(args).await,
             Command::Promote(args) => cmd_promote(args),
@@ -458,10 +426,6 @@ fn main() -> ExitCode {
             Command::Refresh(args) => cmd_refresh(args).await,
             Command::Init(args) => cmd_init(args),
             Command::Doc(cmd) => cmd_doc(cmd).await,
-            Command::Login(args) => cmd_login(args).await,
-            Command::Logout => cmd_logout(),
-            Command::Whoami => cmd_whoami(),
-            Command::Serve(args) => cmd_serve(args).await,
             Command::Mcp(args) => {
                 hickory_cli::mcp::serve(
                     args.doc,
@@ -620,7 +584,7 @@ async fn cmd_test(args: TestArgs) -> Result<ExitCode> {
                     eprintln!(
                         "STALE {}:{line}: the passage written from '{select}' no longer \
                          matches its input\n  instruction: {instruct}\n  \
-                         fix: hickory refresh {}",
+                         fix: hick refresh {}",
                         doc.display(),
                         doc.display(),
                     );
@@ -637,21 +601,33 @@ async fn cmd_test(args: TestArgs) -> Result<ExitCode> {
     match worst {
         CheckOutcome::Verified => {}
         CheckOutcome::Drifted => eprintln!(
-            "hickory test: DRIFTED (exit 1) — committed output is out of date with what \
-             the document produces. Re-run `hickory run <doc>` (or `hickory refresh <doc>` \
+            "hick test: DRIFTED (exit 1) — committed output is out of date with what \
+             the document produces. Re-run `hick run <doc>` (or `hick refresh <doc>` \
              for a stale hick:transform) and commit the result."
         ),
         CheckOutcome::Unverifiable => eprintln!(
-            "hickory test: NOT VERIFIED (exit 2) — at least one cell has no baseline, so this \
+            "hick test: NOT VERIFIED (exit 2) — at least one cell has no baseline, so this \
              document was not actually checked against anything"
         ),
         CheckOutcome::ExpectationFailed => eprintln!(
-            "hickory test: EXPECTATION FAILED (exit 3) — a hick:expect did not hold, so the \
+            "hick test: EXPECTATION FAILED (exit 3) — a hick:expect did not hold, so the \
              document claims something untrue of its own output. This is not drift and must \
              not be regenerated away: decide whether the claim or the code is wrong."
         ),
     }
     Ok(ExitCode::from(worst.exit_code()))
+}
+
+/// `hick up [path] [--run]` — weave a folder and keep it woven until
+/// interrupted.
+async fn cmd_up(args: UpArgs) -> Result<ExitCode> {
+    hickory_cli::up::run(hickory_cli::up::UpConfig {
+        root: args.path.unwrap_or_else(|| PathBuf::from(".")),
+        params: params_with_features(&args.params, &args.features),
+        run: args.run,
+    })
+    .await?;
+    Ok(ExitCode::SUCCESS)
 }
 
 async fn cmd_weave(args: WeaveArgs) -> Result<ExitCode> {
@@ -679,7 +655,7 @@ async fn cmd_weave(args: WeaveArgs) -> Result<ExitCode> {
     Ok(ExitCode::SUCCESS)
 }
 
-/// `hickory lineage <doc> --output <path> [--json]` — the same Provenance[]
+/// `hick lineage <doc> --output <path> [--json]` — the same Provenance[]
 /// the server serves from GET /api/docs/:id/outputs/file, computed locally
 /// from a weave (no execution).
 async fn cmd_lineage(args: LineageArgs) -> Result<ExitCode> {
@@ -905,7 +881,7 @@ fn indent(s: &str) -> String {
         .join("\n")
 }
 
-/// `hickory refresh` — rewrite stale transform passages from their inputs.
+/// `hick refresh` — rewrite stale transform passages from their inputs.
 ///
 /// This is the only command in the tool that calls a model, and that is a
 /// deliberate boundary: `run`, `test`, and `weave` stay free, offline, and
@@ -1043,7 +1019,7 @@ fn restamp_from(source: &str, body_start: usize, fingerprint: &str) -> String {
     out
 }
 
-/// `hickory doc <tool>` — one tool, one process, one observation.
+/// `hick doc <tool>` — one tool, one process, one observation.
 ///
 /// The whole command group is a translation layer: arguments become a
 /// [`ToolInvocation`], `hickory_cli::doc_tools::run_doc_tool` executes it
@@ -1065,7 +1041,7 @@ async fn cmd_doc(cmd: DocCommand) -> Result<ExitCode> {
         hickory_cli::doc_tools::sole_document(&cwd).ok_or_else(|| {
             anyhow::anyhow!(
                 "no document given, and {} does not hold exactly one .hick file.\n\
-                 Name the document: hickory doc <command> path/to/doc.hick",
+                 Name the document: hick doc <command> path/to/doc.hick",
                 cwd.display()
             )
         })
@@ -1090,7 +1066,7 @@ async fn cmd_doc(cmd: DocCommand) -> Result<ExitCode> {
             if a.path.is_none() {
                 anyhow::bail!(
                     "edit-output needs --path <output file>. \
-                     `hickory doc read-output --path …` lists what a document produces."
+                     `hick doc read-output --path …` lists what a document produces."
                 );
             }
             let args = edit_args(
@@ -1129,165 +1105,4 @@ async fn cmd_doc(cmd: DocCommand) -> Result<ExitCode> {
     let outcome = run_doc_tool(&request).await?;
     let code = print_outcome(&outcome, request.format)?;
     Ok(ExitCode::from(code))
-}
-
-/// `hickory serve` — put the collaborative editor on this machine.
-///
-/// Everything interesting is in `hickory_cli::serve`; this only turns flags
-/// into options, and refuses a scope it does not recognise by name rather than
-/// silently falling back to the safest one (a silent fallback would make
-/// `--scope rnu` a read-only session that looks like it worked).
-async fn cmd_serve(args: ServeArgs) -> Result<ExitCode> {
-    use hickory_cli::serve::{ServeOptions, serve, share::Scope};
-
-    let scope = Scope::parse(&args.scope).ok_or_else(|| {
-        anyhow::anyhow!(
-            "unknown --scope {:?}; expected one of: {}",
-            args.scope,
-            Scope::ALL.join(", ")
-        )
-    })?;
-
-    serve(ServeOptions {
-        target: args.path.unwrap_or_else(|| PathBuf::from(".")),
-        port: args.port,
-        lan: args.share,
-        scope,
-        web_dist: args.web_dist,
-        params: params_with_features(&args.params, &args.features),
-        executor: ExecutorChoice::from_env()?,
-        public: args.public,
-    })
-    .await?;
-    Ok(ExitCode::SUCCESS)
-}
-
-/// `hickory login` — sign in to a relay.
-///
-/// The relay is asked what it accepts before anything is offered, so a
-/// deployment with no GitHub OAuth app never shows a GitHub option. That is
-/// the difference between "hidden because unconfigured" and "offered and then
-/// broken at the last step".
-async fn cmd_login(args: LoginArgs) -> Result<ExitCode> {
-    use hickory_cli::login;
-    use hickory_cli::serve::relay::DEFAULT_RELAY_URL;
-
-    if let Some(existing) = login::load() {
-        eprintln!("Already signed in as {}.", existing.login);
-        eprintln!("Run `hickory logout` first to sign in as someone else.");
-        return Ok(ExitCode::SUCCESS);
-    }
-
-    let relay_url = args
-        .relay
-        .or_else(|| std::env::var("HICKORY_RELAY_URL").ok())
-        .unwrap_or_else(|| DEFAULT_RELAY_URL.to_string());
-    let methods = login::methods(&relay_url).await?;
-
-    let github_offered = methods.github.is_some();
-    let credentials = if args.github {
-        let Some(github) = methods.github.clone() else {
-            // Named plainly: this is a property of the relay, not of the
-            // machine running the CLI, and the fix is a different flag.
-            bail!(
-                "the relay at {relay_url} does not offer GitHub sign-in.\n\
-                 Sign in with an email and password instead: hickory login"
-            );
-        };
-        let endpoints = login::Endpoints::default();
-        let mut announce = |uri: &str, code: &str| {
-            eprintln!();
-            eprintln!("  Open {uri}");
-            eprintln!("  and enter this code:  {code}");
-            eprintln!();
-            eprintln!("  Waiting… (Ctrl-C to stop)");
-        };
-        let github_token = login::device_flow(&endpoints, &github.client_id, &mut announce).await?;
-        login::exchange_github(&relay_url, &github_token).await?
-    } else {
-        if !methods.password {
-            bail!(
-                "the relay at {relay_url} does not offer email and password sign-in.{}",
-                if github_offered {
-                    " Use: hickory login --github"
-                } else {
-                    " It offers no sign-in at all — ask its operator."
-                }
-            );
-        }
-        let email = match args.email {
-            Some(email) => email,
-            None => prompt("Email: ")?,
-        };
-        let password = prompt_password(if args.signup {
-            "Choose a password: "
-        } else {
-            "Password: "
-        })?;
-        login::with_password(&relay_url, &email, &password, args.signup).await?
-    };
-
-    let path = login::save(&credentials)?;
-    eprintln!("Signed in as {}.", credentials.login);
-    eprintln!("Stored in {} (readable only by you).", path.display());
-    if !args.github && github_offered {
-        // Only mentioned when it exists.
-        eprintln!("(GitHub sign-in is also available: hickory login --github)");
-    }
-    Ok(ExitCode::SUCCESS)
-}
-
-/// Read a line from the terminal.
-fn prompt(label: &str) -> Result<String> {
-    use std::io::Write as _;
-    eprint!("{label}");
-    std::io::stderr().flush()?;
-    let mut line = String::new();
-    std::io::stdin().read_line(&mut line)?;
-    let line = line.trim().to_string();
-    if line.is_empty() {
-        bail!("nothing entered");
-    }
-    Ok(line)
-}
-
-/// Read a password without echoing it.
-fn prompt_password(label: &str) -> Result<String> {
-    let password = rpassword::prompt_password(label).context("reading the password")?;
-    if password.is_empty() {
-        bail!("nothing entered");
-    }
-    Ok(password)
-}
-
-/// `hickory logout` — forget the token on this machine.
-fn cmd_logout() -> Result<ExitCode> {
-    match hickory_cli::login::forget()? {
-        true => {
-            eprintln!("Signed out on this machine.");
-            // Said plainly because it is a real limitation: deleting a local
-            // file does not invalidate the token the relay signed, which stays
-            // valid until it expires.
-            eprintln!(
-                "The token the relay issued stays valid until it expires; this only \
-                 removes the copy stored here."
-            );
-        }
-        false => eprintln!("Not signed in on this machine."),
-    }
-    Ok(ExitCode::SUCCESS)
-}
-
-/// `hickory whoami` — who this machine is signed in as.
-fn cmd_whoami() -> Result<ExitCode> {
-    match hickory_cli::login::load() {
-        Some(credentials) => {
-            println!("{}", credentials.login);
-            Ok(ExitCode::SUCCESS)
-        }
-        None => {
-            eprintln!("Not signed in. Run `hickory login` — only the relay needs it.");
-            Ok(ExitCode::from(1))
-        }
-    }
 }

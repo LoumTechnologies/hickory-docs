@@ -33,7 +33,7 @@ export const INTERESTS: Interest[] = [
     teaser: "Every command in the docs runs on every commit. Drift is a red build.",
     body: [
       "A code block in a README is a claim nobody checks. Hickory runs it. Each example is executed, its real output captured, and compared against what the document says it produces.",
-      "`hickory test` exits non-zero when a command's output drifts from the committed one, so the same failure that catches a broken test catches a lying paragraph. It runs in CI and as a pre-commit hook.",
+      "`hick test` exits non-zero when a command's output drifts from the committed one, so the same failure that catches a broken test catches a lying paragraph. It runs in CI and as a pre-commit hook.",
       "There is no separate test suite mirroring the docs, and no third-party recorder to keep in sync — the document is the test.",
     ],
     sample: `<hick:exec cmd="mytool --version">

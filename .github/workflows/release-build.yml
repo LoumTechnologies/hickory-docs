@@ -1,4 +1,4 @@
-# Build the downloadable `hickory` artifacts. Called by both release
+# Build the downloadable `hick` artifacts. Called by both release
 # channels — Unstable Release and Stable Release — so the two ship binaries
 # produced exactly the same way; the only difference between the channels is
 # which commit they build and how the result is labelled.
@@ -133,13 +133,13 @@ jobs:
           fi
 
           cd dist
-          tar -xzf "hickory-${{ inputs.version }}-${{ matrix.target }}.tar.gz"
-          cd "hickory-${{ inputs.version }}-${{ matrix.target }}"
-          ./hickory --version
-          ./hickory --help > /dev/null
+          tar -xzf "hick-${{ inputs.version }}-${{ matrix.target }}.tar.gz"
+          cd "hick-${{ inputs.version }}-${{ matrix.target }}"
+          ./hick --version
+          ./hick --help > /dev/null
           # text-tools-tour needs nothing but a POSIX shell, so it is the one
           # example that is a fair check on any machine.
-          ./hickory test examples/text-tools-tour.hick
+          ./hick test examples/text-tools-tour.hick
 
       - name: Smoke test the binary that was just built (Windows)
         if: matrix.smoke == 'version-only'
@@ -151,12 +151,12 @@ jobs:
         run: |
           set -euo pipefail
           cd dist
-          7z x "hickory-${{ inputs.version }}-${{ matrix.target }}.zip" > /dev/null
-          "hickory-${{ inputs.version }}-${{ matrix.target }}/hickory.exe" --version
+          7z x "hick-${{ inputs.version }}-${{ matrix.target }}.zip" > /dev/null
+          "hick-${{ inputs.version }}-${{ matrix.target }}/hick.exe" --version
 
       - uses: actions/upload-artifact@v4
         with:
-          name: hickory-${{ matrix.target }}
+          name: hick-${{ matrix.target }}
           # Only the archives and their checksums; the staged directory is
           # removed by scripts/dist.sh.
           path: |
@@ -168,7 +168,7 @@ jobs:
 
   # The acceptance test from issue #12, run the way a stranger would: a clean
   # machine with no Rust toolchain and no checkout, given nothing but the
-  # tarball. `hickory test examples/` re-executes every cell in all three
+  # tarball. `hick test examples/` re-executes every cell in all three
   # example documents, so it exercises the executor, the parser, the weaver,
   # and the drift comparison — not just `--version`.
   clean-machine:
@@ -178,12 +178,12 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: hickory-x86_64-unknown-linux-gnu
+          name: hick-x86_64-unknown-linux-gnu
           path: dist
 
       - name: Install what the example documents themselves invoke
         # Mirrors the same installs in ci.yml. These are the example
-        # documents' dependencies, not hickory's. The R chapter of the grand
+        # documents' dependencies, not hick's. The R chapter of the grand
         # tour stays behind its feature flag, so R is not installed here.
         #
         # Note the runner: the artifact was built on ubuntu-22.04 and is run
@@ -210,7 +210,7 @@ jobs:
         run: |
           set -euo pipefail
           cd dist
-          tar -xzf "hickory-${{ inputs.version }}-x86_64-unknown-linux-gnu.tar.gz"
-          cd "hickory-${{ inputs.version }}-x86_64-unknown-linux-gnu"
-          ./hickory --version
-          ./hickory test examples/
+          tar -xzf "hick-${{ inputs.version }}-x86_64-unknown-linux-gnu.tar.gz"
+          cd "hick-${{ inputs.version }}-x86_64-unknown-linux-gnu"
+          ./hick --version
+          ./hick test examples/

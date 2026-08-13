@@ -166,7 +166,7 @@ async fn an_upstream_edit_rewrites_the_source_and_reaches_the_primary() {
 /// Guarantee: docs/guarantees/agent/verify-covers-the-whole-editable-set.md
 ///
 /// Observed live: an agent edited a decision two hops upstream, ran verify,
-/// got PASS, and reported success in good faith — while `hickory test`
+/// got PASS, and reported success in good faith — while `hick test`
 /// failed on six documents whose outputs had never been re-woven. A feedback
 /// loop narrower than the edit scope does not just miss problems, it actively
 /// certifies them.
@@ -218,7 +218,7 @@ async fn verify_reweaves_upstream_outputs_too() {
     );
 
     // The actual point: every upstream document's committed output is now
-    // current, so a `hickory test` over the tree would pass.
+    // current, so a `hick test` over the tree would pass.
     for name in ["decisions.md", "domain.md"] {
         let woven = std::fs::read_to_string(path(name))
             .unwrap_or_else(|e| panic!("{name} was never written: {e}"));

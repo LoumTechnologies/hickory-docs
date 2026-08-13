@@ -37,7 +37,7 @@ apple,9
 </hick:exec>
 ```
 
-`hickory run` executes it. `hickory test` fails — with the line number and a
+`hick run` executes it. `hick test` fails — with the line number and a
 diff — if the tool's behavior ever changes. `match="regex-lines"` handles
 timestamps and hashes.
 
@@ -51,12 +51,12 @@ It is GPL-3.0-or-later, so you can run your own instance — the whole thing
 the included `fly.toml` and `Dockerfile`. See
 [docs/operators/deploy-fly.md](docs/operators/deploy-fly.md).
 
-The `hickory` CLI in `crates/hickory-cli` is the same engine, used for CI
+The `hick` CLI in `crates/hickory-cli` is the same engine, used for CI
 verification and local development of documents. Install it in one line
 (see [Reference](#install)) and run:
 
 ```sh
-hickory test examples/text-tools-tour.hick
+hick test examples/text-tools-tour.hick
 ```
 
 From a checkout, without installing anything:
@@ -95,7 +95,7 @@ computed from the data on every run.
 
 ## The agent writes literate programs
 
-`hickory agent "add a section benchmarking sort vs awk"` runs an AI agent
+`hick agent "add a section benchmarking sort vs awk"` runs an AI agent
 whose *entire session* — your prompt, its reasoning, every script it ran,
 every observation — is saved as a replayable `hick:session` document.
 
@@ -106,7 +106,7 @@ where it is encrypted at rest and never shown again. An unknown provider or a
 missing key fails before the first request, naming what to set. On the Open
 and Pro plans your key is the *only* one an agent run will spend — never
 ours.
-`hickory promote` compacts a session into a clean pipeline: last-write wins,
+`hick promote` compacts a session into a clean pipeline: last-write wins,
 dead ends dropped. The agent's work product is a literate program in your git
 history, not a chat log that evaporated.
 
@@ -114,12 +114,12 @@ history, not a chat log that evaporated.
 
 - The CLI, local execution, verification, weaving, and agent sessions work
   today (this repo, `cargo test` covers them).
-- Bring your own agent: `hickory doc read|read-output|edit|edit-output|verify`
+- Bring your own agent: `hick doc read|read-output|edit|edit-output|verify`
   gives Claude Code, Codex, Grok CLI — anything that can run a command — the
   same hashline-anchored, lineage-backed tools the built-in agent uses, and
-  `hickory mcp` serves them over MCP. `HICKORY_SESSION` records the work as a
+  `hick mcp` serves them over MCP. `HICKORY_SESSION` records the work as a
   replayable `hick:session`.
-- Local git-repo mode works today: `hickory init` installs the pre-commit
+- Local git-repo mode works today: `hick init` installs the pre-commit
   drift gate, the MCP registration, and agent instructions — see
   [docs/users/local-mode.md](docs/users/local-mode.md).
 - The LSP exists: `hick-lsp` (in `crates/hick-lsp`) multiplexes real language
@@ -147,7 +147,7 @@ history, not a chat log that evaporated.
 curl -fsSL https://raw.githubusercontent.com/LoumTechnologies/hickory-docs/master/scripts/install.sh | sh
 ```
 
-That puts `hickory` in `~/.local/bin` — no Rust toolchain, no clone. Add
+That puts `hick` in `~/.local/bin` — no Rust toolchain, no clone. Add
 `HICKORY_CHANNEL=unstable` for the build cut from the tip of `master` instead
 of the latest stable release, or `HICKORY_INSTALL_DIR=…` to put it elsewhere.
 
@@ -159,7 +159,7 @@ archive carries the binary, the licence, and `examples/`, so this works
 straight out of it:
 
 ```sh
-hickory test examples/text-tools-tour.hick
+hick test examples/text-tools-tour.hick
 ```
 
 Windows is a `.zip` rather than part of the installer, and executing documents
@@ -170,7 +170,18 @@ details, including how to verify a download:
 
 ### Commands
 
-- `hickory run <doc|dir>` — execute, weave, write outputs
+- `hick up [dir]` — weave a folder and keep it woven. Writes every document's
+  outputs, then watches: a change to a document re-weaves it, and **a change
+  saved in one of the generated files lands back in the document it came
+  from**, mapped through lineage byte-exactly. This is what makes a `.hick`
+  document editable with an editor that has never heard of hick.
+  A generated file with nothing editable in it — a woven report, a pure
+  transcript — is marked read-only while the loop runs, so the editor says so
+  before you type; a save that touches generated text inside an otherwise
+  editable file is refused, restored, and explained.
+  - `--run` — execute a changed document in full on every save, rather than
+    answering cells from `.hick-cache/transcripts/`.
+- `hick run <doc|dir>` — execute, weave, write outputs
   A cell that declares `freeze="true"` runs exactly once — on the run that
   records it — and replays from then on, with no flag and no edit to the
   document.
@@ -180,32 +191,32 @@ details, including how to verify a download:
   - `--freeze` — freeze every cell that does not say otherwise: answer it
     from its recording rather than executing it, and record the ones that
     have no recording yet. A cell's own `freeze="false"` still wins.
-- `hickory test <doc|dir>` — verify; four outcomes, four exit codes (below).
+- `hick test <doc|dir>` — verify; four outcomes, four exit codes (below).
   It is `test`, not `check`, because it re-executes every cell in the
   document — the slowest, most side-effecting verb here. `cargo check`
   promises the opposite ("don't build, don't run"), so that name described
-  a command hickory does not have.
+  a command hick does not have.
   - `--freeze` — verify against recordings without executing. `test` writes
     no recording under any flag, and has no `--cache`, on purpose: a verifier
     that can write its own baseline is not verifying anything, so an
     unrecorded cell is reported unverifiable (exit `2`). This is the CI
     command for "is everything already recorded?".
-- `hickory weave <doc>` — render from cached transcripts without executing
-- `hickory agent "<prompt>"` — run an agent session (writes `sessions/*.hick`)
-- `hickory promote <session.hick>` — compact a session into a pipeline
-- `hickory refresh <doc>` — rewrite stale `hick:transform` passages
-- `hickory init` — install the pre-commit drift gate in a git repo
+- `hick weave <doc>` — render from cached transcripts without executing
+- `hick agent "<prompt>"` — run an agent session (writes `sessions/*.hick`)
+- `hick promote <session.hick>` — compact a session into a pipeline
+- `hick refresh <doc>` — rewrite stale `hick:transform` passages
+- `hick init` — install the pre-commit drift gate in a git repo
 - Language reference: `docs/` · Architecture: `docs/specs/freeform/architecture.md`
 
-### `hickory test` exit codes
+### `hick test` exit codes
 
 CI branches on these, so they are part of the CLI's public contract.
 
 | Code | Outcome | What to do about it |
 |---|---|---|
 | `0` | verified | Re-derivation matches what is committed. Nothing to do. |
-| `1` | drifted | A committed output no longer reproduces, or a `<hick:transform>` passage is stale — you forgot to regenerate. Re-run `hickory run <doc>` (or `hickory refresh <doc>` for a transform) and commit the result. Safe for CI to auto-fix. |
-| `2` | unverifiable | A cell has no baseline at all — it neither executed nor was answered from a recording — so nothing was checked. Give it a recording (`hickory run <doc>` — a frozen cell records itself the first time) or stop freezing it. |
+| `1` | drifted | A committed output no longer reproduces, or a `<hick:transform>` passage is stale — you forgot to regenerate. Re-run `hick run <doc>` (or `hick refresh <doc>` for a transform) and commit the result. Safe for CI to auto-fix. |
+| `2` | unverifiable | A cell has no baseline at all — it neither executed nor was answered from a recording — so nothing was checked. Give it a recording (`hick run <doc>` — a frozen cell records itself the first time) or stop freezing it. |
 | `3` | expectation failed | A `<hick:expect>` did not hold: the document claims something untrue of its own output. A human decides whether the claim or the code is wrong — never regenerate this away. |
 
 Each is a different problem with a different fix, which is the whole point of

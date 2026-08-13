@@ -8,7 +8,7 @@
 //! Weaving one is deliberately dumb: the pinned body is emitted verbatim and
 //! no model is called. The passage lives inline in the document precisely so
 //! that it is reviewable in a diff, editable by hand, and free to render in
-//! CI. Regeneration is an explicit `hickory refresh`; staleness is checked by
+//! CI. Regeneration is an explicit `hick refresh`; staleness is checked by
 //! fingerprint (see `hick_lang::transform_fingerprint`).
 
 use std::sync::Arc;
@@ -39,7 +39,7 @@ impl TagHandler for TransformHandler {
 
     fn process(&self, tag: &HickTag, ctx: &ProcessingContext) -> Result<TagResult> {
         // The pinned passage IS the output. A transform that regenerated here
-        // would call a model during `hickory test`, making verification cost
+        // would call a model during `hick test`, making verification cost
         // money and return different bytes every run.
         let body = hick_lang::dedent(&hick_lang::tag_text(tag), ctx.indent);
         let _ = tag_attr(tag, "select");

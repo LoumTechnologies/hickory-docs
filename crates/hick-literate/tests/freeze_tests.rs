@@ -62,9 +62,18 @@ async fn run(
 
 /// Pre-record what the cache would have stored for a cell, without running it.
 /// The key must match what the pipeline computes: image, capabilities, command
-/// text, secret names.
+/// text, secret names, the digest of the cell's mounted inputs, and its
+/// upstream cells' keys. These fixtures mount nothing and have no predecessor,
+/// so the last two are the empty digest and an empty list.
 fn record(cc: &CacheConfig, container: &str, image: &str, command: &str, output: &str) {
-    let key = hick_literate::cache::exec_cache_key(image, "", command, &[]);
+    let key = hick_literate::cache::exec_cache_key(
+        image,
+        "",
+        command,
+        &[],
+        &hick_literate::cache::inputs_digest(&[]),
+        &[],
+    );
     cache_store(
         cc,
         container,
@@ -242,8 +251,8 @@ async fn a_frozen_cell_that_ran_once_is_not_re_recorded_over() {
 async fn a_run_wide_freeze_serves_what_is_recorded_and_records_what_is_not() {
     // Cells that declare nothing inherit the run-wide default, and the
     // run-wide default is the same three-valued setting a cell can declare —
-    // so a miss under `hickory run --freeze` establishes the baseline exactly
-    // as a miss on a cell-declared freeze does. `hickory test --freeze` is
+    // so a miss under `hick run --freeze` establishes the baseline exactly
+    // as a miss on a cell-declared freeze does. `hick test --freeze` is
     // the caller that refuses instead; see `test_command_tests.rs`.
     let scratch = Scratch::new("global");
     let marker = scratch.path().join("b-ran.txt");
@@ -366,7 +375,7 @@ async fn a_frozen_cell_without_any_cache_directory_executes_rather_than_failing(
     // config at all: they can neither replay the cell nor record it. The
     // declaration cannot be honoured there, and executing is the honest
     // fallback — failing a live preview over a cell that would run fine under
-    // `hickory run` helps nobody. A warning names the situation.
+    // `hick run` helps nobody. A warning names the situation.
     let scratch = Scratch::new("no-cache-dir");
     let marker = scratch.path().join("ran.txt");
     let src = hick_doc(&format!(

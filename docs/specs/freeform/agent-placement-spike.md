@@ -168,7 +168,7 @@ flow arm.
 Under exec the agent's bytes reach lineage as ordinary `Literal` spans,
 because `edit_doc` puts them in the document *before* the graph is built. The
 spike asserts `output_lineage(&run, "greeting.txt")` yields at least one span
-with an editable source. So `hickory lineage` + `git blame` compose exactly as
+with an editable source. So `hick lineage` + `git blame` compose exactly as
 the "No `author` field" section of `agent-cells.md` requires — and the
 no-write-primitive constraint is what makes this true, not the placement
 choice per se. Placement only decides whether the run observes the edit.
@@ -246,7 +246,7 @@ Recorded so the follow-up work was not discovered later. All five landed;
    `<hick:agent>` as well as `<hick:exec>` — the same generalization
    `never_run` already had.
 
-One thing the spike did not anticipate came out of doing it: **`hickory test`
+One thing the spike did not anticipate came out of doing it: **`hick test`
 gets no agent runner at all**, even on a machine holding an API key. A verifier
 that spends the reader's tokens cannot safely be pointed at someone else's
 document, and re-running a nondeterministic cell would not be a verification

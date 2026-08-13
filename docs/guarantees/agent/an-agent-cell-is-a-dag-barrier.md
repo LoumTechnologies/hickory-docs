@@ -54,11 +54,11 @@ actually forces it, not before.
 - **A cell the agent inserts *before* its own cell does not run in that pass.**
   Re-preparation resumes after the agent's barrier, which is exactly the set of
   cells that have not run yet; anything the agent writes above itself is
-  behind the cursor. It runs on the next `hickory run`.
+  behind the cursor. It runs on the next `hick run`.
 - **The agent cell contributes no `SourceOrigin::Agent` provenance yet.** Its
   bytes reach lineage as ordinary `Literal` spans, because `edit_doc` puts them
   in the document before the graph is built — which is what the spike measured
-  and is already correct for `hickory lineage` + `git blame`. Naming the
+  and is already correct for `hick lineage` + `git blame`. Naming the
   session on those spans is separate, additive work.
 - **Capabilities are not re-minted mid-pass.** A `<hick:container>` the agent
   declares is picked up (capabilities and image), but tokens were minted during

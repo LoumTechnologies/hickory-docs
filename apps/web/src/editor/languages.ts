@@ -2,7 +2,7 @@
 // extensions) and the Document view (embedded highlighting of block bodies).
 //
 // Colors are NOT defined here: highlighting emits stable `tok-*` classes and
-// styles.css maps them onto the hickory palette for both light and dark, so
+// styles.css maps them onto the hick palette for both light and dark, so
 // the two views and both themes stay in tune.
 
 import type { Extension } from "@codemirror/state";
@@ -125,7 +125,7 @@ export function parserForLanguage(name: string | undefined | null): Parser | nul
 
 /**
  * Class-based highlight style: token colors live in styles.css (`.tok-*`),
- * tuned for the hickory palette in both light and dark themes.
+ * tuned for the hick palette in both light and dark themes.
  */
 export const hickoryHighlightStyle = HighlightStyle.define([
   { tag: [t.keyword, t.modifier, t.operatorKeyword, t.controlKeyword, t.definitionKeyword], class: "tok-keyword" },

@@ -37,11 +37,11 @@ matches() {
 
 # Declarative path-glob -> checks table. A change touching multiple rows
 # runs the union of their checks.
-if matches "apps/server/*" || matches "crates/*" || matches "Cargo.toml" || matches "Cargo.lock"; then
-  checks+=(rust check-codegen)
+if matches "crates/*" || matches "Cargo.toml" || matches "Cargo.lock"; then
+  checks+=(rust)
 fi
 if matches "apps/web/*"; then
-  checks+=(web check-codegen)
+  checks+=(web)
 fi
 # Not a docs-lint row: this repo's "rust" job also verifies docs/examples
 # drift (`hickory-cli check docs/`, `check examples/`) — a docs-only change

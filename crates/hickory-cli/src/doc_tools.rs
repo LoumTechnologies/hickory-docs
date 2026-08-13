@@ -1,4 +1,4 @@
-//! `hickory doc …` — the document edit tool set, as commands.
+//! `hick doc …` — the document edit tool set, as commands.
 //!
 //! These are the same five tools the built-in agent uses (`read_doc`,
 //! `read_output`, `edit_output`, `edit_doc`, `verify`), reached through the
@@ -7,7 +7,7 @@
 //! command-line arguments and prints the resulting observation.
 //!
 //! **Why this exists.** Hashline anchors and byte-exact lineage are the part
-//! of hickory that a general coding agent cannot reproduce by editing text and
+//! of hick that a general coding agent cannot reproduce by editing text and
 //! hoping. Leaving them reachable only from inside our own ReAct loop meant
 //! bringing your own agent — Claude Code, Codex, Grok CLI — bought you a
 //! worse experience than using ours, which is the wrong way round for a
@@ -40,7 +40,7 @@ pub enum OutputFormat {
     Json,
 }
 
-/// One `hickory doc` invocation: which document, which tool, what arguments.
+/// One `hick doc` invocation: which document, which tool, what arguments.
 pub struct DocToolRequest {
     pub doc: PathBuf,
     pub tool: String,
@@ -74,7 +74,7 @@ pub fn session_from(explicit: Option<PathBuf>) -> Option<PathBuf> {
 /// anchors, what text, what came back. What it cannot capture is the external
 /// agent's reasoning, which lives in that harness's own transcript and is not
 /// ours to read. That is a deliberate boundary rather than an oversight —
-/// tool calls are what `hickory promote` replays, and importing three vendors'
+/// tool calls are what `hick promote` replays, and importing three vendors'
 /// private log formats to recover prose would be a maintenance burden that
 /// buys nothing replayable.
 pub fn record_tool_call(
@@ -125,7 +125,7 @@ pub async fn run_doc_tool(req: &DocToolRequest) -> Result<ToolOutcome> {
 
     // `verify` is the only tool that executes anything, but the executor is
     // built either way: choosing it from HICKORY_EXECUTOR in one place keeps
-    // `hickory doc verify` identical to `hickory run` rather than quietly
+    // `hick doc verify` identical to `hick run` rather than quietly
     // local-only.
     let executor = ExecutorChoice::from_env()?.build().await?;
     let outcome = execute_tool(&mut session, executor.clone(), &invocation).await;
@@ -214,7 +214,7 @@ pub fn edit_args(
         anyhow::bail!(
             "an edit needs an anchor: --run <hash>[..<hash>] to replace lines, or \
              --after <hash> (or --after ^ for the top of the file) to insert.\n\
-             Hashes come from `hickory doc read` / `hickory doc read-output` — the \
+             Hashes come from `hick doc read` / `hick doc read-output` — the \
              `hhhh|` prefix on each line."
         );
     }
@@ -234,7 +234,7 @@ pub fn edit_args(
     Ok(args)
 }
 
-/// The document a bare `hickory doc` command should act on when none is
+/// The document a bare `hick doc` command should act on when none is
 /// named and exactly one `.hick` file is in scope.
 ///
 /// Deliberately narrow: it looks in one directory and gives up the moment
@@ -266,10 +266,7 @@ mod tests {
         let neither = edit_args(None, None, None, None).unwrap_err();
         // The message has to say where hashes come from; an anchor is not
         // something a caller can invent.
-        assert!(
-            neither.to_string().contains("hickory doc read"),
-            "{neither}"
-        );
+        assert!(neither.to_string().contains("hick doc read"), "{neither}");
     }
 
     #[test]
