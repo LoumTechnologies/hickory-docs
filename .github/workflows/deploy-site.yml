@@ -62,14 +62,11 @@ jobs:
       # project already exists, which is the normal case on every run after the
       # first, so its failure is ignored — `pages deploy` immediately after is
       # what actually reports a problem.
-      #
-      # R2_ACCOUNT_ID is the Cloudflare account id; R2 is billed under the same
-      # account, and there is no second one to confuse it with.
       - name: Ensure the Pages project exists
         continue-on-error: true
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_PAGES_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           npx --yes wrangler@3 pages project create "$PAGES_PROJECT" \
             --production-branch master
@@ -77,7 +74,7 @@ jobs:
       - name: Publish
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_PAGES_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
         run: |
           npx --yes wrangler@3 pages deploy apps/web/dist-site \
             --project-name "$PAGES_PROJECT" \

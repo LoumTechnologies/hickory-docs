@@ -76,15 +76,36 @@ DNS and nothing else — that narrowness is deliberate, and it is why the token
 cannot see the account, let alone create a Pages project. Replacing it would
 break the Terraform DNS stack. So the site deploy gets its own:
 
-1. Mint a Cloudflare token with **Account → Cloudflare Pages → Edit**.
+1. Mint a Cloudflare token with **Account → Cloudflare Pages → Edit**, scoped
+   to this account only (see below for the exact dashboard path).
 2. `gh secret set CLOUDFLARE_PAGES_TOKEN --env production`
 3. Optionally `gh secret set POSTHOG_KEY --env production` — the `phc_…`
    project write key. Without it the site ships with no analytics, which is a
    working site, not a broken one.
 
-Nothing else. `R2_ACCOUNT_ID` is already set and *is* the Cloudflare account
-id — R2 is billed under the same account. The workflow creates the Pages
-project on its first run, so there is no dashboard step.
+Nothing else. `CLOUDFLARE_ACCOUNT_ID` is already set, and the workflow creates
+the Pages project on its first run, so there is no dashboard step beyond
+minting the token.
+
+### Minting the token
+
+**dash.cloudflare.com → the account menu (top right) → My Profile → API Tokens
+→ Create Token → Create Custom Token.**
+
+| Field | Value |
+|---|---|
+| Token name | `hickory-docs pages deploy` |
+| Permissions | **Account** · **Cloudflare Pages** · **Edit** |
+| Account Resources | Include · `Nate@loumtechnologies.com's Account` |
+| Client IP / TTL | leave unset |
+
+One permission row is enough. Do **not** add Zone permissions: DNS is a
+separate stack with a separate token, and a token that can do both has a blast
+radius neither job needs.
+
+The token is shown once. Paste it straight into
+`gh secret set CLOUDFLARE_PAGES_TOKEN --env production`, which reads from
+stdin, rather than into a file.
 
 ### Then point the domain at it
 
