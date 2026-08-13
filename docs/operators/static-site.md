@@ -62,27 +62,41 @@ a server, and it is the right price.
 
 ## Deploying to Cloudflare Pages
 
-The project is created **once**, by hand, and then never touched: pushes to
-`master` publish through the **Deploy Site** workflow
-(`.github/workflows/deploy-site.yml`).
+**A push to `master` that touches `apps/web/` publishes the site.** The
+**Deploy Site** workflow (`.github/workflows/deploy-site.yml`) builds it and
+uploads it; there is no gate and nothing to approve, because a manual gate here
+would mean the site silently stops tracking `master` until someone notices a
+pending approval.
 
-Creating it needs an **account-scoped** API token. The token in `.env` is
-deliberately scoped to one zone's DNS and nothing else, so it cannot do this —
-that narrowness is the point, not an oversight.
+### One-time setup
 
-1. Mint a token with **Account → Cloudflare Pages → Edit**.
-2. Create a Pages project (direct upload, no git integration — the workflow
-   uploads the build). Note its `*.pages.dev` hostname.
-3. Set in the repository's `production` GitHub Environment:
-   - `CLOUDFLARE_API_TOKEN` (secret) — the Pages-scoped token
-   - `CLOUDFLARE_ACCOUNT_ID` (secret)
-   - `CLOUDFLARE_PAGES_PROJECT` (variable) — the project name
-   - `POSTHOG_KEY` (secret) — the `phc_…` project write key
-4. Run **Deploy Site** once and confirm the `*.pages.dev` URL serves the page
-   and `/install.sh`.
-5. **Only then** point DNS at it — `terraform/dns` with `pages_hostname` set to
-   the `*.pages.dev` name. Flipping DNS first takes the site down for as long
-   as it takes to notice.
+Exactly one secret is missing, and it cannot be the one already there. The
+`CLOUDFLARE_API_TOKEN` in the `production` environment is scoped to this zone's
+DNS and nothing else — that narrowness is deliberate, and it is why the token
+cannot see the account, let alone create a Pages project. Replacing it would
+break the Terraform DNS stack. So the site deploy gets its own:
+
+1. Mint a Cloudflare token with **Account → Cloudflare Pages → Edit**.
+2. `gh secret set CLOUDFLARE_PAGES_TOKEN --env production`
+3. Optionally `gh secret set POSTHOG_KEY --env production` — the `phc_…`
+   project write key. Without it the site ships with no analytics, which is a
+   working site, not a broken one.
+
+Nothing else. `R2_ACCOUNT_ID` is already set and *is* the Cloudflare account
+id — R2 is billed under the same account. The workflow creates the Pages
+project on its first run, so there is no dashboard step.
+
+### Then point the domain at it
+
+Only after a deploy has succeeded and the `*.pages.dev` URL serves the page:
+
+```sh
+terraform -chdir=terraform/dns apply   # with pages_hostname set
+```
+
+Flipping DNS first takes the site down for as long as it takes to notice.
+`hickorydocs.com` currently still resolves to the old Fly machine, which is
+also still running and billing — destroy it once Pages is serving.
 
 Pages satisfies both host requirements above out of the box: unknown paths
 fall back to `index.html`, and `install.sh` is served as uploaded.

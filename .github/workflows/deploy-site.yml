@@ -1,8 +1,8 @@
 # Publish the static marketing site to Cloudflare Pages.
 #
 # The site is files. There is no server to deploy, no migration to run, and
-# nothing to roll back beyond publishing again — which is why this is a plain
-# push-to-master job with no environment gate. See
+# nothing to roll back beyond publishing again — so this is a plain
+# push-to-master job with no gate. See
 # `.instructions/continuous-delivery-downloadable.md`.
 #
 # The *product* is not deployed here. It ships through the release workflows
@@ -22,9 +22,18 @@ concurrency:
   group: deploy-site
   cancel-in-progress: true
 
+env:
+  # Changing this renames the Pages project, which changes the `*.pages.dev`
+  # hostname the DNS records point at. Keep it in step with
+  # `pages_hostname` in `terraform/dns`.
+  PAGES_PROJECT: hickory-docs
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    # No required reviewer: this environment holds the credentials, not a
+    # gate. A manual gate here would mean the site silently stops tracking
+    # `master` until someone notices a pending approval.
     environment: production
     steps:
       - uses: actions/checkout@v4
@@ -37,8 +46,9 @@ jobs:
       - run: npm ci --prefix apps/web
 
       # `just site` copies install.sh into the bundle and refuses a PostHog
-      # personal key before building, rather than after a visitor's browser
-      # has already received it.
+      # *personal* key before building, rather than after a visitor's browser
+      # has already received it. With no key set, the site simply ships
+      # without analytics.
       - name: Build the site
         env:
           POSTHOG_KEY: ${{ secrets.POSTHOG_KEY }}
@@ -47,9 +57,28 @@ jobs:
             | tar -xz -C /usr/local/bin just
           just site
 
-      - name: Publish to Cloudflare Pages
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: pages deploy apps/web/dist-site --project-name=${{ vars.CLOUDFLARE_PAGES_PROJECT }}
+      # Creating the project here rather than in the dashboard keeps the whole
+      # setup to "add one secret and push". `project create` fails when the
+      # project already exists, which is the normal case on every run after the
+      # first, so its failure is ignored — `pages deploy` immediately after is
+      # what actually reports a problem.
+      #
+      # R2_ACCOUNT_ID is the Cloudflare account id; R2 is billed under the same
+      # account, and there is no second one to confuse it with.
+      - name: Ensure the Pages project exists
+        continue-on-error: true
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_PAGES_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+        run: |
+          npx --yes wrangler@3 pages project create "$PAGES_PROJECT" \
+            --production-branch master
+
+      - name: Publish
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_PAGES_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+        run: |
+          npx --yes wrangler@3 pages deploy apps/web/dist-site \
+            --project-name "$PAGES_PROJECT" \
+            --branch master
