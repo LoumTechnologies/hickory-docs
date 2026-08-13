@@ -57,9 +57,18 @@ Terraform knows the write key; the **Deploy Site** workflow needs it to build
 the bundle. No provider bridges the two, so the hand-off is explicit:
 
 ```sh
-terraform -chdir=terraform/posthog output -raw project_api_key
+cd terraform/posthog
+export AWS_ACCESS_KEY_ID=…      # R2_ACCESS_KEY_ID
+export AWS_SECRET_ACCESS_KEY=…  # R2_SECRET_ACCESS_KEY
+terraform init -backend-config='endpoints={s3="https://437ea403f048c8547b4242bf10b891c5.r2.cloudflarestorage.com"}'
+
+terraform output -raw project_api_key
 gh secret set POSTHOG_KEY --env production   # paste it
 ```
+
+`terraform output` needs the backend initialised, and the backend needs that
+endpoint: the state is in R2, and R2's endpoint embeds the account id, so it is
+passed at init rather than committed.
 
 Check it is a `phc_…` **project** key before pasting. A `phx_…` personal key
 can create and destroy projects and must never reach a browser bundle; `just

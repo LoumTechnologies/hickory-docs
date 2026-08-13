@@ -79,9 +79,10 @@ break the Terraform DNS stack. So the site deploy gets its own:
 1. Mint a Cloudflare token with **Account → Cloudflare Pages → Edit**, scoped
    to this account only (see below for the exact dashboard path).
 2. `gh secret set CLOUDFLARE_PAGES_TOKEN --env production`
-3. Optionally `gh secret set POSTHOG_KEY --env production` — the `phc_…`
-   project write key. Without it the site ships with no analytics, which is a
-   working site, not a broken one.
+3. Optionally set `POSTHOG_KEY` — the `phc_…` project write key, which lives
+   in the `terraform/posthog` state. `docs/operators/analytics.md` has the
+   exact commands (the backend needs its R2 endpoint at init). Without the key
+   the site ships with no analytics, which is a working site, not a broken one.
 
 Nothing else. `CLOUDFLARE_ACCOUNT_ID` is already set, and the workflow creates
 the Pages project on its first run, so there is no dashboard step beyond
@@ -112,8 +113,17 @@ stdin, rather than into a file.
 Only after a deploy has succeeded and the `*.pages.dev` URL serves the page:
 
 ```sh
-terraform -chdir=terraform/dns apply   # with pages_hostname set
+cd terraform/dns
+export CLOUDFLARE_API_TOKEN=…          # the zone-scoped one, not the Pages token
+export TF_VAR_zone_id=90bc4539c95be534f2533ff909949627
+export AWS_ACCESS_KEY_ID=…             # R2_ACCESS_KEY_ID
+export AWS_SECRET_ACCESS_KEY=…         # R2_SECRET_ACCESS_KEY
+terraform init -backend-config='endpoints={s3="https://437ea403f048c8547b4242bf10b891c5.r2.cloudflarestorage.com"}'
+terraform apply
 ```
+
+`pages_hostname` defaults to the project name the workflow creates, so there is
+nothing to pass.
 
 Flipping DNS first takes the site down for as long as it takes to notice.
 `hickorydocs.com` currently still resolves to the old Fly machine, which is

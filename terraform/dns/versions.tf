@@ -33,14 +33,22 @@ terraform {
     # host", which reads like a network fault rather than an addressing mode.
     use_path_style = true
 
-    use_lockfile                 = true
-    skip_credentials_validation  = true
-    skip_metadata_api_check      = true
-    skip_region_validation       = true
-    skip_requesting_account_id   = true
-    skip_s3_checksum             = true
-    request_checksum_calculation = "when_required"
-    response_checksum_validation = "when_required"
+    use_lockfile                = true
+    skip_credentials_validation = true
+    skip_metadata_api_check     = true
+    skip_region_validation      = true
+    skip_requesting_account_id  = true
+    # `skip_s3_checksum` is the knob that makes R2 work: R2 does not implement
+    # the AWS checksum semantics the SDK assumes, and without this every
+    # operation fails on a checksum mismatch rather than on anything
+    # meaningful.
+    #
+    # `request_checksum_calculation` / `response_checksum_validation` used to
+    # sit here too. They were added to the S3 backend for a middle range of
+    # Terraform versions and are rejected by newer ones ("An argument named
+    # ... is not expected here"), so they are gone; `skip_s3_checksum` was
+    # always the load-bearing one.
+    skip_s3_checksum = true
 
     # endpoints.s3 comes from -backend-config at init time: it embeds the
     # Cloudflare account id, which is not a secret but is account-specific and

@@ -70,19 +70,26 @@ MX records, and the SPF TXT. (Check nothing else is using the domain first —
 
 **6. First plan and apply.**
 
+The state lives in R2, which is S3-compatible but needs its endpoint passed at
+init time — it embeds the account id, so it is not in the committed config.
+
 ```sh
 cd terraform/dns
-export CLOUDFLARE_API_TOKEN=...  AWS_ACCESS_KEY_ID=...  AWS_SECRET_ACCESS_KEY=...
-export TF_VAR_zone_id=...
-terraform init -backend-config="endpoints={s3=\"https://<account-id>.r2.cloudflarestorage.com\"}"
-terraform plan    # four creations: apex A/AAAA and www A/AAAA. Nothing else.
+export CLOUDFLARE_API_TOKEN=…          # Zone:DNS:Edit + Zone:Zone:Read
+export TF_VAR_zone_id=90bc4539c95be534f2533ff909949627
+export AWS_ACCESS_KEY_ID=…             # R2_ACCESS_KEY_ID
+export AWS_SECRET_ACCESS_KEY=…         # R2_SECRET_ACCESS_KEY
+
+terraform init -backend-config='endpoints={s3="https://437ea403f048c8547b4242bf10b891c5.r2.cloudflarestorage.com"}'
+terraform plan
 ```
 
-Then apply through the workflow (Actions → Terraform → Run workflow → apply)
-so the first change goes through the same gate every later one does.
+The same `init` line works for `terraform/posthog`, which shares the bucket
+under a different key.
 
-**A plan showing anything other than those four creations means the zone was
-not emptied.** Stop and look rather than applying.
+**Read the plan before applying.** It should only ever touch the records this
+stack owns; anything else means the zone holds something the config does not
+know about.
 
 ## Mail records
 
