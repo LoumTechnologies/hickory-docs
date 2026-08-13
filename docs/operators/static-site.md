@@ -10,6 +10,33 @@ nothing to buy. The whole marketing surface is static, which is what
 `docs/specs/freeform/local-only.md` expects — the product is a program people
 download, not a workspace they sign into.
 
+## Editing the page
+
+| What | Where |
+|---|---|
+| Headline, hero, section copy | `apps/web/src/views/LandingView.tsx` |
+| The interest sections' titles and bodies | `apps/web/src/landing/interests.ts` |
+| The three interactive demos | `apps/web/src/landing/demos/` |
+| The install command block | `apps/web/src/components/InstallCommand.tsx` |
+| `<title>`, description, OG/Twitter cards | `apps/web/site.html` |
+| Styling | `apps/web/src/styles.css` |
+
+```sh
+cd apps/web
+npm run dev:site      # opens the marketing page with hot reload
+```
+
+**Use `dev:site`, not `dev`.** The plain `dev` server's `/` is the *desktop
+app's* entry (`index.html`); the marketing page is a second entry
+(`site.html`). Running `dev` and finding the editor is the expected way to
+lose five minutes here.
+
+Some copy is under test, on purpose — `src/views/LandingView.test.tsx` and
+`StaticSite.test.tsx` assert that the page makes no network request, offers
+installing rather than signing up, and titles every section by a job or a
+pain rather than by an audience label. A rewrite that breaks one of those is
+being told it broke an editorial rule, not a component.
+
 ## Build it
 
 ```sh

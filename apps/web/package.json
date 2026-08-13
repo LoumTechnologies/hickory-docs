@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:site": "vite --open /site.html",
     "dev:mock": "VITE_MOCK=1 vite",
     "build": "tsc -b && vite build",
     "typecheck": "tsc -b --noEmit",
