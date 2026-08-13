@@ -46,6 +46,15 @@ resource "cloudflare_dns_record" "www" {
 # announcements, replies to people who write in) even though the product has no
 # accounts and sends nothing itself.
 
+# Renamed from `sendgrid_return_path` when this file was rewritten. Without
+# this block Terraform reads a rename as "destroy the old, create the new",
+# which for a live DNS record is a window where mail links resolve to nothing
+# — and a window that lasts indefinitely if the create then fails.
+moved {
+  from = cloudflare_dns_record.sendgrid_return_path
+  to   = cloudflare_dns_record.sendgrid_bounce
+}
+
 resource "cloudflare_dns_record" "sendgrid_bounce" {
   zone_id = var.zone_id
   name    = "em4579.hickorydocs.com"
