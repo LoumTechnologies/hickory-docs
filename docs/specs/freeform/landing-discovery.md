@@ -33,48 +33,62 @@ be compared against what they actually opened. It is quiet, one click, and
 gates nothing — the moment it starts buying answers by pressure, the
 comparison it exists for stops meaning anything.
 
-## The three demos
+## The one demo, and the section above it
 
-Above the interest sections the page runs the product, in the visitor's own
-browser, with no account:
+*Revised 2026-08-13. The page previously carried three demos; two of them
+showed capabilities this product does not have (a hosted issue-tracker
+integration, two people editing one document) and were removed rather than
+relabelled — see `local-only.md`. The page's focus also moved: the primary
+claim is now the tool surface a visitor's **own** coding agent drives, because
+that is the reason to install this rather than a thing it also does.*
 
-1. **Knowledge work** — a six-step walkthrough in which meeting notes become
-   Jira issues, the lineage between note and ticket is drawn as a Sankey, and
-   an edit made on the ticket is carried back into the note it came from.
-2. **Software** — a document that explains an algorithm and *is* the program,
-   tangled into a module and its test from one shared fragment.
-3. **Collaboration** — two live CRDT clients on one document, with a git strip
-   underneath.
+Above the interest sections the page makes its claim in two parts, in this
+order:
 
-They are the page's main claim and its main risk, so two rules govern them:
+1. **The agent tool surface** (`components/AgentToolSurface.tsx`) — static,
+   not interactive: `hick init`, `hick mcp`, and the five `hick doc` tools,
+   with the property that makes them worth using (content-hash anchors, so a
+   stale edit is refused rather than misapplied) and the artifact they leave
+   behind (`HICKORY_SESSION`, `hick promote`). A fake terminal pretending to
+   run an agent would only obscure how small the real surface is.
+2. **The mechanism demo** (`landing/demos/ProgramDemo.tsx`) — one document,
+   its woven files, and its executable cells, driven in the visitor's own
+   browser with no account. It exists because part 1 is a promise nobody
+   should take on trust: this is where a visitor checks it.
 
-- **The mechanism is real.** The demos parse, weave, derive provenance and
-  draw ribbons with the same modules the signed-in workspace uses
-  (`lib/weave`, `lib/ribbons`, `lib/ribbonGeometry`) — see
+The demo is the page's main claim and its main risk, so two rules govern it:
+
+- **The mechanism is real.** It parses, weaves, derives provenance and draws
+  ribbons with the same modules the desktop app uses (`lib/weave`,
+  `lib/ribbons`, `lib/ribbonGeometry`) — see
   `docs/guarantees/landing/home-demos-run-the-real-mechanism.md`. A recorded
   animation would be cheaper and would make the page a liar the first time a
   visitor tried to reproduce what they saw.
-- **What is faked says so on screen.** No demo contacts a third-party
-  service: the Jira half and the git remote are simulated, and both are
-  labelled next to the thing that is faked rather than in a footnote.
+- **What is faked says so on screen.** The execution transcript is a
+  recording, because a browser tab cannot start a container, and it says so
+  next to itself along with what `hick run` and `hick test` do with the same
+  cells on the visitor's machine. Nothing on the page contacts a third-party
+  service.
 
-The walkthrough can also **play itself**. A visitor who will not click
-anything still gets the story, and the ones who take the wheel are the signal
-— which is why `demo_engaged` carries `autoplay` and autoplay stops before the
-hands-on steps rather than clicking past the part it is trying to get someone
-to try.
+A third rule now sits beside them and covers the whole page rather than the
+demo: every command, flag and hick fragment shown must be true of the shipped
+binary — `docs/guarantees/landing/home-page-claims-are-true-of-the-binary.md`.
+That guarantee exists because this page spent months describing a hosted
+workspace that had been deleted, and nobody noticed.
 
-Their instrumentation value is different in kind from the interest sections':
-opening a section costs a click, driving a demo costs effort. `demo_engaged`
-with `autoplay: false` is therefore the page's strongest revealed-interest
-signal, and *which* demo someone drives is a segment hypothesis in itself — the knowledge-work
-walkthrough and the literate-programming one describe the same mechanism to
-two populations that may share nothing else.
+The demo does **not** play itself. Autoplay existed for the six-step
+walkthrough, where a visitor who would not click anything still needed the
+story; a single split editor shows its picture on arrival with nothing to
+advance through. So `demo_engaged` no longer carries a meaningful `autoplay`,
+and its instrumentation value simplifies: opening an interest section costs a
+click, driving the demo costs effort, and the first interaction is reported
+once.
 
 ## Instrumentation
 
-Events, all defined in `apps/web/src/analytics/events.ts` and allowlisted in
-`apps/server/src/routes/analytics.rs`:
+Events, all defined in `apps/web/src/analytics/events.ts`. There is no
+server-side allowlist any more — `apps/server` went with the hosted product
+and the site posts to PostHog directly (`local-only.md`):
 
 | Event | Fires when | Key properties |
 |---|---|---|
@@ -83,7 +97,7 @@ Events, all defined in `apps/web/src/analytics/events.ts` and allowlisted in
 | `interest_clicked` | link inside a section followed | `interest_id`, `link_id` |
 | `segment_declared` | identity anchor answered | `declared_segment` |
 | `cta_clicked` | a call to action taken | `cta_id` |
-| `demo_engaged` | a home-page demo was driven | `demo_id`, `step`, `autoplay` |
+| `demo_engaged` | the home-page demo was driven (first interaction only) | `demo_id`, `step` |
 | `segment_corrected` | *(confirmation posture — no UI yet)* | `from_segment`, `to_segment` |
 
 Every event additionally carries `intended_segment`, `declared_segment`,

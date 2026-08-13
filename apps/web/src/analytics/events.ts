@@ -34,6 +34,9 @@ export type LandingEvent =
    * its strongest: it costs effort, so it separates people who read the page
    * from people who tried the product.
    */
+  // `autoplay` is retained on the wire but no longer sent: the page's one demo
+  // does not play itself. Keeping the field means a historical query that
+  // splits on it still parses rather than erroring on the old rows.
   | { name: "demo_engaged"; demo_id: string; step: string; autoplay?: boolean };
 
 /**

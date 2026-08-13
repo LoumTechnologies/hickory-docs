@@ -2,10 +2,9 @@ import { useEffect, useState } from "react";
 
 import { declaredSegment } from "../analytics/attribution";
 import { emit } from "../analytics/events";
+import { AgentToolSurface } from "../components/AgentToolSurface";
 import { InstallCommand } from "../components/InstallCommand";
 import { InterestSection } from "../components/InterestSection";
-import { CollaborationDemo } from "../landing/demos/CollaborationDemo";
-import { KnowledgeWorkDemo } from "../landing/demos/KnowledgeWorkDemo";
 import { ProgramDemo } from "../landing/demos/ProgramDemo";
 import { DECLARED_SEGMENTS, INTERESTS } from "../landing/interests";
 
@@ -28,6 +27,18 @@ export function resetViewedForTest() {
  * why that distinction is the whole design, and
  * docs/specs/freeform/landing-discovery.md for what this page can and cannot
  * see about the people who visit it.
+ *
+ * The order of the two sections below the hero is deliberate and is the page's
+ * whole argument. FIRST the surface your own agent drives, because that is the
+ * reason to install this rather than a thing it also does. THEN one demo of
+ * the mechanism underneath, because "your agent edits through hashes and
+ * lineage" is a promise nobody should take on trust — the demo is where a
+ * visitor checks it by driving the real weaver in their own browser.
+ *
+ * There is exactly one demo. The page used to carry three, two of which
+ * showed things this product does not have (a hosted issue-tracker
+ * integration, two people editing one document); see local-only.md. A demo of
+ * an absent feature is not a smaller lie than a sentence claiming it.
  */
 export function LandingView() {
   const [declared, setDeclared] = useState<string | null>(() => declaredSegment());
@@ -46,51 +57,43 @@ export function LandingView() {
   return (
     <div className="landing">
       <header className="landing-hero">
-        <h1>An AI agent whose work you can trace, byte by byte.</h1>
+        <h1>Give your coding agent a document it cannot lie in.</h1>
         <p className="landing-sub">
-          Hickory Docs sits where an ordinary agent session, literate programming, and the
-          semantic web meet: the agent works inside a document, every artifact it produces is
-          woven from a named piece of that document, and the path between the two stays
-          walkable in both directions.
+          Hickory Docs turns a repository into one your agent edits through content hashes and
+          byte-exact lineage instead of guessing at line numbers — and it leaves its work behind as
+          a document in git, with the commands it ran and what they actually printed. Bring Claude
+          Code, Codex, or anything that speaks MCP.
         </p>
         {/* The call to action is what the product IS. hick is a program you
-            install (docs/specs/freeform/local-first.md), so the primary action
-            is installing it — not signing up for a workspace that no longer
-            exists. The hosted app keeps its own front door while it runs. */}
+            install (docs/specs/freeform/local-only.md), so the primary action
+            is installing it — there is no account to make and no server to
+            sign in to. */}
         <div className="landing-cta">
           <InstallCommand />
         </div>
         <p className="landing-sub landing-install-note">
-          Runs on your machine, on your files, in your repo. Free, no account,
+          Runs on your machine, on your files, in your repo, on your own API key. Free, no account,
           nothing to buy — and it never talks to us.
         </p>
       </header>
 
-      <section className="landing-demo" aria-labelledby="demo-knowledge-h">
-        <h2 id="demo-knowledge-h">Here is how it works</h2>
+      <section className="landing-demo" aria-labelledby="agent-surface-h">
+        <h2 id="agent-surface-h">Point your own agent at it</h2>
         <p className="landing-demo-lead">
-          Walk the six steps. Everything below runs in this page — no account, no sign-up.
+          Three commands and five tools. Nothing to sign up for, no model of ours in the loop, and
+          no harness you have to switch to.
         </p>
-        <KnowledgeWorkDemo />
+        <AgentToolSurface />
       </section>
 
       <section className="landing-demo" aria-labelledby="demo-program-h">
-        <h2 id="demo-program-h">The point is information flow, in any kind of work</h2>
+        <h2 id="demo-program-h">What your agent is editing</h2>
         <p className="landing-demo-lead">
-          Tracking where a claim came from is not a software problem, and Hickory Docs is not a
-          software tool that happens to do prose. It is the other way round — which is why the
-          same document can also <em>be</em> the program it describes.
+          A document holds the code once. It weaves into the files that run, the files run, and an
+          edit made at either end lands at the other. Drive it yourself — everything below happens
+          in this page, with no account and no network.
         </p>
         <ProgramDemo />
-      </section>
-
-      <section className="landing-demo" aria-labelledby="demo-collab-h">
-        <h2 id="demo-collab-h">Two people, one document, stored in your own repository</h2>
-        <p className="landing-demo-lead">
-          Live collaboration on top of git. Notes, documentation and source code live in the
-          same place, with the same history, on GitHub.
-        </p>
-        <CollaborationDemo />
       </section>
 
       <div className="landing-interests">

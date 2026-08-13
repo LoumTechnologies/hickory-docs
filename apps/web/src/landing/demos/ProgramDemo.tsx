@@ -1,9 +1,11 @@
-// Demo 2 — the same machinery pointed at software: a document that explains an
-// algorithm and IS the program, woven into a module and its test.
+// The home page's only demo: one document, its woven files, and its executable
+// cells — the whole mechanism in one picture.
 //
 // The fragment `#search` is pasted into two files. That is the case worth
 // showing: one colour, two ribbons, and no second copy of the code for the
-// prose to drift away from.
+// prose to drift away from. The run is a recording and says so; everything
+// else — parse, weave, provenance, the reverse edit — is the code the app
+// runs, in the visitor's browser.
 
 import { useState } from "react";
 import { emit } from "../../analytics/events";
@@ -14,6 +16,7 @@ export function ProgramDemo() {
   const [source, setSource] = useState(PROGRAM_SOURCE);
   const [ran, setRan] = useState(false);
   const [rejected, setRejected] = useState<string | null>(null);
+  const [mappedBack, setMappedBack] = useState(false);
   const [engaged, setEngaged] = useState(false);
 
   const engage = (step: string) => {
@@ -23,17 +26,17 @@ export function ProgramDemo() {
   };
 
   return (
-    <section className="demo" aria-label="A document that is also a program">
+    <section className="demo" aria-label="One document, its files, and its runs">
       <div className="demo-bar">
         <div className="demo-bar-nav">
           <button
             className="btn btn-primary"
             onClick={() => {
               setRan(true);
-              engage("tangle-and-run");
+              engage("run-cells");
             }}
           >
-            {ran ? "Run again" : "Weave, tangle, run"}
+            {ran ? "Run the cells again" : "Run the cells"}
           </button>
           <button
             className="btn btn-quiet"
@@ -41,15 +44,18 @@ export function ProgramDemo() {
               setSource(PROGRAM_SOURCE);
               setRan(false);
               setRejected(null);
+              setMappedBack(false);
             }}
           >
             Reset
           </button>
         </div>
         <p className="demo-hint">
-          Edit the prose, the fragments, or the generated Python — the other side follows. Change
-          <span className="mono"> mid = (lo + hi) // 2 </span> on either side and watch both files
-          move together.
+          Type on either side. Change
+          <span className="mono"> mid = (lo + hi) // 2 </span>
+          in the fragment on the left and both generated files move; change it in the generated
+          Python on the right and the fragment moves. There is one copy of the code, and you are
+          always editing it.
         </p>
       </div>
 
@@ -63,15 +69,26 @@ export function ProgramDemo() {
                   {line}
                 </p>
               ))}
+              <p className="demo-transcript-verdict">✓ {entry.verdict}</p>
             </div>
           ))}
           <p className="muted demo-transcript-note">
-            A recorded transcript, replayed here. In the app this is the real execution, captured
-            on every run and compared against what the document claims.
+            A recorded transcript, replayed here — a browser tab cannot start a container. On your
+            machine <span className="mono">hick run</span> executes these cells for real and writes
+            the output back into the document, and{" "}
+            <span className="mono">hick test</span> re-runs them and exits non-zero when the
+            document and reality disagree. That is what a pre-commit hook and CI run.
           </p>
         </div>
       )}
 
+      {mappedBack && (
+        <p className="demo-reconcile" role="status">
+          <strong>That edit went into the document.</strong> You changed a generated file, and the
+          change was resolved backwards through provenance into the fragment it came from — so the
+          other file that pastes the same fragment moved with it.
+        </p>
+      )}
       {rejected && (
         <p className="demo-reject" role="status">
           {rejected}
@@ -87,13 +104,17 @@ export function ProgramDemo() {
           engage("edited-document");
         }}
         sourceCaption={PROGRAM_DOC_PATH}
-        nodeHeading="Tangled files"
+        nodeHeading="Woven files"
         editableOutput
         onOutputMappedBack={() => {
           setRejected(null);
+          setMappedBack(true);
           engage("edited-output");
         }}
-        onOutputRejected={setRejected}
+        onOutputRejected={(message) => {
+          setMappedBack(false);
+          setRejected(message);
+        }}
       />
     </section>
   );

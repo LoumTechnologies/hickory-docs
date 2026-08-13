@@ -2073,9 +2073,84 @@ textarea:focus {
   color: color-mix(in srgb, var(--term-fg) 68%, var(--term-bg));
 }
 
+/* A verdict line sits under each command, inside the terminal box, so "the
+   document pinned this and the run agreed" is one glance rather than a
+   comparison the reader has to perform. Same tinting rule as the note above:
+   the page's semantic colours are mixed toward the terminal's own ground. */
+.demo-transcript-verdict {
+  margin-top: 0.15rem !important;
+  font-size: 0.72rem;
+  color: color-mix(in srgb, var(--ok) 75%, var(--term-fg));
+}
+
 .demo-foot {
   margin: 0.75rem 0 0;
   font-size: 0.78rem;
+}
+
+/* ---- the agent tool surface ---- */
+
+.agent-surface {
+  display: grid;
+  gap: 1.4rem;
+}
+
+.agent-surface-step h3 {
+  margin: 0 0 0.5rem;
+  font-size: 1rem;
+}
+
+.agent-surface-step p {
+  margin: 0 0 0.6rem;
+  font-size: 0.9rem;
+  line-height: 1.55;
+  max-width: 62ch;
+}
+
+.agent-surface-code {
+  margin: 0 0 0.6rem;
+  padding: 0.55rem 0.8rem;
+  border-radius: 8px;
+  background: var(--term-bg);
+  color: var(--term-fg);
+  font-size: 0.85rem;
+  overflow-x: auto;
+}
+
+/* The tool list is the densest thing on the page and the most likely to be
+   skimmed, so each row is a command and its one-line job — never a paragraph
+   the eye has to enter to find the command inside it. */
+.agent-tools {
+  margin: 0;
+  display: grid;
+  gap: 0.55rem;
+}
+
+.agent-tool {
+  padding: 0.55rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-sunken);
+}
+
+.agent-tool dt {
+  font-size: 0.78rem;
+  color: var(--tok-literal);
+  overflow-x: auto;
+  white-space: nowrap;
+}
+
+.agent-tool dd {
+  margin: 0.3rem 0 0;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  color: var(--fg-muted);
+}
+
+.agent-surface-note {
+  margin: 0;
+  font-size: 0.8rem;
+  max-width: 62ch;
 }
 
 /* ---- the split itself ---- */

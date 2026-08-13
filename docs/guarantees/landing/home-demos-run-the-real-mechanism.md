@@ -1,79 +1,75 @@
-# The Home Page's Demos Run The Real Mechanism, And Name What Is Simulated
+# The Home Page's Demo Runs The Real Mechanism, And Names What Is Simulated
 
-Given a signed-out visitor on the home page with no account, no sign-up and no
-network beyond loading the page, when they drive any of the three demos, then
-the lineage they see is computed by the same code the product runs — the
-document is parsed by the real `.hick` parser, woven by the real weaver, and
-the Sankey ribbons are drawn from real provenance ranges over live editor
-geometry. Nothing on the page replays a recording of a weave that happened
-somewhere else.
+Given a visitor on the home page with no account, no sign-up and no network
+beyond loading the page, when they drive the demo, then the lineage they see is
+computed by the same code the product runs — the document is parsed by the real
+`.hick` parser, woven by the real weaver, and the Sankey ribbons are drawn from
+real provenance ranges over live editor geometry. Nothing on the page replays a
+recording of a weave that happened somewhere else.
 
-Specifically:
+There is exactly **one** demo, and it shows the product's one sentence:
+literate programming where you can edit the generated files. Specifically:
 
-- The knowledge-work walkthrough generates **nothing** until the agent step
-  runs, and then generates exactly one artifact per note. Every ticket
-  description traces back, byte for byte, to the sentence in the notes that
-  produced it, and an edit made on the generated side is resolved backwards
-  through provenance into that same sentence — not into a second copy of it.
-- No step of the walkthrough rewrites a byte the human typed. The agent
-  appends its session, its tool calls, and the files it weaves; the notes stay
-  exactly as written, and moving between steps never discards an edit the
-  visitor made.
-- The literate-programming demo tangles one shared fragment into two files, so
-  editing it from either end moves both.
-- The collaboration demo is two real Yjs clients with their own awareness
-  states. The document is seeded by exactly one of them, so the text cannot
-  double.
+- The document weaves its files on arrival, without the visitor clicking
+  anything — one shared fragment tangled into two files, so editing it from
+  either end moves both.
+- An edit made on a generated file is resolved backwards through provenance
+  into the fragment that produced it — not into a second copy of it — so the
+  other file pasting the same fragment moves with it.
+- An edit that lands on text the weaver wrote is refused and named, and the
+  buffer is put back, rather than silently dropped.
+- The woven banner is commented in the generated file's own language.
+
+Given the executable cells, when the visitor runs them, then the transcript
+shown agrees with the expectation the document pins beside them, and every
+command in it is one the document actually contains. A browser cannot start a
+container, so this transcript **is** a recording — and the page says so in
+plain words, next to itself, along with what `hick run` and `hick test` do with
+the same cells on the visitor's own machine.
 
 Given a step that changes the document, when it runs, then the document pane
-scrolls to the text that step actually added and flashes it — and it scrolls
-the **editor**, never the page, so a visitor reading the paragraph above is
-never yanked somewhere else. A step that adds nothing scrolls to the text it
-is asking the visitor to look at instead.
+scrolls to the text that changed and flashes it — and it scrolls the
+**editor**, never the page, so a visitor reading the paragraph above is never
+yanked somewhere else.
 
-Given the same page, when a part of a demo is **not** real — the Jira
-integration, the git remote — then the page says so in plain words next to the
-thing that is faked, rather than leaving the visitor to assume an integration
-exists. No demo contacts a third-party service.
+Given any part of the page, then no demo contacts a third-party service, and no
+demo demonstrates a capability the product does not have. The retired
+knowledge-work walkthrough (a simulated Jira integration) and collaboration
+demo (two people in one document) both failed the second clause: see
+`docs/specs/freeform/local-only.md`, which records that collaboration is not a
+feature of this product and that there is no hosted integration to sell.
 
 ---
 
 Last LLM verification:
-- Date: 2026-08-09
+- Date: 2026-08-13
 - Reviewer: Claude (Opus 5)
 - Result: verified
-- Evidence: `apps/web/src/landing/demos/scripts.ts` holds every demo document
+- Evidence: `apps/web/src/landing/demos/scripts.ts` holds the one demo document
   as data. `apps/web/src/landing/demos/DemoSplit.tsx` weaves it with
-  `lib/weave.weaveOutputs` (the same weaver `src/mock/mockApi.ts` serves the
-  contract routes with), derives ribbons with `lib/ribbons.deriveRibbons`, and
-  draws them with `lib/ribbonGeometry` — the same three modules
-  `views/SplitView.tsx` uses in the signed-in workspace. Output edits go
+  `lib/weave.weaveOutputs`, derives ribbons with `lib/ribbons.deriveRibbons`,
+  and draws them with `lib/ribbonGeometry` — the same three modules
+  `views/SplitView.tsx` uses in the desktop app's split view. Output edits go
   through `lib/diff.computeEdits` → `lib/weave.mapEditsToSource` →
   `applySourceEdits`, and an edit landing on weaver-generated text is refused
-  with `SyntheticRangeViolation` and reverted rather than silently dropped.
-  `collabRoom.ts` builds two `Y.Doc`s with a direct relay and seeds from one
-  peer only. The simulated halves are labelled in `KnowledgeWorkDemo.tsx`
-  ("no issue tracker is contacted", "(simulated)") and
-  `CollaborationDemo.tsx` ("The git strip is simulated").
-  The reveal is `DemoSplit`'s `markSource`, which sets `scrollDOM.scrollTop`
-  directly rather than using CodeMirror's `scrollIntoView` — the latter walks
-  up and scrolls every ancestor scroller, including the window. Its target
-  comes from `scripts.changedRange` (line-snapped) or, for a step that adds
-  nothing, `scripts.findRange` over that step's `focus` text.
-- Test coverage: `apps/web/src/landing/demos/scripts.test.ts` (weave, lineage,
-  round trip, one-fragment-two-files, the hand-written-prefix invariant, and
-  that `changedRange` points at the tool calls a step inserted *inside* an
-  existing element rather than at the end of the document),
-  `apps/web/src/landing/demos/demos.test.tsx` (nothing generated before the
-  agent step; the simulated labels are on screen; a pulled commit lands in
-  both panes), `apps/web/src/landing/demos/collabRoom.test.ts` (single seed,
-  convergence both ways, presence relayed), and
-  `apps/web/src/landing/demos/git.test.ts` (the git strip cannot commit or
-  push nothing, and a pull cannot swallow uncommitted work).
+  with `SyntheticRangeViolation` and reverted rather than silently dropped
+  (`DemoSplit.onOutputChange`). The recording is labelled in
+  `ProgramDemo.tsx` ("A recorded transcript, replayed here — a browser tab
+  cannot start a container"). The reveal is `DemoSplit`'s `markSource`, which
+  sets `scrollDOM.scrollTop` directly rather than using CodeMirror's
+  `scrollIntoView` — the latter walks up and scrolls every ancestor scroller,
+  including the window.
+- Test coverage: `apps/web/src/landing/demos/scripts.test.ts` (weave, one
+  fragment into two files, the reverse edit reaching both, the language-correct
+  banner, the transcript agreeing with the pinned expectation, and every exec
+  naming a declared container) and
+  `apps/web/src/landing/demos/demos.test.tsx` (files woven before any click, no
+  transcript until the cells are run, the recording labelled on screen,
+  engagement reported once).
 - Caveat requiring human review: the ribbon *geometry* is asserted only in
   `lib/ribbonGeometry.test.ts` (pure math) — jsdom performs no layout, so no
-  test can prove the demo's ribbons land on the right lines on screen. A
-  change to the demo layout or to `DemoSplit`'s measurement still needs a
-  human to look at the page. The claim "nothing here contacts a third party"
-  is likewise structural: it holds because no demo module imports
-  `api/client`, which a reviewer must re-check when a demo gains a feature.
+  test can prove the demo's ribbons land on the right lines on screen. A change
+  to the demo layout or to `DemoSplit`'s measurement still needs a human to
+  look at the page. The claim "nothing here contacts a third party" is likewise
+  structural: it holds because no demo module imports `api/client`, which a
+  reviewer must re-check when a demo gains a feature.
