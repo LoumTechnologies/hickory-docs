@@ -42,19 +42,34 @@ relabelled — see `local-only.md`. The page's focus also moved: the primary
 claim is now the tool surface a visitor's **own** coding agent drives, because
 that is the reason to install this rather than a thing it also does.*
 
-Above the interest sections the page makes its claim in two parts, in this
-order:
+Above the interest sections the page makes its case in three parts — why,
+then how, then proof:
 
-1. **The agent tool surface** (`components/AgentToolSurface.tsx`) — static,
-   not interactive: `hick init`, `hick mcp`, and the five `hick doc` tools,
-   with the property that makes them worth using (content-hash anchors, so a
-   stale edit is refused rather than misapplied) and the artifact they leave
-   behind (`HICKORY_SESSION`, `hick promote`). A fake terminal pretending to
-   run an agent would only obscure how small the real surface is.
-2. **The mechanism demo** (`landing/demos/ProgramDemo.tsx`) — one document,
-   its woven files, and its executable cells, driven in the visitor's own
-   browser with no account. It exists because part 1 is a promise nobody
-   should take on trust: this is where a visitor checks it.
+1. **The claim** (`components/Convergence.tsx`) — three muted cards (the
+   session, the reasoning, the edit) collapsing into one accented card (a
+   `.hick` document in your repository). The shape carries the argument on its
+   own, so a reader who only skims the headings still gets it.
+2. **The mechanism** (`components/AgentToolSurface.tsx`) — static, not
+   interactive: `hick init`, `hick mcp`, the five `hick doc` tools, and the
+   artifact they leave behind (`HICKORY_SESSION`, `hick promote`). A fake
+   terminal pretending to run an agent would only obscure how small the real
+   surface is.
+3. **The proof** (`landing/demos/ProgramDemo.tsx`) — one document, its woven
+   files, and its executable cells, driven in the visitor's own browser with
+   no account. It exists because parts 1 and 2 are promises nobody should take
+   on trust: this is where a visitor checks them.
+
+*Revised again 2026-08-13, and this is the more important of the day's two
+revisions.* The first pass led with content-hash edit anchoring as though it
+were the innovation. It is not — applying an edit to the right span is a
+problem every serious harness solved years ago, and pitching it as a
+breakthrough reads as years late to exactly the reader who would install this.
+The anchors are now an aside at the end of part 2: load-bearing, unremarkable,
+and present only because a record whose edits landed somewhere other than where
+they claim is worth nothing. What the page leads with instead is the
+convergence, which is genuinely not on offer anywhere else, and
+`docs/guarantees/landing/the-page-leads-with-the-claim-not-the-mechanism.md`
+holds that ordering in place.
 
 The demo is the page's main claim and its main risk, so two rules govern it:
 

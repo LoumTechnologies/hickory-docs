@@ -2088,6 +2088,79 @@ textarea:focus {
   font-size: 0.78rem;
 }
 
+/* ---- the convergence (three things become one) ---- */
+
+/* Three cards over one wide card, with an arrow between. The shape carries
+   the argument on its own, so a reader who only skims the headings still gets
+   "these three, into that one" — which is the whole page in one glance. */
+.converge-today {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 0.8rem;
+}
+
+@media (max-width: 720px) {
+  .converge-today {
+    grid-template-columns: 1fr;
+  }
+}
+
+.converge-card {
+  padding: 0.8rem 0.9rem;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-sunken);
+}
+
+.converge-card h3 {
+  margin: 0 0 0.4rem;
+  font-size: 0.92rem;
+}
+
+.converge-card p {
+  margin: 0;
+  font-size: 0.84rem;
+  line-height: 1.5;
+  color: var(--fg-muted);
+}
+
+.converge-arrow {
+  margin: 0.55rem 0;
+  text-align: center;
+  font-size: 1.4rem;
+  line-height: 1;
+  color: var(--accent);
+}
+
+/* The destination card is the only raised, accented surface in this section:
+   three muted cards collapsing into one lit one is the sentence, drawn. */
+.converge-into {
+  padding: 1rem 1.1rem;
+  border: 1px solid var(--accent);
+  border-radius: 10px;
+  background: var(--bg-raised);
+  box-shadow: var(--shadow);
+}
+
+.converge-into h3 {
+  margin: 0 0 0.5rem;
+  font-size: 1.05rem;
+}
+
+.converge-into p {
+  margin: 0 0 0.6rem;
+  font-size: 0.9rem;
+  line-height: 1.55;
+  max-width: 68ch;
+}
+
+.converge-into p:last-child {
+  margin-bottom: 0;
+}
+
 /* ---- the agent tool surface ---- */
 
 .agent-surface {
@@ -2151,6 +2224,18 @@ textarea:focus {
   margin: 0;
   font-size: 0.8rem;
   max-width: 62ch;
+}
+
+/* The anchors paragraph. Set quieter and indented behind a rule so it reads
+   as "for the reader who was about to ask" rather than as a headline claim —
+   the typography has to agree with the words, which say this part is table
+   stakes. */
+.agent-surface-aside {
+  margin: 0.7rem 0 0 !important;
+  padding-left: 0.8rem;
+  border-left: 2px solid var(--border);
+  font-size: 0.82rem !important;
+  color: var(--fg-muted);
 }
 
 /* ---- the split itself ---- */

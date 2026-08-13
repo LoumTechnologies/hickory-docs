@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { declaredSegment } from "../analytics/attribution";
 import { emit } from "../analytics/events";
 import { AgentToolSurface } from "../components/AgentToolSurface";
+import { Convergence } from "../components/Convergence";
 import { InstallCommand } from "../components/InstallCommand";
 import { InterestSection } from "../components/InterestSection";
 import { ProgramDemo } from "../landing/demos/ProgramDemo";
@@ -28,12 +29,21 @@ export function resetViewedForTest() {
  * docs/specs/freeform/landing-discovery.md for what this page can and cannot
  * see about the people who visit it.
  *
- * The order of the two sections below the hero is deliberate and is the page's
- * whole argument. FIRST the surface your own agent drives, because that is the
- * reason to install this rather than a thing it also does. THEN one demo of
- * the mechanism underneath, because "your agent edits through hashes and
- * lineage" is a promise nobody should take on trust — the demo is where a
- * visitor checks it by driving the real weaver in their own browser.
+ * The order of the three sections below the hero is deliberate and is the
+ * page's whole argument — why, then how, then proof:
+ *
+ * 1. `Convergence` — the claim. Session, reasoning and edit are one artifact.
+ * 2. `AgentToolSurface` — the mechanism that delivers it: an MCP server your
+ *    existing agent already speaks.
+ * 3. `ProgramDemo` — the document itself, driven in the visitor's browser,
+ *    because none of the above should be taken on trust.
+ *
+ * What this ordering exists to prevent: an earlier version led with
+ * content-hash edit anchors as though they were the innovation. They are not
+ * — every serious harness has solved edit application, and pitching a solved
+ * problem as a breakthrough loses exactly the reader who knows the field. The
+ * anchors are now an aside inside section 2, where they belong: load-bearing,
+ * unremarkable.
  *
  * There is exactly one demo. The page used to carry three, two of which
  * showed things this product does not have (a hosted issue-tracker
@@ -57,12 +67,12 @@ export function LandingView() {
   return (
     <div className="landing">
       <header className="landing-hero">
-        <h1>Give your coding agent a document it cannot lie in.</h1>
+        <h1>Literate programming + AI agents</h1>
         <p className="landing-sub">
-          Hickory Docs turns a repository into one your agent edits through content hashes and
-          byte-exact lineage instead of guessing at line numbers — and it leaves its work behind as
-          a document in git, with the commands it ran and what they actually printed. Bring Claude
-          Code, Codex, or anything that speaks MCP.
+          Your agent&rsquo;s session, the reasoning behind a change, and the change itself are three
+          separate things today, and two of them get thrown away. Hickory Docs is where they meet:
+          one executable document in your repository, written as your agent works. It arrives as an
+          MCP server, so the agent you already run produces one without being asked.
         </p>
         {/* The call to action is what the product IS. hick is a program you
             install (docs/specs/freeform/local-only.md), so the primary action
@@ -77,21 +87,32 @@ export function LandingView() {
         </p>
       </header>
 
-      <section className="landing-demo" aria-labelledby="agent-surface-h">
-        <h2 id="agent-surface-h">Point your own agent at it</h2>
+      <section className="landing-demo" aria-labelledby="converge-h">
+        <h2 id="converge-h">Three things that should have been one</h2>
         <p className="landing-demo-lead">
-          Three commands and five tools. Nothing to sign up for, no model of ours in the loop, and
-          no harness you have to switch to.
+          Literate programming had this right in 1984 and could not make it stick, because keeping
+          the document true was a second job nobody had time for. An agent working through tools
+          that write the document as a side effect is what closes that gap.
+        </p>
+        <Convergence />
+      </section>
+
+      <section className="landing-demo" aria-labelledby="agent-surface-h">
+        <h2 id="agent-surface-h">How it reaches your agent</h2>
+        <p className="landing-demo-lead">
+          One command and five tools, over MCP. Nothing to sign up for, no model of ours in the
+          loop, and no harness you have to switch to.
         </p>
         <AgentToolSurface />
       </section>
 
       <section className="landing-demo" aria-labelledby="demo-program-h">
-        <h2 id="demo-program-h">What your agent is editing</h2>
+        <h2 id="demo-program-h">What the document actually is</h2>
         <p className="landing-demo-lead">
-          A document holds the code once. It weaves into the files that run, the files run, and an
-          edit made at either end lands at the other. Drive it yourself — everything below happens
-          in this page, with no account and no network.
+          It holds the code once. It weaves into the files that run, the files run, and an edit made
+          at either end lands at the other — which is why the record cannot drift from the thing it
+          describes. Drive it yourself; everything below happens in this page, with no account and
+          no network.
         </p>
         <ProgramDemo />
       </section>

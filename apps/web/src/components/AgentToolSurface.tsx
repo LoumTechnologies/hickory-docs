@@ -11,6 +11,12 @@
 // This section is static on purpose. The interactive demo below it shows the
 // mechanism; this shows the surface, and a fake terminal that pretends to run
 // an agent would only obscure how small the real surface is.
+//
+// It answers HOW, not why — `Convergence.tsx` above it holds the argument.
+// Note in particular that content-hash anchors are deliberately demoted to an
+// aside at the end. They are correct and they matter, but leading with them
+// pitches a solved problem as an innovation, which costs the page its
+// credibility with exactly the reader who would install this.
 
 /** The five document tools, exactly as `hick doc --help` lists them. */
 const TOOLS: { call: string; does: string }[] = [
@@ -73,20 +79,29 @@ export function AgentToolSurface() {
       </div>
 
       <div className="agent-surface-step">
-        <h3>3. The part that makes it worth doing</h3>
+        <h3>3. The document writes itself as it works</h3>
         <p>
-          Anchors are <strong>content hashes</strong>, not line numbers. An edit written against a
-          line that has changed since the agent read it is <em>refused</em> rather than applied
-          somewhere it does not belong — so the failure mode where a patch lands two functions away
-          from where it was written cannot happen. A refusal is routing: it names the document
-          location to use instead.
+          Set <span className="mono">HICKORY_SESSION=sessions/name.hick</span> and every call above
+          is appended to a document in your repository as it happens — what was read, what changed,
+          what the run printed. Nobody has to remember to save the session, because producing it is
+          the same act as doing the work.
         </p>
         <p>
-          Set <span className="mono">HICKORY_SESSION=sessions/name.hick</span> and every tool call
-          your agent makes is appended to a replayable document in your repository — what it read,
-          what it changed, what the run printed. It lands as a file you review in a diff, not a
-          chat log you take on faith. <span className="mono">hick promote</span> compacts a messy
-          session into a clean pipeline that reproduces the same result without the dead ends.
+          That document is not an archive. It runs.{" "}
+          <span className="mono">hick test</span> re-executes every cell in it and exits non-zero
+          when the recorded output and reality have parted company, so a session that has quietly
+          stopped being true fails a build instead of misleading the next reader.{" "}
+          <span className="mono">hick promote</span> compacts a messy exploratory session into a
+          clean pipeline that reproduces the same result without the dead ends — the record of how
+          it was found and the artifact you maintain, kept separately and both kept.
+        </p>
+        <p className="agent-surface-aside">
+          On anchors, since it is the first thing anyone asks: they are content hashes, so an edit
+          written against a line that has since changed is refused rather than applied somewhere it
+          does not belong, and the refusal names where to go instead. This is not the interesting
+          part — every serious harness solved edit application years ago. It is here because the
+          rest of the idea does not work without it: a record is worthless if the edits it records
+          landed somewhere other than where they say.
         </p>
       </div>
 

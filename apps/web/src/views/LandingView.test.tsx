@@ -41,6 +41,31 @@ describe("the discovery landing page", () => {
     }
   });
 
+  // Protects docs/guarantees/landing/the-page-leads-with-the-claim-not-the-mechanism.md
+  it("makes the claim before the mechanism, and the mechanism before the proof", () => {
+    const { container } = render(<LandingView />);
+    const order = [...container.querySelectorAll("h2")].map((h) => h.textContent ?? "");
+    const at = (needle: RegExp) => order.findIndex((t) => needle.test(t));
+
+    // Why → how → proof. A page that opens with the tool list is describing a
+    // feature; this one has to open with the reason the feature exists.
+    expect(at(/three things/i)).toBe(0);
+    expect(at(/three things/i)).toBeLessThan(at(/reaches your agent/i));
+    expect(at(/reaches your agent/i)).toBeLessThan(at(/what the document actually is/i));
+  });
+
+  // Protects docs/guarantees/landing/the-page-leads-with-the-claim-not-the-mechanism.md
+  it("never promotes the edit format to a heading", () => {
+    const { container } = render(<LandingView />);
+    // Hash-anchored edits are table stakes. Putting them in a heading pitches
+    // a solved problem as an innovation and loses the reader who knows the
+    // field — the exact regression this page was corrected for. The mechanism
+    // is allowed in body text; it is not allowed to be the promise.
+    for (const heading of container.querySelectorAll("h1, h2, h3")) {
+      expect(heading.textContent ?? "").not.toMatch(/hash|anchor|edit format|diff format/i);
+    }
+  });
+
   // Protects docs/guarantees/analytics/landing-events-fire-once.md
   it("reports the visit exactly once per page load", () => {
     const { rerender } = render(<LandingView />);
