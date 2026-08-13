@@ -134,3 +134,15 @@ also still running and billing — destroy it once Pages is serving.
 
 Pages satisfies both host requirements above out of the box: unknown paths
 fall back to `index.html`, and `install.sh` is served as uploaded.
+
+### The custom domain is a second step, and its absence looks like an outage
+
+Pointing DNS at `<project>.pages.dev` is not enough. Until the **project**
+claims the hostname, Cloudflare's proxy has no origin to route to and every
+request to the domain returns **522 — connection timed out**, which reads like
+the site is down rather than like a setting that was never applied.
+
+**Deploy Site** attaches `hickorydocs.com` and `www.hickorydocs.com` on every
+run, so it is not something to remember. To do it by hand: Cloudflare →
+**Workers & Pages** → `hickory-docs` → **Custom domains** → **Set up a custom
+domain**, once per hostname.
