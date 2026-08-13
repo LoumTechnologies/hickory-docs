@@ -62,6 +62,17 @@ jobs:
   publish:
     needs: [version, build]
     runs-on: ubuntu-latest
+    # The GITHUB_TOKEN cannot publish a release here: this organization's
+    # enterprise policy pins workflow token permissions to read, and a
+    # workflow-level `permissions:` block cannot rise above that ceiling. The
+    # failure is a flat `HTTP 403: Resource not accessible by integration` at
+    # the very last step, after every artifact has already been built.
+    #
+    # RELEASE_TOKEN is a fine-grained PAT scoped to this repository with
+    # Contents: write, and it lives in the `production` environment — which is
+    # why this job declares one. It is a narrower grant than flipping the
+    # policy, which would hand write to every workflow in the organization.
+    environment: production
     steps:
       - uses: actions/checkout@v4
         with:
@@ -76,7 +87,7 @@ jobs:
 
       - name: Publish the rolling `unstable` release
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
           VERSION: ${{ needs.version.outputs.version }}
           SHA: ${{ needs.version.outputs.ref }}
         run: |
