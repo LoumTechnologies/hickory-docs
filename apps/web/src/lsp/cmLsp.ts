@@ -43,7 +43,21 @@ export interface CmLspOptions {
 
 // --- diagnostics ------------------------------------------------------------
 
-export const setLspDiagnostics = StateEffect.define<{ from: number; to: number; severity: number }[]>();
+/** One diagnostic, in editor offsets, with the text a person needs to read. */
+export interface DiagnosticSpan {
+  from: number;
+  to: number;
+  severity: number;
+  /** What the server said. Carried through so hovering the squiggle can
+      show it — an underline with no message tells you where the problem is
+      and nothing about what it is. */
+  message?: string;
+  /** Which server said it (`typescript`, `basedpyright`), so a document with
+      several languages does not leave you guessing. */
+  source?: string;
+}
+
+export const setLspDiagnostics = StateEffect.define<DiagnosticSpan[]>();
 
 export const lspDiagnosticField = StateField.define<DecorationSet>({
   create: () => Decoration.none,
@@ -61,7 +75,15 @@ export const lspDiagnosticField = StateField.define<DecorationSet>({
           builder.add(
             from,
             to,
-            Decoration.mark({ class: d.severity === 1 ? "cm-lsp-error" : "cm-lsp-warn" }),
+            // The message rides along on the decoration's spec, which is how
+            // the hover below finds it without a second data structure to
+            // keep in step with this one.
+            Decoration.mark({
+              class: d.severity === 1 ? "cm-lsp-error" : "cm-lsp-warn",
+              message: d.message ?? "",
+              source: d.source ?? "",
+              severity: d.severity,
+            }),
           );
         }
         deco = builder.finish();
@@ -76,15 +98,42 @@ export const lspDiagnosticField = StateField.define<DecorationSet>({
 export function diagnosticRanges(
   diagnostics: LspDiagnostic[],
   offsetAt: (pos: LspPosition) => number | null,
-): { from: number; to: number; severity: number }[] {
-  const out: { from: number; to: number; severity: number }[] = [];
+): DiagnosticSpan[] {
+  const out: DiagnosticSpan[] = [];
   for (const d of diagnostics) {
     const from = offsetAt(d.range.start);
     const to = offsetAt(d.range.end);
     if (from === null || to === null) continue;
-    out.push({ from, to: Math.max(to, from + 1), severity: d.severity ?? 1 });
+    out.push({
+      from,
+      // A zero-width diagnostic (an insertion point) still has to be
+      // hoverable, so it is widened to one character.
+      to: Math.max(to, from + 1),
+      severity: d.severity ?? 1,
+      message: d.message,
+      source: d.source,
+    });
   }
   return out;
+}
+
+/** The diagnostics under `pos`, outermost first, for the hover. */
+export function diagnosticsAt(
+  state: { field: (f: typeof lspDiagnosticField) => DecorationSet },
+  pos: number,
+): { message: string; source: string; severity: number }[] {
+  const found: { message: string; source: string; severity: number }[] = [];
+  state.field(lspDiagnosticField).between(pos, pos, (_from, _to, value) => {
+    const spec = value.spec as { message?: string; source?: string; severity?: number };
+    if (spec.message) {
+      found.push({
+        message: spec.message,
+        source: spec.source ?? "",
+        severity: spec.severity ?? 1,
+      });
+    }
+  });
+  return found;
 }
 
 // --- hover ------------------------------------------------------------------
@@ -124,18 +173,40 @@ export function lspSupport(opts: CmLspOptions): Extension[] {
   return [
     lspDiagnosticField,
     hoverTooltip(async (view, pos): Promise<Tooltip | null> => {
+      // The diagnostic comes FIRST, and comes from local state rather than a
+      // request: if you are pointing at a squiggle, the thing you want is the
+      // reason for the squiggle. Hover info is what a symbol IS; a diagnostic
+      // is what is wrong with it, and an underline that cannot tell you which
+      // is only half a report.
+      const problems = diagnosticsAt(view.state, pos);
       const position = positionAt(pos, view);
-      if (!position) return null;
-      const result = await client.hover(uri, position).catch(() => null);
+      const result = position ? await client.hover(uri, position).catch(() => null) : null;
       const text = hoverText(result?.contents);
-      if (!text.trim()) return null;
+      if (problems.length === 0 && !text.trim()) return null;
+
       return {
         pos,
         above: true,
         create: () => {
           const dom = document.createElement("div");
           dom.className = "cm-lsp-hover";
-          dom.textContent = text;
+          for (const problem of problems) {
+            const line = document.createElement("div");
+            line.className =
+              problem.severity === 1 ? "cm-lsp-hover-error" : "cm-lsp-hover-warn";
+            line.textContent = problem.source
+              ? `${problem.message}  (${problem.source})`
+              : problem.message;
+            dom.appendChild(line);
+          }
+          if (text.trim()) {
+            const info = document.createElement("div");
+            // Separated from the problem above it, so two different kinds of
+            // statement do not read as one paragraph.
+            info.className = problems.length > 0 ? "cm-lsp-hover-info" : "";
+            info.textContent = text;
+            dom.appendChild(info);
+          }
           return { dom };
         },
       };

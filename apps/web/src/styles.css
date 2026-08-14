@@ -13,6 +13,13 @@
   --ok: #2c7a4b;
   --ok-bg: #e4f2e9;
   --fail: #b3372f;
+  /* Used by the LSP error squiggle, .pane-error and .chat-error, none of
+     which defined it — so `var(--danger)` resolved to nothing, the squiggle's
+     gradient was invalid at computed-value time, and an error underline
+     rendered with NO COLOUR while the warning (which had a fallback) showed
+     up fine. */
+  --danger: #b3372f;
+  --warn: #b8860b;
   --fail-bg: #f9e7e5;
   --stale: #9a6b16;
   --stale-bg: #f6ecd7;
@@ -59,6 +66,8 @@
     --ok: #6dbb8d;
     --ok-bg: #1c2f24;
     --fail: #e08a80;
+    --danger: #e08a80;
+    --warn: #d8a13a;
     --fail-bg: #38201d;
     --stale: #d3a54a;
     --stale-bg: #33290f;
@@ -1712,6 +1721,24 @@ textarea:focus {
 .prompt-panel__options button {
   width: 100%;
   text-align: left;
+}
+
+/* A diagnostic inside the hover: the reason for the squiggle you are
+   pointing at, above whatever the symbol is. */
+.cm-lsp-hover-error,
+.cm-lsp-hover-warn {
+  font-weight: 600;
+  white-space: pre-wrap;
+}
+.cm-lsp-hover-error { color: var(--danger); }
+.cm-lsp-hover-warn { color: var(--warn); }
+/* The type information below it, separated so two different kinds of
+   statement do not read as one paragraph. */
+.cm-lsp-hover-info {
+  margin-top: 0.4rem;
+  padding-top: 0.4rem;
+  border-top: 1px solid var(--border);
+  color: var(--fg-muted);
 }
 
 .cm-lsp-hover {

@@ -1,6 +1,7 @@
 import { EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { describe, expect, it } from "vitest";
+import { diagnosticRanges, diagnosticsAt, lspDiagnosticField, setLspDiagnostics } from "./cmLsp";
 import {
   editsForUri,
   inlayHintField,
@@ -78,6 +79,42 @@ describe("inlay hints", () => {
       ": int",
     );
     expect(inlayText({ position: { line: 0, character: 0 }, label: "-> bool" })).toBe("-> bool");
+  });
+});
+
+describe("diagnostics", () => {
+  it("carries the server's message through to the decoration", () => {
+    // An underline tells you WHERE the problem is and nothing about what it
+    // is. The message rides on the decoration so the hover can read it back
+    // without a second structure to keep in step.
+    const view = viewWith("const x: number = 'oops';", [lspDiagnosticField]);
+    view.dispatch({
+      effects: setLspDiagnostics.of([
+        { from: 18, to: 24, severity: 1, message: "Type 'string' is not assignable", source: "typescript" },
+      ]),
+    });
+    const found = diagnosticsAt(view.state, 20);
+    expect(found).toHaveLength(1);
+    expect(found[0].message).toContain("not assignable");
+    expect(found[0].source).toBe("typescript");
+    expect(found[0].severity).toBe(1);
+  });
+
+  it("finds nothing where there is nothing wrong", () => {
+    const view = viewWith("fine", [lspDiagnosticField]);
+    view.dispatch({ effects: setLspDiagnostics.of([]) });
+    expect(diagnosticsAt(view.state, 2)).toEqual([]);
+  });
+
+  it("keeps a zero-width diagnostic hoverable", () => {
+    // An insertion-point diagnostic has start == end; left alone it would be
+    // an underline with no width, which is a squiggle nobody can point at.
+    const spans = diagnosticRanges(
+      [{ range: r(0, 3, 0, 3), severity: 1, message: "expected `;`" }],
+      (position) => position.character,
+    );
+    expect(spans[0].to).toBeGreaterThan(spans[0].from);
+    expect(spans[0].message).toBe("expected `;`");
   });
 });
 
