@@ -77,6 +77,7 @@ fn fixture() -> Option<Fixture> {
         std::fs::write(root.join(&file.path), file.content()).ok()?;
     }
 
+    borrow_this_repos_adapters(root);
     let adapter = hick_dap::discover("python", root)?;
     eprintln!("using adapter {} ({})", adapter.adapter, adapter.origin);
     Some(Fixture {
@@ -90,6 +91,24 @@ fn fixture() -> Option<Fixture> {
         _dir: dir,
     })
 }
+
+/// Point the scratch project at the adapter this repository installed.
+///
+/// A developer runs `hick dap install python` once, at the top of this repo;
+/// a test project in a temp directory is nowhere near it. Without this the
+/// whole file skips on the machine most likely to be running it, which is how
+/// a suite ends up green while testing nothing. CI installs debugpy for the
+/// machine and never reaches this.
+#[cfg(unix)]
+fn borrow_this_repos_adapters(into: &Path) {
+    let cache = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.hick-cache");
+    if cache.join("adapters/python/bin/python3").exists() {
+        let _ = std::os::unix::fs::symlink(cache, into.join(".hick-cache"));
+    }
+}
+
+#[cfg(not(unix))]
+fn borrow_this_repos_adapters(_into: &Path) {}
 
 fn skip(why: &str) {
     eprintln!("SKIPPED: {why} (`hick dap install python`, or install debugpy the usual way)");

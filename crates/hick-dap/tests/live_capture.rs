@@ -36,7 +36,12 @@ print(f"total {sum(line_total(q, p) for q, p in LINES):.2f}")
 "##;
 
 /// 1-based line of `    subtotal = quantity * unit_price` in `pricing.py`.
-const SUBTOTAL: u32 = 5;
+///
+/// Six, not five: the generated file opens with the newline that follows
+/// `<hick:file …>`, so every line of the block sits one lower than it reads
+/// in the document. Being one out here is not a rounding error — line 5 is
+/// the `def`, which runs once, at module level, in a different frame.
+const SUBTOTAL: u32 = 6;
 
 struct Project {
     dir: tempfile::TempDir,
@@ -46,9 +51,28 @@ fn project() -> Option<Project> {
     let dir = tempfile::tempdir().ok()?;
     std::fs::create_dir_all(dir.path().join(".git")).ok()?;
     std::fs::write(dir.path().join("doc.hick"), DOC).ok()?;
+    borrow_this_repos_adapters(dir.path());
     hick_dap::discover("python", dir.path())?;
     Some(Project { dir })
 }
+
+/// Point the scratch project at the adapter this repository installed.
+///
+/// A developer runs `hick dap install python` once, at the top of this repo.
+/// A test project in a temp directory is nowhere near it, so without this the
+/// whole file skips on the machine most likely to be running it. CI, which
+/// installs debugpy for the machine, does not need it.
+#[cfg(unix)]
+fn borrow_this_repos_adapters(into: &Path) {
+    let repo = Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let cache = repo.join(".hick-cache");
+    if cache.join("adapters/python/bin/python3").exists() {
+        let _ = std::os::unix::fs::symlink(cache, into.join(".hick-cache"));
+    }
+}
+
+#[cfg(not(unix))]
+fn borrow_this_repos_adapters(_into: &Path) {}
 
 fn skip() {
     eprintln!("SKIPPED: no Python debug adapter (`hick dap install python`)");
@@ -186,6 +210,31 @@ async fn a_capture_run_writes_nothing_into_the_project() {
     assert!(!project.dir.path().join("evidence.txt").exists());
     // Not even the generated file: it was woven into the scratch clone.
     assert!(!project.dir.path().join("pricing.py").exists());
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_capture_follows_a_breakpoint_the_adapter_moves() {
+    // Line 4 is blank. Python cannot stop there, so debugpy slides the
+    // breakpoint down to the `def` below it. Recording nothing would report
+    // "never hit" about a breakpoint that fired — so the capture follows it,
+    // and the woven table says it moved.
+    let Some(project) = project() else {
+        skip();
+        return;
+    };
+    let captured = run(
+        Path::new("doc.hick"),
+        DOC,
+        project.dir.path(),
+        &[spec(4, &["LINES"])],
+    )
+    .await
+    .expect("the capture run finishes");
+
+    assert!(captured[0].moved.is_some(), "{:?}", captured[0]);
+    assert_eq!(captured[0].hits.len(), 1, "{:?}", captured[0]);
+    let table = hick_dap::capture::render(&captured[0]);
+    assert!(table.contains("moved this capture"), "{table}");
 }
 
 #[tokio::test(flavor = "multi_thread")]

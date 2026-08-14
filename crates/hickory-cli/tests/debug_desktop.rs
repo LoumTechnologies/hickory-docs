@@ -91,6 +91,11 @@ async fn send(socket: &mut Socket, request: Value) {
 
 /// Read `0x03` frames until one has this event, or time out.
 async fn wait_for(socket: &mut Socket, event: &str, budget: Duration) -> Option<Value> {
+    wait_for_any(socket, &[event], budget).await
+}
+
+/// Read `0x03` frames until one has any of these events, or time out.
+async fn wait_for_any(socket: &mut Socket, events: &[&str], budget: Duration) -> Option<Value> {
     tokio::time::timeout(budget, async {
         while let Some(Ok(message)) = socket.next().await {
             let TtMessage::Binary(bytes) = message else {
@@ -102,11 +107,12 @@ async fn wait_for(socket: &mut Socket, event: &str, budget: Duration) -> Option<
             let value: Value = serde_json::from_slice(&bytes[1..]).ok()?;
             // A failure is worth surfacing immediately rather than timing
             // out on the event that will never come.
-            if value["event"] == "failed" && event != "failed" {
+            let seen = value["event"].as_str().unwrap_or_default();
+            if seen == "failed" && !events.contains(&"failed") {
                 eprintln!("debug channel failed: {}", value["message"]);
                 return Some(value);
             }
-            if value["event"] == event {
+            if events.contains(&seen) {
                 return Some(value);
             }
         }
@@ -118,6 +124,16 @@ async fn wait_for(socket: &mut Socket, event: &str, budget: Duration) -> Option<
 }
 
 fn python_available(root: &std::path::Path) -> bool {
+    // Borrow this repository's adapter cache, so a developer who ran
+    // `hick dap install python` at the top of the repo exercises this file
+    // instead of skipping it. CI installs debugpy for the machine.
+    #[cfg(unix)]
+    {
+        let cache = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.hick-cache");
+        if cache.join("adapters/python/bin/python3").exists() {
+            let _ = std::os::unix::fs::symlink(cache, root.join(".hick-cache"));
+        }
+    }
     hick_dap::discover("python", root).is_some()
 }
 
@@ -244,9 +260,15 @@ async fn nothing_a_debugger_does_touches_the_project() {
         json!({ "op": "step", "session": session, "how": "continue" }),
     )
     .await;
-    // It either stops again or finishes; both are fine, and both mean the
-    // write has happened by the time we look.
-    let _ = wait_for(&mut app.socket, "finished", Duration::from_secs(60)).await;
+    // It either stops again — this document's breakpoint is inside a
+    // function called once per line of the order — or finishes. Both are
+    // fine, and waiting for only one of them is waiting for a timeout.
+    let _ = wait_for_any(
+        &mut app.socket,
+        &["stopped", "finished"],
+        Duration::from_secs(60),
+    )
+    .await;
 
     send(&mut app.socket, json!({ "op": "stop", "session": session })).await;
     wait_for(&mut app.socket, "ended", Duration::from_secs(30)).await;

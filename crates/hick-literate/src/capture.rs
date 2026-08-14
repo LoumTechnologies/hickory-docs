@@ -112,6 +112,20 @@ fn parse_capture(tag: &HickTag) -> Result<CaptureSpec, String> {
         ));
     }
 
+    // `when` belongs to the language: it decides whether a node is in the
+    // document at all, and conditional filtering runs long before anything is
+    // debugged. A capture that wrote `when` for its breakpoint condition
+    // would be quietly deleted whenever that expression looked false, so it
+    // is refused by name rather than misread.
+    if tag_attr(tag, "when").is_some() {
+        return Err(format!(
+            "line {line_no}: <hick:capture when=\"…\"> means what `when` means everywhere else \
+             in a document — include this node only if the condition holds — and it is decided \
+             before the program runs. Write the breakpoint's own condition as \
+             `condition=\"quantity > 2\"`, which is evaluated by the debugger, in the debuggee."
+        ));
+    }
+
     let max = match tag_attr(tag, "max") {
         None => DEFAULT_MAX_HITS,
         Some(raw) => {
@@ -135,7 +149,7 @@ fn parse_capture(tag: &HickTag) -> Result<CaptureSpec, String> {
         file,
         line,
         expressions,
-        condition: tag_attr(tag, "when").filter(|c| !c.trim().is_empty()),
+        condition: tag_attr(tag, "condition").filter(|c| !c.trim().is_empty()),
         max,
     })
 }
@@ -186,7 +200,7 @@ mod tests {
 <hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="out.md">
 <hick:exec container="lab">
 python3 pricing.py
-  <hick:capture at="pricing.py:14" of="subtotal, len(lines)" when="subtotal &lt; 0" max="5" />
+  <hick:capture at="pricing.py:14" of="subtotal, len(lines)" condition="subtotal &lt; 0" max="5" />
 </hick:exec>
 </hick:doc>
 "##;
@@ -254,6 +268,16 @@ python3 pricing.py
     }
 
     #[test]
+    fn a_when_is_refused_because_the_language_owns_it() {
+        // `when` is conditional inclusion, applied before anything runs. A
+        // capture that used it for its breakpoint condition would vanish from
+        // the document instead of firing — which is how this was found.
+        let source = DOC.replace("&lt;", "<").replace("condition=", "when=");
+        let error = parse(&source).unwrap_err();
+        assert!(error.contains("condition=\"quantity > 2\""), "{error}");
+    }
+
+    #[test]
     fn a_capture_outside_a_cell_is_refused() {
         let source = r##"<?xml version="1.0" encoding="UTF-8"?>
 <hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="out.md">
@@ -266,9 +290,11 @@ python3 pricing.py
 
     #[test]
     fn a_document_with_no_captures_collects_nothing() {
-        let source = DOC
-            .replace("&lt;", "<")
-            .replace("  <hick:capture at=\"pricing.py:14\" of=\"subtotal, len(lines)\" when=\"subtotal < 0\" max=\"5\" />\n", "");
+        let source = DOC.replace("&lt;", "<").replace(
+            "  <hick:capture at=\"pricing.py:14\" of=\"subtotal, len(lines)\" \
+                 condition=\"subtotal < 0\" max=\"5\" />\n",
+            "",
+        );
         assert!(parse(&source).unwrap().is_empty());
     }
 }

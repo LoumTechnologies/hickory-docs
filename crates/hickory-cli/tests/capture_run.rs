@@ -15,6 +15,7 @@ const DOC: &str = r##"<?xml version="1.0" encoding="UTF-8"?>
 # Pricing
 
 <hick:container name="lab" />
+<hick:volume name="src" input="." />
 
 <hick:file path="pricing.py">
 LINES = [(2, 9.99), (1, 24.50)]
@@ -28,9 +29,9 @@ def line_total(quantity, unit_price):
 print(f"total {sum(line_total(q, p) for q, p in LINES):.2f}")
 </hick:file>
 
-<hick:exec container="lab">
-python3 pricing.py
-  <hick:capture at="pricing.py:5" of="quantity, unit_price" />
+<hick:exec container="lab" mount="src:project">
+cd project && python3 pricing.py
+  <hick:capture at="pricing.py:6" of="quantity, unit_price" />
 </hick:exec>
 </hick:doc>
 "##;
@@ -40,6 +41,16 @@ fn hick() -> Command {
 }
 
 fn adapter_available(root: &Path) -> bool {
+    // Borrow this repository's adapter cache, so a developer who ran
+    // `hick dap install python` at the top of the repo actually exercises
+    // this file instead of skipping it. CI installs debugpy for the machine.
+    #[cfg(unix)]
+    {
+        let cache = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.hick-cache");
+        if cache.join("adapters/python/bin/python3").exists() {
+            let _ = std::os::unix::fs::symlink(cache, root.join(".hick-cache"));
+        }
+    }
     hick_dap::discover("python", root).is_some()
 }
 
@@ -110,7 +121,7 @@ fn a_malformed_capture_is_refused_before_anything_runs() {
     let doc = dir.path().join("bad.hick");
     std::fs::write(
         &doc,
-        DOC.replace("at=\"pricing.py:5\"", "at=\"pricing.py\""),
+        DOC.replace("at=\"pricing.py:6\"", "at=\"pricing.py\""),
     )
     .unwrap();
 

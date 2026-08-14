@@ -280,7 +280,7 @@ async fn handle_inner(
                 .jump_to(line, thread)
                 .await
                 .map_err(|e| (Some(session.clone()), e))?;
-            Ok(settle(&session, &live).await)
+            Ok(settle_in_place(&session, &live).await)
         }
 
         Request::RunTo { session, line } => {
@@ -361,6 +361,22 @@ async fn settle(session: &str, live: &Arc<crate::debug_sessions::Live>) -> Vec<R
             message: format!("{error:#}"),
         }],
     }
+}
+
+/// Answer a move that leaves the program *already stopped*.
+///
+/// A jump moves the instruction pointer without resuming, and the protocol
+/// says the adapter then reports a `stopped` with reason `goto`. debugpy does
+/// not, so waiting for one is waiting for the timeout — and the app would sit
+/// with a stale paused line for a minute over a move that already happened.
+/// A short grace period picks up the event where an adapter does send it, and
+/// otherwise the answer is simply where we are now.
+async fn settle_in_place(session: &str, live: &Arc<crate::debug_sessions::Live>) -> Vec<Response> {
+    if let Ok(Some(stopped)) = live.session.wait_for_stop(Duration::from_millis(400)).await {
+        *live.thread_id.lock().await = Some(stopped.thread_id);
+        return position_with(session, live, &stopped.reason).await;
+    }
+    position_with(session, live, "goto").await
 }
 
 async fn position(session: &str, live: &Arc<crate::debug_sessions::Live>) -> Vec<Response> {

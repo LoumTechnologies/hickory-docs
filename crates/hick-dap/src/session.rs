@@ -27,7 +27,7 @@ use std::time::Duration;
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, mpsc};
 
 use crate::adapter::Adapter;
 use crate::protocol::Event;
@@ -126,6 +126,33 @@ pub struct BreakpointStatus {
     pub verified: bool,
     #[serde(default)]
     pub message: Option<String>,
+    /// The document line the adapter actually bound it to, when that is not
+    /// the line that was asked for.
+    ///
+    /// Adapters slide a breakpoint down to the nearest line that can hold one
+    /// — a blank line, a comment, or a docstring becomes the statement after
+    /// it. Silently keeping the requested line makes the gutter disagree with
+    /// where the program stops, and makes a `<hick:capture>` on a docstring
+    /// look like a breakpoint that never fires.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub moved_to: Option<u32>,
+}
+
+/// Read a `stopped` event body.
+fn stopped_from(body: &Value) -> Stopped {
+    Stopped {
+        reason: body
+            .get("reason")
+            .and_then(Value::as_str)
+            .unwrap_or("?")
+            .into(),
+        thread_id: body.get("threadId").and_then(Value::as_i64).unwrap_or(1),
+        description: body
+            .get("description")
+            .and_then(Value::as_str)
+            .map(str::to_string),
+        text: body.get("text").and_then(Value::as_str).map(str::to_string),
+    }
 }
 
 /// Where execution is, in the document.
@@ -199,6 +226,15 @@ pub struct Session {
     mapping: Arc<Mapping>,
     /// The most recent stop, so a caller that missed the event can still ask.
     last_stopped: tokio::sync::Mutex<Option<Stopped>>,
+    /// Stops, queued from the moment the session exists.
+    ///
+    /// A caller subscribing only when it is ready to wait loses any stop that
+    /// arrived first — and after a `continue`, the program can hit the next
+    /// breakpoint before the request even returns. That race is not
+    /// theoretical: it made a `<hick:capture>` record its first hit and no
+    /// other. A queue filled by a task that starts with the session cannot
+    /// miss one.
+    stops: tokio::sync::Mutex<mpsc::UnboundedReceiver<Option<Stopped>>>,
 }
 
 /// Document <-> generated-file coordinates for the files a cell can stop in.
@@ -331,11 +367,33 @@ impl Session {
             .await
             .context("the adapter never became ready for breakpoints")?;
 
+        let (tx, stops) = mpsc::unbounded_channel();
+        let mut watch = adapter.events();
+        tokio::spawn(async move {
+            while let Ok(event) = watch.recv().await {
+                match event.event.as_str() {
+                    "stopped" => {
+                        if tx.send(Some(stopped_from(&event.body))).is_err() {
+                            return;
+                        }
+                    }
+                    // `None` is "there will be no more stops", which is what
+                    // a waiting caller needs to hear.
+                    "terminated" | "exited" => {
+                        let _ = tx.send(None);
+                        return;
+                    }
+                    _ => {}
+                }
+            }
+        });
+
         let session = Self {
             adapter,
             capabilities,
             mapping,
             last_stopped: tokio::sync::Mutex::new(None),
+            stops: tokio::sync::Mutex::new(stops),
         };
         let statuses = session.set_breakpoints(breakpoints).await?;
         session
@@ -369,6 +427,7 @@ impl Session {
                 Some((path, line)) => by_file.entry(path).or_default().push((breakpoint, line)),
                 None => unmapped.push(BreakpointStatus {
                     line: breakpoint.line,
+                    moved_to: None,
                     verified: false,
                     message: Some(
                         "this line is prose, not code the document generates — there is nothing \
@@ -422,6 +481,13 @@ impl Session {
                 .unwrap_or_default();
             for (index, (breakpoint, _)) in entries.iter().enumerate() {
                 let answer = verified.get(index);
+                // Where it really landed, back in document coordinates.
+                let bound = answer
+                    .and_then(|a| a.get("line"))
+                    .and_then(Value::as_u64)
+                    .map(|line| (line as u32).saturating_sub(1))
+                    .and_then(|line| self.mapping.to_document(&path, line))
+                    .filter(|line| *line != breakpoint.line);
                 out.push(BreakpointStatus {
                     line: breakpoint.line,
                     verified: answer
@@ -432,6 +498,7 @@ impl Session {
                         .and_then(|a| a.get("message"))
                         .and_then(Value::as_str)
                         .map(str::to_string),
+                    moved_to: bound,
                 });
             }
         }
@@ -440,50 +507,20 @@ impl Session {
     }
 
     /// Wait for the next stop, or for the program to end.
+    ///
+    /// Reads the queue that has been filling since the session started, so a
+    /// stop that arrived before this call is still waiting here.
     pub async fn wait_for_stop(&self, timeout: Duration) -> Result<Option<Stopped>> {
-        let mut events = self.adapter.events();
-        let deadline = tokio::time::Instant::now() + timeout;
-        loop {
-            let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
-            if remaining.is_zero() {
-                return Ok(None);
+        let mut stops = self.stops.lock().await;
+        match tokio::time::timeout(timeout, stops.recv()).await {
+            Ok(Some(Some(stopped))) => {
+                *self.last_stopped.lock().await = Some(stopped.clone());
+                Ok(Some(stopped))
             }
-            let Ok(Ok(event)) = tokio::time::timeout(remaining, events.recv()).await else {
-                return Ok(None);
-            };
-            match event.event.as_str() {
-                "stopped" => {
-                    let stopped = Stopped {
-                        reason: event
-                            .body
-                            .get("reason")
-                            .and_then(Value::as_str)
-                            .unwrap_or("?")
-                            .into(),
-                        thread_id: event
-                            .body
-                            .get("threadId")
-                            .and_then(Value::as_i64)
-                            .unwrap_or(1),
-                        description: event
-                            .body
-                            .get("description")
-                            .and_then(Value::as_str)
-                            .map(str::to_string),
-                        text: event
-                            .body
-                            .get("text")
-                            .and_then(Value::as_str)
-                            .map(str::to_string),
-                    };
-                    *self.last_stopped.lock().await = Some(stopped.clone());
-                    return Ok(Some(stopped));
-                }
-                // The program ended without stopping again, which is a
-                // perfectly ordinary answer to "continue".
-                "terminated" | "exited" => return Ok(None),
-                _ => {}
-            }
+            // The program ended, or the adapter is gone: either way there
+            // will be no more stops.
+            Ok(Some(None)) | Ok(None) => Ok(None),
+            Err(_) => Ok(None),
         }
     }
 

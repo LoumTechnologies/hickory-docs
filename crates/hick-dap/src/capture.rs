@@ -85,6 +85,10 @@ pub struct Captured {
     /// Set when the breakpoint could not be placed at all, in words that say
     /// what to do about it.
     pub problem: Option<String>,
+    /// The document line the adapter slid the breakpoint down to, when it was
+    /// not the line the capture named. Reported, because a table of values
+    /// from a line the author did not write is a table they cannot trust.
+    pub moved: Option<u32>,
 }
 
 /// Run a document's captures.
@@ -136,6 +140,7 @@ pub async fn run(
             spec: spec.clone(),
             hits: Vec::new(),
             truncated: false,
+            moved: None,
             problem: match line {
                 Some(_) => None,
                 None => Some(format!(
@@ -163,11 +168,12 @@ pub async fn run(
     )
     .await?;
 
-    for (slot, (index, line)) in resolved.iter().enumerate() {
-        let Some(line) = line else { continue };
-        if let Some(status) = statuses.iter().find(|s| s.line == *line)
-            && !status.verified
-        {
+    for (slot, (index, line)) in resolved.iter_mut().enumerate() {
+        let Some(asked) = *line else { continue };
+        let Some(status) = statuses.iter().find(|s| s.line == asked) else {
+            continue;
+        };
+        if !status.verified {
             out[slot].problem = Some(format!(
                 "the debugger would not place a breakpoint at {}:{}{}. A blank line, a comment, \
                  or a line the program never loads cannot hold one.",
@@ -179,6 +185,14 @@ pub async fn run(
                     .map(|m| format!(" ({m})"))
                     .unwrap_or_default(),
             ));
+        }
+        if let Some(moved) = status.moved_to {
+            // Follow it. A capture written on a docstring or a blank line
+            // binds to the statement below, and recording nothing there
+            // would report "never hit" about a breakpoint that fired every
+            // time. The document is told where it ended up.
+            *line = Some(moved);
+            out[slot].moved = Some(moved);
         }
     }
 
@@ -367,6 +381,12 @@ pub fn render(captured: &Captured) -> String {
     if let Some(problem) = &captured.problem {
         return format!("_capture at {location}: {problem}_\n");
     }
+    if captured.moved.is_some() && !captured.hits.is_empty() {
+        out.push_str(&format!(
+            "_the debugger moved this capture off {location} to the next line that can hold a \
+             breakpoint_\n\n"
+        ));
+    }
     if captured.hits.is_empty() {
         return format!(
             "_capture at {location}: never hit{}_\n",
@@ -496,6 +516,7 @@ mod tests {
             },
             hits,
             truncated,
+            moved: None,
             problem: None,
         }
     }

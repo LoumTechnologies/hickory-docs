@@ -201,12 +201,19 @@ it. The client is a debugger UI, not a debug adapter client. See
 ```xml
 <hick:exec container="lab">
 python3 pricing.py
-  <hick:capture at="pricing.py:14" of="subtotal, len(lines)" when="subtotal < 0" />
+  <hick:capture at="pricing.py:14" of="subtotal, len(lines)" condition="subtotal < 0" />
 </hick:exec>
 ```
 
 `at` is a location in a generated file, which is a location in the document.
-`of` is a list of expressions. `when` is a breakpoint condition.
+`of` is a list of expressions. `condition` is a breakpoint condition.
+
+*Revised in the building.* This was drafted as `when`, and `when` was already
+taken: it is the language's conditional-inclusion attribute, applied while the
+document is being prepared. A capture that wrote `when` was deleted from the
+document before it could ever fire — so the attribute is `condition` (DAP's own
+word for it), and a capture carrying a `when` is refused with that explanation
+rather than silently dropped.
 
 A condition wants `<` and `>`, and the no-escaping invariant means there is no
 `&lt;` to fall back on — so this was checked before being specified: the

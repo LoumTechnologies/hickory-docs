@@ -244,11 +244,14 @@ fn search(dirs: &[PathBuf], name: &str) -> Option<String> {
 /// language-server discovery uses, including the walk to the repository root
 /// that makes a monorepo work.
 fn project_dirs(root: &Path) -> Vec<PathBuf> {
-    let mut dirs = vec![
-        root.join(".hick-cache/adapters/python/bin"),
-        root.join(".hick-cache/adapters/node/node_modules/.bin"),
-    ];
+    let mut dirs = Vec::new();
     for ancestor in ancestors_to_repo_root(root) {
+        // The adapter cache belongs to the repository, not to whichever
+        // directory a document happens to sit in. `hick dap install` run at
+        // the top of a project has to serve a document three folders down,
+        // or the install looks like it did nothing.
+        dirs.push(ancestor.join(".hick-cache/adapters/python/bin"));
+        dirs.push(ancestor.join(".hick-cache/adapters/node/node_modules/.bin"));
         for layout in [
             "node_modules/.bin",
             ".venv/bin",
@@ -291,6 +294,18 @@ fn machine_dirs() -> Vec<PathBuf> {
 }
 
 fn ancestors_to_repo_root(root: &Path) -> Vec<PathBuf> {
+    // A relative root has no ancestors worth walking — `.` climbs to `""` and
+    // stops — so make it absolute first. Callers pass whatever the run was
+    // given, and "the adapter is not installed" is a bad way to find out that
+    // a path was relative.
+    let absolute = if root.as_os_str().is_empty() {
+        // A document named without a directory gives the run an empty working
+        // directory, and `absolute("")` is an error rather than the cwd.
+        std::env::current_dir().ok()
+    } else {
+        std::path::absolute(root).ok()
+    };
+    let root = &absolute.unwrap_or_else(|| root.to_path_buf());
     let mut out = vec![root.to_path_buf()];
     if root.join(".git").exists() {
         return out;
@@ -339,6 +354,43 @@ mod tests {
         assert_eq!(found.origin, "project");
         assert_eq!(found.adapter, "delve");
         assert_eq!(found.command.last().unwrap(), "dap");
+    }
+
+    #[test]
+    fn an_installed_adapter_serves_a_document_further_down_the_tree() {
+        // `hick dap install` writes one cache at the top of the project. A
+        // document three folders down has to find it, or the install looks
+        // like it did nothing.
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir_all(dir.path().join(".git")).unwrap();
+        executable(
+            &dir.path().join(".hick-cache/adapters/python/bin"),
+            "python3",
+        );
+        let deep = dir.path().join("docs/reports");
+        fs::create_dir_all(&deep).unwrap();
+        let found = discover("python", &deep).expect("found the project's adapter");
+        assert_eq!(found.origin, "project");
+        assert_eq!(found.adapter, "debugpy");
+    }
+
+    #[test]
+    fn a_relative_root_still_walks_up_to_the_project() {
+        // A run is given whatever working directory it was started with, and
+        // `.` has no ancestors to walk: without absolutising it, the adapter
+        // is reported missing on a machine where it is installed. Asserted on
+        // the walk rather than by changing this process's directory, which
+        // would race every other test in this binary.
+        for relative in [".", ""] {
+            let walked = ancestors_to_repo_root(Path::new(relative));
+            assert!(walked[0].is_absolute(), "{relative:?} -> {walked:?}");
+        }
+        let walked = ancestors_to_repo_root(Path::new("."));
+        assert!(
+            walked.len() > 1 || walked[0].join(".git").exists(),
+            "a relative root did not climb: {walked:?}"
+        );
+        assert!(walked[0].is_absolute(), "{walked:?}");
     }
 
     #[test]

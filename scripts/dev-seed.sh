@@ -92,6 +92,87 @@ cd project && python3 stats.py
 </hick:doc>
 EOF
 
+write_if_absent "$PROJECT_DIR/debugging.hick" <<'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="debugging.md">
+# Scratch project — the debugger
+
+A document you can *stop inside*. Everything below is meant to be tried in the
+app rather than read: the editor is a real Python editor here, the gutter takes
+breakpoints, and the last cell records values from inside a function without
+anybody stepping at all.
+
+## The program
+
+Editing this block is editing `orders.py`. Hover a name for its type, ctrl-space
+for completions, and misspell something to watch the squiggle appear — the
+language server is the real one, running against the file this weaves.
+
+<hick:file path="orders.py" language="python">
+ORDERS = [
+    ("widget", 2, 9.99),
+    ("gizmo", 1, 24.50),
+    ("doohickey", 12, 1.25),
+]
+
+BULK_THRESHOLD = 10
+BULK_DISCOUNT = 0.15
+
+
+def line_total(name, quantity, unit_price):
+    """What one line of the order is worth, after any bulk discount."""
+    subtotal = quantity * unit_price
+    if quantity >= BULK_THRESHOLD:
+        subtotal = subtotal * (1 - BULK_DISCOUNT)
+    return round(subtotal, 2)
+
+
+def order_total(lines):
+    return round(sum(line_total(*line) for line in lines), 2)
+
+
+if __name__ == "__main__":
+    print(f"total {order_total(ORDERS):.2f}")
+</hick:file>
+
+## Stopping inside it
+
+Click the gutter beside `subtotal = quantity * unit_price` to leave a red dot,
+then start the debugger. The paused line gets an arrow, values appear at the end
+of every line that mentions one, and hovering a name shows what it holds *now*
+on top of what the language server says it is.
+
+Step in, over and out; run to the cursor; evaluate anything you like in the
+frame you are stopped in. Backwards works too, as far as the adapter allows —
+on Python that means moving the instruction pointer, which **re-runs** the line
+rather than rewinding it, and the control says so.
+
+Nothing you do in there touches this folder: the debugger runs a copy.
+
+## Recording what it saw, with nobody watching
+
+The cell below runs the program the ordinary way. The captures are breakpoints
+the *document* owns — each hit evaluates the same expressions the interactive
+pane would, and the values are woven in underneath, where an expectation block
+can pin them.
+
+<hick:container name="py" />
+<hick:volume name="src" input="." />
+
+<hick:exec container="py" mount="src:project">
+cd project && python3 orders.py
+  <hick:capture at="orders.py:15" of="name, quantity, subtotal" />
+  <hick:capture at="orders.py:17" of="name, subtotal" condition="quantity >= BULK_THRESHOLD" />
+</hick:exec>
+
+A breakpoint stops *before* its line runs, so both captures sit one line below
+the assignment they are about: the first records the plain subtotal for every
+line of the order, and the second records the discounted one — but only for the
+bulk line, which is the claim worth making about this program and the one no
+amount of checking stdout can reach.
+</hick:doc>
+EOF
+
 # Weave once, so a fresh seed is CONSISTENT rather than drifted. Without this
 # the first thing a developer might try — `hick test .dev/project` — reports a
 # failure that is really just "nothing has run yet", which is a bad first
