@@ -111,6 +111,9 @@ enum Command {
     /// Show or install the language servers that power the editor.
     #[command(subcommand)]
     Lsp(LspCommand),
+    /// Show or install the debug adapters that power breakpoints.
+    #[command(subcommand)]
+    Dap(DapCommand),
     /// Internal: run a command inside a Windows AppContainer.
     ///
     /// Not for people. On Windows the sandbox is applied by the process that
@@ -136,6 +139,19 @@ enum LspCommand {
     /// `npm install` and `uv pip install` execute arbitrary setup code, so
     /// they are treated as what they are. Nothing is written outside
     /// `.hick-cache/`, which `hick init` already keeps out of git.
+    Install(LspInstallArgs),
+}
+
+#[derive(Subcommand)]
+enum DapCommand {
+    /// List every debug adapter this can install, and whether it can.
+    ///
+    /// Installing is never automatic, for the same reason it is not for
+    /// language servers: it fetches from the network and runs the package's
+    /// own setup scripts. What is already on your machine is preferred.
+    List,
+    /// Install a language's debug adapter into `.hick-cache/adapters/`,
+    /// confined.
     Install(LspInstallArgs),
 }
 
@@ -481,6 +497,7 @@ fn main() -> ExitCode {
             Command::Init(args) => cmd_init(args),
             Command::Doc(cmd) => cmd_doc(cmd).await,
             Command::Lsp(cmd) => cmd_lsp(cmd),
+            Command::Dap(cmd) => cmd_dap(cmd),
             Command::SandboxRun(args) => cmd_sandbox_run(args),
             Command::Mcp(args) => {
                 hickory_cli::mcp::serve(
@@ -919,20 +936,11 @@ fn cmd_lsp(command: LspCommand) -> Result<ExitCode> {
 
     match command {
         LspCommand::List => {
-            println!("Language servers `hick lsp install` can fetch:\n");
-            for plan in lsp_install::plans() {
-                println!("  {} — {}", plan.language, plan.package);
-                println!("      {}", plan.reason);
-                match plan.blocked {
-                    Some(reason) => println!("      unavailable: {reason}"),
-                    None => println!("      ready: `hick lsp install {}`", plan.language),
-                }
-            }
-            println!(
-                "\nAnything already installed on your machine is preferred over these — \
-                 run `hick init` to see what was found.\nInstalls are confined: they may write \
-                 only {}, and nothing else on your machine.",
-                lsp_install::SERVERS_DIR
+            report_catalogue(
+                "Language servers `hick lsp install` can fetch:",
+                lsp_install::plans(),
+                "hick lsp install",
+                lsp_install::SERVERS_DIR,
             );
             Ok(ExitCode::SUCCESS)
         }
@@ -941,18 +949,7 @@ fn cmd_lsp(command: LspCommand) -> Result<ExitCode> {
                 Some(root) => root,
                 None => std::env::current_dir().context("resolving the current directory")?,
             };
-            let languages: Vec<String> = if args.languages.is_empty() {
-                // Installing everything is a choice a person can reasonably
-                // make, but it must be the one they typed, so it only
-                // happens on a bare `hick lsp install`.
-                lsp_install::plans()
-                    .into_iter()
-                    .filter(|plan| plan.blocked.is_none())
-                    .map(|plan| plan.language)
-                    .collect()
-            } else {
-                args.languages
-            };
+            let languages = chosen_languages(args.languages, lsp_install::plans());
             if languages.is_empty() {
                 println!(
                     "Nothing to install: none of the installers' tools (uv, npm) are on this \
@@ -972,6 +969,84 @@ fn cmd_lsp(command: LspCommand) -> Result<ExitCode> {
             Ok(ExitCode::SUCCESS)
         }
     }
+}
+
+fn cmd_dap(command: DapCommand) -> Result<ExitCode> {
+    use hickory_cli::dap_install;
+
+    match command {
+        DapCommand::List => {
+            report_catalogue(
+                "Debug adapters `hick dap install` can fetch:",
+                dap_install::plans(),
+                "hick dap install",
+                dap_install::ADAPTERS_DIR,
+            );
+            Ok(ExitCode::SUCCESS)
+        }
+        DapCommand::Install(args) => {
+            let root = match args.root {
+                Some(root) => root,
+                None => std::env::current_dir().context("resolving the current directory")?,
+            };
+            let languages = chosen_languages(args.languages, dap_install::plans());
+            if languages.is_empty() {
+                println!(
+                    "Nothing to install: none of the installers' tools (uv, npm) are on this \
+                     machine.\nInstall one of them, or install an adapter yourself — either way \
+                     hick will find it."
+                );
+                return Ok(ExitCode::SUCCESS);
+            }
+            for language in &languages {
+                println!("Installing the {language} debug adapter, sandboxed…");
+                let prefix = dap_install::install(&root, language)?;
+                println!("  installed into {}", prefix.display());
+            }
+            println!("\nSet a breakpoint in a document — the adapter is found automatically.");
+            Ok(ExitCode::SUCCESS)
+        }
+    }
+}
+
+/// The languages to install: what was asked for, or everything possible.
+///
+/// Installing everything is a choice a person can reasonably make, but it
+/// must be the one they typed, so it only happens on a bare `install`.
+fn chosen_languages(
+    asked: Vec<String>,
+    plans: Vec<hickory_cli::tool_install::InstallPlan>,
+) -> Vec<String> {
+    if !asked.is_empty() {
+        return asked;
+    }
+    plans
+        .into_iter()
+        .filter(|plan| plan.blocked.is_none())
+        .map(|plan| plan.language)
+        .collect()
+}
+
+/// Print a catalogue the same way for both tools.
+fn report_catalogue(
+    heading: &str,
+    plans: Vec<hickory_cli::tool_install::InstallPlan>,
+    command: &str,
+    prefix: &str,
+) {
+    println!("{heading}\n");
+    for plan in plans {
+        println!("  {} — {}", plan.language, plan.package);
+        println!("      {}", plan.reason);
+        match plan.blocked {
+            Some(reason) => println!("      unavailable: {reason}"),
+            None => println!("      ready: `{command} {}`", plan.language),
+        }
+    }
+    println!(
+        "\nAnything already installed on your machine is preferred over these.\nInstalls are \
+         confined: they may write only {prefix}, and nothing else on your machine."
+    );
 }
 
 /// The Windows sandbox launcher (see `Command::SandboxRun`).
