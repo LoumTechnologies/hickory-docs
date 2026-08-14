@@ -122,9 +122,34 @@ impl LspBridge {
             while let Ok(Some(mut message)) = read_framed(&mut stream).await {
                 // The initialize response is this bridge's own business; the
                 // client never sent the request, so it must not get the reply.
+                //
+                // It does get the *capabilities*, as a notification. The
+                // editor cannot decode semantic tokens without the server's
+                // legend — the token types are integers indexing into it —
+                // and it should not draw a rename affordance for a server
+                // that cannot rename. Sending the capabilities keeps the
+                // browser out of the handshake without keeping it ignorant.
                 if message.get("id").and_then(Value::as_i64) == Some(INITIALIZE_ID) {
                     if let Some(tx) = initialized_tx.take() {
                         let _ = tx.send(());
+                    }
+                    let capabilities = message
+                        .get("result")
+                        .and_then(|result| result.get("capabilities"))
+                        .cloned()
+                        .unwrap_or(Value::Null);
+                    let announcement = serde_json::json!({
+                        "jsonrpc": "2.0",
+                        "method": "hick/serverCapabilities",
+                        "params": { "capabilities": capabilities },
+                    });
+                    let mut frame = Vec::with_capacity(64);
+                    frame.push(CHANNEL_LSP);
+                    if let Ok(json) = serde_json::to_vec(&announcement) {
+                        frame.extend_from_slice(&json);
+                        if to_client.send(frame).is_err() {
+                            break;
+                        }
                     }
                     continue;
                 }
@@ -173,14 +198,57 @@ fn initialize_request(root_uri: &str) -> Value {
         "params": {
             "processId": std::process::id(),
             "rootUri": root_uri,
+            // Everything the notebook can render is declared, because a
+            // server that is not asked does not answer: several children
+            // gate a feature on the client claiming it, so under-declaring
+            // here silently removes the feature from the editor.
             "capabilities": {
                 "textDocument": {
                     "publishDiagnostics": { "relatedInformation": false },
                     "hover": { "contentFormat": ["markdown", "plaintext"] },
-                    "completion": { "completionItem": { "snippetSupport": false } },
+                    "completion": {
+                        "completionItem": {
+                            "snippetSupport": false,
+                            "documentationFormat": ["markdown", "plaintext"],
+                            "resolveSupport": { "properties": ["documentation", "detail"] },
+                        }
+                    },
                     "definition": {},
+                    "declaration": {},
+                    "typeDefinition": {},
+                    "implementation": {},
                     "references": {},
-                }
+                    "documentHighlight": {},
+                    "documentSymbol": { "hierarchicalDocumentSymbolSupport": true },
+                    "signatureHelp": {
+                        "signatureInformation": {
+                            "documentationFormat": ["markdown", "plaintext"],
+                            "parameterInformation": { "labelOffsetSupport": true },
+                        }
+                    },
+                    "semanticTokens": {
+                        "requests": { "full": true },
+                        // The server's own legend, not a copy of it: a second
+                        // list here would drift, and the drift shows up as
+                        // code coloured as the wrong kind of thing.
+                        "tokenTypes": hick_lsp::semantic::legend_types(),
+                        "tokenModifiers": hick_lsp::semantic::legend_modifiers(),
+                        "formats": ["relative"],
+                    },
+                    "inlayHint": { "dynamicRegistration": false },
+                    "foldingRange": { "lineFoldingOnly": false },
+                    "selectionRange": {},
+                    "codeAction": {
+                        "codeActionLiteralSupport": {
+                            "codeActionKind": {
+                                "valueSet": ["quickfix", "refactor", "source"],
+                            }
+                        }
+                    },
+                    "codeLens": {},
+                    "rename": { "prepareSupport": true },
+                },
+                "workspace": { "symbol": {} },
             },
         },
     })
@@ -449,11 +517,18 @@ mod tests {
         // the answer that clears the editor's gutter. The server's own
         // `window/logMessage` chatter arrives first and is not what is being
         // waited for.
+        //
+        // The capabilities announcement is collected on the way past: the
+        // editor cannot colour anything without the legend it carries.
+        let mut capabilities = Value::Null;
         let message = tokio::time::timeout(std::time::Duration::from_secs(10), async {
             loop {
                 let frame = from_server.recv().await.expect("channel open");
                 assert_eq!(frame[0], CHANNEL_LSP, "everything here is channel 0x02");
                 let message: Value = serde_json::from_slice(&frame[1..]).unwrap();
+                if message["method"] == "hick/serverCapabilities" {
+                    capabilities = message["params"]["capabilities"].clone();
+                }
                 if message["method"] == "textDocument/publishDiagnostics" {
                     return message;
                 }
@@ -461,6 +536,22 @@ mod tests {
         })
         .await
         .expect("the bridge should publish diagnostics for an opened document");
+
+        // The browser never sends `initialize`, so this notification is the
+        // only way it learns what the server can do — and the legend's ORDER
+        // is the meaning of every token type integer that follows.
+        let legend = &capabilities["semanticTokensProvider"]["legend"]["tokenTypes"];
+        assert!(
+            legend.as_array().is_some_and(|types| !types.is_empty()),
+            "no semantic token legend reached the client: {capabilities}"
+        );
+        assert!(
+            capabilities["renameProvider"] != Value::Null,
+            "the editor was not told the server can rename: {capabilities}"
+        );
+        // And the reply to the handshake itself must NOT reach the client:
+        // it answers a request the client never made.
+        assert!(capabilities["__id"].is_null());
         // Named in the client's scheme, never in the user's filesystem.
         assert_eq!(message["params"]["uri"], "hick:///a.hick");
     }

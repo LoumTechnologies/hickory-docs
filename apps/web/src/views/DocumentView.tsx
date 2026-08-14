@@ -4,9 +4,16 @@ import { WsRealtime, getSharedRealtime, type Realtime } from "../api/realtime";
 import type { Block, Doc, ExecBlock } from "../api/types";
 import { ChatDock } from "../components/ChatDock";
 import { ReferencesPanel } from "../components/ReferencesPanel";
+import { PromptPanel, usePrompt } from "../components/PromptPanel";
 import { byteToChar } from "../lib/offsets";
 import { useLsp } from "../lsp/useLsp";
-import { lspSupport, offsetToPosition, type LspNavigationTarget } from "../lsp/cmLsp";
+import {
+  lspSupport,
+  offsetToPosition,
+  positionToOffset,
+  type LspNavigationTarget,
+} from "../lsp/cmLsp";
+import { lspFeatures } from "../lsp/cmLspFeatures";
 import { positionToUtf16 } from "../lsp/positions";
 import { sourcePositionAt, type OutputProvenance } from "../lsp/outputMapping";
 import type { LspLocation } from "../lsp/client";
@@ -65,6 +72,10 @@ export function DocumentView({ docId }: { docId: string }) {
   const [outputTarget, setOutputTarget] = useState<{ path: string; span: [number, number] } | null>(
     null,
   );
+
+  // Rename and code-action need an answer from the user before the edit
+  // can be applied; this is that answer, in-app rather than in a modal.
+  const { prompt, askText, askChoice, settle } = usePrompt();
 
   const checkRunRef = useRef<string | null>(null);
   // Fast local runs can finish (and emit their terminal WS message) before
@@ -322,8 +333,8 @@ export function DocumentView({ docId }: { docId: string }) {
   };
 
   const lspExtensions = useMemo(
-    () =>
-      lspSupport({
+    () => [
+      ...lspSupport({
         client: lsp.client,
         uri: lsp.uri,
         positionAt: (offset, view) => offsetToPosition(view.state.doc, offset),
@@ -334,6 +345,26 @@ export function DocumentView({ docId }: { docId: string }) {
             query: wordAt(positionToUtf16(liveSource, from.range.start)),
           }),
       }),
+      // The rest of the server: colouring, hints, highlight, folding,
+      // signature help, rename and code actions. Only the document editor
+      // gets them — the output panes' coordinates travel back through
+      // provenance, and a token painted through that mapping would land on
+      // text the author did not write.
+      ...lspFeatures({
+        client: lsp.client,
+        uri: lsp.uri,
+        positionAt: (offset, view) => offsetToPosition(view.state.doc, offset),
+        offsetAt: (position, view) => positionToOffset(view.state.doc, position),
+        inlayHints: true,
+        onRename: (current) => askText(`Rename "${current}" to:`, current),
+        onCodeActions: (actions) =>
+          askChoice(
+            "Code actions",
+            actions.map((action) => ({ label: action.title, value: action })),
+          ),
+        onMessage: (message) => setBanner({ kind: "pending", text: message }),
+      }),
+    ],
     // Rebuilding these would recreate the editor, so they intentionally track
     // only the session identity; the callbacks read live state through refs.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -490,6 +521,7 @@ export function DocumentView({ docId }: { docId: string }) {
           onClose={() => setReferences(null)}
         />
       )}
+      <PromptPanel prompt={prompt} onSettle={settle} />
       <ChatDock
         docId={docId}
         realtime={realtime}

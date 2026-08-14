@@ -40,6 +40,73 @@ export interface CompletionItem {
   [key: string]: unknown;
 }
 
+export interface SignatureHelp {
+  signatures: {
+    label: string;
+    documentation?: unknown;
+    parameters?: { label: string | [number, number]; documentation?: unknown }[];
+    activeParameter?: number;
+  }[];
+  activeSignature?: number;
+  activeParameter?: number;
+}
+
+export interface DocumentSymbol {
+  name: string;
+  detail?: string;
+  kind: number;
+  range: LspRange;
+  selectionRange: LspRange;
+  children?: DocumentSymbol[];
+  /** The flat `SymbolInformation` shape some servers still return. */
+  location?: LspLocation;
+}
+
+export interface InlayHint {
+  position: LspPosition;
+  label: string | { value: string }[];
+  kind?: number;
+  paddingLeft?: boolean;
+  paddingRight?: boolean;
+}
+
+export interface FoldingRange {
+  startLine: number;
+  endLine: number;
+  startCharacter?: number;
+  endCharacter?: number;
+  kind?: string;
+}
+
+export interface CodeAction {
+  title: string;
+  kind?: string;
+  edit?: WorkspaceEdit;
+  command?: { title: string; command: string; arguments?: unknown[] };
+}
+
+export interface WorkspaceEdit {
+  changes?: Record<string, { range: LspRange; newText: string }[]>;
+  documentChanges?: {
+    textDocument?: { uri: string; version?: number | null };
+    edits?: { range: LspRange; newText: string }[];
+  }[];
+}
+
+/** Only the parts of the server's capabilities the notebook acts on. */
+export interface ServerCapabilities {
+  semanticTokensProvider?: {
+    legend?: { tokenTypes?: string[]; tokenModifiers?: string[] };
+  };
+  renameProvider?: unknown;
+  inlayHintProvider?: unknown;
+  foldingRangeProvider?: unknown;
+  documentSymbolProvider?: unknown;
+  signatureHelpProvider?: unknown;
+  codeActionProvider?: unknown;
+  [key: string]: unknown;
+}
+
 type Pending = {
   resolve: (value: unknown) => void;
   reject: (err: Error) => void;
@@ -76,6 +143,8 @@ export class LspClient {
   private nextId = 1;
   private pending = new Map<number, Pending>();
   private diagnosticsListeners = new Set<(params: PublishDiagnosticsParams) => void>();
+  private capabilityListeners = new Set<(capabilities: ServerCapabilities) => void>();
+  private capabilities: ServerCapabilities | null = null;
   private unsubscribe: () => void;
   private disposed = false;
 
@@ -103,6 +172,14 @@ export class LspClient {
     if ("method" in msg && msg.method === "textDocument/publishDiagnostics") {
       const params = (msg as { params?: PublishDiagnosticsParams }).params;
       if (params) for (const cb of this.diagnosticsListeners) cb(params);
+      return;
+    }
+    if ("method" in msg && msg.method === "hick/serverCapabilities") {
+      const params = (msg as { params?: { capabilities?: ServerCapabilities } }).params;
+      this.capabilities = params?.capabilities ?? null;
+      if (this.capabilities) {
+        for (const cb of this.capabilityListeners) cb(this.capabilities);
+      }
     }
   }
 
@@ -188,6 +265,124 @@ export class LspClient {
     return list.items ?? [];
   }
 
+  /** Documentation and the full text edit arrive here, not in the list. */
+  async resolveCompletion(item: CompletionItem): Promise<CompletionItem> {
+    const result = await this.request("completionItem/resolve", item);
+    return (result as CompletionItem) ?? item;
+  }
+
+  async signatureHelp(uri: string, position: LspPosition): Promise<SignatureHelp | null> {
+    const result = await this.request("textDocument/signatureHelp", {
+      textDocument: { uri },
+      position,
+    });
+    return (result as SignatureHelp) ?? null;
+  }
+
+  /** The raw token array, still delta-encoded — see `decodeSemanticTokens`. */
+  async semanticTokens(uri: string): Promise<number[] | null> {
+    const result = await this.request("textDocument/semanticTokens/full", {
+      textDocument: { uri },
+    });
+    const data = (result as { data?: number[] } | null)?.data;
+    return Array.isArray(data) ? data : null;
+  }
+
+  async documentHighlight(uri: string, position: LspPosition): Promise<LspRange[]> {
+    const result = await this.request("textDocument/documentHighlight", {
+      textDocument: { uri },
+      position,
+    });
+    if (!Array.isArray(result)) return [];
+    return (result as { range: LspRange }[]).map((item) => item.range).filter(Boolean);
+  }
+
+  async documentSymbols(uri: string): Promise<DocumentSymbol[]> {
+    const result = await this.request("textDocument/documentSymbol", {
+      textDocument: { uri },
+    });
+    return Array.isArray(result) ? (result as DocumentSymbol[]) : [];
+  }
+
+  async inlayHints(uri: string, range: LspRange): Promise<InlayHint[]> {
+    const result = await this.request("textDocument/inlayHint", {
+      textDocument: { uri },
+      range,
+    });
+    return Array.isArray(result) ? (result as InlayHint[]) : [];
+  }
+
+  async foldingRanges(uri: string): Promise<FoldingRange[]> {
+    const result = await this.request("textDocument/foldingRange", {
+      textDocument: { uri },
+    });
+    return Array.isArray(result) ? (result as FoldingRange[]) : [];
+  }
+
+  async codeActions(uri: string, range: LspRange, diagnostics: LspDiagnostic[] = []) {
+    const result = await this.request("textDocument/codeAction", {
+      textDocument: { uri },
+      range,
+      context: { diagnostics },
+    });
+    return Array.isArray(result) ? (result as CodeAction[]) : [];
+  }
+
+  /** Null means "not renameable here", which the editor should say plainly. */
+  async prepareRename(uri: string, position: LspPosition): Promise<LspRange | null> {
+    const result = await this.request("textDocument/prepareRename", {
+      textDocument: { uri },
+      position,
+    });
+    if (!result) return null;
+    const asRange = result as LspRange & { range?: LspRange };
+    return asRange.range ?? asRange;
+  }
+
+  async rename(uri: string, position: LspPosition, newName: string): Promise<WorkspaceEdit | null> {
+    const result = await this.request("textDocument/rename", {
+      textDocument: { uri },
+      position,
+      newName,
+    });
+    return (result as WorkspaceEdit) ?? null;
+  }
+
+  async typeDefinition(uri: string, position: LspPosition): Promise<LspLocation[]> {
+    return normalizeLocations(
+      await this.request("textDocument/typeDefinition", { textDocument: { uri }, position }),
+    );
+  }
+
+  async implementation(uri: string, position: LspPosition): Promise<LspLocation[]> {
+    return normalizeLocations(
+      await this.request("textDocument/implementation", { textDocument: { uri }, position }),
+    );
+  }
+
+  async declaration(uri: string, position: LspPosition): Promise<LspLocation[]> {
+    return normalizeLocations(
+      await this.request("textDocument/declaration", { textDocument: { uri }, position }),
+    );
+  }
+
+  /**
+   * The server's advertised capabilities, once the bridge has announced them.
+   *
+   * The browser never sends `initialize` — the bridge does it on our behalf —
+   * so this is how the editor learns the semantic-token legend and which
+   * features are worth offering.
+   */
+  onServerCapabilities(cb: (capabilities: ServerCapabilities) => void): () => void {
+    if (this.capabilities) cb(this.capabilities);
+    this.capabilityListeners.add(cb);
+    return () => this.capabilityListeners.delete(cb);
+  }
+
+  get serverCapabilities(): ServerCapabilities | null {
+    return this.capabilities;
+  }
+
   /** Subscribe to server-pushed diagnostics. Returns an unsubscribe fn. */
   onDiagnostics(cb: (params: PublishDiagnosticsParams) => void): () => void {
     this.diagnosticsListeners.add(cb);
@@ -203,5 +398,6 @@ export class LspClient {
     }
     this.pending.clear();
     this.diagnosticsListeners.clear();
+    this.capabilityListeners.clear();
   }
 }

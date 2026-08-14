@@ -1596,6 +1596,100 @@ textarea:focus {
     45deg, transparent 65%, var(--warn, #b8860b) 65%, var(--warn, #b8860b) 80%, transparent 80%
   );
 }
+/* Semantic tokens from the language server.
+   Mapped onto the SAME palette the local highlighter uses, so a block the
+   server can colour and one it cannot look like the same editor rather than
+   two. Both themes come free: the variables are already defined for each. */
+.cm-st-keyword,
+.cm-st-modifier { color: var(--tok-keyword); }
+.cm-st-string,
+.cm-st-regexp { color: var(--tok-string); }
+.cm-st-comment { color: var(--tok-comment); font-style: italic; }
+.cm-st-number,
+.cm-st-enumMember { color: var(--tok-literal); }
+.cm-st-type,
+.cm-st-class,
+.cm-st-struct,
+.cm-st-interface,
+.cm-st-enum,
+.cm-st-typeParameter { color: var(--tok-type); }
+.cm-st-function,
+.cm-st-method,
+.cm-st-macro { color: var(--tok-function); }
+.cm-st-property,
+.cm-st-parameter,
+.cm-st-variable { color: var(--tok-property); }
+.cm-st-namespace,
+.cm-st-decorator,
+.cm-st-event { color: var(--tok-meta); }
+.cm-st-operator { color: var(--tok-operator); }
+/* Modifiers layer on top of the type colour rather than replacing it. */
+.cm-stm-declaration,
+.cm-stm-definition { font-weight: 600; }
+.cm-stm-deprecated { text-decoration: line-through; }
+.cm-stm-readonly { font-style: italic; }
+
+/* The call signature, while an argument list is being typed. Pinned to the
+   editor's bottom edge: a tooltip that follows the caret covers the very
+   code the signature is describing. */
+.cm-lsp-signature {
+  position: absolute;
+  right: 0.5rem;
+  bottom: 0.5rem;
+  max-width: 90%;
+  padding: 0.25rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-raised);
+  box-shadow: var(--shadow);
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 0.75rem;
+  color: var(--fg-muted);
+  pointer-events: none;
+  z-index: 5;
+}
+
+/* Rename / code-action prompt. */
+.prompt-panel {
+  position: fixed;
+  right: 1rem;
+  bottom: 1rem;
+  z-index: 40;
+  min-width: 18rem;
+  padding: 0.75rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-raised);
+  box-shadow: var(--shadow);
+}
+.prompt-panel__title {
+  margin: 0 0 0.5rem;
+  font-size: 0.8rem;
+  color: var(--fg-muted);
+}
+.prompt-panel input {
+  width: 100%;
+  margin-bottom: 0.5rem;
+  padding: 0.3rem 0.4rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: ui-monospace, Menlo, monospace;
+}
+.prompt-panel__options {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+.prompt-panel__options button {
+  width: 100%;
+  text-align: left;
+}
+
 .cm-lsp-hover {
   max-width: 34rem;
   padding: 0.4rem 0.6rem;
