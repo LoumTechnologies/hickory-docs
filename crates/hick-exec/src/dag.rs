@@ -682,13 +682,17 @@ fn extract_exec_info(tag: &HickTag, index: usize) -> Result<ExecInfo, DagValidat
 
     // Collect non-command child tags (paste, val, etc.) as stdin sources.
     // Command text is extracted separately via command_text() above.
-    // `<hick:expect>` children are verification metadata, never stdin.
+    // `<hick:expect>` and `<hick:capture>` children are verification
+    // metadata, never stdin.
     let stdin_children: Vec<HickNode> = tag
         .children
         .iter()
         .filter(|child| {
             matches!(child, HickNode::Tag(t)
-                if t.name != "copy" && t.name != "cut" && t.name != "expect")
+                if t.name != "copy"
+                    && t.name != "cut"
+                    && t.name != "expect"
+                    && t.name != "capture")
         })
         .cloned()
         .collect();
@@ -819,14 +823,14 @@ fn extract_agent_info(
 }
 
 /// The command text of an exec/script tag: all text content EXCLUDING any
-/// `<hick:expect>` subtree. Expectations sit inside the exec tag for locality
-/// but are verification metadata, not part of the command.
+/// `<hick:expect>` or `<hick:capture>` subtree. Both sit inside the exec tag
+/// for locality but are verification metadata, not part of the command.
 fn command_text(tag: &HickTag) -> String {
     fn collect(nodes: &[HickNode], out: &mut String) {
         for node in nodes {
             match node {
                 HickNode::Text(t, _) => out.push_str(t),
-                HickNode::Tag(t) if t.name == "expect" => {}
+                HickNode::Tag(t) if t.name == "expect" || t.name == "capture" => {}
                 HickNode::Tag(t) => collect(&t.children, out),
             }
         }

@@ -14,6 +14,9 @@ import {
   type LspNavigationTarget,
 } from "../lsp/cmLsp";
 import { lspFeatures } from "../lsp/cmLspFeatures";
+import { useDebugger } from "../debug/useDebugger";
+import { DebugPanel } from "../debug/DebugPanel";
+import { debugEditor, setBreakpointMarks, setInlineValues, setPausedLine } from "../debug/cmDebug";
 import { positionToUtf16 } from "../lsp/positions";
 import { sourcePositionAt, type OutputProvenance } from "../lsp/outputMapping";
 import type { LspLocation } from "../lsp/client";
@@ -97,6 +100,35 @@ export function DocumentView({ docId }: { docId: string }) {
       if (realtime !== getSharedRealtime()) realtime.close();
     };
   }, [realtime]);
+
+  // The debugger. It is a READER: nothing it does can change the document,
+  // its generated files, or a recorded transcript — the channel carries no
+  // edit operation and the debuggee runs in a scratch copy.
+  const debug = useDebugger(realtime, doc?.path ?? "");
+  const debugRef = useRef(debug);
+  debugRef.current = debug;
+  const editorRef = useRef<import("@codemirror/view").EditorView | null>(null);
+
+  // Push the debugger's state into the editor: the gutter dots, the paused
+  // line, and the values shown at the end of each line.
+  useEffect(() => {
+    const view = editorRef.current;
+    if (!view) return;
+    view.dispatch({
+      effects: [
+        setBreakpointMarks.of(
+          debug.breakpoints.map((breakpoint) => ({
+            line: breakpoint.line,
+            verified: breakpoint.verified,
+            conditional: false,
+            message: breakpoint.message,
+          })),
+        ),
+        setPausedLine.of(debug.pausedLine),
+        setInlineValues.of(debug.variables),
+      ],
+    });
+  }, [debug.breakpoints, debug.pausedLine, debug.variables]);
 
   // Run events arrive in bursts (one terminal message per run, plus the
   // `verify` fallback path), and each used to trigger its own full render.
@@ -344,12 +376,23 @@ export function DocumentView({ docId }: { docId: string }) {
             locations,
             query: wordAt(positionToUtf16(liveSource, from.range.start)),
           }),
+        // While paused, a hover answers two questions at once: what this
+        // symbol IS, and what it currently HOLDS. The type is what it should
+        // be and the value is what it is, and a debugger exists for the
+        // moments those disagree.
+        runtimeValue: (word) => debugRef.current.valueAt(word),
       }),
       // The rest of the server: colouring, hints, highlight, folding,
       // signature help, rename and code actions. Only the document editor
       // gets them — the output panes' coordinates travel back through
       // provenance, and a token painted through that mapping would land on
       // text the author did not write.
+      // The gutter, the paused line and the inline values. Its own layer
+      // rather than part of the LSP one: they answer different questions and
+      // a document with no debugger running still has diagnostics.
+      ...debugEditor({
+        onToggleBreakpoint: (line) => debugRef.current.toggleBreakpoint(line),
+      }),
       ...lspFeatures({
         client: lsp.client,
         uri: lsp.uri,
@@ -486,6 +529,9 @@ export function DocumentView({ docId }: { docId: string }) {
             onRunCell={(id) => void runCell(id)}
             lspExtensions={lspExtensions}
             lspDiagnostics={lsp.diagnostics}
+            onViewReady={(view) => {
+              editorRef.current = view;
+            }}
           />
         ) : view === "split" ? (
           <SplitView
@@ -519,6 +565,33 @@ export function DocumentView({ docId }: { docId: string }) {
           query={references.query}
           onPick={openTarget}
           onClose={() => setReferences(null)}
+        />
+      )}
+      {/* The debugger. Below the editor rather than beside it: the editor
+          carries the gutter, the paused line and the values, and this is the
+          part that is left. */}
+      {view !== "output" && (
+        <DebugPanel
+          status={debug.status}
+          message={debug.message}
+          capabilities={debug.capabilities}
+          frames={debug.frames}
+          variables={debug.variables}
+          selectedFrame={debug.selectedFrame}
+          onSelectFrame={debug.selectFrame}
+          onStep={debug.step}
+          onJumpHere={() => {
+            // "Move here" acts on the caret, which is how a person says
+            // *here* without a second control to pick a line.
+            const editor = editorRef.current;
+            if (!editor) return;
+            const line = editor.state.doc.lineAt(editor.state.selection.main.head).number - 1;
+            debug.jumpTo(line);
+          }}
+          onEvaluate={(expression) => debug.evaluate(expression)}
+          lastValue={debug.lastValue}
+          onStart={debug.start}
+          onStop={debug.stop}
         />
       )}
       <PromptPanel prompt={prompt} onSettle={settle} />

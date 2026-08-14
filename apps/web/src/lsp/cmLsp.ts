@@ -39,6 +39,15 @@ export interface CmLspOptions {
   onNavigate: (target: LspNavigationTarget) => void;
   /** Show a reference list (empty array means "none found"). */
   onReferences?: (locations: LspLocation[], from: LspNavigationTarget) => void;
+  /**
+   * What this identifier currently HOLDS, when a debugger is paused.
+   *
+   * Resolves to null when nothing is paused, which is the usual case. The
+   * value goes above the type in the tooltip: pointing at a symbol while
+   * stopped is usually a question about its value, and the type is the
+   * context for it.
+   */
+  runtimeValue?: (identifier: string) => Promise<string | null>;
 }
 
 // --- diagnostics ------------------------------------------------------------
@@ -149,8 +158,22 @@ function hoverText(contents: unknown): string {
 
 // --- the extension bundle ---------------------------------------------------
 
+/** The identifier under an offset, for asking a debugger about it. */
+export function identifierAt(text: string, offset: number): string | null {
+  const isWord = (ch: string) => /[A-Za-z0-9_$.]/.test(ch);
+  if (offset >= text.length || !isWord(text[offset] ?? "")) return null;
+  let start = offset;
+  while (start > 0 && isWord(text[start - 1])) start--;
+  let end = offset;
+  while (end < text.length && isWord(text[end])) end++;
+  const word = text.slice(start, end);
+  // A bare number is not an identifier, and asking a debugger to evaluate
+  // `42` wastes a round trip to be told it is 42.
+  return /^[A-Za-z_$]/.test(word) ? word : null;
+}
+
 export function lspSupport(opts: CmLspOptions): Extension[] {
-  const { client, uri, positionAt, onNavigate, onReferences } = opts;
+  const { client, uri, positionAt, onNavigate, onReferences, runtimeValue } = opts;
   if (!client) return [lspDiagnosticField];
 
   const requestAt = async (
@@ -180,9 +203,15 @@ export function lspSupport(opts: CmLspOptions): Extension[] {
       // is only half a report.
       const problems = diagnosticsAt(view.state, pos);
       const position = positionAt(pos, view);
-      const result = position ? await client.hover(uri, position).catch(() => null) : null;
+      // Asked in parallel: a hover that waits for the language server and
+      // then the debugger takes twice as long to say one thing.
+      const identifier = identifierAt(view.state.doc.toString(), pos);
+      const [result, value] = await Promise.all([
+        position ? client.hover(uri, position).catch(() => null) : Promise.resolve(null),
+        identifier && runtimeValue ? runtimeValue(identifier).catch(() => null) : Promise.resolve(null),
+      ]);
       const text = hoverText(result?.contents);
-      if (problems.length === 0 && !text.trim()) return null;
+      if (problems.length === 0 && !text.trim() && !value) return null;
 
       return {
         pos,
@@ -199,11 +228,19 @@ export function lspSupport(opts: CmLspOptions): Extension[] {
               : problem.message;
             dom.appendChild(line);
           }
+          if (value && identifier) {
+            // The runtime value, above the type: while stopped, "what does
+            // this hold" is the question being asked.
+            const runtime = document.createElement("div");
+            runtime.className = "cm-lsp-hover-value";
+            runtime.textContent = `${identifier} = ${value}`;
+            dom.appendChild(runtime);
+          }
           if (text.trim()) {
             const info = document.createElement("div");
             // Separated from the problem above it, so two different kinds of
             // statement do not read as one paragraph.
-            info.className = problems.length > 0 ? "cm-lsp-hover-info" : "";
+            info.className = problems.length > 0 || value ? "cm-lsp-hover-info" : "";
             info.textContent = text;
             dom.appendChild(info);
           }

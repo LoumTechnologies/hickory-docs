@@ -28,6 +28,7 @@
 //! See `docs/specs/freeform/local-only.md`.
 
 pub mod api;
+pub mod debug_bridge;
 pub mod lsp_bridge;
 pub mod socket;
 pub mod store;

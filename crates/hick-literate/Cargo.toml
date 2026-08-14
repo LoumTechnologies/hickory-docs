@@ -13,6 +13,9 @@ path = "src/lib.rs"
 hickory-executor = { path = "../hickory-executor" }
 hick-case = { path = "../hick-case" }
 hick-condition = { path = "../hick-condition" }
+# `<hick:capture>` runs the document under a debug adapter. hick-dap reaches
+# hick-lsp for the position mapping and no further, so this is not a cycle.
+hick-dap = { path = "../hick-dap" }
 hick-exec.workspace = true
 hick-handlers = { path = "../hick-handlers" }
 hick-feature = { path = "../hick-feature" }

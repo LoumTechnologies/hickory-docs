@@ -15,7 +15,7 @@
 //!   document, the files it generates, or a committed transcript.
 
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
@@ -78,35 +78,9 @@ impl Registry {
 
         // Weave the document's files into the scratch directory. This is the
         // program the debugger will run, and it is a copy on purpose.
-        let state = hick_lsp::document::HickDocumentState::from_source(&source)
-            .map_err(|e| anyhow::anyhow!("{e}"))?;
-        let mut entry: Option<PathBuf> = None;
-        for file in &state.virtual_files {
-            let path = scratch.path().join(&file.path);
-            if let Some(parent) = path.parent() {
-                std::fs::create_dir_all(parent)?;
-            }
-            std::fs::write(&path, file.content())?;
-            // The first file of a debuggable language is the program, unless
-            // a later one is more obviously an entry point.
-            if entry.is_none() && language_of(Path::new(&file.path)).is_some() {
-                entry = Some(path);
-            }
-        }
-        let program = entry.context(
-            "this document generates no file in a language with a debug adapter, so there is \
-             nothing to debug. Add a `hick:file` block whose path ends in a language hick can \
-             debug (`hick dap list` names them).",
-        )?;
-
-        let language = language_of(&program).context("the entry point has no language")?;
-        let adapter = hick_dap::discover(language, project).with_context(|| {
-            format!(
-                "no debug adapter for {language} on this machine.\n\
-                 Install one with `hick dap install {language}`, or install it the way that \
-                 ecosystem does — hick prefers whatever is already there."
-            )
-        })?;
+        let files = hick_dap::weave_into(&source, scratch.path())?;
+        let program = hick_dap::entry_point(&files)?;
+        let adapter = hick_dap::adapter_for(&program, project)?;
         tracing_adapter(&adapter);
 
         let (session, statuses) = Session::start(
@@ -213,31 +187,9 @@ fn tracing_adapter(found: &hick_dap::Discovered) {
 
 /// The language of a generated file, by extension, for adapter routing.
 ///
-/// Deliberately the same extension table the language server routes by, so a
-/// file that gets Python intelligence gets the Python debugger.
-fn language_of(path: &Path) -> Option<&'static str> {
-    let name = path.to_string_lossy();
-    let language = hick_lsp::lang_detect::language_id(&name)?;
-    // Only the ones an adapter exists for; the rest are not debuggable and
-    // saying so beats starting an adapter that cannot help.
-    hick_dap::known_languages()
-        .into_iter()
-        .find(|known| *known == language)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn a_generated_file_routes_to_its_language() {
-        assert_eq!(language_of(Path::new("app.py")), Some("python"));
-        assert_eq!(language_of(Path::new("src/main.go")), Some("go"));
-        // A language with no adapter is not debuggable, and must not be
-        // offered as if it were.
-        assert_eq!(language_of(Path::new("notes.md")), None);
-        assert_eq!(language_of(Path::new("data.csv")), None);
-    }
 
     #[tokio::test]
     async fn an_unknown_session_says_why_it_might_be_gone() {

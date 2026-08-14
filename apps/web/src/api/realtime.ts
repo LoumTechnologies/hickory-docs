@@ -34,6 +34,12 @@ export interface Realtime {
    * The server owns the `hick-lsp` lifecycle, so a client starts at `didOpen`.
    */
   lsp(): LspChannel | null;
+  /**
+   * The debug channel (0x03), or null when no server backs this realtime.
+   * Raw frames: the debug client does its own encoding, because it speaks the
+   * session API's verbs rather than JSON-RPC.
+   */
+  debug?(): { send(frame: Uint8Array): void } | null;
   close(): void;
 }
 
@@ -46,6 +52,7 @@ export class WsRealtime implements Realtime {
   readonly serverAuthoritative = true;
   private ws: WebSocket | null = null;
   private runListeners = new Set<(msg: RunWsMessage) => void>();
+  private debugHandler: ((frame: Uint8Array) => boolean) | null = null;
   private doc: Y.Doc | null = null;
   private awareness: Awareness | null = null;
   private closed = false;
@@ -91,6 +98,7 @@ export class WsRealtime implements Realtime {
     const channel = frame[0];
     const payload = frame.subarray(1);
     if (this.lspChannel?.handleFrame(frame)) return;
+    if (this.debugHandler?.(frame)) return;
     if (channel === CHANNEL_RUN) {
       const msg = JSON.parse(new TextDecoder().decode(payload)) as RunWsMessage;
       for (const cb of this.runListeners) cb(msg);
@@ -167,6 +175,18 @@ export class WsRealtime implements Realtime {
     // no session exists until something actually asks a language question.
     this.lspChannel ??= createLspChannel({ send: (frame) => this.send(frame) });
     return this.lspChannel;
+  }
+
+  debug(): { send(frame: Uint8Array): void } {
+    // No lazy object needed: the debug client encodes its own frames, so this
+    // is only the way out. Nothing starts on the server until a frame
+    // arrives, exactly as with the language channel.
+    return { send: (frame: Uint8Array) => this.send(frame) };
+  }
+
+  /** Register the debug client so inbound 0x03 frames reach it. */
+  onDebugFrame(handler: (frame: Uint8Array) => boolean) {
+    this.debugHandler = handler;
   }
 
   close() {

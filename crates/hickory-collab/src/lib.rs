@@ -38,6 +38,13 @@ use yrs::{
 pub const CHANNEL_YJS: u8 = 0x00;
 pub const CHANNEL_RUN: u8 = 0x01;
 pub const CHANNEL_LSP: u8 = 0x02;
+/// Debugging: breakpoints, stepping and evaluation for the app's debugger.
+///
+/// Carries the session API's own verbs rather than raw DAP, because DAP
+/// speaks in the coordinates of the file being run and the app speaks in the
+/// document's — and that mapping belongs beside the code that already does
+/// it, not in the browser.
+pub const CHANNEL_DEBUG: u8 = 0x03;
 
 /// Hard ceiling on a live document's text. Well above any real document and
 /// well below the point where a browser stalls rendering it.

@@ -1682,6 +1682,155 @@ textarea:focus {
   z-index: 5;
 }
 
+/* --- the debugger ------------------------------------------------------- */
+
+/* The gutter has four states, not one. A breakpoint the adapter could not
+   bind must not look like one that works — that difference is the whole
+   reason `verified` is reported. */
+.cm-bp {
+  display: inline-block;
+  width: 0.6rem;
+  height: 0.6rem;
+  margin-top: 0.35rem;
+  border-radius: 50%;
+  background: var(--danger);
+}
+.cm-bp-unverified {
+  background: transparent;
+  border: 1.5px solid var(--muted, var(--fg-muted));
+}
+.cm-bp-conditional {
+  /* A wedge out of the dot: visibly a breakpoint, visibly not an ordinary
+     one, and legible without colour. */
+  clip-path: polygon(0 0, 100% 0, 100% 60%, 60% 100%, 0 100%);
+  border-radius: 2px;
+}
+.cm-paused-arrow {
+  display: inline-block;
+  width: 0;
+  height: 0;
+  margin-top: 0.3rem;
+  border-left: 0.5rem solid var(--accent-2);
+  border-top: 0.35rem solid transparent;
+  border-bottom: 0.35rem solid transparent;
+}
+.cm-paused-line {
+  background: color-mix(in srgb, var(--accent-2) 12%, transparent);
+}
+
+/* Inline values: the biggest single thing a debugger UI does, and the one
+   that must not change a line's height. */
+.cm-debug-value {
+  margin-left: 1.2rem;
+  padding: 0 0.3rem;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--accent-2) 10%, transparent);
+  color: var(--fg-muted);
+  font-size: 0.9em;
+  font-style: italic;
+  white-space: pre;
+}
+
+.debug-panel {
+  border-top: 1px solid var(--border);
+  background: var(--bg-raised);
+  padding: 0.5rem 0.75rem 0.75rem;
+  font-size: 0.8rem;
+}
+.debug-panel__bar {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+}
+.debug-panel__bar button {
+  font: inherit;
+  font-size: 0.75rem;
+  padding: 0.2rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--fg);
+  cursor: pointer;
+}
+.debug-panel__bar button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.debug-panel__go { font-weight: 600; }
+.debug-panel__stop { margin-left: auto; }
+.debug-panel__status {
+  color: var(--fg-muted);
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 0.72rem;
+}
+.debug-panel__body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);
+  gap: 1rem;
+  margin-top: 0.6rem;
+}
+.debug-panel h4 {
+  margin: 0 0 0.3rem;
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--fg-muted);
+}
+.debug-panel ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-height: 9rem;
+  overflow: auto;
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 0.72rem;
+}
+.debug-panel__frames button {
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  padding: 0.1rem 0.2rem;
+  border-radius: 3px;
+  cursor: pointer;
+}
+.debug-panel__frames button[aria-pressed="true"] {
+  background: color-mix(in srgb, var(--accent-2) 14%, transparent);
+}
+.debug-panel__foreign { color: var(--fg-muted); }
+.debug-panel__line { color: var(--fg-muted); }
+.debug-panel__vars li {
+  display: flex;
+  gap: 0.4rem;
+  padding: 0.1rem 0.2rem;
+}
+.debug-panel__name { color: var(--tok-property); }
+.debug-panel__value { color: var(--fg); overflow: hidden; text-overflow: ellipsis; }
+.debug-panel__type { color: var(--fg-muted); }
+.debug-panel__eval {
+  display: flex;
+  gap: 0.35rem;
+  margin-top: 0.6rem;
+}
+.debug-panel__eval input {
+  flex: 1;
+  padding: 0.25rem 0.4rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 0.75rem;
+}
+.debug-panel__result {
+  margin: 0.4rem 0 0;
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 0.75rem;
+}
+
 /* Rename / code-action prompt. */
 .prompt-panel {
   position: fixed;
@@ -1731,6 +1880,13 @@ textarea:focus {
   white-space: pre-wrap;
 }
 .cm-lsp-hover-error { color: var(--danger); }
+/* The runtime value, while a debugger is paused. Monospace and prominent:
+   it is the answer to the question the pointer is asking. */
+.cm-lsp-hover-value {
+  font-family: ui-monospace, Menlo, monospace;
+  font-weight: 600;
+  color: var(--accent-2);
+}
 .cm-lsp-hover-warn { color: var(--warn); }
 /* The type information below it, separated so two different kinds of
    statement do not read as one paragraph. */

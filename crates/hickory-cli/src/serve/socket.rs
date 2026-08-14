@@ -20,7 +20,7 @@ use axum::extract::ws::{Message as WsMessage, WebSocket, WebSocketUpgrade};
 use axum::extract::{Query, State};
 use axum::response::{IntoResponse, Response};
 use futures::{SinkExt as _, StreamExt as _};
-use hickory_collab::{CHANNEL_LSP, CHANNEL_RUN, CHANNEL_YJS};
+use hickory_collab::{CHANNEL_DEBUG, CHANNEL_LSP, CHANNEL_RUN, CHANNEL_YJS};
 use serde::Deserialize;
 use tokio::sync::mpsc;
 
@@ -84,6 +84,10 @@ async fn run_socket(state: LocalState, key: String, socket: WebSocket) -> anyhow
     // Started on demand and dropped with the connection, which takes the
     // child language servers with it.
     let mut lsp: Option<LspBridge> = None;
+    // The same rule for debuggers, and it matters more: a debug session holds
+    // a running program and a scratch directory, so one that outlived the
+    // window would leak both.
+    let mut debuggers: Option<std::sync::Arc<crate::debug_sessions::Registry>> = None;
 
     while let Some(msg) = stream.next().await {
         let data = match msg {
@@ -133,6 +137,30 @@ async fn run_socket(state: LocalState, key: String, socket: WebSocket) -> anyhow
                     Err(e) => log::debug!("unparseable lsp frame on {key}: {e}"),
                 }
             }
+            CHANNEL_DEBUG => {
+                // One registry per connection: a debug session belongs to the
+                // window that started it, and every one of them ends when
+                // that window goes away.
+                let registry = debuggers.get_or_insert_with(|| {
+                    std::sync::Arc::new(crate::debug_sessions::Registry::new())
+                });
+                match super::debug_bridge::request_of(&data) {
+                    Ok(request) => {
+                        // Spawned rather than awaited: a `continue` can take
+                        // as long as the program does, and blocking here
+                        // would freeze this window's editing with it.
+                        let registry = registry.clone();
+                        let root = state.index.root().to_path_buf();
+                        let tx = tx.clone();
+                        tokio::spawn(async move {
+                            let responses =
+                                super::debug_bridge::handle(&registry, &root, request).await;
+                            super::debug_bridge::reply(&tx, responses);
+                        });
+                    }
+                    Err(e) => log::debug!("unparseable debug frame on {key}: {e}"),
+                }
+            }
             // Server → client only.
             CHANNEL_RUN => {}
             _ => {}
@@ -141,6 +169,12 @@ async fn run_socket(state: LocalState, key: String, socket: WebSocket) -> anyhow
 
     room.detach(client_id);
     writer.abort();
+    // The window is gone, so its debuggers go with it. Each holds a running
+    // program and a scratch directory; leaking either would mean a process
+    // still executing somebody's code after they closed the tab.
+    if let Some(debuggers) = debuggers {
+        debuggers.stop_all().await;
+    }
     // Flush before the room can be dropped: an edit that never reached the
     // file is an edit the collaborator watched happen and then lost.
     state.rooms.persist_now(&room).await;

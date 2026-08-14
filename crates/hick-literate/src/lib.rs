@@ -6,6 +6,7 @@
 
 pub mod agent_cell;
 pub mod cache;
+pub mod capture;
 pub mod compact;
 pub mod config;
 pub mod equiv;
@@ -737,6 +738,23 @@ fn upstream_keys(
 }
 
 /// Collect every document's `<hick:expect>` declarations, keyed by cell.
+/// Collect every cell's `<hick:capture>` declarations, with the document
+/// each came from — the same shape as the expectations, for the same reason:
+/// a message about a bad capture must name the file it is in.
+fn collect_capture_specs(
+    documents: &[(&str, HickDocument)],
+) -> Result<HashMap<CellId, (String, Vec<hick_dap::CaptureSpec>)>> {
+    let mut out = HashMap::new();
+    for (name, doc) in documents {
+        let cells = capture::collect(&doc.nodes)
+            .map_err(|e| anyhow::anyhow!("invalid <hick:capture> in {name}: {e}"))?;
+        for cell in cells {
+            out.insert(cell.cell.clone(), (name.to_string(), cell.specs));
+        }
+    }
+    Ok(out)
+}
+
 fn collect_expect_specs(
     documents: &[(&str, HickDocument)],
 ) -> Result<HashMap<CellId, (String, expect::ExpectSpec)>> {
@@ -1014,6 +1032,16 @@ pub async fn run_pipeline_live(
     // than by `(container, line)` so an agent cell — which has no container —
     // can carry one too.
     let mut expect_specs = collect_expect_specs(&documents)?;
+    // Captures are read now, before anything runs, so a malformed `at=` is a
+    // parse-time complaint rather than something discovered after the cell it
+    // belongs to has already had its side effects.
+    let mut capture_specs = collect_capture_specs(&documents)?;
+    // The source of each document, for the capture runner: it weaves the
+    // document itself, into a scratch directory it then debugs.
+    let doc_sources: HashMap<String, String> = sources
+        .iter()
+        .map(|(name, source)| ((*name).to_string(), (*source).to_string()))
+        .collect();
     let mut expectations: Vec<ExpectationOutcome> = Vec::new();
     // Per-container source lines, in the order entries were appended.
     let mut exec_lines: HashMap<String, Vec<usize>> = HashMap::new();
@@ -1292,6 +1320,7 @@ pub async fn run_pipeline_live(
                 let written: Vec<String> = volume_provenance.keys().cloned().collect();
                 seed_input_volumes(&mut volume_store, &all_volume_decls, &working_dir, &written)?;
                 expect_specs = collect_expect_specs(&documents)?;
+                capture_specs = collect_capture_specs(&documents)?;
 
                 order = flow_dag.topological_order();
                 let key = agent.key();
@@ -1566,7 +1595,39 @@ pub async fn run_pipeline_live(
                 {
                     hook(&exec_info.container, exec_info.source_line, entry);
                 }
-                let output = exec_result?;
+                let mut output = exec_result?;
+
+                // Captures run *after* the cell, in a scratch clone of the
+                // document under a debug adapter. Two runs rather than one on
+                // purpose: the authoritative run is the ordinary sandboxed
+                // one, and the debugger — which launches the program itself,
+                // outside the container — is never allowed to be the thing
+                // whose side effects the document keeps. What it contributes
+                // is values from inside the functions, which no amount of
+                // stdout reaches.
+                if let Some((doc_name, specs)) =
+                    capture_specs.get(&CellId::exec(&exec_info.container, exec_info.source_line))
+                    && let Some(source) = doc_sources.get(doc_name)
+                {
+                    let table =
+                        capture::run_cell(Path::new(doc_name), source, &working_dir, specs).await;
+                    if !table.is_empty() {
+                        // Appended to the cell's recorded output, which is
+                        // what makes `<hick:expect>` able to pin a value from
+                        // inside a function.
+                        output.push('\n');
+                        output.push_str(&table);
+                        executor.inject_transcript_entry(
+                            &exec_info.container,
+                            hickory_executor::ExecTranscriptEntry {
+                                commands: Vec::new(),
+                                output: table,
+                                events: Vec::new(),
+                                source_line: Some(exec_info.source_line),
+                            },
+                        );
+                    }
+                }
                 exec_lines
                     .entry(exec_info.container.clone())
                     .or_default()

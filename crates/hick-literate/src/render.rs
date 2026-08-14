@@ -95,13 +95,14 @@ fn span_of_tag(tag: &HickTag) -> (usize, usize) {
     tag.source_span.map(|s| (s.start, s.end)).unwrap_or((0, 0))
 }
 
-/// Command text of an exec tag: all text content excluding expect subtrees.
+/// Command text of an exec tag: all text content excluding the expect and
+/// capture subtrees, which are metadata rather than command.
 fn command_text(tag: &HickTag) -> String {
     fn collect(nodes: &[HickNode], out: &mut String) {
         for node in nodes {
             match node {
                 HickNode::Text(t, _) => out.push_str(t),
-                HickNode::Tag(t) if t.name == "expect" => {}
+                HickNode::Tag(t) if t.name == "expect" || t.name == "capture" => {}
                 HickNode::Tag(t) => collect(&t.children, out),
             }
         }

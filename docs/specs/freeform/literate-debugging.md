@@ -183,11 +183,18 @@ it and applies it through the ordinary edit path, undoable and reviewable like
 anything they typed.
 
 **Transport.** The socket already multiplexes by channel byte: `0x00` Yjs,
-`0x01` runs, `0x02` LSP. Debugging is `0x03`, carrying DAP messages the way
-`0x02` carries LSP ones, with a bridge that owns the session's lifetime and
-rewrites paths between the client's scheme and the filesystem — the job
-`LspBridge` does, written as a sibling rather than a generalisation, because
-the two protocols' handshakes differ more than they look.
+`0x01` runs, `0x02` LSP. Debugging is `0x03`.
+
+*Revised in the building.* This was drafted as "DAP messages the way `0x02`
+carries LSP ones". It is not: the channel carries **the session API's own
+verbs** — start, breakpoints, state, eval, step, jump, run-to, children,
+set-variable, stop — and the bridge owns the session's lifetime. The reason is
+one line long: DAP speaks in the coordinates of the file being run, and the
+app speaks in the coordinates of the document being read. Proxying raw DAP
+would put that mapping in the browser, which is a second implementation of the
+one thing the session API exists to get right, in the place least able to test
+it. The client is a debugger UI, not a debug adapter client. See
+`crates/hickory-cli/src/serve/debug_bridge.rs`.
 
 ## 2. In a document: the same expressions, nobody stepping
 
@@ -379,14 +386,30 @@ credentials file for `cargo publish`.
 2. **`hick-dap`**: adapter discovery, `hick dap install`, and a session API —
    launch, breakpoints, the four step verbs, `evaluate`, stack and variables.
    Driven by tests, no UI.
-3. **`<hick:capture>`** on that session API: the non-interactive runner, the
-   woven table, `<hick:expect>` over it, hit bounds and redaction.
-4. **Channel `0x03` and the app's session UI**, including promotion. Where the
-   isolation guarantee gets its tests.
-5. **MCP tools**, once a human has driven the session API first.
+3. ~~**`<hick:capture>`**~~ **Done** — `hick-dap`'s `capture` module runs it,
+   `hick-literate`'s parses it, and the table lands in the cell's recorded
+   output where `<hick:expect>` can pin it.
+4. ~~**Channel `0x03` and the app's session UI**~~ **Done**, with the
+   revision above: session verbs rather than raw DAP.
+5. ~~**MCP tools**~~ **Done**: `debug_start`, `debug_state`, `debug_eval`,
+   `debug_step`, `debug_stop`.
 
-Steps 2 and 4 are each worth roughly what this week's LSP work was; 3 and 5
-are small once 2 exists.
+Two things the building settled that the spec had guessed at:
+
+- **A capture run is a second run.** The cell runs normally first — sandboxed,
+  and it is that run whose transcript the document keeps. The capture run then
+  weaves the same document into a scratch directory and launches it under the
+  adapter. One run would have been tidier, but the debugger launches the
+  program itself, outside the container, and the run whose side effects a
+  document keeps must be the confined one. The cost is running a captured cell
+  twice; the spec's own rule that a capture must be deterministic is what makes
+  that sound.
+- **Backwards is per-adapter, and the UI asks.** `debugpy` implements neither
+  reverse execution nor `restartFrame`, but does implement
+  `gotoTargets`/`goto`, so "back" there moves the instruction pointer and
+  **re-runs** the line rather than rewinding it — and says so. `js-debug` and
+  the JVM adapters get drop-frame. An adapter with none of the three gets no
+  control at all, which is better than a disabled button.
 
 One note on the ordering, since an earlier draft had it differently: there is
 no cheap `print`-injection stopgap worth building first. A capture and the

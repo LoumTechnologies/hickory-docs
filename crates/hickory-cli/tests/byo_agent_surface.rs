@@ -258,6 +258,9 @@ fn the_mcp_server_speaks_the_protocol_and_keeps_one_session_open() {
         .iter()
         .map(|t| t["name"].as_str().unwrap())
         .collect();
+    // The document tools, then the debugger — an agent that can only read a
+    // failing document is guessing, and these are what let it stop at the
+    // failure and ask.
     assert_eq!(
         names,
         vec![
@@ -265,7 +268,12 @@ fn the_mcp_server_speaks_the_protocol_and_keeps_one_session_open() {
             "read_output",
             "edit_output",
             "edit_doc",
-            "verify"
+            "verify",
+            "debug_start",
+            "debug_state",
+            "debug_eval",
+            "debug_step",
+            "debug_stop",
         ]
     );
 

@@ -2481,6 +2481,7 @@ dependencies = [
  "glob",
  "hick-case",
  "hick-condition",
+ "hick-dap",
  "hick-exec",
  "hick-feature",
  "hick-handlers",

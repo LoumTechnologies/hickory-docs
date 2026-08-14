@@ -9,12 +9,16 @@
 //! See `docs/specs/freeform/literate-debugging.md`.
 
 pub mod adapter;
+pub mod capture;
 pub mod discovery;
+pub mod program;
 pub mod protocol;
 pub mod session;
 
 pub use adapter::Adapter;
+pub use capture::{CaptureSpec, Captured, Hit};
 pub use discovery::{Discovered, discover, known_languages};
+pub use program::{adapter_for, entry_point, language_of, weave_into};
 pub use session::{
     Breakpoint, BreakpointStatus, Capabilities, Frame, Launch, Mapping, Session, Step, Stopped,
     Variable,
