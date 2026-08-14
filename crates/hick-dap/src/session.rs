@@ -226,6 +226,17 @@ pub struct Session {
     mapping: Arc<Mapping>,
     /// The most recent stop, so a caller that missed the event can still ask.
     last_stopped: tokio::sync::Mutex<Option<Stopped>>,
+    /// The breakpoints the *caller* asked for, as opposed to whatever is
+    /// momentarily set in the adapter.
+    ///
+    /// `setBreakpoints` replaces every breakpoint in a file, so a one-shot
+    /// breakpoint for "run to cursor" cannot simply be added: sending it
+    /// deletes the ones a person put there. Keeping the asked-for set here is
+    /// what lets the temporary one be layered over it and then taken away.
+    desired: tokio::sync::Mutex<Vec<Breakpoint>>,
+    /// Set while a one-shot "run to" breakpoint is in the adapter, so the
+    /// next stop can take it out again.
+    running_to: tokio::sync::Mutex<Option<u32>>,
     /// Stops, queued from the moment the session exists.
     ///
     /// A caller subscribing only when it is ready to wait loses any stop that
@@ -393,6 +404,8 @@ impl Session {
             capabilities,
             mapping,
             last_stopped: tokio::sync::Mutex::new(None),
+            desired: tokio::sync::Mutex::new(Vec::new()),
+            running_to: tokio::sync::Mutex::new(None),
             stops: tokio::sync::Mutex::new(stops),
         };
         let statuses = session.set_breakpoints(breakpoints).await?;
@@ -420,6 +433,12 @@ impl Session {
         &self,
         breakpoints: &[Breakpoint],
     ) -> Result<Vec<BreakpointStatus>> {
+        *self.desired.lock().await = breakpoints.to_vec();
+        self.apply_breakpoints(breakpoints).await
+    }
+
+    /// Put a set into the adapter without changing what the caller asked for.
+    async fn apply_breakpoints(&self, breakpoints: &[Breakpoint]) -> Result<Vec<BreakpointStatus>> {
         let mut by_file: HashMap<PathBuf, Vec<(&Breakpoint, u32)>> = HashMap::new();
         let mut unmapped = Vec::new();
         for breakpoint in breakpoints {
@@ -515,12 +534,31 @@ impl Session {
         match tokio::time::timeout(timeout, stops.recv()).await {
             Ok(Some(Some(stopped))) => {
                 *self.last_stopped.lock().await = Some(stopped.clone());
+                drop(stops);
+                self.clear_run_to().await;
                 Ok(Some(stopped))
             }
             // The program ended, or the adapter is gone: either way there
             // will be no more stops.
             Ok(Some(None)) | Ok(None) => Ok(None),
             Err(_) => Ok(None),
+        }
+    }
+
+    /// Take out the one-shot breakpoint a "run to" left, if there is one.
+    ///
+    /// Called on every stop rather than only the one it caused: a program
+    /// that hits a real breakpoint on the way to the cursor has arrived
+    /// somewhere the person is now looking at, and leaving an invisible
+    /// breakpoint armed behind them is how a later `continue` stops for no
+    /// reason anyone can see.
+    async fn clear_run_to(&self) {
+        let pending = self.running_to.lock().await.take();
+        if pending.is_some() {
+            let desired = self.desired.lock().await.clone();
+            if let Err(error) = self.apply_breakpoints(&desired).await {
+                tracing::warn!("could not remove the run-to breakpoint: {error:#}");
+            }
         }
     }
 
@@ -732,17 +770,38 @@ impl Session {
             .ok();
         // `gotoTargets`/`goto` JUMPS, which is not what "run to cursor"
         // means. The portable form is a one-shot breakpoint, and DAP has no
-        // flag for that — so it is set, continued to, and removed.
-        let existing = self
-            .set_breakpoints(&[Breakpoint {
+        // flag for that — so it is set, continued to, and removed at the next
+        // stop (see `wait_for_stop`).
+        //
+        // Layered over the asked-for set rather than sent on its own:
+        // `setBreakpoints` replaces every breakpoint in a file, so sending
+        // only this one would silently delete the ones a person put there —
+        // and they would still be drawn in the gutter, which is worse than
+        // losing them outright.
+        let mut set = self.desired.lock().await.clone();
+        let already_there = set.iter().any(|b| b.line == line);
+        if !already_there {
+            set.push(Breakpoint {
                 line,
                 condition: None,
                 hit_condition: None,
                 log_message: None,
-            }])
-            .await?;
-        if existing.first().is_some_and(|b| !b.verified) {
+            });
+        }
+        let statuses = self.apply_breakpoints(&set).await?;
+        if statuses
+            .iter()
+            .find(|status| status.line == line)
+            .is_some_and(|status| !status.verified)
+        {
+            // Put back what was there before giving up, or the failure would
+            // also have quietly changed the breakpoints.
+            let desired = self.desired.lock().await.clone();
+            let _ = self.apply_breakpoints(&desired).await;
             bail!("nothing to run to on that line — the adapter could not bind a breakpoint there");
+        }
+        if !already_there {
+            *self.running_to.lock().await = Some(line);
         }
         self.step(Step::Continue, thread_id, None).await
     }

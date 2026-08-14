@@ -514,3 +514,65 @@ async fn a_stack_shows_where_the_program_is_beyond_the_document() {
     }
     session.shutdown().await;
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn running_to_a_line_keeps_the_breakpoints_a_person_set() {
+    // `setBreakpoints` replaces every breakpoint in a file, so a one-shot
+    // breakpoint sent on its own deletes the ones in the gutter — and leaves
+    // its own armed, so a later `continue` stops somewhere nobody asked for.
+    // Both were real.
+    let Some(fixture) = fixture() else {
+        skip("no Python debug adapter on this machine");
+        return;
+    };
+    let (session, statuses) = Session::start(
+        fixture.launch,
+        fixture.mapping.clone(),
+        &[Breakpoint {
+            line: SUBTOTAL_LINE,
+            condition: None,
+            hit_condition: None,
+            log_message: None,
+        }],
+    )
+    .await
+    .expect("the session starts");
+    assert!(statuses[0].verified);
+    let stopped = session
+        .wait_for_stop(Duration::from_secs(30))
+        .await
+        .unwrap()
+        .expect("stops at the breakpoint");
+
+    // Run to the line after it, in the same frame.
+    session
+        .run_to(SUBTOTAL_LINE + 1, stopped.thread_id)
+        .await
+        .expect("runs to the cursor");
+    let at = session
+        .wait_for_stop(Duration::from_secs(30))
+        .await
+        .unwrap()
+        .expect("stops at the cursor");
+    let frames = session.stack(at.thread_id).await.unwrap();
+    assert_eq!(frames[0].line, Some(SUBTOTAL_LINE + 1));
+
+    // Continue: the next stop must be the breakpoint a person set, on the
+    // next call — not the cursor line again.
+    session
+        .step(Step::Continue, at.thread_id, None)
+        .await
+        .unwrap();
+    let next = session
+        .wait_for_stop(Duration::from_secs(30))
+        .await
+        .unwrap()
+        .expect("stops again");
+    let frames = session.stack(next.thread_id).await.unwrap();
+    assert_eq!(
+        frames[0].line,
+        Some(SUBTOTAL_LINE),
+        "the run-to breakpoint was left armed, or the real one was deleted"
+    );
+    session.shutdown().await;
+}
