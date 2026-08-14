@@ -351,28 +351,39 @@ pub fn wrap(
 /// `~/.cargo/bin` rather than `~/.cargo`: the credentials file for
 /// `cargo publish` lives one level up from the binaries.
 const HOME_TOOL_DIRS: &[&str] = &[
+    // Binaries people install for themselves.
     ".local/bin",
+    ".cargo/bin",
+    "go/bin",
+    // Version managers and toolchain stores.
+    //
+    // These are bound at their ROOT, not at their `bin`, because a `bin`
+    // entry in almost all of them is a symlink into a sibling directory —
+    // and a symlink whose target is hidden is a file that does not exist.
+    // Binding `~/.npm-global/bin` alone breaks every globally installed npm
+    // CLI, whose launcher points at `../lib/node_modules/…`; binding
+    // `~/.local/share/uv` alone was not done at all, so a uv-managed Python
+    // was invisible and every venv built on one failed with
+    // `No such file or directory` for an interpreter that is plainly there.
+    ".local/share/uv",
     ".local/share/mise",
     ".local/share/pnpm",
-    ".cargo/bin",
+    ".npm-global",
     ".rustup",
-    "go/bin",
     ".nvm",
     ".volta",
     ".fnm",
-    ".bun/bin",
-    ".deno/bin",
-    ".npm-global/bin",
+    ".bun",
+    ".deno",
     ".asdf",
     ".pyenv",
     ".rbenv",
     ".rvm",
     ".sdkman",
     ".ghcup",
-    ".pixi/bin",
+    ".pixi",
     ".juliaup",
 ];
-
 /// The hidden subcommand `hick` answers to when it is acting as the Windows
 /// sandbox launcher.
 ///
@@ -561,6 +572,34 @@ mod tests {
             .expect("HOME is set");
         assert_eq!(args[setenv + 1], "HOME");
         assert!(args[setenv + 2].starts_with("/work/dir"), "{args:?}");
+    }
+
+    #[test]
+    fn toolchain_stores_are_bound_at_their_root_not_their_bin() {
+        // A `bin` entry in a version manager is usually a SYMLINK into a
+        // sibling directory, and a symlink whose target is hidden is a file
+        // that does not exist. Binding `~/.npm-global/bin` alone breaks every
+        // globally installed npm CLI, whose launcher points at
+        // `../lib/node_modules/…`; not binding `~/.local/share/uv` at all
+        // made a uv-managed Python invisible, so every venv built on one
+        // failed with `No such file or directory` for an interpreter that is
+        // plainly installed. Both were found by running real tools, not by
+        // reading this list.
+        for root in [".local/share/uv", ".npm-global", ".nvm", ".pyenv", ".bun"] {
+            assert!(
+                HOME_TOOL_DIRS.contains(&root),
+                "{root} is a toolchain store and must be visible to a cell"
+            );
+            assert!(
+                !HOME_TOOL_DIRS.contains(&format!("{root}/bin").as_str()),
+                "{root} is bound at its bin, which breaks the symlinks inside it"
+            );
+        }
+        // `~/.cargo` is the exception that proves the rule: its binaries are
+        // real files, and one level up sits the credentials file for
+        // `cargo publish`. That one stays narrow on purpose.
+        assert!(HOME_TOOL_DIRS.contains(&".cargo/bin"));
+        assert!(!HOME_TOOL_DIRS.contains(&".cargo"));
     }
 
     #[test]

@@ -256,14 +256,53 @@ What that costs:
 - **Windows AppContainer** and debugging is a genuine unknown, on a path that
   has never been run at all. Assume it does not work until someone tries it.
 
-Prove this early. It is the one part that could invalidate the plan, and it is
-cheap to test: one cell, one breakpoint, under `bwrap`, before any UI exists.
+### Proven, on Linux, 2026-08-14
+
+The spike was run before anything else was built, and it passes.
+
+A real DAP session — `initialize`, `launch`, a **verified** breakpoint,
+`evaluate` in a frame across several hits with values that differ per
+iteration, `next` / `stepIn` / `stepOut`, `continue` — driven over stdio
+against `debugpy.adapter` running **inside `bwrap` with the cell's own
+policy**: read-only root, private `/tmp`, empty `$HOME`, `--unshare-all` (so
+no network), `--die-with-parent`. Identical results confined and unconfined.
+
+Two things that spike established beyond the headline:
+
+- **`debugpy` never needed `ptrace` at all.** It is an in-process debugger
+  using Python's own tracing hooks, and the same is true of the Node and Ruby
+  adapters. For those languages the PID-namespace worry was misplaced.
+- **A native debugger works too.** `gdb` running a program under itself
+  succeeds inside the sandbox exactly as it does outside — which is the
+  `launch` mode CodeLLDB and Delve use. Only *attach to an already-running
+  process* is restricted, and that is the host's `yama ptrace_scope=1`
+  restricting it **identically outside the sandbox**. Since the design
+  launches the cell under the adapter rather than attaching to it, this does
+  not bite.
+
+So no per-cell relaxation is needed and no `HICKORY_EXECUTOR=local` fallback:
+on Linux, debugging works confined. macOS (Seatbelt) and Windows
+(AppContainer) remain untested, and the Windows path has never been run at
+all.
+
+**The spike also found a live bug in the sandbox**, which is the argument for
+running spikes before designs. The venv it created had its interpreter
+symlinked into `~/.local/share/uv/python/…`, and the cell profile hid it —
+`No such file or directory` for a Python that is plainly installed. The
+profile bound `~/.local/bin` but not uv's store, and bound `~/.npm-global/bin`
+without the `lib/node_modules` its launchers point at. Toolchain stores are
+now bound at their **root** rather than their `bin`, because a `bin` entry in
+a version manager is usually a symlink into a sibling directory and a symlink
+whose target is hidden is a file that does not exist. `~/.cargo/bin` stays
+narrow on purpose: its binaries are real files, and one level up sits the
+credentials file for `cargo publish`.
 
 ## Order of work
 
-1. **Spike the sandbox question.** `debugpy` inside `bwrap`, one breakpoint,
-   one `evaluate`, no UI. A day, and it decides whether the rest is built as
-   described or behind `HICKORY_EXECUTOR=local`.
+1. ~~**Spike the sandbox question.**~~ **Done, and it passes** — see above.
+   Debugging works inside the cell's own confinement on Linux, no relaxation
+   needed. It also found and fixed a sandbox bug that had nothing to do with
+   debugging.
 2. **`hick-dap`**: adapter discovery, `hick dap install`, and a session API —
    launch, breakpoints, the four step verbs, `evaluate`, stack and variables.
    Driven by tests, no UI.
