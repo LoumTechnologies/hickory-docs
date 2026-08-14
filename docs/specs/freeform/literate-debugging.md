@@ -2,271 +2,239 @@
 
 A debugger answers "what was this value, here, at this moment". A document
 answers "what is true about this code, checked". Literate debugging is the
-place those meet: **the answer a debugger gives becomes part of the
-document**, committed, re-derivable, and able to fail the build when it stops
-being true.
+place those meet: **the answer a debugger gives can become part of the
+document**, committed, re-derived on every run, and able to fail the build
+when it stops being true.
 
-This spec covers three surfaces:
+Three surfaces, one engine:
 
-1. **In a document** — declared captures that a run fills in, non-interactive.
-2. **In the desktop app** — an interactive session a person drives, forwards
-   and **backwards**.
+1. **In the desktop app** — an interactive session: breakpoints, continue,
+   step over / in / out, and arbitrary expressions.
+2. **In a document** — the same breakpoints and the same expressions, with
+   nobody stepping: the run stops, evaluates, records, and continues.
 3. **Over MCP** — the same session, driven by a coding agent.
 
-One client and one channel serve all three. Behind them are two engines: a
-recorded trace, which is where stepping backwards is possible at all, and a
-live debug adapter for the languages a trace cannot reach.
+And one rule across all three: **the debugger never changes the file.** Only a
+run does.
 
-And one rule holds across every surface: **the debugger never changes the
-file.** Only a run does.
+## One engine: DAP
 
-## Stepping backwards decides the architecture
+The Debug Adapter Protocol is LSP's sibling — JSON-RPC over stdio, one adapter
+per ecosystem, already implemented for everything that matters: `debugpy`
+(Python), `js-debug` (Node, TypeScript), Delve (Go), CodeLLDB (Rust, C, C++),
+`java-debug`, `rdbg` (Ruby).
 
-A person wants to step back, and that single requirement settles most of the
-design, because of a fact worth stating plainly:
+Everything asked for here is in the *universally implemented* core of that
+protocol, which is what makes the plan cheap:
 
-> **You cannot step backwards in a live process.** The state is gone. Every
-> reverse debugger that has ever existed either *recorded* execution or
-> *re-runs it from a checkpoint*.
+| what you want | DAP request | implemented by |
+|---|---|---|
+| breakpoints | `setBreakpoints` | every adapter |
+| resume | `continue` | every adapter |
+| step over | `next` | every adapter |
+| step in | `stepIn` | every adapter |
+| step out | `stepOut` | every adapter |
+| evaluate an expression | `evaluate` | every adapter |
+| call stack, locals | `stackTrace`, `scopes`, `variables` | every adapter |
 
-So "interactive time-travel debugging" is not a debugger feature bolted on. It
-is a **recording**, played. And a recording is an artifact — which is exactly
-what this product is already about. The awkward requirement turns out to be
-the one that fits best.
+None of that is optional or adapter-specific. It is the part of DAP every
+editor's debugger UI is built on.
 
-That gives two tiers, and they are honestly different.
+**Reverse stepping is out of scope**, and it was the only thing that would
+have cost real money: you cannot step backwards in a live process, so it needs
+execution recorded or replayed from checkpoints — a tracer per language, a
+trace format, ring buffers, a second engine. Dropping it removes all of that.
+The note for a future reader: it would need `rr` (Linux, x86, performance
+counters) for compiled languages and an in-process tracer for the rest, and
+neither shares much with what is described here.
 
-### Tier 1 — recorded execution (the default, and where time travel lives)
+We already ran this play for LSP and it worked, so adapters get the same
+treatment: a per-language candidate table, discovery that prefers what the
+project pins, an installer that is never automatic, and the mapping between
+document and virtual-file positions that is **already written and tested**.
 
-Every language worth debugging here already exposes an in-process tracing
-hook: Python's `sys.settrace` / `sys.monitoring`, Node's inspector, Ruby's
-`TracePoint`, PHP's tick handlers. A small per-language shim installs one and
-emits a stream of events — frame entered, line reached, values changed, frame
-left — as the cell runs.
+A debugged cell is the same cell, in the same container, under the same
+executor and the same sandbox. It is launched with an adapter in front of it —
+not a second execution path.
 
-Three things fall out, all of them good:
+## 1. In the app: an interactive session
 
-- **Step back is an index.** Forwards and backwards are the same operation on
-  a recorded sequence: move the cursor. No re-execution, no checkpoints, no
-  guessing. The same is true of "run backwards to where this variable last
-  changed", which a live debugger cannot offer at all.
-- **The sandbox stops being a problem.** Tracing is in-process, so there is no
-  `ptrace`, no attaching, no PID-namespace obstacle, and no privilege to relax.
-  The spec's ugliest risk simply disappears for this tier.
-- **The recording bounds itself.** We know exactly which files the document
-  generated, so tracing is scoped to *those* frames by default. A step never
-  descends into the standard library, the trace stays small, and what you are
-  stepping through is only ever the document's own code — which is the
-  literate reading of a stack anyway.
+Breakpoints in the document's gutter, set on the lines of a `hick:file` block
+and travelling to the adapter in virtual-file coordinates. Continue, step over,
+step in, step out. A call stack, a variables pane, and an expression box that
+evaluates **in the frame you have selected** — `evaluate` with that frame's
+id, so `self.lines[2].price` means what it means *there*, not what it would
+mean at the top of the file.
 
-Its limits are equally real: it does not cover compiled languages, and
-recording every line of a hot loop is expensive. Both are addressed below.
+Two details that matter more than the controls:
 
-### Tier 2 — a live DAP session (compiled languages, arbitrary depth)
+**Stepping into a frame the document did not generate** — a library, the
+standard library — shows that frame read-only rather than pretending it is
+part of the document. The same thing LSP "go to definition" already does with
+a target outside the document.
 
-The Debug Adapter Protocol is LSP's sibling: JSON-RPC over stdio, one adapter
-per ecosystem, already implemented for everything that matters — `debugpy`,
-`js-debug`, Delve, CodeLLDB, `java-debug`, `rdbg`. We already ran this exact
-play for LSP and it worked, so adapters get the same treatment: a per-language
-candidate table, discovery that prefers what the project pins, an installer
-that is never automatic, and the position mapping between document and virtual
-file that is **already written and tested**.
+**A conditional breakpoint is the one worth having.** DAP's `condition` and
+`hitCondition` are widely implemented, and "stop when `subtotal < 0`" is the
+question people actually have. It is also what makes the non-interactive form
+below useful rather than noisy.
 
-DAP has reverse requests in the protocol — `stepBack`, `reverseContinue`,
-behind a `supportsStepBack` capability — but almost no adapter implements
-them, because of the fact above. Where it works it is because something is
-recording underneath: Delve over `rr` for Go, `rr` itself for Rust and C++ on
-Linux/x86, WinDbg's time-travel traces on Windows. So for compiled languages
-the honest position is:
+### The debugger cannot touch the file
 
-- Forward stepping: everywhere an adapter exists.
-- Backward stepping: Linux, x86, `rr` present — **or not at all**, reported as
-  a missing capability rather than a button that does nothing.
+This is the guarantee that makes an interactive debugger safe in a tool whose
+whole point is that the file is the truth:
 
-A session advertises what it can do and the app greys out the rest. A debugger
-that offers a control which silently fails is worse than one that says no.
+> **A session is a reader.** No sequence of stepping, evaluating, or poking at
+> variables can change the document, the files it generates, or the recorded
+> transcripts. The only things that write are `hick run` and a person editing.
 
-### One recording, two features
+Architectural rather than a matter of care:
 
-The tier-1 recorder is also what fills in a document's declared captures: a
-capture is **a query over a recording**, not a separate mechanism. Record the
-cell, then ask "what was `subtotal` at `pricing.py:14`, each time through".
-Interactive stepping and non-interactive capture are the same machinery read
-two ways, which is why this is one spec and not two.
+- **The debug channel carries no edit operations.** Document edits go through
+  the CRDT room and the hashline edit API, which the debug bridge does not
+  hold.
+- **A session runs in a scratch clone of the container**, and its outputs are
+  discarded when it ends. Stepping through a cell that writes `report.csv`
+  produces one in the session's own workdir and nowhere else — `hick run`
+  copies outputs back, a session never does.
+- **Transcripts are untouched**, so a cell's committed baseline cannot drift
+  because somebody debugged it.
+- **Evaluation can still mutate the debugged program** — `lines.pop()` really
+  pops — and that is that process's business. It dies with the session. It is
+  also why the same expression in a *document* is held to a higher standard
+  (below).
 
-## 1. In a document: declared captures
+Promotion is the one path from a session into the document, and it is **an
+edit the person makes**: stopped at a breakpoint with `subtotal = 19.99`
+visible, one action drafts a `<hick:capture>` with an `<hick:expect>` around
+it and applies it through the ordinary edit path, undoable and reviewable like
+anything they typed.
 
-A cell can declare what to look at. Nothing is stepped and nobody waits:
+**Transport.** The socket already multiplexes by channel byte: `0x00` Yjs,
+`0x01` runs, `0x02` LSP. Debugging is `0x03`, carrying DAP messages the way
+`0x02` carries LSP ones, with a bridge that owns the session's lifetime and
+rewrites paths between the client's scheme and the filesystem — the job
+`LspBridge` does, written as a sibling rather than a generalisation, because
+the two protocols' handshakes differ more than they look.
+
+## 2. In a document: the same expressions, nobody stepping
 
 ```xml
 <hick:exec container="lab">
 python3 pricing.py
-  <hick:capture at="pricing.py:14" of="subtotal, len(lines)" />
+  <hick:capture at="pricing.py:14" of="subtotal, len(lines)" when="subtotal < 0" />
 </hick:exec>
 ```
 
-`at` is a location in a **generated file**, which is a location in the
-document — the same mapping `hick-lsp` already does to turn a document
-position into a virtual-file position, run in the same direction. `of` is a
-list of expressions evaluated in that frame.
+`at` is a location in a generated file, which is a location in the document.
+`of` is a list of expressions. `when` is a breakpoint condition.
 
-On a run, the adapter sets a breakpoint there, and on every hit evaluates the
-expressions, records them, and **continues**. The run never blocks. What comes
-back is a table, woven like any other transcript:
+A condition wants `<` and `>`, and the no-escaping invariant means there is no
+`&lt;` to fall back on — so this was checked before being specified: the
+parser accepts both raw inside an attribute value (`title="a < b and c > d"`
+round-trips today). A comparison reads as a comparison.
+
+On a run the adapter sets that breakpoint, and each time it is hit the runner
+issues **the same `evaluate` request the interactive pane issues**, records the
+values, and continues. Nothing ever waits for a human. What comes back is
+woven like any transcript:
 
 | hit | `subtotal` | `len(lines)` |
 |-----|-----------|--------------|
 | 1   | `0`       | `3`          |
 | 2   | `19.99`   | `3`          |
 
-And because it is recorded output, `<hick:expect>` pins it. A document can now
-say *"`subtotal` is 0 on the first pass and never negative"* and fail the day
-that stops being true — a claim about a value **inside** a function, which no
-amount of stdout checking reaches.
+And because it is recorded output, `<hick:expect>` pins it. The document can
+now assert something about a value **inside a function**, which no amount of
+stdout checking reaches — re-derived on every run.
 
-That is the actual prize. Not stepping: **assertions about intermediate state,
-in version control, re-derived on every run.**
+### Expression parity, and where it stops
 
-### Determinism is the whole risk
+**Yes: an expression that works in the interactive box works in a capture.**
+Both are DAP `evaluate`, in a frame, in the debuggee's own language. There is
+no second syntax to learn and no subset. That is the direct benefit of both
+modes sharing an engine, rather than a capture being a `print` injected into
+your code — which would have had subtly different scope and timing, and could
+not evaluate in a chosen frame at all.
 
-A captured value that changes every run is a drift generator, and a document
-full of them trains people to ignore drift. Captures are therefore:
+Three places the two modes are deliberately *not* the same, all because a
+document is permanent and a session is not:
 
-- **Expressions, not frame dumps.** You name what you want. A whole locals
-  dump would include addresses, iterators and timestamps.
-- **Redacted by the same rules as volatile outputs**, which this repo already
-  has for exactly this reason.
-- **Ordered by hit index, not by wall-clock.**
+- **Side effects are a bug in a capture.** Evaluating `lines.pop()` in a
+  session is your business; in a document it changes what the program does and
+  therefore what the run records. Captures are sent with DAP's `watch`
+  evaluation context, which adapters treat as repeatable, and the guidance is
+  plain: a capture expression that mutates is a mistake the document will keep
+  making.
+- **Non-determinism is drift.** A captured value that changes every run trains
+  people to ignore drift. Captures are named expressions rather than frame
+  dumps, redacted by the volatile-output rules this repo already has, and
+  ordered by hit index rather than wall-clock. A value that cannot be made
+  deterministic belongs in a session, which writes nothing.
+- **Hits are bounded.** A breakpoint in a hot loop evaluated ten thousand
+  times is a slow run and an unreadable table. A capture takes a `max` with a
+  small default, and the woven output says when it stopped early rather than
+  silently truncating.
 
-A capture that cannot be made deterministic belongs in an interactive session
-instead, which writes nothing.
-
-## 2. In the desktop app: an interactive session
-
-The app is where a person sits, so the app gets a real debugger: breakpoints
-in the gutter of the document, step over / into / out, **step back** and
-**run backwards to the last change of a variable**, a variables pane, a call
-stack, and an expression evaluator. Because tier 1 is a recording, the reverse
-controls are not a special mode — a session opens on a recorded run and the
-cursor moves either way.
-
-### The debugger cannot touch the file
-
-This is the guarantee that makes an interactive debugger safe to have in a
-tool whose whole point is that the file is the truth:
-
-> **A session is a reader.** No sequence of stepping, evaluating, or poking at
-> variables can change the document, the files it generates, or the recorded
-> transcripts. The only things that write are `hick run` and a person editing.
-
-It is architectural rather than a matter of care:
-
-- **A session has no write path.** The debug channel carries no edit
-  operations. Document edits go through the CRDT room and the hashline edit
-  API, which the debug bridge does not hold.
-- **A session runs in a scratch clone of the container**, and its outputs are
-  discarded at the end. Stepping through a cell that writes `report.csv`
-  produces a `report.csv` in the session's own workdir and nowhere else —
-  `hick run` copies outputs back, a session never does.
-- **Transcripts are untouched.** A session records nothing into the document's
-  cached transcripts, so a cell's committed baseline cannot drift because
-  somebody debugged it.
-- **Evaluation can still mutate the program's own state** — `debug_eval` of
-  `lines.pop()` really pops — and that is the debugged process's business, not
-  the document's. It dies with the session.
-
-Promotion is the one path from a session into the document, and it is an
-**edit the person makes**, not something the debugger does: stopped at a
-breakpoint with `subtotal = 19.99` visible, one action drafts a
-`<hick:capture>` with an `<hick:expect>` around it and applies it through the
-ordinary edit path, where it is undoable and reviewable like anything they
-typed. The thing you just learned becomes the thing the document checks.
-
-**Transport.** The socket already multiplexes by channel byte: `0x00` Yjs,
-`0x01` runs, `0x02` LSP. Debugging is `0x03`, carrying DAP messages the same
-way `0x02` carries LSP ones, with a bridge that owns the session's lifetime
-and rewrites paths between the client's scheme and the filesystem — the same
-job `LspBridge` does, and worth writing as a sibling rather than a
-generalisation, because the two protocols' initialisation handshakes differ
-more than they look.
-
-A tier-1 session speaks the same DAP shapes over that channel even though
-there is no adapter process behind it, so the app has one client. `stepBack`
-and `reverseContinue` are answered from the recording; a tier-2 session
-forwards them, or reports `supportsStepBack: false` and the app greys the
-controls out.
-
-**Positions.** Breakpoints are set in document coordinates and travel to the
-adapter in virtual-file coordinates; stack frames come back the other way. A
-frame in a file the document did not generate — a library, the standard
-library — is shown as read-only and never mapped, exactly as LSP "go to
-definition" already handles a target outside the document.
+Where an adapter implements **log points** — a breakpoint that formats a
+message and continues without stopping, which `debugpy` and `js-debug` both
+do — the runner uses them instead: the same thing in one round trip rather
+than three, with an identical observable result.
 
 ## 3. Over MCP: the same session, for an agent
 
 An agent that can only read a failing document is guessing. An agent that can
 stop at the failure and ask what a variable held is doing what a person does.
 
-The tool surface is deliberately small, and mirrors the existing document
-tools in style — small verbs, explicit ids, no hidden session state beyond a
-handle:
-
 | tool | what it does |
 |---|---|
-| `debug_start` | Launch a cell under its adapter. Returns a session id. Breakpoints given up front, in document coordinates. |
-| `debug_state` | Where it is stopped, the stack, the frame's variables, and which controls this session supports. |
+| `debug_start` | Launch a cell under its adapter. Breakpoints (with conditions) given up front, in document coordinates. Returns a session id. |
+| `debug_state` | Where it is stopped, the stack, and the selected frame's variables. |
 | `debug_eval` | Evaluate an expression in a chosen frame. |
-| `debug_step` | `over` \| `into` \| `out` \| `continue` \| `back` \| `reverse` \| `back_to_change` (of a named variable). |
+| `debug_step` | `over` \| `in` \| `out` \| `continue`. |
 | `debug_stop` | End the session. |
 
 Two rules that matter more than the surface:
 
-- **A session is bounded.** It ends on its own after an idle timeout and when
-  the agent's turn ends. A debugger that outlives the conversation is a
-  process holding a workdir open, and the first symptom is a later run failing
-  for no visible reason.
-- **The agent's session is as confined as a cell.** Same sandbox, same
+- **A session is bounded.** It ends on an idle timeout and when the agent's
+  turn ends. A debugger that outlives the conversation is a process holding a
+  workdir open, and the first symptom is a later run failing for no visible
+  reason.
+- **The agent's session is as confined as a cell** — same sandbox, same
   capabilities, same denied network. An "attach to my process" tool that
   escaped the sandbox would undo the reason the sandbox exists.
 
 ## Adapters are installed exactly like language servers
 
-`hick dap install python`, and the same three rules that made
-`hick lsp install` defensible:
+`hick dap install python`, and the three rules that made `hick lsp install`
+defensible:
 
 - **Discovery first.** `debugpy` in the project's virtualenv, `js-debug` in
   `node_modules`, Delve on `PATH`, CodeLLDB in a VS Code extensions
-  directory — whatever is already there wins, and nothing is installed to use
-  what exists.
+  directory — whatever is already there wins.
 - **Never automatic.** An install reaches the network and runs the package's
   setup scripts. It happens when a person types it.
 - **Confined.** Into `.hick-cache/adapters/`, through the same sandbox, with
-  the same installer profile that keeps the toolchain visible and redirects
-  `HOME` into the prefix.
+  the installer profile that keeps the toolchain visible and redirects `HOME`
+  into the prefix.
 
-And the same failure mode is worth pre-empting: `hick lsp install` shipped
-with a broken package pair for a week because `typescript` on npm became the
-native port with no `tsserver.js`. An adapter that is installed but cannot
-start must be **passed over at discovery**, not spawned to fail later.
+And the lesson from `hick lsp install`, which shipped a broken package pair
+because `typescript` on npm became the native port with no `tsserver.js`: an
+adapter that is installed but cannot start must be **passed over at
+discovery**, not spawned to fail later.
 
-`<hick:needs>` extends here naturally: a document that declares captures needs
-its adapter, and saying so before the run is better than a DAP error nobody
-can read.
+`<hick:needs>` extends here: a document with captures needs its adapter, and
+saying so before the run beats a DAP error nobody can read.
 
-## What the sandbox costs us
+## What the sandbox costs
 
-Only tier 2 pays this, which is a large part of why tier 1 is the default.
+This is the main risk, and it is worth stating before anyone starts.
 
-**Tier 1 costs nothing.** The tracer is in-process — the cell imports a shim
-and installs its own language's hook — so there is no `ptrace`, no attaching,
-no PID namespace to cross, and no privilege to relax. A recorded session is
-exactly as confined as the run it recorded, because it *is* that run.
+A debug adapter controls another process: `ptrace` on Linux, `task_for_pid` on
+macOS. The sandbox gives each cell its own PID namespace (`--unshare-all`), so
+an adapter outside cannot see the process at all.
 
-**Tier 2 has a real problem.** A debug adapter controls another process:
-`ptrace` on Linux, `task_for_pid` on macOS. The sandbox gives each cell its
-own PID namespace (`--unshare-all`), so an adapter outside cannot see the
-process at all. The resolution is that the adapter goes **inside**, launched
-as the cell's entry point rather than attached from outside:
+The resolution is that the adapter goes **inside**, launched as the cell's
+entry point rather than attached from outside:
 
 ```
 bwrap … -- debugpy --listen … -- python3 pricing.py
@@ -277,61 +245,45 @@ What that costs:
 
 - The adapter must be **visible inside the sandbox**, so it is bound read-only
   into the cell's empty `$HOME`, joining the toolchain directories already
-  bound there for the same reason `duckdb` needed to be.
+  there for the same reason `duckdb` needed to be.
 - **`--unshare-pid` may still block ptrace between siblings** on hardened
-  kernels. If it does, the choice is a per-cell relaxation (stated in
-  `describe()`, never silent) or refusing to debug under confinement.
-  Refusing is the default; a sandbox that quietly weakens itself for a feature
-  is worse than a feature that says it needs `HICKORY_EXECUTOR=local`.
-- **`rr`**, which is what makes tier-2 reverse stepping possible at all, needs
-  performance counters that are commonly unavailable in containers and on
-  cloud VMs. Detect and report, exactly as `Sandbox::detect` learned to.
+  kernels — the same class of restriction that made `bwrap` fail outright on
+  CI until detection learned to smoke-test it. If it does, the choice is a
+  per-cell relaxation (stated in `describe()`, never silent) or refusing to
+  debug under confinement. Refusing is the default: a sandbox that quietly
+  weakens itself for a feature is worse than a feature that says it needs
+  `HICKORY_EXECUTOR=local`.
 - **Windows AppContainer** and debugging is a genuine unknown, on a path that
   has never been run at all. Assume it does not work until someone tries it.
 
-## What recording costs
-
-The honest limits of tier 1, since they decide when tier 2 is worth its price:
-
-- **Speed.** A line-granularity trace of a hot loop is orders of magnitude
-  slower. Mitigated by scoping to the document's own generated files (never
-  library internals), by a `granularity` of `line` or `function`, and by
-  recording *changes* rather than whole frames.
-- **Size.** A trace is bounded by a byte budget with a ring buffer, so a long
-  run keeps its most recent window rather than exhausting memory. A session
-  says plainly when it is looking at a truncated recording; silently showing
-  half a run would be the worst outcome.
-- **Values that cannot be recorded.** Open sockets, file handles, and anything
-  whose `repr` runs code are recorded as an opaque marker, not evaluated.
-- **Compiled languages are not covered at all.** Rust, Go and C get tier 2 or
-  nothing, and reverse stepping there needs `rr`.
+Prove this early. It is the one part that could invalidate the plan, and it is
+cheap to test: one cell, one breakpoint, under `bwrap`, before any UI exists.
 
 ## Order of work
 
-Ordered so the cheap parts prove the expensive ones are wanted.
+1. **Spike the sandbox question.** `debugpy` inside `bwrap`, one breakpoint,
+   one `evaluate`, no UI. A day, and it decides whether the rest is built as
+   described or behind `HICKORY_EXECUTOR=local`.
+2. **`hick-dap`**: adapter discovery, `hick dap install`, and a session API —
+   launch, breakpoints, the four step verbs, `evaluate`, stack and variables.
+   Driven by tests, no UI.
+3. **`<hick:capture>`** on that session API: the non-interactive runner, the
+   woven table, `<hick:expect>` over it, hit bounds and redaction.
+4. **Channel `0x03` and the app's session UI**, including promotion. Where the
+   isolation guarantee gets its tests.
+5. **MCP tools**, once a human has driven the session API first.
 
-1. **`<hick:capture>` by wrapping, no tracer and no DAP.** Print the named
-   expressions at the named point. Any language that can print, no adapter,
-   no ptrace, no sandbox change — and it delivers the actual prize
-   (assertions about intermediate state) for about a day's work.
-2. **The tier-1 recorder**, Python first: a shim, a trace format, and the
-   capture step re-implemented as a query over a recording. At this point a
-   recording exists but nothing plays it.
-3. **Channel `0x03` and the app's session UI**, playing a tier-1 recording:
-   breakpoints, forwards, **backwards**, variables, evaluation against a
-   recorded frame, and promotion into the document. This is the step where a
-   person can actually use it, and where the isolation guarantee gets its
-   tests.
-4. **The recorder for the other traced languages** — Node, Ruby — which is
-   one shim each once the trace format is settled.
-5. **Tier 2**: adapter discovery, `hick dap install`, and live sessions for
-   compiled languages, forwarding the same channel.
-6. **MCP tools**, once a human has driven the session API first.
+Steps 2 and 4 are each worth roughly what this week's LSP work was; 3 and 5
+are small once 2 exists.
 
-Steps 2, 3 and 5 are each worth roughly what this week's LSP work was.
+One note on the ordering, since an earlier draft had it differently: there is
+no cheap `print`-injection stopgap worth building first. A capture and the
+interactive expression box must share one evaluator to be worth having, and
+that means DAP comes first.
 
 ## What this is not
 
+- **Not reverse debugging.** Out of scope by decision; see above.
 - **Not a profiler.** Sampling and timing are a different tool with different
   determinism problems.
 - **Not remote debugging.** Same machine, same rules as everything else here:
