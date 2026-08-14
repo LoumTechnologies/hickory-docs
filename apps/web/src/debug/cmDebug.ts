@@ -204,6 +204,20 @@ export interface DebugEditorOptions {
   onToggleBreakpoint: (line: number) => void;
 }
 
+/**
+ * The empty-line marker: invisible until the pointer is over the gutter.
+ *
+ * Shared rather than made per line, because it carries no state.
+ */
+const HOVER_TARGET = new (class extends GutterMarker {
+  toDOM() {
+    const dot = document.createElement("span");
+    dot.className = "cm-bp-ghost";
+    dot.title = "Click to set a breakpoint";
+    return dot;
+  }
+})();
+
 export function debugEditor(options: DebugEditorOptions): Extension[] {
   return [
     breakpointField,
@@ -237,6 +251,11 @@ export function debugEditor(options: DebugEditorOptions): Extension[] {
           true,
         );
       },
+      // An empty gutter still has to be a gutter. Without a marker on every
+      // line there is nothing to aim at, and "click the gutter" is advice
+      // about a strip you cannot see: the first breakpoint is the one nobody
+      // can set. A hover-only ghost dot keeps it quiet and findable.
+      lineMarker: (_view, line) => (line.length >= 0 ? HOVER_TARGET : null),
       domEventHandlers: {
         mousedown(view, block) {
           const line = view.state.doc.lineAt(block.from).number - 1;

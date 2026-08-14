@@ -1684,6 +1684,26 @@ textarea:focus {
 
 /* --- the debugger ------------------------------------------------------- */
 
+/* The gutter is always there, whether or not anything is in it: a strip you
+   cannot see is a breakpoint you cannot set. Quiet by default, with a ghost
+   dot under the pointer so the click target is obvious before the first
+   click. */
+.cm-breakpoint-gutter {
+  background: color-mix(in srgb, var(--fg-muted) 6%, transparent);
+  border-right: 1px solid color-mix(in srgb, var(--fg-muted) 12%, transparent);
+}
+.cm-bp-ghost {
+  display: inline-block;
+  width: 0.6rem;
+  height: 0.6rem;
+  margin-top: 0.35rem;
+  border-radius: 50%;
+  background: transparent;
+}
+.cm-breakpoint-gutter:hover .cm-bp-ghost {
+  background: color-mix(in srgb, var(--danger) 30%, transparent);
+}
+
 /* The gutter has four states, not one. A breakpoint the adapter could not
    bind must not look like one that works — that difference is the whole
    reason `verified` is reported. */
@@ -1716,6 +1736,14 @@ textarea:focus {
 }
 .cm-paused-line {
   background: color-mix(in srgb, var(--accent-2) 12%, transparent);
+}
+
+.debug-panel__hint {
+  margin: 0;
+  padding: 0.4rem 0.75rem 0.6rem;
+  color: var(--fg-muted);
+  font-size: 0.85rem;
+  line-height: 1.4;
 }
 
 /* Inline values: the biggest single thing a debugger UI does, and the one

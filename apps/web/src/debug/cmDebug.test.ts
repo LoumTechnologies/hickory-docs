@@ -1,6 +1,7 @@
 import { EditorState, Text } from "@codemirror/state";
+import { EditorView } from "@codemirror/view";
 import { describe, expect, it } from "vitest";
-import { inlinePlacements } from "./cmDebug";
+import { debugEditor, inlinePlacements } from "./cmDebug";
 import { backwardsControl, type DebugCapabilities } from "./client";
 import { identifierAt } from "../lsp/cmLsp";
 
@@ -126,5 +127,19 @@ describe("the editor state the debugger drives", () => {
     // must be inert until one does.
     const state = EditorState.create({ doc: "x = 1" });
     expect(state.doc.length).toBe(5);
+  });
+});
+
+describe("the gutter is findable before it holds anything", () => {
+  it("puts a marker on every line, not only lines with breakpoints", () => {
+    // The first breakpoint is the one nobody can set: with markers only where
+    // breakpoints already are, the strip is invisible and "click the gutter"
+    // is advice about nothing.
+    const extensions = debugEditor({ onToggleBreakpoint: () => {} });
+    const state = EditorState.create({ doc: "a = 1\nb = 2\n", extensions });
+    const view = new EditorView({ state });
+    const gutters = view.dom.querySelectorAll(".cm-breakpoint-gutter .cm-bp-ghost");
+    expect(gutters.length).toBeGreaterThan(0);
+    view.destroy();
   });
 });

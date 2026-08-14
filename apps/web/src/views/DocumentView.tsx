@@ -549,6 +549,9 @@ export function DocumentView({ docId }: { docId: string }) {
             lspDiagnostics={lsp.diagnostics}
             makeOutputLsp={makeOutputLsp}
             outputTarget={outputTarget}
+            onEditorReady={(view) => {
+              editorRef.current = view;
+            }}
           />
         ) : (
           <OutputView

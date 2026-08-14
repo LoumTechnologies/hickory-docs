@@ -57,6 +57,15 @@ export interface SplitViewProps {
   makeOutputLsp?: (provenance: OutputProvenance[]) => Extension[];
   /** Open this generated file, positioned on the given line span. */
   outputTarget?: { path: string; span: [number, number] } | null;
+  /**
+   * The document editor, once it exists.
+   *
+   * This view keeps the editor for its own geometry, and for a while that was
+   * the only thing that wanted it — so the debugger, which lives a level up,
+   * had no editor to draw a breakpoint or a paused line into while the split
+   * was open. Everything worked and nothing showed.
+   */
+  onEditorReady?: (view: EditorView | null) => void;
 }
 
 /** A ribbon plus the file it flows into. */
@@ -109,6 +118,7 @@ export function SplitView({
   lspDiagnostics,
   makeOutputLsp,
   outputTarget,
+  onEditorReady,
 }: SplitViewProps) {
   const [files, setFiles] = useState<OutputFileMeta[] | null>(null);
   const [activePath, setActivePath] = useState<string | null>(null);
@@ -399,6 +409,7 @@ export function SplitView({
   const onLeftViewReady = useCallback(
     (view: EditorView | null) => {
       setLeftView(view);
+      onEditorReady?.(view);
       if (view && !configured.has(view)) {
         configured.add(view);
         view.dispatch({
@@ -411,7 +422,7 @@ export function SplitView({
         });
       }
     },
-    [schedule],
+    [schedule, onEditorReady],
   );
 
   // Language bindings for the output buffer: every position travels back

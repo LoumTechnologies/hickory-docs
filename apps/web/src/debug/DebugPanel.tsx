@@ -85,10 +85,27 @@ export function DebugPanel(props: DebugPanelProps) {
           {props.status === "starting" && "starting…"}
           {props.status === "running" && "running…"}
           {props.status === "paused" && "paused"}
-          {props.status === "finished" && "the program finished"}
+          {props.status === "finished" &&
+            "the program ran to the end — set a breakpoint in the gutter and debug again"}
           {props.message}
         </span>
       </header>
+
+      {/* Why the editor has gone quiet. Values belong to a frame of a live
+          process: when it ends there is nothing left to ask, and saying so
+          beats hovering a variable and getting only its type back. */}
+      {props.status === "finished" && (
+        <p className="debug-panel__hint">
+          Nothing is paused, so there are no values to show. Click the gutter beside a line to
+          leave a red dot, then debug again — values appear inline and in hovers while the program
+          is stopped there.
+        </p>
+      )}
+      {props.status === "idle" && (
+        <p className="debug-panel__hint">
+          Click the gutter to the left of a line of code to set a breakpoint, then start.
+        </p>
+      )}
 
       {props.frames.length > 0 && (
         <div className="debug-panel__body">
