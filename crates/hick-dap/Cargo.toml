@@ -1,0 +1,22 @@
+[package]
+name = "hick-dap"
+version = "0.1.0"
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["process", "io-util", "sync", "rt", "macros", "time"] }
+tracing = "0.1"
+# The document -> virtual-file position mapping, which debugging needs in
+# exactly the form the language server already needed it.
+hick-lsp = { path = "../hick-lsp" }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
+tempfile = "3"
+# The live tests weave a document by hand to produce the file they debug.
+hick-lsp = { path = "../hick-lsp" }
