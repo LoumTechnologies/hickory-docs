@@ -153,6 +153,33 @@ describe("the compiler, answering through the channel", () => {
     channel.dispose();
   }, 20_000);
 
+  it("colours the code, not the document around it", async () => {
+    // The bug this pins: the tokens came back in VIRTUAL-file coordinates
+    // while the client — which does no mapping, because hick-lsp maps
+    // server-side — read them as document lines. Every token landed about
+    // five lines high, so the demo coloured `version=` in the XML header as
+    // an interface and a line of prose as a property. It looked like syntax
+    // highlighting right up until you read which words it had picked.
+    const { channel, received } = await open();
+    channel.send({
+      jsonrpc: "2.0",
+      id: 9,
+      method: "textDocument/semanticTokens/full",
+      params: { textDocument: { uri: "hick:///doc.hick" } },
+    });
+    const data = (replyTo(received, 9)?.result as { data: number[] }).data;
+    // The first token's line delta is absolute, and every token must fall
+    // inside the block — never in the prose or the XML above it.
+    expect(data[0]).toBeGreaterThanOrEqual(DEFINITION_LINE);
+    let line = 0;
+    for (let i = 0; i < data.length; i += 5) {
+      line += data[i];
+      expect(line).toBeGreaterThanOrEqual(DEFINITION_LINE);
+      expect(line).toBeLessThan(DEFINITION_LINE + 3);
+    }
+    channel.dispose();
+  }, 20_000);
+
   it("announces its legend, because token types are integers", async () => {
     const { channel, received } = await open();
     channel.send({ jsonrpc: "2.0", id: 3, method: "initialize", params: {} });

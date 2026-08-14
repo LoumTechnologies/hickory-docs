@@ -404,9 +404,13 @@ export function createBrowserTsChannel(options: {
 /**
  * TypeScript's classifications, encoded the way the protocol wants them.
  *
- * The deltas are computed against the VIRTUAL file, and the client maps each
- * token into the document afterwards — the same division of labour hick-lsp
- * uses, so the demo exercises the same client-side mapping code.
+ * In DOCUMENT coordinates, because that is what the client is handed
+ * everywhere else: `hick-lsp` maps positions server-side, so the editor
+ * bindings do no mapping of their own. Returning virtual-file lines here
+ * puts every token about five lines too high — the demo coloured `version=`
+ * in the XML header as an interface and a line of prose as a property, which
+ * looked like syntax highlighting right up until you read which words it had
+ * picked.
  */
 function semanticTokens(
   ts: Ts,
@@ -444,7 +448,8 @@ function semanticTokens(
     if (type === undefined) continue;
     const index = DEMO_TOKEN_TYPES.indexOf(type);
     if (index === -1) continue;
-    const { line, character } = positionAt(start);
+    const { line: virtualLine, character } = positionAt(start);
+    const { line } = toDocument({ line: virtualLine, character }, block);
     const deltaLine = line - lastLine;
     const deltaStart = deltaLine === 0 ? character - lastStart : character;
     out.push(deltaLine, deltaStart, length, index, encodeModifiers(modifiers));

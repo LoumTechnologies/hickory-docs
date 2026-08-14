@@ -31,6 +31,10 @@
   --tok-tag: #7a5c2e;
   --tok-meta: #857f72;
   --tok-operator: #6f6a61;
+  /* Parameters, which only a language server can identify: close to the
+     property tone but distinguishable, since the two sit side by side in a
+     method body. */
+  --tok-parameter: #6b5d8a;
   --tok-invalid: #b3372f;
   /* Lineage ribbon palette (Split view) — one stable color per source
      fragment, hickory-toned. Keep in sync with RIBBON_PALETTE_SIZE. */
@@ -72,6 +76,7 @@
     --tok-tag: #c9a45e;
     --tok-meta: #8c877d;
     --tok-operator: #98938a;
+    --tok-parameter: #b3a6d1;
     --tok-invalid: #e08a80;
     --ribbon-0: #c9a45e;
     --ribbon-1: #8db0cf;
@@ -1616,18 +1621,37 @@ textarea:focus {
 .cm-st-function,
 .cm-st-method,
 .cm-st-macro { color: var(--tok-function); }
-.cm-st-property,
-.cm-st-parameter,
-.cm-st-variable { color: var(--tok-property); }
+.cm-st-property { color: var(--tok-property); }
+.cm-st-parameter { color: var(--tok-parameter); }
 .cm-st-namespace,
 .cm-st-decorator,
 .cm-st-event { color: var(--tok-meta); }
 .cm-st-operator { color: var(--tok-operator); }
-/* Modifiers layer on top of the type colour rather than replacing it. */
+
+/* `variable` is deliberately UNCOLOURED, and that is the whole principle
+   here: a semantic token should ADD information, never repaint what the
+   grammar already had right.
+
+   The compiler distinguishes things a grammar cannot — in one small Python
+   file, `lines` comes back as `parameter declaration`, then `property` (as
+   `self.lines`), then `parameter` again at the use site, three readings of
+   one word. Painting `variable` the same colour as `property` would throw
+   exactly that distinction away and leave every identifier tinted, which is
+   less signal than plain text, not more. So a plain local variable keeps the
+   grammar's foreground and the colours are spent on what is genuinely new. */
+
+/* Modifiers layer on top of the type colour rather than replacing it, and
+   each one is something no parser can see. */
 .cm-stm-declaration,
 .cm-stm-definition { font-weight: 600; }
-.cm-stm-deprecated { text-decoration: line-through; }
+/* The symbol is deprecated: the single most useful thing semantic tokens
+   report, and invisible to every grammar. */
+.cm-stm-deprecated { text-decoration: line-through; opacity: 0.7; }
+/* `readonly` means `Final`, `const`, `val` — a promise about the value. */
 .cm-stm-readonly { font-style: italic; }
+/* From the language's own standard library rather than this project: `sum`
+   and `print` should not look like code somebody here wrote. */
+.cm-stm-defaultLibrary { color: var(--tok-meta); }
 
 /* The call signature, while an argument list is being typed. Pinned to the
    editor's bottom edge: a tooltip that follows the caret covers the very
