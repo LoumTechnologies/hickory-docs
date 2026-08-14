@@ -609,3 +609,67 @@ fn a_language_server_is_found_in_each_ecosystems_own_layout() {
         assert_eq!(found.unwrap().origin, "project");
     }
 }
+
+#[test]
+fn a_cell_is_confined_unless_someone_says_otherwise() {
+    // The default matters more than any single mechanism in the sandbox: a
+    // document is a file people send each other and agents write, so the
+    // confined path has to be the one you get without asking for it.
+    //
+    // Checked by running the real binary with no HICKORY_EXECUTOR set at
+    // all, because the default is a property of the program a user installs,
+    // not of a constant somewhere in it.
+    let Some(hick) = binary("hick") else {
+        skip("default", "hick has not been built into this target dir");
+        return;
+    };
+    if hickory_executor_sandbox::Sandbox::detect() == hickory_executor_sandbox::Sandbox::None {
+        skip(
+            "default",
+            "this machine cannot confine anything, so nothing to observe",
+        );
+        return;
+    }
+
+    let dir = tempfile::tempdir().unwrap();
+    // `id -u` would be identical either way; what differs is reach. A cell
+    // that can see the user's home directory listing is not confined.
+    let doc = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
+        <hick:doc xmlns:hick=\"http://www.hickorydocs.com/1.0\" weave=\"out.md\">\n\
+        # Default\n\n\
+        <hick:container name=\"c\" image=\"python:3.12\" />\n\
+        <hick:exec container=\"c\">\n\
+        ls -a \"$HOME\" | wc -l\n\
+        </hick:exec>\n\
+        </hick:doc>\n";
+    std::fs::write(dir.path().join("d.hick"), doc).unwrap();
+
+    let run = |executor: Option<&str>| {
+        let mut command = Command::new(&hick);
+        command.arg("run").arg("d.hick").current_dir(dir.path());
+        match executor {
+            Some(value) => command.env("HICKORY_EXECUTOR", value),
+            // Cleared, not merely unset: this process may have inherited one.
+            None => command.env_remove("HICKORY_EXECUTOR"),
+        };
+        command.output().expect("hick runs");
+        let woven = std::fs::read_to_string(dir.path().join("out.md")).unwrap_or_default();
+        woven
+            .lines()
+            .filter_map(|line| line.trim().parse::<usize>().ok())
+            .next_back()
+            .unwrap_or_default()
+    };
+
+    let confined = run(None);
+    let unconfined = run(Some("local"));
+    assert!(
+        confined < unconfined,
+        "with no HICKORY_EXECUTOR set, a cell saw {confined} entries in $HOME and an \
+         explicitly-local one saw {unconfined} — the default is not confining anything"
+    );
+    // `.` and `..` are all an empty home has, plus whatever toolchains were
+    // bound back in read-only.
+    assert!(confined >= 2, "the cell had no home at all: {confined}");
+    eprintln!("OK default: unset HICKORY_EXECUTOR confines ({confined} vs {unconfined} in $HOME)");
+}

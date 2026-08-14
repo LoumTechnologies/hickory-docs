@@ -282,6 +282,8 @@ expectation is a per-line regex: the shape of the result is pinned, and
 since the data is seeded the values cannot drift either (the woven output
 below is checked byte-for-byte):
 
+
+
 $ uv run --python 3.12 --with polars python3 - <<'EOF'
   import random
   

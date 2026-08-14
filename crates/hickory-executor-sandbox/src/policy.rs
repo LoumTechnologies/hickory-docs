@@ -180,16 +180,39 @@ pub fn wrap(
                 "--die-with-parent".into(),
             ];
             match profile {
-                // An empty home. Read-only was not enough: a cell could still
-                // LIST ~/.ssh and read whatever it found there, and "it cannot
-                // exfiltrate because the network is off" is one mistake away
-                // from false. Tools that want a home get an empty one.
+                // An empty home, with the toolchains handed back.
+                //
+                // Read-only was not enough: a cell could still LIST ~/.ssh and
+                // read whatever it found there, and "it cannot exfiltrate
+                // because the network is off" is one mistake away from false.
+                //
+                // But an empty home alone is not right either, and the reason
+                // is where modern toolchains install. `duckdb` in this
+                // repository's own examples lives in ~/.local/bin; nvm keeps
+                // node under ~/.nvm, pyenv keeps python under ~/.pyenv, cargo
+                // and go and bun and mise all live under $HOME. Hiding the
+                // home hides the interpreter, and the cell fails with
+                // `command not found` on a machine where the command is
+                // plainly installed — which reads as a broken sandbox, and is.
+                //
+                // So: a tmpfs over the home (dotfiles, keys, credentials and
+                // .env files all gone), then the tool directories bound back
+                // READ-ONLY on top of it. The cell can run what you have
+                // installed and can read nothing else of yours.
                 Profile::Cell => {
                     if let Some(home) = std::env::var_os("HOME") {
                         let home = home.to_string_lossy().to_string();
                         if home != "/" && !home.is_empty() && !dir_for_home.starts_with(&home) {
                             args.push("--tmpfs".into());
-                            args.push(home);
+                            args.push(home.clone());
+                            for tool in HOME_TOOL_DIRS {
+                                // `--ro-bind-try`, not `--ro-bind`: most of
+                                // these do not exist on any given machine, and
+                                // bwrap fails outright on a missing source.
+                                args.push("--ro-bind-try".into());
+                                args.push(format!("{home}/{tool}"));
+                                args.push(format!("{home}/{tool}"));
+                            }
                         }
                     }
                 }
@@ -257,6 +280,39 @@ pub fn wrap(
     }
 }
 
+/// Directories under `$HOME` that hold TOOLS rather than secrets.
+///
+/// Bound read-only into the cell's otherwise-empty home, because this is
+/// where language runtimes actually install themselves now. The list is
+/// deliberately of `bin` directories and version-manager roots — never `$HOME`
+/// itself, never `~/.config`, never `~/.aws` or `~/.ssh` — so what a cell
+/// gains is the ability to RUN what you have, not to read what you have.
+///
+/// `~/.cargo/bin` rather than `~/.cargo`: the credentials file for
+/// `cargo publish` lives one level up from the binaries.
+const HOME_TOOL_DIRS: &[&str] = &[
+    ".local/bin",
+    ".local/share/mise",
+    ".local/share/pnpm",
+    ".cargo/bin",
+    ".rustup",
+    "go/bin",
+    ".nvm",
+    ".volta",
+    ".fnm",
+    ".bun/bin",
+    ".deno/bin",
+    ".npm-global/bin",
+    ".asdf",
+    ".pyenv",
+    ".rbenv",
+    ".rvm",
+    ".sdkman",
+    ".ghcup",
+    ".pixi/bin",
+    ".juliaup",
+];
+
 /// The hidden subcommand `hick` answers to when it is acting as the Windows
 /// sandbox launcher.
 ///
@@ -291,6 +347,12 @@ fn seatbelt_profile(workdir: &Path, allow_network: bool, profile: Profile) -> St
         let home = home.to_string_lossy().to_string();
         if home != "/" && !home.is_empty() && !dir.starts_with(&home) {
             policy.push_str(&format!("(deny file-read* (subpath \"{home}\"))"));
+            // Then the toolchains back, for the same reason bubblewrap binds
+            // them in. A later rule wins in Seatbelt, so these must follow
+            // the deny above rather than precede it.
+            for tool in HOME_TOOL_DIRS {
+                policy.push_str(&format!("(allow file-read* (subpath \"{home}/{tool}\"))"));
+            }
         }
     }
     if allow_network {

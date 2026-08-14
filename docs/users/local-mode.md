@@ -98,11 +98,27 @@ because two of them would each mistake the other's writes for your edits.
 `hick run`/`check` execute each `h:exec` block through an executor,
 selected by the `HICKORY_EXECUTOR` environment variable:
 
-- **`HICKORY_EXECUTOR=local` (the default).** Commands run as ordinary host
-  processes in per-container temp directories. Fast, zero setup, works
-  anywhere the tools themselves run — and **not sandboxed**: documents run
-  with your permissions, like `make`. `image=` attributes are recorded but
-  ignored (your host tools are used).
+- **`HICKORY_EXECUTOR=sandbox` (the default).** Each cell runs confined:
+  it may write only its own working directory, its `$HOME` is empty apart
+  from your toolchains (bound read-only, so `node`, `python`, `cargo` and
+  friends still work while your dotfiles, keys and `.env` files are not
+  there), and it has **no network unless the document declares one**:
+
+  ```xml
+  <hick:container name="lab" image="python:3.12">
+    <hick:allow network="pypi.org:443" />
+  </hick:container>
+  ```
+
+  Enforcement is bubblewrap on Linux, Seatbelt on macOS, AppContainer on
+  Windows. Where none of them is available the run is **refused** rather than
+  quietly falling back — see below. `image=` is recorded but ignored: the
+  cell uses your host tools.
+- **`HICKORY_EXECUTOR=local`.** The same thing unconfined: commands run as
+  ordinary host processes with your permissions, like `make`. Fast, zero
+  setup, works anywhere — and a document you did not write gets your files,
+  your keys and your network. Reasonable for documents you wrote; a decision
+  worth making deliberately for anything else.
 - **`HICKORY_EXECUTOR=canopy`.** Each container becomes a Firecracker microVM
   on a [Cloud Canopy](https://github.com/LoumTechnologies/cloud-canopy) node —
   the same isolation the hosted platform uses, pointed at a node you run
@@ -123,6 +139,14 @@ Firecracker requires **Linux with KVM**. Local sandboxed execution is
   - Future: a libkrun-style backend for canopy using Hypervisor.framework
     directly — planned, not built.
   - Or just use `HICKORY_EXECUTOR=local` (unsandboxed) or a cloud workspace.
+
+## When nothing can confine a cell
+
+`hick` refuses to run rather than running unconfined, and says what to
+install: bubblewrap on Linux (`sudo apt install bubblewrap`), nothing on
+macOS (Seatbelt ships with it), Windows 8 or later for AppContainer. The
+refusal names `HICKORY_EXECUTOR=local` as the way to proceed anyway. This is
+deliberate: a fallback you did not notice is a safety claim that is false.
 - **Windows**: run the canopy node inside **WSL2** with nested virtualization
   enabled (KVM inside WSL2 works on current Windows 11 builds). Point
   `hick` on either side at it.

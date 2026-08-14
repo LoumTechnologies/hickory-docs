@@ -68,10 +68,18 @@ impl SandboxedExecutor {
         let sandbox = Sandbox::detect();
         if sandbox == Sandbox::None {
             bail!(
-                "no sandbox is available, so `HICKORY_EXECUTOR=sandbox` cannot confine anything.\n\
+                "This machine cannot confine a cell, and hick runs cells confined by default.\n\
+                 \n\
                  {}\n\
-                 Refusing rather than running your document's commands unconfined — that is what \
-                 you asked this executor to prevent.",
+                 \n\
+                 A document's cells are commands, and a document is a file people send each \n\
+                 other and agents write. Running them unconfined is a decision, so it is not \n\
+                 one made silently on your behalf — but it is yours to make:\n\
+                 \n\
+                     HICKORY_EXECUTOR=local hick run <document>\n\
+                 \n\
+                 That gives every cell your files, your keys and your network, exactly as \n\
+                 `make` would. For a document you wrote, that is a fair trade.",
                 policy::Sandbox::missing_hint()
             );
         }
@@ -94,6 +102,31 @@ impl SandboxedExecutor {
             .unwrap()
             .get(container)
             .is_some_and(|caps| caps.allows_network())
+    }
+
+    /// Add the sandbox's own explanation to a failure it caused.
+    ///
+    /// Only where the evidence points that way, and only when the container
+    /// really had no network: appending "maybe the sandbox did this" to every
+    /// failing cell would train people to ignore it.
+    fn explain(&self, container: &str, error: anyhow::Error) -> anyhow::Error {
+        let text = format!("{error:#}");
+        if self.allows_network(container) || !looks_like_a_denied_network(&text) {
+            return error;
+        }
+        error.context(format!(
+            "This container has NO network: `HICKORY_EXECUTOR=sandbox` denies it unless the \n\
+             document asks. The error above is what the command says when it cannot reach \n\
+             anything, not a problem with your connection.\n\
+             \n\
+             To let this container out, declare what it may reach:\n\
+             \n\
+                 <hick:allow container=\"{container}\" host=\"example.com\" port=\"443\" />\n\
+             \n\
+             A document that says which hosts it needs is one a reader can check. To run \n\
+             everything unconfined instead, set HICKORY_EXECUTOR=local — that gives the cell \n\
+             your whole machine, which is the trade this executor exists to avoid."
+        ))
     }
 
     /// Rewrite a command so the shell that runs it is inside the sandbox.
@@ -119,6 +152,30 @@ impl SandboxedExecutor {
         }
         Ok(line)
     }
+}
+
+/// What a confined failure looks like from the outside, and why.
+///
+/// A cell denied the network does not fail with "the sandbox denied this".
+/// It fails with whatever its tool says when the name does not resolve —
+/// `Temporary failure in name resolution`, `Connect`, `dns error` — which
+/// sends a reader to check their wifi. The sandbox is the only thing that
+/// knows the real reason, so it is the only thing that can say so.
+fn looks_like_a_denied_network(error: &str) -> bool {
+    const SIGNS: &[&str] = &[
+        "name resolution",
+        "dns error",
+        "Temporary failure in name",
+        "Could not resolve host",
+        "Name or service not known",
+        "Network is unreachable",
+        "Connection refused",
+        "connect: network",
+        "getaddrinfo",
+        "ENOTFOUND",
+        "EAI_AGAIN",
+    ];
+    SIGNS.iter().any(|sign| error.contains(sign))
 }
 
 /// Quote one argument for the shell this platform hands commands to.
@@ -206,6 +263,7 @@ impl Executor for SandboxedExecutor {
         self.inner
             .execute_as(container, command, &confined, None)
             .await
+            .map_err(|error| self.explain(container, error))
     }
 
     async fn execute_with_stdin(
@@ -218,6 +276,7 @@ impl Executor for SandboxedExecutor {
         self.inner
             .execute_as(container, command, &confined, Some(stdin_data))
             .await
+            .map_err(|error| self.explain(container, error))
     }
 
     async fn register_fork(

@@ -63,11 +63,18 @@ impl ExecutorChoice {
         }
     }
 
-    /// Read `HICKORY_EXECUTOR` (default: `local`).
+    /// Read `HICKORY_EXECUTOR` (default: `sandbox`).
+    ///
+    /// The default is the confined one, and it refuses to run where it cannot
+    /// confine anything. A document is a file people send each other and
+    /// agents write; "read every cell before running it" is advice nobody
+    /// follows twice, so the safe execution has to be the one you get without
+    /// asking. `HICKORY_EXECUTOR=local` is still there, one variable away,
+    /// and says plainly what it gives up.
     pub fn from_env() -> Result<Self> {
         match std::env::var("HICKORY_EXECUTOR").as_deref() {
-            Err(_) | Ok("") | Ok("local") => Ok(ExecutorChoice::Local),
-            Ok("sandbox") => Ok(ExecutorChoice::Sandbox),
+            Err(_) | Ok("") | Ok("sandbox") => Ok(ExecutorChoice::Sandbox),
+            Ok("local") => Ok(ExecutorChoice::Local),
             Ok("docker") => Ok(ExecutorChoice::Docker),
             Ok("canopy") => Ok(ExecutorChoice::Canopy),
             Ok(other) => bail!(

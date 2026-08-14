@@ -462,9 +462,14 @@ impl LocalExecutor {
         }
 
         if !status.success() {
+            // `display`, not `command`: under a sandbox the spawned command is
+            // a hundred-argument `bwrap` invocation wrapped around the cell,
+            // and printing that at someone whose Python script failed buries
+            // the one line they need in our implementation. The transcript
+            // already makes this distinction; the error must too.
             bail!(
                 "command failed in container '{container}' (exit {code}): {}\n{}",
-                command.trim().lines().next().unwrap_or("?"),
+                display.trim().lines().next().unwrap_or("?"),
                 stderr_text.trim()
             );
         }
