@@ -36,6 +36,8 @@
 //! be the worst outcome available: the user asked for isolation, believes
 //! they have it, and does not. The error names the platform's options.
 
+#[cfg(windows)]
+pub mod appcontainer;
 pub mod policy;
 
 use std::collections::HashMap;
@@ -106,6 +108,7 @@ impl SandboxedExecutor {
             &workdir,
             command,
             self.allows_network(container),
+            policy::Profile::Cell,
         ) else {
             bail!("no sandbox available to confine container '{container}'");
         };
@@ -118,9 +121,58 @@ impl SandboxedExecutor {
     }
 }
 
-/// Single-quote for `sh`, the only quoting that has no escapes to get wrong.
+/// Quote one argument for the shell this platform hands commands to.
+///
+/// Two shells, two rules, and getting it wrong is not a cosmetic bug: an
+/// unquoted workdir with a space in it turns one argument into two, and the
+/// sandbox confines the wrong directory.
 fn shell_quote(value: &str) -> String {
-    format!("'{}'", value.replace('\'', r"'\''"))
+    if cfg!(windows) {
+        windows_quote(value)
+    } else {
+        // Single quotes: the only sh quoting with no escapes to get wrong.
+        format!("'{}'", value.replace('\'', r"'\''"))
+    }
+}
+
+/// Quote for `cmd.exe`, which is two problems rather than one.
+///
+/// `CommandLineToArgvW` splits on unquoted spaces and treats backslashes as
+/// escapes only when they precede a quote; `cmd.exe` *additionally* expands
+/// `%VAR%` and treats `&|<>^` as syntax before any of that happens. So the
+/// argument is double-quoted for the parser and the metacharacters that
+/// survive quoting are caret-escaped for the shell.
+fn windows_quote(value: &str) -> String {
+    let mut out = String::with_capacity(value.len() + 2);
+    out.push('"');
+    let mut backslashes = 0;
+    for ch in value.chars() {
+        match ch {
+            '\\' => {
+                backslashes += 1;
+                out.push(ch);
+            }
+            '"' => {
+                // Every backslash immediately before a quote is doubled, then
+                // the quote itself is escaped.
+                for _ in 0..=backslashes {
+                    out.push('\\');
+                }
+                backslashes = 0;
+                out.push('"');
+            }
+            _ => {
+                backslashes = 0;
+                out.push(ch);
+            }
+        }
+    }
+    // Trailing backslashes would escape the closing quote.
+    for _ in 0..backslashes {
+        out.push('\\');
+    }
+    out.push('"');
+    out
 }
 
 #[async_trait]
@@ -231,6 +283,28 @@ impl Executor for SandboxedExecutor {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_windows_path_with_a_space_stays_one_argument() {
+        // The failure this prevents: `C:\Program Files\…` splits into two
+        // arguments, the launcher confines a directory that does not exist,
+        // and the sandbox protects nothing that matters.
+        let quoted = windows_quote(r"C:\Program Files\thing");
+        assert_eq!(quoted, r#""C:\Program Files\thing""#);
+    }
+
+    #[test]
+    fn a_trailing_backslash_does_not_escape_the_closing_quote() {
+        // A Windows directory path ends in a backslash often enough that this
+        // is the realistic corruption: `"C:\dir\"` swallows the quote and
+        // everything after it becomes part of the argument.
+        assert_eq!(windows_quote(r"C:\dir\"), r#""C:\dir\\""#);
+    }
+
+    #[test]
+    fn an_embedded_quote_is_escaped_with_its_backslashes_doubled() {
+        assert_eq!(windows_quote(r#"say "hi""#), r#""say \"hi\"""#);
+    }
 
     #[test]
     fn quoting_survives_a_command_containing_quotes() {

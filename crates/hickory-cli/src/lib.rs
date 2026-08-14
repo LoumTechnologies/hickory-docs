@@ -9,6 +9,7 @@ pub mod agent_lineage;
 pub mod doc_tools;
 pub mod editor_lsp;
 pub mod init;
+pub mod lsp_install;
 pub mod mcp;
 pub mod serve;
 pub mod up;

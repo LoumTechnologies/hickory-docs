@@ -314,6 +314,21 @@ impl LocalExecutor {
             .await
     }
 
+    /// The shell a cell's command is handed to.
+    ///
+    /// Every platform gets ITS shell rather than a lowest common
+    /// denominator: a document's cells are shell commands, and a Windows
+    /// user writing `dir` should not need MSYS installed for it to run.
+    /// A document that must run everywhere is the author's concern, not
+    /// something to enforce by making Windows worse.
+    fn shell() -> (&'static str, &'static str) {
+        if cfg!(windows) {
+            ("cmd.exe", "/C")
+        } else {
+            ("sh", "-c")
+        }
+    }
+
     async fn run_command_as(
         &self,
         container: &str,
@@ -338,8 +353,9 @@ impl LocalExecutor {
         }
 
         info!("[local:{container}] executing: {}", display.trim());
-        let mut child = tokio::process::Command::new("sh")
-            .arg("-c")
+        let (shell, shell_flag) = Self::shell();
+        let mut child = tokio::process::Command::new(shell)
+            .arg(shell_flag)
             .arg(command)
             .current_dir(&workdir)
             .stdin(if stdin_data.is_some() {
@@ -350,7 +366,9 @@ impl LocalExecutor {
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()
-            .with_context(|| format!("failed to spawn `sh -c` in container '{container}'"))?;
+            .with_context(|| {
+                format!("failed to spawn `{shell} {shell_flag}` in container '{container}'")
+            })?;
 
         if let Some(data) = stdin_data {
             let mut stdin = child.stdin.take().expect("stdin was piped");

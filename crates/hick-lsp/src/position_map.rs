@@ -57,6 +57,17 @@ impl PositionMap {
         Self { mappings }
     }
 
+    /// How many lines the virtual file has.
+    ///
+    /// Needed by the range-scoped requests: `textDocument/inlayHint` takes a
+    /// range and takes it as REQUIRED, so a child asked without one answers
+    /// nothing at all. The document's own range is meaningless to a child —
+    /// its file is a few lines long and the document is not — so each is
+    /// asked for the extent of its own file.
+    pub fn virtual_lines(&self) -> u32 {
+        self.mappings.len() as u32
+    }
+
     /// Map a virtual file position to a .hick source position.
     /// Returns (source_line_0based, source_col_0based).
     pub fn to_source(&self, virtual_line: u32, virtual_col: u32) -> Option<(u32, u32)> {

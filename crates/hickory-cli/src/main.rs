@@ -108,6 +108,57 @@ enum Command {
     /// Grok CLI, or any other MCP client. `hick init` writes the
     /// registration for the harnesses it finds.
     Mcp(McpArgs),
+    /// Show or install the language servers that power the editor.
+    #[command(subcommand)]
+    Lsp(LspCommand),
+    /// Internal: run a command inside a Windows AppContainer.
+    ///
+    /// Not for people. On Windows the sandbox is applied by the process that
+    /// CREATES the confined process, so `hick` re-invokes itself here rather
+    /// than shipping a second binary to do it. Hidden because it is an
+    /// implementation detail of `HICKORY_EXECUTOR=sandbox`, and running it by
+    /// hand confines nothing you would want confined.
+    #[command(name = "__sandbox-run", hide = true)]
+    SandboxRun(SandboxRunArgs),
+}
+
+#[derive(Subcommand)]
+enum LspCommand {
+    /// List every language server this can install, and whether it can.
+    ///
+    /// Installing is never automatic: it fetches from the network and runs
+    /// the package's own setup scripts, and this tool does neither without
+    /// being asked. What is already on your machine is always preferred.
+    List,
+    /// Install a language's server into `.hick-cache/servers/`, confined.
+    ///
+    /// The installer runs in the same sandbox a document's cells run in —
+    /// `npm install` and `uv pip install` execute arbitrary setup code, so
+    /// they are treated as what they are. Nothing is written outside
+    /// `.hick-cache/`, which `hick init` already keeps out of git.
+    Install(LspInstallArgs),
+}
+
+#[derive(clap::Args)]
+struct LspInstallArgs {
+    /// Languages to install servers for, e.g. `python`. Omit for all of them.
+    languages: Vec<String>,
+    /// The project to install into. Defaults to the current directory.
+    #[arg(long)]
+    root: Option<PathBuf>,
+}
+
+#[derive(clap::Args)]
+struct SandboxRunArgs {
+    /// The one directory the confined command may write; also its cwd.
+    #[arg(long)]
+    workdir: PathBuf,
+    /// Grant outbound network. Absent means no network at all.
+    #[arg(long)]
+    allow_network: bool,
+    /// The command, after `--`.
+    #[arg(last = true, required = true)]
+    command: Vec<String>,
 }
 
 #[derive(clap::Args)]
@@ -429,6 +480,8 @@ fn main() -> ExitCode {
             Command::Refresh(args) => cmd_refresh(args).await,
             Command::Init(args) => cmd_init(args),
             Command::Doc(cmd) => cmd_doc(cmd).await,
+            Command::Lsp(cmd) => cmd_lsp(cmd),
+            Command::SandboxRun(args) => cmd_sandbox_run(args),
             Command::Mcp(args) => {
                 hickory_cli::mcp::serve(
                     args.doc,
@@ -859,6 +912,106 @@ async fn cmd_agent(args: AgentArgs) -> Result<ExitCode> {
     );
     println!("{}", outcome.session_path.display());
     Ok(ExitCode::SUCCESS)
+}
+
+fn cmd_lsp(command: LspCommand) -> Result<ExitCode> {
+    use hickory_cli::lsp_install;
+
+    match command {
+        LspCommand::List => {
+            println!("Language servers `hick lsp install` can fetch:\n");
+            for plan in lsp_install::plans() {
+                println!("  {} — {}", plan.language, plan.package);
+                println!("      {}", plan.reason);
+                match plan.blocked {
+                    Some(reason) => println!("      unavailable: {reason}"),
+                    None => println!("      ready: `hick lsp install {}`", plan.language),
+                }
+            }
+            println!(
+                "\nAnything already installed on your machine is preferred over these — \
+                 run `hick init` to see what was found.\nInstalls are confined: they may write \
+                 only {}, and nothing else on your machine.",
+                lsp_install::SERVERS_DIR
+            );
+            Ok(ExitCode::SUCCESS)
+        }
+        LspCommand::Install(args) => {
+            let root = match args.root {
+                Some(root) => root,
+                None => std::env::current_dir().context("resolving the current directory")?,
+            };
+            let languages: Vec<String> = if args.languages.is_empty() {
+                // Installing everything is a choice a person can reasonably
+                // make, but it must be the one they typed, so it only
+                // happens on a bare `hick lsp install`.
+                lsp_install::plans()
+                    .into_iter()
+                    .filter(|plan| plan.blocked.is_none())
+                    .map(|plan| plan.language)
+                    .collect()
+            } else {
+                args.languages
+            };
+            if languages.is_empty() {
+                println!(
+                    "Nothing to install: none of the installers' tools (uv, npm) are on this \
+                     machine.\nInstall one of them, or install a language server yourself — \
+                     either way `hick-lsp` will find it."
+                );
+                return Ok(ExitCode::SUCCESS);
+            }
+            for language in &languages {
+                println!("Installing the {language} language server, sandboxed…");
+                let prefix = lsp_install::install(&root, language)?;
+                println!("  installed into {}", prefix.display());
+            }
+            println!(
+                "\nOpen a document — the server is found automatically, with no configuration."
+            );
+            Ok(ExitCode::SUCCESS)
+        }
+    }
+}
+
+/// The Windows sandbox launcher (see `Command::SandboxRun`).
+///
+/// Its exit code IS the confined command's, because the executor above it
+/// reads the exit status to decide whether the cell failed. Swallowing a
+/// non-zero code here would turn every failing cell into a passing one.
+#[cfg(windows)]
+fn cmd_sandbox_run(args: SandboxRunArgs) -> Result<ExitCode> {
+    use hickory_executor_sandbox::appcontainer::{Confinement, run};
+
+    let command = args.command.join(" ");
+    let code = run(Confinement {
+        workdir: &args.workdir,
+        command: &command,
+        allow_network: args.allow_network,
+    })?;
+    // A Windows exit code is a u32; ExitCode carries a u8. Anything that does
+    // not fit is reported as failure rather than truncated, because
+    // truncation can turn a non-zero code into zero.
+    Ok(match u8::try_from(code) {
+        Ok(byte) => ExitCode::from(byte),
+        Err(_) => ExitCode::FAILURE,
+    })
+}
+
+/// On every other platform this subcommand cannot do anything, and says so.
+///
+/// It exists here rather than being compiled out so that the argument
+/// parsing, the help text and the dispatch are identical on all platforms —
+/// a subcommand that vanishes per target is one that only breaks on the
+/// target nobody is building.
+#[cfg(not(windows))]
+fn cmd_sandbox_run(_args: SandboxRunArgs) -> Result<ExitCode> {
+    anyhow::bail!(
+        "`hick __sandbox-run` is the Windows sandbox launcher and does nothing on this \
+         platform.\nOn Linux and macOS the sandbox is applied by `bwrap` or `sandbox-exec`, \
+         which the executor invokes directly — there is nothing here to run by hand.\n\
+         If you meant to run a document confined, use `HICKORY_EXECUTOR=sandbox hick run <doc>`."
+    )
 }
 
 fn cmd_init(args: InitArgs) -> Result<ExitCode> {

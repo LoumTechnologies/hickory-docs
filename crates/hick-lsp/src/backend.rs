@@ -809,6 +809,17 @@ pub(crate) fn translate_bare_ranges(
             && v.pointer("/end/character").is_some()
     }
 
+    fn is_position(v: &Value) -> bool {
+        v.pointer("/line").is_some() && v.pointer("/character").is_some()
+    }
+
+    fn translate_position(v: &Value, map: &PositionMap) -> Option<Value> {
+        let line = v.pointer("/line")?.as_u64()? as u32;
+        let character = v.pointer("/character")?.as_u64()? as u32;
+        let (line, character) = map.to_source(line, character)?;
+        Some(serde_json::json!({ "line": line, "character": character }))
+    }
+
     fn translate(v: &Value, map: &PositionMap) -> Option<Value> {
         let sl = v.pointer("/start/line")?.as_u64()? as u32;
         let sc = v.pointer("/start/character")?.as_u64()? as u32;
@@ -835,6 +846,21 @@ pub(crate) fn translate_bare_ranges(
                     let child = obj.get(&key).cloned().unwrap_or(Value::Null);
                     if is_range(&child) {
                         match translate(&child, map) {
+                            Some(t) => {
+                                obj.insert(key, t);
+                            }
+                            None => {
+                                obj.remove(&key);
+                            }
+                        }
+                    } else if key == "position" && is_position(&child) {
+                        // A BARE position, which only inlay hints use. It is
+                        // not range-shaped, so the walker above steps over it
+                        // — and an untranslated one places the hint at the
+                        // virtual file's line number, which is somewhere near
+                        // the top of the document rather than beside the code
+                        // it describes.
+                        match translate_position(&child, map) {
                             Some(t) => {
                                 obj.insert(key, t);
                             }
@@ -1460,16 +1486,57 @@ impl LanguageServer for HickBackend {
     }
 
     async fn inlay_hint(&self, params: InlayHintParams) -> Result<Option<Vec<InlayHint>>> {
-        // Range-scoped, but the range is in document coordinates and each
-        // child wants its own: fanning out and letting each answer for its
-        // whole file is simpler and produces the same set once mapped back.
-        let items = self
-            .fan_out_array("textDocument/inlayHint", &params.text_document.uri, None)
-            .await;
-        if items.is_empty() {
+        // `range` is REQUIRED on this request, and the document's range is
+        // meaningless to a child: its virtual file is a few lines long while
+        // the document is not, so a document-coordinate range asks about
+        // lines the child's file does not have and it answers nothing.
+        //
+        // (That is not a hypothetical. Passing no range at all made every
+        // inlay hint disappear against a server that advertises them, which
+        // read as "this server has no hints" for far longer than it should
+        // have.)
+        //
+        // Each child is asked about the whole of ITS file instead, and the
+        // document's requested range is applied afterwards, once the hints
+        // are back in document coordinates.
+        let mut out: Vec<serde_json::Value> = Vec::new();
+        for (vf_uri, language, map) in self.virtual_files_of(&params.text_document.uri).await {
+            let whole_file = serde_json::json!({
+                "range": {
+                    "start": { "line": 0, "character": 0 },
+                    "end": { "line": map.virtual_lines(), "character": 0 },
+                }
+            });
+            let Some(result) = self
+                .child_document_request(
+                    "textDocument/inlayHint",
+                    &vf_uri,
+                    &language,
+                    Some(whole_file),
+                )
+                .await
+            else {
+                continue;
+            };
+            if let serde_json::Value::Array(items) = translate_bare_ranges(result, &map) {
+                out.extend(items);
+            }
+        }
+        // Hints outside what the editor asked about are dropped here rather
+        // than in the child, which had no way to know.
+        let requested = params.range;
+        out.retain(|hint| {
+            hint.get("position")
+                .and_then(|position| position.get("line"))
+                .and_then(serde_json::Value::as_u64)
+                .is_some_and(|line| {
+                    line >= u64::from(requested.start.line) && line <= u64::from(requested.end.line)
+                })
+        });
+        if out.is_empty() {
             return Ok(None);
         }
-        Ok(serde_json::from_value(serde_json::Value::Array(items)).ok())
+        Ok(serde_json::from_value(serde_json::Value::Array(out)).ok())
     }
 
     async fn folding_range(&self, params: FoldingRangeParams) -> Result<Option<Vec<FoldingRange>>> {
@@ -1813,5 +1880,51 @@ mod tests {
         let translated = translate_bare_ranges(unmappable, &map);
         assert!(translated.get("range").is_none());
         assert_eq!(translated["contents"], "x");
+    }
+
+    #[test]
+    fn an_inlay_hints_bare_position_is_translated_too() {
+        // An inlay hint carries a POSITION, not a range, and the walker used
+        // to step straight over it — leaving the hint at the virtual file's
+        // line number, which is near the top of the document instead of
+        // beside the code it describes.
+        let map = PositionMap::build(&[seg("def load(path):\n", 6, 0)]);
+        let hint = serde_json::json!([{
+            "label": "-> str",
+            "position": { "line": 0, "character": 14 },
+        }]);
+        let translated = translate_bare_ranges(hint, &map);
+        assert_eq!(translated[0]["position"]["line"], 5, "{translated}");
+        assert_eq!(translated[0]["position"]["character"], 14);
+    }
+
+    #[test]
+    fn a_hint_with_no_source_is_dropped_rather_than_placed_at_line_zero() {
+        let map = PositionMap::build(&[seg("x\n", 2, 0)]);
+        let hint =
+            serde_json::json!([{ "label": ": int", "position": { "line": 40, "character": 0 } }]);
+        let translated = translate_bare_ranges(hint, &map);
+        assert!(translated[0].get("position").is_none(), "{translated}");
+    }
+
+    #[test]
+    fn a_position_that_is_not_a_position_is_left_alone() {
+        // Only the key `position` with a line and a character is treated as
+        // one; a server's own `position` field of some other shape must
+        // survive untouched.
+        let map = PositionMap::build(&[seg("x\n", 2, 0)]);
+        let value = serde_json::json!({ "position": "after", "data": { "position": 3 } });
+        let translated = translate_bare_ranges(value, &map);
+        assert_eq!(translated["position"], "after");
+        assert_eq!(translated["data"]["position"], 3);
+    }
+
+    #[test]
+    fn a_virtual_files_extent_is_its_line_count() {
+        // What the inlay-hint request sends as its range. A child asked
+        // about the DOCUMENT's range is asked about lines its file does not
+        // have, and answers nothing.
+        let map = PositionMap::build(&[seg("a\nb\nc\n", 3, 0)]);
+        assert_eq!(map.virtual_lines(), 3);
     }
 }

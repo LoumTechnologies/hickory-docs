@@ -136,6 +136,12 @@ fn candidates(language: &str) -> &'static [Candidate] {
 /// agrees with.
 fn project_dirs(root: &Path) -> Vec<PathBuf> {
     let mut dirs = vec![
+        // What `hick lsp install` put there, first: a server this project
+        // asked for outranks whatever happens to be on the machine, for the
+        // same reason a project-pinned one does.
+        root.join(".hick-cache/servers/node/node_modules/.bin"),
+        root.join(".hick-cache/servers/python/bin"),
+        root.join(".hick-cache/servers/python/Scripts"),
         root.join("node_modules/.bin"),
         root.join(".venv/bin"),
         root.join("venv/bin"),
@@ -355,6 +361,25 @@ mod tests {
             found.command
         );
         assert_eq!(found.command[1], "--stdio");
+    }
+
+    #[test]
+    fn a_server_this_project_installed_is_found_without_configuration() {
+        // The point of `hick lsp install`: nothing is written to a config
+        // file afterwards, so if discovery does not look here, the install
+        // silently does nothing.
+        let dir = tempfile::tempdir().unwrap();
+        fake_executable(
+            &dir.path().join(".hick-cache/servers/python/bin"),
+            "basedpyright-langserver",
+        );
+        let found = discover("python", dir.path()).expect("the installed server is found");
+        assert_eq!(found.origin, "project");
+        assert!(
+            found.command[0].contains(".hick-cache"),
+            "{:?}",
+            found.command
+        );
     }
 
     #[test]
