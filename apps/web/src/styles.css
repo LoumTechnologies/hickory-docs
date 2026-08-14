@@ -2068,6 +2068,44 @@ textarea:focus {
   margin: 3.5rem 0 0;
 }
 
+/* The language-intelligence demo: a document with a real compiler behind it.
+   Deliberately plain — the interesting thing is what happens when you touch
+   the code, so the frame stays out of its way. */
+.intel-demo {
+  margin: 1.25rem 0 0;
+  padding: 0;
+}
+.intel-demo__caption {
+  margin: 0 0 0.75rem;
+  color: var(--fg-muted);
+  font-size: 0.9rem;
+  line-height: 1.6;
+}
+.intel-demo__caption strong {
+  color: var(--fg);
+}
+.intel-demo__editor {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-raised);
+  overflow: hidden;
+}
+/* The status line is the demo's whole feedback loop, so it holds its height:
+   a line that appears and disappears would shift the editor under the
+   reader's cursor exactly as they are typing into it. */
+.intel-demo__status {
+  min-height: 1.5rem;
+  margin: 0.6rem 0 0;
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 0.78rem;
+  color: var(--fg-muted);
+}
+.intel-demo__note {
+  margin: 0.35rem 0 0;
+  font-size: 0.8rem;
+  color: var(--fg-muted);
+}
+
 .landing-demo h2 {
   font-size: clamp(1.25rem, 2.6vw, 1.6rem);
   letter-spacing: -0.01em;

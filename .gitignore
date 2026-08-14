@@ -31,3 +31,6 @@ terraform/**/.terraform.lock.hcl.bak
 # Copied from scripts/install.sh by `just site` so the static site can serve
 # it; the script itself is tracked once, at scripts/install.sh.
 apps/web/public/install.sh
+
+# Playwright MCP scratch output from browser-driven verification.
+.playwright-mcp/

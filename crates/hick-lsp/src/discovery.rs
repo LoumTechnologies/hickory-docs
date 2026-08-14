@@ -135,23 +135,61 @@ fn candidates(language: &str) -> &'static [Candidate] {
 /// server has already decided, and its choice is the one its other tooling
 /// agrees with.
 fn project_dirs(root: &Path) -> Vec<PathBuf> {
-    let mut dirs = vec![
-        // What `hick lsp install` put there, first: a server this project
-        // asked for outranks whatever happens to be on the machine, for the
-        // same reason a project-pinned one does.
-        root.join(".hick-cache/servers/node/node_modules/.bin"),
-        root.join(".hick-cache/servers/python/bin"),
-        root.join(".hick-cache/servers/python/Scripts"),
-        root.join("node_modules/.bin"),
-        root.join(".venv/bin"),
-        root.join("venv/bin"),
-        root.join(".venv/Scripts"),
-        root.join("vendor/bin"),
-        root.join(".tools/bin"),
-        root.join("bin"),
-    ];
+    let mut dirs = Vec::new();
+
+    // What `hick lsp install` put there, first: a server this project asked
+    // for outranks whatever happens to be on the machine, for the same
+    // reason a project-pinned one does.
+    dirs.push(root.join(".hick-cache/servers/node/node_modules/.bin"));
+    dirs.push(root.join(".hick-cache/servers/python/bin"));
+    dirs.push(root.join(".hick-cache/servers/python/Scripts"));
+
+    // Then each directory from here up to the repository root.
+    //
+    // Walking up rather than looking only at `root` is what makes a monorepo
+    // work. In one, `apps/web/` has no `node_modules` of its own — the
+    // workspace root has it, and every package manager that supports
+    // workspaces (npm, yarn, pnpm, bun) hoists the binaries there. A document
+    // in `apps/web/` whose search stopped at `apps/web/` would find nothing
+    // and report the language as unsupported, on a machine where the server
+    // is installed and every other tool in the repository finds it.
+    for ancestor in ancestors_to_repo_root(root) {
+        for layout in PROJECT_LAYOUTS {
+            dirs.push(ancestor.join(layout));
+        }
+        dirs.extend(package_manager_dirs(&ancestor));
+    }
+    dirs
+}
+
+/// Fixed per-package-manager locations, in preference order.
+///
+/// Each is where that ecosystem's own tooling looks, so a server installed
+/// the ordinary way for that ecosystem is found without anyone saying where.
+const PROJECT_LAYOUTS: &[&str] = &[
+    // npm, yarn, pnpm and bun all link executables here.
+    "node_modules/.bin",
+    // The conventional virtualenv names, and Windows' spelling of `bin`.
+    ".venv/bin",
+    ".venv/Scripts",
+    "venv/bin",
+    "venv/Scripts",
+    "env/bin",
+    // composer (PHP).
+    "vendor/bin",
+    // Bundler binstubs (Ruby) and the generic project-local convention.
+    "bin",
+    ".tools/bin",
+];
+
+/// Locations that need a glob or a probe rather than a fixed path.
+fn package_manager_dirs(root: &Path) -> Vec<PathBuf> {
+    let mut dirs = Vec::new();
+
     // A virtualenv named something else is still a virtualenv: any directory
-    // with `pyvenv.cfg` in it is one, by definition.
+    // with `pyvenv.cfg` in it is one, by definition. This covers poetry's
+    // in-project envs, pipenv with PIPENV_VENV_IN_PROJECT, and whatever a
+    // person called theirs.
     if let Ok(entries) = std::fs::read_dir(root) {
         for entry in entries.flatten() {
             let path = entry.path();
@@ -161,7 +199,61 @@ fn project_dirs(root: &Path) -> Vec<PathBuf> {
             }
         }
     }
+
+    // PDM's PEP 582 layout: `__pypackages__/<python-version>/bin`.
+    push_globbed(&mut dirs, &root.join("__pypackages__"), &["bin", "Scripts"]);
+    // conda / mamba environments kept inside the project.
+    push_globbed(&mut dirs, &root.join("envs"), &["bin", "Scripts"]);
+    // Bundler's vendored install: `vendor/bundle/ruby/<abi>/bin`.
+    push_globbed(&mut dirs, &root.join("vendor/bundle/ruby"), &["bin"]);
+
     dirs
+}
+
+/// Add `<parent>/<child>/<leaf>` for every child directory of `parent`.
+///
+/// The version component in these layouts is the Python or Ruby version, and
+/// hardcoding one would work until the user upgraded.
+fn push_globbed(dirs: &mut Vec<PathBuf>, parent: &Path, leaves: &[&str]) {
+    let Ok(entries) = std::fs::read_dir(parent) else {
+        return;
+    };
+    let mut children: Vec<PathBuf> = entries
+        .flatten()
+        .map(|entry| entry.path())
+        .filter(|path| path.is_dir())
+        .collect();
+    // Newest last in lexical order, so the highest version is preferred —
+    // and sorted at all, so the answer does not change between runs.
+    children.sort();
+    for child in children.into_iter().rev() {
+        for leaf in leaves {
+            dirs.push(child.join(leaf));
+        }
+    }
+}
+
+/// This directory and its ancestors, stopping at the repository root.
+///
+/// Bounded by `.git` so the search never wanders into a parent that has
+/// nothing to do with this project — someone's home directory with a stray
+/// `node_modules` in it should not decide which server a repository uses.
+/// Without a `.git` anywhere, only the directory itself is searched, because
+/// there is no way to tell where the project ends.
+fn ancestors_to_repo_root(root: &Path) -> Vec<PathBuf> {
+    let mut out = vec![root.to_path_buf()];
+    if !root.join(".git").exists() {
+        for ancestor in root.ancestors().skip(1) {
+            out.push(ancestor.to_path_buf());
+            if ancestor.join(".git").exists() {
+                return out;
+            }
+        }
+        // No repository root found: the walk was unbounded, so trust only
+        // the directory we started in.
+        return vec![root.to_path_buf()];
+    }
+    out
 }
 
 /// Every rustup toolchain's `bin`, `stable` first.
@@ -380,6 +472,89 @@ mod tests {
             "{:?}",
             found.command
         );
+    }
+
+    #[test]
+    fn a_monorepo_package_finds_the_workspace_root_install() {
+        // npm, yarn, pnpm and bun all hoist workspace binaries to the root.
+        // A document in `apps/web` whose search stopped there would report
+        // TypeScript as unsupported in a repository where every other tool
+        // finds the server.
+        let repo = tempfile::tempdir().unwrap();
+        fs::create_dir_all(repo.path().join(".git")).unwrap();
+        fake_executable(
+            &repo.path().join("node_modules/.bin"),
+            "typescript-language-server",
+        );
+        let package = repo.path().join("apps/web");
+        fs::create_dir_all(&package).unwrap();
+
+        let found = discover("typescript", &package).expect("the hoisted server is found");
+        assert_eq!(found.origin, "project");
+    }
+
+    #[test]
+    fn the_walk_stops_at_the_repository_root() {
+        // Someone's home directory with a stray node_modules in it must not
+        // decide which server a repository uses.
+        let outer = tempfile::tempdir().unwrap();
+        fake_executable(
+            &outer.path().join("node_modules/.bin"),
+            "typescript-language-server",
+        );
+        let repo = outer.path().join("repo");
+        fs::create_dir_all(repo.join(".git")).unwrap();
+
+        assert!(
+            discover("typescript", &repo).is_none(),
+            "the search escaped the repository"
+        );
+    }
+
+    #[test]
+    fn pdms_pep_582_layout_is_a_project_install() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir_all(dir.path().join(".git")).unwrap();
+        fake_executable(
+            &dir.path().join("__pypackages__/3.12/bin"),
+            "pyright-langserver",
+        );
+        let found = discover("python", dir.path()).expect("found the PDM install");
+        assert_eq!(found.origin, "project");
+        assert!(
+            found.command[0].contains("__pypackages__"),
+            "{:?}",
+            found.command
+        );
+    }
+
+    #[test]
+    fn the_newest_versioned_directory_wins_and_does_not_vary() {
+        // The version component is the Python (or Ruby) version; a machine
+        // with two must pick the higher one, and pick the SAME one every run.
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir_all(dir.path().join(".git")).unwrap();
+        for version in ["3.11", "3.12"] {
+            fake_executable(
+                &dir.path().join(format!("__pypackages__/{version}/bin")),
+                "pyright-langserver",
+            );
+        }
+        let found = discover("python", dir.path()).unwrap();
+        assert!(found.command[0].contains("3.12"), "{:?}", found.command);
+        assert_eq!(
+            found.command,
+            discover("python", dir.path()).unwrap().command
+        );
+    }
+
+    #[test]
+    fn a_bundler_vendored_install_is_found() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::create_dir_all(dir.path().join(".git")).unwrap();
+        fake_executable(&dir.path().join("vendor/bundle/ruby/3.3.0/bin"), "ruby-lsp");
+        let found = discover("ruby", dir.path()).expect("found the bundled server");
+        assert_eq!(found.origin, "project");
     }
 
     #[test]

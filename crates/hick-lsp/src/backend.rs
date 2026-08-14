@@ -164,6 +164,16 @@ impl HickBackend {
 
         // 5. Write all virtual files to disk so that tools like
         //    rust-analyzer can discover project structure (e.g., Cargo.toml).
+        //
+        //    Writing the files is not enough on its own: a project-aware
+        //    server decides what it can answer by finding a MANIFEST, and
+        //    the virtual root has none. rust-analyzer given a bare
+        //    `src/main.rs` reports the file as not owned by any workspace
+        //    and answers nothing but the syntax-only requests — hover comes
+        //    back null while semantic tokens work, which reads like a
+        //    forwarding bug and is not one. So the project's own manifests
+        //    are copied in beside the virtual files.
+        copy_manifests(hick_uri, &root_uri);
         for vf in &state.virtual_files {
             let vf_uri = Self::vfile_uri(hick_uri, &vf.path);
             if let Ok(path) = vf_uri.to_file_path() {
@@ -880,6 +890,59 @@ pub(crate) fn translate_bare_ranges(
     let mut value = value;
     walk(&mut value, map);
     value
+}
+
+/// Files that tell a language server "this is a project of mine".
+///
+/// Only manifests, and only these: they are small, they are read rather than
+/// executed, and each one is what its ecosystem's server looks for before it
+/// will answer anything semantic. Source files are deliberately NOT copied —
+/// the virtual file is the document's code, and dragging the surrounding
+/// repository in would make the server answer about files the document does
+/// not contain.
+const MANIFESTS: &[&str] = &[
+    "Cargo.toml",
+    "Cargo.lock",
+    "rust-toolchain.toml",
+    "package.json",
+    "tsconfig.json",
+    "jsconfig.json",
+    "go.mod",
+    "go.sum",
+    "pyproject.toml",
+    "setup.cfg",
+    "requirements.txt",
+    "composer.json",
+    "Gemfile",
+];
+
+/// Copy the document's project manifests next to its virtual files.
+///
+/// Best-effort throughout: a manifest that cannot be read leaves the server
+/// exactly as badly off as it was before, which is the pre-existing
+/// behaviour rather than a new failure.
+fn copy_manifests(hick_uri: &Url, root_uri: &str) {
+    let Ok(document_path) = hick_uri.to_file_path() else {
+        return;
+    };
+    let Some(project) = document_path.parent() else {
+        return;
+    };
+    let Some(root) = Url::parse(root_uri)
+        .ok()
+        .and_then(|url| url.to_file_path().ok())
+    else {
+        return;
+    };
+    if std::fs::create_dir_all(&root).is_err() {
+        return;
+    }
+    for name in MANIFESTS {
+        let source = project.join(name);
+        if source.is_file() {
+            let _ = std::fs::copy(&source, root.join(name));
+        }
+    }
 }
 
 /// Process a publishDiagnostics notification from a child LSP.

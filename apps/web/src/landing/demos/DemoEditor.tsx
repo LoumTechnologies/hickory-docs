@@ -53,6 +53,14 @@ export interface DemoEditorProps {
    * byte-for-byte what it was before the keystroke.
    */
   syncToken?: number;
+  /**
+   * Extra CodeMirror extensions, e.g. the language-server bindings.
+   *
+   * Passed in rather than built here so the demo that wants intelligence gets
+   * it and the demos that do not are unaffected — and so the extensions it
+   * gets are the product's own, not a demo-shaped imitation of them.
+   */
+  extraExtensions?: Extension[];
   className?: string;
   ariaLabel: string;
   testId?: string;
@@ -68,6 +76,7 @@ export function DemoEditor({
   onViewReady,
   collab,
   syncToken,
+  extraExtensions,
   className,
   ariaLabel,
   testId,
@@ -98,6 +107,7 @@ export function DemoEditor({
     if (hick) extensions.push(wysiwyg(registry, envRegistry), hickoryFolding());
     else if (language) extensions.push(...languageExtensions(language));
     if (collab) extensions.push(yCollab(collab.ytext, collab.awareness));
+    if (extraExtensions?.length) extensions.push(...extraExtensions);
 
     const view = new EditorView({
       parent: host,
@@ -115,7 +125,7 @@ export function DemoEditor({
     };
     // The buffer's identity — not its contents — decides when to rebuild.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hick, language, readOnly, collab, registry, envRegistry]);
+  }, [hick, language, readOnly, collab, registry, envRegistry, extraExtensions]);
 
   // Push an externally-driven value (a walkthrough step, or an edit mapped
   // back from the output pane) into the buffer. Under `collab` the CRDT is the

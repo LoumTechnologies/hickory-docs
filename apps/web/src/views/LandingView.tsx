@@ -7,6 +7,7 @@ import { Convergence } from "../components/Convergence";
 import { InstallCommand } from "../components/InstallCommand";
 import { InterestSection } from "../components/InterestSection";
 import { ProgramDemo } from "../landing/demos/ProgramDemo";
+import { IntelligenceDemo } from "../landing/demos/IntelligenceDemo";
 import { DECLARED_SEGMENTS, INTERESTS } from "../landing/interests";
 
 // React StrictMode mounts every component twice in development. Without this
@@ -133,6 +134,19 @@ export function LandingView() {
           no account and no network.
         </p>
         <ProgramDemo />
+      </section>
+
+      <section className="landing-demo" aria-labelledby="demo-intel-h">
+        <h2 id="demo-intel-h">Your editor still works inside the document</h2>
+        <p className="landing-demo-lead">
+          The usual objection to literate programming is that you give up your tools: the code
+          becomes prose, and prose has no go-to-definition. It does not here. A document's code
+          blocks are woven into virtual files, handed to the language servers already on your
+          machine, and every answer is mapped back to the line you are looking at — so hover,
+          completion, diagnostics and colouring work on the document itself. The editor below is
+          the app's, and the compiler answering it is real.
+        </p>
+        <IntelligenceDemo />
       </section>
 
       <div className="landing-interests">

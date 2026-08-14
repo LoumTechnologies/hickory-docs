@@ -52,6 +52,20 @@ jobs:
       - run: cargo fmt --all -- --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo build --workspace
+      # The language-server system tests cover whichever languages this
+      # machine can serve, and skip the rest LOUDLY. Without this step CI
+      # would cover none of them and still pass, which is the failure mode
+      # those tests exist to prevent — so the servers are installed here,
+      # and the runner already has bubblewrap for the sandbox that confines
+      # a cell.
+      - name: Install language servers and the sandbox the tests need
+        run: |
+          sudo apt-get update && sudo apt-get install -y bubblewrap
+          npm install -g typescript typescript-language-server
+          pipx install basedpyright || pip install --user basedpyright
+          rustup component add rust-analyzer
+          go install golang.org/x/tools/gopls@latest || true
+          echo "$HOME/go/bin" >> "$GITHUB_PATH"
       - run: cargo test --workspace -- --test-threads=1
       - name: Install DuckDB CLI (pinned to the version the examples expect)
         run: |
