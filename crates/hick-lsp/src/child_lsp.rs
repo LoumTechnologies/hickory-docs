@@ -36,6 +36,8 @@ pub struct ChildNotification {
 #[derive(Clone)]
 pub struct ChildLspHandle {
     language_id: String,
+    /// What this server must be told at `initialize` to work here.
+    init_options: Option<Value>,
     stdin: Arc<Mutex<tokio::io::BufWriter<tokio::process::ChildStdin>>>,
     next_id: Arc<AtomicI64>,
     pending: Arc<Mutex<HashMap<i64, oneshot::Sender<Value>>>>,
@@ -53,7 +55,7 @@ impl ChildLspHandle {
         language_id: &str,
         notification_tx: mpsc::UnboundedSender<ChildNotification>,
     ) -> Result<Self, ChildLspError> {
-        let cmd_parts = lsp_command(language_id)?;
+        let (cmd_parts, init_options) = lsp_launch(language_id)?;
         let program = &cmd_parts[0];
         let args = &cmd_parts[1..];
 
@@ -112,6 +114,7 @@ impl ChildLspHandle {
 
         Ok(Self {
             language_id: language_id.to_string(),
+            init_options,
             stdin: Arc::new(Mutex::new(tokio::io::BufWriter::new(child_stdin))),
             next_id: Arc::new(AtomicI64::new(1)),
             pending,
@@ -167,7 +170,7 @@ impl ChildLspHandle {
 
     /// Initialize the child LSP server with the given workspace root.
     pub async fn initialize(&self, root_uri: &str) -> Result<Value, ChildLspError> {
-        let params = serde_json::json!({
+        let mut params = serde_json::json!({
             "processId": std::process::id(),
             "rootUri": root_uri,
             "capabilities": {
@@ -225,6 +228,15 @@ impl ChildLspHandle {
                 }
             }
         });
+
+        // Whatever discovery worked out this server needs to find its own
+        // back end. Added here rather than baked into the literal above
+        // because it is per-server and per-machine.
+        if let Some(options) = &self.init_options
+            && let Some(object) = params.as_object_mut()
+        {
+            object.insert("initializationOptions".to_string(), options.clone());
+        }
 
         let result = self.request("initialize", params).await?;
         self.notify("initialized", serde_json::json!({})).await?;
@@ -363,10 +375,21 @@ pub enum ChildLspError {
 /// repository that has already chosen a server for a language gets the same
 /// one inside its `hick:file` blocks — see [`crate::server_config`].
 pub fn lsp_command(language_id: &str) -> Result<Vec<String>, ChildLspError> {
+    lsp_launch(language_id).map(|launch| launch.0)
+}
+
+/// The command AND the `initializationOptions` that command needs here.
+///
+/// Two things rather than one because some servers cannot work without
+/// being told where their own back end is, and that is configuration, not
+/// an argument — see [`crate::discovery::Discovered::init_options`].
+pub fn lsp_launch(
+    language_id: &str,
+) -> Result<(Vec<String>, Option<serde_json::Value>), ChildLspError> {
     // 1. What the project declared, if anything. An explicit choice always
     //    wins — `hick init` writes it from the repository's own editor config.
     if let Some(command) = crate::server_config::command_for(language_id) {
-        return Ok(command);
+        return Ok((command, None));
     }
     // 2. What is actually installed, found where installers put things. This
     //    is the path that makes configuration unnecessary: a machine with
@@ -381,22 +404,26 @@ pub fn lsp_command(language_id: &str) -> Result<Vec<String>, ChildLspError> {
             command = found.command.join(" "),
             "discovered a language server"
         );
-        return Ok(found.command);
+        return Ok((found.command, found.init_options));
     }
     // 3. The bare name, so a server on PATH under a conventional name still
     //    works even if discovery's directory list missed it.
     match language_id {
-        "rust" => Ok(vec!["rust-analyzer".into()]),
-        "python" => Ok(vec!["pyright-langserver".into(), "--stdio".into()]),
-        "typescript" | "javascript" | "typescriptreact" | "javascriptreact" => {
-            Ok(vec!["typescript-language-server".into(), "--stdio".into()])
-        }
-        "go" => Ok(vec!["gopls".into()]),
-        "c" | "cpp" => Ok(vec!["clangd".into()]),
-        "lua" => Ok(vec!["lua-language-server".into()]),
-        "zig" => Ok(vec!["zls".into()]),
-        "json" => Ok(vec!["vscode-json-language-server".into(), "--stdio".into()]),
-        "nix" => Ok(vec!["nil".into()]),
+        "rust" => Ok((vec!["rust-analyzer".into()], None)),
+        "python" => Ok((vec!["pyright-langserver".into(), "--stdio".into()], None)),
+        "typescript" | "javascript" | "typescriptreact" | "javascriptreact" => Ok((
+            vec!["typescript-language-server".into(), "--stdio".into()],
+            None,
+        )),
+        "go" => Ok((vec!["gopls".into()], None)),
+        "c" | "cpp" => Ok((vec!["clangd".into()], None)),
+        "lua" => Ok((vec!["lua-language-server".into()], None)),
+        "zig" => Ok((vec!["zls".into()], None)),
+        "json" => Ok((
+            vec!["vscode-json-language-server".into(), "--stdio".into()],
+            None,
+        )),
+        "nix" => Ok((vec!["nil".into()], None)),
         _ => Err(ChildLspError::UnknownLanguage {
             language_id: language_id.to_string(),
         }),

@@ -77,8 +77,15 @@ const INSTALLERS: &[Installer] = &[
     Installer {
         language: "typescript",
         tool: "npm",
-        package: "typescript-language-server typescript",
-        command: "npm install --no-fund --no-audit --prefix {prefix}/node typescript-language-server typescript",
+        package: "typescript-language-server typescript@5",
+        // Pinned to 5, and that pin is load-bearing rather than caution:
+        // `typescript` on npm is 7.x now, the native port, which ships no
+        // `tsserver.js` at all. typescript-language-server is a wrapper
+        // AROUND tsserver, so the obvious `npm install typescript
+        // typescript-language-server` installs two packages that cannot work
+        // together — the server starts and fails `initialize` with "Could not
+        // find a valid tsserver".
+        command: "npm install --no-fund --no-audit --prefix {prefix}/node typescript-language-server typescript@5",
         reason: "the server the TypeScript ecosystem treats as the default",
     },
     Installer {

@@ -68,7 +68,7 @@ jobs:
           # this first surfaced. Cells run confined by DEFAULT now, so a
           # runner that cannot confine anything tests the wrong product.
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
-          npm install -g typescript typescript-language-server
+          npm install -g typescript@5 typescript-language-server  # 7.x ships no tsserver.js, which the wrapper needs
           pipx install basedpyright || pip install --user basedpyright
           rustup component add rust-analyzer
           go install golang.org/x/tools/gopls@latest || true

@@ -336,6 +336,14 @@ pub struct Discovered {
     pub command: Vec<String>,
     /// Where it came from, for reporting to a person: `project` or `machine`.
     pub origin: &'static str,
+    /// `initializationOptions` this server needs to work here, if any.
+    ///
+    /// Configuration and not arguments because that is where these servers
+    /// take it: `typescript-language-server` HAD a `--tsserver-path` flag and
+    /// removed it in 4.x, so passing one now makes the server exit with
+    /// `unknown option` before it has said anything — which surfaces as
+    /// "the language server crashed", several layers from the cause.
+    pub init_options: Option<serde_json::Value>,
 }
 
 /// Find a server for `language`, preferring one the project pins.
@@ -353,9 +361,13 @@ pub fn discover(language: &str, root: &Path) -> Option<Discovered> {
     for candidate in candidates {
         for dir in project_dirs(root) {
             if let Some(path) = executable_in(&dir, candidate.bin) {
+                if !usable(candidate.bin, &path, root) {
+                    continue;
+                }
                 return Some(Discovered {
-                    command: with_args(path, candidate.args),
+                    command: with_args(path.clone(), candidate.args),
                     origin: "project",
+                    init_options: init_options(candidate.bin, &path, root),
                 });
             }
         }
@@ -364,9 +376,13 @@ pub fn discover(language: &str, root: &Path) -> Option<Discovered> {
     for candidate in candidates {
         for dir in machine_dirs() {
             if let Some(path) = executable_in(&dir, candidate.bin) {
+                if !usable(candidate.bin, &path, root) {
+                    continue;
+                }
                 return Some(Discovered {
-                    command: with_args(path, candidate.args),
+                    command: with_args(path.clone(), candidate.args),
                     origin: "machine",
+                    init_options: init_options(candidate.bin, &path, root),
                 });
             }
         }
@@ -378,6 +394,76 @@ fn with_args(path: PathBuf, args: &[&str]) -> Vec<String> {
     let mut command = vec![path.to_string_lossy().to_string()];
     command.extend(args.iter().map(|a| (*a).to_string()));
     command
+}
+
+/// Configuration a server needs that depends on where things are, not on
+/// which server it is.
+///
+/// So far exactly one server needs this, and the reason generalises badly,
+/// so it is written out rather than turned into a mechanism.
+///
+/// `typescript-language-server` is a wrapper: the actual analysis is
+/// `tsserver`, from the `typescript` package, which it locates relative to
+/// the WORKSPACE ROOT. Our workspace root is the directory the virtual files
+/// are written to, and that directory has no `node_modules` — so the server
+/// starts, fails `initialize` with "Could not find a valid tsserver", and
+/// every TypeScript block in every document silently gets nothing. Pointing
+/// it at a tsserver is what editors do too.
+///
+/// The project's own copy is preferred over the one beside the server: a
+/// repository pinning a TypeScript version means that version, and analysing
+/// its code with a different one is how a document ends up disagreeing with
+/// the project's build.
+fn init_options(bin: &str, discovered: &Path, root: &Path) -> Option<serde_json::Value> {
+    if bin != "typescript-language-server" {
+        return None;
+    }
+    let tsserver = find_tsserver(discovered, root)?;
+    Some(serde_json::json!({
+        "tsserver": { "path": tsserver.to_string_lossy() }
+    }))
+}
+
+/// A `tsserver.js` this server could actually use, if one exists.
+fn find_tsserver(discovered: &Path, root: &Path) -> Option<PathBuf> {
+    tsserver_near(root).or_else(|| discovered.parent().and_then(tsserver_beside))
+}
+
+/// Is this candidate worth spawning, given where it was found?
+///
+/// A candidate can be installed and still unusable, and spawning it anyway
+/// is worse than not finding it: the child fails `initialize`, every request
+/// for that language returns nothing, and the editor looks broken in a way
+/// that points at us rather than at the install.
+///
+/// One rule so far. `typescript-language-server` is a wrapper around
+/// `tsserver`, which comes from the `typescript` package — and `typescript`
+/// on npm is 7.x now, the native port, which ships no `tsserver.js`. So the
+/// obvious install produces a server that cannot start, and the honest thing
+/// is to pass over it and try the next candidate.
+fn usable(bin: &str, discovered: &Path, root: &Path) -> bool {
+    if bin != "typescript-language-server" {
+        return true;
+    }
+    find_tsserver(discovered, root).is_some()
+}
+
+/// `node_modules/typescript/lib/tsserver.js` from here up to the repo root.
+fn tsserver_near(root: &Path) -> Option<PathBuf> {
+    ancestors_to_repo_root(root)
+        .into_iter()
+        .find_map(|dir| tsserver_in(&dir.join("node_modules")))
+}
+
+/// The `typescript` package sitting beside a discovered `.bin` entry.
+fn tsserver_beside(bin_dir: &Path) -> Option<PathBuf> {
+    // `<…>/node_modules/.bin/typescript-language-server` → `<…>/node_modules`
+    tsserver_in(bin_dir.parent()?)
+}
+
+fn tsserver_in(node_modules: &Path) -> Option<PathBuf> {
+    let candidate = node_modules.join("typescript/lib/tsserver.js");
+    candidate.is_file().then_some(candidate)
 }
 
 /// Every language this build knows candidates for — what a person can expect
@@ -436,6 +522,18 @@ mod tests {
         }
     }
 
+    /// A `typescript` package beside a planted wrapper.
+    ///
+    /// Without it the fixture is not a TypeScript install but a broken one:
+    /// the wrapper needs a `tsserver.js` to wrap, and discovery passes over
+    /// one that has none. Planting it makes the fixture model what npm
+    /// actually produces.
+    fn fake_tsserver(node_modules: &Path) {
+        let lib = node_modules.join("typescript/lib");
+        fs::create_dir_all(&lib).unwrap();
+        fs::write(lib.join("tsserver.js"), "// stand-in\n").unwrap();
+    }
+
     #[test]
     fn a_project_pinned_server_beats_the_machine() {
         // A repository that ships its own server has already chosen, and its
@@ -445,6 +543,7 @@ mod tests {
             &dir.path().join("node_modules/.bin"),
             "typescript-language-server",
         );
+        fake_tsserver(&dir.path().join("node_modules"));
         let found = discover("typescript", dir.path()).expect("found the pinned server");
         assert_eq!(found.origin, "project");
         assert!(
@@ -486,6 +585,7 @@ mod tests {
             &repo.path().join("node_modules/.bin"),
             "typescript-language-server",
         );
+        fake_tsserver(&repo.path().join("node_modules"));
         let package = repo.path().join("apps/web");
         fs::create_dir_all(&package).unwrap();
 

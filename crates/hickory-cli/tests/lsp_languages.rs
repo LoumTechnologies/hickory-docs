@@ -488,6 +488,60 @@ fn every_installed_language_answers_in_document_coordinates() {
 }
 
 #[test]
+fn a_server_that_cannot_work_is_passed_over_rather_than_spawned() {
+    // `typescript` on npm is 7.x now — the native port, which ships no
+    // `tsserver.js` — so the obvious `npm install typescript
+    // typescript-language-server` installs two packages that cannot work
+    // together. Spawning the wrapper anyway is worse than not finding it:
+    // it fails `initialize` with "Could not find a valid tsserver", every
+    // TypeScript request returns nothing, and the editor looks broken in a
+    // way that points at us rather than at the install.
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join(".git")).unwrap();
+    let bin_dir = dir.path().join("node_modules/.bin");
+    std::fs::create_dir_all(&bin_dir).unwrap();
+    let server = bin_dir.join("typescript-language-server");
+    std::fs::write(&server, "#!/bin/sh\nexit 0\n").unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt as _;
+        std::fs::set_permissions(&server, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+
+    // No `typescript` package beside it: not a usable install.
+    let found = hick_lsp::discovery::discover("typescript", dir.path());
+    assert!(
+        found.as_ref().is_none_or(|f| f.origin != "project"),
+        "a wrapper with no tsserver was offered as the project's server: {:?}",
+        found.map(|f| f.command)
+    );
+
+    // Add the package and it becomes usable — and is told where to find it,
+    // because the CLI flag that used to do this was removed in 4.x and
+    // passing one now makes the server exit before it says anything.
+    let lib = dir.path().join("node_modules/typescript/lib");
+    std::fs::create_dir_all(&lib).unwrap();
+    std::fs::write(lib.join("tsserver.js"), "// stand-in\n").unwrap();
+    let found = hick_lsp::discovery::discover("typescript", dir.path())
+        .expect("a complete install is found");
+    assert_eq!(found.origin, "project");
+    assert!(
+        !found.command.iter().any(|arg| arg == "--tsserver-path"),
+        "the removed CLI flag came back: {:?}",
+        found.command
+    );
+    let options = found
+        .init_options
+        .expect("the server is told where tsserver is");
+    assert!(
+        options["tsserver"]["path"]
+            .as_str()
+            .is_some_and(|path| path.ends_with("tsserver.js")),
+        "{options}"
+    );
+}
+
+#[test]
 fn a_document_runs_confined_through_the_real_binary() {
     // The sandbox has unit tests and a confinement suite, but neither runs
     // `hick`. This does: the executor is chosen the way a user chooses it,
@@ -593,6 +647,15 @@ fn a_language_server_is_found_in_each_ecosystems_own_layout() {
         std::fs::create_dir_all(dir.path().join(".git")).unwrap();
         let bin_dir = dir.path().join(layout);
         std::fs::create_dir_all(&bin_dir).unwrap();
+        // typescript-language-server is a wrapper around `tsserver`, and
+        // discovery passes over one that has no tsserver to wrap — so a
+        // fixture without it is not a TypeScript install, it is a broken
+        // one. Planting the package makes this model what npm produces.
+        if *binary == "typescript-language-server" {
+            let lib = dir.path().join("node_modules/typescript/lib");
+            std::fs::create_dir_all(&lib).unwrap();
+            std::fs::write(lib.join("tsserver.js"), "// stand-in\n").unwrap();
+        }
         let path = bin_dir.join(binary);
         std::fs::write(&path, "#!/bin/sh\nexit 0\n").unwrap();
         #[cfg(unix)]
