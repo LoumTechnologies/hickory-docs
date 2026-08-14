@@ -67,6 +67,15 @@ export function useDebugger(realtime: Realtime, docPath: string): DebugSession {
     return channel ? new DebugClient(channel) : null;
   }, [realtime]);
 
+  // The way back. A client that can send but is never handed the socket's
+  // inbound frames sits at "starting…" forever while the engine answers into
+  // nothing, so this is registered as soon as the client exists.
+  useEffect(() => {
+    if (!client || !realtime.onDebugFrame) return;
+    realtime.onDebugFrame((frame) => client.handleFrame(frame));
+    return () => realtime.onDebugFrame?.(() => false);
+  }, [client, realtime]);
+
   useEffect(() => {
     if (!client) return;
     const off = client.on((event: DebugEvent) => {

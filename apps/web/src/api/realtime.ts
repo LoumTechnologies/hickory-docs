@@ -40,6 +40,14 @@ export interface Realtime {
    * session API's verbs rather than JSON-RPC.
    */
   debug?(): { send(frame: Uint8Array): void } | null;
+  /**
+   * Register the debug client so inbound `0x03` frames reach it.
+   *
+   * Part of the interface rather than a method only `WsRealtime` happens to
+   * have: without the registration the requests still go out and every answer
+   * is dropped, which looks exactly like a debugger that will not start.
+   */
+  onDebugFrame?(handler: (frame: Uint8Array) => boolean): void;
   close(): void;
 }
 
