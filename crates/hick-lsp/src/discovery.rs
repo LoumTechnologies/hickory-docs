@@ -498,17 +498,28 @@ mod tests {
         // Someone's home directory with a stray node_modules in it must not
         // decide which server a repository uses.
         let outer = tempfile::tempdir().unwrap();
-        fake_executable(
-            &outer.path().join("node_modules/.bin"),
-            "typescript-language-server",
-        );
+        let planted = outer.path().join("node_modules/.bin");
+        fake_executable(&planted, "typescript-language-server");
         let repo = outer.path().join("repo");
         fs::create_dir_all(repo.join(".git")).unwrap();
 
-        assert!(
-            discover("typescript", &repo).is_none(),
-            "the search escaped the repository"
-        );
+        // Asserting "finds nothing" would be asserting something else: on a
+        // machine that HAS a TypeScript server installed — as CI now does —
+        // discovery correctly finds that one, and a test demanding absence
+        // fails for a reason that has nothing to do with the walk. What the
+        // walk promises is narrower: never the one outside the repository.
+        if let Some(found) = discover("typescript", &repo) {
+            assert!(
+                !found.command[0].starts_with(&planted.to_string_lossy().to_string()),
+                "the search escaped the repository and used {}",
+                found.command[0]
+            );
+            assert_eq!(
+                found.origin, "machine",
+                "a server outside the repository was reported as the project's own: {:?}",
+                found.command
+            );
+        }
     }
 
     #[test]
