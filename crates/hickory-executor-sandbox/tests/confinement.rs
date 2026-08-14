@@ -177,6 +177,53 @@ async fn declaring_the_network_opens_it() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn one_containers_cells_share_a_tmp() {
+    if !available() {
+        return;
+    }
+    // A container's state accumulates across its cells in FILES, and /tmp is
+    // files. A sandbox that gives each command its own tmpfs breaks that: the
+    // document works unsandboxed and fails confined, which reads as the
+    // document being wrong when it is the sandbox. (This is not
+    // hypothetical — it broke one of this repository's own documents, whose
+    // cells pass state through a file in /tmp.)
+    let executor = started().await;
+    executor
+        .execute("c", "echo remembered > /tmp/note.txt")
+        .await
+        .expect("a cell can write /tmp");
+    let out = executor
+        .execute("c", "cat /tmp/note.txt")
+        .await
+        .expect("the next cell finds it");
+    assert!(out.contains("remembered"), "{out}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn two_containers_do_not_share_a_tmp() {
+    if !available() {
+        return;
+    }
+    // The other half: shared WITHIN a container, private BETWEEN them. A
+    // single shared /tmp would let one container read another's scratch
+    // files, which is the isolation this executor exists to provide.
+    let executor = started().await;
+    executor.ensure_started("other", "alpine").await.unwrap();
+    executor
+        .execute("other", "echo secret > /tmp/other-note.txt")
+        .await
+        .unwrap();
+    let out = executor
+        .execute("c", "cat /tmp/other-note.txt 2>/dev/null || echo DENIED")
+        .await
+        .unwrap();
+    assert!(
+        out.contains("DENIED"),
+        "one container read another's /tmp: {out}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn a_cell_cannot_read_another_containers_workdir() {
     if !available() {
         return;

@@ -142,6 +142,26 @@ pub trait Executor: Send + Sync {
     /// honored is implementation-defined (see crate docs).
     async fn ensure_started(&self, container: &str, image: &str) -> Result<()>;
 
+    /// Ask a yes/no question of the container, without recording anything.
+    ///
+    /// Used by the `<hick:needs>` preflight to find out whether a program is
+    /// visible to the thing that will run the cells — which is not the same
+    /// question as whether it is on the host's PATH, since a sandboxed cell
+    /// has a different view and a container has an entirely different
+    /// filesystem.
+    ///
+    /// It must NOT appear in the transcript: a probe is our bookkeeping, and
+    /// a woven document listing `command -v duckdb` next to the author's own
+    /// commands would be a page about our implementation.
+    ///
+    /// The default is `true` — "assume it is present". An executor that
+    /// cannot answer the question must not be able to block a document from
+    /// running over a check it never performed.
+    async fn probe(&self, container: &str, command: &str) -> Result<bool> {
+        let _ = (container, command);
+        Ok(true)
+    }
+
     /// Run a command in the container, returning captured stdout.
     ///
     /// The command (and its output) is recorded as a transcript entry with
@@ -266,6 +286,32 @@ impl LocalExecutor {
         self.workdir_for(container)
     }
 
+    /// A container's private `/tmp`, which lives as long as the container.
+    ///
+    /// A sandbox gives each spawned command a fresh `/tmp`, and a fresh one
+    /// per COMMAND breaks what a container means here: state accumulates
+    /// across execs in files, and `/tmp` is files. A document that writes a
+    /// scratch file in one cell and reads it in the next works unsandboxed
+    /// and mysteriously does not when confined — the cell is not wrong, the
+    /// sandbox is.
+    ///
+    /// So it is a real directory beside the workdir rather than a tmpfs: one
+    /// per container, shared by that container's cells, invisible to every
+    /// other container, and removed with everything else when the run ends.
+    pub fn tmpdir_of(&self, container: &str) -> Result<PathBuf> {
+        let workdir = self.workdir_for(container)?;
+        let parent = workdir
+            .parent()
+            .ok_or_else(|| anyhow::anyhow!("container '{container}' has no base directory"))?;
+        // Beside the workdir, not inside it: a cell's `/tmp` scratch files
+        // are not part of the files the cell produced, and putting them in
+        // the workdir would mix the two.
+        let tmp = parent.join(format!(".tmp-{container}"));
+        std::fs::create_dir_all(&tmp)
+            .with_context(|| format!("creating the tmp directory for container '{container}'"))?;
+        Ok(tmp)
+    }
+
     fn workdir_for(&self, container: &str) -> Result<PathBuf> {
         let state = self.state.lock().unwrap();
         state
@@ -293,6 +339,27 @@ impl LocalExecutor {
     /// part of the woven document, so it must show the cell as the author
     /// wrote it; a page of `bwrap --ro-bind …` in the middle of somebody's
     /// documentation is noise about our implementation, not about their work.
+    /// Spawn a command purely for its exit status, recording nothing.
+    ///
+    /// Deliberately not `run_command_as` with a flag: every path through that
+    /// function appends to the transcript, and a "sometimes" flag on it is
+    /// one refactor away from a probe showing up in somebody's document.
+    pub async fn probe_command(&self, container: &str, command: &str) -> Result<bool> {
+        let workdir = self.workdir_for(container)?;
+        let (shell, shell_flag) = Self::shell();
+        let status = tokio::process::Command::new(shell)
+            .arg(shell_flag)
+            .arg(command)
+            .current_dir(&workdir)
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .await
+            .with_context(|| format!("probing container '{container}'"))?;
+        Ok(status.success())
+    }
+
     pub async fn execute_as(
         &self,
         container: &str,
@@ -555,6 +622,10 @@ impl Executor for LocalExecutor {
 
     async fn execute(&self, container: &str, command: &str) -> Result<String> {
         self.run_command(container, command, None).await
+    }
+
+    async fn probe(&self, container: &str, command: &str) -> Result<bool> {
+        self.probe_command(container, command).await
     }
 
     async fn execute_with_stdin(

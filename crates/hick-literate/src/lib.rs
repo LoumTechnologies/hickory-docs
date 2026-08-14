@@ -10,6 +10,7 @@ pub mod compact;
 pub mod config;
 pub mod equiv;
 pub mod expect;
+pub mod needs;
 pub mod output_cleanup;
 pub mod pipeline;
 pub mod promote;
@@ -214,6 +215,9 @@ struct PreparedPipeline<'a> {
     /// environment to provide. Capabilities and images are collected from the
     /// same tag but were not carried together.
     container_images: HashMap<String, String>,
+    /// What each container's cells expect to find installed
+    /// (`<hick:needs bin="…" />`), checked before anything runs.
+    container_needs: std::collections::BTreeMap<String, Vec<crate::needs::Need>>,
     /// Fork registrations: (from, to, additional_caps).
     /// Needed by live pipeline to register forks with the executor.
     fork_registrations: Vec<(String, String, Option<ContainerCapabilities>)>,
@@ -303,6 +307,10 @@ fn prepare_pipeline<'a>(
     // image when one appeared on the `<hick:exec>` tag itself. `LocalExecutor`
     // ignores images, so nothing surfaced it until a backend honoured them.
     let mut container_images: HashMap<String, String> = HashMap::new();
+    // What each container's cells expect to find installed. Checked before
+    // anything runs — see `needs`.
+    let mut container_needs: std::collections::BTreeMap<String, Vec<crate::needs::Need>> =
+        std::collections::BTreeMap::new();
     for node in &all_nodes {
         if let HickNode::Tag(tag) = node
             && tag.name == "container"
@@ -312,6 +320,16 @@ fn prepare_pipeline<'a>(
             debug!("Container '{name}': {:?}", caps);
             if let Some(image) = tag_attr(tag, "image") {
                 container_images.insert(name.clone(), image);
+            }
+            let needs = crate::needs::needs_of(tag);
+            if !needs.is_empty() {
+                // Extended rather than replaced: one container may be
+                // declared in several documents of a pipeline, and each
+                // declaration's needs are all real.
+                container_needs
+                    .entry(name.clone())
+                    .or_default()
+                    .extend(needs);
             }
             container_defs.insert(name, caps);
         }
@@ -385,6 +403,7 @@ fn prepare_pipeline<'a>(
         state,
         container_defs,
         container_images,
+        container_needs,
         fork_registrations,
         volumes,
     })
@@ -957,6 +976,7 @@ pub async fn run_pipeline_live(
         state,
         mut container_defs,
         mut container_images,
+        container_needs,
         fork_registrations,
         volumes: mut all_volume_decls,
     } = prepared;
@@ -974,6 +994,20 @@ pub async fn run_pipeline_live(
     // declaration that arrives too late.
     for (name, caps) in &container_defs {
         executor.declare_capabilities(name, caps.clone()).await?;
+    }
+
+    // Then check that what the document says it needs is actually here,
+    // BEFORE the first cell runs. Half a pipeline's side effects followed by
+    // `duckdb: not found` is the worst ordering available: the document has
+    // already changed things and still cannot finish.
+    {
+        let missing =
+            crate::needs::preflight(executor.as_ref(), &container_needs, &container_images).await?;
+        let named = documents
+            .first()
+            .map(|(path, _)| path.to_string())
+            .unwrap_or_else(|| "this document".to_string());
+        crate::needs::require(&missing, &named)?;
     }
 
     // Collect <hick:expect> expectations per cell. Keyed by `CellId` rather

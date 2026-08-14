@@ -169,7 +169,8 @@ pub fn install(root: &Path, language: &str) -> Result<PathBuf> {
 
     // The network is granted here and nowhere else in this tool: an install
     // that cannot fetch is not an install.
-    let Some((program, args)) = policy::wrap(sandbox, &prefix, &command, true, Profile::Installer)
+    let Some((program, args)) =
+        policy::wrap(sandbox, &prefix, &command, true, Profile::Installer, None)
     else {
         bail!("the sandbox could not be prepared for the install");
     };

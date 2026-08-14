@@ -44,6 +44,41 @@ capability grants. The security model is deny-by-default when a
 </hick:container>
 ```
 
+### What a container needs installed
+
+A cell runs against the programs on the machine that runs it. `image=` is
+recorded but ignored by the local and sandbox executors, so a document that
+uses `duckdb` works where it was written and fails everywhere else with
+`sh: 1: duckdb: not found` — a message from a shell, about a program, that
+says nothing about the document that wanted it.
+
+`<hick:needs>` is how a document says so itself:
+
+```xml
+<hick:container name="reporter" image="python:3.12">
+  <hick:needs bin="duckdb" for="the queries in section 3" />
+  <hick:needs bin="gnuplot" for="the chart" />
+</hick:container>
+```
+
+Every declared program is looked for **before any cell runs**, and a
+document missing one stops immediately, naming all of them at once with the
+line each was declared on. Nothing is downloaded and no network is touched:
+this is a declaration and a check, not a package manager. Installing them
+is yours to do, on purpose — resolving tools for people means owning the
+difference between what we installed and what your own tooling installs.
+
+The check asks the executor, not the machine, because those differ. A
+sandboxed cell has an empty `$HOME` with only the usual toolchain
+directories bound back, so a program in an unusual place exists on your
+machine and not in the cell; under Docker it is the image's contents that
+matter and the host's not at all. "Can the thing that will run this cell
+see it?" is the only question worth asking.
+
+The `for=` text is optional and worth writing. "duckdb is not installed"
+tells a reader what to install; "duckdb is not installed — the queries in
+section 3 run against it" tells them whether they want to.
+
 ### Network rules
 
 | Rule | Effect |

@@ -142,9 +142,16 @@ pub fn wrap(
     command: &str,
     allow_network: bool,
     profile: Profile,
+    tmpdir: Option<&Path>,
 ) -> Option<(String, Vec<String>)> {
     let dir = workdir.to_string_lossy().to_string();
     let dir_for_home = dir.clone();
+    // Without a container tmp directory there is nothing to share, so the
+    // per-command tmpfs is still the right answer — it is private, which is
+    // the property that matters second-most.
+    let tmp_source = tmpdir
+        .map(|path| path.to_string_lossy().to_string())
+        .unwrap_or_default();
     match sandbox {
         Sandbox::Bubblewrap => {
             // ORDER MATTERS: bwrap applies these in sequence, and a later
@@ -159,9 +166,24 @@ pub fn wrap(
                 "--ro-bind".into(),
                 "/".into(),
                 "/".into(),
-                // A private /tmp first…
-                "--tmpfs".into(),
-                "/tmp".into(),
+            ];
+            // A private /tmp first…
+            //
+            // …and a REAL directory rather than a tmpfs where the caller has
+            // one, because a tmpfs is per-COMMAND: a cell that writes a
+            // scratch file and a later cell that reads it are the same
+            // container, and the second must find it there. A tmpfs makes
+            // that work unsandboxed and fail confined, which reads as the
+            // document being wrong when it is the sandbox.
+            if tmp_source.is_empty() {
+                args.push("--tmpfs".into());
+                args.push("/tmp".into());
+            } else {
+                args.push("--bind".into());
+                args.push(tmp_source.clone());
+                args.push("/tmp".into());
+            }
+            args.extend([
                 // …then the workdir on top of it, which is the cell's whole
                 // writable world.
                 "--bind".into(),
@@ -178,7 +200,7 @@ pub fn wrap(
                 "--unshare-all".into(),
                 "--new-session".into(),
                 "--die-with-parent".into(),
-            ];
+            ]);
             match profile {
                 // An empty home, with the toolchains handed back.
                 //
@@ -381,6 +403,7 @@ mod tests {
             "echo hi",
             allow_network,
             Profile::Cell,
+            None,
         )
         .unwrap()
         .1
@@ -456,6 +479,7 @@ mod tests {
             "uv venv",
             true,
             Profile::Installer,
+            None,
         )
         .unwrap()
         .1;
@@ -507,6 +531,7 @@ mod tests {
             "--version",
             false,
             Profile::Cell,
+            None,
         )
         .expect("the launcher is always available on a machine that can run us");
         assert!(
@@ -529,6 +554,7 @@ mod tests {
             "curl example.com",
             true,
             Profile::Cell,
+            None,
         )
         .unwrap();
         let net = args
@@ -548,7 +574,8 @@ mod tests {
                 &PathBuf::from("/w"),
                 "echo hi",
                 false,
-                Profile::Cell
+                Profile::Cell,
+                None
             )
             .is_none()
         );

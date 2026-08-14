@@ -136,12 +136,15 @@ impl SandboxedExecutor {
     /// shell syntax intact.
     fn confine(&self, container: &str, command: &str) -> Result<String> {
         let workdir = self.inner.workdir_of(container)?;
+        // One /tmp per container, not per command — see `tmpdir_of`.
+        let tmpdir = self.inner.tmpdir_of(container)?;
         let Some((program, args)) = policy::wrap(
             self.sandbox,
             &workdir,
             command,
             self.allows_network(container),
             policy::Profile::Cell,
+            Some(&tmpdir),
         ) else {
             bail!("no sandbox available to confine container '{container}'");
         };
@@ -252,6 +255,16 @@ impl Executor for SandboxedExecutor {
 
     async fn ensure_started(&self, container: &str, image: &str) -> Result<()> {
         self.inner.ensure_started(container, image).await
+    }
+
+    async fn probe(&self, container: &str, command: &str) -> Result<bool> {
+        // Confined, like everything else. "Is duckdb installed?" and "can
+        // this cell see duckdb?" have different answers here — the cell's
+        // $HOME is a tmpfs with only toolchain directories bound back — and
+        // the second is the only one worth asking, since it is the one that
+        // decides whether the cell works.
+        let confined = self.confine(container, command)?;
+        self.inner.probe_command(container, &confined).await
     }
 
     async fn execute(&self, container: &str, command: &str) -> Result<String> {
