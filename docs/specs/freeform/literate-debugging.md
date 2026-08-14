@@ -66,6 +66,79 @@ evaluates **in the frame you have selected** — `evaluate` with that frame's
 id, so `self.lines[2].price` means what it means *there*, not what it would
 mean at the top of the file.
 
+### What the surface should be
+
+JetBrains is the standard to measure against, so this is what to take from it,
+in the order it pays off. Everything here is DAP; nothing needs a protocol
+extension.
+
+**The gutter.**
+
+- A **red dot** on any line with a breakpoint. Click the gutter to toggle.
+- A **hollow dot** when the adapter could not verify it — `setBreakpoints`
+  answers with `verified`, and a breakpoint on a line the debugger will never
+  reach should look different from one that works. Most editors show this and
+  it saves an afternoon.
+- A **dot with a `?`** for a conditional breakpoint, its condition on hover.
+- **Muted breakpoints** (a global toggle) rather than deleting them to get one
+  clean run.
+- The **paused line** marked distinctly from the breakpoints — a filled arrow
+  in the gutter and a tinted line — because "where I stopped" and "where I
+  asked to stop" are different facts and the second is often several lines
+  away after a step.
+
+**Inline values, which is the single biggest thing JetBrains does.** While
+paused, each line shows its variables' current values greyed at the end of the
+line: `subtotal = 19.98`. It removes most of the reason to look at a variables
+pane at all, and it is cheap here — `scopes` + `variables` for the paused
+frame, matched to identifiers on the visible lines. This is also where the
+notebook can beat a conventional IDE, because the document's prose sits right
+beside the code the values belong to.
+
+**Hover, which is two facts at once.** Not paused, a hover is what LSP already
+gives: the symbol's type and doc. Paused, it must ALSO show the runtime value,
+and both together rather than one replacing the other — the type is what it
+should be, the value is what it is, and a debugger exists for the moments
+those disagree. A composite object expands in place, lazily, through
+`variables` on the reference the adapter returned.
+
+The plumbing already points this way: the hover tooltip merges sources today —
+a diagnostic first, then type information under a rule. Runtime values are a
+third band in the same tooltip, above both.
+
+**The panes.** Frames (with the document's own frames visually separated from
+library ones), variables as a lazy tree, watches that persist across sessions,
+and threads only when there is more than one.
+
+**Beyond the five verbs**, in the order they earn their keep:
+
+- **Run to cursor**, which is the step you actually want most of the time.
+- **Evaluate expression** as a dialog, not just an inline box, so a long
+  expression is editable.
+- **Set value** — edit a variable in the pane and continue. Honest note: this
+  mutates the debugged program, which is fine in a session and is exactly why
+  a session may never write to the document.
+- **Smart step-into**: when a line has several calls, ask which one. DAP has
+  this as `stepInTargets`, and it is a small feature that removes a whole
+  class of "I stepped into the wrong thing, start again".
+- **Drop frame** — DAP's `restartFrame`. Pop the current frame and re-enter
+  the function from its first line.
+
+  **This is worth flagging against what was said earlier**: stepping backwards
+  needs recorded execution, and drop-frame is not that — it re-runs rather
+  than rewinds, so side effects already performed stay performed. But it
+  answers most of what people actually want from "go back": *I stepped one
+  too far, let me do that function again*. It costs nothing extra and it is
+  the honest 80% of reverse debugging.
+- **Exception breakpoints** — break where a throw originates rather than
+  where it surfaced.
+- **Field watchpoints** — break when a value changes. `debugpy` and Java
+  support this; most do not, so it is capability-gated like everything else.
+
+**Capability-gated, always.** DAP advertises what an adapter supports, and a
+control that is present but silently does nothing is worse than one that is
+absent. The app reads the capability and greys out the rest, per adapter.
+
 Two details that matter more than the controls:
 
 **Stepping into a frame the document did not generate** — a library, the
@@ -190,7 +263,7 @@ stop at the failure and ask what a variable held is doing what a person does.
 | `debug_start` | Launch a cell under its adapter. Breakpoints (with conditions) given up front, in document coordinates. Returns a session id. |
 | `debug_state` | Where it is stopped, the stack, and the selected frame's variables. |
 | `debug_eval` | Evaluate an expression in a chosen frame. |
-| `debug_step` | `over` \| `in` \| `out` \| `continue`. |
+| `debug_step` | `over` \| `in` \| `out` \| `continue` \| `to_cursor` \| `drop_frame` (re-enter the current function). |
 | `debug_stop` | End the session. |
 
 Two rules that matter more than the surface:
@@ -322,7 +395,9 @@ that means DAP comes first.
 
 ## What this is not
 
-- **Not reverse debugging.** Out of scope by decision; see above.
+- **Not reverse debugging.** Out of scope by decision; see above. Drop frame
+  (`restartFrame`) is in scope and covers most of what people want from it —
+  re-running a frame rather than rewinding one.
 - **Not a profiler.** Sampling and timing are a different tool with different
   determinism problems.
 - **Not remote debugging.** Same machine, same rules as everything else here:
