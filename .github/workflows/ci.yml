@@ -61,11 +61,26 @@ jobs:
       - name: Install language servers and the sandbox the tests need
         run: |
           sudo apt-get update && sudo apt-get install -y bubblewrap
+          # Ubuntu 24.04 restricts unprivileged user namespaces through
+          # AppArmor, and the profile it ships for bwrap lets the namespace
+          # be created but denies the netlink call that brings up loopback
+          # inside it — `RTM_NEWADDR: Operation not permitted`, which is how
+          # this first surfaced. Cells run confined by DEFAULT now, so a
+          # runner that cannot confine anything tests the wrong product.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
           npm install -g typescript typescript-language-server
           pipx install basedpyright || pip install --user basedpyright
           rustup component add rust-analyzer
           go install golang.org/x/tools/gopls@latest || true
           echo "$HOME/go/bin" >> "$GITHUB_PATH"
+      # Prove the runner can actually confine a cell before testing as if it
+      # can. Without this the suite still runs — every document simply fails
+      # with a refusal — and the failure looks like a product bug rather than
+      # a runner that changed under us.
+      - name: Verify the sandbox works on this runner
+        run: |
+          bwrap --unshare-all --ro-bind / / --tmpfs /tmp --proc /proc --dev /dev \
+                --die-with-parent -- /bin/sh -c 'echo confined'
       - run: cargo test --workspace -- --test-threads=1
       - name: Install DuckDB CLI (pinned to the version the examples expect)
         run: |

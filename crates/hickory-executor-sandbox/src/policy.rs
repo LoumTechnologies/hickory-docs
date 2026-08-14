@@ -44,9 +44,36 @@ pub enum Sandbox {
 
 impl Sandbox {
     /// What is actually available on this machine, right now.
+    ///
+    /// "Available" means WORKS, not "is installed". The two come apart more
+    /// often than they should: `bwrap` is present on a hardened kernel, in a
+    /// container, or on a CI runner, and then fails at
+    /// `RTM_NEWADDR: Operation not permitted` the first time it is asked for
+    /// a network namespace. Trusting the binary's existence there turns one
+    /// clear refusal at startup into a confusing bubblewrap error on every
+    /// cell — the same information, delivered at the worst moment and in
+    /// somebody else's vocabulary.
+    ///
+    /// The smoke test is cached: it costs one process for the life of the
+    /// program, and running it per cell would be a real cost for no answer
+    /// that can change.
     pub fn detect() -> Self {
+        static DETECTED: std::sync::OnceLock<Sandbox> = std::sync::OnceLock::new();
+        *DETECTED.get_or_init(Sandbox::detect_uncached)
+    }
+
+    fn detect_uncached() -> Self {
         if cfg!(target_os = "linux") && which("bwrap").is_some() {
-            Sandbox::Bubblewrap
+            if works(Sandbox::Bubblewrap) {
+                Sandbox::Bubblewrap
+            } else {
+                log::warn!(
+                    "bwrap is installed but cannot confine anything here — it fails to set up \
+                     the namespaces it needs. This is usual inside containers and on kernels \
+                     that restrict unprivileged user namespaces."
+                );
+                Sandbox::None
+            }
         } else if cfg!(target_os = "macos") && which("sandbox-exec").is_some() {
             Sandbox::Seatbelt
         } else if cfg!(windows) {
@@ -87,9 +114,20 @@ impl Sandbox {
     /// How to install what is missing, named per platform.
     pub fn missing_hint() -> String {
         if cfg!(target_os = "linux") {
-            "Install bubblewrap: `sudo apt install bubblewrap` (Debian/Ubuntu), \
-             `sudo dnf install bubblewrap` (Fedora), `sudo pacman -S bubblewrap` (Arch)."
-                .to_string()
+            if which("bwrap").is_some() {
+                // Installed, and it does not work — a different problem with
+                // a different fix, and saying "install bubblewrap" to
+                // somebody who just did is how a tool loses their trust.
+                "bubblewrap IS installed here but cannot create the namespaces it needs. That \
+                 usually means an unprivileged user namespace is not permitted: common inside \
+                 containers, under some AppArmor and seccomp profiles, and on CI runners. Try \
+                 `bwrap --unshare-all --ro-bind / / true` to see the kernel's own message."
+                    .to_string()
+            } else {
+                "Install bubblewrap: `sudo apt install bubblewrap` (Debian/Ubuntu), \
+                 `sudo dnf install bubblewrap` (Fedora), `sudo pacman -S bubblewrap` (Arch)."
+                    .to_string()
+            }
         } else if cfg!(target_os = "macos") {
             "`sandbox-exec` ships with macOS; a PATH that hides /usr/bin would explain this."
                 .to_string()
@@ -383,6 +421,28 @@ fn seatbelt_profile(workdir: &Path, allow_network: bool, profile: Profile) -> St
     policy
 }
 
+/// Does this sandbox actually confine a trivial command here?
+///
+/// Run with the real policy, not a reduced one: the whole point is to find
+/// out whether what a cell will get works, and the parts most likely to be
+/// refused — the network namespace above all — are exactly the parts a
+/// reduced probe would leave out.
+fn works(sandbox: Sandbox) -> bool {
+    let probe_dir = std::env::temp_dir();
+    let Some((program, args)) = wrap(sandbox, &probe_dir, "exit 0", false, Profile::Cell, None)
+    else {
+        return false;
+    };
+    std::process::Command::new(program)
+        .args(args)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .map(|status| status.success())
+        .unwrap_or(false)
+}
+
 /// First match for `name` on `PATH`.
 fn which(name: &str) -> Option<std::path::PathBuf> {
     let paths = std::env::var_os("PATH")?;
@@ -563,6 +623,32 @@ mod tests {
             .expect("granted");
         let dashes = args.iter().position(|a| a == "--").unwrap();
         assert!(net < dashes, "the flag is ours, not the cell's: {args:?}");
+    }
+
+    #[test]
+    fn detection_answers_the_same_thing_every_time() {
+        // Cached, because the answer cannot change within one run and the
+        // check costs a process. A per-cell smoke test would be a real cost
+        // for no new information.
+        assert_eq!(Sandbox::detect(), Sandbox::detect());
+    }
+
+    #[test]
+    fn a_missing_hint_distinguishes_absent_from_broken() {
+        // Telling somebody to install bubblewrap when they just did is how a
+        // tool loses their trust. On Linux the hint depends on which of the
+        // two problems they actually have.
+        let hint = Sandbox::missing_hint();
+        assert!(!hint.is_empty());
+        #[cfg(target_os = "linux")]
+        if which("bwrap").is_some() {
+            assert!(
+                hint.contains("IS installed"),
+                "bwrap is present, so the hint must not say to install it: {hint}"
+            );
+        } else {
+            assert!(hint.contains("Install bubblewrap"), "{hint}");
+        }
     }
 
     #[test]
