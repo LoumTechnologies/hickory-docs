@@ -1,11 +1,15 @@
 //! The collaboration socket, local edition.
 //!
 //! The frame protocol is the hosted server's, because it is the same client:
-//! `0x00` Yjs sync/awareness, `0x01` run events. `0x02` (the LSP bridge) is
-//! not served here — a local session has no per-project checkout to start
-//! child language servers against, and answering the channel with silence is
-//! better than pretending: the client already degrades when the bridge is
-//! unavailable.
+//! `0x00` Yjs sync/awareness, `0x01` run events, `0x02` the LSP bridge.
+//!
+//! `0x02` used to go unanswered here, on the reasoning that a local session
+//! had no per-project checkout to start child language servers against. That
+//! stopped being true when the desktop app began opening a folder: the served
+//! directory IS the checkout. It is now bridged to an in-process `hick-lsp`
+//! (see [`super::lsp_bridge`]), started on the connection's first `0x02`
+//! frame so a session that never asks a language question never spawns a
+//! language server.
 //!
 //! The room machinery is `hickory-collab`, shared with the hosted server. What
 //! differs is only the gate in front of it.
@@ -16,12 +20,13 @@ use axum::extract::ws::{Message as WsMessage, WebSocket, WebSocketUpgrade};
 use axum::extract::{Query, State};
 use axum::response::{IntoResponse, Response};
 use futures::{SinkExt as _, StreamExt as _};
-use hickory_collab::{CHANNEL_RUN, CHANNEL_YJS};
+use hickory_collab::{CHANNEL_LSP, CHANNEL_RUN, CHANNEL_YJS};
 use serde::Deserialize;
 use tokio::sync::mpsc;
 
 use super::LocalState;
 use super::api::ApiError;
+use super::lsp_bridge::LspBridge;
 
 static NEXT_CLIENT_ID: AtomicU64 = AtomicU64::new(1);
 
@@ -76,6 +81,10 @@ async fn run_socket(state: LocalState, key: String, socket: WebSocket) -> anyhow
 
     room.handshake(&tx).await;
 
+    // Started on demand and dropped with the connection, which takes the
+    // child language servers with it.
+    let mut lsp: Option<LspBridge> = None;
+
     while let Some(msg) = stream.next().await {
         let data = match msg {
             Ok(WsMessage::Binary(b)) => b.to_vec(),
@@ -98,6 +107,30 @@ async fn run_socket(state: LocalState, key: String, socket: WebSocket) -> anyhow
                 {
                     log::debug!("yjs message error on {key}: {e:#}");
                     break;
+                }
+            }
+            CHANNEL_LSP => {
+                let bridge = match lsp.as_ref() {
+                    Some(bridge) => bridge,
+                    None => match LspBridge::start(state.index.root(), tx.clone()) {
+                        Ok(started) => lsp.insert(started),
+                        Err(e) => {
+                            // The editor degrades without the bridge, so a
+                            // failure here ends the language channel, never
+                            // the session that carries the user's edits.
+                            log::warn!("no language server session for {key}: {e:#}");
+                            continue;
+                        }
+                    },
+                };
+                match serde_json::from_slice(&data[1..]) {
+                    Ok(message) => {
+                        if let Err(e) = bridge.send(message) {
+                            log::debug!("language server session ended on {key}: {e:#}");
+                            lsp = None;
+                        }
+                    }
+                    Err(e) => log::debug!("unparseable lsp frame on {key}: {e}"),
                 }
             }
             // Server → client only.

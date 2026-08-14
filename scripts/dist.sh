@@ -11,9 +11,11 @@
 #   hick-<version>-<target>.tar.gz   (unix)  or  .zip (windows)
 #   hick-<version>-<target>.<ext>.sha256
 #
-# The archive holds the binary plus README, LICENCE, and examples/, so a
-# stranger who downloads it can run `hick test examples/` immediately —
-# that is the acceptance test for this whole path (see
+# The archive holds both binaries — `hick` and the editor language server
+# `hick-lsp` — plus README, LICENCE, and examples/, so a stranger who
+# downloads it can run `hick test examples/` immediately and point an editor
+# at `hick-lsp` without a Rust toolchain. That is the acceptance test for this
+# whole path (see
 # docs/guarantees/release/a-download-runs-without-a-rust-toolchain.md).
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -50,31 +52,42 @@ case "$TARGET" in
 esac
 
 echo "==> building hick $VERSION for $TARGET"
-cargo build --release --locked -p hickory-cli --target "$TARGET"
+# Both binaries, one build: `hick` is the tool, `hick-lsp` is what an editor
+# runs to get real diagnostics inside a .hick document. Shipping only the
+# first would mean docs/users/editor-setup.md asking a downloader for a Rust
+# toolchain, which is the one thing this artifact exists to avoid.
+cargo build --release --locked -p hickory-cli -p hick-lsp --target "$TARGET"
 
-BIN=hick
+SUFFIX=
 EXT=tar.gz
 case "$TARGET" in
   *-windows-*)
-    BIN=hick.exe
+    SUFFIX=.exe
     EXT=zip
     ;;
 esac
 
-BUILT="target/$TARGET/release/$BIN"
-if [ ! -f "$BUILT" ]; then
-  echo "::error::cargo reported success but $BUILT does not exist." >&2
-  echo "The [[bin]] name in crates/hickory-cli/Cargo.toml is what this path" >&2
-  echo "is derived from; if it was renamed, update scripts/dist.sh to match." >&2
-  exit 1
-fi
+BIN="hick$SUFFIX"
+LSP_BIN="hick-lsp$SUFFIX"
+
+for built in "$BIN" "$LSP_BIN"; do
+  if [ ! -f "target/$TARGET/release/$built" ]; then
+    echo "::error::cargo reported success but target/$TARGET/release/$built does not exist." >&2
+    echo "The [[bin]] names in crates/hickory-cli/Cargo.toml and" >&2
+    echo "crates/hick-lsp/Cargo.toml are what these paths are derived from;" >&2
+    echo "if one was renamed, update scripts/dist.sh and scripts/install.sh" >&2
+    echo "together — the installer resolves the same names." >&2
+    exit 1
+  fi
+done
 
 NAME="hick-$VERSION-$TARGET"
 STAGE="dist/$NAME"
 rm -rf "$STAGE"
 mkdir -p "$STAGE"
 
-cp "$BUILT" "$STAGE/$BIN"
+cp "target/$TARGET/release/$BIN" "$STAGE/$BIN"
+cp "target/$TARGET/release/$LSP_BIN" "$STAGE/$LSP_BIN"
 cp README.md LICENSE "$STAGE/"
 cp -R examples "$STAGE/examples"
 # .hick-cache is a local execution artifact, never part of a download.

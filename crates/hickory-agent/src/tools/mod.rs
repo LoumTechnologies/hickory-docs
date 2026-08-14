@@ -534,7 +534,25 @@ impl EditSession {
                 );
                 // Extract "<doc> bytes S..E" from map_edits' duplicate-paste
                 // detail to point at the shared source block.
+                //
+                // That location is the PASTE SITE, which is only the source
+                // block when the fragment lives in the same document. Follow
+                // the selector to where the fragment is actually declared —
+                // otherwise a chain sends the reader to the `<hick:paste>` tag
+                // in the wrong file, and an agent that obeys edits the tag
+                // that performs the paste.
                 if let Some((doc, s, e)) = parse_conflict_location(detail) {
+                    if let Some(home) = self.fragment_home(&doc, s, e) {
+                        let _ = write!(
+                            msg,
+                            "\nThose bytes are pasted in from another document. Edit the \
+                             fragment where it is DECLARED: use edit_doc on {}, from line {}:\n{}",
+                            home.doc,
+                            home.line + 1,
+                            home.excerpt
+                        );
+                        return msg;
+                    }
                     let (a, b) = byte_range_to_lines(&doc_index, s, e);
                     let _ = write!(
                         msg,
@@ -947,6 +965,116 @@ fn resolve_edit(
                 }
             }
         }
+    }
+}
+
+/// Every tag in a document, nested ones included.
+///
+/// `HickDocument::tags()` is top-level only, and the tags this needs are not:
+/// a `<hick:paste>` lives inside the `<hick:file>` it fills, and a fragment
+/// can sit inside a `<hick:when>`. Searching only the top level finds neither.
+fn all_tags(nodes: &[hick_lang::HickNode]) -> Vec<&hick_lang::HickTag> {
+    let mut out = Vec::new();
+    let mut stack: Vec<&hick_lang::HickNode> = nodes.iter().collect();
+    while let Some(node) = stack.pop() {
+        if let hick_lang::HickNode::Tag(tag) = node {
+            out.push(tag);
+            stack.extend(tag.children.iter());
+        }
+    }
+    out
+}
+
+/// Where a pasted fragment is actually declared.
+struct FragmentHome {
+    doc: String,
+    /// 0-based line the fragment is DECLARED on. Only the opening tag's span
+    /// is known here, so this is stated as a point rather than a range — a
+    /// range would have to guess where the block ends.
+    line: usize,
+    /// A few lines from the declaration, as context.
+    excerpt: String,
+}
+
+impl EditSession {
+    /// Follow a paste site to the document that declares what it pastes.
+    ///
+    /// `Origin::Paste` records the location of the `<hick:paste>` tag, not of
+    /// the fragment supplying the bytes. Inside one document those are close
+    /// enough to be useful; across a `hick:upstream` edge they are different
+    /// FILES, and routing an edit to the paste tag sends it to the one place
+    /// changing it cannot possibly help.
+    ///
+    /// So: find the paste tag at that location, read its selector, and look
+    /// for the matching `hick:copy`/`hick:cut` across the pipeline closure.
+    /// Returns `None` when the fragment is declared in the same document (the
+    /// existing message is already right) or when nothing matches — a
+    /// best-effort improvement to a message must never become a way to fail.
+    fn fragment_home(&self, doc: &str, start: usize, end: usize) -> Option<FragmentHome> {
+        let paste_source = if doc == self.doc_name {
+            self.source.clone()
+        } else {
+            self.upstream
+                .iter()
+                .find(|(path, _)| path.display().to_string() == doc)
+                .map(|(_, text)| text.clone())?
+        };
+        let parsed = hick_lang::parse(&paste_source).ok()?;
+        let selector = all_tags(&parsed.nodes)
+            .into_iter()
+            .filter(|t| t.name == "paste")
+            .find(|t| {
+                t.source_span
+                    .as_ref()
+                    .is_some_and(|span| span.start < end && span.end > start)
+            })
+            .and_then(|t| t.get_attribute("select"))?
+            .to_string();
+
+        // The closure, primary first: a fragment declared in more than one
+        // document is already an error the parser reports, so first hit wins.
+        let mut candidates: Vec<(String, String)> =
+            vec![(self.doc_name.clone(), self.source.clone())];
+        for (path, text) in &self.upstream {
+            candidates.push((path.display().to_string(), text.clone()));
+        }
+
+        for (name, text) in candidates {
+            let Ok(parsed) = hick_lang::parse(&text) else {
+                continue;
+            };
+            let found = all_tags(&parsed.nodes)
+                .into_iter()
+                .filter(|t| t.name == "copy" || t.name == "cut")
+                .find(|t| {
+                    selector.split(',').map(str::trim).any(|sel| {
+                        sel.strip_prefix('#')
+                            .is_some_and(|id| t.get_attribute("id") == Some(id))
+                            || sel.strip_prefix('.').is_some_and(|class| {
+                                t.get_attribute("class")
+                                    .is_some_and(|c| c.split_whitespace().any(|x| x == class))
+                            })
+                    })
+                });
+            let Some(tag) = found else { continue };
+            // Same document as the paste: the existing wording already points
+            // at the right file, so do not add a second, noisier sentence.
+            if name == doc {
+                return None;
+            }
+            let Some(span) = tag.source_span.as_ref() else {
+                continue;
+            };
+            let index = LineIndex::new(&text);
+            let (a, _) = byte_range_to_lines(&index, span.start, span.end);
+            let total = text.lines().count().saturating_sub(1);
+            return Some(FragmentHome {
+                doc: name,
+                line: a,
+                excerpt: index.render_range(a, (a + 3).min(total)),
+            });
+        }
+        None
     }
 }
 

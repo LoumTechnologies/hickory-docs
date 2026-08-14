@@ -32,12 +32,22 @@ similar = "2"
 notify = "7"
 hick-exec.workspace = true
 hick-lang.workspace = true
+# `hick init` writes the child-server overrides that hick-lsp reads, so the
+# file format has exactly one definition (hick_lsp::server_config).
+hick-lsp = { path = "../hick-lsp" }
+# Structural navigation that ships in the download: tree-sitter grammars are
+# compiled in, so it needs no language server and no toolchain.
+hick-structure = { path = "../hick-structure" }
+# The notebook's LSP bridge drives hick-lsp in-process, so the desktop app
+# needs no `hick-lsp` on PATH to answer a language question.
+tower-lsp = "0.20"
 hick-literate = { path = "../hick-literate" }
 hickory-agent = { path = "../hickory-agent" }
 hickory-collab = { path = "../hickory-collab" }
 hickory-executor = { path = "../hickory-executor" }
 hickory-executor-canopy = { path = "../hickory-executor-canopy" }
 hickory-executor-docker = { path = "../hickory-executor-docker" }
+hickory-executor-sandbox = { path = "../hickory-executor-sandbox" }
 hickory-lineage = { path = "../hickory-lineage" }
 log = "0.4"
 rpassword = "7"

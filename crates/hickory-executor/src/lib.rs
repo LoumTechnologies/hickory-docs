@@ -256,6 +256,16 @@ impl LocalExecutor {
         epoch.elapsed().as_millis() as u64
     }
 
+    /// A container's workdir on the host.
+    ///
+    /// Public so a wrapping executor can confine a command to it —
+    /// `hickory-executor-sandbox` binds exactly this directory writable and
+    /// nothing else. Without it, a sandbox would have to guess the one path
+    /// a cell is allowed to touch.
+    pub fn workdir_of(&self, container: &str) -> Result<PathBuf> {
+        self.workdir_for(container)
+    }
+
     fn workdir_for(&self, container: &str) -> Result<PathBuf> {
         let state = self.state.lock().unwrap();
         state
@@ -276,16 +286,45 @@ impl LocalExecutor {
         }
     }
 
+    /// Run `command`, but record `display` in the transcript.
+    ///
+    /// The two differ only for an executor that wraps the command in
+    /// something the reader did not write — a sandbox, say. The transcript is
+    /// part of the woven document, so it must show the cell as the author
+    /// wrote it; a page of `bwrap --ro-bind …` in the middle of somebody's
+    /// documentation is noise about our implementation, not about their work.
+    pub async fn execute_as(
+        &self,
+        container: &str,
+        display: &str,
+        command: &str,
+        stdin_data: Option<&str>,
+    ) -> Result<String> {
+        self.run_command_as(container, display, command, stdin_data)
+            .await
+    }
+
     async fn run_command(
         &self,
         container: &str,
         command: &str,
         stdin_data: Option<&str>,
     ) -> Result<String> {
+        self.run_command_as(container, command, command, stdin_data)
+            .await
+    }
+
+    async fn run_command_as(
+        &self,
+        container: &str,
+        display: &str,
+        command: &str,
+        stdin_data: Option<&str>,
+    ) -> Result<String> {
         let workdir = self.workdir_for(container)?;
         // One entry: the whole command block, indentation preserved (weave
         // renders continuation lines under a single `$ ` prompt).
-        let cmd_lines: Vec<String> = vec![command.trim().to_string()];
+        let cmd_lines: Vec<String> = vec![display.trim().to_string()];
 
         let start = Instant::now();
         let mut events = Vec::new();
@@ -294,11 +333,11 @@ impl LocalExecutor {
             let t = Self::now_offset_ms(&mut state);
             events.push(TranscriptEvent::Cmd {
                 t,
-                data: command.trim().to_string(),
+                data: display.trim().to_string(),
             });
         }
 
-        info!("[local:{container}] executing: {}", command.trim());
+        info!("[local:{container}] executing: {}", display.trim());
         let mut child = tokio::process::Command::new("sh")
             .arg("-c")
             .arg(command)

@@ -121,9 +121,20 @@ export function ProjectsView({ projectId }: { projectId?: string }) {
       <main className="drive-main">
         {selected ? (
           <>
-            <p className="drive-breadcrumb">
-              My Projects <span className="drive-breadcrumb-sep">/</span> {selected.name}
-            </p>
+            <div className="drive-crumbline">
+              <p className="drive-breadcrumb">
+                My Projects <span className="drive-breadcrumb-sep">/</span> {selected.name}
+              </p>
+              {/* The chain crosses documents, so this is project-scoped: a
+                  doc-scoped view could only ever show one link of it. */}
+              <button
+                className="btn btn-quiet"
+                onClick={() => navigate(`/projects/${selected.id}/lineage`)}
+                title="See every stage side by side, with the links between them"
+              >
+                Lineage
+              </button>
+            </div>
             {docs === null ? (
               <p className="muted">Loading…</p>
             ) : (

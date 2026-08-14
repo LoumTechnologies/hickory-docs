@@ -1,0 +1,20 @@
+[package]
+name = "hick-structure"
+version = "0.1.0"
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[dependencies]
+# Tree-sitter and its grammars are C, compiled into this binary. That is the
+# whole reason this crate exists rather than a language-server integration:
+# structural navigation has to work in a download that installs nothing.
+tree-sitter = "0.25"
+tree-sitter-python = "0.25"
+tree-sitter-rust = "0.24"
+tree-sitter-javascript = "0.25"
+tree-sitter-typescript = "0.23"
+serde = { version = "1", features = ["derive"] }
+
+[dev-dependencies]
+serde_json = "1"

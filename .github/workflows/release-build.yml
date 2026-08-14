@@ -140,6 +140,11 @@ jobs:
           # text-tools-tour needs nothing but a POSIX shell, so it is the one
           # example that is a fair check on any machine.
           ./hick test examples/text-tools-tour.hick
+          # The language server ships in the same archive, so it is verified
+          # here too. It speaks LSP over stdio and has no --version; closed
+          # stdin is the one input that makes it exit rather than wait, so an
+          # exit code is a real check that the binary loads and runs.
+          printf '' | ./hick-lsp
 
       - name: Smoke test the binary that was just built (Windows)
         if: matrix.smoke == 'version-only'
@@ -153,6 +158,7 @@ jobs:
           cd dist
           7z x "hick-${{ inputs.version }}-${{ matrix.target }}.zip" > /dev/null
           "hick-${{ inputs.version }}-${{ matrix.target }}/hick.exe" --version
+          test -f "hick-${{ inputs.version }}-${{ matrix.target }}/hick-lsp.exe"
 
       - uses: actions/upload-artifact@v4
         with:
@@ -163,6 +169,76 @@ jobs:
             dist/*.tar.gz
             dist/*.zip
             dist/*.sha256
+          if-no-files-found: error
+          retention-days: 7
+
+  # The desktop app is a SEPARATE download with its own installer shape per
+  # platform (.deb/.AppImage, .dmg, .msi), because that is what a GUI
+  # application is on each of them. It rides the same release as the CLI so the
+  # two versions can never disagree about the engine they share.
+  desktop:
+    name: desktop ${{ matrix.target }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-22.04
+          - target: aarch64-apple-darwin
+            os: macos-14
+          # Cross-compiled from the same arm64 runner, exactly as the CLI's
+          # Intel artifact is, and unverifiable here for the same reason.
+          - target: x86_64-apple-darwin
+            os: macos-14
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      - uses: dtolnay/rust-toolchain@1.96.1
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: desktop-${{ matrix.target }}
+          workspaces: apps/desktop/src-tauri
+
+      - name: Install the Linux webview and bundler dependencies
+        if: runner.os == 'Linux'
+        # Tauri renders through the system webview rather than shipping a
+        # browser, which is why the app is 30 MB and not 150 — the cost is
+        # these build-time headers. `patchelf` and `librsvg` are what the
+        # AppImage bundler itself needs.
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+
+      - name: Install cargo-tauri
+        # Pinned like every other tool here: a bundler that changes under us
+        # changes the asset names, and those are a contract with the docs.
+        run: cargo install tauri-cli --version '^2' --locked
+
+      - name: Build and bundle
+        shell: bash
+        run: scripts/dist-desktop.sh "${{ inputs.version }}" "${{ matrix.target }}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: hickory-docs-desktop-${{ matrix.target }}
+          path: |
+            dist/desktop/*
           if-no-files-found: error
           retention-days: 7
 

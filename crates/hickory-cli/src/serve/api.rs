@@ -233,6 +233,40 @@ pub async fn list_outputs(
     Ok(Json(json!({ "files": files })))
 }
 
+/// `GET /api/structure` — definitions, references, and the links between
+/// them, for every generated file in the session.
+///
+/// Structural, not exact: resolution is by name (see `hick_structure`). It is
+/// here because it is the only navigation that works on a machine with no
+/// language servers and no toolchain, which is most machines that just
+/// installed a download. The client draws these links as a different kind
+/// from the ones the weaver computed, because they are a different kind of
+/// claim.
+pub async fn structure(State(state): State<LocalState>) -> ApiResult<Json<Value>> {
+    let mut files = Vec::new();
+    for (id, _) in state.index.entries() {
+        // A document that will not weave right now contributes no structure
+        // rather than failing the whole request: the reader asked about the
+        // code, not about which document is mid-edit.
+        let Ok(run) = state.weave(&id).await else {
+            continue;
+        };
+        for (path, content) in &run.result.files {
+            let Some(text) = content.as_text() else {
+                continue;
+            };
+            if let Some(structure) = hick_structure::analyze(path, text) {
+                files.push(structure);
+            }
+        }
+    }
+    let links = hick_structure::resolve(&files);
+    Ok(Json(json!({
+        "files": files,
+        "links": links,
+    })))
+}
+
 #[derive(Deserialize)]
 pub struct FileQuery {
     pub path: String,

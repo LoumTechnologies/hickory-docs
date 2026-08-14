@@ -171,6 +171,7 @@ impl ChildLspHandle {
             "processId": std::process::id(),
             "rootUri": root_uri,
             "capabilities": {
+                "workspace": { "symbol": {}, "workspaceEdit": { "documentChanges": true } },
                 "textDocument": {
                     "publishDiagnostics": {
                         "relatedInformation": false
@@ -183,7 +184,44 @@ impl ChildLspHandle {
                     "hover": {
                         "contentFormat": ["plaintext", "markdown"]
                     },
-                    "definition": {}
+                    "definition": {},
+                    // Declared because a server that is not asked for a
+                    // feature does not implement it: pyright and
+                    // rust-analyzer both gate semantic tokens, inlay hints
+                    // and code actions on the client saying it wants them.
+                    "declaration": {},
+                    "typeDefinition": {},
+                    "implementation": {},
+                    "references": {},
+                    "documentHighlight": {},
+                    "documentSymbol": { "hierarchicalDocumentSymbolSupport": true },
+                    "signatureHelp": { "signatureInformation": { "documentationFormat": ["markdown", "plaintext"] } },
+                    "codeAction": {
+                        "codeActionLiteralSupport": {
+                            "codeActionKind": { "valueSet": ["quickfix", "refactor", "source"] }
+                        }
+                    },
+                    "rename": { "prepareSupport": true },
+                    "formatting": {},
+                    "rangeFormatting": {},
+                    "foldingRange": { "lineFoldingOnly": true },
+                    "selectionRange": {},
+                    "inlayHint": {},
+                    "codeLens": {},
+                    "semanticTokens": {
+                        "requests": { "full": true, "range": true },
+                        "tokenTypes": [
+                            "namespace", "type", "class", "enum", "interface", "struct",
+                            "typeParameter", "parameter", "variable", "property", "enumMember",
+                            "event", "function", "method", "macro", "keyword", "modifier",
+                            "comment", "string", "number", "regexp", "operator", "decorator"
+                        ],
+                        "tokenModifiers": [
+                            "declaration", "definition", "readonly", "static", "deprecated",
+                            "abstract", "async", "modification", "documentation", "defaultLibrary"
+                        ],
+                        "formats": ["relative"]
+                    }
                 }
             }
         });
@@ -320,7 +358,33 @@ pub enum ChildLspError {
 
 /// Map a language ID to the command (program + arguments) for spawning that
 /// language's LSP server.
+///
+/// A project's `.hick-lsp.json` wins over the built-in default, so a
+/// repository that has already chosen a server for a language gets the same
+/// one inside its `hick:file` blocks — see [`crate::server_config`].
 pub fn lsp_command(language_id: &str) -> Result<Vec<String>, ChildLspError> {
+    // 1. What the project declared, if anything. An explicit choice always
+    //    wins — `hick init` writes it from the repository's own editor config.
+    if let Some(command) = crate::server_config::command_for(language_id) {
+        return Ok(command);
+    }
+    // 2. What is actually installed, found where installers put things. This
+    //    is the path that makes configuration unnecessary: a machine with
+    //    pyright gets pyright without anybody saying so, and a project that
+    //    pins its own server in node_modules gets that one instead.
+    if let Some(found) =
+        crate::discovery::discover(language_id, crate::server_config::project_root())
+    {
+        tracing::info!(
+            language_id,
+            origin = found.origin,
+            command = found.command.join(" "),
+            "discovered a language server"
+        );
+        return Ok(found.command);
+    }
+    // 3. The bare name, so a server on PATH under a conventional name still
+    //    works even if discovery's directory list missed it.
     match language_id {
         "rust" => Ok(vec!["rust-analyzer".into()]),
         "python" => Ok(vec!["pyright-langserver".into(), "--stdio".into()]),

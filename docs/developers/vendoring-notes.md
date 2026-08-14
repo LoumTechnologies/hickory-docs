@@ -129,8 +129,23 @@ decision made during the port:
 - **`src/main.rs` and `src/bin/{hick-equiv,hick-compact,hick-promote}.rs`**
   — the old `hick` binary and helper bins are superseded by
   `crates/hickory-cli` (`hick`). The library modules they exposed
-  (`equiv`, `compact`, `promote`, `generate_matrix`, `pipeline`, `watch`)
-  remain; `hick promote` wires the vendored promote cleanly.
+  (`equiv`, `compact`, `promote`, `pipeline`, `watch`) remain; `hick promote`
+  wires the vendored promote cleanly.
+- **`generate_matrix.rs`, `visual_regression.rs`, `agents.rs`, and
+  `docs/AGENTS.md`** were **deleted on 2026-08-13**, after the
+  `generate-matrix` subcommand that reached them went with the old binary.
+  They had no caller left in the workspace and were still `pub mod` in
+  `lib.rs`, so they were public API for a command that did not exist.
+  `visual_regression.rs` also shelled out to `devenv-pilot` for screenshots —
+  a third-party CLI integration, which the root `AGENTS.md` forbids.
+  `agents.rs` went with them because its whole job was installing the embedded
+  `docs/AGENTS.md` (413 lines telling agents they "MUST run
+  `hick generate-matrix`" after every change) into a project's
+  `.agents/hick.md`; `hick init` in `hickory-cli` is what sets a project up
+  now, and it writes its own managed section. The two `_hick.yml`
+  initialization tests in `tests/pipeline_tests.rs` went with `agents.rs`;
+  `promote.rs` still reads an `_hick.yml` if one is there. `chrono` was
+  dropped from the crate's dependencies — `agents.rs` was its only user.
 
 ## Stubbed / degraded
 
@@ -148,8 +163,6 @@ decision made during the port:
   `hickory-executor`'s crate docs.
 - **`watch.rs`** lost its container pool; each iteration builds a fresh
   `LocalExecutor`.
-- **`visual_regression.rs`** was inspected and is not wasm-bound
-  (pure output-diffing); kept unchanged.
 
 ## Modifications to other vendored crates
 

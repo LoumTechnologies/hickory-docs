@@ -2,17 +2,34 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { EditorState, Transaction } from "@codemirror/state";
 import { EditorView, keymap } from "@codemirror/view";
-import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
+import {
+  defaultKeymap,
+  history,
+  historyKeymap,
+  indentWithTab,
+} from "@codemirror/commands";
 import * as Y from "yjs";
 import { Awareness } from "y-protocols/awareness";
 import { yCollab } from "y-codemirror.next";
 import type { Extension } from "@codemirror/state";
-import { CellRegistry, EnvRegistry, setVerifiedExpects, structureOf, wysiwyg } from "./wysiwyg";
-import { diagnosticRanges, positionToOffset, setLspDiagnostics } from "../lsp/cmLsp";
+import {
+  CellRegistry,
+  DiagramRegistry,
+  EnvRegistry,
+  setVerifiedExpects,
+  structureOf,
+  wysiwyg,
+} from "./wysiwyg";
+import {
+  diagnosticRanges,
+  positionToOffset,
+  setLspDiagnostics,
+} from "../lsp/cmLsp";
 import type { LspDiagnostic } from "../lsp/client";
 import { hickoryFolding } from "./folding";
-import type { CellSlot, EnvSlot } from "./wysiwyg";
+import type { CellSlot, EnvSlot, DiagramSlot } from "./wysiwyg";
 import { execBlocksOf, expectRangeOf } from "./hickDoc";
+import { DiagramPanel } from "../components/DiagramPanel";
 import { CellPanel } from "../components/CellPanel";
 import { EnvCard } from "../components/EnvCard";
 import { api } from "../api/client";
@@ -90,14 +107,24 @@ export function DocumentEditor({
   const viewRef = useRef<EditorView | null>(null);
   const registry = useMemo(() => new CellRegistry(), []);
   const envRegistry = useMemo(() => new EnvRegistry(), []);
+  const diagramRegistry = useMemo(() => new DiagramRegistry(), []);
   const [slots, setSlots] = useState<CellSlot[]>([]);
   const [envSlots, setEnvSlots] = useState<EnvSlot[]>([]);
+  const [diagramSlots, setDiagramSlots] = useState<DiagramSlot[]>([]);
   const [executorInfo, setExecutorInfo] = useState<ExecutorInfo | null>(null);
 
-  useEffect(() => registry.subscribe(() => setSlots(registry.list())), [registry]);
+  useEffect(
+    () => registry.subscribe(() => setSlots(registry.list())),
+    [registry],
+  );
   useEffect(
     () => envRegistry.subscribe(() => setEnvSlots(envRegistry.list())),
     [envRegistry],
+  );
+  useEffect(
+    () =>
+      diagramRegistry.subscribe(() => setDiagramSlots(diagramRegistry.list())),
+    [diagramRegistry],
   );
 
   // Widget DOM is filled by React portals AFTER CodeMirror measures the
@@ -131,11 +158,14 @@ export function DocumentEditor({
     });
     for (const slot of slots) observer.observe(slot.el);
     for (const slot of envSlots) observer.observe(slot.el);
+    // A diagram resizes twice: once when the panel mounts and again when the
+    // engine finishes drawing. Both change the height CM measured.
+    for (const slot of diagramSlots) observer.observe(slot.el);
     return () => {
       observer.disconnect();
       last = new Map();
     };
-  }, [slots, envSlots]);
+  }, [slots, envSlots, diagramSlots]);
   useEffect(() => {
     api.executor().then(setExecutorInfo, () => setExecutorInfo(null));
   }, []);
@@ -191,7 +221,7 @@ export function DocumentEditor({
               : null,
           ),
           keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab]),
-          wysiwyg(registry, envRegistry),
+          wysiwyg(registry, envRegistry, diagramRegistry),
           hickoryFolding(),
           yCollab(ytext, awareness),
           ...(lspExtensions ?? []),
@@ -205,8 +235,12 @@ export function DocumentEditor({
     viewRef.current = view;
     // Debug handle for driving the editor from automation (kept out of the
     // normal path; enable with localStorage "hickory.debug" = "1").
-    if (localStorage.getItem("hickory.debug") === "1" || import.meta.env.MODE === "test") {
-      (window as unknown as { __hickoryView?: EditorView }).__hickoryView = view;
+    if (
+      localStorage.getItem("hickory.debug") === "1" ||
+      import.meta.env.MODE === "test"
+    ) {
+      (window as unknown as { __hickoryView?: EditorView }).__hickoryView =
+        view;
     }
     setSlots(registry.list());
     setEnvSlots(envRegistry.list());
@@ -233,7 +267,10 @@ export function DocumentEditor({
     const structure = structureOf(view.state);
     const spans: [number, number][] = [];
     execBlocksOf(structure).forEach((exec, index) => {
-      const block = matchExecBlock({ span: [exec.from, exec.to], index }, execBlocks);
+      const block = matchExecBlock(
+        { span: [exec.from, exec.to], index },
+        execBlocks,
+      );
       if (block?.status === "ok" && block.expect) {
         const range = expectRangeOf(structure, exec);
         if (range) spans.push(range);
@@ -249,7 +286,9 @@ export function DocumentEditor({
     if (!view) return;
     view.dispatch({
       effects: setLspDiagnostics.of(
-        diagnosticRanges(lspDiagnostics ?? [], (p) => positionToOffset(view.state.doc, p)),
+        diagnosticRanges(lspDiagnostics ?? [], (p) =>
+          positionToOffset(view.state.doc, p),
+        ),
       ),
     });
   }, [lspDiagnostics]);
@@ -282,6 +321,24 @@ export function DocumentEditor({
           slot.key,
         );
       })}
+      {diagramSlots.map((slot) =>
+        createPortal(
+          <DiagramPanel
+            renderer={slot.renderer}
+            source={slot.source}
+            domId={`hick-diagram-${slot.index}`}
+            assertions={slot.asserts.map((id) => ({
+              id,
+              // Wiring a live pass/fail state to the cell that carries this id
+              // is the next step; until then the panel says "checked by",
+              // never "passing", because it does not know.
+              state: "unknown" as const,
+            }))}
+          />,
+          slot.el,
+          slot.key,
+        ),
+      )}
       {envSlots.map((slot) =>
         createPortal(
           <EnvCard

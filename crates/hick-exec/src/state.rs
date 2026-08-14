@@ -382,6 +382,48 @@ impl MultiDocumentState {
         selector: &str,
         separator: Option<&str>,
     ) -> Option<Arc<dyn Node>> {
+        // A comma-separated list is one paste of several fragments, in the
+        // order written. This used to be treated as a single id — so
+        // `select="#a,#b"` looked for a fragment literally named `a,#b`,
+        // found nothing, and wove an EMPTY section while `hick test` passed.
+        // Silent, and in a chain of documents the silence lands where the
+        // upstream requirements were supposed to appear.
+        //
+        // `hick_lang::fragment_matches` (the agent-side selector) has always
+        // split on commas, so this also brings the two halves of the product
+        // back into agreement about what a selector means.
+        let parts: Vec<&str> = selector
+            .split(',')
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .collect();
+        if parts.len() > 1 {
+            let ip = Arc::new(InsertionPoint::new());
+            let mut any = false;
+            for part in parts {
+                let Some(node) = self.resolve_single_selector(part, separator) else {
+                    continue;
+                };
+                if any && let Some(sep) = separator {
+                    ip.add(Arc::new(StringNode::new(sep)) as Arc<dyn Node>);
+                }
+                ip.add(node);
+                any = true;
+            }
+            // None, not an empty node: the caller reports "selector not
+            // found", which is the whole point of noticing.
+            return any.then_some(ip as Arc<dyn Node>);
+        }
+
+        self.resolve_single_selector(selector.trim(), separator)
+    }
+
+    /// One `#id` or `.class` selector.
+    fn resolve_single_selector(
+        &self,
+        selector: &str,
+        separator: Option<&str>,
+    ) -> Option<Arc<dyn Node>> {
         let selector = selector.trim();
 
         if let Some(class_name) = selector.strip_prefix('.') {
@@ -439,6 +481,18 @@ impl MultiDocumentState {
     /// For `#id` selectors, returns 0 or 1.
     /// For `.class` selectors, returns the count of blocks with that class.
     pub fn count_paste_matches(&self, selector: &str) -> usize {
+        // Same list semantics as `resolve_paste_node`, so `min`/`max` count
+        // what the paste will actually emit rather than what one selector
+        // would have.
+        let parts: Vec<&str> = selector
+            .split(',')
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .collect();
+        if parts.len() > 1 {
+            return parts.iter().map(|p| self.count_paste_matches(p)).sum();
+        }
+
         let selector = selector.trim();
 
         if let Some(class_name) = selector.strip_prefix('.') {
@@ -837,6 +891,27 @@ mod tests {
 
         assert_eq!(state.count_paste_matches("#ver"), 1);
         assert_eq!(state.count_paste_matches("#missing"), 0);
+    }
+
+    #[test]
+    fn a_selector_list_counts_every_part() {
+        // `select="#a,#b"` used to count as one missing fragment, so a
+        // `min=2` gate on it could never be satisfied — and without a gate it
+        // wove nothing at all.
+        let state = MultiDocumentState::default();
+        state.register_copy("a".to_string(), "ALPHA".to_string());
+        state.register_copy("b".to_string(), "BETA".to_string());
+        state.register_copy_with_class("".to_string(), Some("extra"), "GAMMA".to_string());
+
+        assert_eq!(state.count_paste_matches("#a,#b"), 2);
+        assert_eq!(state.count_paste_matches("#a, #b"), 2, "spaces are allowed");
+        assert_eq!(state.count_paste_matches("#a,#missing"), 1);
+        assert_eq!(state.count_paste_matches("#a,.extra"), 2, "mixed kinds");
+        assert_eq!(
+            state.count_paste_matches("#a"),
+            1,
+            "a single selector is unchanged"
+        );
     }
 
     #[test]

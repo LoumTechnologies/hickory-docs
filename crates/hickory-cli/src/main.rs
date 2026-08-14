@@ -93,8 +93,11 @@ enum Command {
     /// The ONLY command that calls a model.
     Refresh(RefreshArgs),
     /// Set up a local git repository for hick: pre-commit drift gate,
-    /// .gitignore entry, and an AGENTS.md section for coding agents.
-    /// Idempotent — re-run any time to refresh the managed blocks.
+    /// .gitignore entry, an AGENTS.md section for coding agents, the `hick`
+    /// MCP registration, and editor wiring — `hick-lsp` registered for
+    /// *.hick where a project file can do it, and `.hick-lsp.json` written
+    /// from whichever language servers this repo's editor config already
+    /// names. Idempotent — re-run any time to refresh the managed blocks.
     Init(InitArgs),
     /// Read and edit a document through hashline anchors and lineage — the
     /// same tool set the built-in agent uses, for any coding agent that can

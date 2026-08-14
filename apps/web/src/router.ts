@@ -10,6 +10,10 @@ export type Route =
   | { name: "login" }
   | { name: "projects" }
   | { name: "project"; id: string }
+  // The whole pipeline at once, one column per stage. Project-scoped because
+  // a chain crosses documents, and a doc-scoped route could only ever show
+  // one link of it.
+  | { name: "lineage"; id: string }
   | { name: "doc"; id: string }
   | { name: "settings" }
   // Token-bearing routes reached from an email link. The token stays in the
@@ -22,6 +26,8 @@ export function parseRoute(hash: string): Route {
   const path = hash.replace(/^#/, "") || "/";
   let m: RegExpMatchArray | null;
   if (path === "/") return { name: "landing" };
+  if ((m = path.match(/^\/projects\/([^/]+)\/lineage$/)))
+    return { name: "lineage", id: decodeURIComponent(m[1]) };
   if (path === "/login") return { name: "login" };
   if (path === "/settings") return { name: "settings" };
   if (path === "/forgot") return { name: "forgot" };

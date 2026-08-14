@@ -117,6 +117,179 @@ async fn connect(session: &Session) -> Ws {
     ws
 }
 
+/// The LSP bridge's channel byte, as `docs/specs/freeform/api.md` fixes it.
+const CHANNEL_LSP: u8 = 0x02;
+
+/// Send one JSON-RPC message on the language channel, framed the way the
+/// notebook frames it: one message per binary frame, no Content-Length.
+async fn send_lsp(ws: &mut Ws, message: Value) {
+    let mut frame = vec![CHANNEL_LSP];
+    frame.extend_from_slice(&serde_json::to_vec(&message).unwrap());
+    ws.send(TtMessage::Binary(frame)).await.unwrap();
+}
+
+/// Wait for the first `0x02` frame whose `method` matches, ignoring the Yjs
+/// handshake and the server's own log chatter.
+async fn next_lsp(ws: &mut Ws, method: &str) -> Value {
+    tokio::time::timeout(Duration::from_secs(20), async {
+        while let Some(Ok(msg)) = ws.next().await {
+            let TtMessage::Binary(data) = msg else {
+                continue;
+            };
+            if data.first() != Some(&CHANNEL_LSP) {
+                continue;
+            }
+            let message: Value = serde_json::from_slice(&data[1..]).unwrap();
+            if message["method"] == method {
+                return message;
+            }
+        }
+        panic!("the socket closed before {method} arrived");
+    })
+    .await
+    .unwrap_or_else(|_| panic!("timed out waiting for {method}"))
+}
+
+/// The notebook asks language questions over the same socket that carries its
+/// edits, and gets answers in document coordinates.
+///
+/// Protects docs/guarantees/editor-intelligence/the-notebook-asks-the-same-questions-an-editor-does.md
+#[tokio::test(flavor = "multi_thread")]
+async fn the_language_channel_answers_in_document_coordinates() {
+    let session = start().await;
+    let mut ws = connect(&session).await;
+
+    send_lsp(
+        &mut ws,
+        serde_json::json!({
+            "jsonrpc": "2.0",
+            "method": "textDocument/didOpen",
+            "params": { "textDocument": {
+                "uri": "hick:///demo.hick",
+                "languageId": "hick",
+                "version": 1,
+                "text": DOC,
+            }},
+        }),
+    )
+    .await;
+
+    let published = next_lsp(&mut ws, "textDocument/publishDiagnostics").await;
+    // The browser never learns where this project lives on disk.
+    assert_eq!(published["params"]["uri"], "hick:///demo.hick");
+    assert!(
+        published["params"]["diagnostics"].is_array(),
+        "a publish always carries a list, even an empty one: {published}"
+    );
+
+    // A question the hick layer answers by itself, so this holds on a machine
+    // with no language servers installed at all.
+    send_lsp(
+        &mut ws,
+        serde_json::json!({
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "textDocument/hover",
+            "params": {
+                "textDocument": { "uri": "hick:///demo.hick" },
+                // The `<hick:paste select="#greet" />` line.
+                "position": { "line": 6, "character": 30 },
+            },
+        }),
+    )
+    .await;
+    let hover = tokio::time::timeout(Duration::from_secs(20), async {
+        while let Some(Ok(msg)) = ws.next().await {
+            let TtMessage::Binary(data) = msg else {
+                continue;
+            };
+            if data.first() != Some(&CHANNEL_LSP) {
+                continue;
+            }
+            let message: Value = serde_json::from_slice(&data[1..]).unwrap();
+            if message["id"] == 1 {
+                return message;
+            }
+        }
+        panic!("the socket closed before the hover answer arrived");
+    })
+    .await
+    .expect("hover should be answered");
+    assert!(
+        hover.get("result").is_some() || hover.get("error").is_some(),
+        "a request must get a reply of some kind: {hover}"
+    );
+}
+
+/// Structural navigation is served from the same session, computed by
+/// tree-sitter rather than a language server.
+///
+/// Protects docs/guarantees/editor-intelligence/structural-navigation-ships-in-the-download.md
+#[tokio::test(flavor = "multi_thread")]
+async fn structure_names_definitions_and_links_references_to_them() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("code.hick"),
+        r##"<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="code.md">
+<hick:file path="app.py">
+def load(path):
+    return open(path).read()
+
+def summarise(path):
+    return len(load(path))
+</hick:file>
+</hick:doc>
+"##,
+    )
+    .unwrap();
+    let root = dir.path().canonicalize().unwrap();
+
+    let prepared = prepare(ServeOptions {
+        target: root.clone(),
+        port: 0,
+        params: Vec::new(),
+        executor: ExecutorChoice::Local,
+    })
+    .await
+    .expect("session prepares");
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    tokio::spawn(async move {
+        axum::serve(listener, prepared.router).await.unwrap();
+    });
+
+    let body: Value = reqwest::get(format!("http://127.0.0.1:{port}/api/structure"))
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+
+    let files = body["files"].as_array().expect("files");
+    let app = files
+        .iter()
+        .find(|f| f["path"] == "app.py")
+        .expect("the generated python file was analysed");
+    let names: Vec<&str> = app["definitions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|d| d["name"].as_str().unwrap())
+        .collect();
+    assert!(names.contains(&"load"), "{names:?}");
+    assert!(names.contains(&"summarise"), "{names:?}");
+
+    let links = body["links"].as_array().expect("links");
+    let call = links
+        .iter()
+        .find(|l| l["name"] == "load")
+        .expect("the call to load resolves to its definition");
+    assert_eq!(call["to_path"], "app.py");
+    // One definition of that name, so the link is not a guess among several.
+    assert_eq!(call["candidates"], 1);
+}
+
 /// Yjs frames are channel 0x00; run events are 0x01.
 fn yjs_frame(msg: &Message) -> Vec<u8> {
     let mut frame = vec![0x00];

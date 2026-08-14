@@ -69,10 +69,22 @@ export function LandingView() {
       <header className="landing-hero">
         <h1>Literate programming + AI agents</h1>
         <p className="landing-sub">
-          Your agent&rsquo;s session, the reasoning behind a change, and the change itself are three
-          separate things today, and two of them get thrown away. Hickory Docs is where they meet:
-          one executable document in your repository, written as your agent works. It arrives as an
-          MCP server, so the agent you already run produces one without being asked.
+          What do you get when you cross Claude Code, literate programming, and namespaced markup?
+        </p>
+        <p className="landing-sub">
+          You get Hickory Docs: a local command-line program and MCP server for writing documents
+          that read like an agent session and behave like a program. One document holds the prose,
+          the code, and the runs — and weaves out the source files and the documentation, the way
+          literate programming always did.
+        </p>
+        <p className="landing-sub">
+          Install it, then run <code>hick init</code> in the repo you work in. That registers the
+          MCP server for the agent you already use, so it can write <code>.hick</code> documents and
+          edit their generated files — an edit at either end lands at the other, byte-exactly.
+          Editors get <code>hick-lsp</code>, which ships in the same download: it spawns the real
+          language servers for each generated file and maps their diagnostics back onto the
+          document, so embedded code gets the same tooling the generated code gets.{" "}
+          <code>hick init</code> points it at whichever servers this repo already uses.
         </p>
         {/* The call to action is what the product IS. hick is a program you
             install (docs/specs/freeform/local-only.md), so the primary action
@@ -83,16 +95,19 @@ export function LandingView() {
         </div>
         <p className="landing-sub landing-install-note">
           Runs on your machine, on your files, in your repo, on your own API key. Free, no account,
-          nothing to buy — and it never talks to us.
+          nothing to buy.
         </p>
       </header>
 
       <section className="landing-demo" aria-labelledby="converge-h">
         <h2 id="converge-h">Three things that should have been one</h2>
         <p className="landing-demo-lead">
-          Literate programming had this right in 1984 and could not make it stick, because keeping
-          the document true was a second job nobody had time for. An agent working through tools
-          that write the document as a side effect is what closes that gap.
+          Literate programming had this right in 1984 and could not make it stick. The generated
+          files were the ones everyone actually edited, so the document, the source, and the
+          documentation drifted apart — and writing inside the document meant giving up the
+          completion, navigation, and diagnostics you had when editing the source directly. Both of
+          those are fixed here: an edit to a generated file maps back into the document, and the
+          language servers follow the code into it.
         </p>
         <Convergence />
       </section>
@@ -109,10 +124,13 @@ export function LandingView() {
       <section className="landing-demo" aria-labelledby="demo-program-h">
         <h2 id="demo-program-h">What the document actually is</h2>
         <p className="landing-demo-lead">
-          It holds the code once. It weaves into the files that run, the files run, and an edit made
-          at either end lands at the other — which is why the record cannot drift from the thing it
-          describes. Drive it yourself; everything below happens in this page, with no account and
-          no network.
+          It holds the code once, weaves it into the files that run, and carries an edit made at
+          either end back to the other — which is why the record cannot drift from the thing it
+          describes. Its last cell pins a claim about <em>shape</em> rather than output: SCIP
+          indexes the woven files and counts the ways the dependency could point backwards, and the
+          document fails the day that count stops being zero. It is a file in your repository, not
+          a session that evaporates. Drive it yourself; everything below happens in this page, with
+          no account and no network.
         </p>
         <ProgramDemo />
       </section>

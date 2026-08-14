@@ -3,6 +3,10 @@
 For someone who wants to run executable documents and does not care how the
 project is built. No Rust toolchain is needed at any point.
 
+Looking for the window rather than the terminal? The desktop app is a separate
+download — see [install-desktop](install-desktop.md). Same engine, different
+front door; install either, neither, or both.
+
 ## One line
 
 ```sh
@@ -10,9 +14,11 @@ curl -fsSL https://raw.githubusercontent.com/LoumTechnologies/hickory-docs/maste
 ```
 
 It works out which archive matches your machine, checks its SHA-256 against
-the checksum published beside it, and installs `hick` to `~/.local/bin`. If
-that directory is not on your `PATH`, the script says so and prints the line
-to add.
+the checksum published beside it, and installs two binaries to `~/.local/bin`:
+`hick` itself, and `hick-lsp`, the language server that gives your editor real
+diagnostics inside a document ([editor setup](editor-setup.md)). If that
+directory is not on your `PATH`, the script says so and prints the line to
+add.
 
 Knobs, all environment variables so the piped form still works:
 
@@ -34,23 +40,23 @@ page](https://github.com/LoumTechnologies/hickory-docs/releases).
 
 | Platform | Archive |
 |---|---|
-| macOS, Apple Silicon | `hickory-<version>-aarch64-apple-darwin.tar.gz` |
-| macOS, Intel | `hickory-<version>-x86_64-apple-darwin.tar.gz` |
-| Linux, x86_64 | `hickory-<version>-x86_64-unknown-linux-gnu.tar.gz` |
-| Linux, aarch64 | `hickory-<version>-aarch64-unknown-linux-gnu.tar.gz` |
-| Windows, x86_64 | `hickory-<version>-x86_64-pc-windows-msvc.zip` |
+| macOS, Apple Silicon | `hick-<version>-aarch64-apple-darwin.tar.gz` |
+| macOS, Intel | `hick-<version>-x86_64-apple-darwin.tar.gz` |
+| Linux, x86_64 | `hick-<version>-x86_64-unknown-linux-gnu.tar.gz` |
+| Linux, aarch64 | `hick-<version>-aarch64-unknown-linux-gnu.tar.gz` |
+| Windows, x86_64 | `hick-<version>-x86_64-pc-windows-msvc.zip` |
 
 Each carries a `.sha256` beside it. Verify before you run it:
 
 ```sh
-sha256sum -c hickory-<version>-<target>.tar.gz.sha256
+sha256sum -c hick-<version>-<target>.tar.gz.sha256
 ```
 
-Unpack it and you get the binary, `LICENSE`, `README.md`, and `examples/`:
+Unpack it and you get both binaries, `LICENSE`, `README.md`, and `examples/`:
 
 ```sh
-tar -xzf hickory-<version>-<target>.tar.gz
-cd hickory-<version>-<target>
+tar -xzf hick-<version>-<target>.tar.gz
+cd hick-<version>-<target>
 ./hick test examples/text-tools-tour.hick
 ```
 
@@ -92,7 +98,8 @@ found", naming the line in the document that invoked it.
 ```sh
 git clone https://github.com/LoumTechnologies/hickory-docs
 cd hickory-docs
-cargo build --release -p hickory-cli   # binary at target/release/hick
+cargo build --release -p hickory-cli -p hick-lsp
+# binaries at target/release/hick and target/release/hick-lsp
 ```
 
 This is also the answer for any platform not in the table above: musl distros,
@@ -104,6 +111,6 @@ are compiled from source as part of it — which on a Debian-family system means
 ## Uninstalling
 
 ```sh
-rm ~/.local/bin/hick
+rm ~/.local/bin/hick ~/.local/bin/hick-lsp
 rm -rf ~/.local/share/hick
 ```

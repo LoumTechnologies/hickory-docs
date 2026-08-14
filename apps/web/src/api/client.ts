@@ -15,6 +15,7 @@ import type {
   RenderResponse,
   Run,
   User,
+  StructureResponse,
 } from "./types";
 
 export const MOCK = import.meta.env.VITE_MOCK === "1";
@@ -162,6 +163,9 @@ export const api = {
     }),
 
   executor: () => request<ExecutorInfo>("GET", "/api/executor"),
+
+  /** Definitions and references across this session's generated files. */
+  structure: () => request<StructureResponse>("GET", "/api/structure"),
 
   /** Start a turn. `parentId` continues from that turn — naming an older one
    * forks a branch (rewind) rather than overwriting what followed it. */

@@ -1088,6 +1088,56 @@ textarea:focus {
   margin-left: -2px;
 }
 
+/* A rendered diagram above its hick:diagram source.
+ *
+ * The picture reads as a figure — quiet frame, centred, wide enough to see —
+ * and the line under it is the part that carries the weight: a diagram nothing
+ * checks must not look like one that is proved. */
+.cm-diagram { padding: 0; }
+.diagram-panel {
+  margin: 0.75rem 0 0.25rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-raised);
+  padding: 0.75rem 0.9rem 0.6rem;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+.diagram-figure {
+  display: flex;
+  justify-content: center;
+  overflow-x: auto;
+}
+.diagram-figure svg {
+  max-width: 100%;
+  height: auto;
+}
+.diagram-error {
+  margin: 0;
+  font-size: 0.82rem;
+  color: var(--fail);
+}
+.diagram-assertions {
+  margin: 0.55rem 0 0;
+  padding-top: 0.45rem;
+  border-top: 1px solid var(--border);
+  font-size: 0.76rem;
+  color: var(--ok);
+}
+/* Unchecked is not an error, so it is not red — it is quiet, and it says so
+ * in words rather than by looking the same as a checked diagram. */
+.diagram-assertions-none {
+  color: var(--fg-muted);
+  font-style: italic;
+}
+.diagram-assertions-failing {
+  color: var(--fail);
+  font-weight: 600;
+}
+.diagram-panel-unknown {
+  margin: 0.5rem 0 0.25rem;
+  font-size: 0.8rem;
+}
+
 /* Environment card above a hick:container declaration. */
 .cm-env-card { padding: 0; }
 .env-card {
@@ -2583,3 +2633,210 @@ textarea:focus {
   align-items: flex-start;
   text-align: left;
 }
+
+/* ---------------------------------------------------------------------------
+ * The lineage browser: one column per stage, each the stage's files with one
+ * of them open in place. See src/lineage/LineageColumns.tsx for why the shape
+ * is what it is.
+ * --------------------------------------------------------------------------- */
+
+.lineage { display: flex; flex-direction: column; gap: .6rem; min-height: 0; }
+.lineage-bar {
+  display: flex; flex-wrap: wrap; gap: .6rem 1rem;
+  align-items: center; justify-content: space-between;
+}
+.lineage-kinds { display: flex; align-items: center; gap: .35rem; flex-wrap: wrap; }
+.lineage-kinds-label {
+  font-size: .68rem; text-transform: uppercase; letter-spacing: .07em; color: var(--fg-muted);
+}
+/* Each link kind gets a colour, and each can be switched off. Turning off the
+   kinds nothing verifies shortens the chain to what is actually computed. */
+.lineage-kind {
+  display: inline-flex; align-items: center; gap: .3rem;
+  border: 1px solid var(--border); background: var(--bg-raised); color: var(--fg-muted);
+  font: inherit; font-size: .72rem; padding: .12rem .45rem; border-radius: 6px; cursor: pointer;
+}
+.lineage-kind i { width: .85rem; height: 0; border-top-width: 2px; border-top-style: solid; }
+.lineage-kind.k-paste i { border-top-color: var(--accent-2); }
+.lineage-kind.k-asserted i { border-top-color: var(--accent); border-top-style: dashed; }
+.lineage-kind[aria-pressed="true"] { color: var(--fg); border-color: var(--fg-muted); }
+.lineage-kind[aria-pressed="false"] { opacity: .45; text-decoration: line-through; }
+.lineage-search { display: inline-flex; align-items: center; gap: .4rem; }
+.lineage-search input {
+  font: inherit; font-size: .8rem; padding: .28rem .55rem; width: 15rem;
+  border: 1px solid var(--border); border-radius: 7px; background: var(--bg-raised); color: var(--fg);
+}
+.lineage-count { font-size: .72rem; color: var(--fg-muted); font-variant-numeric: tabular-nums; }
+
+.lineage-rail { position: relative; min-height: 0; flex: 1; }
+/* The gap is structural: links are drawn in it, and with flush columns an
+   edge between neighbours has nowhere to go. */
+.lineage-columns {
+  display: flex; align-items: stretch; gap: 3.25rem; padding-right: 3.25rem;
+  overflow-x: auto; height: 100%; background: var(--bg-sunken);
+  border: 1px solid var(--border); border-radius: 10px;
+}
+.link-layer { position: absolute; inset: 0; pointer-events: none; z-index: 3; }
+.link-thread { fill: none; stroke-width: 1.3; opacity: .5; stroke-linecap: round; }
+.link-thread.current { stroke-width: 2; opacity: 1; }
+.link-brace { fill: none; stroke-width: 1.5; opacity: .75; stroke-linecap: round; }
+.link-brace.current { stroke-width: 2; opacity: 1; }
+.link-thread.k-paste, .link-brace.k-paste { stroke: var(--accent-2); }
+.link-thread.k-asserted, .link-brace.k-asserted { stroke: var(--accent); stroke-dasharray: 5 3; }
+.link-thread.docked, .link-brace.docked { opacity: .45; stroke-dasharray: 3 2.5; }
+
+.stage-col {
+  flex: 0 0 auto; width: 25rem; min-width: 0; display: flex; flex-direction: column;
+  background: var(--bg-raised); border: 1px solid var(--border); border-top: 0; border-bottom: 0;
+}
+.stage-col.flash { animation: stage-flash 900ms ease-out; }
+@keyframes stage-flash { from { background: var(--stale-bg); } to { background: var(--bg-raised); } }
+@media (prefers-reduced-motion: reduce) {
+  .stage-col.flash { animation: none; outline: 2px solid var(--stale); }
+}
+.stage-head {
+  padding: .5rem .6rem; border-bottom: 1px solid var(--border);
+  display: flex; flex-direction: column; gap: .35rem; background: var(--bg-raised);
+}
+.stage-title { display: flex; align-items: baseline; gap: .45rem; }
+.stage-name { font-size: .95rem; font-weight: 640; letter-spacing: -.01em; }
+.stage-kind {
+  font-size: .6rem; text-transform: uppercase; letter-spacing: .09em; color: var(--fg-muted);
+}
+.stage-open {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: .64rem;
+  color: var(--fg-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  font-variant-numeric: tabular-nums;
+}
+.stage-search {
+  font: inherit; font-size: .74rem; padding: .22rem .45rem;
+  border: 1px solid var(--border); border-radius: 6px; background: var(--bg-sunken); color: var(--fg);
+}
+.stage-body { flex: 1; overflow: auto; padding: 0 0 1.5rem; }
+
+.stage-file {
+  display: flex; align-items: center; gap: .3rem; width: 100%; text-align: left;
+  border: 0; background: transparent; cursor: pointer; color: var(--fg-muted);
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: .68rem;
+  padding: .08rem .45rem; white-space: nowrap;
+}
+.stage-file:hover { background: var(--bg-sunken); color: var(--fg); }
+/* The open row shows the relative path and stays put while you scroll: a name
+   alone is not a location. Its background reaches above the row so nothing
+   shows in the seam between it and the header. */
+.stage-file.open {
+  position: sticky; top: 0; z-index: 2;
+  color: var(--fg); background: var(--bg-raised); font-weight: 650;
+  /* The background reaches 6px above the row so nothing shows in the seam
+     between it and the header; the matching margin-bottom puts those 6px back
+     into the flow, or the first line of the file sits under the row. */
+  margin-top: -6px; padding-top: calc(.08rem + 6px); margin-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+  box-shadow: 0 4px 8px -6px rgba(0, 0, 0, .35);
+}
+.sf-mark { width: .6rem; flex: 0 0 auto; opacity: .8; }
+.sf-name { overflow: hidden; text-overflow: ellipsis; }
+.sf-lines { margin-left: auto; opacity: .55; font-variant-numeric: tabular-nums; }
+.sf-hits {
+  background: var(--stale-bg); color: var(--stale); border: 1px solid var(--stale);
+  border-radius: 4px; padding: 0 .2rem; font-size: .58rem; font-variant-numeric: tabular-nums;
+}
+.sf-runs {
+  color: var(--ok); font-size: .58rem; border: 1px solid var(--ok);
+  border-radius: 4px; padding: 0 .2rem; font-variant-numeric: tabular-nums; opacity: .85;
+}
+.sf-where { margin-left: auto; opacity: .7; }
+[data-docked]::after {
+  content: attr(data-docked) " ↦";
+  font-family: ui-monospace, monospace; font-size: .58rem; font-weight: 700;
+  color: var(--accent-2); border: 1px solid var(--accent-2); border-radius: 4px;
+  padding: 0 .22rem; margin-left: .35rem;
+}
+
+.stage-file-body {
+  border-left: 2px solid var(--border); margin-left: .9rem;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: .705rem; line-height: 1.55;
+}
+.lin-row { display: flex; align-items: flex-start; }
+.lin-row:hover { background: var(--bg-sunken); }
+.lin-gutter {
+  flex: 0 0 2.6rem; text-align: right; padding-right: .5rem; color: var(--fg-muted);
+  font-size: .64rem; user-select: none; cursor: ns-resize; font-variant-numeric: tabular-nums;
+}
+.lin-gutter:hover { background: var(--accent-soft, var(--bg-sunken)); color: var(--fg); }
+.lin-text {
+  flex: 1; white-space: pre-wrap; word-break: break-word; padding: 0 .5rem 0 .35rem;
+  border-left: 2px solid transparent;
+}
+.lin-row[data-rel="up"] .lin-text { background: var(--stale-bg); border-left-color: var(--accent); }
+.lin-row[data-rel="down"] .lin-text { background: var(--neutral-bg); border-left-color: var(--accent-2); }
+.lin-row[data-rel="self"] .lin-text { border-left-color: var(--fg); border-left-width: 3px; }
+.lin-row[data-hit="1"] .lin-text { background: var(--stale-bg); }
+.lin-row[data-blockid] .lin-text { cursor: pointer; }
+
+.hole {
+  display: flex; align-items: stretch; background: var(--bg-sunken); margin: .1rem 0;
+  border-top: 1px solid var(--border); border-bottom: 1px solid var(--border);
+}
+/* Two rows of two: the upper pair moves the hole's top edge, the lower pair
+   its bottom edge, and the arrow is the direction that edge travels. */
+.hole-edges { flex: 0 0 3.1rem; display: flex; flex-direction: column; border-right: 1px solid var(--border); }
+.hole-edge { display: flex; flex: 1; }
+.hole-edge + .hole-edge { border-top: 1px solid var(--border); }
+.hole-btn {
+  flex: 1; border: 0; background: transparent; color: var(--fg-muted);
+  font: inherit; font-size: .6rem; line-height: 1; padding: .08rem 0; cursor: pointer;
+}
+.hole-btn + .hole-btn { border-left: 1px solid var(--border); }
+.hole-btn:hover:not(:disabled) { background: var(--stale-bg); color: var(--fg); }
+.hole-btn:disabled { opacity: .25; cursor: default; }
+.hole-label {
+  flex: 1; display: flex; align-items: center; justify-content: space-between; gap: .5rem;
+  padding: .12rem .5rem; font-size: .64rem; color: var(--fg-muted);
+  font-family: ui-monospace, monospace; font-variant-numeric: tabular-nums;
+}
+.hole-all {
+  border: 1px solid var(--border); background: var(--bg-raised); color: var(--fg-muted);
+  font: inherit; font-size: .6rem; padding: .05rem .35rem; border-radius: 5px; cursor: pointer;
+}
+.hole-all:hover { color: var(--fg); }
+
+.stage-elsewhere { margin: .4rem .3rem 0; border-top: 1px dashed var(--border); padding-top: .3rem; }
+.stage-elsewhere summary {
+  cursor: pointer; color: var(--fg-muted);
+  font-family: ui-monospace, monospace; font-size: .64rem; padding: .1rem .15rem;
+}
+.stage-elsewhere summary:hover { color: var(--fg); }
+.stage-elsewhere-entry {
+  display: flex; align-items: center; gap: .5rem; width: 100%; text-align: left;
+  border: 1px solid transparent; background: transparent; color: var(--fg-muted);
+  font-family: ui-monospace, monospace; font-size: .63rem;
+  padding: .1rem .35rem; border-radius: 5px; cursor: pointer;
+}
+.stage-elsewhere-entry:hover { background: var(--bg-sunken); color: var(--fg); border-color: var(--border); }
+
+.drive-crumbline { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; }
+.lineage-view {
+  display: flex; flex-direction: column; gap: .6rem; padding: .75rem;
+  /* Fill whatever the shell gives it: the rail scrolls, the page does not. */
+  flex: 1; min-height: 0; height: 100%;
+}
+.lineage-view .lineage { flex: 1; min-height: 0; }
+.lineage-empty { padding: 2rem; max-width: 42rem; }
+.lineage-warning {
+  margin: 0; padding: .4rem .6rem; border: 1px solid var(--stale); background: var(--stale-bg);
+  color: var(--fg); border-radius: 7px; font-size: .82rem;
+}
+
+.demo-modes { display: inline-flex; gap: .25rem; margin-right: .5rem; }
+.demo-modes .btn[aria-pressed="true"] { background: var(--bg-raised); border-color: var(--fg-muted); color: var(--fg); }
+.demo-lineage { display: flex; flex-direction: column; gap: .5rem; }
+.demo-lineage .lineage-columns { height: 26rem; }
+
+.lineage-note {
+  margin: 0; padding: .4rem .6rem; border: 1px solid var(--border);
+  background: var(--bg-sunken); color: var(--fg-muted); border-radius: 7px; font-size: .8rem;
+}
+.lineage-kind.k-structural i { border-top-color: var(--ok); border-top-style: dotted; }
+.link-thread.k-structural, .link-brace.k-structural { stroke: var(--ok); stroke-dasharray: 2 3; }

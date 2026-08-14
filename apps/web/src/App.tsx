@@ -1,6 +1,7 @@
 import { navigate, useRoute } from "./router";
 import { ProjectsView } from "./views/ProjectsView";
 import { DocumentView } from "./views/DocumentView";
+import { LineageView } from "./views/LineageView";
 import { TreeMark } from "./components/icons";
 
 /// The desktop app's shell.
@@ -23,6 +24,8 @@ export function App() {
       <main className="content">
         {route.name === "doc" ? (
           <DocumentView docId={route.id} />
+        ) : route.name === "lineage" ? (
+          <LineageView projectId={route.id} />
         ) : route.name === "project" ? (
           <ProjectsView projectId={route.id} />
         ) : (

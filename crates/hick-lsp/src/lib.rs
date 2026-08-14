@@ -7,10 +7,13 @@
 
 pub mod backend;
 pub mod child_lsp;
+pub mod discovery;
 pub mod dispatcher;
 pub mod document;
 pub mod lang_detect;
 pub mod position_map;
+pub mod semantic;
+pub mod server_config;
 pub mod structural;
 pub mod virtual_file;
 

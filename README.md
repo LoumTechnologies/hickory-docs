@@ -120,17 +120,24 @@ history, not a chat log that evaporated.
   `hick mcp` serves them over MCP. `HICKORY_SESSION` records the work as a
   replayable `hick:session`.
 - Local git-repo mode works today: `hick init` installs the pre-commit
-  drift gate, the MCP registration, and agent instructions — see
-  [docs/users/local-mode.md](docs/users/local-mode.md).
-- The LSP exists: `hick-lsp` (in `crates/hick-lsp`) multiplexes real language
-  servers into `hick:file` blocks; a Zed extension lives in
-  `editors/zed-hick` — see
+  drift gate, the MCP registration, agent instructions, and the editor wiring
+  below — see [docs/users/local-mode.md](docs/users/local-mode.md).
+- The LSP ships with the download: `hick-lsp` (in `crates/hick-lsp`) is in the
+  same release archive as `hick` and multiplexes real language servers into
+  `hick:file` blocks. `hick init` adopts whichever servers this repository's
+  editor config already names (`.vscode/settings.json`, `.zed/settings.json`,
+  `.helix/languages.toml`) into `.hick-lsp.json`, so a document's Python is
+  checked by the same server as the `.py` file it generates. A Zed extension
+  lives in `editors/zed-hick` — see
   [docs/users/editor-setup.md](docs/users/editor-setup.md). Using AI agents
   with either mode: [docs/users/ai-agents.md](docs/users/ai-agents.md).
-- A collaborative web app (notebook UI, live CRDT editing) and Tauri
-  iOS/Android shells live in `apps/`. You can run the server yourself; it is
-  part of this repository and under the same licence. Hickory is not a
-  hosted service.
+- The desktop app ships: `apps/desktop` is a Tauri window around the notebook
+  UI, published as its own `.dmg`/`.msi`/`.deb`/`.AppImage` beside the CLI
+  archives — see [docs/users/install-desktop.md](docs/users/install-desktop.md).
+  It runs the same engine in-process (no second implementation of weaving,
+  lineage, or output edits) and answers the editor's language questions
+  through the same `hick-lsp`. It is not a client for any server we operate;
+  Hickory is not a hosted service.
 - Local execution is **not sandboxed** — it runs your documents' commands as
   your user, like `make`, and `image=` is recorded but ignored. Treat running
   an untrusted document the way you would treat running an untrusted

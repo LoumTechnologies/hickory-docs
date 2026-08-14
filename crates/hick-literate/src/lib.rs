@@ -5,13 +5,11 @@
 //! and file output collection — all without touching the filesystem.
 
 pub mod agent_cell;
-pub mod agents;
 pub mod cache;
 pub mod compact;
 pub mod config;
 pub mod equiv;
 pub mod expect;
-pub mod generate_matrix;
 pub mod output_cleanup;
 pub mod pipeline;
 pub mod promote;
@@ -19,7 +17,6 @@ pub mod render;
 pub mod store_config;
 mod text;
 pub mod transcript;
-pub mod visual_regression;
 pub mod volume_state;
 pub mod watch;
 mod weave;

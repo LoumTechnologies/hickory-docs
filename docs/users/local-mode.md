@@ -21,7 +21,7 @@ can be cloned down.
 ## Set up a local repo
 
 ```sh
-cargo install --path crates/hickory-cli   # installs `hick`
+curl -fsSL https://raw.githubusercontent.com/LoumTechnologies/hickory-docs/master/scripts/install.sh | sh
 cd your-repo
 hick init
 ```
@@ -37,7 +37,13 @@ hick init
 3. writes a managed `<!-- HICKORY -->` section into `AGENTS.md` teaching
    coding agents the hick grammar and the golden rules (edit sources, run
    `hick run` then `hick test`), and points `CLAUDE.md` at it.
-4. prints a toolchain doctor: warnings (non-fatal) for missing child language
+4. registers the `hick` MCP server in `.mcp.json`, so a harness that reads it
+   (Claude Code does) gets the document tools without per-developer setup.
+5. wires up the editor: it writes `.hick-lsp.json` from the language servers
+   this repository's editor config already names, and registers `hick-lsp` for
+   `*.hick` in `.helix/languages.toml` and `.vscode/settings.json` where those
+   files can do the job. See [editor-setup](editor-setup.md).
+6. prints a toolchain doctor: warnings (non-fatal) for missing child language
    servers like `rust-analyzer` or `pyright-langserver`.
 
 Daily loop:

@@ -18,11 +18,21 @@ export const PROGRAM_DOC_PATH = "notes/bisect.hick";
 /**
  * The demo document.
  *
- * Three things have to be visible at once for the picture to make sense: a
+ * Four things have to be visible at once for the picture to make sense: a
  * fragment (`hick:copy`), two files that paste it (`hick:file` + `hick:paste`)
- * so one fragment feeding two outputs is on screen rather than asserted, and
- * an executable cell with a pinned expectation, which is the half of the
- * product that makes the document verifiable rather than merely generated.
+ * so one fragment feeding two outputs is on screen rather than asserted, an
+ * executable cell with a pinned expectation, which is the half of the product
+ * that makes the document verifiable rather than merely generated, and a cell
+ * that pins a STRUCTURAL claim rather than an output one.
+ *
+ * That last cell is why SCIP is here. Every architecture document ever written
+ * asserts a shape — "this layer never calls that one" — and nothing checks it,
+ * so it is wrong within a quarter and nobody finds out. A claim about shape
+ * can be executed like any other: index the code, query the index, pin the
+ * count at zero. The image is named `scip-tools:local` because no public image
+ * carries a language indexer, the `scip` CLI, and `jq` together — that one is
+ * yours to build, and saying so is better than naming an image that does not
+ * exist.
  */
 export const PROGRAM_SOURCE = `# Finding an insertion point
 
@@ -85,6 +95,17 @@ pytest -q /project/test_bisect.py
 <hick:expect match="regex-lines">1 passed in \\d+\\.\\d+s
 </hick:expect>
 </hick:exec>
+
+The last claim is about shape rather than output: \`bisect.py\` is the module the test depends on, so nothing in it may ever point back at the test. That is the kind of rule a diagram asserts and nobody checks. Here SCIP indexes the woven files and the cell counts the violations, so the day someone reverses the dependency, this document stops passing.
+
+<hick:container name="scip" image="scip-tools:local" />
+
+<hick:exec container="scip" mount="search:project">
+cd project && scip-python index . --project-name search
+scip print --json index.scip | jq '[.documents[] | select(.relative_path == "bisect.py") | .occurrences[] | select(.symbol | contains("test_bisect"))] | length'
+<hick:expect match="exact">0
+</hick:expect>
+</hick:exec>
 `;
 
 /**
@@ -100,5 +121,10 @@ export const PROGRAM_TRANSCRIPT: { cmd: string; out: string[]; verdict: string }
     cmd: "pytest -q /project/test_bisect.py",
     out: [".                                        [100%]", "1 passed in 0.03s"],
     verdict: "matches the pinned pattern",
+  },
+  {
+    cmd: "scip print --json index.scip | jq '[.documents[] | select(.relative_path == \"bisect.py\") | .occurrences[] | select(.symbol | contains(\"test_bisect\"))] | length'",
+    out: ["0"],
+    verdict: "the dependency still points one way",
   },
 ];

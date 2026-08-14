@@ -57,31 +57,42 @@ site:
 gen-key:
     @cargo run -q -p hickory-server --bin gen-key
 
-# Run the server + web dev environment.
+# Hot-reloads the UI; the engine runs in the app's own process; closing the
+# window stops everything.
+# The desktop app, in dev mode, on a seeded scratch project.
 dev:
     ./scripts/dev.sh
 
-# Stop anything `just dev` started.
+# Stop anything a killed `just dev` left behind.
 dev-stop:
     ./scripts/dev.sh stop
 
-# Stop, then delete this worktree's containers/volumes (never another
-# worktree's, never a pulled base image).
+# Never another worktree's, and never a cache anyone would re-download.
+# Stop, then delete THIS worktree's dev scratch (.dev/).
 dev-clean:
     ./scripts/dev.sh clean
 
-# Idempotent seed data via the real signup endpoint (never a DB insert).
+# There are no accounts to seed — there is no server to sign in to.
+# Idempotent seed data: a two-stage chain of real documents for the app to open.
 dev-seed:
     ./scripts/dev-seed.sh
 
-# Build one downloadable artifact (binary + LICENSE + examples) into dist/.
+# Build one downloadable artifact (hick + hick-lsp + LICENSE + examples) into
+# dist/.
 # The same script the release workflows call, so a maintainer can reproduce
 # what CI ships. Targets:
-#   x86_64-unknown-linux-musl  aarch64-unknown-linux-musl
+#   x86_64-unknown-linux-gnu   aarch64-unknown-linux-gnu
 #   aarch64-apple-darwin       x86_64-apple-darwin
 #   x86_64-pc-windows-msvc
 dist TARGET VERSION="":
     ./scripts/dist.sh {{TARGET}} {{VERSION}}
+
+# Build the downloadable DESKTOP app for this platform into dist/desktop/.
+# A separate download from the CLI, because a GUI application is a .dmg, an
+# .msi, or a .deb/.AppImage — not a tarball of binaries. Needs cargo-tauri:
+#   cargo install tauri-cli --version '^2' --locked
+dist-desktop VERSION="" TARGET="":
+    ./scripts/dist-desktop.sh {{VERSION}} {{TARGET}}
 
 # Run a hick document with the local executor.
 run DOC *ARGS:

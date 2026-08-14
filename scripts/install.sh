@@ -4,8 +4,9 @@
 #   curl -fsSL https://raw.githubusercontent.com/LoumTechnologies/hickory-docs/master/scripts/install.sh | sh
 #
 # Downloads the release archive matching this machine, checks its SHA-256
-# against the checksum published beside it, and puts `hick` on your PATH.
-# No Rust toolchain, no clone, no build.
+# against the checksum published beside it, and puts `hick` — and the editor
+# language server `hick-lsp` — on your PATH. No Rust toolchain, no clone, no
+# build.
 #
 # Knobs (all optional, all environment variables so the piped-into-sh form
 # still works — `curl … | HICKORY_CHANNEL=unstable sh`):
@@ -214,6 +215,21 @@ echo ""
 echo "Installed: $INSTALL_DIR/hick"
 "$INSTALL_DIR/hick" --version || true
 
+# The editor language server travels in the same archive. It is not required
+# to run documents, so a release that predates it installs `hick` and says
+# what is missing rather than failing.
+lsp="$tmp/$(basename "$file" .tar.gz)/hick-lsp"
+if [ -f "$lsp" ]; then
+  install -m 755 "$lsp" "$INSTALL_DIR/hick-lsp" 2>/dev/null ||
+    { cp "$lsp" "$INSTALL_DIR/hick-lsp" && chmod 755 "$INSTALL_DIR/hick-lsp"; } || die \
+    "could not write $INSTALL_DIR/hick-lsp." \
+    "Is it writable? Set HICKORY_INSTALL_DIR to somewhere that is."
+  echo "Installed: $INSTALL_DIR/hick-lsp (editor language server)"
+else
+  echo "note: this release carries no hick-lsp; editor diagnostics inside" >&2
+  echo "      .hick files need a newer one (HICKORY_CHANNEL=unstable)." >&2
+fi
+
 case ":$PATH:" in
   *":$INSTALL_DIR:"*) ;;
   *)
@@ -234,5 +250,9 @@ if cp -R "$tmp/$(basename "$file" .tar.gz)/examples" "$EXAMPLES_DIR" 2>/dev/null
   echo " duckdb CLI; text-tools-tour needs only a POSIX shell.)"
 fi
 
+echo ""
+echo "In a repo:  hick init"
+echo "(sets up the drift gate, registers the MCP server for your coding agent,"
+echo " and wires hick-lsp into the editors it finds)"
 echo ""
 echo "Docs: https://github.com/$REPO#reference"

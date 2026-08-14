@@ -18,6 +18,14 @@ pub struct Dispatcher {
     children: HashMap<String, ChildLspHandle>,
     /// Shared sender for all child notifications.
     notification_tx: mpsc::UnboundedSender<ChildNotification>,
+    /// Each child's semantic-token legend, captured from its initialize
+    /// result.
+    ///
+    /// Kept because the legend is per server: pyright and rust-analyzer can
+    /// disagree about which integer means `function`, so decoding one child's
+    /// tokens with another's legend colours the code wrongly rather than
+    /// failing visibly.
+    legends: HashMap<String, (Vec<String>, Vec<String>)>,
 }
 
 impl Dispatcher {
@@ -29,6 +37,7 @@ impl Dispatcher {
         Self {
             children: HashMap::new(),
             notification_tx,
+            legends: HashMap::new(),
         }
     }
 
@@ -44,7 +53,10 @@ impl Dispatcher {
     ) -> Result<&ChildLspHandle, ChildLspError> {
         if !self.children.contains_key(language_id) {
             let handle = ChildLspHandle::spawn(language_id, self.notification_tx.clone()).await?;
-            handle.initialize(root_uri).await?;
+            let result = handle.initialize(root_uri).await?;
+            if let Some(legend) = semantic_legend(&result) {
+                self.legends.insert(language_id.to_string(), legend);
+            }
             self.children.insert(language_id.to_string(), handle);
         }
 
@@ -65,6 +77,11 @@ impl Dispatcher {
             })
     }
 
+    /// The semantic-token legend a child declared, if it supports them.
+    pub fn token_legend(&self, language_id: &str) -> Option<(Vec<String>, Vec<String>)> {
+        self.legends.get(language_id).cloned()
+    }
+
     /// Shut down all child LSP servers.
     pub async fn shutdown_all(&mut self) {
         for (language_id, handle) in self.children.drain() {
@@ -79,9 +96,66 @@ impl Dispatcher {
     }
 }
 
+/// Pull `capabilities.semanticTokensProvider.legend` out of an initialize
+/// result, whichever of the two shapes the server used.
+fn semantic_legend(result: &serde_json::Value) -> Option<(Vec<String>, Vec<String>)> {
+    let provider = result.pointer("/capabilities/semanticTokensProvider")?;
+    // The provider is either the options object or `{ legend, ... }` nested
+    // under a registration; both appear in the wild.
+    let legend = provider.get("legend").or_else(|| {
+        provider
+            .pointer("/documentSelector")
+            .and(provider.get("legend"))
+    })?;
+    let strings = |key: &str| -> Vec<String> {
+        legend
+            .get(key)
+            .and_then(|v| v.as_array())
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(|v| v.as_str().map(str::to_string))
+                    .collect()
+            })
+            .unwrap_or_default()
+    };
+    let types = strings("tokenTypes");
+    if types.is_empty() {
+        return None;
+    }
+    Some((types, strings("tokenModifiers")))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_legend_is_read_from_the_initialize_result() {
+        let result = serde_json::json!({
+            "capabilities": {
+                "semanticTokensProvider": {
+                    "legend": {
+                        "tokenTypes": ["function", "variable"],
+                        "tokenModifiers": ["declaration"]
+                    },
+                    "full": true
+                }
+            }
+        });
+        let (types, modifiers) = semantic_legend(&result).expect("legend found");
+        assert_eq!(types, vec!["function", "variable"]);
+        assert_eq!(modifiers, vec!["declaration"]);
+    }
+
+    #[test]
+    fn a_server_without_semantic_tokens_has_no_legend() {
+        // Decoding its tokens against somebody else's legend would colour the
+        // code wrongly rather than failing visibly, so absence must be
+        // absence.
+        let result = serde_json::json!({ "capabilities": { "hoverProvider": true } });
+        assert!(semantic_legend(&result).is_none());
+    }
 
     #[test]
     fn new_dispatcher_is_empty() {

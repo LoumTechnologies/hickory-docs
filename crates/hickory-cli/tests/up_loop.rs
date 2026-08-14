@@ -39,27 +39,75 @@ if __name__ == "__main__":
 struct Loop {
     child: Child,
     dir: tempfile::TempDir,
+    /// The child's stderr.
+    ///
+    /// Captured, not discarded: every wait in this file times out the same
+    /// way, so a child that died on startup and a child that is merely slow
+    /// produce the identical panic unless its own message is in it. This cost
+    /// a real debugging session — `hick up` was exiting immediately with
+    /// "Too many open files" (the inotify instance limit), and all five
+    /// waiting tests reported only "initial weave".
+    ///
+    /// It lives outside the watched directory on purpose. A log file *inside*
+    /// it would be written by the very loop that is watching it, and the loop
+    /// reacting to its own logging is a feedback loop the test would then be
+    /// measuring.
+    log: tempfile::NamedTempFile,
 }
 
 impl Loop {
     fn start(doc: &str) -> Self {
         let dir = tempfile::tempdir().expect("tempdir");
         std::fs::write(dir.path().join("greeter.hick"), doc).expect("write doc");
+        let log = tempfile::NamedTempFile::new().expect("stderr capture");
+        let sink = log.reopen().expect("reopen stderr capture");
         let child = hick()
             .arg("up")
             .arg(dir.path())
             .stdout(Stdio::null())
-            .stderr(Stdio::null())
+            .stderr(Stdio::from(sink))
             .spawn()
             .expect("spawn hick up");
-        let this = Self { child, dir };
+        let mut this = Self { child, dir, log };
         // The loop is ready once it has written the outputs of the first weave.
-        wait_until(&this.path("greeter.py"), |_| true).expect("initial weave");
+        if wait_until(&this.path("greeter.py"), |_| true).is_none() {
+            panic!("{}", this.diagnose("hick up never wrote its first weave"));
+        }
         this
     }
 
     fn path(&self, name: &str) -> PathBuf {
         self.dir.path().join(name)
+    }
+
+    /// Wait for `path` to satisfy `pred`, failing with the child's own
+    /// output rather than a bare timeout message.
+    fn wait_for(&mut self, path: &Path, pred: impl Fn(&str) -> bool, what: &str) -> String {
+        match wait_until(path, pred) {
+            Some(content) => content,
+            None => panic!("{}", self.diagnose(what)),
+        }
+    }
+
+    /// Explain a timeout with what the child process actually said and
+    /// whether it is even still running.
+    fn diagnose(&mut self, what: &str) -> String {
+        let status = match self.child.try_wait() {
+            Ok(Some(status)) => format!("the process had already exited ({status})"),
+            Ok(None) => "the process was still running".to_string(),
+            Err(e) => format!("could not check whether the process was running: {e}"),
+        };
+        let stderr = std::fs::read_to_string(self.log.path()).unwrap_or_default();
+        let stderr = if stderr.trim().is_empty() {
+            "  (it printed nothing)".to_string()
+        } else {
+            stderr
+                .lines()
+                .map(|l| format!("  {l}"))
+                .collect::<Vec<_>>()
+                .join("\n")
+        };
+        format!("{what} within the timeout, and {status}.\nIts stderr:\n{stderr}")
     }
 }
 
@@ -102,7 +150,7 @@ fn save_atomically(path: &Path, content: &str) {
 /// Guarantee: `docs/guarantees/authoring/an-output-edit-lands-in-its-document.md`
 #[test]
 fn an_edit_saved_in_a_woven_file_lands_in_the_document() {
-    let up = Loop::start(DOC);
+    let mut up = Loop::start(DOC);
     let output = up.path("greeter.py");
 
     let woven = std::fs::read_to_string(&output).expect("read output");
@@ -112,8 +160,12 @@ fn an_edit_saved_in_a_woven_file_lands_in_the_document() {
     );
     save_atomically(&output, &woven.replace("Hello, {name}!", "Howdy, {name}!"));
 
-    let doc = wait_until(&up.path("greeter.hick"), |c| c.contains("Howdy"))
-        .expect("edit should reach the document");
+    let doc_path = up.path("greeter.hick");
+    let doc = up.wait_for(
+        &doc_path,
+        |c| c.contains("Howdy"),
+        "the edit saved in the output never reached the document",
+    );
     assert!(
         doc.contains("Howdy, {name}!"),
         "document did not receive the edit: {doc}"
@@ -129,7 +181,7 @@ fn an_edit_saved_in_a_woven_file_lands_in_the_document() {
 /// Guarantee: `docs/guarantees/authoring/an-output-edit-lands-in-its-document.md`
 #[test]
 fn an_edit_saved_in_the_document_reaches_the_woven_file() {
-    let up = Loop::start(DOC);
+    let mut up = Loop::start(DOC);
 
     let doc_path = up.path("greeter.hick");
     let doc = std::fs::read_to_string(&doc_path).expect("read doc");
@@ -138,8 +190,12 @@ fn an_edit_saved_in_the_document_reaches_the_woven_file() {
         &doc.replace("greet(\"world\")", "greet(\"everyone\")"),
     );
 
-    let output = wait_until(&up.path("greeter.py"), |c| c.contains("everyone"))
-        .expect("document edit should reach the output file");
+    let output_path = up.path("greeter.py");
+    let output = up.wait_for(
+        &output_path,
+        |c| c.contains("everyone"),
+        "the edit saved in the document never reached the output file",
+    );
     assert!(output.contains("greet(\"everyone\")"), "{output}");
 }
 
@@ -149,7 +205,7 @@ fn an_edit_saved_in_the_document_reaches_the_woven_file() {
 /// Guarantee: `docs/guarantees/authoring/an-output-edit-lands-in-its-document.md`
 #[test]
 fn two_regions_edited_in_one_save_both_land() {
-    let up = Loop::start(DOC);
+    let mut up = Loop::start(DOC);
     let output = up.path("greeter.py");
 
     let woven = std::fs::read_to_string(&output).expect("read output");
@@ -158,8 +214,12 @@ fn two_regions_edited_in_one_save_both_land() {
         .replace("greet(\"world\")", "greet(\"world\", \"?\")");
     save_atomically(&output, &edited);
 
-    let doc = wait_until(&up.path("greeter.hick"), |c| c.contains("punct"))
-        .expect("first region should reach the document");
+    let doc_path = up.path("greeter.hick");
+    let doc = up.wait_for(
+        &doc_path,
+        |c| c.contains("punct"),
+        "the first of the two edited regions never reached the document",
+    );
     assert!(doc.contains("punct=\"!\""), "first region missing: {doc}");
     assert!(
         doc.contains("\"world\", \"?\""),
@@ -170,11 +230,14 @@ fn two_regions_edited_in_one_save_both_land() {
 /// Guarantee: `docs/guarantees/authoring/a-generated-file-refuses-an-edit.md`
 #[test]
 fn a_fully_generated_file_is_read_only_and_restores_a_forced_edit() {
-    let up = Loop::start(DOC);
+    let mut up = Loop::start(DOC);
     let woven_markdown = up.path("greeter.md");
 
-    let before = wait_until(&woven_markdown, |c| c.contains("# Greeter"))
-        .expect("woven markdown should exist");
+    let before = up.wait_for(
+        &woven_markdown,
+        |c| c.contains("# Greeter"),
+        "the woven markdown was never written",
+    );
 
     let meta = std::fs::metadata(&woven_markdown).expect("stat");
     assert!(
@@ -198,8 +261,11 @@ fn a_fully_generated_file_is_read_only_and_restores_a_forced_edit() {
     std::fs::set_permissions(&woven_markdown, perms).expect("chmod");
     save_atomically(&woven_markdown, &before.replace("# Greeter", "# Tampered"));
 
-    let restored = wait_until(&woven_markdown, |c| !c.contains("# Tampered"))
-        .expect("the refused edit should be restored");
+    let restored = up.wait_for(
+        &woven_markdown,
+        |c| !c.contains("# Tampered"),
+        "the forced edit to a fully generated file was never restored",
+    );
     assert_eq!(
         restored, before,
         "file should be byte-identical to the weave"

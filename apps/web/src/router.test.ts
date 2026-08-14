@@ -44,3 +44,13 @@ describe("email-link routes", () => {
     expect(parseRoute("#/docs/abc")).toEqual({ name: "doc", id: "abc" });
   });
 });
+
+describe("the lineage route", () => {
+  it("is project-scoped, because a chain crosses documents", () => {
+    expect(parseRoute("#/projects/abc123/lineage")).toEqual({ name: "lineage", id: "abc123" });
+  });
+
+  it("does not swallow the project route it sits under", () => {
+    expect(parseRoute("#/projects/abc123")).toEqual({ name: "project", id: "abc123" });
+  });
+});

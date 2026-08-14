@@ -33,6 +33,65 @@ use notify::{EventKind, RecursiveMode, Watcher};
 use crate::{ExecutorChoice, RunMode, expand_docs, output_lineage, run_doc};
 use state::{OutputState, WovenState};
 
+/// Turn a `notify` failure into an error that names the limit that was hit.
+///
+/// The raw messages are the OS's, and they describe the wrong thing. Linux
+/// reports the per-user inotify **instance** cap as `Too many open files
+/// (os error 24)`, which reads like a descriptor leak in `hick` — it is not;
+/// it is a machine-wide budget that editors, language servers, file managers,
+/// and every other `hick up` are spending at the same time. The **watch** cap
+/// arrives as `No space left on device (os error 28)`, which reads like a full
+/// disk. Neither is guessable from the message, both are one `sysctl` away,
+/// and someone hitting either one is on their own machine with nobody to
+/// debug it for them.
+fn watch_error(err: notify::Error) -> anyhow::Error {
+    let raw = err.to_string();
+    let io_kind = match &err.kind {
+        notify::ErrorKind::Io(e) => Some(e.raw_os_error()),
+        _ => None,
+    };
+    let hint = match io_kind.flatten() {
+        // EMFILE / ENFILE — out of inotify instances (or file descriptors).
+        Some(24) | Some(23) if cfg!(target_os = "linux") => Some(
+            "This is the per-user inotify instance limit, not a bug in hick — every \
+             editor, language server, and file watcher on this machine spends from \
+             the same budget.\n\
+             \n\
+             Check it and raise it:\n\
+             \x20 cat /proc/sys/fs/inotify/max_user_instances    # often 128\n\
+             \x20 sudo sysctl fs.inotify.max_user_instances=512\n\
+             \n\
+             To keep it across reboots, put `fs.inotify.max_user_instances=512` in \
+             /etc/sysctl.d/99-inotify.conf. Closing a few watchers (editors, `hick \
+             up` in other worktrees) frees instances immediately.",
+        ),
+        Some(24) | Some(23) => Some(
+            "The process is out of file descriptors. Raise the limit (`ulimit -n`) \
+             or close some watchers — other editors and `hick up` runs each hold \
+             descriptors for the directories they watch.",
+        ),
+        // ENOSPC — out of inotify watches, which is not about disk space.
+        Some(28) if cfg!(target_os = "linux") => Some(
+            "Despite the message, this is the inotify watch limit rather than disk \
+             space: watching a directory recursively takes one watch per \
+             subdirectory, so a tree with a large node_modules/ or target/ can \
+             exhaust it.\n\
+             \n\
+             Check it and raise it:\n\
+             \x20 cat /proc/sys/fs/inotify/max_user_watches\n\
+             \x20 sudo sysctl fs.inotify.max_user_watches=524288\n\
+             \n\
+             Pointing `hick up` at the directory that holds the documents, rather \
+             than the repository root, watches far less.",
+        ),
+        _ => None,
+    };
+    match hint {
+        Some(hint) => anyhow::anyhow!("{raw}\n\n{hint}"),
+        None => anyhow::Error::new(err),
+    }
+}
+
 /// How long the directory must be quiet before a burst of events is treated
 /// as finished.
 ///
@@ -165,9 +224,11 @@ pub async fn run(config: UpConfig) -> Result<()> {
             let _ = tx.send(path);
         }
     })
+    .map_err(watch_error)
     .context("failed to start watching for file changes")?;
     watcher
         .watch(&watch_root, RecursiveMode::Recursive)
+        .map_err(watch_error)
         .with_context(|| format!("failed to watch {}", watch_root.display()))?;
 
     eprintln!(
@@ -501,4 +562,47 @@ fn report_ready(state: &WovenState, config: &UpConfig, total_docs: usize, failed
         }
     }
     eprintln!("  edit any output file and the change lands in its document. Ctrl-C to stop.");
+}
+
+#[cfg(test)]
+mod watch_error_tests {
+    use super::watch_error;
+
+    fn os(code: i32) -> notify::Error {
+        notify::Error::io(std::io::Error::from_raw_os_error(code))
+    }
+
+    #[test]
+    fn emfile_names_the_inotify_instance_limit_not_a_leak() {
+        let msg = format!("{:#}", watch_error(os(24)));
+        assert!(
+            msg.contains("Too many open files"),
+            "keeps the OS text: {msg}"
+        );
+        if cfg!(target_os = "linux") {
+            assert!(msg.contains("max_user_instances"), "names the knob: {msg}");
+            assert!(msg.contains("sysctl"), "says how to raise it: {msg}");
+        }
+    }
+
+    #[test]
+    fn enospc_says_it_is_watches_and_not_disk_space() {
+        if !cfg!(target_os = "linux") {
+            return;
+        }
+        let msg = format!("{:#}", watch_error(os(28)));
+        assert!(msg.contains("max_user_watches"), "names the knob: {msg}");
+        assert!(
+            msg.contains("rather than disk space"),
+            "corrects the misleading message: {msg}"
+        );
+    }
+
+    #[test]
+    fn an_unrelated_error_is_passed_through_unchanged() {
+        // ENOENT has nothing to do with a limit; inventing advice for it would
+        // teach the reader to skip the advice that matters.
+        let msg = format!("{:#}", watch_error(os(2)));
+        assert!(!msg.contains("sysctl"), "no spurious advice: {msg}");
+    }
 }

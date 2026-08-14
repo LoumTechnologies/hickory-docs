@@ -7,12 +7,14 @@
 pub mod agent_cell_runner;
 pub mod agent_lineage;
 pub mod doc_tools;
+pub mod editor_lsp;
 pub mod init;
 pub mod mcp;
 pub mod serve;
 pub mod up;
 
 /// `hick init` entry points: idempotent local git-repo setup.
+pub use editor_lsp::{AdoptedServer, EditorOutcome, EditorSetup};
 pub use init::{InitReport, print_init_report, run_init};
 
 /// Lineage for agent-authored bytes: session + turn from provenance,
@@ -41,6 +43,9 @@ use hick_literate::{
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExecutorChoice {
     Local,
+    /// The local executor, with each cell confined to its own workdir.
+    /// See `hickory-executor-sandbox`.
+    Sandbox,
     Docker,
     Canopy,
 }
@@ -51,6 +56,7 @@ impl ExecutorChoice {
     pub fn as_str(self) -> &'static str {
         match self {
             ExecutorChoice::Local => "local",
+            ExecutorChoice::Sandbox => "sandbox",
             ExecutorChoice::Docker => "docker",
             ExecutorChoice::Canopy => "canopy",
         }
@@ -60,11 +66,12 @@ impl ExecutorChoice {
     pub fn from_env() -> Result<Self> {
         match std::env::var("HICKORY_EXECUTOR").as_deref() {
             Err(_) | Ok("") | Ok("local") => Ok(ExecutorChoice::Local),
+            Ok("sandbox") => Ok(ExecutorChoice::Sandbox),
             Ok("docker") => Ok(ExecutorChoice::Docker),
             Ok("canopy") => Ok(ExecutorChoice::Canopy),
             Ok(other) => bail!(
-                "unknown HICKORY_EXECUTOR value '{other}' (expected \"local\", \"docker\", \
-                 or \"canopy\")"
+                "unknown HICKORY_EXECUTOR value '{other}' (expected \"local\", \"sandbox\", \
+                 \"docker\", or \"canopy\")"
             ),
         }
     }
@@ -78,6 +85,9 @@ impl ExecutorChoice {
     pub async fn build(self) -> Result<Arc<dyn Executor>> {
         match self {
             ExecutorChoice::Local => Ok(Arc::new(LocalExecutor::new()?)),
+            ExecutorChoice::Sandbox => {
+                Ok(Arc::new(hickory_executor_sandbox::SandboxedExecutor::new()?))
+            }
             ExecutorChoice::Docker => Ok(Arc::new(
                 hickory_executor_docker::DockerExecutor::new().await?,
             )),
@@ -456,6 +466,10 @@ pub async fn run_doc_cached(
     for warning in absolute_mount_warnings(&doc) {
         log::warn!("{}: {warning}", doc_path.display());
     }
+    // A drawing nobody checks is the thing this feature exists to prevent.
+    for warning in diagram_assertion_warnings(&doc) {
+        log::warn!("{}: {warning}", doc_path.display());
+    }
     if executor_choice == ExecutorChoice::Local
         && mode.executes()
         && let Some(warning) = ignored_image_warning(&doc)
@@ -769,6 +783,63 @@ pub fn escaping_warnings(doc: &hick_lang::HickDocument) -> Vec<String> {
                     tag.source_line
                 ));
                 break;
+            }
+        }
+    }
+    out
+}
+
+/// Diagrams whose claim nothing checks, and diagrams claiming a check that
+/// does not exist.
+///
+/// A picture of a system is an assertion — "these are the layers, this one
+/// never calls that one" — and the reason architecture diagrams are all
+/// wrong is that nothing ever re-reads them. `asserts` is how a diagram names
+/// the cells that prove it:
+///
+/// ```text
+/// <hick:diagram renderer="mermaid" asserts="#no-back-edges">
+/// ```
+///
+/// Two failure modes, and they need different words. A diagram naming an id
+/// that is nowhere in the document is a BROKEN reference — the author meant
+/// to be checked and is not, usually because a cell was renamed. A diagram
+/// with no `asserts` at all is an UNVERIFIED drawing: legal, sometimes
+/// deliberate (a sketch of something outside this repository), and worth
+/// saying out loud exactly once so nobody mistakes it for a checked one.
+///
+/// Both stay warnings. Whether a picture needs proof is the author's call,
+/// and a tool that refused to weave an unproven sketch would just teach
+/// people to draw somewhere else.
+pub fn diagram_assertion_warnings(doc: &hick_lang::HickDocument) -> Vec<String> {
+    let ids: std::collections::HashSet<&str> =
+        doc.tags().filter_map(|t| t.get_attribute("id")).collect();
+    let mut out = Vec::new();
+    for tag in doc.tags().filter(|t| t.name == "diagram") {
+        let line = tag.source_line;
+        let Some(asserts) = tag.get_attribute("asserts") else {
+            out.push(format!(
+                "line {line}: this diagram asserts nothing, so nothing will \
+                 fail when it stops being true. Add `asserts=\"#id\"` naming \
+                 the cell(s) that prove it, or leave it as a deliberate sketch."
+            ));
+            continue;
+        };
+        for selector in asserts.split_whitespace() {
+            let Some(id) = selector.strip_prefix('#') else {
+                out.push(format!(
+                    "line {line}: `asserts` takes `#id` selectors, so `{selector}` \
+                     matches nothing. Give the proving cell an `id` and name it here."
+                ));
+                continue;
+            };
+            if !ids.contains(id) {
+                out.push(format!(
+                    "line {line}: this diagram says it is proved by `#{id}`, but \
+                     no tag in this document has that id — the check it names \
+                     does not exist. Renaming a cell without renaming the \
+                     reference is the usual cause."
+                ));
             }
         }
     }

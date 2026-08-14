@@ -56,6 +56,7 @@ pub(crate) fn extension_to_language(path: &str) -> &'static str {
 /// Iterates through nodes and emits:
 /// - `HickNode::Text` → prose (with substitutions applied, dedented)
 /// - `<hick:file>` → heading + fenced code block (unless `doc-hidden="true"`)
+/// - `<hick:diagram>` → fenced block tagged with its `renderer`
 /// - `<hick:val>` → resolved variable value (via registry)
 /// - `<hick:when>` → recursively process children (already filtered)
 fn process_weave_content(
@@ -118,6 +119,28 @@ fn process_weave_tag(
                 // Emit closing code fence
                 weave_ip.add(Arc::new(StringNode::new("```\n".to_string())));
             }
+        }
+        // A diagram is prose that happens to be a picture: it weaves to the
+        // fenced block its renderer expects, so the woven markdown renders on
+        // GitHub, in an editor preview, and anywhere else a reader opens it —
+        // with no hick installed and no notebook.
+        //
+        // Children go through the same path `hick:file` uses, so a
+        // `<hick:paste>` inside a diagram resolves. That is what lets a
+        // picture be DERIVED — the edge list can come from the cell that
+        // proved it rather than from someone's memory of it.
+        "diagram" => {
+            let renderer = tag_attr(tag, "renderer").unwrap_or_else(|| "mermaid".to_string());
+            weave_ip.add(Arc::new(StringNode::new(format!("\n```{renderer}\n"))));
+            process_file_children_to_weave(
+                &tag.children,
+                weave_ip,
+                transcripts,
+                state,
+                tag.source_column,
+                registry,
+            );
+            weave_ip.add(Arc::new(StringNode::new("```\n".to_string())));
         }
         "when" => {
             // When tags have already been filtered, so just process children

@@ -7,13 +7,28 @@
 // else — parse, weave, provenance, the reverse edit — is the code the app
 // runs, in the visitor's browser.
 
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { emit } from "../../analytics/events";
+import { LineageColumns } from "../../lineage/LineageColumns";
+import { buildModel } from "../../lineage/build";
+import { weaveOutputs } from "../../lib/weave";
 import { DemoSplit } from "./DemoSplit";
 import { PROGRAM_DOC_PATH, PROGRAM_SOURCE, PROGRAM_TRANSCRIPT } from "./scripts";
 
 export function ProgramDemo() {
   const [source, setSource] = useState(PROGRAM_SOURCE);
+  // Two ways to look at one document, both driven from the same source text
+  // in this tab. "Lineage" is the browser the desktop app ships; "Edit" is
+  // the round trip — change a generated file, watch the fragment move — and
+  // neither is a mockup of the other.
+  const [mode, setMode] = useState<"lineage" | "edit">("lineage");
+  const model = useMemo(
+    () =>
+      buildModel([
+        { path: PROGRAM_DOC_PATH, source, outputs: weaveOutputs(source, PROGRAM_DOC_PATH) },
+      ]),
+    [source],
+  );
   const [ran, setRan] = useState(false);
   const [rejected, setRejected] = useState<string | null>(null);
   const [mappedBack, setMappedBack] = useState(false);
@@ -29,6 +44,28 @@ export function ProgramDemo() {
     <section className="demo" aria-label="One document, its files, and its runs">
       <div className="demo-bar">
         <div className="demo-bar-nav">
+          <div className="demo-modes" role="group" aria-label="How to look at this document">
+            <button
+              className="btn btn-quiet"
+              aria-pressed={mode === "lineage"}
+              onClick={() => {
+                setMode("lineage");
+                engage("mode-lineage");
+              }}
+            >
+              Lineage
+            </button>
+            <button
+              className="btn btn-quiet"
+              aria-pressed={mode === "edit"}
+              onClick={() => {
+                setMode("edit");
+                engage("mode-edit");
+              }}
+            >
+              Edit both ends
+            </button>
+          </div>
           <button
             className="btn btn-primary"
             onClick={() => {
@@ -95,6 +132,16 @@ export function ProgramDemo() {
         </p>
       )}
 
+      {mode === "lineage" ? (
+        <div className="demo-lineage">
+          <p className="demo-hint">
+            One column per stage: the document and the files it weaves. Fold from the line numbers,
+            move either edge of a hole, and click a fragment to see what it feeds — the brackets are
+            real provenance, computed in this tab.
+          </p>
+          <LineageColumns model={model} />
+        </div>
+      ) : (
       <DemoSplit
         testId="demo-program"
         docPath={PROGRAM_DOC_PATH}
@@ -116,6 +163,7 @@ export function ProgramDemo() {
           setRejected(message);
         }}
       />
+      )}
     </section>
   );
 }

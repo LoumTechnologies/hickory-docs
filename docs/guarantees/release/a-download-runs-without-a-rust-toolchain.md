@@ -6,11 +6,21 @@ platform and unpacks it, then `hick --version` and `hick test examples/`
 both work — using only the archive's own contents plus whatever the example
 documents themselves invoke.
 
-Every published archive therefore carries four things and not just a binary:
-the `hick` executable, `LICENSE`, `README.md`, and the full `examples/`
-tree including its committed outputs. `hick test` compares re-derived
-output against committed output, so shipping the examples without their `.md`,
-`.svg`, and `.html` products would ship something that cannot be verified.
+Every published archive therefore carries five things and not just a binary:
+the `hick` executable, the `hick-lsp` language server, `LICENSE`,
+`README.md`, and the full `examples/` tree including its committed outputs.
+`hick test` compares re-derived output against committed output, so shipping
+the examples without their `.md`, `.svg`, and `.html` products would ship
+something that cannot be verified.
+
+`hick-lsp` is in the archive for the same reason the examples are: it is
+advertised (README, `docs/users/editor-setup.md`, the home page) as part of
+what this product is, and the only other way to get it would be
+`cargo install`, which is precisely the Rust toolchain this guarantee says a
+download does not need. Its smoke test is `printf '' | hick-lsp` — it speaks
+LSP over stdio and has no `--version`, and closed stdin is the one input that
+makes it exit rather than wait, so an exit code proves the binary loads and
+runs.
 
 The platforms and what each promises:
 
@@ -29,13 +39,13 @@ target triple's architecture against `uname -m` and skips itself — saying so
 with a `::notice` in the log — when they differ, rather than failing on a
 cross-compiled artifact it was never able to run. So:
 
-| Artifact | Built | `--version` run | `hick test` run |
-|---|---|---|---|
-| `x86_64-unknown-linux-gnu` | yes | yes | yes, plus the `clean-machine` job |
-| `aarch64-unknown-linux-gnu` | yes | yes | yes |
-| `aarch64-apple-darwin` | yes | yes | yes |
-| `x86_64-apple-darwin` | yes | no — cross-compiled from an arm64 runner | no |
-| `x86_64-pc-windows-msvc` | yes | yes | no — see below |
+| Artifact | Built | `--version` run | `hick test` run | `hick-lsp` run |
+|---|---|---|---|---|
+| `x86_64-unknown-linux-gnu` | yes | yes | yes, plus the `clean-machine` job | yes |
+| `aarch64-unknown-linux-gnu` | yes | yes | yes | yes |
+| `aarch64-apple-darwin` | yes | yes | yes | yes |
+| `x86_64-apple-darwin` | yes | no — cross-compiled from an arm64 runner | no | no |
+| `x86_64-pc-windows-msvc` | yes | yes | no — see below | no — presence only |
 
 `x86_64-apple-darwin` is therefore the one artifact whose *runnability* this
 repository has never observed; it is published on the strength of Apple's
@@ -77,7 +87,7 @@ runners, one per architecture, and installs nothing beyond NASM on Windows.
 ---
 
 Last LLM verification:
-- Date: 2026-08-11
+- Date: 2026-08-13
 - Reviewer: Claude (Opus 5)
 - Result: partially verified — see caveats
 - Evidence:
@@ -176,6 +186,17 @@ Last LLM verification:
     That is what the `clean-machine` job exists to establish, and it has not
     yet run: the run above never reached it, because it `needs: [build]` and
     two legs failed.
+- **2026-08-13, `hick-lsp` added to the archive.** `scripts/dist.sh` now
+  builds `-p hickory-cli -p hick-lsp` in one `cargo build` and stages both
+  binaries, failing loudly and naming both manifests if either is absent;
+  `scripts/install.sh` installs `hick-lsp` beside `hick` and, for an older
+  release that has no such file, installs `hick` and says what is missing
+  rather than failing. Verified locally for
+  `x86_64-unknown-linux-gnu`: the archive contains `hick` and `hick-lsp`,
+  and `printf '' | ./hick-lsp` exits 0 from the unpacked directory. The
+  Windows leg checks presence only (`test -f hick-lsp.exe`), because the
+  stdin-EOF trick is not worth trusting through Git Bash's pipe emulation.
+  Not yet observed in CI on any target.
 - Test coverage: the `clean-machine` job in
   `.github/workflows/release-build.yml` is the executable form of this
   guarantee, and runs on every Unstable and Stable Release.

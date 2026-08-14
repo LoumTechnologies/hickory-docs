@@ -28,6 +28,7 @@
 //! See `docs/specs/freeform/local-only.md`.
 
 pub mod api;
+pub mod lsp_bridge;
 pub mod socket;
 pub mod store;
 
@@ -293,6 +294,7 @@ fn router(state: LocalState) -> Router {
         .route("/docs/{id}/agent", post(api::agent_unavailable))
         .route("/docs/{id}/agent/turns", get(api::agent_turns))
         .route("/runs/{id}", get(api::get_run))
+        .route("/structure", get(api::structure))
         .route("/executor", get(api::executor))
         .route("/health", get(api::health))
         .route("/ws", get(socket::ws_handler));

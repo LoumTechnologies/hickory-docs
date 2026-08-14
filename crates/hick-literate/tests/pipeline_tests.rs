@@ -2261,43 +2261,13 @@ name = "example"
 }
 
 // ---------------------------------------------------------------------------
-// TASK-20: hick init creates _hick.yml; pipeline show/status; multi-session run
+// TASK-20: pipeline show/status; multi-session run
+//
+// The `_hick.yml`-creating half of this section went with `agents.rs`: it
+// existed to install the vendored crate's own AGENTS.md, which described the
+// deleted `generate-matrix` command. `hick init` in hickory-cli is the one
+// that sets a project up now.
 // ---------------------------------------------------------------------------
-
-#[test]
-fn test_hick_init_creates_pipeline_config() {
-    let dir = tempfile::tempdir().unwrap();
-    let config = hick_literate::agents::InitConfig {
-        project_dir: dir.path().to_path_buf(),
-        no_agents: true,
-    };
-    let result = hick_literate::agents::init_agents(&config).unwrap();
-    assert!(result.pipeline_initialized);
-    assert!(dir.path().join("_hick.yml").is_file());
-    let content = std::fs::read_to_string(dir.path().join("_hick.yml")).unwrap();
-    assert!(content.contains("files:"));
-}
-
-#[test]
-fn test_hick_init_does_not_overwrite_existing_pipeline_config() {
-    let dir = tempfile::tempdir().unwrap();
-    std::fs::write(dir.path().join("_hick.yml"), "files:\n  - custom.hick\n").unwrap();
-
-    let config = hick_literate::agents::InitConfig {
-        project_dir: dir.path().to_path_buf(),
-        no_agents: true,
-    };
-    let result = hick_literate::agents::init_agents(&config).unwrap();
-    assert!(
-        !result.pipeline_initialized,
-        "should not overwrite existing _hick.yml"
-    );
-    let content = std::fs::read_to_string(dir.path().join("_hick.yml")).unwrap();
-    assert!(
-        content.contains("custom.hick"),
-        "original content preserved"
-    );
-}
 
 #[test]
 fn test_pipeline_show_no_error_on_empty_config() {

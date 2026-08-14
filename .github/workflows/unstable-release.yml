@@ -80,8 +80,10 @@ jobs:
 
       - uses: actions/download-artifact@v4
         with:
-          # Every hick-<target> artifact the build matrix uploaded.
-          pattern: hick-*
+          # Every artifact both build matrices uploaded: the CLI archives
+          # (hick-<target>) and the desktop bundles
+          # (hickory-docs-desktop-<target>).
+          pattern: "{hick-*,hickory-docs-desktop-*}"
           merge-multiple: true
           path: dist
 

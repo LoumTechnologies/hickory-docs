@@ -222,3 +222,42 @@ export interface AgentTurn {
   error: string | null;
   created_at: string;
 }
+
+// --- structural navigation ---------------------------------------------------
+// Definitions and references found by tree-sitter (crates/hick-structure).
+// Resolution is by NAME, so `candidates` says how many definitions a link
+// could have meant; the view draws an ambiguous link differently rather than
+// implying certainty.
+
+export interface StructureDefinition {
+  name: string;
+  kind: string;
+  start_line: number;
+  end_line: number;
+}
+
+export interface StructureReference {
+  name: string;
+  line: number;
+}
+
+export interface FileStructure {
+  path: string;
+  language: string;
+  definitions: StructureDefinition[];
+  references: StructureReference[];
+}
+
+export interface StructuralLink {
+  from_path: string;
+  from_line: number;
+  to_path: string;
+  to_line: number;
+  name: string;
+  candidates: number;
+}
+
+export interface StructureResponse {
+  files: FileStructure[];
+  links: StructuralLink[];
+}

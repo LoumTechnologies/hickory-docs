@@ -148,8 +148,10 @@ pub struct InitReport {
     pub claude_md_changed: bool,
     /// True if `.mcp.json` was created or its `hick` entry changed.
     pub mcp_json_changed: bool,
-    /// Names of commonly needed child language servers missing from PATH.
-    pub missing_language_servers: Vec<&'static str>,
+    /// Per language: what discovery found, or `None` if nothing is installed.
+    pub language_servers: Vec<(&'static str, &'static str, Option<String>)>,
+    /// What the editor half of init found, wrote, and could not write.
+    pub editors: crate::editor_lsp::EditorSetup,
 }
 
 /// Run `hick init` against `dir` (any directory inside a git work tree).
@@ -164,7 +166,8 @@ pub fn run_init(dir: &Path) -> Result<InitReport> {
     report.agents_md_changed = write_agents_section(&root.join("AGENTS.md"))?;
     report.claude_md_changed = ensure_claude_md_include(&root.join("CLAUDE.md"))?;
     report.mcp_json_changed = ensure_mcp_registration(&root.join(".mcp.json"))?;
-    report.missing_language_servers = missing_language_servers();
+    report.language_servers = discovered_language_servers(&root);
+    report.editors = crate::editor_lsp::configure_editors(&root)?;
 
     Ok(report)
 }
@@ -282,7 +285,12 @@ fn install_hook_block(hook_path: &Path) -> Result<bool> {
 /// Replace the sentinel-delimited region (inclusive) in `content` with
 /// `block`. Returns `Ok(None)` if no start sentinel is present, an error if
 /// the block is malformed (start without end).
-fn replace_between(content: &str, start: &str, end: &str, block: &str) -> Result<Option<String>> {
+pub(crate) fn replace_between(
+    content: &str,
+    start: &str,
+    end: &str,
+    block: &str,
+) -> Result<Option<String>> {
     let Some(start_idx) = content.find(start) else {
         return Ok(None);
     };
@@ -450,34 +458,32 @@ fn ensure_mcp_registration(path: &Path) -> Result<bool> {
     Ok(changed)
 }
 
-/// Child language servers `hick-lsp` commonly spawns for `hick:file` blocks.
-/// Missing ones are reported as warnings (non-fatal): docs still run and
-/// check fine; you just won't get in-editor diagnostics for that language.
-const COMMON_LANGUAGE_SERVERS: &[(&str, &str)] = &[
-    ("rust-analyzer", "Rust"),
-    ("pyright-langserver", "Python"),
-    ("typescript-language-server", "TypeScript/JavaScript"),
-    ("gopls", "Go"),
+/// The languages a `hick:file` block most often holds, for the report.
+///
+/// Reported rather than required: a document runs and checks fine with no
+/// language server at all. What is worth telling somebody is which languages
+/// will light up in an editor and which will not — and that answer comes from
+/// discovery, not from a fixed list of binaries, because a server pinned in a
+/// project or installed somewhere off `PATH` counts just as much.
+const REPORTED_LANGUAGES: &[(&str, &str)] = &[
+    ("rust", "Rust"),
+    ("python", "Python"),
+    ("typescript", "TypeScript/JavaScript"),
+    ("go", "Go"),
+    ("json", "JSON"),
+    ("yaml", "YAML"),
 ];
 
-/// Which of the common child language servers are not on PATH.
-fn missing_language_servers() -> Vec<&'static str> {
-    COMMON_LANGUAGE_SERVERS
+/// What discovery finds for each reported language, in this project.
+fn discovered_language_servers(root: &Path) -> Vec<(&'static str, &'static str, Option<String>)> {
+    REPORTED_LANGUAGES
         .iter()
-        .filter(|(bin, _)| !on_path(bin))
-        .map(|(bin, _)| *bin)
+        .map(|(language, label)| {
+            let found = hick_lsp::discovery::discover(language, root)
+                .map(|d| format!("{} ({})", d.command.join(" "), d.origin));
+            (*language, *label, found)
+        })
         .collect()
-}
-
-/// True if `bin` resolves on PATH.
-fn on_path(bin: &str) -> bool {
-    let Some(paths) = std::env::var_os("PATH") else {
-        return false;
-    };
-    std::env::split_paths(&paths).any(|dir| {
-        let candidate = dir.join(bin);
-        candidate.is_file()
-    })
 }
 
 /// Print the human-readable summary for an [`InitReport`].
@@ -513,17 +519,89 @@ pub fn print_init_report(report: &InitReport) {
          \x20 or skip MCP entirely — `hick doc read|read-output|edit|edit-output|verify` \n\
          \x20 gives the same tools to anything that can run a command."
     );
-    if report.missing_language_servers.is_empty() {
-        eprintln!("toolchain: all common child language servers found");
+    print_editor_report(&report.editors);
+
+    // Discovery, not configuration: this says what will actually be used, so
+    // nobody has to wonder whether a setting took effect.
+    let found: Vec<_> = report
+        .language_servers
+        .iter()
+        .filter(|(_, _, command)| command.is_some())
+        .collect();
+    if found.is_empty() {
+        eprintln!(
+            "language servers: none found. Documents still run and `hick test` still \n\
+             \x20 checks them; you just get no in-editor diagnostics until one is installed."
+        );
     } else {
-        for (bin, lang) in COMMON_LANGUAGE_SERVERS {
-            if report.missing_language_servers.contains(bin) {
-                eprintln!(
-                    "warning: `{bin}` not found on PATH — no in-editor {lang} diagnostics \
-                     inside hick:file blocks (non-fatal; install it to enable)"
-                );
-            }
+        eprintln!("language servers (found automatically — nothing to configure):");
+        for (_, label, command) in found {
+            eprintln!("  {label}: {}", command.as_deref().unwrap_or(""));
         }
+    }
+    let missing: Vec<&str> = report
+        .language_servers
+        .iter()
+        .filter(|(_, _, command)| command.is_none())
+        .map(|(_, label, _)| *label)
+        .collect();
+    if !missing.is_empty() {
+        eprintln!(
+            "  not installed: {} — non-fatal, and nothing to configure if you add one later.",
+            missing.join(", ")
+        );
+    }
+}
+
+/// Print the editor-integration half of an [`InitReport`].
+fn print_editor_report(setup: &crate::editor_lsp::EditorSetup) {
+    if setup.adopted.is_empty() {
+        eprintln!(".hick-lsp.json (child language servers): none to adopt");
+    } else {
+        eprintln!(
+            ".hick-lsp.json (child language servers): {}",
+            if setup.hick_lsp_json_changed {
+                "updated"
+            } else {
+                "ok"
+            }
+        );
+        for server in &setup.adopted {
+            eprintln!(
+                "  {} → {} (from {})",
+                server.language,
+                server.command.join(" "),
+                server.source
+            );
+        }
+        eprintln!(
+            "  Code inside hick:file blocks is now checked by the same servers as the \n\
+             \x20 files it generates. Edit .hick-lsp.json to change one; `hick init` \n\
+             \x20 never overwrites an entry that is already there."
+        );
+    }
+
+    if setup.editors.is_empty() {
+        eprintln!("editors: none detected (nothing to configure)");
+    }
+    for outcome in &setup.editors {
+        match (&outcome.wrote, outcome.changed) {
+            (Some(path), true) => eprintln!("{} ({}): updated", outcome.editor, path),
+            (Some(path), false) => eprintln!("{} ({}): ok", outcome.editor, path),
+            (None, _) => eprintln!("{}: detected", outcome.editor),
+        }
+        if let Some(manual) = &outcome.manual {
+            eprintln!("  {manual}");
+        }
+    }
+
+    if !setup.editors.is_empty() && !setup.hick_lsp_on_path {
+        eprintln!(
+            "warning: `hick-lsp` is not on your PATH, so the editor configuration above \n\
+             \x20 will not start anything. It ships in the same release archive as \n\
+             \x20 `hick` — re-run the installer, or `cargo install --path \n\
+             \x20 crates/hick-lsp` from a checkout."
+        );
     }
 }
 

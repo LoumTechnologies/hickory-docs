@@ -207,6 +207,76 @@ async fn duplicated_paste_refusal_routes_to_edit_doc() {
     );
 }
 
+/// A refusal must send you to the document that DECLARES the fragment, which
+/// across a `hick:upstream` edge is a different file from the paste site.
+///
+/// Protects docs/guarantees/agent/an-upstream-refusal-names-the-declaring-document.md
+#[tokio::test(flavor = "multi_thread")]
+async fn a_refusal_across_an_upstream_edge_names_the_upstream_document() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(
+        dir.path().join("up.hick"),
+        r##"<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="up.md">
+<hick:copy id="greet">def greet(name):
+    return f"Hello, {name}!"
+</hick:copy>
+</hick:doc>
+"##,
+    )
+    .unwrap();
+    let doc_path = write_doc(
+        dir.path(),
+        r##"<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="down.md">
+<hick:upstream file="up.hick" />
+<hick:file path="gen.rs">
+<hick:paste select="#greet" />
+</hick:file>
+</hick:doc>
+"##,
+    );
+    let mut session = EditSession::open(&doc_path, &[]).await.unwrap();
+
+    let refused = execute_tool(
+        &mut session,
+        executor(),
+        &inv(
+            "edit_output",
+            // The WHOLE pasted block, which is what triggers the shared-source
+            // refusal: a single line inside it takes a different path (the
+            // mapped edit would break the document, and is refused there).
+            &[
+                ("path", "gen.rs"),
+                (
+                    "run",
+                    &format!(
+                        "{}..{}",
+                        line_hash("def greet(name):"),
+                        line_hash("    return f\"Hello, {name}!\"")
+                    ),
+                ),
+            ],
+            Some("def greet(name):\n    return f\"Howdy, {name}!\""),
+        ),
+    )
+    .await;
+
+    assert!(!refused.ok, "{}", refused.text);
+    assert!(
+        refused.text.contains("up.hick"),
+        "the refusal must name the document that DECLARES the fragment, not the \
+         paste site — an agent that obeys the old message edited the <hick:paste> \
+         tag in the wrong file: {}",
+        refused.text
+    );
+    assert!(
+        refused.text.contains("hick:copy id=\"greet\""),
+        "and it should show the fragment, so the next call needs no search: {}",
+        refused.text
+    );
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn synthetic_range_refusal_routes_to_edit_doc() {
     // A paste with a separator: the separator bytes are synthetic.
