@@ -2648,6 +2648,7 @@ dependencies = [
  "env_logger",
  "fs2",
  "futures",
+ "hick-dap",
  "hick-exec",
  "hick-flow",
  "hick-lang",
@@ -2674,6 +2675,7 @@ dependencies = [
  "tower 0.5.3",
  "tower-http",
  "tower-lsp",
+ "tracing",
  "yrs",
 ]
 

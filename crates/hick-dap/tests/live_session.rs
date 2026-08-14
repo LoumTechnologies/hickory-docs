@@ -274,6 +274,81 @@ async fn stepping_moves_and_dropping_a_frame_goes_back_to_its_first_line() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn jumping_to_an_earlier_line_runs_it_again() {
+    // The backwards move that actually exists for Python. debugpy has no
+    // `restartFrame`, but it does have `goto` — so "I stepped one too far,
+    // do that again" is answerable, which is what people want from stepping
+    // back nine times in ten.
+    let Some(fixture) = fixture() else {
+        skip("no Python debug adapter on this machine");
+        return;
+    };
+    let (session, _) = Session::start(
+        fixture.launch,
+        fixture.mapping,
+        &[Breakpoint {
+            line: SUBTOTAL_LINE,
+            condition: None,
+            hit_condition: None,
+            log_message: None,
+        }],
+    )
+    .await
+    .expect("starts");
+
+    let stopped = session
+        .wait_for_stop(Duration::from_secs(30))
+        .await
+        .unwrap()
+        .unwrap();
+    let thread = stopped.thread_id;
+
+    // Step forward twice, then jump back to where we started.
+    session.step(Step::Over, thread, None).await.unwrap();
+    session
+        .wait_for_stop(Duration::from_secs(20))
+        .await
+        .unwrap()
+        .expect("stops");
+    let forward = session.stack(thread).await.unwrap()[0].line;
+    assert_eq!(forward, Some(SUBTOTAL_LINE + 1));
+
+    if !session.capabilities().goto_targets {
+        eprintln!("NOTE: this adapter cannot move the instruction pointer either");
+        session.shutdown().await;
+        return;
+    }
+
+    session
+        .jump_to(SUBTOTAL_LINE, thread)
+        .await
+        .expect("jumps back");
+    session
+        .wait_for_stop(Duration::from_secs(20))
+        .await
+        .unwrap()
+        .expect("stops after the jump");
+    let back = session.stack(thread).await.unwrap()[0].line;
+    assert_eq!(
+        back,
+        Some(SUBTOTAL_LINE),
+        "the jump did not land on the line asked for"
+    );
+
+    // And the frame is still live: its variables are intact, which is what
+    // separates a jump from a restart.
+    let frame = session.stack(thread).await.unwrap()[0].id;
+    let quantity = session
+        .evaluate("quantity", Some(frame), "watch")
+        .await
+        .unwrap();
+    assert_eq!(quantity.value, "2");
+    eprintln!("OK jump: {forward:?} -> {back:?}, locals intact");
+
+    session.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn a_conditional_breakpoint_stops_only_when_it_should() {
     let Some(fixture) = fixture() else {
         skip("no Python debug adapter on this machine");

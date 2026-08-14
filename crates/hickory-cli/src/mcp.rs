@@ -169,6 +169,106 @@ fn tool_catalogue() -> Value {
                     "type": "object",
                     "properties": { "doc": doc_arg }
                 }
+            },
+            {
+                "name": "debug_start",
+                "description":
+                    "Start a debug session over the document's generated code and run to the \
+                     first breakpoint. Lines are DOCUMENT lines — the same ones `read_doc` \
+                     shows. Returns a session id, what the adapter can do, and which \
+                     breakpoints it could actually bind. Reading a failing document is \
+                     guessing; stopping inside it and asking what a variable holds is not. \
+                     The session runs in a scratch copy, so nothing it does can change the \
+                     document or its outputs.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "doc": doc_arg,
+                        "breakpoints": {
+                            "type": "array",
+                            "description": "Where to stop. A breakpoint on prose is refused with \
+                                            a reason rather than silently ignored.",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "line": { "type": "integer", "description": "0-based document line" },
+                                    "condition": { "type": "string", "description": "stop only when this is true, in the debuggee's language" },
+                                    "hit_condition": { "type": "string", "description": "stop only on the Nth hit, e.g. \">5\"" }
+                                },
+                                "required": ["line"]
+                            }
+                        }
+                    }
+                }
+            },
+            {
+                "name": "debug_state",
+                "description":
+                    "Where the program is stopped: the reason, the call stack in DOCUMENT \
+                     coordinates, and the selected frame's variables. Frames outside the \
+                     document are marked as such rather than given a line they do not have.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "session": { "type": "string" },
+                        "frame": { "type": "integer", "description": "frame id; defaults to the top frame" }
+                    },
+                    "required": ["session"]
+                }
+            },
+            {
+                "name": "debug_eval",
+                "description":
+                    "Evaluate an expression in a frame, in the debuggee's own language. The \
+                     same evaluator the app's expression box uses, so an expression that \
+                     works here works there.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "session": { "type": "string" },
+                        "expression": { "type": "string" },
+                        "frame": { "type": "integer", "description": "frame id; defaults to the top frame" }
+                    },
+                    "required": ["session", "expression"]
+                }
+            },
+            {
+                "name": "debug_step",
+                "description":
+                    "Move: `over`, `in`, `out`, `continue`, or one of the two ways BACKWARDS — \
+                     `drop_frame`, which re-enters the current function from its first line, and \
+                     `jump`, which moves the instruction pointer to `line` in the current frame. \
+                     Both re-run rather than rewind: side effects already performed stay \
+                     performed, and the frame's variables are intact. Most adapters have one or \
+                     the other — debugpy has `jump` — and `debug_start` says which.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "session": { "type": "string" },
+                        "how": {
+                            "type": "string",
+                            "enum": ["over", "in", "out", "continue", "drop_frame", "jump"]
+                        },
+                        "line": {
+                            "type": "integer",
+                            "description": "for `jump`: the 0-based DOCUMENT line to move to, in the current frame"
+                        },
+                        "frame": { "type": "integer", "description": "for drop_frame; defaults to the top frame" }
+                    },
+                    "required": ["session", "how"]
+                }
+            },
+            {
+                "name": "debug_stop",
+                "description":
+                    "End the session and delete its scratch copy. Sessions also end on their \
+                     own after being untouched — a debugger nobody is watching is a process \
+                     holding a working directory open.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": { "session": { "type": "string" } },
+                    "required": ["session"]
+                }
             }
         ]
     })
@@ -185,9 +285,273 @@ struct Server {
     default_doc: Option<PathBuf>,
     /// `HICKORY_SESSION`: append every call to this `hick:session` document.
     session_log: Option<PathBuf>,
+    /// Live debug sessions, by id. Bounded: see `debug_sessions`.
+    debuggers: crate::debug_sessions::Registry,
 }
 
 impl Server {
+    /// The debug tools, which share one session registry.
+    ///
+    /// Every one of them answers in DOCUMENT coordinates, because an agent
+    /// reading `read_doc` and an agent setting a breakpoint must be talking
+    /// about the same lines.
+    async fn call_debug_tool(&mut self, name: &str, args: &Value) -> Result<String, String> {
+        use hick_dap::Step;
+
+        let session_id = || -> Result<String, String> {
+            args.get("session")
+                .and_then(Value::as_str)
+                .map(str::to_string)
+                .ok_or_else(|| "which session? pass `session` from debug_start".to_string())
+        };
+        let fail = |e: anyhow::Error| format!("{e:#}");
+
+        match name {
+            "debug_start" => {
+                let doc = self.resolve_doc(args)?;
+                let breakpoints: Vec<hick_dap::Breakpoint> = args
+                    .get("breakpoints")
+                    .and_then(Value::as_array)
+                    .map(|items| {
+                        items
+                            .iter()
+                            .filter_map(|item| {
+                                Some(hick_dap::Breakpoint {
+                                    line: item.get("line")?.as_u64()? as u32,
+                                    condition: item
+                                        .get("condition")
+                                        .and_then(Value::as_str)
+                                        .map(str::to_string),
+                                    hit_condition: item
+                                        .get("hit_condition")
+                                        .and_then(Value::as_str)
+                                        .map(str::to_string),
+                                    log_message: None,
+                                })
+                            })
+                            .collect()
+                    })
+                    .unwrap_or_default();
+
+                let (id, live, statuses) = self
+                    .debuggers
+                    .start(&doc, &breakpoints)
+                    .await
+                    .map_err(fail)?;
+
+                // Run to the first stop before answering: an agent that gets
+                // a session id and no position has to guess whether the
+                // program is running, stopped, or already finished.
+                let stopped = live
+                    .session
+                    .wait_for_stop(std::time::Duration::from_secs(60))
+                    .await
+                    .map_err(fail)?;
+                if let Some(stopped) = &stopped {
+                    *live.thread_id.lock().await = Some(stopped.thread_id);
+                }
+
+                let caps = live.session.capabilities();
+                let mut out = format!("session {id}\n");
+                out.push_str(&format!(
+                    "adapter can: conditions={} hit-counts={} drop-frame={} set-value={} step-back={}\n",
+                    caps.conditional_breakpoints,
+                    caps.hit_conditional_breakpoints,
+                    caps.restart_frame,
+                    caps.set_variable,
+                    caps.step_back,
+                ));
+                for status in &statuses {
+                    out.push_str(&format!(
+                        "  line {}: {}{}\n",
+                        status.line,
+                        if status.verified {
+                            "bound"
+                        } else {
+                            "NOT BOUND"
+                        },
+                        status
+                            .message
+                            .as_deref()
+                            .map(|m| format!(" — {m}"))
+                            .unwrap_or_default()
+                    ));
+                }
+                out.push_str(&match &stopped {
+                    Some(stopped) => format!("stopped: {}\n", stopped.reason),
+                    None => "the program ran to completion without stopping\n".to_string(),
+                });
+                Ok(out)
+            }
+
+            "debug_state" => {
+                let live = self.debuggers.get(&session_id()?).await.map_err(fail)?;
+                let thread = live
+                    .thread_id
+                    .lock()
+                    .await
+                    .ok_or_else(|| "the program is not stopped".to_string())?;
+                let stack = live.session.stack(thread).await.map_err(fail)?;
+                let frame_id = args
+                    .get("frame")
+                    .and_then(Value::as_i64)
+                    .or_else(|| stack.first().map(|f| f.id))
+                    .ok_or_else(|| "no frames — the program is not stopped".to_string())?;
+
+                let mut out = String::from("stack (document lines):\n");
+                for frame in &stack {
+                    out.push_str(&match frame.line {
+                        Some(line) => format!("  #{} {} at line {}\n", frame.id, frame.name, line),
+                        None => format!(
+                            "  #{} {} (outside the document: {})\n",
+                            frame.id,
+                            frame.name,
+                            frame.source.as_deref().unwrap_or("unknown")
+                        ),
+                    });
+                }
+                out.push_str(&format!("\nvariables in frame #{frame_id}:\n"));
+                for variable in live.session.variables(frame_id).await.map_err(fail)? {
+                    out.push_str(&format!(
+                        "  {} = {}{}\n",
+                        variable.name,
+                        variable.value,
+                        variable
+                            .type_name
+                            .map(|t| format!("  ({t})"))
+                            .unwrap_or_default()
+                    ));
+                }
+                Ok(out)
+            }
+
+            "debug_eval" => {
+                let live = self.debuggers.get(&session_id()?).await.map_err(fail)?;
+                let expression = args
+                    .get("expression")
+                    .and_then(Value::as_str)
+                    .ok_or_else(|| "pass an `expression` to evaluate".to_string())?;
+                let frame = match args.get("frame").and_then(Value::as_i64) {
+                    Some(frame) => Some(frame),
+                    None => {
+                        let thread = live.thread_id.lock().await.unwrap_or(1);
+                        live.session
+                            .stack(thread)
+                            .await
+                            .ok()
+                            .and_then(|s| s.first().map(|f| f.id))
+                    }
+                };
+                let value = live
+                    .session
+                    // `repl`, not `watch`: an agent typing an expression is a
+                    // person typing an expression, and several adapters
+                    // refuse side effects in `watch` — which is right for a
+                    // capture and wrong here.
+                    .evaluate(expression, frame, "repl")
+                    .await
+                    .map_err(fail)?;
+                Ok(match value.type_name {
+                    Some(type_name) => format!("{} = {}  ({type_name})", value.name, value.value),
+                    None => format!("{} = {}", value.name, value.value),
+                })
+            }
+
+            "debug_step" => {
+                let live = self.debuggers.get(&session_id()?).await.map_err(fail)?;
+                let how = args.get("how").and_then(Value::as_str).unwrap_or("over");
+                if how == "jump" {
+                    let line = args.get("line").and_then(Value::as_u64).ok_or_else(|| {
+                        "jumping needs a `line` — the document line to move to, which must \
+                             be in the function you are stopped in"
+                            .to_string()
+                    })? as u32;
+                    let thread = live
+                        .thread_id
+                        .lock()
+                        .await
+                        .ok_or_else(|| "the program is not stopped".to_string())?;
+                    live.session.jump_to(line, thread).await.map_err(fail)?;
+                    let stopped = live
+                        .session
+                        .wait_for_stop(std::time::Duration::from_secs(20))
+                        .await
+                        .map_err(fail)?;
+                    if let Some(stopped) = &stopped {
+                        *live.thread_id.lock().await = Some(stopped.thread_id);
+                    }
+                    let stack = live.session.stack(thread).await.map_err(fail)?;
+                    return Ok(match stack.first().and_then(|f| f.line) {
+                        Some(line) => format!(
+                            "moved to line {line} in {} — the frame's variables are unchanged, \
+                             and the lines between here and where you were will run again",
+                            stack.first().map(|f| f.name.as_str()).unwrap_or("?")
+                        ),
+                        None => "moved, but outside the document".to_string(),
+                    });
+                }
+                let step = match how {
+                    "over" => Step::Over,
+                    "in" => Step::In,
+                    "out" => Step::Out,
+                    "continue" => Step::Continue,
+                    "drop_frame" => Step::DropFrame,
+                    other => {
+                        return Err(format!(
+                            "unknown step `{other}` — use over, in, out, continue, drop_frame or jump"
+                        ));
+                    }
+                };
+                let thread = live.thread_id.lock().await.ok_or_else(|| {
+                    "the program is not stopped, so there is nothing to step".to_string()
+                })?;
+                let frame = match args.get("frame").and_then(Value::as_i64) {
+                    Some(frame) => Some(frame),
+                    None => live
+                        .session
+                        .stack(thread)
+                        .await
+                        .ok()
+                        .and_then(|s| s.first().map(|f| f.id)),
+                };
+                live.session.step(step, thread, frame).await.map_err(fail)?;
+
+                match live
+                    .session
+                    .wait_for_stop(std::time::Duration::from_secs(30))
+                    .await
+                    .map_err(fail)?
+                {
+                    Some(stopped) => {
+                        *live.thread_id.lock().await = Some(stopped.thread_id);
+                        let stack = live.session.stack(stopped.thread_id).await.map_err(fail)?;
+                        let top = stack.first();
+                        Ok(match top.and_then(|f| f.line) {
+                            Some(line) => format!(
+                                "stopped ({}) in {} at line {line}",
+                                stopped.reason,
+                                top.map(|f| f.name.as_str()).unwrap_or("?")
+                            ),
+                            None => format!("stopped ({}) outside the document", stopped.reason),
+                        })
+                    }
+                    None => {
+                        *live.thread_id.lock().await = None;
+                        Ok("the program finished".to_string())
+                    }
+                }
+            }
+
+            "debug_stop" => {
+                let id = session_id()?;
+                self.debuggers.stop(&id).await.map_err(fail)?;
+                Ok(format!("session {id} ended and its scratch copy deleted"))
+            }
+
+            other => Err(format!("unknown debug tool `{other}`")),
+        }
+    }
+
     /// The document a call refers to.
     fn resolve_doc(&self, args: &Value) -> Result<PathBuf, String> {
         if let Some(d) = args.get("doc").and_then(Value::as_str) {
@@ -246,6 +610,15 @@ impl Server {
     }
 
     async fn call_tool(&mut self, name: &str, args: &Value) -> Value {
+        // Debugging is not a document edit, so it does not go through the
+        // edit-session machinery: it has its own lifetime, its own scratch
+        // copy, and — deliberately — no way to write anything.
+        if name.starts_with("debug_") {
+            return match self.call_debug_tool(name, args).await {
+                Ok(text) => text_result(&text, false),
+                Err(text) => text_result(&text, true),
+            };
+        }
         let doc = match self.resolve_doc(args) {
             Ok(d) => d,
             Err(e) => return text_result(&e, true),
@@ -330,6 +703,7 @@ pub async fn serve(default_doc: Option<PathBuf>, params: Vec<(String, String)>) 
         params,
         default_doc,
         session_log: crate::doc_tools::session_from(None),
+        debuggers: crate::debug_sessions::Registry::new(),
     };
 
     let stdin = std::io::stdin();
@@ -395,7 +769,14 @@ mod tests {
                 "read_output",
                 "edit_output",
                 "edit_doc",
-                "verify"
+                "verify",
+                // Debugging: a session an agent drives, which writes
+                // nothing.
+                "debug_start",
+                "debug_state",
+                "debug_eval",
+                "debug_step",
+                "debug_stop"
             ]
         );
         for tool in tools {

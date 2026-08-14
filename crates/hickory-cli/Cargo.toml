@@ -35,6 +35,11 @@ hick-lang.workspace = true
 # `hick init` writes the child-server overrides that hick-lsp reads, so the
 # file format has exactly one definition (hick_lsp::server_config).
 hick-lsp = { path = "../hick-lsp" }
+# Breakpoints and stepping, for the app's debugger and the MCP tools.
+hick-dap = { path = "../hick-dap" }
+# A debug session runs the debuggee in a scratch clone that is deleted with
+# it — which is what makes "a session cannot touch the file" true.
+tempfile = "3"
 # Structural navigation that ships in the download: tree-sitter grammars are
 # compiled in, so it needs no language server and no toolchain.
 hick-structure = { path = "../hick-structure" }
@@ -50,6 +55,7 @@ hickory-executor-docker = { path = "../hickory-executor-docker" }
 hickory-executor-sandbox = { path = "../hickory-executor-sandbox" }
 hickory-lineage = { path = "../hickory-lineage" }
 log = "0.4"
+tracing = "0.1"
 rpassword = "7"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

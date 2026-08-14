@@ -47,6 +47,12 @@ pub struct Capabilities {
     /// effects already performed stay performed.
     pub restart_frame: bool,
     pub step_in_targets: bool,
+    /// Move the instruction pointer within the current frame — Python's
+    /// `jump`, "set next statement" elsewhere. The OTHER way backwards, and
+    /// the one debugpy has: where `restartFrame` re-enters a function from
+    /// the top, this goes to any line in the frame, including an earlier one.
+    /// Both re-run rather than rewind; neither undoes a side effect.
+    pub goto_targets: bool,
     /// True reverse execution. Almost no adapter has it; the UI greys the
     /// control rather than offering one that fails.
     pub step_back: bool,
@@ -70,6 +76,7 @@ impl Capabilities {
             set_variable: flag("supportsSetVariable"),
             restart_frame: flag("supportsRestartFrame"),
             step_in_targets: flag("supportsStepInTargetsRequest"),
+            goto_targets: flag("supportsGotoTargetsRequest"),
             step_back: flag("supportsStepBack"),
             terminate_threads: flag("supportsTerminateThreadsRequest"),
             exception_filters: body
@@ -630,10 +637,17 @@ impl Session {
         match step {
             Step::DropFrame => {
                 if !self.capabilities.restart_frame {
+                    if self.capabilities.goto_targets {
+                        bail!(
+                            "this debug adapter cannot drop a frame, but it CAN move the \
+                             instruction pointer: jump to an earlier line in this frame instead. \
+                             Both re-run rather than rewind."
+                        );
+                    }
                     bail!(
-                        "this debug adapter cannot drop a frame. That is the closest thing to \
-                         stepping backwards it offers, and it does not have it — the controls \
-                         that do work are step over, in, out and continue."
+                        "this debug adapter can neither drop a frame nor move the instruction \
+                         pointer, so there is no way backwards short of starting again. The \
+                         controls that do work are step over, in, out and continue."
                     );
                 }
                 let frame_id = frame_id.context("dropping a frame needs the frame to drop")?;
@@ -694,6 +708,68 @@ impl Session {
             bail!("nothing to run to on that line — the adapter could not bind a breakpoint there");
         }
         self.step(Step::Continue, thread_id, None).await
+    }
+
+    /// Move the instruction pointer to a document line in the current frame.
+    ///
+    /// The backwards move that actually exists for most adapters. Jumping to
+    /// an earlier line re-executes from there — it does not rewind, so
+    /// anything already written stays written — but "I stepped one too far,
+    /// do that again" is answered, which is what people want from stepping
+    /// back nine times in ten.
+    ///
+    /// Constrained to the current frame by the protocol, which is also the
+    /// only place it is meaningful: jumping into a different function would
+    /// arrive with the wrong locals.
+    pub async fn jump_to(&self, line: u32, thread_id: i64) -> Result<()> {
+        if !self.capabilities.goto_targets {
+            bail!(
+                "this debug adapter cannot move the instruction pointer. Neither it nor drop \
+                 frame is available here, so the only way back is to start the session again."
+            );
+        }
+        let (path, target_line) = self
+            .mapping
+            .to_generated(line)
+            .context("that line is prose, not code — there is nothing there to jump to")?;
+
+        let body = self
+            .adapter
+            .request(
+                "gotoTargets",
+                json!({
+                    "source": { "path": path.to_string_lossy() },
+                    "line": target_line + 1,
+                }),
+            )
+            .await?;
+        let target = body
+            .get("targets")
+            .and_then(Value::as_array)
+            .and_then(|targets| targets.first())
+            .and_then(|target| target.get("id"))
+            .and_then(Value::as_i64)
+            .context(
+                "the adapter offers no jump target on that line — a line inside a different \
+                 function, or one the compiler removed, cannot be jumped to",
+            )?;
+
+        self.adapter
+            .request("goto", json!({ "threadId": thread_id, "targetId": target }))
+            .await
+            .with_context(|| {
+                // The adapter's own message for this is routinely empty, and
+                // the cause is almost always the same one: the pointer can
+                // only move within the frame you are stopped in. Arriving
+                // somewhere else would arrive with the wrong locals, so the
+                // constraint is the protocol's, not ours.
+                format!(
+                    "could not move the instruction pointer to line {line}. It has to be a line \
+                     in the function you are stopped in — stepping out of that function first is \
+                     the usual reason this fails."
+                )
+            })?;
+        Ok(())
     }
 
     /// Change a variable's value in the running program.
