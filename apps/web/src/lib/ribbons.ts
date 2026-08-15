@@ -4,6 +4,7 @@
 // views/SplitView.tsx. Kept separate so this is unit-testable.
 
 import type { OutputFile, Provenance } from "../api/types";
+import { samePath } from "./paths";
 import { byteToChar } from "./offsets";
 
 /** Number of distinct ribbon colors (see --ribbon-0 … in styles.css). */
@@ -41,7 +42,7 @@ export function deriveRibbons(
   const ribbons: Ribbon[] = [];
   file.provenance.forEach((p, i) => {
     if (p.origin.kind === "synthetic") return; // synthetic ranges: no ribbon
-    if (p.origin.doc_path !== docPath) return; // other docs' spans: no anchor here
+    if (!samePath(p.origin.doc_path, docPath)) return; // other docs' spans: no anchor here
     if (p.end <= p.start) return;
     const fragKey = `${p.origin.span[0]}:${p.origin.span[1]}`;
     let color = fragmentColors.get(fragKey);

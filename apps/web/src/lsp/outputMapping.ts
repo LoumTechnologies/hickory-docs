@@ -12,6 +12,7 @@
 // there is no honest question to ask, so nothing is asked.
 
 import type { Provenance } from "../api/types";
+import { samePath } from "../lib/paths";
 import { byteToChar } from "../lib/offsets";
 import { utf16ToPosition, type LspPosition } from "./positions";
 
@@ -40,7 +41,7 @@ export function sourcePositionAt(
     if (to <= from) continue;
     if (offset < from || offset >= to) continue;
     if (p.origin.kind === "synthetic") return null;
-    if (p.origin.doc_path !== docPath) return null;
+    if (!samePath(p.origin.doc_path, docPath)) return null;
     // The output text and its source text are the same bytes, so the distance
     // into the range carries across unchanged.
     const delta = offset - from;

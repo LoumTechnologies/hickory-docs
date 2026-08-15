@@ -173,6 +173,30 @@ amount of checking stdout can reach.
 </hick:doc>
 EOF
 
+write_if_absent "$PROJECT_DIR/workspace.hick" <<'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="workspace.md">
+# Workspace
+
+A layout, declared. Each block below names a region of this folder and the
+files that belong to it; the app arranges one pane per region and opens a file
+into the region whose globs claim it.
+
+Structure only — no widths, no tabs, nothing about what is open. Those are
+session state, and this file would change every time somebody dragged a
+splitter. See docs/specs/freeform/shell-layouts.md.
+
+<hick:copy id="documents" class="layout-region">
+*.hick
+</hick:copy>
+
+<hick:copy id="generated" class="layout-region">
+*.md
+*.py
+</hick:copy>
+</hick:doc>
+EOF
+
 # Weave once, so a fresh seed is CONSISTENT rather than drifted. Without this
 # the first thing a developer might try — `hick test .dev/project` — reports a
 # failure that is really just "nothing has run yet", which is a bad first

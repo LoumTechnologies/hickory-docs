@@ -400,15 +400,22 @@ export function DocumentView({ docId }: { docId: string }) {
   // regions puts it where its globs say; freeform puts it in the only pane
   // there is.
   useEffect(() => {
-    if (!doc) return;
+    // A different document, before its own has loaded: the tabs on screen
+    // belong to the one being left, and rendering them against the new id
+    // asks the server for files that document does not generate.
+    setLayout(freeform());
+  }, [docId]);
+
+  useEffect(() => {
+    if (!doc || doc.id !== docId) return;
     const built = choice.build();
     const target = paneFor(built, choice.regions ?? [], doc.path);
     setLayout(openInLayout(built, makeTab("document", doc.path, doc.path.split("/").pop()), target));
-    // Rebuilt only when the CHOICE changes, never on every render: a layout is
-    // session state, and rebuilding it would throw away the arrangement the
-    // person just made.
+    // Rebuilt only when the CHOICE or the document changes, never on every
+    // render: a layout is session state, and rebuilding it would throw away
+    // the arrangement the person just made.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [choiceId, doc?.path, choices.length]);
+  }, [choiceId, docId, doc?.path, choices.length]);
 
   const openGenerated = useCallback(
     (path: string) => {

@@ -7,12 +7,13 @@
 //
 // See docs/specs/freeform/shell-layouts.md.
 
-import { useCallback, useRef, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, type ReactNode } from "react";
 
 import {
   activate,
   closeTab,
   focus as focusPane,
+  panes as panesOf,
   resize,
   split,
   type Layout,
@@ -31,6 +32,7 @@ export interface ShellViewProps {
 }
 
 export function ShellView({ layout, onLayout, render, empty }: ShellViewProps) {
+  useShellKeys(layout, onLayout);
   return (
     <div className="shell">
       <ShellNode
@@ -231,4 +233,39 @@ function PaneBox({
       </div>
     </section>
   );
+}
+
+
+/**
+ * The keys an editor is expected to have.
+ *
+ * Deliberately few, and all of them about the arrangement rather than the
+ * text: anything that edits belongs to the editor in the pane, which already
+ * has its own keymap and its own idea of what has focus.
+ */
+function useShellKeys(layout: Layout, onLayout: (next: Layout) => void) {
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      const chord = event.metaKey || event.ctrlKey;
+      if (!chord) return;
+      const pane = layout.focus;
+      if (event.key === "\\") {
+        // Cmd-\ splits right, Cmd-Shift-\ splits down: the pair VS Code and
+        // Zed both use, so the muscle memory people arrive with works.
+        event.preventDefault();
+        onLayout(split(layout, pane, event.shiftKey ? "column" : "row"));
+        return;
+      }
+      if (event.key === "w") {
+        const current = layout.root;
+        const found = panesOf(current).find((candidate) => candidate.id === pane);
+        const tab = found?.tabs[found.active];
+        if (!tab) return;
+        event.preventDefault();
+        onLayout(closeTab(layout, pane, tab.id));
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [layout, onLayout]);
 }
