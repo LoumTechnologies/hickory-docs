@@ -56,7 +56,9 @@ export function App() {
 function useOpenTheOnlyDocument(routeName: string) {
   const [checked, setChecked] = useState(false);
   useEffect(() => {
-    if (checked || routeName !== "projects") return;
+    // Both names land on the list: an empty hash parses as `landing`, which
+    // this app has no page for, and renders the projects list instead.
+    if (checked || (routeName !== "projects" && routeName !== "landing")) return;
     let live = true;
     void (async () => {
       try {

@@ -99,11 +99,21 @@ pub fn remember(config_dir: &Path, dir: &Path) {
 /// Binds port 0: the app has no reason to want a particular port, and asking
 /// for one means failing to start because something unrelated already holds
 /// it.
-pub async fn start(dir: &Path) -> Result<Session> {
-    let lock = DirectoryLock::acquire(dir)?;
+pub async fn start(target: &Path) -> Result<Session> {
+    // The lock protects a WORKING DIRECTORY: two processes weaving the same
+    // folder would each read the other's writes as the user's edits. A single
+    // document's working directory is the folder it sits in — locking the
+    // file itself would try to create `document.hick/.hick-cache`, which is
+    // not a thing.
+    let lock_root = if target.is_file() {
+        target.parent().unwrap_or_else(|| Path::new("."))
+    } else {
+        target
+    };
+    let lock = DirectoryLock::acquire(lock_root)?;
 
     let prepared = prepare(ServeOptions {
-        target: dir.to_path_buf(),
+        target: target.to_path_buf(),
         port: 0,
         params: Vec::new(),
         executor: ExecutorChoice::from_env()?,

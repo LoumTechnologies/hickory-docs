@@ -24,7 +24,7 @@ pub mod server;
 use std::path::{Path, PathBuf};
 
 use tauri::{AppHandle, Manager as _, WebviewUrl, WebviewWindowBuilder};
-use tauri_plugin_dialog::{DialogExt as _, MessageDialogKind};
+use tauri_plugin_dialog::{DialogExt as _, MessageDialogButtons, MessageDialogKind};
 
 pub fn run() {
     tauri::Builder::default()
@@ -77,7 +77,7 @@ fn launch(handle: AppHandle) {
     loop {
         let dir = match candidate.take() {
             Some(dir) => dir,
-            None => match ask_for_folder(&handle) {
+            None => match ask_for_target(&handle) {
                 Some(dir) => dir,
                 // Cancelling the picker with nothing open is a decision not to
                 // use the app right now, not an error to report.
@@ -105,13 +105,37 @@ fn launch(handle: AppHandle) {
     }
 }
 
-/// Show the native folder chooser.
-fn ask_for_folder(handle: &AppHandle) -> Option<PathBuf> {
+/// Ask what to open: one document, or a folder of them.
+///
+/// A folder is a project and a file is a file, and being made to choose a
+/// folder before you can look at a document is the ceremony this app does not
+/// need. The engine takes either, so the only thing standing in the way was
+/// the picker.
+fn ask_for_target(handle: &AppHandle) -> Option<PathBuf> {
+    let wants_folder = handle
+        .dialog()
+        .message("Open a single document, or a whole folder of them?")
+        .title("Open")
+        .buttons(MessageDialogButtons::OkCancelCustom(
+            "Folder…".to_string(),
+            "One document…".to_string(),
+        ))
+        .blocking_show();
+
+    if wants_folder {
+        return handle
+            .dialog()
+            .file()
+            .set_title("Open a folder of .hick documents")
+            .blocking_pick_folder()
+            .and_then(|p| p.into_path().ok());
+    }
     handle
         .dialog()
         .file()
-        .set_title("Open a folder of .hick documents")
-        .blocking_pick_folder()
+        .set_title("Open a .hick document")
+        .add_filter("Hickory documents", &["hick"])
+        .blocking_pick_file()
         .and_then(|p| p.into_path().ok())
 }
 

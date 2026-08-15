@@ -103,20 +103,34 @@ last.
 
 ## Order of work
 
-1. **The model, as pure functions.** Tile tree, splits, tabs, focus, and
-   routing, with tests. Everything else sits on it and none of it needs a
-   window.
-2. **The freeform shell.** Panes render views; split, close, and focus work;
-   opening a file adds a tab. The single-file front door, complete.
-3. **A pane hosts the real editor** — CRDT, LSP, gutter, debugger — rather than
-   a viewer, so every pane can be worked in rather than one blessed one.
-4. **Folder open: discover and pick.** Layout documents in the folder are
-   listed beside Freeform.
-5. **Declared layouts derive a tree** and route opens by glob.
-6. **Port what exists**: lineage columns become the pipeline layout; the
-   ribbons become a two-region layout or move into the link layer — one answer
-   to "where did this come from", not two by accident.
-7. **Delete the mode switcher**, once and not before.
+1. ~~**The model, as pure functions.**~~ **Done** — `apps/web/src/shell/layout.ts`:
+   tile tree, splits, tabs, focus, glob routing, with tests.
+2. ~~**The freeform shell.**~~ **Done** — `ShellView.tsx`. Panes, tab strips,
+   draggable dividers, `Cmd/Ctrl-\` to split and `Cmd/Ctrl-W` to close.
+3. ~~**A pane hosts the real editor.**~~ **Done** — a `document` tab is the
+   full `DocumentEditor`: CRDT, LSP, gutter, debugger. A `generated` tab is
+   the live output buffer with its provenance under it.
+4. ~~**Folder open: discover and pick.**~~ **Done** — `layouts.ts` reads
+   region declarations out of the folder's documents and lists them beside
+   Freeform. A folder that declares exactly one opens into it.
+5. ~~**Declared layouts derive a tree** and route opens by glob.~~ **Done**,
+   and verified in the app: a `.md` opened from a layout with a `generated`
+   region lands in that region without being told.
+6. **Port what exists** — still open. The ribbons survive whole as the
+   "Document & outputs" layout, which is a composite rather than a set of
+   regions; the lineage columns are still their own route. Both should become
+   ordinary layouts, and then "where did this come from" needs ONE answer
+   rather than two.
+7. ~~**Delete the mode switcher.**~~ **Done.**
+
+## Also true now
+
+* **Opening a single document costs nothing.** The desktop picker offers a
+  document or a folder, the engine already accepted either, and a session with
+  exactly one document opens it rather than listing it.
+* **A layout picker appears only when there is a choice.** One option is not a
+  choice, and a control that offers one is asking a question it knows the
+  answer to.
 
 ## Open questions
 
