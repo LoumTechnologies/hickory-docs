@@ -1719,6 +1719,23 @@ textarea:focus {
   background: transparent;
   border: 1.5px solid var(--muted, var(--fg-muted));
 }
+/* Broken: the debugger refused it. A cross rather than a colour, so it reads
+   without one, and the reason is on hover — the only place it belongs. */
+.cm-bp-broken {
+  background: transparent;
+  border: 1.5px solid var(--danger);
+  position: relative;
+}
+.cm-bp-broken::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: -1px;
+  width: 1.5px;
+  height: calc(100% + 2px);
+  background: var(--danger);
+  transform: translateX(-50%) rotate(45deg);
+}
 .cm-bp-conditional {
   /* A wedge out of the dot: visibly a breakpoint, visibly not an ordinary
      one, and legible without colour. */

@@ -183,6 +183,26 @@ describe("the gutter is findable before it holds anything", () => {
     view.destroy();
   });
 
+  it("draws a refused breakpoint as broken, with the reason on hover", () => {
+    const extensions = debugEditor({ onToggleBreakpoint: () => {} });
+    const state = EditorState.create({ doc: "a = 1\nb = 2\n", extensions });
+    const view = new EditorView({ state });
+    view.dispatch({
+      effects: setBreakpointMarks.of([
+        { line: 0, verified: false, conditional: false, message: "Server disconnected" },
+        // Not yet bound, but nothing has gone wrong: a different state.
+        { line: 1, verified: false, conditional: false },
+      ]),
+    });
+
+    const dots = [...view.dom.querySelectorAll(".cm-bp")];
+    expect(dots[0].className).toContain("cm-bp-broken");
+    expect((dots[0] as HTMLElement).title).toBe("Server disconnected");
+    expect(dots[1].className).not.toContain("cm-bp-broken");
+    expect(dots[1].className).toContain("cm-bp-unverified");
+    view.destroy();
+  });
+
   it("puts a marker on every line, not only lines with breakpoints", () => {
     // The first breakpoint is the one nobody can set: with markers only where
     // breakpoints already are, the strip is invisible and "click the gutter"

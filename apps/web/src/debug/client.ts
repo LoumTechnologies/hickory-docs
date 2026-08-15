@@ -72,7 +72,15 @@ export type DebugEvent =
   | { event: "children"; session: string; reference: number; variables: Variable[] }
   | { event: "finished"; session: string }
   | { event: "ended"; session: string }
-  | { event: "failed"; session: string | null; message: string };
+  | {
+      event: "failed";
+      session: string | null;
+      message: string;
+      /** Which request failed, so its message can be shown where it belongs. */
+      about?: string;
+      /** The document lines it was about, for a breakpoint failure. */
+      lines?: number[];
+    };
 
 /**
  * The server's own verbs, spelled exactly as it deserializes them.

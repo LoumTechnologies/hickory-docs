@@ -212,6 +212,54 @@ describe("the debugger, over the socket", () => {
     expect(hook.result.current.status).toBe("paused");
   });
 
+  it("marks the breakpoint broken instead of shouting in the panel", async () => {
+    // The reported bug: a refused `setBreakpoints` left the dot looking set,
+    // put the reason in the panel, and left it there — so the next breakpoint
+    // inherited a message about the previous one.
+    const { socket, hook } = open();
+    act(() => hook.result.current.start());
+    act(() => socket.deliver(STARTED));
+    act(() => socket.deliver(STOPPED));
+    act(() => hook.result.current.toggleBreakpoint(14));
+
+    act(() =>
+      socket.deliver({
+        event: "failed",
+        session: "dbg-0",
+        about: "breakpoints",
+        lines: [14],
+        message: "the debug adapter refused `setBreakpoints`: Server disconnected unexpectedly",
+      }),
+    );
+
+    await waitFor(() =>
+      expect(hook.result.current.breakpoints.find((b) => b.line === 14)?.verified).toBe(false),
+    );
+    // The reason lives on the breakpoint, for its hover.
+    expect(hook.result.current.breakpoints.find((b) => b.line === 14)?.message).toContain(
+      "disconnected",
+    );
+    // And nowhere else.
+    expect(hook.result.current.message).toBeNull();
+    // Only that line is affected.
+    expect(hook.result.current.breakpoints.find((b) => b.line === 25)?.verified).toBe(true);
+  });
+
+  it("keeps a breakpoint local once the program has ended", async () => {
+    // Setting one after the program finished used to send it to a session
+    // that could only refuse: the breakpoint is for the next run.
+    const { socket, hook } = open();
+    act(() => hook.result.current.start());
+    act(() => socket.deliver(STARTED));
+    act(() => socket.deliver({ event: "finished", session: "dbg-0" }));
+    await waitFor(() => expect(hook.result.current.status).toBe("finished"));
+    const before = socket.sent.length;
+
+    act(() => hook.result.current.toggleBreakpoint(14));
+    expect(socket.sent.length).toBe(before);
+    expect(hook.result.current.breakpoints.some((b) => b.line === 14)).toBe(true);
+  });
+
   it("goes back to idle when the session ends", async () => {
     const { socket, hook } = open();
     act(() => hook.result.current.start());

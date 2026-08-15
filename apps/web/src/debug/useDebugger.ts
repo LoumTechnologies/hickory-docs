@@ -57,9 +57,15 @@ export function useDebugger(realtime: Realtime, docPath: string): DebugSession {
     useState<{ expression: string; value: string; type: string | null } | null>(null);
 
   const sessionRef = useRef<string | null>(null);
+  // The status as of right now, for callbacks that must not close over a
+  // stale one — a breakpoint toggled a moment after the program ended would
+  // otherwise still be sent to a session that cannot answer.
+  const statusRef = useRef<DebugStatus>("idle");
   // Hover asks for a value and wants it back; the channel answers with an
   // event, so the request is parked here until its answer arrives.
   const pendingValues = useRef(new Map<string, (value: string | null) => void>());
+
+  statusRef.current = status;
 
   const uri = useMemo(() => `hick:///${docPath.replace(/^\/+/, "")}`, [docPath]);
   const client = useMemo(() => {
@@ -125,6 +131,23 @@ export function useDebugger(realtime: Realtime, docPath: string): DebugSession {
           const stillWaiting = [...pendingValues.current.values()];
           pendingValues.current.clear();
           for (const resolve of stillWaiting) resolve(null);
+          // A breakpoint that could not be set is a fact about that
+          // breakpoint. It is marked broken, with the reason on hover, and
+          // says nothing in the panel — where it would outlive its cause and
+          // read as if it were about whatever you did next.
+          if (event.about === "breakpoints" || event.about === "start") {
+            const broken = new Set(event.lines ?? []);
+            if (broken.size > 0) {
+              setBreakpoints((current) =>
+                current.map((breakpoint) =>
+                  broken.has(breakpoint.line)
+                    ? { ...breakpoint, verified: false, message: event.message }
+                    : breakpoint,
+                ),
+              );
+              if (event.about === "breakpoints") break;
+            }
+          }
           // A hover that could not be answered is not news. It resolves to
           // nothing and the tooltip shows the type alone; putting the
           // adapter's `NameError` in the panel would report our own question
@@ -159,8 +182,13 @@ export function useDebugger(realtime: Realtime, docPath: string): DebugSession {
               // feels broken.
               [...current, { line, verified: true }]
             : without;
+        // Only a session that is still running can be told. After the
+        // program ends the adapter answers `setBreakpoints` with "Server
+        // disconnected unexpectedly", which is true and useless: the
+        // breakpoint is for the NEXT run, and it is kept here until then.
         const session = sessionRef.current;
-        if (client && session) {
+        if (client && session && (statusRef.current === "paused" || statusRef.current === "running")) {
+          setMessage(null);
           client.setBreakpoints(
             session,
             next.map((breakpoint) => ({ line: breakpoint.line })),

@@ -41,6 +41,11 @@ export interface BreakpointMark {
   message?: string;
 }
 
+/** Whether a mark is broken: unbindable, and able to say why. */
+function isBroken(mark: BreakpointMark): boolean {
+  return !mark.verified && !!mark.message;
+}
+
 export const setBreakpointMarks = StateEffect.define<BreakpointMark[]>();
 export const setPausedLine = StateEffect.define<number | null>();
 export const setInlineValues = StateEffect.define<Variable[]>();
@@ -53,9 +58,14 @@ function dotElement(mark: BreakpointMark): HTMLElement {
   dot.className =
     "cm-bp" +
     (mark.verified ? "" : " cm-bp-unverified") +
-    (mark.conditional ? " cm-bp-conditional" : "");
-  // The reason a hollow dot is hollow. Without this, an unbindable
-  // breakpoint is a mystery rather than a message.
+    (mark.conditional ? " cm-bp-conditional" : "") +
+    // Broken is its own look: a breakpoint the debugger refused is not the
+    // same as one it has not bound yet, and the difference decides whether
+    // you are waiting or fixing something.
+    (isBroken(mark) ? " cm-bp-broken" : "");
+  // The reason, on the thing it is about. Without this, an unbindable
+  // breakpoint is a mystery rather than a message — and with it, the message
+  // needs to be nowhere else.
   dot.title = mark.message
     ? mark.message
     : mark.conditional

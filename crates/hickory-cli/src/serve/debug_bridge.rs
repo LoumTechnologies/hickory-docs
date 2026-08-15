@@ -148,6 +148,16 @@ pub enum Response {
     Failed {
         session: Option<String>,
         message: String,
+        /// Which request failed, so the app can put the message where it
+        /// belongs. A failure with no home becomes a banner that outlives its
+        /// cause and attaches itself to whatever the person does next.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        about: Option<String>,
+        /// The document lines the failed request was about, when it was about
+        /// lines: a breakpoint that could not be set is a fact about that
+        /// breakpoint, shown on it.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        lines: Vec<u32>,
     },
 }
 
@@ -160,12 +170,43 @@ pub async fn handle(
     root: &std::path::Path,
     request: Request,
 ) -> Vec<Response> {
+    let about = about_of(&request);
+    let lines = lines_of(&request);
     match handle_inner(registry, root, request).await {
         Ok(responses) => responses,
         Err((session, error)) => vec![Response::Failed {
             session,
             message: format!("{error:#}"),
+            about: Some(about.to_string()),
+            lines,
         }],
+    }
+}
+
+/// The name of the request, for a failure to point at.
+fn about_of(request: &Request) -> &'static str {
+    match request {
+        Request::Start { .. } => "start",
+        Request::Breakpoints { .. } => "breakpoints",
+        Request::State { .. } => "state",
+        Request::Eval { .. } => "eval",
+        Request::Step { .. } => "step",
+        Request::Jump { .. } => "jump",
+        Request::RunTo { .. } => "run_to",
+        Request::Children { .. } => "children",
+        Request::SetVariable { .. } => "set_variable",
+        Request::Stop { .. } => "stop",
+    }
+}
+
+/// The document lines a request is about, when it is about lines.
+fn lines_of(request: &Request) -> Vec<u32> {
+    match request {
+        Request::Start { breakpoints, .. } | Request::Breakpoints { breakpoints, .. } => {
+            breakpoints.iter().map(|b| b.line).collect()
+        }
+        Request::Jump { line, .. } | Request::RunTo { line, .. } => vec![*line],
+        _ => Vec::new(),
     }
 }
 
@@ -359,6 +400,8 @@ async fn settle(session: &str, live: &Arc<crate::debug_sessions::Live>) -> Vec<R
         Err(error) => vec![Response::Failed {
             session: Some(session.to_string()),
             message: format!("{error:#}"),
+            about: None,
+            lines: Vec::new(),
         }],
     }
 }
@@ -529,10 +572,31 @@ mod tests {
         let frame = frame_of(&Response::Failed {
             session: Some("dbg-1".into()),
             message: "that line is prose, not code".into(),
+            about: Some("breakpoints".into()),
+            lines: vec![4],
         });
         let value: Value = serde_json::from_slice(&frame[1..]).unwrap();
         assert_eq!(value["event"], "failed");
         assert!(value["message"].as_str().unwrap().contains("prose"));
+        // And says what it was about, so the app can show it on the
+        // breakpoint rather than in a banner that outlives its cause.
+        assert_eq!(value["about"], "breakpoints");
+        assert_eq!(value["lines"][0], 4);
+    }
+
+    #[test]
+    fn a_failure_about_nothing_in_particular_carries_no_lines() {
+        // `about`/`lines` are omitted rather than sent empty: a UI that keys
+        // on their presence should not have to know two spellings of absent.
+        let frame = frame_of(&Response::Failed {
+            session: None,
+            message: "no such session".into(),
+            about: None,
+            lines: Vec::new(),
+        });
+        let value: Value = serde_json::from_slice(&frame[1..]).unwrap();
+        assert!(value.get("about").is_none(), "{value}");
+        assert!(value.get("lines").is_none(), "{value}");
     }
 
     #[test]
