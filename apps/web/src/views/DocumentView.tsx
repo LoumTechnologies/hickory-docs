@@ -29,8 +29,18 @@ import { positionToUtf16 } from "../lsp/positions";
 import { sourcePositionAt, type OutputProvenance } from "../lsp/outputMapping";
 import type { LspLocation } from "../lsp/client";
 import { DocumentEditor } from "../editor/DocumentEditor";
-import { OutputView } from "./OutputView";
 import { SplitView } from "./SplitView";
+import { ShellView } from "../shell/ShellView";
+import { GeneratedFileView, OutputsTool } from "../shell/views";
+import {
+  freeform,
+  open as openInLayout,
+  paneFor,
+  tab as makeTab,
+  type Layout,
+  type Region,
+} from "../shell/layout";
+import { layoutsFor, type LayoutChoice } from "../shell/layouts";
 import { navigate } from "../router";
 
 type Banner = { kind: "pending" | "pass" | "fail"; text: string } | null;
@@ -48,14 +58,21 @@ export function DocumentView({ docId }: { docId: string }) {
   // A failed weave is reported inline; only a failure to LOAD the document
   // (missing, forbidden) is fatal to the page.
   const [renderError, setRenderError] = useState<string | null>(null);
-  // Split is the workspace: document, the files it generates, and the
-  // generated text, all editable and linked. It needs width, so narrow
-  // viewports start on the document and the effect below keeps them there.
-  const [view, setView] = useState<"document" | "output" | "split">(() =>
-    typeof window.matchMedia === "function" && window.matchMedia(SPLIT_MIN_WIDTH).matches
-      ? "split"
-      : "document",
-  );
+  // What the window is arranged as. Not a mode: either an arrangement this
+  // person built (freeform: panes, tabs, splits) or one a document declared.
+  // "Document & outputs" is the old Split view kept whole, because it draws
+  // the provenance ribbons and nothing else does.
+  //
+  // See docs/specs/freeform/shell-layouts.md.
+  //
+  // Freeform by default, on every screen size. Opening a file should cost
+  // what it costs in Notepad: the file, in an editor, immediately. An
+  // arrangement someone else chose is a thing to explain before you have
+  // typed anything, and the ribbons view — good as it is — is exactly that
+  // when all you wanted was to read one document.
+  const [choiceId, setChoiceId] = useState<string>("freeform");
+  const [layout, setLayout] = useState<Layout>(freeform);
+  const [declared, setDeclared] = useState<LayoutChoice[]>([]);
   // Split is only offered when the viewport is wide enough for two panes.
   const [wide, setWide] = useState<boolean>(() =>
     typeof window.matchMedia === "function" ? window.matchMedia(SPLIT_MIN_WIDTH).matches : false,
@@ -196,16 +213,42 @@ export function DocumentView({ docId }: { docId: string }) {
     mq.addEventListener("change", onChange);
     return () => mq.removeEventListener("change", onChange);
   }, []);
-  // Split needs both a wide viewport and something to show in its right
-  // pane; Output needs the latter alone. Neither toggle can stay selected
-  // once its precondition goes away.
+  // The ribbons layout needs two panes' worth of width and something to put
+  // in the second one. Losing either sends you to freeform, which needs
+  // neither.
   useEffect(() => {
-    if (!wide) setView((v) => (v === "split" ? "document" : v));
-  }, [wide]);
-  useEffect(() => {
-    if (hasOutputs === false) setView("document");
-  }, [hasOutputs]);
+    if (!wide || hasOutputs === false) {
+      setChoiceId((current) => (current === "ribbons" ? "freeform" : current));
+    }
+  }, [wide, hasOutputs]);
 
+
+  // What this project declares. A folder can hold layouts; a document view is
+  // still in a folder, so the same choices are offered here.
+  useEffect(() => {
+    let live = true;
+    api.projects().then(
+      async (projects) => {
+        const project = projects[0];
+        if (!project) return;
+        const docs = await api.projectDocs(project.id).catch(() => []);
+        const sources = await Promise.all(
+          docs.map(async (entry) => ({
+            path: entry.path,
+            source: await api.doc(entry.id).then((d) => d.source).catch(() => ""),
+          })),
+        );
+        if (!live) return;
+        // `layoutsFor` puts Freeform first; the built-ins are added beside it
+        // in `choices`, so only the declared ones are kept here.
+        setDeclared(layoutsFor(sources).filter((entry) => entry.source));
+      },
+      () => {},
+    );
+    return () => {
+      live = false;
+    };
+  }, [docId]);
 
   // Live run events: append to the matching cell's transcript.
   useEffect(() => {
@@ -327,14 +370,64 @@ export function DocumentView({ docId }: { docId: string }) {
     return () => clearTimeout(timer);
   }, [dirtySource, doc?.source, docId]);
 
-  // Spans arriving from provenance / source-edit responses are BYTE offsets
-  // into the doc source; the editor selects by char position.
-  const onSelectSpan = (span: [number, number]) => {
-    setView((v) => (v === "split" ? v : "document"));
-    setSelectSpan(
-      doc ? [byteToChar(doc.source, span[0]), byteToChar(doc.source, span[1])] : span,
-    );
-  };
+  // ---- the shell ----------------------------------------------------------
+  //
+  // Freeform and the ribbons view are built in; everything else is a document
+  // in this project that declared regions. The picker lists them together
+  // because to a person they are the same kind of choice.
+  const choices: LayoutChoice[] = useMemo(() => {
+    const builtIn: LayoutChoice[] = [
+      {
+        id: "freeform",
+        name: "Freeform",
+        detail: "One pane. Split it, fill it with tabs, arrange it yourself.",
+        build: freeform,
+      },
+      {
+        id: "ribbons",
+        name: "Document & outputs",
+        detail: "The document, its files, and ribbons drawing what came from where.",
+        build: freeform,
+      },
+    ];
+    return [...builtIn, ...declared];
+  }, [declared]);
+
+  const choice = choices.find((candidate) => candidate.id === choiceId) ?? choices[0];
+  const regions: Region[] = useMemo(() => choice.regions ?? [], [choice]);
+
+  // Picking a layout builds it and puts the document in it. A layout with
+  // regions puts it where its globs say; freeform puts it in the only pane
+  // there is.
+  useEffect(() => {
+    if (!doc) return;
+    const built = choice.build();
+    const target = paneFor(built, choice.regions ?? [], doc.path);
+    setLayout(openInLayout(built, makeTab("document", doc.path, doc.path.split("/").pop()), target));
+    // Rebuilt only when the CHOICE changes, never on every render: a layout is
+    // session state, and rebuilding it would throw away the arrangement the
+    // person just made.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [choiceId, doc?.path, choices.length]);
+
+  const openGenerated = useCallback(
+    (path: string) => {
+      setLayout((current) => {
+        const target = paneFor(current, regions, path);
+        return openInLayout(current, makeTab("generated", path, path.split("/").pop()), target);
+      });
+    },
+    [regions],
+  );
+
+  // A span arriving from provenance or an LSP hit indexes the document's
+  // BYTES; the editor selects by character.
+  const onSelectSpan = useCallback(
+    (span: [number, number]) => {
+      setSelectSpan(doc ? [byteToChar(doc.source, span[0]), byteToChar(doc.source, span[1])] : span);
+    },
+    [doc],
+  );
 
   // ---- editor intelligence ------------------------------------------------
   //
@@ -356,12 +449,11 @@ export function DocumentView({ docId }: { docId: string }) {
           // its own buffer, so carry them as a line-anchored span.
           span: [target.range.start.line, target.range.end.line],
         });
-        setView((v) => (v === "split" ? v : "output"));
+        openGenerated(path);
         return;
       }
       const from = positionToUtf16(liveSource, target.range.start);
       const to = positionToUtf16(liveSource, target.range.end);
-      setView((v) => (v === "split" ? v : "document"));
       setSelectSpan([from, Math.max(to, from)]);
     },
     [liveSource],
@@ -459,7 +551,7 @@ export function DocumentView({ docId }: { docId: string }) {
 
   return (
     <div
-      className={`doc-page with-chat${view === "document" ? "" : " wide-mode"}`}
+      className={`doc-page with-chat${choice.id === "freeform" ? "" : " wide-mode"}`}
     >
       <div className="doc-main">
         <header className="doc-toolbar">
@@ -468,39 +560,30 @@ export function DocumentView({ docId }: { docId: string }) {
           </button>
           <span className="doc-path mono">{doc.path}</span>
           <div className="toolbar-actions">
-            <div className="segmented" role="tablist">
-              <button
-                role="tab"
-                aria-selected={view === "document"}
-                className={view === "document" ? "on" : ""}
-                onClick={() => setView("document")}
+            {/* Only when there is a choice worth making. A control that
+                offers one option is a control that asks a question it already
+                knows the answer to. */}
+            {choices.length > 1 && (
+            <label className="layout-picker">
+              <span className="layout-picker__label">Layout</span>
+              <select
+                value={choice.id}
+                onChange={(event) => setChoiceId(event.target.value)}
+                title={choice.detail}
               >
-                Document
-              </button>
-              <button
-                role="tab"
-                aria-selected={view === "output"}
-                className={view === "output" ? "on" : ""}
-                disabled={hasOutputs === false}
-                title={hasOutputs === false ? "This document has no generated output yet" : undefined}
-                onClick={() => setView("output")}
-              >
-                Output
-              </button>
-              {wide && (
-                <button
-                  role="tab"
-                  aria-selected={view === "split"}
-                  className={view === "split" ? "on" : ""}
-                  disabled={hasOutputs === false}
-                  title={hasOutputs === false ? "This document has no generated output yet" : undefined}
-                  onClick={() => setView("split")}
-                >
-                  Split
-                </button>
-              )}
-            </div>
-            {view !== "output" && syncState !== "idle" && (
+                {choices.map((candidate) => (
+                  <option
+                    key={candidate.id}
+                    value={candidate.id}
+                    disabled={candidate.id === "ribbons" && (!wide || hasOutputs === false)}
+                  >
+                    {candidate.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            )}
+            {syncState !== "idle" && (
               <span
                 className={`save-state save-state-${syncState}`}
                 role="status"
@@ -508,6 +591,22 @@ export function DocumentView({ docId }: { docId: string }) {
               >
                 {syncState === "editing" ? "Saving…" : "Saved"}
               </span>
+            )}
+            {/* The way to find a generated file when nothing is arranged for
+                you. Absent rather than disabled when the document has not
+                generated anything: there is nothing to explain. */}
+            {hasOutputs && choice.id !== "ribbons" && (
+              <button
+                className="btn btn-quiet"
+                onClick={() =>
+                  setLayout((current) =>
+                    openInLayout(current, makeTab("tool", "outputs", "Outputs")),
+                  )
+                }
+                title="The files this document generates"
+              >
+                Outputs
+              </button>
             )}
             <button className="btn" disabled={runningCells.size > 0} onClick={() => void runAll()}>
               Run all
@@ -527,24 +626,10 @@ export function DocumentView({ docId }: { docId: string }) {
             Could not weave this document — editing still works. {renderError}
           </div>
         )}
-        {view === "document" ? (
-          <DocumentEditor
-            key={docId}
-            docId={docId}
-            initialSource={doc.source}
-            realtime={realtime}
-            onChange={setDirtySource}
-            selectSpan={selectSpan}
-            execBlocks={execBlocks}
-            runningCells={runningCells}
-            onRunCell={(id) => void runCell(id)}
-            lspExtensions={lspExtensions}
-            lspDiagnostics={lsp.diagnostics}
-            onViewReady={(view) => {
-              editorRef.current = view;
-            }}
-          />
-        ) : view === "split" ? (
+        {choice.id === "ribbons" ? (
+          // Kept whole: this is the one view that draws the ribbons between a
+          // document and the files it generates, and a pane cannot hold half
+          // of a relationship.
           <SplitView
             docId={docId}
             docPath={doc.path}
@@ -565,11 +650,49 @@ export function DocumentView({ docId }: { docId: string }) {
             }}
           />
         ) : (
-          <OutputView
-            docId={docId}
-            onSelectSpan={onSelectSpan}
-            makeOutputLsp={makeOutputLsp}
-            outputTarget={outputTarget}
+          <ShellView
+            layout={layout}
+            onLayout={setLayout}
+            empty={
+              <span>
+                Nothing open here.
+                <br />
+                Open a generated file from the Outputs tab, or split another pane.
+              </span>
+            }
+            render={(tab) => {
+              if (tab.kind === "document") {
+                return (
+                  <DocumentEditor
+                    key={docId}
+                    docId={docId}
+                    initialSource={doc.source}
+                    realtime={realtime}
+                    onChange={setDirtySource}
+                    selectSpan={selectSpan}
+                    execBlocks={execBlocks}
+                    runningCells={runningCells}
+                    onRunCell={(id) => void runCell(id)}
+                    lspExtensions={lspExtensions}
+                    lspDiagnostics={lsp.diagnostics}
+                    onViewReady={(view) => {
+                      editorRef.current = view;
+                    }}
+                  />
+                );
+              }
+              if (tab.kind === "generated") {
+                return (
+                  <GeneratedFileView
+                    docId={docId}
+                    path={tab.target}
+                    makeOutputLsp={makeOutputLsp}
+                    onSelectSpan={onSelectSpan}
+                  />
+                );
+              }
+              return <OutputsTool docId={docId} onOpen={openGenerated} />;
+            }}
           />
         )}
       </div>
@@ -584,7 +707,7 @@ export function DocumentView({ docId }: { docId: string }) {
       {/* The debugger. Below the editor rather than beside it: the editor
           carries the gutter, the paused line and the values, and this is the
           part that is left. */}
-      {view !== "output" && (
+      {(
         <DebugPanel
           status={debug.status}
           message={debug.message}

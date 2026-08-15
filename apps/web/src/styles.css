@@ -3291,3 +3291,184 @@ textarea:focus {
 }
 .lineage-kind.k-structural i { border-top-color: var(--ok); border-top-style: dotted; }
 .link-thread.k-structural, .link-brace.k-structural { stroke: var(--ok); stroke-dasharray: 2 3; }
+
+
+/* ---------------------------------------------------------------------------
+   The shell: tiles, tabs and dividers.
+
+   Modes are gone; what is on screen is either an arrangement a person built
+   (freeform) or one a document declared. See
+   docs/specs/freeform/shell-layouts.md.
+   --------------------------------------------------------------------------- */
+
+.shell {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+.shell > * { flex: 1; min-width: 0; min-height: 0; }
+
+.shell-split {
+  display: grid;
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
+}
+.shell-split--row { grid-auto-flow: column; }
+.shell-split--column { grid-auto-flow: row; }
+
+.shell-divider {
+  background: var(--border);
+  opacity: 0.6;
+  transition: opacity 120ms ease, background 120ms ease;
+}
+.shell-divider:hover,
+.shell-divider:active { background: var(--accent); opacity: 1; }
+.shell-divider--row { cursor: col-resize; }
+.shell-divider--column { cursor: row-resize; }
+
+.shell-pane {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  border: 1px solid transparent;
+  background: var(--bg);
+}
+/* The focused pane takes the next file and the keystrokes, so it has to be
+   the one you can see is focused. */
+.shell-pane--focus { border-color: color-mix(in srgb, var(--accent) 45%, transparent); }
+
+.shell-tabs {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.15rem 0.3rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-sunken);
+  min-height: 1.9rem;
+}
+.shell-region {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--fg-muted);
+  padding: 0 0.35rem;
+  border-right: 1px solid var(--border);
+}
+.shell-tabstrip {
+  display: flex;
+  gap: 0.15rem;
+  overflow-x: auto;
+  flex: 1;
+  scrollbar-width: none;
+}
+.shell-tabstrip::-webkit-scrollbar { display: none; }
+
+.shell-tab {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 5px;
+  white-space: nowrap;
+}
+.shell-tab button {
+  background: none;
+  border: 0;
+  color: var(--fg-muted);
+  font: inherit;
+  font-size: 0.78rem;
+  padding: 0.2rem 0.1rem 0.2rem 0.45rem;
+  cursor: pointer;
+}
+.shell-tab--on { background: var(--bg); box-shadow: inset 0 -2px 0 var(--accent); }
+.shell-tab--on button { color: var(--fg); }
+.shell-tab__close {
+  opacity: 0;
+  padding: 0.2rem 0.35rem 0.2rem 0.2rem !important;
+  transition: opacity 120ms ease;
+}
+.shell-tab:hover .shell-tab__close,
+.shell-tab--on .shell-tab__close { opacity: 0.6; }
+.shell-tab__close:hover { opacity: 1 !important; }
+
+.shell-pane__controls { display: flex; gap: 0.1rem; }
+.shell-pane__controls button {
+  background: none;
+  border: 0;
+  color: var(--fg-muted);
+  cursor: pointer;
+  font-size: 0.8rem;
+  padding: 0.15rem 0.3rem;
+  border-radius: 4px;
+}
+.shell-pane__controls button:hover { background: var(--bg); color: var(--fg); }
+
+.shell-pane__body { flex: 1; min-height: 0; overflow: auto; display: flex; flex-direction: column; }
+.shell-pane__body > * { flex: 1; min-height: 0; }
+.shell-pane__empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--fg-muted);
+  font-size: 0.85rem;
+  padding: 1rem;
+  text-align: center;
+}
+
+/* The layout picker: quiet, and only present when there is a choice. */
+.layout-picker {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.78rem;
+  color: var(--fg-muted);
+}
+.layout-picker__label { text-transform: uppercase; letter-spacing: 0.07em; font-size: 0.65rem; }
+.layout-picker select {
+  font: inherit;
+  font-size: 0.8rem;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 0.15rem 0.35rem;
+}
+
+/* A generated file in a pane, with where-it-came-from under it. */
+.generated-view { display: flex; flex-direction: column; min-height: 0; flex: 1; }
+.generated-view > .output-editor { flex: 1; min-height: 0; }
+.generated-view__lineage {
+  border-top: 1px solid var(--border);
+  padding: 0.25rem 0.6rem;
+  font-size: 0.72rem;
+  color: var(--fg-muted);
+  background: var(--bg-sunken);
+}
+.generated-view__lineage button {
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  color: var(--accent);
+  cursor: pointer;
+}
+.generated-view__lineage button:disabled { color: var(--fg-muted); cursor: default; }
+
+/* The outputs tool: a list, in a pane, not a dock. */
+.outputs-tool { list-style: none; margin: 0; padding: 0.4rem; }
+.outputs-tool__file {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: 0;
+  color: var(--fg-muted);
+  font-size: 0.8rem;
+  padding: 0.25rem 0.4rem;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.outputs-tool__file:hover { background: var(--bg-sunken); color: var(--fg); }
+.outputs-tool__file.on { color: var(--accent); }
+.outputs-tool__empty { padding: 1rem; }
