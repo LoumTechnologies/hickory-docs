@@ -16,7 +16,15 @@ import {
 import { lspFeatures } from "../lsp/cmLspFeatures";
 import { useDebugger } from "../debug/useDebugger";
 import { DebugPanel } from "../debug/DebugPanel";
-import { debugEditor, setBreakpointMarks, setInlineValues, setPausedLine } from "../debug/cmDebug";
+import {
+  debugEditor,
+  revealLine,
+  stackMarksOf,
+  setBreakpointMarks,
+  setInlineValues,
+  setPausedLine,
+  setStackMarks,
+} from "../debug/cmDebug";
 import { positionToUtf16 } from "../lsp/positions";
 import { sourcePositionAt, type OutputProvenance } from "../lsp/outputMapping";
 import type { LspLocation } from "../lsp/client";
@@ -126,9 +134,12 @@ export function DocumentView({ docId }: { docId: string }) {
         ),
         setPausedLine.of(debug.pausedLine),
         setInlineValues.of(debug.variables),
+        // The rest of the stack, in the gutter: every frame below the one
+        // execution is stopped at, on the line it will return to.
+        setStackMarks.of(stackMarksOf(debug.frames, debug.pausedLine)),
       ],
     });
-  }, [debug.breakpoints, debug.pausedLine, debug.variables]);
+  }, [debug.breakpoints, debug.pausedLine, debug.variables, debug.frames]);
 
   // Run events arrive in bursts (one terminal message per run, plus the
   // `verify` fallback path), and each used to trigger its own full render.
@@ -581,7 +592,16 @@ export function DocumentView({ docId }: { docId: string }) {
           frames={debug.frames}
           variables={debug.variables}
           selectedFrame={debug.selectedFrame}
-          onSelectFrame={debug.selectFrame}
+          onSelectFrame={(id) => {
+            debug.selectFrame(id);
+            // Selecting a frame is asking to go there — and a jump with no
+            // sign of having moved leaves you hunting for what changed.
+            const frame = debug.frames.find((candidate) => candidate.id === id);
+            const view = editorRef.current;
+            if (view && frame?.line !== null && frame?.line !== undefined) {
+              revealLine(view, frame.line);
+            }
+          }}
           onStep={debug.step}
           onJumpHere={() => {
             // "Move here" acts on the caret, which is how a person says

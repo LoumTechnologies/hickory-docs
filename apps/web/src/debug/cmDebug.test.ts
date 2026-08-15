@@ -1,9 +1,28 @@
 import { EditorState, Text } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
-import { describe, expect, it } from "vitest";
-import { debugEditor, inlinePlacements, setBreakpointMarks, setPausedLine } from "./cmDebug";
+import { beforeAll, describe, expect, it } from "vitest";
+import {
+  debugEditor,
+  inlinePlacements,
+  revealLine,
+  setBreakpointMarks,
+  setPausedLine,
+  setStackMarks,
+  stackMarksOf,
+} from "./cmDebug";
 import { backwardsControl, type DebugCapabilities } from "./client";
 import { identifierAt } from "../lsp/cmLsp";
+
+// CodeMirror measures text when asked to scroll somewhere, and jsdom has no
+// layout: `Range.getClientRects` is missing entirely, and the failure surfaces
+// as an unhandled error from an animation frame AFTER the test that caused it.
+beforeAll(() => {
+  if (!Range.prototype.getClientRects) {
+    Range.prototype.getClientRects = () =>
+      Object.assign([], { item: () => null }) as unknown as DOMRectList;
+    Range.prototype.getBoundingClientRect = () => new DOMRect();
+  }
+});
 
 const DOC = Text.of([
   "def line_total(quantity, unit_price):",
@@ -213,5 +232,122 @@ describe("the gutter is findable before it holds anything", () => {
     const gutters = view.dom.querySelectorAll(".cm-breakpoint-gutter .cm-bp-ghost");
     expect(gutters.length).toBeGreaterThan(0);
     view.destroy();
+  });
+});
+
+
+describe("the stack, in the gutter", () => {
+  const open = () => {
+    const extensions = debugEditor({ onToggleBreakpoint: () => {} });
+    const state = EditorState.create({
+      doc: "def a():\n    b()\n\ndef b():\n    x = 1\n\na()\n",
+      extensions,
+    });
+    return new EditorView({ state });
+  };
+
+  it("marks each caller's line, and not the one it is stopped at", () => {
+    const view = open();
+    view.dispatch({
+      effects: [
+        setPausedLine.of(4),
+        setStackMarks.of([
+          { line: 1, name: "a", depth: 1 },
+          { line: 6, name: "<module>", depth: 2 },
+        ]),
+      ],
+    });
+
+    const frames = [...view.dom.querySelectorAll(".cm-frame-arrow")];
+    expect(frames.length).toBe(2);
+    expect((frames[0] as HTMLElement).title).toBe("Called from a");
+    expect((frames[1] as HTMLElement).title).toContain("2 frames up");
+    // The paused line keeps the solid arrow; a caller never gets one.
+    expect(view.dom.querySelectorAll(".cm-paused-arrow").length).toBe(1);
+    view.destroy();
+  });
+
+  it("keeps a breakpoint visible where a caller's line also has one", () => {
+    // The breakpoint is the thing you can act on; the frame mark is context.
+    const view = open();
+    view.dispatch({
+      effects: [
+        setBreakpointMarks.of([{ line: 1, verified: true, conditional: false }]),
+        setStackMarks.of([{ line: 1, name: "a", depth: 1 }]),
+      ],
+    });
+    expect(view.dom.querySelectorAll(".cm-bp").length).toBe(1);
+    expect(view.dom.querySelectorAll(".cm-frame-arrow").length).toBe(0);
+    view.destroy();
+  });
+
+  it("flashes the line it moves to, then stops", async () => {
+    const view = open();
+    revealLine(view, 3, 20);
+    expect(view.dom.querySelectorAll(".cm-flash-line").length).toBe(1);
+    // The caret moves too, so the keyboard follows the eye.
+    expect(view.state.doc.lineAt(view.state.selection.main.head).number).toBe(4);
+
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    expect(view.dom.querySelectorAll(".cm-flash-line").length).toBe(0);
+    view.destroy();
+  });
+
+  it("ignores a line that is not in the document", () => {
+    // A frame in a library file has no line here, and asking for one must not
+    // throw in the middle of a step.
+    const view = open();
+    expect(() => revealLine(view, 9_000)).not.toThrow();
+    expect(view.dom.querySelectorAll(".cm-flash-line").length).toBe(0);
+    view.destroy();
+  });
+});
+
+
+describe("which frames become gutter marks", () => {
+  // The real shape, as the engine sends it: paused inside `line_total`,
+  // called from a generator expression, from `order_total`, from the module.
+  const FRAMES = [
+    { id: 2, name: "line_total", line: 28, source: "orders.py", in_document: true },
+    { id: 3, name: "<genexpr>", line: 35, source: "orders.py", in_document: true },
+    { id: 4, name: "order_total", line: 35, source: "orders.py", in_document: true },
+    { id: 5, name: "<module>", line: 39, source: "orders.py", in_document: true },
+  ];
+
+  it("marks the callers, not the line execution is on", () => {
+    const marks = stackMarksOf(FRAMES, 28);
+    expect(marks.map((m) => m.line)).toEqual([35, 39]);
+    expect(marks[0]).toMatchObject({ name: "<genexpr>", depth: 1 });
+    expect(marks[1]).toMatchObject({ name: "<module>", depth: 3 });
+  });
+
+  it("keeps the nearer frame when two share a line", () => {
+    // `<genexpr>` and `order_total` are both on line 35; one arrow, and it
+    // names the frame you would step out into first.
+    expect(stackMarksOf(FRAMES, 28).filter((m) => m.line === 35)).toHaveLength(1);
+  });
+
+  it("skips frames outside the document and frames with no line", () => {
+    const marks = stackMarksOf(
+      [
+        { id: 1, name: "top", line: 1, source: "orders.py", in_document: true },
+        { id: 2, name: "json.loads", line: null, source: "json/__init__.py", in_document: false },
+        { id: 3, name: "runner", line: null, source: "orders.py", in_document: true },
+        { id: 4, name: "main", line: 9, source: "orders.py", in_document: true },
+      ],
+      1,
+    );
+    expect(marks.map((m) => m.name)).toEqual(["main"]);
+  });
+
+  it("marks nothing when the stack is one frame deep", () => {
+    expect(
+      stackMarksOf([{ id: 1, name: "<module>", line: 3, source: "orders.py", in_document: true }], 3),
+    ).toEqual([]);
+  });
+
+  it("still marks a caller when nothing is paused", () => {
+    // Selecting a frame moves the paused marker; the rest stay callers.
+    expect(stackMarksOf(FRAMES, null).map((m) => m.line)).toEqual([35, 39]);
   });
 });

@@ -30,7 +30,7 @@ import {
   lineNumbers,
 } from "@codemirror/view";
 import type { DecorationSet } from "@codemirror/view";
-import type { Variable } from "./client";
+import type { Frame, Variable } from "./client";
 
 /** One gutter dot. */
 export interface BreakpointMark {
@@ -46,9 +46,45 @@ function isBroken(mark: BreakpointMark): boolean {
   return !mark.verified && !!mark.message;
 }
 
+/** One line of the call stack below the one execution is stopped at. */
+export interface StackMark {
+  line: number;
+  /** The function whose frame this is, for the tooltip. */
+  name: string;
+  /** 1 for the caller, 2 for its caller, and so on. */
+  depth: number;
+}
+
+/**
+ * The callers to mark, from the stack the debugger reported.
+ *
+ * The top frame is where execution IS — that one is the paused arrow, and
+ * repeating it as a caller would say the program is in two places. Frames
+ * outside this document have no line here. And when two frames share a line —
+ * a generator expression and the function that drives it — the nearer one
+ * wins, because the tooltip should name the frame you would step out into
+ * first.
+ */
+export function stackMarksOf(frames: readonly Frame[], pausedLine: number | null): StackMark[] {
+  const out: StackMark[] = [];
+  const seen = new Set<number>();
+  frames.slice(1).forEach((frame, index) => {
+    const line = frame.line;
+    if (line === null || line === undefined) return;
+    if (!frame.in_document) return;
+    if (line === pausedLine || seen.has(line)) return;
+    seen.add(line);
+    out.push({ line, name: frame.name, depth: index + 1 });
+  });
+  return out;
+}
+
 export const setBreakpointMarks = StateEffect.define<BreakpointMark[]>();
 export const setPausedLine = StateEffect.define<number | null>();
 export const setInlineValues = StateEffect.define<Variable[]>();
+export const setStackMarks = StateEffect.define<StackMark[]>();
+/** Flash a line, to say "here" after moving somewhere. */
+export const flashLine = StateEffect.define<number | null>();
 
 // --- the gutter -------------------------------------------------------------
 
@@ -103,6 +139,32 @@ class PausedMarker extends GutterMarker {
 }
 
 /**
+ * A caller's line: where execution will return to.
+ *
+ * The stack is the way out of where you are, and reading it only as a list in
+ * a panel means holding two pictures at once — the list, and where those lines
+ * are in the document. A hollow arrow beside each caller puts the stack in the
+ * one place the code already is.
+ */
+class FrameMarker extends GutterMarker {
+  constructor(private readonly mark: StackMark) {
+    super();
+  }
+  eq(other: FrameMarker) {
+    return other.mark.depth === this.mark.depth && other.mark.name === this.mark.name;
+  }
+  toDOM() {
+    const arrow = document.createElement("span");
+    arrow.className = "cm-frame-arrow";
+    arrow.title =
+      this.mark.depth === 1
+        ? `Called from ${this.mark.name}`
+        : `${this.mark.depth} frames up: ${this.mark.name}`;
+    return arrow;
+  }
+}
+
+/**
  * Paused *on* a breakpoint: both, stacked.
  *
  * Showing only the arrow loses the fact that there is a breakpoint here —
@@ -140,6 +202,16 @@ const breakpointField = StateField.define<BreakpointMark[]>({
   },
 });
 
+const stackField = StateField.define<StackMark[]>({
+  create: () => [],
+  update(marks, tr) {
+    for (const effect of tr.effects) {
+      if (effect.is(setStackMarks)) return effect.value;
+    }
+    return marks;
+  },
+});
+
 const pausedField = StateField.define<number | null>({
   create: () => null,
   update(line, tr) {
@@ -157,6 +229,47 @@ const pausedHighlight = EditorView.decorations.compute([pausedField], (state) =>
   const from = state.doc.line(line + 1).from;
   return Decoration.set([Decoration.line({ class: "cm-paused-line" }).range(from)]);
 });
+
+const flashField = StateField.define<number | null>({
+  create: () => null,
+  update(line, tr) {
+    for (const effect of tr.effects) {
+      if (effect.is(flashLine)) return effect.value;
+    }
+    return line;
+  },
+});
+
+/** The brief tint that says "here" after moving to another frame's line. */
+const flashHighlight = EditorView.decorations.compute([flashField], (state) => {
+  const line = state.field(flashField);
+  if (line === null || line < 0 || line >= state.doc.lines) return Decoration.none;
+  const from = state.doc.line(line + 1).from;
+  return Decoration.set([Decoration.line({ class: "cm-flash-line" }).range(from)]);
+});
+
+/**
+ * Go to a line and say so.
+ *
+ * Scrolling somewhere silently leaves the person to find what changed; a
+ * flash that fades tells them where they landed without leaving a mark that
+ * competes with the paused line a second later.
+ */
+export function revealLine(view: EditorView, line: number, holdMs = 900): void {
+  if (line < 0 || line >= view.state.doc.lines) return;
+  const at = view.state.doc.line(line + 1).from;
+  view.dispatch({
+    selection: { anchor: at },
+    scrollIntoView: true,
+    effects: flashLine.of(line),
+  });
+  window.setTimeout(() => {
+    // Only clear our own flash: another line may have been revealed since.
+    if (view.state.field(flashField, false) === line) {
+      view.dispatch({ effects: flashLine.of(null) });
+    }
+  }, holdMs);
+}
 
 // --- inline values ----------------------------------------------------------
 
@@ -309,7 +422,10 @@ export function debugEditor(options: DebugEditorOptions): Extension[] {
     lineNumbers(),
     breakpointField,
     pausedField,
+    stackField,
+    flashField,
     pausedHighlight,
+    flashHighlight,
     inlineField,
     gutter({
       class: "cm-breakpoint-gutter",
@@ -329,6 +445,9 @@ export function debugEditor(options: DebugEditorOptions): Extension[] {
         if (paused && mark) return new PausedAtBreakpointMarker(mark);
         if (paused) return PAUSED_MARKER;
         if (mark) return new DotMarker(mark);
+        // A caller's line, when nothing louder is on it: the way out of here.
+        const frame = view.state.field(stackField).find((f) => f.line === line);
+        if (frame) return new FrameMarker(frame);
         // Nothing here yet: an invisible target, so the strip can be found
         // and clicked before it holds anything.
         return HOVER_TARGET;
@@ -347,7 +466,8 @@ export function debugEditor(options: DebugEditorOptions): Extension[] {
       // keystroke rather than on the click that set it.
       lineMarkerChange: (update) =>
         update.startState.field(breakpointField) !== update.state.field(breakpointField) ||
-        update.startState.field(pausedField) !== update.state.field(pausedField),
+        update.startState.field(pausedField) !== update.state.field(pausedField) ||
+        update.startState.field(stackField) !== update.state.field(stackField),
       domEventHandlers: {
         mousedown(view, block, event) {
           options.onToggleBreakpoint(lineAtEvent(view, block, event));

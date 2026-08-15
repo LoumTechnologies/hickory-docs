@@ -1775,6 +1775,39 @@ textarea:focus {
   filter: drop-shadow(0 0 1px var(--bg)) drop-shadow(0 0 1px var(--bg));
 }
 
+/* A caller's line: the same arrow, hollow and quiet. It says "execution came
+   through here and will come back", which is not the same claim as "execution
+   is here now" — so it must not compete with the solid one. */
+.cm-frame-arrow {
+  display: inline-block;
+  width: 0;
+  height: 0;
+  margin-top: 0.3rem;
+  border-left: 0.4rem solid color-mix(in srgb, var(--accent-2) 45%, transparent);
+  border-top: 0.28rem solid transparent;
+  border-bottom: 0.28rem solid transparent;
+}
+
+/* The flash after moving to a frame. It fades, because a highlight that stays
+   becomes a second paused line. */
+.cm-flash-line {
+  background: color-mix(in srgb, var(--accent-2) 22%, transparent);
+  animation: hick-flash 900ms ease-out;
+}
+@keyframes hick-flash {
+  from {
+    background: color-mix(in srgb, var(--accent-2) 38%, transparent);
+  }
+  to {
+    background: color-mix(in srgb, var(--accent-2) 8%, transparent);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .cm-flash-line {
+    animation: none;
+  }
+}
+
 .cm-paused-line {
   background: color-mix(in srgb, var(--accent-2) 12%, transparent);
 }
