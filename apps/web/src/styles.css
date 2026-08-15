@@ -1734,6 +1734,30 @@ textarea:focus {
   border-top: 0.35rem solid transparent;
   border-bottom: 0.35rem solid transparent;
 }
+/* Paused on a line that also has a breakpoint: the arrow sits over the dot,
+   so neither fact is lost. Both keep their own shape — the dot still shows
+   whether it is verified or conditional, and the arrow still points. */
+.cm-bp-stack {
+  position: relative;
+  display: inline-block;
+  width: 0.6rem;
+  height: 0.6rem;
+  margin-top: 0.35rem;
+}
+.cm-bp-stack .cm-bp {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+}
+.cm-bp-stack .cm-paused-arrow {
+  position: absolute;
+  left: 0.12rem;
+  top: 0;
+  margin: 0;
+  /* Read over a red dot: the arrow keeps a hairline of the page behind it. */
+  filter: drop-shadow(0 0 1px var(--bg)) drop-shadow(0 0 1px var(--bg));
+}
+
 .cm-paused-line {
   background: color-mix(in srgb, var(--accent-2) 12%, transparent);
 }

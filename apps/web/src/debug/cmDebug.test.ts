@@ -156,6 +156,33 @@ describe("the gutter is findable before it holds anything", () => {
     view.destroy();
   });
 
+  it("shows the breakpoint and the arrow when it is stopped on one", () => {
+    // Showing only the arrow loses the breakpoint: continuing then appears to
+    // stop for no reason, and the dot you would click to remove it is gone.
+    const extensions = debugEditor({ onToggleBreakpoint: () => {} });
+    const state = EditorState.create({ doc: "a = 1\nb = 2\n", extensions });
+    const view = new EditorView({ state });
+    view.dispatch({
+      effects: [
+        setBreakpointMarks.of([{ line: 0, verified: true, conditional: false }]),
+        setPausedLine.of(0),
+      ],
+    });
+
+    const stack = view.dom.querySelector(".cm-bp-stack");
+    expect(stack).not.toBeNull();
+    expect(stack?.querySelector(".cm-bp")).not.toBeNull();
+    expect(stack?.querySelector(".cm-paused-arrow")).not.toBeNull();
+    // And the dot keeps saying what kind of breakpoint it is.
+    view.dispatch({
+      effects: setBreakpointMarks.of([{ line: 0, verified: false, conditional: true }]),
+    });
+    const dot = view.dom.querySelector(".cm-bp-stack .cm-bp");
+    expect(dot?.className).toContain("cm-bp-unverified");
+    expect(dot?.className).toContain("cm-bp-conditional");
+    view.destroy();
+  });
+
   it("puts a marker on every line, not only lines with breakpoints", () => {
     // The first breakpoint is the one nobody can set: with markers only where
     // breakpoints already are, the strip is invisible and "click the gutter"

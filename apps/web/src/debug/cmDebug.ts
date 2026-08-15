@@ -47,6 +47,30 @@ export const setInlineValues = StateEffect.define<Variable[]>();
 
 // --- the gutter -------------------------------------------------------------
 
+/** The red dot on its own. */
+function dotElement(mark: BreakpointMark): HTMLElement {
+  const dot = document.createElement("span");
+  dot.className =
+    "cm-bp" +
+    (mark.verified ? "" : " cm-bp-unverified") +
+    (mark.conditional ? " cm-bp-conditional" : "");
+  // The reason a hollow dot is hollow. Without this, an unbindable
+  // breakpoint is a mystery rather than a message.
+  dot.title = mark.message
+    ? mark.message
+    : mark.conditional
+      ? "Conditional breakpoint"
+      : "Breakpoint";
+  return dot;
+}
+
+function arrowElement(): HTMLElement {
+  const arrow = document.createElement("span");
+  arrow.className = "cm-paused-arrow";
+  arrow.title = "Execution is paused here";
+  return arrow;
+}
+
 class DotMarker extends GutterMarker {
   constructor(private readonly mark: BreakpointMark) {
     super();
@@ -58,28 +82,41 @@ class DotMarker extends GutterMarker {
     );
   }
   toDOM() {
-    const dot = document.createElement("span");
-    dot.className =
-      "cm-bp" +
-      (this.mark.verified ? "" : " cm-bp-unverified") +
-      (this.mark.conditional ? " cm-bp-conditional" : "");
-    // The reason a hollow dot is hollow. Without this, an unbindable
-    // breakpoint is a mystery rather than a message.
-    dot.title = this.mark.message
-      ? this.mark.message
-      : this.mark.conditional
-        ? "Conditional breakpoint"
-        : "Breakpoint";
-    return dot;
+    return dotElement(this.mark);
   }
 }
 
 class PausedMarker extends GutterMarker {
   toDOM() {
-    const arrow = document.createElement("span");
-    arrow.className = "cm-paused-arrow";
-    arrow.title = "Execution is paused here";
-    return arrow;
+    return arrowElement();
+  }
+}
+
+/**
+ * Paused *on* a breakpoint: both, stacked.
+ *
+ * Showing only the arrow loses the fact that there is a breakpoint here —
+ * so continuing appears to stop for no reason, and the person cannot see the
+ * dot they would click to remove. JetBrains draws the arrow over the dot, and
+ * the two read as one thing: "stopped, at a breakpoint you set".
+ */
+class PausedAtBreakpointMarker extends GutterMarker {
+  constructor(private readonly mark: BreakpointMark) {
+    super();
+  }
+  eq(other: PausedAtBreakpointMarker) {
+    return (
+      other.mark.verified === this.mark.verified &&
+      other.mark.conditional === this.mark.conditional
+    );
+  }
+  toDOM() {
+    const stack = document.createElement("span");
+    stack.className = "cm-bp-stack";
+    stack.title = "Paused at a breakpoint";
+    stack.appendChild(dotElement(this.mark));
+    stack.appendChild(arrowElement());
+    return stack;
   }
 }
 
@@ -277,8 +314,10 @@ export function debugEditor(options: DebugEditorOptions): Extension[] {
       // its number is in, so the two cannot drift apart.
       lineMarker: (view, block) => {
         const line = view.state.doc.lineAt(block.from).number - 1;
-        if (view.state.field(pausedField) === line) return PAUSED_MARKER;
+        const paused = view.state.field(pausedField) === line;
         const mark = view.state.field(breakpointField).find((m) => m.line === line);
+        if (paused && mark) return new PausedAtBreakpointMarker(mark);
+        if (paused) return PAUSED_MARKER;
         if (mark) return new DotMarker(mark);
         // Nothing here yet: an invisible target, so the strip can be found
         // and clicked before it holds anything.
