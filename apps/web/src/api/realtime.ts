@@ -55,6 +55,9 @@ export interface Realtime {
  * Real WebSocket implementation. The doc name (`doc:<id>`) is conveyed as a
  * query parameter since the framed protocol itself carries no doc name.
  */
+/** How many refused connections before a room is treated as unavailable. */
+const REFUSALS_BEFORE_GIVING_UP = 3;
+
 export class WsRealtime implements Realtime {
   /** The server seeds the room from `docs.source`; never seed from here. */
   readonly serverAuthoritative = true;
@@ -64,6 +67,10 @@ export class WsRealtime implements Realtime {
   private doc: Y.Doc | null = null;
   private awareness: Awareness | null = null;
   private closed = false;
+  /** Whether a connection has ever succeeded, which decides whether a close
+      is a refusal or a drop. */
+  private everOpened = false;
+  private refusals = 0;
   private queue: Uint8Array[] = [];
   private lspChannel: LspChannel | null = null;
 
@@ -80,12 +87,26 @@ export class WsRealtime implements Realtime {
     ws.binaryType = "arraybuffer";
     this.ws = ws;
     ws.onopen = () => {
+      this.everOpened = true;
+      this.refusals = 0;
       for (const frame of this.queue.splice(0)) ws.send(frame);
       if (this.doc && this.awareness) this.sendSyncStep1();
     };
     ws.onmessage = (ev) => this.handleFrame(new Uint8Array(ev.data as ArrayBuffer));
     ws.onclose = () => {
-      if (!this.closed) setTimeout(() => this.connect(), 1500);
+      if (this.closed) return;
+      // A room the server refuses is refused forever: retrying it every 1.5
+      // seconds fills the console with hundreds of identical failures and
+      // buries whatever went wrong for real. A room that was open and then
+      // dropped is a different thing — that one is worth reconnecting.
+      if (!this.everOpened && ++this.refusals >= REFUSALS_BEFORE_GIVING_UP) {
+        this.closed = true;
+        console.warn(
+          `hickory: the server would not open the room "${this.docName}"; not retrying.`,
+        );
+        return;
+      }
+      setTimeout(() => this.connect(), 1500);
     };
   }
 

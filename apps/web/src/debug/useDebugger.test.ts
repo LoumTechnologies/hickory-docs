@@ -160,6 +160,58 @@ describe("the debugger, over the socket", () => {
     expect(hook.result.current.message).toContain("no debug adapter");
   });
 
+  it("asks only about names the frame has", async () => {
+    // Hovering prose, a tag name or a comment used to send the word to the
+    // debugger and get a `NameError` back — an error about our question, not
+    // about the program.
+    const { socket, hook } = open();
+    act(() => hook.result.current.start());
+    act(() => socket.deliver(STARTED));
+    act(() => socket.deliver(STOPPED));
+    const before = socket.sent.length;
+
+    await act(async () => {
+      expect(await hook.result.current.valueAt("order")).toBeNull();
+      expect(await hook.result.current.valueAt("hick:file")).toBeNull();
+    });
+    expect(socket.sent.length).toBe(before);
+
+    // A name that IS in the frame goes out, attribute access included.
+    void hook.result.current.valueAt("quantity");
+    void hook.result.current.valueAt("quantity.bit_length");
+    expect(socket.sent.slice(before)).toEqual([
+      { op: "eval", session: "dbg-0", expression: "quantity", context: "hover", frame: 2 },
+      {
+        op: "eval",
+        session: "dbg-0",
+        expression: "quantity.bit_length",
+        context: "hover",
+        frame: 2,
+      },
+    ]);
+  });
+
+  it("keeps a hover's failure out of the panel", async () => {
+    // The panel is for what happened to the program. An unanswerable hover
+    // resolves to nothing and the tooltip falls back to the type.
+    const { socket, hook } = open();
+    act(() => hook.result.current.start());
+    act(() => socket.deliver(STARTED));
+    act(() => socket.deliver(STOPPED));
+
+    let answered: string | null = "unset";
+    act(() => {
+      void hook.result.current.valueAt("quantity").then((v) => {
+        answered = v;
+      });
+    });
+    act(() => socket.deliver({ event: "failed", session: "dbg-0", message: "NameError: nope" }));
+    await waitFor(() => expect(answered).toBeNull());
+    expect(hook.result.current.message).toBeNull();
+    // And the session is still alive: a hover failing is not a session failing.
+    expect(hook.result.current.status).toBe("paused");
+  });
+
   it("goes back to idle when the session ends", async () => {
     const { socket, hook } = open();
     act(() => hook.result.current.start());

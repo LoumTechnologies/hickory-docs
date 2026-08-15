@@ -19,9 +19,16 @@
 // taller line is a ribbon pointing at the wrong place. Inline values are
 // inline widgets; the paused line is a background.
 
-import { RangeSet, RangeSetBuilder, StateEffect, StateField } from "@codemirror/state";
+import { RangeSetBuilder, StateEffect, StateField } from "@codemirror/state";
 import type { Extension } from "@codemirror/state";
-import { Decoration, EditorView, GutterMarker, WidgetType, gutter } from "@codemirror/view";
+import {
+  Decoration,
+  EditorView,
+  GutterMarker,
+  WidgetType,
+  gutter,
+  lineNumbers,
+} from "@codemirror/view";
 import type { DecorationSet } from "@codemirror/view";
 import type { Variable } from "./client";
 
@@ -204,6 +211,34 @@ export interface DebugEditorOptions {
   onToggleBreakpoint: (line: number) => void;
 }
 
+/** The paused arrow, which carries no state either. */
+const PAUSED_MARKER = new PausedMarker();
+
+/** An empty cell, so widget blocks take up a row here as they do beside. */
+const SPACER = new (class extends GutterMarker {
+  toDOM() {
+    return document.createElement("span");
+  }
+})();
+
+/**
+ * Which line a gutter click meant.
+ *
+ * The pointer's own position, not the block's start: this editor wraps long
+ * lines and replaces markup with widgets, so one gutter element can cover
+ * several rows of screen, and taking the block's first line puts the
+ * breakpoint above where the person clicked. The block is the fallback for a
+ * synthetic event with no coordinates.
+ */
+function lineAtEvent(view: EditorView, block: { from: number }, event: Event): number {
+  const mouse = event as MouseEvent;
+  if (typeof mouse.clientY === "number") {
+    const pos = view.posAtCoords({ x: view.contentDOM.getBoundingClientRect().left + 1, y: mouse.clientY }, false);
+    if (pos !== null) return view.state.doc.lineAt(pos).number - 1;
+  }
+  return view.state.doc.lineAt(block.from).number - 1;
+}
+
 /**
  * The empty-line marker: invisible until the pointer is over the gutter.
  *
@@ -220,52 +255,67 @@ const HOVER_TARGET = new (class extends GutterMarker {
 
 export function debugEditor(options: DebugEditorOptions): Extension[] {
   return [
+    // Numbers first, then the dots. Without them there is no way to say which
+    // line anything is on — and in a document whose editor hides and folds
+    // markup, "the fourth line I can see" is not the fourth line of the file,
+    // which is the only line number the debugger and the document agree on.
+    lineNumbers(),
     breakpointField,
     pausedField,
     pausedHighlight,
     inlineField,
     gutter({
       class: "cm-breakpoint-gutter",
-      markers: (view) => {
-        const marks = view.state.field(breakpointField);
-        const paused = view.state.field(pausedField);
-        const ranges: { from: number; value: GutterMarker }[] = [];
-        for (const mark of marks) {
-          if (mark.line < 0 || mark.line >= view.state.doc.lines) continue;
-          ranges.push({
-            from: view.state.doc.line(mark.line + 1).from,
-            value: new DotMarker(mark),
-          });
-        }
-        if (paused !== null && paused >= 0 && paused < view.state.doc.lines) {
-          ranges.push({
-            from: view.state.doc.line(paused + 1).from,
-            value: new PausedMarker(),
-          });
-        }
-        // RangeSet needs ascending order, and the paused line is appended
-        // last rather than in place.
-        ranges.sort((a, b) => a.from - b.from);
-        return RangeSet.of(
-          ranges.map((range) => range.value.range(range.from)),
-          true,
-        );
+      // Everything is drawn per LINE, not per position.
+      //
+      // A `markers` RangeSet places a marker at a document position, and
+      // CodeMirror puts it in whichever block contains that position. This
+      // editor renders markup as block widgets, so a line's start can belong
+      // to a widget's block — and the dot appears a row or two below the line
+      // it belongs to, which was measured in the running app: click line 29,
+      // dot on 31. `lineMarker` is handed each line's own cell, the same cell
+      // its number is in, so the two cannot drift apart.
+      lineMarker: (view, block) => {
+        const line = view.state.doc.lineAt(block.from).number - 1;
+        if (view.state.field(pausedField) === line) return PAUSED_MARKER;
+        const mark = view.state.field(breakpointField).find((m) => m.line === line);
+        if (mark) return new DotMarker(mark);
+        // Nothing here yet: an invisible target, so the strip can be found
+        // and clicked before it holds anything.
+        return HOVER_TARGET;
       },
-      // An empty gutter still has to be a gutter. Without a marker on every
-      // line there is nothing to aim at, and "click the gutter" is advice
-      // about a strip you cannot see: the first breakpoint is the one nobody
-      // can set. A hover-only ghost dot keeps it quiet and findable.
-      lineMarker: (_view, line) => (line.length >= 0 ? HOVER_TARGET : null),
+      // A cell for every widget block, too.
+      //
+      // This editor renders markup as block widgets, and a gutter that skips
+      // them ends up with FEWER cells than the line-number gutter beside it:
+      // 63 against 64, measured in the running app. Every marker below the
+      // first widget then sits one cell low — a red dot beside the next line
+      // down, and a paused arrow that points at the wrong line. An empty
+      // marker keeps the two gutters cell for cell.
+      widgetMarker: () => SPACER,
+      // Without this, line markers are recomputed only when the document or
+      // the viewport changes — so a breakpoint appeared on the next scroll or
+      // keystroke rather than on the click that set it.
+      lineMarkerChange: (update) =>
+        update.startState.field(breakpointField) !== update.state.field(breakpointField) ||
+        update.startState.field(pausedField) !== update.state.field(pausedField),
       domEventHandlers: {
-        mousedown(view, block) {
-          const line = view.state.doc.lineAt(block.from).number - 1;
-          options.onToggleBreakpoint(line);
+        mousedown(view, block, event) {
+          options.onToggleBreakpoint(lineAtEvent(view, block, event));
           return true;
         },
       },
     }),
     EditorView.theme({
       ".cm-breakpoint-gutter": { width: "1.1rem", cursor: "pointer" },
+      // One marker per cell, centred, and never wrapping: the alignment
+      // between a dot and its line is the whole contract of a gutter.
+      ".cm-breakpoint-gutter .cm-gutterElement": {
+        display: "flex",
+        justifyContent: "center",
+        alignItems: "flex-start",
+        overflow: "hidden",
+      },
     }),
   ];
 }

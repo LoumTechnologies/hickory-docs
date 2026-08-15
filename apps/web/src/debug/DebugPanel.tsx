@@ -87,9 +87,17 @@ export function DebugPanel(props: DebugPanelProps) {
           {props.status === "paused" && "paused"}
           {props.status === "finished" &&
             "the program ran to the end — set a breakpoint in the gutter and debug again"}
-          {props.message}
         </span>
       </header>
+
+      {/* Its own row, because it is a sentence. Appended to the status word it
+          read as "pausedthe debug adapter refused…", which is both unreadable
+          and the wrong weight: the status is a word, this is an explanation. */}
+      {props.message && (
+        <p className="debug-panel__error" role="alert">
+          {props.message}
+        </p>
+      )}
 
       {/* Why the editor has gone quiet. Values belong to a frame of a live
           process: when it ends there is nothing left to ask, and saying so

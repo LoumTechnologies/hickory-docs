@@ -1,7 +1,7 @@
 import { EditorState, Text } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { describe, expect, it } from "vitest";
-import { debugEditor, inlinePlacements } from "./cmDebug";
+import { debugEditor, inlinePlacements, setBreakpointMarks, setPausedLine } from "./cmDebug";
 import { backwardsControl, type DebugCapabilities } from "./client";
 import { identifierAt } from "../lsp/cmLsp";
 
@@ -131,6 +131,31 @@ describe("the editor state the debugger drives", () => {
 });
 
 describe("the gutter is findable before it holds anything", () => {
+  it("gives a line with a breakpoint exactly one marker", () => {
+    // The ghost and the dot share a cell one dot wide, so two markers wrap:
+    // the breakpoint renders on a second row inside the cell and reads as a
+    // dot beside the NEXT line. Measured in the running app before it was
+    // fixed; asserted here so it cannot come back.
+    const extensions = debugEditor({ onToggleBreakpoint: () => {} });
+    const state = EditorState.create({ doc: "a = 1\nb = 2\nc = 3\n", extensions });
+    const view = new EditorView({ state });
+    view.dispatch({ effects: setBreakpointMarks.of([{ line: 1, verified: true, conditional: false }]) });
+    view.dispatch({ effects: setPausedLine.of(2) });
+
+    const cells = [...view.dom.querySelectorAll(".cm-breakpoint-gutter .cm-gutterElement")];
+    for (const cell of cells) {
+      expect(cell.children.length).toBeLessThanOrEqual(1);
+    }
+    // And each state lands in the cell for its own line: the dot on the line
+    // with the breakpoint, the arrow on the paused one, nothing shared.
+    const marked = cells.filter((cell) => cell.querySelector(".cm-bp, .cm-paused-arrow"));
+    expect(marked.length).toBe(2);
+    // And the markers that matter are the ones drawn.
+    expect(view.dom.querySelectorAll(".cm-bp").length).toBe(1);
+    expect(view.dom.querySelectorAll(".cm-paused-arrow").length).toBe(1);
+    view.destroy();
+  });
+
   it("puts a marker on every line, not only lines with breakpoints", () => {
     // The first breakpoint is the one nobody can set: with markers only where
     // breakpoints already are, the strip is invisible and "click the gutter"

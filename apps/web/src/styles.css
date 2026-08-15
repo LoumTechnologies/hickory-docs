@@ -1738,6 +1738,16 @@ textarea:focus {
   background: color-mix(in srgb, var(--accent-2) 12%, transparent);
 }
 
+.debug-panel__error {
+  margin: 0;
+  padding: 0.4rem 0.75rem;
+  border-left: 3px solid var(--danger);
+  background: color-mix(in srgb, var(--danger) 8%, transparent);
+  color: var(--fg);
+  font-size: 0.85rem;
+  line-height: 1.4;
+}
+
 .debug-panel__hint {
   margin: 0;
   padding: 0.4rem 0.75rem 0.6rem;

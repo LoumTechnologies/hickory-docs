@@ -122,13 +122,17 @@ export function useDebugger(realtime: Realtime, docPath: string): DebugSession {
           setCapabilities(null);
           break;
         case "failed": {
-          setMessage(event.message);
-          // A failed STEP leaves the program where it was — still paused —
-          // so only a failure with no session at all is fatal to the UI.
-          if (!sessionRef.current) setStatus("failed");
           const stillWaiting = [...pendingValues.current.values()];
           pendingValues.current.clear();
           for (const resolve of stillWaiting) resolve(null);
+          // A hover that could not be answered is not news. It resolves to
+          // nothing and the tooltip shows the type alone; putting the
+          // adapter's `NameError` in the panel would report our own question
+          // back to the person as if their program were wrong.
+          if (stillWaiting.length === 0) setMessage(event.message);
+          // A failed STEP leaves the program where it was — still paused —
+          // so only a failure with no session at all is fatal to the UI.
+          if (!sessionRef.current) setStatus("failed");
           break;
         }
       }
@@ -220,6 +224,16 @@ export function useDebugger(realtime: Realtime, docPath: string): DebugSession {
   const valueAt = useCallback(
     (expression: string): Promise<string | null> => {
       if (!client || !sessionRef.current || status !== "paused") return Promise.resolve(null);
+      // Only names this frame has. The debugger is not a spell-checker: asking
+      // it about every word the pointer crosses — a word in the prose, a tag
+      // name, a comment — earns a `NameError` per hover, and the error is
+      // about our question rather than about the program. The frame's own
+      // variables are the static analysis that matters here, and they are
+      // already in hand.
+      const root = expression.split(/[.[]/)[0];
+      if (!variables.some((variable) => variable.name === root)) {
+        return Promise.resolve(null);
+      }
       return new Promise((resolve) => {
         pendingValues.current.set(expression, resolve);
         client.evaluate(sessionRef.current!, expression, "hover", selectedFrame ?? undefined);
@@ -230,7 +244,7 @@ export function useDebugger(realtime: Realtime, docPath: string): DebugSession {
         }, 2000);
       });
     },
-    [client, status, selectedFrame],
+    [client, status, selectedFrame, variables],
   );
 
   const selectFrame = useCallback(
