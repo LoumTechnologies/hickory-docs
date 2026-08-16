@@ -2105,7 +2105,7 @@ fn filter_conditionals(nodes: &mut Vec<HickNode>, state: &MultiDocumentState) {
 use text::{apply_exclusions, apply_substitutions_segmented, interpolate_path};
 
 /// Bridge from `text::TransformSegment` to `hick_flow::TransformSegment`.
-fn apply_substitutions_segmented_to_transform(
+pub(crate) fn apply_substitutions_segmented_to_transform(
     text: &str,
     state: &MultiDocumentState,
 ) -> Vec<TransformSegment> {

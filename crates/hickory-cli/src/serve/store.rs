@@ -25,7 +25,11 @@ use hickory_collab::{DocKey, DocStore};
 pub struct DocIndex {
     root: PathBuf,
     /// id → path relative to the root.
-    by_id: HashMap<String, String>,
+    ///
+    /// Behind a lock because a document can be created while the app is
+    /// running: the scan happens once at startup, and a new file that nothing
+    /// knows about is a file nothing can open.
+    by_id: std::sync::RwLock<HashMap<String, String>>,
 }
 
 impl DocIndex {
@@ -43,7 +47,7 @@ impl DocIndex {
         }
         Ok(Self {
             root: root.to_path_buf(),
-            by_id,
+            by_id: std::sync::RwLock::new(by_id),
         })
     }
 
@@ -52,8 +56,18 @@ impl DocIndex {
     }
 
     /// Relative path for a document id.
-    pub fn path_of(&self, id: &str) -> Option<&str> {
-        self.by_id.get(id).map(String::as_str)
+    pub fn path_of(&self, id: &str) -> Option<String> {
+        self.by_id.read().ok()?.get(id).cloned()
+    }
+
+    /// Remember a document created while the server was running, and return
+    /// its id.
+    pub fn add(&self, rel: &str) -> String {
+        let id = doc_id(rel);
+        if let Ok(mut map) = self.by_id.write() {
+            map.insert(id.clone(), rel.to_string());
+        }
+        id
     }
 
     /// Absolute path for a document id.
@@ -69,8 +83,10 @@ impl DocIndex {
 
     /// Every document, as `(id, relative path)`, sorted by path.
     pub fn entries(&self) -> Vec<(String, String)> {
-        let mut out: Vec<(String, String)> = self
-            .by_id
+        let Ok(map) = self.by_id.read() else {
+            return Vec::new();
+        };
+        let mut out: Vec<(String, String)> = map
             .iter()
             .map(|(id, rel)| (id.clone(), rel.clone()))
             .collect();

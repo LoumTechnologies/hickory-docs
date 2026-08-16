@@ -11,6 +11,7 @@ import { useCallback, useEffect, useRef, type ReactNode } from "react";
 
 import {
   activate,
+  closePane,
   closeTab,
   focus as focusPane,
   panes as panesOf,
@@ -225,6 +226,14 @@ function PaneBox({
             onClick={() => onLayout(split(layout, pane.id, "column"))}
           >
             ⇩
+          </button>
+          <button
+            type="button"
+            title="Close this pane"
+            aria-label="Close pane"
+            onClick={() => onLayout(closePane(layout, pane.id))}
+          >
+            ✕
           </button>
         </div>
       </header>

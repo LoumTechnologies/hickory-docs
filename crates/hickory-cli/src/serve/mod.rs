@@ -284,7 +284,10 @@ impl LocalState {
 fn router(state: LocalState) -> Router {
     let api = Router::new()
         .route("/projects", get(api::projects))
-        .route("/projects/{id}/docs", get(api::project_docs))
+        .route(
+            "/projects/{id}/docs",
+            get(api::project_docs).post(api::create_doc),
+        )
         .route("/docs/{id}", get(api::get_doc).put(api::put_doc))
         .route("/docs/{id}/render", get(api::render_doc))
         .route("/docs/{id}/outputs", get(api::list_outputs))

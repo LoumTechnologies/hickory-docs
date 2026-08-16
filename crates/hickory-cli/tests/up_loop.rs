@@ -35,6 +35,16 @@ if __name__ == "__main__":
 </hick:doc>
 "#;
 
+/// A document whose weave carries nothing a person wrote.
+///
+/// Prose in the weave is the document's prose and maps back to it, so a
+/// document WITH prose produces a mixed file — writable, protected per range.
+/// This one has none: its woven markdown is a generated heading and a fenced
+/// copy of a generated file, and every byte of it is synthetic.
+const GENERATED_ONLY: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="greeter.md"><hick:file path="greeter.py"><hick:val name="greeting" /></hick:file></hick:doc>
+"#;
+
 /// A `hick up` process that is killed when the test ends, however it ends.
 struct Loop {
     child: Child,
@@ -228,14 +238,31 @@ fn two_regions_edited_in_one_save_both_land() {
 }
 
 /// Guarantee: `docs/guarantees/authoring/a-generated-file-refuses-an-edit.md`
+///
+/// Property 1 of that guarantee: a file mixing document text with generated
+/// text stays WRITABLE, because marking it read-only would block the edits
+/// that are legal. Woven markdown is exactly such a file — its prose is the
+/// document's prose — so this is the case that says so.
+#[test]
+fn a_file_mixing_prose_with_generated_text_stays_writable() {
+    let up = Loop::start(DOC);
+    let woven_markdown = up.path("greeter.md");
+    let meta = std::fs::metadata(&woven_markdown).expect("stat");
+    assert!(
+        !meta.permissions().readonly(),
+        "woven markdown carries the document's prose, which is editable"
+    );
+}
+
+/// Guarantee: `docs/guarantees/authoring/a-generated-file-refuses-an-edit.md`
 #[test]
 fn a_fully_generated_file_is_read_only_and_restores_a_forced_edit() {
-    let mut up = Loop::start(DOC);
+    let mut up = Loop::start(GENERATED_ONLY);
     let woven_markdown = up.path("greeter.md");
 
     let before = up.wait_for(
         &woven_markdown,
-        |c| c.contains("# Greeter"),
+        |c| c.contains("greeter.py"),
         "the woven markdown was never written",
     );
 
@@ -259,11 +286,14 @@ fn a_fully_generated_file_is_read_only_and_restores_a_forced_edit() {
         p
     };
     std::fs::set_permissions(&woven_markdown, perms).expect("chmod");
-    save_atomically(&woven_markdown, &before.replace("# Greeter", "# Tampered"));
+    save_atomically(
+        &woven_markdown,
+        &before.replace("greeter.py", "tampered.py"),
+    );
 
     let restored = up.wait_for(
         &woven_markdown,
-        |c| !c.contains("# Tampered"),
+        |c| !c.contains("tampered.py"),
         "the forced edit to a fully generated file was never restored",
     );
     assert_eq!(
@@ -273,7 +303,7 @@ fn a_fully_generated_file_is_read_only_and_restores_a_forced_edit() {
 
     // The document is untouched: a refusal must not half-apply.
     let doc = std::fs::read_to_string(up.path("greeter.hick")).expect("read doc");
-    assert!(!doc.contains("Tampered"), "{doc}");
+    assert!(!doc.contains("tampered"), "{doc}");
 }
 
 /// Guarantee: `docs/guarantees/authoring/one-loop-owns-a-directory.md`

@@ -33,8 +33,10 @@ import { ShellView } from "../shell/ShellView";
 import { GeneratedFileView, OutputsTool } from "../shell/views";
 import { RibbonOverlay, type RibbonTarget } from "../shell/Ribbons";
 import {
+  besides,
   freeform,
   open as openInLayout,
+  split,
   paneFor,
   tab as makeTab,
   type Layout,
@@ -406,8 +408,16 @@ export function DocumentView({ docId }: { docId: string }) {
   const openGenerated = useCallback(
     (path: string) => {
       setLayout((current) => {
-        const target = paneFor(current, regions, path);
-        return openInLayout(current, makeTab("generated", path, path.split("/").pop()), target);
+        const entry = makeTab("generated", path, path.split("/").pop());
+        // A declared layout has already said where this belongs.
+        if (regions.length > 0) return openInLayout(current, entry, paneFor(current, regions, path));
+        // Otherwise it opens BESIDE what you are reading: a generated file on
+        // top of the document that produced it hides the comparison it exists
+        // for, and no ribbon can be drawn between a pane and itself.
+        const side = besides(current, current.focus);
+        if (side) return openInLayout(current, entry, side);
+        const opened = split(current, current.focus, "row");
+        return openInLayout(opened, entry, opened.focus);
       });
     },
     [regions],

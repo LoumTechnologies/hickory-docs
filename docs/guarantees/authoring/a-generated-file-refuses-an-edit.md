@@ -58,8 +58,21 @@ Last LLM verification:
   kind of text it is, an excerpt of the refused bytes, and the document path.
 - Test coverage: `crates/hickory-cli/tests/up_loop.rs` —
   `a_fully_generated_file_is_read_only_and_restores_a_forced_edit` asserts the
-  read-only bit on the woven markdown, forces an edit through a `chmod`, and
-  asserts the file returns byte-identical while the document stays untouched.
+  read-only bit, forces an edit through a `chmod`, and asserts the file
+  returns byte-identical while the document stays untouched;
+  `a_file_mixing_prose_with_generated_text_stays_writable` is property 1 from
+  the other side.
+- Changed 2026-08-16, and it is property 1 that changed hands: **woven
+  markdown is no longer a fully generated file.** Prose in the weave now
+  carries the span it came from, so a `weave=` output mixes editable prose
+  with generated headings, fences and transcripts — writable, protected per
+  range on save, and its prose editable back into the document like any
+  `hick:file` output. Before, the weave emitted every byte through a
+  whole-output transform that erased origins, so the woven file had no
+  editable byte and was marked read-only; that was a consequence of missing
+  provenance rather than a decision about markdown. The read-only test now
+  uses a document with no prose at all, which is what "no editable byte"
+  actually describes.
 - Caveat requiring review: the `SIGKILL` case in property 3 rests on
   `write_outputs` clearing the bit, which is covered by reading the code —
   there is no test that kills a loop uncatchably and then runs `hick run`.

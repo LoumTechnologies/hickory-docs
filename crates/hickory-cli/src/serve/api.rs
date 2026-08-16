@@ -112,6 +112,63 @@ pub async fn project_docs(State(state): State<LocalState>) -> Json<Value> {
     Json(json!(docs))
 }
 
+/// `POST /api/projects/:id/docs` — create a document in the served folder.
+///
+/// The app's "new document" button. A document is a file, so this writes one
+/// and tells the index about it: the scan happens at startup, and a file
+/// nothing knows about is a file nothing can open. Refuses to overwrite,
+/// because "new" is not a way to lose something.
+pub async fn create_doc(
+    State(state): State<LocalState>,
+    Json(body): Json<NewDoc>,
+) -> ApiResult<(StatusCode, Json<Value>)> {
+    let rel = body.path.trim().trim_start_matches(['/', '\\']).to_string();
+    if rel.is_empty() || rel.contains("..") {
+        return Err(ApiError::bad_request(
+            "a document's path must be inside this folder, and cannot be empty",
+        ));
+    }
+    if !rel.ends_with(".hick") {
+        return Err(ApiError::bad_request(
+            "a document's path must end in `.hick` — that is what makes it a document rather \
+             than one of the files it generates",
+        ));
+    }
+
+    let absolute = state.index.root().join(&rel);
+    if absolute.exists() {
+        return Err(ApiError::unprocessable(format!(
+            "{rel} already exists. Open it, or choose another name."
+        )));
+    }
+    if let Some(parent) = absolute.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| {
+            ApiError::internal(format!("could not create {}: {e}", parent.display()))
+        })?;
+    }
+    std::fs::write(&absolute, &body.source)
+        .map_err(|e| ApiError::internal(format!("could not write {}: {e}", absolute.display())))?;
+
+    let id = state.index.add(&rel);
+    Ok((
+        StatusCode::CREATED,
+        Json(json!({
+            "id": id,
+            "path": rel,
+            "source": body.source,
+            "updated_at": modified_at(&state, &id),
+        })),
+    ))
+}
+
+/// Body of `POST /projects/:id/docs`.
+#[derive(serde::Deserialize)]
+pub struct NewDoc {
+    pub path: String,
+    #[serde(default)]
+    pub source: String,
+}
+
 fn modified_at(state: &LocalState, id: &str) -> String {
     let stamp = state
         .index

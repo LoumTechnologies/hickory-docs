@@ -189,6 +189,23 @@ export function closeTab(layout: Layout, paneId: string, tabId: string): Layout 
   return { root: root ?? layout.root, focus: paneId };
 }
 
+/**
+ * Close a whole pane, tabs and all.
+ *
+ * The last pane stays, emptied: there has to be somewhere for the next file
+ * to go, and an app with no panes has nothing to show and no way back.
+ */
+export function closePane(layout: Layout, paneId: string): Layout {
+  if (panes(layout.root).length === 1) {
+    const root = replace(layout.root, paneId, (pane) => ({ ...pane, tabs: [], active: 0 }));
+    return { root: root ?? layout.root, focus: paneId };
+  }
+  const root = replace(layout.root, paneId, () => null);
+  if (root === null) return layout;
+  const remaining = panes(root);
+  return { root, focus: remaining[0]?.id ?? layout.focus };
+}
+
 // ---------------------------------------------------------------------------
 // Splitting
 // ---------------------------------------------------------------------------
@@ -297,6 +314,23 @@ export function fromRegions(regions: readonly Region[]): Layout {
     sizes: children.map(() => 1 / children.length),
   };
   return { root, focus: children[0].id };
+}
+
+/**
+ * A pane that is not this one, preferring a neighbour that is empty.
+ *
+ * "Open to the side" exists because two things you want to compare have to be
+ * on screen at once: a generated file opened over the document that produced
+ * it hides the very thing it should sit beside, and no ribbon can be drawn
+ * between a pane and itself.
+ */
+export function besides(layout: Layout, paneId: string): string | null {
+  const others = panes(layout.root).filter((pane) => pane.id !== paneId);
+  if (others.length === 0) return null;
+  const empty = others.find((pane) => pane.tabs.length === 0);
+  // Never over a document: that is the thing being compared against.
+  const spare = others.find((pane) => !pane.tabs.some((tab) => tab.kind === "document"));
+  return (empty ?? spare ?? others[0]).id;
 }
 
 /**

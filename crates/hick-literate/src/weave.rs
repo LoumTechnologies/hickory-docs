@@ -7,14 +7,16 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use hick_exec::node::{InsertionPoint, Node, StringNode, TransformNode};
+use hick_exec::node::{
+    InsertionPoint, Node, ProvenanceTransformNode, SourceOrigin, SpanNode, StringNode,
+};
 use hick_exec::state::MultiDocumentState;
 use hick_lang::{HickDocument, HickNode, dedent};
 
 use hick_handlers::{ProcessingContext, ProcessingPhase, TagRegistry, TagResult, TranscriptEntry};
 
 use crate::tag_attr;
-use crate::text::{apply_substitutions, interpolate_path};
+use crate::text::interpolate_path;
 
 /// Map file extension to markdown code fence language identifier.
 pub(crate) fn extension_to_language(path: &str) -> &'static str {
@@ -66,15 +68,36 @@ fn process_weave_content(
     state: &Arc<MultiDocumentState>,
     indent: usize,
     registry: &TagRegistry,
+    doc_path: &str,
 ) {
     for node in nodes {
         match node {
-            HickNode::Text(text, _) => {
+            HickNode::Text(text, span) => {
                 let dedented = dedent(text, indent);
-                weave_ip.add(Arc::new(StringNode::new(dedented)));
+                // Prose in the weave IS the document's prose, so it carries
+                // the span it came from — which is what makes the woven file
+                // editable, the same way a `hick:file` output is. Without it
+                // every byte of the weave is "synthetic": no ribbons, and an
+                // edit that can only be refused.
+                //
+                // The lineage layer keeps the origin only when the span's
+                // length matches the text's, so a dedent that actually
+                // removed something degrades to synthetic on its own rather
+                // than claiming a mapping that would put edits in the wrong
+                // place.
+                match span {
+                    Some(span) => weave_ip.add(Arc::new(SpanNode::new(
+                        dedented,
+                        SourceOrigin::Literal {
+                            file: Arc::from(doc_path),
+                            span: *span,
+                        },
+                    ))),
+                    None => weave_ip.add(Arc::new(StringNode::new(dedented))),
+                }
             }
             HickNode::Tag(tag) => {
-                process_weave_tag(tag, weave_ip, transcripts, state, registry);
+                process_weave_tag(tag, weave_ip, transcripts, state, registry, doc_path);
             }
         }
     }
@@ -87,6 +110,7 @@ fn process_weave_tag(
     transcripts: &HashMap<String, Vec<TranscriptEntry>>,
     state: &Arc<MultiDocumentState>,
     registry: &TagRegistry,
+    doc_path: &str,
 ) {
     match tag.name.as_str() {
         "file" => {
@@ -152,6 +176,7 @@ fn process_weave_tag(
                 state,
                 tag.source_column,
                 registry,
+                doc_path,
             );
         }
         _ => {
@@ -243,16 +268,23 @@ pub(crate) fn process_weave_output(
 
         // Process all document nodes for weave output
         // Use 0 indent for top-level content (direct children of <hick:doc>)
-        for (_, doc) in documents {
-            process_weave_content(&doc.nodes, &raw_ip, transcripts, state, 0, registry);
+        for (name, doc) in documents {
+            process_weave_content(&doc.nodes, &raw_ip, transcripts, state, 0, registry, name);
         }
 
         raw_ip.close();
 
+        // The SEGMENTED transform, the same one the `hick:file` path uses.
+        //
+        // A whole-output transform produces one node with no origin, which
+        // erases every span underneath it: that is why the woven markdown was
+        // entirely "synthetic" — no ribbons, and an edit the server could only
+        // refuse. Segmenting keeps each untouched piece attached to the prose
+        // it came from, and marks only what a substitution actually replaced.
         let subs_state = state.clone();
-        let transform: Arc<dyn Node> = Arc::new(TransformNode::new(
+        let transform: Arc<dyn Node> = Arc::new(ProvenanceTransformNode::new(
             raw_ip,
-            move |text| apply_substitutions(text, &subs_state),
+            move |text| crate::apply_substitutions_segmented_to_transform(text, &subs_state),
             "substitute",
         ));
 
