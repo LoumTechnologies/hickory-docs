@@ -31,7 +31,7 @@ import type { LspLocation } from "../lsp/client";
 import { DocumentEditor } from "../editor/DocumentEditor";
 import { ShellView } from "../shell/ShellView";
 import { GeneratedFileView, OutputsTool } from "../shell/views";
-import { RibbonOverlay, type RibbonTarget } from "../shell/Ribbons";
+import { RibbonOverlay, type RibbonFile } from "../shell/Ribbons";
 import {
   besides,
   freeform,
@@ -48,6 +48,22 @@ import { navigate } from "../router";
 type Banner = { kind: "pending" | "pass" | "fail"; text: string } | null;
 
 /** The Split (lineage) view needs real width for two panes + ribbons. */
+
+/**
+ * Scroll a generated pane to a range and flash it.
+ *
+ * The same idea as the debugger's frame reveal: moving somewhere silently
+ * leaves a person hunting for what changed.
+ */
+function revealRange(view: import("@codemirror/view").EditorView, range: [number, number]) {
+  const to = Math.min(range[1], view.state.doc.length);
+  const from = Math.min(range[0], to);
+  view.dispatch({
+    selection: { anchor: from, head: to },
+    scrollIntoView: true,
+  });
+  view.focus();
+}
 
 export function DocumentView({ docId }: { docId: string }) {
   const [doc, setDoc] = useState<Doc | null>(null);
@@ -123,10 +139,15 @@ export function DocumentView({ docId }: { docId: string }) {
   const debugRef = useRef(debug);
   debugRef.current = debug;
   const editorRef = useRef<import("@codemirror/view").EditorView | null>(null);
-  // Panes showing a generated file, so the ribbons can be drawn between them
-  // and the document. Kept in state rather than a ref: the overlay is a
-  // component and has to re-measure when one appears or goes away.
-  const [ribbonTargets, setRibbonTargets] = useState<RibbonTarget[]>([]);
+  // Every file this document generates, with its provenance — not only the
+  // ones on screen. A relationship you cannot see is one you will not look
+  // for, so a file that is closed still gets a stub reaching off the edge of
+  // the document's pane with its name on it.
+  const [outputs, setOutputs] = useState<Map<string, import("../api/types").OutputFile>>(new Map());
+  // The editors currently showing one, keyed by path.
+  const [openOutputs, setOpenOutputs] = useState<
+    Map<string, import("@codemirror/view").EditorView>
+  >(new Map());
   const [shellBox, setShellBox] = useState<HTMLElement | null>(null);
   const [docEditor, setDocEditor] = useState<import("@codemirror/view").EditorView | null>(null);
 
@@ -406,6 +427,39 @@ export function DocumentView({ docId }: { docId: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [choiceId, docId, doc?.path, choices.length]);
 
+  // Load every output's provenance, so a closed file still gets its stub.
+  // Refreshed after a run, because a run is when they change.
+  useEffect(() => {
+    let live = true;
+    void (async () => {
+      const listed = await api.outputs(docId).catch(() => ({ files: [] }));
+      const loaded = await Promise.all(
+        listed.files.map((meta) => api.outputFile(docId, meta.path).catch(() => null)),
+      );
+      if (!live) return;
+      setOutputs(new Map(loaded.filter(Boolean).map((file) => [file!.path, file!])));
+    })();
+    return () => {
+      live = false;
+    };
+  }, [docId, blocks]);
+
+  const ribbonFiles: RibbonFile[] = useMemo(
+    () => [...outputs.values()].map((file) => ({ file, view: openOutputs.get(file.path) })),
+    [outputs, openOutputs],
+  );
+
+  // A click on a stub opens the file; the reveal has to wait for its editor.
+  const pendingReveal = useRef<{ path: string; range: [number, number] } | null>(null);
+  useEffect(() => {
+    const waiting = pendingReveal.current;
+    if (!waiting) return;
+    const view = openOutputs.get(waiting.path);
+    if (!view) return;
+    pendingReveal.current = null;
+    revealRange(view, waiting.range);
+  }, [openOutputs]);
+
   const openGenerated = useCallback(
     (path: string) => {
       setLayout((current) => {
@@ -677,9 +731,11 @@ export function DocumentView({ docId }: { docId: string }) {
                     makeOutputLsp={makeOutputLsp}
                     onSelectSpan={onSelectSpan}
                     onReady={(target) =>
-                      setRibbonTargets((current) => {
-                        const rest = current.filter((entry) => entry.file.path !== tab.target);
-                        return target ? [...rest, target] : rest;
+                      setOpenOutputs((current) => {
+                        const next = new Map(current);
+                        if (target) next.set(tab.target, target.view);
+                        else next.delete(tab.target);
+                        return next;
                       })
                     }
                   />
@@ -699,7 +755,15 @@ export function DocumentView({ docId }: { docId: string }) {
                 ? { view: docEditor, docPath: doc.path, docSource: doc.source }
                 : null
             }
-            targets={ribbonTargets}
+            files={ribbonFiles}
+            onNavigate={(target) => {
+              // Clicking a band IS the navigation: open the file if it is not
+              // open, and show the text it points at either way.
+              openGenerated(target.path);
+              const view = openOutputs.get(target.path);
+              if (view) revealRange(view, target.range);
+              else pendingReveal.current = target;
+            }}
           />
         </div>
       </div>

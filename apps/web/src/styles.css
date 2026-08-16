@@ -3549,3 +3549,17 @@ textarea:focus {
   border-radius: 6px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.14);
 }
+
+/* A stub: a ribbon whose other end is a file you have not opened. Dashed,
+   because it is a claim about somewhere else rather than a line between two
+   things you can see, and labelled with where it goes. */
+.ribbon-group { cursor: pointer; }
+.ribbon-stub { opacity: 0.5; }
+.ribbon-group:hover .ribbon-stub { opacity: 0.85; }
+.ribbon-label {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 10px;
+  fill: var(--fg-muted);
+  pointer-events: auto;
+}
+.ribbon-group:hover .ribbon-label { fill: var(--accent); }
