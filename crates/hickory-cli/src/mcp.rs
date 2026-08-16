@@ -184,6 +184,13 @@ fn tool_catalogue() -> Value {
                     "type": "object",
                     "properties": {
                         "doc": doc_arg,
+                        "program": {
+                            "type": "string",
+                            "description": "Which generated file to run, e.g. `orders.py`. \
+                                            Omit only when the document generates one \
+                                            debuggable file: otherwise the first one is used, \
+                                            which is right by accident at best.",
+                        },
                         "breakpoints": {
                             "type": "array",
                             "description": "Where to stop. A breakpoint on prose is refused with \
@@ -333,9 +340,12 @@ impl Server {
                     })
                     .unwrap_or_default();
 
+                // An agent naming the program is an agent that knows which of
+                // several files it means; omitting it keeps the old behaviour.
+                let program = args.get("program").and_then(Value::as_str);
                 let (id, live, statuses) = self
                     .debuggers
-                    .start(&doc, &breakpoints)
+                    .start(&doc, &breakpoints, program)
                     .await
                     .map_err(fail)?;
 

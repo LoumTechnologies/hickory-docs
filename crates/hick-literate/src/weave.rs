@@ -138,6 +138,7 @@ fn process_weave_tag(
                     state,
                     tag.source_column,
                     registry,
+                    doc_path,
                 );
 
                 // Emit closing code fence
@@ -163,6 +164,7 @@ fn process_weave_tag(
                 state,
                 tag.source_column,
                 registry,
+                doc_path,
             );
             weave_ip.add(Arc::new(StringNode::new("```\n".to_string())));
         }
@@ -218,6 +220,7 @@ fn process_file_children_to_weave(
     state: &Arc<MultiDocumentState>,
     indent: usize,
     registry: &TagRegistry,
+    doc_path: &str,
 ) {
     let ctx = ProcessingContext {
         state,
@@ -230,9 +233,28 @@ fn process_file_children_to_weave(
 
     for child in children {
         match child {
-            HickNode::Text(text, _) => {
+            HickNode::Text(text, span) => {
                 let dedented = dedent(text, indent);
-                weave_ip.add(Arc::new(StringNode::new(dedented)));
+                // The fenced copy of a `hick:file` block in the woven markdown
+                // is the same text as the block, so it carries the same span.
+                // Without this the `### orders.py` section has no ribbon and
+                // no edit can be traced out of it, while the file itself —
+                // identical bytes — has both.
+                //
+                // Dedenting changes the text, and the lineage layer keeps an
+                // origin only when the span's length matches what was emitted,
+                // so an indented block degrades to synthetic on its own rather
+                // than claiming a mapping that would land edits elsewhere.
+                match span {
+                    Some(span) => weave_ip.add(Arc::new(SpanNode::new(
+                        dedented,
+                        SourceOrigin::Literal {
+                            file: Arc::from(doc_path),
+                            span: *span,
+                        },
+                    ))),
+                    None => weave_ip.add(Arc::new(StringNode::new(dedented))),
+                }
             }
             HickNode::Tag(child_tag) => {
                 if let Some(handler) = registry.find(&child_tag.name) {

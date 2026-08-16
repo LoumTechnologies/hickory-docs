@@ -43,6 +43,11 @@ pub enum Request {
         doc: String,
         #[serde(default)]
         breakpoints: Vec<Breakpoint>,
+        /// Which generated file to run. Omitted means "the first one that can
+        /// be debugged", which is only ever right by accident once a document
+        /// generates two.
+        #[serde(default)]
+        program: Option<String>,
     },
     /// Replace the breakpoint set while a session is running.
     Breakpoints {
@@ -218,10 +223,14 @@ async fn handle_inner(
     request: Request,
 ) -> Result<Vec<Response>, Failure> {
     match request {
-        Request::Start { doc, breakpoints } => {
+        Request::Start {
+            doc,
+            breakpoints,
+            program,
+        } => {
             let path = resolve(root, &doc);
             let (session, live, statuses) = registry
-                .start(&path, &breakpoints)
+                .start(&path, &breakpoints, program.as_deref())
                 .await
                 .map_err(|e| (None, e))?;
             let mut out = vec![Response::Started {
@@ -534,11 +543,18 @@ mod tests {
         );
         let request = request_of(&frame).expect("parses");
         match request {
-            Request::Start { doc, breakpoints } => {
+            Request::Start {
+                doc,
+                breakpoints,
+                program,
+            } => {
                 assert_eq!(doc, "hick:///a.hick");
                 assert_eq!(breakpoints[0].line, 7);
                 // Optional fields are absent, not zero.
                 assert!(breakpoints[0].condition.is_none());
+                // No program named: the session falls back to the first
+                // debuggable file, which is what a one-file document wants.
+                assert!(program.is_none());
             }
             other => panic!("wrong request: {other:?}"),
         }

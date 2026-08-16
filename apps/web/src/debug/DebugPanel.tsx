@@ -15,6 +15,8 @@ import { backwardsControl } from "./client";
 
 export interface DebugPanelProps {
   status: "idle" | "starting" | "paused" | "running" | "finished" | "failed";
+  /** Which generated file this session is running. */
+  program?: string | null;
   message: string | null;
   capabilities: DebugCapabilities | null;
   frames: Frame[];
@@ -28,7 +30,7 @@ export interface DebugPanelProps {
   onEvaluate: (expression: string) => void;
   /** The last expression answered, shown under the box. */
   lastValue: { expression: string; value: string; type: string | null } | null;
-  onStart: () => void;
+  onStart: (program?: string) => void;
   onStop: () => void;
 }
 
@@ -41,7 +43,7 @@ export function DebugPanel(props: DebugPanelProps) {
     <aside className="debug-panel" aria-label="Debugger">
       <header className="debug-panel__bar">
         {props.status === "idle" || props.status === "finished" || props.status === "failed" ? (
-          <button type="button" onClick={props.onStart} className="debug-panel__go">
+          <button type="button" onClick={() => props.onStart()} className="debug-panel__go">
             Debug this document
           </button>
         ) : (
@@ -82,6 +84,7 @@ export function DebugPanel(props: DebugPanelProps) {
           </>
         )}
         <span className="debug-panel__status" role="status">
+          {props.program && props.status !== "idle" ? `${props.program} · ` : ""}
           {props.status === "starting" && "starting…"}
           {props.status === "running" && "running…"}
           {props.status === "paused" && "paused"}

@@ -60,6 +60,11 @@ export function RibbonOverlay({
     }
     const box = container.getBoundingClientRect();
     const left = source.view.scrollDOM.getBoundingClientRect();
+    // The channel a ribbon is drawn through is the space between the two
+    // TEXTS, not between the two panes: the gutters on either side belong to
+    // it. Anchoring on the scrollers left four pixels of divider to draw in,
+    // which is not a picture anyone can read.
+    const leftText = source.view.contentDOM.getBoundingClientRect();
     const structure = structureOf(source.view.state);
     const sourceLength = source.view.state.doc.length;
     const out: Shape[] = [];
@@ -68,12 +73,13 @@ export function RibbonOverlay({
 
     for (const target of targets) {
       const right = target.view.scrollDOM.getBoundingClientRect();
+      const rightText = target.view.contentDOM.getBoundingClientRect();
       // Panes can be in any order, so the curve is drawn from whichever edge
       // faces the other: a generated file to the LEFT of its document is an
       // arrangement someone is allowed to build.
       const forward = left.right <= right.left;
-      const x0 = (forward ? left.right : left.left) - box.left;
-      const x1 = (forward ? right.left : right.right) - box.left;
+      const x0 = (forward ? leftText.right : leftText.left) - box.left;
+      const x1 = (forward ? rightText.left : rightText.right) - box.left;
       const targetLength = target.view.state.doc.length;
 
       for (const ribbon of deriveRibbons(target.file, source.docPath, source.docSource)) {
@@ -178,17 +184,30 @@ function sourceBand(
       break;
     }
   }
-  const start = view.coordsAtPos(from);
-  const end = view.coordsAtPos(to);
-  if (!start || !end) return null;
-  return [Math.min(start.top, end.top), Math.max(start.bottom, end.bottom)];
+  return bandBetween(view, from, to);
 }
 
 function outputBand(view: EditorView, ribbon: Ribbon, length: number): [number, number] | null {
   const from = Math.min(ribbon.outputRange[0], length);
   const to = Math.min(ribbon.outputRange[1], length);
-  const start = view.coordsAtPos(from);
-  const end = view.coordsAtPos(to);
-  if (!start || !end) return null;
+  return bandBetween(view, from, to);
+}
+
+/**
+ * Screen extent of a range, including one scrolled out of sight.
+ *
+ * `coordsAtPos` answers for rendered text only — everything outside the
+ * viewport returns null, and a ribbon that cannot be measured is a ribbon
+ * that is not drawn. Six relationships showed one. The height map knows where
+ * every line is whether or not it is on screen, and the content box moves
+ * with the scroll, so the two together give an answer for any position; the
+ * caller clamps it to the visible pane.
+ */
+function bandBetween(view: EditorView, from: number, to: number): [number, number] | null {
+  const content = view.contentDOM.getBoundingClientRect();
+  const first = view.lineBlockAt(Math.max(0, from));
+  const last = view.lineBlockAt(Math.max(0, to));
+  const start = { top: content.top + first.top, bottom: content.top + first.bottom };
+  const end = { top: content.top + last.top, bottom: content.top + last.bottom };
   return [Math.min(start.top, end.top), Math.max(start.bottom, end.bottom)];
 }

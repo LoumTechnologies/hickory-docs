@@ -68,6 +68,7 @@ impl Registry {
         &self,
         document: &Path,
         breakpoints: &[Breakpoint],
+        program: Option<&str>,
     ) -> Result<(String, Arc<Live>, Vec<BreakpointStatus>)> {
         let source = std::fs::read_to_string(document)
             .with_context(|| format!("reading {}", document.display()))?;
@@ -79,7 +80,33 @@ impl Registry {
         // Weave the document's files into the scratch directory. This is the
         // program the debugger will run, and it is a copy on purpose.
         let files = hick_dap::weave_into(&source, scratch.path())?;
-        let program = hick_dap::entry_point(&files)?;
+        // Which file to run, when the document generates more than one.
+        //
+        // Guessing was the old behaviour and it is only right by accident: a
+        // document with two Python files got the first one, with nothing on
+        // screen to say which. Naming it is the caller's job; falling back to
+        // the first debuggable file keeps "just debug this" working.
+        let program = match program {
+            Some(named) => {
+                let wanted = scratch.path().join(named);
+                files
+                    .iter()
+                    .find(|path| **path == wanted)
+                    .cloned()
+                    .with_context(|| {
+                        format!(
+                            "this document does not generate {named}. It generates: {}",
+                            files
+                                .iter()
+                                .filter_map(|p| p.strip_prefix(scratch.path()).ok())
+                                .map(|p| p.display().to_string())
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        )
+                    })?
+            }
+            None => hick_dap::entry_point(&files)?,
+        };
         let adapter = hick_dap::adapter_for(&program, project)?;
         tracing_adapter(&adapter);
 
@@ -224,7 +251,7 @@ mod tests {
         )
         .unwrap();
         let registry = Registry::new();
-        let error = match registry.start(&doc, &[]).await {
+        let error = match registry.start(&doc, &[], None).await {
             Ok(_) => panic!("a document with no code started a debugger"),
             Err(error) => format!("{error:#}"),
         };

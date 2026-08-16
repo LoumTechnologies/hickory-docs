@@ -48,6 +48,8 @@ export interface DocumentEditorProps {
   execBlocks: ExecBlock[];
   runningCells: Set<string>;
   onRunCell: (execId: string) => void;
+  /** Debug one of the files this document generates, named by its path. */
+  onDebugFile?: (path: string) => void;
   /** Fired with the live EditorView on mount and null on teardown (the Split
    * view uses it to measure ribbon anchors against real geometry). */
   onViewReady?: (view: EditorView | null) => void;
@@ -102,9 +104,15 @@ export function DocumentEditor({
   onViewReady,
   lspExtensions,
   lspDiagnostics,
+  onDebugFile,
 }: DocumentEditorProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
+  // Read through a ref: the editor is built once per document, and a callback
+  // baked in at construction would go stale the moment the debugger's state
+  // changed.
+  const onDebugFileRef = useRef(onDebugFile);
+  onDebugFileRef.current = onDebugFile;
   const registry = useMemo(() => new CellRegistry(), []);
   const envRegistry = useMemo(() => new EnvRegistry(), []);
   const diagramRegistry = useMemo(() => new DiagramRegistry(), []);
@@ -221,7 +229,7 @@ export function DocumentEditor({
               : null,
           ),
           keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab]),
-          wysiwyg(registry, envRegistry, diagramRegistry),
+          wysiwyg(registry, envRegistry, diagramRegistry, (path) => onDebugFileRef.current?.(path)),
           hickoryFolding(),
           yCollab(ytext, awareness),
           ...(lspExtensions ?? []),

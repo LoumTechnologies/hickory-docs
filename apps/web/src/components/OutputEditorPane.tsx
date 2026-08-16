@@ -16,7 +16,7 @@
 import { useCallback, useEffect, useRef } from "react";
 import { ChangeDesc, EditorState, StateEffect, StateField, RangeSetBuilder } from "@codemirror/state";
 import type { Extension } from "@codemirror/state";
-import { Decoration, EditorView, keymap } from "@codemirror/view";
+import { Decoration, EditorView, keymap, lineNumbers } from "@codemirror/view";
 import type { DecorationSet } from "@codemirror/view";
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
 import * as Y from "yjs";
@@ -193,6 +193,11 @@ export function OutputEditorPane({
         doc: onLocalEdit ? file.content : ytext.toString(),
         extensions: [
           highlightField,
+          // Line numbers everywhere, including generated files. Two reasons:
+          // a line number is how a person says WHERE, and the gutter's width
+          // is the channel the lineage ribbons are drawn through — without it
+          // they are squeezed into the four pixels of the pane divider.
+          lineNumbers(),
           ...languageExtensions(file.language),
           history(),
           keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab]),

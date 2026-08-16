@@ -70,6 +70,7 @@ export function DocumentView({ docId }: { docId: string }) {
   // when all you wanted was to read one document.
   const [choiceId, setChoiceId] = useState<string>("freeform");
   const [layout, setLayout] = useState<Layout>(freeform);
+  const [filesOpen, setFilesOpen] = useState(false);
   const [declared, setDeclared] = useState<LayoutChoice[]>([]);
   // Split is only offered when the viewport is wide enough for two panes.
   // The dock is part of the workspace, not a mode: it is always mounted and
@@ -590,16 +591,32 @@ export function DocumentView({ docId }: { docId: string }) {
             )}
             {/* One control, in one place, in every layout. A layout decides
                 where files go, never which buttons exist — chrome that comes
-                and goes with the arrangement is chrome you cannot learn. */}
-            <button
-              className="btn btn-quiet"
-              onClick={() =>
-                setLayout((current) => openInLayout(current, makeTab("tool", "files", "Files")))
-              }
-              title="The files this document generates"
-            >
-              Files
-            </button>
+                and goes with the arrangement is chrome you cannot learn.
+                
+                A chooser rather than a tab: opening it as a tab put it in the
+                pane you were reading from, which hid the document behind the
+                list of its own outputs. */}
+            <div className="files-menu">
+              <button
+                className="btn btn-quiet"
+                aria-expanded={filesOpen}
+                onClick={() => setFilesOpen((open) => !open)}
+                title="The files this document generates"
+              >
+                Files
+              </button>
+              {filesOpen && (
+                <div className="files-menu__popover" role="menu">
+                  <OutputsTool
+                    docId={docId}
+                    onOpen={(path) => {
+                      openGenerated(path);
+                      setFilesOpen(false);
+                    }}
+                  />
+                </div>
+              )}
+            </div>
             <button className="btn" disabled={runningCells.size > 0} onClick={() => void runAll()}>
               Run all
             </button>
@@ -644,6 +661,7 @@ export function DocumentView({ docId }: { docId: string }) {
                     onRunCell={(id) => void runCell(id)}
                     lspExtensions={lspExtensions}
                     lspDiagnostics={lsp.diagnostics}
+                    onDebugFile={(path) => debugRef.current.start(path)}
                     onViewReady={(view) => {
                       editorRef.current = view;
                       setDocEditor(view);
@@ -699,6 +717,7 @@ export function DocumentView({ docId }: { docId: string }) {
       {(
         <DebugPanel
           status={debug.status}
+          program={debug.program}
           message={debug.message}
           capabilities={debug.capabilities}
           frames={debug.frames}

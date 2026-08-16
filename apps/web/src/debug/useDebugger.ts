@@ -22,6 +22,8 @@ export type DebugStatus = "idle" | "starting" | "paused" | "running" | "finished
 export interface DebugSession {
   status: DebugStatus;
   message: string | null;
+  /** The generated file being debugged, when one was named. */
+  program: string | null;
   capabilities: DebugCapabilities | null;
   /** 0-based document line execution is paused on. */
   pausedLine: number | null;
@@ -32,7 +34,8 @@ export interface DebugSession {
   breakpoints: BreakpointStatus[];
   lastValue: { expression: string; value: string; type: string | null } | null;
 
-  start(): void;
+  /** Debug one generated file. Omitted means the first debuggable one. */
+  start(program?: string): void;
   stop(): void;
   step(how: Step): void;
   jumpTo(line: number): void;
@@ -53,6 +56,9 @@ export function useDebugger(realtime: Realtime, docPath: string): DebugSession {
   const [variables, setVariables] = useState<Variable[]>([]);
   const [selectedFrame, setSelectedFrame] = useState<number | null>(null);
   const [breakpoints, setBreakpoints] = useState<BreakpointStatus[]>([]);
+  // Which file this session is running, for the panel to say so: "paused" is
+  // ambiguous in a document that generates three programs.
+  const [program, setProgram] = useState<string | null>(null);
   const [lastValue, setLastValue] =
     useState<{ expression: string; value: string; type: string | null } | null>(null);
 
@@ -200,15 +206,20 @@ export function useDebugger(realtime: Realtime, docPath: string): DebugSession {
     [client],
   );
 
-  const start = useCallback(() => {
-    if (!client) return;
-    setStatus("starting");
-    setMessage(null);
-    client.start(
-      uri,
-      breakpoints.map((breakpoint) => ({ line: breakpoint.line })),
-    );
-  }, [client, uri, breakpoints]);
+  const start = useCallback(
+    (program?: string) => {
+      if (!client) return;
+      setStatus("starting");
+      setMessage(null);
+      setProgram(program ?? null);
+      client.start(
+        uri,
+        breakpoints.map((breakpoint) => ({ line: breakpoint.line })),
+        program,
+      );
+    },
+    [client, uri, breakpoints],
+  );
 
   const stop = useCallback(() => {
     if (client && sessionRef.current) client.stop(sessionRef.current);
@@ -289,6 +300,7 @@ export function useDebugger(realtime: Realtime, docPath: string): DebugSession {
   return {
     status,
     message,
+    program,
     capabilities,
     pausedLine,
     frames,

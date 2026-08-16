@@ -127,8 +127,11 @@ export class DebugClient {
     this.wire.send(frame);
   }
 
-  start(doc: string, breakpoints: DebugBreakpoint[]) {
-    this.send({ op: "start", doc, breakpoints });
+  start(doc: string, breakpoints: DebugBreakpoint[], program?: string) {
+    // `program` names which generated file to run. A document with two
+    // Python files has two answers, and picking the first is right only by
+    // accident.
+    this.send({ op: "start", doc, breakpoints, program });
   }
 
   setBreakpoints(session: string, breakpoints: DebugBreakpoint[]) {
