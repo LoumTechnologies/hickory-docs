@@ -29,9 +29,9 @@ import { positionToUtf16 } from "../lsp/positions";
 import { sourcePositionAt, type OutputProvenance } from "../lsp/outputMapping";
 import type { LspLocation } from "../lsp/client";
 import { DocumentEditor } from "../editor/DocumentEditor";
-import { SplitView } from "./SplitView";
 import { ShellView } from "../shell/ShellView";
 import { GeneratedFileView, OutputsTool } from "../shell/views";
+import { RibbonOverlay, type RibbonTarget } from "../shell/Ribbons";
 import {
   freeform,
   open as openInLayout,
@@ -46,10 +46,6 @@ import { navigate } from "../router";
 type Banner = { kind: "pending" | "pass" | "fail"; text: string } | null;
 
 /** The Split (lineage) view needs real width for two panes + ribbons. */
-// Three columns plus ribbons need real width — but 1200 was too greedy: a
-// zoomed-in browser or a 13" laptop dropped straight to a single column with
-// no way to ask for Split at all.
-const SPLIT_MIN_WIDTH = "(min-width: 1024px)";
 
 export function DocumentView({ docId }: { docId: string }) {
   const [doc, setDoc] = useState<Doc | null>(null);
@@ -74,12 +70,6 @@ export function DocumentView({ docId }: { docId: string }) {
   const [layout, setLayout] = useState<Layout>(freeform);
   const [declared, setDeclared] = useState<LayoutChoice[]>([]);
   // Split is only offered when the viewport is wide enough for two panes.
-  const [wide, setWide] = useState<boolean>(() =>
-    typeof window.matchMedia === "function" ? window.matchMedia(SPLIT_MIN_WIDTH).matches : false,
-  );
-  // null while unknown (don't disable the toggle on a flash of missing
-  // data); false only once a check has actually come back empty.
-  const [hasOutputs, setHasOutputs] = useState<boolean | null>(null);
   // The dock is part of the workspace, not a mode: it is always mounted and
   // remembers whether the log is expanded.
   const [chatCollapsed, setChatCollapsed] = useState(
@@ -95,9 +85,6 @@ export function DocumentView({ docId }: { docId: string }) {
   // Find-references results, and a pending "open this output file here" jump
   // produced by LSP navigation into a generated file.
   const [references, setReferences] = useState<{ locations: LspLocation[]; query: string } | null>(
-    null,
-  );
-  const [outputTarget, setOutputTarget] = useState<{ path: string; span: [number, number] } | null>(
     null,
   );
 
@@ -133,6 +120,12 @@ export function DocumentView({ docId }: { docId: string }) {
   const debugRef = useRef(debug);
   debugRef.current = debug;
   const editorRef = useRef<import("@codemirror/view").EditorView | null>(null);
+  // Panes showing a generated file, so the ribbons can be drawn between them
+  // and the document. Kept in state rather than a ref: the overlay is a
+  // component and has to re-measure when one appears or goes away.
+  const [ribbonTargets, setRibbonTargets] = useState<RibbonTarget[]>([]);
+  const [shellBox, setShellBox] = useState<HTMLElement | null>(null);
+  const [docEditor, setDocEditor] = useState<import("@codemirror/view").EditorView | null>(null);
 
   // Push the debugger's state into the editor: the gutter dots, the paused
   // line, and the values shown at the end of each line.
@@ -163,21 +156,13 @@ export function DocumentView({ docId }: { docId: string }) {
   // Coalesce them into one trailing fetch; `api.render` additionally collapses
   // anything still in flight.
   const renderTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const refreshOutputs = useCallback(() => {
-    api.outputs(docId).then(
-      (r) => setHasOutputs(r.files.length > 0),
-      () => undefined,
-    );
-  }, [docId]);
   const scheduleRender = useCallback(() => {
     if (renderTimer.current !== null) return;
     renderTimer.current = setTimeout(() => {
       renderTimer.current = null;
       api.render(docId).then((r) => setBlocks(r.blocks), () => undefined);
-      // A run event lands right about when new output files could exist.
-      refreshOutputs();
     }, 150);
-  }, [docId, refreshOutputs]);
+  }, [docId]);
   useEffect(
     () => () => {
       if (renderTimer.current !== null) clearTimeout(renderTimer.current);
@@ -203,24 +188,7 @@ export function DocumentView({ docId }: { docId: string }) {
   }, [docId]);
 
   useEffect(refresh, [refresh]);
-  useEffect(refreshOutputs, [refreshOutputs]);
 
-  // Track viewport width; Split degrades to Document when the window shrinks.
-  useEffect(() => {
-    if (typeof window.matchMedia !== "function") return;
-    const mq = window.matchMedia(SPLIT_MIN_WIDTH);
-    const onChange = () => setWide(mq.matches);
-    mq.addEventListener("change", onChange);
-    return () => mq.removeEventListener("change", onChange);
-  }, []);
-  // The ribbons layout needs two panes' worth of width and something to put
-  // in the second one. Losing either sends you to freeform, which needs
-  // neither.
-  useEffect(() => {
-    if (!wide || hasOutputs === false) {
-      setChoiceId((current) => (current === "ribbons" ? "freeform" : current));
-    }
-  }, [wide, hasOutputs]);
 
 
   // What this project declares. A folder can hold layouts; a document view is
@@ -266,8 +234,20 @@ export function DocumentView({ docId }: { docId: string }) {
         }
         setRunningCells(new Set());
         startedCellsRef.current = new Set();
-        // Pick up final statuses/transcripts from the server's render.
-        scheduleRender();
+        // The RUN's blocks, not a fresh render.
+        //
+        // `/render` re-weaves the document without executing, and a document
+        // with no recorded transcript reports every cell as "never run" —
+        // which is what it says a second after a successful run, because a
+        // run does not record unless it was asked to. The run's own block
+        // model has the transcripts in it, so that is what the cells show.
+        api.runStatus(msg.run_id).then(
+          (run) => {
+            if (run.blocks && run.blocks.length > 0) setBlocks(run.blocks);
+            else scheduleRender();
+          },
+          () => scheduleRender(),
+        );
         return;
       }
       const { exec_id, event } = msg;
@@ -315,11 +295,23 @@ export function DocumentView({ docId }: { docId: string }) {
     setBanner(null);
     startedCellsRef.current = new Set();
     const ids = (blocks ?? []).filter((b) => b.kind === "exec").map((b) => b.id);
+    // A document with no cells has nothing to run, and a button that appears
+    // to do nothing is worse than one that says so: the run happens either
+    // way (it re-weaves), but the only visible sign of it is in cells that do
+    // not exist here.
+    if (ids.length === 0) {
+      setBanner({ kind: "pending", text: "Nothing to run — this document has no exec cells. Re-weaving it." });
+    }
     setRunningCells(new Set(ids));
     try {
       await api.run(docId);
+      if (ids.length === 0) {
+        setBanner({ kind: "pass", text: "Re-woven. This document has no exec cells to run." });
+        scheduleRender();
+      }
     } catch (e) {
       setRunningCells(new Set());
+      setBanner(null);
       setError(e instanceof Error ? e.message : String(e));
     }
   };
@@ -383,12 +375,6 @@ export function DocumentView({ docId }: { docId: string }) {
         detail: "One pane. Split it, fill it with tabs, arrange it yourself.",
         build: freeform,
       },
-      {
-        id: "ribbons",
-        name: "Document & outputs",
-        detail: "The document, its files, and ribbons drawing what came from where.",
-        build: freeform,
-      },
     ];
     return [...builtIn, ...declared];
   }, [declared]);
@@ -450,12 +436,6 @@ export function DocumentView({ docId }: { docId: string }) {
         // The bridge could not map this position back to prose — open the
         // generated file itself, positioned on the hit.
         const path = target.uri.slice("hick-output:///".length);
-        setOutputTarget({
-          path,
-          // Output ranges are line/character; the pane resolves them against
-          // its own buffer, so carry them as a line-anchored span.
-          span: [target.range.start.line, target.range.end.line],
-        });
         openGenerated(path);
         return;
       }
@@ -558,12 +538,12 @@ export function DocumentView({ docId }: { docId: string }) {
 
   return (
     <div
-      className={`doc-page with-chat${choice.id === "freeform" ? "" : " wide-mode"}`}
+      className="doc-page with-chat wide-mode"
     >
       <div className="doc-main">
         <header className="doc-toolbar">
-          <button className="btn btn-link" onClick={() => navigate("/projects")}>
-            ← Projects
+          <button className="btn btn-link" onClick={() => navigate("/")} title="Start">
+            ←
           </button>
           <span className="doc-path mono">{doc.path}</span>
           <div className="toolbar-actions">
@@ -582,7 +562,6 @@ export function DocumentView({ docId }: { docId: string }) {
                   <option
                     key={candidate.id}
                     value={candidate.id}
-                    disabled={candidate.id === "ribbons" && (!wide || hasOutputs === false)}
                   >
                     {candidate.name}
                   </option>
@@ -599,22 +578,18 @@ export function DocumentView({ docId }: { docId: string }) {
                 {syncState === "editing" ? "Saving…" : "Saved"}
               </span>
             )}
-            {/* The way to find a generated file when nothing is arranged for
-                you. Absent rather than disabled when the document has not
-                generated anything: there is nothing to explain. */}
-            {hasOutputs && choice.id !== "ribbons" && (
-              <button
-                className="btn btn-quiet"
-                onClick={() =>
-                  setLayout((current) =>
-                    openInLayout(current, makeTab("tool", "outputs", "Outputs")),
-                  )
-                }
-                title="The files this document generates"
-              >
-                Outputs
-              </button>
-            )}
+            {/* One control, in one place, in every layout. A layout decides
+                where files go, never which buttons exist — chrome that comes
+                and goes with the arrangement is chrome you cannot learn. */}
+            <button
+              className="btn btn-quiet"
+              onClick={() =>
+                setLayout((current) => openInLayout(current, makeTab("tool", "files", "Files")))
+              }
+              title="The files this document generates"
+            >
+              Files
+            </button>
             <button className="btn" disabled={runningCells.size > 0} onClick={() => void runAll()}>
               Run all
             </button>
@@ -633,30 +608,7 @@ export function DocumentView({ docId }: { docId: string }) {
             Could not weave this document — editing still works. {renderError}
           </div>
         )}
-        {choice.id === "ribbons" ? (
-          // Kept whole: this is the one view that draws the ribbons between a
-          // document and the files it generates, and a pane cannot hold half
-          // of a relationship.
-          <SplitView
-            docId={docId}
-            docPath={doc.path}
-            docSource={doc.source}
-            editorKey={docId}
-            realtime={realtime}
-            onChange={setDirtySource}
-            selectSpan={selectSpan}
-            execBlocks={execBlocks}
-            runningCells={runningCells}
-            onRunCell={(id) => void runCell(id)}
-            lspExtensions={lspExtensions}
-            lspDiagnostics={lsp.diagnostics}
-            makeOutputLsp={makeOutputLsp}
-            outputTarget={outputTarget}
-            onEditorReady={(view) => {
-              editorRef.current = view;
-            }}
-          />
-        ) : (
+        <div className="shell-host" ref={setShellBox}>
           <ShellView
             layout={layout}
             onLayout={setLayout}
@@ -684,6 +636,7 @@ export function DocumentView({ docId }: { docId: string }) {
                     lspDiagnostics={lsp.diagnostics}
                     onViewReady={(view) => {
                       editorRef.current = view;
+                      setDocEditor(view);
                     }}
                   />
                 );
@@ -695,13 +648,32 @@ export function DocumentView({ docId }: { docId: string }) {
                     path={tab.target}
                     makeOutputLsp={makeOutputLsp}
                     onSelectSpan={onSelectSpan}
+                    onReady={(target) =>
+                      setRibbonTargets((current) => {
+                        const rest = current.filter((entry) => entry.file.path !== tab.target);
+                        return target ? [...rest, target] : rest;
+                      })
+                    }
                   />
                 );
               }
               return <OutputsTool docId={docId} onOpen={openGenerated} />;
             }}
           />
-        )}
+          {/* Where this text came from, drawn between the panes showing it.
+              Not a layout: an overlay, so it works in whatever arrangement
+              happens to have a document on one side and a file it generated
+              on the other. */}
+          <RibbonOverlay
+            container={shellBox}
+            source={
+              docEditor && doc
+                ? { view: docEditor, docPath: doc.path, docSource: doc.source }
+                : null
+            }
+            targets={ribbonTargets}
+          />
+        </div>
       </div>
       {references && (
         <ReferencesPanel

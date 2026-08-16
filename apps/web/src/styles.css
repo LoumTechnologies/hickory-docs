@@ -3472,3 +3472,48 @@ textarea:focus {
 .outputs-tool__file:hover { background: var(--bg-sunken); color: var(--fg); }
 .outputs-tool__file.on { color: var(--accent); }
 .outputs-tool__empty { padding: 1rem; }
+
+/* The shell, and the ribbons drawn over it. The overlay is positioned against
+   this box, so the two must share an origin. */
+.shell-host {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+}
+
+/* The start screen: no projects, no list to choose from — a blank document,
+   and whatever the folder already holds. */
+.start {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+}
+.start__inner { max-width: 32rem; width: 100%; }
+.start__title { font-size: 1.6rem; margin: 0 0 0.35rem; }
+.start__lede { color: var(--fg-muted); margin: 0 0 1.5rem; }
+.start__new { margin-bottom: 2rem; }
+.start__docs h2 {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--fg-muted);
+  margin: 0 0 0.5rem;
+}
+.start__docs ul { list-style: none; margin: 0; padding: 0; }
+.start__doc {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: none;
+  border: 0;
+  border-radius: 5px;
+  padding: 0.35rem 0.5rem;
+  color: var(--fg);
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+.start__doc:hover { background: var(--bg-sunken); }
+.start__empty { margin-top: 0.5rem; }

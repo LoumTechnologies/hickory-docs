@@ -106,7 +106,9 @@ function startRun(docId: string, cellIds: string[] | undefined, verify: boolean)
     id: runId,
     status: "running",
     started_at: new Date().toISOString(),
-    blocks: cells.map((c) => ({ exec_id: c.id, status: c.status ?? "never-run", transcript: [] })),
+    // The same block model the real server records: the run's own blocks,
+    // which is what the document view reads its transcripts from.
+    blocks: cells.map((c) => ({ ...c, status: c.status ?? "never-run", transcript: [] })),
   };
   state.runs.set(runId, run);
 
@@ -141,8 +143,8 @@ function startRun(docId: string, cellIds: string[] | undefined, verify: boolean)
       const failed = collected.some((e) => e.kind === "exit" && e.code !== 0);
       anyFailed ||= failed;
       const status = failed ? "failed" : "ok";
-      const rb = run.blocks.find((b) => b.exec_id === cell.id);
-      if (rb) {
+      const rb = run.blocks.find((b) => b.kind === "exec" && b.id === cell.id);
+      if (rb && rb.kind === "exec") {
         rb.status = status;
         rb.transcript = collected;
       }

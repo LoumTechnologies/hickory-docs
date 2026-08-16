@@ -100,7 +100,15 @@ export interface Run {
   id: string;
   status: RunStatus;
   started_at: string;
-  blocks: { exec_id: string; status: ExecStatus; transcript: TranscriptEvent[] }[];
+  /**
+   * The run's own block model — the same shape `/render` returns, with the
+   * transcripts this run produced.
+   *
+   * Was typed as `{exec_id, status, transcript}[]`, which the server has
+   * never sent: it stores `block_model_json(&run)["blocks"]`. The mistyping
+   * was invisible because nothing read the field.
+   */
+  blocks: Block[];
 }
 
 // WS channel 0x01 payloads.

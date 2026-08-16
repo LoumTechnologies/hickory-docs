@@ -6,13 +6,15 @@
 //
 // See docs/specs/freeform/shell-layouts.md.
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Extension } from "@codemirror/state";
+import type { EditorView } from "@codemirror/view";
 
 import { api } from "../api/client";
 import type { OutputFile, OutputFileMeta } from "../api/types";
 import { OutputEditorPane, provToChars, type ProvChar } from "../components/OutputEditorPane";
 import { useOutputRealtime } from "../api/useOutputRealtime";
+import { computeEdits, toByteEdits } from "../lib/diff";
 
 /** Where a character came from, in a few words rather than a panel. */
 function describeOrigin(entry: ProvChar): string {
@@ -27,16 +29,23 @@ export function GeneratedFileView({
   path,
   makeOutputLsp,
   onSelectSpan,
+  onReady,
 }: {
   docId: string;
   path: string;
   makeOutputLsp?: (provenance: ProvChar[]) => Extension[];
   /** Jump to the document bytes this character came from. */
   onSelectSpan?: (span: [number, number]) => void;
+  /**
+   * This pane's editor and file, once both exist — for the ribbon overlay,
+   * which needs to measure the text on both sides of a relationship.
+   */
+  onReady?: (target: { view: EditorView; file: OutputFile } | null) => void;
 }) {
   const [file, setFile] = useState<OutputFile | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [lineage, setLineage] = useState<ProvChar[]>([]);
+  const [saveError, setSaveError] = useState<string | null>(null);
   const realtime = useOutputRealtime(docId, path);
 
   useEffect(() => {
@@ -60,6 +69,30 @@ export function GeneratedFileView({
     [makeOutputLsp, file],
   );
 
+  // Edits land in the DOCUMENT, which is the whole point of a generated file
+  // being editable: the text here is a working surface onto the prose that
+  // produced it. Debounced, because a keystroke is not an edit — a pause is.
+  const pending = useRef<number | null>(null);
+  const baseline = useRef<string>("");
+  baseline.current = file?.content ?? "";
+  const save = useCallback(
+    (next: string) => {
+      if (pending.current !== null) window.clearTimeout(pending.current);
+      pending.current = window.setTimeout(() => {
+        const edits = toByteEdits(baseline.current, computeEdits(baseline.current, next));
+        if (edits.length === 0) return;
+        api.editOutput(docId, path, edits).then(
+          () => {
+            baseline.current = next;
+            setSaveError(null);
+          },
+          (e) => setSaveError(e instanceof Error ? e.message : String(e)),
+        );
+      }, 600);
+    },
+    [docId, path],
+  );
+
   if (error) return <p className="error">{error}</p>;
   if (!file || !realtime) return <p className="muted">Loading {path}…</p>;
 
@@ -71,7 +104,14 @@ export function GeneratedFileView({
         realtime={realtime}
         extensions={extensions}
         onLineage={setLineage}
+        onLocalEdit={save}
+        onViewReady={(view) => onReady?.(view ? { view, file } : null)}
       />
+      {saveError && (
+        <p className="generated-view__error" role="alert">
+          That edit could not be resolved into the document: {saveError}
+        </p>
+      )}
       {/* Where this text came from, on the text rather than in a panel: one
           line, and only when the cursor is somewhere with an answer. */}
       {/* Where this text came from, on the text rather than in a panel — and

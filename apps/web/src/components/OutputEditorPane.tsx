@@ -81,6 +81,16 @@ export interface OutputEditorPaneProps {
   onViewReady?: (view: EditorView | null) => void;
   /** Provenance entries under the cursor/pointer, for a lineage readout. */
   onLineage?: (hits: ProvChar[]) => void;
+  /**
+   * Edit this buffer without a live room.
+   *
+   * A local session has no output rooms — the server refuses them, because
+   * generated files are on disk rather than in a CRDT — so the pane seeds
+   * itself from `file.content` and reports edits here, for whoever knows how
+   * to resolve them back into the document. Absent means the room is the
+   * writer, which is the hosted arrangement.
+   */
+  onLocalEdit?: (next: string) => void;
 }
 
 export function OutputEditorPane({
@@ -91,6 +101,7 @@ export function OutputEditorPane({
   extensions,
   onViewReady,
   onLineage,
+  onLocalEdit,
 }: OutputEditorPaneProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
@@ -102,6 +113,8 @@ export function OutputEditorPane({
   const changesRef = useRef<ChangeDesc | null>(null);
   const onLineageRef = useRef(onLineage);
   onLineageRef.current = onLineage;
+  const onLocalEditRef = useRef(onLocalEdit);
+  onLocalEditRef.current = onLocalEdit;
 
   provRef.current = provToChars(file);
 
@@ -151,7 +164,13 @@ export function OutputEditorPane({
     // the last-woven `run_outputs` row, and seeding on top of that doubles
     // the content on every connect.
     let cancelled = false;
-    if (!realtime.serverAuthoritative) {
+    // Without a room, the file IS the content: seed it directly. This is the
+    // local case and it is the common one — an empty editor over a file with
+    // 187 bytes in it was what "the outputs are always empty" turned out to
+    // be.
+    if (onLocalEdit) {
+      changesRef.current = null;
+    } else if (!realtime.serverAuthoritative) {
       void realtime.whenSynced().then(() => {
         if (!cancelled && ytext.length === 0 && file.content.length > 0) {
           ytext.insert(0, file.content);
@@ -171,19 +190,26 @@ export function OutputEditorPane({
     const view = new EditorView({
       parent: host,
       state: EditorState.create({
-        doc: ytext.toString(),
+        doc: onLocalEdit ? file.content : ytext.toString(),
         extensions: [
           highlightField,
           ...languageExtensions(file.language),
           history(),
           keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab]),
           EditorView.lineWrapping,
-          yCollab(ytext, awareness),
+          // The room is the writer only when there is one.
+          ...(onLocalEdit ? [] : [yCollab(ytext, awareness)]),
           EditorView.updateListener.of((u) => {
             if (u.docChanged) {
               changesRef.current = changesRef.current
                 ? changesRef.current.composeDesc(u.changes.desc)
                 : u.changes.desc;
+              // Only edits a person made: a programmatic reload is this
+              // pane catching up with the document, and sending it back
+              // would be an edit nobody typed.
+              if (onLocalEditRef.current && u.transactions.some((t) => t.isUserEvent("input") || t.isUserEvent("delete") || t.isUserEvent("move") || t.isUserEvent("undo") || t.isUserEvent("redo"))) {
+                onLocalEditRef.current(u.state.doc.toString());
+              }
             }
             if (u.selectionSet || u.docChanged) {
               const sel = u.state.selection.main;
