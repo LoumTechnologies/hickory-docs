@@ -751,18 +751,23 @@ export function DocumentView({ docId }: { docId: string }) {
           <RibbonOverlay
             container={shellBox}
             source={
-              docEditor && doc
-                ? { view: docEditor, docPath: doc.path, docSource: doc.source }
-                : null
+              // The view is optional: a closed document pane still leaves
+              // bands pointing back to it, which is how you find it again.
+              doc ? { view: docEditor ?? undefined, docPath: doc.path, docSource: doc.source } : null
             }
             files={ribbonFiles}
+            documentVisible={!!docEditor}
             onNavigate={(target) => {
-              // Clicking a band IS the navigation: open the file if it is not
-              // open, and show the text it points at either way.
+              // Clicking a band IS the navigation.
+              if (target.kind === "document") {
+                // Back the way it came: the document's own bytes, selected.
+                onSelectSpan(target.span);
+                return;
+              }
               openGenerated(target.path);
               const view = openOutputs.get(target.path);
               if (view) revealRange(view, target.range);
-              else pendingReveal.current = target;
+              else pendingReveal.current = { path: target.path, range: target.range };
             }}
           />
         </div>

@@ -3563,3 +3563,18 @@ textarea:focus {
   pointer-events: auto;
 }
 .ribbon-group:hover .ribbon-label { fill: var(--accent); }
+
+/* Debugger controls: pressed constantly, read once. */
+.debug-icon {
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  color: var(--fg);
+  font-size: 0.95rem;
+  line-height: 1;
+  padding: 0.25rem 0.45rem;
+  cursor: pointer;
+}
+.debug-icon:hover:not(:disabled) { background: var(--bg-sunken); border-color: var(--border); }
+.debug-icon:disabled { opacity: 0.35; cursor: default; }
+.debug-panel__stop { color: var(--danger); }

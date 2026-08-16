@@ -47,6 +47,21 @@ export interface DebugSession {
   valueAt(expression: string): Promise<string | null>;
 }
 
+/**
+ * Put each breakpoint where the adapter actually bound it.
+ *
+ * A dot drawn on the line you asked for, while the program stops on the line
+ * below, is a gutter that disagrees with the debugger — and the debugger is
+ * the one that is right.
+ */
+function followMoves(statuses: BreakpointStatus[]): BreakpointStatus[] {
+  return statuses.map((status) =>
+    status.moved_to === undefined || status.moved_to === status.line
+      ? status
+      : { ...status, line: status.moved_to, moved_to: undefined },
+  );
+}
+
 export function useDebugger(realtime: Realtime, docPath: string): DebugSession {
   const [status, setStatus] = useState<DebugStatus>("idle");
   const [message, setMessage] = useState<string | null>(null);
@@ -95,7 +110,7 @@ export function useDebugger(realtime: Realtime, docPath: string): DebugSession {
         case "started":
           sessionRef.current = event.session;
           setCapabilities(event.capabilities);
-          setBreakpoints(event.breakpoints);
+          setBreakpoints(followMoves(event.breakpoints));
           setStatus("running");
           setMessage(null);
           break;
@@ -108,7 +123,7 @@ export function useDebugger(realtime: Realtime, docPath: string): DebugSession {
           setMessage(null);
           break;
         case "breakpoints":
-          setBreakpoints(event.breakpoints);
+          setBreakpoints(followMoves(event.breakpoints));
           break;
         case "value": {
           setLastValue({ expression: event.expression, value: event.value, type: event.type });

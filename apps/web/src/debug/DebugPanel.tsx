@@ -34,6 +34,40 @@ export interface DebugPanelProps {
   onStop: () => void;
 }
 
+/**
+ * One control: a glyph to press, a name for a screen reader, a sentence on
+ * hover. The sentence says what the button DOES rather than repeating its
+ * name — "Step over" twice helps nobody.
+ */
+function IconButton({
+  glyph,
+  label,
+  hint,
+  disabled,
+  onClick,
+  className,
+}: {
+  glyph: string;
+  label: string;
+  hint: string;
+  disabled?: boolean;
+  onClick: () => void;
+  className?: string;
+}) {
+  return (
+    <button
+      type="button"
+      className={`debug-icon${className ? ` ${className}` : ""}`}
+      aria-label={label}
+      title={`${label} — ${hint}`}
+      disabled={disabled}
+      onClick={onClick}
+    >
+      <span aria-hidden="true">{glyph}</span>
+    </button>
+  );
+}
+
 export function DebugPanel(props: DebugPanelProps) {
   const [expression, setExpression] = useState("");
   const paused = props.status === "paused";
@@ -48,39 +82,62 @@ export function DebugPanel(props: DebugPanelProps) {
           </button>
         ) : (
           <>
-            <button type="button" disabled={!paused} onClick={() => props.onStep("continue")} title="Continue (F5)">
-              Continue
-            </button>
-            <button type="button" disabled={!paused} onClick={() => props.onStep("over")} title="Step over (F10)">
-              Over
-            </button>
-            <button type="button" disabled={!paused} onClick={() => props.onStep("in")} title="Step into (F11)">
-              In
-            </button>
-            <button type="button" disabled={!paused} onClick={() => props.onStep("out")} title="Step out (Shift-F11)">
-              Out
-            </button>
+            {/* Icons, because these five are pressed constantly and read
+                once. Every one carries its name and its key in the tooltip:
+                an icon nobody can name is a puzzle, and a puzzle in a
+                debugger is worse than a word. */}
+            <IconButton
+              glyph="▶"
+              label="Continue"
+              hint="Run until the next breakpoint (F5)"
+              disabled={!paused}
+              onClick={() => props.onStep("continue")}
+            />
+            <IconButton
+              glyph="⤼"
+              label="Step over"
+              hint="Run this line, and stop on the next one in this function (F10)"
+              disabled={!paused}
+              onClick={() => props.onStep("over")}
+            />
+            <IconButton
+              glyph="↓"
+              label="Step into"
+              hint="Stop at the first line of the call on this line (F11)"
+              disabled={!paused}
+              onClick={() => props.onStep("in")}
+            />
+            <IconButton
+              glyph="↑"
+              label="Step out"
+              hint="Run to the end of this function and stop where it returns (Shift-F11)"
+              disabled={!paused}
+              onClick={() => props.onStep("out")}
+            />
             {/* The backwards control, whichever one this adapter has. Where
                 it has neither, nothing is shown rather than something
                 disabled with no explanation. */}
             {back && (
-              <button
-                type="button"
+              <IconButton
+                glyph={back.kind === "step_back" ? "◀" : back.kind === "drop_frame" ? "↺" : "⤒"}
+                label={back.label}
+                hint={back.hint}
                 disabled={!paused}
-                title={back.hint}
                 onClick={() => {
                   // `jump` needs a target line and is not a step; the other
                   // two are the server's own verbs.
                   if (back.kind === "jump") props.onJumpHere();
                   else props.onStep(back.kind === "step_back" ? "back" : "drop_frame");
                 }}
-              >
-                {back.label}
-              </button>
+              />
             )}
-            <button type="button" onClick={props.onStop} className="debug-panel__stop">
-              Stop
-            </button>
+            <IconButton
+              glyph="■"
+              label="Stop"
+              hint="End the session. The scratch copy it ran in is deleted with it."
+              className="debug-panel__stop"
+              onClick={props.onStop}
+            />
           </>
         )}
         <span className="debug-panel__status" role="status">

@@ -2,6 +2,7 @@ import { EditorState, Text } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import { beforeAll, describe, expect, it } from "vitest";
 import {
+  breakpointLine,
   debugEditor,
   inlinePlacements,
   revealLine,
@@ -222,17 +223,28 @@ describe("the gutter is findable before it holds anything", () => {
     view.destroy();
   });
 
-  it("puts a marker on every line, not only lines with breakpoints", () => {
+  it("puts a target on code lines, and none beside prose", () => {
     // The first breakpoint is the one nobody can set: with markers only where
-    // breakpoints already are, the strip is invisible and "click the gutter"
-    // is advice about nothing.
+    // breakpoints already are, the strip is invisible. But a target beside a
+    // paragraph is an invitation to find out later that it was never possible.
     const extensions = debugEditor({ onToggleBreakpoint: () => {} });
-    const state = EditorState.create({ doc: "a = 1\nb = 2\n", extensions });
-    const view = new EditorView({ state });
-    const gutters = view.dom.querySelectorAll(".cm-breakpoint-gutter .cm-bp-ghost");
-    expect(gutters.length).toBeGreaterThan(0);
+    const doc = `<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="out.md">
+Prose.
+
+<hick:file path="app.py">
+x = 1
+</hick:file>
+</hick:doc>
+`;
+    const view = new EditorView({ state: EditorState.create({ doc, extensions }) });
+    const ghosts = view.dom.querySelectorAll(".cm-breakpoint-gutter .cm-bp-ghost");
+    expect(ghosts.length).toBeGreaterThan(0);
+    // One code line in this document, so one target.
+    expect(ghosts.length).toBe(1);
     view.destroy();
   });
+
 });
 
 
@@ -349,5 +361,69 @@ describe("which frames become gutter marks", () => {
   it("still marks a caller when nothing is paused", () => {
     // Selecting a frame moves the paused marker; the rest stay callers.
     expect(stackMarksOf(FRAMES, null).map((m) => m.line)).toEqual([35, 39]);
+  });
+});
+
+
+describe("where a breakpoint can go", () => {
+  const DOC_SOURCE = `<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="out.md">
+# A heading
+
+Prose about the program.
+
+<hick:file path="app.py">
+x = 1
+
+y = 2
+</hick:file>
+
+<hick:file path="notes.md">
+Not code.
+</hick:file>
+</hick:doc>
+`;
+
+  const state = () => EditorState.create({ doc: DOC_SOURCE });
+  const lineOf = (needle: string) => {
+    const state0 = state();
+    for (let i = 1; i <= state0.doc.lines; i += 1) {
+      if (state0.doc.line(i).text.includes(needle)) return i - 1;
+    }
+    throw new Error(`no line with ${needle}`);
+  };
+
+  it("refuses prose: a document is mostly text about the program", () => {
+    expect(breakpointLine(state(), lineOf("# A heading"))).toBeNull();
+    expect(breakpointLine(state(), lineOf("Prose about"))).toBeNull();
+  });
+
+  it("refuses a file in a language nothing can debug", () => {
+    expect(breakpointLine(state(), lineOf("Not code."))).toBeNull();
+  });
+
+  it("takes a line of code as it is", () => {
+    const line = lineOf("x = 1");
+    expect(breakpointLine(state(), line)).toBe(line);
+  });
+
+  it("slides off a blank line onto the next line with something on it", () => {
+    // What every editor does, and what the adapter would do anyway — only
+    // sooner, and visibly.
+    const blank = lineOf("x = 1") + 1;
+    expect(state().doc.line(blank + 1).text.trim()).toBe("");
+    expect(breakpointLine(state(), blank)).toBe(lineOf("y = 2"));
+  });
+
+  it("does not slide out of its block", () => {
+    // The blank line after `y = 2` is the last line of the block; there is
+    // nothing below it that belongs to this program.
+    const trailing = lineOf("y = 2") + 1;
+    expect(breakpointLine(state(), trailing)).toBeNull();
+  });
+
+  it("says nothing about a line outside the document", () => {
+    expect(breakpointLine(state(), 9_000)).toBeNull();
+    expect(breakpointLine(state(), -1)).toBeNull();
   });
 });

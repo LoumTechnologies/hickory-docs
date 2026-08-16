@@ -27,9 +27,16 @@ import { atLeast, clampBand, ribbonPath, ribbonStubPath, thicknessFor } from "..
 import { deriveRibbons, RIBBON_PALETTE_SIZE, type Ribbon } from "../lib/ribbons";
 import type { OutputFile } from "../api/types";
 
-/** The document side: the editor showing it, and what it is. */
+/**
+ * The document side.
+ *
+ * The editor is optional on purpose: the bands that point BACK to the
+ * document are drawn from a generated pane, and need only the document's
+ * text to know what came from where. Requiring the view meant closing the
+ * document's pane erased the very stubs that exist to find it again.
+ */
 export interface RibbonSource {
-  view: EditorView;
+  view?: EditorView;
   docPath: string;
   docSource: string;
 }
@@ -41,11 +48,13 @@ export interface RibbonFile {
 }
 
 /** Where a click on a band wants to go. */
-export interface RibbonTarget {
-  path: string;
-  /** Character range in the generated file. */
-  range: [number, number];
-}
+export type RibbonTarget =
+  | { kind: "generated"; path: string; range: [number, number] }
+  /**
+   * Back to the document, at the BYTES this text came from — the unit the
+   * span-selection path uses, and the one provenance is recorded in.
+   */
+  | { kind: "document"; span: [number, number] };
 
 interface Shape {
   key: string;
@@ -53,7 +62,7 @@ interface Shape {
   color: number;
   clamped: boolean;
   stub: boolean;
-  label?: { x: number; y: number; text: string };
+  label?: { x: number; y: number; text: string; anchor?: "start" | "end" };
   target: RibbonTarget;
 }
 
@@ -64,11 +73,14 @@ export function RibbonOverlay({
   container,
   source,
   files,
+  documentVisible = true,
   onNavigate,
 }: {
   container: HTMLElement | null;
   source: RibbonSource | null;
   files: readonly RibbonFile[];
+  /** Whether the document itself is on screen. Decides which way stubs go. */
+  documentVisible?: boolean;
   onNavigate?: (target: RibbonTarget) => void;
 }) {
   const [shapes, setShapes] = useState<Shape[]>([]);
@@ -80,13 +92,14 @@ export function RibbonOverlay({
       return;
     }
     const box = container.getBoundingClientRect();
-    const left = source.view.scrollDOM.getBoundingClientRect();
+    const documentView = source.view ?? null;
     // The channel is the space between the two TEXTS: the gutters on either
     // side belong to it. Anchoring on the scrollers leaves four pixels of
     // divider, which is not a picture anyone can read.
-    const leftText = source.view.contentDOM.getBoundingClientRect();
-    const structure = structureOf(source.view.state);
-    const sourceLength = source.view.state.doc.length;
+    const left = documentView?.scrollDOM.getBoundingClientRect() ?? null;
+    const leftText = documentView?.contentDOM.getBoundingClientRect() ?? null;
+    const structure = documentView ? structureOf(documentView.state) : null;
+    const sourceLength = documentView?.state.doc.length ?? 0;
 
     const out: Shape[] = [];
     const colours = new Map<string, number>();
@@ -103,7 +116,7 @@ export function RibbonOverlay({
       const ribbons = deriveRibbons(entry.file, source.docPath, source.docSource);
       if (ribbons.length === 0) continue;
 
-      if (entry.view) {
+      if (entry.view && documentView && left && leftText && structure) {
         const right = entry.view.scrollDOM.getBoundingClientRect();
         const rightText = entry.view.contentDOM.getBoundingClientRect();
         // Panes can be in any order: a generated file to the LEFT of its
@@ -114,7 +127,7 @@ export function RibbonOverlay({
         const targetLength = entry.view.state.doc.length;
 
         for (const ribbon of ribbons) {
-          const band = sourceBand(source.view, structure, ribbon, sourceLength);
+          const band = sourceBand(documentView, structure, ribbon, sourceLength);
           const to = bandBetween(
             entry.view,
             Math.min(ribbon.outputRange[0], targetLength),
@@ -142,14 +155,19 @@ export function RibbonOverlay({
             color: colourFor(fragmentKey(ribbon)),
             clamped: from.clamped || into.clamped,
             stub: false,
-            target: { path: entry.file.path, range: ribbon.outputRange },
+            target: {
+              kind: "generated",
+              path: entry.file.path,
+              range: ribbon.outputRange,
+            },
           });
         }
         continue;
       }
 
-      // Not open: one stub per source block rather than per fragment. One
-      // file that a block feeds is one statement, not fifty.
+      // Not open, and the document is: one stub per source block rather than
+      // per fragment. One file that a block feeds is one statement, not fifty.
+      if (!documentView || !left || !leftText || !structure) continue;
       const byBlock = new Map<string, { ribbon: Ribbon; bytes: number }>();
       for (const ribbon of ribbons) {
         const key = fragmentKey(ribbon);
@@ -161,7 +179,7 @@ export function RibbonOverlay({
       const x0 = leftText.right - box.left;
       const edge = left.right - box.left;
       for (const [key, group] of byBlock) {
-        const band = sourceBand(source.view, structure, group.ribbon, sourceLength);
+        const band = sourceBand(documentView, structure, group.ribbon, sourceLength);
         if (!band) continue;
         const from = clampBand(
           band[0] - box.top,
@@ -190,12 +208,78 @@ export function RibbonOverlay({
             y: mid + 3,
             text: entry.file.path.split("/").pop() ?? entry.file.path,
           },
-          target: { path: entry.file.path, range: group.ribbon.outputRange },
+          target: {
+            kind: "generated",
+            path: entry.file.path,
+            range: group.ribbon.outputRange,
+          },
         });
       }
     }
+
+    // The other direction: a generated pane whose document is not on screen
+    // gets stubs of its own, reaching back the way they came. Provenance is
+    // symmetrical and so is the question — "where did this come from" is
+    // asked from the generated side at least as often.
+    if (!documentVisible) {
+      for (const entry of files) {
+        if (!entry.view) continue;
+        const pane = entry.view.scrollDOM.getBoundingClientRect();
+        const text = entry.view.contentDOM.getBoundingClientRect();
+        const x0 = text.left - box.left;
+        const edge = pane.left - box.left;
+        const byBlock = new Map<string, { ribbon: Ribbon; bytes: number }>();
+        for (const ribbon of deriveRibbons(entry.file, source.docPath, source.docSource)) {
+          const key = fragmentKey(ribbon);
+          const seen = byBlock.get(key);
+          if (seen) seen.bytes += ribbon.bytes;
+          else byBlock.set(key, { ribbon, bytes: ribbon.bytes });
+        }
+        for (const [key, group] of byBlock) {
+          const targetLength = entry.view.state.doc.length;
+          const band = bandBetween(
+            entry.view,
+            Math.min(group.ribbon.outputRange[0], targetLength),
+            Math.min(group.ribbon.outputRange[1], targetLength),
+          );
+          if (!band) continue;
+          const from = clampBand(
+            band[0] - box.top,
+            band[1] - box.top,
+            pane.top - box.top,
+            pane.bottom - box.top,
+          );
+          const thickness = Math.max(3, thicknessFor(group.bytes, 1));
+          const a = atLeast(from.yTop, from.yBot, thickness);
+          const mid = (a.yTop + a.yBot) / 2;
+          const label = source.docPath.split("/").pop() ?? source.docPath;
+          out.push({
+            key: `${entry.file.path}:back:${key}`,
+            path: ribbonStubPath(
+              x0,
+              a.yTop,
+              a.yBot,
+              edge - STUB,
+              mid - thickness / 2,
+              mid + thickness / 2,
+            ),
+            color: colourFor(key),
+            clamped: from.clamped,
+            stub: true,
+            label: {
+              x: edge - STUB - 5,
+              y: mid + 3,
+              text: label,
+              anchor: "end",
+            },
+            target: { kind: "document", span: group.ribbon.sourceByteSpan },
+          });
+        }
+      }
+    }
+
     setShapes(out);
-  }, [container, source, files]);
+  }, [container, source, files, documentVisible]);
 
   // Measurement follows the things that move: scrolling either pane, editing
   // either buffer, and the window changing shape. Throttled to a frame,
@@ -242,13 +326,20 @@ export function RibbonOverlay({
             }`}
           >
             <title>
-              {shape.stub
-                ? `Open ${shape.target.path} at what this block produced`
-                : `Show this in ${shape.target.path}`}
+              {shape.target.kind === "document"
+                ? "Show the prose this came from"
+                : shape.stub
+                  ? `Open ${shape.target.path} at what this block produced`
+                  : `Show this in ${shape.target.path}`}
             </title>
           </path>
           {shape.label && (
-            <text className="ribbon-label" x={shape.label.x} y={shape.label.y}>
+            <text
+              className="ribbon-label"
+              x={shape.label.x}
+              y={shape.label.y}
+              textAnchor={shape.label.anchor ?? "start"}
+            >
               {shape.label.text}
             </text>
           )}

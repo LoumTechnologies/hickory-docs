@@ -23,6 +23,13 @@ export interface BreakpointStatus {
   /** False when the adapter could not bind it: drawn hollow in the gutter. */
   verified: boolean;
   message?: string;
+  /**
+   * The line the adapter actually bound it to, when that is not the one asked
+   * for. Adapters slide a breakpoint down to the next line that can hold one;
+   * keeping the requested line makes the gutter disagree with where the
+   * program stops.
+   */
+  moved_to?: number;
 }
 
 export interface Frame {

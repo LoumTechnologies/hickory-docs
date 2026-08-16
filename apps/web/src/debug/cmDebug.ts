@@ -20,7 +20,7 @@
 // inline widgets; the paused line is a background.
 
 import { RangeSetBuilder, StateEffect, StateField } from "@codemirror/state";
-import type { Extension } from "@codemirror/state";
+import type { EditorState, Extension } from "@codemirror/state";
 import {
   Decoration,
   EditorView,
@@ -31,6 +31,9 @@ import {
 } from "@codemirror/view";
 import type { DecorationSet } from "@codemirror/view";
 import type { Frame, Variable } from "./client";
+import { isDebuggable } from "./languages";
+import { languageForBlock } from "../editor/hickDoc";
+import { structureOf } from "../editor/wysiwyg";
 
 /** One gutter dot. */
 export interface BreakpointMark {
@@ -77,6 +80,44 @@ export function stackMarksOf(frames: readonly Frame[], pausedLine: number | null
     out.push({ line, name: frame.name, depth: index + 1 });
   });
   return out;
+}
+
+/**
+ * The line a breakpoint on `line` should actually go on, or null when the
+ * line cannot hold one.
+ *
+ * Two rules, both of which a person can see for themselves and would be
+ * annoyed to have to discover from a hollow dot:
+ *
+ *  * **Prose cannot hold a breakpoint.** A document is mostly text about the
+ *    program; only the lines inside a `hick:file` block in a language with a
+ *    debug adapter become code that runs.
+ *  * **A blank line cannot hold one either** — nor a line that is only a
+ *    comment marker, though that is the adapter's business. The breakpoint
+ *    slides down to the next line with something on it, inside the same
+ *    block, which is what every editor does and what the adapter would do
+ *    anyway, only sooner and visibly.
+ */
+export function breakpointLine(state: EditorState, line: number): number | null {
+  const structure = structureOf(state);
+  const doc = state.doc;
+  if (line < 0 || line >= doc.lines) return null;
+  const at = doc.line(line + 1);
+
+  const block = structure.blocks.find(
+    (candidate) =>
+      candidate.name === "file" &&
+      at.from >= candidate.contentFrom &&
+      at.to <= candidate.contentTo &&
+      isDebuggable(languageForBlock(structure, candidate)),
+  );
+  if (!block) return null;
+
+  const lastLine = doc.lineAt(block.contentTo).number;
+  for (let number = line + 1; number <= lastLine; number += 1) {
+    if (doc.line(number).text.trim().length > 0) return number - 1;
+  }
+  return null;
 }
 
 export const setBreakpointMarks = StateEffect.define<BreakpointMark[]>();
@@ -448,9 +489,10 @@ export function debugEditor(options: DebugEditorOptions): Extension[] {
         // A caller's line, when nothing louder is on it: the way out of here.
         const frame = view.state.field(stackField).find((f) => f.line === line);
         if (frame) return new FrameMarker(frame);
-        // Nothing here yet: an invisible target, so the strip can be found
-        // and clicked before it holds anything.
-        return HOVER_TARGET;
+        // Nothing here yet. The ghost appears only where a breakpoint could
+        // actually go: offering one beside a paragraph is an invitation to
+        // find out later that it was never possible.
+        return breakpointLine(view.state, line) === null ? null : HOVER_TARGET;
       },
       // A cell for every widget block, too.
       //
@@ -470,7 +512,11 @@ export function debugEditor(options: DebugEditorOptions): Extension[] {
         update.startState.field(stackField) !== update.state.field(stackField),
       domEventHandlers: {
         mousedown(view, block, event) {
-          options.onToggleBreakpoint(lineAtEvent(view, block, event));
+          const clicked = lineAtEvent(view, block, event);
+          // Snap to the line that can hold it, or refuse quietly: a dot that
+          // appears and then reports it could not bind is worse than no dot.
+          const line = breakpointLine(view.state, clicked);
+          if (line !== null) options.onToggleBreakpoint(line);
           return true;
         },
       },
