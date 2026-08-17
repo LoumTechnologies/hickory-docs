@@ -6,7 +6,6 @@ import { WorkspaceView } from "./views/WorkspaceView";
 import { api } from "./api/client";
 import { onMenuAction } from "./lib/menuBridge";
 import { landingTarget } from "./lib/newDoc";
-import { TreeMark } from "./components/icons";
 
 /// The desktop app's shell.
 ///
@@ -59,12 +58,6 @@ export function App() {
 
   return (
     <div className="app">
-      <nav className="topnav">
-        <button className="wordmark" onClick={() => navigate("/")} title="Home">
-          <TreeMark size={17} />
-          Hickory Docs
-        </button>
-      </nav>
       <main className="content">
         {route.name === "doc" || route.name === "new" ? (
           // ONE workspace for every document-shaped route. It owns the tile

@@ -6,11 +6,14 @@
 // unit-testable without a browser.
 
 /** One viewport line block, as CodeMirror's height map reports it:
- * document-relative top, total painted height (wrapping included). */
+ * document-relative top, total painted height (wrapping included), and —
+ * when the component measured them — the document-relative tops of the
+ * block's visual rows (a soft-wrapped line has several). */
 export interface RailBlock {
   from: number;
   top: number;
   height: number;
+  rowTops?: readonly number[];
 }
 
 /** A sub-block of a composite line block: the line's text, or a widget. */
@@ -37,18 +40,54 @@ export function textExtent(
   return text ? { top: text.top, height: text.height } : block;
 }
 
+/**
+ * An extent divided at its measured visual-row tops: one box per row,
+ * tiling the extent exactly. Each box runs from its row's top to the next
+ * row's top (the last to the extent's bottom), so stacking the boxes
+ * reproduces the extent to the pixel — glyph heights and inter-row leading
+ * never enter into it. Tops outside the extent, out of order, or absent
+ * leave the extent whole: one box.
+ */
+export function rowBoxes(
+  extent: { top: number; height: number },
+  rowTops: readonly number[],
+): { top: number; height: number }[] {
+  const bottom = extent.top + extent.height;
+  const cuts: number[] = [];
+  for (const top of rowTops.slice(1)) {
+    const prev = cuts[cuts.length - 1] ?? extent.top;
+    if (top > prev && top < bottom) cuts.push(top);
+  }
+  const bounds = [extent.top, ...cuts, bottom];
+  const out: { top: number; height: number }[] = [];
+  for (let i = 0; i + 1 < bounds.length; i++) {
+    out.push({ top: bounds[i], height: bounds[i + 1] - bounds[i] });
+  }
+  return out;
+}
+
+/** What a rail row shows: the line's number, or a wrap-continuation mark. */
+export type RailLineKind = "number" | "wrap";
+
 /** One rail entry: a line number and its rail-relative pixel box. */
 export interface RailLine {
   line: number;
   top: number;
   height: number;
+  kind: RailLineKind;
 }
 
 /**
- * The rail's entries for the current viewport: one per DOCUMENT line, not
- * per painted block. Consecutive blocks reporting the same line (a wrapped
- * line split across height-map entries) merge into one entry spanning both,
- * so the rail stays cell-for-cell with the left gutter.
+ * The rail's entries for the current viewport: one per VISUAL row, not per
+ * document line. A soft-wrapped line's first row carries the number; every
+ * continuation row is a "wrap" entry, so the tall cell reads as one logical
+ * line continuing rather than unexplained blank space (and a brace spanning
+ * it reads the same way). Two shapes of continuation are recognized:
+ * measured row tops on a single block (what CodeMirror actually yields for
+ * wrapping — one block per line), and, defensively, consecutive blocks
+ * reporting the same line. Widget rows never reach here at all: callers
+ * pass the TEXT extent (see textExtent), so a widget's height produces no
+ * entry — that is what keeps this rail cell-for-cell with the left gutter.
  */
 export function railLines(
   blocks: readonly RailBlock[],
@@ -58,11 +97,12 @@ export function railLines(
   for (const block of blocks) {
     const line = lineNumberAt(block.from);
     const prev = out[out.length - 1];
-    if (prev && prev.line === line) {
-      prev.height = block.top + block.height - prev.top;
-      continue;
-    }
-    out.push({ line, top: block.top, height: block.height });
+    const continues = prev !== undefined && prev.line === line;
+    const boxes = rowBoxes(block, block.rowTops ?? []);
+    boxes.forEach((box, i) => {
+      const kind: RailLineKind = continues || i > 0 ? "wrap" : "number";
+      out.push({ line, top: box.top, height: box.height, kind });
+    });
   }
   return out;
 }

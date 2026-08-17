@@ -22,6 +22,7 @@ import { changeFlashField, syncAndFlash } from "../editor/changeFlash";
 import { languageExtensions } from "../editor/languages";
 import { lineHighlightField } from "../editor/lineHighlight";
 import { RightRail } from "../editor/RightRail";
+import { wrapGutterMarkers } from "../editor/wrapGutter";
 import { isMarkdownPath, markdownStyling } from "../editor/markdownStyling";
 import { byteToChar } from "../lib/offsets";
 
@@ -163,6 +164,10 @@ export function OutputEditorPane({
           // is the channel the lineage ribbons are drawn through — without it
           // they are squeezed into the four pixels of the pane divider.
           lineNumbers(),
+          // Wrap marks on soft-wrapped continuation rows, in the number
+          // gutter — the number renders once, the rest of the tall cell
+          // says "still that line".
+          wrapGutterMarkers(),
           // The hovered-ribbon line tint, shared with the right rail.
           lineHighlightField,
           ...languageExtensions(initial.language),

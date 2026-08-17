@@ -20,6 +20,8 @@ import type { EditorView } from "@codemirror/view";
 
 import { railLines, railWidthCh, textExtent } from "../lib/rightRail";
 import { lineHighlightField, RAIL_SYNC_EVENT } from "./lineHighlight";
+import { measureRowTops } from "./wrapRows";
+import { WRAP_MARK } from "./wrapGutter";
 
 /** Redraw the rail's entries from a measured view. Imperative DOM: the rail
  * repaints on every scrolled frame, and a React render per frame is a cost
@@ -43,7 +45,19 @@ function redraw(rail: HTMLElement, view: EditorView): void {
           }))
         : null;
       const extent = textExtent(b, children);
-      return { from: b.from, top: extent.top, height: extent.height };
+      // A soft-wrapped line is ONE block spanning several visual rows; the
+      // measured row tops let railLines give each row its own entry (the
+      // number, then wrap marks). Measured only when the extent is tall
+      // enough to possibly hold two rows — the common single-row line skips
+      // the DOM read entirely.
+      let rowTops: number[] | undefined;
+      if (extent.height >= view.defaultLineHeight * 1.5) {
+        const tops = measureRowTops(view, b.from);
+        if (tops && tops.length > 1) {
+          rowTops = tops.map((top) => top - view.documentTop);
+        }
+      }
+      return { from: b.from, top: extent.top, height: extent.height, rowTops };
     }),
     (pos) => doc.lineAt(pos).number,
   );
@@ -65,10 +79,19 @@ function redraw(rail: HTMLElement, view: EditorView): void {
   lines.forEach((line, i) => {
     const el = rail.children[i] as HTMLElement;
     const tinted = tint && line.line >= tint.from && line.line <= tint.to;
-    el.className = `cm-right-rail__line${tinted ? ` cm-linehl cm-linehl-c${tint.color}` : ""}`;
-    el.textContent = String(line.line);
+    const wrap = line.kind === "wrap";
+    el.className =
+      `cm-right-rail__line${wrap ? " cm-right-rail__wrap" : ""}` +
+      `${tinted ? ` cm-linehl cm-linehl-c${tint.color}` : ""}`;
+    // A continuation row shows the wrap mark, not a repeated number: the
+    // number renders once, and every further visual row says "still that
+    // line" — which is what makes a brace spanning the wrapped line legible.
+    el.textContent = wrap ? WRAP_MARK : String(line.line);
     el.style.top = `${line.top + offset}px`;
     el.style.height = `${line.height}px`;
+    // Center the wrap mark in its row; numbers keep the rail's own leading
+    // so their baseline stays level with the left gutter's digits.
+    el.style.lineHeight = wrap ? `${line.height}px` : "";
   });
 }
 

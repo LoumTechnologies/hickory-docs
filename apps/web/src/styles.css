@@ -199,39 +199,6 @@ pre {
   flex-direction: column;
 }
 
-/* --- top nav --- */
-.topnav {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 1.25rem;
-  height: 3rem;
-  border-bottom: 1px solid var(--border);
-  background: var(--bg-raised);
-}
-
-.wordmark {
-  display: flex;
-  align-items: center;
-  gap: 0.4rem;
-  font-weight: 650;
-  letter-spacing: 0.01em;
-  font-size: 1rem;
-  background: none;
-  border: none;
-  color: var(--fg);
-  cursor: pointer;
-  padding: 0;
-}
-
-.wordmark svg { color: var(--accent); }
-
-.nav-actions {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-}
-
 .content {
   flex: 1;
   min-height: 0;
@@ -3334,9 +3301,11 @@ textarea:focus {
 
 .shell-tabs {
   display: flex;
-  align-items: center;
+  /* Tabs sit ON the strip's bottom edge, so the active one can merge into
+     the content below it — a tab that floats mid-strip belongs to nothing. */
+  align-items: flex-end;
   gap: 0.4rem;
-  padding: 0.15rem 0.3rem;
+  padding: 0.25rem 0.3rem 0;
   border-bottom: 1px solid var(--border);
   background: var(--bg-sunken);
   min-height: 1.9rem;
@@ -3351,6 +3320,7 @@ textarea:focus {
 }
 .shell-tabstrip {
   display: flex;
+  align-items: flex-end;
   gap: 0.15rem;
   overflow-x: auto;
   flex: 1;
@@ -3359,9 +3329,12 @@ textarea:focus {
 .shell-tabstrip::-webkit-scrollbar { display: none; }
 
 .shell-tab {
+  position: relative;
   display: inline-flex;
   align-items: center;
-  border-radius: 5px;
+  border-radius: 6px 6px 0 0;
+  border: 1px solid transparent;
+  border-bottom: none;
   white-space: nowrap;
 }
 .shell-tab button {
@@ -3370,10 +3343,21 @@ textarea:focus {
   color: var(--fg-muted);
   font: inherit;
   font-size: 0.78rem;
-  padding: 0.2rem 0.1rem 0.2rem 0.45rem;
+  padding: 0.26rem 0.1rem 0.3rem 0.45rem;
   cursor: pointer;
 }
-.shell-tab--on { background: var(--bg); box-shadow: inset 0 -2px 0 var(--accent); }
+/* The file-folder connection: the active tab wears the CONTENT's background,
+   carries the strip's border up its sides, and bleeds one pixel over the
+   strip's bottom border — tab and pane become one surface, and the accent
+   moves to the tab's top edge where a folder tab would crease. */
+.shell-tab--on {
+  background: var(--bg);
+  border-color: var(--border);
+  margin-bottom: -1px;
+  padding-bottom: 1px;
+  box-shadow: inset 0 2px 0 var(--accent);
+  z-index: 1;
+}
 .shell-tab--on button { color: var(--fg); }
 .shell-tab__close {
   opacity: 0;
@@ -4290,7 +4274,9 @@ textarea:focus {
   overflow-y: auto;
   overflow-x: hidden;
   border-right: 1px solid var(--border);
-  background: var(--bg-raised);
+  /* Same surface as the content beside it: the sidebar is part of the pane,
+     not a separate panel — connection over compartments. */
+  background: var(--bg);
 }
 /* A directory header: wayfinding, not a control. */
 .shell-sidetabs__dir {
@@ -4320,7 +4306,13 @@ textarea:focus {
   white-space: nowrap;
 }
 .shell-tab--side.shell-tab--on {
-  background: var(--bg);
+  /* On a unified surface the active row needs a fill of its own; the left
+     accent bar stays as the "you are here" crease. */
+  background: var(--neutral-bg);
+  margin-bottom: 0;
+  padding-bottom: 0;
+  border: 1px solid transparent;
+  border-radius: 4px;
   box-shadow: inset 2px 0 0 var(--accent);
 }
 /* The insertion caret while a drag hovers the side tree: the top-strip
@@ -4459,4 +4451,31 @@ textarea:focus {
 .doc-tab-toolbar .btn:disabled {
   opacity: 0.5;
   cursor: default;
+}
+
+/* wrap markers */
+/* Continuation rows of a soft-wrapped line, in BOTH gutters: the number
+   renders once on the first visual row, and every further row shows a muted
+   wrap mark instead of blank space — so a brace or band spanning the tall
+   line reads as one logical line continuing. Left side: a display-only
+   CodeMirror layer over the number gutter (editor/wrapGutter.ts). Right
+   side: per-row rail entries (editor/RightRail.tsx). */
+.cm-wrap-gutter-layer {
+  pointer-events: none;
+}
+.cm-wrap-marker {
+  color: var(--fg-muted);
+  opacity: 0.55;
+  font-size: 0.85em;
+  text-align: right;
+  /* Match lineNumbers(): digits end 3px from the gutter's right edge, and
+     the mark sits where a number would. */
+  box-sizing: border-box;
+  padding-right: 3px;
+  overflow: hidden;
+  user-select: none;
+}
+.cm-right-rail__wrap {
+  opacity: 0.55;
+  font-size: 0.85em;
 }

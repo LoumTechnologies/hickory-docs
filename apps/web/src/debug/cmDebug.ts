@@ -31,6 +31,7 @@ import {
 } from "@codemirror/view";
 import type { DecorationSet } from "@codemirror/view";
 import type { Frame, Variable } from "./client";
+import { wrapGutterMarkers } from "../editor/wrapGutter";
 import { isDebuggable } from "./languages";
 import { languageForBlock } from "../editor/hickDoc";
 import { structureOf } from "../editor/wysiwyg";
@@ -674,6 +675,10 @@ export function debugEditor(options: DebugEditorOptions): Extension[] {
     // markup, "the fourth line I can see" is not the fourth line of the file,
     // which is the only line number the debugger and the document agree on.
     lineNumbers(),
+    // A wrapped line keeps its number on the first visual row; every
+    // continuation row gets a muted wrap mark instead of blank gutter, so
+    // the tall cell reads as one logical line continuing.
+    wrapGutterMarkers(),
     breakpointField,
     pausedField,
     stackField,
