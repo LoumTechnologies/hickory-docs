@@ -44,7 +44,7 @@ export function EnvCard({ name, image, rules, executor }: EnvCardProps) {
     <span
       className={`env-resolution${resolution.warn ? " warn" : ""}`}
       data-testid={`env-card-${name}`}
-      title={summary}
+      data-tip={summary}
     >
       {resolution.text}
     </span>

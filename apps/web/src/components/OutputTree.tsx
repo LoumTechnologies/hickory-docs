@@ -68,7 +68,7 @@ function Rows({
               style={{ paddingLeft: `${depth * 0.75 + 0.15}rem` }}
               aria-current={active}
               onClick={() => props.onSelect(f.path)}
-              title={f.path}
+              data-tip={f.path}
             >
               <span className="tree-name mono">{f.name}</span>
               {bytes !== undefined && <span className="tree-bytes">{humanBytes(bytes)}</span>}

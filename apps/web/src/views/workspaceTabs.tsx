@@ -37,7 +37,7 @@ export function DocTabBody({ registry, docId }: { registry: SessionRegistry; doc
           className="btn"
           disabled={running}
           onClick={session.runAll}
-          title="Run every cell in this document"
+          data-tip="Run every cell in this document"
         >
           {running ? "Running…" : "Run"}
         </button>
@@ -45,7 +45,7 @@ export function DocTabBody({ registry, docId }: { registry: SessionRegistry; doc
           className="btn btn-primary"
           disabled={running}
           onClick={session.verify}
-          title="Re-run this document and verify it against its expectations"
+          data-tip="Re-run this document and verify it against its expectations"
         >
           Verify
         </button>

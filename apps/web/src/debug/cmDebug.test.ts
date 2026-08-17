@@ -220,7 +220,7 @@ describe("the gutter is findable before it holds anything", () => {
 
     const dots = [...view.dom.querySelectorAll(".cm-bp")];
     expect(dots[0].className).toContain("cm-bp-broken");
-    expect((dots[0] as HTMLElement).title).toBe("Server disconnected");
+    expect((dots[0] as HTMLElement).dataset.tip).toBe("Server disconnected");
     expect(dots[1].className).not.toContain("cm-bp-broken");
     expect(dots[1].className).toContain("cm-bp-unverified");
     view.destroy();
@@ -275,8 +275,8 @@ describe("the stack, in the gutter", () => {
 
     const frames = [...view.dom.querySelectorAll(".cm-frame-arrow")];
     expect(frames.length).toBe(2);
-    expect((frames[0] as HTMLElement).title).toContain("Called from a");
-    expect((frames[1] as HTMLElement).title).toContain("2 frames up");
+    expect((frames[0] as HTMLElement).dataset.tip).toContain("Called from a");
+    expect((frames[1] as HTMLElement).dataset.tip).toContain("2 frames up");
     // The paused line keeps the solid arrow; a caller never gets one.
     expect(view.dom.querySelectorAll(".cm-paused-arrow").length).toBe(1);
     view.destroy();

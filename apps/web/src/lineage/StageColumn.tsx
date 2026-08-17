@@ -126,7 +126,7 @@ export function StageColumn(props: StageColumnProps) {
                 {/* Any stage can run things — saying so per file keeps
                     execution from looking like the last stage's privilege. */}
                 {cells > 0 && (
-                  <span className="sf-runs" title={`${cells} executable cell${cells === 1 ? "" : "s"}`}>
+                  <span className="sf-runs" data-tip={`${cells} executable cell${cells === 1 ? "" : "s"}`}>
                     ▶ {cells}
                   </span>
                 )}
@@ -154,7 +154,7 @@ export function StageColumn(props: StageColumnProps) {
                   key={path}
                   type="button"
                   className="stage-elsewhere-entry"
-                  title={
+                  data-tip={
                     owner === -1
                       ? `Open ${path} here — no stage owns it`
                       : `Go to the ${model.stages[owner].name} stage, which owns ${path}`
@@ -221,7 +221,7 @@ export function StageColumn(props: StageColumnProps) {
       >
         <span
           className="lin-gutter"
-          title="Drag to fold these lines away"
+          data-tip="Drag to fold these lines away"
           onPointerDown={(e) => {
             e.preventDefault();
             (e.target as HTMLElement).setPointerCapture?.(e.pointerId);

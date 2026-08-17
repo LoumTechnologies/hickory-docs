@@ -185,13 +185,13 @@ function FolderRoot({
   return (
     <section className="folder-tree__root">
       <header className="folder-tree__header">
-        <span className="folder-tree__name" title={folder.root}>
+        <span className="folder-tree__name" data-tip={folder.root}>
           {name}
         </span>
         <button
           type="button"
           className="folder-tree__new"
-          title="New document"
+          data-tip="New document"
           aria-label="New document"
           onClick={onNewDocument}
         >
@@ -246,7 +246,7 @@ function TreeRow({
           className="folder-tree__dir mono"
           style={indent}
           onClick={() => onToggle(node.path)}
-          title={node.path}
+          data-tip={node.path}
         >
           <span className="folder-tree__disclosure" aria-hidden>
             {open ? "▾" : "▸"}
@@ -285,7 +285,7 @@ function TreeRow({
         <span
           className="folder-tree__file folder-tree__file--inert mono"
           style={indent}
-          title={node.path}
+          data-tip={node.path}
           data-tree-path={node.path}
           data-tree-kind="inert"
         >
@@ -301,7 +301,7 @@ function TreeRow({
         type="button"
         className={`folder-tree__file mono${active ? " on" : ""}`}
         style={indent}
-        title={node.path}
+        data-tip={node.path}
         // The ribbon overlay finds this row by path: a connection to a file
         // that is not open but IS visible here lands on this row's edge.
         data-tree-path={node.path}

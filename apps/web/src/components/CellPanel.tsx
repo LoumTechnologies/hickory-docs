@@ -59,13 +59,13 @@ export function CellPanel({ block, running, onRun }: CellPanelProps) {
   return (
     <div className="cell-panel" data-testid={`cell-panel-${block.id}`}>
       <div className="cell-panel-bar">
-        <span className="cell-container" title={block.image ?? "host"}>
+        <span className="cell-container" data-tip={block.image ?? "host"}>
           {block.container}
           {block.image ? ` · ${block.image}` : ""}
         </span>
         <StatusChip status={block.status} running={running} />
         {verified && (
-          <span className="cell-verified" title="the expect block above is the verified output">
+          <span className="cell-verified" data-tip="the expect block above is the verified output">
             ✓ output verified
           </span>
         )}

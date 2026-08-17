@@ -6,6 +6,7 @@ import { WorkspaceView } from "./views/WorkspaceView";
 import { api } from "./api/client";
 import { onMenuAction } from "./lib/menuBridge";
 import { landingTarget } from "./lib/newDoc";
+import { TooltipLayer } from "./components/TooltipLayer";
 
 /// The desktop app's shell.
 ///
@@ -78,6 +79,8 @@ export function App() {
           {notice}
         </div>
       )}
+      {/* One tooltip for the whole app; every `data-tip` in it lands here. */}
+      <TooltipLayer />
     </div>
   );
 }

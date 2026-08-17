@@ -123,7 +123,7 @@ export function hickoryFolding(): Extension {
         const el = document.createElement("span");
         el.className = "cm-hick-fold-placeholder";
         el.textContent = "…";
-        el.title = "Unfold";
+        el.dataset.tip = "Unfold";
         el.setAttribute("aria-label", "folded content — click to unfold");
         el.onclick = onclick;
         return el;
@@ -137,7 +137,7 @@ export function hickoryFolding(): Extension {
         const el = document.createElement("span");
         el.className = `cm-fold-marker${open ? " cm-fold-open" : ""}`;
         el.textContent = "›"; // ›
-        el.title = open ? "Fold" : "Unfold";
+        el.dataset.tip = open ? "Fold" : "Unfold";
         return el;
       },
     }),

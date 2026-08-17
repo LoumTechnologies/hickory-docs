@@ -147,7 +147,7 @@ function dotElement(mark: BreakpointMark): HTMLElement {
   // The reason, on the thing it is about. Without this, an unbindable
   // breakpoint is a mystery rather than a message — and with it, the message
   // needs to be nowhere else.
-  dot.title = mark.message
+  dot.dataset.tip = mark.message
     ? mark.message
     : mark.conditional
       ? "Conditional breakpoint"
@@ -158,7 +158,7 @@ function dotElement(mark: BreakpointMark): HTMLElement {
 function arrowElement(): HTMLElement {
   const arrow = document.createElement("span");
   arrow.className = "cm-paused-arrow";
-  arrow.title = "Execution is paused here";
+  arrow.dataset.tip = "Execution is paused here";
   return arrow;
 }
 
@@ -201,7 +201,7 @@ class FrameMarker extends GutterMarker {
   toDOM() {
     const arrow = document.createElement("span");
     arrow.className = "cm-frame-arrow";
-    arrow.title =
+    arrow.dataset.tip =
       (this.mark.depth === 1
         ? `Called from ${this.mark.name}`
         : `${this.mark.depth} frames up: ${this.mark.name}`) + " — click to view this frame";
@@ -230,7 +230,7 @@ class PausedAtBreakpointMarker extends GutterMarker {
   toDOM() {
     const stack = document.createElement("span");
     stack.className = "cm-bp-stack";
-    stack.title = "Paused at a breakpoint";
+    stack.dataset.tip = "Paused at a breakpoint";
     stack.appendChild(dotElement(this.mark));
     stack.appendChild(arrowElement());
     return stack;
@@ -523,7 +523,7 @@ class EvalWidget extends WidgetType {
     toggle.type = "button";
     toggle.className = "cm-eval-toggle";
     toggle.textContent = "eval…";
-    toggle.title = "Evaluate an expression in the paused frame";
+    toggle.dataset.tip = "Evaluate an expression in the paused frame";
     const options = this.options;
 
     const close = () => {
@@ -651,7 +651,7 @@ const HOVER_TARGET = new (class extends GutterMarker {
   toDOM() {
     const dot = document.createElement("span");
     dot.className = "cm-bp-ghost";
-    dot.title = "Click to set a breakpoint";
+    dot.dataset.tip = "Click to set a breakpoint";
     return dot;
   }
 })();

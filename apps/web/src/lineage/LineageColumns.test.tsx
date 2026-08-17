@@ -148,7 +148,7 @@ describe("the lineage browser", () => {
 
   it("lets a link kind be switched off", () => {
     render(<LineageColumns model={model()} />);
-    const paste = screen.getByTitle(/Computed\./);
+    const paste = document.querySelector<HTMLElement>('[data-tip^="Computed."]')!;
     expect(paste.getAttribute("aria-pressed")).toBe("true");
     fireEvent.click(paste);
     expect(paste.getAttribute("aria-pressed")).toBe("false");

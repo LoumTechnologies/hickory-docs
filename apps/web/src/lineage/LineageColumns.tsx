@@ -213,7 +213,7 @@ export function LineageColumns({ model, initialFocus, onSelect, compact }: Linea
                 type="button"
                 className={`lineage-kind k-${kind}`}
                 aria-pressed={kinds.has(kind)}
-                title={LINK_KINDS[kind].detail}
+                data-tip={LINK_KINDS[kind].detail}
                 onClick={() => {
                   const next = new Set(kinds);
                   if (next.has(kind)) next.delete(kind);

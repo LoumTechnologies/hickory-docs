@@ -6,6 +6,7 @@ import { AgentToolSurface } from "../components/AgentToolSurface";
 import { Convergence } from "../components/Convergence";
 import { InstallCommand } from "../components/InstallCommand";
 import { InterestSection } from "../components/InterestSection";
+import { TooltipLayer } from "../components/TooltipLayer";
 import { ProgramDemo } from "../landing/demos/ProgramDemo";
 import { IntelligenceDemo } from "../landing/demos/IntelligenceDemo";
 import { DECLARED_SEGMENTS, INTERESTS } from "../landing/interests";
@@ -184,6 +185,7 @@ export function LandingView() {
           happens on your own hardware, and nothing needs an account.
         </p>
       </footer>
+      <TooltipLayer />
     </div>
   );
 }

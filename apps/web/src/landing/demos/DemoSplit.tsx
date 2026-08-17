@@ -527,7 +527,7 @@ export function DemoSplit({
                     onMouseLeave={() => markSource([])}
                     onFocus={() => markSource(sourceSpansOf(f.path))}
                     onBlur={() => markSource([])}
-                    title={f.path}
+                    data-tip={f.path}
                   >
                     <span className="demo-node-name mono">
                       {nodeLabel ? nodeLabel(f.path) : basename(f.path)}

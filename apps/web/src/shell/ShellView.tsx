@@ -134,7 +134,7 @@ function PortStack({ ports }: { ports: readonly ShellPort[] }) {
           type="button"
           className="shell-port"
           data-ribbon-port={port.id}
-          title={port.title}
+          data-tip={port.title}
           aria-label={port.title}
           // A port sits inside the divider, whose pointerdown starts a
           // resize drag: pressing the button must not also grab the divider.
@@ -364,7 +364,7 @@ function TabChip({
           if (dragging.suppressClick.current) return;
           onLayout(activate(layout, pane.id, index));
         }}
-        title={tab.target}
+        data-tip={tab.target}
       >
         {tab.title ?? tab.target.split("/").pop()}
       </button>
@@ -445,7 +445,7 @@ function CollapsedStrip({
       <button
         type="button"
         className="shell-strip__expand"
-        title="Expand this pane"
+        data-tip="Expand this pane"
         aria-label="Expand pane"
         onClick={() => onLayout(expandPane(layout, pane.id))}
       >
@@ -462,7 +462,7 @@ function CollapsedStrip({
             data-shell-tab-kind={tab.kind}
             data-shell-tab-target={tab.target}
             data-shell-tab-vertical=""
-            title={tab.title ?? tab.target.split("/").pop() ?? tab.target}
+            data-tip={tab.title ?? tab.target.split("/").pop() ?? tab.target}
             aria-label={`Expand and show ${tab.title ?? tab.target}`}
             onClick={() => onLayout(activate(expandPane(layout, pane.id), pane.id, index))}
           >
@@ -548,7 +548,7 @@ function PaneBox({
               <button
                 type="button"
                 disabled={lastVisible}
-                title={
+                data-tip={
                   lastVisible
                     ? "The only visible pane cannot collapse — there is no other pane to give the space to"
                     : "Collapse pane to icon strip"
@@ -562,7 +562,7 @@ function PaneBox({
           })()}
           <button
             type="button"
-            title="Split right"
+            data-tip="Split right"
             aria-label="Split right"
             onClick={() => onLayout(split(layout, pane.id, "row"))}
           >
@@ -570,7 +570,7 @@ function PaneBox({
           </button>
           <button
             type="button"
-            title="Split down"
+            data-tip="Split down"
             aria-label="Split down"
             onClick={() => onLayout(split(layout, pane.id, "column"))}
           >
@@ -578,7 +578,7 @@ function PaneBox({
           </button>
           <button
             type="button"
-            title="Close this pane"
+            data-tip="Close this pane"
             aria-label="Close pane"
             onClick={() => onLayout(closePane(layout, pane.id))}
           >

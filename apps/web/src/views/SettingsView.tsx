@@ -118,7 +118,7 @@ function ChoiceRow<T extends string | number>({
             key={String(choice.value)}
             type="button"
             aria-pressed={value === choice.value}
-            title={choice.title}
+            data-tip={choice.title}
             onClick={() => onPick(choice.value)}
           >
             {choice.label}
@@ -344,7 +344,7 @@ export function SettingsView() {
           <button
             className="btn"
             onClick={() => navigate("/")}
-            title="Back to the document (Escape)"
+            data-tip="Back to the document (Escape)"
           >
             ← Back
           </button>

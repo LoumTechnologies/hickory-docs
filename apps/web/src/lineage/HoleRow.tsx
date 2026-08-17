@@ -39,7 +39,7 @@ export function HoleRow({ from, to, max, lines, ranges, onRanges }: HoleRowProps
             type="button"
             className="hole-btn"
             disabled={from === 0}
-            title={`Hide ${Math.min(CHUNK, from)} more line(s) above`}
+            data-tip={`Hide ${Math.min(CHUNK, from)} more line(s) above`}
             aria-label={`Hide ${Math.min(CHUNK, from)} more lines above`}
             onClick={() => onRanges(foldRange(ranges, Math.max(0, from - CHUNK), from - 1, max))}
           >
@@ -48,7 +48,7 @@ export function HoleRow({ from, to, max, lines, ranges, onRanges }: HoleRowProps
           <button
             type="button"
             className="hole-btn"
-            title={`Show ${Math.min(CHUNK, hidden)} line(s) from the top`}
+            data-tip={`Show ${Math.min(CHUNK, hidden)} line(s) from the top`}
             aria-label={`Show ${Math.min(CHUNK, hidden)} lines from the top`}
             onClick={() => onRanges(revealRange(ranges, from, from + CHUNK - 1, max))}
           >
@@ -59,7 +59,7 @@ export function HoleRow({ from, to, max, lines, ranges, onRanges }: HoleRowProps
           <button
             type="button"
             className="hole-btn"
-            title={`Show ${Math.min(CHUNK, hidden)} line(s) from the bottom`}
+            data-tip={`Show ${Math.min(CHUNK, hidden)} line(s) from the bottom`}
             aria-label={`Show ${Math.min(CHUNK, hidden)} lines from the bottom`}
             onClick={() => onRanges(revealRange(ranges, to - CHUNK + 1, to, max))}
           >
@@ -69,7 +69,7 @@ export function HoleRow({ from, to, max, lines, ranges, onRanges }: HoleRowProps
             type="button"
             className="hole-btn"
             disabled={to === max}
-            title={`Hide ${Math.min(CHUNK, max - to)} more line(s) below`}
+            data-tip={`Hide ${Math.min(CHUNK, max - to)} more line(s) below`}
             aria-label={`Hide ${Math.min(CHUNK, max - to)} more lines below`}
             onClick={() => onRanges(foldRange(ranges, to + 1, Math.min(max, to + CHUNK), max))}
           >
@@ -86,7 +86,7 @@ export function HoleRow({ from, to, max, lines, ranges, onRanges }: HoleRowProps
           <button
             type="button"
             className="hole-all"
-            title={`Show all ${hidden} hidden lines`}
+            data-tip={`Show all ${hidden} hidden lines`}
             onClick={() => onRanges(revealRange(ranges, from, to, max))}
           >
             ⤢ {hidden}

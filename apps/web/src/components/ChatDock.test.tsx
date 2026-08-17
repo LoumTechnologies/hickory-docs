@@ -197,8 +197,8 @@ describe("the dock's model control and stats line", () => {
     dock();
 
     const stats = await screen.findByText("$0.0342 · in 12.4k · out 3.1k · cache 78%");
-    expect(stats.title).toContain("cache read 44,000 tokens");
-    expect(stats.title).toContain("cache write 500 tokens");
+    expect(stats.dataset.tip).toContain("cache read 44,000 tokens");
+    expect(stats.dataset.tip).toContain("cache write 500 tokens");
   });
 
   it("shows no stats line before any turn has reported usage", async () => {

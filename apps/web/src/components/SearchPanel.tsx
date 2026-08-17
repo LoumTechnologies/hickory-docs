@@ -135,7 +135,7 @@ export function SearchPanel({
                   role="option"
                   aria-selected={index === selected}
                   disabled={target.kind === "none"}
-                  title={
+                  data-tip={
                     target.kind === "none"
                       ? `${hit.path} — not open here and not a document`
                       : undefined

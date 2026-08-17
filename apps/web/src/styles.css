@@ -1909,6 +1909,30 @@ textarea:focus {
   box-shadow: 0 8px 24px rgb(0 0 0 / 18%);
 }
 
+/* ---- the app's tooltip ----
+   Everything that used to be `title="…"` is `data-tip="…"`, drawn by
+   TooltipLayer instead of by the operating system, so a hover in a dark
+   editor is not answered by a white system card in the system font. Same
+   tokens as .cm-tooltip: one tooltip surface, wherever you point. */
+.tip {
+  position: fixed;
+  z-index: 100;
+  max-width: 22rem;
+  padding: 0.3rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-raised);
+  color: var(--fg);
+  box-shadow: 0 8px 24px rgb(0 0 0 / 18%);
+  font-size: 0.75rem;
+  line-height: 1.45;
+  /* Long paths and multi-sentence hints wrap rather than run off-screen. */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  /* It follows the pointer's target; it must never become the target. */
+  pointer-events: none;
+}
+
 .refs-panel {
   position: fixed;
   right: 1.25rem;

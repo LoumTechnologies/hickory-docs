@@ -69,7 +69,7 @@ function IconButton({
       type="button"
       className={`debug-icon${className ? ` ${className}` : ""}`}
       aria-label={label}
-      title={`${label} — ${hint}`}
+      data-tip={`${label} — ${hint}`}
       disabled={disabled}
       onClick={onClick}
     >
@@ -257,7 +257,7 @@ export function DebugStrip(props: DebugStripProps) {
         type="button"
         className="debug-strip__watch-add"
         onClick={props.onAddWatch}
-        title="Watch an expression — its value appears at the end of the line that mentions it"
+        data-tip="Watch an expression — its value appears at the end of the line that mentions it"
       >
         + watch
       </button>
@@ -269,7 +269,7 @@ export function DebugStrip(props: DebugStripProps) {
           <button
             type="button"
             aria-label={`Stop watching ${watch.expression}`}
-            title={`Stop watching ${watch.expression}`}
+            data-tip={`Stop watching ${watch.expression}`}
             onClick={() => props.onRemoveWatch(watch.expression)}
           >
             ×
@@ -280,7 +280,7 @@ export function DebugStrip(props: DebugStripProps) {
           rather than appended to the status word, which read as one unbroken
           sentence of two different weights. */}
       {props.message && (
-        <span className="debug-strip__error" role="alert" title={props.message}>
+        <span className="debug-strip__error" role="alert" data-tip={props.message}>
           {props.message}
         </span>
       )}

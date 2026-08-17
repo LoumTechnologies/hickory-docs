@@ -274,7 +274,7 @@ export function ChatDock({
           className="chat-toggle"
           aria-expanded={!collapsed}
           onClick={onToggleCollapsed}
-          title={collapsed ? "Show conversation" : "Hide conversation"}
+          data-tip={collapsed ? "Show conversation" : "Hide conversation"}
         >
           <span aria-hidden="true">{collapsed ? "▴" : "▾"}</span> Agent
         </button>
@@ -284,7 +284,7 @@ export function ChatDock({
           </span>
         )}
         {totals && hasUsage(totals) && (
-          <span className="chat-stats muted" title={statsTooltip(totals)}>
+          <span className="chat-stats muted" data-tip={statsTooltip(totals)}>
             {statsLine(totals)}
           </span>
         )}
@@ -292,7 +292,7 @@ export function ChatDock({
           <button
             className="btn-link chat-new"
             onClick={() => setTip(null)}
-            title="Start a conversation that does not continue from any existing turn"
+            data-tip="Start a conversation that does not continue from any existing turn"
           >
             New thread
           </button>
@@ -319,7 +319,7 @@ export function ChatDock({
             value={model}
             disabled={running !== null}
             placeholder={defaultModelFor(provider) || "default model"}
-            title="Model id for the next turn — leave empty for the provider's default"
+            data-tip="Model id for the next turn — leave empty for the provider's default"
             onChange={(e) => setModel(e.target.value)}
           />
         </span>
@@ -368,7 +368,7 @@ export function ChatDock({
                       <button
                         className="btn-link chat-rewind"
                         onClick={() => setTip(turn.id)}
-                        title="Continue from here — later turns stay on their own branch"
+                        data-tip="Continue from here — later turns stay on their own branch"
                       >
                         rewind here
                       </button>
