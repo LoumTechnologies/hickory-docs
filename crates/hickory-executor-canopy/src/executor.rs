@@ -491,6 +491,13 @@ impl Executor for CanopyExecutor {
         Ok(())
     }
 
+    // `execute_with_options` is NOT overridden here, deliberately: this
+    // executor runs cells UNBOUNDED. The command executes on a remote node
+    // the user runs, and abandoning the HTTP await here would not kill the
+    // remote process — a real timeout needs the canopy API to carry and
+    // enforce one. Until it does, saying "no timeout" is more honest than
+    // pretending.
+    // docs/guarantees/execution/a-cell-cannot-hang-a-run.md
     async fn execute(&self, container: &str, command: &str) -> Result<String> {
         let sandbox_id = self.sandbox_id_of(container)?;
         let cmd_lines: Vec<String> = vec![command.trim().to_string()];

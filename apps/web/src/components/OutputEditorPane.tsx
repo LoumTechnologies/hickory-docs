@@ -1,30 +1,28 @@
 // The generated-output editor, shared by the Output view and the right pane of
-// Split. It is EDITABLE ON ARRIVAL and LIVE COLLABORATIVE — a Yjs CRDT room
-// per (doc, output path), symmetric to the Document editor's own room
-// (editor/DocumentEditor.tsx). You type in woven output and the server
-// resolves the edit backwards through provenance into the source document on
-// its own debounce (apps/server/src/output_rooms.rs) — there is no save
-// button and no REST call from here; applying is as invisible to this
-// component as the Document room's persist is to DocumentEditor.
+// Split. It is EDITABLE ON ARRIVAL: you type in woven output and the parent
+// resolves the edit backwards through provenance into the source document
+// (POST /outputs/edit, via `onLocalEdit`). There are no output rooms — the
+// server refuses them, because generated files live on disk rather than in a
+// CRDT — so the pane seeds itself from `file.content`.
 //
-// Because the buffer can diverge from the server's last-woven copy — by a
-// local edit OR a remote collaborator's — provenance offsets are mapped
-// through every change since load (`changesRef`), which keeps the lineage
-// highlight under your cursor honest instead of drifting a character per
-// keystroke, from either side.
+// Because the buffer can diverge from the server's last-woven copy by a local
+// edit, provenance offsets are mapped through every change since load
+// (`changesRef`), which keeps the lineage highlight under your cursor honest
+// instead of drifting a character per keystroke.
 
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ChangeDesc, EditorState, StateEffect, StateField, RangeSetBuilder } from "@codemirror/state";
 import type { Extension } from "@codemirror/state";
 import { Decoration, EditorView, keymap, lineNumbers } from "@codemirror/view";
 import type { DecorationSet } from "@codemirror/view";
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
-import * as Y from "yjs";
-import { Awareness } from "y-protocols/awareness";
-import { yCollab } from "y-codemirror.next";
-import type { Realtime } from "../api/realtime";
+import { search, searchKeymap } from "@codemirror/search";
 import type { OutputFile, Provenance } from "../api/types";
+import { changeFlashField, syncAndFlash } from "../editor/changeFlash";
 import { languageExtensions } from "../editor/languages";
+import { lineHighlightField } from "../editor/lineHighlight";
+import { RightRail } from "../editor/RightRail";
+import { isMarkdownPath, markdownStyling } from "../editor/markdownStyling";
 import { byteToChar } from "../lib/offsets";
 
 export interface HighlightRange {
@@ -69,10 +67,6 @@ export function provToChars(file: OutputFile): ProvChar[] {
 
 export interface OutputEditorPaneProps {
   file: OutputFile;
-  /** This file's own live room connection — a fresh channel per (doc,
-   * path), scoped and owned by the parent (SplitView/OutputView) the same
-   * way DocumentView owns the Document room's `realtime`. */
-  realtime: Realtime;
   className?: string;
   testId?: string;
   /** Extra CodeMirror extensions (LSP navigation, ribbon highlights, …). */
@@ -82,20 +76,16 @@ export interface OutputEditorPaneProps {
   /** Provenance entries under the cursor/pointer, for a lineage readout. */
   onLineage?: (hits: ProvChar[]) => void;
   /**
-   * Edit this buffer without a live room.
-   *
-   * A local session has no output rooms — the server refuses them, because
-   * generated files are on disk rather than in a CRDT — so the pane seeds
-   * itself from `file.content` and reports edits here, for whoever knows how
-   * to resolve them back into the document. Absent means the room is the
-   * writer, which is the hosted arrangement.
+   * Edits a person typed, reported for whoever knows how to resolve them
+   * back into the document (GeneratedFileView's debounced POST
+   * /outputs/edit). Absent means the buffer is read-only in effect: edits
+   * stay in the pane and go nowhere.
    */
   onLocalEdit?: (next: string) => void;
 }
 
 export function OutputEditorPane({
   file,
-  realtime,
   className = "output-editor",
   testId = "output-editor",
   extensions,
@@ -105,6 +95,9 @@ export function OutputEditorPane({
 }: OutputEditorPaneProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
+  // The live view AS STATE, for the right rail: a ref never re-renders, and
+  // the rail must mount its sync against the view that actually exists.
+  const [railView, setRailView] = useState<EditorView | null>(null);
   const provRef = useRef<ProvChar[]>([]);
   // Every change since this buffer was loaded — local OR a remote
   // collaborator's, now that this is a live room — so provenance offsets
@@ -123,11 +116,8 @@ export function OutputEditorPane({
     const hits: ProvChar[] = [];
     const marks: HighlightRange[] = [];
     for (const p of provRef.current) {
-      // A changeset only covers positions up to its pre-change length —
-      // provenance offsets are indexed against `file.content`, but the very
-      // first change this pane sees in mock mode is the programmatic seed
-      // insert (empty -> file.content), whose changeset has pre-change
-      // length 0. Mapping through it would throw; skip rather than crash.
+      // A changeset only covers positions up to its pre-change length;
+      // mapping an offset past that would throw, so skip rather than crash.
       if (changes && (p.charFrom > changes.length || p.charTo > changes.length)) continue;
       const a = changes ? changes.mapPos(p.charFrom, 1) : p.charFrom;
       const b = changes ? changes.mapPos(p.charTo, -1) : p.charTo;
@@ -145,65 +135,48 @@ export function OutputEditorPane({
     viewRef.current?.dispatch({ effects: setHighlights.of(marks) });
   }, []);
 
+  // The view is created ONCE per mounted pane (callers key the pane by file
+  // path). Later `file` props — a re-weave arriving from the server — are
+  // reconciled into the live buffer below instead of rebuilding the editor,
+  // which would throw away the cursor and undo history mid-edit.
+  const fileRef = useRef(file);
+  fileRef.current = file;
+  const syncedFileRef = useRef(file);
+
   useEffect(() => {
     const host = hostRef.current;
     if (!host) return;
     changesRef.current = null;
-
-    const ydoc = new Y.Doc();
-    const ytext = ydoc.getText("source");
-    const awareness = new Awareness(ydoc);
-    awareness.setLocalStateField("user", {
-      name: localStorage.getItem("hickory.name") ?? "anonymous",
-      color: "#8f6f3f",
-    });
-    realtime.bindDoc(ydoc, awareness);
-
-    // Same reasoning as DocumentEditor: only a realtime with no server
-    // behind it (mock mode) may seed — the server builds a fresh room from
-    // the last-woven `run_outputs` row, and seeding on top of that doubles
-    // the content on every connect.
-    let cancelled = false;
-    // Without a room, the file IS the content: seed it directly. This is the
-    // local case and it is the common one — an empty editor over a file with
-    // 187 bytes in it was what "the outputs are always empty" turned out to
-    // be.
-    if (onLocalEdit) {
-      changesRef.current = null;
-    } else if (!realtime.serverAuthoritative) {
-      void realtime.whenSynced().then(() => {
-        if (!cancelled && ytext.length === 0 && file.content.length > 0) {
-          ytext.insert(0, file.content);
-          // The seed insert reaches the editor through the same
-          // updateListener as any other change (yCollab observes the
-          // Y.Text and dispatches a CM transaction) and would otherwise be
-          // folded into `changesRef` as if it were an edit made SINCE
-          // `file.content` loaded — but it's what *produces* that exact
-          // state, so provenance (already indexed against `file.content`)
-          // needs to map through nothing here, not through an
-          // empty-to-seeded changeset.
-          changesRef.current = null;
-        }
-      });
-    }
+    const initial = fileRef.current;
+    syncedFileRef.current = initial;
 
     const view = new EditorView({
       parent: host,
       state: EditorState.create({
-        doc: onLocalEdit ? file.content : ytext.toString(),
+        doc: initial.content,
         extensions: [
           highlightField,
+          // The fading mark on text a re-weave just changed.
+          changeFlashField,
           // Line numbers everywhere, including generated files. Two reasons:
           // a line number is how a person says WHERE, and the gutter's width
           // is the channel the lineage ribbons are drawn through — without it
           // they are squeezed into the four pixels of the pane divider.
           lineNumbers(),
-          ...languageExtensions(file.language),
+          // The hovered-ribbon line tint, shared with the right rail.
+          lineHighlightField,
+          ...languageExtensions(initial.language),
+          // A generated .md file gets the document editor's Typora-style
+          // markdown look (big headings, styled bold/em/code). Display-only
+          // decorations — the buffer's text is untouched, and they compose
+          // with the lineage highlights, search, and any `extensions`.
+          ...(isMarkdownPath(initial.path) ? [markdownStyling()] : []),
           history(),
-          keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab]),
+          // In-buffer find (Mod-F), same shape as the document editor's:
+          // panel on top, keymap first, shifted chord left to the shell.
+          search({ top: true }),
+          keymap.of([...searchKeymap, ...defaultKeymap, ...historyKeymap, indentWithTab]),
           EditorView.lineWrapping,
-          // The room is the writer only when there is one.
-          ...(onLocalEdit ? [] : [yCollab(ytext, awareness)]),
           EditorView.updateListener.of((u) => {
             if (u.docChanged) {
               changesRef.current = changesRef.current
@@ -226,6 +199,7 @@ export function OutputEditorPane({
       }),
     });
     viewRef.current = view;
+    setRailView(view);
     onViewReady?.(view);
 
     const onMove = (ev: MouseEvent) => {
@@ -235,31 +209,42 @@ export function OutputEditorPane({
     view.dom.addEventListener("mousemove", onMove);
 
     return () => {
-      cancelled = true;
       view.dom.removeEventListener("mousemove", onMove);
       onViewReady?.(null);
       view.destroy();
       viewRef.current = null;
-      awareness.destroy();
-      ydoc.destroy();
-      // `realtime` is owned by the parent (a fresh one per file, but the
-      // parent decides its lifecycle — same split of responsibility as
-      // DocumentEditor never closing the `realtime` prop it's handed).
+      setRailView(null);
     };
-    // The buffer is rebuilt per file; `extensions` is captured once per file
-    // deliberately — re-creating the editor on every parent render would throw
-    // away the user's cursor, undo history, and live room mid-edit.
+    // Mounted once; `extensions` and the file are captured at mount
+    // deliberately — re-creating the editor on a parent render would throw
+    // away the user's cursor and undo history mid-edit.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [file, realtime, updateLineage]);
+  }, [updateLineage]);
+
+  // A NEW file prop on a live view is the server's copy after a re-weave:
+  // reconcile the buffer to it with minimal edits and flash what changed.
+  // Content identical to the buffer (the round-trip of an edit typed right
+  // here) dispatches nothing and flashes nothing — but the fresh provenance
+  // still lands, and the change mapping resets to match it.
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!view || file === syncedFileRef.current) return;
+    syncedFileRef.current = file;
+    syncAndFlash(view, file.content);
+    // Whether or not the text moved, the buffer now equals the server's
+    // last-woven copy, which is exactly what `file.provenance` indexes.
+    changesRef.current = null;
+  }, [file]);
 
   return (
     <div className="output-pane">
-      <div className="output-pane-status" role="status">
-        <span className="pane-hint">
-          Edit freely — changes resolve back into the document automatically.
-        </span>
+      {/* The wrapper is the pane's old bordered box; the editor and its
+          right rail sit side by side inside it. The ribbon overlay finds the
+          rail through `.with-right-rail` to anchor on its outer edge. */}
+      <div className={`${className} with-right-rail`} data-testid={testId}>
+        <div ref={hostRef} className="editor-cm-host" />
+        <RightRail view={railView} />
       </div>
-      <div ref={hostRef} className={className} data-testid={testId} />
     </div>
   );
 }

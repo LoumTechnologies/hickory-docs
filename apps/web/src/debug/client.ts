@@ -77,7 +77,17 @@ export type DebugEvent =
   | { event: "breakpoints"; session: string; breakpoints: BreakpointStatus[] }
   | { event: "value"; session: string; expression: string; value: string; type: string | null; reference: number }
   | { event: "children"; session: string; reference: number; variables: Variable[] }
-  | { event: "finished"; session: string }
+  | {
+      /**
+       * The program ran to its end. The server reaps the session with it —
+       * the id in here no longer answers — so the client must send nothing
+       * more to it; breakpoints and watches are kept locally for the next run.
+       */
+      event: "finished";
+      session: string;
+      /** The debuggee's exit code, when the adapter reported one. */
+      exit_code?: number | null;
+    }
   | { event: "ended"; session: string }
   | {
       event: "failed";

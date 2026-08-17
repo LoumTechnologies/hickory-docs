@@ -19,6 +19,13 @@ import type {
 
 export type DebugStatus = "idle" | "starting" | "paused" | "running" | "finished" | "failed";
 
+/** One watched expression, and what it held the last time anyone asked. */
+export interface Watch {
+  expression: string;
+  /** Null until the first answer arrives, and again after the program ends. */
+  value: string | null;
+}
+
 export interface DebugSession {
   status: DebugStatus;
   message: string | null;
@@ -32,7 +39,11 @@ export interface DebugSession {
   selectedFrame: number | null;
   /** Where the user has asked to stop, whether or not it bound. */
   breakpoints: BreakpointStatus[];
+  /** How the program ended, once it has: its exit code, when reported. */
+  exitCode: number | null;
   lastValue: { expression: string; value: string; type: string | null } | null;
+  /** Expressions re-evaluated on every pause and frame change. */
+  watches: Watch[];
 
   /** Debug one generated file. Omitted means the first debuggable one. */
   start(program?: string): void;
@@ -45,6 +56,13 @@ export interface DebugSession {
   evaluate(expression: string, context?: "hover" | "watch" | "repl"): void;
   /** Ask for a value and get it back, for the hover tooltip. */
   valueAt(expression: string): Promise<string | null>;
+  /**
+   * Ask for a value the way a person typed it: any expression, no
+   * known-name guard, answered as a promise for the inline eval widget.
+   */
+  query(expression: string): Promise<string | null>;
+  addWatch(expression: string): void;
+  removeWatch(expression: string): void;
 }
 
 /**
@@ -76,6 +94,8 @@ export function useDebugger(realtime: Realtime, docPath: string): DebugSession {
   const [program, setProgram] = useState<string | null>(null);
   const [lastValue, setLastValue] =
     useState<{ expression: string; value: string; type: string | null } | null>(null);
+  const [watches, setWatches] = useState<Watch[]>([]);
+  const [exitCode, setExitCode] = useState<number | null>(null);
 
   const sessionRef = useRef<string | null>(null);
   // The status as of right now, for callbacks that must not close over a
@@ -113,6 +133,7 @@ export function useDebugger(realtime: Realtime, docPath: string): DebugSession {
           setBreakpoints(followMoves(event.breakpoints));
           setStatus("running");
           setMessage(null);
+          setExitCode(null);
           break;
         case "stopped":
           setStatus("paused");
@@ -127,6 +148,15 @@ export function useDebugger(realtime: Realtime, docPath: string): DebugSession {
           break;
         case "value": {
           setLastValue({ expression: event.expression, value: event.value, type: event.type });
+          // Answers carry the expression they answer, and the watch list is
+          // keyed by expression — that string IS the correlation id. A watch
+          // and a hover for the same expression both get the answer, which
+          // is fine: it is the same answer.
+          setWatches((current) =>
+            current.map((watch) =>
+              watch.expression === event.expression ? { ...watch, value: event.value } : watch,
+            ),
+          );
           const waiting = pendingValues.current.get(event.expression);
           if (waiting) {
             waiting(event.value);
@@ -135,10 +165,19 @@ export function useDebugger(realtime: Realtime, docPath: string): DebugSession {
           break;
         }
         case "finished":
+          // The server reaped the session with the program: the id no longer
+          // answers, so forget it NOW. A step, hover or stop sent after this
+          // would be a request to a dead session, answered only by an error.
+          sessionRef.current = null;
           setStatus("finished");
+          setExitCode(event.exit_code ?? null);
           setPausedLine(null);
           setFrames([]);
           setVariables([]);
+          setSelectedFrame(null);
+          // The expressions survive — they are for the next run — but their
+          // values belonged to a process that no longer exists.
+          setWatches((current) => current.map((watch) => ({ ...watch, value: null })));
           break;
         case "ended":
           sessionRef.current = null;
@@ -147,6 +186,7 @@ export function useDebugger(realtime: Realtime, docPath: string): DebugSession {
           setFrames([]);
           setVariables([]);
           setCapabilities(null);
+          setWatches((current) => current.map((watch) => ({ ...watch, value: null })));
           break;
         case "failed": {
           const stillWaiting = [...pendingValues.current.values()];
@@ -176,7 +216,10 @@ export function useDebugger(realtime: Realtime, docPath: string): DebugSession {
           if (stillWaiting.length === 0) setMessage(event.message);
           // A failed STEP leaves the program where it was — still paused —
           // so only a failure with no session at all is fatal to the UI.
-          if (!sessionRef.current) setStatus("failed");
+          // "Finished" already IS a terminal state: a stray failure arriving
+          // after the program ended must not redress a clean end as a broken
+          // one.
+          if (!sessionRef.current && statusRef.current !== "finished") setStatus("failed");
           break;
         }
       }
@@ -237,7 +280,17 @@ export function useDebugger(realtime: Realtime, docPath: string): DebugSession {
   );
 
   const stop = useCallback(() => {
-    if (client && sessionRef.current) client.stop(sessionRef.current);
+    if (client && sessionRef.current) {
+      client.stop(sessionRef.current);
+      return;
+    }
+    // No session to tell — the server already reaped it when the program
+    // finished (or the start failed). Stop is then only a dismissal: clear
+    // the strip's chrome locally, sending nothing to a session that is gone.
+    setStatus("idle");
+    setMessage(null);
+    setCapabilities(null);
+    setExitCode(null);
   }, [client]);
 
   const step = useCallback(
@@ -301,6 +354,58 @@ export function useDebugger(realtime: Realtime, docPath: string): DebugSession {
     [client, status, selectedFrame, variables],
   );
 
+  const query = useCallback(
+    (expression: string): Promise<string | null> => {
+      if (!client || !sessionRef.current || statusRef.current !== "paused") {
+        return Promise.resolve(null);
+      }
+      return new Promise((resolve) => {
+        pendingValues.current.set(expression, resolve);
+        // `repl` context: the person typed this, so a side effect is their
+        // business — unlike a hover, which must never have one.
+        client.evaluate(sessionRef.current!, expression, "repl", selectedFrame ?? undefined);
+        setTimeout(() => {
+          if (pendingValues.current.delete(expression)) resolve(null);
+        }, 5000);
+      });
+    },
+    [client, selectedFrame],
+  );
+
+  const addWatch = useCallback(
+    (expression: string) => {
+      const trimmed = expression.trim();
+      if (!trimmed) return;
+      setWatches((current) =>
+        current.some((watch) => watch.expression === trimmed)
+          ? current
+          : [...current, { expression: trimmed, value: null }],
+      );
+      // Answer immediately when there is a frame to ask; otherwise the
+      // re-evaluate effect covers it at the next pause.
+      if (client && sessionRef.current && statusRef.current === "paused") {
+        client.evaluate(sessionRef.current, trimmed, "watch", selectedFrame ?? undefined);
+      }
+    },
+    [client, selectedFrame],
+  );
+
+  const removeWatch = useCallback((expression: string) => {
+    setWatches((current) => current.filter((watch) => watch.expression !== expression));
+  }, []);
+
+  // Every pause and every frame change re-asks every watch: a watch showing
+  // the value from two steps ago is worse than no watch at all. Keyed on the
+  // joined expressions rather than the array so an answer arriving (which
+  // replaces the array) does not re-ask the question it answers.
+  const watchKey = watches.map((watch) => watch.expression).join("\n");
+  useEffect(() => {
+    if (status !== "paused" || !client || !sessionRef.current) return;
+    for (const expression of watchKey ? watchKey.split("\n") : []) {
+      client.evaluate(sessionRef.current, expression, "watch", selectedFrame ?? undefined);
+    }
+  }, [status, selectedFrame, watchKey, client]);
+
   const selectFrame = useCallback(
     (id: number) => {
       setSelectedFrame(id);
@@ -322,7 +427,9 @@ export function useDebugger(realtime: Realtime, docPath: string): DebugSession {
     variables,
     selectedFrame,
     breakpoints,
+    exitCode,
     lastValue,
+    watches,
     start,
     stop,
     step,
@@ -332,5 +439,8 @@ export function useDebugger(realtime: Realtime, docPath: string): DebugSession {
     selectFrame,
     evaluate,
     valueAt,
+    query,
+    addWatch,
+    removeWatch,
   };
 }

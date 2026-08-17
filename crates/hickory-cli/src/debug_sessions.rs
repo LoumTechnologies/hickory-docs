@@ -31,13 +31,18 @@ pub const IDLE_TIMEOUT: Duration = Duration::from_secs(15 * 60);
 pub struct Live {
     pub session: Session,
     /// The scratch directory the debuggee runs in. Deleted with the session.
-    _scratch: tempfile::TempDir,
+    scratch: tempfile::TempDir,
     /// The thread the program last stopped on, so a caller need not repeat it.
     pub thread_id: Mutex<Option<i64>>,
     last_touched: Mutex<Instant>,
 }
 
 impl Live {
+    /// Where the debuggee ran — for tests that check it is gone afterwards.
+    pub fn scratch_path(&self) -> &Path {
+        self.scratch.path()
+    }
+
     async fn touch(&self) {
         *self.last_touched.lock().await = Instant::now();
     }
@@ -125,7 +130,7 @@ impl Registry {
         let id = format!("dbg-{}", self.next_id.fetch_add(1, Ordering::SeqCst));
         let live = Arc::new(Live {
             session,
-            _scratch: scratch,
+            scratch,
             thread_id: Mutex::new(None),
             last_touched: Mutex::new(Instant::now()),
         });
@@ -154,15 +159,32 @@ impl Registry {
         Ok(live)
     }
 
-    /// End one session.
+    /// End one session, and complain if there was nothing to end.
     pub async fn stop(&self, id: &str) -> Result<()> {
+        if self.reap(id).await {
+            Ok(())
+        } else {
+            bail!("no debug session `{id}` to stop")
+        }
+    }
+
+    /// End one session if it is still here; true when this call did the work.
+    ///
+    /// The debuggee finishing and an explicit stop legitimately race — the
+    /// app reaps the session the moment the program ends, and the person may
+    /// press Stop a beat later. Whoever gets here second must find "already
+    /// gone", not an error, so this is the idempotent form `stop` and the
+    /// finished-program path both stand on. The adapter process is killed by
+    /// the shutdown, and the scratch clone is deleted when the last handle to
+    /// the session drops.
+    pub async fn reap(&self, id: &str) -> bool {
         let live = self.sessions.lock().await.remove(id);
         match live {
             Some(live) => {
                 live.session.shutdown().await;
-                Ok(())
+                true
             }
-            None => bail!("no debug session `{id}` to stop"),
+            None => false,
         }
     }
 

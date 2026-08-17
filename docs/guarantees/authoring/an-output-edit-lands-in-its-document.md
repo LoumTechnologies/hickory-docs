@@ -93,6 +93,24 @@ Last LLM verification:
   `an_edit_saved_in_the_document_reaches_the_woven_file` covers the reverse
   direction. Unit tests in `up/reverse.rs` pin the diff shapes (replacement,
   pure insertion, pure deletion, two regions).
+- The app's output pane is the same claim arriving over HTTP instead of the
+  filesystem, and property 3 binds it too: the diff must be computed against
+  the bytes the server holds, not against anything fresher or staler. A real
+  bug (2026-08-17, found editing `debugging.md` in the desktop app): the pane
+  reset its diff baseline to the first-load weave on every React render, so
+  each save re-sent every earlier edit and the document gained a duplicate of
+  them all per save — observed live as "anybody stepping at all. Truly
+  nobody. And again. Truly nobody." after two inserts. Fixed by moving the
+  baseline into `apps/web/src/lib/outputSave.ts`, which advances it only on
+  load and on a successful POST, and serializes saves so each diff sees the
+  previous save's result. `apps/web/src/lib/outputSave.test.ts` pins the
+  duplicate-resend, failed-save-retry, overlapping-save, and reload cases;
+  `crates/hickory-cli/tests/serve_local.rs::a_prose_edit_in_the_woven_markdown_lands_in_the_document`
+  pins the server half for the weave file specifically (listed in
+  `/outputs`, non-synthetic prose provenance, edit lands, re-weave
+  reproduces it). A refused save is now also said out loud: the pane's
+  `role="alert"` error line gained styling (`.generated-view__error`) so a
+  422 cannot pass for success.
 - Caveat requiring review: convergence is asserted after the writes stop, not
   during them. A pathological writer that never pauses could in principle keep
   the loop permanently behind; nothing here proves it cannot, and the honest

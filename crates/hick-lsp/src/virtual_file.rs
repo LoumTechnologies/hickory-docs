@@ -131,6 +131,7 @@ mod tests {
             prefix: "hick".to_string(),
             weave_path: None,
             volatile: false,
+            span_files: Vec::new(),
         }
     }
 

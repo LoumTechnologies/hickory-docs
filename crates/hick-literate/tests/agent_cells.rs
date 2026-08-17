@@ -92,6 +92,7 @@ async fn run(
         collect_unverifiable,
         agent_runner: runner,
         max_agent_reprepares: 0,
+        cell_timeout: Default::default(),
     };
     run_pipeline_live(
         &[(name.as_str(), source.as_str())],

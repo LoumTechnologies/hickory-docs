@@ -49,6 +49,13 @@ fi
 if matches "docs/*" || matches "examples/*"; then
   checks+=(rust)
 fi
+# The desktop crate is deliberately outside the cargo workspace, so the
+# `rust` check never touches it — and the release path (dist scripts,
+# workflow definitions) used to have NO row at all, which is exactly how two
+# release-breaking bugs reached master with green hooks and green CI.
+if matches "apps/desktop/*" || matches "scripts/dist*.sh" || matches ".github/workflows/*"; then
+  checks+=(desktop)
+fi
 # Expensive on purpose: the dev environment itself is only re-verified when
 # something that can actually break it changes, not on every commit. See
 # docs/developers/developer-environment.md.

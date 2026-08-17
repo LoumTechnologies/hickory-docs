@@ -53,6 +53,15 @@ pub(crate) fn extension_to_language(path: &str) -> &'static str {
     }
 }
 
+/// The file a span's offsets index: the spliced file it was stamped with,
+/// else the document being woven. Attributing an included span to the
+/// including document is how a reverse edit lands in the wrong file.
+fn origin_file(doc_path: &str, span_files: &[Arc<str>], span: &hick_lang::SourceSpan) -> Arc<str> {
+    span.file_id
+        .and_then(|id| span_files.get(usize::from(id)).cloned())
+        .unwrap_or_else(|| Arc::from(doc_path))
+}
+
 /// Process document nodes for weave output.
 ///
 /// Iterates through nodes and emits:
@@ -61,6 +70,9 @@ pub(crate) fn extension_to_language(path: &str) -> &'static str {
 /// - `<hick:diagram>` → fenced block tagged with its `renderer`
 /// - `<hick:val>` → resolved variable value (via registry)
 /// - `<hick:when>` → recursively process children (already filtered)
+// The `span_files` threading (include splicing) pushed these over the
+// clippy arg limit; a param-struct refactor belongs to that change, not here.
+#[allow(clippy::too_many_arguments)]
 fn process_weave_content(
     nodes: &[HickNode],
     weave_ip: &Arc<InsertionPoint>,
@@ -69,6 +81,7 @@ fn process_weave_content(
     indent: usize,
     registry: &TagRegistry,
     doc_path: &str,
+    span_files: &[Arc<str>],
 ) {
     for node in nodes {
         match node {
@@ -89,7 +102,7 @@ fn process_weave_content(
                     Some(span) => weave_ip.add(Arc::new(SpanNode::new(
                         dedented,
                         SourceOrigin::Literal {
-                            file: Arc::from(doc_path),
+                            file: origin_file(doc_path, span_files, span),
                             span: *span,
                         },
                     ))),
@@ -97,7 +110,15 @@ fn process_weave_content(
                 }
             }
             HickNode::Tag(tag) => {
-                process_weave_tag(tag, weave_ip, transcripts, state, registry, doc_path);
+                process_weave_tag(
+                    tag,
+                    weave_ip,
+                    transcripts,
+                    state,
+                    registry,
+                    doc_path,
+                    span_files,
+                );
             }
         }
     }
@@ -111,6 +132,7 @@ fn process_weave_tag(
     state: &Arc<MultiDocumentState>,
     registry: &TagRegistry,
     doc_path: &str,
+    span_files: &[Arc<str>],
 ) {
     match tag.name.as_str() {
         "file" => {
@@ -139,6 +161,7 @@ fn process_weave_tag(
                     tag.source_column,
                     registry,
                     doc_path,
+                    span_files,
                 );
 
                 // Emit closing code fence
@@ -165,6 +188,7 @@ fn process_weave_tag(
                 tag.source_column,
                 registry,
                 doc_path,
+                span_files,
             );
             weave_ip.add(Arc::new(StringNode::new("```\n".to_string())));
         }
@@ -179,6 +203,7 @@ fn process_weave_tag(
                 tag.source_column,
                 registry,
                 doc_path,
+                span_files,
             );
         }
         _ => {
@@ -193,6 +218,7 @@ fn process_weave_tag(
                     registry: Some(registry),
                     context: None,
                     source_file: None,
+                    span_files: &[],
                 };
                 match handler.process(tag, &ctx) {
                     Ok(TagResult::Node(n)) => weave_ip.add(n),
@@ -213,6 +239,9 @@ fn process_weave_tag(
 ///
 /// The `indent` parameter specifies how many leading spaces to strip from each
 /// line of text content (typically the source_column of the parent file tag).
+// The `span_files` threading (include splicing) pushed these over the
+// clippy arg limit; a param-struct refactor belongs to that change, not here.
+#[allow(clippy::too_many_arguments)]
 fn process_file_children_to_weave(
     children: &[HickNode],
     weave_ip: &Arc<InsertionPoint>,
@@ -221,6 +250,7 @@ fn process_file_children_to_weave(
     indent: usize,
     registry: &TagRegistry,
     doc_path: &str,
+    span_files: &[Arc<str>],
 ) {
     let ctx = ProcessingContext {
         state,
@@ -229,6 +259,7 @@ fn process_file_children_to_weave(
         registry: Some(registry),
         context: None,
         source_file: None,
+        span_files: &[],
     };
 
     for child in children {
@@ -249,7 +280,7 @@ fn process_file_children_to_weave(
                     Some(span) => weave_ip.add(Arc::new(SpanNode::new(
                         dedented,
                         SourceOrigin::Literal {
-                            file: Arc::from(doc_path),
+                            file: origin_file(doc_path, span_files, span),
                             span: *span,
                         },
                     ))),
@@ -291,7 +322,17 @@ pub(crate) fn process_weave_output(
         // Process all document nodes for weave output
         // Use 0 indent for top-level content (direct children of <hick:doc>)
         for (name, doc) in documents {
-            process_weave_content(&doc.nodes, &raw_ip, transcripts, state, 0, registry, name);
+            let span_files = crate::span_file_table(doc);
+            process_weave_content(
+                &doc.nodes,
+                &raw_ip,
+                transcripts,
+                state,
+                0,
+                registry,
+                name,
+                &span_files,
+            );
         }
 
         raw_ip.close();

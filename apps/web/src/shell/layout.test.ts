@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   activate,
   closeTab,
+  collapsePane,
+  expandPane,
   focus,
   focused,
   freeform,
@@ -207,3 +209,56 @@ describe("declared layouts", () => {
 function paneById(layout: Layout, id: string) {
   return panes(layout.root).find((pane) => pane.id === id) ?? null;
 }
+
+describe("collapse: a pane folds to a strip and unfolds intact", () => {
+  it("round-trips: collapse then expand restores tabs, active, and sizes", () => {
+    let layout = openAll(freeform(), "a.hick", "b.hick");
+    const first = layout.focus;
+    layout = split(layout, first, "row");
+    layout = open(layout, doc("c.hick"));
+    const before = paneById(layout, first)!;
+    const sizes = layout.root.type === "split" ? layout.root.sizes : [];
+
+    const collapsed = collapsePane(layout, first);
+    expect(paneById(collapsed, first)?.collapsed).toBe(true);
+    // Collapsing is presentation, not surgery: the tabs never moved, and the
+    // split fraction is remembered for the way back.
+    expect(paneById(collapsed, first)?.tabs).toEqual(before.tabs);
+    expect(collapsed.root.type === "split" ? collapsed.root.sizes : []).toEqual(sizes);
+
+    const expanded = expandPane(collapsed, first);
+    expect(paneById(expanded, first)?.collapsed).toBe(false);
+    expect(paneById(expanded, first)?.tabs).toEqual(before.tabs);
+    expect(paneById(expanded, first)?.active).toBe(before.active);
+    expect(expanded.focus).toBe(first);
+  });
+
+  it("moves the focus off a collapsing pane, so keys aim at something visible", () => {
+    let layout = openAll(freeform(), "a.hick");
+    const first = layout.focus;
+    layout = split(layout, first, "row");
+    layout = focus(layout, first);
+    const collapsed = collapsePane(layout, first);
+    expect(collapsed.focus).not.toBe(first);
+    expect(paneById(collapsed, collapsed.focus)?.collapsed).toBeFalsy();
+  });
+
+  it("refuses to collapse the last visible pane", () => {
+    // A shell that is all strips has nothing left to show and no way back.
+    const layout = openAll(freeform(), "a.hick");
+    expect(collapsePane(layout, layout.focus)).toBe(layout);
+
+    let two = openAll(freeform(), "a.hick");
+    const first = two.focus;
+    two = split(two, first, "row");
+    const second = two.focus;
+    two = collapsePane(two, first);
+    expect(collapsePane(two, second)).toBe(two);
+  });
+
+  it("expanding a pane that is not collapsed is a no-op", () => {
+    const layout = openAll(freeform(), "a.hick");
+    expect(expandPane(layout, layout.focus)).toBe(layout);
+    expect(expandPane(layout, "no-such-pane")).toBe(layout);
+  });
+});

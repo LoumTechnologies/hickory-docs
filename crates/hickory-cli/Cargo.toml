@@ -47,6 +47,14 @@ hick-structure = { path = "../hick-structure" }
 # needs no `hick-lsp` on PATH to answer a language question.
 tower-lsp = "0.20"
 hick-literate = { path = "../hick-literate" }
+# Project-wide search (semble-shaped: lexical always, Model2Vec semantic when
+# a model is installed). The crate is offline by design; downloading a model
+# is this CLI's explicit `hick search --install-model`.
+hick-search = { path = "../hick-search" }
+# Gitignore-aware walking for `GET /api/files` — the same walker (and the same
+# filters) hick-search indexes with, so the folder tree and search agree on
+# which files exist.
+ignore = "0.4"
 hickory-agent = { path = "../hickory-agent" }
 hickory-collab = { path = "../hickory-collab" }
 hickory-executor = { path = "../hickory-executor" }

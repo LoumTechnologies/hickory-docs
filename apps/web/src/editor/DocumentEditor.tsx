@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { EditorState, Transaction } from "@codemirror/state";
-import { EditorView, keymap } from "@codemirror/view";
+import { EditorView, keymap, placeholder } from "@codemirror/view";
 import {
   defaultKeymap,
   history,
   historyKeymap,
   indentWithTab,
 } from "@codemirror/commands";
+import { search, searchKeymap } from "@codemirror/search";
 import * as Y from "yjs";
 import { Awareness } from "y-protocols/awareness";
 import { yCollab } from "y-codemirror.next";
@@ -29,6 +30,8 @@ import type { LspDiagnostic } from "../lsp/client";
 import { hickoryFolding } from "./folding";
 import type { CellSlot, EnvSlot, DiagramSlot } from "./wysiwyg";
 import { execBlocksOf, expectRangeOf } from "./hickDoc";
+import { lineHighlightField } from "./lineHighlight";
+import { RightRail } from "./RightRail";
 import { DiagramPanel } from "../components/DiagramPanel";
 import { CellPanel } from "../components/CellPanel";
 import { EnvCard } from "../components/EnvCard";
@@ -57,6 +60,8 @@ export interface DocumentEditorProps {
   lspExtensions?: Extension[];
   /** Diagnostics for this document, in document coordinates. */
   lspDiagnostics?: LspDiagnostic[];
+  /** Dim hint shown while the buffer is empty (the untitled document). */
+  placeholderText?: string;
 }
 
 /** Overlap length of two [from, to) spans. */
@@ -105,9 +110,12 @@ export function DocumentEditor({
   lspExtensions,
   lspDiagnostics,
   onDebugFile,
+  placeholderText,
 }: DocumentEditorProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
+  // The live view AS STATE, for the right rail — a ref never re-renders.
+  const [railView, setRailView] = useState<EditorView | null>(null);
   // Read through a ref: the editor is built once per document, and a callback
   // baked in at construction would go stale the moment the debugger's state
   // changed.
@@ -185,9 +193,13 @@ export function DocumentEditor({
     const ydoc = new Y.Doc();
     const ytext = ydoc.getText("source");
     const awareness = new Awareness(ydoc);
+    // The presence color travels to peers as a literal value, so resolve the
+    // theme's accent once at bind time rather than shipping a var() string.
+    const presenceColor =
+      getComputedStyle(document.documentElement).getPropertyValue("--accent").trim() || "#5eb0ef";
     awareness.setLocalStateField("user", {
       name: localStorage.getItem("hickory.name") ?? "anonymous",
-      color: "#8f6f3f",
+      color: presenceColor,
     });
     realtime.bindDoc(ydoc, awareness);
 
@@ -228,10 +240,18 @@ export function DocumentEditor({
               ? { annotations: Transaction.addToHistory.of(false) }
               : null,
           ),
-          keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab]),
+          // In-buffer find (Mod-F). First in the keymap so nothing shadows
+          // it; the shifted chord stays free for the shell's project search.
+          // The panel sits on top — a find that covers the line it found is
+          // a find that answers a question by hiding the answer.
+          search({ top: true }),
+          keymap.of([...searchKeymap, ...defaultKeymap, ...historyKeymap, indentWithTab]),
+          // The hovered-ribbon line tint, shared with the right rail.
+          lineHighlightField,
           wysiwyg(registry, envRegistry, diagramRegistry, (path) => onDebugFileRef.current?.(path)),
           hickoryFolding(),
           yCollab(ytext, awareness),
+          ...(placeholderText ? [placeholder(placeholderText)] : []),
           ...(lspExtensions ?? []),
           EditorView.lineWrapping,
           EditorView.updateListener.of((u) => {
@@ -241,6 +261,7 @@ export function DocumentEditor({
       }),
     });
     viewRef.current = view;
+    setRailView(view);
     // Debug handle for driving the editor from automation (kept out of the
     // normal path; enable with localStorage "hickory.debug" = "1").
     if (
@@ -259,6 +280,7 @@ export function DocumentEditor({
       onViewReady?.(null);
       view.destroy();
       viewRef.current = null;
+      setRailView(null);
       awareness.destroy();
       ydoc.destroy();
     };
@@ -316,7 +338,13 @@ export function DocumentEditor({
 
   return (
     <>
-      <div ref={hostRef} className="document-editor" />
+      {/* The bordered box holds the editor and its right line-number rail
+          side by side; the ribbon overlay anchors on the rail's outer edge
+          through `.with-right-rail`. */}
+      <div className="document-editor with-right-rail">
+        <div ref={hostRef} className="editor-cm-host" />
+        <RightRail view={railView} />
+      </div>
       {slots.map((slot) => {
         const block = matchExecBlock(slot, execBlocks);
         return createPortal(

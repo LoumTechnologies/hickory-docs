@@ -19,6 +19,7 @@
 
 mod events;
 pub mod harness;
+mod key_store;
 mod llm;
 mod llm_anthropic;
 mod llm_batch;
@@ -36,6 +37,10 @@ mod usage;
 pub use events::AGENT_EXEC_ID;
 /// Structured events emitted by the agent loop (serde; WS run channel).
 pub use events::AgentEvent;
+/// Provider keys stored on disk by the desktop app (0600; Debug-redacted).
+pub use key_store::KeyStore;
+/// A displayable key fragment: first 4 + last 2 chars at most, never the key.
+pub use key_store::masked_key;
 /// A chunk of streamed LLM output.
 pub use llm::ChatChunk;
 /// A pinned, boxed stream of chat chunks.
@@ -62,7 +67,7 @@ pub use llm_batch::BatchEntry;
 pub use llm_batch::BatchResult;
 /// Chat client for any OpenAI-compatible provider.
 pub use llm_openai::OpenAiCompatClient;
-/// An OpenAI-compatible vendor (OpenAI, DeepSeek, xAI/Grok).
+/// An OpenAI-compatible vendor (OpenAI, DeepSeek, xAI/Grok, OpenRouter).
 pub use llm_openai::Provider;
 /// Default system prompt for the script-first strategy.
 pub use protocol::SYSTEM_PROMPT;
@@ -78,8 +83,12 @@ pub use protocol::correction_message;
 pub use protocol::parse_response;
 /// Parse the `<hick:tool>` element out of a tool response.
 pub use protocol::parse_tool_invocation;
-/// Build the client for a provider selector (`anthropic`/`openai`/…).
-pub use provider::{ProviderSelection, client_for};
+/// Build the client for a provider selector (`anthropic`/`openai`/…). The
+/// `_with_store` variants consult a [`KeyStore`] before the environment.
+pub use provider::{
+    ProviderSelection, client_for, client_for_with_store, resolve_selector,
+    resolve_selector_with_store,
+};
 /// The result of a completed agent run.
 pub use react_loop::AgentOutcome;
 /// Run the script-first ReAct loop to completion.

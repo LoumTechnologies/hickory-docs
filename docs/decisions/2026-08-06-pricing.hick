@@ -2,9 +2,10 @@
 <hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="2026-08-06-pricing.md">
 # Pricing decisions — 6 Aug 2026
 
-Working notes. The decisions below are tagged `.decision` and flow into
-`docs/domain/billing.hick`; everything else here is context that explains
-*why*, and deliberately does not.
+Working notes. The decisions below are tagged `.decision`; everything else
+here is context that explains *why*, and deliberately does not. (They once
+flowed into a billing domain model; the product no longer bills anyone, so
+this file is a historical record.)
 
 ## What we charge for
 

@@ -31,6 +31,14 @@ pub struct SourceSpan {
     pub start_line: usize,
     /// 0-based column number where the span starts.
     pub start_col: usize,
+    /// Which FILE the offsets index: `None` for the document that was
+    /// parsed, `Some(i)` for [`HickDocument::span_files`]`[i]` — set by
+    /// include/upstream splicing, whose spliced spans are offsets into the
+    /// *included* file. Without this, provenance attributes an included
+    /// span to the including document, and a reverse edit lands in the
+    /// wrong file at those offsets — silent corruption.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub file_id: Option<u16>,
 }
 
 impl SourceSpan {
@@ -40,6 +48,7 @@ impl SourceSpan {
             end,
             start_line,
             start_col,
+            file_id: None,
         }
     }
 
@@ -139,6 +148,13 @@ pub struct HickDocument {
     /// always fails is one people learn to ignore. Expectations still apply:
     /// `hick:expect` asks "did the claim hold", which stays meaningful.
     pub volatile: bool,
+    /// Files whose text was spliced into `nodes` by include/upstream
+    /// resolution, as canonical paths. A span whose
+    /// [`SourceSpan::file_id`] is `Some(i)` holds byte offsets into
+    /// `span_files[i]`, not into [`HickDocument::source`]. Empty until
+    /// [`resolve_includes`] runs, and stays empty for a document that
+    /// includes nothing.
+    pub span_files: Vec<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -377,9 +393,16 @@ pub fn resolve_includes(
 ) -> Result<(), ParseError> {
     let mut merged: std::collections::HashSet<std::path::PathBuf> =
         std::collections::HashSet::new();
-    let new_nodes =
-        resolve_includes_in_nodes(std::mem::take(&mut doc.nodes), base_dir, seen, &mut merged)?;
+    let mut span_files: Vec<String> = std::mem::take(&mut doc.span_files);
+    let new_nodes = resolve_includes_in_nodes(
+        std::mem::take(&mut doc.nodes),
+        base_dir,
+        seen,
+        &mut merged,
+        &mut span_files,
+    )?;
     doc.nodes = new_nodes;
+    doc.span_files = span_files;
     // Only documents that actually declare a pipeline pay for the uniqueness
     // check, so this cannot fail a document that worked before.
     if !merged.is_empty() {
@@ -519,11 +542,60 @@ fn fragment_matches(tag: &HickTag, selector: &str) -> bool {
         })
 }
 
+/// Register `canonical` in the span-file table and return its id.
+fn span_file_id(
+    span_files: &mut Vec<String>,
+    canonical: &std::path::Path,
+    line: usize,
+) -> Result<u16, ParseError> {
+    let path = canonical.to_string_lossy().to_string();
+    if let Some(existing) = span_files.iter().position(|p| *p == path) {
+        return Ok(existing as u16);
+    }
+    if span_files.len() > usize::from(u16::MAX) {
+        return Err(ParseError::Syntax {
+            line,
+            message: "more than 65 536 distinct files spliced into one document".into(),
+        });
+    }
+    span_files.push(path);
+    Ok((span_files.len() - 1) as u16)
+}
+
+/// Stamp every span that does not yet name a file with `file_id`.
+///
+/// Spliced spans hold byte offsets into the file they were parsed from, so
+/// they must say which file that is before they leave the splice — an
+/// unstamped span is read as offsets into the INCLUDING document, which is
+/// the corruption this exists to prevent. Nested includes are stamped by
+/// their own (deeper) splice first, which is why only `None` is overwritten.
+fn stamp_span_file(nodes: &mut [HickNode], file_id: u16) {
+    for node in nodes {
+        match node {
+            HickNode::Text(_, Some(span)) => {
+                if span.file_id.is_none() {
+                    span.file_id = Some(file_id);
+                }
+            }
+            HickNode::Text(_, None) => {}
+            HickNode::Tag(tag) => {
+                if let Some(span) = &mut tag.source_span
+                    && span.file_id.is_none()
+                {
+                    span.file_id = Some(file_id);
+                }
+                stamp_span_file(&mut tag.children, file_id);
+            }
+        }
+    }
+}
+
 fn resolve_includes_in_nodes(
     nodes: Vec<HickNode>,
     base_dir: &std::path::Path,
     seen: &mut std::collections::HashSet<std::path::PathBuf>,
     merged: &mut std::collections::HashSet<std::path::PathBuf>,
+    span_files: &mut Vec<String>,
 ) -> Result<Vec<HickNode>, ParseError> {
     let mut result = Vec::new();
     for node in nodes {
@@ -564,9 +636,20 @@ fn resolve_includes_in_nodes(
                         })?;
                     let mut upstream_doc = parse(&source)?;
                     let upstream_dir = canonical.parent().unwrap_or(base_dir);
-                    upstream_doc.nodes =
-                        resolve_includes_in_nodes(upstream_doc.nodes, upstream_dir, seen, merged)?;
-                    result.extend(fragments_of(upstream_doc.nodes));
+                    upstream_doc.nodes = resolve_includes_in_nodes(
+                        upstream_doc.nodes,
+                        upstream_dir,
+                        seen,
+                        merged,
+                        span_files,
+                    )?;
+                    // Stamp AFTER the recursion: spans belonging to files
+                    // the upstream itself spliced are already stamped, and
+                    // what remains is the upstream's own text.
+                    let file_id = span_file_id(span_files, &canonical, tag.source_line)?;
+                    let mut fragments = fragments_of(upstream_doc.nodes);
+                    stamp_span_file(&mut fragments, file_id);
+                    result.extend(fragments);
                 }
                 seen.remove(&canonical);
             }
@@ -602,14 +685,30 @@ fn resolve_includes_in_nodes(
                     })?;
                 let mut included_doc = parse(&source)?;
 
-                // Recursively resolve includes in the included doc
+                // Recursively resolve includes in the included doc, sharing
+                // the outer span-file table so a nested splice's ids are
+                // valid in the document that finally holds the nodes.
                 let included_dir = canonical.parent().unwrap_or(base_dir);
-                resolve_includes(&mut included_doc, included_dir, seen)?;
+                let mut inner_merged: std::collections::HashSet<std::path::PathBuf> =
+                    std::collections::HashSet::new();
+                included_doc.nodes = resolve_includes_in_nodes(
+                    included_doc.nodes,
+                    included_dir,
+                    seen,
+                    &mut inner_merged,
+                    span_files,
+                )?;
+                if !inner_merged.is_empty() {
+                    check_unique_ids(&included_doc.nodes)?;
+                }
 
                 // Splice children into parent. `include` is textual
                 // composition — a manual out of chapters. To make another
                 // document's fragments SELECTABLE without rendering it, the
-                // element is `hick:upstream`.
+                // element is `hick:upstream`. Stamp after the recursion, so
+                // only the included file's own text gets its id.
+                let file_id = span_file_id(span_files, &canonical, tag.source_line)?;
+                stamp_span_file(&mut included_doc.nodes, file_id);
                 result.extend(included_doc.nodes);
 
                 seen.remove(&canonical);
@@ -617,7 +716,8 @@ fn resolve_includes_in_nodes(
             HickNode::Tag(mut tag) => {
                 // Check `when` attribute (skip if needed -- handled upstream)
                 // Recurse into children for nested includes (e.g. inside file tags)
-                tag.children = resolve_includes_in_nodes(tag.children, base_dir, seen, merged)?;
+                tag.children =
+                    resolve_includes_in_nodes(tag.children, base_dir, seen, merged, span_files)?;
                 result.push(HickNode::Tag(tag));
             }
             text => {
@@ -741,6 +841,7 @@ impl<'a> Parser<'a> {
             prefix: self.prefix.clone(),
             weave_path,
             volatile,
+            span_files: Vec::new(),
         })
     }
 

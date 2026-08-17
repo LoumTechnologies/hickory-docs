@@ -102,6 +102,18 @@ jobs:
         shell: bash
         run: scripts/dist.sh "${{ matrix.target }}" "${{ inputs.version }}"
 
+      - name: Install the sandbox the smoke test needs
+        if: matrix.smoke == 'native' && runner.os == 'Linux'
+        # Cells run confined by DEFAULT, so `hick test` below needs bubblewrap
+        # exactly as a user's machine does. Mirrors ci.yml, including the
+        # Ubuntu 24.04 AppArmor userns workaround, and proves confinement
+        # works before testing as if it does.
+        run: |
+          sudo apt-get update && sudo apt-get install -y bubblewrap
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+          bwrap --unshare-all --ro-bind / / --tmpfs /tmp --proc /proc --dev /dev \
+                --die-with-parent -- /bin/sh -c 'echo confined'
+
       - name: Smoke test the binary that was just built
         if: matrix.smoke == 'native'
         shell: bash
@@ -234,6 +246,23 @@ jobs:
         shell: bash
         run: scripts/dist-desktop.sh "${{ inputs.version }}" "${{ matrix.target }}"
 
+      - name: Verify the bundles carry the app
+        # Not a launch test (no display here), but the cheapest check that an
+        # uploaded installer is an installer: it exists, and the Linux .deb
+        # actually contains the application binary rather than being an empty
+        # shell around metadata.
+        shell: bash
+        run: |
+          set -euo pipefail
+          ls -l dist/desktop
+          for deb in dist/desktop/*.deb; do
+            [ -e "$deb" ] || continue
+            dpkg-deb -c "$deb" | grep -q "usr/bin/" || {
+              echo "::error::$deb contains no usr/bin/ entry — an installer with no program." >&2
+              exit 1
+            }
+          done
+
       - uses: actions/upload-artifact@v4
         with:
           name: hickory-docs-desktop-${{ matrix.target }}
@@ -272,6 +301,16 @@ jobs:
           duckdb --version
           curl -LsSf https://astral.sh/uv/install.sh | sh
           echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Install the sandbox the examples run under
+        # Cells run confined by default; a clean machine still needs
+        # bubblewrap, which is exactly what docs/users/install.md tells a
+        # Linux user. Mirrors ci.yml's AppArmor userns workaround.
+        run: |
+          sudo apt-get update && sudo apt-get install -y bubblewrap
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+          bwrap --unshare-all --ro-bind / / --tmpfs /tmp --proc /proc --dev /dev \
+                --die-with-parent -- /bin/sh -c 'echo confined'
 
       - name: Prove there is no Rust toolchain in play
         run: |

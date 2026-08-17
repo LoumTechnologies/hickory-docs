@@ -169,6 +169,7 @@ mod tests {
             registry: None,
             context: None,
             source_file: None,
+            span_files: &[],
         };
 
         let tag = make_tag(
@@ -199,6 +200,7 @@ mod tests {
             registry: None,
             context: None,
             source_file: None,
+            span_files: &[],
         };
 
         let tag = make_tag(
@@ -226,6 +228,7 @@ mod tests {
             registry: None,
             context: None,
             source_file: None,
+            span_files: &[],
         };
 
         let tag = make_tag(
@@ -267,6 +270,7 @@ mod tests {
             registry: None,
             context: None,
             source_file: None,
+            span_files: &[],
         };
 
         let tag = make_tag(

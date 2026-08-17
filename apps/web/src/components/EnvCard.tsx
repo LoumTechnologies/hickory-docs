@@ -12,15 +12,18 @@ export interface EnvCardProps {
 }
 
 /**
- * The environment card rendered above a `hick:container` declaration in the
- * Document view: what the container is (name + image ref + access rules) and
- * where its commands actually run (the /api/executor resolution line).
+ * The executor-resolution note rendered INLINE at the end of a
+ * `hick:container` declaration line: where this environment's commands
+ * actually run. Everything else about the environment — name, image, access
+ * rules — is the declaration's own source text, already on numbered lines
+ * directly here; repeating it in chrome would only add rows the gutter
+ * cannot number. The summary survives as a hover title.
  */
 export function EnvCard({ name, image, rules, executor }: EnvCardProps) {
   let resolution: { text: string; warn: boolean } | null = null;
   if (executor?.kind === "local") {
     resolution = {
-      text: "local executor — commands run on the host; image is recorded, not enforced",
+      text: "runs on the host — image recorded, not enforced",
       warn: false,
     };
   } else if (executor?.kind === "canopy") {
@@ -34,20 +37,16 @@ export function EnvCard({ name, image, rules, executor }: EnvCardProps) {
           warn: true,
         };
   }
+  if (!resolution) return null;
 
+  const summary = [name, image, ...rules].filter(Boolean).join(" · ");
   return (
-    <div className="env-card" data-testid={`env-card-${name}`}>
-      <div className="env-card-bar">
-        <span className="env-card-label">environment</span>
-        <span className="env-card-name">{name}</span>
-        {image && <span className="env-card-image">{image}</span>}
-        {rules.length > 0 && <span className="env-card-rules">{rules.join(" · ")}</span>}
-      </div>
-      {resolution && (
-        <div className={`env-card-resolution${resolution.warn ? " warn" : ""}`}>
-          {resolution.text}
-        </div>
-      )}
-    </div>
+    <span
+      className={`env-resolution${resolution.warn ? " warn" : ""}`}
+      data-testid={`env-card-${name}`}
+      title={summary}
+    >
+      {resolution.text}
+    </span>
   );
 }

@@ -52,6 +52,8 @@ function isBroken(mark: BreakpointMark): boolean {
 /** One line of the call stack below the one execution is stopped at. */
 export interface StackMark {
   line: number;
+  /** The frame's id, so clicking the mark can select it. */
+  id: number;
   /** The function whose frame this is, for the tooltip. */
   name: string;
   /** 1 for the caller, 2 for its caller, and so on. */
@@ -77,7 +79,7 @@ export function stackMarksOf(frames: readonly Frame[], pausedLine: number | null
     if (!frame.in_document) return;
     if (line === pausedLine || seen.has(line)) return;
     seen.add(line);
-    out.push({ line, name: frame.name, depth: index + 1 });
+    out.push({ line, id: frame.id, name: frame.name, depth: index + 1 });
   });
   return out;
 }
@@ -124,6 +126,7 @@ export const setBreakpointMarks = StateEffect.define<BreakpointMark[]>();
 export const setPausedLine = StateEffect.define<number | null>();
 export const setInlineValues = StateEffect.define<Variable[]>();
 export const setStackMarks = StateEffect.define<StackMark[]>();
+export const setWatchValues = StateEffect.define<WatchValue[]>();
 /** Flash a line, to say "here" after moving somewhere. */
 export const flashLine = StateEffect.define<number | null>();
 
@@ -198,9 +201,9 @@ class FrameMarker extends GutterMarker {
     const arrow = document.createElement("span");
     arrow.className = "cm-frame-arrow";
     arrow.title =
-      this.mark.depth === 1
+      (this.mark.depth === 1
         ? `Called from ${this.mark.name}`
-        : `${this.mark.depth} frames up: ${this.mark.name}`;
+        : `${this.mark.depth} frames up: ${this.mark.name}`) + " — click to view this frame";
     return arrow;
   }
 }
@@ -316,17 +319,20 @@ export function revealLine(view: EditorView, line: number, holdMs = 900): void {
 
 /** The greyed `x = 1` at the end of a line while paused. */
 class InlineValue extends WidgetType {
-  constructor(private readonly text: string) {
+  constructor(
+    private readonly text: string,
+    private readonly className = "cm-debug-value",
+  ) {
     super();
   }
   // Without this, every value is redrawn on every update and the caret
   // flickers as the DOM under it is replaced.
   eq(other: InlineValue) {
-    return other.text === this.text;
+    return other.text === this.text && other.className === this.className;
   }
   toDOM() {
     const span = document.createElement("span");
-    span.className = "cm-debug-value";
+    span.className = this.className;
     span.textContent = this.text;
     // Not text: it must never be selected, copied, or counted as part of
     // the document somebody is editing.
@@ -405,11 +411,206 @@ function buildInline(
   return builder.finish();
 }
 
+// --- watches ----------------------------------------------------------------
+
+/** One watched expression, with what it currently holds (null: no answer). */
+export interface WatchValue {
+  expression: string;
+  value: string | null;
+}
+
+const watchesField = StateField.define<WatchValue[]>({
+  create: () => [],
+  update(watches, tr) {
+    for (const effect of tr.effects) {
+      if (effect.is(setWatchValues)) return effect.value;
+    }
+    return watches;
+  },
+});
+
+/**
+ * The line each watch belongs beside: the first one that mentions the
+ * expression, or the paused line when none does.
+ *
+ * The value is appended after the line's end as a widget — the same shape as
+ * inline values — so it can never change where the text itself wraps. Nothing
+ * is shown while nothing is paused: a watch's value belongs to a stopped
+ * frame, and showing it afterwards would be showing the past as the present.
+ */
+export function watchPlacements(
+  doc: { lines: number; line(n: number): { from: number; to: number; text: string } },
+  watches: WatchValue[],
+  pausedLine: number | null,
+): { at: number; text: string }[] {
+  if (pausedLine === null || watches.length === 0) return [];
+  const byLine = new Map<number, string[]>();
+  for (const watch of watches) {
+    const text = `${watch.expression} = ${watch.value ?? "…"}`;
+    let placed: number | null = null;
+    // A bare identifier matches whole words only (`sum` must not land inside
+    // `subtotal`); anything longer is matched literally.
+    const bare = /^[A-Za-z_][A-Za-z0-9_]*$/.test(watch.expression)
+      ? new RegExp(`\\b${watch.expression}\\b`)
+      : null;
+    for (let index = 0; index < doc.lines; index += 1) {
+      const line = doc.line(index + 1);
+      if (bare ? bare.test(line.text) : line.text.includes(watch.expression)) {
+        placed = index;
+        break;
+      }
+    }
+    const line = placed ?? Math.min(pausedLine, doc.lines - 1);
+    byLine.set(line, [...(byLine.get(line) ?? []), text]);
+  }
+  return [...byLine.entries()]
+    .sort((a, b) => a[0] - b[0])
+    .map(([line, texts]) => ({ at: doc.line(line + 1).to, text: texts.join("  ") }));
+}
+
+const watchDecorations = EditorView.decorations.compute(
+  ["doc", watchesField, pausedField],
+  (state) => {
+    const builder = new RangeSetBuilder<Decoration>();
+    const placements = watchPlacements(
+      state.doc,
+      state.field(watchesField),
+      state.field(pausedField),
+    );
+    for (const placement of placements) {
+      builder.add(
+        placement.at,
+        placement.at,
+        // side 2: after the inline values on the same line, and still an
+        // inline widget — appended after the line's end, never inside it.
+        Decoration.widget({
+          widget: new InlineValue(placement.text, "cm-debug-value cm-debug-watch"),
+          side: 2,
+        }),
+      );
+    }
+    return builder.finish();
+  },
+);
+
+// --- inline eval at the paused line -----------------------------------------
+
+/**
+ * The affordance at the end of the paused line: a quiet `eval…` that expands
+ * into an input. Enter answers in the selected frame; Shift-Enter promotes
+ * the expression to a watch; Escape closes.
+ *
+ * An inline widget appended after the line end, exactly like inline values:
+ * it adds nothing to the text flow mid-line, so wrapping is untouched.
+ */
+class EvalWidget extends WidgetType {
+  constructor(
+    private readonly line: number,
+    private readonly options: DebugEditorOptions,
+  ) {
+    super();
+  }
+  // Same line, same widget: the DOM (and whatever is typed in it) survives
+  // unrelated dispatches while the program stays paused here.
+  eq(other: EvalWidget) {
+    return other.line === this.line;
+  }
+  toDOM() {
+    const root = document.createElement("span");
+    root.className = "cm-eval";
+    const toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.className = "cm-eval-toggle";
+    toggle.textContent = "eval…";
+    toggle.title = "Evaluate an expression in the paused frame";
+    const options = this.options;
+
+    const close = () => {
+      root.textContent = "";
+      root.appendChild(toggle);
+    };
+    const open = () => {
+      root.textContent = "";
+      const input = document.createElement("input");
+      input.className = "cm-eval-input";
+      input.placeholder = "expression — Enter evaluates, Shift-Enter watches";
+      input.setAttribute("aria-label", "Evaluate an expression in the paused frame");
+      const result = document.createElement("span");
+      result.className = "cm-eval-result";
+      input.addEventListener("keydown", (event) => {
+        // The editor must not treat typing here as typing in the document.
+        event.stopPropagation();
+        if (event.key === "Escape") {
+          close();
+          return;
+        }
+        if (event.key !== "Enter") return;
+        const expression = input.value.trim();
+        if (!expression) return;
+        if (event.shiftKey) {
+          // The one-keystroke promotion: what you just asked becomes a watch.
+          options.onAddWatch?.(expression);
+          result.textContent = "→ watching";
+          return;
+        }
+        result.textContent = "…";
+        void options.onEvaluate?.(expression).then((value) => {
+          result.textContent = value === null ? "(no value)" : `= ${value}`;
+        });
+      });
+      root.appendChild(input);
+      root.appendChild(result);
+      input.focus();
+    };
+    toggle.addEventListener("mousedown", (event) => {
+      // mousedown, not click: the editor takes the selection on mousedown
+      // and the button would lose the event to it.
+      event.preventDefault();
+      event.stopPropagation();
+      open();
+    });
+    root.appendChild(toggle);
+    return root;
+  }
+  ignoreEvent() {
+    // Everything inside is the widget's own business, not the editor's.
+    return true;
+  }
+}
+
 // --- the extension ----------------------------------------------------------
 
 export interface DebugEditorOptions {
   /** Toggle a breakpoint on this 0-based document line. */
   onToggleBreakpoint: (line: number) => void;
+  /** Show this frame's line and values (a gutter stack mark was clicked). */
+  onSelectFrame?: (id: number) => void;
+  /** Answer an expression in the selected frame, for the inline eval. */
+  onEvaluate?: (expression: string) => Promise<string | null>;
+  /** Add an expression to the watch list. */
+  onAddWatch?: (expression: string) => void;
+}
+
+/**
+ * What a click on the gutter beside `line` should do.
+ *
+ * The rule mirrors what is drawn: a line showing a stack mark (a caller, with
+ * nothing louder on it) selects that frame; everywhere else the click is
+ * about breakpoints, snapped to the line that can hold one.
+ */
+export function gutterAction(
+  state: EditorState,
+  line: number,
+): { kind: "frame"; id: number } | { kind: "breakpoint"; line: number } | null {
+  const paused = state.field(pausedField, false) === line;
+  const hasBreakpoint =
+    state.field(breakpointField, false)?.some((mark) => mark.line === line) ?? false;
+  if (!paused && !hasBreakpoint) {
+    const frame = state.field(stackField, false)?.find((mark) => mark.line === line);
+    if (frame) return { kind: "frame", id: frame.id };
+  }
+  const target = breakpointLine(state, line);
+  return target === null ? null : { kind: "breakpoint", line: target };
 }
 
 /** The paused arrow, which carries no state either. */
@@ -455,6 +656,18 @@ const HOVER_TARGET = new (class extends GutterMarker {
 })();
 
 export function debugEditor(options: DebugEditorOptions): Extension[] {
+  // The eval affordance follows the paused line. Built here because its
+  // widget needs the callbacks; drawn only when a handler exists to answer.
+  const evalAffordance = EditorView.decorations.compute(["doc", pausedField], (state) => {
+    if (!options.onEvaluate) return Decoration.none;
+    const line = state.field(pausedField);
+    if (line === null || line < 0 || line >= state.doc.lines) return Decoration.none;
+    const at = state.doc.line(line + 1).to;
+    return Decoration.set([
+      // side 3: after this line's inline values and watches.
+      Decoration.widget({ widget: new EvalWidget(line, options), side: 3 }).range(at),
+    ]);
+  });
   return [
     // Numbers first, then the dots. Without them there is no way to say which
     // line anything is on — and in a document whose editor hides and folds
@@ -468,6 +681,9 @@ export function debugEditor(options: DebugEditorOptions): Extension[] {
     pausedHighlight,
     flashHighlight,
     inlineField,
+    watchesField,
+    watchDecorations,
+    evalAffordance,
     gutter({
       class: "cm-breakpoint-gutter",
       // Everything is drawn per LINE, not per position.
@@ -513,10 +729,13 @@ export function debugEditor(options: DebugEditorOptions): Extension[] {
       domEventHandlers: {
         mousedown(view, block, event) {
           const clicked = lineAtEvent(view, block, event);
-          // Snap to the line that can hold it, or refuse quietly: a dot that
-          // appears and then reports it could not bind is worse than no dot.
-          const line = breakpointLine(view.state, clicked);
-          if (line !== null) options.onToggleBreakpoint(line);
+          // A stack mark selects its frame; anywhere else is a breakpoint,
+          // snapped to the line that can hold one — or refused quietly: a dot
+          // that appears and then reports it could not bind is worse than no
+          // dot.
+          const action = gutterAction(view.state, clicked);
+          if (action?.kind === "frame") options.onSelectFrame?.(action.id);
+          else if (action?.kind === "breakpoint") options.onToggleBreakpoint(action.line);
           return true;
         },
       },

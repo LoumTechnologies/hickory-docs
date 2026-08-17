@@ -416,6 +416,29 @@ impl EditSession {
             Err(err) => return ToolOutcome::err(NAME, self.route_refusal(&err, &prov)),
         };
 
+        // A refusal with routing, not corruption: lineage can name an
+        // included/upstream document as the edit's destination, but this
+        // session holds (and re-weaves) only the primary document. The
+        // owning file is reachable through the same tool set.
+        if let Some(foreign) = source_edits.iter().find(|e| e.doc_path != self.doc_name) {
+            // Show the owning lines, so the next call needs no search: the
+            // agent obeying this message should land directly on the
+            // fragment (e.g. the `<hick:copy id=…>` block) it must edit.
+            let excerpt = foreign_excerpt(&foreign.doc_path, foreign.span)
+                .map(|text| format!("\nThe owning text is:\n{text}\n"))
+                .unwrap_or_default();
+            return ToolOutcome::err(
+                NAME,
+                format!(
+                    "this range comes from {}, a document included by {} — the edit \
+                     belongs there.{excerpt}\
+                     Read it with read_doc (doc=\"{}\"), make the change with edit_doc \
+                     against that document, then verify.",
+                    foreign.doc_path, self.doc_name, foreign.doc_path
+                ),
+            );
+        }
+
         let mut sources = HashMap::new();
         sources.insert(self.doc_name.clone(), self.source.clone());
         let updated = match apply_source_edits(&sources, &source_edits) {
@@ -1104,6 +1127,31 @@ fn edited_region(index: &LineIndex, first_line: usize, replacement: &str) -> Str
 }
 
 /// Kind label for a provenance entry.
+/// The whole lines covering `span` in `doc_path`, plus the line above —
+/// which, for a fragment body that opens mid-line, is the line carrying the
+/// enclosing tag (`<hick:copy id=…>`). Capped so a large span cannot flood
+/// the refusal.
+fn foreign_excerpt(doc_path: &str, span: (usize, usize)) -> Option<String> {
+    let src = std::fs::read_to_string(doc_path).ok()?;
+    let (s, e) = span;
+    let s = s.min(src.len());
+    let e = e.clamp(s, src.len());
+    let line_start = src.get(..s)?.rfind('\n').map(|i| i + 1).unwrap_or(0);
+    let start = src
+        .get(..line_start.saturating_sub(1))?
+        .rfind('\n')
+        .map(|i| i + 1)
+        .unwrap_or(0);
+    let end = src.get(e..)?.find('\n').map(|i| e + i).unwrap_or(src.len());
+    let lines: Vec<&str> = src.get(start..end)?.lines().collect();
+    let shown: Vec<&str> = lines.iter().copied().take(8).collect();
+    let mut out = shown.join("\n");
+    if lines.len() > shown.len() {
+        out.push_str("\n  …");
+    }
+    Some(out)
+}
+
 fn origin_kind(p: &Provenance) -> &'static str {
     use hickory_lineage::Origin;
     match p.origin {

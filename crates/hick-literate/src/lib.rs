@@ -7,6 +7,7 @@
 pub mod agent_cell;
 pub mod cache;
 pub mod capture;
+pub mod cell_timeout;
 pub mod compact;
 pub mod config;
 pub mod equiv;
@@ -48,8 +49,8 @@ use hick_lang::{HickDocument, HickNode, HickTag, dedent};
 use hick_token::{ContainerCapabilities, NetworkRule, TokenAuthority};
 
 pub use hickory_executor::{
-    ContainerResourceStats, ExecTranscriptEntry, Executor, LocalExecutor, TranscriptEvent,
-    Transcripts,
+    ContainerResourceStats, ExecOptions, ExecTranscriptEntry, Executor, LocalExecutor,
+    TranscriptEvent, Transcripts,
 };
 
 use crate::expect::ExpectationOutcome;
@@ -201,6 +202,12 @@ pub struct PipelineResult {
     /// weave-without-cache modes always, and by the live pipeline when
     /// [`PipelineConfig::collect_unverifiable`] is set.
     pub never_run: NeverRun,
+    /// Canonical paths of every file spliced into the pipeline's documents
+    /// by `<hick:include>`/`<hick:upstream>` (the union of the resolved
+    /// documents' [`hick_lang::HickDocument::span_files`]). Provenance can
+    /// name these as an edit's destination, so a caller that guards against
+    /// stale documents needs the full list.
+    pub span_files: Vec<String>,
 }
 
 // ---------------------------------------------------------------------------
@@ -544,6 +551,7 @@ fn process_documents_round(
     // Each document's declarations carry its name as `source_file` so copy
     // blocks get byte-precise Literal provenance.
     for (doc_name, doc) in documents {
+        let span_files = span_file_table(doc);
         let decl_ctx = ProcessingContext {
             state,
             transcripts: handler_transcripts,
@@ -551,6 +559,7 @@ fn process_documents_round(
             registry: Some(registry),
             context: None,
             source_file: Some(Arc::from(*doc_name)),
+            span_files: &span_files,
         };
         for node in &doc.nodes {
             if let HickNode::Tag(tag) = node
@@ -565,6 +574,7 @@ fn process_documents_round(
     // Process file outputs
     for (doc_name, doc) in documents {
         let source_file: Arc<str> = Arc::from(*doc_name);
+        let span_files = span_file_table(doc);
         for node in &doc.nodes {
             if let HickNode::Tag(tag) = node
                 && tag.name == "file"
@@ -581,6 +591,7 @@ fn process_documents_round(
                     tag.source_column,
                     registry,
                     Some(&source_file),
+                    &span_files,
                 );
 
                 raw_ip.close();
@@ -887,6 +898,7 @@ pub async fn run_pipeline_with_authority(
         }
     }
 
+    let span_files = union_span_files(documents.iter().map(|(_, d)| d));
     let documents_ref: Vec<(&str, HickDocument)> =
         documents.iter().map(|(n, d)| (*n, d.clone())).collect();
     let (files, provenance_maps) =
@@ -901,6 +913,7 @@ pub async fn run_pipeline_with_authority(
         transcripts,
         expectations: Vec::new(),
         never_run,
+        span_files,
     })
 }
 
@@ -953,6 +966,12 @@ pub struct PipelineConfig {
     /// the same class of invariant as `max_turns`. See
     /// `docs/guarantees/agent/re-preparation-terminates.md`.
     pub max_agent_reprepares: usize,
+    /// Run-wide default time limit for a cell that declares no `timeout=`
+    /// of its own. `Default` is the built-in 120 seconds; callers that
+    /// honour `HICKORY_CELL_TIMEOUT` resolve it with
+    /// [`cell_timeout::CellTimeoutDefault::from_env`]. See
+    /// `docs/guarantees/execution/a-cell-cannot-hang-a-run.md`.
+    pub cell_timeout: cell_timeout::CellTimeoutDefault,
 }
 
 /// Run the pipeline with real command execution through an [`Executor`].
@@ -1555,6 +1574,7 @@ pub async fn run_pipeline_live(
                                         registry: Some(&stdin_registry),
                                         context: None,
                                         source_file: None,
+                                        span_files: &[],
                                     };
                                     if let Ok(TagResult::Node(n)) =
                                         handler.process(child_tag, &child_ctx)
@@ -1576,15 +1596,20 @@ pub async fn run_pipeline_live(
                     None
                 };
 
-                let exec_result = if let Some(stdin_data) = &stdin_content {
-                    executor
-                        .execute_with_stdin(&exec_info.container, &exec_info.command, stdin_data)
-                        .await
-                } else {
-                    executor
-                        .execute(&exec_info.container, &exec_info.command)
-                        .await
+                // Every executed cell runs under a wall-clock limit: the
+                // cell's own timeout= attribute, else the run-wide default.
+                // docs/guarantees/execution/a-cell-cannot-hang-a-run.md
+                let exec_options = ExecOptions {
+                    timeout: config.cell_timeout.for_cell(exec_info.timeout_secs),
                 };
+                let exec_result = executor
+                    .execute_with_options(
+                        &exec_info.container,
+                        &exec_info.command,
+                        stdin_content.as_deref(),
+                        exec_options,
+                    )
+                    .await;
                 // Fire the live hook even on failure: the transcript entry
                 // (with its exit event) is recorded before the error returns.
                 if let Some(hook) = &config.on_exec
@@ -1764,6 +1789,7 @@ pub async fn run_pipeline_live(
     let resource_stats = executor.resource_stats();
     executor.shutdown().await?;
 
+    let span_files = union_span_files(documents.iter().map(|(_, d)| d));
     let documents_ref: Vec<(&str, HickDocument)> =
         documents.iter().map(|(n, d)| (*n, d.clone())).collect();
     let (mut files, provenance_maps) =
@@ -1781,6 +1807,7 @@ pub async fn run_pipeline_live(
         transcripts,
         expectations,
         never_run,
+        span_files,
     })
 }
 
@@ -1906,6 +1933,7 @@ pub async fn run_pipeline_weave(
         }
     }
 
+    let span_files = union_span_files(documents.iter().map(|(_, d)| d));
     let documents_ref: Vec<(&str, HickDocument)> =
         documents.iter().map(|(n, d)| (*n, d.clone())).collect();
     let (files, provenance_maps) =
@@ -1920,6 +1948,7 @@ pub async fn run_pipeline_weave(
         transcripts,
         expectations: Vec::new(),
         never_run,
+        span_files,
     })
 }
 
@@ -2129,6 +2158,32 @@ pub(crate) fn apply_substitutions_segmented_to_transform(
 ///
 /// The `indent` parameter specifies how many leading spaces to strip from each
 /// line of text content (typically the source_column of the parent tag).
+/// A document's [`hick_lang::HickDocument::span_files`] table, converted for
+/// a [`ProcessingContext`]. Index `i` answers for spans stamped
+/// `file_id: Some(i)` by include/upstream splicing.
+/// Union of several documents' span-file tables, in first-seen order.
+fn union_span_files<'a>(docs: impl Iterator<Item = &'a HickDocument>) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for doc in docs {
+        for f in &doc.span_files {
+            if !out.contains(f) {
+                out.push(f.clone());
+            }
+        }
+    }
+    out
+}
+
+pub(crate) fn span_file_table(doc: &hick_lang::HickDocument) -> Vec<Arc<str>> {
+    doc.span_files
+        .iter()
+        .map(|s| Arc::from(s.as_str()))
+        .collect()
+}
+
+// The `span_files` threading (include splicing) pushed these over the
+// clippy arg limit; a param-struct refactor belongs to that change, not here.
+#[allow(clippy::too_many_arguments)]
 fn process_file_children(
     children: &[HickNode],
     file_ip: &Arc<InsertionPoint>,
@@ -2137,6 +2192,7 @@ fn process_file_children(
     indent: usize,
     registry: &TagRegistry,
     source_file: Option<&Arc<str>>,
+    span_files: &[Arc<str>],
 ) {
     let ctx = ProcessingContext {
         state,
@@ -2145,17 +2201,22 @@ fn process_file_children(
         registry: Some(registry),
         context: None,
         source_file: source_file.cloned(),
+        span_files,
     };
 
     for child in children {
         match child {
             HickNode::Text(text, span) => {
                 let dedented = dedent(text, indent);
-                if let (Some(span), Some(source_file)) = (span, ctx.source_file.as_ref()) {
-                    let origin = SourceOrigin::Literal {
-                        file: source_file.clone(),
-                        span: *span,
-                    };
+                // `file_of_span`, not `source_file`: a span spliced in by
+                // <hick:include>/<hick:upstream> indexes the INCLUDED file,
+                // and attributing it here to the including document is what
+                // used to send reverse edits into the wrong file.
+                if let Some((span, file)) = span
+                    .as_ref()
+                    .and_then(|s| ctx.file_of_span(s).map(|f| (s, f)))
+                {
+                    let origin = SourceOrigin::Literal { file, span: *span };
                     file_ip.add(Arc::new(SpanNode::new(dedented, origin)));
                 } else {
                     file_ip.add(Arc::new(StringNode::new(dedented)));

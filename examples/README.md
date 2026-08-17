@@ -28,3 +28,20 @@ hick run examples/grand-tour.hick --features with-r
 Every `.md` and generated artifact beside these documents is committed output.
 `hick test` re-executes and fails if any of it has drifted, which is how
 these examples stay honest.
+
+## `ai-transform.hick`
+
+A passage WRITTEN by a model, VERIFIED like everything else: `hick:transform`
+records what it read (`select=`), the instruction, and a fingerprint of both
+(`from=`). `hick refresh` (the only command that calls a model) writes the
+passage; `hick test` checks the fingerprint offline and free — edit a fact
+and the summary is flagged stale until refreshed. Needs a provider key only
+to refresh, never to verify.
+
+## `planned-messages.hick`
+
+Messages you are about to send, drafted as generated files assembled from
+named fact blocks — so `hick lineage` (and the app's ribbons) answer "where
+did that number come from?" byte-for-byte. Also shows that a document may
+bind ANY prefix to the hickory namespace: this one reads as `<slack:copy>`,
+`<slack:file>`.

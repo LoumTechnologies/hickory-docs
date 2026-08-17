@@ -1,0 +1,3 @@
+Checkout is fast again and the release pipeline is green.
+
+p95 checkout latency dropped from 480ms to 210ms after the connection-pool fix (Grafana dashboard "checkout-slo", 2026-08-16 snapshot).

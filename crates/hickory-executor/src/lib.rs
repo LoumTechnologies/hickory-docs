@@ -105,6 +105,25 @@ pub struct ContainerResourceStats {
 }
 
 // ---------------------------------------------------------------------------
+// Per-exec options
+// ---------------------------------------------------------------------------
+
+/// Per-exec options carried from a cell's attributes (and the run's
+/// configuration) down to where the process is spawned.
+///
+/// `Default` is "no limit": the plain [`Executor::execute`] /
+/// [`Executor::execute_with_stdin`] methods keep their historical unbounded
+/// semantics, and the pipeline passes an explicit timeout through
+/// [`Executor::execute_with_options`] instead.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ExecOptions {
+    /// Wall-clock limit for the command. `None` means unbounded. On timeout
+    /// the process (and, where the platform allows, its whole process group)
+    /// is killed and the exec fails.
+    pub timeout: Option<Duration>,
+}
+
+// ---------------------------------------------------------------------------
 // The Executor trait
 // ---------------------------------------------------------------------------
 
@@ -176,6 +195,30 @@ pub trait Executor: Send + Sync {
         command: &str,
         stdin_data: &str,
     ) -> Result<String>;
+
+    /// Run a command with per-exec [`ExecOptions`] — today, a wall-clock
+    /// timeout. This is the method the pipeline calls for every cell.
+    ///
+    /// **The default implementation ignores `options.timeout`** and delegates
+    /// to [`Executor::execute`] / [`Executor::execute_with_stdin`]: an
+    /// executor that does not override this runs the cell unbounded. The
+    /// process-spawning executors (`LocalExecutor`, `SandboxedExecutor`)
+    /// override it and really kill the process on timeout; see
+    /// `docs/guarantees/execution/a-cell-cannot-hang-a-run.md` for what is
+    /// guaranteed where.
+    async fn execute_with_options(
+        &self,
+        container: &str,
+        command: &str,
+        stdin_data: Option<&str>,
+        options: ExecOptions,
+    ) -> Result<String> {
+        let _ = options;
+        match stdin_data {
+            Some(data) => self.execute_with_stdin(container, command, data).await,
+            None => self.execute(container, command).await,
+        }
+    }
 
     /// Register `target` as a fork of `from`. Must be called before `target`
     /// starts. `additional_caps` further attenuates the fork's capabilities
@@ -366,8 +409,9 @@ impl LocalExecutor {
         display: &str,
         command: &str,
         stdin_data: Option<&str>,
+        options: ExecOptions,
     ) -> Result<String> {
-        self.run_command_as(container, display, command, stdin_data)
+        self.run_command_as(container, display, command, stdin_data, options)
             .await
     }
 
@@ -376,8 +420,9 @@ impl LocalExecutor {
         container: &str,
         command: &str,
         stdin_data: Option<&str>,
+        options: ExecOptions,
     ) -> Result<String> {
-        self.run_command_as(container, command, command, stdin_data)
+        self.run_command_as(container, command, command, stdin_data, options)
             .await
     }
 
@@ -396,12 +441,37 @@ impl LocalExecutor {
         }
     }
 
+    /// Kill a spawned command hard, group and all where the platform allows.
+    ///
+    /// On Unix the child was spawned as the leader of its own process group
+    /// (`process_group(0)`), so `SIGKILL` to `-pid` takes down the shell AND
+    /// everything it spawned — a cell's background children do not outlive
+    /// the cell. On Windows only the direct child (`cmd.exe`) is killed;
+    /// grandchildren it spawned may survive. `kill_on_drop(true)` on the
+    /// spawn is the additional guarantee that a cancelled future never
+    /// leaves the direct child running.
+    async fn kill_hard(child: &mut tokio::process::Child, pid: Option<u32>) {
+        #[cfg(unix)]
+        if let Some(pid) = pid {
+            // SAFETY: plain syscall; a stale pid is at worst an ESRCH error.
+            unsafe {
+                libc::kill(-(pid as i32), libc::SIGKILL);
+            }
+        }
+        #[cfg(not(unix))]
+        let _ = pid;
+        let _ = child.start_kill();
+        // Reap, so the kill is observed and no zombie is left behind.
+        let _ = child.wait().await;
+    }
+
     async fn run_command_as(
         &self,
         container: &str,
         display: &str,
         command: &str,
         stdin_data: Option<&str>,
+        options: ExecOptions,
     ) -> Result<String> {
         let workdir = self.workdir_for(container)?;
         // One entry: the whole command block, indentation preserved (weave
@@ -421,8 +491,8 @@ impl LocalExecutor {
 
         info!("[local:{container}] executing: {}", display.trim());
         let (shell, shell_flag) = Self::shell();
-        let mut child = tokio::process::Command::new(shell)
-            .arg(shell_flag)
+        let mut cmd = tokio::process::Command::new(shell);
+        cmd.arg(shell_flag)
             .arg(command)
             .current_dir(&workdir)
             .stdin(if stdin_data.is_some() {
@@ -432,19 +502,28 @@ impl LocalExecutor {
             })
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
-            .spawn()
-            .with_context(|| {
-                format!("failed to spawn `{shell} {shell_flag}` in container '{container}'")
-            })?;
+            // Belt and braces for the timeout path: if this future is ever
+            // dropped instead of driven to the explicit kill, the direct
+            // child still dies with it.
+            .kill_on_drop(true);
+        // Its own process group, so a timeout can kill the shell AND
+        // whatever the shell spawned (see `kill_hard`).
+        #[cfg(unix)]
+        cmd.process_group(0);
+        let mut child = cmd.spawn().with_context(|| {
+            format!("failed to spawn `{shell} {shell_flag}` in container '{container}'")
+        })?;
+        let child_pid = child.id();
 
-        if let Some(data) = stdin_data {
-            let mut stdin = child.stdin.take().expect("stdin was piped");
-            stdin
-                .write_all(data.as_bytes())
-                .await
-                .context("failed to write stdin")?;
-            drop(stdin);
-        }
+        // The stdin write happens inside the timed section below: a command
+        // that never reads its stdin leaves the pipe full and the write
+        // blocked, which is exactly the hang the timeout exists to cut.
+        let mut stdin_pipe = stdin_data.map(|data| {
+            (
+                child.stdin.take().expect("stdin was piped"),
+                data.to_string(),
+            )
+        });
 
         let mut stdout = child.stdout.take().expect("stdout was piped");
         let mut stderr = child.stderr.take().expect("stderr was piped");
@@ -495,9 +574,75 @@ impl LocalExecutor {
             }
             Ok::<_, anyhow::Error>((buf, evs))
         };
-        let ((out_buf, out_evs), (err_buf, err_evs)) = tokio::try_join!(out_task, err_task)?;
+        let stdin_task = async {
+            if let Some((mut stdin, data)) = stdin_pipe.take() {
+                stdin
+                    .write_all(data.as_bytes())
+                    .await
+                    .context("failed to write stdin")?;
+                drop(stdin);
+            }
+            Ok::<_, anyhow::Error>(())
+        };
 
-        let status = child.wait().await.context("failed to wait for command")?;
+        // Everything that can block on the child — stdin, both output pipes,
+        // and the exit itself — inside one future, so a single timeout
+        // covers every way a cell can hang.
+        let run_to_completion = async {
+            let (io, _) =
+                tokio::try_join!(async { tokio::try_join!(out_task, err_task) }, stdin_task)?;
+            let status = child.wait().await.context("failed to wait for command")?;
+            Ok::<_, anyhow::Error>((io, status))
+        };
+
+        let waited = match options.timeout {
+            Some(limit) => tokio::time::timeout(limit, run_to_completion).await.ok(),
+            None => Some(run_to_completion.await),
+        };
+        let Some(completed) = waited else {
+            // Timed out. Kill for real — the await being abandoned is not
+            // the same thing as the process being dead — then record what
+            // happened in the transcript and fail the cell.
+            let limit = options.timeout.expect("timeout was set");
+            Self::kill_hard(&mut child, child_pid).await;
+            let t = epoch.elapsed().as_millis() as u64;
+            events.push(TranscriptEvent::Err {
+                t,
+                data: format!("timed out after {limit:?}; process killed\n"),
+            });
+            events.push(TranscriptEvent::Exit { t, code: -1 });
+            let duration = start.elapsed();
+            {
+                let mut state = self.state.lock().unwrap();
+                if let Some(c) = state.containers.get_mut(container) {
+                    c.command_durations.push(duration);
+                }
+                state
+                    .transcripts
+                    .entry(container.to_string())
+                    .or_default()
+                    .push(ExecTranscriptEntry {
+                        commands: cmd_lines,
+                        output: String::new(),
+                        events,
+                        source_line: None,
+                    });
+            }
+            // `display`, not `command`, for the same reason as the failure
+            // path below: the reader wrote the cell, not the sandbox wrapper.
+            bail!(
+                "cell timed out in container '{container}' after {limit:?}: {}\n  \
+                 The command exceeded the per-cell time limit and was killed. A cell \
+                 that waits for input it will never get — reading stdin interactively, \
+                 listening on a socket — hits this limit no matter how high it is set.\n  \
+                 Next steps: raise the limit for this one cell with timeout=\"<seconds>\" \
+                 on its <hick:exec> tag, or declare timeout=\"0\" to let it run \
+                 unbounded; set HICKORY_CELL_TIMEOUT=<seconds> to change the default \
+                 for every cell (default: 120 seconds).",
+                display.trim().lines().next().unwrap_or("?")
+            );
+        };
+        let (((out_buf, out_evs), (err_buf, err_evs)), status) = completed?;
         let code = status.code().unwrap_or(-1);
         let exit_t = epoch.elapsed().as_millis() as u64;
 
@@ -621,7 +766,8 @@ impl Executor for LocalExecutor {
     }
 
     async fn execute(&self, container: &str, command: &str) -> Result<String> {
-        self.run_command(container, command, None).await
+        self.run_command(container, command, None, ExecOptions::default())
+            .await
     }
 
     async fn probe(&self, container: &str, command: &str) -> Result<bool> {
@@ -634,7 +780,19 @@ impl Executor for LocalExecutor {
         command: &str,
         stdin_data: &str,
     ) -> Result<String> {
-        self.run_command(container, command, Some(stdin_data)).await
+        self.run_command(container, command, Some(stdin_data), ExecOptions::default())
+            .await
+    }
+
+    async fn execute_with_options(
+        &self,
+        container: &str,
+        command: &str,
+        stdin_data: Option<&str>,
+        options: ExecOptions,
+    ) -> Result<String> {
+        self.run_command(container, command, stdin_data, options)
+            .await
     }
 
     async fn register_fork(
@@ -843,6 +1001,117 @@ mod tests {
             .unwrap();
         let out = ex.execute("r", "cat incoming/file.txt").await.unwrap();
         assert_eq!(out, "v1\n");
+    }
+
+    // The four tests below protect
+    // docs/guarantees/execution/a-cell-cannot-hang-a-run.md — the
+    // kill-on-timeout half of it.
+
+    #[cfg(unix)]
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_cell_that_outlives_its_timeout_fails_fast_with_next_steps() {
+        let ex = LocalExecutor::new().unwrap();
+        ex.ensure_started("c", "alpine").await.unwrap();
+        let started = Instant::now();
+        let err = ex
+            .execute_with_options(
+                "c",
+                "sleep 30",
+                None,
+                ExecOptions {
+                    timeout: Some(Duration::from_millis(300)),
+                },
+            )
+            .await
+            .unwrap_err();
+        assert!(
+            started.elapsed() < Duration::from_secs(5),
+            "the failure must arrive near the limit, not after the command"
+        );
+        let msg = err.to_string();
+        assert!(msg.contains("timed out"), "{msg}");
+        assert!(msg.contains("'c'"), "must name the container: {msg}");
+        assert!(msg.contains("sleep 30"), "must name the command: {msg}");
+        assert!(msg.contains("timeout=\"<seconds>\""), "{msg}");
+        assert!(msg.contains("HICKORY_CELL_TIMEOUT"), "{msg}");
+        // The transcript still recorded the attempt, with an exit event.
+        let ts = ex.transcripts();
+        assert!(
+            ts["c"][0]
+                .events
+                .iter()
+                .any(|e| matches!(e, TranscriptEvent::Exit { code: -1, .. }))
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_timed_out_cell_leaves_no_process_behind() {
+        let ex = LocalExecutor::new().unwrap();
+        ex.ensure_started("c", "alpine").await.unwrap();
+        // A background grandchild that would write a marker AFTER the
+        // timeout fires. If the process GROUP dies, the marker never
+        // appears; if only the shell dies, the orphan survives to write it.
+        let err = ex
+            .execute_with_options(
+                "c",
+                "( sleep 1; echo leaked > leaked.txt ) & sleep 30",
+                None,
+                ExecOptions {
+                    timeout: Some(Duration::from_millis(300)),
+                },
+            )
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("timed out"), "{err}");
+        tokio::time::sleep(Duration::from_millis(1500)).await;
+        let workdir = ex.container_workdir("c").unwrap();
+        assert!(
+            !workdir.join("leaked.txt").exists(),
+            "a background child of the cell survived the kill"
+        );
+    }
+
+    #[cfg(unix)]
+    #[tokio::test(flavor = "multi_thread")]
+    async fn an_unbounded_cell_still_finishes() {
+        let ex = LocalExecutor::new().unwrap();
+        ex.ensure_started("c", "alpine").await.unwrap();
+        // timeout: None is what `timeout="0"` resolves to — no limit at all.
+        let out = ex
+            .execute_with_options(
+                "c",
+                "sleep 0.2; echo done",
+                None,
+                ExecOptions { timeout: None },
+            )
+            .await
+            .unwrap();
+        assert_eq!(out, "done\n");
+    }
+
+    #[cfg(unix)]
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_blocked_stdin_write_is_covered_by_the_timeout() {
+        let ex = LocalExecutor::new().unwrap();
+        ex.ensure_started("c", "alpine").await.unwrap();
+        // The command never reads stdin, so a large payload blocks the
+        // writer once the pipe buffer fills — a hang that must ALSO be cut.
+        let big = "x".repeat(4 * 1024 * 1024);
+        let started = Instant::now();
+        let err = ex
+            .execute_with_options(
+                "c",
+                "sleep 30",
+                Some(&big),
+                ExecOptions {
+                    timeout: Some(Duration::from_millis(300)),
+                },
+            )
+            .await
+            .unwrap_err();
+        assert!(err.to_string().contains("timed out"), "{err}");
+        assert!(started.elapsed() < Duration::from_secs(5));
     }
 
     #[tokio::test(flavor = "multi_thread")]

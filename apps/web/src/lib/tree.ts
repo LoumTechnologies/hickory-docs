@@ -1,5 +1,5 @@
 // Group flat `a/b/c.rs`-style paths into a directory tree. Shared by
-// OutputTree (generated files) and ProjectDocTree (project documents).
+// OutputTree (generated files).
 
 export interface DirNode {
   name: string;

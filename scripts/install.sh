@@ -108,12 +108,31 @@ tmp="$(mktemp -d 2>/dev/null || mktemp -d -t hick)"
 trap 'rm -rf "$tmp"' EXIT INT TERM
 
 echo "Looking up $what for $TARGET…"
-fetch "$release_url" "application/vnd.github+json" "$tmp/release.json" || die \
-  "could not read $what from GitHub." \
-  "URL: $release_url" \
-  "If the repository is private, set HICKORY_GITHUB_TOKEN to a token with" \
-  "read access and re-run. If you are offline or behind a proxy, that would" \
-  "show up here too."
+if ! fetch "$release_url" "application/vnd.github+json" "$tmp/release.json"; then
+  if [ "$CHANNEL" = "stable" ] && [ -z "${HICKORY_VERSION:-}" ]; then
+    # Pre-1.0 there may be no stable release at all: /releases/latest
+    # excludes prereleases, so the default install would die on a repo whose
+    # only release is the rolling `unstable` tag. Fall back to it loudly
+    # rather than telling a stranger the product cannot be installed.
+    echo "No stable release found; falling back to the unstable channel."
+    echo "(Every unstable build passed the same CI; pin one later with HICKORY_VERSION.)"
+    release_url="$API/releases/tags/unstable"
+    what="the unstable channel"
+    fetch "$release_url" "application/vnd.github+json" "$tmp/release.json" || die \
+      "could not read $what from GitHub." \
+      "URL: $release_url" \
+      "If the repository is private, set HICKORY_GITHUB_TOKEN to a token with" \
+      "read access and re-run. If you are offline or behind a proxy, that would" \
+      "show up here too."
+  else
+    die \
+      "could not read $what from GitHub." \
+      "URL: $release_url" \
+      "If the repository is private, set HICKORY_GITHUB_TOKEN to a token with" \
+      "read access and re-run. If you are offline or behind a proxy, that would" \
+      "show up here too."
+  fi
+fi
 
 # No jq: this script is the first thing a stranger runs, before they have
 # installed anything at all.
@@ -239,6 +258,17 @@ case ":$PATH:" in
     echo "    export PATH=\"$INSTALL_DIR:\$PATH\""
     ;;
 esac
+
+# Cells run confined by default; on Linux that needs bubblewrap. Saying so
+# now beats the first `hick test` refusing on a machine that was just told
+# the install succeeded.
+if [ "$(uname -s)" = "Linux" ] && ! command -v bwrap >/dev/null 2>&1; then
+  echo "" >&2
+  echo "note: bubblewrap is not installed, and hick runs document cells" >&2
+  echo "      sandboxed by default. Install it before running a document:" >&2
+  echo "          sudo apt install bubblewrap    # or dnf/pacman/zypper" >&2
+  echo "      (or set HICKORY_EXECUTOR=local to run unconfined at your own risk)" >&2
+fi
 
 EXAMPLES_DIR="${INSTALL_DIR%/bin}/share/hick/examples"
 mkdir -p "$(dirname "$EXAMPLES_DIR")" 2>/dev/null || true

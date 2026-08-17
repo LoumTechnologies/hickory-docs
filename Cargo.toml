@@ -20,6 +20,7 @@ members = [
     "crates/hick-token",
     "crates/hick-xml",
     "crates/hick-literate",
+    "crates/hick-search",
     "crates/hickory-executor",
     "crates/hickory-agent",
     "crates/hickory-executor-canopy",

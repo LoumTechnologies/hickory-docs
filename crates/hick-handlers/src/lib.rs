@@ -114,9 +114,28 @@ pub struct ProcessingContext<'a> {
 
     /// Source file name for provenance tracking.
     pub source_file: Option<Arc<str>>,
+
+    /// The document's span-file table ([`hick_lang::HickDocument::span_files`],
+    /// pre-converted): a span stamped with `file_id: Some(i)` holds offsets
+    /// into `span_files[i]`, not into `source_file`. Empty when the document
+    /// includes nothing.
+    pub span_files: &'a [Arc<str>],
 }
 
 impl<'a> ProcessingContext<'a> {
+    /// The file a span's byte offsets actually index: the spliced file it
+    /// was stamped with, else this context's own document. Attributing a
+    /// spliced span to the including document is how a reverse edit lands
+    /// in the wrong file — every provenance origin must go through here.
+    pub fn file_of_span(&self, span: &hick_lang::SourceSpan) -> Option<Arc<str>> {
+        if let Some(id) = span.file_id
+            && let Some(path) = self.span_files.get(usize::from(id))
+        {
+            return Some(path.clone());
+        }
+        self.source_file.clone()
+    }
+
     /// Process a child tag through the registry, returning the first Node result.
     pub fn process_child(&self, child_tag: &HickTag) -> Option<Arc<dyn Node>> {
         let registry = self.registry?;

@@ -3,7 +3,7 @@ import type { ExecBlock } from "../api/types";
 import { diffLines } from "../lib/diff";
 import { stdoutOf } from "../lib/transcript";
 import { StatusChip } from "./StatusChip";
-import { TranscriptPlayer } from "./TranscriptPlayer";
+import { Transcript } from "./Transcript";
 
 function looksLikeSvg(s: string): boolean {
   const t = s.trim();
@@ -100,7 +100,7 @@ export function CellPanel({ block, running, onRun }: CellPanelProps) {
           </pre>
         </div>
       )}
-      {showTranscript && <TranscriptPlayer events={transcript} live={running} />}
+      {showTranscript && <Transcript events={transcript} live={running} />}
       {svgFigure && !running && (
         <figure
           className="cell-figure"

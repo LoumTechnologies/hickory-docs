@@ -108,6 +108,10 @@ enum Command {
     /// Grok CLI, or any other MCP client. `hick init` writes the
     /// registration for the harnesses it finds.
     Mcp(McpArgs),
+    /// Search the project the way semble does: ask in natural language or
+    /// code, get ranked chunks with exact file:line. Lexical ranking works
+    /// offline out of the box; `--install-model` adds semantic ranking.
+    Search(SearchArgs),
     /// Show or install the language servers that power the editor.
     #[command(subcommand)]
     Lsp(LspCommand),
@@ -162,6 +166,28 @@ struct LspInstallArgs {
     /// The project to install into. Defaults to the current directory.
     #[arg(long)]
     root: Option<PathBuf>,
+}
+
+#[derive(clap::Args)]
+struct SearchArgs {
+    /// The query, in natural language or code. Omit with --related or
+    /// --install-model.
+    query: Option<String>,
+    /// The folder to search. Defaults to the current directory.
+    #[arg(long)]
+    root: Option<PathBuf>,
+    /// How many results to show.
+    #[arg(long = "top-k", default_value_t = 8)]
+    top_k: usize,
+    /// Find code related to FILE:LINE (e.g. src/app.py:42) instead of
+    /// answering a query.
+    #[arg(long)]
+    related: Option<String>,
+    /// Download the semantic embedding model (~30 MB) into .hick-cache/.
+    /// Explicit and never automatic — the only part of search that touches
+    /// the network. Search works without it, ranking lexically.
+    #[arg(long = "install-model")]
+    install_model: bool,
 }
 
 #[derive(clap::Args)]
@@ -453,9 +479,11 @@ struct RefreshArgs {
     /// Model id override (interpreted by the selected provider).
     #[arg(long = "model")]
     model: Option<String>,
-    /// LLM provider: anthropic (default), openai, deepseek, or grok.
-    #[arg(long = "provider", default_value = "anthropic")]
-    provider: String,
+    /// LLM provider: anthropic, openai, deepseek, or grok. Defaults to
+    /// HICKORY_LLM_PROVIDER, else to whichever provider's API key is set
+    /// (anthropic when several are).
+    #[arg(long = "provider")]
+    provider: Option<String>,
 }
 
 #[derive(clap::Args)]
@@ -471,9 +499,11 @@ struct AgentArgs {
     /// Model id override (default: the provider's default model).
     #[arg(long = "model")]
     model: Option<String>,
-    /// LLM provider: anthropic (default), openai, deepseek, or grok.
-    #[arg(long = "provider", default_value = "anthropic")]
-    provider: String,
+    /// LLM provider: anthropic, openai, deepseek, or grok. Defaults to
+    /// HICKORY_LLM_PROVIDER, else to whichever provider's API key is set
+    /// (anthropic when several are).
+    #[arg(long = "provider")]
+    provider: Option<String>,
     /// Maximum LLM turns before giving up.
     #[arg(long = "max-turns", default_value_t = 20)]
     max_turns: usize,
@@ -496,6 +526,7 @@ fn main() -> ExitCode {
             Command::Refresh(args) => cmd_refresh(args).await,
             Command::Init(args) => cmd_init(args),
             Command::Doc(cmd) => cmd_doc(cmd).await,
+            Command::Search(args) => cmd_search(args).await,
             Command::Lsp(cmd) => cmd_lsp(cmd),
             Command::Dap(cmd) => cmd_dap(cmd),
             Command::SandboxRun(args) => cmd_sandbox_run(args),
@@ -693,11 +724,65 @@ async fn cmd_test(args: TestArgs) -> Result<ExitCode> {
 
 /// `hick up [path] [--run]` — weave a folder and keep it woven until
 /// interrupted.
+async fn cmd_search(args: SearchArgs) -> Result<ExitCode> {
+    let root = match &args.root {
+        Some(r) => r.clone(),
+        None => std::env::current_dir()?,
+    };
+    if args.install_model {
+        hickory_cli::search_install::install_model(&root).await?;
+        if args.query.is_none() && args.related.is_none() {
+            return Ok(ExitCode::SUCCESS);
+        }
+    }
+
+    // Indexing and embedding are CPU work; keep them off the async runtime.
+    let related = args.related.clone();
+    let query = args.query.clone();
+    let top_k = args.top_k;
+    let (semantic, hits) = tokio::task::spawn_blocking(move || -> Result<_> {
+        let engine = hick_search::SearchEngine::open(&root)?;
+        let hits = match (&related, &query) {
+            (Some(spec), _) => {
+                let (file, line) = hick_search::parse_file_line(spec)?;
+                engine.related(&file, line, top_k)?
+            }
+            (None, Some(q)) => engine.search(q, top_k),
+            (None, None) => anyhow::bail!(
+                "nothing to search for.\n  Pass a query (hick search \"where are outputs \
+                 written\"), or --related FILE:LINE for similar code."
+            ),
+        };
+        Ok((engine.semantic(), hits))
+    })
+    .await??;
+
+    if !semantic {
+        eprintln!(
+            "(lexical ranking only — `hick search --install-model` adds semantic \
+             ranking, a one-time ~30 MB download)"
+        );
+    }
+    if hits.is_empty() {
+        println!("no matches");
+        return Ok(ExitCode::SUCCESS);
+    }
+    for hit in hits {
+        println!("{}:{}-{}", hit.path, hit.start_line, hit.end_line);
+        for line in hit.snippet.lines().filter(|l| !l.trim().is_empty()).take(3) {
+            println!("    {line}");
+        }
+        println!();
+    }
+    Ok(ExitCode::SUCCESS)
+}
+
 async fn cmd_up(args: UpArgs) -> Result<ExitCode> {
     hickory_cli::up::run(hickory_cli::up::UpConfig {
         root: args.path.unwrap_or_else(|| PathBuf::from(".")),
         params: params_with_features(&args.params, &args.features),
         run: args.run,
+        executor: ExecutorChoice::from_env()?,
     })
     .await?;
     Ok(ExitCode::SUCCESS)
@@ -832,15 +917,17 @@ fn cmd_promote(args: PromoteArgs) -> Result<ExitCode> {
 async fn cmd_agent(args: AgentArgs) -> Result<ExitCode> {
     use std::io::Write as _;
 
-    use hickory_agent::{AgentConfig, AgentEvent, client_for, run_agent};
+    use hickory_agent::{AgentConfig, AgentEvent, client_for, resolve_selector, run_agent};
 
     let project_dir = match &args.dir {
         Some(dir) => dir.clone(),
         None => std::env::current_dir()?,
     };
-    // `client_for` reports an unknown provider or a missing key by name,
-    // before anything is executed.
-    let llm = client_for(&args.provider, args.model.as_deref(), None)?;
+    // With no --provider, the environment decides: HICKORY_LLM_PROVIDER,
+    // else the provider whose key is present. `client_for` then reports an
+    // unknown provider or a missing key by name, before anything is executed.
+    let provider = resolve_selector(args.provider.as_deref())?;
+    let llm = client_for(&provider, args.model.as_deref(), None)?;
     // Executor selection follows HICKORY_EXECUTOR, same as run/test.
     let executor = ExecutorChoice::from_env()?.build().await?;
 
@@ -1172,7 +1259,11 @@ async fn cmd_refresh(args: RefreshArgs) -> Result<ExitCode> {
             }
             continue;
         }
-        let llm = client_for(&args.provider, args.model.as_deref(), None)?;
+        let llm = client_for(
+            &hickory_agent::resolve_selector(args.provider.as_deref())?,
+            args.model.as_deref(),
+            None,
+        )?;
 
         // Apply back-to-front so earlier spans stay valid.
         jobs.sort_by_key(|j| std::cmp::Reverse(j.0));

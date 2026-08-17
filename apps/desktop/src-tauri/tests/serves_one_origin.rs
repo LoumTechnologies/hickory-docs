@@ -22,7 +22,7 @@ print("hello")
 
 async fn start_in(dir: &Path) -> (hickory_desktop_lib::server::Session, reqwest::Client) {
     std::fs::write(dir.join("demo.hick"), DOC).expect("write doc");
-    let session = hickory_desktop_lib::server::start(dir)
+    let session = hickory_desktop_lib::server::start(dir, None)
         .await
         .expect("the engine starts");
     (session, reqwest::Client::new())
@@ -88,7 +88,7 @@ async fn a_second_session_on_the_same_folder_is_refused() {
     let dir = tempfile::tempdir().expect("tempdir");
     let (_session, _http) = start_in(dir.path()).await;
 
-    let second = hickory_desktop_lib::server::start(dir.path()).await;
+    let second = hickory_desktop_lib::server::start(dir.path(), None).await;
     let err = second.err().expect("the second session must be refused");
     assert!(
         err.to_string().contains("already open"),

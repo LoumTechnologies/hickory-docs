@@ -62,6 +62,8 @@ async fn open_app() -> App {
         port: 0,
         params: Vec::new(),
         executor: ExecutorChoice::Local,
+        key_store_path: None,
+        ui_settings_path: None,
     })
     .await
     .expect("the session prepares");
@@ -327,4 +329,139 @@ async fn asking_about_a_session_that_ended_says_why() {
     let message = failed["message"].as_str().unwrap();
     assert!(message.contains("dbg-does-not-exist"), "{message}");
     assert!(message.contains("untouched"), "{message}");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_program_that_runs_to_completion_ends_its_own_session() {
+    // The reported bug: the debuggee ran to the end and the session stayed —
+    // adapter process alive, scratch clone on disk, registry entry waiting
+    // fifteen minutes for the idle sweep, and the strip in the window still
+    // dressed as a live session. Finishing must reap everything on its own.
+    let mut app = open_app().await;
+    if !python_available(&app.root) {
+        eprintln!("SKIPPED: no Python debug adapter (`hick dap install python`)");
+        return;
+    }
+
+    send(
+        &mut app.socket,
+        json!({ "op": "start", "doc": "hick:///doc.hick",
+                "breakpoints": [{ "line": SUBTOTAL_LINE }] }),
+    )
+    .await;
+    let started = wait_for(&mut app.socket, "started", Duration::from_secs(60))
+        .await
+        .expect("starts");
+    let session = started["session"].as_str().unwrap().to_string();
+    wait_for(&mut app.socket, "stopped", Duration::from_secs(60))
+        .await
+        .expect("stops");
+
+    // Continue until the program is over. The breakpoint is inside a
+    // function called once per order line, so this takes a few.
+    let mut finished = None;
+    for _ in 0..5 {
+        send(
+            &mut app.socket,
+            json!({ "op": "step", "session": session, "how": "continue" }),
+        )
+        .await;
+        let answer = wait_for_any(
+            &mut app.socket,
+            &["stopped", "finished"],
+            Duration::from_secs(60),
+        )
+        .await
+        .expect("the program stops again or ends");
+        if answer["event"] == "finished" {
+            finished = Some(answer);
+            break;
+        }
+    }
+    let finished = finished.expect("the program ran to completion");
+
+    // The end says how it ended, so the strip can show it.
+    assert_eq!(finished["exit_code"], 0, "{finished}");
+
+    // The session went with the program: its id no longer answers.
+    send(
+        &mut app.socket,
+        json!({ "op": "state", "session": session }),
+    )
+    .await;
+    let failed = wait_for(&mut app.socket, "failed", Duration::from_secs(30))
+        .await
+        .expect("an answer, not silence");
+    assert!(
+        failed["message"]
+            .as_str()
+            .unwrap()
+            .contains("no debug session"),
+        "{failed}"
+    );
+
+    // And a stop arriving after the reap — the person pressing the button a
+    // beat late — is the state they asked for, not an error.
+    send(&mut app.socket, json!({ "op": "stop", "session": session })).await;
+    wait_for(&mut app.socket, "ended", Duration::from_secs(30))
+        .await
+        .expect("a late stop still answers ended");
+    send(&mut app.socket, json!({ "op": "stop", "session": session })).await;
+    wait_for(&mut app.socket, "ended", Duration::from_secs(30))
+        .await
+        .expect("and so does a second one");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn reaping_a_finished_session_deletes_the_scratch_clone() {
+    // The registry's own half of the same guarantee, where the resources are
+    // visible: the scratch directory the debuggee ran in must be gone once
+    // the session is reaped, and reaping must be safe to do twice.
+    let dir = tempfile::tempdir().expect("a temp project");
+    let root = dir.path().to_path_buf();
+    std::fs::create_dir_all(root.join(".git")).unwrap();
+    std::fs::write(root.join("doc.hick"), DOC).unwrap();
+    if !python_available(&root) {
+        eprintln!("SKIPPED: no Python debug adapter (`hick dap install python`)");
+        return;
+    }
+
+    let registry = hickory_cli::debug_sessions::Registry::new();
+    // No breakpoints: the program runs straight to the end.
+    let (id, live, _statuses) = registry
+        .start(&root.join("doc.hick"), &[], None)
+        .await
+        .expect("the session starts");
+    let scratch = live.scratch_path().to_path_buf();
+    assert!(
+        scratch.exists(),
+        "the debuggee has a scratch clone to run in"
+    );
+
+    let stopped = live
+        .session
+        .wait_for_stop(Duration::from_secs(60))
+        .await
+        .expect("waiting works");
+    assert!(stopped.is_none(), "the program should have run to the end");
+
+    // The first reap does the work; the second — the losing side of the
+    // race with an explicit stop — finds nothing, quietly.
+    assert!(registry.reap(&id).await);
+    assert!(registry.is_empty().await);
+    assert!(!registry.reap(&id).await);
+    assert!(
+        registry.stop(&id).await.is_err(),
+        "an explicit stop of a reaped session still says there was nothing"
+    );
+
+    // The scratch clone dies with the last handle to the session. If the
+    // adapter process were still holding it, the delete would fail and the
+    // directory would remain.
+    drop(live);
+    assert!(
+        !scratch.exists(),
+        "the scratch clone survived the session: {}",
+        scratch.display()
+    );
 }

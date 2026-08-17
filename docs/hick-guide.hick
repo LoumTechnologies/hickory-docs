@@ -569,6 +569,33 @@ suite that did not run. Freeze the cells whose output legitimately moves
 over time — lockfiles, network fetches, timestamps — and leave your
 integration tests unfrozen, which is exactly what per-cell freeze is for.
 
+### Cell timeouts
+
+Every executed cell runs under a wall-clock limit, so a cell that blocks —
+reading stdin nobody will feed, listening on a socket, looping forever —
+fails with a clear error instead of hanging `hick run`, `hick test`, and CI.
+The limit resolves most-specific-first:
+
+- `timeout="<seconds>"` on the cell — whole seconds, e.g. `timeout="600"`.
+- `timeout="0"` on the cell — this one cell runs unbounded, explicitly.
+- `HICKORY_CELL_TIMEOUT=<seconds>` — the default for every cell on this
+  machine (`0` removes the default limit entirely).
+- Otherwise: **120 seconds**.
+
+```xml
+<hick:exec container="bench" timeout="600">
+cargo bench
+</hick:exec>
+```
+
+A timed-out cell is killed for real — on Unix its whole process group, so
+background children die with it — and the run fails naming the cell, the
+limit that was hit, and both ways to raise it. A malformed value
+(`timeout="2m"`, `timeout="1.5"`) is an error rather than a silently
+removed limit. The limit is enforced where the process is spawned: the
+local and sandbox executors; the docker and canopy executors currently run
+cells unbounded.
+
 ---
 
 ## 14. Multi-Stage Pipeline

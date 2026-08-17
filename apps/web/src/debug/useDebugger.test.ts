@@ -260,6 +260,182 @@ describe("the debugger, over the socket", () => {
     expect(hook.result.current.breakpoints.some((b) => b.line === 14)).toBe(true);
   });
 
+  it("re-asks every watch at each pause and frame change", async () => {
+    const { socket, hook } = open();
+    act(() => hook.result.current.start());
+    act(() => socket.deliver(STARTED));
+    act(() => socket.deliver(STOPPED));
+    await waitFor(() => expect(hook.result.current.status).toBe("paused"));
+
+    // Adding a watch while paused asks straight away, in `watch` context so
+    // the adapter treats it as something evaluated repeatedly.
+    act(() => hook.result.current.addWatch("quantity * 2"));
+    expect(socket.sent.at(-1)).toEqual({
+      op: "eval",
+      session: "dbg-0",
+      expression: "quantity * 2",
+      context: "watch",
+      frame: 2,
+    });
+
+    // The answer correlates by the expression it echoes back.
+    act(() =>
+      socket.deliver({
+        event: "value",
+        session: "dbg-0",
+        expression: "quantity * 2",
+        value: "4",
+        type: "int",
+        reference: 0,
+      }),
+    );
+    await waitFor(() =>
+      expect(hook.result.current.watches).toEqual([{ expression: "quantity * 2", value: "4" }]),
+    );
+
+    // A step that pauses again re-asks, unprompted: a watch showing the value
+    // from two steps ago is worse than no watch at all.
+    act(() => hook.result.current.step("over"));
+    const before = socket.sent.length;
+    act(() => socket.deliver({ ...STOPPED, line: 15 }));
+    await waitFor(() =>
+      expect(
+        socket.sent
+          .slice(before)
+          .some((sent) => (sent as { context?: string }).context === "watch"),
+      ).toBe(true),
+    );
+  });
+
+  it("keeps watch expressions but drops their values when the program ends", async () => {
+    const { socket, hook } = open();
+    act(() => hook.result.current.addWatch("quantity"));
+    act(() => hook.result.current.addWatch("quantity")); // and never twice
+    expect(hook.result.current.watches).toEqual([{ expression: "quantity", value: null }]);
+
+    act(() => hook.result.current.start());
+    act(() => socket.deliver(STARTED));
+    act(() => socket.deliver(STOPPED));
+    act(() =>
+      socket.deliver({
+        event: "value",
+        session: "dbg-0",
+        expression: "quantity",
+        value: "2",
+        type: "int",
+        reference: 0,
+      }),
+    );
+    await waitFor(() => expect(hook.result.current.watches[0].value).toBe("2"));
+
+    // The expression is for the next run; the value belonged to this one.
+    act(() => socket.deliver({ event: "finished", session: "dbg-0" }));
+    await waitFor(() => expect(hook.result.current.watches).toEqual([
+      { expression: "quantity", value: null },
+    ]));
+
+    act(() => hook.result.current.removeWatch("quantity"));
+    expect(hook.result.current.watches).toEqual([]);
+  });
+
+  it("answers a typed expression as a promise, without the known-name guard", async () => {
+    // `valueAt` refuses names the frame does not have (it exists for hover);
+    // the inline eval is a person typing, and any expression is fair.
+    const { socket, hook } = open();
+    act(() => hook.result.current.start());
+    act(() => socket.deliver(STARTED));
+    act(() => socket.deliver(STOPPED));
+    await waitFor(() => expect(hook.result.current.status).toBe("paused"));
+
+    let answered: string | null = null;
+    act(() => {
+      void hook.result.current.query("len('abc')").then((value) => {
+        answered = value;
+      });
+    });
+    expect(socket.sent.at(-1)).toEqual({
+      op: "eval",
+      session: "dbg-0",
+      expression: "len('abc')",
+      context: "repl",
+      frame: 2,
+    });
+    act(() =>
+      socket.deliver({
+        event: "value",
+        session: "dbg-0",
+        expression: "len('abc')",
+        value: "3",
+        type: "int",
+        reference: 0,
+      }),
+    );
+    await waitFor(() => expect(answered).toBe("3"));
+  });
+
+  it("forgets the session when the program finishes, and sends it nothing more", async () => {
+    // The bug's visible half: the program ran to its end, the server reaped
+    // the session — and the UI kept the id, a live-looking strip, and a Stop
+    // that earned an error from a session that no longer existed.
+    const { socket, hook } = open();
+    act(() => hook.result.current.start());
+    act(() => socket.deliver(STARTED));
+    act(() => socket.deliver(STOPPED));
+    act(() => socket.deliver({ event: "finished", session: "dbg-0", exit_code: 0 }));
+
+    await waitFor(() => expect(hook.result.current.status).toBe("finished"));
+    // The end says how it ended, and the paused chrome is gone.
+    expect(hook.result.current.exitCode).toBe(0);
+    expect(hook.result.current.pausedLine).toBeNull();
+    expect(hook.result.current.frames).toEqual([]);
+    expect(hook.result.current.variables).toEqual([]);
+
+    // No request may reach the dead session: not a step, not an eval, not a
+    // hover — each would be answered only by an error about a gone session.
+    const before = socket.sent.length;
+    act(() => hook.result.current.step("over"));
+    act(() => hook.result.current.evaluate("quantity"));
+    act(() => hook.result.current.jumpTo(12));
+    await act(async () => {
+      expect(await hook.result.current.valueAt("quantity")).toBeNull();
+      expect(await hook.result.current.query("1 + 1")).toBeNull();
+    });
+    expect(socket.sent.length).toBe(before);
+
+    // Stop is now a dismissal: nothing goes out, the strip clears locally.
+    act(() => hook.result.current.stop());
+    expect(socket.sent.length).toBe(before);
+    await waitFor(() => expect(hook.result.current.status).toBe("idle"));
+  });
+
+  it("does not send a stop for an already-finished session on unmount", async () => {
+    // The unmount cleanup exists for a window closed MID-session. After
+    // "finished" there is nothing to stop, and sending one anyway is a
+    // request to a session the server already reaped.
+    const { socket, hook } = open();
+    act(() => hook.result.current.start());
+    act(() => socket.deliver(STARTED));
+    act(() => socket.deliver({ event: "finished", session: "dbg-0", exit_code: 0 }));
+    await waitFor(() => expect(hook.result.current.status).toBe("finished"));
+
+    const before = socket.sent.length;
+    hook.unmount();
+    expect(socket.sent.length).toBe(before);
+  });
+
+  it("keeps 'finished' when a stray failure arrives afterwards", async () => {
+    // A hover or watch answered late, after the program ended, must not
+    // redress a clean end as a broken one.
+    const { socket, hook } = open();
+    act(() => hook.result.current.start());
+    act(() => socket.deliver(STARTED));
+    act(() => socket.deliver({ event: "finished", session: "dbg-0", exit_code: 0 }));
+    await waitFor(() => expect(hook.result.current.status).toBe("finished"));
+
+    act(() => socket.deliver({ event: "failed", session: "dbg-0", message: "too late" }));
+    expect(hook.result.current.status).toBe("finished");
+  });
+
   it("goes back to idle when the session ends", async () => {
     const { socket, hook } = open();
     act(() => hook.result.current.start());

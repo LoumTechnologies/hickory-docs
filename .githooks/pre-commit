@@ -26,8 +26,16 @@ for check in "${checks[@]}"; do
     web)
       (cd apps/web && npm test && npm run build) || status=1
       ;;
-    check-codegen)
-      just check-codegen || status=1
+    desktop)
+      # The desktop crate lives outside the workspace, so it gets its own
+      # fmt/clippy/check; bash -n catches the class of shell bug that broke
+      # two releases (macOS ships bash 3.2 — syntax-check what runs there).
+      (cd apps/desktop/src-tauri \
+        && cargo fmt --all -- --check \
+        && cargo clippy --all-targets -- -D warnings) || status=1
+      for script in scripts/dist.sh scripts/dist-desktop.sh scripts/install.sh; do
+        bash -n "$script" || status=1
+      done
       ;;
     *)
       echo "pre-commit: unknown check '$check' from affected-checks.sh" >&2

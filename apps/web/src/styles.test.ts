@@ -55,3 +55,45 @@ describe("workspace layout invariants", () => {
     expect(Number(gap![1])).toBeGreaterThanOrEqual(2);
   });
 });
+
+describe("theming invariants", () => {
+  /** The three token blocks: `:root { … }` and the two data-theme overrides. */
+  const tokenBlocks = [...css.matchAll(/^:root(?:\[data-theme="[a-z-]+"\])? \{[^}]*\}/gms)].map(
+    (m) => m[0],
+  );
+
+  it("declares exactly the three themes", () => {
+    expect(tokenBlocks).toHaveLength(3);
+    expect(tokenBlocks[0].startsWith(":root {")).toBe(true);
+    expect(css).toContain(':root[data-theme="light"]');
+    expect(css).toContain(':root[data-theme="warm-dark"]');
+    // The old mechanism must be gone: dark-by-default comes from :root, not
+    // from the OS preference.
+    expect(css).not.toContain("prefers-color-scheme: dark");
+  });
+
+  it("gives every theme the complete token set — a partial override would leak the default theme through", () => {
+    const names = (block: string) =>
+      [...block.matchAll(/--[\w-]+(?=:)/g)].map((m) => m[0]).sort();
+    const [root, light, warmDark] = tokenBlocks.map(names);
+    expect(root.length).toBeGreaterThan(30);
+    expect(light).toEqual(root);
+    expect(warmDark).toEqual(root);
+  });
+
+  it("keeps color-scheme on each theme's side of light/dark", () => {
+    expect(tokenBlocks[0]).toContain("color-scheme: dark");
+    const light = tokenBlocks.find((b) => b.includes('"light"'))!;
+    expect(light).toContain("color-scheme: light");
+    const warm = tokenBlocks.find((b) => b.includes('"warm-dark"'))!;
+    expect(warm).toContain("color-scheme: dark");
+  });
+
+  it("allows raw hex colors only inside the token blocks", () => {
+    // Everything below the token blocks styles through var(--…): a raw hex
+    // in a rule is invisible to two of the three themes.
+    let rest = css;
+    for (const block of tokenBlocks) rest = rest.replace(block, "");
+    expect(rest).not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
+  });
+});

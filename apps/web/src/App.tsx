@@ -1,7 +1,11 @@
-import { navigate, useRoute } from "./router";
-import { StartView } from "./views/StartView";
-import { DocumentView } from "./views/DocumentView";
+import { useEffect, useRef, useState } from "react";
+import { navigate, redirect, useRoute } from "./router";
 import { LineageView } from "./views/LineageView";
+import { SettingsView } from "./views/SettingsView";
+import { WorkspaceView } from "./views/WorkspaceView";
+import { api } from "./api/client";
+import { onMenuAction } from "./lib/menuBridge";
+import { landingTarget } from "./lib/newDoc";
 import { TreeMark } from "./components/icons";
 
 /// The desktop app's shell.
@@ -13,23 +17,106 @@ import { TreeMark } from "./components/icons";
 export function App() {
   const route = useRoute();
 
+  // The desktop shell's native menu, arriving as DOM events (menuBridge).
+  // Navigation is answered here; Save / Save As need the focused document,
+  // which only the workspace knows — they are re-dispatched as a window
+  // event it listens for. The subscription is mounted once, so the current route is
+  // read through a ref rather than re-subscribing (which would reset the
+  // bridge's duplicate-keypress guard).
+  const [notice, setNotice] = useState<string | null>(null);
+  const routeRef = useRef(route);
+  routeRef.current = route;
+  useEffect(() => {
+    return onMenuAction((action) => {
+      switch (action) {
+        case "new":
+          navigate("/new");
+          return;
+        case "files":
+          window.dispatchEvent(new CustomEvent("hickory-show-files"));
+          break;
+        case "settings":
+          navigate("/settings");
+          return;
+        case "save":
+        case "save-as":
+          // The workspace routes the command to whichever document is
+          // focused; it is mounted for both the doc and untitled routes.
+          if (routeRef.current.name === "doc" || routeRef.current.name === "new") {
+            window.dispatchEvent(new CustomEvent("hickory-doc-command", { detail: action }));
+          } else {
+            setNotice("Open a document first.");
+          }
+          return;
+      }
+    });
+  }, []);
+  useEffect(() => {
+    if (notice === null) return;
+    const timer = setTimeout(() => setNotice(null), 2500);
+    return () => clearTimeout(timer);
+  }, [notice]);
+
   return (
     <div className="app">
       <nav className="topnav">
-        <button className="wordmark" onClick={() => navigate("/")} title="Start">
+        <button className="wordmark" onClick={() => navigate("/")} title="Home">
           <TreeMark size={17} />
           Hickory Docs
         </button>
       </nav>
       <main className="content">
-        {route.name === "doc" ? (
-          <DocumentView docId={route.id} />
+        {route.name === "doc" || route.name === "new" ? (
+          // ONE workspace for every document-shaped route. It owns the tile
+          // layout and stays mounted as `#/docs/<id>` changes, which is what
+          // lets several documents be open at once: navigation asks it to
+          // ensure a tab, never to rebuild the world.
+          <WorkspaceView route={route} />
         ) : route.name === "lineage" ? (
           <LineageView projectId={route.id} />
+        ) : route.name === "settings" ? (
+          <SettingsView />
         ) : (
-          <StartView />
+          <Landing />
         )}
       </main>
+      {notice && (
+        <div className="menu-notice" role="status">
+          {notice}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/// The front door. The app opens like an editor: in a document, always — the
+/// most recently updated one, or a fresh untitled buffer when the folder has
+/// none. A redirect rather than a page, so Back never revisits the decision.
+function Landing() {
+  useEffect(() => {
+    let live = true;
+    void (async () => {
+      try {
+        const projects = await api.projects();
+        const first = projects[0];
+        const docs = first ? await api.projectDocs(first.id) : [];
+        if (!live) return;
+        const target = landingTarget(docs);
+        redirect(target.kind === "doc" ? `/docs/${target.id}` : "/new");
+      } catch {
+        // A server that cannot list documents can still hold a buffer: the
+        // untitled editor works before any file exists.
+        if (live) redirect("/new");
+      }
+    })();
+    return () => {
+      live = false;
+    };
+  }, []);
+
+  return (
+    <div className="start">
+      <p className="muted">Opening…</p>
     </div>
   );
 }

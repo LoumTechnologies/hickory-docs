@@ -451,6 +451,13 @@ impl Executor for DockerExecutor {
         self.start(container, image).await
     }
 
+    // `execute_with_options` is NOT overridden here, deliberately: this
+    // executor runs cells UNBOUNDED. Killing the `docker exec` client
+    // process does not kill the command inside the container, so honouring
+    // a timeout here means `docker kill`/exec-inspect plumbing that does
+    // not exist yet. Until it does, saying "no timeout" is more honest than
+    // killing the client and leaving the cell running.
+    // docs/guarantees/execution/a-cell-cannot-hang-a-run.md
     async fn execute(&self, container: &str, command: &str) -> Result<String> {
         self.run_command(container, command, None).await
     }

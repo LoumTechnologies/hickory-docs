@@ -24,10 +24,10 @@ fn resolve_content_node(tag: &HickTag, ctx: &ProcessingContext) -> (Arc<dyn Node
         // no-escaping invariant), carry that span as a Literal origin so
         // pasted output can be traced (and edited) back to this copy block.
         if let [HickNode::Text(t, Some(span))] = tag.children.as_slice()
-            && let Some(source_file) = ctx.source_file.as_ref()
+            && let Some(source_file) = ctx.file_of_span(span)
         {
             let origin = SourceOrigin::Literal {
-                file: source_file.clone(),
+                file: source_file,
                 span: *span,
             };
             let node = Arc::new(SpanNode::new(t.clone(), origin));
@@ -157,6 +157,7 @@ mod tests {
             registry: None,
             context: None,
             source_file: None,
+            span_files: &[],
         }
     }
 
@@ -172,6 +173,7 @@ mod tests {
             registry: Some(registry),
             context: None,
             source_file: None,
+            span_files: &[],
         }
     }
 

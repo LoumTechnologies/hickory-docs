@@ -143,8 +143,16 @@ pub enum Response {
         variables: Vec<hick_dap::Variable>,
     },
     /// The program ended. Not an error: it is what `continue` usually does.
+    ///
+    /// The session is reaped WITH it — adapter process killed, scratch clone
+    /// deleted, registry entry gone — because a debugger over a program that
+    /// no longer exists is a process holding a workdir open. The id in here
+    /// no longer answers; the client keeps its breakpoints and starts a new
+    /// session to run again.
     Finished {
         session: String,
+        /// The debuggee's exit code, when the adapter reported one.
+        exit_code: Option<i64>,
     },
     Ended {
         session: String,
@@ -240,7 +248,7 @@ async fn handle_inner(
             }];
             // Run to the first stop before answering, so the UI never shows a
             // started session with no position in it.
-            out.extend(settle(&session, &live).await);
+            out.extend(settle(registry, &session, &live).await);
             Ok(out)
         }
 
@@ -317,7 +325,7 @@ async fn handle_inner(
                 .step(how, thread, frame)
                 .await
                 .map_err(|e| (Some(session.clone()), e))?;
-            Ok(settle(&session, &live).await)
+            Ok(settle(registry, &session, &live).await)
         }
 
         Request::Jump { session, line } => {
@@ -343,7 +351,7 @@ async fn handle_inner(
                 .run_to(line, thread)
                 .await
                 .map_err(|e| (Some(session.clone()), e))?;
-            Ok(settle(&session, &live).await)
+            Ok(settle(registry, &session, &live).await)
         }
 
         Request::Children { session, reference } => {
@@ -384,17 +392,28 @@ async fn handle_inner(
         }
 
         Request::Stop { session } => {
-            registry
-                .stop(&session)
-                .await
-                .map_err(|e| (Some(session.clone()), e))?;
+            // Reap rather than stop: the debuggee finishing and the person
+            // pressing Stop legitimately race, and the loser must find
+            // "already gone" — the state they asked for — rather than an
+            // error about a session that ended a beat before they clicked.
+            registry.reap(&session).await;
             Ok(vec![Response::Ended { session }])
         }
     }
 }
 
 /// Wait for the program to stop again, then describe where it is.
-async fn settle(session: &str, live: &Arc<crate::debug_sessions::Live>) -> Vec<Response> {
+///
+/// When the answer is "it ended", the session is reaped HERE, before the
+/// client is told: a debuggee that ran to completion must not leave its
+/// adapter process, scratch clone and registry entry waiting fifteen minutes
+/// for the idle sweep. Reaping is idempotent with the explicit stop that may
+/// arrive a beat later.
+async fn settle(
+    registry: &Arc<Registry>,
+    session: &str,
+    live: &Arc<crate::debug_sessions::Live>,
+) -> Vec<Response> {
     match live.session.wait_for_stop(Duration::from_secs(60)).await {
         Ok(Some(stopped)) => {
             *live.thread_id.lock().await = Some(stopped.thread_id);
@@ -402,8 +421,10 @@ async fn settle(session: &str, live: &Arc<crate::debug_sessions::Live>) -> Vec<R
         }
         Ok(None) => {
             *live.thread_id.lock().await = None;
+            registry.reap(session).await;
             vec![Response::Finished {
                 session: session.to_string(),
+                exit_code: live.session.exit().and_then(|exit| exit.code),
             }]
         }
         Err(error) => vec![Response::Failed {
@@ -446,6 +467,7 @@ async fn position_with(
         None => {
             return vec![Response::Finished {
                 session: session.to_string(),
+                exit_code: live.session.exit().and_then(|exit| exit.code),
             }];
         }
     };

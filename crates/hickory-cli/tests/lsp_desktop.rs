@@ -71,6 +71,8 @@ async fn open_app() -> App {
         port: 0,
         params: Vec::new(),
         executor: ExecutorChoice::Local,
+        key_store_path: None,
+        ui_settings_path: None,
     })
     .await
     .expect("the session prepares");
@@ -202,6 +204,8 @@ async fn a_window_opened_where_no_server_exists_still_works() {
         port: 0,
         params: Vec::new(),
         executor: ExecutorChoice::Local,
+        key_store_path: None,
+        ui_settings_path: None,
     })
     .await
     .expect("the session prepares");

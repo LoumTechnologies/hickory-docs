@@ -60,6 +60,8 @@ async fn start() -> Session {
         port: 0,
         params: Vec::new(),
         executor: ExecutorChoice::Local,
+        key_store_path: None,
+        ui_settings_path: None,
     })
     .await
     .expect("session prepares");
@@ -250,6 +252,8 @@ def summarise(path):
         port: 0,
         params: Vec::new(),
         executor: ExecutorChoice::Local,
+        key_store_path: None,
+        ui_settings_path: None,
     })
     .await
     .expect("session prepares");
@@ -484,21 +488,102 @@ async fn the_ribbons_have_their_data_without_a_database() {
     );
 }
 
+/// Editing PROSE in the woven markdown lands in the document, exactly like
+/// editing a generated code file does. This is the desktop app's path — the
+/// output pane loads `/outputs/file` and POSTs `/outputs/edit` — for the one
+/// output every literate document has: its weave.
+///
+/// Protects docs/guarantees/authoring/an-output-edit-lands-in-its-document.md
+/// (the serve-side half; the `hick up` half lives in up_loop.rs) and
+/// docs/guarantees/execution/output-lineage-round-trips-byte-for-byte.md.
 #[tokio::test(flavor = "multi_thread")]
-async fn a_session_with_nothing_to_serve_says_so() {
+async fn a_prose_edit_in_the_woven_markdown_lands_in_the_document() {
+    let session = start().await;
+
+    // The weave file is one of the document's outputs, listed like any other.
+    let (status, outputs) = get(&session, &format!("/api/docs/{}/outputs", session.doc_id)).await;
+    assert_eq!(status, 200, "{outputs}");
+    let paths: Vec<&str> = outputs["files"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|f| f["path"].as_str().unwrap())
+        .collect();
+    assert!(paths.contains(&"demo.md"), "{paths:?}");
+
+    // Its prose carries real (non-synthetic) provenance back to the document.
+    let (status, file) = get(
+        &session,
+        &format!("/api/docs/{}/outputs/file?path=demo.md", session.doc_id),
+    )
+    .await;
+    assert_eq!(status, 200, "{file}");
+    let content = file["content"].as_str().unwrap();
+    let at = content.find("# Demo").expect("the weave carries the prose");
+    let covering = file["provenance"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| {
+            p["start"].as_u64().unwrap() <= at as u64 && (at as u64) < p["end"].as_u64().unwrap()
+        })
+        .unwrap_or_else(|| panic!("no provenance covers the prose: {file}"));
+    assert_ne!(
+        covering["origin"]["kind"], "synthetic",
+        "prose in the weave must map back to the document: {covering}"
+    );
+
+    // Edit the prose through the same endpoint the app's output pane uses.
+    let (status, edited) = post(
+        &session,
+        &format!("/api/docs/{}/outputs/edit", session.doc_id),
+        serde_json::json!({
+            "path": "demo.md",
+            "edits": [{ "start": at + 2, "end": at + 6, "text": "Demonstration" }]
+        }),
+    )
+    .await;
+    assert_eq!(status, 200, "{edited}");
+    assert_eq!(edited["applied"], true);
+    assert!(
+        session.source_on_disk().contains("# Demonstration"),
+        "the prose edit did not reach the document:\n{}",
+        session.source_on_disk()
+    );
+
+    // A re-weave reproduces the edit: the round trip is byte-stable.
+    let (status, rewoven) = get(
+        &session,
+        &format!("/api/docs/{}/outputs/file?path=demo.md", session.doc_id),
+    )
+    .await;
+    assert_eq!(status, 200, "{rewoven}");
+    assert!(
+        rewoven["content"]
+            .as_str()
+            .unwrap()
+            .contains("# Demonstration"),
+        "the re-weave lost the edit: {rewoven}"
+    );
+}
+
+/// A folder with no documents is the app's FIRST-RUN state, not an error:
+/// the default workspace starts empty and the UI lands on a fresh untitled
+/// document. The session starts with an empty index and fills as documents
+/// are created.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_session_with_no_documents_starts_empty() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("notes.md"), "not a document").unwrap();
-    let err = prepare(ServeOptions {
+    let prepared = prepare(ServeOptions {
         target: dir.path().to_path_buf(),
         port: 0,
         params: Vec::new(),
         executor: ExecutorChoice::Local,
+        key_store_path: None,
+        ui_settings_path: None,
     })
     .await
-    .err()
-    .expect("an empty directory has nothing to serve");
-    assert!(
-        err.to_string().contains("no .hick documents to open"),
-        "{err}"
-    );
+    .expect("an empty directory is a session waiting for its first document");
+    assert!(prepared.state.index.entries().is_empty());
 }

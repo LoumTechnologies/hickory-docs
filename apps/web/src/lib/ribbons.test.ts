@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { deriveRibbons, RIBBON_PALETTE_SIZE } from "./ribbons";
+import { deriveRibbons, drawnRange, fragmentKey, groupBySourceBlock, RIBBON_PALETTE_SIZE } from "./ribbons";
 import { weaveOutputs } from "./weave";
 import { WEAVE_SOURCE } from "../mock/mockData";
-import type { OutputFile } from "../api/types";
+import type { OutputFile, Provenance } from "../api/types";
 
 const DOC = "docs/weave-demo.hick";
 
@@ -109,5 +109,111 @@ describe("deriveRibbons — filtering and repeats", () => {
     const [r] = deriveRibbons(file, "d", source);
     expect(r.outputRange).toEqual([1, 2]); // after the 2-byte é
     expect(r.sourceSpan).toEqual([1, 2]);
+  });
+});
+
+describe("groupBySourceBlock — one terminal band per source block", () => {
+  const [file] = weaveOutputs(WEAVE_SOURCE, DOC);
+  const ribbons = deriveRibbons(file, DOC, WEAVE_SOURCE);
+
+  it("collapses fragments of one block into one group keyed by its byte span", () => {
+    const groups = groupBySourceBlock(ribbons);
+    const spans = new Set(ribbons.map((r) => fragmentKey(r)));
+    expect(groups.size).toBe(spans.size);
+    // A file a block feeds twice is one statement, not two.
+    expect(groups.size).toBeLessThanOrEqual(ribbons.length);
+  });
+
+  it("sums the bytes of every fragment in the group", () => {
+    const groups = groupBySourceBlock(ribbons);
+    let total = 0;
+    for (const group of groups.values()) total += group.bytes;
+    expect(total).toBe(ribbons.reduce((sum, r) => sum + r.bytes, 0));
+  });
+
+  it("keeps the FIRST ribbon of the group, so a click lands where the block's text starts", () => {
+    const groups = groupBySourceBlock(ribbons);
+    for (const [key, group] of groups) {
+      const first = ribbons.find((r) => fragmentKey(r) === key);
+      expect(group.ribbon).toBe(first);
+    }
+  });
+});
+
+describe("whitespaceOnly", () => {
+  // A whitespace-only attribution is true but says nothing until someone is
+  // working exactly there — the overlay draws these on hover only.
+  const file = (content: string, provenance: Provenance[]): OutputFile => ({
+    path: "out.txt",
+    content,
+    provenance,
+    language: "text",
+  });
+  const literal = (start: number, end: number, span: [number, number]): Provenance => ({
+    start,
+    end,
+    origin: { kind: "literal", doc_path: "doc.hick", span },
+  });
+
+  it("flags a ribbon whose attributed bytes are blank lines and indentation", () => {
+    const content = "code\n\n    \nmore";
+    const ribbons = deriveRibbons(
+      file(content, [literal(4, 11, [10, 17])]),
+      "doc.hick",
+      "0123456789\n\n    \nabc",
+    );
+    expect(ribbons).toHaveLength(1);
+    expect(ribbons[0].whitespaceOnly).toBe(true);
+  });
+
+  it("keeps a ribbon with any visible character always-on", () => {
+    const content = "code\n\nx\nmore";
+    const ribbons = deriveRibbons(
+      file(content, [literal(4, 8, [10, 14])]),
+      "doc.hick",
+      "0123456789\n\nx\nzzzzzz",
+    );
+    expect(ribbons).toHaveLength(1);
+    expect(ribbons[0].whitespaceOnly).toBe(false);
+  });
+});
+
+describe("drawnRange", () => {
+  // A span's DRAWN extent covers only lines where it owns visible
+  // characters — trailing newlines/indentation on someone else's line must
+  // not inflate a line-granular brace into a false claim.
+  it("drops a leading newline belonging to a foreign line", () => {
+    //            0         1
+    //            0123456789012345678
+    const text = "</hick:copy>\ncode\n";
+    // Span starts at the newline after the foreign tag.
+    expect(drawnRange(text, 12, 18)).toEqual([13, 18]);
+  });
+
+  it("drops trailing indentation on a line whose text is foreign", () => {
+    const text = "own line\n    foreign\n";
+    // Span covers "own line\n" plus the next line's indentation only.
+    expect(drawnRange(text, 0, 13)).toEqual([0, 9]);
+  });
+
+  it("keeps blank lines the span covers", () => {
+    const text = "a\n\n\nb\n";
+    expect(drawnRange(text, 0, 6)).toEqual([0, 6]);
+  });
+
+  it("returns null for a whitespace-only span on foreign lines", () => {
+    const text = "foreign\nalso foreign\n";
+    expect(drawnRange(text, 7, 8)).toBeNull();
+  });
+
+  it("keeps a span fully inside one owned line", () => {
+    const text = "abc def\n";
+    expect(drawnRange(text, 4, 7)).toEqual([4, 7]);
+  });
+
+  it("never widens beyond the original span", () => {
+    const text = "abcdef\n";
+    const trimmed = drawnRange(text, 2, 4);
+    expect(trimmed).toEqual([2, 4]);
   });
 });

@@ -1,7 +1,7 @@
 # AI agents and hick: built-in or bring your own
 
 *For engineers deciding how AI should write and maintain their `.hick`
-documents: the platform's built-in agent, or a coding agent they already use
+documents: the built-in `hick agent`, or a coding agent they already use
 (Claude Code, etc.) on a local repo.*
 
 Either way, the end product is the same: agent work lands as `hick:session`
@@ -9,44 +9,48 @@ documents in `sessions/*.hick`, and `hick promote` compacts a session into
 a clean pipeline document. The choice is about *where the agent runs*, not
 what it produces.
 
-## Option 1: the built-in platform agent
+## Option 1: the built-in agent
 
 ```sh
 export ANTHROPIC_API_KEY=...
 hick agent "add a section benchmarking sort vs awk" --doc docs/tour.hick
 ```
 
-(In a cloud workspace, this is the web Agent panel — same loop, hosted.)
-
 ### Whose key it runs on
 
-The agent runs on a key from one of four vendors — Anthropic, OpenAI,
-DeepSeek, or xAI (Grok). Where that key comes from depends on where you are:
+Yours, always — read from your environment, sent only to the vendor you
+chose, never stored anywhere by the CLI. Five vendors are supported:
+Anthropic (`ANTHROPIC_API_KEY`), OpenAI (`OPENAI_API_KEY`), DeepSeek
+(`DEEPSEEK_API_KEY`), xAI/Grok (`XAI_API_KEY`), and OpenRouter
+(`OPENROUTER_API_KEY`).
 
-| Where | Which key | How to set it |
-| --- | --- | --- |
-| CLI | Yours, from the environment | `--provider grok` (or `HICKORY_LLM_PROVIDER`) selects the vendor; the matching `XAI_API_KEY` / `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` / `DEEPSEEK_API_KEY` is read |
-| Hosted, Open or Pro plan | Yours | Settings → API keys. Paste it once; it is checked against the vendor immediately and encrypted before it is stored |
-| Hosted, Team or Business plan | Ours, from your plan's allowance | Nothing to do — unless you store your own key, in which case yours is used and the allowance is left alone |
+(The desktop app is the one exception to "environment only": it is launched
+from a dock, where no shell exports anything, so its Settings page stores
+keys in a private file on your machine. Keys you enter there win over the
+environment; everything below still applies.)
 
-Two properties worth knowing because they change what you have to do:
+Which vendor an agent run uses is resolved in this order:
 
-- **On a bring-your-own-key plan there is no fallback to our key.** With no key
-  stored the agent answers "add one in Settings" rather than running on our
-  account. That is the entitlement working, not an outage.
-- **A stored key is write-only.** We show the last four characters and nothing
-  else, and there is no endpoint that returns it — so keep your own copy from
-  the vendor. Replacing a key is a paste, not a recovery.
+1. **`--provider`** (`anthropic`, `openai`, `deepseek`, `grok`,
+   `openrouter`) wins over everything.
+2. **`HICKORY_LLM_PROVIDER`**, if set, is next — same values.
+3. Otherwise hick looks at **which of the five key variables are actually
+   set**. Exactly one set: that vendor is used, no question asked. Several
+   set and one of them is `ANTHROPIC_API_KEY`: Anthropic, the default.
+   Several set without an Anthropic key: the run stops and asks you to pass
+   `--provider` — guessing would bill an account you did not pick.
+4. No key at all: the run fails before the first request, naming the five
+   variables and the `--provider` escape hatch.
 
-With one key stored you are never asked which to use. Store a second and you
-choose once; until you do, agent runs stop and say so.
+So with one key in your environment there is nothing to configure; the
+provider is picked for you.
 
 What happens, procedurally:
 
 1. The agent gets your prompt (and `--doc` context), then loops: it proposes
    a shell or python script, hick executes it through the same `Executor`
-   as `hick run` (`HICKORY_EXECUTOR=local` or `=canopy`), and the
-   observation goes back to the model.
+   as `hick run` (sandboxed by default; `HICKORY_EXECUTOR` selects another
+   backend), and the observation goes back to the model.
 2. Every turn — prompt, reasoning, each script, each observation — is
    appended to a `hick:session` document under `sessions/`. The session *is*
    the log; there is no separate chat transcript to lose.
@@ -55,7 +59,7 @@ What happens, procedurally:
    only the surviving pipeline (last write wins, dead ends dropped).
 
 Choose this when you want sessions captured with full fidelity by
-construction, or you're in the hosted app.
+construction.
 
 ### The document edit tools (`--doc`)
 
@@ -180,14 +184,11 @@ which agent produced it.
   pipeline from *script* writes; tool calls edit the document in place, so
   there is nothing left to promote. That is not a failure — the document is
   already the product, and the session is the record of how it got that way.
-- **The built-in agent needs a key** — `ANTHROPIC_API_KEY` (or the selected
-  provider's variable) on the CLI, a key stored in Settings in the hosted app.
-  It executes scripts for real: under `HICKORY_EXECUTOR=local` that means
-  unsandboxed, as your user.
-- **"Encrypted at rest" is not "we never see it."** Your key is sealed in our
-  database and unreadable from a dump, but the server holds it in memory to
-  make the request — it has to. If that is not acceptable, use the CLI, where
-  the key never leaves your machine.
+- **The built-in agent needs a key** — `ANTHROPIC_API_KEY` or the selected
+  provider's variable, in your environment. Without one it says so and stops;
+  nothing else in hick needs a key or a network. It executes scripts for
+  real: sandboxed under the default executor, and unsandboxed — as your
+  user — if you set `HICKORY_EXECUTOR=local`.
 - **`promote` is lossy on purpose**: it keeps the last write to each output
   and drops dead ends. Keep the original session file if you want the full
   history (it's just a file in git).
@@ -195,5 +196,5 @@ which agent produced it.
   external edits (content-hash detection + one automatic re-weave), which
   covers you saving the file in an editor between agent turns. What it does
   not do yet is merge with a *live* concurrent human editor keystroke-by-
-  keystroke — that is the server-side follow-on (the hosted editor's CRDT
-  layer), not a property of the local CLI session.
+  keystroke — that is the desktop app's editor (its CRDT buffer), not a
+  property of the CLI session.

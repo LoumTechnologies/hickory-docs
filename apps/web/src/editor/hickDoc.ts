@@ -252,6 +252,46 @@ function scanInline(
 }
 
 /**
+ * The markdown prose scan: headings + inline marks over every line that is
+ * not inside a `verbatim` range. Shared between the .hick document parse
+ * (verbatim = exec/file/fragment payloads, tagRanges = hick tags) and the
+ * plain-markdown styling used by the output panes (see markdownStyling.ts),
+ * which passes fenced-code ranges as verbatim and no tag ranges.
+ */
+export function scanMarkdownProse(
+  text: string,
+  verbatim: [number, number][],
+  tagRanges: [number, number][],
+): { headings: Heading[]; inline: InlineMark[] } {
+  const headings: Heading[] = [];
+  const inline: InlineMark[] = [];
+  let lineFrom = 0;
+  while (lineFrom <= text.length) {
+    let lineTo = text.indexOf("\n", lineFrom);
+    if (lineTo < 0) lineTo = text.length;
+    if (lineTo > lineFrom && !inRanges(lineFrom, verbatim)) {
+      const line = text.slice(lineFrom, lineTo);
+      const h = HEADING_RE.exec(line);
+      if (h) {
+        const markEnd = line.length > h[1].length ? h[1].length + 1 : h[1].length;
+        headings.push({
+          level: h[1].length,
+          from: lineFrom,
+          to: lineTo,
+          markFrom: lineFrom,
+          markTo: lineFrom + markEnd,
+        });
+      } else {
+        scanInline(line, lineFrom, inline, tagRanges);
+      }
+    }
+    lineFrom = lineTo + 1;
+  }
+  inline.sort((a, b) => a.openFrom - b.openFrom);
+  return { headings, inline };
+}
+
+/**
  * Full structure parse. Linear in doc size (regex passes + one line walk);
  * cheap enough to run on every doc change for document-sized inputs, and the
  * view layer only materialises decorations for visible ranges.
@@ -262,32 +302,7 @@ export function parseHickDoc(text: string): HickDocStructure {
     const blocks = buildBlocks(text, tags);
     const verbatim = verbatimRanges(blocks);
     const tagRanges: [number, number][] = tags.map((t) => [t.from, t.to]);
-
-    const headings: Heading[] = [];
-    const inline: InlineMark[] = [];
-    let lineFrom = 0;
-    while (lineFrom <= text.length) {
-      let lineTo = text.indexOf("\n", lineFrom);
-      if (lineTo < 0) lineTo = text.length;
-      if (lineTo > lineFrom && !inRanges(lineFrom, verbatim)) {
-        const line = text.slice(lineFrom, lineTo);
-        const h = HEADING_RE.exec(line);
-        if (h) {
-          const markEnd = line.length > h[1].length ? h[1].length + 1 : h[1].length;
-          headings.push({
-            level: h[1].length,
-            from: lineFrom,
-            to: lineTo,
-            markFrom: lineFrom,
-            markTo: lineFrom + markEnd,
-          });
-        } else {
-          scanInline(line, lineFrom, inline, tagRanges);
-        }
-      }
-      lineFrom = lineTo + 1;
-    }
-    inline.sort((a, b) => a.openFrom - b.openFrom);
+    const { headings, inline } = scanMarkdownProse(text, verbatim, tagRanges);
     return { tags, blocks, headings, inline };
   } catch {
     // The document view must keep working on any input.

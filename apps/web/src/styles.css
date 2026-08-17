@@ -1,7 +1,82 @@
 /* Hickory Docs — restrained, tool-grade UI. System fonts, no framework. */
 
+/* Theming: three explicit themes selected by `data-theme` on <html>
+   (lib/theme.ts; a pre-bundle inline script in index.html sets it before
+   first paint). `:root` carries the DEFAULT theme — "dark", a cool
+   editor-grade palette — so an unset or garbage value can never flash the
+   wrong colors. "light" and "warm-dark" override the full token set below.
+   All contrast figures are against --bg: body text >= 7:1, muted >= 4.5:1. */
+
 :root {
-  color-scheme: light dark;
+  color-scheme: dark;
+  --bg: #1e2227;
+  --bg-raised: #23282e;
+  --bg-sunken: #191d21;
+  --fg: #dde3ea; /* 12.4:1 on --bg */
+  --fg-muted: #9aa5b1; /* 6.4:1 on --bg */
+  --border: #363d45;
+  --accent: #5eb0ef;
+  --accent-2: #46c4bc;
+  --ok: #66c07a;
+  --ok-bg: #1d3226;
+  --fail: #f47067;
+  /* Used by the LSP error squiggle, .pane-error and .chat-error, none of
+     which defined it — so `var(--danger)` resolved to nothing, the squiggle's
+     gradient was invalid at computed-value time, and an error underline
+     rendered with NO COLOUR while the warning (which had a fallback) showed
+     up fine. */
+  --danger: #f47067;
+  --warn: #d9a13f;
+  --fail-bg: #3b2422;
+  --stale: #d0a253;
+  --stale-bg: #342a17;
+  --neutral-bg: #2a3138;
+  --term-bg: #16191d;
+  --term-fg: #d8dee6;
+  --term-cmd: #8fd0a0;
+  --term-prompt: #6f8f7a;
+  --term-err: #e79088;
+  --term-exit: #e7b568;
+  --shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+  /* Line diff (actual vs expected output): softer than --fail/--ok so a
+     multi-line diff does not read as a wall of alarms. */
+  --diff-del: #e5837a;
+  --diff-ins: #79c98a;
+  /* "Other occurrences of this symbol" (LSP documentHighlight). */
+  --lsp-highlight: rgba(140, 150, 180, 0.18);
+  /* Syntax token palette — shared by Document + Output views. Tuned for the
+     cool ground: keyword blue / type teal / function violet / string green
+     stay separable side by side. */
+  --tok-keyword: #5eb0ef;
+  --tok-string: #7fce8e;
+  --tok-comment: #808c99;
+  --tok-literal: #d9ab68;
+  --tok-type: #4ec9b0;
+  --tok-function: #b8a7f5;
+  --tok-property: #7cc0da;
+  --tok-tag: #6cb6ff;
+  --tok-meta: #8a95a1;
+  --tok-operator: #9aa5b1;
+  /* Parameters, which only a language server can identify: close to the
+     property tone but distinguishable, since the two sit side by side in a
+     method body. */
+  --tok-parameter: #c9b6f0;
+  --tok-invalid: #f47067;
+  /* Lineage ribbon palette (Split view) — one stable color per source
+     fragment; hues spread so the bands stay tellable-apart at the 0.3–0.75
+     opacities the overlay draws them at. Keep in sync with
+     RIBBON_PALETTE_SIZE. */
+  --ribbon-0: #6cb6ff;
+  --ribbon-1: #46c4bc;
+  --ribbon-2: #8ace6e;
+  --ribbon-3: #b8a7f5;
+  --ribbon-4: #e0a35f;
+  --ribbon-5: #e5849b;
+}
+
+/* "light" — the original warm paper palette. */
+:root[data-theme="light"] {
+  color-scheme: light;
   --bg: #faf9f7;
   --bg-raised: #ffffff;
   --bg-sunken: #f1efeb;
@@ -13,11 +88,6 @@
   --ok: #2c7a4b;
   --ok-bg: #e4f2e9;
   --fail: #b3372f;
-  /* Used by the LSP error squiggle, .pane-error and .chat-error, none of
-     which defined it — so `var(--danger)` resolved to nothing, the squiggle's
-     gradient was invalid at computed-value time, and an error underline
-     rendered with NO COLOUR while the warning (which had a fallback) showed
-     up fine. */
   --danger: #b3372f;
   --warn: #b8860b;
   --fail-bg: #f9e7e5;
@@ -26,8 +96,14 @@
   --neutral-bg: #ecebe7;
   --term-bg: #1c1b19;
   --term-fg: #e8e5df;
+  --term-cmd: #8fd0a0;
+  --term-prompt: #6f8f7a;
+  --term-err: #e79088;
+  --term-exit: #e7b568;
   --shadow: 0 1px 3px rgba(30, 25, 15, 0.08);
-  /* Syntax token palette — hickory-tuned, shared by Document + Output views. */
+  --diff-del: #b0554c;
+  --diff-ins: #4a7d5f;
+  --lsp-highlight: rgba(120, 120, 160, 0.18);
   --tok-keyword: #8a5a20;
   --tok-string: #2c7a4b;
   --tok-comment: #8f887b;
@@ -38,13 +114,8 @@
   --tok-tag: #7a5c2e;
   --tok-meta: #857f72;
   --tok-operator: #6f6a61;
-  /* Parameters, which only a language server can identify: close to the
-     property tone but distinguishable, since the two sit side by side in a
-     method body. */
   --tok-parameter: #6b5d8a;
   --tok-invalid: #b3372f;
-  /* Lineage ribbon palette (Split view) — one stable color per source
-     fragment, hickory-toned. Keep in sync with RIBBON_PALETTE_SIZE. */
   --ribbon-0: #7a5c2e;
   --ribbon-1: #4a6b8a;
   --ribbon-2: #2c7a4b;
@@ -53,47 +124,54 @@
   --ribbon-5: #446b7a;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #161512;
-    --bg-raised: #1e1d1a;
-    --bg-sunken: #12110f;
-    --fg: #e6e3dc;
-    --fg-muted: #98938a;
-    --border: #35332e;
-    --accent: #c9a45e;
-    --accent-2: #8db0cf;
-    --ok: #6dbb8d;
-    --ok-bg: #1c2f24;
-    --fail: #e08a80;
-    --danger: #e08a80;
-    --warn: #d8a13a;
-    --fail-bg: #38201d;
-    --stale: #d3a54a;
-    --stale-bg: #33290f;
-    --neutral-bg: #26241f;
-    --term-bg: #101010;
-    --term-fg: #dedbd4;
-    --shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
-    --tok-keyword: #c9a45e;
-    --tok-string: #6dbb8d;
-    --tok-comment: #7f7a6e;
-    --tok-literal: #d3a54a;
-    --tok-type: #8db0cf;
-    --tok-function: #a89ed6;
-    --tok-property: #7fb0a8;
-    --tok-tag: #c9a45e;
-    --tok-meta: #8c877d;
-    --tok-operator: #98938a;
-    --tok-parameter: #b3a6d1;
-    --tok-invalid: #e08a80;
-    --ribbon-0: #c9a45e;
-    --ribbon-1: #8db0cf;
-    --ribbon-2: #6dbb8d;
-    --ribbon-3: #a89ed6;
-    --ribbon-4: #d3a54a;
-    --ribbon-5: #7fb0a8;
-  }
+/* "warm-dark" — the original sepia dark palette, kept as a choice. */
+:root[data-theme="warm-dark"] {
+  color-scheme: dark;
+  --bg: #161512;
+  --bg-raised: #1e1d1a;
+  --bg-sunken: #12110f;
+  --fg: #e6e3dc;
+  --fg-muted: #98938a;
+  --border: #35332e;
+  --accent: #c9a45e;
+  --accent-2: #8db0cf;
+  --ok: #6dbb8d;
+  --ok-bg: #1c2f24;
+  --fail: #e08a80;
+  --danger: #e08a80;
+  --warn: #d8a13a;
+  --fail-bg: #38201d;
+  --stale: #d3a54a;
+  --stale-bg: #33290f;
+  --neutral-bg: #26241f;
+  --term-bg: #101010;
+  --term-fg: #dedbd4;
+  --term-cmd: #8fd0a0;
+  --term-prompt: #6f8f7a;
+  --term-err: #e79088;
+  --term-exit: #e7b568;
+  --shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+  --diff-del: #e08a80;
+  --diff-ins: #6dbb8d;
+  --lsp-highlight: rgba(150, 145, 170, 0.2);
+  --tok-keyword: #c9a45e;
+  --tok-string: #6dbb8d;
+  --tok-comment: #7f7a6e;
+  --tok-literal: #d3a54a;
+  --tok-type: #8db0cf;
+  --tok-function: #a89ed6;
+  --tok-property: #7fb0a8;
+  --tok-tag: #c9a45e;
+  --tok-meta: #8c877d;
+  --tok-operator: #98938a;
+  --tok-parameter: #b3a6d1;
+  --tok-invalid: #e08a80;
+  --ribbon-0: #c9a45e;
+  --ribbon-1: #8db0cf;
+  --ribbon-2: #6dbb8d;
+  --ribbon-3: #a89ed6;
+  --ribbon-4: #d3a54a;
+  --ribbon-5: #7fb0a8;
 }
 
 * {
@@ -537,9 +615,9 @@ textarea:focus {
    sits with the message rather than below it — this banner is persistent
    until acted on, so it must stay one line tall. */
 .banner-warn {
-  background: color-mix(in srgb, #b8860b 12%, transparent);
+  background: color-mix(in srgb, var(--warn) 12%, transparent);
   color: var(--fg);
-  border-color: color-mix(in srgb, #b8860b 35%, transparent);
+  border-color: color-mix(in srgb, var(--warn) 35%, transparent);
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -657,41 +735,17 @@ textarea:focus {
   word-break: break-word;
 }
 
-.t-cmd { color: #8fd0a0; font-weight: 600; }
-.t-prompt { color: #6f8f7a; }
-.t-err { color: #e79088; }
-.t-exit { color: #e7b568; }
+.t-cmd { color: var(--term-cmd); font-weight: 600; }
+.t-prompt { color: var(--term-prompt); }
+.t-err { color: var(--term-err); }
+.t-exit { color: var(--term-exit); }
 .t-cursor {
   animation: blink 1.1s steps(1) infinite;
-  color: #8fd0a0;
+  color: var(--term-cmd);
 }
 
 @keyframes blink {
   50% { opacity: 0; }
-}
-
-.transcript-controls {
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-  padding: 0.4rem 0.8rem;
-  background: var(--bg-sunken);
-  border-top: 1px solid var(--border);
-}
-
-.transcript-controls input[type="range"] {
-  flex: 1;
-  padding: 0;
-  border: none;
-  background: none;
-  accent-color: var(--accent);
-}
-
-.transcript-time {
-  font-size: 0.72rem;
-  color: var(--fg-muted);
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
 }
 
 /* --- sessions --- */
@@ -783,6 +837,29 @@ textarea:focus {
 }
 .cm-hick-chrome.cm-hick-attr,
 .cm-hick-attr { color: var(--accent-2); }
+
+/* The hick:doc envelope: a line that is ONLY the wrapper tag is chrome, not
+   content — shrunk and dimmed so a fresh document starts at the prose. The
+   text stays present and editable. */
+.cm-doc-frame-line {
+  font-size: 0.7em;
+  opacity: 0.4;
+}
+
+/* Hint shown inside an empty document body (decoration, not text). */
+.cm-empty-doc-hint {
+  color: var(--fg-muted);
+  font-style: italic;
+  opacity: 0.8;
+  padding: 0.35rem 0;
+}
+
+/* The empty-buffer placeholder (the untitled document before it is a file). */
+.document-editor .cm-placeholder {
+  color: var(--fg-muted);
+  font-style: italic;
+  opacity: 0.8;
+}
 
 /* Exec cells: framed "cell" look via line decorations. */
 .cm-cell-line {
@@ -1051,7 +1128,7 @@ textarea:focus {
 .cell-panel-bar .btn-run { margin-left: auto; }
 .cell-verified {
   font-size: 0.75rem;
-  color: var(--ok, #4a7d5f);
+  color: var(--ok);
   white-space: nowrap;
 }
 .cell-panel-bar .btn-ghost {
@@ -1090,15 +1167,15 @@ textarea:focus {
   line-height: 1.5;
   overflow-x: auto;
 }
-.cell-diff .d-del { color: #b0554c; }
-.cell-diff .d-ins { color: #4a7d5f; }
+.cell-diff .d-del { color: var(--diff-del); }
+.cell-diff .d-ins { color: var(--diff-ins); }
 .cell-diff .d-same { color: var(--fg-muted); }
 
 /* Verified expect body in the SOURCE: this region IS the cell's output,
    confirmed by the last run. */
 .cm-expect-verified {
-  background: color-mix(in srgb, #4a7d5f 9%, transparent);
-  border-left: 2px solid #4a7d5f;
+  background: color-mix(in srgb, var(--ok) 9%, transparent);
+  border-left: 2px solid var(--ok);
   margin-left: -2px;
 }
 
@@ -1152,49 +1229,19 @@ textarea:focus {
   font-size: 0.8rem;
 }
 
-/* Environment card above a hick:container declaration. */
-.cm-env-card { padding: 0; }
-.env-card {
-  margin: 0.5rem 0 0.25rem;
-  border: 1px solid var(--border);
-  border-left: 2px solid var(--accent-2);
-  border-radius: 8px;
-  background: var(--bg-raised);
-  padding: 0.45rem 0.8rem 0.5rem;
-  font-size: 0.82rem;
+/* Executor-resolution note, inline at the end of a hick:container line.
+   Faded end-of-line annotation (the inline-values pattern): every screen
+   row keeps a line number, nothing wraps. */
+.cm-env-inline { pointer-events: auto; }
+.env-resolution {
+  margin-left: 1.2em;
+  font-size: 0.72rem;
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
-}
-.env-card-bar {
-  display: flex;
-  align-items: baseline;
-  gap: 0.6rem;
-  flex-wrap: wrap;
-}
-.env-card-label {
-  font-size: 0.68rem;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
   color: var(--fg-muted);
+  opacity: 0.75;
 }
-.env-card-name {
-  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-  font-weight: 650;
-  color: var(--accent-2);
-}
-.env-card-image {
-  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-  color: var(--fg-muted);
-}
-.env-card-rules {
-  font-size: 0.75rem;
-  color: var(--fg-muted);
-}
-.env-card-resolution {
-  margin-top: 0.2rem;
-  font-size: 0.75rem;
-  color: var(--fg-muted);
-}
-.env-card-resolution.warn { color: #b0554c; }
+.env-resolution::before { content: "· "; }
+.env-resolution.warn { color: var(--diff-del); opacity: 0.95; }
 
 /* --- output view --- */
 .output-view {
@@ -1515,18 +1562,6 @@ textarea:focus {
   min-height: 0;
   flex: 1;
 }
-.output-pane-status {
-  display: flex;
-  align-items: center;
-  gap: 0.6rem;
-  min-height: 1.6rem;
-  font-size: 0.75rem;
-  color: var(--fg-muted);
-  padding: 0 0.2rem;
-}
-.pane-dirty { color: var(--accent); }
-.pane-ok { color: var(--ok); }
-.pane-error { color: var(--danger); }
 .btn-sm { padding: 0.1rem 0.5rem; font-size: 0.72rem; }
 
 /* A ribbon that stops at the file node: content flowing into a file that is
@@ -1607,7 +1642,7 @@ textarea:focus {
 }
 .cm-lsp-warn {
   background-image: linear-gradient(
-    45deg, transparent 65%, var(--warn, #b8860b) 65%, var(--warn, #b8860b) 80%, transparent 80%
+    45deg, transparent 65%, var(--warn) 65%, var(--warn) 80%, transparent 80%
   );
 }
 /* Semantic tokens from the language server.
@@ -1812,24 +1847,6 @@ textarea:focus {
   background: color-mix(in srgb, var(--accent-2) 12%, transparent);
 }
 
-.debug-panel__error {
-  margin: 0;
-  padding: 0.4rem 0.75rem;
-  border-left: 3px solid var(--danger);
-  background: color-mix(in srgb, var(--danger) 8%, transparent);
-  color: var(--fg);
-  font-size: 0.85rem;
-  line-height: 1.4;
-}
-
-.debug-panel__hint {
-  margin: 0;
-  padding: 0.4rem 0.75rem 0.6rem;
-  color: var(--fg-muted);
-  font-size: 0.85rem;
-  line-height: 1.4;
-}
-
 /* Inline values: the biggest single thing a debugger UI does, and the one
    that must not change a line's height. */
 .cm-debug-value {
@@ -1841,106 +1858,6 @@ textarea:focus {
   font-size: 0.9em;
   font-style: italic;
   white-space: pre;
-}
-
-.debug-panel {
-  border-top: 1px solid var(--border);
-  background: var(--bg-raised);
-  padding: 0.5rem 0.75rem 0.75rem;
-  font-size: 0.8rem;
-}
-.debug-panel__bar {
-  display: flex;
-  align-items: center;
-  gap: 0.35rem;
-  flex-wrap: wrap;
-}
-.debug-panel__bar button {
-  font: inherit;
-  font-size: 0.75rem;
-  padding: 0.2rem 0.5rem;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  background: var(--bg);
-  color: var(--fg);
-  cursor: pointer;
-}
-.debug-panel__bar button:disabled {
-  opacity: 0.45;
-  cursor: default;
-}
-.debug-panel__go { font-weight: 600; }
-.debug-panel__stop { margin-left: auto; }
-.debug-panel__status {
-  color: var(--fg-muted);
-  font-family: ui-monospace, Menlo, monospace;
-  font-size: 0.72rem;
-}
-.debug-panel__body {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(0, 1.4fr);
-  gap: 1rem;
-  margin-top: 0.6rem;
-}
-.debug-panel h4 {
-  margin: 0 0 0.3rem;
-  font-size: 0.68rem;
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
-  color: var(--fg-muted);
-}
-.debug-panel ul {
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  max-height: 9rem;
-  overflow: auto;
-  font-family: ui-monospace, Menlo, monospace;
-  font-size: 0.72rem;
-}
-.debug-panel__frames button {
-  width: 100%;
-  text-align: left;
-  border: 0;
-  background: transparent;
-  color: var(--fg);
-  font: inherit;
-  padding: 0.1rem 0.2rem;
-  border-radius: 3px;
-  cursor: pointer;
-}
-.debug-panel__frames button[aria-pressed="true"] {
-  background: color-mix(in srgb, var(--accent-2) 14%, transparent);
-}
-.debug-panel__foreign { color: var(--fg-muted); }
-.debug-panel__line { color: var(--fg-muted); }
-.debug-panel__vars li {
-  display: flex;
-  gap: 0.4rem;
-  padding: 0.1rem 0.2rem;
-}
-.debug-panel__name { color: var(--tok-property); }
-.debug-panel__value { color: var(--fg); overflow: hidden; text-overflow: ellipsis; }
-.debug-panel__type { color: var(--fg-muted); }
-.debug-panel__eval {
-  display: flex;
-  gap: 0.35rem;
-  margin-top: 0.6rem;
-}
-.debug-panel__eval input {
-  flex: 1;
-  padding: 0.25rem 0.4rem;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  background: var(--bg);
-  color: var(--fg);
-  font-family: ui-monospace, Menlo, monospace;
-  font-size: 0.75rem;
-}
-.debug-panel__result {
-  margin: 0.4rem 0 0;
-  font-family: ui-monospace, Menlo, monospace;
-  font-size: 0.75rem;
 }
 
 /* Rename / code-action prompt. */
@@ -2118,6 +2035,31 @@ textarea:focus {
 }
 .chat-count { color: var(--fg-muted); }
 .chat-new { margin-left: auto; font-size: 0.74rem; }
+.chat-stats {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  cursor: default;
+}
+.chat-model {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  margin-left: auto;
+}
+/* When the New-thread button is present it takes the auto push; the model
+   control then sits flush after it instead of splitting the free space. */
+.chat-new ~ .chat-model { margin-left: 0; }
+.chat-model select,
+.chat-model input {
+  font: inherit;
+  font-size: 0.72rem;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.1rem 0.3rem;
+}
+.chat-model input { width: 11rem; }
 
 .chat-log {
   max-height: 34vh;
@@ -3318,12 +3260,63 @@ textarea:focus {
 .shell-split--column { grid-auto-flow: row; }
 
 .shell-divider {
+  /* The track (user-set channel width, default 48px — lib/channelWidth.ts)
+     is a CHANNEL for ribbons/braces; the divider draws itself as a thin
+     centred line so the width reads as space. The track itself is
+     CLICK-THROUGH: however wide the channel, only the slim centred grip
+     (and the ports) take the pointer, so bands, braces, and connector
+     lines drawn through the channel stay clickable everywhere else. */
+  position: relative;
+  background: transparent;
+  transition: opacity 120ms ease;
+  pointer-events: none;
+  /* Above the ribbon layer (z-index 3), so the grip and ports win where
+     they actually are — and nowhere else. */
+  z-index: 4;
+}
+.shell-divider__grip {
+  position: absolute;
+  pointer-events: auto;
+}
+.shell-divider--row .shell-divider__grip {
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 10px;
+  margin-left: -5px;
+  cursor: col-resize;
+}
+.shell-divider--column .shell-divider__grip {
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 10px;
+  margin-top: -5px;
+  cursor: row-resize;
+}
+.shell-divider::before {
+  content: "";
+  position: absolute;
   background: var(--border);
   opacity: 0.6;
-  transition: opacity 120ms ease, background 120ms ease;
+  transition: background 120ms ease, opacity 120ms ease;
 }
-.shell-divider:hover,
-.shell-divider:active { background: var(--accent); opacity: 1; }
+.shell-divider--row::before {
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 2px;
+  margin-left: -1px;
+}
+.shell-divider--column::before {
+  left: 0;
+  right: 0;
+  top: 50%;
+  height: 2px;
+  margin-top: -1px;
+}
+.shell-divider:hover::before,
+.shell-divider:active::before { background: var(--accent); opacity: 1; }
 .shell-divider--row { cursor: col-resize; }
 .shell-divider--column { cursor: row-resize; }
 
@@ -3438,22 +3431,16 @@ textarea:focus {
 /* A generated file in a pane, with where-it-came-from under it. */
 .generated-view { display: flex; flex-direction: column; min-height: 0; flex: 1; }
 .generated-view > .output-editor { flex: 1; min-height: 0; }
-.generated-view__lineage {
-  border-top: 1px solid var(--border);
-  padding: 0.25rem 0.6rem;
-  font-size: 0.72rem;
-  color: var(--fg-muted);
-  background: var(--bg-sunken);
+/* A refused save, said out loud: the server would not map the edit back into
+   the document, and a pane that stayed silent about that would let the buffer
+   and the document drift apart with nobody told. */
+.generated-view__error {
+  margin: 0;
+  padding: 0.35rem 0.75rem;
+  color: var(--danger);
+  border-top: 1px solid var(--danger);
+  font-size: 0.85rem;
 }
-.generated-view__lineage button {
-  background: none;
-  border: 0;
-  padding: 0;
-  font: inherit;
-  color: var(--accent);
-  cursor: pointer;
-}
-.generated-view__lineage button:disabled { color: var(--fg-muted); cursor: default; }
 
 /* The outputs tool: a list, in a pane, not a dock. */
 .outputs-tool { list-style: none; margin: 0; padding: 0.4rem; }
@@ -3577,4 +3564,899 @@ textarea:focus {
 }
 .debug-icon:hover:not(:disabled) { background: var(--bg-sunken); border-color: var(--border); }
 .debug-icon:disabled { opacity: 0.35; cursor: default; }
-.debug-panel__stop { color: var(--danger); }
+
+/* Project search (Mod-Shift-F): an overlay, because the question "where is X
+   in this folder" is asked from any arrangement and the answer must not
+   rearrange anything to appear. */
+.search-panel {
+  position: fixed;
+  top: 4.5rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  width: min(44rem, calc(100vw - 2rem));
+  max-height: min(30rem, 70vh);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-raised);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.14);
+}
+.search-panel__input {
+  padding: 0.6rem 0.75rem;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  border-radius: 8px 8px 0 0;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  outline: none;
+}
+.search-panel__hint {
+  margin: 0;
+  padding: 0.35rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+  color: var(--fg-muted);
+  font-size: 0.72rem;
+}
+.search-panel__hint code {
+  font-family: ui-monospace, Menlo, monospace;
+}
+.search-panel__status {
+  margin: 0;
+  padding: 0.5rem 0.75rem;
+  color: var(--fg-muted);
+  font-size: 0.8rem;
+}
+.search-panel__results {
+  margin: 0;
+  padding: 0.25rem;
+  list-style: none;
+  overflow: auto;
+}
+.search-panel__hit {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  padding: 0.35rem 0.5rem;
+  cursor: pointer;
+}
+.search-panel__hit.on { background: color-mix(in srgb, var(--accent-2) 14%, transparent); }
+/* Disabled is still an answer: the path is shown, the click goes nowhere. */
+.search-panel__hit:disabled { opacity: 0.5; cursor: default; }
+.search-panel__where {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  font-size: 0.78rem;
+}
+.search-panel__lines { color: var(--fg-muted); font-size: 0.72rem; }
+.search-panel__snippet {
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  margin-top: 0.15rem;
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 0.72rem;
+  color: var(--fg-muted);
+  white-space: pre-wrap;
+}
+
+/* ribbon terminals ----------------------------------------------------------
+   The redesign of where lineage ribbons END when their file has no visible
+   text: on the file's tab, or on an "open here" port button the shell lays
+   out in the divider between panes (edge rail when there is no divider).
+   Nothing here floats over pane content, and the overlay only takes the
+   pointer on painted bands. */
+
+/* The overlay itself never takes the pointer; only painted bands do. A band
+   is a filled closed path (stroke: none), so visiblePainted — the fill
+   equivalent of visibleStroke — makes exactly the painted shape clickable
+   and nothing around it. */
+.ribbon-layer { pointer-events: none; }
+.ribbon { pointer-events: visiblePainted; }
+
+/* Bands ending on chrome are quieter than bands ending on real text, and
+   brighten on hover so "this is clickable" is visible before the click. */
+.ribbon-to-tab,
+.ribbon-to-port { opacity: 0.3; }
+.ribbon-to-tab:hover,
+.ribbon-to-port:hover { opacity: 0.7; }
+
+/* The connector under a tab a ribbon terminates on: a thin bar at the tab's
+   underside, in the ribbon's colour. Decoration only — the tab beneath it is
+   the click target, so the bar must never intercept the pointer. */
+.ribbon-connector { pointer-events: none; opacity: 0.8; }
+.ribbon-connector-c0 { fill: var(--ribbon-0); }
+.ribbon-connector-c1 { fill: var(--ribbon-1); }
+.ribbon-connector-c2 { fill: var(--ribbon-2); }
+.ribbon-connector-c3 { fill: var(--ribbon-3); }
+.ribbon-connector-c4 { fill: var(--ribbon-4); }
+.ribbon-connector-c5 { fill: var(--ribbon-5); }
+
+/* The divider hosts the port stack; positioning context, and no clipping so
+   the buttons (wider than the 4px divider) stay whole. */
+.shell-divider--row {
+  position: relative;
+  overflow: visible;
+}
+
+/* The ports, stacked vertically and centred on the divider. A vertical stack
+   stays legible however many targets exist: each button is ~20px tall and
+   the divider spans the full pane height. Above the ribbon layer (z-index 3)
+   so the buttons are always reachable. */
+.shell-ports {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  z-index: 4;
+  /* The divider hosting this stack is click-through; the ports are not. */
+  pointer-events: auto;
+}
+
+.shell-port {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--bg-sunken);
+  color: var(--fg-muted);
+  font-size: 0.62rem;
+  font-weight: 600;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+  transition: color 120ms ease, border-color 120ms ease, background 120ms ease;
+}
+.shell-port:hover {
+  border-color: var(--accent);
+  color: var(--fg);
+  background: var(--bg);
+}
+
+/* No divider to live in (single pane, or a column-split root): a thin rail
+   at the shell's right edge carries the same stack. Part of the layout — a
+   flex sibling of the panes — never an overlay. */
+.shell > .shell-ports-rail {
+  flex: 0 0 auto;
+  position: relative;
+  width: 10px;
+  background: var(--border);
+  opacity: 0.9;
+}
+
+/* inline debugging ------------------------------------------------------- */
+/* The debugger dissolved into the block it debugs: a one-line strip above
+   the debugged editor, the stack in the strip's combo box and in the gutter,
+   watches and eval as end-of-line widgets. Nothing here may change how a
+   line of code wraps: every runtime annotation is appended AFTER line end. */
+
+/* The wrapper that stacks the strip over the editor inside a pane. */
+.debug-block {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.debug-block > .document-editor { flex: 1; }
+
+/* The strip itself: block chrome, one line, quiet until something happens. */
+.debug-strip {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.4rem;
+  padding: 0.25rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-raised);
+  font-size: 0.8rem;
+}
+.debug-strip__dot {
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 50%;
+  background: var(--fg-muted);
+}
+.debug-strip__dot--paused { background: var(--warn); }
+.debug-strip__dot--running,
+.debug-strip__dot--starting { background: var(--accent-2); }
+.debug-strip__dot--finished { background: var(--ok); }
+.debug-strip__dot--failed { background: var(--danger); }
+.debug-strip__status {
+  color: var(--fg-muted);
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 0.72rem;
+}
+.debug-strip__stop { color: var(--danger); }
+.debug-strip__stack {
+  max-width: 16rem;
+  padding: 0.15rem 0.3rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 0.72rem;
+}
+.debug-strip__watch-add {
+  border: 1px dashed var(--border);
+  border-radius: 4px;
+  background: transparent;
+  color: var(--fg-muted);
+  font: inherit;
+  font-size: 0.72rem;
+  padding: 0.1rem 0.4rem;
+  cursor: pointer;
+}
+.debug-strip__watch-add:hover { color: var(--fg); border-color: var(--fg-muted); }
+.debug-strip__watch {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  padding: 0.05rem 0.15rem 0.05rem 0.4rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 0.72rem;
+  color: var(--fg-muted);
+}
+.debug-strip__watch button {
+  border: 0;
+  background: transparent;
+  color: var(--fg-muted);
+  cursor: pointer;
+  padding: 0 0.2rem;
+}
+.debug-strip__watch button:hover { color: var(--danger); }
+.debug-strip__error {
+  border-left: 3px solid var(--danger);
+  padding-left: 0.5rem;
+  color: var(--fg);
+  font-size: 0.75rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 32rem;
+}
+
+/* A watched expression's value: the inline-value look, tinted apart so a
+   watch reads as something you asked for rather than something offered. */
+.cm-debug-watch {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+/* The gutter's stack marks select their frame on click. */
+.cm-frame-arrow { cursor: pointer; }
+
+/* Inline eval at the paused line: appended after line end like every other
+   runtime annotation, so wrapping is untouched. */
+.cm-eval { margin-left: 1.2rem; white-space: nowrap; }
+.cm-eval-toggle {
+  border: 1px dashed color-mix(in srgb, var(--fg-muted) 40%, transparent);
+  border-radius: 3px;
+  background: transparent;
+  color: var(--fg-muted);
+  font-size: 0.75em;
+  font-style: italic;
+  padding: 0 0.3rem;
+  cursor: pointer;
+  opacity: 0.7;
+}
+.cm-eval-toggle:hover { opacity: 1; color: var(--fg); }
+.cm-eval-input {
+  width: 14rem;
+  padding: 0 0.3rem;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 0.8em;
+}
+.cm-eval-result {
+  margin-left: 0.4rem;
+  padding: 0 0.3rem;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--accent-2) 10%, transparent);
+  color: var(--fg-muted);
+  font-size: 0.9em;
+  font-style: italic;
+  white-space: pre;
+}
+
+/* dual gutters and brace mode */
+
+/* Each editor's bordered box now holds two children side by side: the
+   CodeMirror host and the right line-number rail. The host takes the room;
+   the rail is a fixed column the ribbons anchor on. */
+.editor-cm-host {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+}
+/* The right rail: display-only line numbers, absolutely positioned per
+   viewport line by editor/RightRail.tsx. pointer-events: none — it must
+   never intercept a click, a drag, or a search; the numbers are for reading
+   ribbons against, nothing else. */
+.cm-right-rail {
+  position: relative;
+  flex: 0 0 auto;
+  overflow: hidden;
+  border-left: 1px solid var(--border);
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 0.72rem;
+  color: var(--fg-muted);
+  user-select: none;
+  pointer-events: none;
+}
+.cm-right-rail__line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  padding-left: 0.6ch;
+  /* Mirror of the left gutter: numbers hug the text they number. The left
+     gutter right-aligns (digits end at the code); this rail left-aligns
+     (digits start at the code). */
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+/* Hovered-ribbon line-number tint, on BOTH rails: the left gutter gets it
+   through the lineNumberMarkers facet (editor/lineHighlight.ts), the right
+   rail applies the same classes itself. Ribbon colour at low opacity, so the
+   involved numbers read as "these lines" without shouting. */
+.cm-linehl { border-radius: 3px; }
+.cm-linehl-c0 { background: color-mix(in srgb, var(--ribbon-0) 22%, transparent); }
+.cm-linehl-c1 { background: color-mix(in srgb, var(--ribbon-1) 22%, transparent); }
+.cm-linehl-c2 { background: color-mix(in srgb, var(--ribbon-2) 22%, transparent); }
+.cm-linehl-c3 { background: color-mix(in srgb, var(--ribbon-3) 22%, transparent); }
+.cm-linehl-c4 { background: color-mix(in srgb, var(--ribbon-4) 22%, transparent); }
+.cm-linehl-c5 { background: color-mix(in srgb, var(--ribbon-5) 22%, transparent); }
+
+/* Brace mode: a drawn curly brace per side (stroke, never fill) and a thin
+   nub-to-nub link, in the ribbon's colour at 0.75 opacity. */
+.ribbon-brace {
+  fill: none;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  opacity: 0.75;
+  pointer-events: none;
+  transition: opacity 0.12s ease;
+}
+.ribbon-brace-link { stroke-width: 1.75; }
+.ribbon-bc0 { stroke: var(--ribbon-0); }
+.ribbon-bc1 { stroke: var(--ribbon-1); }
+.ribbon-bc2 { stroke: var(--ribbon-2); }
+.ribbon-bc3 { stroke: var(--ribbon-3); }
+.ribbon-bc4 { stroke: var(--ribbon-4); }
+.ribbon-bc5 { stroke: var(--ribbon-5); }
+/* An off-screen endpoint clamped to the pane edge, same statement as the
+   faded band tail: there is more document above or below. */
+.ribbon-brace.ribbon-clamped { opacity: 0.4; stroke-dasharray: 3 3; }
+/* The forgiving hit target over the thin strokes: invisible, but wide enough
+   to hover and click the way a filled band can be. */
+.ribbon-brace-hit {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 12;
+  pointer-events: stroke;
+  cursor: pointer;
+}
+/* Braces ending on chrome are quieter than braces ending on real text, the
+   same statement the bands make (the :hover variants there cannot fire here
+   — the strokes ignore the pointer — so the group hover below brightens). */
+.ribbon-brace.ribbon-to-tab,
+.ribbon-brace.ribbon-to-port { opacity: 0.35; }
+.ribbon-group:hover .ribbon-brace { opacity: 1; }
+.ribbon-group:hover .ribbon-brace.ribbon-clamped { opacity: 0.6; }
+.ribbon-group:hover .ribbon-brace.ribbon-to-tab,
+.ribbon-group:hover .ribbon-brace.ribbon-to-port { opacity: 0.8; }
+
+/* The Ribbons / Braces toggle in the document toolbar: two labelled halves,
+   the pressed one filled, so the current choice reads without a click. */
+.ribbon-style-toggle {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.ribbon-style-toggle button {
+  border: none;
+  background: transparent;
+  color: var(--fg-muted);
+  font-size: 0.75rem;
+  padding: 0.2rem 0.55rem;
+  cursor: pointer;
+}
+.ribbon-style-toggle button + button { border-left: 1px solid var(--border); }
+.ribbon-style-toggle button[aria-pressed="true"] {
+  background: var(--neutral-bg);
+  color: var(--fg);
+}
+
+/* settings */
+/* The LLM API keys page (#/settings), plus the app-level menu notice.
+   Reuses the start page's centered column; only the rows are its own. */
+.settings__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+.settings__rows {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-raised);
+  overflow: hidden;
+}
+.settings-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 0.65rem 0.85rem;
+}
+.settings-row + .settings-row { border-top: 1px solid var(--border); }
+.settings-row__who {
+  flex: 0 0 11rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+.settings-row__label { font-weight: 600; font-size: 0.9rem; }
+.settings-row__state {
+  font-size: 0.72rem;
+  color: var(--fg-muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.settings-row__state.is-configured { color: var(--ok); }
+.settings-row__input {
+  flex: 1 1 10rem;
+  min-width: 0;
+  padding: 0.35rem 0.5rem;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg);
+  color: var(--fg);
+  font-size: 0.8rem;
+}
+.settings-row__actions {
+  display: flex;
+  gap: 0.35rem;
+  flex: none;
+}
+.settings__saved { color: var(--ok); font-size: 0.85rem; }
+.settings__note { margin-top: 1rem; font-size: 0.8rem; }
+
+/* "Open a document first" — the transient app-level note a menu pick leaves
+   when no document can answer it. */
+.menu-notice {
+  position: fixed;
+  bottom: 1rem;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 0.4rem 0.9rem;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-raised);
+  color: var(--fg);
+  font-size: 0.8rem;
+  box-shadow: 0 4px 16px rgb(0 0 0 / 0.25);
+  z-index: 100;
+}
+
+/* tab drag and drop */
+/* While a tab is in flight the shell root carries .shell--tab-drag: the
+   cursor says "carrying", nothing is selectable, and the ribbon overlay's
+   painted bands stop taking pointer events so elementFromPoint hit-testing
+   (and the drop itself) can never land on a band. The overlay is the
+   .shell's sibling inside .shell-host, hence the general-sibling selector. */
+.shell--tab-drag { cursor: grabbing; user-select: none; }
+.shell--tab-drag .shell-tab button { cursor: grabbing; }
+.shell--tab-drag ~ .ribbon-layer,
+.shell--tab-drag ~ .ribbon-layer * { pointer-events: none !important; }
+
+/* The zone preview: a tinted slice of the pane body — the third that would
+   become a new pane, or the whole body for "join this pane". Positioned in
+   the body, so the body becomes the containing block. */
+.shell-pane__body { position: relative; }
+.shell-drop {
+  position: absolute;
+  inset: 0;
+  z-index: 6;
+  pointer-events: none; /* invisible to the drag's own hit-testing */
+  background: color-mix(in srgb, var(--accent-2) 20%, transparent);
+  border: 1px solid color-mix(in srgb, var(--accent-2) 55%, transparent);
+}
+.shell-drop--left { right: 66.666%; }
+.shell-drop--right { left: 66.666%; }
+.shell-drop--top { bottom: 66.666%; }
+.shell-drop--bottom { top: 66.666%; }
+
+/* The insertion caret when the drag is over a tab bar: a thin accent bar at
+   the slot the tab would take. left is content-relative (includes the
+   strip's scrollLeft), so it stays with the tabs when the strip scrolls. */
+.shell-tabstrip { position: relative; }
+.shell-drop-caret {
+  position: absolute;
+  top: 1px;
+  bottom: 1px;
+  width: 2px;
+  margin-left: -1px;
+  z-index: 6;
+  pointer-events: none;
+  background: var(--accent);
+}
+
+/* folder tree */
+/* The open folder's files, as a pane (shell/FolderTreePane.tsx). One root
+   today; each root is its own section so several can stack later. */
+.folder-tree {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 0.25rem 0;
+  font-size: 0.82rem;
+}
+.folder-tree__loading,
+.folder-tree__error { padding: 0.5rem 0.6rem; }
+.folder-tree__header {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.2rem 0.4rem 0.3rem;
+}
+.folder-tree__name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+  color: var(--fg);
+}
+/* The way to a new document lives here now — the tree replaced the old
+   #/documents page, so its header carries that page's one action. */
+.folder-tree__new {
+  flex: none;
+  width: 1.25rem;
+  height: 1.25rem;
+  line-height: 1;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-raised);
+  color: var(--fg-muted);
+  cursor: pointer;
+}
+.folder-tree__new:hover { color: var(--fg); border-color: var(--accent); }
+.folder-tree__truncated { padding: 0 0.6rem 0.25rem; font-size: 0.75rem; }
+.folder-tree__list { list-style: none; margin: 0; padding: 0; }
+.folder-tree__dir,
+.folder-tree__file {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: none;
+  color: var(--fg);
+  padding-top: 0.14rem;
+  padding-bottom: 0.14rem;
+  padding-right: 0.4rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: pointer;
+  font-size: inherit;
+}
+.folder-tree__dir { color: var(--fg-muted); }
+.folder-tree__dir:hover,
+.folder-tree__file:hover { background: var(--bg-sunken); }
+.folder-tree__disclosure {
+  display: inline-block;
+  width: 0.9rem;
+  color: var(--fg-muted);
+}
+.folder-tree__file { padding-left: 0.4rem; }
+.folder-tree__file.on { color: var(--accent); }
+/* A file the app has no way to open: named, present, not pretending to be a
+   link. */
+.folder-tree__file--inert { color: var(--fg-muted); cursor: default; }
+.folder-tree__file--inert:hover { background: none; }
+
+/* The untitled buffer keeps the folder in view: an aside beside the editor,
+   standing in for the tree pane the document shell would give it. */
+.untitled-page { flex-direction: row; }
+.folder-tree-aside {
+  flex: none;
+  width: 14rem;
+  min-width: 10rem;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-right: 1px solid var(--border);
+  background: var(--bg-raised);
+}
+
+/* collapse strip and side tabs */
+/* A collapsed pane: the 36px icon strip that stands in its grid track
+   (shell/tabStrip.ts fixes the track; the strip only dresses it). */
+.shell-pane--collapsed {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  overflow: hidden;
+  padding: 0;
+}
+.shell-pane--collapsed-drop {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, var(--bg-raised));
+}
+.shell-strip__expand {
+  border: none;
+  border-bottom: 1px solid var(--border);
+  background: none;
+  color: var(--fg-muted);
+  font-size: 0.85rem;
+  line-height: 1;
+  padding: 0.35rem 0;
+  cursor: pointer;
+}
+.shell-strip__expand:hover { background: var(--bg); color: var(--fg); }
+.shell-strip__icons {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+.shell-strip__icon {
+  width: 28px;
+  height: 28px;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--fg-muted);
+  cursor: pointer;
+  padding: 0;
+}
+.shell-strip__icon:hover { background: var(--bg); color: var(--fg); }
+.shell-strip__icon--on {
+  color: var(--accent);
+  box-shadow: inset 2px 0 0 var(--accent);
+  background: var(--bg);
+}
+/* The extension monogram ("py", "md"): a tiny text badge, no icon library. */
+.shell-strip__mono {
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 0.58rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  border: 1px solid currentColor;
+  border-radius: 3px;
+  padding: 1px 2px;
+  line-height: 1;
+  text-transform: lowercase;
+}
+
+/* Side tabs: the pane's tabs down a left sidebar, grouped by folder
+   (shell/tabStrip.ts's groupTabsByFolder). The top strip becomes a spacer so
+   the pane controls keep their corner. */
+.shell-pane--side .shell-tabstrip--spacer { flex: 1; }
+.shell-pane__row {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: row;
+}
+.shell-sidetabs {
+  position: relative;
+  flex: none;
+  width: 180px;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 0.25rem 0.2rem;
+  overflow-y: auto;
+  overflow-x: hidden;
+  border-right: 1px solid var(--border);
+  background: var(--bg-raised);
+}
+/* A directory header: wayfinding, not a control. */
+.shell-sidetabs__dir {
+  padding: 0.3rem 0.3rem 0.1rem;
+  font-size: 0.62rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--fg-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* A side tab is the same .shell-tab (same data attributes, same drag), laid
+   out as a row instead of a top-strip cell. */
+.shell-tab--side {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  border-radius: 4px;
+}
+.shell-tab--side button {
+  flex: 1;
+  min-width: 0;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.shell-tab--side.shell-tab--on {
+  background: var(--bg);
+  box-shadow: inset 2px 0 0 var(--accent);
+}
+/* The insertion caret while a drag hovers the side tree: the top-strip
+   caret turned horizontal. */
+.shell-drop-caret--side {
+  left: 0.2rem;
+  right: 0.2rem;
+  bottom: auto;
+  width: auto;
+  height: 2px;
+  margin-left: 0;
+  margin-top: -1px;
+}
+
+/* ribbon polish -------------------------------------------------------------
+   Hover-revealed chrome terminals, tree-row terminals, and the reveal hit
+   strip. Connections that end on chrome (a tab, a folder-tree row, a
+   divider port) are NOT drawn by default — lines over text all the time
+   bury the text. Each one leaves an invisible hover strip on its source
+   band's rail edge; hovering it (or the revealed shapes, kept alive by a
+   short grace delay) draws the connection. Full pane-to-pane ribbons and
+   braces between visible text stay always-on. */
+
+/* The invisible hover region: the only always-present part of a hidden
+   connection. Transparent fill, but it takes the pointer — the layer around
+   it never does. */
+.ribbon-reveal-hit {
+  fill: transparent;
+  stroke: none;
+  pointer-events: all;
+  cursor: pointer;
+}
+
+/* Revealed shapes fade in rather than pop: the eye should find a line
+   growing from the block it was already reading. (Mounting starts the
+   animation; the class only marks the state for the transition below.) */
+.ribbon-group--revealed .ribbon,
+.ribbon-group--revealed .ribbon-brace,
+.ribbon-group--revealed .ribbon-connector {
+  animation: ribbon-reveal-fade 140ms ease;
+}
+@keyframes ribbon-reveal-fade {
+  from { opacity: 0; }
+}
+
+/* While revealed, a chrome-terminated connection is as legible as a hover
+   already made it: the quiet resting opacity below is for the old always-on
+   rendering and would read as broken now that showing IS hovering. */
+.ribbon-group--revealed .ribbon-to-tab,
+.ribbon-group--revealed .ribbon-to-tree,
+.ribbon-group--revealed .ribbon-to-port { opacity: 0.7; }
+.ribbon-group--revealed .ribbon-brace.ribbon-to-tab,
+.ribbon-group--revealed .ribbon-brace.ribbon-to-tree,
+.ribbon-group--revealed .ribbon-brace.ribbon-to-port { opacity: 0.8; }
+
+/* A connection ending on a folder-tree row: same statement as one ending on
+   a tab — chrome, quieter than real text, in the ribbon's colour. */
+.ribbon-to-tree { opacity: 0.3; }
+.ribbon-to-tree:hover { opacity: 0.7; }
+.ribbon-brace.ribbon-to-tree { opacity: 0.35; }
+.ribbon-group:hover .ribbon-brace.ribbon-to-tree { opacity: 0.8; }
+
+/* workspace */
+/* The untitled buffer as a workspace tab: stack the (optional) failure
+   banner over the editor and let the editor take the pane, same shape as
+   .debug-block for a document tab. */
+.untitled-tab {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.untitled-tab > .document-editor { flex: 1; }
+
+/* tab flash — "it's already open, HERE" (lib/flashTab.ts) */
+@keyframes hickory-tab-flash {
+  0%, 100% { box-shadow: none; }
+  30%, 70% { box-shadow: inset 0 0 0 100px color-mix(in srgb, var(--accent) 30%, transparent); }
+}
+.shell-tab--flash { animation: hickory-tab-flash 0.45s ease 2; }
+
+/* settings reorg */
+/* The Appearance section on #/settings: the display toggles moved out of the
+   document toolbar, dressed as ordinary settings rows. */
+.settings__appearance { margin-top: 1.75rem; }
+.settings__section-title {
+  font-size: 1rem;
+  font-weight: 600;
+  margin: 0 0 0.6rem;
+}
+.settings-row--appearance .ribbon-style-toggle { flex: none; }
+/* A disabled pane control (the collapse chevron on the last visible pane). */
+.shell-pane__controls button:disabled {
+  opacity: 0.35;
+  cursor: default;
+  background: none;
+  color: var(--fg-muted);
+}
+/* Side tabs: titles right-aligned toward the pane they name; the close
+   button keeps its slot at the row's end. */
+.shell-tab--side button { text-align: right; }
+.shell-tab--side .shell-tab__close { text-align: center; }
+
+/* change flash */
+/* Text that changed because of an edit somewhere else — an output edit
+   resolving into the document, or a re-weave landing in a generated pane.
+   The decoration is added by editor/changeFlash.ts and removed after the
+   fade; the fade itself is pure CSS, running once per mount. */
+@keyframes hickory-change-flash {
+  from { background-color: color-mix(in srgb, var(--accent) 32%, transparent); }
+  to { background-color: transparent; }
+}
+.cm-change-flash {
+  animation: hickory-change-flash 1.2s ease-out forwards;
+  border-radius: 2px;
+}
+
+/* doc toolbar */
+/* Per-document actions (Run, Verify) at the top of each document tab — a
+   slim strip in the debug strip's idiom: block chrome, one line, quiet.
+   These moved out of the workspace toolbar so each open document can be
+   run or verified on its own. */
+.doc-tab-toolbar {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.35rem;
+  margin-bottom: 0.4rem;
+  padding: 0.25rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-raised);
+  font-size: 0.8rem;
+}
+.doc-tab-toolbar .btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}

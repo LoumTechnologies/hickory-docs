@@ -7,9 +7,9 @@
 //! is computed from the file in front of us, which makes the local answers
 //! *fresher* than the hosted ones (which serve the last successful run).
 //!
-//! What is deliberately absent: billing, analytics, and the agent. A local
-//! session answers those with a static "not here" rather than 404, because the
-//! client asks for plans on load and a 404 would look like a broken deploy.
+//! What is deliberately absent: billing and analytics. The agent is real —
+//! see [`super::agent`] — the same ReAct loop `hick agent` runs, wired to the
+//! chat dock.
 
 use std::sync::Arc;
 
@@ -17,7 +17,7 @@ use axum::Json;
 use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use serde_json::{Value, json};
 
 use super::{LocalState, RunRecord};
@@ -41,6 +41,12 @@ impl ApiError {
     }
     pub fn forbidden(msg: impl Into<String>) -> Self {
         Self(StatusCode::FORBIDDEN, msg.into(), None)
+    }
+    pub fn conflict(msg: impl Into<String>) -> Self {
+        Self(StatusCode::CONFLICT, msg.into(), None)
+    }
+    pub fn unavailable(msg: impl Into<String>) -> Self {
+        Self(StatusCode::SERVICE_UNAVAILABLE, msg.into(), None)
     }
     pub fn internal(msg: impl Into<String>) -> Self {
         Self(StatusCode::INTERNAL_SERVER_ERROR, msg.into(), None)
@@ -324,6 +330,159 @@ pub async fn structure(State(state): State<LocalState>) -> ApiResult<Json<Value>
     })))
 }
 
+// ---------------------------------------------------------------------------
+// The folder tree
+// ---------------------------------------------------------------------------
+
+/// One entry in the `GET /api/files` tree. Serialized shape:
+/// `{"name", "path", "dir", "doc_id"?, "children"?}` — `doc_id` only on
+/// `.hick` files, `children` only on directories.
+#[derive(serde::Serialize)]
+struct TreeNode {
+    name: String,
+    /// Root-relative, forward slashes on every platform.
+    path: String,
+    dir: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    doc_id: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    children: Option<Vec<TreeNode>>,
+}
+
+/// A folder tree past this many entries answers what it has, flagged
+/// `"truncated": true`, instead of walking (and shipping) a monster.
+const FILE_TREE_CAP: usize = 10_000;
+
+/// `GET /api/files` — the served root's file tree, for the folder pane.
+///
+/// Names only, never contents. Gitignore-aware, and skips what the search
+/// index skips (hidden files, `.hick-cache`, `node_modules`), so the tree and
+/// search agree on which files exist.
+pub async fn files(State(state): State<LocalState>) -> ApiResult<Json<Value>> {
+    let root_name = state
+        .index
+        .root()
+        .file_name()
+        .map(|n| n.to_string_lossy().to_string())
+        .unwrap_or_else(|| "hick".to_string());
+    let root = state.index.root().to_path_buf();
+    let index = state.index.clone();
+    // Walking a working tree is filesystem work; keep it off the runtime.
+    let (tree, truncated) = tokio::task::spawn_blocking(move || file_tree(&root, &index))
+        .await
+        .map_err(|e| ApiError::internal(format!("file listing task failed: {e}")))?;
+    Ok(Json(json!({
+        "root": root_name,
+        "tree": tree,
+        "truncated": truncated,
+    })))
+}
+
+/// Walk the root and assemble the tree. Same walker configuration as
+/// `hick-search`'s indexer: gitignore honoured even outside a git repository,
+/// hidden files (which covers `.git`) skipped, `.hick-cache` and
+/// `node_modules` never entered.
+fn file_tree(root: &std::path::Path, index: &super::store::DocIndex) -> (Vec<TreeNode>, bool) {
+    let mut top: Vec<TreeNode> = Vec::new();
+    let mut count = 0usize;
+    let mut truncated = false;
+    let walker = ignore::WalkBuilder::new(root)
+        .hidden(true)
+        .git_ignore(true)
+        // Honour .gitignore files even when the root is not (yet) a git
+        // repository — the intent of the file is the same either way.
+        .require_git(false)
+        .git_global(false)
+        .filter_entry(|e| e.file_name() != ".hick-cache" && e.file_name() != "node_modules")
+        .build();
+    for entry in walker.flatten() {
+        let Ok(rel) = entry.path().strip_prefix(root) else {
+            continue;
+        };
+        if rel.as_os_str().is_empty() {
+            // The walker yields the root itself first; the tree starts below it.
+            continue;
+        }
+        let file_type = entry.file_type();
+        let dir = file_type.is_some_and(|t| t.is_dir());
+        if !dir && !file_type.is_some_and(|t| t.is_file()) {
+            continue; // broken symlinks and other non-files
+        }
+        if count >= FILE_TREE_CAP {
+            truncated = true;
+            break;
+        }
+        count += 1;
+        // Forward slashes even on Windows: the path is a tree key and a
+        // display string, not an OS path.
+        let rel = rel.to_string_lossy().replace('\\', "/");
+        insert_tree_node(&mut top, &rel, dir, index);
+    }
+    sort_tree(&mut top);
+    (top, truncated)
+}
+
+/// Place one walked entry. The walker yields a directory before its contents,
+/// so ancestors already exist; they are still created on demand so a missed
+/// parent can never panic the listing.
+fn insert_tree_node(top: &mut Vec<TreeNode>, rel: &str, dir: bool, index: &super::store::DocIndex) {
+    let mut siblings = top;
+    let mut parts = rel.split('/').peekable();
+    let mut prefix = String::new();
+    while let Some(part) = parts.next() {
+        if !prefix.is_empty() {
+            prefix.push('/');
+        }
+        prefix.push_str(part);
+        if parts.peek().is_none() {
+            // `index.add` rather than `id_for_path`: the startup scan only saw
+            // documents that existed then, and a `.hick` file it missed must
+            // still be openable the moment the tree shows it.
+            let doc_id = (!dir && rel.ends_with(".hick")).then(|| index.add(rel));
+            siblings.push(TreeNode {
+                name: part.to_string(),
+                path: prefix.clone(),
+                dir,
+                doc_id,
+                children: dir.then(Vec::new),
+            });
+            return;
+        }
+        let pos = siblings
+            .iter()
+            .position(|n| n.dir && n.name == part)
+            .unwrap_or_else(|| {
+                siblings.push(TreeNode {
+                    name: part.to_string(),
+                    path: prefix.clone(),
+                    dir: true,
+                    doc_id: None,
+                    children: Some(Vec::new()),
+                });
+                siblings.len() - 1
+            });
+        siblings = siblings[pos]
+            .children
+            .as_mut()
+            .expect("directory nodes always carry children");
+    }
+}
+
+/// Directories first, then files, both case-insensitive alphabetical — the
+/// order every file pane a user has ever seen puts them in.
+fn sort_tree(nodes: &mut [TreeNode]) {
+    nodes.sort_by(|a, b| {
+        b.dir
+            .cmp(&a.dir)
+            .then_with(|| a.name.to_lowercase().cmp(&b.name.to_lowercase()))
+    });
+    for node in nodes {
+        if let Some(children) = &mut node.children {
+            sort_tree(children);
+        }
+    }
+}
+
 #[derive(Deserialize)]
 pub struct FileQuery {
     pub path: String,
@@ -527,33 +686,232 @@ pub async fn executor(State(state): State<LocalState>) -> Json<Value> {
     Json(json!({ "kind": state.executor_kind(), "images": Value::Null }))
 }
 
+#[derive(Deserialize)]
+pub struct SearchParams {
+    q: String,
+    #[serde(default = "default_search_k")]
+    k: usize,
+}
+
+fn default_search_k() -> usize {
+    12
+}
+
+/// `GET /api/search?q=…&k=…` — project-wide search over the served folder.
+///
+/// Lexical (BM25) always; semantic as well when the project has an embedding
+/// model installed (`hick search --install-model`). The response says which,
+/// so the client can offer the upgrade instead of silently ranking worse.
+pub async fn search(
+    State(state): State<LocalState>,
+    Query(params): Query<SearchParams>,
+) -> ApiResult<Json<Value>> {
+    let query = params.q.trim().to_string();
+    if query.is_empty() {
+        return Err(ApiError::bad_request(
+            "the search query q= must not be empty",
+        ));
+    }
+    let k = params.k.clamp(1, 50);
+    let root = state.index.root().to_path_buf();
+    let shared = state.search.clone();
+    // Index refresh and embedding are CPU work; keep them off the runtime.
+    let (semantic, hits) = tokio::task::spawn_blocking(move || -> anyhow::Result<_> {
+        let mut slot = shared.lock().expect("search mutex poisoned");
+        // Build once; after that only re-walk for changed files. If a model
+        // was installed since the engine was built, rebuild to pick it up.
+        let rebuild = match slot.as_ref() {
+            None => true,
+            Some(engine) => !engine.semantic() && hick_search::model_available(&root),
+        };
+        if rebuild {
+            *slot = Some(hick_search::SearchEngine::open(&root)?);
+        } else if let Some(engine) = slot.as_mut() {
+            engine.refresh()?;
+        }
+        let engine = slot.as_ref().expect("just built");
+        let hits = engine.search(&query, k);
+        Ok((engine.semantic(), hits))
+    })
+    .await
+    .map_err(|e| ApiError::internal(format!("search task failed: {e}")))?
+    .map_err(|e| ApiError::unprocessable(format!("{e:#}")))?;
+
+    Ok(Json(json!({ "semantic": semantic, "hits": hits })))
+}
+
 /// `GET /api/health`
 pub async fn health(State(state): State<LocalState>) -> Json<Value> {
     Json(json!({ "ok": true, "executor": state.executor_kind(), "db": false }))
 }
 
-#[derive(Serialize)]
-pub struct Unavailable {
-    pub error: String,
+// ---------------------------------------------------------------------------
+// Settings: LLM provider keys
+// ---------------------------------------------------------------------------
+
+/// The listing both key routes answer with. Key material never crosses the
+/// wire: `configured` and a masked fragment (first 4 + last 2 characters at
+/// most, nothing for short keys) are all the Settings page needs to render
+/// "a key is installed" — the user already has the value; they got it from
+/// the vendor.
+///
+/// `configured` counts the environment too, store first — the same
+/// precedence the agent route resolves with — so the page tells the truth
+/// about whether the agent would run, not just about this one file.
+fn keys_listing(store: &hickory_agent::KeyStore) -> Value {
+    let providers: Vec<Value> = hickory_agent::ProviderSelection::all()
+        .into_iter()
+        .map(|sel| {
+            let key = store.key_for(sel.name()).or_else(|| {
+                std::env::var(sel.key_env())
+                    .ok()
+                    .filter(|k| !k.trim().is_empty())
+            });
+            json!({
+                "id": sel.name(),
+                "label": sel.label(),
+                "configured": key.is_some(),
+                "masked": key.as_deref().map(hickory_agent::masked_key),
+            })
+        })
+        .collect();
+    json!({ "providers": providers })
 }
 
-/// The agent endpoints, absent locally.
-pub async fn agent_unavailable() -> (StatusCode, Json<Unavailable>) {
-    (
-        StatusCode::SERVICE_UNAVAILABLE,
-        Json(Unavailable {
-            error: "the hosted agent is not part of a local session — run `hick agent \"…\"` \
-                    in this directory instead, or open the document on hickorydocs.com"
-                .to_string(),
-        }),
-    )
+/// `GET /api/settings/keys` — every provider, whether a key is configured,
+/// and a masked fragment. Never the key itself.
+pub async fn get_settings_keys(State(state): State<LocalState>) -> Json<Value> {
+    let store = state.keys.store.read().expect("key store lock poisoned");
+    Json(keys_listing(&store))
 }
 
-/// `GET /api/docs/:id/agent/turns` — no conversation exists locally, and an
-/// empty list is the truthful answer (the panel renders empty rather than
-/// erroring).
-pub async fn agent_turns() -> Json<Value> {
-    Json(json!({ "turns": [] }))
+/// `PUT /api/settings/keys` — set or clear keys for the named providers
+/// only: `{"anthropic": "sk-new", "openai": null}`. Everything is validated
+/// before anything is applied, the file is persisted (0600 on Unix), and the
+/// in-memory store is swapped so the next agent turn uses the new key with
+/// no restart. Answers the same listing `GET` does.
+pub async fn put_settings_keys(
+    State(state): State<LocalState>,
+    Json(body): Json<Value>,
+) -> ApiResult<Json<Value>> {
+    let Value::Object(entries) = body else {
+        return Err(ApiError::bad_request(
+            "the body must be a JSON object mapping provider ids to a key string \
+             (to set) or null (to clear), e.g. {\"anthropic\": \"sk-…\"}",
+        ));
+    };
+
+    // Stage on a copy so a bad entry — or a failed write — changes nothing:
+    // the live store never holds half of a rejected request.
+    let mut staged = state
+        .keys
+        .store
+        .read()
+        .expect("key store lock poisoned")
+        .clone();
+    for (id, value) in &entries {
+        let key = match value {
+            Value::Null => None,
+            Value::String(s) => Some(s.clone()),
+            // Deliberately vague about the value: it may be a mistyped key,
+            // and an error body is a thing that gets pasted into bug reports.
+            _ => {
+                return Err(ApiError::bad_request(format!(
+                    "the value for {id:?} must be a key string, or null to clear it"
+                )));
+            }
+        };
+        staged
+            .set(id, key)
+            .map_err(|e| ApiError::bad_request(format!("{e:#}")))?;
+    }
+
+    if let Some(path) = &state.keys.path {
+        // The error carries the path and the OS failure, never key material.
+        staged.save(path).map_err(|e| {
+            ApiError::internal(format!(
+                "could not save the key file: {e:#}. Check that the directory is \
+                 writable and the disk is not full; the keys were not changed."
+            ))
+        })?;
+    }
+
+    let listing = keys_listing(&staged);
+    *state.keys.store.write().expect("key store lock poisoned") = staged;
+    Ok(Json(listing))
+}
+
+/// What GET and PUT `/api/settings/ui` both answer.
+fn ui_listing(store: &crate::serve::UiStore) -> Value {
+    json!({ "window_title": store.window_title })
+}
+
+/// `GET /api/settings/ui` — the UI settings: the custom window title, or
+/// null for the default. Mirrors `/api/settings/keys`.
+pub async fn get_settings_ui(State(state): State<LocalState>) -> Json<Value> {
+    let store = state.ui.store.read().expect("ui settings lock poisoned");
+    Json(ui_listing(&store))
+}
+
+/// `PUT /api/settings/ui` — set or clear the custom window title:
+/// `{"window_title": "My Notes"}` or `{"window_title": null}`. Everything is
+/// validated before anything is applied, the file is persisted (`ui.json`
+/// beside `llm-keys.json`), and the in-memory store is swapped so the page's
+/// next read sees the new value with no restart. Answers the same listing
+/// `GET` does. (The NATIVE window title is read from the file at the next
+/// desktop launch; live native updates are out of scope — see
+/// apps/desktop/src-tauri/src/lib.rs.)
+pub async fn put_settings_ui(
+    State(state): State<LocalState>,
+    Json(body): Json<Value>,
+) -> ApiResult<Json<Value>> {
+    let Value::Object(entries) = body else {
+        return Err(ApiError::bad_request(
+            "the body must be a JSON object, e.g. {\"window_title\": \"My Notes\"} \
+             to set a custom window title or {\"window_title\": null} to clear it",
+        ));
+    };
+
+    // Stage on a copy so a bad entry — or a failed write — changes nothing.
+    let mut staged = state
+        .ui
+        .store
+        .read()
+        .expect("ui settings lock poisoned")
+        .clone();
+    for (field, value) in &entries {
+        match (field.as_str(), value) {
+            ("window_title", Value::Null) => staged.window_title = None,
+            ("window_title", Value::String(s)) => {
+                let trimmed = s.trim();
+                staged.window_title = (!trimmed.is_empty()).then(|| trimmed.to_string());
+            }
+            ("window_title", _) => {
+                return Err(ApiError::bad_request(
+                    "window_title must be a string, or null to clear it",
+                ));
+            }
+            (other, _) => {
+                return Err(ApiError::bad_request(format!(
+                    "unknown UI setting {other:?}; the only setting is \"window_title\""
+                )));
+            }
+        }
+    }
+
+    if let Some(path) = &state.ui.path {
+        staged.save(path).map_err(|e| {
+            ApiError::internal(format!(
+                "could not save the UI settings file: {e:#}. Check that the \
+                 directory is writable and the disk is not full; the settings \
+                 were not changed."
+            ))
+        })?;
+    }
+
+    let listing = ui_listing(&staged);
+    *state.ui.store.write().expect("ui settings lock poisoned") = staged;
+    Ok(Json(listing))
 }
 
 /// Arc-friendly alias used by the router module.

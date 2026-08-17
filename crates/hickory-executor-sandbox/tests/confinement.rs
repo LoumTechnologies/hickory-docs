@@ -262,3 +262,35 @@ async fn the_transcript_records_the_cell_not_the_sandbox() {
         "the sandbox leaked into the transcript: {recorded}"
     );
 }
+
+// Protects docs/guarantees/execution/a-cell-cannot-hang-a-run.md — the
+// timeout must survive the sandbox wrapper, group-kill included.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_confined_cell_is_killed_at_its_timeout() {
+    if !available() {
+        return;
+    }
+    let executor = started().await;
+    let started_at = std::time::Instant::now();
+    let err = executor
+        .execute_with_options(
+            "c",
+            "sleep 30",
+            None,
+            hickory_executor::ExecOptions {
+                timeout: Some(std::time::Duration::from_millis(300)),
+            },
+        )
+        .await
+        .expect_err("a confined cell sleeping past its limit must fail");
+    assert!(
+        started_at.elapsed() < std::time::Duration::from_secs(10),
+        "the failure must arrive near the limit"
+    );
+    let msg = err.to_string();
+    assert!(msg.contains("timed out"), "{msg}");
+    assert!(
+        msg.contains("sleep 30") && !msg.contains("--ro-bind"),
+        "the error names the cell as written, not the sandbox wrapper: {msg}"
+    );
+}

@@ -113,6 +113,10 @@ pub struct UpConfig {
     /// Execute exec cells on every change instead of weaving from recorded
     /// transcripts.
     pub run: bool,
+    /// Executor for `--run` (`HICKORY_EXECUTOR`, default sandbox). The
+    /// always-on loop must not be quietly less confined than a one-shot
+    /// `hick run` of the same document.
+    pub executor: ExecutorChoice,
 }
 
 impl UpConfig {
@@ -302,7 +306,11 @@ pub async fn run(config: UpConfig) -> Result<()> {
 /// that does not parse is still a document being watched: recording its text
 /// is what makes the *next* save of it register as a change, so fixing the
 /// error brings it back without restarting the loop.
-async fn weave_document(doc: &Path, config: &UpConfig, state: &mut WovenState) -> Result<()> {
+pub(crate) async fn weave_document(
+    doc: &Path,
+    config: &UpConfig,
+    state: &mut WovenState,
+) -> Result<()> {
     weave_document_as(doc, config.mode(), config, state).await
 }
 
@@ -319,7 +327,7 @@ async fn weave_document_as(
     if let Ok(source) = std::fs::read_to_string(doc) {
         state.record_doc(doc.to_path_buf(), source);
     }
-    let run = run_doc(doc, &config.params, mode, ExecutorChoice::Local).await?;
+    let run = run_doc(doc, &config.params, mode, config.executor).await?;
 
     let base = doc.parent().unwrap_or(Path::new(".")).to_path_buf();
     let mut produced: HashSet<PathBuf> = HashSet::new();
@@ -334,7 +342,7 @@ async fn weave_document_as(
             continue;
         };
         let provenance = output_lineage(&run, rel_path).unwrap_or_default();
-        let full = base.join(rel_path);
+        let full = crate::contained_output_path(&base, rel_path)?;
         produced.insert(full.clone());
         state.write_output(
             &full,
@@ -349,6 +357,16 @@ async fn weave_document_as(
 
     state.retain_outputs_of(doc, &produced);
     state.record_doc(doc.to_path_buf(), run.source.clone());
+    // Included/upstream files are documents too: provenance can name them as
+    // an edit's destination, and the staleness guard in
+    // `reverse::apply_to_documents` can only protect a document whose
+    // at-weave-time text was recorded. The table's paths are canonical, which
+    // is also how provenance spells them.
+    for spliced in &run.result.span_files {
+        if let Ok(source) = std::fs::read_to_string(spliced) {
+            state.record_doc(PathBuf::from(spliced), source);
+        }
+    }
 
     if config.run && !run.result.never_run.is_empty() {
         eprintln!(
@@ -377,7 +395,7 @@ async fn establish_baselines(docs: &[PathBuf], config: &UpConfig, state: &mut Wo
 /// edit rewrites the document it came from, so consuming edits before
 /// re-weaving means one weave covers both the user's document edits and the
 /// edits carried back out of the generated files.
-async fn handle_batch(
+pub(crate) async fn handle_batch(
     batch: HashSet<PathBuf>,
     config: &UpConfig,
     state: &mut WovenState,

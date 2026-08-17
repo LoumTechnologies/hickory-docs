@@ -44,6 +44,11 @@ pub struct Session {
     pub url: String,
     /// Held for the process's lifetime. Dropping it releases the directory.
     _lock: DirectoryLock,
+    /// The in-app up-loop (`local-only.md`: "the desktop app runs the
+    /// up-loop and the rooms in one process"). Dropping it asks the loop to
+    /// stop and clear its read-only marks; if the process dies before that
+    /// lands, `write_outputs` clears marks defensively on the next run.
+    _watch: hickory_cli::serve::watch::WatchGuard,
 }
 
 /// A folder named explicitly by whoever started the app.
@@ -68,6 +73,13 @@ pub fn named_dir() -> Option<PathBuf> {
 /// Where the last opened folder is remembered.
 fn recent_file(config_dir: &Path) -> PathBuf {
     config_dir.join("last-folder.txt")
+}
+
+/// Where the UI settings (`{"window_title": …}`) persist — the file behind
+/// `GET/PUT /api/settings/ui`, and what the launch sequence reads for the
+/// native window title.
+pub fn ui_settings_file(config_dir: &Path) -> PathBuf {
+    config_dir.join("ui.json")
 }
 
 /// The folder this app last opened successfully, if it still exists.
@@ -99,7 +111,14 @@ pub fn remember(config_dir: &Path, dir: &Path) {
 /// Binds port 0: the app has no reason to want a particular port, and asking
 /// for one means failing to start because something unrelated already holds
 /// it.
-pub async fn start(target: &Path) -> Result<Session> {
+///
+/// `config_dir` is where the app keeps its own state; when present, the LLM
+/// provider keys the Settings page manages persist there as
+/// `llm-keys.json`. A desktop app is launched from a dock, where no shell
+/// profile exports anything, so its keys cannot live in environment
+/// variables the way the CLI's do. `None` (no config dir on this platform)
+/// degrades to env-only.
+pub async fn start(target: &Path, config_dir: Option<&Path>) -> Result<Session> {
     // The lock protects a WORKING DIRECTORY: two processes weaving the same
     // folder would each read the other's writes as the user's edits. A single
     // document's working directory is the folder it sits in — locking the
@@ -117,8 +136,18 @@ pub async fn start(target: &Path) -> Result<Session> {
         port: 0,
         params: Vec::new(),
         executor: ExecutorChoice::from_env()?,
+        key_store_path: config_dir.map(|dir| dir.join("llm-keys.json")),
+        // UI settings (the custom window title) persist beside the keys;
+        // ui_settings_file() is the same path the launch sequence reads to
+        // name the native window before any page exists.
+        ui_settings_path: config_dir.map(ui_settings_file),
     })
     .await?;
+
+    // The up-loop runs beside the rooms: external edits (vim, formatters,
+    // coding agents) reconcile into the live editor, and edits saved in
+    // generated files carry back into their documents while the app is open.
+    let watch = hickory_cli::serve::watch::spawn(prepared.state.clone())?;
 
     // The UI is the fallback, so every `/api` route the CLI defined wins and
     // anything else is a page request.
@@ -144,6 +173,7 @@ pub async fn start(target: &Path) -> Result<Session> {
     Ok(Session {
         url: format!("http://{bound}"),
         _lock: lock,
+        _watch: watch,
     })
 }
 

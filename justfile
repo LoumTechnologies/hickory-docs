@@ -52,11 +52,6 @@ site:
     echo "Serves /install.sh — note that the installer pulls from GitHub releases,"
     echo "which strangers can only reach once the repository is public."
 
-# Mint a KEY_ENCRYPTION_KEY (encrypts accounts' own provider API keys).
-# One per environment; replacing it invalidates every stored key.
-gen-key:
-    @cargo run -q -p hickory-server --bin gen-key
-
 # Hot-reloads the UI; the engine runs in the app's own process; closing the
 # window stops everything.
 # The desktop app, in dev mode, on a seeded scratch project.

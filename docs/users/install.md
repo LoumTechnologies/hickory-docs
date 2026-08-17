@@ -80,6 +80,14 @@ Running a document is a different question, because local execution runs each
 cell against **your** host toolchain — `image=` is recorded and ignored (see
 the README).
 
+- **A sandbox.** Cells run confined by default. On Linux that means
+  [bubblewrap](https://github.com/containers/bubblewrap) (`sudo apt install
+  bubblewrap`, `dnf install bubblewrap`, …); macOS uses the system's built-in
+  `sandbox-exec`, which needs no install. Without it, `hick run`/`hick test`
+  refuse with instructions rather than running unconfined; set
+  `HICKORY_EXECUTOR=local` only if you accept unsandboxed execution. On
+  Ubuntu 24.04+, AppArmor may also need
+  `sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0`.
 - **`sh`.** Every cell is executed through a POSIX shell. macOS and Linux have
   one. On Windows, use Git Bash or WSL; `hick --version`, `--help`, and the
   parser work without one, but executing a document does not.

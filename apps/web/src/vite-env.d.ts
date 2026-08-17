@@ -8,7 +8,6 @@
 interface ImportMetaEnv {
   /** `1` → the mock profile: no network at all. */
   readonly VITE_MOCK?: string;
-  /** `1` → this build is served by the hosted app (accounts, billing). */
   /** PostHog project write key (`phc_…`). Absent → no browser capture. */
   readonly VITE_POSTHOG_KEY?: string;
   readonly VITE_POSTHOG_HOST?: string;

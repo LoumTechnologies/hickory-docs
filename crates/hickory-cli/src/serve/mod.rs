@@ -27,11 +27,13 @@
 //! Sharing is not a feature this product has — not disabled, not deferred.
 //! See `docs/specs/freeform/local-only.md`.
 
+pub mod agent;
 pub mod api;
 pub mod debug_bridge;
 pub mod lsp_bridge;
 pub mod socket;
 pub mod store;
+pub mod watch;
 
 use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
@@ -64,6 +66,16 @@ pub struct ServeOptions {
     pub params: Vec<(String, String)>,
     /// Executor for runs (`HICKORY_EXECUTOR`).
     pub executor: ExecutorChoice,
+    /// Where the desktop app's Settings page persists LLM provider keys
+    /// (`<app config dir>/llm-keys.json`). `None` — the CLI and the tests —
+    /// means no file: keys come from the environment alone, exactly as
+    /// before this field existed.
+    pub key_store_path: Option<PathBuf>,
+    /// Where the desktop app's Settings page persists UI settings — today
+    /// the custom window title (`<app config dir>/ui.json`, beside
+    /// `llm-keys.json`). `None` — the CLI — means nothing persists: the
+    /// routes still answer, with defaults.
+    pub ui_settings_path: Option<PathBuf>,
 }
 
 /// One recorded run, in the shape `GET /api/runs/:id` returns.
@@ -82,6 +94,76 @@ pub struct LocalState {
     pub runs: Arc<Mutex<HashMap<String, RunRecord>>>,
     pub params: Arc<Vec<(String, String)>>,
     pub executor: ExecutorChoice,
+    /// The project search engine, built on first use and reused: reopening
+    /// per request would re-parse the whole embedding index every query.
+    /// std Mutex, always locked inside `spawn_blocking`.
+    pub search: Arc<std::sync::Mutex<Option<hick_search::SearchEngine>>>,
+    /// The in-app agent's conversation trees and test seam. See
+    /// [`agent::AgentHub`].
+    pub agent: Arc<agent::AgentHub>,
+    /// The store behind the rooms, kept here for its echo test
+    /// ([`store::FileDocStore::was_own_write`]) — the in-app up-loop must
+    /// not mistake the rooms' own persists for external edits.
+    pub store: Arc<FileDocStore>,
+    /// The LLM provider keys the Settings page manages, and where they
+    /// persist. See [`KeySettings`].
+    pub keys: Arc<KeySettings>,
+    /// The UI settings the Settings page manages, and where they persist.
+    /// See [`UiSettings`].
+    pub ui: Arc<UiSettings>,
+}
+
+/// The session's provider-key settings: the live store the agent route reads
+/// (so a key saved in Settings works on the very next turn, no restart), and
+/// the file it persists to (`None` = env-only, the CLI's mode).
+pub struct KeySettings {
+    pub store: std::sync::RwLock<hickory_agent::KeyStore>,
+    pub path: Option<PathBuf>,
+}
+
+/// The session's UI settings — mirrors [`KeySettings`]: a live store the
+/// routes read and write, and the file it persists to (`None` = in-memory
+/// only, the CLI's mode).
+pub struct UiSettings {
+    pub store: std::sync::RwLock<UiStore>,
+    pub path: Option<PathBuf>,
+}
+
+/// What `ui.json` holds: `{"window_title": string|null}`. The desktop shell
+/// reads this file directly at launch to name the native window before any
+/// page has loaded; the page reads it over `GET /api/settings/ui` for the
+/// in-window `document.title`.
+#[derive(Clone, Default, serde::Serialize, serde::Deserialize)]
+pub struct UiStore {
+    /// Custom window title; `None` means the default (the folder's name).
+    #[serde(default)]
+    pub window_title: Option<String>,
+}
+
+impl UiStore {
+    /// Read the file, tolerating its absence (a fresh install has none).
+    /// A file that exists but does not parse is an error naming the file —
+    /// silently discarding a setting the user made is worse than failing
+    /// where the cause is visible.
+    pub fn load(path: &Path) -> Result<Self> {
+        match std::fs::read_to_string(path) {
+            Ok(raw) => serde_json::from_str(&raw)
+                .with_context(|| format!("unreadable UI settings in {}", path.display())),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(Self::default()),
+            Err(e) => Err(e).with_context(|| format!("reading {}", path.display())),
+        }
+    }
+
+    /// Persist, creating the parent directory on first save.
+    pub fn save(&self, path: &Path) -> Result<()> {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)
+                .with_context(|| format!("creating {}", parent.display()))?;
+        }
+        let body = serde_json::to_string_pretty(self).context("encoding UI settings")?;
+        store::write_atomic(path, body.as_bytes())
+            .with_context(|| format!("writing {}", path.display()))
+    }
 }
 
 impl LocalState {
@@ -295,9 +377,19 @@ fn router(state: LocalState) -> Router {
         .route("/docs/{id}/outputs/edit", post(api::edit_outputs))
         .route("/docs/{id}/run", post(api::run_doc))
         .route("/docs/{id}/check", post(api::check_doc))
-        .route("/docs/{id}/agent", post(api::agent_unavailable))
-        .route("/docs/{id}/agent/turns", get(api::agent_turns))
+        .route("/docs/{id}/agent", post(agent::start_turn))
+        .route("/docs/{id}/agent/turns", get(agent::list_turns))
         .route("/runs/{id}", get(api::get_run))
+        .route(
+            "/settings/keys",
+            get(api::get_settings_keys).put(api::put_settings_keys),
+        )
+        .route(
+            "/settings/ui",
+            get(api::get_settings_ui).put(api::put_settings_ui),
+        )
+        .route("/files", get(api::files))
+        .route("/search", get(api::search))
         .route("/structure", get(api::structure))
         .route("/executor", get(api::executor))
         .route("/health", get(api::health))
@@ -336,25 +428,46 @@ pub async fn prepare(opts: ServeOptions) -> Result<Prepared> {
     // the directory that contains it: rooms and path resolution work from the
     // root, so a single-file session can still follow `hick:upstream` beside
     // it.
-    let found = DocIndex::scan(&target)
-        .map(|index| index.entries().len())
-        .unwrap_or(0);
-    if found == 0 {
-        anyhow::bail!(
-            "no .hick documents to open under {}\n\
-             Point this at a document, or at a directory containing one.",
-            target.display()
-        );
-    }
+    // An empty folder is a valid session, not an error: it is the app's
+    // first-run state (the default workspace starts with no documents, and
+    // the UI lands on a fresh untitled one). A FILE target that does not
+    // exist is still refused below by DocIndex::scan.
     let index = Arc::new(DocIndex::scan(&root)?);
+
+    // Provider keys load before the first request so a bad file fails here,
+    // with the file named, rather than as a mystery 500 on the first agent
+    // turn. No path (the CLI) means an empty store: every store-aware code
+    // path then degrades to exactly the env-only behavior.
+    let key_store = match &opts.key_store_path {
+        Some(path) => hickory_agent::KeyStore::load(path)?,
+        None => hickory_agent::KeyStore::default(),
+    };
+
+    // Same story for the UI settings: a bad file fails here, named, rather
+    // than as a mystery on the first Settings visit.
+    let ui_store = match &opts.ui_settings_path {
+        Some(path) => UiStore::load(path)?,
+        None => UiStore::default(),
+    };
 
     let store = FileDocStore::new(index.clone());
     let state = LocalState {
+        store: store.clone(),
         index: index.clone(),
         rooms: Arc::new(RoomRegistry::new(store)),
         runs: Arc::new(Mutex::new(HashMap::new())),
         params: Arc::new(opts.params),
         executor: opts.executor,
+        search: Arc::new(std::sync::Mutex::new(None)),
+        agent: Arc::new(agent::AgentHub::default()),
+        keys: Arc::new(KeySettings {
+            store: std::sync::RwLock::new(key_store),
+            path: opts.key_store_path,
+        }),
+        ui: Arc::new(UiSettings {
+            store: std::sync::RwLock::new(ui_store),
+            path: opts.ui_settings_path,
+        }),
     };
 
     Ok(Prepared {
@@ -394,7 +507,7 @@ pub async fn serve(opts: ServeOptions) -> Result<()> {
 // Small helpers
 // ---------------------------------------------------------------------------
 
-fn now_rfc3339() -> String {
+pub(crate) fn now_rfc3339() -> String {
     let secs = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_secs())
@@ -411,7 +524,7 @@ fn now_rfc3339() -> String {
 }
 
 /// A run id. Uniqueness within one process is all this needs.
-fn rand_id() -> u64 {
+pub(crate) fn rand_id() -> u64 {
     use std::sync::atomic::{AtomicU64, Ordering};
     static COUNTER: AtomicU64 = AtomicU64::new(1);
     let n = COUNTER.fetch_add(1, Ordering::Relaxed);

@@ -61,9 +61,12 @@ if [ "$TARGET" != "$HOST_TARGET" ]; then
 fi
 (
   cd apps/desktop/src-tauri
+  # macOS runners ship bash 3.2, where expanding an empty array under `set -u`
+  # is an "unbound variable" error; the ${arr[@]+...} form is the portable
+  # spelling of "expand only if non-empty".
   cargo tauri build \
     --config "{\"version\": \"$VERSION\"}" \
-    "${cross_args[@]}" \
+    ${cross_args[@]+"${cross_args[@]}"} \
     ${TAURI_BUNDLES:+--bundles "$TAURI_BUNDLES"}
 )
 

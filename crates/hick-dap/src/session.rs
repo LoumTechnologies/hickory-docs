@@ -180,6 +180,16 @@ pub struct Variable {
     pub variables_reference: i64,
 }
 
+/// How the debuggee ended.
+///
+/// DAP splits the end across two events: `exited` carries the exit code and
+/// `terminated` merely says it is over. Adapters send either, both, in either
+/// order — so the code stays optional even once the end itself is certain.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Exit {
+    pub code: Option<i64>,
+}
+
 /// Why the program stopped.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Stopped {
@@ -246,6 +256,10 @@ pub struct Session {
     /// other. A queue filled by a task that starts with the session cannot
     /// miss one.
     stops: tokio::sync::Mutex<mpsc::UnboundedReceiver<Option<Stopped>>>,
+    /// How the debuggee ended, once it has. Written by the same watch task
+    /// that queues stops, so by the time a waiter hears "no more stops" the
+    /// exit is already recorded.
+    exit: Arc<std::sync::Mutex<Option<Exit>>>,
 }
 
 /// Document <-> generated-file coordinates for the files a cell can stop in.
@@ -379,6 +393,8 @@ impl Session {
             .context("the adapter never became ready for breakpoints")?;
 
         let (tx, stops) = mpsc::unbounded_channel();
+        let exit: Arc<std::sync::Mutex<Option<Exit>>> = Arc::new(std::sync::Mutex::new(None));
+        let ended = exit.clone();
         let mut watch = adapter.events();
         tokio::spawn(async move {
             while let Ok(event) = watch.recv().await {
@@ -389,14 +405,32 @@ impl Session {
                         }
                     }
                     // `None` is "there will be no more stops", which is what
-                    // a waiting caller needs to hear.
-                    "terminated" | "exited" => {
+                    // a waiting caller needs to hear. The exit is recorded
+                    // FIRST, so whoever hears it can ask how it ended:
+                    // `exited` carries the code, `terminated` does not, and
+                    // whichever arrives first is the one we act on.
+                    "exited" => {
+                        let code = event.body.get("exitCode").and_then(Value::as_i64);
+                        *ended.lock().unwrap() = Some(Exit { code });
+                        let _ = tx.send(None);
+                        return;
+                    }
+                    "terminated" => {
+                        *ended.lock().unwrap() = Some(Exit { code: None });
                         let _ = tx.send(None);
                         return;
                     }
                     _ => {}
                 }
             }
+            // The adapter's stream ended without saying so: the process is
+            // gone, and that is an end too — just one with nothing to report.
+            let mut recorded = ended.lock().unwrap();
+            if recorded.is_none() {
+                *recorded = Some(Exit { code: None });
+            }
+            drop(recorded);
+            let _ = tx.send(None);
         });
 
         let session = Self {
@@ -407,6 +441,7 @@ impl Session {
             desired: tokio::sync::Mutex::new(Vec::new()),
             running_to: tokio::sync::Mutex::new(None),
             stops: tokio::sync::Mutex::new(stops),
+            exit,
         };
         let statuses = session.set_breakpoints(breakpoints).await?;
         session
@@ -418,6 +453,15 @@ impl Session {
 
     pub fn capabilities(&self) -> &Capabilities {
         &self.capabilities
+    }
+
+    /// How the debuggee ended — `None` while it is still running.
+    ///
+    /// Set the moment the adapter reports `exited` or `terminated`, which is
+    /// what lets a caller that just heard "no more stops" say whether that
+    /// was a clean exit, a failure code, or an adapter that simply went away.
+    pub fn exit(&self) -> Option<Exit> {
+        *self.exit.lock().unwrap()
     }
 
     pub fn events(&self) -> broadcast::Receiver<Event> {

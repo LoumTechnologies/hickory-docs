@@ -71,9 +71,20 @@ Agent sessions stream on the run channel with `run_id === session_id` and
 - `POST /api/billing/webhook` — Stripe webhooks (signature-verified, idempotent)
 
 ## Agent
-- `POST /api/docs/:id/agent` `{prompt}` → `{session_id}` — starts an agent
-  session; session events stream on the WS run channel; the session itself is
-  persisted as a `hick:session` document in the project repo.
+- `POST /api/docs/:id/agent` `{prompt, parent_id?}` → `{session_id}` (202) —
+  starts one agent run (the full `hick agent` loop: up to 20 internal ReAct
+  turns, scripts and document tools). `parent_id` names the turn this one
+  continues from; naming an older turn forks a branch (rewind). Session
+  events stream on the WS run channel (`run_id === session_id`,
+  `exec_id: "agent"`, `event` is a serialized `AgentEvent` — `token` carries
+  the streamed text); a terminal `{run_id, status}` follows. The session
+  itself is persisted as a `hick:session` document under
+  `<project>/sessions/`. With no provider key in the environment the route
+  answers `503` whose `error` starts with `agent not available` (the client
+  renders that as a configuration note).
+- `GET /api/docs/:id/agent/turns` → `{turns: [{id, parent_id, prompt,
+  answer, status: "running"|"ok"|"error", error, created_at}]}` — the
+  document's conversation TREE, in creation order.
 
 ## Ops
 - `GET /api/health` → `{ok: true, executor: "local"|"canopy", db: bool}`

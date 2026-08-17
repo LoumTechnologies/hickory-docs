@@ -1,0 +1,9 @@
+Standup, 2026-08-17:
+
+p95 checkout latency dropped from 480ms to 210ms after the connection-pool fix (Grafana dashboard "checkout-slo", 2026-08-16 snapshot).
+
+The release-pipeline incident (2026-08-14, three independent failures) is closed; fixes verified in CI run #412.
+
+Remaining risk this week: the include-lineage migration touches every woven document; rollback is a git revert.
+
+Questions welcome — every line above has a source; ask me and I will point at it.

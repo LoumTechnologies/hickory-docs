@@ -1,0 +1,78 @@
+import { describe, expect, it } from "vitest";
+import { landingTarget, untitledPath, wrapUntitled } from "./newDoc";
+
+const doc = (id: string, updated_at: string) => ({
+  id,
+  path: `${id}.hick`,
+  updated_at,
+});
+
+describe("where the app lands", () => {
+  it("lands on a fresh untitled buffer when the folder is empty", () => {
+    expect(landingTarget([])).toEqual({ kind: "new" });
+  });
+
+  it("opens the most recently updated document", () => {
+    expect(
+      landingTarget([
+        doc("a", "2026-01-01T00:00:00Z"),
+        doc("b", "2026-03-01T00:00:00Z"),
+        doc("c", "2026-02-01T00:00:00Z"),
+      ]),
+    ).toEqual({ kind: "doc", id: "b" });
+  });
+
+  it("never lands on a chooser for a single document", () => {
+    expect(landingTarget([doc("only", "2026-01-01T00:00:00Z")])).toEqual({
+      kind: "doc",
+      id: "only",
+    });
+  });
+
+  it("tolerates an unparseable timestamp", () => {
+    // A bad stamp must not decide the landing by throwing or by winning.
+    expect(
+      landingTarget([doc("bad", "not a date"), doc("good", "2026-01-01T00:00:00Z")]),
+    ).toEqual({ kind: "doc", id: "good" });
+  });
+});
+
+describe("naming the untitled document", () => {
+  it("starts at untitled.hick in an empty folder", () => {
+    expect(untitledPath([])).toBe("untitled.hick");
+  });
+
+  it("counts past taken names", () => {
+    expect(untitledPath(["untitled.hick"])).toBe("untitled-2.hick");
+    expect(untitledPath(["untitled.hick", "untitled-2.hick"])).toBe(
+      "untitled-3.hick",
+    );
+  });
+
+  it("ignores unrelated documents", () => {
+    expect(untitledPath(["report.hick", "untitled-2.hick"])).toBe(
+      "untitled.hick",
+    );
+  });
+
+  it("judges taken-ness on the final path segment", () => {
+    // Two files a person can only tell apart by directory is worse than
+    // skipping a number.
+    expect(untitledPath(["notes/untitled.hick"])).toBe("untitled-2.hick");
+    expect(untitledPath(["notes\\untitled.hick"])).toBe("untitled-2.hick");
+  });
+});
+
+describe("the created document's source", () => {
+  it("is the standard wrapper with the typed prose inside", () => {
+    expect(wrapUntitled("# Hello")).toBe(
+      '<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">\n# Hello\n</hick:doc>\n',
+    );
+  });
+
+  it("wraps an empty body without inventing content", () => {
+    expect(wrapUntitled("")).toBe(
+      '<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">\n\n</hick:doc>\n',
+    );
+  });
+});

@@ -81,6 +81,7 @@ mod tests {
             registry: None,
             context: None,
             source_file: None,
+            span_files: &[],
         }
     }
 

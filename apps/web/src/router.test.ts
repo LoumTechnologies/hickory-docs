@@ -1,56 +1,40 @@
 import { describe, expect, it } from "vitest";
 import { parseRoute } from "./router";
 
-describe("email-link routes", () => {
-  it("parses a verification link, token intact", () => {
-    const r = parseRoute("#/verify?token=abc123_-XY");
-    expect(r).toEqual({ name: "verify", token: "abc123_-XY" });
-  });
-
-  it("parses a reset link", () => {
-    expect(parseRoute("#/reset?token=zzz")).toEqual({
-      name: "reset",
-      token: "zzz",
-    });
-  });
-
-  it("keeps a percent-encoded token byte-exact", () => {
-    // Tokens are URL-safe base64, but mail clients rewrite links. A token
-    // that survives the trip mangled is a token that will not redeem, and
-    // the failure would look like an expired link.
-    expect(parseRoute("#/verify?token=a%2Bb%3Dc")).toEqual({
-      name: "verify",
-      token: "a+b=c",
-    });
-  });
-
-  it("routes the forgot-password page", () => {
-    expect(parseRoute("#/forgot")).toEqual({ name: "forgot" });
-  });
-
-  it("does not mistake a tokenless path for a link", () => {
-    expect(parseRoute("#/verify")).toEqual({ name: "projects" });
-  });
-
-  // Protects docs/guarantees/landing/discovery-page-is-interest-organized.md
-  it("routes the bare domain to the landing page, not straight to a login form", () => {
+describe("routes", () => {
+  it("routes the bare domain to the landing decision, never a chooser", () => {
     expect(parseRoute("")).toEqual({ name: "landing" });
     expect(parseRoute("#")).toEqual({ name: "landing" });
     expect(parseRoute("#/")).toEqual({ name: "landing" });
   });
 
-  it("still parses the routes that existed before", () => {
-    expect(parseRoute("#/login")).toEqual({ name: "login" });
+  it("routes a document", () => {
     expect(parseRoute("#/docs/abc")).toEqual({ name: "doc", id: "abc" });
+  });
+
+  it("lands the retired documents-list route like any stale bookmark", () => {
+    // The folder's files are a pane now (FolderTreePane), not a page.
+    expect(parseRoute("#/documents")).toEqual({ name: "landing" });
+  });
+
+  it("routes the in-memory untitled document", () => {
+    expect(parseRoute("#/new")).toEqual({ name: "new" });
+  });
+
+  it("routes settings (LLM API keys)", () => {
+    expect(parseRoute("#/settings")).toEqual({ name: "settings" });
+  });
+
+  it("routes retired hosted-product paths to the landing decision", () => {
+    // These routes no longer exist (local-only.md); a stale bookmark should
+    // land somewhere useful rather than on a blank screen.
+    expect(parseRoute("#/login")).toEqual({ name: "landing" });
+    expect(parseRoute("#/verify?token=abc")).toEqual({ name: "landing" });
   });
 });
 
 describe("the lineage route", () => {
   it("is project-scoped, because a chain crosses documents", () => {
     expect(parseRoute("#/projects/abc123/lineage")).toEqual({ name: "lineage", id: "abc123" });
-  });
-
-  it("does not swallow the project route it sits under", () => {
-    expect(parseRoute("#/projects/abc123")).toEqual({ name: "project", id: "abc123" });
   });
 });

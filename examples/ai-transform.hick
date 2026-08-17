@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="ai-transform.md">
+# An AI-Written Passage That Stays Honest
+
+This document shows `hick:transform`: a passage WRITTEN by a model but
+VERIFIED like everything else. The transform names the fragments it read
+(`select=`), the instruction it followed (`instruct=`), and a fingerprint of
+exactly those inputs (`from=`). `hick refresh` — the only command that calls
+a model — rewrites the passage and stamps the fingerprint; `hick test` then
+checks the fingerprint offline, free, and deterministically. The document
+never claims the prose reproduces; it claims the prose was written from
+exactly these bytes under exactly this instruction, and that claim is
+checkable in CI without a key.
+
+Edit any fact below and `hick test` fails with "stale transform" until
+someone runs `hick refresh` — an LLM-written summary can never silently
+drift from the facts it summarizes.
+
+## The facts (the transform's only inputs)
+
+<hick:copy id="incident-timeline" class="incident">2026-08-14 15:53 UTC  release pipeline red: dist-desktop.sh fails on macOS (bash 3.2, unbound array)
+2026-08-14 17:03 UTC  second failure mode confirmed: Windows bundle missing icon.ico
+2026-08-14 17:56 UTC  third: release smoke test lacks bubblewrap, hick test refuses to run
+2026-08-16 07:10 UTC  all three fixed; apex domain re-attached; installer falls back to unstable channel
+</hick:copy>
+
+<hick:copy id="incident-impact" class="incident">Impact: no release published for 2 days; hickorydocs.com apex served HTTP 522
+throughout; the advertised curl installer failed for every visitor.
+</hick:copy>
+
+## The summary (written by a model, pinned to the facts)
+
+<hick:transform select=".incident" instruct="Summarize this incident for a busy engineer in at most three sentences: what broke, the user-visible impact, and the resolution. Plain prose, no bullet points." from="34460bcb">
+The release pipeline failed due to three separate issues: the macOS packaging script broke on bash 3.2 with an unbound array, the Windows bundle was missing icon.ico, and the release smoke test couldn't run without bubblewrap. As a result, no release was published for two days, hickorydocs.com's apex served HTTP 522 throughout, and the advertised curl installer failed for every visitor. All three faults were fixed on 2026-08-16, the apex domain was re-attached, and the installer now falls back to the unstable channel.
+</hick:transform>
+
+## The extraction (same inputs, different instruction)
+
+One set of facts can feed several transforms. This one extracts rather than
+summarizes:
+
+<hick:transform select=".incident" instruct="Extract every distinct failure cause as a short comma-separated list, in the order they were discovered. Output only the list, nothing else." from="044b82b3">
+dist-desktop.sh fails on macOS (bash 3.2, unbound array), Windows bundle missing icon.ico, release smoke test lacks bubblewrap
+</hick:transform>
+
+## Why this is different from pasting model output into a doc
+
+A pasted summary is a claim with no provenance: nothing records what it
+summarized, and nothing notices when the facts move. A transform records
+both. `hick test` on this file answers one question — *was this prose
+derived from these exact bytes under this exact instruction?* — and answers
+it without spending a token.
+</hick:doc>

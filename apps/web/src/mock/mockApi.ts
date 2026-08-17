@@ -1,29 +1,22 @@
-import { ApiError, installMockHandler, setToken } from "../api/client";
+import { ApiError, installMockHandler } from "../api/client";
 import { LocalRealtime } from "../api/realtime";
 import type {
   AgentTurn,
   Block,
   Doc,
   ExecBlock,
+  FileNode,
   Run,
   TranscriptEvent,
-  User,
 } from "../api/types";
-import {
-  MOCK_BLOCKS,
-  MOCK_DOCS,
-  MOCK_ENTERPRISE,
-  MOCK_PLANS,
-  MOCK_PROJECTS,
-  PAPER_CHART_SVG,
-} from "./mockData";
+import { MOCK_BLOCKS, MOCK_DOCS, MOCK_PROJECTS, PAPER_CHART_SVG } from "./mockData";
 import {
   SyntheticRangeViolation,
   applySourceEdits,
   mapEditsToSource,
   weaveOutputs,
 } from "../lib/weave";
-import type { LlmKey, OutputEdit } from "../api/types";
+import type { OutputEdit } from "../api/types";
 
 // In-browser mock API (VITE_MOCK=1): implements the api.md contract, including
 // fake streaming runs over the LocalRealtime "socket", so `npm run dev:mock`
@@ -32,16 +25,18 @@ import type { LlmKey, OutputEdit } from "../api/types";
 export const mockRealtime = new LocalRealtime();
 
 const state = {
-  user: null as User | null,
   projects: [...MOCK_PROJECTS],
   docs: MOCK_DOCS.map((d) => ({ ...d })),
   blocks: Object.fromEntries(
     Object.entries(MOCK_BLOCKS).map(([id, blocks]) => [id, blocks.map((b) => ({ ...b }))]),
   ) as Record<string, Block[]>,
-  llmKeys: [] as LlmKey[],
   runs: new Map<string, Run>(),
   agentTurns: [] as (AgentTurn & { doc_id: string })[],
-  nextId: 1,
+  uiSettings: { window_title: null as string | null },
+  // Past the seeded ids (d1…, p1…): starting at 1 minted a created document
+  // as "d1", colliding with the seeded quickstart — the new tab silently
+  // became a second window onto an existing document.
+  nextId: 100,
 };
 
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -191,6 +186,33 @@ function streamAgentSession(docId: string, prompt: string): string {
   return sessionId;
 }
 
+/** Group flat paths into the /api/files tree: dirs first, each level
+ * alphabetical, `doc_id` only on documents — matching the server contract. */
+function toFileNodes(entries: ReadonlyMap<string, string | undefined>, prefix = ""): FileNode[] {
+  const dirs = new Map<string, Map<string, string | undefined>>();
+  const files: FileNode[] = [];
+  for (const [path, docId] of entries) {
+    const slash = path.indexOf("/");
+    if (slash === -1) {
+      files.push({ name: path, path: `${prefix}${path}`, dir: false, ...(docId ? { doc_id: docId } : {}) });
+    } else {
+      const dir = path.slice(0, slash);
+      if (!dirs.has(dir)) dirs.set(dir, new Map());
+      dirs.get(dir)!.set(path.slice(slash + 1), docId);
+    }
+  }
+  const byName = (a: { name: string }, b: { name: string }) => a.name.localeCompare(b.name);
+  const dirNodes: FileNode[] = [...dirs]
+    .map(([name, children]) => ({
+      name,
+      path: `${prefix}${name}`,
+      dir: true,
+      children: toFileNodes(children, `${prefix}${name}/`),
+    }))
+    .sort(byName);
+  return [...dirNodes, ...files.sort(byName)];
+}
+
 function notFound(path: string): never {
   throw Object.assign(new Error(`mock: not found ${path}`), { status: 404 });
 }
@@ -202,54 +224,25 @@ export function installMockApi() {
     const route = `${method} ${path}`;
     let m: RegExpMatchArray | null;
 
-    if (route === "POST /api/auth/signup" || route === "POST /api/auth/login") {
-      const email = String(b.email ?? "dev@example.com");
-      state.user = { id: "u1", email, plan: "pro" };
-      setToken("mock-token");
-      return { token: "mock-token", user: state.user };
-    }
-    if (route === "GET /api/me") {
-      return state.user ?? { id: "u1", email: "dev@example.com", plan: "pro" };
-    }
-    // BYOK, in the demo: keys behave as they do for real (write-only, one
-    // active) so the mock never teaches a UI habit the server would refuse.
-    if (path === "/api/me/llm-keys" || path.startsWith("/api/me/llm-keys/")) {
-      const listing = () => ({
-        keys: state.llmKeys,
-        storage_available: true,
-        plan_agent: "byo_key",
-      });
-      if (method === "GET") return listing();
-      if ((m = path.match(/^\/api\/me\/llm-keys\/([^/]+)$/))) {
-        const provider = m[1] === "grok" ? "xai" : m[1];
-        if (method === "DELETE") {
-          state.llmKeys = state.llmKeys.filter((k) => k.provider !== provider);
-          if (state.llmKeys.length === 1) state.llmKeys[0].active = true;
-          return listing();
+    if (route === "GET /api/files") {
+      // The open folder: every document, plus everything they weave.
+      const entries = new Map<string, string | undefined>();
+      for (const doc of state.docs) entries.set(doc.path, doc.id);
+      for (const doc of state.docs) {
+        for (const file of weaveOutputs(doc.source, doc.path)) {
+          if (!entries.has(file.path)) entries.set(file.path, undefined);
         }
-        const key = String(b.api_key ?? "");
-        const stored = {
-          provider,
-          last4: key.slice(-4),
-          model: (b.model as string) ?? null,
-          active: state.llmKeys.length === 0,
-          created_at: new Date().toISOString(),
-          last_used_at: null,
-        };
-        state.llmKeys = [
-          ...state.llmKeys.filter((k) => k.provider !== provider),
-          stored,
-        ];
-        return stored;
       }
-      // PUT /api/me/llm-keys — choose the active key.
-      const chosen = String(b.provider) === "grok" ? "xai" : String(b.provider);
-      state.llmKeys = state.llmKeys.map((k) => ({
-        ...k,
-        active: k.provider === chosen,
-      }));
-      return listing();
+      return { root: "/home/mock/notebook", tree: toFileNodes(entries) };
     }
+
+    if (path === "/api/settings/ui") {
+      // The UI settings the real server persists as ui.json. In-memory here:
+      // the mock has no disk, and the page only needs the round trip.
+      if (method === "PUT") state.uiSettings = { window_title: (b.window_title as string | null) ?? null };
+      return state.uiSettings;
+    }
+
     if (route === "GET /api/projects") return state.projects;
     if (route === "POST /api/projects") {
       const project = {
@@ -340,13 +333,30 @@ export function installMockApi() {
     if ((m = path.match(/^\/api\/runs\/([^/]+)$/))) {
       return state.runs.get(m![1]) ?? notFound(path);
     }
-    if (route === "GET /api/billing/plans")
-      return { plans: MOCK_PLANS, enterprise: MOCK_ENTERPRISE };
-    if (route === "POST /api/billing/checkout") {
-      return { checkout_url: `https://checkout.stripe.com/mock/${String(b.price_key)}` };
-    }
     if ((m = path.match(/^\/api\/docs\/([^/]+)\/agent\/turns$/))) {
-      return { turns: state.agentTurns.filter((t) => t.doc_id === m![1]).map(({ doc_id: _d, ...t }) => t) };
+      const turns = state.agentTurns.filter((t) => t.doc_id === m![1]).map(({ doc_id: _d, ...t }) => t);
+      const totals = { usd: 0, input: 0, output: 0, cache_read: 0, cache_write: 0 };
+      for (const t of turns) {
+        if (!t.usage) continue;
+        totals.input += t.usage.input_tokens;
+        totals.output += t.usage.output_tokens;
+        totals.cache_read += t.usage.cache_read_input_tokens;
+        totals.cache_write += t.usage.cache_creation_input_tokens;
+        // Mock pricing: claude-sonnet-5 list rates, matching usage.rs.
+        totals.usd +=
+          (t.usage.input_tokens * 3 +
+            t.usage.cache_creation_input_tokens * 1.25 * 3 +
+            t.usage.cache_read_input_tokens * 0.1 * 3 +
+            t.usage.output_tokens * 15) /
+          1e6;
+      }
+      const last = turns[turns.length - 1];
+      return {
+        turns,
+        provider: last?.provider ?? "anthropic",
+        model: last?.model ?? "claude-sonnet-5",
+        totals,
+      };
     }
     if ((m = path.match(/^\/api\/docs\/([^/]+)\/agent$/))) {
       const docId = m![1];
@@ -360,6 +370,14 @@ export function installMockApi() {
         status: "ok",
         error: null,
         created_at: new Date().toISOString(),
+        provider: typeof b.provider === "string" && b.provider !== "" ? b.provider : "anthropic",
+        model: typeof b.model === "string" && b.model !== "" ? b.model : "claude-sonnet-5",
+        usage: {
+          input_tokens: 1200,
+          cache_creation_input_tokens: 300,
+          cache_read_input_tokens: 4800,
+          output_tokens: 450,
+        },
       });
       return { session_id: id };
     }

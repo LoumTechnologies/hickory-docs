@@ -1,20 +1,9 @@
-// Where events go.
-//
-// Two deliveries, chosen by configuration rather than by branch:
-//
-// - **Direct to PostHog** when `VITE_POSTHOG_KEY` is set. A project write key
-//   can only send events, so it is safe in a bundle — and it is what lets the
-//   marketing site be a static file with no server behind it at all
-//   (docs/specs/freeform/local-first.md).
-// - **The server's same-origin beacon** otherwise, which is how the hosted app
-//   has always worked (`apps/server/src/routes/analytics.rs` forwards with the
-//   credential it holds).
-//
-// The original reason for routing through the server was that a build-time key
-// would bake one environment's project into an image promoted between
-// environments. With a single production environment there is nothing to
-// promote, so that objection no longer applies — but the beacon stays, because
-// a deployment that prefers not to put a key in the bundle should not have to.
+// Where events go: direct to PostHog, and only when `VITE_POSTHOG_KEY` is
+// set. A project write key can only send events, so it is safe in a bundle —
+// and it is what lets the marketing site be a static file with no server
+// behind it at all (docs/specs/freeform/local-only.md). There is no
+// same-origin beacon any more: the server that proxied it is gone, and
+// without a key the event is simply dropped.
 
 import { config } from "../config";
 
@@ -40,14 +29,11 @@ export function setDeliveryForTest(fn: (event: string, body: unknown) => void) {
 }
 
 function beacon(event: string, body: unknown) {
-  const direct = config.posthogKey !== null;
-  const url = direct
-    ? `${config.posthogHost}/capture/`
-    : "/api/analytics/capture";
-  // PostHog's capture endpoint wants the key in the payload; the server's
-  // beacon supplies its own. Same event, same properties, either way — the
-  // shape the server forwards is deliberately PostHog's own.
-  const payload = direct ? { api_key: config.posthogKey, ...(body as object) } : body;
+  // No key, no delivery. There is no server-side beacon to fall back to.
+  if (config.posthogKey === null) return;
+  const url = `${config.posthogHost}/capture/`;
+  // PostHog's capture endpoint wants the key in the payload.
+  const payload = { api_key: config.posthogKey, ...(body as object) };
 
   // `keepalive` is what makes a click-then-navigate event survive: without it
   // the browser cancels in-flight fetches on unload, and every `cta_clicked`

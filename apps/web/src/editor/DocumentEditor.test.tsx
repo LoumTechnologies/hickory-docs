@@ -62,7 +62,7 @@ describe("DocumentEditor (WYSIWYG over raw source)", () => {
     realtime.close();
   });
 
-  it("renders a hick:container declaration as an environment card (tag stays visible)", async () => {
+  it("annotates a hick:container declaration inline — no unnumbered card row", async () => {
     const realtime = new LocalRealtime();
     const source =
       '<hick:container name="shell" image="alpine:3.20" />\n<hick:exec container="shell">\nls\n</hick:exec>\n';
@@ -76,11 +76,15 @@ describe("DocumentEditor (WYSIWYG over raw source)", () => {
         onRunCell={() => undefined}
       />,
     );
-    await waitFor(() => expect(container.querySelector(".env-card")).toBeTruthy());
-    const card = container.querySelector(".env-card")!;
-    expect(card.textContent).toContain("shell");
-    expect(card.textContent).toContain("alpine:3.20");
-    // Decoration-only: the tag source itself is still in the document text.
+    // The environment note is an INLINE widget at the end of the declaration
+    // line: every screen row keeps a line number. A block-widget card was a
+    // row the gutter could not number.
+    await waitFor(() => expect(container.querySelector(".cm-env-inline")).toBeTruthy());
+    const slot = container.querySelector(".cm-env-inline")!;
+    expect(slot.closest(".cm-line"), "inline on a real document line").toBeTruthy();
+    expect(container.querySelector(".cm-env-card")).toBeNull();
+    // The declaration itself is the document text — name and image live on
+    // numbered lines, not in chrome.
     expect(container.querySelector(".cm-content")!.textContent).toContain(
       '<hick:container name="shell" image="alpine:3.20" />',
     );

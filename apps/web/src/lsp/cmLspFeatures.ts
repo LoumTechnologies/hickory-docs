@@ -218,7 +218,7 @@ export function lspFeatures(opts: LspFeatureOptions): Extension[] {
         fontSize: "0.9em",
         padding: "0 0.15em",
       },
-      ".cm-lsp-highlight": { background: "rgba(120, 120, 160, 0.18)" },
+      ".cm-lsp-highlight": { background: "var(--lsp-highlight)" },
     }),
   ];
 }

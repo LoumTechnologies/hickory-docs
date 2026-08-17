@@ -171,6 +171,34 @@ fn tool_catalogue() -> Value {
                 }
             },
             {
+                "name": "search",
+                "description":
+                    "Search the whole project: a natural-language or code query returns ranked \
+                     chunks with exact file:line, like semble. Lexical (BM25) always; semantic \
+                     as well when the project has an embedding model (`hick search \
+                     --install-model`). Prefer this over grepping when you are looking for \
+                     where something is done rather than an exact string. Pass `related` \
+                     (FILE:LINE) instead of `query` to find code similar to a location.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "query": {
+                            "type": "string",
+                            "description": "What to look for, in natural language or code."
+                        },
+                        "related": {
+                            "type": "string",
+                            "description": "FILE:LINE (relative to the project root) to find \
+                                            similar code for, instead of a query."
+                        },
+                        "top_k": {
+                            "type": "integer",
+                            "description": "How many results (default 8, max 50)."
+                        }
+                    }
+                }
+            },
+            {
                 "name": "debug_start",
                 "description":
                     "Start a debug session over the document's generated code and run to the \
@@ -389,7 +417,20 @@ impl Server {
                 }
                 out.push_str(&match &stopped {
                     Some(stopped) => format!("stopped: {}\n", stopped.reason),
-                    None => "the program ran to completion without stopping\n".to_string(),
+                    None => {
+                        // Nothing left to debug: reap now rather than leaving
+                        // the adapter process and scratch copy to the idle
+                        // sweep — the same teardown the app's bridge does.
+                        let exit = live.session.exit().and_then(|e| e.code);
+                        self.debuggers.reap(&id).await;
+                        format!(
+                            "the program ran to completion without stopping{} — the session \
+                             ended and its scratch copy was deleted; call debug_start again \
+                             (with breakpoints that bind) to re-run\n",
+                            exit.map(|c| format!(" (exit code {c})"))
+                                .unwrap_or_default()
+                        )
+                    }
                 });
                 Ok(out)
             }
@@ -547,15 +588,28 @@ impl Server {
                     }
                     None => {
                         *live.thread_id.lock().await = None;
-                        Ok("the program finished".to_string())
+                        let exit = live.session.exit().and_then(|e| e.code);
+                        self.debuggers.reap(&session_id()?).await;
+                        Ok(format!(
+                            "the program finished{} — the session ended and its scratch copy \
+                             was deleted; call debug_start to run again",
+                            exit.map(|c| format!(" (exit code {c})"))
+                                .unwrap_or_default()
+                        ))
                     }
                 }
             }
 
             "debug_stop" => {
+                // Reap, not stop: a program that finished has already been
+                // reaped automatically, and a follow-up stop finding "already
+                // gone" is the expected case, not an error.
                 let id = session_id()?;
-                self.debuggers.stop(&id).await.map_err(fail)?;
-                Ok(format!("session {id} ended and its scratch copy deleted"))
+                Ok(if self.debuggers.reap(&id).await {
+                    format!("session {id} ended and its scratch copy deleted")
+                } else {
+                    format!("session {id} had already ended")
+                })
             }
 
             other => Err(format!("unknown debug tool `{other}`")),
@@ -629,6 +683,14 @@ impl Server {
                 Err(text) => text_result(&text, true),
             };
         }
+        // Search is about the project, not one document, so it skips the
+        // edit-session machinery entirely (and can never write anything).
+        if name == "search" {
+            return match call_search_tool(args).await {
+                Ok(text) => text_result(&text, false),
+                Err(text) => text_result(&text, true),
+            };
+        }
         let doc = match self.resolve_doc(args) {
             Ok(d) => d,
             Err(e) => return text_result(&e, true),
@@ -693,6 +755,63 @@ impl Server {
 }
 
 /// An MCP tool result carrying one block of text.
+/// The `search` tool: same engine as `hick search` and the app's search
+/// panel, answered in text an agent can act on (path:start-end + snippet).
+async fn call_search_tool(args: &Value) -> Result<String, String> {
+    let query = args.get("query").and_then(Value::as_str).map(str::trim);
+    let related = args
+        .get("related")
+        .and_then(Value::as_str)
+        .map(str::to_string);
+    let top_k = args
+        .get("top_k")
+        .and_then(Value::as_u64)
+        .map_or(8, |k| k as usize)
+        .clamp(1, 50);
+    if query.is_none_or(str::is_empty) && related.is_none() {
+        return Err("pass `query` (what to look for) or `related` (FILE:LINE)".to_string());
+    }
+    let query = query.map(str::to_string);
+    let root = std::env::current_dir().map_err(|e| format!("no working directory: {e}"))?;
+
+    let (semantic, hits) = tokio::task::spawn_blocking(move || -> anyhow::Result<_> {
+        let engine = hick_search::SearchEngine::open(&root)?;
+        let hits = match (&related, &query) {
+            (Some(spec), _) => {
+                let (file, line) = hick_search::parse_file_line(spec)?;
+                engine.related(&file, line, top_k)?
+            }
+            (None, Some(q)) => engine.search(q, top_k),
+            (None, None) => unreachable!("checked above"),
+        };
+        Ok((engine.semantic(), hits))
+    })
+    .await
+    .map_err(|e| format!("search task failed: {e}"))?
+    .map_err(|e| format!("{e:#}"))?;
+
+    if hits.is_empty() {
+        return Ok("no matches".to_string());
+    }
+    let mut out = String::new();
+    if !semantic {
+        out.push_str(
+            "(lexical ranking only — `hick search --install-model` adds semantic ranking)\n\n",
+        );
+    }
+    for hit in hits {
+        out.push_str(&format!(
+            "{}:{}-{}\n",
+            hit.path, hit.start_line, hit.end_line
+        ));
+        for line in hit.snippet.lines().filter(|l| !l.trim().is_empty()).take(4) {
+            out.push_str(&format!("    {line}\n"));
+        }
+        out.push('\n');
+    }
+    Ok(out.trim_end().to_string())
+}
+
 fn text_result(text: &str, is_error: bool) -> Value {
     json!({
         "content": [{ "type": "text", "text": text }],
@@ -780,6 +899,9 @@ mod tests {
                 "edit_output",
                 "edit_doc",
                 "verify",
+                // Project-wide search: about the folder, not one document,
+                // and it can never write anything.
+                "search",
                 // Debugging: a session an agent drives, which writes
                 // nothing.
                 "debug_start",

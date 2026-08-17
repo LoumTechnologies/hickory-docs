@@ -1,13 +1,13 @@
-//! OpenAI-compatible chat-completions client: OpenAI, DeepSeek, and xAI
-//! (Grok).
+//! OpenAI-compatible chat-completions client: OpenAI, DeepSeek, xAI
+//! (Grok), and OpenRouter.
 //!
-//! All three speak the same wire protocol — `POST {base}/chat/completions`
+//! All four speak the same wire protocol — `POST {base}/chat/completions`
 //! with a bearer token, `choices[0].message.content` for the answer and
 //! `data: {...}` SSE frames terminated by `data: [DONE]` when streaming — so
 //! they share one client and differ only in [`Provider`]: base URL, key
 //! environment variable, default model, and the two places the dialects
 //! genuinely diverge (see below). A separate struct per vendor would have
-//! been three copies of the same SSE parser.
+//! been four copies of the same SSE parser.
 //!
 //! ## Where the dialects actually differ
 //!
@@ -52,10 +52,13 @@ pub enum Provider {
     DeepSeek,
     /// xAI, whose models are the Grok family.
     XAi,
+    /// OpenRouter, a gateway that routes to many vendors behind one key.
+    OpenRouter,
 }
 
 impl Provider {
-    /// Parse a provider selector (`openai`, `deepseek`, `grok`/`xai`).
+    /// Parse a provider selector (`openai`, `deepseek`, `grok`/`xai`,
+    /// `openrouter`).
     ///
     /// `grok` is accepted alongside `xai` because the model is the name
     /// people reach for; the vendor is xAI.
@@ -64,6 +67,7 @@ impl Provider {
             "openai" => Some(Self::OpenAi),
             "deepseek" => Some(Self::DeepSeek),
             "xai" | "grok" => Some(Self::XAi),
+            "openrouter" => Some(Self::OpenRouter),
             _ => None,
         }
     }
@@ -74,6 +78,7 @@ impl Provider {
             Self::OpenAi => "openai",
             Self::DeepSeek => "deepseek",
             Self::XAi => "xai",
+            Self::OpenRouter => "openrouter",
         }
     }
 
@@ -83,6 +88,7 @@ impl Provider {
             Self::OpenAi => "https://api.openai.com/v1/chat/completions",
             Self::DeepSeek => "https://api.deepseek.com/chat/completions",
             Self::XAi => "https://api.x.ai/v1/chat/completions",
+            Self::OpenRouter => "https://openrouter.ai/api/v1/chat/completions",
         }
     }
 
@@ -92,6 +98,7 @@ impl Provider {
             Self::OpenAi => "OPENAI_API_KEY",
             Self::DeepSeek => "DEEPSEEK_API_KEY",
             Self::XAi => "XAI_API_KEY",
+            Self::OpenRouter => "OPENROUTER_API_KEY",
         }
     }
 
@@ -102,6 +109,7 @@ impl Provider {
             Self::OpenAi => "OPENAI_BASE_URL",
             Self::DeepSeek => "DEEPSEEK_BASE_URL",
             Self::XAi => "XAI_BASE_URL",
+            Self::OpenRouter => "OPENROUTER_BASE_URL",
         }
     }
 
@@ -111,6 +119,7 @@ impl Provider {
             Self::OpenAi => "OPENAI_MODEL",
             Self::DeepSeek => "DEEPSEEK_MODEL",
             Self::XAi => "XAI_MODEL",
+            Self::OpenRouter => "OPENROUTER_MODEL",
         }
     }
 
@@ -121,17 +130,21 @@ impl Provider {
             Self::OpenAi => "gpt-5",
             Self::DeepSeek => "deepseek-chat",
             Self::XAi => "grok-4",
+            // The router's own auto-selector: works on every OpenRouter
+            // account without naming a downstream vendor's model.
+            Self::OpenRouter => "openrouter/auto",
         }
     }
 
     /// The request field carrying the output-length cap.
     ///
-    /// OpenAI's newer models reject `max_tokens`; the other two do not know
-    /// `max_completion_tokens`.
+    /// OpenAI's newer models reject `max_tokens`; the others do not know
+    /// `max_completion_tokens` (OpenRouter normalizes `max_tokens` for
+    /// whatever it routes to).
     fn max_tokens_field(self) -> &'static str {
         match self {
             Self::OpenAi => "max_completion_tokens",
-            Self::DeepSeek | Self::XAi => "max_tokens",
+            Self::DeepSeek | Self::XAi | Self::OpenRouter => "max_tokens",
         }
     }
 }
@@ -471,6 +484,7 @@ mod tests {
         // Both the vendor and the model family name resolve to xAI.
         assert_eq!(Provider::parse("grok"), Some(Provider::XAi));
         assert_eq!(Provider::parse("xai"), Some(Provider::XAi));
+        assert_eq!(Provider::parse("OpenRouter"), Some(Provider::OpenRouter));
         assert_eq!(Provider::parse("gemini"), None);
     }
 

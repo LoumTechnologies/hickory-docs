@@ -36,6 +36,19 @@ impl DocIndex {
     /// Scan `root` for documents. A single file may be served directly, in
     /// which case its parent directory is the root.
     pub fn scan(root: &Path) -> Result<Self> {
+        // A DIRECTORY with no `.hick` file anywhere is a session with no
+        // documents yet — the app's first-run state, where the UI lands on a
+        // fresh untitled document. `expand_docs`' refusal (with its
+        // config-file advice) is for the one-shot CLI verbs, where "nothing
+        // to run" really is a dead end. A missing or file target still
+        // propagates its error, and a directory that HAS documents but fails
+        // to expand keeps its real error too.
+        if root.is_dir() && !contains_hick(root) {
+            return Ok(Self {
+                root: root.to_path_buf(),
+                by_id: std::sync::RwLock::new(HashMap::new()),
+            });
+        }
         let mut by_id = HashMap::new();
         for path in crate::expand_docs(root)? {
             let rel = path
@@ -117,14 +130,53 @@ pub fn doc_id(rel_path: &str) -> String {
     format!("{hash:016x}")
 }
 
+/// Whether any `.hick` file exists under `dir`, skipping the caches and VCS
+/// trees a scan has no business entering.
+fn contains_hick(dir: &Path) -> bool {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return false;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let name = entry.file_name();
+        if path.is_dir() {
+            if name == ".hick-cache" || name == ".git" || name == "node_modules" {
+                continue;
+            }
+            if contains_hick(&path) {
+                return true;
+            }
+        } else if path.extension().is_some_and(|e| e == "hick") {
+            return true;
+        }
+    }
+    false
+}
+
 /// Files on disk, standing in for Postgres.
 pub struct FileDocStore {
     index: Arc<DocIndex>,
+    /// The exact source text this store last persisted, per document. The
+    /// in-app up-loop's echo test: a watcher event whose file still holds
+    /// the last persist is the room's own write coming back around, and
+    /// reconciling it into the room would revert whatever was typed since.
+    last_saved: std::sync::Mutex<std::collections::HashMap<String, String>>,
 }
 
 impl FileDocStore {
     pub fn new(index: Arc<DocIndex>) -> Arc<Self> {
-        Arc::new(Self { index })
+        Arc::new(Self {
+            index,
+            last_saved: std::sync::Mutex::new(std::collections::HashMap::new()),
+        })
+    }
+
+    /// Whether `text` is byte-for-byte what this store last wrote for `key`.
+    pub fn was_own_write(&self, key: &str, text: &str) -> bool {
+        self.last_saved
+            .lock()
+            .map(|m| m.get(key).is_some_and(|last| last == text))
+            .unwrap_or(false)
     }
 
     /// Where the encoded CRDT state for a document lives.
@@ -167,6 +219,9 @@ impl DocStore for FileDocStore {
         // work to nothing.
         write_atomic(&path, source.as_bytes())
             .with_context(|| format!("writing {}", path.display()))?;
+        if let Ok(mut m) = self.last_saved.lock() {
+            m.insert(key.clone(), source.to_string());
+        }
 
         let crdt_path = self.crdt_path(key);
         if let Some(parent) = crdt_path.parent() {

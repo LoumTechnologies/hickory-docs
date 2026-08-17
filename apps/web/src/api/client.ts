@@ -1,35 +1,24 @@
 import type {
-  AgentTurn,
-  AuthResponse,
+  AgentTurnsResponse,
   Doc,
   DocSummary,
   ExecutorInfo,
-  LlmKey,
-  LlmKeysResponse,
+  FilesResponse,
   OutputEdit,
   OutputEditResponse,
   OutputFile,
   OutputsResponse,
-  PlansResponse,
   Project,
   RenderResponse,
   Run,
-  User,
+  SearchResponse,
+  SettingsKeysPatch,
+  SettingsKeysResponse,
   StructureResponse,
+  UiSettings,
 } from "./types";
 
 export const MOCK = import.meta.env.VITE_MOCK === "1";
-
-const TOKEN_KEY = "hickory.token";
-
-export function getToken(): string | null {
-  return localStorage.getItem(TOKEN_KEY);
-}
-
-export function setToken(token: string | null) {
-  if (token === null) localStorage.removeItem(TOKEN_KEY);
-  else localStorage.setItem(TOKEN_KEY, token);
-}
 
 export class ApiError extends Error {
   constructor(
@@ -61,8 +50,6 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
     return (await mockHandler(method, path, body)) as T;
   }
   const headers: Record<string, string> = {};
-  const token = getToken();
-  if (token) headers.Authorization = `Bearer ${token}`;
   if (body !== undefined) headers["Content-Type"] = "application/json";
   const res = await fetch(path, {
     method,
@@ -106,24 +93,6 @@ function dedupedRender(id: string): Promise<RenderResponse> {
 }
 
 export const api = {
-  signup: (email: string, password: string) =>
-    request<AuthResponse>("POST", "/api/auth/signup", { email, password }),
-  login: (email: string, password: string) =>
-    request<AuthResponse>("POST", "/api/auth/login", { email, password }),
-  me: () => request<User>("GET", "/api/me"),
-
-  sendVerification: () =>
-    request<{ status: string }>("POST", "/api/auth/verify/send", {}),
-  confirmVerification: (token: string) =>
-    request<{ status: string }>("POST", "/api/auth/verify/confirm", { token }),
-  requestReset: (email: string) =>
-    request<{ status: string }>("POST", "/api/auth/reset/request", { email }),
-  confirmReset: (token: string, password: string) =>
-    request<{ status: string }>("POST", "/api/auth/reset/confirm", {
-      token,
-      password,
-    }),
-
   projects: () => request<Project[]>("GET", "/api/projects"),
   createProject: (name: string, visibility: "public" | "private") =>
     request<Project>("POST", "/api/projects", { name, visibility }),
@@ -136,6 +105,9 @@ export const api = {
   saveDoc: (id: string, source: string) =>
     request<Doc>("PUT", `/api/docs/${id}`, { source }),
   render: (id: string) => dedupedRender(id),
+
+  /** The open folder's file tree: directories first, alphabetical. */
+  files: () => request<FilesResponse>("GET", "/api/files"),
 
   outputs: (docId: string) =>
     request<OutputsResponse>("GET", `/api/docs/${docId}/outputs`),
@@ -156,44 +128,46 @@ export const api = {
   check: (docId: string) =>
     request<{ run_id: string }>("POST", `/api/docs/${docId}/check`),
 
-  plans: () => request<PlansResponse>("GET", "/api/billing/plans"),
-  checkout: (priceKey: string) =>
-    request<{ checkout_url: string }>("POST", "/api/billing/checkout", {
-      price_key: priceKey,
-    }),
-
   executor: () => request<ExecutorInfo>("GET", "/api/executor"),
+
+  /** The agent's LLM API keys: configured-or-not plus a masked hint. The
+   * full key never travels back — see SettingsKeysResponse. */
+  settingsKeys: () => request<SettingsKeysResponse>("GET", "/api/settings/keys"),
+  /** Set/clear only the named providers (string sets, null clears). */
+  saveSettingsKeys: (patch: SettingsKeysPatch) =>
+    request<SettingsKeysResponse>("PUT", "/api/settings/keys", patch),
+
+  /** UI settings the server persists (ui.json): the custom window title. */
+  settingsUi: () => request<UiSettings>("GET", "/api/settings/ui"),
+  saveSettingsUi: (settings: UiSettings) =>
+    request<UiSettings>("PUT", "/api/settings/ui", settings),
 
   /** Definitions and references across this session's generated files. */
   structure: () => request<StructureResponse>("GET", "/api/structure"),
 
+  /** Ranked project-wide search over documents and generated files. */
+  search: (q: string, k = 20) =>
+    request<SearchResponse>("GET", `/api/search?q=${encodeURIComponent(q)}&k=${k}`),
+
   /** Start a turn. `parentId` continues from that turn — naming an older one
-   * forks a branch (rewind) rather than overwriting what followed it. */
-  agent: (docId: string, prompt: string, parentId?: string | null) =>
+   * forks a branch (rewind) rather than overwriting what followed it.
+   * `provider`/`model` set the document's model choice for this and later
+   * turns; an empty string clears back to the default, and leaving a field
+   * out keeps the current choice. */
+  agent: (
+    docId: string,
+    prompt: string,
+    parentId?: string | null,
+    provider?: string,
+    model?: string,
+  ) =>
     request<{ session_id: string }>("POST", `/api/docs/${docId}/agent`, {
       prompt,
       parent_id: parentId ?? null,
+      ...(provider !== undefined ? { provider } : {}),
+      ...(model !== undefined ? { model } : {}),
     }),
 
   agentTurns: (docId: string) =>
-    request<{ turns: AgentTurn[] }>("GET", `/api/docs/${docId}/agent/turns`),
-
-  llmKeys: () => request<LlmKeysResponse>("GET", "/api/me/llm-keys"),
-  /** Store or replace this account's key for one provider. The server
-   * validates it against the vendor before saving, so a rejection here is a
-   * bad key and not a deferred surprise mid-run. */
-  saveLlmKey: (
-    provider: string,
-    apiKey: string,
-    opts?: { model?: string; preferred?: boolean },
-  ) =>
-    request<LlmKey>("PUT", `/api/me/llm-keys/${provider}`, {
-      api_key: apiKey,
-      model: opts?.model || null,
-      preferred: opts?.preferred ?? false,
-    }),
-  deleteLlmKey: (provider: string) =>
-    request<LlmKeysResponse>("DELETE", `/api/me/llm-keys/${provider}`),
-  selectLlmKey: (provider: string) =>
-    request<LlmKeysResponse>("PUT", "/api/me/llm-keys", { provider }),
+    request<AgentTurnsResponse>("GET", `/api/docs/${docId}/agent/turns`),
 };

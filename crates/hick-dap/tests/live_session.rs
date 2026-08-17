@@ -576,3 +576,39 @@ async fn running_to_a_line_keeps_the_breakpoints_a_person_set() {
     );
     session.shutdown().await;
 }
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_program_that_runs_to_completion_reports_its_exit() {
+    // Protects docs/guarantees — the app reaps a session the moment its
+    // program ends, and it can only say HOW it ended if the session recorded
+    // the adapter's `exited`/`terminated` rather than merely going quiet.
+    let Some(fixture) = fixture() else {
+        skip("no Python debug adapter on this machine");
+        return;
+    };
+
+    // No breakpoints: launched, the program runs straight to the end.
+    let (session, statuses) = Session::start(fixture.launch, fixture.mapping, &[])
+        .await
+        .expect("the session starts");
+    assert!(statuses.is_empty());
+
+    let stopped = session
+        .wait_for_stop(Duration::from_secs(30))
+        .await
+        .expect("waiting works");
+    assert!(
+        stopped.is_none(),
+        "with no breakpoints the program should have run to the end: {stopped:?}"
+    );
+
+    // The end was recorded, with the code debugpy reported.
+    let exit = session.exit().expect("the end of the program was recorded");
+    assert_eq!(exit.code, Some(0), "a clean exit reads as code 0: {exit:?}");
+
+    // Shutting down after the program already ended, twice: the automatic
+    // reap and an explicit stop legitimately race, and the loser must be a
+    // no-op rather than a hang or a panic.
+    session.shutdown().await;
+    session.shutdown().await;
+}

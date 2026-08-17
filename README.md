@@ -43,17 +43,12 @@ timestamps and hashes.
 
 ## Run it
 
-Hickory is a hosted, collaborative platform: teams work on the same documents
-in the browser, with live editing, shared execution, and their own LLM keys.
+Hickory is a program you download. The `hick` CLI (in `crates/hickory-cli`)
+runs on your machine, edits files in your repository, and executes on your
+hardware — no server, no account, no telemetry, and every command except the
+AI agent works fully offline.
 
-It is GPL-3.0-or-later, so you can run your own instance — the whole thing
-(server, web app, executor) is in this repository and deploys to Fly.io from
-the included `fly.toml` and `Dockerfile`. See
-[docs/operators/deploy-fly.md](docs/operators/deploy-fly.md).
-
-The `hick` CLI in `crates/hickory-cli` is the same engine, used for CI
-verification and local development of documents. Install it in one line
-(see [Reference](#install)) and run:
+Install it in one line (see [Reference](#install)) and run:
 
 ```sh
 hick test examples/text-tools-tour.hick
@@ -65,15 +60,19 @@ From a checkout, without installing anything:
 cargo run -p hickory-cli -- test examples/text-tools-tour.hick
 ```
 
-The examples are executable documents you can run against either executor:
+By default each cell runs **sandboxed** against your host toolchain: it may
+write only its own working directory, your dotfiles and keys are not there,
+and it has no network unless the document declares one. `HICKORY_EXECUTOR`
+selects another backend:
 
 ```sh
 HICKORY_EXECUTOR=docker cargo run -p hickory-cli -- test examples/
 ```
 
 With `docker`, each document's `image=` is the environment it runs in. With
-`local`, cells run against your host toolchain and `image=` is ignored — see
-[examples/README.md](examples/README.md) for what each example needs.
+`sandbox` (the default) or `local`, cells run against your host toolchain and
+`image=` is ignored — see [examples/README.md](examples/README.md) for what
+each example needs.
 
 The second example, `examples/bootstrap-ci.hick`, is a small statistical
 paper: it generates its data from a fixed seed, computes a bootstrap
@@ -86,10 +85,10 @@ computed from the data on every run.
 1. The parser read the document and built a dependency graph from container
    declarations, volume reads/writes, and copy/paste references — not from
    source order.
-2. Each `<hick:exec>` block ran in its declared container (locally: a plain
-   process per container; hosted: a Firecracker microVM on a
-   [Cloud Canopy](https://github.com/LoumTechnologies/cloud-canopy) node).
-   Output was captured as a timed transcript.
+2. Each `<hick:exec>` block ran in its declared container — by default a
+   confined process per container (bubblewrap on Linux, Seatbelt on macOS,
+   AppContainer on Windows), or the declared `image=` under
+   `HICKORY_EXECUTOR=docker`. Output was captured as a timed transcript.
 3. Expectations were checked, outputs woven into `examples/*.md`, and every
    output byte tagged with provenance back to its source span.
 
@@ -99,13 +98,13 @@ computed from the data on every run.
 whose *entire session* — your prompt, its reasoning, every script it ran,
 every observation — is saved as a replayable `hick:session` document.
 
-Bring your own key. Anthropic, OpenAI, DeepSeek, and Grok are supported. On
-the CLI, `--provider` picks one and the matching `*_API_KEY` environment
-variable is read; in the hosted app you store a key under Settings → API keys,
-where it is encrypted at rest and never shown again. An unknown provider or a
-missing key fails before the first request, naming what to set. On the Open
-and Pro plans your key is the *only* one an agent run will spend — never
-ours.
+Bring your own key. Anthropic, OpenAI, DeepSeek, and Grok are supported:
+`--provider` (or `HICKORY_LLM_PROVIDER`) picks the vendor and the matching
+`*_API_KEY` environment variable is read — and with exactly one key set, the
+provider is picked for you. Your key stays in your environment and goes only
+to the vendor you chose; hick never stores it, and nothing else in the tool
+touches the network. An unknown provider or a missing key fails before the
+first request, naming what to set.
 `hick promote` compacts a session into a clean pipeline: last-write wins,
 dead ends dropped. The agent's work product is a literate program in your git
 history, not a chat log that evaporated.
@@ -131,17 +130,28 @@ history, not a chat log that evaporated.
   lives in `editors/zed-hick` — see
   [docs/users/editor-setup.md](docs/users/editor-setup.md). Using AI agents
   with either mode: [docs/users/ai-agents.md](docs/users/ai-agents.md).
-- The desktop app ships: `apps/desktop` is a Tauri window around the notebook
-  UI, published as its own `.dmg`/`.msi`/`.deb`/`.AppImage` beside the CLI
-  archives — see [docs/users/install-desktop.md](docs/users/install-desktop.md).
-  It runs the same engine in-process (no second implementation of weaving,
-  lineage, or output edits) and answers the editor's language questions
-  through the same `hick-lsp`. It is not a client for any server we operate;
+- The desktop app is in development: `apps/desktop` is a Tauri window around
+  the notebook UI. It runs the same engine in-process (no second
+  implementation of weaving, lineage, or output edits) and answers the
+  editor's language questions through the same `hick-lsp`. It builds from
+  this repository today, but installable bundles are not yet a published
+  download — the download is the CLI. It is not a client for any server;
   Hickory is not a hosted service.
-- Local execution is **not sandboxed** — it runs your documents' commands as
-  your user, like `make`, and `image=` is recorded but ignored. Treat running
-  an untrusted document the way you would treat running an untrusted
-  Makefile. Sandboxed execution is what the Cloud Canopy backend is for.
+- Execution is **sandboxed by default** (`HICKORY_EXECUTOR=sandbox`): each
+  cell may write only its own working directory, your dotfiles and keys are
+  not mounted, and there is no network unless the document declares one.
+  Enforcement is bubblewrap on Linux, Seatbelt on macOS, AppContainer on
+  Windows — and where none of them is available, `hick` refuses to run rather
+  than quietly running unconfined. `HICKORY_EXECUTOR=local` opts out: commands
+  run as your user, like `make` — reasonable for documents you wrote, a
+  deliberate decision for anything else. Details:
+  [docs/users/local-mode.md](docs/users/local-mode.md).
+- Every executed cell runs under a **wall-clock limit** (default 120 seconds),
+  so a cell that blocks on stdin or loops forever fails with a clear error
+  instead of hanging a run or CI. Override it per cell with
+  `timeout="<seconds>"` on the `<hick:exec>` tag (`timeout="0"` = unbounded,
+  explicitly), or machine-wide with `HICKORY_CELL_TIMEOUT=<seconds>`. See the
+  guide's "Cell timeouts" section.
 - This is not a Markdown preprocessor: documents are DAGs with containers,
   capabilities, forks, and volumes, so a doc can prove things like "the
   report generator never talks to the network."
@@ -209,10 +219,25 @@ details, including how to verify a download:
     unrecorded cell is reported unverifiable (exit `2`). This is the CI
     command for "is everything already recorded?".
 - `hick weave <doc>` — render from cached transcripts without executing
+- `hick lineage <doc> --output <file>` — print the byte-precise provenance of a
+  generated output file: which source spans produced each byte range
 - `hick agent "<prompt>"` — run an agent session (writes `sessions/*.hick`)
 - `hick promote <session.hick>` — compact a session into a pipeline
-- `hick refresh <doc>` — rewrite stale `hick:transform` passages
-- `hick init` — install the pre-commit drift gate in a git repo
+- `hick refresh <doc>` — rewrite stale `hick:transform` passages; the only
+  command that calls a model
+- `hick init` — set up a git repo for hick: the pre-commit drift gate, the
+  `hick` MCP registration, agent instructions, and editor wiring
+- `hick doc read|read-output|edit|edit-output|verify` — read and edit a
+  document through hashline anchors and lineage, the same tool set the
+  built-in agent uses, for any coding agent that can run a command
+- `hick mcp` — serve that tool set over MCP on stdio (Claude Code, Codex,
+  Grok CLI, any MCP client)
+- `hick search "<query>"` — search the project like semble: ranked chunks
+  with exact file:line. Lexical out of the box; `--install-model` adds
+  semantic ranking (a one-time ~30 MB download, the only network use);
+  `--related FILE:LINE` finds similar code
+- `hick lsp` — show or install the language servers that power the editor
+- `hick dap` — show or install the debug adapters that power breakpoints
 - Language reference: `docs/` · Architecture: `docs/specs/freeform/architecture.md`
 
 ### `hick test` exit codes

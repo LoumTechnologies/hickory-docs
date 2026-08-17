@@ -1,0 +1,445 @@
+//! The in-app agent, driven the way the desktop app's chat dock drives it:
+//! `POST /api/docs/:id/agent`, a WebSocket on the run channel, and
+//! `GET /api/docs/:id/agent/turns`.
+//!
+//! Protects docs/guarantees/agent/a-missing-key-degrades-to-a-note.md.
+//!
+//! No test here spends a token: the full-turn tests inject a
+//! [`hickory_agent::ScriptedLlmClient`] through the serve state's test seam,
+//! and the no-key test scrubs the provider variables from this test binary's
+//! environment. The other tests never read those variables (the scripted
+//! client bypasses provider resolution), so the scrub cannot race them.
+
+use std::path::PathBuf;
+use std::sync::Arc;
+use std::time::Duration;
+
+use futures::StreamExt as _;
+use hickory_cli::ExecutorChoice;
+use hickory_cli::serve::{ServeOptions, prepare};
+use serde_json::{Value, json};
+use tokio_tungstenite::tungstenite::Message as TtMessage;
+
+const DOC: &str = r##"<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="demo.md">
+# Demo
+
+<hick:copy id="greet">fn greet() { println!("hello"); }
+</hick:copy>
+<hick:file path="greet.rs"><hick:paste select="#greet" /></hick:file>
+</hick:doc>
+"##;
+
+struct Session {
+    base: String,
+    doc_id: String,
+    root: PathBuf,
+    state: hickory_cli::serve::LocalState,
+    _dir: tempfile::TempDir,
+}
+
+async fn start() -> Session {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::write(dir.path().join("demo.hick"), DOC).unwrap();
+    let root = dir.path().canonicalize().unwrap();
+
+    let prepared = prepare(ServeOptions {
+        target: root.join("demo.hick"),
+        port: 0,
+        params: Vec::new(),
+        executor: ExecutorChoice::Local,
+        key_store_path: None,
+        ui_settings_path: None,
+    })
+    .await
+    .expect("session prepares");
+
+    let state = prepared.state.clone();
+    let doc_id = state.index.sole().expect("one document").0;
+
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    tokio::spawn(async move {
+        axum::serve(listener, prepared.router).await.unwrap();
+    });
+
+    Session {
+        base: format!("http://127.0.0.1:{port}"),
+        doc_id,
+        root,
+        state,
+        _dir: dir,
+    }
+}
+
+async fn get(session: &Session, path: &str) -> (u16, Value) {
+    let resp = reqwest::Client::new()
+        .get(format!("{}{path}", session.base))
+        .send()
+        .await
+        .unwrap();
+    (
+        resp.status().as_u16(),
+        resp.json().await.unwrap_or(Value::Null),
+    )
+}
+
+async fn post(session: &Session, path: &str, body: Value) -> (u16, Value) {
+    let resp = reqwest::Client::new()
+        .post(format!("{}{path}", session.base))
+        .json(&body)
+        .send()
+        .await
+        .unwrap();
+    (
+        resp.status().as_u16(),
+        resp.json().await.unwrap_or(Value::Null),
+    )
+}
+
+/// A `<hick:next>done</hick:next>` response carrying `summary`.
+fn done(summary: &str) -> String {
+    format!("<hick:next>done</hick:next>\n\n{summary}")
+}
+
+/// Start a turn and wait until the turns listing reports it finished.
+async fn run_turn_to_completion(
+    session: &Session,
+    prompt: &str,
+    parent_id: Option<&str>,
+) -> (String, Value) {
+    let (status, body) = post(
+        session,
+        &format!("/api/docs/{}/agent", session.doc_id),
+        json!({ "prompt": prompt, "parent_id": parent_id }),
+    )
+    .await;
+    assert_eq!(status, 202, "{body}");
+    let turn_id = body["session_id"].as_str().expect("session_id").to_string();
+    wait_for_turn(session, &turn_id).await
+}
+
+/// With no provider key anywhere in the environment, the agent route answers
+/// 503 with a message that STARTS with "agent not available" — the phrase
+/// ChatDock matches to render a quiet configuration note instead of a red
+/// error — and then names the variables that would fix it.
+///
+/// Protects docs/guarantees/agent/a-missing-key-degrades-to-a-note.md.
+#[tokio::test(flavor = "multi_thread")]
+async fn no_key_degrades_to_the_note_never_a_crash() {
+    for var in [
+        "ANTHROPIC_API_KEY",
+        "OPENAI_API_KEY",
+        "DEEPSEEK_API_KEY",
+        "XAI_API_KEY",
+        "OPENROUTER_API_KEY",
+        "HICKORY_LLM_PROVIDER",
+    ] {
+        unsafe { std::env::remove_var(var) };
+    }
+
+    let session = start().await;
+    let (status, body) = post(
+        &session,
+        &format!("/api/docs/{}/agent", session.doc_id),
+        json!({ "prompt": "hello", "parent_id": null }),
+    )
+    .await;
+    assert_eq!(status, 503, "{body}");
+    let error = body["error"].as_str().expect("an {{error}} body");
+    assert!(
+        error.starts_with("agent not available"),
+        "the client contract is the leading phrase: {error}"
+    );
+    assert!(
+        error.contains("ANTHROPIC_API_KEY"),
+        "the note must say what to set: {error}"
+    );
+
+    // Degraded, not broken: the rest of the session still answers.
+    let (status, _) = get(&session, "/api/health").await;
+    assert_eq!(status, 200);
+}
+
+/// One POST is one full agent run: the scripted answer streams on the run
+/// channel under `exec_id: "agent"`, the turn lands in the listing in the
+/// shape the dock renders, and the session is persisted as a `hick:session`
+/// file under `<served folder>/sessions/`.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_turn_streams_on_the_run_channel_and_persists_a_session_file() {
+    let session = start().await;
+    session
+        .state
+        .agent
+        .set_llm_override(Arc::new(hickory_agent::ScriptedLlmClient::new([done(
+            "All done: the document greets the world.",
+        )])));
+
+    // The dock's window: a socket on the document's room.
+    let url = format!(
+        "ws://{}/api/ws?doc=doc:{}",
+        session.base.trim_start_matches("http://"),
+        session.doc_id
+    );
+    let (mut ws, _) = tokio_tungstenite::connect_async(url).await.unwrap();
+
+    let (status, body) = post(
+        &session,
+        &format!("/api/docs/{}/agent", session.doc_id),
+        json!({ "prompt": "finish the greeting", "parent_id": null }),
+    )
+    .await;
+    assert_eq!(status, 202, "{body}");
+    let turn_id = body["session_id"].as_str().unwrap().to_string();
+
+    // Watch the run channel until the terminal status frame.
+    let mut saw_token = false;
+    let terminal = tokio::time::timeout(Duration::from_secs(30), async {
+        while let Some(Ok(msg)) = ws.next().await {
+            let TtMessage::Binary(data) = msg else {
+                continue;
+            };
+            if data.first() != Some(&0x01) {
+                continue;
+            }
+            let event: Value = serde_json::from_slice(&data[1..]).unwrap();
+            if event["run_id"] != turn_id.as_str() {
+                continue;
+            }
+            if let Some(status) = event["status"].as_str() {
+                return status.to_string();
+            }
+            assert_eq!(event["exec_id"], "agent");
+            if event["event"]["kind"] == "token" {
+                saw_token = true;
+            }
+        }
+        panic!("the socket closed before the terminal status");
+    })
+    .await
+    .expect("the turn must publish a terminal status");
+    assert_eq!(terminal, "ok");
+    assert!(saw_token, "the answer must stream as token events");
+
+    // The listing has the finished turn, in the dock's wire shape.
+    let (_, listing) = get(
+        &session,
+        &format!("/api/docs/{}/agent/turns", session.doc_id),
+    )
+    .await;
+    let turns = listing["turns"].as_array().unwrap();
+    assert_eq!(turns.len(), 1);
+    let turn = &turns[0];
+    assert_eq!(turn["id"], turn_id.as_str());
+    assert_eq!(turn["parent_id"], Value::Null);
+    assert_eq!(turn["prompt"], "finish the greeting");
+    assert_eq!(turn["status"], "ok");
+    assert_eq!(turn["error"], Value::Null);
+    assert!(
+        turn["answer"]
+            .as_str()
+            .unwrap()
+            .contains("greets the world"),
+        "{turn}"
+    );
+    assert!(turn["created_at"].as_str().is_some());
+
+    // Nothing is lost on quit: the run wrote a hick:session document.
+    let sessions: Vec<_> = std::fs::read_dir(session.root.join("sessions"))
+        .expect("a sessions/ directory exists in the served folder")
+        .filter_map(Result::ok)
+        .filter(|e| e.path().extension().is_some_and(|x| x == "hick"))
+        .collect();
+    assert_eq!(sessions.len(), 1, "one turn, one session file");
+}
+
+/// The dock's model control: `provider`/`model` posted with a turn are
+/// validated, persist for the document, apply to subsequent turns, and come
+/// back in the turns listing along with session totals priced per turn.
+///
+/// Protects
+/// docs/guarantees/agent/the-dock-reports-spend-and-runs-the-chosen-model.md.
+#[tokio::test(flavor = "multi_thread")]
+async fn model_choice_is_accepted_persisted_and_priced_in_totals() {
+    let session = start().await;
+    let usage = hickory_agent::Usage {
+        input_tokens: 1000,
+        cache_creation_input_tokens: 100,
+        cache_read_input_tokens: 400,
+        output_tokens: 200,
+    };
+    session.state.agent.set_llm_override(Arc::new(
+        hickory_agent::ScriptedLlmClient::with_usages([
+            (done("first"), usage),
+            (done("second"), usage),
+        ])
+        .with_model_name("claude-sonnet-5"),
+    ));
+
+    // A typo'd provider is refused up front — it must never silently run
+    // (or persist) as some other vendor.
+    let (status, body) = post(
+        &session,
+        &format!("/api/docs/{}/agent", session.doc_id),
+        json!({ "prompt": "x", "provider": "opennai" }),
+    )
+    .await;
+    assert_eq!(status, 400, "{body}");
+    let error = body["error"].as_str().unwrap();
+    assert!(error.contains("unknown provider"), "{error}");
+    assert!(
+        error.contains("openrouter"),
+        "the error must list the valid selectors: {error}"
+    );
+
+    // An explicit choice rides the POST and is echoed on the turn.
+    let (status, body) = post(
+        &session,
+        &format!("/api/docs/{}/agent", session.doc_id),
+        json!({
+            "prompt": "go",
+            "parent_id": null,
+            "provider": "openai",
+            "model": "claude-sonnet-5",
+        }),
+    )
+    .await;
+    assert_eq!(status, 202, "{body}");
+    let first_id = body["session_id"].as_str().unwrap().to_string();
+    let (_, first) = wait_for_turn(&session, &first_id).await;
+    assert_eq!(first["provider"], "openai");
+    assert_eq!(first["model"], "claude-sonnet-5");
+    assert_eq!(first["usage"]["input_tokens"], 1000);
+    assert_eq!(first["usage"]["output_tokens"], 200);
+
+    // The choice persists: the next POST names neither field and still runs
+    // (and records) the same provider and model.
+    let (_, second) = run_turn_to_completion(&session, "again", Some(&first_id)).await;
+    assert_eq!(second["provider"], "openai");
+    assert_eq!(second["model"], "claude-sonnet-5");
+
+    // The listing carries the current choice plus totals: tokens summed
+    // four ways, and USD priced with each turn's own model
+    // (sonnet-5: 1000*3 + 100*1.25*3 + 400*0.1*3 + 200*15 per MTok).
+    let (_, listing) = get(
+        &session,
+        &format!("/api/docs/{}/agent/turns", session.doc_id),
+    )
+    .await;
+    assert_eq!(listing["provider"], "openai");
+    assert_eq!(listing["model"], "claude-sonnet-5");
+    let totals = &listing["totals"];
+    assert_eq!(totals["input"], 2000);
+    assert_eq!(totals["output"], 400);
+    assert_eq!(totals["cache_read"], 800);
+    assert_eq!(totals["cache_write"], 200);
+    let usd = totals["usd"].as_f64().expect("a priced model sums to USD");
+    assert!((usd - 2.0 * 0.006495).abs() < 1e-9, "got {usd}");
+}
+
+/// Before anything is chosen, the listing resolves defaults so the dock has
+/// something truthful to display, and totals start at zero dollars.
+///
+/// Protects
+/// docs/guarantees/agent/the-dock-reports-spend-and-runs-the-chosen-model.md.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_untouched_document_lists_resolved_defaults_and_zero_totals() {
+    let session = start().await;
+    session
+        .state
+        .agent
+        .set_llm_override(Arc::new(hickory_agent::ScriptedLlmClient::new([done(
+            "hi",
+        )])));
+
+    let (status, listing) = get(
+        &session,
+        &format!("/api/docs/{}/agent/turns", session.doc_id),
+    )
+    .await;
+    assert_eq!(status, 200);
+    assert_eq!(listing["provider"], "anthropic");
+    assert_eq!(listing["model"], "claude-sonnet-5");
+    assert_eq!(listing["totals"]["usd"], 0.0);
+    assert_eq!(listing["totals"]["input"], 0);
+}
+
+/// Wait until `turn_id` leaves the running state; returns its listing entry.
+async fn wait_for_turn(session: &Session, turn_id: &str) -> (String, Value) {
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(30);
+    loop {
+        let (status, listing) = get(
+            session,
+            &format!("/api/docs/{}/agent/turns", session.doc_id),
+        )
+        .await;
+        assert_eq!(status, 200, "{listing}");
+        let turn = listing["turns"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|t| t["id"] == turn_id)
+            .cloned();
+        if let Some(turn) = turn
+            && turn["status"] != "running"
+        {
+            return (turn_id.to_string(), turn);
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "the turn never finished"
+        );
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+}
+
+/// `parent_turn_id` selects the conversation tip: a reply records its
+/// parent, and naming an earlier turn again forks a sibling branch rather
+/// than overwriting what followed it. An unknown parent is refused before
+/// anything runs.
+#[tokio::test(flavor = "multi_thread")]
+async fn replies_record_their_parent_and_rewinding_forks_a_branch() {
+    let session = start().await;
+    session
+        .state
+        .agent
+        .set_llm_override(Arc::new(hickory_agent::ScriptedLlmClient::new([
+            done("first answer"),
+            done("second answer"),
+            done("forked answer"),
+        ])));
+
+    let (root_id, root) = run_turn_to_completion(&session, "start", None).await;
+    assert_eq!(root["status"], "ok");
+
+    let (reply_id, reply) = run_turn_to_completion(&session, "continue", Some(&root_id)).await;
+    assert_eq!(reply["parent_id"], root_id.as_str());
+    assert_eq!(reply["status"], "ok");
+
+    // Rewind to the root and send again: a sibling of the first reply.
+    let (fork_id, fork) = run_turn_to_completion(&session, "try differently", Some(&root_id)).await;
+    assert_eq!(fork["parent_id"], root_id.as_str());
+
+    let (_, listing) = get(
+        &session,
+        &format!("/api/docs/{}/agent/turns", session.doc_id),
+    )
+    .await;
+    let children: Vec<String> = listing["turns"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|t| t["parent_id"] == root_id.as_str())
+        .map(|t| t["id"].as_str().unwrap().to_string())
+        .collect();
+    assert_eq!(children, vec![reply_id, fork_id]);
+
+    // A parent that does not exist is a bad request, not a broken run.
+    let (status, body) = post(
+        &session,
+        &format!("/api/docs/{}/agent", session.doc_id),
+        json!({ "prompt": "x", "parent_id": "no-such-turn" }),
+    )
+    .await;
+    assert_eq!(status, 400, "{body}");
+}

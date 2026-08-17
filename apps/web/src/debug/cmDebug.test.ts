@@ -4,12 +4,15 @@ import { beforeAll, describe, expect, it } from "vitest";
 import {
   breakpointLine,
   debugEditor,
+  gutterAction,
   inlinePlacements,
   revealLine,
   setBreakpointMarks,
   setPausedLine,
   setStackMarks,
+  setWatchValues,
   stackMarksOf,
+  watchPlacements,
 } from "./cmDebug";
 import { backwardsControl, type DebugCapabilities } from "./client";
 import { identifierAt } from "../lsp/cmLsp";
@@ -264,15 +267,15 @@ describe("the stack, in the gutter", () => {
       effects: [
         setPausedLine.of(4),
         setStackMarks.of([
-          { line: 1, name: "a", depth: 1 },
-          { line: 6, name: "<module>", depth: 2 },
+          { line: 1, id: 7, name: "a", depth: 1 },
+          { line: 6, id: 8, name: "<module>", depth: 2 },
         ]),
       ],
     });
 
     const frames = [...view.dom.querySelectorAll(".cm-frame-arrow")];
     expect(frames.length).toBe(2);
-    expect((frames[0] as HTMLElement).title).toBe("Called from a");
+    expect((frames[0] as HTMLElement).title).toContain("Called from a");
     expect((frames[1] as HTMLElement).title).toContain("2 frames up");
     // The paused line keeps the solid arrow; a caller never gets one.
     expect(view.dom.querySelectorAll(".cm-paused-arrow").length).toBe(1);
@@ -285,7 +288,7 @@ describe("the stack, in the gutter", () => {
     view.dispatch({
       effects: [
         setBreakpointMarks.of([{ line: 1, verified: true, conditional: false }]),
-        setStackMarks.of([{ line: 1, name: "a", depth: 1 }]),
+        setStackMarks.of([{ line: 1, id: 7, name: "a", depth: 1 }]),
       ],
     });
     expect(view.dom.querySelectorAll(".cm-bp").length).toBe(1);
@@ -364,6 +367,132 @@ describe("which frames become gutter marks", () => {
   });
 });
 
+
+describe("watches, at the end of the line that mentions them", () => {
+  it("puts each watch beside the first line mentioning its expression", () => {
+    const placements = watchPlacements(DOC, [{ expression: "unit_price", value: "9.99" }], 2);
+    expect(placements).toEqual([{ at: DOC.line(1).to, text: "unit_price = 9.99" }]);
+  });
+
+  it("matches a whole identifier, not a fragment of a longer one", () => {
+    // Watching `sum` must not land inside `subtotal`.
+    const placements = watchPlacements(DOC, [{ expression: "sum", value: "0" }], 2);
+    expect(placements[0].at).toBe(DOC.line(3).to); // the paused line, not line 2
+  });
+
+  it("falls back to the paused line when the expression appears nowhere", () => {
+    const placements = watchPlacements(DOC, [{ expression: "quantity * 2", value: "4" }], 1);
+    expect(placements).toEqual([{ at: DOC.line(2).to, text: "quantity * 2 = 4" }]);
+  });
+
+  it("finds a compound expression by literal match", () => {
+    const placements = watchPlacements(
+      DOC,
+      [{ expression: "quantity * unit_price", value: "19.98" }],
+      2,
+    );
+    expect(placements[0].at).toBe(DOC.line(2).to);
+  });
+
+  it("shows nothing while nothing is paused", () => {
+    // A watch's value belongs to a stopped frame; afterwards it is the past
+    // dressed up as the present.
+    expect(watchPlacements(DOC, [{ expression: "quantity", value: "2" }], null)).toEqual([]);
+  });
+
+  it("says the value is still coming rather than inventing one", () => {
+    const placements = watchPlacements(DOC, [{ expression: "quantity", value: null }], 1);
+    expect(placements[0].text).toBe("quantity = …");
+  });
+
+  it("joins watches that share a line into one widget", () => {
+    // Two widgets at the same position would be two ranges to keep ordered;
+    // one string is one fact per line.
+    const placements = watchPlacements(
+      DOC,
+      [
+        { expression: "quantity", value: "2" },
+        { expression: "unit_price", value: "9.99" },
+      ],
+      2,
+    );
+    expect(placements).toHaveLength(1);
+    expect(placements[0].text).toBe("quantity = 2  unit_price = 9.99");
+  });
+
+  it("draws them as end-of-line widgets, leaving the text untouched", () => {
+    const extensions = debugEditor({ onToggleBreakpoint: () => {} });
+    const doc = "a = 1\nb = 2\n";
+    const view = new EditorView({ state: EditorState.create({ doc, extensions }) });
+    view.dispatch({
+      effects: [setPausedLine.of(1), setWatchValues.of([{ expression: "a", value: "1" }])],
+    });
+    const widget = view.dom.querySelector(".cm-debug-watch");
+    expect(widget?.textContent).toBe("a = 1");
+    // The document itself is exactly what it was: the widget adds no text.
+    expect(view.state.doc.toString()).toBe(doc);
+    view.destroy();
+  });
+});
+
+describe("what a gutter click means", () => {
+  const HICK = `<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="out.md">
+Prose.
+
+<hick:file path="app.py">
+x = 1
+y = 2
+z = 3
+</hick:file>
+</hick:doc>
+`;
+  const codeLine = (needle: string) => {
+    const lines = HICK.split("\n");
+    return lines.findIndex((line) => line.includes(needle));
+  };
+
+  const open = () => {
+    const extensions = debugEditor({ onToggleBreakpoint: () => {} });
+    return new EditorView({ state: EditorState.create({ doc: HICK, extensions }) });
+  };
+
+  it("selects the frame on a line with a stack mark", () => {
+    const view = open();
+    const line = codeLine("y = 2");
+    view.dispatch({ effects: setStackMarks.of([{ line, id: 4, name: "caller", depth: 1 }]) });
+    expect(gutterAction(view.state, line)).toEqual({ kind: "frame", id: 4 });
+    view.destroy();
+  });
+
+  it("prefers the breakpoint where a caller's line also has one", () => {
+    // The dot is what is drawn there (the frame arrow yields), so the click
+    // must act on what the person can see.
+    const view = open();
+    const line = codeLine("y = 2");
+    view.dispatch({
+      effects: [
+        setBreakpointMarks.of([{ line, verified: true, conditional: false }]),
+        setStackMarks.of([{ line, id: 4, name: "caller", depth: 1 }]),
+      ],
+    });
+    expect(gutterAction(view.state, line)).toEqual({ kind: "breakpoint", line });
+    view.destroy();
+  });
+
+  it("toggles a breakpoint on a plain code line", () => {
+    const view = open();
+    const line = codeLine("x = 1");
+    expect(gutterAction(view.state, line)).toEqual({ kind: "breakpoint", line });
+    view.destroy();
+  });
+
+  it("refuses prose entirely", () => {
+    const view = open();
+    expect(gutterAction(view.state, codeLine("Prose."))).toBeNull();
+    view.destroy();
+  });
+});
 
 describe("where a breakpoint can go", () => {
   const DOC_SOURCE = `<?xml version="1.0" encoding="UTF-8"?>

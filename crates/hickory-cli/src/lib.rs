@@ -13,6 +13,7 @@ pub mod editor_lsp;
 pub mod init;
 pub mod lsp_install;
 pub mod mcp;
+pub mod search_install;
 pub mod serve;
 pub mod tool_install;
 pub mod up;
@@ -537,6 +538,13 @@ pub async fn run_doc_cached(
                 // `check` wants every cell with no baseline reported as
                 // unverifiable; `run` wants the first one to stop the run.
                 collect_unverifiable: mode == RunMode::Verify,
+                // The machine-wide default cell time limit, honouring
+                // HICKORY_CELL_TIMEOUT. Resolved here — the entry point for
+                // `hick run`, `hick test`, `hick up --run`, and the serve run
+                // path — so a malformed value fails the run at its start with
+                // a message naming the variable, not mid-document.
+                // docs/guarantees/execution/a-cell-cannot-hang-a-run.md
+                cell_timeout: hick_literate::cell_timeout::CellTimeoutDefault::from_env()?,
             };
             // The pipeline always gets the project's transcript cache, and
             // always by path rather than only when the directory already
@@ -606,6 +614,52 @@ fn clear_read_only(path: &Path) {
     let _ = crate::up::state::set_read_only(path, false);
 }
 
+/// Resolve a document-declared output path against `base`, refusing any path
+/// that would land outside it.
+///
+/// A `<hick:file path=…>` value comes from the document — a file people send
+/// each other and agents write, which is the same threat model that makes the
+/// sandbox the default executor. An absolute path, or a `..` that climbs out
+/// of the output directory, would let a document write anywhere the user can
+/// without executing a single cell (`Path::join` silently DISCARDS `base`
+/// when the right-hand side is absolute). So containment is checked
+/// lexically, before anything touches the filesystem.
+pub fn contained_output_path(base: &Path, rel_path: &str) -> Result<PathBuf> {
+    use std::path::Component;
+    let mut depth: i64 = 0;
+    let mut escapes = false;
+    for component in Path::new(rel_path).components() {
+        match component {
+            Component::Normal(_) => depth += 1,
+            Component::CurDir => {}
+            Component::ParentDir => {
+                depth -= 1;
+                if depth < 0 {
+                    escapes = true;
+                    break;
+                }
+            }
+            Component::RootDir | Component::Prefix(_) => {
+                escapes = true;
+                break;
+            }
+        }
+    }
+    if escapes {
+        bail!(
+            "refusing output path '{rel_path}': a <hick:file path=…> must stay under \
+             the document's output directory ({base}).\n  \
+             Absolute paths and `..` components that climb out of it are refused: a \
+             document is a file people share, and an escaping output path would let \
+             it write anywhere on this machine without running a single cell.\n  \
+             Next step: make the path relative to the document, e.g. \
+             path=\"src/app.py\".",
+            base = base.display()
+        );
+    }
+    Ok(base.join(rel_path))
+}
+
 /// Write a run's output files under `out_dir` (default: the document's
 /// directory). Returns the paths written.
 pub fn write_outputs(run: &DocRun, out_dir: Option<&Path>) -> Result<Vec<PathBuf>> {
@@ -619,7 +673,7 @@ pub fn write_outputs(run: &DocRun, out_dir: Option<&Path>) -> Result<Vec<PathBuf
     };
     let mut written = Vec::new();
     for (rel_path, content) in &run.result.files {
-        let full = base.join(rel_path);
+        let full = contained_output_path(&base, rel_path)?;
         if let Some(parent) = full.parent()
             && !parent.as_os_str().is_empty()
         {
@@ -669,7 +723,7 @@ fn write_files_if_absent(
 ) -> Result<Vec<PathBuf>> {
     let mut written = Vec::new();
     for (rel_path, content) in files {
-        let full = base.join(rel_path);
+        let full = contained_output_path(base, rel_path)?;
         if full.exists() {
             continue;
         }
@@ -739,7 +793,7 @@ pub fn check_failures(run: &DocRun, out_dir: Option<&Path>) -> Result<Vec<CheckF
         if volatile.contains(rel_path.as_str()) {
             continue;
         }
-        let full = base.join(rel_path);
+        let full = contained_output_path(&base, rel_path)?;
         let produced: Vec<u8> = match content {
             FileContent::Text(s) => s.clone().into_bytes(),
             FileContent::Binary(data) => data.to_bytes()?,
@@ -1053,4 +1107,57 @@ pub fn agent_lineage_report(run: &DocRun, output_path: &str) -> Result<Vec<Agent
             ))
         })
         .collect())
+}
+
+// Protects docs/guarantees/execution/output-paths-stay-inside-the-project.md
+#[cfg(test)]
+mod contained_output_path_tests {
+    use super::contained_output_path;
+    use std::path::Path;
+
+    #[test]
+    fn ordinary_relative_paths_resolve_under_base() {
+        let base = Path::new("/tmp/doc");
+        assert_eq!(
+            contained_output_path(base, "src/app.py").unwrap(),
+            base.join("src/app.py")
+        );
+        // `..` that stays inside the base is allowed.
+        assert_eq!(
+            contained_output_path(base, "a/../b.txt").unwrap(),
+            base.join("a/../b.txt")
+        );
+        assert_eq!(
+            contained_output_path(base, "./c.txt").unwrap(),
+            base.join("./c.txt")
+        );
+    }
+
+    #[test]
+    fn absolute_paths_are_refused() {
+        // Path::join would DISCARD the base for these — the exact behaviour
+        // the guard exists to remove.
+        let base = Path::new("/tmp/doc");
+        let err = contained_output_path(base, "/etc/cron.d/x").unwrap_err();
+        assert!(err.to_string().contains("refusing output path"), "{err}");
+    }
+
+    #[test]
+    fn parent_escapes_are_refused() {
+        let base = Path::new("/tmp/doc");
+        for p in ["../evil.sh", "a/../../evil.sh", ".."] {
+            let err = contained_output_path(base, p).unwrap_err();
+            assert!(
+                err.to_string().contains("refusing output path"),
+                "{p}: {err}"
+            );
+        }
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn drive_prefixes_are_refused() {
+        let base = Path::new("C:\\work\\doc");
+        assert!(contained_output_path(base, "C:\\evil.txt").is_err());
+    }
 }

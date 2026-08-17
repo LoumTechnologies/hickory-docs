@@ -8,8 +8,11 @@
 //
 // See docs/specs/freeform/shell-layouts.md.
 
-/** What a tab shows. Regions come from a layout; tools come from the app. */
-export type ViewKind = "document" | "generated" | "tool";
+/** What a tab shows. Regions come from a layout; tools come from the app.
+ * "tree" is the folder tree pane — a distinct kind, because drops treat it
+ * differently (see dragDrop.ts). "untitled" is a document that does not
+ * exist yet: a buffer, adopted into a "document" tab on its first edit. */
+export type ViewKind = "document" | "generated" | "tool" | "tree" | "untitled";
 
 export interface Tab {
   id: string;
@@ -18,6 +21,14 @@ export interface Tab {
   target: string;
   /** What the tab says. Defaults to the target's last segment. */
   title?: string;
+  /**
+   * Which document this tab belongs to. On a "document" tab, the document's
+   * own id; on a "generated" tab, the id of the document that produced the
+   * file. The workspace holds several documents at once, and a generated
+   * file's fetches and saves must go to the document that owns it — the
+   * target path alone cannot say which one that is.
+   */
+  docId?: string;
 }
 
 export interface Pane {
@@ -33,6 +44,12 @@ export interface Pane {
    * nothing has been declared that would say otherwise.
    */
   region?: string;
+  /**
+   * Folded down to an icon strip (see collapsePane). The tabs stay exactly
+   * where they were — collapsing is presentation, not tree surgery, which is
+   * what makes expanding a perfect round-trip.
+   */
+  collapsed?: boolean;
 }
 
 export interface Split {
@@ -73,8 +90,35 @@ export function freeform(): Layout {
   return { root: pane, focus: pane.id };
 }
 
-export function tab(kind: ViewKind, target: string, title?: string): Tab {
-  return { id: nextId("tab"), kind, target, title };
+export function tab(kind: ViewKind, target: string, title?: string, docId?: string): Tab {
+  return { id: nextId("tab"), kind, target, title, docId };
+}
+
+/**
+ * Put a tree pane at the left edge of an arrangement, modest width.
+ *
+ * A wrapper rather than a region: the tree describes the folder, not a part
+ * of the codebase, and it must survive whichever layout the person picks.
+ * The pane it makes is a normal pane — closable, resizable, a drop target
+ * for nothing (dragDrop.ts refuses joins into it).
+ */
+export function withTree(layout: Layout, entry: Tab, size = 0.2): Layout {
+  const pane: Pane = { ...emptyPane(), tabs: [entry], active: 0 };
+  const root: Split = {
+    type: "split",
+    id: nextId("split"),
+    direction: "row",
+    children: [pane, layout.root],
+    sizes: [size, 1 - size],
+  };
+  // The focus stays where it was: the tree is furniture, not what you came
+  // here to edit.
+  return { root, focus: layout.focus };
+}
+
+/** The pane holding the folder tree, when one is open. */
+export function treePane(layout: Layout): Pane | null {
+  return panes(layout.root).find((pane) => pane.tabs.some((t) => t.kind === "tree")) ?? null;
 }
 
 // ---------------------------------------------------------------------------
@@ -204,6 +248,41 @@ export function closePane(layout: Layout, paneId: string): Layout {
   if (root === null) return layout;
   const remaining = panes(root);
   return { root, focus: remaining[0]?.id ?? layout.focus };
+}
+
+// ---------------------------------------------------------------------------
+// Collapsing
+// ---------------------------------------------------------------------------
+
+/**
+ * Fold a pane down to an icon strip.
+ *
+ * Nothing about the pane changes but the flag: the tabs, the active index,
+ * and the split fraction all stay, so expanding restores exactly what was
+ * there. The last visible pane refuses to collapse — a shell that is all
+ * strips has nothing left to show and no obvious way back — and a collapsed
+ * pane gives up the focus, because keystrokes aimed at a pane you cannot see
+ * would edit an arrangement you cannot check.
+ */
+export function collapsePane(layout: Layout, paneId: string): Layout {
+  const expanded = panes(layout.root).filter((pane) => !pane.collapsed);
+  if (expanded.length <= 1 && expanded[0]?.id === paneId) return layout;
+  const root = replace(layout.root, paneId, (pane) => ({ ...pane, collapsed: true }));
+  if (root === null) return layout;
+  const focusNext =
+    layout.focus === paneId
+      ? (panes(root).find((pane) => !pane.collapsed && pane.id !== paneId)?.id ?? layout.focus)
+      : layout.focus;
+  return { root, focus: focusNext };
+}
+
+/** Unfold a collapsed pane. The pane takes the focus: expanding is how a
+ * person says "show me this again", and what they mean by it is next. */
+export function expandPane(layout: Layout, paneId: string): Layout {
+  const pane = paneById(layout, paneId);
+  if (!pane || !pane.collapsed) return layout;
+  const root = replace(layout.root, paneId, (current) => ({ ...current, collapsed: false }));
+  return { root: root ?? layout.root, focus: paneId };
 }
 
 // ---------------------------------------------------------------------------

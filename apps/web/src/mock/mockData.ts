@@ -1,4 +1,4 @@
-import type { Block, Doc, Plan, Project, TranscriptEvent } from "../api/types";
+import type { Block, Doc, Project, TranscriptEvent } from "../api/types";
 
 // ---------------------------------------------------------------------------
 // Mock document 1: runnable CLI-tool documentation (the exedocs use case).
@@ -280,7 +280,7 @@ export const WEAVE_BLOCKS: Block[] = [
 ];
 
 // ---------------------------------------------------------------------------
-// Projects, docs, plans
+// Projects, docs
 // ---------------------------------------------------------------------------
 
 export const MOCK_PROJECTS: Project[] = [
@@ -318,78 +318,3 @@ export const MOCK_BLOCKS: Record<string, Block[]> = {
   d3: WEAVE_BLOCKS,
 };
 
-// Mirrors the repo's plans.json (default plan set), shaped for the pricing
-// page the way the server is expected to shape it.
-export const MOCK_PLANS: Plan[] = [
-  {
-    key: "open",
-    name: "Open",
-    description: "For open source and evaluation. Unlimited public projects.",
-    prices: [],
-    features: [
-      "Unlimited public projects",
-      "1 private project",
-      "300 execution minutes/mo",
-      "Agent with your own API key",
-    ],
-  },
-  {
-    key: "pro",
-    name: "Pro",
-    description: "For individuals shipping commercial docs.",
-    trial_days: 14,
-    prices: [
-      { key: "pro-monthly-v1", interval: "month", amount_cents: 2900, currency: "usd" },
-      { key: "pro-annual-v1", interval: "year", amount_cents: 29000, currency: "usd" },
-    ],
-    features: [
-      "10 private projects",
-      "3 editors",
-      "2,000 execution minutes/mo",
-      "CI verification",
-      "Agent with your own API key",
-    ],
-  },
-  {
-    key: "team",
-    name: "Team",
-    description: "The default for devtools and platform teams: doc drift is a CI failure.",
-    trial_days: 14,
-    highlight: true,
-    prices: [
-      { key: "team-monthly-v1", interval: "month", amount_cents: 14900, currency: "usd" },
-      { key: "team-annual-v1", interval: "year", amount_cents: 149000, currency: "usd" },
-      { key: "team-extra-editor-monthly-v1", interval: "month", amount_cents: 1200, currency: "usd", per_seat: true },
-    ],
-    features: [
-      "Unlimited private projects",
-      "10 editors (+$12/mo per extra)",
-      "10,000 execution minutes/mo",
-      "CI verification & review workflow",
-      "Metered agent allowance",
-      "Priority execution",
-    ],
-  },
-  {
-    key: "business",
-    name: "Business",
-    description: "For data and research orgs: SSO, audit provenance, your own execution nodes.",
-    prices: [
-      { key: "business-monthly-v1", interval: "month", amount_cents: 44900, currency: "usd" },
-      { key: "business-annual-v1", interval: "year", amount_cents: 449000, currency: "usd" },
-      { key: "business-extra-editor-monthly-v1", interval: "month", amount_cents: 1000, currency: "usd", per_seat: true },
-    ],
-    features: [
-      "Everything in Team",
-      "30 editors (+$10/mo per extra)",
-      "30,000 execution minutes/mo",
-      "SSO & audit export",
-      "Bring your own execution nodes",
-    ],
-  },
-];
-
-export const MOCK_ENTERPRISE = {
-  contact: true,
-  description: "Self-hosted control plane, custom nodes, SLA.",
-};

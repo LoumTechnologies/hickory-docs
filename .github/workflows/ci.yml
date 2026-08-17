@@ -16,6 +16,7 @@ jobs:
     outputs:
       run_rust: ${{ steps.filter.outputs.run_rust }}
       run_web: ${{ steps.filter.outputs.run_web }}
+      run_desktop: ${{ steps.filter.outputs.run_desktop }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -25,6 +26,7 @@ jobs:
           checks=$(scripts/affected-checks.sh "origin/${{ github.base_ref }}")
           echo "run_rust=$(grep -qx rust <<<"$checks" && echo true || echo false)" >> "$GITHUB_OUTPUT"
           echo "run_web=$(grep -qx web <<<"$checks" && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          echo "run_desktop=$(grep -qx desktop <<<"$checks" && echo true || echo false)" >> "$GITHUB_OUTPUT"
 
   rust:
     needs: [changes]
@@ -122,4 +124,38 @@ jobs:
       - run: npm ci
       - run: npm test
       - run: npm run build
+
+  # The desktop crate is deliberately outside the cargo workspace, so the
+  # `rust` job never compiles it; without this job the first compile of a
+  # desktop change happens inside a release build. Same commands as the
+  # pre-commit hook's `desktop` check (parity per
+  # .instructions/pre-commit-ci-parity.md).
+  desktop:
+    needs: [changes]
+    if: always() && (github.event_name == 'push' || needs.changes.outputs.run_desktop == 'true')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.96.1
+        with:
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: desktop-check
+          workspaces: apps/desktop/src-tauri
+      - name: Install the Linux webview headers the crate links against
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
+      - name: fmt, clippy
+        working-directory: apps/desktop/src-tauri
+        run: |
+          cargo fmt --all -- --check
+          cargo clippy --all-targets -- -D warnings
+      - name: Syntax-check the release scripts (macOS runs bash 3.2)
+        run: |
+          for script in scripts/dist.sh scripts/dist-desktop.sh scripts/install.sh; do
+            bash -n "$script"
+          done
 

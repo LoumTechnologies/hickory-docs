@@ -15,5 +15,10 @@ tar = "0.4"
 tempfile = "3"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-util", "sync", "time", "process", "fs"] }
 
+[target.'cfg(unix)'.dependencies]
+# Process-group kill on timeout: SIGKILL to -pid so a cell's background
+# children die with it. See LocalExecutor::kill_hard.
+libc = "0.2"
+
 [dev-dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "time"] }

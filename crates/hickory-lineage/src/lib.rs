@@ -473,6 +473,16 @@ pub fn apply_source_edits(
                     e.span.0, e.span.1
                 )));
             }
+            // An error, not a panic: `replace_range` aborts the process on a
+            // non-boundary offset, and a span pointing mid-character is
+            // exactly what stale or mis-attributed provenance produces.
+            if !content.is_char_boundary(e.span.0) || !content.is_char_boundary(e.span.1) {
+                return Err(LineageError::InvalidEdit(format!(
+                    "source span {}..{} does not fall on UTF-8 character boundaries \
+                     in {doc_path} — the provenance is stale for this document",
+                    e.span.0, e.span.1
+                )));
+            }
             content.replace_range(e.span.0..e.span.1, &e.text);
         }
         result.insert(doc_path.to_string(), content);

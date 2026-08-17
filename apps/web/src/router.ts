@@ -3,45 +3,41 @@ import { useEffect, useState } from "react";
 // Tiny hash router — deliberately no routing dependency.
 
 export type Route =
-  // The public front door. Signed-out visitors at "/" get the marketing page;
-  // signed-in ones get their projects, so a returning user is never made to
-  // read a pitch for software they already bought.
+  // The front door ("/"): decides which document to land in. Never a chooser —
+  // the app opens like an editor, in a document you can type into.
   | { name: "landing" }
-  | { name: "login" }
-  | { name: "projects" }
-  | { name: "project"; id: string }
+  // A document that does not exist yet: held in memory, created on first edit.
+  | { name: "new" }
   // The whole pipeline at once, one column per stage. Project-scoped because
   // a chain crosses documents, and a doc-scoped route could only ever show
   // one link of it.
   | { name: "lineage"; id: string }
-  | { name: "doc"; id: string }
+  // LLM API keys for the agent — the only configuration this app has.
   | { name: "settings" }
-  // Token-bearing routes reached from an email link. The token stays in the
-  // hash, which never reaches the server as a query string.
-  | { name: "verify"; token: string }
-  | { name: "reset"; token: string }
-  | { name: "forgot" };
+  | { name: "doc"; id: string };
 
 export function parseRoute(hash: string): Route {
   const path = hash.replace(/^#/, "") || "/";
   let m: RegExpMatchArray | null;
-  if (path === "/") return { name: "landing" };
   if ((m = path.match(/^\/projects\/([^/]+)\/lineage$/)))
     return { name: "lineage", id: decodeURIComponent(m[1]) };
-  if (path === "/login") return { name: "login" };
-  if (path === "/settings") return { name: "settings" };
-  if (path === "/forgot") return { name: "forgot" };
-  if ((m = path.match(/^\/verify\?token=(.+)$/)))
-    return { name: "verify", token: decodeURIComponent(m[1]) };
-  if ((m = path.match(/^\/reset\?token=(.+)$/)))
-    return { name: "reset", token: decodeURIComponent(m[1]) };
-  if ((m = path.match(/^\/projects\/([^/]+)$/))) return { name: "project", id: m[1] };
   if ((m = path.match(/^\/docs\/([^/]+)$/))) return { name: "doc", id: m[1] };
-  return { name: "projects" };
+  if (path === "/new") return { name: "new" };
+  if (path === "/settings") return { name: "settings" };
+  // "/" and anything unrecognised — including a retired route like the old
+  // "#/documents" list still living in a bookmark — lands the way the app
+  // always lands: in a document. The folder's files are a pane, not a page.
+  return { name: "landing" };
 }
 
 export function navigate(path: string) {
   location.hash = path;
+}
+
+/** Navigate without a history entry — for hops the Back button must not
+ * revisit (the landing decision, the untitled buffer becoming a real doc). */
+export function redirect(path: string) {
+  location.replace(`#${path}`);
 }
 
 export function useRoute(): Route {

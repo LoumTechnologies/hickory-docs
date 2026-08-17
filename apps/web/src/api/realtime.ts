@@ -3,7 +3,6 @@ import { Awareness, applyAwarenessUpdate, encodeAwarenessUpdate, removeAwareness
 import * as syncProtocol from "y-protocols/sync";
 import * as encoding from "lib0/encoding";
 import * as decoding from "lib0/decoding";
-import { getToken } from "./client";
 import { createLspChannel, type LspChannel } from "../lsp/channel";
 import type { RunWsMessage } from "./types";
 
@@ -81,8 +80,6 @@ export class WsRealtime implements Realtime {
   private connect() {
     const proto = location.protocol === "https:" ? "wss:" : "ws:";
     const params = new URLSearchParams({ doc: this.docName });
-    const token = getToken();
-    if (token) params.set("token", token);
     const ws = new WebSocket(`${proto}//${location.host}/api/ws?${params}`);
     ws.binaryType = "arraybuffer";
     this.ws = ws;

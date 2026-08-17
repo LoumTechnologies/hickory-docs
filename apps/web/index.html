@@ -3,8 +3,26 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <meta name="color-scheme" content="light dark" />
+    <meta name="color-scheme" content="dark" />
     <title>Hickory Docs</title>
+    <!-- Theme, before the bundle: styles.css defaults to the dark theme on
+         :root, so only a stored non-default choice needs applying — but it
+         must land before first paint or a light-theme user gets a dark
+         flash. Mirrors src/lib/theme.ts (key, values, default). -->
+    <script>
+      (function () {
+        var theme;
+        try {
+          theme = localStorage.getItem("hickory.theme");
+        } catch (e) {
+          /* storage disabled: keep the default */
+        }
+        if (theme !== "dark" && theme !== "warm-dark" && theme !== "light") theme = "dark";
+        document.documentElement.dataset.theme = theme;
+        var meta = document.querySelector('meta[name="color-scheme"]');
+        if (meta) meta.setAttribute("content", theme === "light" ? "light" : "dark");
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

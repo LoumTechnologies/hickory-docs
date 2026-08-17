@@ -47,7 +47,7 @@ use anyhow::{Result, bail};
 use async_trait::async_trait;
 use hick_token::ContainerCapabilities;
 use hickory_executor::{
-    ContainerResourceStats, ExecTranscriptEntry, Executor, LocalExecutor, Transcripts,
+    ContainerResourceStats, ExecOptions, ExecTranscriptEntry, Executor, LocalExecutor, Transcripts,
 };
 
 pub use policy::Sandbox;
@@ -274,7 +274,7 @@ impl Executor for SandboxedExecutor {
         // page about our implementation in the middle of somebody else's
         // work.
         self.inner
-            .execute_as(container, command, &confined, None)
+            .execute_as(container, command, &confined, None, ExecOptions::default())
             .await
             .map_err(|error| self.explain(container, error))
     }
@@ -287,7 +287,32 @@ impl Executor for SandboxedExecutor {
     ) -> Result<String> {
         let confined = self.confine(container, command)?;
         self.inner
-            .execute_as(container, command, &confined, Some(stdin_data))
+            .execute_as(
+                container,
+                command,
+                &confined,
+                Some(stdin_data),
+                ExecOptions::default(),
+            )
+            .await
+            .map_err(|error| self.explain(container, error))
+    }
+
+    async fn execute_with_options(
+        &self,
+        container: &str,
+        command: &str,
+        stdin_data: Option<&str>,
+        options: ExecOptions,
+    ) -> Result<String> {
+        // The timeout rides through unchanged: the sandbox wrapper (`bwrap`)
+        // and the cell's shell are one process group under the inner
+        // `LocalExecutor`, so a timed-out confined cell is killed group and
+        // all, exactly like an unconfined one.
+        // docs/guarantees/execution/a-cell-cannot-hang-a-run.md
+        let confined = self.confine(container, command)?;
+        self.inner
+            .execute_as(container, command, &confined, stdin_data, options)
             .await
             .map_err(|error| self.explain(container, error))
     }
