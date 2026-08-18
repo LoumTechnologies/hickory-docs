@@ -4932,3 +4932,283 @@ textarea:focus {
   opacity: 0.55;
   font-size: 0.85em;
 }
+
+/* ---------------------------------------------------------------------------
+   Terminals: sessions, the queue, and the dock.
+
+   The state dot is the whole vocabulary — it appears on a session row, on a
+   folded project, on the dock's chips, and on the attention card, and means
+   the same thing in all four places. Colours come from the existing tokens so
+   a terminal looks like part of this window in every theme.
+   --------------------------------------------------------------------------- */
+
+.terminal-pane {
+  width: 100%;
+  height: 100%;
+  background: var(--term-bg);
+  padding: 4px 6px;
+  box-sizing: border-box;
+  overflow: hidden;
+  position: relative;
+}
+/* xterm.js names its root element `terminal xterm` — and `.terminal` is
+   already taken in this app by a cell's transcript block
+   (`<pre class="terminal">`, capped at 18rem with its own scrollbars).
+   The cap silently became the emulator's height: the fit addon measured the
+   pane, sized the screen to 51 rows, and 288px of box was drawn around it,
+   with scrollbars over the top. Undo the transcript's box here — for the
+   emulator only — rather than renaming a class either side owns. */
+.terminal-pane .xterm.terminal {
+  position: absolute;
+  inset: 4px 6px;
+  max-height: none;
+  padding: 0;
+  overflow: hidden;
+  line-height: normal;
+}
+
+.state-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+  background: var(--fg-muted);
+}
+.state-dot.state-needs-you {
+  background: var(--warn);
+  /* The one state that is asking for something gets the only animation. */
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--warn) 25%, transparent);
+}
+.state-dot.state-working {
+  background: var(--accent);
+}
+.state-dot.state-idle {
+  background: var(--border);
+}
+.state-dot.state-finished {
+  background: var(--ok);
+}
+.state-dot.state-failed {
+  background: var(--fail);
+}
+
+/* --- the sessions pane --- */
+
+.sessions-pane {
+  padding: 8px;
+  overflow: auto;
+  height: 100%;
+  box-sizing: border-box;
+}
+.sessions-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.turbo-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--fg-muted);
+  font-size: 0.85em;
+}
+.worktree-form {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.worktree-form input {
+  flex: 1;
+  min-width: 0;
+}
+
+.session-group {
+  margin-bottom: 6px;
+}
+.session-group-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  background: none;
+  border: 0;
+  color: inherit;
+  padding: 4px 2px;
+  cursor: pointer;
+  text-align: left;
+}
+.session-state {
+  color: var(--fg-muted);
+  font-size: 0.8em;
+  margin-left: auto;
+}
+
+.session-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding-left: 12px;
+}
+.session-row-active {
+  background: var(--bg-raised);
+  border-radius: 4px;
+}
+.session-open {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  background: none;
+  border: 0;
+  color: inherit;
+  padding: 3px 2px;
+  cursor: pointer;
+  text-align: left;
+}
+.session-title {
+  white-space: nowrap;
+}
+.session-branch {
+  color: var(--fg-muted);
+  font-size: 0.8em;
+}
+.session-dirty {
+  color: var(--stale);
+}
+/* The preview takes whatever room is left and gives it back: a long line
+   must never push the state dot or the title out of view. */
+.session-preview,
+.monitor-preview {
+  color: var(--fg-muted);
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 0.78em;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.session-close,
+.monitor-close {
+  background: none;
+  border: 0;
+  color: var(--fg-muted);
+  cursor: pointer;
+  padding: 0 4px;
+}
+
+/* --- the monitor dock --- */
+
+.monitor-dock {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  padding: 4px 10px;
+  background: var(--bg-sunken);
+  border-top: 1px solid var(--border);
+  font-size: 0.85em;
+  z-index: 30;
+}
+/* Amber, not red, and no motion: something it was holding up has stopped,
+   which is worth seeing when you look down — not worth interrupting for. */
+.monitor-dock-amber {
+  border-top-color: var(--warn);
+  box-shadow: inset 0 2px 0 -1px var(--warn);
+}
+.monitor-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 340px;
+}
+.monitor-name {
+  background: none;
+  border: 0;
+  color: inherit;
+  cursor: pointer;
+  padding: 0;
+  white-space: nowrap;
+}
+
+/* --- the attention card --- */
+
+.attention-card {
+  position: fixed;
+  right: 16px;
+  bottom: 48px;
+  width: min(420px, calc(100vw - 32px));
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--warn);
+  border-radius: 6px;
+  box-shadow: var(--shadow);
+  padding: 10px 12px;
+  z-index: 40;
+}
+.attention-card-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+}
+.attention-branch {
+  color: var(--fg-muted);
+  font-size: 0.8em;
+}
+.attention-dirty {
+  color: var(--stale);
+  font-size: 0.78em;
+}
+.attention-count {
+  margin-left: auto;
+  color: var(--fg-muted);
+  font-size: 0.78em;
+}
+.attention-question {
+  font-family: var(--mono, ui-monospace, monospace);
+  font-size: 0.85em;
+  white-space: pre-wrap;
+  word-break: break-word;
+  margin: 0 0 8px;
+}
+.attention-choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.attention-reply {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.attention-reply input {
+  flex: 1;
+  min-width: 120px;
+}
+.attention-card-foot {
+  display: flex;
+  gap: 6px;
+  margin-top: 10px;
+}
+.attention-empty {
+  position: fixed;
+  right: 16px;
+  bottom: 48px;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 10px;
+  color: var(--fg-muted);
+  box-shadow: var(--shadow);
+  z-index: 40;
+}

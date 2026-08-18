@@ -13,6 +13,7 @@ members = [
     "crates/hick-dap",
     "crates/hick-lsp",
     "crates/hick-structure",
+    "crates/hick-term",
     "crates/hick-merge",
     "crates/hick-secrets",
     "crates/hick-sink",

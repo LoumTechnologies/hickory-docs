@@ -14,7 +14,17 @@
  * exist yet: a buffer, adopted into a "document" tab on its first edit.
  * "file" is a plain file — in the folder, but neither a document nor a
  * woven output: it has no owning docId and edits save to disk directly. */
-export type ViewKind = "document" | "generated" | "file" | "tool" | "tree" | "untitled";
+export type ViewKind =
+  | "document"
+  | "generated"
+  | "file"
+  | "tool"
+  | "tree"
+  | "untitled"
+  // A terminal session, addressed by its server-side id. The pane shows the
+  // session; it does not own it, which is why closing the tab leaves the work
+  // running. See src/terminal/.
+  | "terminal";
 
 export interface Tab {
   id: string;

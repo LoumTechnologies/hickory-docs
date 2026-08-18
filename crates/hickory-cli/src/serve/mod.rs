@@ -35,6 +35,7 @@ pub mod plain_file;
 pub mod refactor;
 pub mod socket;
 pub mod store;
+pub mod terminal;
 pub mod watch;
 
 use std::collections::HashMap;
@@ -44,7 +45,7 @@ use std::sync::{Arc, Mutex};
 
 use anyhow::{Context as _, Result};
 use axum::Router;
-use axum::routing::{get, post};
+use axum::routing::{delete, get, post, put};
 use hickory_collab::RoomRegistry;
 use serde_json::{Value, json};
 
@@ -116,6 +117,10 @@ pub struct LocalState {
     /// Pinned refactor baselines, one per document under restructuring.
     /// Session state, deliberately in memory — see [`refactor`].
     pub refactors: Arc<Mutex<HashMap<String, refactor::RefactorBaseline>>>,
+    /// Every terminal session in the window, and the attention queue across
+    /// them. Sessions outlive their panes, so they belong to the session
+    /// state rather than to any one client. See [`terminal`].
+    pub terminals: Arc<hick_term::Terminals>,
 }
 
 /// The session's provider-key settings: the live store the agent route reads
@@ -403,6 +408,14 @@ fn router(state: LocalState) -> Router {
         .route("/structure", get(api::structure))
         .route("/executor", get(api::executor))
         .route("/health", get(api::health))
+        .route("/terminals", get(terminal::list).post(terminal::open))
+        .route("/terminals/turbo", put(terminal::set_turbo))
+        .route("/terminals/ws", get(terminal::ws_handler))
+        .route("/terminals/{id}", delete(terminal::close))
+        .route("/terminals/{id}/input", post(terminal::input))
+        .route("/terminals/{id}/resize", post(terminal::resize))
+        .route("/terminals/{id}/interrupt", post(terminal::interrupt))
+        .route("/terminals/{id}/answer", post(terminal::answer))
         .route("/ws", get(socket::ws_handler));
 
     Router::new().nest("/api", api).with_state(state)
@@ -460,6 +473,10 @@ pub async fn prepare(opts: ServeOptions) -> Result<Prepared> {
         None => UiStore::default(),
     };
 
+    // A bad HICKORY_TERM_SCROLLBACK fails here, naming the variable, rather
+    // than when a session happens to overflow its buffer an hour later.
+    let term_config = hick_term::TermConfig::from_env()?;
+
     let store = FileDocStore::new(index.clone());
     let state = LocalState {
         store: store.clone(),
@@ -479,6 +496,7 @@ pub async fn prepare(opts: ServeOptions) -> Result<Prepared> {
             path: opts.ui_settings_path,
         }),
         refactors: Arc::new(Mutex::new(HashMap::new())),
+        terminals: Arc::new(hick_term::Terminals::new(term_config)),
     };
 
     Ok(Prepared {

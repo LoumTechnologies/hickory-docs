@@ -12,6 +12,9 @@ export type MenuAction =
   | "save-as"
   | "settings"
   | "files"
+  // Terminals: open one, and walk the attention queue.
+  | "terminal"
+  | "attention"
   /** Open the Insert panel; the suffixed form opens it on one element, which
    * is how every item of the native Insert submenu arrives. */
   | "insert"
@@ -30,6 +33,8 @@ const ACTIONS: ReadonlySet<string> = new Set([
   "settings",
   "files",
   "insert",
+  "terminal",
+  "attention",
 ]);
 
 /** The element a menu action names, or null when it names none. The id is

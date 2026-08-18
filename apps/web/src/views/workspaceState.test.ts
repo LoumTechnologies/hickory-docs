@@ -25,6 +25,7 @@ import {
   openFileTab,
   openGeneratedTab,
   openIntoDeclared,
+  openTerminalTab,
   openUntitledTab,
 } from "./workspaceState";
 
@@ -323,5 +324,33 @@ describe("adding docId to tabs breaks nothing kind-agnostic", () => {
   it("makeTab carries the docId through", () => {
     const entry = makeTab("generated", "out/a.py", "a.py", "d1");
     expect(entry.docId).toBe("d1");
+  });
+});
+
+describe("openTerminalTab — a session gets one tab, and keeps it", () => {
+  it("adds a terminal tab beside the tree rather than over it", () => {
+    const layout = openTerminalTab(initialWorkspace(), "term-1", "build");
+    const terminals = panes(layout.root).flatMap((p) =>
+      p.tabs.filter((t) => t.kind === "terminal"),
+    );
+    expect(terminals.map((t) => t.target)).toEqual(["term-1"]);
+    // The Files tree is still open: opening ADDS.
+    expect(treePane(layout)).not.toBeNull();
+  });
+
+  it("fronts the existing tab instead of opening a second one", () => {
+    const once = openTerminalTab(initialWorkspace(), "term-1", "build");
+    const withOther = openTerminalTab(once, "term-2", "tests");
+    const again = openTerminalTab(withOther, "term-1", "build");
+
+    const targets = panes(again.root)
+      .flatMap((p) => p.tabs)
+      .filter((t) => t.kind === "terminal")
+      .map((t) => t.target)
+      .sort();
+    expect(targets).toEqual(["term-1", "term-2"]);
+
+    const pane = panes(again.root).find((p) => p.tabs.some((t) => t.target === "term-1"))!;
+    expect(pane.tabs[pane.active].target).toBe("term-1");
   });
 });

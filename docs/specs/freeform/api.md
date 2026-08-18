@@ -161,3 +161,46 @@ project checkout, bridged to the browser on the existing doc WebSocket:
   `{targets: [{uri: "hick:///…"|"hick-output:///…", range: {start, end}} …]}`
   (byte offsets; server maps output positions into the virtual-file space,
   asks the child LSP, and maps results back through provenance).
+
+## Terminals (v0.4)
+
+Terminal **sessions**: named work, in a directory, on a branch, that knows
+whether it is busy, blocked, or done — and keeps knowing while its pane is
+closed. The decisions (five states, the queue's order, what turbo may answer)
+live in `hick-term` and are pure; these routes serve them.
+
+- `POST /api/terminals` `{title?, cwd?, argv?, monitor?, worktree_branch?}`
+  → the session. `cwd` is relative to the open folder unless absolute; empty
+  `argv` runs `HICKORY_SHELL`. `worktree_branch` creates a git worktree on a
+  new branch and runs there. `monitor: true` puts it in the dock.
+- `GET /api/terminals` → `{sessions: [...], attention: [id …], turbo}`.
+  `attention` is the ORDER: needs-you, failed, finished-dirty, finished-clean,
+  oldest first within each band, monitors excluded. Every surface (the list,
+  the card, ⌘J) reads this one order.
+- `DELETE /api/terminals/:id` — stop the process and forget the session. The
+  only way a session ends; closing a pane never does.
+- `POST /api/terminals/:id/input` `{data}` — type into it.
+- `POST /api/terminals/:id/resize` `{rows, cols}` — the pane's measured size.
+- `POST /api/terminals/:id/interrupt` — what ^C does.
+- `POST /api/terminals/:id/answer` `{send}` — answer the attention card:
+  writes AND clears the declared prompt, so the session leaves the queue on
+  the same request.
+- `PUT /api/terminals/turbo` `{enabled}` — auto-answer routine **declared**
+  prompts. Never a guessed one, never a destructive choice; off by default and
+  not persisted.
+
+A session summary is `{id, title, cwd, monitor, state, since_ms, branch,
+dirty, preview, prompt, exit_code}`, where `state` is one of `needs-you`,
+`working`, `idle`, `finished`, `failed`, and `prompt` is
+`{question, choices: [{label, send, destructive}], source: "declared" |
+"guessed"}` or null.
+
+### Realtime — `WS /api/terminals/ws?session=<id>`
+
+Its own socket, not a channel on `/api/ws`: that one is keyed by
+`?doc=doc:<id>` and terminals belong to a directory and a task, not to a
+document. Out: binary frames of raw PTY bytes, the first being everything the
+session has already said. In: binary or text frames, written to the PTY
+verbatim. Sizing goes over REST, so every frame on this socket means the same
+thing. A client that falls far behind is dropped from the stream rather than
+buffered forever; reconnecting replays the scrollback, which is the state.

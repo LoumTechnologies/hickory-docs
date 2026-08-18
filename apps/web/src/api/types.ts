@@ -375,3 +375,70 @@ export interface UiSettings {
   /** Custom window title, or null for the default (folder / file name). */
   window_title: string | null;
 }
+
+// --- terminals ---------------------------------------------------------------
+// /api/terminals. A terminal here is a SESSION: named work, in a directory,
+// on a branch, that knows whether it is busy, blocked, or done — and keeps
+// knowing while its pane is closed. See crates/hick-term.
+
+/** The five states. Working and idle make no claim on your attention. */
+export type SessionState = "needs-you" | "working" | "idle" | "finished" | "failed";
+
+/** Where a prompt came from, which decides how far it may be trusted:
+ * "declared" is structural (the program said so, with its choices),
+ * "guessed" is us recognising the shape of a question on a screen. */
+export type PromptSource = "declared" | "guessed";
+
+export interface PromptChoice {
+  label: string;
+  /** Exactly what gets written to the terminal when it is pressed. */
+  send: string;
+  destructive: boolean;
+}
+
+export interface TerminalPrompt {
+  question: string;
+  /** Empty for a guessed prompt: we can see that something is being asked,
+   * not what the answers are. The card then offers a plain input line. */
+  choices: PromptChoice[];
+  source: PromptSource;
+}
+
+export interface TerminalSession {
+  id: string;
+  title: string;
+  cwd: string;
+  /** A support process — dev server, watcher, log tail. Lives in the dock,
+   * never claims attention, never takes focus. */
+  monitor: boolean;
+  state: SessionState;
+  /** When it entered this state, epoch millis. Oldest waiter leads its band. */
+  since_ms: number;
+  branch: string | null;
+  dirty: boolean;
+  /** The last line it printed — what a folded row shows. */
+  preview: string;
+  prompt: TerminalPrompt | null;
+  exit_code: number | null;
+}
+
+export interface TerminalsResponse {
+  sessions: TerminalSession[];
+  /** Session ids claiming attention, most-claiming first. The server owns
+   * this order (hick_term::attention) so every surface agrees on it. */
+  attention: string[];
+  turbo: boolean;
+}
+
+/** POST /api/terminals. Everything is optional: no body at all opens a shell
+ * in the open folder. */
+export interface OpenTerminal {
+  title?: string;
+  /** Relative to the open folder, or absolute. */
+  cwd?: string;
+  argv?: string[];
+  monitor?: boolean;
+  /** Run in a fresh git worktree on this new branch instead of the open
+   * folder, so two agents cannot fight over one checkout. */
+  worktree_branch?: string;
+}

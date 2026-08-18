@@ -94,6 +94,20 @@ fn app_menu(handle: &AppHandle) -> tauri::Result<Menu<Wry>> {
         )
         .separator()
         .item(
+            &MenuItemBuilder::with_id("terminal", "New Terminal")
+                .accelerator("CmdOrCtrl+Shift+T")
+                .build(handle)?,
+        )
+        .item(
+            // The one key that answers "what needs me?" — it walks the
+            // attention queue in the order the server ranks it, and says so
+            // when nothing is left.
+            &MenuItemBuilder::with_id("attention", "Next Needing Attention")
+                .accelerator("CmdOrCtrl+J")
+                .build(handle)?,
+        )
+        .separator()
+        .item(
             &MenuItemBuilder::with_id("files", "Show Files")
                 .accelerator("CmdOrCtrl+Shift+E")
                 .build(handle)?,
@@ -230,7 +244,9 @@ fn insert_menu(handle: &AppHandle) -> tauri::Result<tauri::menu::Submenu<Wry>> {
 /// and the file watcher are per-process, so a new session is a restart).
 fn on_menu(app: &AppHandle, id: &str) {
     match id {
-        "new" | "save" | "save-as" | "settings" | "files" => dispatch_to_ui(app, id),
+        "new" | "save" | "save-as" | "settings" | "files" | "terminal" | "attention" => {
+            dispatch_to_ui(app, id)
+        }
         // Every item of the Insert submenu, which the page answers by opening
         // its panel on the named element.
         _ if id.starts_with("insert") => dispatch_to_ui(app, id),
