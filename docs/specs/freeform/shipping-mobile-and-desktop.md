@@ -238,6 +238,13 @@ assumption that none of it applied:
 - **`master` only, and the release channels stay.** Desktop delivery is
   unchanged: unstable on every push, stable on a human-chosen version bump.
 
+## Settling the Apple-only claims
+
+Everything here was measured on Linux. The claims that need Apple hardware are
+collected as a prompt in `docs/developers/verify-on-apple-hardware.md`, together
+with what each one would take to settle. Until that has been run, every iOS
+statement in this document is a plan.
+
 ## Open edges
 
 - **Nothing has been built for a phone yet.** Everything above is a plan plus
