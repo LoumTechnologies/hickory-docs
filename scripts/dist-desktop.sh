@@ -61,10 +61,26 @@ if [ "$TARGET" != "$HOST_TARGET" ]; then
 fi
 (
   cd apps/desktop/src-tauri
+  # `CI=true` is what makes the macOS `.dmg` buildable anywhere.
+  #
+  # Tauri passes `--skip-jenkins` to its bundled `bundle_dmg.sh` only when `CI`
+  # is `true`; without it the script drives **Finder over AppleScript** to
+  # prettify the disk image's window, which fails on any machine where that is
+  # not permitted or where there is no usable GUI session — measured 2026-08-18
+  # on a MacBook Pro, where a local run died with
+  # `Finder got an error: AppleEvent timed out. (-1712)` after the app bundle
+  # had already been built successfully.
+  #
+  # Setting it unconditionally also means a local build and a release build
+  # produce the *same* disk image, which is what
+  # `continuous-delivery-downloadable.md` asks for: the artifact CI verifies is
+  # the artifact a user gets. All that is given up is the icon layout inside the
+  # `.dmg` window, which CI was already giving up.
+  #
   # macOS runners ship bash 3.2, where expanding an empty array under `set -u`
   # is an "unbound variable" error; the ${arr[@]+...} form is the portable
   # spelling of "expand only if non-empty".
-  cargo tauri build \
+  CI=true cargo tauri build \
     --config "{\"version\": \"$VERSION\"}" \
     ${cross_args[@]+"${cross_args[@]}"} \
     ${TAURI_BUNDLES:+--bundles "$TAURI_BUNDLES"}
