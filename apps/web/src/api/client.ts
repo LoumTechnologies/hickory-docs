@@ -15,6 +15,7 @@ import type {
   RefactorStatus,
   RenderResponse,
   Run,
+  ScratchpadSaved,
   SearchResponse,
   SettingsKeysPatch,
   SettingsKeysResponse,
@@ -128,6 +129,15 @@ export const api = {
       path,
       ...(into !== undefined ? { into } : {}),
     }),
+
+  /** Save text typed in the app as a note in the open folder.
+   *
+   * A different act from ingesting a file, and it produces a different note:
+   * this is prose a named human typed here, not bytes another tool produced,
+   * so it is never wrapped as a transcript. See
+   * `docs/specs/freeform/ingest.md`. */
+  saveScratchpad: (text: string) =>
+    request<ScratchpadSaved>("POST", "/api/scratchpad", { text }),
 
   /** Pin the document's current woven outputs as a refactor baseline. */
   refactorBegin: (docId: string) =>

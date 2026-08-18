@@ -349,3 +349,35 @@ mod tests {
         assert!(write_plain(dir.path(), "link.txt", "x", None, true).is_err());
     }
 }
+
+// ---------------------------------------------------------------------------
+// Scratchpad
+// ---------------------------------------------------------------------------
+
+/// Text typed in the app, on its way to becoming a note.
+#[derive(Deserialize)]
+pub struct ScratchpadNote {
+    pub text: String,
+}
+
+/// `POST /api/scratchpad` — save typed text as a note in the open folder.
+///
+/// The third way material gets in, beside downloading a file into the inbox and
+/// copying one there. It is a different act from ingesting a file and produces a
+/// different note: this text is prose a named human typed, not bytes another
+/// tool produced, and `hick_transcript` never touches it. See
+/// `docs/specs/freeform/ingest.md`.
+pub async fn post_scratchpad(
+    State(state): State<LocalState>,
+    Json(body): Json<ScratchpadNote>,
+) -> ApiResult<Json<Value>> {
+    let root = state.index.root().to_path_buf();
+    let path = crate::ingest::save_scratchpad(&body.text, &root)
+        .map_err(|e| ApiError::bad_request(format!("{e:#}")))?;
+    let relative = path
+        .strip_prefix(&root)
+        .unwrap_or(&path)
+        .to_string_lossy()
+        .to_string();
+    Ok(Json(json!({ "path": relative })))
+}

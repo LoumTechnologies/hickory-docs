@@ -20,6 +20,7 @@ hick-exec.workspace = true
 hick-handlers = { path = "../hick-handlers" }
 hick-feature = { path = "../hick-feature" }
 hick-lang.workspace = true
+hick-transcript = { workspace = true }
 hick-secrets = { path = "../hick-secrets" }
 hick-token = { path = "../hick-token" }
 hick-store = { path = "../hick-store" }

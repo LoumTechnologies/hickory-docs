@@ -5212,3 +5212,88 @@ textarea:focus {
   box-shadow: var(--shadow);
   z-index: 40;
 }
+
+/* ---------------------------------------------------------------------------
+   Scratchpad — the typed way into a notes folder.
+
+   Styled as a place to think rather than a form to fill in: the textarea is the
+   pane, and everything else stays out of the way until there is something to
+   say.
+   --------------------------------------------------------------------------- */
+
+.scratchpad-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
+  padding: 0.6rem;
+}
+
+.scratchpad-label {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.scratchpad-hint {
+  margin: 0;
+  font-size: 0.75rem;
+  color: var(--fg-muted);
+}
+
+.scratchpad-text {
+  flex: 1;
+  min-height: 8rem;
+  resize: vertical;
+  padding: 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-sunken);
+  color: var(--fg);
+  font: inherit;
+  line-height: 1.5;
+}
+
+.scratchpad-text:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.scratchpad-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.scratchpad-save {
+  padding: 0.3rem 0.7rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-raised);
+  color: var(--fg);
+  cursor: pointer;
+}
+
+.scratchpad-save:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.scratchpad-saved {
+  font-size: 0.75rem;
+  color: var(--ok);
+}
+
+/* A refusal here always carries a next step, so it gets room to be read
+   rather than being reduced to a red border. */
+.scratchpad-refused {
+  margin: 0;
+  padding: 0.45rem 0.6rem;
+  border-radius: 4px;
+  background: var(--fail-bg);
+  color: var(--fg);
+  font-size: 0.78rem;
+  white-space: pre-wrap;
+}

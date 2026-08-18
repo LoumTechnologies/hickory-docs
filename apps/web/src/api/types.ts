@@ -143,6 +143,11 @@ export interface PlainFileSaved {
 }
 
 /** What `POST /api/adopt` answers: the document that now owns the file. */
+/** Where a scratchpad note landed, relative to the open folder. */
+export interface ScratchpadSaved {
+  path: string;
+}
+
 export interface AdoptResponse {
   doc_id: string;
   doc_path: string;

@@ -11,6 +11,7 @@ pub mod dap_install;
 pub mod debug_sessions;
 pub mod doc_tools;
 pub mod editor_lsp;
+pub mod ingest;
 pub mod init;
 pub mod lsp_install;
 pub mod mcp;
@@ -369,8 +370,7 @@ pub fn check_outcome(failures: &[CheckFailure]) -> CheckOutcome {
 /// makes it free, offline, and deterministic in CI — the properties that let
 /// an LLM-written passage live in a verified document at all.
 pub fn stale_transforms(doc_path: &Path, source: &str) -> Result<Vec<CheckFailure>> {
-    let doc = hick_lang::parse(source)
-        .map_err(|e| anyhow::anyhow!("parse error in {}: {e}", doc_path.display()))?;
+    let doc = transform_document(doc_path, source)?;
     let mut out = Vec::new();
     for tag in doc.find_tags("transform") {
         let select = tag.get_attribute("select").unwrap_or_default().to_string();
@@ -395,10 +395,30 @@ pub fn stale_transforms(doc_path: &Path, source: &str) -> Result<Vec<CheckFailur
 
 /// The bytes a transform reads: its selected fragments, concatenated in
 /// document order.
+/// Load a document the way the transform fingerprint paths must see it.
+///
+/// `hick test` (which checks a `from=` fingerprint) and `hick refresh` (which
+/// writes one) have to agree byte-for-byte about a transform's input, or every
+/// refresh would immediately read as stale. That means both must apply the same
+/// transcript derivation the pipeline applies — so they share this function
+/// rather than each calling `parse` and hoping.
+pub fn transform_document(doc_path: &Path, source: &str) -> Result<hick_lang::HickDocument> {
+    let mut doc = hick_lang::parse(source)
+        .map_err(|e| anyhow::anyhow!("parse error in {}: {e}", doc_path.display()))?;
+    hick_transcript::expand(&mut doc);
+    Ok(doc)
+}
+
+/// The bytes a transform was written from.
+///
+/// `text_content`, not the direct-children-only `tag_text`: a selected
+/// fragment may hold structure — a transcript holds its derived turns — and a
+/// summary's input is everything inside it, not just the text that happens to
+/// be a direct child.
 pub fn transform_input(doc: &hick_lang::HickDocument, select: &str) -> String {
     hick_lang::fragments_matching(doc, select)
         .iter()
-        .map(|t| hick_lang::tag_text(t))
+        .map(|t| t.text_content())
         .collect::<Vec<_>>()
         .join("")
 }
@@ -467,8 +487,17 @@ pub async fn run_doc_cached(
 ) -> Result<DocRun> {
     let source = std::fs::read_to_string(doc_path)
         .with_context(|| format!("failed to read {}", doc_path.display()))?;
-    let doc = hick_lang::parse(&source)
+    // `parse_from_path`: this document is about to have its outputs written,
+    // so its `weave_path` must be the resolved one — the markdown file of its
+    // own name when it names none (`bare-documents.md`). The pipeline resolves
+    // it the same way, and a `DocRun` whose `doc` disagreed with the files it
+    // produced is how the adoption guard came to trip on a file it had itself
+    // just written.
+    let mut doc = hick_lang::parse_from_path(&source, doc_path)
         .map_err(|e| anyhow::anyhow!("parse error in {}: {e}", doc_path.display()))?;
+    // The same projection the pipeline builds, so this `DocRun`'s document and
+    // the run's own agree about what a transcript contains.
+    hick_transcript::expand(&mut doc);
 
     // Warn BEFORE executing. The failure this predicts kills the run, so a
     // warning emitted afterwards is a warning nobody ever sees.
@@ -480,6 +509,9 @@ pub async fn run_doc_cached(
         log::warn!("{}: {warning}", doc_path.display());
     }
     // A drawing nobody checks is the thing this feature exists to prevent.
+    for warning in claim_warnings(&doc) {
+        log::warn!("{}: {warning}", doc_path.display());
+    }
     for warning in diagram_assertion_warnings(&doc) {
         log::warn!("{}: {warning}", doc_path.display());
     }
@@ -907,6 +939,78 @@ pub fn diagram_assertion_warnings(doc: &hick_lang::HickDocument) -> Vec<String> 
                      reference is the usual cause."
                 ));
             }
+        }
+    }
+    out
+}
+
+/// Claims whose standing is missing, unknown, or unfalsifiable as written.
+///
+/// A `<hick:claim>` is an assertion ABOUT an assertion: nothing verifies that
+/// Sam is an expert, and nothing ever will. What can be checked is whether the
+/// marking is meaningful enough to be worth reading — which is what these
+/// warnings are for. See `docs/specs/freeform/provenance-and-standing.md`.
+///
+/// All of these are **warnings, never errors**, following the same reasoning as
+/// the diagram assertions: a tool that refused to weave an imperfectly marked
+/// claim would only teach people to stop marking claims, and an unused marking
+/// system is worse than none because it makes the marked subset look complete.
+pub fn claim_warnings(doc: &hick_lang::HickDocument) -> Vec<String> {
+    let extra: Vec<String> = doc
+        .frontmatter
+        .as_ref()
+        .map(|fm| fm.list("standings"))
+        .unwrap_or_default();
+    let allowed: Vec<&str> = hick_lang::STANDINGS
+        .iter()
+        .copied()
+        .chain(extra.iter().map(String::as_str))
+        .collect();
+    let vocabulary = allowed.join(", ");
+
+    let mut out = Vec::new();
+    for tag in doc.tags().filter(|t| t.name == "claim") {
+        let line = tag.source_line;
+
+        if tag
+            .get_attribute("by")
+            .filter(|by| !by.is_empty())
+            .is_none()
+        {
+            out.push(format!(
+                "line {line}: this claim says nothing about who is making it. \
+                 Add `by=\"name\"` — an unattributed claim is indistinguishable \
+                 from the document's own prose, which is what marking it was \
+                 supposed to prevent."
+            ));
+        }
+
+        match tag.get_attribute("standing").filter(|s| !s.is_empty()) {
+            None => out.push(format!(
+                "line {line}: this claim declares no `standing`, so it says \
+                 someone asserted something without saying on what footing. \
+                 Use one of: {vocabulary}."
+            )),
+            Some(standing) if !allowed.contains(&standing) => out.push(format!(
+                "line {line}: `standing=\"{standing}\"` is not a standing this \
+                 document knows. Use one of: {vocabulary} — or add \"{standing}\" \
+                 to a `standings:` list in this document's frontmatter if it is \
+                 a distinction your notes really make."
+            )),
+            Some("expert")
+                if tag
+                    .get_attribute("scope")
+                    .filter(|s| !s.is_empty())
+                    .is_none() =>
+            {
+                out.push(format!(
+                    "line {line}: this claims expertise without a `scope`. \
+                     Expertise is never global, and an expert speaking outside \
+                     their scope is exactly what this marking exists to make \
+                     visible — add `scope=\"…\"` naming what they are expert in."
+                ));
+            }
+            Some(_) => {}
         }
     }
     out

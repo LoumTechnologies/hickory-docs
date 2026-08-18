@@ -1,5 +1,13 @@
 # Continuous Delivery — downloadable product
 
+> **Amended 2026-08-18** by `docs/specs/freeform/shipping-mobile-and-desktop.md`:
+> mobile ships through the App Store and Play Store, which adds a gate this
+> module assumed did not exist. Desktop delivery — `.dmg`, `AppImage`, `.msi`,
+> GitHub releases, the one-line installer — is unchanged. Where this file says
+> "the artifact is the deliverable and CI verifies it", read that as true of
+> desktop and *weaker* for mobile: CI builds and bundles, a simulator smoke
+> test stands in for a real install, and publication is App Review's verb.
+
 This repository ships a **program people download**, not a service we operate.
 There is no staging environment, no production environment, no promote gate,
 and no infrastructure to provision — because there is no server. See
@@ -46,14 +54,20 @@ cloud products; this repo has neither.
   `examples/`.
 - **Every platform we advertise is built and smoke-tested in CI.** If a target
   is not verified by a workflow, it is not a supported platform and must not
-  appear in the installer or the docs.
+  appear in the installer or the docs. **Mobile is the one exception, and it is
+  a weaker promise, not a waived one:** CI builds and bundles, a simulator
+  smoke test stands in for installing to a device, and a human verifies before
+  submission. Say that plainly rather than implying the same coverage.
 - **The installer and the release assets are one contract.** `scripts/install.sh`
   resolves an asset name that `scripts/dist.sh` produces. Changing either name
   breaks installation for everyone; change them together, and keep the version
   the binary reports equal to the version in the asset name.
 - **Nothing in the product phones home.** No telemetry, no update check, no
   licence check, no crash reporting. A tool that runs on private repositories
-  earns that by not talking to anyone.
+  earns that by not talking to anyone. Being *in* a store does not change this:
+  the store reports installs to us as a property of the store, and the app
+  still says nothing to anyone. Keep those two sentences apart — they are the
+  kind of pair that collapses into each other by accident.
 - **The site is static.** hickorydocs.com is files and a link to GitHub
   releases. It has no backend, no signup, and no pricing. If a change to the
   site needs a server, it is out of scope.
@@ -66,7 +80,10 @@ cloud products; this repo has neither.
 Because there is no deployment, there are no GitHub Environments, no
 staging/production secret parity, and no `env-parity` check. The only secrets
 are what publishing a release needs (the default `GITHUB_TOKEN`, plus signing
-credentials if code signing is added).
+credentials). Signing is no longer hypothetical: notarizing a `.dmg`, signing
+an `.msi`, and submitting to either store all need identities in secrets. An
+unsigned installer reads to a new user as malware, which makes signing part of
+delivery rather than a later polish step.
 
 Runtime configuration is the **user's**, read from their environment at
 startup, and must still be strongly typed and validated at boot per

@@ -24,6 +24,7 @@ import type { DocSummary, OpenTerminal, SearchHit } from "../api/types";
 import { ChatDock } from "../components/ChatDock";
 import { InsertMenu } from "../components/InsertMenu";
 import { PlainFilePane } from "../components/PlainFilePane";
+import { ScratchpadPane } from "../components/ScratchpadPane";
 import { SearchPanel } from "../components/SearchPanel";
 import { ReferencesPanel } from "../components/ReferencesPanel";
 import { PromptPanel } from "../components/PromptPanel";
@@ -66,6 +67,7 @@ import {
   openIntoDeclared,
   openSessionsTab,
   openTerminalTab,
+  openScratchpadTab,
   openUntitledTab,
   SESSIONS_TAB,
 } from "./workspaceState";
@@ -79,7 +81,10 @@ import { nextInQueue } from "../lib/attentionCursor";
 import { DocTabBody, GeneratedTabBody, UntitledTab } from "./workspaceTabs";
 
 /** The routes the workspace answers. Everything else is App's. */
-export type WorkspaceRoute = Extract<Route, { name: "doc" } | { name: "new" }>;
+export type WorkspaceRoute = Extract<
+  Route,
+  { name: "doc" } | { name: "new" } | { name: "scratchpad" }
+>;
 
 export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   // What the window is arranged as. Session state, owned HERE, above any
@@ -213,10 +218,17 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   // `#/docs/<id>` means "make sure this document is open and frontmost",
   // `#/new` means "make sure there is an untitled buffer". Back and forward
   // therefore just re-activate tabs that are already there.
-  const routeKey = route.name === "doc" ? `doc:${route.id}` : "new";
+  // Every non-document route needs its OWN key: collapsing them all to one
+  // string means navigating from `#/new` to `#/scratchpad` looks like no
+  // change at all, and the effect never runs.
+  const routeKey = route.name === "doc" ? `doc:${route.id}` : route.name;
   useEffect(() => {
     if (route.name === "new") {
       setLayout((current) => openUntitledTab(current));
+      return;
+    }
+    if (route.name === "scratchpad") {
+      setLayout((current) => openScratchpadTab(current));
       return;
     }
     // Already looking at this document — through its own tab or one of its
@@ -710,6 +722,9 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
                     }}
                   />
                 );
+              }
+              if (tab.kind === "scratchpad") {
+                return <ScratchpadPane key={tab.id} />;
               }
               if (tab.kind === "untitled") {
                 return <UntitledTab tabId={tab.id} onCreated={onUntitledCreated} />;

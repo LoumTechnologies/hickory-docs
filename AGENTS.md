@@ -1,23 +1,53 @@
 # Hickory Docs
 
-A downloadable tool for literate programming where you can edit the generated
-files: reproducible, verifiable, executable documents in the hick language,
-with an AI agent whose output is literate-programming files in git.
+A downloadable **note-taking IDE** whose notes are `.hick` documents:
+reproducible, verifiable, executable documents in the hick language, meeting
+transcripts and their AI summaries ingested as ordinary notes, and an AI agent
+whose output is literate-programming files in git. Notes can run, and an AI
+summary in one can be proven to still describe what it summarized.
 
-Read two documents before changing anything:
+Read three documents before changing anything:
+`docs/specs/freeform/notes-ide.md` for what the product is **for** (notes are
+documents; meetings are inputs; the phone reads and captures but never
+executes), then
 `docs/specs/freeform/local-only.md` for what the product **is** (a program you
 download; no server, no account, no relay, nothing to buy; `hick up` and a
-desktop app over one engine), then
+desktop app over one engine — still true, and widened on purpose only by
+`notes-ide.md`), then
 `docs/specs/freeform/architecture.md` for how it is **built** — accurate on the
 language, crates, execution boundary, and verification, and superseded on
 everything hosted.
 
+The surface syntax is settled separately in
+`docs/specs/freeform/bare-documents.md`: the `<hick:doc>` wrapper is optional, a
+document may begin with markdown or YAML frontmatter, and every document weaves
+a `.md` of its own name.
+
+How outside material enters a notes folder is `docs/specs/freeform/ingest.md`;
+how the result is marked is `docs/specs/freeform/provenance-and-standing.md`.
+The rule that governs both: **provenance is derived and checkable, standing is
+declared and unverifiable, and the two must never render alike.** Say
+"AI-touched" or "no evidence of AI" — **never** "human-written" or
+"human-verified", which nothing can prove.
+
 ## Stack (settled — do not relitigate)
 
 - CLI + language + local server: Rust (edition 2024), axum, tokio. No database.
-- Frontend: React + TypeScript + Vite, shipped as the **desktop app's** UI via
-  Tauri v2. No other frontend framework. It is not a client for any server we
-  run — the only server it talks to is the one in the same process.
+- Frontend: React + TypeScript + Vite, shipped as the **desktop and mobile
+  apps'** UI via Tauri v2 — one package, three entry points (`index.html` the
+  editor, `site.html` the marketing page, mobile its own). No other frontend
+  framework. It is not a client for any server we run — the only server it
+  talks to is the one in the same process.
+- Mobile (`notes-ide.md`): read and capture only. **No executor on iOS** — it
+  cannot spawn a subprocess, so no cells, no terminal, no LSP, no DAP. Notes
+  render via `hick weave` from cached transcripts. Devices meet through the
+  **user's own git remote**, never through anything we run.
+- Distribution (`shipping-mobile-and-desktop.md`): **App Store and Play Store**
+  for mobile; **`.dmg`, `AppImage`, `.msi`** for desktop, from GitHub releases.
+  Two thin Tauri shells over one core — never one shell threaded with
+  `#[cfg(mobile)]`. The portable half is the language, documents, weave, and
+  transcripts (`hick-lang` and `hick-transcript` verified compiling for
+  `aarch64-linux-android`); the host-process half never goes near a phone.
 - Live sync: Yrs (Yjs) CRDTs (`hick-grove`, `hickory-collab`). Durable state:
   the user's git repository. The CRDT survives the removal of collaboration
   because the app's editor buffer and the file on disk are still two writers.
@@ -27,11 +57,16 @@ everything hosted.
   first-party.
 - Product shape: **local-only** (`local-only.md`). There is no backend, no
   account, no relay, and no monetization. Do not add one. Anything that would
-  need a server we operate is out of scope, not a later phase.
+  need a server we operate is out of scope, not a later phase. Say "nothing
+  talks to a server we run" — **never** "your notes never leave your machine",
+  which sync to the user's own git remote makes untrue.
 - Delivery: a **downloadable product**. `master` only. The release channels
   (`unstable-release.yml`, `stable-release.yml`) and the one-line installer are
   the delivery path; hickorydocs.com is static files and a download link.
-  See `.instructions/continuous-delivery-downloadable.md`.
+  See `.instructions/continuous-delivery-downloadable.md`, as amended by
+  `shipping-mobile-and-desktop.md`: mobile publication is App Review's verb, not
+  a green CI run, and signing is part of delivery rather than a later polish
+  step — an unsigned installer reads to a new user as malware.
 
 ## Rules
 
@@ -39,7 +74,9 @@ everything hosted.
 - The hick parser's no-escaping invariant is sacred: only namespace-prefixed
   tags are structured; all other text is raw, byte-for-byte. No CDATA, no
   entity escaping. Docs about hick use a different prefix (`h:`) so `hick:`
-  examples stay literal.
+  examples stay literal — and because rebinding the prefix requires the explicit
+  `<h:doc xmlns:h="…">` root, those documents keep their wrapper while ordinary
+  notes drop it (`bare-documents.md`).
 - Public API of each crate is its explicit `pub use` facade in `lib.rs`.
 - Guarantees live in `docs/guarantees/` (one file per guarantee, Given/When/Then
   + verification block); update them in the same change as the implementation.

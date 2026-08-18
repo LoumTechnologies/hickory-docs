@@ -38,3 +38,9 @@ describe("the lineage route", () => {
     expect(parseRoute("#/projects/abc123/lineage")).toEqual({ name: "lineage", id: "abc123" });
   });
 });
+
+describe("the scratchpad route", () => {
+  it("is its own route, so it can be linked and bookmarked", () => {
+    expect(parseRoute("#/scratchpad")).toEqual({ name: "scratchpad" });
+  });
+});

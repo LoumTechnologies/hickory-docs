@@ -81,7 +81,9 @@ export function App() {
   return (
     <div className="app">
       <main className="content">
-        {route.name === "doc" || route.name === "new" ? (
+        {route.name === "doc" ||
+        route.name === "new" ||
+        route.name === "scratchpad" ? (
           // ONE workspace for every document-shaped route. It owns the tile
           // layout and stays mounted as `#/docs/<id>` changes, which is what
           // lets several documents be open at once: navigation asks it to

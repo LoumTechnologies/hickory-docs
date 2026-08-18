@@ -130,6 +130,7 @@ mod tests {
             source: String::new(),
             prefix: "hick".to_string(),
             weave_path: None,
+            frontmatter: None,
             volatile: false,
             span_files: Vec::new(),
         }

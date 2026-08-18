@@ -51,7 +51,9 @@ async fn test_multi_file_output() {
     let result = hick_literate::run_pipeline(&[("test.hick", &src)], &[])
         .await
         .unwrap();
-    assert_eq!(result.files.len(), 3);
+    // Three declared files plus the document's own woven markdown.
+    assert_eq!(result.files.len(), 4);
+    assert!(result.files.contains_key("test.md"));
     assert_eq!(result.files.get("a.txt").unwrap(), "aaa");
     assert_eq!(result.files.get("b.txt").unwrap(), "bbb");
     assert_eq!(result.files.get("c.txt").unwrap(), "ccc");
@@ -587,7 +589,8 @@ async fn test_no_file_outputs() {
     let result = hick_literate::run_pipeline(&[("test.hick", &src)], &[])
         .await
         .unwrap();
-    assert!(result.files.is_empty());
+    // A document that declares no `hick:file` still weaves its own markdown.
+    assert_eq!(result.files.keys().collect::<Vec<_>>(), vec!["test.md"]);
 }
 
 // ---------------------------------------------------------------------------
@@ -1433,7 +1436,9 @@ async fn test_multi_stage_no_hick_output_single_stage() {
     let result = hick_literate::run_pipeline_multi_stage(&[("test.hick", &src)], &[], 3)
         .await
         .unwrap();
-    assert_eq!(result.files.len(), 2);
+    // Two declared files plus the document's own woven markdown.
+    assert_eq!(result.files.len(), 3);
+    assert!(result.files.contains_key("test.md"));
     assert_eq!(result.files.get("out.txt").unwrap(), "hello");
     assert_eq!(
         result.files.get("data.json").unwrap(),
@@ -2155,8 +2160,11 @@ body {}
 }
 
 #[tokio::test]
-async fn test_weave_no_attribute_no_output() {
-    // No weave output when weave attribute is absent
+async fn test_weave_without_an_attribute_uses_the_document_name() {
+    // A document with no `weave=` weaves the markdown file of its own name.
+    // This replaces `test_weave_no_attribute_no_output`, which asserted the
+    // opposite — see `docs/specs/freeform/bare-documents.md`, "The weave
+    // default is the one behaviour change".
     let src = r#"<?xml version="1.0" encoding="UTF-8"?>
 <hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
 
@@ -2170,9 +2178,20 @@ Some prose here.
         .await
         .unwrap();
 
-    // Should only have the code file, no weave output
-    assert_eq!(result.files.len(), 1, "should only have code file");
+    assert_eq!(
+        result.files.len(),
+        2,
+        "the code file and the woven markdown"
+    );
     assert!(result.files.contains_key("out.txt"));
+    let woven = result
+        .files
+        .get("test.md")
+        .expect("test.hick weaves test.md");
+    assert!(
+        woven.contains("Some prose here."),
+        "the woven markdown carries the document's prose, got: {woven}"
+    );
 }
 
 #[tokio::test]

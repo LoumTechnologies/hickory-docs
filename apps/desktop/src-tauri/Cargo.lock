@@ -2385,6 +2385,7 @@ dependencies = [
  "hick-secrets",
  "hick-store",
  "hick-token",
+ "hick-transcript",
  "hickory-executor",
  "indexmap 2.14.0",
  "log",
@@ -2506,6 +2507,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "hick-transcript"
+version = "0.1.0"
+dependencies = [
+ "hick-lang",
+]
+
+[[package]]
 name = "hickory-agent"
 version = "0.1.0"
 dependencies = [
@@ -2537,6 +2545,7 @@ dependencies = [
  "env_logger",
  "fs2",
  "futures",
+ "hex",
  "hick-dap",
  "hick-exec",
  "hick-lang",
@@ -2545,6 +2554,7 @@ dependencies = [
  "hick-search",
  "hick-structure",
  "hick-term",
+ "hick-transcript",
  "hickory-agent",
  "hickory-collab",
  "hickory-executor",
@@ -2559,6 +2569,7 @@ dependencies = [
  "rpassword",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "similar",
  "tempfile",
  "tokio",
@@ -2567,6 +2578,7 @@ dependencies = [
  "tower-http",
  "tower-lsp",
  "tracing",
+ "xattr",
 ]
 
 [[package]]

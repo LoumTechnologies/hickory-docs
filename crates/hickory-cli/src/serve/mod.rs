@@ -404,6 +404,7 @@ fn router(state: LocalState) -> Router {
         )
         .route("/files", get(api::files))
         .route("/file", get(plain_file::get_file).put(plain_file::put_file))
+        .route("/scratchpad", post(plain_file::post_scratchpad))
         .route("/search", get(api::search))
         .route("/structure", get(api::structure))
         .route("/executor", get(api::executor))

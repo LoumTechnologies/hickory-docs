@@ -202,6 +202,12 @@ pub async fn run(config: UpConfig) -> Result<()> {
 
     let _lock = DirectoryLock::acquire(&watch_root)?;
 
+    // Drain the inbox BEFORE listing documents, so a transcript waiting there
+    // when the loop starts becomes a note that the first weave covers rather
+    // than one that sits unwoven until the next file event.
+    let inbox = crate::ingest::InboxConfig::from_env()?;
+    drain_inbox(&watch_root, &inbox);
+
     let mut state = WovenState::default();
     // `expand_docs` already refuses an empty directory, and its message
     // covers the three ways to fix it. Do not add a second one here.
@@ -291,6 +297,14 @@ pub async fn run(config: UpConfig) -> Result<()> {
                 Err(_) => break,
             }
         }
+        // A file dropped in the inbox becomes a note, and the note joins this
+        // batch so it is woven in the same cycle rather than the next one.
+        if batch
+            .iter()
+            .any(|path| path.starts_with(inbox.inbox(&watch_root)))
+        {
+            batch.extend(drain_inbox(&watch_root, &inbox));
+        }
         if let Err(e) = handle_batch(batch, &config, &mut state).await {
             eprintln!("error: {e:#}");
         }
@@ -298,6 +312,30 @@ pub async fn run(config: UpConfig) -> Result<()> {
 
     state.release_read_only();
     Ok(())
+}
+
+/// Turn everything in the inbox into notes, returning the notes written.
+///
+/// Reports every outcome, including skips: a file that silently stayed in the
+/// inbox with no explanation is how someone concludes the feature is broken.
+/// A failure here is printed and never propagated — an unreadable drop must not
+/// take down a loop that is keeping someone's notes woven.
+fn drain_inbox(root: &Path, config: &crate::ingest::InboxConfig) -> Vec<PathBuf> {
+    let outcomes = match crate::ingest::ingest_inbox(root, config) {
+        Ok(outcomes) => outcomes,
+        Err(e) => {
+            eprintln!("hick up: could not read the inbox: {e:#}");
+            return Vec::new();
+        }
+    };
+    let mut written = Vec::new();
+    for outcome in &outcomes {
+        eprintln!("hick up: {outcome}");
+        if let crate::ingest::Outcome::Ingested { note, .. } = outcome {
+            written.push(note.clone());
+        }
+    }
+    written
 }
 
 /// Weave one document, write its outputs, and record what was written.

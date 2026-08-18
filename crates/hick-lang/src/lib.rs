@@ -148,6 +148,12 @@ pub struct HickDocument {
     /// always fails is one people learn to ignore. Expectations still apply:
     /// `hick:expect` asks "did the claim hold", which stays meaningful.
     pub volatile: bool,
+    /// YAML frontmatter, when this document is bare and opens with one.
+    ///
+    /// A *view* over bytes that are also present in [`HickDocument::nodes`] as
+    /// text — never a replacement for them. `None` for a wrapped document,
+    /// which configures itself with attributes on its root instead.
+    pub frontmatter: Option<Frontmatter>,
     /// Files whose text was spliced into `nodes` by include/upstream
     /// resolution, as canonical paths. A span whose
     /// [`SourceSpan::file_id`] is `Some(i)` holds byte offsets into
@@ -346,6 +352,302 @@ fn detect_prefix(input: &str) -> String {
 }
 
 // ---------------------------------------------------------------------------
+// Bare documents: frontmatter, prefix resolution, wrapped/bare detection
+// ---------------------------------------------------------------------------
+
+/// YAML frontmatter at the head of a bare document.
+///
+/// See `docs/specs/freeform/bare-documents.md`. Frontmatter is recognised
+/// **only** in a bare document — a wrapped one configures itself with
+/// attributes on its root, and two mechanisms for one thing in one file is how
+/// a format rots.
+///
+/// The bytes stay in [`HickDocument::nodes`] as ordinary text. This struct is
+/// a *view* over them, not a replacement for them: that is what makes the
+/// block weave through verbatim and keeps its spans addressable by lineage,
+/// with no reconstruction step on the reverse-edit path.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Frontmatter {
+    /// The block including both `---` fences, byte-for-byte.
+    pub raw: String,
+    /// Top-level keys in source order, with their scalar values.
+    ///
+    /// A key whose value is a block (a nested mapping or a multi-line list)
+    /// is present with an empty value: the format does not get an opinion
+    /// about what a non-reserved key means, so it is recorded and not
+    /// interpreted.
+    pub entries: Vec<(String, String)>,
+    /// Items of any key written as a block list, in source order.
+    ///
+    /// Recording that `tags` has three items is structure, not meaning — this
+    /// says nothing about what `tags` denotes, only what shape it was written
+    /// in, so that [`Frontmatter::list`] can answer the same way for the block
+    /// and inline spellings.
+    pub lists: Vec<(String, Vec<String>)>,
+}
+
+impl Frontmatter {
+    /// The value of a top-level key, if it has one.
+    pub fn get(&self, key: &str) -> Option<&str> {
+        self.entries
+            .iter()
+            .find(|(k, _)| k == key)
+            .map(|(_, v)| v.as_str())
+    }
+
+    /// A key's items, whichever of YAML's two list spellings was used.
+    ///
+    /// `tags: [a, b]` and a block of `- a` / `- b` lines answer identically.
+    /// A key that is absent, or whose value is a plain scalar, has no items.
+    pub fn list(&self, key: &str) -> Vec<String> {
+        if let Some((_, items)) = self.lists.iter().find(|(k, _)| k == key) {
+            return items.clone();
+        }
+        let Some(value) = self.get(key) else {
+            return Vec::new();
+        };
+        let Some(inner) = value.strip_prefix('[').and_then(|v| v.strip_suffix(']')) else {
+            return Vec::new();
+        };
+        inner
+            .split(',')
+            .map(|item| unquote_scalar(item.trim()).to_string())
+            .filter(|item| !item.is_empty())
+            .collect()
+    }
+}
+
+/// Keys frontmatter reserves to configure the document. Everything else is
+/// metadata and is never interpreted.
+pub const RESERVED_FRONTMATTER_KEYS: [&str; 4] = ["weave", "prefix", "volatile", "standings"];
+
+/// The standings a `<hick:claim>` may declare without the document saying so.
+///
+/// A claim's standing is an assertion about an assertion — nothing verifies
+/// it — so the vocabulary is small and closed enough to be comparable across
+/// repositories. A document extends it with a `standings:` frontmatter key.
+/// See `docs/specs/freeform/provenance-and-standing.md`.
+pub const STANDINGS: [&str; 4] = ["expert", "judgment", "report", "assumption"];
+
+/// Strip the surrounding quotes from a YAML scalar, if it has a matching pair.
+fn unquote_scalar(value: &str) -> &str {
+    let bytes = value.as_bytes();
+    if bytes.len() >= 2
+        && (bytes[0] == b'"' || bytes[0] == b'\'')
+        && bytes[bytes.len() - 1] == bytes[0]
+    {
+        &value[1..value.len() - 1]
+    } else {
+        value
+    }
+}
+
+/// Split a `key: value` line at column 0, returning the key and its scalar.
+///
+/// Returns `None` for anything that is not a top-level mapping entry.
+fn frontmatter_entry(line: &str) -> Option<(&str, &str)> {
+    let key_end = line.find(':')?;
+    let key = &line[..key_end];
+    if key.is_empty() {
+        return None;
+    }
+    let mut chars = key.chars();
+    let first = chars.next()?;
+    if !(first.is_ascii_alphabetic() || first == '_') {
+        return None;
+    }
+    if !chars.all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-' || c == '.') {
+        return None;
+    }
+    let rest = &line[key_end + 1..];
+    // `key:value` is not a YAML mapping entry; `key:` and `key: value` are.
+    if !rest.is_empty() && !rest.starts_with([' ', '\t']) {
+        return None;
+    }
+    Some((key, unquote_scalar(rest.trim())))
+}
+
+/// Recognise YAML frontmatter at the head of `input`.
+///
+/// Returns the parsed view and the byte offset at which the document body
+/// begins. Conservative by construction: anything this does not recognise as a
+/// mapping is content, which is the safe direction to be wrong in — a note
+/// that opens with a `---` horizontal rule keeps its rule rather than losing
+/// its first paragraph to a metadata block.
+///
+/// The recognised subset is deliberately smaller than YAML: top-level
+/// `key: value` entries, comments, blank lines, and indented or `- ` block
+/// content under a key. See `bare-documents.md` for why this is a subset and
+/// not a dependency.
+fn split_frontmatter(input: &str) -> Option<(Frontmatter, usize)> {
+    let after_fence = input
+        .strip_prefix("---\n")
+        .or_else(|| input.strip_prefix("---\r\n"))?;
+    let fence_len = input.len() - after_fence.len();
+
+    let mut entries: Vec<(String, String)> = Vec::new();
+    let mut lists: Vec<(String, Vec<String>)> = Vec::new();
+    let mut offset = fence_len;
+    let mut saw_entry = false;
+
+    for line in after_fence.split_inclusive('\n') {
+        let body = line.strip_suffix('\n').unwrap_or(line);
+        let body = body.strip_suffix('\r').unwrap_or(body);
+
+        if body == "---" || body == "..." {
+            let end = offset + line.len();
+            let raw = input[..end].to_string();
+            // A fenced block with no mapping entry at all is not frontmatter.
+            // `---\n---\n` opening a note is two horizontal rules.
+            if !saw_entry {
+                return None;
+            }
+            return Some((
+                Frontmatter {
+                    raw,
+                    entries,
+                    lists,
+                },
+                end,
+            ));
+        }
+
+        if body.trim().is_empty() || body.trim_start().starts_with('#') {
+            offset += line.len();
+            continue;
+        }
+
+        // Indented content and list items belong to the entry above them.
+        if body.starts_with([' ', '\t']) || body.starts_with("- ") {
+            if !saw_entry {
+                return None;
+            }
+            if let Some(item) = body.trim_start().strip_prefix("- ")
+                && let Some((key, _)) = entries.last()
+            {
+                let item = unquote_scalar(item.trim()).to_string();
+                match lists.iter_mut().find(|(k, _)| k == key) {
+                    Some((_, items)) => items.push(item),
+                    None => lists.push((key.clone(), vec![item])),
+                }
+            }
+            offset += line.len();
+            continue;
+        }
+
+        match frontmatter_entry(body) {
+            Some((key, value)) => {
+                saw_entry = true;
+                entries.push((key.to_string(), value.to_string()));
+            }
+            // A top-level line that is not a mapping entry means this was
+            // never a mapping. Fall back to content.
+            None => return None,
+        }
+
+        offset += line.len();
+    }
+
+    // Unterminated: no closing fence anywhere in the file.
+    None
+}
+
+/// The namespace prefix declared by an `xmlns:` binding to [`HICK_NAMESPACE`],
+/// if the source has one.
+fn declared_prefix(input: &str) -> Option<String> {
+    let declared = detect_prefix(input);
+    let marker = format!("xmlns:{declared}");
+    input.contains(&marker).then_some(declared)
+}
+
+/// The prefix a document's tags carry.
+///
+/// An `xmlns:` declaration wins. Failing that, a bare document may name one in
+/// frontmatter. Failing both, it is `hick` — which is why an ordinary note
+/// declares nothing, and why documentation *about* hick, which rebinds to `h:`
+/// so that `hick:` examples stay literal text, keeps its explicit root.
+fn resolve_prefix(input: &str) -> String {
+    if let Some(prefix) = declared_prefix(input) {
+        return prefix;
+    }
+    if let Some((frontmatter, _)) = split_frontmatter(input)
+        && let Some(prefix) = frontmatter.get("prefix")
+        && !prefix.is_empty()
+        && prefix
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+    {
+        return prefix.to_string();
+    }
+    "hick".to_string()
+}
+
+/// Does this source open an explicit `<PREFIX:doc>` root?
+///
+/// The question is answered from the **prologue** — an optional XML
+/// declaration, comments, and frontmatter — and not by searching the file.
+/// Searching was safe while prose could not precede the root; now that it can,
+/// a sentence mentioning `<hick:doc` would be parsed as one.
+fn opens_root(input: &str, prefix: &str, root: &str) -> bool {
+    let mut rest = input.trim_start();
+
+    if rest.starts_with("<?xml")
+        && let Some(end) = rest.find("?>")
+    {
+        rest = rest[end + 2..].trim_start();
+    }
+
+    if let Some((_, body_at)) = split_frontmatter(rest) {
+        rest = rest[body_at..].trim_start();
+    }
+
+    loop {
+        rest = rest.trim_start();
+        if rest.starts_with("<!--") {
+            match rest.find("-->") {
+                Some(end) => {
+                    rest = &rest[end + 3..];
+                    continue;
+                }
+                None => return false,
+            }
+        }
+        break;
+    }
+
+    let marker = format!("<{prefix}:{root}");
+    let Some(after) = rest.strip_prefix(&marker) else {
+        return false;
+    };
+    // `<hick:document` is not `<hick:doc`.
+    after
+        .chars()
+        .next()
+        .is_none_or(|c| c.is_whitespace() || c == '>' || c == '/')
+}
+
+/// The markdown file a document weaves when it does not name one: its own
+/// file name with a `.md` extension.
+///
+/// `notes/standup.hick` weaves `notes/standup.md`. See `bare-documents.md` —
+/// a note that has no readable form is not a note.
+///
+/// The returned path is the **file name only**, because `weave` — like every
+/// `<hick:file path=…>` — is resolved relative to the document's own output
+/// directory, and an absolute one is refused as an escaping output path. So
+/// this is `standup.md`, which lands beside `notes/standup.hick`.
+pub fn default_weave_path(doc_path: &std::path::Path) -> String {
+    let stem = doc_path
+        .file_stem()
+        .map(|s| s.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    format!("{stem}.md")
+}
+
+/// The value of `weave` that means "write no markdown".
+pub const WEAVE_NONE: &str = "none";
+
+// ---------------------------------------------------------------------------
 // Parser
 // ---------------------------------------------------------------------------
 
@@ -357,6 +659,30 @@ fn detect_prefix(input: &str) -> String {
 pub fn parse(source: &str) -> Result<HickDocument, ParseError> {
     let mut parser = Parser::new(source);
     parser.parse_document()
+}
+
+/// Parse a `.hick` file that came from `doc_path`, resolving the weave default.
+///
+/// This is [`parse`] plus the one thing a parser cannot know on its own: which
+/// markdown file the document weaves when it does not name one. Every document
+/// weaves a `.md` of its own name unless it says `weave="none"`, because a note
+/// with no readable form is not a note. See `bare-documents.md`.
+///
+/// Callers that only inspect a document's structure — analyses, tests,
+/// language-server buffers — want [`parse`] and its unresolved
+/// [`HickDocument::weave_path`]. Callers that are about to *write* the
+/// document's outputs want this.
+pub fn parse_from_path(
+    source: &str,
+    doc_path: &std::path::Path,
+) -> Result<HickDocument, ParseError> {
+    let mut doc = parse(source)?;
+    doc.weave_path = match doc.weave_path.take() {
+        Some(explicit) if explicit == WEAVE_NONE => None,
+        Some(explicit) => Some(explicit),
+        None => Some(default_weave_path(doc_path)),
+    };
+    Ok(doc)
 }
 
 /// Parse a `.hick` session file whose root element is `<PREFIX:session>`.
@@ -476,10 +802,23 @@ pub fn fragments_matching<'a>(doc: &'a HickDocument, selector: &str) -> Vec<&'a 
     out
 }
 
+/// Elements whose content is a selectable fragment.
+///
+/// `transcript` and `said` join `copy`/`cut` because an ingested meeting is
+/// exactly the thing a `hick:transform` wants to point at — either whole
+/// (`select="#t"`) or one speaker's turns (`select=".said-sam"`). Without
+/// them the derived turns would be addressable in principle and selectable by
+/// nothing. See `docs/specs/freeform/ingest.md`.
+fn is_fragment_tag(name: &str) -> bool {
+    matches!(name, "copy" | "cut" | "transcript" | "said")
+}
+
 fn collect_matching<'a>(nodes: &'a [HickNode], selector: &str, out: &mut Vec<&'a HickTag>) {
     for node in nodes {
         if let HickNode::Tag(tag) = node {
-            if (tag.name == "copy" || tag.name == "cut") && fragment_matches(tag, selector) {
+            if is_fragment_tag(&tag.name) && fragment_matches(tag, selector) {
+                // No recursion into a match: selecting a whole transcript must
+                // not also select each of its turns and count them twice.
                 out.push(tag);
                 continue;
             }
@@ -744,7 +1083,7 @@ struct Parser<'a> {
 
 impl<'a> Parser<'a> {
     fn new(input: &'a str) -> Self {
-        let prefix = detect_prefix(input);
+        let prefix = resolve_prefix(input);
         let open_marker = format!("<{prefix}:");
         let close_marker = format!("</{prefix}:");
         Self {
@@ -810,8 +1149,12 @@ impl<'a> Parser<'a> {
         self.pos += n;
     }
 
-    /// Parse the full document.
+    /// Parse the full document, wrapped or bare.
     fn parse_document(&mut self) -> Result<HickDocument, ParseError> {
+        if !opens_root(self.input, &self.prefix, "doc") {
+            return self.parse_bare_document();
+        }
+
         self.skip_xml_declaration();
 
         // Find the root <PREFIX:doc ...> tag
@@ -833,7 +1176,7 @@ impl<'a> Parser<'a> {
         let volatile = tag.get_attribute("volatile") == Some("true");
 
         // Parse children until </PREFIX:doc>
-        let nodes = self.parse_children("doc", tag.source_line)?;
+        let nodes = self.parse_children(Some("doc"), tag.source_line)?;
 
         Ok(HickDocument {
             nodes,
@@ -841,6 +1184,40 @@ impl<'a> Parser<'a> {
             prefix: self.prefix.clone(),
             weave_path,
             volatile,
+            frontmatter: None,
+            span_files: Vec::new(),
+        })
+    }
+
+    /// Parse a document with no root element: the whole file is the body.
+    ///
+    /// See `docs/specs/freeform/bare-documents.md`. There is no root tag to
+    /// open and therefore none to close, so the child parse ends at EOF rather
+    /// than at a closing marker. A stray closing tag is still an error — the
+    /// ambiguity bare documents introduce is only about whether a root was
+    /// ever opened.
+    ///
+    /// The frontmatter block is **not** consumed: its bytes stay in the node
+    /// stream so that it weaves through verbatim and carries spans.
+    fn parse_bare_document(&mut self) -> Result<HickDocument, ParseError> {
+        let frontmatter = split_frontmatter(self.input).map(|(fm, _)| fm);
+
+        let weave_path = frontmatter
+            .as_ref()
+            .and_then(|fm| fm.get("weave"))
+            .filter(|value| !value.is_empty())
+            .map(str::to_string);
+        let volatile = frontmatter.as_ref().and_then(|fm| fm.get("volatile")) == Some("true");
+
+        let nodes = self.parse_children(None, 1)?;
+
+        Ok(HickDocument {
+            nodes,
+            source: self.input.to_string(),
+            prefix: self.prefix.clone(),
+            weave_path,
+            volatile,
+            frontmatter,
             span_files: Vec::new(),
         })
     }
@@ -863,7 +1240,7 @@ impl<'a> Parser<'a> {
 
         let start_time = tag.get_attribute("start").map(|s| s.to_string());
 
-        let raw_nodes = self.parse_children("session", tag.source_line)?;
+        let raw_nodes = self.parse_children(Some("session"), tag.source_line)?;
         let nodes = extract_session_nodes(&raw_nodes);
 
         Ok(SessionDocument {
@@ -883,9 +1260,11 @@ impl<'a> Parser<'a> {
     /// unbalanced hick fragments) and `hick:tool-result` (tool observations
     /// that may excerpt arbitrary document slices). The only substring such
     /// content cannot contain is its own literal close tag.
+    /// `close_name` is the element whose closing tag ends this run of
+    /// children, or `None` for the body of a bare document, which ends at EOF.
     fn parse_children(
         &mut self,
-        close_name: &str,
+        close_name: Option<&str>,
         open_line: usize,
     ) -> Result<Vec<HickNode>, ParseError> {
         let mut nodes = Vec::new();
@@ -895,6 +1274,9 @@ impl<'a> Parser<'a> {
 
         loop {
             if self.is_eof() {
+                let Some(close_name) = close_name else {
+                    return Ok(nodes);
+                };
                 return Err(ParseError::UnclosedTag {
                     prefix: self.prefix.clone(),
                     name: close_name.to_string(),
@@ -916,6 +1298,21 @@ impl<'a> Parser<'a> {
 
             match nearest {
                 None => {
+                    let Some(close_name) = close_name else {
+                        // A bare document's trailing prose is text, not the
+                        // symptom of a tag nobody closed.
+                        let end = self.input.len();
+                        if end > text_start {
+                            let span =
+                                SourceSpan::new(text_start, end, text_start_line, text_start_col);
+                            nodes.push(HickNode::Text(
+                                self.input[text_start..end].to_string(),
+                                Some(span),
+                            ));
+                        }
+                        self.advance(end - self.pos);
+                        return Ok(nodes);
+                    };
                     // No more tags -- rest is text (will be caught as unclosed)
                     return Err(ParseError::UnclosedTag {
                         prefix: self.prefix.clone(),
@@ -960,7 +1357,10 @@ impl<'a> Parser<'a> {
 
                         // Parse closing tag name
                         let (name, _) = self.parse_close_tag()?;
-                        if name == close_name {
+                        // In a bare document `close_name` is `None`, so every
+                        // closing tag is unexpected — there is no root that
+                        // could have opened it.
+                        if close_name == Some(name.as_str()) {
                             return Ok(nodes);
                         } else {
                             return Err(ParseError::UnexpectedClose {
@@ -1013,7 +1413,7 @@ impl<'a> Parser<'a> {
                         // Parse nested children
                         let tag_name = tag.name.clone();
                         let tag_line = tag.source_line;
-                        let children = self.parse_children(&tag_name, tag_line)?;
+                        let children = self.parse_children(Some(&tag_name), tag_line)?;
                         nodes.push(HickNode::Tag(HickTag { children, ..tag }));
                     }
 
@@ -1231,7 +1631,12 @@ impl<'a> Parser<'a> {
 
 /// Is `name` a verbatim-capture element? See the note on `parse_children`.
 fn is_raw_content_tag(name: &str) -> bool {
-    matches!(name, "input" | "tool-result")
+    // `transcript` joins the session vocabulary here for the same reason: its
+    // content is bytes some other tool produced, and a meeting where somebody
+    // said "the hick:copy tag" is not a parse error. See
+    // `docs/specs/freeform/ingest.md` — the raw block is the source of truth,
+    // and speaker turns are derived from it rather than stored beside it.
+    matches!(name, "input" | "tool-result" | "transcript")
 }
 
 /// Convert raw [`HickNode`]s (from a `hick:session` root) into typed
@@ -1369,6 +1774,15 @@ pub fn dedent(text: &str, max_indent: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::Path;
+
+    /// The text a node list carries, tags flattened to their content — the
+    /// closest thing to "what does this weave" without running the weaver.
+    fn text_of(nodes: &[HickNode]) -> String {
+        let mut out = String::new();
+        collect_text(nodes, &mut out);
+        out
+    }
 
     #[test]
     fn parse_minimal_document() {
@@ -1876,12 +2290,220 @@ echo hello
         assert!(matches!(err, ParseError::UnexpectedClose { .. }));
     }
 
+    // ---------------------------------------------------------------------
+    // Bare documents — docs/specs/freeform/bare-documents.md
+    // ---------------------------------------------------------------------
+
     #[test]
-    fn error_on_missing_root() {
+    fn a_rootless_file_is_a_bare_document() {
+        // Was `error_on_missing_root`. A file with no `<hick:doc>` root is no
+        // longer an error: it is the body of an implicit one.
+        let src = "# Standup, Tuesday\n\nNothing blocking.\n";
+        let doc = parse(src).unwrap();
+        assert_eq!(doc.prefix, "hick");
+        assert!(doc.frontmatter.is_none());
+        assert_eq!(text_of(&doc.nodes), src);
+    }
+
+    #[test]
+    fn a_bare_document_recognises_tags() {
+        let src = "# Notes\n\n<hick:copy id=\"n\">42</hick:copy>\n\nAfter.\n";
+        let doc = parse(src).unwrap();
+        let tags = doc.find_tags("copy");
+        assert_eq!(tags.len(), 1);
+        assert_eq!(tags[0].get_attribute("id"), Some("n"));
+        // Prose on both sides of the tag survives byte-for-byte.
+        assert_eq!(text_of(&doc.nodes), "# Notes\n\n42\n\nAfter.\n");
+    }
+
+    #[test]
+    fn an_empty_file_is_an_empty_bare_document() {
+        let doc = parse("").unwrap();
+        assert!(doc.nodes.is_empty());
+        assert!(doc.weave_path.is_none());
+    }
+
+    #[test]
+    fn a_stray_closing_tag_in_a_bare_document_is_an_error() {
+        // There is no root that could have opened it.
+        let err = parse("# Notes\n\n</hick:copy>\n").unwrap_err();
+        assert!(matches!(err, ParseError::UnexpectedClose { .. }));
+    }
+
+    #[test]
+    fn an_unclosed_tag_in_a_bare_document_still_errors() {
+        let err = parse("# Notes\n\n<hick:copy id=\"n\">42\n").unwrap_err();
+        assert!(matches!(err, ParseError::UnclosedTag { .. }));
+    }
+
+    #[test]
+    fn the_root_is_detected_from_the_prologue_not_the_file() {
+        // Rule 3. Searching the whole file would find this `<hick:doc` and
+        // parse it as the root, silently dropping every byte before it.
+        let src = "Prose first.\n\n<hick:doc>inner</hick:doc>\n";
+        let doc = parse(src).unwrap();
+        assert!(
+            matches!(&doc.nodes[0], HickNode::Text(t, _) if t.starts_with("Prose first.")),
+            "leading prose must survive, got {:?}",
+            doc.nodes[0]
+        );
+    }
+
+    #[test]
+    fn a_wrapped_document_is_still_wrapped() {
         let src = r#"<?xml version="1.0" encoding="UTF-8"?>
-<html><body>Hello</body></html>"#;
-        let err = parse(src).unwrap_err();
-        assert!(matches!(err, ParseError::MissingRoot));
+<!-- a comment before the root -->
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="out.md">
+hello
+</hick:doc>"#;
+        let doc = parse(src).unwrap();
+        assert_eq!(doc.weave_path, Some("out.md".to_string()));
+        assert!(doc.frontmatter.is_none(), "frontmatter is bare-only");
+    }
+
+    // ---------------------------------------------------------------------
+    // Frontmatter
+    // ---------------------------------------------------------------------
+
+    #[test]
+    fn frontmatter_sets_reserved_keys() {
+        let src = "---\nweave: notes/standup.md\nvolatile: true\n---\n\n# Standup\n";
+        let doc = parse(src).unwrap();
+        assert_eq!(doc.weave_path, Some("notes/standup.md".to_string()));
+        assert!(doc.volatile);
+    }
+
+    #[test]
+    fn frontmatter_bytes_stay_in_the_node_stream() {
+        // This is what makes the block weave through verbatim and keeps its
+        // spans addressable, with nothing to reconstruct on the way back.
+        let src = "---\nweave: out.md\n---\n\n# Standup\n";
+        let doc = parse(src).unwrap();
+        assert_eq!(text_of(&doc.nodes), src);
+        assert_eq!(doc.frontmatter.unwrap().raw, "---\nweave: out.md\n---\n");
+    }
+
+    #[test]
+    fn frontmatter_metadata_is_preserved_and_never_interpreted() {
+        let src = "---\ndate: 2026-08-18\nattendees: [nate, sam]\ntags:\n  - standup\n  - weekly\n---\n\n# Standup\n";
+        let doc = parse(src).unwrap();
+        let fm = doc.frontmatter.unwrap();
+        assert_eq!(fm.get("date"), Some("2026-08-18"));
+        assert_eq!(fm.get("attendees"), Some("[nate, sam]"));
+        // A block value is recorded with an empty scalar, not parsed.
+        assert_eq!(fm.get("tags"), Some(""));
+        // Nothing here is reserved, so nothing here configures the document.
+        assert!(doc.weave_path.is_none());
+        assert!(!doc.volatile);
+    }
+
+    #[test]
+    fn frontmatter_lists_answer_the_same_in_both_spellings() {
+        let block = parse("---\ntags:\n  - standup\n  - weekly\n---\n# T\n").unwrap();
+        let inline = parse("---\ntags: [standup, weekly]\n---\n# T\n").unwrap();
+        let expected = vec!["standup".to_string(), "weekly".to_string()];
+        assert_eq!(block.frontmatter.unwrap().list("tags"), expected);
+        assert_eq!(inline.frontmatter.unwrap().list("tags"), expected);
+    }
+
+    #[test]
+    fn a_scalar_or_absent_key_has_no_list_items() {
+        let doc = parse("---\ndate: 2026-08-18\n---\n# T\n").unwrap();
+        let fm = doc.frontmatter.unwrap();
+        assert!(fm.list("date").is_empty());
+        assert!(fm.list("nothing-here").is_empty());
+    }
+
+    #[test]
+    fn frontmatter_quotes_are_stripped() {
+        let src = "---\nweave: \"a b.md\"\n---\n# T\n";
+        let doc = parse(src).unwrap();
+        assert_eq!(doc.weave_path, Some("a b.md".to_string()));
+    }
+
+    #[test]
+    fn frontmatter_can_rebind_the_prefix() {
+        let src = "---\nprefix: h\n---\n\n# Notes\n\n<h:copy id=\"n\">42</h:copy>\n";
+        let doc = parse(src).unwrap();
+        assert_eq!(doc.prefix, "h");
+        assert_eq!(doc.find_tags("copy").len(), 1);
+    }
+
+    #[test]
+    fn a_horizontal_rule_is_not_frontmatter() {
+        // The accepted ambiguity, resolved toward content.
+        let src = "---\n\nA note that opens with a rule.\n\n---\n";
+        let doc = parse(src).unwrap();
+        assert!(doc.frontmatter.is_none());
+        assert_eq!(text_of(&doc.nodes), src);
+    }
+
+    #[test]
+    fn an_unterminated_fence_is_content() {
+        let src = "---\nweave: out.md\n\n# Notes with no closing fence\n";
+        let doc = parse(src).unwrap();
+        assert!(doc.frontmatter.is_none());
+        assert!(doc.weave_path.is_none());
+        assert_eq!(text_of(&doc.nodes), src);
+    }
+
+    #[test]
+    fn a_non_mapping_fence_is_content() {
+        let src = "---\njust some prose, not a mapping\n---\n";
+        let doc = parse(src).unwrap();
+        assert!(doc.frontmatter.is_none());
+        assert_eq!(text_of(&doc.nodes), src);
+    }
+
+    #[test]
+    fn a_colon_without_a_space_is_not_a_mapping_entry() {
+        // `https://example.com` must not read as key `https`.
+        let src = "---\nhttps://example.com\n---\n";
+        let doc = parse(src).unwrap();
+        assert!(doc.frontmatter.is_none());
+    }
+
+    // ---------------------------------------------------------------------
+    // The weave default
+    // ---------------------------------------------------------------------
+
+    #[test]
+    fn a_document_weaves_a_markdown_file_of_its_own_name() {
+        // The file name alone: outputs resolve relative to the document's own
+        // directory, so this lands beside `notes/standup.hick`. An absolute
+        // path here would be refused as an escaping output path.
+        let doc = parse_from_path("# Standup\n", Path::new("notes/standup.hick")).unwrap();
+        assert_eq!(doc.weave_path, Some("standup.md".to_string()));
+
+        let absolute = parse_from_path("# Standup\n", Path::new("/tmp/x/standup.hick")).unwrap();
+        assert_eq!(absolute.weave_path, Some("standup.md".to_string()));
+    }
+
+    #[test]
+    fn an_explicit_weave_beats_the_default() {
+        let src = "---\nweave: elsewhere.md\n---\n# T\n";
+        let doc = parse_from_path(src, Path::new("notes/standup.hick")).unwrap();
+        assert_eq!(doc.weave_path, Some("elsewhere.md".to_string()));
+    }
+
+    #[test]
+    fn weave_none_opts_out_of_the_default() {
+        let src = "---\nweave: none\n---\n# T\n";
+        let doc = parse_from_path(src, Path::new("notes/standup.hick")).unwrap();
+        assert!(doc.weave_path.is_none());
+
+        let wrapped = r#"<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="none">
+x
+</hick:doc>"#;
+        let doc = parse_from_path(wrapped, Path::new("g.hick")).unwrap();
+        assert!(doc.weave_path.is_none());
+    }
+
+    #[test]
+    fn parse_leaves_the_weave_path_unresolved() {
+        // Analyses and language-server buffers must not invent an output file.
+        let doc = parse("# Standup\n").unwrap();
+        assert!(doc.weave_path.is_none());
     }
 
     #[test]

@@ -14,6 +14,8 @@ export type Route =
   | { name: "lineage"; id: string }
   // LLM API keys for the agent — the only configuration this app has.
   | { name: "settings" }
+  // A place to type a thought before it has a name or a file.
+  | { name: "scratchpad" }
   | { name: "doc"; id: string };
 
 export function parseRoute(hash: string): Route {
@@ -24,6 +26,7 @@ export function parseRoute(hash: string): Route {
   if ((m = path.match(/^\/docs\/([^/]+)$/))) return { name: "doc", id: m[1] };
   if (path === "/new") return { name: "new" };
   if (path === "/settings") return { name: "settings" };
+  if (path === "/scratchpad") return { name: "scratchpad" };
   // "/" and anything unrecognised — including a retired route like the old
   // "#/documents" list still living in a bookmark — lands the way the app
   // always lands: in a document. The folder's files are a pane, not a page.

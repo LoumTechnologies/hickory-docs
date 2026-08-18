@@ -26,6 +26,7 @@ import {
   openGeneratedTab,
   openIntoDeclared,
   openTerminalTab,
+  openScratchpadTab,
   openUntitledTab,
 } from "./workspaceState";
 
@@ -252,6 +253,26 @@ describe("declared layouts", () => {
     expect(isWorkspaceEmpty(initialWorkspace())).toBe(true);
     expect(isWorkspaceEmpty(openDocTab(initialWorkspace(), "d1", "a.hick"))).toBe(false);
     expect(isWorkspaceEmpty(openUntitledTab(initialWorkspace()))).toBe(false);
+  });
+});
+
+describe("the scratchpad", () => {
+  it("opens one scratchpad and re-activates it rather than stacking more", () => {
+    // A second scratchpad would split a train of thought across two places,
+    // and the point of it is that there is one place to put a thought before
+    // it has a name.
+    const one = openScratchpadTab(initialWorkspace());
+    const again = openScratchpadTab(one);
+    expect(allTabs(again).filter((t) => t.kind === "scratchpad")).toHaveLength(1);
+  });
+
+  it("coexists with the untitled buffer — they are different things", () => {
+    // Untitled is a DOCUMENT that has no name yet; the scratchpad is text
+    // that may never become one.
+    let layout = openUntitledTab(initialWorkspace());
+    layout = openScratchpadTab(layout);
+    expect(allTabs(layout).filter((t) => t.kind === "untitled")).toHaveLength(1);
+    expect(allTabs(layout).filter((t) => t.kind === "scratchpad")).toHaveLength(1);
   });
 });
 

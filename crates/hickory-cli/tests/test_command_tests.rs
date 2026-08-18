@@ -136,8 +136,12 @@ fn regex_lines_expectations_pass_and_fail() {
     let doc = write_doc(
         dir.path(),
         "regex.hick",
+        // `weave="none"`: this test is about expectations, not about output
+        // drift. Without it the document weaves `regex.md`, which has never
+        // been committed, and `hick test` reports drift before it ever gets to
+        // the expectation. See `docs/specs/freeform/bare-documents.md`.
         r#"<?xml version="1.0" encoding="UTF-8"?>
-<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="none">
 <hick:container name="c" image="alpine:3.20" />
 <hick:exec container="c">
 echo "value: 42"
@@ -159,7 +163,7 @@ echo "value: 42"
         dir.path(),
         "regex-short.hick",
         r#"<?xml version="1.0" encoding="UTF-8"?>
-<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="none">
 <hick:container name="c" image="alpine:3.20" />
 <hick:exec container="c">
 printf 'a\nb\n'

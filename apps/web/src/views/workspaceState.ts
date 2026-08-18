@@ -263,6 +263,22 @@ export function openUntitledTab(layout: Layout): Layout {
   return openInLayout(grown, entry, grown.focus);
 }
 
+/** Open (or re-activate) the scratchpad. One at a time, like the untitled
+ * buffer: a second scratchpad would split someone's train of thought across
+ * two places, and the point of it is that there is one place to put a thought
+ * before it has a name. */
+export function openScratchpadTab(layout: Layout): Layout {
+  for (const pane of panes(layout.root)) {
+    const index = pane.tabs.findIndex((t) => t.kind === "scratchpad");
+    if (index >= 0) return activate(layout, pane.id, index);
+  }
+  const into = openablePane(layout);
+  const entry = makeTab("scratchpad", "scratchpad", "Scratchpad");
+  if (into) return openInLayout(layout, entry, into);
+  const grown = split(layout, layout.focus, "row");
+  return openInLayout(grown, entry, grown.focus);
+}
+
 /**
  * The untitled buffer became a real document: convert its tab IN PLACE.
  *

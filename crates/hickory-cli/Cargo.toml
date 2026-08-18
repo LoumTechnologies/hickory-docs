@@ -30,8 +30,12 @@ similar = "2"
 # Watching for editor saves. Already a hick-literate dependency; pinned to the
 # same major here so both halves of the workspace agree on event shapes.
 notify = "7"
+# Content identity for ingest: the same transcript dropped twice is one note.
+sha2 = "0.10"
+hex = "0.4"
 hick-exec.workspace = true
 hick-lang.workspace = true
+hick-transcript = { workspace = true }
 # `hick init` writes the child-server overrides that hick-lsp reads, so the
 # file format has exactly one definition (hick_lsp::server_config).
 hick-lsp = { path = "../hick-lsp" }
@@ -83,3 +87,10 @@ yrs = { version = "0.21", features = ["sync"] }
 # tests/agent_lineage.rs constructs `SourceOrigin::Agent` spans directly, to
 # exercise the lineage read path independently of an agent run.
 hick-flow = { path = "../hick-flow", features = ["serde"] }
+
+# Where a downloaded file came from, read from the operating system's own
+# record of it: `user.xdg.origin.url` on Linux, `kMDItemWhereFroms` on macOS.
+# Windows keeps the same fact in an NTFS alternate data stream, which is a
+# plain file read and needs no crate.
+[target.'cfg(unix)'.dependencies]
+xattr = "1"

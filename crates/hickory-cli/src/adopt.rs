@@ -264,7 +264,18 @@ pub async fn adopt_into(file: &Path, doc: &Path) -> Result<AdoptOutcome> {
         return Err(restore(e));
     }
     // The wider obligation: nothing the document already produced may move.
+    //
+    // Its own woven markdown is the one exemption, and is not a loophole: that
+    // file is the *rendering of the document we just appended to*, so it must
+    // change — a document that grew a block and rendered identically would mean
+    // the block did not take effect. The bytes this guarantee is actually about
+    // are the adopted file's, checked by `verify_bytes` above, and every other
+    // generated output, checked below.
+    let own_weave = before.doc.weave_path.clone();
     for (path, was) in &before.result.files {
+        if Some(path) == own_weave.as_ref() {
+            continue;
+        }
         let now = after.result.files.get(path);
         let unchanged = match (was.as_text(), now.and_then(|c| c.as_text())) {
             (Some(a), Some(b)) => a == b,

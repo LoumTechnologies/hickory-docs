@@ -27,7 +27,11 @@ Three properties hold it up:
    escape mechanism, by language design.
 3. **Appending widens the obligation.** `--into` must additionally leave
    every output the document already produced byte-identical, and refuses a
-   path the document already generates.
+   path the document already generates. The document's **own woven markdown**
+   is the single exemption, and is not a loophole: that file is the rendering
+   of the document just appended to, so it must change — a document that grew
+   a block and rendered identically would mean the block never took effect.
+   The bytes this guarantee is about are the adopted file's.
 
 ## Boundary
 
@@ -62,3 +66,15 @@ Last LLM verification:
 - Caveat requiring review: no test drives the app button end-to-end through
   the HTTP route; the route is a thin composition of the tested module plus
   the path bounds check.
+
+Amended 2026-08-18 (bare documents): every document now weaves a markdown file
+of its own name (`docs/specs/freeform/bare-documents.md`), which put a file
+inside the every-other-output-unchanged sweep that adoption itself necessarily
+changes.
+`adopt_into` in `crates/hickory-cli/src/adopt.rs` now skips
+`before.doc.weave_path` in that sweep, and `run_doc` in
+`crates/hickory-cli/src/lib.rs` parses through `hick_lang::parse_from_path` so
+a `DocRun`'s `doc.weave_path` agrees with the files it produced — they
+disagreed, which is how the sweep came to trip on a file it had just written.
+Covered by the existing `adopt_into_appends_and_leaves_every_other_output_alone`
+test, which failed on exactly this before the fix.

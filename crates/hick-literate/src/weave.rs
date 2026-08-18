@@ -68,6 +68,9 @@ fn origin_file(doc_path: &str, span_files: &[Arc<str>], span: &hick_lang::Source
 /// - `HickNode::Text` → prose (with substitutions applied, dedented)
 /// - `<hick:file>` → heading + fenced code block (unless `doc-hidden="true"`)
 /// - `<hick:diagram>` → fenced block tagged with its `renderer`
+/// - `<hick:claim>` → an attribution line, then the prose unchanged
+/// - `<hick:transcript>` → its derived speaker turns
+/// - `<hick:said>` → `**Who** (time): what they said`
 /// - `<hick:val>` → resolved variable value (via registry)
 /// - `<hick:when>` → recursively process children (already filtered)
 // The `span_files` threading (include splicing) pushed these over the
@@ -191,6 +194,99 @@ fn process_weave_tag(
                 span_files,
             );
             weave_ip.add(Arc::new(StringNode::new("```\n".to_string())));
+        }
+        // A claim is somebody's assertion about an assertion. It weaves an
+        // attribution line — who, on what standing, about what scope — and
+        // then the prose UNCHANGED.
+        //
+        // The prose is deliberately not blockquoted or otherwise rewritten.
+        // Prefixing every line would make the woven bytes differ in length
+        // from the spans they came from, and the lineage layer drops an origin
+        // whose span no longer matches — so the claim's own text would stop
+        // being editable and stop carrying ribbons, which is a worse trade than
+        // a less emphatic rendering. The visible distinction that matters lives
+        // in the app; the woven markdown gets an honest header.
+        //
+        // See `docs/specs/freeform/provenance-and-standing.md`.
+        "claim" => {
+            let by = tag_attr(tag, "by").unwrap_or_default();
+            let standing = tag_attr(tag, "standing").unwrap_or_default();
+            let scope = tag_attr(tag, "scope").unwrap_or_default();
+
+            let who = if by.is_empty() { "unattributed" } else { &by };
+            let mut label = String::new();
+            if !standing.is_empty() {
+                label.push_str(&standing);
+            }
+            if !scope.is_empty() {
+                if !label.is_empty() {
+                    label.push_str(" · ");
+                }
+                label.push_str(&scope);
+            }
+            let header = if label.is_empty() {
+                format!("\n> **{who}** claims:\n\n")
+            } else {
+                format!("\n> **{who}** — {label}\n\n")
+            };
+            weave_ip.add(Arc::new(StringNode::new(header)));
+
+            process_weave_content(
+                &tag.children,
+                weave_ip,
+                transcripts,
+                state,
+                tag.source_column,
+                registry,
+                doc_path,
+                span_files,
+            );
+        }
+        // A transcript weaves as the meeting it is: its derived turns, in
+        // order. The raw block stays in the `.hick` file and never reaches the
+        // markdown, because what a reader wants is the conversation, not the
+        // cue timings a recorder emitted.
+        //
+        // A transcript whose format was not recognised still has its raw text
+        // child, which falls through the same path and weaves as prose — the
+        // material survives even when the structure could not be derived.
+        "transcript" => {
+            process_weave_content(
+                &tag.children,
+                weave_ip,
+                transcripts,
+                state,
+                tag.source_column,
+                registry,
+                doc_path,
+                span_files,
+            );
+        }
+        // One speaker turn: who, when, and what they said, on one line.
+        //
+        // Like `hick:claim`, the spoken text passes through unrewritten so it
+        // keeps the span it came from and stays editable.
+        "said" => {
+            let by = tag_attr(tag, "by").unwrap_or_default();
+            let at = tag_attr(tag, "at").unwrap_or_default();
+            let header = match (by.is_empty(), at.is_empty()) {
+                (true, true) => "\n".to_string(),
+                (true, false) => format!("\n*{at}* — "),
+                (false, true) => format!("\n**{by}**: "),
+                (false, false) => format!("\n**{by}** ({at}): "),
+            };
+            weave_ip.add(Arc::new(StringNode::new(header)));
+            process_weave_content(
+                &tag.children,
+                weave_ip,
+                transcripts,
+                state,
+                tag.source_column,
+                registry,
+                doc_path,
+                span_files,
+            );
+            weave_ip.add(Arc::new(StringNode::new("\n".to_string())));
         }
         "when" => {
             // When tags have already been filtered, so just process children

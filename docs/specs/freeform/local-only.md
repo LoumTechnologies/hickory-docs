@@ -1,6 +1,13 @@
 # Local-only: a downloadable tool, no cloud, no money
 
 *Status: design of record for the product's shape. Adopted 2026-08-12.
+**Partly superseded** by `notes-ide.md` (2026-08-18) on exactly two points: the
+statement of purpose below ("literate programming where you can edit the
+generated files") is widened to a note-taking IDE whose notes are `.hick`
+documents, and the iOS/Android row in the retirement table is reversed. This
+document remains the design of record for the product's **shape** — no server,
+no account, no relay, no money, no telemetry, one engine behind two front
+doors — none of which `notes-ide.md` reopens.
 **Supersedes** `local-first.md`, which kept a relay, a pricing model, and a
 React client shared with a hosted server. All three are gone. `local-first.md`
 remains an accurate record of the step between the hosted product and this one;
@@ -11,8 +18,9 @@ Hickory Docs is a program you download. It runs on your machine, edits files in
 your repository, and executes on your hardware. There is no server, no account,
 no relay, no subscription, and nothing to buy.
 
-What it is for, stated as narrowly as it deserves: **literate programming where
-you can edit the generated files.** You write a `.hick` document that assembles
+What it is for, stated as narrowly as it deserves — and **since widened by
+`notes-ide.md`, which makes this the mechanism rather than the pitch**:
+**literate programming where you can edit the generated files.** You write a `.hick` document that assembles
 `analysis.py` and runs it. You open `analysis.py` in whatever editor you
 already use, change it, and the change lands in the document byte-exactly. The
 document stays the source of truth; the generated file is a working surface
@@ -173,7 +181,7 @@ document executes it, and adds to it.
 | Postgres, `docker-compose`, the dev database, `env-parity` | No server, no environments to keep at parity |
 | `Dockerfile`, `fly.toml`, Deploy Production, `deploy-fly.md` | The site moves to static hosting; a paid machine and a container image to serve files that need neither |
 | `serve/mod.rs` static-file serving, `--web-dist` | The CLI has no UI |
-| iOS/Android targets | A tool whose job is editing files in a git repo and running code on your machine has no phone story yet |
+| ~~iOS/Android targets~~ | ~~A tool whose job is editing files in a git repo and running code on your machine has no phone story yet~~ — **reversed by `notes-ide.md`**: a notes IDE has an obvious phone story (capture and read), and `hick weave` already renders without executing, which is the only thing a phone could not do |
 
 `terraform/dns` and `terraform/posthog` survive: the domain still resolves to
 the static site, and the site still measures its visitors.

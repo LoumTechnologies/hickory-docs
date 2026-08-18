@@ -246,8 +246,11 @@ fn prepare_pipeline<'a>(
     // Parse all sources and resolve includes
     let mut documents = Vec::new();
     for (name, source) in sources {
-        let mut doc =
-            hick_lang::parse(source).map_err(|e| anyhow::anyhow!("parse error in {name}: {e}"))?;
+        // `parse_from_path`, not `parse`: these are the documents whose outputs
+        // get written, so this is where a document with no `weave=` picks up
+        // the markdown file of its own name (`bare-documents.md`).
+        let mut doc = hick_lang::parse_from_path(source, std::path::Path::new(name))
+            .map_err(|e| anyhow::anyhow!("parse error in {name}: {e}"))?;
 
         // Resolve includes relative to the source file's directory
         let base_dir = std::path::Path::new(name)
@@ -259,6 +262,12 @@ fn prepare_pipeline<'a>(
         }
         hick_lang::resolve_includes(&mut doc, base_dir, &mut seen)
             .map_err(|e| anyhow::anyhow!("include error in {name}: {e}"))?;
+
+        // Derive speaker turns from every `hick:transcript`, AFTER includes so
+        // that a transcript spliced in from another file is derived too. The
+        // file on disk keeps only the raw block; this is the projection over it
+        // (`docs/specs/freeform/ingest.md`).
+        hick_transcript::expand(&mut doc);
 
         info!("Parsed {name}: {} top-level nodes", doc.nodes.len());
         documents.push((*name, doc));
@@ -820,7 +829,7 @@ fn reprepare_document(name: &str, state: &MultiDocumentState) -> Result<HickDocu
              something outside the run deleted or moved it."
         )
     })?;
-    let mut doc = hick_lang::parse(&source).map_err(|e| {
+    let mut doc = hick_lang::parse_from_path(&source, std::path::Path::new(name)).map_err(|e| {
         anyhow::anyhow!(
             "parse error in {name} after an agent cell edited it: {e}\n  \
              Next steps: inspect the document — the agent wrote hick markup that no longer \

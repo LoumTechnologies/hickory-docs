@@ -21,6 +21,10 @@ export type ViewKind =
   | "tool"
   | "tree"
   | "untitled"
+  // Text on its way to becoming a note: the typed way into a notes folder,
+  // beside downloading a file into the inbox and copying one there. Not a
+  // document — it owns no file until it is saved.
+  | "scratchpad"
   // A terminal session, addressed by its server-side id. The pane shows the
   // session; it does not own it, which is why closing the tab leaves the work
   // running. See src/terminal/.
