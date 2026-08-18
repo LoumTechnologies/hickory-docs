@@ -1,0 +1,27 @@
+# Candidate 1: gitoxide. Pure Rust — with a caveat this experiment exists to
+# measure.
+#
+# `gix`'s own `blocking-http-transport-reqwest-rust-tls` feature resolves to
+# rustls' default crypto provider, which is aws-lc-sys — C, and therefore an
+# NDK build. To find out whether gitoxide can be genuinely C-free over HTTPS,
+# the TLS stack is selected here instead: the transport feature without a TLS
+# opinion, plus reqwest pinned to rustls-with-ring.
+[package]
+name = "candidate-gix"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[dependencies]
+gix = { version = "0.86", default-features = false, features = [
+    "sha1",
+    "blocking-network-client",
+    "blocking-http-transport-reqwest",
+] }
+reqwest = { version = "0.12", default-features = false, features = [
+    "blocking",
+    "rustls-tls-manual-roots-no-provider",
+] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }

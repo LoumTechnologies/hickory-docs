@@ -1,0 +1,16 @@
+# Candidate 3: grit, a from-scratch Rust reimplementation of Git (GitButler).
+# `grit-lib` ONLY: `grit-cli` is GPL-2.0 and this product is MIT.
+[package]
+name = "candidate-grit"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[dependencies]
+# `http-ureq` is not on by default, and without it grit-lib builds with NO HTTP
+# transport at all — so a cross-compile check that omits it is measuring a
+# library that cannot reach a remote over HTTPS, which is the only transport
+# that matters on a phone.
+grit-lib = { version = "0.5", features = ["http-ureq"] }

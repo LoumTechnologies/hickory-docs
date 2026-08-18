@@ -1,0 +1,11 @@
+# Candidate 2: libgit2 bindings. Mature push and fetch, at the cost of C.
+[package]
+name = "candidate-git2"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[dependencies]
+git2 = "0.20"
