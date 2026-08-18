@@ -9,10 +9,17 @@
 //!
 //! The trap this exists for is that **the compiler cannot catch it**. A crate
 //! that shells out cross-compiles for `aarch64-apple-ios` perfectly and dies
-//! the first time it runs. `hick-store` is exactly that shape today — it
-//! compiles for Android and calls `git init --bare` through
-//! `tokio::process::Command` — which is why the portable set is a list that
-//! has to be defended rather than a property that can be inferred.
+//! the first time it runs. `hick-store` is exactly that shape today, and it is
+//! no longer hypothetical on either target: measured 2026-08-18, it compiles
+//! clean for `aarch64-linux-android` *and* `aarch64-apple-ios` while
+//! `git_backend.rs` calls `git init --bare` through `tokio::process::Command`.
+//! That is why the portable set is a list which has to be defended rather than a
+//! property that can be inferred.
+//!
+//! A simulator will not catch it either — a simulator app is a macOS process
+//! wearing an iOS runtime and `posix_spawn` works there, as
+//! `experiments/git-libraries/ios-push` demonstrates by spawning `/bin/echo`
+//! successfully from inside an installed `.app`. Only a device settles it.
 
 use std::path::{Path, PathBuf};
 

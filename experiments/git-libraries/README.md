@@ -21,14 +21,22 @@ python3 scripts/audit-spawns.py experiments/git-libraries/gix
 rustup target add aarch64-linux-android
 (cd experiments/git-libraries/gix && cargo check --target aarch64-linux-android)
 
+# Check 2b — and for the other phone. Needs a macOS host and Xcode.
+rustup target add aarch64-apple-ios
+(cd experiments/git-libraries/git2 && cargo check --target aarch64-apple-ios)
+#   Fails at `openssl-sys`, which has no cross-compiling pkg-config to find.
+#   The feature that resolves it is the one to name explicitly:
+(cd experiments/git-libraries/git2 && \
+   cargo check --target aarch64-apple-ios --features git2/vendored-openssl)
+
 # Check 3 — can it push to a remote?
-#   Answered here by reading each API surface, which turned out to be enough:
-#   two of the three do not expose the operation at all.
+#   Two of the three do not expose the operation at all, which settles the
+#   comparison by reading. For the one that does, reading was not enough — see
+#   ios-push/ below.
 ```
 
-`aarch64-apple-ios` needs the Apple SDK and a macOS host, so Android stands in.
-The two agree on the constraint that matters — neither lets a sandboxed app
-spawn a process.
+Android no longer stands in for iOS: both were measured. See
+`docs/specs/freeform/shipping-mobile-and-desktop.md` for the tables.
 
 ## What it found, 2026-08-18
 
@@ -46,6 +54,49 @@ short version:
   helpers.** That is three independent confirmations of the same design
   constraint: on mobile, HTTPS with a token, never SSH, never a credential
   helper.
+
+## `ios-push/` — the push, actually performed
+
+`git2`'s `Remote::push` exists in the API. That is not the same as a push
+landing from inside an app sandbox, so `ios-push/` is a probe that does it: one
+commit in a repository inside the app's own container, pushed over **HTTPS with
+a token** to a real remote, then read back over a second connection rather than
+trusting the push's own report.
+
+It is built for a **simulator** target, bundled as a real `.app`, installed, and
+launched — deliberately not run through `simctl spawn`, which would sit outside
+the app sandbox and so could not answer the question it exists for.
+
+```sh
+cd experiments/git-libraries/ios-push
+# The simulator on an Intel Mac is x86_64; on Apple Silicon use aarch64-apple-ios-sim.
+cargo build --release --target x86_64-apple-ios
+
+APP=/tmp/PushProbe.app
+mkdir -p "$APP" && cp target/x86_64-apple-ios/release/ios-push-probe "$APP/PushProbe"
+# Info.plist: CFBundleExecutable=PushProbe, CFBundleIdentifier=com.hickorydocs.pushprobe,
+# CFBundlePackageType=APPL, CFBundleSupportedPlatforms=[iPhoneSimulator].
+codesign --force --sign - "$APP"          # ad-hoc is enough for a simulator
+
+DEV=$(xcrun simctl list devices available | sed -n 's/.*(\([0-9A-F-]\{36\}\)) (Shutdown).*/\1/p' | head -1)
+xcrun simctl boot "$DEV"
+xcrun simctl install "$DEV" "$APP"
+
+# Configuration arrives in the environment, so the token is never written to a
+# file and never appears in the probe's output — it prints the length, not the value.
+export SIMCTL_CHILD_PROBE_REMOTE=https://github.com/<you>/<scratch-repo>.git
+export SIMCTL_CHILD_PROBE_USER=<your-login>
+export SIMCTL_CHILD_PROBE_BRANCH=ios-probe-$(date +%s)
+export SIMCTL_CHILD_PROBE_TOKEN=$(gh auth token)
+xcrun simctl launch --console-pty "$DEV" com.hickorydocs.pushprobe
+```
+
+**What a simulator cannot tell you.** The probe also tries to spawn
+`/bin/echo`, and it succeeds — a simulator app is a macOS process wearing an iOS
+runtime, so `posix_spawn` works there and does not on a device. The no-spawn
+constraint that defines the portable set is therefore *not* settled by this
+harness, and the probe says so in its own output rather than leaving the reader
+to infer it.
 
 ## The trap this harness exists for
 

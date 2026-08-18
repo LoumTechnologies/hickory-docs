@@ -1,7 +1,29 @@
 # Prompt: verify the Apple-only claims
 
+> **Run on 2026-08-18** on a MacBook Pro (MacBookPro15,1, Intel Core i7, macOS
+> 15.7.7, Xcode 26.3, iOS 26.2 SDK, iOS 26.1 simulator). Seven of the eight items
+> were settled; item 3's push landed but a simulator cannot settle the no-spawn
+> constraint it also probes. Results live where the conventions put them —
+> `docs/specs/freeform/shipping-mobile-and-desktop.md` (tables and open edges),
+> the caveat sections of
+> `docs/guarantees/authoring/ingest-keeps-the-original-bytes.md`,
+> `docs/guarantees/terminal/a-session-appears-where-it-is-working.md`, and
+> `docs/guarantees/release/the-desktop-app-is-its-own-download.md`, plus
+> `.instructions/continuous-delivery-downloadable.md` for signing.
+>
+> **What it changed, not just confirmed:** the macOS download-origin parser was
+> wrong and is fixed; macOS's shells emit no OSC 7 to a truthful terminal, so
+> terminals-in-the-file-tree runs on its fallback there; `scripts/dist-desktop.sh`
+> could not build a `.dmg` off CI and now can.
+>
+> **Still owed, and only a device or an Apple account can settle it:** that a
+> sandboxed app on real hardware cannot spawn a process; that a notarized,
+> signed build passes Gatekeeper; and anything requiring a `Developer ID
+> Application` or `Apple Distribution` identity, neither of which exists yet.
+> The prompt below is kept as-is so it can be re-run.
+
 Everything in this repository was built and tested on Linux. Several claims
-about macOS and iOS are therefore **written down but unproven**, and each is
+about macOS and iOS were therefore **written down but unproven**, and each was
 recorded as a caveat in a guarantee or an open edge in a spec.
 
 Paste the prompt below into Claude Code on the MacBook, in a checkout of this
@@ -131,7 +153,7 @@ where the claim lives, and how to settle it.
 
 ---
 
-## Why each of these is unverifiable on Linux
+## Why each of these was unverifiable on Linux
 
 | Claim | Where it lives | Why Linux cannot settle it |
 |---|---|---|

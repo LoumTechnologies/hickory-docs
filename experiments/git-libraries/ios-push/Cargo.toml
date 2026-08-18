@@ -1,0 +1,24 @@
+# Does `git2` actually push, from inside the iOS sandbox, over HTTPS with a
+# token? The other two candidates cannot push at all
+# (`experiments/git-libraries/README.md`), so this probe only has to answer the
+# question for the one that can.
+#
+# Built for an iOS **simulator** target, bundled as a real `.app`, installed,
+# and launched — not run through `simctl spawn`, which would sit outside the app
+# sandbox and so could not answer the question this exists for.
+[package]
+name = "ios-push-probe"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[workspace]
+
+[[bin]]
+name = "ios-push-probe"
+path = "src/main.rs"
+
+[dependencies]
+# `vendored-openssl` is the feature under discussion: without it the iOS build
+# fails at `openssl-sys`, which has no cross-compiling pkg-config to find.
+git2 = { version = "0.20", features = ["vendored-openssl"] }
