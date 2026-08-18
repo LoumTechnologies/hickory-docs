@@ -21,6 +21,18 @@ Four properties hold it up:
    in — stale after a `cd`, never wrong about where it began — and
    `SessionSummary::cwd_is_live` says which of the two a reader is looking at,
    because the two are not equally trustworthy.
+
+   **On macOS, "when the shell says" means "almost never", and that was
+   measured.** Both system shells carry Apple's `update_terminal_cwd` hook, and
+   both gate it on `TERM_PROGRAM`: `/etc/zshrc` sources
+   `/etc/zshrc_$TERM_PROGRAM`, and only `/etc/zshrc_Apple_Terminal` exists. This
+   app sets `TERM` and not `TERM_PROGRAM` (`session.rs`), which is the truthful
+   answer and earns it zero OSC 7. So on macOS every session shows its
+   started-in directory, `cwd_is_live` is false for its whole life, and the
+   feature degrades to the fallback rather than working. Claiming to be
+   `Apple_Terminal` would light it up and would be a lie to every program that
+   asks; emitting the hook ourselves means writing into the user's shell startup.
+   Neither is chosen here, and the gap is written down instead of implied.
 2. **A session is never hidden by the shape of the listing.** It is shown at
    the deepest directory the listing contains, which is its own working
    directory when that is listed and its nearest listed ancestor when the
@@ -49,7 +61,9 @@ An unterminated sequence is abandoned at a bounded size rather than growing.
 Last LLM verification:
 - Date: 2026-08-18
 - Reviewer: Claude (Opus 5)
-- Result: verified (implemented and reviewed in the same change)
+- Result: verified; the OSC 7 assumption was **measured on Apple hardware** and
+  the macOS answer turned out to be that the shells stay silent — see the
+  caveats
 - Evidence: `crates/hick-term/src/screen.rs` — the `Osc` state machine in
   `Screen::scan_osc`, `cwd_from_osc7` (host ignored deliberately),
   `percent_decode`, and `MAX_OSC`. `crates/hick-term/src/session.rs` —
@@ -71,10 +85,29 @@ Last LLM verification:
   render tests covering the click, the collapsed-directory count, and a session
   elsewhere not appearing.
 - Caveats — what LLM review could NOT establish:
-  - **No shell was actually driven.** Every OSC test feeds bytes directly. That
-    zsh on macOS and bash on a given Linux distribution really emit OSC 7 —
-    and that they emit it at the moments assumed — is untested here, and it is
-    the assumption the whole feature rests on.
+  - **A shell is now driven, and macOS's answer is "no".** Measured 2026-08-18
+    on a MacBook Pro (MacBookPro15,1, Intel Core i7), macOS 15.7.7, by running
+    each shell in a real PTY, `cd`-ing twice, and counting OSC 7 sequences in
+    what came back:
+
+    | shell | `TERM_PROGRAM` unset (what this app sends) | `TERM_PROGRAM=Apple_Terminal` |
+    |---|---|---|
+    | `/bin/zsh -i` | **0** | 3 — `file://host/Users/loumtech`, `…/tmp`, `…/usr/share` |
+    | `/bin/bash -i` | 0 | 0 — `bash -i` never reads `/etc/bashrc` on macOS |
+    | `/bin/bash -l -i` | **0** | 3 |
+
+    The hook is in `/etc/zshrc_Apple_Terminal` and `/etc/bashrc_Apple_Terminal`,
+    reached only through `[ -r "/etc/zshrc_$TERM_PROGRAM" ]`. What it emits is
+    exactly what `cwd_from_osc7` parses — `printf '\e]7;%s\a' "file://$HOST$url_path"`
+    — so the scanner is right and the shells are silent. Linux distributions were
+    not measured; `vte.sh` on a GNOME-derived setup is the usual source there,
+    and it is not in evidence here.
+  - **The scanner is now proven against a real shell rather than a fixture.**
+    `crates/hick-term/tests/a_real_shell_reports_its_directory.rs` drives a real
+    zsh through a real PTY: one test makes it emit OSC 7 and asserts the session
+    follows to the new directory with `cwd_is_live` true; the other lets a silent
+    shell `cd` and asserts the session stays at its started-in directory with
+    `cwd_is_live` false. Both pass on macOS 15.7.7.
   - **Nothing was seen in a running window.** The rows typecheck and their
     tests pass under jsdom; how a folder with twenty sessions in it reads, and
     whether the count badge is noticed, is unverified.
