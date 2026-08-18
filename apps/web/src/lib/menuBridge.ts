@@ -6,7 +6,15 @@
 // and the same build runs unchanged in a browser, where the event simply
 // never fires.
 
-export type MenuAction = "new" | "save" | "save-as" | "settings" | "files";
+export type MenuAction =
+  | "new"
+  | "save"
+  | "save-as"
+  | "settings"
+  | "files"
+  // Terminals: open one, and walk the attention queue.
+  | "terminal"
+  | "attention";
 
 export const MENU_EVENT = "hickory-menu";
 
@@ -20,6 +28,8 @@ const ACTIONS: ReadonlySet<string> = new Set([
   "save-as",
   "settings",
   "files",
+  "terminal",
+  "attention",
 ] satisfies MenuAction[]);
 
 /**

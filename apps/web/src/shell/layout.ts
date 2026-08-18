@@ -12,7 +12,16 @@
  * "tree" is the folder tree pane — a distinct kind, because drops treat it
  * differently (see dragDrop.ts). "untitled" is a document that does not
  * exist yet: a buffer, adopted into a "document" tab on its first edit. */
-export type ViewKind = "document" | "generated" | "tool" | "tree" | "untitled";
+export type ViewKind =
+  | "document"
+  | "generated"
+  | "tool"
+  | "tree"
+  | "untitled"
+  // A terminal session, addressed by its server-side id. The pane shows the
+  // session; it does not own it, which is why closing the tab leaves the work
+  // running. See src/terminal/.
+  | "terminal";
 
 export interface Tab {
   id: string;

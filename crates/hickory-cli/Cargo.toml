@@ -43,6 +43,9 @@ tempfile = "3"
 # Structural navigation that ships in the download: tree-sitter grammars are
 # compiled in, so it needs no language server and no toolchain.
 hick-structure = { path = "../hick-structure" }
+# Terminal sessions: the PTY, the five states, and the attention queue. The
+# decisions are all in the crate; this one only serves them.
+hick-term = { path = "../hick-term" }
 # The notebook's LSP bridge drives hick-lsp in-process, so the desktop app
 # needs no `hick-lsp` on PATH to answer a language question.
 tower-lsp = "0.20"

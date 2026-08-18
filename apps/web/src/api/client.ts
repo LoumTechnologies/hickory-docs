@@ -15,6 +15,9 @@ import type {
   SettingsKeysPatch,
   SettingsKeysResponse,
   StructureResponse,
+  OpenTerminal,
+  TerminalSession,
+  TerminalsResponse,
   UiSettings,
 } from "./types";
 
@@ -170,4 +173,27 @@ export const api = {
 
   agentTurns: (docId: string) =>
     request<AgentTurnsResponse>("GET", `/api/docs/${docId}/agent/turns`),
+
+  /** Every terminal session, and the one attention queue across them. The
+   * order of `attention` is the server's — see hick_term::attention — so the
+   * queue, the session tree, and ⌘J cannot disagree about what is next. */
+  terminals: () => request<TerminalsResponse>("GET", "/api/terminals"),
+  openTerminal: (spec: OpenTerminal = {}) =>
+    request<TerminalSession>("POST", "/api/terminals", spec),
+  closeTerminal: (id: string) => request<void>("DELETE", `/api/terminals/${id}`),
+  /** Type into a session. The pane's own keystrokes go over the socket
+   * instead; this is for everything else (menus, the card's input line). */
+  terminalInput: (id: string, data: string) =>
+    request<void>("POST", `/api/terminals/${id}/input`, { data }),
+  terminalResize: (id: string, rows: number, cols: number) =>
+    request<void>("POST", `/api/terminals/${id}/resize`, { rows, cols }),
+  interruptTerminal: (id: string) =>
+    request<void>("POST", `/api/terminals/${id}/interrupt`),
+  /** Answer the attention card: writes, and clears the prompt in the same
+   * request, so the session leaves the queue immediately rather than on the
+   * next poll. */
+  answerTerminal: (id: string, send: string) =>
+    request<TerminalSession>("POST", `/api/terminals/${id}/answer`, { send }),
+  setTurbo: (enabled: boolean) =>
+    request<{ turbo: boolean }>("PUT", "/api/terminals/turbo", { enabled }),
 };

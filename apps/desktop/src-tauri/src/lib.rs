@@ -94,6 +94,20 @@ fn app_menu(handle: &AppHandle) -> tauri::Result<Menu<Wry>> {
         )
         .separator()
         .item(
+            &MenuItemBuilder::with_id("terminal", "New Terminal")
+                .accelerator("CmdOrCtrl+Shift+T")
+                .build(handle)?,
+        )
+        .item(
+            // The one key that answers "what needs me?" — it walks the
+            // attention queue in the order the server ranks it, and says so
+            // when nothing is left.
+            &MenuItemBuilder::with_id("attention", "Next Needing Attention")
+                .accelerator("CmdOrCtrl+J")
+                .build(handle)?,
+        )
+        .separator()
+        .item(
             &MenuItemBuilder::with_id("files", "Show Files")
                 .accelerator("CmdOrCtrl+Shift+E")
                 .build(handle)?,
@@ -135,7 +149,9 @@ fn app_menu(handle: &AppHandle) -> tauri::Result<Menu<Wry>> {
 /// and the file watcher are per-process, so a new session is a restart).
 fn on_menu(app: &AppHandle, id: &str) {
     match id {
-        "new" | "save" | "save-as" | "settings" | "files" => dispatch_to_ui(app, id),
+        "new" | "save" | "save-as" | "settings" | "files" | "terminal" | "attention" => {
+            dispatch_to_ui(app, id)
+        }
         // No "file or folder?" question dialog: each verb goes straight to
         // its native picker. Cross-platform pickers cannot offer both in one
         // dialog, and a modal asking which picker you meant is worse than a

@@ -1,0 +1,23 @@
+[package]
+name = "hick-term"
+version = "0.1.0"
+edition.workspace = true
+publish.workspace = true
+license.workspace = true
+
+[dependencies]
+anyhow = "1"
+# The PTY itself. A library, not a CLI we shell out to: ConPTY on Windows,
+# openpty everywhere else, behind one trait. Terminals are the one surface
+# where "works on the maintainer's laptop" is not good enough — a download
+# runs on all three platforms.
+portable-pty = "0.8"
+# A headless screen model, server-side. The client renders with xterm.js; this
+# exists so a session nobody is looking at can still say what it is doing (the
+# preview line on a folded row), and so a closed pane loses no state.
+vt100 = "0.15"
+serde = { version = "1", features = ["derive"] }
+tokio = { version = "1", features = ["sync"] }
+
+[dev-dependencies]
+tempfile = "3"

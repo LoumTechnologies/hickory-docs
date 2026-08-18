@@ -20,7 +20,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { api } from "../api/client";
-import type { DocSummary, SearchHit } from "../api/types";
+import type { DocSummary, OpenTerminal, SearchHit } from "../api/types";
 import { ChatDock } from "../components/ChatDock";
 import { SearchPanel } from "../components/SearchPanel";
 import { ReferencesPanel } from "../components/ReferencesPanel";
@@ -51,9 +51,18 @@ import {
   openDocTab,
   openGeneratedTab,
   openIntoDeclared,
+  openSessionsTab,
+  openTerminalTab,
   openUntitledTab,
+  SESSIONS_TAB,
 } from "./workspaceState";
 import { DocSessionHost, SessionRegistry, useSessionVersion } from "./documentSession";
+import { AttentionCard } from "../terminal/AttentionCard";
+import { MonitorDock } from "../terminal/MonitorDock";
+import { SessionsPane } from "../terminal/SessionsPane";
+import { TerminalPane } from "../terminal/TerminalPane";
+import { sessionById, useTerminals } from "../terminal/useTerminals";
+import { nextInQueue } from "../lib/attentionCursor";
 import { DocTabBody, GeneratedTabBody, UntitledTab } from "./workspaceTabs";
 
 /** The routes the workspace answers. Everything else is App's. */
@@ -406,6 +415,76 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     };
   }, [registry]);
 
+  // ---- terminals ----------------------------------------------------------
+  //
+  // The window's sessions, the queue across them, and the two keys that reach
+  // it. A pane SHOWS a session; the session lives on the server, which is why
+  // closing a terminal tab here never stops the work inside it.
+  const terminals = useTerminals();
+  const [attentionAt, setAttentionAt] = useState<string | null>(null);
+  const [nothingWaiting, setNothingWaiting] = useState(false);
+  // The queue and the sessions change on every poll; the handlers below must
+  // not be rebuilt (and their listeners re-subscribed) once a second.
+  const attentionRef = useRef(terminals.attention);
+  attentionRef.current = terminals.attention;
+  const sessionsRef = useRef(terminals.sessions);
+  sessionsRef.current = terminals.sessions;
+  const attentionAtRef = useRef(attentionAt);
+  attentionAtRef.current = attentionAt;
+  const terminalsRef = useRef(terminals);
+  terminalsRef.current = terminals;
+
+  const openTerminal = useCallback(async (spec: OpenTerminal = {}) => {
+    const session = await terminalsRef.current.open(spec);
+    if (!session) return;
+    setLayout((current) => openTerminalTab(current, session.id, session.title));
+  }, []);
+
+  const showTerminal = useCallback((id: string) => {
+    const session = sessionsRef.current.find((s) => s.id === id);
+    setLayout((current) => openTerminalTab(current, id, session?.title ?? "Terminal"));
+  }, []);
+
+  /** ⌘J: the next thing claiming attention, or the news that there is none. */
+  const nextAttention = useCallback(() => {
+    const next = nextInQueue(attentionRef.current, attentionAtRef.current);
+    attentionAtRef.current = next;
+    setAttentionAt(next);
+    setNothingWaiting(next === null);
+  }, []);
+
+  useEffect(() => {
+    if (!nothingWaiting) return;
+    const timer = window.setTimeout(() => setNothingWaiting(false), 2000);
+    return () => window.clearTimeout(timer);
+  }, [nothingWaiting]);
+
+  // The native menu's terminal verbs, arriving from App as one window event.
+  useEffect(() => {
+    const onTerminalCommand = (event: Event) => {
+      const detail = (event as CustomEvent).detail;
+      if (detail === "terminal") {
+        setLayout(openSessionsTab);
+        void openTerminal();
+      } else if (detail === "attention") {
+        nextAttention();
+      }
+    };
+    window.addEventListener("hickory-terminal-command", onTerminalCommand);
+    return () => window.removeEventListener("hickory-terminal-command", onTerminalCommand);
+  }, [openTerminal, nextAttention]);
+
+  // The card follows the cursor, and lets go when what it was showing stops
+  // claiming anything — answered here, answered in its own terminal, or
+  // closed. A card for a settled session is a card you learn to ignore.
+  const attentionSession = sessionById(terminals.sessions, attentionAt);
+  const attentionPlace = attentionAt === null ? -1 : terminals.attention.indexOf(attentionAt);
+  useEffect(() => {
+    if (attentionAt !== null && !terminals.attention.includes(attentionAt)) {
+      setAttentionAt(null);
+    }
+  }, [attentionAt, terminals.attention]);
+
   // ---- project search -----------------------------------------------------
   //
   // The shell owns the Mod-Shift-F key while it is mounted; this listener is
@@ -529,6 +608,26 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
               if (tab.kind === "untitled") {
                 return <UntitledTab tabId={tab.id} onCreated={onUntitledCreated} />;
               }
+              if (tab.kind === "terminal") {
+                return <TerminalPane sessionId={tab.target} />;
+              }
+              if (tab.kind === "tool" && tab.target === SESSIONS_TAB) {
+                return (
+                  <SessionsPane
+                    sessions={terminals.sessions}
+                    turbo={terminals.turbo}
+                    error={terminals.error}
+                    activeId={attentionAt}
+                    onOpen={showTerminal}
+                    onClose={(id) => void terminals.close(id)}
+                    onNew={(monitor) => void openTerminal({ monitor })}
+                    onNewWorktree={(branch) =>
+                      void openTerminal({ title: branch, worktree_branch: branch })
+                    }
+                    onSetTurbo={(enabled) => void terminals.setTurbo(enabled)}
+                  />
+                );
+              }
               if (tab.kind === "tree") {
                 return (
                   <FolderTreePane
@@ -624,6 +723,32 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
           }
           onAgentFinished={focused.refresh}
         />
+      )}
+      {/* The dock: things that run so you can work. Always visible, never
+          focused, amber when one of them has fallen over. */}
+      <MonitorDock
+        sessions={terminals.sessions}
+        onOpen={showTerminal}
+        onClose={(id) => void terminals.close(id)}
+      />
+      {/* The top of the queue, brought to you. Answering it costs you
+          nothing: the pane you were in keeps the focus. */}
+      {attentionSession && (
+        <AttentionCard
+          session={attentionSession}
+          position={attentionPlace + 1}
+          total={terminals.attention.length}
+          onAnswer={(send) => void terminals.answer(attentionSession.id, send)}
+          onOpen={() => showTerminal(attentionSession.id)}
+          onInterrupt={() => void terminals.interrupt(attentionSession.id)}
+          onNext={nextAttention}
+          onDismiss={() => setAttentionAt(null)}
+        />
+      )}
+      {nothingWaiting && (
+        <p className="attention-empty" role="status">
+          Nothing is waiting on you.
+        </p>
       )}
     </div>
   );

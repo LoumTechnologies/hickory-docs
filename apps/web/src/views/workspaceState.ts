@@ -30,15 +30,40 @@ export function initialWorkspace(): Layout {
   return withTree(freeform(), makeTab("tree", "folder", "Files"));
 }
 
+/** The tool tab listing terminal sessions. One name, used by both the
+ * opener and the furniture test below. */
+export const SESSIONS_TAB = "sessions";
+
+/** Furniture: panes that are part of the window rather than of the work —
+ * the folder tree, and the terminals list. Neither counts as "something is
+ * open here". */
+function isFurniture(t: Tab): boolean {
+  return t.kind === "tree" || (t.kind === "tool" && t.target === SESSIONS_TAB);
+}
+
 /**
  * Whether the workspace is still untouched: nothing open but furniture (the
- * tree pane). Only here may a document's declared layout be applied — an
- * arrangement someone has started filling is theirs, and a declaration must
- * never reset it (merging a declared layout into a busy workspace is out of
- * scope, deliberately).
+ * tree pane, the terminals list). Only here may a document's declared layout
+ * be applied — an arrangement someone has started filling is theirs, and a
+ * declaration must never reset it (merging a declared layout into a busy
+ * workspace is out of scope, deliberately).
  */
 export function isWorkspaceEmpty(layout: Layout): boolean {
-  return panes(layout.root).every((pane) => pane.tabs.every((t) => t.kind === "tree"));
+  return panes(layout.root).every((pane) => pane.tabs.every(isFurniture));
+}
+
+/**
+ * Show the terminals list: beside the folder tree, which is where the things
+ * you navigate with live. Opening it twice fronts the one that exists.
+ */
+export function openSessionsTab(layout: Layout): Layout {
+  for (const pane of panes(layout.root)) {
+    const index = pane.tabs.findIndex((t) => t.kind === "tool" && t.target === SESSIONS_TAB);
+    if (index >= 0) return activate(layout, pane.id, index);
+  }
+  const entry = makeTab("tool", SESSIONS_TAB, "Terminals");
+  const tree = panes(layout.root).find((pane) => pane.tabs.some((t) => t.kind === "tree"));
+  return openInLayout(layout, entry, tree?.id ?? layout.focus);
 }
 
 /** The pane holding a document's tab, when one does. Identity is the doc id:
@@ -93,6 +118,26 @@ export function openDocTab(layout: Layout, docId: string, path: string): Layout 
   if (into) return openInLayout(layout, entry, into);
   // Every pane is the tree's (or there are none): give the document a pane
   // of its own beside the tree rather than burying the folder under it.
+  const grown = split(layout, layout.focus, "row");
+  return openInLayout(grown, entry, grown.focus);
+}
+
+/**
+ * Show a terminal session: front its tab if one exists, else add one.
+ *
+ * The same "ensure open" shape as a document, and for the same reason —
+ * answering a prompt or clicking a session row must never rearrange the
+ * window someone has built. The tab's target is the session id, so a session
+ * has at most one tab however many times it is asked for.
+ */
+export function openTerminalTab(layout: Layout, sessionId: string, title: string): Layout {
+  for (const pane of panes(layout.root)) {
+    const index = pane.tabs.findIndex((t) => t.kind === "terminal" && t.target === sessionId);
+    if (index >= 0) return activate(layout, pane.id, index);
+  }
+  const entry = makeTab("terminal", sessionId, title);
+  const into = openablePane(layout);
+  if (into) return openInLayout(layout, entry, into);
   const grown = split(layout, layout.focus, "row");
   return openInLayout(grown, entry, grown.focus);
 }

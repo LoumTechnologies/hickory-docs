@@ -35,6 +35,16 @@ export function App() {
         case "files":
           window.dispatchEvent(new CustomEvent("hickory-show-files"));
           break;
+        case "terminal":
+        case "attention":
+          // Terminals belong to the workspace, which owns the layout they
+          // open into and the queue cursor ⌘J walks.
+          if (routeRef.current.name === "doc" || routeRef.current.name === "new") {
+            window.dispatchEvent(
+              new CustomEvent("hickory-terminal-command", { detail: action }),
+            );
+          }
+          return;
         case "settings":
           navigate("/settings");
           return;
