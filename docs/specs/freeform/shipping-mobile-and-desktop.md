@@ -81,6 +81,31 @@ something a reader might genuinely want on a phone, so its C grammars are a cost
 worth paying rather than one to design out.) That is a portability wart worth fixing when there is a mobile shell to
 motivate it, and not before.
 
+### Which iOS, though?
+
+Every "compiles for iOS" above was measured without setting
+`IPHONEOS_DEPLOYMENT_TARGET`, which means the SDK's default was used and every
+object came out stamped **`minos 26.2`**. A binary built that way will not load
+on anything older than iOS 26 — so the compile checks were real and were
+answering a narrower question than they looked like they were answering.
+
+Re-measured 2026-08-18 against a real target device, an iPhone 8 on iOS 16.7.16:
+
+- The iPhoneOS 26.2 SDK's own floor is **iOS 12.0**
+  (`SDKSettings.plist`, `MinimumDeploymentTarget`), so old devices are supported
+  by the toolchain — nothing about Xcode 26 rules them out.
+- `IPHONEOS_DEPLOYMENT_TARGET=16.0 cargo build --target aarch64-apple-ios`
+  produces `minos 16.0`, and every `cc`-driven C dependency follows it: `zstd`,
+  `ring`, `lzma`, `bzip2` all come out at 16.0.
+- `libsodium` is the exception and is harmless: it is autotools rather than
+  `cc`, and emits the older `LC_VERSION_MIN_IPHONEOS 6.0`, which is *below* the
+  deployment target and links without complaint.
+
+So supporting an old iPhone costs one environment variable — but it has to be
+set deliberately, and a build that forgets it produces something that installs
+nowhere and says nothing about why. Whatever `apps/mobile/` turns out to be
+should pin the deployment target explicitly rather than inherit the SDK's.
+
 ### The phone's job, performed on a phone's OS
 
 Compiling proves a crate links. `experiments/ios-core/` runs the mobile story

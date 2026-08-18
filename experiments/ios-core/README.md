@@ -39,6 +39,10 @@ cd experiments/ios-core
 # Intel Macs run an x86_64 simulator; Apple Silicon uses aarch64-apple-ios-sim.
 cargo build --release --target x86_64-apple-ios
 
+# For a real device, pin the deployment target — without it the SDK default
+# (currently 26.2) is baked in and the binary loads on nothing older:
+#   IPHONEOS_DEPLOYMENT_TARGET=16.0 cargo build --release --target aarch64-apple-ios
+
 APP=/tmp/CoreProbe.app
 mkdir -p "$APP" && cp target/x86_64-apple-ios/release/ios-core-probe "$APP/CoreProbe"
 # Info.plist: CFBundleExecutable=CoreProbe, CFBundleIdentifier=com.hickorydocs.coreprobe,
