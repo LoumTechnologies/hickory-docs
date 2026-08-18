@@ -443,3 +443,44 @@ fn two_scratchpad_notes_with_the_same_title_do_not_collide() {
     assert!(std::fs::read_to_string(&first).unwrap().contains("One."));
     assert!(std::fs::read_to_string(&second).unwrap().contains("Two."));
 }
+
+/// The macOS download-origin path, end to end, against the real extended
+/// attribute rather than the parser alone.
+///
+/// Protects docs/guarantees/authoring/ingest-keeps-the-original-bytes.md
+///
+/// macOS only, because `com.apple.metadata:*` is not a namespace Linux will let
+/// anything write — which is exactly why this went unverified until someone ran
+/// it on a Mac.
+#[cfg(target_os = "macos")]
+#[test]
+fn a_macos_download_records_where_it_came_from() {
+    // Captured with `xattr -px` from a file Chrome downloaded through a link, so
+    // the value holds the file URL and then the referring page.
+    const WHERE_FROMS: &[u8] =
+        include_bytes!("fixtures/wherefroms/safari-linked-with-referrer.bplist");
+
+    let dir = folder_with("linked.vtt", VTT.as_bytes());
+    let source = dir.path().join("inbox").join("linked.vtt");
+    xattr::set(&source, "com.apple.metadata:kMDItemWhereFroms", WHERE_FROMS)
+        .expect("setting kMDItemWhereFroms on a temp file");
+
+    drain(dir.path());
+    let note = only_note(dir.path());
+
+    assert!(
+        note.contains("source-url: http://127.0.0.1:8791/safari-linked.vtt\n"),
+        "the download URL is not recorded exactly:\n{note}"
+    );
+    // The referring page is not where the bytes came from.
+    assert!(
+        !note.contains("safari-page.html"),
+        "the referrer was recorded instead of the download:\n{note}"
+    );
+    // The security property, checked on the note itself and not on the parser:
+    // a signed export link carries its credential in the query string.
+    assert!(
+        !note.contains("SAFARI_LINKED_SECRET"),
+        "the query string reached the note:\n{note}"
+    );
+}

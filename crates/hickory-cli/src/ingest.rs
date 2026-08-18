@@ -271,9 +271,9 @@ fn read_origin_attribute(path: &Path) -> Option<String> {
 #[cfg(unix)]
 fn read_origin_attribute(path: &Path) -> Option<String> {
     // Linux: a plain URL string. macOS: `kMDItemWhereFroms` is a binary plist
-    // holding the download URL and the page that linked it. Parsing bplist to
-    // read one string is not worth a dependency, so the URL is scanned out of
-    // the bytes — a heuristic, and one that fails closed by returning `None`.
+    // holding the download URL and then the page that linked it — measured on
+    // Safari 26.5 and Chrome 151, which agree on that order. The plist is
+    // parsed, not scanned; `bplist_strings` records why the scan was wrong.
     for attribute in [
         "user.xdg.origin.url",
         "user.xdg.referrer.url",
@@ -289,15 +289,129 @@ fn read_origin_attribute(path: &Path) -> Option<String> {
     None
 }
 
-/// The first `http(s)` URL in a blob of bytes.
+/// The first `http(s)` URL recorded in an origin attribute.
+///
+/// Two shapes arrive here. Linux writes a plain URL string. macOS writes a
+/// **binary plist**, and that one is parsed rather than scanned — see
+/// `bplist_strings` for the byte that made scanning wrong.
 fn first_url(bytes: &[u8]) -> Option<String> {
+    if bytes.starts_with(b"bplist00") {
+        // Fails closed: a plist we cannot read is "nothing was recorded", not an
+        // excuse to go back to guessing.
+        return bplist_strings(bytes).into_iter().find(|s| is_http_url(s));
+    }
     let text = String::from_utf8_lossy(bytes);
     let start = text.find("http")?;
     let url: String = text[start..]
         .chars()
         .take_while(|c| !c.is_whitespace() && !c.is_control() && *c != '"')
         .collect();
-    (url.starts_with("http://") || url.starts_with("https://")).then_some(url)
+    is_http_url(&url).then_some(url)
+}
+
+fn is_http_url(value: &str) -> bool {
+    value.starts_with("http://") || value.starts_with("https://")
+}
+
+/// Every string in a binary plist, in object order.
+///
+/// `kMDItemWhereFroms` is a tiny plist — an array holding the download URL and
+/// then the page that linked it, which Safari 26.5 and Chrome 151 agree on. It
+/// is still a plist, and scanning it as text got the URL wrong: the byte
+/// immediately after an ASCII string is `0x5F`, the marker that introduces the
+/// **next** string, and `0x5F` is `_`, which is a legal URL character. A
+/// download whose URL had no query string came out as
+/// `http://host/note.vtt_` — with a query string the trailing marker happened to
+/// fall after the `?` and be redacted away, which is why this survived being
+/// looked at. The length has to be read, not guessed.
+///
+/// Only what this attribute contains is decoded: the offset table, and string
+/// objects. Anything else is skipped rather than misread.
+fn bplist_strings(bytes: &[u8]) -> Vec<String> {
+    // The trailer is the last 32 bytes and holds everything needed to walk the
+    // offset table: how wide an offset is, how many objects there are, where the
+    // table starts.
+    let Some(trailer) = bytes.len().checked_sub(32).map(|at| &bytes[at..]) else {
+        return Vec::new();
+    };
+    let offset_width = trailer[6] as usize;
+    if offset_width == 0 || offset_width > 8 {
+        return Vec::new();
+    }
+    let count = be_usize(&trailer[8..16]);
+    let table_at = be_usize(&trailer[24..32]);
+
+    let mut found = Vec::new();
+    for index in 0..count {
+        let Some(slot_at) = index
+            .checked_mul(offset_width)
+            .and_then(|n| table_at.checked_add(n))
+        else {
+            break;
+        };
+        let Some(slot) = slot_at
+            .checked_add(offset_width)
+            .and_then(|end| bytes.get(slot_at..end))
+        else {
+            break;
+        };
+        if let Some(text) = bplist_string_at(bytes, be_usize(slot)) {
+            found.push(text);
+        }
+    }
+    found
+}
+
+/// A big-endian integer of however many bytes it was given.
+fn be_usize(bytes: &[u8]) -> usize {
+    bytes.iter().fold(0usize, |acc, b| (acc << 8) | *b as usize)
+}
+
+/// One plist object, decoded only if it is a string.
+fn bplist_string_at(bytes: &[u8], at: usize) -> Option<String> {
+    const ASCII: u8 = 0x5;
+    const UTF16: u8 = 0x6;
+
+    let marker = *bytes.get(at)?;
+    let kind = marker >> 4;
+    if kind != ASCII && kind != UTF16 {
+        return None;
+    }
+
+    // The low nibble is the length, unless it is `0xF`, in which case an integer
+    // object holding the real length follows the marker.
+    let (length, body_at) = match (marker & 0x0f) as usize {
+        0x0f => {
+            let int_marker = *bytes.get(at.checked_add(1)?)?;
+            if int_marker >> 4 != 0x1 {
+                return None;
+            }
+            let width = 1usize << (int_marker & 0x0f);
+            let from = at.checked_add(2)?;
+            let slot = bytes.get(from..from.checked_add(width)?)?;
+            (be_usize(slot), from.checked_add(width)?)
+        }
+        short => (short, at.checked_add(1)?),
+    };
+
+    match kind {
+        ASCII => {
+            let slot = bytes.get(body_at..body_at.checked_add(length)?)?;
+            std::str::from_utf8(slot).ok().map(str::to_string)
+        }
+        // UTF-16 big-endian, `length` code units. A browser percent-encodes a
+        // URL so this branch is the unlikely one, but a plist is free to use it
+        // and a URL read as `h\0t\0t\0p\0` would not be recognised at all.
+        _ => {
+            let end = length.checked_mul(2).and_then(|n| body_at.checked_add(n))?;
+            let slot = bytes.get(body_at..end)?;
+            let units: Vec<u16> = slot
+                .chunks_exact(2)
+                .map(|pair| u16::from_be_bytes([pair[0], pair[1]]))
+                .collect();
+            String::from_utf16(&units).ok()
+        }
+    }
 }
 
 /// A URL reduced to where it points, with the query string removed.
@@ -797,4 +911,115 @@ pub fn ingest_inbox(root: &Path, config: &InboxConfig) -> Result<Vec<Outcome>> {
         }
     }
     Ok(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Real `com.apple.metadata:kMDItemWhereFroms` values, captured with
+    /// `xattr -px` from files downloaded by Safari 26.5 and Chrome 151 on macOS
+    /// 15.7.7. Byte-for-byte what the operating system wrote, so these protect
+    /// the parser against the real format rather than against an idea of it.
+    const CHROME_NO_QUERY: &[u8] =
+        include_bytes!("../tests/fixtures/wherefroms/chrome-linked-no-query.bplist");
+    const SAFARI_ONE_ENTRY: &[u8] =
+        include_bytes!("../tests/fixtures/wherefroms/safari-direct-one-entry.bplist");
+    const SAFARI_WITH_REFERRER: &[u8] =
+        include_bytes!("../tests/fixtures/wherefroms/safari-linked-with-referrer.bplist");
+
+    /// The regression this parser exists for.
+    ///
+    /// Scanning the plist as text returned `…/plain-standup.vtt_`: `0x5F` is the
+    /// marker introducing the *next* string and is also a legal URL character.
+    /// A download with a query string hid it, because the trailing marker landed
+    /// after the `?` and was redacted away.
+    #[test]
+    fn a_download_url_does_not_pick_up_the_next_plist_marker() {
+        let url = first_url(CHROME_NO_QUERY).expect("a URL in a real WhereFroms value");
+        assert_eq!(url, "http://127.0.0.1:8792/plain-standup.vtt");
+        assert!(!url.ends_with('_'), "trailing plist marker survived: {url}");
+    }
+
+    /// The download URL, not the page that linked it. Both browsers put the file
+    /// first and the referrer second; taking the wrong one would record where the
+    /// user was browsing instead of where the bytes came from.
+    #[test]
+    fn the_download_url_wins_over_the_referring_page() {
+        assert_eq!(
+            first_url(SAFARI_WITH_REFERRER).unwrap(),
+            "http://127.0.0.1:8791/safari-linked.vtt?token=SAFARI_LINKED_SECRET"
+        );
+        // Both are in there; the referrer is simply not the one chosen.
+        let all = bplist_strings(SAFARI_WITH_REFERRER);
+        assert_eq!(all.len(), 2, "expected URL and referrer, got {all:?}");
+        assert!(all[1].ends_with("safari-page.html"), "{all:?}");
+    }
+
+    #[test]
+    fn a_single_entry_value_reads() {
+        assert_eq!(
+            first_url(SAFARI_ONE_ENTRY).unwrap(),
+            "http://127.0.0.1:8791/standup-meeting.vtt?token=SAFARI_SECRET_MUST_BE_REDACTED"
+        );
+    }
+
+    /// The security property: what reaches the note carries no query string.
+    /// A signed export link keeps its credential there.
+    #[test]
+    fn the_query_string_never_reaches_the_note() {
+        for value in [SAFARI_ONE_ENTRY, SAFARI_WITH_REFERRER] {
+            let recorded = redact_url(&first_url(value).unwrap());
+            assert!(!recorded.contains('?'), "query survived: {recorded}");
+            assert!(
+                !recorded.contains("SECRET"),
+                "credential survived: {recorded}"
+            );
+        }
+    }
+
+    /// Linux's `user.xdg.origin.url` is a plain string, not a plist, and still
+    /// has to work.
+    #[test]
+    fn a_plain_url_string_still_reads() {
+        assert_eq!(
+            first_url(b"https://example.com/transcript.vtt").unwrap(),
+            "https://example.com/transcript.vtt"
+        );
+    }
+
+    /// Fails closed. A truncated or unreadable plist means "nothing was
+    /// recorded", which is the honest answer, rather than a guess.
+    #[test]
+    fn a_damaged_plist_records_nothing() {
+        assert_eq!(first_url(b"bplist00"), None);
+        assert_eq!(first_url(&CHROME_NO_QUERY[..40]), None);
+        assert_eq!(first_url(b"not a url at all"), None);
+    }
+
+    /// A plist is free to hold a URL as UTF-16, which a text scan cannot see at
+    /// all. Browsers percent-encode instead, so this is the branch no real
+    /// download exercised — built by hand, and labelled as such.
+    #[test]
+    fn a_utf16_string_reads() {
+        let url = "https://example.com/café.vtt";
+        let units: Vec<u8> = url.encode_utf16().flat_map(|u| u.to_be_bytes()).collect();
+        let count = url.encode_utf16().count();
+        let mut plist = b"bplist00".to_vec();
+        let string_at = plist.len();
+        plist.push(0x6f); // UTF-16 string, length follows as an integer object
+        plist.push(0x11); // 2-byte integer
+        plist.extend_from_slice(&(count as u16).to_be_bytes());
+        plist.extend_from_slice(&units);
+        let table_at = plist.len();
+        plist.push(string_at as u8);
+        let mut trailer = [0u8; 32];
+        trailer[6] = 1; // offset width
+        trailer[7] = 1; // object ref width
+        trailer[15] = 1; // one object
+        trailer[31] = table_at as u8;
+        plist.extend_from_slice(&trailer);
+
+        assert_eq!(first_url(&plist).as_deref(), Some(url));
+    }
 }

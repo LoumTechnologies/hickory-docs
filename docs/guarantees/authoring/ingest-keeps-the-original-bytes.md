@@ -83,7 +83,8 @@ somewhere they did not ask for.
 Last LLM verification:
 - Date: 2026-08-18
 - Reviewer: Claude (Opus 5)
-- Result: verified (implemented and reviewed in the same change)
+- Result: verified; the macOS download-origin reader was **measured on Apple
+  hardware and corrected** in the same change — see the caveat below
 - Evidence: `crates/hickory-cli/src/ingest.rs` — `InboxConfig` (typed,
   validated, defaults to working with nothing set), `note_for` (frontmatter,
   derived attendees, verbatim raw block, two empty transforms, the close-tag
@@ -95,14 +96,22 @@ Last LLM verification:
   `drain_inbox` in `crates/hickory-cli/src/up/mod.rs`, called before the first
   weave so a waiting transcript is covered by it, and again on any batch
   touching the inbox so a new note is woven in the same cycle.
-- Test coverage: `crates/hickory-cli/tests/ingest.rs` (27 tests) — verbatim
+- Test coverage: `crates/hickory-cli/tests/ingest.rs` (29 tests) — verbatim
   bytes, derived attendees, empty-and-stale summaries driven through the real
   `hick test` binary, dedupe, move-not-delete, an unreadable file skipped with a
   reason *and left in place*, one bad file not stopping a good one, an
   unrecognised format keeping its material, the close-tag refusal, determinism
   across two folders, a missing inbox being fine, single-file ingest, the
   config default, every invalid config value naming the variable and a next
-  step, and the command's own reporting.
+  step, and the command's own reporting. Plus
+  `a_macos_download_records_where_it_came_from`, which sets a **real**
+  `com.apple.metadata:kMDItemWhereFroms` value captured from a browser download
+  and asserts the note's `source-url:`, the referrer *not* winning, and the query
+  string not arriving — macOS-gated, because Linux will not let anything write
+  that namespace. The parser itself is covered by
+  `crates/hickory-cli/src/ingest.rs::tests` (7 tests) against three
+  byte-for-byte captured plists in
+  `crates/hickory-cli/tests/fixtures/wherefroms/`.
 - Caveats — what LLM review could NOT establish:
   - **The `hick up` integration is not covered by a test.** `drain_inbox` is
     called from the loop in two places and both were exercised by hand, not by
@@ -110,12 +119,24 @@ Last LLM verification:
   - **No real exporter output has been ingested.** Every fixture is
     hand-written. The formats this exists to read are Granola, Otter, Fathom,
     and Zoom exports, and none has been tried.
-  - **Download origin is unverified on this machine.** The Windows and macOS
-    readers were written from the documented formats and compiled, but no test
-    exercises them — the extended attributes only exist on a file a browser
-    actually downloaded, and CI runs on files a test wrote. The macOS reader
-    additionally scans a URL out of a binary plist rather than parsing one,
-    which is a heuristic that fails closed.
+  - **The macOS download origin is now verified, and the heuristic it used was
+    wrong.** Measured 2026-08-18 on a MacBook Pro (MacBookPro15,1, Intel Core
+    i7), macOS 15.7.7, with Safari 26.5 and Chrome 151, by downloading
+    transcripts through both browsers into an inbox and running `hick ingest`.
+    Four findings: the attribute is written by both browsers and survives the
+    move into the inbox; both put the **download URL first and the referring page
+    second**, so taking the first URL is right; the query string was dropped as
+    intended; and **the scan produced a wrong URL**. The byte following an ASCII
+    string in a binary plist is `0x5F`, the marker introducing the next string —
+    and `0x5F` is `_`, a legal URL character. A download whose URL had no query
+    string was recorded as `http://host/note.vtt_`. With a query string the
+    trailing marker landed after the `?` and was redacted away, which is why
+    reading the code had not caught it. The reader now parses the plist's
+    declared string lengths (`bplist_strings`, `bplist_string_at`) rather than
+    scanning, and fails closed on a plist it cannot read.
+  - **The Windows download origin is still unverified.** The `Zone.Identifier`
+    reader was written from the documented format and compiled; no Windows
+    machine has run it, and no test exercises it.
   - **Settling is a heuristic.** A transfer that stalls longer than the settle
     window and then resumes could be read mid-flight; the next pass corrects
     it, but the first note would be briefly wrong.
