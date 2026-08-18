@@ -13,6 +13,7 @@ import { api } from "../api/client";
 import { LocalRealtime } from "../api/realtime";
 import { DocumentEditor } from "../editor/DocumentEditor";
 import { DebugStrip } from "../debug/DebugStrip";
+import { RefactorBadge } from "../components/RefactorBadge";
 import { GeneratedFileView } from "../shell/views";
 import { untitledPath, wrapUntitled } from "../lib/newDoc";
 import { useDocSession, type SessionRegistry } from "./documentSession";
@@ -49,6 +50,10 @@ export function DocTabBody({ registry, docId }: { registry: SessionRegistry; doc
         >
           Verify
         </button>
+        {/* The equivalence gate for restructuring: pin a baseline, edit
+            freely, and this badge reports the moment a woven byte would
+            move. See serve/refactor.rs. */}
+        <RefactorBadge docId={docId} />
         {session.syncState !== "idle" && (
           <span
             className={`save-state save-state-${session.syncState}`}

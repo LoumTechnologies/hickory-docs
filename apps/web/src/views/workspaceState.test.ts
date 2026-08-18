@@ -13,13 +13,16 @@ import {
 } from "../shell/layout";
 import {
   activateDocTab,
+  adoptPlainFileTab,
   adoptUntitledTab,
   docIdsIn,
   findDocTab,
+  findFileTab,
   focusedDocId,
   initialWorkspace,
   isWorkspaceEmpty,
   openDocTab,
+  openFileTab,
   openGeneratedTab,
   openIntoDeclared,
   openUntitledTab,
@@ -152,6 +155,79 @@ describe("openGeneratedTab", () => {
     // tree pane under a file (dragDrop.ts refuses the same drop).
     expect(pane.tabs.some((t) => t.kind === "document" && t.docId === "d1")).toBe(false);
     expect(pane.tabs.some((t) => t.kind === "tree")).toBe(false);
+  });
+});
+
+describe("openFileTab", () => {
+  it("adds a plain-file tab with no owning document, and focuses its pane", () => {
+    const layout = openFileTab(initialWorkspace(), "README.md");
+    const found = findFileTab(layout, "README.md");
+    expect(found).not.toBeNull();
+    expect(found!.tab.kind).toBe("file");
+    expect(found!.tab.target).toBe("README.md");
+    expect(found!.tab.docId).toBeUndefined();
+    expect(layout.focus).toBe(found!.pane.id);
+  });
+
+  it("re-opening activates the existing tab instead of adding a second", () => {
+    let layout = openFileTab(initialWorkspace(), ".github/workflows/ci.yml");
+    layout = openDocTab(layout, "d1", "paper.hick");
+    const before = allTabs(layout).length;
+    layout = openFileTab(layout, ".github/workflows/ci.yml");
+    expect(allTabs(layout)).toHaveLength(before);
+    const found = findFileTab(layout, ".github/workflows/ci.yml")!;
+    expect(found.pane.active).toBe(found.index);
+  });
+
+  it("opening ADDS — every already-open tab survives exactly where it was", () => {
+    let layout = openDocTab(initialWorkspace(), "d1", "paper.hick");
+    const survivors = allTabs(layout).map((t) => t.id);
+    layout = openFileTab(layout, "justfile");
+    for (const id of survivors) {
+      expect(allTabs(layout).some((t) => t.id === id)).toBe(true);
+    }
+  });
+
+  it("never opens over the tree: a tree-focused workspace grows a pane instead", () => {
+    const fresh = initialWorkspace();
+    const tree = treePane(fresh)!;
+    const layout = openFileTab(activate(fresh, tree.id, 0), "README.md");
+    const found = findFileTab(layout, "README.md")!;
+    expect(found.pane.tabs.some((t) => t.kind === "tree")).toBe(false);
+  });
+
+  it("stays out of docIdsIn: no document machinery wakes for a plain file", () => {
+    const layout = openFileTab(openDocTab(initialWorkspace(), "d1", "paper.hick"), "README.md");
+    expect(docIdsIn(layout)).toEqual(["d1"]);
+  });
+});
+
+describe("adoptPlainFileTab", () => {
+  it("converts the file tab in place: generated kind, owning doc, weave-keyed target", () => {
+    let layout = openDocTab(initialWorkspace(), "d1", "paper.hick");
+    layout = openFileTab(layout, "src/analysis.py");
+    const before = findFileTab(layout, "src/analysis.py")!;
+    const adopted = adoptPlainFileTab(layout, "src/analysis.py", "d2", "analysis.py");
+    const pane = panes(adopted.root).find((p) => p.tabs.some((t) => t.id === before.tab.id))!;
+    const tab = pane.tabs.find((t) => t.id === before.tab.id)!;
+    expect(tab.kind).toBe("generated");
+    expect(tab.docId).toBe("d2");
+    // The weave keys outputs relative to the DOCUMENT's directory; the tab
+    // must fetch by that name, not the tree's root-relative one.
+    expect(tab.target).toBe("analysis.py");
+    // Surgery, not close-and-open: same id, same position, neighbours intact.
+    expect(pane.tabs.findIndex((t) => t.id === before.tab.id)).toBe(before.index);
+    expect(allTabs(adopted)).toHaveLength(allTabs(layout).length);
+    // The document machinery must wake for the new owner.
+    expect(docIdsIn(adopted)).toContain("d2");
+  });
+
+  it("touches nothing when no tab shows the path", () => {
+    const layout = openDocTab(initialWorkspace(), "d1", "paper.hick");
+    const adopted = adoptPlainFileTab(layout, "README.md", "d9", "README.md");
+    expect(allTabs(adopted).map((t) => `${t.kind}:${t.target}`)).toEqual(
+      allTabs(layout).map((t) => `${t.kind}:${t.target}`),
+    );
   });
 });
 

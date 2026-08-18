@@ -38,5 +38,9 @@ export default defineConfig({
   test: {
     environment: "jsdom",
     include: ["src/**/*.test.{ts,tsx}"],
+    // Shims for the DOM measurements jsdom does not implement — without them
+    // CodeMirror throws from inside a rAF, which reports as an unhandled
+    // error beside a green suite rather than as a failure. See test-setup.ts.
+    setupFiles: ["src/test-setup.ts"],
   },
 });

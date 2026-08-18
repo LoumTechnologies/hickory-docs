@@ -16,6 +16,14 @@ export interface CellPanelProps {
   block?: ExecBlock;
   running?: boolean;
   onRun?: (execId: string) => void;
+  /** The cell's commands. Passed when this panel STANDS IN for the source —
+   * the block is rendered, so the commands are not on screen anywhere else
+   * and the panel has to show them. Omitted when the source is visible above
+   * the panel, where repeating it would be noise. */
+  command?: string;
+  /** Swap this block back to its source. Absent when the source is already
+   * showing. */
+  onShowSource?: () => void;
 }
 
 /**
@@ -30,7 +38,13 @@ export interface CellPanelProps {
  *    as a compact line diff against the expect body; transcript behind Replay.
  *  - no expect: the transcript IS the output — visible as before.
  */
-export function CellPanel({ block, running, onRun }: CellPanelProps) {
+export function CellPanel({
+  block,
+  running,
+  onRun,
+  command,
+  onShowSource,
+}: CellPanelProps) {
   const transcript = block?.transcript ?? [];
   const stdout = useMemo(() => stdoutOf(transcript), [transcript]);
   const svgFigure = useMemo(() => (looksLikeSvg(stdout) ? stdout.trim() : null), [stdout]);
@@ -44,10 +58,16 @@ export function CellPanel({ block, running, onRun }: CellPanelProps) {
     [failedExpect, block?.expect, stdout],
   );
 
+  // A cell the server has not rendered yet still shows its commands and can
+  // still be read; only the run is unavailable, and it says why.
   if (!block) {
     return (
       <div className="cell-panel" data-testid="cell-panel-pending">
-        <span className="muted">cell not yet known to the server — save to sync</span>
+        {command !== undefined && <CommandLines command={command} />}
+        <div className="cell-panel-bar">
+          <span className="muted">cell not yet known to the server — save to sync</span>
+          {onShowSource && <SourceButton onClick={onShowSource} />}
+        </div>
       </div>
     );
   }
@@ -58,6 +78,7 @@ export function CellPanel({ block, running, onRun }: CellPanelProps) {
 
   return (
     <div className="cell-panel" data-testid={`cell-panel-${block.id}`}>
+      {command !== undefined && <CommandLines command={command} />}
       <div className="cell-panel-bar">
         <span className="cell-container" data-tip={block.image ?? "host"}>
           {block.container}
@@ -85,6 +106,7 @@ export function CellPanel({ block, running, onRun }: CellPanelProps) {
         >
           Run
         </button>
+        {onShowSource && <SourceButton onClick={onShowSource} />}
       </div>
       {diff && (
         <div className="cell-diff" data-testid="cell-diff">
@@ -109,5 +131,40 @@ export function CellPanel({ block, running, onRun }: CellPanelProps) {
         />
       )}
     </div>
+  );
+}
+
+/**
+ * The cell's commands, shown as a shell would echo them.
+ *
+ * `$ ` prefixes are decoration, not text: the document holds the bare
+ * command, and this is the panel standing in for source that is currently
+ * folded away. Clicking anywhere in here goes back to that source, because
+ * "I want to change this command" is the obvious next thought.
+ */
+function CommandLines({ command }: { command: string }) {
+  const lines = command.split("\n");
+  return (
+    <pre className="cell-command" data-testid="cell-command">
+      {lines.map((line, i) => (
+        <span key={i} className="cell-command-line">
+          <span className="cell-command-prompt">$ </span>
+          {line}
+          {"\n"}
+        </span>
+      ))}
+    </pre>
+  );
+}
+
+function SourceButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      className="btn btn-ghost cell-source-btn"
+      onClick={onClick}
+      data-tip="Show this block's source, so you can edit it"
+    >
+      source
+    </button>
   );
 }

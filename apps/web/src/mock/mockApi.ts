@@ -40,6 +40,10 @@ const state = {
 };
 
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** Pinned refactor baselines, doc id → output path → content — the mock's
+ * half of serve/refactor.rs, over the mock's own weave. */
+const refactorBaselines = new Map<string, Map<string, string>>();
 const id = (prefix: string) => `${prefix}${state.nextId++}`;
 
 function execBlocks(docId: string): ExecBlock[] {
@@ -234,6 +238,65 @@ export function installMockApi() {
         }
       }
       return { root: "/home/mock/notebook", tree: toFileNodes(entries) };
+    }
+
+    // Plain files. The mock folder holds nothing but documents and what
+    // they weave, so a plain-file read serves the woven copy; a save is
+    // refused honestly — the demo has no disk to land it on.
+    if ((m = path.match(/^\/api\/file\?path=(.+)$/)) && method === "GET") {
+      const filePath = decodeURIComponent(m[1]);
+      for (const doc of state.docs) {
+        const file = weaveOutputs(doc.source, doc.path).find((f) => f.path === filePath);
+        if (file) {
+          const { path: p, language, content } = file;
+          return { path: p, language, content, hash: `mock-${content.length}` };
+        }
+      }
+      notFound(path);
+    }
+    if (path === "/api/file" && method === "PUT") {
+      throw Object.assign(
+        new Error("This demo runs without a disk, so plain-file saves stay in the buffer."),
+        { status: 422 },
+      );
+    }
+    if (path === "/api/adopt" && method === "POST") {
+      throw Object.assign(
+        new Error(
+          "This demo runs without a disk, so there is nothing to adopt — in the app, this wraps the file in a document, byte-exactly.",
+        ),
+        { status: 422 },
+      );
+    }
+
+    // The refactor baseline: real behavior over the mock's own weave, so
+    // the demo badge tells the same truth the app's does.
+    if ((m = path.match(/^\/api\/docs\/([^/]+)\/refactor\/(begin|status|end)$/))) {
+      const doc = state.docs.find((d) => d.id === m![1]) ?? notFound(path);
+      const verb = m[2];
+      if (verb === "begin") {
+        const outputs = new Map(
+          weaveOutputs(doc.source, doc.path).map((f) => [f.path, f.content]),
+        );
+        refactorBaselines.set(doc.id, outputs);
+        return { active: true, started_at: new Date().toISOString(), clean: true, diffs: [] };
+      }
+      if (verb === "end") {
+        refactorBaselines.delete(doc.id);
+        return { active: false };
+      }
+      const baseline = refactorBaselines.get(doc.id);
+      if (!baseline) return { active: false };
+      const current = new Map(weaveOutputs(doc.source, doc.path).map((f) => [f.path, f.content]));
+      const diffs: { path: string; kind: string }[] = [];
+      for (const [p, was] of baseline) {
+        if (!current.has(p)) diffs.push({ path: p, kind: "removed" });
+        else if (current.get(p) !== was) diffs.push({ path: p, kind: "changed" });
+      }
+      for (const p of current.keys()) {
+        if (!baseline.has(p)) diffs.push({ path: p, kind: "added" });
+      }
+      return { active: true, started_at: new Date().toISOString(), clean: diffs.length === 0, diffs };
     }
 
     if (path === "/api/settings/ui") {

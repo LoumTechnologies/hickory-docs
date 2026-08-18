@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { DEDUPE_MS, MENU_EVENT, onMenuAction, type MenuAction } from "./menuBridge";
+import { DEDUPE_MS, MENU_EVENT, insertTarget, onMenuAction, type MenuAction } from "./menuBridge";
 
 const fire = (detail: unknown) =>
   window.dispatchEvent(new CustomEvent(MENU_EVENT, { detail }));
@@ -62,7 +62,20 @@ describe("the native menu bridge", () => {
     fire("quit");
     fire(42);
     fire(undefined);
+    fire("insert:");
+    fire("insert:not a name");
     expect(handler).not.toHaveBeenCalled();
+  });
+
+  it("carries the element one Insert menu item names", () => {
+    const seen: MenuAction[] = [];
+    const clock = 1000;
+    unsubscribe = onMenuAction((a) => seen.push(a), () => clock);
+    fire("insert");
+    fire("insert:allow-network");
+    expect(seen).toEqual(["insert", "insert:allow-network"]);
+    expect(insertTarget("insert:allow-network")).toBe("allow-network");
+    expect(insertTarget("insert")).toBeNull();
   });
 
   it("stops delivering after unsubscribe", () => {

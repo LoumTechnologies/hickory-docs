@@ -124,6 +124,51 @@ export interface Provenance {
 /** One entry of the open folder's file tree (GET /api/files). Directories
  * come first, each level alphabetical; `path` is root-relative; `doc_id` is
  * present only on `.hick` documents. */
+/** A plain file — anything in the folder that is neither a document nor a
+ * woven output: read whole, saved whole. `hash` fingerprints the content the
+ * read served; the save passes it back as `base_hash` so a file rewritten on
+ * disk underneath the buffer is a 409, never a silent overwrite. */
+export interface PlainFile {
+  path: string;
+  language: string;
+  content: string;
+  hash: string;
+}
+
+/** What `PUT /api/file` answers: the saved content's fresh hash, which
+ * becomes the next save's `base_hash`. */
+export interface PlainFileSaved {
+  path: string;
+  hash: string;
+}
+
+/** What `POST /api/adopt` answers: the document that now owns the file. */
+export interface AdoptResponse {
+  doc_id: string;
+  doc_path: string;
+  file_path: string;
+  /** How the weave names the output: relative to the DOCUMENT's directory
+   * (the `<hick:file path>` value), which is the key generated panes fetch
+   * by — not the root-relative tree path. */
+  output_path: string;
+  /** True when a new document was created beside the file; false when a
+   * block was appended to an existing one. */
+  created: boolean;
+}
+
+/** One output that no longer matches the pinned refactor baseline. */
+export interface RefactorDiff {
+  path: string;
+  kind: "changed" | "added" | "removed";
+}
+
+/** The refactor baseline's live verdict — `active: false` when none is
+ * pinned for the document. Weave-only on the server: checking never
+ * executes a cell. */
+export type RefactorStatus =
+  | { active: false }
+  | { active: true; started_at: string; clean: boolean; diffs: RefactorDiff[] };
+
 export interface FileNode {
   name: string;
   path: string;

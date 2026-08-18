@@ -26,17 +26,41 @@ export type FileAction =
   | { kind: "doc"; id: string }
   /** A file the current document generates: open a generated pane. */
   | { kind: "generated"; path: string }
-  /** Anything else: shown, named, and inert. */
+  /** Any other text file: open a plain-file pane. */
+  | { kind: "file"; path: string }
+  /** A file this app cannot show (binary, by extension): named, and inert. */
   | { kind: "inert" };
+
+/** Extensions that name bytes, not text. A click on one stays inert rather
+ * than opening a pane whose only content would be an encoding error. The
+ * list is advisory — a mislabelled file still gets an honest refusal from
+ * the server's UTF-8 check. */
+const BINARY_EXTENSIONS = new Set([
+  "png", "jpg", "jpeg", "gif", "webp", "avif", "ico", "bmp", "tiff",
+  "pdf", "zip", "gz", "tgz", "bz2", "xz", "7z", "rar", "jar",
+  "exe", "dll", "so", "dylib", "a", "o", "class", "wasm", "bin",
+  "woff", "woff2", "ttf", "otf", "eot",
+  "mp3", "mp4", "mov", "avi", "mkv", "webm", "ogg", "wav", "flac",
+  "sqlite", "db",
+]);
+
+export function isLikelyBinaryPath(path: string): boolean {
+  const name = path.split("/").pop() ?? path;
+  const dot = name.lastIndexOf(".");
+  if (dot <= 0) return false; // no extension, or a dotfile: assume text
+  return BINARY_EXTENSIONS.has(name.slice(dot + 1).toLowerCase());
+}
 
 /**
  * What a click on `node` should do, given which non-document paths are
- * openable (the current document's generated files, where there is one).
+ * openable as generated files (the open documents' outputs). Everything
+ * else that looks like text opens as a plain file.
  */
 export function fileAction(node: FileNode, openable: ReadonlySet<string>): FileAction {
   if (node.doc_id) return { kind: "doc", id: node.doc_id };
   if (openable.has(node.path)) return { kind: "generated", path: node.path };
-  return { kind: "inert" };
+  if (isLikelyBinaryPath(node.path)) return { kind: "inert" };
+  return { kind: "file", path: node.path };
 }
 
 // ---------------------------------------------------------------------------

@@ -16,7 +16,7 @@ import type * as Y from "yjs";
 import type { Awareness } from "y-protocols/awareness";
 import { yCollab } from "y-codemirror.next";
 import { foldEffect } from "@codemirror/language";
-import { CellRegistry, EnvRegistry, wysiwyg } from "../../editor/wysiwyg";
+import { EnvRegistry, wysiwyg } from "../../editor/wysiwyg";
 import { rangeHighlightField } from "../../editor/rangeHighlight";
 import { foldRangesOf, hickoryFolding } from "../../editor/folding";
 import { languageExtensions } from "../../editor/languages";
@@ -86,7 +86,6 @@ export function DemoEditor({
   // Held in a ref so a changing callback never tears down the editor.
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
-  const registry = useMemo(() => new CellRegistry(), []);
   const envRegistry = useMemo(() => new EnvRegistry(), []);
 
   useEffect(() => {
@@ -104,7 +103,7 @@ export function DemoEditor({
         if (u.docChanged) onChangeRef.current?.(u.state.doc.toString());
       }),
     ];
-    if (hick) extensions.push(wysiwyg(registry, envRegistry), hickoryFolding());
+    if (hick) extensions.push(wysiwyg(envRegistry), hickoryFolding());
     else if (language) extensions.push(...languageExtensions(language));
     if (collab) extensions.push(yCollab(collab.ytext, collab.awareness));
     if (extraExtensions?.length) extensions.push(...extraExtensions);
@@ -125,7 +124,7 @@ export function DemoEditor({
     };
     // The buffer's identity — not its contents — decides when to rebuild.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [hick, language, readOnly, collab, registry, envRegistry, extraExtensions]);
+  }, [hick, language, readOnly, collab, envRegistry, extraExtensions]);
 
   // Push an externally-driven value (a walkthrough step, or an edit mapped
   // back from the output pane) into the buffer. Under `collab` the CRDT is the

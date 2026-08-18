@@ -27,6 +27,8 @@ use super::{LocalState, RunRecord};
 // ---------------------------------------------------------------------------
 
 /// The error body shape the web client parses (`{"error": "…"}`).
+/// Debug so a `Result<_, ApiError>` can be unwrapped in tests.
+#[derive(Debug)]
 pub struct ApiError(StatusCode, String, Option<Value>);
 
 impl ApiError {
@@ -600,7 +602,9 @@ pub async fn edit_outputs(
 }
 
 /// Language tag for an output path, matching the hosted server's mapping.
-fn language_of(path: &str) -> String {
+/// `pub(super)` because plain files (serve/plain_file.rs) tag with the same
+/// mapping — a `.py` file must highlight the same whether woven or plain.
+pub(super) fn language_of(path: &str) -> String {
     let ext = std::path::Path::new(path)
         .extension()
         .and_then(|e| e.to_str())

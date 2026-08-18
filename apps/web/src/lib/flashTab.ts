@@ -9,7 +9,7 @@ export const FLASH_TAB_EVENT = "hickory:flash-tab";
 export const FLASH_CLASS = "shell-tab--flash";
 
 /** Ask the shell to pulse the tab showing `target`. */
-export function flashTab(kind: "document" | "generated" | "tree", target: string): void {
+export function flashTab(kind: "document" | "generated" | "file" | "tree", target: string): void {
   window.dispatchEvent(new CustomEvent(FLASH_TAB_EVENT, { detail: { kind, target } }));
 }
 

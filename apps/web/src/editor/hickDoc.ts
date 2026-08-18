@@ -315,9 +315,96 @@ export function execBlocksOf(structure: HickDocStructure): HickBlock[] {
   return structure.blocks.filter((b) => b.name === "exec");
 }
 
+/** A fenced code block sitting in the document's PROSE. */
+export interface ProseFence {
+  /** Whole fence, both fence lines included. */
+  from: number;
+  to: number;
+  /** The info string after the opening fence: `python`, `bash`, or "". */
+  info: string;
+  /** The text between the fence lines, without the trailing newline. */
+  body: string;
+}
+
+/**
+ * Fenced code blocks in the document's prose — the ones a person could mean
+ * to run.
+ *
+ * A fence inside a verbatim block is deliberately excluded: three backticks
+ * in a `hick:file` body are content of a generated file, and in an exec they
+ * are part of a command. Only prose fences are offered for conversion, and
+ * only CLOSED ones — an unterminated fence has no end for the element to
+ * take, and guessing where it stops would rewrite text nobody pointed at.
+ */
+export function proseFences(structure: HickDocStructure, text: string): ProseFence[] {
+  const verbatim = verbatimRanges(structure.blocks);
+  const fences: ProseFence[] = [];
+  let openAt = -1;
+  let marker = "";
+  let info = "";
+  let bodyFrom = 0;
+  let lineFrom = 0;
+  for (;;) {
+    const nl = text.indexOf("\n", lineFrom);
+    const lineTo = nl === -1 ? text.length : nl;
+    const m = /^ {0,3}(```|~~~)(.*)$/.exec(text.slice(lineFrom, lineTo));
+    if (m) {
+      if (openAt === -1) {
+        // A fence that OPENS inside verbatim payload is not prose, and
+        // neither is its closer — skipping the open skips the pair.
+        if (!inRanges(lineFrom, verbatim)) {
+          openAt = lineFrom;
+          marker = m[1];
+          info = m[2].trim();
+          bodyFrom = Math.min(lineTo + 1, text.length);
+        }
+      } else if (m[1] === marker && m[2].trim() === "") {
+        fences.push({
+          from: openAt,
+          to: lineTo,
+          info,
+          body: text.slice(bodyFrom, Math.max(bodyFrom, lineFrom - 1)),
+        });
+        openAt = -1;
+      }
+    }
+    if (nl === -1) break;
+    lineFrom = nl + 1;
+  }
+  return fences;
+}
+
 /** File blocks in document order. */
 export function fileBlocksOf(structure: HickDocStructure): HickBlock[] {
   return structure.blocks.filter((b) => b.name === "file");
+}
+
+/**
+ * Every container name this document uses, in document order.
+ *
+ * Not just the `hick:container` declarations: a container also comes into
+ * existence by being named on an exec (`image=` on the first one creates it),
+ * or as the target of a fork. A chooser built only from declarations tells a
+ * document with an implicit container that it has none, which is both wrong
+ * and unhelpful — the name is right there in the source.
+ */
+export function containerNamesOf(structure: HickDocStructure): string[] {
+  const names: string[] = [];
+  const add = (name: string | undefined) => {
+    if (name && !names.includes(name)) names.push(name);
+  };
+  for (const block of structure.blocks) {
+    if (block.name === "container") add(block.attrs.name);
+    else if (block.name === "exec") add(block.attrs.container);
+    else if (block.name === "fork") add(block.attrs.to);
+  }
+  // Self-closing declarations are tags, not blocks.
+  for (const tag of structure.tags) {
+    if (tag.closing) continue;
+    if (tag.name === "container") add(tag.attrs.name);
+    else if (tag.name === "fork") add(tag.attrs.to);
+  }
+  return names;
 }
 
 /** Container declarations in document order (the environment cards). */

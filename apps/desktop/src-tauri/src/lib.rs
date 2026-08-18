@@ -117,6 +117,8 @@ fn app_menu(handle: &AppHandle) -> tauri::Result<Menu<Wry>> {
         .select_all()
         .build()?;
 
+    let insert = insert_menu(handle)?;
+
     let window = SubmenuBuilder::new(handle, "Window")
         .minimize()
         .close_window()
@@ -125,7 +127,100 @@ fn app_menu(handle: &AppHandle) -> tauri::Result<Menu<Wry>> {
     let menu = MenuBuilder::new(handle);
     #[cfg(target_os = "macos")]
     let menu = menu.item(&app_submenu);
-    menu.item(&file).item(&edit).item(&window).build()
+    menu.item(&file)
+        .item(&edit)
+        .item(&insert)
+        .item(&window)
+        .build()
+}
+
+type InsertGroups = &'static [(&'static str, &'static [(&'static str, &'static str)])];
+
+/// Every element of the Insert menu, as `(menu id, label)` grouped exactly as
+/// the page groups them.
+///
+/// This is the native half of `apps/web/src/lib/insertCatalog.ts`, which owns
+/// the attributes, the hints, and the bytes each element writes — the menu
+/// only needs to name one. The two lists are kept in step by
+/// `tests/insert_menu_matches_catalogue.rs`; a drift there is a real bug,
+/// because a menu offering an element the page has never heard of would open
+/// the panel on the wrong thing.
+const INSERT_GROUPS: InsertGroups = &[
+    (
+        "Execution",
+        &[
+            ("exec", "Exec Cell"),
+            ("expect", "Expectation"),
+            ("container", "Container"),
+            ("needs", "Needs A Program"),
+            ("secret", "Secret"),
+            ("volume", "Volume"),
+            ("agent", "Agent Cell"),
+            ("confirm", "Confirmation Gate"),
+            ("verify", "Verify Command"),
+            ("capture", "Capture"),
+            ("feature", "Feature"),
+        ],
+    ),
+    (
+        "Capabilities",
+        &[
+            ("allow-network", "Allow Network"),
+            ("deny-network", "Deny Network"),
+            ("allow-file-read", "Allow File Read"),
+            ("allow-file-write", "Allow File Write"),
+            ("volume-access", "Volume Access Rule"),
+            ("fork", "Fork A Container"),
+            ("attenuate", "Attenuate A Container"),
+        ],
+    ),
+    (
+        "Reuse",
+        &[("copy", "Copy"), ("cut", "Cut"), ("paste", "Paste")],
+    ),
+    (
+        "Document",
+        &[
+            ("file", "Generated File"),
+            ("var", "Variable"),
+            ("val", "Variable Value"),
+            ("when", "Conditional Block"),
+            ("diagram", "Diagram"),
+            ("transform", "Transform"),
+            ("include", "Include A File"),
+            ("upstream", "Upstream Document"),
+        ],
+    ),
+];
+
+/// The menu's element names, for the parity test against the page's
+/// catalogue (`tests/insert_menu_matches_catalogue.rs`).
+pub fn insert_menu_elements() -> InsertGroups {
+    INSERT_GROUPS
+}
+
+/// The Insert submenu: the hick vocabulary, one nested menu per group.
+///
+/// Every item forwards `insert:<element>` to the page, which opens the Insert
+/// panel already on that element — the attributes still get filled in there,
+/// because a menu item cannot ask for a container name. The first item opens
+/// the panel with nothing chosen, which is what the accelerator is for.
+fn insert_menu(handle: &AppHandle) -> tauri::Result<tauri::menu::Submenu<Wry>> {
+    let mut insert = SubmenuBuilder::new(handle, "Insert").item(
+        &MenuItemBuilder::with_id("insert", "Insert Element…")
+            .accelerator("CmdOrCtrl+I")
+            .build(handle)?,
+    );
+    insert = insert.separator();
+    for (group, elements) in INSERT_GROUPS {
+        let mut sub = SubmenuBuilder::new(handle, *group);
+        for (id, label) in *elements {
+            sub =
+                sub.item(&MenuItemBuilder::with_id(format!("insert:{id}"), *label).build(handle)?);
+        }
+        insert = insert.item(&sub.build()?);
+    }
+    insert.build()
 }
 
 /// Route a chosen menu item.
@@ -136,6 +231,9 @@ fn app_menu(handle: &AppHandle) -> tauri::Result<Menu<Wry>> {
 fn on_menu(app: &AppHandle, id: &str) {
     match id {
         "new" | "save" | "save-as" | "settings" | "files" => dispatch_to_ui(app, id),
+        // Every item of the Insert submenu, which the page answers by opening
+        // its panel on the named element.
+        _ if id.starts_with("insert") => dispatch_to_ui(app, id),
         // No "file or folder?" question dialog: each verb goes straight to
         // its native picker. Cross-platform pickers cannot offer both in one
         // dialog, and a modal asking which picker you meant is worse than a

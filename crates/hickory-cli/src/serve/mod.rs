@@ -31,6 +31,8 @@ pub mod agent;
 pub mod api;
 pub mod debug_bridge;
 pub mod lsp_bridge;
+pub mod plain_file;
+pub mod refactor;
 pub mod socket;
 pub mod store;
 pub mod watch;
@@ -111,6 +113,9 @@ pub struct LocalState {
     /// The UI settings the Settings page manages, and where they persist.
     /// See [`UiSettings`].
     pub ui: Arc<UiSettings>,
+    /// Pinned refactor baselines, one per document under restructuring.
+    /// Session state, deliberately in memory — see [`refactor`].
+    pub refactors: Arc<Mutex<HashMap<String, refactor::RefactorBaseline>>>,
 }
 
 /// The session's provider-key settings: the live store the agent route reads
@@ -375,6 +380,10 @@ fn router(state: LocalState) -> Router {
         .route("/docs/{id}/outputs", get(api::list_outputs))
         .route("/docs/{id}/outputs/file", get(api::get_output_file))
         .route("/docs/{id}/outputs/edit", post(api::edit_outputs))
+        .route("/docs/{id}/refactor/begin", post(refactor::begin))
+        .route("/docs/{id}/refactor/status", get(refactor::status))
+        .route("/docs/{id}/refactor/end", post(refactor::end))
+        .route("/adopt", post(refactor::adopt))
         .route("/docs/{id}/run", post(api::run_doc))
         .route("/docs/{id}/check", post(api::check_doc))
         .route("/docs/{id}/agent", post(agent::start_turn))
@@ -389,6 +398,7 @@ fn router(state: LocalState) -> Router {
             get(api::get_settings_ui).put(api::put_settings_ui),
         )
         .route("/files", get(api::files))
+        .route("/file", get(plain_file::get_file).put(plain_file::put_file))
         .route("/search", get(api::search))
         .route("/structure", get(api::structure))
         .route("/executor", get(api::executor))
@@ -468,6 +478,7 @@ pub async fn prepare(opts: ServeOptions) -> Result<Prepared> {
             store: std::sync::RwLock::new(ui_store),
             path: opts.ui_settings_path,
         }),
+        refactors: Arc::new(Mutex::new(HashMap::new())),
     };
 
     Ok(Prepared {

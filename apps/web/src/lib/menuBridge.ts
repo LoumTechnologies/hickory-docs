@@ -6,7 +6,16 @@
 // and the same build runs unchanged in a browser, where the event simply
 // never fires.
 
-export type MenuAction = "new" | "save" | "save-as" | "settings" | "files";
+export type MenuAction =
+  | "new"
+  | "save"
+  | "save-as"
+  | "settings"
+  | "files"
+  /** Open the Insert panel; the suffixed form opens it on one element, which
+   * is how every item of the native Insert submenu arrives. */
+  | "insert"
+  | `insert:${string}`;
 
 export const MENU_EVENT = "hickory-menu";
 
@@ -20,7 +29,16 @@ const ACTIONS: ReadonlySet<string> = new Set([
   "save-as",
   "settings",
   "files",
-] satisfies MenuAction[]);
+  "insert",
+]);
+
+/** The element a menu action names, or null when it names none. The id is
+ * checked against the catalogue by whoever opens the panel — a newer shell
+ * naming an element this build does not have opens the panel, which is a
+ * better answer than nothing happening. */
+export function insertTarget(action: MenuAction): string | null {
+  return action.startsWith("insert:") ? action.slice("insert:".length) : null;
+}
 
 /**
  * Subscribe to native menu actions. Returns the unsubscribe.
@@ -39,7 +57,11 @@ export function onMenuAction(
 
   const listener = (event: Event) => {
     const detail = (event as CustomEvent).detail;
-    if (typeof detail !== "string" || !ACTIONS.has(detail)) return;
+    if (typeof detail !== "string") return;
+    // `insert:<element>` is one action per element of the native Insert
+    // submenu; the id is not validated here so a shell that grows an element
+    // before the page does still opens the panel.
+    if (!ACTIONS.has(detail) && !/^insert:[\w.-]+$/.test(detail)) return;
     const at = now();
     if (detail === lastAction && at - lastAt < DEDUPE_MS) return;
     lastAction = detail;

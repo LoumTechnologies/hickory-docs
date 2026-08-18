@@ -4,7 +4,7 @@ import { LineageView } from "./views/LineageView";
 import { SettingsView } from "./views/SettingsView";
 import { WorkspaceView } from "./views/WorkspaceView";
 import { api } from "./api/client";
-import { onMenuAction } from "./lib/menuBridge";
+import { insertTarget, onMenuAction } from "./lib/menuBridge";
 import { landingTarget } from "./lib/newDoc";
 import { TooltipLayer } from "./components/TooltipLayer";
 
@@ -28,6 +28,17 @@ export function App() {
   routeRef.current = route;
   useEffect(() => {
     return onMenuAction((action) => {
+      // Insert — bare, or naming one element — wants a buffer to write into,
+      // which only the workspace has. Handled before the switch because the
+      // element-carrying form is a whole family of actions, not one case.
+      if (action === "insert" || insertTarget(action) !== null) {
+        if (routeRef.current.name === "doc" || routeRef.current.name === "new") {
+          window.dispatchEvent(new CustomEvent("hickory-doc-command", { detail: action }));
+        } else {
+          setNotice("Open a document first.");
+        }
+        return;
+      }
       switch (action) {
         case "new":
           navigate("/new");

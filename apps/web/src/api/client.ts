@@ -1,4 +1,5 @@
 import type {
+  AdoptResponse,
   AgentTurnsResponse,
   Doc,
   DocSummary,
@@ -8,7 +9,10 @@ import type {
   OutputEditResponse,
   OutputFile,
   OutputsResponse,
+  PlainFile,
+  PlainFileSaved,
   Project,
+  RefactorStatus,
   RenderResponse,
   Run,
   SearchResponse,
@@ -108,6 +112,40 @@ export const api = {
 
   /** The open folder's file tree: directories first, alphabetical. */
   files: () => request<FilesResponse>("GET", "/api/files"),
+
+  /** Any text file in the folder, whole, with the hash a save passes back. */
+  file: (path: string) =>
+    request<PlainFile>("GET", `/api/file?path=${encodeURIComponent(path)}`),
+  /** Adopt a plain file into a literate document, byte-exactly: the server
+   * verifies the new document weaves the file's exact bytes before writing
+   * anything. `into` appends to an existing document instead of creating
+   * `<stem>.hick` beside the file. */
+  adopt: (path: string, into?: string) =>
+    request<AdoptResponse>("POST", "/api/adopt", {
+      path,
+      ...(into !== undefined ? { into } : {}),
+    }),
+
+  /** Pin the document's current woven outputs as a refactor baseline. */
+  refactorBegin: (docId: string) =>
+    request<RefactorStatus>("POST", `/api/docs/${docId}/refactor/begin`),
+  /** The live equivalence verdict against the pinned baseline. */
+  refactorStatus: (docId: string) =>
+    request<RefactorStatus>("GET", `/api/docs/${docId}/refactor/status`),
+  /** Drop the baseline. */
+  refactorEnd: (docId: string) =>
+    request<RefactorStatus>("POST", `/api/docs/${docId}/refactor/end`),
+
+  /** Save a plain file whole. `baseHash` is the hash the content was loaded
+   * under — a mismatch means the disk moved and the server answers 409.
+   * `force` is the deliberate overwrite after that 409. */
+  saveFile: (path: string, content: string, baseHash?: string, force = false) =>
+    request<PlainFileSaved>("PUT", "/api/file", {
+      path,
+      content,
+      ...(baseHash !== undefined ? { base_hash: baseHash } : {}),
+      ...(force ? { force } : {}),
+    }),
 
   outputs: (docId: string) =>
     request<OutputsResponse>("GET", `/api/docs/${docId}/outputs`),

@@ -11,8 +11,10 @@
 /** What a tab shows. Regions come from a layout; tools come from the app.
  * "tree" is the folder tree pane — a distinct kind, because drops treat it
  * differently (see dragDrop.ts). "untitled" is a document that does not
- * exist yet: a buffer, adopted into a "document" tab on its first edit. */
-export type ViewKind = "document" | "generated" | "tool" | "tree" | "untitled";
+ * exist yet: a buffer, adopted into a "document" tab on its first edit.
+ * "file" is a plain file — in the folder, but neither a document nor a
+ * woven output: it has no owning docId and edits save to disk directly. */
+export type ViewKind = "document" | "generated" | "file" | "tool" | "tree" | "untitled";
 
 export interface Tab {
   id: string;

@@ -4,6 +4,7 @@
 //! so the server can drive the same run/check/weave/render code paths via
 //! library calls instead of shelling out.
 
+pub mod adopt;
 pub mod agent_cell_runner;
 pub mod agent_lineage;
 pub mod dap_install;

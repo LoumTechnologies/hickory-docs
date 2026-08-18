@@ -6,6 +6,7 @@ import type { FileNode, FilesResponse } from "../api/types";
 import {
   FolderTreePane,
   fileAction,
+  isLikelyBinaryPath,
   loadExpanded,
   saveExpanded,
   toggleExpanded,
@@ -32,6 +33,7 @@ const TREE: FileNode[] = [
   },
   { name: "paper.hick", path: "paper.hick", dir: false, doc_id: "d1" },
   { name: "readme.txt", path: "readme.txt", dir: false },
+  { name: "logo.png", path: "logo.png", dir: false },
 ];
 
 const RESPONSE: FilesResponse = { root: "/home/me/notebook", tree: TREE };
@@ -86,7 +88,7 @@ describe("rendering the folder", () => {
       (el) => el.textContent?.replace(/^[▾▸]/, ""),
     );
     // src is collapsed, so its children are not in the page yet.
-    expect(labels).toEqual(["src", "paper.hick", "readme.txt"]);
+    expect(labels).toEqual(["src", "paper.hick", "readme.txt", "logo.png"]);
   });
 
   it("expands a directory to its children, nested dirs collapsible in turn", async () => {
@@ -106,7 +108,8 @@ describe("rendering the folder", () => {
     render(<Harness openable={new Set(["src/main.rs"])} />);
     await screen.findByText("paper.hick");
     expect(document.querySelector('[data-tree-path="paper.hick"]')?.getAttribute("data-tree-kind")).toBe("doc");
-    expect(document.querySelector('[data-tree-path="readme.txt"]')?.getAttribute("data-tree-kind")).toBe("inert");
+    expect(document.querySelector('[data-tree-path="readme.txt"]')?.getAttribute("data-tree-kind")).toBe("file");
+    expect(document.querySelector('[data-tree-path="logo.png"]')?.getAttribute("data-tree-kind")).toBe("inert");
     // src is collapsed: its children have no rows to terminate on.
     expect(document.querySelector('[data-tree-path="src/main.rs"]')).toBeNull();
     fireEvent.click(screen.getByText(/src/));
@@ -121,17 +124,28 @@ describe("rendering the folder", () => {
 });
 
 describe("what clicking a file does", () => {
-  it("maps a document to its route, a generated file to a pane, the rest to inert", () => {
+  it("maps documents, generated files, plain text files, and binaries apart", () => {
     const openable = new Set(["src/gen/orders.py"]);
     expect(fileAction(TREE[1], openable)).toEqual({ kind: "doc", id: "d1" });
     expect(fileAction({ name: "orders.py", path: "src/gen/orders.py", dir: false }, openable)).toEqual({
       kind: "generated",
       path: "src/gen/orders.py",
     });
-    expect(fileAction(TREE[2], openable)).toEqual({ kind: "inert" });
+    // Not a document, not woven by an open document: still a text file in
+    // the folder, so it opens as a plain file rather than sitting inert.
+    expect(fileAction(TREE[2], openable)).toEqual({ kind: "file", path: "readme.txt" });
+    expect(fileAction(TREE[3], openable)).toEqual({ kind: "inert" });
   });
 
-  it("reports document and generated clicks, and renders inert files without a button", async () => {
+  it("judges binary-ness by extension, with no-extension and dotfiles assumed text", () => {
+    expect(isLikelyBinaryPath("assets/logo.png")).toBe(true);
+    expect(isLikelyBinaryPath("dist/app.WASM")).toBe(true);
+    expect(isLikelyBinaryPath("justfile")).toBe(false);
+    expect(isLikelyBinaryPath(".gitignore")).toBe(false);
+    expect(isLikelyBinaryPath("Cargo.lock")).toBe(false);
+  });
+
+  it("reports document, generated and plain-file clicks; binaries render without a button", async () => {
     const onOpen = vi.fn();
     render(<Harness onOpen={onOpen} openable={new Set(["src/main.rs"])} />);
     fireEvent.click(await screen.findByText("paper.hick"));
@@ -139,9 +153,11 @@ describe("what clicking a file does", () => {
     fireEvent.click(screen.getByText(/src/));
     fireEvent.click(screen.getByText("main.rs"));
     expect(onOpen).toHaveBeenLastCalledWith({ kind: "generated", path: "src/main.rs" });
-    // readme.txt is nothing this app can show: named, but not clickable.
-    expect(screen.getByText("readme.txt").tagName).not.toBe("BUTTON");
-    expect(onOpen).toHaveBeenCalledTimes(2);
+    fireEvent.click(screen.getByText("readme.txt"));
+    expect(onOpen).toHaveBeenLastCalledWith({ kind: "file", path: "readme.txt" });
+    // logo.png is bytes this app cannot show: named, but not clickable.
+    expect(screen.getByText("logo.png").tagName).not.toBe("BUTTON");
+    expect(onOpen).toHaveBeenCalledTimes(3);
   });
 });
 

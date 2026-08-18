@@ -151,6 +151,59 @@ export function openGeneratedTab(
   return openInLayout(opened, entry, opened.focus);
 }
 
+/** The pane holding a plain file's tab, when one does. Identity is the
+ * path — a plain file has no id, and the path is what the tab shows. */
+export function findFileTab(
+  layout: Layout,
+  path: string,
+): { pane: Pane; tab: Tab; index: number } | null {
+  for (const pane of panes(layout.root)) {
+    const index = pane.tabs.findIndex((t) => t.kind === "file" && t.target === path);
+    if (index >= 0) return { pane, tab: pane.tabs[index], index };
+  }
+  return null;
+}
+
+/**
+ * Open a plain file: activate its tab wherever it already is, or add a tab
+ * in the focused pane — the same "ensure open" a document gets, with no
+ * docId because no document owns it.
+ */
+export function openFileTab(layout: Layout, path: string): Layout {
+  const existing = findFileTab(layout, path);
+  if (existing) return activate(layout, existing.pane.id, existing.index);
+  const into = openablePane(layout);
+  const entry = makeTab("file", path, path.split("/").pop());
+  if (into) return openInLayout(layout, entry, into);
+  const grown = split(layout, layout.focus, "row");
+  return openInLayout(grown, entry, grown.focus);
+}
+
+/**
+ * A plain file was adopted into a document: its tab becomes a GENERATED tab
+ * owned by `docId`, in place — the same surgery adoptUntitledTab performs,
+ * for the same reason: the buffer's position among its neighbours must not
+ * move when the file underneath it gains an owner. The target changes from
+ * the tree's root-relative path to `outputPath`, the document-relative name
+ * the weave keys the output by, which is what generated panes fetch.
+ */
+export function adoptPlainFileTab(
+  layout: Layout,
+  path: string,
+  docId: string,
+  outputPath: string,
+): Layout {
+  const swap = (t: Tab): Tab =>
+    t.kind === "file" && t.target === path
+      ? { ...t, kind: "generated", target: outputPath, docId }
+      : t;
+  const apply = (node: Layout["root"]): Layout["root"] =>
+    node.type === "pane"
+      ? { ...node, tabs: node.tabs.map(swap) }
+      : { ...node, children: node.children.map(apply) };
+  return { ...layout, root: apply(layout.root) };
+}
+
 /** Open (or re-activate) the untitled buffer. One at a time: an untitled tab
  * that already exists is what "#/new" means until its first edit names it. */
 export function openUntitledTab(layout: Layout): Layout {

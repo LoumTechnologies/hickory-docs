@@ -22,10 +22,15 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api/client";
 import type { DocSummary, SearchHit } from "../api/types";
 import { ChatDock } from "../components/ChatDock";
+import { InsertMenu } from "../components/InsertMenu";
+import { PlainFilePane } from "../components/PlainFilePane";
 import { SearchPanel } from "../components/SearchPanel";
 import { ReferencesPanel } from "../components/ReferencesPanel";
 import { PromptPanel } from "../components/PromptPanel";
 import { resolveSearchHit, type SearchNavigation } from "../lib/searchNavigation";
+import { insertTarget, type MenuAction } from "../lib/menuBridge";
+import { activeEditor } from "../editor/activeEditor";
+import { insertElement } from "../editor/insertElement";
 import { loadRibbonStyle, type RibbonStyle } from "../lib/ribbonStyle";
 import { loadTabStyle, type TabStyle } from "../lib/tabStyle";
 import { loadChannelWidth } from "../lib/channelWidth";
@@ -35,20 +40,28 @@ import { flashTab } from "../lib/flashTab";
 import { nodeForAbsolutePath } from "../lib/openPath";
 import { ShellView, type ShellPort } from "../shell/ShellView";
 import { RibbonOverlay, type RibbonFile } from "../shell/Ribbons";
-import { FILES_CHANGED_EVENT, FolderTreePane, useFolderTrees } from "../shell/FolderTreePane";
+import {
+  FILES_CHANGED_EVENT,
+  FolderTreePane,
+  isLikelyBinaryPath,
+  useFolderTrees,
+} from "../shell/FolderTreePane";
 import { activate, panes as panesOf, tab as makeTab, treePane, withTree, type Layout } from "../shell/layout";
 import { regionsOf } from "../shell/layouts";
 import type { Region } from "../shell/layout";
 import { navigate, redirect, type Route } from "../router";
 import {
   activateDocTab,
+  adoptPlainFileTab,
   adoptUntitledTab,
   docIdsIn,
   findDocTab,
+  findFileTab,
   focusedDocId,
   initialWorkspace,
   isWorkspaceEmpty,
   openDocTab,
+  openFileTab,
   openGeneratedTab,
   openIntoDeclared,
   openUntitledTab,
@@ -80,6 +93,17 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   // so a hit in one of them can resolve to its route.
   const [searchOpen, setSearchOpen] = useState(false);
   const [folderDocs, setFolderDocs] = useState<DocSummary[]>([]);
+  // The Insert panel: the element a native-menu pick named (null when it was
+  // opened bare), and what was selected in the buffer at the moment it
+  // opened. The selection is captured HERE, at open time, because the panel
+  // takes the focus and CodeMirror's selection is no longer readable as
+  // "what the person meant" once anything else has it.
+  const [insertPanel, setInsertPanel] = useState<{ id: string | null; selected: string } | null>(
+    null,
+  );
+  // Why an insert could not happen. Rare — it needs a workspace with no
+  // editor in it at all — but silence would look like a broken menu.
+  const [insertNotice, setInsertNotice] = useState<string | null>(null);
   // The dock is part of the workspace, not a mode: it is always mounted and
   // remembers whether the log is expanded.
   const [chatCollapsed, setChatCollapsed] = useState(
@@ -119,6 +143,13 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     );
     setLayout((current) => openGeneratedTab(current, docId, path, regionsRef.current));
     if (already) flashTab("generated", path);
+  }, []);
+
+  /** Open a plain file — same "ensure open" a document gets, no owner. */
+  const openPlainFile = useCallback((path: string) => {
+    const already = findFileTab(layoutRef.current, path) !== null;
+    setLayout((current) => openFileTab(current, path));
+    if (already) flashTab("file", path);
   }, []);
 
   /**
@@ -358,24 +389,71 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     return list;
   }, [focused, openTargets, openGeneratedFor, reopenFocusedDocument]);
 
+  // ---- the Insert menu -----------------------------------------------------
+  //
+  // The vocabulary of the language, as a thing you pick. It writes into
+  // whichever document editor was focused last (editor/activeEditor.ts) —
+  // not the focused SESSION, because the untitled buffer has no session and
+  // is exactly where a first `<hick:exec>` most wants to be typed.
+  const openInsert = useCallback((id: string | null) => {
+    const view = activeEditor();
+    if (!view) {
+      setInsertNotice(
+        "There is no document open to insert into. Open one from the Files tree, or start a new one.",
+      );
+      return;
+    }
+    const { from, to } = view.state.selection.main;
+    setInsertPanel({ id, selected: view.state.sliceDoc(from, to) });
+  }, []);
+
+  const applyInsert = useCallback(
+    (element: Parameters<typeof insertElement>[1], values: Parameters<typeof insertElement>[2], body: string) => {
+      const view = activeEditor();
+      if (!view) {
+        setInsertNotice("The document this was going into was closed. Open it again and retry.");
+        return;
+      }
+      insertElement(view, element, values, body);
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (insertNotice === null) return;
+    const timer = window.setTimeout(() => setInsertNotice(null), 4000);
+    return () => window.clearTimeout(timer);
+  }, [insertNotice]);
+
   // ---- native menu: Save / Save As ---------------------------------------
   //
   // The desktop menu's Save and Save As arrive from App as one window event;
   // they act on the FOCUSED document's session, whichever that is.
   useEffect(() => {
     const onCommand = (event: Event) => {
+      const detail = (event as CustomEvent).detail as MenuAction;
+      // Insert first: it belongs to the focused BUFFER, and the untitled one
+      // has no session for the lookup below to find.
+      if (detail === "insert" || insertTarget(detail) !== null) {
+        openInsert(insertTarget(detail));
+        return;
+      }
       const session = registry.get(focusedIdRef.current);
       if (!session) return;
-      const detail = (event as CustomEvent).detail;
       if (detail === "save") session.menuSave();
       else if (detail === "save-as") session.menuSaveAs();
     };
     // The tree pane's reopen affordances, now that there is no toolbar:
     // File > Show Files in the native menu, and the explorer key everywhere.
     const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.shiftKey && e.key.toLowerCase() === "e") {
+      if (!(e.metaKey || e.ctrlKey)) return;
+      if (e.shiftKey && e.key.toLowerCase() === "e") {
         e.preventDefault();
         focusTreeRef.current();
+      } else if (!e.shiftKey && !e.altKey && e.key.toLowerCase() === "i") {
+        // The same key in the browser build, where there is no native menu.
+        e.preventDefault();
+        openInsert(null);
       }
     };
     const onFiles = () => focusTreeRef.current();
@@ -388,8 +466,13 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
         const node = nodeForAbsolutePath(files.tree, absolute);
         if (node?.doc_id) {
           navigate(`/docs/${node.doc_id}`);
+        } else if (node && !node.dir && !isLikelyBinaryPath(node.path)) {
+          // Any other text file opens as a plain-file pane, same as a
+          // click on its tree row would.
+          openPlainFile(node.path);
         } else {
-          // Not a document (or not indexed): the tree is the way to it.
+          // A binary, a directory, or nothing the walk saw: the tree is
+          // the way to it.
           focusTreeRef.current();
         }
       });
@@ -404,7 +487,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       window.removeEventListener("hickory-show-files", onFiles);
       window.removeEventListener("hickory-open-path", onOpenPath);
     };
-  }, [registry]);
+  }, [registry, openPlainFile, openInsert]);
 
   // ---- project search -----------------------------------------------------
   //
@@ -526,6 +609,29 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
               if (tab.kind === "generated" && tab.docId) {
                 return <GeneratedTabBody registry={registry} docId={tab.docId} path={tab.target} />;
               }
+              if (tab.kind === "file") {
+                // Keyed by tab: two panes showing the same path are two
+                // buffers, each saving whole and each hearing the other's
+                // save as an external change on the next refresh signal.
+                return (
+                  <PlainFilePane
+                    key={tab.id}
+                    path={tab.target}
+                    onAdopted={(adopted) => {
+                      // The file gained an owner: this tab becomes a
+                      // generated tab in place, and the owning document
+                      // opens beside it — the comparison adoption exists
+                      // for. The tree refreshes to show the new document.
+                      setLayout((current) =>
+                        adoptPlainFileTab(current, tab.target, adopted.doc_id, adopted.output_path),
+                      );
+                      ensureDocOpen(adopted.doc_id);
+                      navigate(`/docs/${adopted.doc_id}`);
+                      window.dispatchEvent(new Event(FILES_CHANGED_EVENT));
+                    }}
+                  />
+                );
+              }
               if (tab.kind === "untitled") {
                 return <UntitledTab tabId={tab.id} onCreated={onUntitledCreated} />;
               }
@@ -544,9 +650,11 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
                       if (action.kind === "doc") {
                         ensureDocOpen(action.id);
                         navigate(`/docs/${action.id}`);
-                      } else {
+                      } else if (action.kind === "generated") {
                         const owner = openableOutputs.get(action.path);
                         if (owner) openGeneratedFor(owner, action.path);
+                      } else {
+                        openPlainFile(action.path);
                       }
                     }}
                   />
@@ -591,6 +699,19 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
           />
         </div>
       </div>
+      {insertNotice && (
+        <div className="menu-notice" role="status">
+          {insertNotice}
+        </div>
+      )}
+      {insertPanel && (
+        <InsertMenu
+          initialId={insertPanel.id}
+          selectedText={insertPanel.selected}
+          onInsert={applyInsert}
+          onClose={() => setInsertPanel(null)}
+        />
+      )}
       {searchOpen && (
         <SearchPanel
           resolve={resolveHit}

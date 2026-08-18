@@ -34,18 +34,71 @@ describe("DocumentEditor (WYSIWYG over raw source)", () => {
       expect(content!.textContent).toContain('<hick:file path="a.py" language="python">'),
     );
     expect(content!.textContent).toContain("# Title");
-    // The exec cell got its panel widget below the block.
-    await waitFor(() => expect(container.querySelector(".cm-cell-panel")).toBeTruthy());
-    // The file block got its path chip.
+    // The exec cell got a rail icon, NOT a card in the text.
+    await waitFor(() => expect(container.querySelector(".cm-card-rail__icon")).toBeTruthy());
+    // The file block got its path chip, inline on the line it opens.
     expect(container.querySelector(".cm-file-chip")?.textContent).toContain("a.py");
     realtime.close();
   });
 
-  it("renders the cell panel (status + Run) through the widget portal", async () => {
+  // Protects docs/guarantees/authoring/the-gutters-never-skip-a-number.md
+  it("puts no unnumbered row in the document: every row is a line or a fold", async () => {
+    const realtime = new LocalRealtime();
+    // One of every widget that used to be a block widget.
+    const source =
+      '<hick:container name="shell" image="alpine:3.20" />\n' +
+      '<hick:file path="a.py" language="python">\nx = 1\n</hick:file>\n' +
+      '<hick:copy id="hdr">\nq\n</hick:copy>\n' +
+      '<hick:when test="!with-r">\nprose\n</hick:when>\n' +
+      '<hick:feature name="with-r" description="R section" />\n' +
+      '<hick:exec container="shell">\nls\n</hick:exec>\n';
+    const { container } = render(
+      <DocumentEditor
+        docId="dRows"
+        initialSource={source}
+        realtime={realtime}
+        execBlocks={[]}
+        runningCells={new Set()}
+        onRunCell={() => undefined}
+      />,
+    );
+    await waitFor(() => expect(container.querySelector(".cm-file-chip")).toBeTruthy());
+    // Every annotation sits INSIDE a `.cm-line` — a row CodeMirror numbers.
+    // A block widget is a child of `.cm-content` instead, which is exactly
+    // the row the gutter cannot label.
+    for (const selector of [
+      ".cm-file-chip",
+      ".cm-frag-chip",
+      ".cm-hick-banner-when",
+      ".cm-hick-banner-feature",
+      ".cm-env-inline",
+    ]) {
+      const el = container.querySelector(selector);
+      expect(el, `${selector} is rendered`).toBeTruthy();
+      expect(el!.closest(".cm-line"), `${selector} sits on a numbered line`).toBeTruthy();
+    }
+    // Every screen row is either a document line or a rendered block standing
+    // in for a run of lines — a fold, which the gutter has always been
+    // allowed to step over. Nothing else may occupy a row.
+    const rows = Array.from(container.querySelectorAll(".cm-content > *"));
+    expect(rows.length).toBeGreaterThan(0);
+    for (const row of rows) {
+      const kind = row.classList.contains("cm-line")
+        ? "line"
+        : row.classList.contains("cm-rendered")
+          ? "fold"
+          : row.className;
+      expect(kind, "row is a line or a rendered fold").not.toBe(row.className);
+    }
+    realtime.close();
+  });
+
+  // Protects docs/guarantees/authoring/a-literate-file-opens-rendered.md
+  it("renders a cell on open, and the rail icon swaps it for the source", async () => {
     const realtime = new LocalRealtime();
     const onRun = vi.fn();
     const source = '<hick:exec container="shell" image="debian:12">\nhick --version\n</hick:exec>\n';
-    render(
+    const { container } = render(
       <DocumentEditor
         docId="d1"
         initialSource={source}
@@ -55,10 +108,60 @@ describe("DocumentEditor (WYSIWYG over raw source)", () => {
         onRunCell={onRun}
       />,
     );
+    // Reader-friendly on open: the result is on screen without being asked
+    // for, and the command it ran is shown in place of the tags.
     await waitFor(() => expect(screen.getByRole("button", { name: "Run" })).toBeTruthy());
+    expect(screen.getByTestId("cell-command").textContent).toContain("$ hick --version");
     expect(screen.getByText("ok")).toBeTruthy();
+    expect(container.querySelector(".cm-rendered-exec")).toBeTruthy();
+    // The tags are folded away, not deleted: the document still holds them.
+    const view = (window as unknown as { __hickoryView?: EditorViewType }).__hickoryView!;
+    expect(view.state.doc.toString()).toBe(source);
+
     screen.getByRole("button", { name: "Run" }).click();
     expect(onRun).toHaveBeenCalledWith("cli-version");
+
+    // The rail icon is the way to the source, and says so.
+    const icon = container.querySelector<HTMLButtonElement>(".cm-card-rail__exec")!;
+    expect(icon.getAttribute("aria-pressed")).toBe("true");
+    expect(icon.getAttribute("aria-label")).toContain("click for the source");
+    icon.click();
+    await waitFor(() => expect(container.querySelector(".cm-rendered-exec")).toBeNull());
+    expect(container.querySelector(".cm-content")!.textContent).toContain(
+      '<hick:exec container="shell" image="debian:12">',
+    );
+
+    // And back again.
+    container.querySelector<HTMLButtonElement>(".cm-card-rail__exec")!.click();
+    await waitFor(() => expect(container.querySelector(".cm-rendered-exec")).toBeTruthy());
+    realtime.close();
+  });
+
+  it("keeps a block you are still typing as source", async () => {
+    // Render-on-open is for reading a file, not for fighting the caret: a
+    // cell written after the document opened stays as text.
+    const realtime = new LocalRealtime();
+    const { container } = render(
+      <DocumentEditor
+        docId="dNew"
+        initialSource={"# Notes\n"}
+        realtime={realtime}
+        execBlocks={[]}
+        runningCells={new Set()}
+        onRunCell={() => undefined}
+      />,
+    );
+    await waitFor(() => expect(container.querySelector(".cm-content")).toBeTruthy());
+    const view = (window as unknown as { __hickoryView?: EditorViewType }).__hickoryView!;
+    view.dispatch({
+      changes: {
+        from: view.state.doc.length,
+        insert: '<hick:exec container="a">\nls\n</hick:exec>\n',
+      },
+      userEvent: "input.type",
+    });
+    await waitFor(() => expect(container.querySelector(".cm-card-rail__exec")).toBeTruthy());
+    expect(container.querySelector(".cm-rendered-exec")).toBeNull();
     realtime.close();
   });
 
@@ -124,6 +227,50 @@ describe("DocumentEditor (WYSIWYG over raw source)", () => {
     expect(container.querySelector(".cm-content")!.textContent).toContain(
       '<hick:copy id="hdr" class="analysis-py">',
     );
+    realtime.close();
+  });
+
+  // Protects docs/guarantees/authoring/a-fence-becomes-a-cell-that-runs.md
+  it("turns a prose fence into an exec cell, replacing exactly the fence", async () => {
+    const realtime = new LocalRealtime();
+    const source =
+      '<hick:container name="py" image="python:3.12" />\n\n' +
+      "Run this:\n\n```python\nprint(1)\n```\n\ndone\n";
+    const { container } = render(
+      <DocumentEditor
+        docId="dFence"
+        initialSource={source}
+        realtime={realtime}
+        execBlocks={[]}
+        runningCells={new Set()}
+        onRunCell={() => undefined}
+      />,
+    );
+    // The fence gets its own rail icon.
+    await waitFor(() =>
+      expect(container.querySelector(".cm-card-rail__fence")).toBeTruthy(),
+    );
+    container.querySelector<HTMLButtonElement>(".cm-card-rail__fence")!.click();
+
+    // The container it will run in was taken from the document.
+    await waitFor(() => expect(screen.getByRole("button", { name: "Convert" })).toBeTruthy());
+    expect((screen.getByLabelText(/Container/) as HTMLSelectElement).value).toBe("py");
+    screen.getByRole("button", { name: "Convert" }).click();
+
+    const view = (window as unknown as { __hickoryView?: EditorViewType }).__hickoryView!;
+    await waitFor(() => expect(view.state.doc.toString()).toContain("<hick:exec"));
+    const text = view.state.doc.toString();
+    // The fence is gone, its program is intact, and the prose around it is
+    // byte-for-byte where it was.
+    expect(text).not.toContain("```");
+    expect(text).toContain("python3 - <<'EOF'\nprint(1)\nEOF");
+    expect(text.startsWith('<hick:container name="py" image="python:3.12" />\n\nRun this:\n\n')).toBe(
+      true,
+    );
+    expect(text.endsWith("\n\ndone\n")).toBe(true);
+    // And the new cell has taken the fence's place on the rail.
+    await waitFor(() => expect(container.querySelector(".cm-card-rail__exec")).toBeTruthy());
+    expect(container.querySelector(".cm-card-rail__fence")).toBeNull();
     realtime.close();
   });
 

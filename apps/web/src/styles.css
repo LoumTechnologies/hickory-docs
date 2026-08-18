@@ -818,7 +818,8 @@ textarea:focus {
   color: var(--fg-muted);
   font-style: italic;
   opacity: 0.8;
-  padding: 0.35rem 0;
+  margin-left: 0.6rem;
+  user-select: none;
 }
 
 /* The empty-buffer placeholder (the untitled document before it is a file). */
@@ -864,15 +865,14 @@ textarea:focus {
 }
 
 .cm-file-chip {
-  display: flex;
+  display: inline-flex;
   align-items: center;
   gap: 0.5rem;
-  padding: 0.3rem 0.8rem;
+  padding: 0.05rem 0.5rem;
   background: var(--neutral-bg);
   border: 1px solid var(--border);
-  border-bottom: none;
-  border-radius: 8px 8px 0 0;
-  font-size: 0.78rem;
+  border-radius: 999px;
+  font-size: 0.72rem;
 }
 .cm-file-chip-path {
   font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
@@ -928,15 +928,14 @@ textarea:focus {
 }
 
 .cm-frag-chip {
-  display: flex;
+  display: inline-flex;
   align-items: baseline;
-  gap: 0.5rem;
-  padding: 0.28rem 0.8rem;
+  gap: 0.4rem;
+  padding: 0.02rem 0.5rem;
   background: var(--neutral-bg);
   border: 1px solid var(--border);
-  border-bottom: none;
-  border-radius: 8px 8px 0 0;
-  font-size: 0.75rem;
+  border-radius: 999px;
+  font-size: 0.7rem;
 }
 .cm-frag-chip-kind {
   text-transform: uppercase;
@@ -956,7 +955,7 @@ textarea:focus {
   color: var(--fg-muted);
   font-style: italic;
 }
-.cm-frag-chip-cut { border-style: dashed; border-bottom: none; }
+.cm-frag-chip-cut { border-style: dashed; }
 
 /* Paste: inline selector chip; clicking selects the referenced fragment. */
 .cm-paste-chip {
@@ -975,15 +974,15 @@ textarea:focus {
 
 /* Conditional / declarative banners (hick:when, hick:feature, session turns). */
 .cm-hick-banner {
-  display: flex;
+  display: inline-flex;
   align-items: baseline;
-  gap: 0.55rem;
-  padding: 0.24rem 0.7rem;
+  gap: 0.4rem;
+  padding: 0.02rem 0.5rem;
   border: 1px solid var(--border);
   border-left: 3px solid var(--stale);
-  border-radius: 6px;
+  border-radius: 999px;
   background: color-mix(in srgb, var(--stale) 6%, var(--bg-raised));
-  font-size: 0.75rem;
+  font-size: 0.7rem;
 }
 .cm-hick-banner-label {
   text-transform: uppercase;
@@ -1075,7 +1074,6 @@ textarea:focus {
 }
 
 /* Cell panel widget (run/status/transcript below each exec cell). */
-.cm-cell-panel { padding: 0; }
 .cell-panel {
   border: 1px solid var(--border);
   border-top: none;
@@ -1151,7 +1149,6 @@ textarea:focus {
  * The picture reads as a figure — quiet frame, centred, wide enough to see —
  * and the line under it is the part that carries the weight: a diagram nothing
  * checks must not look like one that is proved. */
-.cm-diagram { padding: 0; }
 .diagram-panel {
   margin: 0.75rem 0 0.25rem;
   border: 1px solid var(--border);
@@ -1531,6 +1528,20 @@ textarea:focus {
 }
 .btn-sm { padding: 0.1rem 0.5rem; font-size: 0.72rem; }
 
+/* ---- plain-file pane ----
+   The output pane's shape without the ribbon rail: a plain file has no
+   provenance to draw, so its bordered box holds only the CodeMirror host.
+   Its slim toolbar (Make literate + the autosave readout) reuses
+   .doc-tab-toolbar, so plain files and documents wear the same chrome. */
+.plain-file-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  min-width: 0;
+  min-height: 0;
+  flex: 1;
+}
+
 /* A ribbon that stops at the file node: content flowing into a file that is
    not the one open on the right. Quieter than a full-run ribbon. */
 .ribbon-stub { opacity: 0.3; }
@@ -1576,10 +1587,23 @@ textarea:focus {
 
 
 /* Widget spacing CM can measure: a transparent wrapper instead of margins. */
-.cm-widget-spacer { padding-top: 0.5rem; }
+/* Every annotation widget is inline and rides the end of the line it
+   describes. It must never change the line's height — that would move the
+   text a gutter number is level with — so it sits on the baseline at a
+   smaller size and is allowed to overflow its row. */
+.cm-inline-annotation {
+  display: inline-block;
+  margin-left: 0.6rem;
+  vertical-align: baseline;
+  line-height: 1;
+  white-space: nowrap;
+  /* Chips are chrome about the line, not part of its text: a click belongs
+     to the button inside, and a drag-select of the line skips them. */
+  user-select: none;
+}
 /* flow-root: children's margins stay inside the widget box (measured). */
 /* flow-root: children's margins stay inside the widget box (measured). */
-.cm-cell-panel, .cm-env-card { display: flow-root; }
+.cm-env-card { display: flow-root; }
 
 /* Autosave indicator: documents persist themselves through the CRDT room, so
    this reports state rather than offering a button. */
@@ -1590,6 +1614,14 @@ textarea:focus {
   transition: color 0.2s ease;
 }
 .save-state-saved { color: var(--ok); }
+
+/* The refactor baseline's verdict, beside the Run/Verify buttons. Color is
+   the whole message: ok-green while every woven byte matches the pinned
+   baseline, fail-red the moment one would move. */
+.refactor-badge { font-size: 0.75rem; padding: 0 0.3rem; white-space: nowrap; }
+.refactor-badge--clean { color: var(--ok); }
+.refactor-badge--dirty { color: var(--fail); }
+.refactor-badge__error { font-size: 0.72rem; }
 
 /* ---- LSP: diagnostics, hover, references ----
    Diagnostics are background-only (a painted squiggle), never a border or a
@@ -3657,6 +3689,233 @@ textarea:focus {
   white-space: pre-wrap;
 }
 
+/* the Insert menu -----------------------------------------------------------
+   The language vocabulary as a two-pane picker: elements on the left,
+   the chosen element's attributes and a live preview of the bytes on the
+   right. Modal on purpose — it takes the caret away from the buffer and
+   gives it back on insert, so a stray click behind it would be a click into
+   text you were mid-sentence in. */
+
+.insert-menu-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: 3rem 1rem 1rem;
+  background: rgb(0 0 0 / 0.32);
+}
+.insert-menu {
+  display: grid;
+  grid-template-columns: minmax(15rem, 22rem) minmax(20rem, 30rem);
+  /* The row is explicitly bounded: an auto row sizes to its content and
+     overflows a max-height container, which clips the panel instead of
+     letting either pane scroll. */
+  grid-template-rows: minmax(0, 1fr);
+  width: min(56rem, 100%);
+  max-height: min(42rem, calc(100vh - 5rem));
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-raised);
+  box-shadow: 0 12px 40px rgb(0 0 0 / 0.3);
+}
+/* Narrow windows drop to one column: the form is what the person came for,
+   so it goes first and the list scrolls under it. */
+@media (max-width: 52rem) {
+  .insert-menu {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(0, 14rem) minmax(0, 1fr);
+  }
+}
+
+.insert-menu__list-pane {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-right: 1px solid var(--border);
+}
+@media (max-width: 52rem) {
+  .insert-menu__list-pane {
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+}
+.insert-menu__search {
+  padding: 0.6rem 0.75rem;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  outline: none;
+}
+.insert-menu__list {
+  padding: 0.25rem;
+  overflow: auto;
+}
+.insert-menu__empty {
+  margin: 0;
+  padding: 0.75rem;
+  color: var(--fg-muted);
+  font-size: 0.78rem;
+}
+.insert-menu__group-title {
+  margin: 0.5rem 0 0.2rem;
+  padding: 0 0.5rem;
+  color: var(--fg-muted);
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.insert-menu__item {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0 0.5rem;
+  width: 100%;
+  padding: 0.35rem 0.5rem;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.insert-menu__item:hover { background: color-mix(in srgb, var(--fg) 6%, transparent); }
+.insert-menu__item.on { background: color-mix(in srgb, var(--accent-2) 16%, transparent); }
+.insert-menu__item-title { font-size: 0.82rem; }
+.insert-menu__item-tag { color: var(--fg-muted); font-size: 0.7rem; }
+.insert-menu__item-summary {
+  grid-column: 1 / -1;
+  color: var(--fg-muted);
+  font-size: 0.72rem;
+}
+
+/* Only the attributes scroll; the preview and the Insert button below them
+   stay put, so an element with seven attributes cannot push the button a
+   person is reaching for off the bottom of the panel. */
+.insert-menu__form-pane {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  padding: 0.75rem 0.9rem 0.9rem;
+}
+.insert-menu__form-scroll {
+  min-height: 0;
+  overflow: auto;
+}
+.insert-menu__header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+.insert-menu__title { margin: 0; font-size: 1rem; }
+.insert-menu__tag {
+  color: var(--fg-muted);
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 0.74rem;
+}
+.insert-menu__summary {
+  margin: 0.2rem 0 0;
+  color: var(--fg-muted);
+  font-size: 0.78rem;
+}
+.insert-menu__belongs {
+  margin: 0.5rem 0 0;
+  padding: 0.35rem 0.5rem;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--warn) 12%, transparent);
+  color: var(--fg);
+  font-size: 0.74rem;
+}
+.insert-menu__fields {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  margin-top: 0.75rem;
+}
+.insert-menu__label {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  font-size: 0.78rem;
+}
+.insert-menu__attr { color: var(--fg-muted); font-size: 0.7rem; }
+.insert-menu__required {
+  color: var(--warn);
+  font-size: 0.66rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.insert-menu__input {
+  width: 100%;
+  margin-top: 0.2rem;
+  padding: 0.35rem 0.45rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+  font-size: 0.82rem;
+}
+.insert-menu__input:focus { outline: 1px solid var(--accent); }
+.insert-menu__input.bad { border-color: var(--danger); }
+.insert-menu__body {
+  resize: vertical;
+  white-space: pre;
+  font-size: 0.76rem;
+}
+.insert-menu__hint {
+  margin: 0.2rem 0 0;
+  color: var(--fg-muted);
+  font-size: 0.7rem;
+}
+.insert-menu__problem {
+  margin: 0.2rem 0 0;
+  color: var(--danger);
+  font-size: 0.72rem;
+}
+
+.insert-menu__preview {
+  margin-top: 0.9rem;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-sunken);
+}
+.insert-menu__preview-title {
+  margin: 0 0 0.3rem;
+  color: var(--fg-muted);
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.insert-menu__preview-text {
+  margin: 0;
+  overflow-x: auto;
+  color: var(--fg);
+  font-size: 0.74rem;
+  white-space: pre;
+}
+.insert-menu__actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  margin-top: 0.9rem;
+}
+.insert-menu__shortcut {
+  margin-right: auto;
+  color: var(--fg-muted);
+  font-size: 0.7rem;
+}
+
 /* ribbon terminals ----------------------------------------------------------
    The redesign of where lineage ribbons END when their file has no visible
    text: on the file's tab, or on an "open here" port button the shell lays
@@ -3886,6 +4145,176 @@ textarea:focus {
   font-size: 0.9em;
   font-style: italic;
   white-space: pre;
+}
+
+/* rendered blocks ------------------------------------------------------------
+   A cell or a diagram showing its RESULT in place of its source. This is a
+   replacement decoration — it stands in for real document lines, the way a
+   collapsed region does — so it may be as tall as it likes: the rows it
+   occupies are rows it took away. The border marks it as standing in for
+   text, so it never reads as part of the prose. */
+.cm-rendered {
+  margin: 0.35rem 0;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent-2);
+  border-radius: 6px;
+  background: var(--bg-raised);
+  overflow: hidden;
+}
+.cm-rendered:focus-within { border-left-color: var(--accent); }
+
+/* The commands, as a shell would echo them. The document holds the bare
+   command; the `$ ` is decoration standing in for the folded source. */
+.cell-command {
+  margin: 0;
+  padding: 0.4rem 0.6rem 0.3rem;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.78rem;
+  white-space: pre-wrap;
+  color: var(--fg);
+}
+.cell-command-prompt {
+  color: var(--fg-muted);
+  user-select: none;
+}
+.cell-source-btn { margin-left: 0.25rem; }
+
+.rendered-diagram { position: relative; }
+/* Quiet until wanted: a diagram is there to be looked at, and a control
+   sitting on top of it competes with the picture. */
+.rendered-diagram__source {
+  position: absolute;
+  top: 0.3rem;
+  right: 0.4rem;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+.rendered-diagram:hover .rendered-diagram__source,
+.rendered-diagram__source:focus-visible { opacity: 1; }
+
+/* the action rail ----------------------------------------------------------
+   One icon per card, down the outer edge of the editor, positioned by
+   editor/CardRail.tsx against the same height map the number rail reads.
+
+   This exists so the DOCUMENT contains no cards. A cell's run strip and a
+   rendered diagram used to be block widgets: screen rows with no document
+   line behind them, which made both gutters skip a number in the middle of a
+   monospace document. Out here they cost the text nothing, and the icon
+   doubles as the cell's status light. */
+.cm-card-rail {
+  position: relative;
+  flex: 0 0 auto;
+  width: 1.5rem;
+  overflow: hidden;
+  border-left: 1px solid var(--border);
+  background: var(--bg-sunken);
+}
+.cm-card-rail__icon {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--fg-muted);
+  font-size: 0.72rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.cm-card-rail__icon:hover {
+  border-color: var(--border);
+  background: var(--bg-raised);
+  color: var(--fg);
+}
+.cm-card-rail__icon:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 1px;
+}
+.cm-card-rail__icon.on {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: var(--fg);
+}
+/* The icon is the only place a cell's last run is visible now, so its state
+   is a colour as well as a glyph. */
+.cm-card-rail__icon.is-ok { color: var(--ok); }
+.cm-card-rail__icon.is-failed { color: var(--fail); }
+.cm-card-rail__icon.is-running { color: var(--accent); }
+.cm-card-rail__icon.is-unknown { color: var(--stale); }
+.cm-card-rail__fence { color: var(--accent-2); }
+.cm-card-rail__diagram { color: var(--accent-2); }
+
+/* The popover a rail icon opens: beside the icon, over the text, never in it.
+   Capped and scrolled internally so a long transcript cannot push its own
+   buttons off the screen. */
+.cm-card-popover {
+  position: absolute;
+  right: 2rem;
+  z-index: 30;
+  width: min(30rem, calc(100% - 4rem));
+  max-height: 20rem;
+  overflow: auto;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-raised);
+  box-shadow: 0 8px 28px rgb(0 0 0 / 0.32);
+}
+.cm-card-popover__close {
+  position: absolute;
+  top: 0.15rem;
+  right: 0.3rem;
+  border: 0;
+  background: transparent;
+  color: var(--fg-muted);
+  font-size: 1rem;
+  line-height: 1;
+  cursor: pointer;
+}
+.cm-card-popover__close:hover { color: var(--fg); }
+/* The buttons stay put while the preview scrolls under them — the same rule
+   the Insert menu follows, and for the same reason: a long preview must not
+   push the control a person is reaching for off the bottom. */
+.cm-card-popover .insert-menu__actions {
+  position: sticky;
+  bottom: -0.5rem;
+  margin-bottom: -0.5rem;
+  padding: 0.5rem 0 0.4rem;
+  background: var(--bg-raised);
+}
+
+/* The fence-to-cell panel, inside that popover. */
+.fence-convert__header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+  padding-right: 1rem;
+}
+.fence-convert__title { margin: 0; font-size: 0.9rem; }
+.fence-convert__lang { color: var(--fg-muted); font-size: 0.72rem; }
+.fence-convert__how {
+  margin: 0.25rem 0 0.6rem;
+  color: var(--fg-muted);
+  font-size: 0.74rem;
+}
+.fence-convert__label {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  font-size: 0.78rem;
+}
+.fence-convert__note {
+  margin: 0.5rem 0 0;
+  padding: 0.35rem 0.5rem;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--warn) 12%, transparent);
+  color: var(--fg);
+  font-size: 0.72rem;
 }
 
 /* dual gutters and brace mode */

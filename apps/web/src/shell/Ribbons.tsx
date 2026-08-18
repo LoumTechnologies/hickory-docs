@@ -321,16 +321,22 @@ function paneEdges(view: EditorView): {
 } {
   const scroller = view.scrollDOM.getBoundingClientRect();
   const content = view.contentDOM.getBoundingClientRect();
-  const rail = view.dom
-    .closest(".with-right-rail")
-    ?.querySelector(":scope > .cm-right-rail");
-  const railRect = rail instanceof HTMLElement ? rail.getBoundingClientRect() : null;
-  const right = railRect ? railRect.right : scroller.right;
+  const wrapper = view.dom.closest(".with-right-rail");
+  // A pane can carry TWO rails on its right: the line numbers, and outside
+  // them the action rail of card icons. A ribbon must reach the pane's real
+  // outer edge — stopping at the numbers would run it under the icon column,
+  // which paints a background over it.
+  const outer = [".cm-right-rail", ".cm-card-rail"]
+    .map((selector) => wrapper?.querySelector(`:scope > ${selector}`))
+    .filter((el): el is HTMLElement => el instanceof HTMLElement)
+    .reduce((edge, el) => Math.max(edge, el.getBoundingClientRect().right), scroller.right);
   return {
     left: scroller.left,
-    right,
+    right: outer,
     leftRailW: Math.max(0, content.left - scroller.left),
-    rightRailW: railRect ? Math.max(0, railRect.width) : 0,
+    // Everything past the text is rail, so the horn wraps both of them and
+    // the numbers stay inside the brace exactly as before.
+    rightRailW: Math.max(0, outer - scroller.right),
   };
 }
 

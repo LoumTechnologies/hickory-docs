@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { EditorState, Transaction } from "@codemirror/state";
 import { EditorView, keymap, placeholder } from "@codemirror/view";
@@ -13,14 +13,7 @@ import * as Y from "yjs";
 import { Awareness } from "y-protocols/awareness";
 import { yCollab } from "y-codemirror.next";
 import type { Extension } from "@codemirror/state";
-import {
-  CellRegistry,
-  DiagramRegistry,
-  EnvRegistry,
-  setVerifiedExpects,
-  structureOf,
-  wysiwyg,
-} from "./wysiwyg";
+import { EnvRegistry, setVerifiedExpects, structureOf, wysiwyg } from "./wysiwyg";
 import {
   diagnosticRanges,
   positionToOffset,
@@ -28,12 +21,27 @@ import {
 } from "../lsp/cmLsp";
 import type { LspDiagnostic } from "../lsp/client";
 import { hickoryFolding } from "./folding";
-import type { CellSlot, EnvSlot, DiagramSlot } from "./wysiwyg";
-import { execBlocksOf, expectRangeOf } from "./hickDoc";
+import { forgetEditor, markActiveEditor } from "./activeEditor";
+import type { EnvSlot } from "./wysiwyg";
+import { containerNamesOf, execBlocksOf, expectRangeOf, proseFences } from "./hickDoc";
 import { lineHighlightField } from "./lineHighlight";
 import { RightRail } from "./RightRail";
+import { CardRail, type CardState } from "./CardRail";
+import { cardsOf, type DocCard } from "./cards";
+import {
+  RenderedRegistry,
+  isRendered,
+  renderBlock,
+  renderableBlocks,
+  renderedBlocks,
+  setRenderedBlocks,
+  showBlockSource,
+  type RenderedSlot,
+} from "./rendered";
+import { popoverTop } from "../lib/cardRail";
 import { DiagramPanel } from "../components/DiagramPanel";
 import { CellPanel } from "../components/CellPanel";
+import { FenceConvert } from "../components/FenceConvert";
 import { EnvCard } from "../components/EnvCard";
 import { api } from "../api/client";
 import type { Realtime } from "../api/realtime";
@@ -62,6 +70,22 @@ export interface DocumentEditorProps {
   lspDiagnostics?: LspDiagnostic[];
   /** Dim hint shown while the buffer is empty (the untitled document). */
   placeholderText?: string;
+}
+
+/**
+ * The popover's height cap, matching `max-height` on `.cm-card-popover`.
+ *
+ * Used only as the first guess for where the popover opens; a layout effect
+ * corrects it against the real height before paint. Content past this scrolls
+ * inside the popover rather than growing it, so a streaming transcript can
+ * never push its own Run button off the screen.
+ */
+const POPOVER_HEIGHT = 320;
+
+/** Whether two card lists would draw the same rail. */
+export function sameCards(a: readonly DocCard[], b: readonly DocCard[]): boolean {
+  if (a.length !== b.length) return false;
+  return a.every((card, i) => card.key === b[i].key && card.at === b[i].at);
 }
 
 /** Overlap length of two [from, to) spans. */
@@ -94,8 +118,12 @@ export function matchExecBlock(
  * The Document view: ONE CodeMirror instance over the raw .hick source with
  * Typora-style decorations (see editor/wysiwyg.ts) and collaborative editing
  * via Yjs — the user always edits real source; styling never replaces text.
- * Exec-cell panels are React components rendered into CM block widgets
- * through portals.
+ *
+ * Nothing this renders adds a row to the document. Annotations are inline
+ * widgets on the line they describe, and the UI too tall for a line — a
+ * cell's run strip, a rendered diagram, the fence converter — opens from the
+ * action rail beside the editor, so the left gutter's numbers and the right
+ * rail's never skip. See editor/CardRail.tsx.
  */
 export function DocumentEditor({
   docId,
@@ -121,34 +149,38 @@ export function DocumentEditor({
   // changed.
   const onDebugFileRef = useRef(onDebugFile);
   onDebugFileRef.current = onDebugFile;
-  const registry = useMemo(() => new CellRegistry(), []);
   const envRegistry = useMemo(() => new EnvRegistry(), []);
-  const diagramRegistry = useMemo(() => new DiagramRegistry(), []);
-  const [slots, setSlots] = useState<CellSlot[]>([]);
   const [envSlots, setEnvSlots] = useState<EnvSlot[]>([]);
-  const [diagramSlots, setDiagramSlots] = useState<DiagramSlot[]>([]);
   const [executorInfo, setExecutorInfo] = useState<ExecutorInfo | null>(null);
+  // The action rail's contents, recomputed whenever an edit changes them.
+  // Held as state rather than derived per render because the editor
+  // deliberately does not re-render on every keystroke.
+  const [cards, setCards] = useState<DocCard[]>([]);
+  // Which card's popover is open, and the rail-relative top of the icon that
+  // opened it.
+  const [open, setOpen] = useState<{ card: DocCard; iconTop: number } | null>(null);
+  const popoverRef = useRef<HTMLDivElement | null>(null);
+  // Blocks currently showing their result instead of their source.
+  const renderedRegistry = useMemo(() => new RenderedRegistry(), []);
+  const [renderedSlots, setRenderedSlots] = useState<RenderedSlot[]>([]);
 
-  useEffect(
-    () => registry.subscribe(() => setSlots(registry.list())),
-    [registry],
-  );
   useEffect(
     () => envRegistry.subscribe(() => setEnvSlots(envRegistry.list())),
     [envRegistry],
   );
   useEffect(
-    () =>
-      diagramRegistry.subscribe(() => setDiagramSlots(diagramRegistry.list())),
-    [diagramRegistry],
+    () => renderedRegistry.subscribe(() => setRenderedSlots(renderedRegistry.list())),
+    [renderedRegistry],
   );
 
-  // Widget DOM is filled by React portals AFTER CodeMirror measures the
-  // (initially empty) slot elements, and panel content keeps changing size
-  // (transcripts stream in, replay toggles). CM caches per-line heights, so
-  // without a re-measure every vertical cursor motion works from stale
-  // geometry — the classic "ArrowUp jumps half a screen" bug. Observe every
-  // slot and ask CM to re-measure whenever one resizes.
+  // The environment chip is filled by a React portal AFTER CodeMirror
+  // measured its (initially empty) element, and its text can change width.
+  // CM caches per-line geometry, so ask it to re-measure whenever one
+  // resizes — the classic "ArrowUp jumps half a screen" bug otherwise.
+  //
+  // The cell panels and diagrams that used to be observed here are gone from
+  // the document entirely; they open on the rail, outside the text, where
+  // their height cannot move a line at all.
   useEffect(() => {
     if (typeof ResizeObserver === "undefined") return;
     let last = new Map<Element, number>();
@@ -172,16 +204,17 @@ export function DocumentEditor({
         viewRef.current?.requestMeasure();
       });
     });
-    for (const slot of slots) observer.observe(slot.el);
     for (const slot of envSlots) observer.observe(slot.el);
-    // A diagram resizes twice: once when the panel mounts and again when the
-    // engine finishes drawing. Both change the height CM measured.
-    for (const slot of diagramSlots) observer.observe(slot.el);
+    // A rendered block is a replacement for real lines, so its height IS the
+    // document's height there. A diagram settles after the engine draws and a
+    // transcript grows while it streams; both must re-measure or every
+    // vertical cursor motion below works from stale geometry.
+    for (const slot of renderedSlots) observer.observe(slot.el);
     return () => {
       observer.disconnect();
       last = new Map();
     };
-  }, [slots, envSlots, diagramSlots]);
+  }, [envSlots, renderedSlots]);
   useEffect(() => {
     api.executor().then(setExecutorInfo, () => setExecutorInfo(null));
   }, []);
@@ -217,6 +250,26 @@ export function DocumentEditor({
       });
     }
 
+    // Render-by-default happens ONCE per open document: a file is opened to
+    // be read, so its cells and diagrams show their results. It is not
+    // re-applied afterwards, because a block you just typed turning into a
+    // picture under the caret is the opposite of helpful.
+    let seeded = false;
+    const seedRendered = (target: EditorView) => {
+      if (seeded || target.state.doc.length === 0) return;
+      seeded = true;
+      const blocks = renderableBlocks(structureOf(target.state));
+      if (blocks.length === 0) return;
+      // Out of the update that triggered it: dispatching from inside an
+      // updateListener re-enters CodeMirror mid-update.
+      queueMicrotask(() => {
+        if (!target.dom.isConnected) return;
+        target.dispatch({
+          effects: setRenderedBlocks.of(blocks.map((b) => b.from)),
+        });
+      });
+    };
+
     const view = new EditorView({
       parent: host,
       state: EditorState.create({
@@ -248,14 +301,37 @@ export function DocumentEditor({
           keymap.of([...searchKeymap, ...defaultKeymap, ...historyKeymap, indentWithTab]),
           // The hovered-ribbon line tint, shared with the right rail.
           lineHighlightField,
-          wysiwyg(registry, envRegistry, diagramRegistry, (path) => onDebugFileRef.current?.(path)),
+          wysiwyg(envRegistry, (path) => onDebugFileRef.current?.(path)),
+          renderedBlocks(renderedRegistry),
           hickoryFolding(),
           yCollab(ytext, awareness),
           ...(placeholderText ? [placeholder(placeholderText)] : []),
           ...(lspExtensions ?? []),
+          // Which buffer the Insert menu writes into. Recorded on focus
+          // rather than read at insert time: opening the panel takes the
+          // focus away from every editor on the page.
+          EditorView.focusChangeEffect.of((_state, focusing) => {
+            const live = viewRef.current;
+            if (focusing && live) markActiveEditor(live);
+            return null;
+          }),
           EditorView.lineWrapping,
           EditorView.updateListener.of((u) => {
-            if (u.docChanged) onChange?.(u.state.doc.toString());
+            if (!u.docChanged) return;
+            onChange?.(u.state.doc.toString());
+            // The rail follows the text. Replaced only when the list
+            // actually differs, so typing inside a cell does not re-render
+            // the rail (and close nothing) on every keystroke.
+            setCards((previous) => {
+              const next = cardsOf(structureOf(u.state), {
+                text: u.state.doc.toString(),
+              });
+              return sameCards(previous, next) ? previous : next;
+            });
+            // The room's first sync arrives as an ordinary document change,
+            // so this — not construction — is usually where a collaborative
+            // document first has anything to render.
+            seedRendered(u.view);
           }),
         ],
       }),
@@ -271,22 +347,45 @@ export function DocumentEditor({
       (window as unknown as { __hickoryView?: EditorView }).__hickoryView =
         view;
     }
-    setSlots(registry.list());
     setEnvSlots(envRegistry.list());
+    // The rail's first fill. The room's initial sync arrives as an ordinary
+    // document change, so the updateListener keeps it current from here.
+    setCards(cardsOf(structureOf(view.state), { text: view.state.doc.toString() }));
+    seedRendered(view);
     onViewReady?.(view);
 
     return () => {
       cancelled = true;
       onViewReady?.(null);
+      forgetEditor(view);
       view.destroy();
       viewRef.current = null;
       setRailView(null);
+      setOpen(null);
       awareness.destroy();
       ydoc.destroy();
     };
     // Recreate the editor per document.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [docId, realtime, registry, envRegistry]);
+  }, [docId, realtime, envRegistry, renderedRegistry]);
+
+  // A card that stopped existing must not leave its popover floating over a
+  // document that no longer has it.
+  useEffect(() => {
+    setOpen((current) =>
+      current && cards.some((c) => c.key === current.card.key) ? current : null,
+    );
+  }, [cards]);
+
+  // Escape closes the popover from anywhere inside it, including the editor.
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [open]);
 
   // Push verified-expect ranges into the editor: for each exec cell whose
   // last run is ok AND that has an expect block, style the expect body in the
@@ -336,45 +435,202 @@ export function DocumentEditor({
     view.focus();
   }, [selectSpan]);
 
+  // What an exec card's icon says before it is opened. The rail is the only
+  // place a cell's state is visible now, so this is not decoration: it is the
+  // replacement for the status chip that used to sit under every cell.
+  const cardStateOf = (card: DocCard): CardState => {
+    if (card.kind !== "exec") return "idle";
+    const block = matchExecBlock({ span: [card.from, card.to], index: card.index }, execBlocks);
+    if (!block) return "unknown";
+    if (runningCells.has(block.id)) return "running";
+    if (block.status === "ok") return "ok";
+    if (block.status === "failed") return "failed";
+    return "idle";
+  };
+
+  /**
+   * Flip one block between its result and its source.
+   *
+   * This is what the rail icon does for a cell or a diagram. It is also the
+   * only way back from a rendered block, so it must never silently no-op:
+   * the position stored in the field is the block's start, which is exactly
+   * what the card carries.
+   */
+  // Which blocks are rendered, for the rail. Derived from the slots rather
+  // than read out of the editor state: a slot exists for exactly the blocks
+  // that are rendered, and it is already React state that updates when one
+  // appears or goes away.
+  const renderedAt = renderedSlots.map((slot) => slot.at);
+
+  const toggleRenderedAt = (at: number) => {
+    const view = viewRef.current;
+    if (!view) return;
+    const showing = isRendered(view.state, at);
+    view.dispatch({ effects: showing ? showBlockSource.of(at) : renderBlock.of(at) });
+    if (showing) {
+      // Going to source is a request to read or edit the text: put the caret
+      // in it, so the next keystroke lands where the eye already is.
+      const pos = Math.min(at, view.state.doc.length);
+      view.dispatch({ selection: { anchor: pos }, scrollIntoView: true });
+      view.focus();
+    }
+  };
+  const toggleRendered = (card: DocCard) => toggleRenderedAt(card.at);
+
+  /** Replace a fence with the exec cell built from it. */
+  const convertFenceCard = (card: DocCard, text: string) => {
+    const view = viewRef.current;
+    if (!view) return;
+    const to = Math.min(card.to, view.state.doc.length);
+    const from = Math.min(card.from, to);
+    view.dispatch({
+      changes: { from, to, insert: text },
+      // The caret lands in the new cell's body, which is where the next edit
+      // goes. A userEvent so one Ctrl+Z takes the whole conversion back.
+      selection: { anchor: Math.min(from + text.indexOf("\n") + 1, from + text.length) },
+      scrollIntoView: true,
+      userEvent: "input.convertFence",
+    });
+    setOpen(null);
+    view.focus();
+  };
+
+  // The popover is the FENCE converter's, and only that. A cell and a diagram
+  // render in the document itself now, with their controls on the rendered
+  // block — a second copy of the Run button floating beside it would be two
+  // answers to the same question.
+  const popoverBody = (card: DocCard) => {
+    const view = viewRef.current;
+    if (!view || card.kind !== "fence") return null;
+    const structure = structureOf(view.state);
+    const fence = proseFences(structure, view.state.doc.toString())[card.index];
+    if (!fence) return null;
+    return (
+      <FenceConvert
+        info={fence.info}
+        body={fence.body}
+        containers={containerNamesOf(structure)}
+        onConvert={(text) => convertFenceCard(card, text)}
+        onCancel={() => setOpen(null)}
+      />
+    );
+  };
+
+  // Place the popover against its REAL height, before paint.
+  //
+  // The popover opens level with its icon and only slides up as far as it
+  // must to fit — which needs the height it actually rendered at, not the
+  // cap it is allowed to reach. Measured in a layout effect so the corrected
+  // position is the first one painted, and re-measured while it grows (a
+  // transcript streaming in, a diagram the engine has not drawn yet).
+  useLayoutEffect(() => {
+    const el = popoverRef.current;
+    const box = railView?.dom;
+    if (!el || !open || !box) return;
+    const place = () => {
+      el.style.top = `${popoverTop(open.iconTop, el.offsetHeight, {
+        top: 0,
+        height: box.clientHeight,
+      })}px`;
+    };
+    place();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(place);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [open, railView]);
+
   return (
     <>
-      {/* The bordered box holds the editor and its right line-number rail
-          side by side; the ribbon overlay anchors on the rail's outer edge
-          through `.with-right-rail`. */}
-      <div className="document-editor with-right-rail">
+      {/* The bordered box holds the editor, its right line-number rail, and
+          the action rail outside that; the ribbon overlay anchors on the
+          number rail's outer edge through `.with-right-rail`. */}
+      <div className="document-editor with-right-rail with-card-rail">
         <div ref={hostRef} className="editor-cm-host" />
         <RightRail view={railView} />
+        <CardRail
+          view={railView}
+          cards={cards}
+          stateOf={cardStateOf}
+          openKey={open?.card.key ?? null}
+          renderedAt={renderedAt}
+          onOpen={(card, iconTop) => {
+            if (card.kind === "fence") {
+              setOpen((current) => (current?.card.key === card.key ? null : { card, iconTop }));
+              return;
+            }
+            setOpen(null);
+            toggleRendered(card);
+          }}
+        />
+        {open && (
+          <div
+            className="cm-card-popover"
+            role="dialog"
+            aria-label={open.card.label}
+            ref={popoverRef}
+            // A first guess, corrected below before paint. Most popovers are
+            // far shorter than the cap, and placing them as if they were the
+            // cap would slide every one of them away from its icon.
+            style={{ top: popoverTop(open.iconTop, POPOVER_HEIGHT, { top: 0, height: 0 }) }}
+            // The editor takes the selection on mousedown; a click on a
+            // button in here must not also move the caret behind it.
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <button
+              type="button"
+              className="cm-card-popover__close"
+              aria-label="Close"
+              onClick={() => setOpen(null)}
+            >
+              ×
+            </button>
+            {popoverBody(open.card)}
+          </div>
+        )}
       </div>
-      {slots.map((slot) => {
-        const block = matchExecBlock(slot, execBlocks);
+      {renderedSlots.map((slot) => {
+        if (slot.kind === "diagram") {
+          return createPortal(
+            <div className="rendered-diagram">
+              <DiagramPanel
+                renderer={slot.renderer}
+                source={slot.text}
+                domId={`hick-diagram-${slot.index}`}
+                assertions={slot.asserts.map((id) => ({
+                  id,
+                  // Wiring a live pass/fail state to the cell that carries
+                  // this id is the next step; until then the panel says
+                  // "checked by", never "passing", because it does not know.
+                  state: "unknown" as const,
+                }))}
+              />
+              <button
+                type="button"
+                className="btn btn-ghost rendered-diagram__source"
+                onClick={() => toggleRenderedAt(slot.at)}
+                data-tip="Show this diagram's source, so you can edit it"
+              >
+                source
+              </button>
+            </div>,
+            slot.el,
+            slot.key,
+          );
+        }
+        const block = matchExecBlock({ span: slot.span, index: slot.index }, execBlocks);
         return createPortal(
           <CellPanel
             block={block}
             running={block ? runningCells.has(block.id) : false}
             onRun={onRunCell}
+            command={slot.text}
+            onShowSource={() => toggleRenderedAt(slot.at)}
           />,
           slot.el,
           slot.key,
         );
       })}
-      {diagramSlots.map((slot) =>
-        createPortal(
-          <DiagramPanel
-            renderer={slot.renderer}
-            source={slot.source}
-            domId={`hick-diagram-${slot.index}`}
-            assertions={slot.asserts.map((id) => ({
-              id,
-              // Wiring a live pass/fail state to the cell that carries this id
-              // is the next step; until then the panel says "checked by",
-              // never "passing", because it does not know.
-              state: "unknown" as const,
-            }))}
-          />,
-          slot.el,
-          slot.key,
-        ),
-      )}
       {envSlots.map((slot) =>
         createPortal(
           <EnvCard
