@@ -11,7 +11,12 @@ import {
   saveExpanded,
   toggleExpanded,
   useFolderTrees,
+  directoryPaths,
+  placeSessions,
+  relativeCwd,
+  sessionsUnder,
   type FileAction,
+  type TreeSession,
 } from "./FolderTreePane";
 
 // The /api/files contract, as the backend serves it: dirs first, each level
@@ -49,10 +54,14 @@ function Harness({
   onOpen = () => {},
   openable = new Set<string>(),
   onNew = () => {},
+  sessions = [],
+  onOpenTerminal,
 }: {
   onOpen?: (action: Exclude<FileAction, { kind: "inert" }>) => void;
   openable?: Set<string>;
   onNew?: () => void;
+  sessions?: readonly TreeSession[];
+  onOpenTerminal?: (id: string) => void;
 }) {
   const { roots, error } = useFolderTrees();
   return (
@@ -62,6 +71,8 @@ function Harness({
       openable={openable}
       onOpen={onOpen}
       onNewDocument={onNew}
+      sessions={sessions}
+      onOpenTerminal={onOpenTerminal}
     />
   );
 }
@@ -191,5 +202,131 @@ describe("expand state, across sessions", () => {
     render(<Harness />);
     // Re-fetched, re-mounted — and src is still expanded, from localStorage.
     expect(await screen.findByText("main.rs")).toBeTruthy();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Terminals, shown where they are running
+// ---------------------------------------------------------------------------
+
+function session(id: string, cwd: string, over: Partial<TreeSession> = {}): TreeSession {
+  return {
+    id,
+    title: id,
+    cwd,
+    state: "running",
+    monitor: false,
+    cwdIsLive: true,
+    ...over,
+  };
+}
+
+describe("placing sessions in the tree", () => {
+  // Node paths in a listing are RELATIVE to the root; session directories are
+  // absolute. Keeping the fixture honest about that is the whole point — the
+  // first version of this compared the two directly and matched nothing.
+  const root = "/w";
+  const dirs = new Set(["src", "src/deep", "docs"]);
+
+  it("puts a session at its own directory", () => {
+    const placed = placeSessions([session("a", "/w/src")], root, dirs);
+    expect(placed.get("src")?.map((s) => s.id)).toEqual(["a"]);
+  });
+
+  it("puts a session working in the root at the root", () => {
+    const placed = placeSessions([session("a", "/w")], root, dirs);
+    expect(placed.get("")?.map((s) => s.id)).toEqual(["a"]);
+  });
+
+  it("climbs to the nearest directory the tree actually lists", () => {
+    // A large folder is truncated, and a session may be working somewhere the
+    // listing never mentioned. Showing it at the nearest ancestor beats not
+    // showing it at all.
+    const placed = placeSessions([session("a", "/w/src/deep/unlisted/x")], root, dirs);
+    expect(placed.get("src/deep")?.map((s) => s.id)).toEqual(["a"]);
+  });
+
+  it("leaves out a session working outside the folder", () => {
+    // The question is "what is running IN HERE".
+    const placed = placeSessions([session("a", "/elsewhere")], root, dirs);
+    expect(placed.size).toBe(0);
+  });
+
+  it("is not fooled by a sibling with a shared prefix", () => {
+    // `/w-other` starts with `/w` as a string and is not inside it.
+    const placed = placeSessions([session("a", "/w-other/src")], root, dirs);
+    expect(placed.size).toBe(0);
+  });
+
+  it("treats a trailing slash as the same directory", () => {
+    const placed = placeSessions([session("a", "/w/src/")], "/w/", dirs);
+    expect(placed.get("src")?.map((s) => s.id)).toEqual(["a"]);
+  });
+
+  it("keeps several sessions in one directory", () => {
+    const placed = placeSessions([session("a", "/w/src"), session("b", "/w/src")], root, dirs);
+    expect(placed.get("src")).toHaveLength(2);
+  });
+});
+
+describe("counting what a collapsed directory hides", () => {
+  it("counts the whole subtree, not just the directory itself", () => {
+    const sessions = [session("a", "/w/src"), session("b", "/w/src/deep"), session("c", "/w")];
+    expect(sessionsUnder(sessions, "/w", "src")).toBe(2);
+    expect(sessionsUnder(sessions, "/w", "src/deep")).toBe(1);
+  });
+
+  it("does not count a sibling with a shared prefix", () => {
+    expect(sessionsUnder([session("a", "/w/srcother")], "/w", "src")).toBe(0);
+  });
+
+  it("does not count a session outside the folder", () => {
+    expect(sessionsUnder([session("a", "/elsewhere/src")], "/w", "src")).toBe(0);
+  });
+});
+
+describe("directoryPaths", () => {
+  it("collects directories, root-relative, and no files", () => {
+    const paths = directoryPaths(TREE);
+    expect(paths.has("src")).toBe(true);
+    expect([...paths].every((p) => !p.endsWith(".hick") && !p.startsWith("/"))).toBe(true);
+  });
+});
+
+describe("relativeCwd", () => {
+  it("answers empty for the root itself and null for anything outside", () => {
+    expect(relativeCwd("/w", "/w")).toBe("");
+    expect(relativeCwd("/w/src/deep", "/w")).toBe("src/deep");
+    expect(relativeCwd("/w-other", "/w")).toBeNull();
+    expect(relativeCwd("/", "/w")).toBeNull();
+  });
+});
+
+describe("showing a terminal from the tree", () => {
+  it("lists a session at the folder it is working in, and opening it names it", async () => {
+    const onOpenTerminal = vi.fn();
+    render(
+      <Harness
+        sessions={[session("t1", "/home/me/notebook", { title: "cargo test" })]}
+        onOpenTerminal={onOpenTerminal}
+      />,
+    );
+    const row = await screen.findByRole("button", { name: /cargo test/ });
+    fireEvent.click(row);
+    expect(onOpenTerminal).toHaveBeenCalledWith("t1");
+  });
+
+  it("says how many are hidden inside a collapsed directory", async () => {
+    // Otherwise the reason to show processes at all — seeing the one you
+    // forgot about — is defeated by the directory being shut.
+    render(<Harness sessions={[session("t1", "/home/me/notebook/src")]} />);
+    const badge = await screen.findByText("1");
+    expect(badge.getAttribute("data-tip")).toContain("1 terminal");
+  });
+
+  it("shows nothing for a session working outside the folder", async () => {
+    render(<Harness sessions={[session("t1", "/somewhere/else", { title: "elsewhere" })]} />);
+    await screen.findByText("notebook");
+    expect(screen.queryByRole("button", { name: /elsewhere/ })).toBeNull();
   });
 });

@@ -5297,3 +5297,72 @@ textarea:focus {
   font-size: 0.78rem;
   white-space: pre-wrap;
 }
+
+/* ---------------------------------------------------------------------------
+   Terminals in the folder tree.
+
+   A session sits at the directory it is working in, so "what is running in
+   here" is answered by the same pane that answers "what is in here". Styled
+   quieter than a file row: these are transient, and the files are the folder.
+   --------------------------------------------------------------------------- */
+
+.folder-tree__session {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  width: 100%;
+  padding: 0.1rem 0.35rem;
+  border: 0;
+  background: none;
+  color: var(--fg-muted);
+  text-align: left;
+  cursor: pointer;
+}
+
+.folder-tree__session:hover {
+  background: var(--bg-raised);
+  color: var(--fg);
+}
+
+.folder-tree__session-dot {
+  flex: none;
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 50%;
+  background: var(--fg-muted);
+}
+
+/* The same states the sessions pane uses, so a running thing looks like a
+   running thing wherever you meet it. */
+.folder-tree__session.state-running .folder-tree__session-dot {
+  background: var(--accent-2);
+}
+.folder-tree__session.state-waiting .folder-tree__session-dot {
+  background: var(--warn);
+}
+.folder-tree__session.state-failed .folder-tree__session-dot {
+  background: var(--fail);
+}
+.folder-tree__session.state-finished .folder-tree__session-dot {
+  background: var(--ok);
+}
+
+.folder-tree__session-monitor {
+  font-size: 0.65rem;
+  padding: 0 0.25rem;
+  border-radius: 3px;
+  background: var(--neutral-bg);
+  color: var(--fg-muted);
+}
+
+/* On a collapsed directory: how many sessions are hidden inside it. */
+.folder-tree__session-count {
+  margin-left: auto;
+  font-size: 0.65rem;
+  min-width: 1rem;
+  padding: 0 0.25rem;
+  border-radius: 3px;
+  background: var(--neutral-bg);
+  color: var(--fg-muted);
+  text-align: center;
+}

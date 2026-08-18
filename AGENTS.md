@@ -86,6 +86,10 @@ declared and unverifiable, and the two must never render alike.** Say
   `hickory-executor-canopy` may know its API; never edit the cloud-canopy repo.
   It stays an **optional** executor pointed at a node the *user* runs; it is
   not a service we operate, and nothing may require it.
+- **MIT only.** A dependency whose licence is GPL or otherwise copyleft cannot
+  be linked into this product. The live example: `grit` splits its licence —
+  `grit-lib` is MIT and usable, `grit-cli` is GPL-2.0 and is not. Check the
+  crate, not the project.
 - No server, no account, no payment, no telemetry. A change that needs any of
   them is out of scope by decision — see `local-only.md`.
 

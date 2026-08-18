@@ -423,6 +423,10 @@ export interface TerminalSession {
   dirty: boolean;
   /** The last line it printed — what a folded row shows. */
   preview: string;
+  /** Whether `cwd` came from the shell (OSC 7) or is where the session was
+   * started. The two are not equally trustworthy: a started-in directory is
+   * stale the moment somebody `cd`s. */
+  cwd_is_live?: boolean;
   prompt: TerminalPrompt | null;
   exit_code: number | null;
 }

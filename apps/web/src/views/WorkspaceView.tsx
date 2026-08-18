@@ -757,6 +757,18 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
                     openable={new Set(openableOutputs.keys())}
                     activeDocId={focusedId ?? undefined}
                     onNewDocument={() => navigate("/new")}
+                    // What is running, shown where it is running. The tree
+                    // already knows the folder; the sessions already know
+                    // their directory; this is the join.
+                    sessions={terminals.sessions.map((session) => ({
+                      id: session.id,
+                      title: session.title,
+                      cwd: session.cwd,
+                      state: session.state,
+                      monitor: session.monitor,
+                      cwdIsLive: session.cwd_is_live ?? false,
+                    }))}
+                    onOpenTerminal={showTerminal}
                     onOpen={(action) => {
                       // A document ADDS a tab (or fronts its existing one);
                       // a generated file opens beside its owner. Nothing

@@ -9,7 +9,7 @@
 // reports clicks. What opening a file MEANS (a route, a generated pane,
 // nothing) is the mounting view's decision, expressed through `fileAction`.
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { api } from "../api/client";
 import type { FileNode, FilesResponse } from "../api/types";
@@ -141,6 +141,112 @@ export function useFolderTrees(): { roots: FolderTree[]; error: string | null } 
 // The pane
 // ---------------------------------------------------------------------------
 
+/** A terminal session as the tree needs to know it. */
+export interface TreeSession {
+  id: string;
+  title: string;
+  cwd: string;
+  state: string;
+  monitor: boolean;
+  /** False when `cwd` is only where the session was started — see
+   * `SessionSummary::cwd_is_live`. */
+  cwdIsLive: boolean;
+}
+
+/** Strip trailing slashes so `/a/b/` and `/a/b` are one directory. */
+function normalizeDir(path: string): string {
+  const trimmed = path.replace(/\/+$/, "");
+  return trimmed === "" ? "/" : trimmed;
+}
+
+/**
+ * A session's working directory, relative to the folder being viewed.
+ *
+ * `null` when it is not inside that folder at all. Node paths in a listing are
+ * relative to the root and session directories are absolute, so something has
+ * to do this conversion; doing it in one named place is what keeps the two
+ * from being compared directly, which silently matches nothing.
+ */
+export function relativeCwd(cwd: string, root: string): string | null {
+  const rootPath = normalizeDir(root);
+  const path = normalizeDir(cwd);
+  if (path === rootPath) return "";
+  // The slash matters: `/w-other` starts with `/w` and is not inside it.
+  if (!path.startsWith(`${rootPath}/`)) return null;
+  return path.slice(rootPath.length + 1);
+}
+
+/**
+ * Which directory row each session belongs under, keyed the way the tree keys
+ * its nodes: relative to the root, with `""` for the root itself.
+ *
+ * A session is shown at the deepest directory the listing contains — usually
+ * its own working directory, and its nearest listed ancestor when that
+ * directory was truncated away or is simply not part of this listing. Sessions
+ * working outside the folder are left out: the question this answers is "what
+ * is running *in here*".
+ *
+ * Pure, and separate from the rendering, because the interesting cases are the
+ * ones that are annoying to reach through a UI: a `cd` out of the tree, a
+ * directory nobody listed, and a sibling whose name shares a prefix.
+ */
+export function placeSessions(
+  sessions: readonly TreeSession[],
+  root: string,
+  directories: ReadonlySet<string>,
+): Map<string, TreeSession[]> {
+  const out = new Map<string, TreeSession[]>();
+
+  for (const session of sessions) {
+    let path = relativeCwd(session.cwd, root);
+    if (path === null) continue;
+
+    // Walk up to the first directory this tree actually lists.
+    while (path !== "" && !directories.has(path)) {
+      const slash = path.lastIndexOf("/");
+      path = slash === -1 ? "" : path.slice(0, slash);
+    }
+    const at = out.get(path);
+    if (at) at.push(session);
+    else out.set(path, [session]);
+  }
+  return out;
+}
+
+/**
+ * How many sessions are running anywhere beneath `dir`.
+ *
+ * A collapsed directory would otherwise hide them completely, which defeats
+ * the point: the reason to show processes in the tree is to see the ones you
+ * had forgotten about.
+ */
+export function sessionsUnder(
+  sessions: readonly TreeSession[],
+  root: string,
+  dir: string,
+): number {
+  const path = normalizeDir(dir);
+  return sessions.filter((session) => {
+    const cwd = relativeCwd(session.cwd, root);
+    return cwd !== null && (cwd === path || cwd.startsWith(`${path}/`));
+  }).length;
+}
+
+/** Every directory path in a listing, root-relative, for `placeSessions`. */
+export function directoryPaths(nodes: readonly FileNode[]): Set<string> {
+  const out = new Set<string>();
+  const walk = (list: readonly FileNode[]) => {
+    for (const node of list) {
+      if (node.dir) {
+        out.add(node.path.replace(/\/+$/, ""));
+        walk(node.children ?? []);
+      }
+    }
+  };
+  walk(nodes);
+  return out;
+}
+
 export interface FolderTreePaneProps {
   roots: readonly FolderTree[];
   /** Non-document paths that a click can open (generated files). */
@@ -151,7 +257,46 @@ export interface FolderTreePaneProps {
   onNewDocument: () => void;
   /** The document currently on screen, to mark its row. */
   activeDocId?: string;
+  /** Terminal sessions, shown at the directory each one is working in. */
+  sessions?: readonly TreeSession[];
+  /** A click on a session row: show that terminal. */
+  onOpenTerminal?: (id: string) => void;
   error?: string | null;
+}
+
+/** One running session, at the directory it is running in. */
+function SessionRow({
+  session,
+  depth,
+  onOpen,
+}: {
+  session: TreeSession;
+  depth: number;
+  onOpen?: (id: string) => void;
+}) {
+  const indent = { paddingLeft: `${depth * 0.85 + 0.4}rem` };
+  // Where the shell says it is, versus where it was started, is a real
+  // difference in how much to trust this row's placement — so the tooltip
+  // says which one it is rather than presenting both as the same fact.
+  const where = session.cwdIsLive
+    ? session.cwd
+    : `${session.cwd} — started here; this shell does not report its directory`;
+  return (
+    <li role="treeitem">
+      <button
+        type="button"
+        className={`folder-tree__session mono state-${session.state}`}
+        style={indent}
+        data-tip={where}
+        data-session-id={session.id}
+        onClick={() => onOpen?.(session.id)}
+      >
+        <span className="folder-tree__session-dot" aria-hidden />
+        {session.title}
+        {session.monitor && <span className="folder-tree__session-monitor">monitor</span>}
+      </button>
+    </li>
+  );
 }
 
 export function FolderTreePane({
@@ -160,6 +305,8 @@ export function FolderTreePane({
   onOpen,
   onNewDocument,
   activeDocId,
+  sessions = [],
+  onOpenTerminal,
   error,
 }: FolderTreePaneProps) {
   if (error) return <p className="error folder-tree__error">{error}</p>;
@@ -174,6 +321,8 @@ export function FolderTreePane({
           onOpen={onOpen}
           onNewDocument={onNewDocument}
           activeDocId={activeDocId}
+          sessions={sessions}
+          onOpenTerminal={onOpenTerminal}
         />
       ))}
     </div>
@@ -186,12 +335,16 @@ function FolderRoot({
   onOpen,
   onNewDocument,
   activeDocId,
+  sessions,
+  onOpenTerminal,
 }: {
   folder: FolderTree;
   openable: ReadonlySet<string>;
   onOpen: FolderTreePaneProps["onOpen"];
   onNewDocument: () => void;
   activeDocId?: string;
+  sessions: readonly TreeSession[];
+  onOpenTerminal?: (id: string) => void;
 }) {
   const [expanded, setExpanded] = useState<Set<string>>(() => loadExpanded(folder.root));
   const toggle = useCallback(
@@ -204,6 +357,12 @@ function FolderRoot({
     },
     [folder.root],
   );
+
+  const placement = useMemo(
+    () => placeSessions(sessions, folder.root, directoryPaths(folder.tree)),
+    [sessions, folder.root, folder.tree],
+  );
+  const atRoot = placement.get("") ?? [];
 
   const name = folder.root.replace(/\/+$/, "").split("/").pop() || folder.root;
   return (
@@ -226,6 +385,9 @@ function FolderRoot({
         <p className="muted folder-tree__truncated">Large folder — not everything is listed.</p>
       )}
       <ul className="folder-tree__list" role="tree">
+        {atRoot.map((session) => (
+          <SessionRow key={session.id} session={session} depth={0} onOpen={onOpenTerminal} />
+        ))}
         {folder.tree.map((node) => (
           <TreeRow
             key={node.path}
@@ -236,6 +398,10 @@ function FolderRoot({
             openable={openable}
             onOpen={onOpen}
             activeDocId={activeDocId}
+            sessions={sessions}
+            placement={placement}
+            onOpenTerminal={onOpenTerminal}
+            root={folder.root}
           />
         ))}
       </ul>
@@ -251,6 +417,10 @@ function TreeRow({
   openable,
   onOpen,
   activeDocId,
+  sessions,
+  placement,
+  onOpenTerminal,
+  root,
 }: {
   node: FileNode;
   depth: number;
@@ -259,10 +429,18 @@ function TreeRow({
   openable: ReadonlySet<string>;
   onOpen: FolderTreePaneProps["onOpen"];
   activeDocId?: string;
+  sessions: readonly TreeSession[];
+  placement: ReadonlyMap<string, TreeSession[]>;
+  onOpenTerminal?: (id: string) => void;
+  root: string;
 }) {
   const indent = { paddingLeft: `${depth * 0.85 + 0.4}rem` };
   if (node.dir) {
     const open = expanded.has(node.path);
+    const here = placement.get(node.path.replace(/\/+$/, "")) ?? [];
+    // A collapsed directory would hide what is running inside it, which is
+    // exactly the thing worth seeing — so it says how many instead.
+    const hidden = open ? 0 : sessionsUnder(sessions, root, node.path);
     return (
       <li role="treeitem" aria-expanded={open}>
         <button
@@ -276,9 +454,25 @@ function TreeRow({
             {open ? "▾" : "▸"}
           </span>
           {node.name}
+          {hidden > 0 && (
+            <span
+              className="folder-tree__session-count"
+              data-tip={`${hidden} terminal${hidden === 1 ? "" : "s"} running in here`}
+            >
+              {hidden}
+            </span>
+          )}
         </button>
         {open && (
           <ul className="folder-tree__list" role="group">
+            {here.map((session) => (
+              <SessionRow
+                key={session.id}
+                session={session}
+                depth={depth + 1}
+                onOpen={onOpenTerminal}
+              />
+            ))}
             {(node.children ?? []).map((child) => (
               <TreeRow
                 key={child.path}
@@ -289,6 +483,10 @@ function TreeRow({
                 openable={openable}
                 onOpen={onOpen}
                 activeDocId={activeDocId}
+                sessions={sessions}
+                placement={placement}
+                onOpenTerminal={onOpenTerminal}
+                root={root}
               />
             ))}
           </ul>

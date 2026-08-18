@@ -118,13 +118,48 @@ Nothing clones, fetches, pushes, or merges. So sync is **a new capability**, not
 a port of an existing one, and the phone is where it has to work first rather
 than last.
 
-**The library choice turns on push, not on purity.** `gix` is pure Rust and
-would cross-compile with no C at all, which is the attractive property; its
-weakness is exactly the operation sync cannot do without. `git2` (libgit2) has
-mature push and fetch at the cost of C — which is a cost this build already pays
-for tree-sitter and libsodium, so it buys less than it looks like it costs.
-Recommendation: **whichever one can actually push, and prove it on a device
-before building anything on top of it.**
+**The library choice turns on push, not on purity.** Three candidates, and
+none is obviously right:
+
+| | What it is | Push | Cost |
+|---|---|---|---|
+| `gix` (gitoxide) | Pure Rust, mature, widely used | Historically the weak spot — and it is the operation sync cannot do without | Its SSH transport shells out to the `ssh` binary; HTTPS is in-process |
+| `git2` (libgit2) | Bindings to the C library git itself grew up beside | Mature | C, so an NDK/SDK build — a cost this build already pays for tree-sitter and libsodium |
+| `grit` (`grit-lib`) | A from-scratch Rust reimplementation of Git by GitButler, targeting parity against Git's own test suite | Claims clone, fetch, pull, and push | Pre-1.0 (`grit-lib` 0.5.0, published 2026-06-20) and its authors say it has not been used in earnest |
+
+`grit` is the most interesting of the three precisely because push is what the
+other pure-Rust option lacks. Two things about it have to be stated plainly
+before anyone builds on it:
+
+- **The licence is split, and only half of it is usable here.** `grit-cli` is
+  **GPL-2.0**; `grit-lib` and the other crates are **MIT**. This repository is
+  MIT, so depending on `grit-lib` is fine and depending on `grit-cli` would
+  relicense the product. That is a constraint to enforce, not to remember.
+- **Its authors' own assessment is the blocker.** The README says it is
+  "probably currently unusably slow or completely broken in ways that are not
+  exercised in the test suite" and that it "has not been used for realsies".
+  For most features that would be an acceptable risk. Sync is not most
+  features: the failure mode is *losing somebody's notes*, and a note is the
+  artifact this whole product exists to keep.
+
+So the recommendation is not a library, it is a **harness**: put all three
+through the same three checks and let the result decide, rather than choosing on
+reputation or on a README.
+
+1. **Does its dependency tree spawn a process?** Answerable today, with no SDK,
+   by pointing the existing portability audit at the vendored tree. This is the
+   check that catches `gix`'s `ssh` shell-out, and it is the failure mode that
+   compiles cleanly and dies on a device.
+2. **Does it cross-compile for `aarch64-apple-ios` and `aarch64-linux-android`?**
+   Cheap in CI; needs a macOS runner for the first.
+3. **Can it actually push?** An integration test we run against a real remote —
+   ours, not the README's claim.
+
+And whichever wins, **it goes behind a narrow trait**, the way `Executor`
+already isolates how a cell runs. The leading candidate for the most
+data-destructive operation in the product is at version 0.5.0; the choice has to
+stay reversible, and a trait is what makes swapping it a day's work rather than
+a rewrite.
 
 Authentication should be **HTTPS with a token in the platform keychain**, not
 SSH. There is no ssh-agent on a phone and no good place to put a private key, and
@@ -215,6 +250,9 @@ assumption that none of it applied:
   standing in for both. The two agree on the constraint that matters — neither
   lets a sandboxed app spawn processes — but "it compiles for Android" is not
   "it compiles for iOS".
+- **No git library has been through the harness above.** The three checks are
+  described and none has been run — including the dependency audit, which needs
+  nothing but a machine and an afternoon.
 - **Store submission from CI is unproven.** Fastlane or `xcrun altool` from a
   GitHub runner needs signing identities in secrets — which is the first real
   secret this repository would hold, against

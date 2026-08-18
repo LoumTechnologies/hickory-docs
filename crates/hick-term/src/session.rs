@@ -82,6 +82,14 @@ pub struct SessionSummary {
     pub dirty: bool,
     /// The last line it printed — what a folded row shows.
     pub preview: String,
+    /// Whether [`SessionSummary::cwd`] came from the shell (OSC 7) or is the
+    /// directory the session was started in.
+    ///
+    /// Surfaced rather than hidden because the two are not equally
+    /// trustworthy: a started-in directory is stale the moment somebody `cd`s,
+    /// and a reader deserves to know which one they are looking at.
+    #[serde(default)]
+    pub cwd_is_live: bool,
     pub prompt: Option<Prompt>,
     pub exit_code: Option<i32>,
 }
@@ -380,16 +388,30 @@ impl Session {
             .clone()
             .unwrap_or_default();
 
+        // One lock for both, because taking the screen lock twice in a row is
+        // the kind of thing that becomes a deadlock when someone later moves a
+        // line between them.
+        let (preview, live_cwd) = {
+            let screen = self.screen.lock().expect("screen lock");
+            (screen.preview(), screen.cwd().map(str::to_string))
+        };
+        let cwd_is_live = live_cwd.is_some();
+
         SessionSummary {
             id: self.id.clone(),
             title: self.spec.title.clone(),
-            cwd: self.spec.cwd.display().to_string(),
+            // Where the shell says it is, falling back to where it was
+            // started. A `cd` moves a session out of the folder you are
+            // looking at, and a tree that kept showing it there would be
+            // pointing at the wrong place with complete confidence.
+            cwd: live_cwd.unwrap_or_else(|| self.spec.cwd.display().to_string()),
+            cwd_is_live,
             monitor: self.spec.monitor,
             state: state.as_str().to_string(),
             since_ms,
             branch: git.branch,
             dirty: git.dirty,
-            preview: self.screen.lock().expect("screen lock").preview(),
+            preview,
             prompt,
             exit_code: exit,
         }
