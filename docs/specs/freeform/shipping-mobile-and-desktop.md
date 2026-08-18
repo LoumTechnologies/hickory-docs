@@ -26,19 +26,24 @@ iOS 26.2 SDK) on 2026-08-18:
 | `hick-condition` | compiles, no NDK | compiles |
 | `hick-case` | compiles, no NDK | compiles |
 | `hick-store` | compiles, no NDK — **but cannot run** (see below) | compiles — same trap |
-| `hick-merge` | needs the NDK | not checked |
-| `hick-structure` | needs the NDK (tree-sitter grammars are C) | not checked |
-| `hick-token` | needs the NDK (libsodium) | not checked |
-| `hick-literate` | needs the NDK — it pulls both of the above | not checked |
+| `hick-merge` | needs the NDK | compiles |
+| `hick-structure` | needs the NDK (tree-sitter grammars are C) | compiles |
+| `hick-token` | needs the NDK (libsodium) | compiles |
+| `hick-literate` | needs the NDK — it pulls both of the above | compiles |
 
 Five of the ten crates a notes IDE leans on are portable today, untouched, with
 no Android toolchain present at all: the parser, the document model, transcript
 derivation, the reactive graph, and conditionals. **All five compile for iOS
 too**, needing nothing beyond `rustup target add aarch64-apple-ios` and an Xcode
-that was already installed — the iOS column cost five commands and found nothing.
-The last four rows were not re-run for iOS: what they need is a C toolchain, and
-Xcode is one, so the interesting question there is binary size rather than
-whether it builds.
+that was already installed.
+
+**So does every other row**, which is the more interesting half. The four crates
+that need a C toolchain on Android need one on iOS as well, and Xcode simply *is*
+one — libsodium, the tree-sitter grammars, and `zstd` all build for
+`aarch64-apple-ios` with no extra setup. Android's NDK/no-NDK split has no iOS
+equivalent, so the whole weave path is reachable there. What remains is a
+question about size and about paying for a capability a phone cannot have, not
+about feasibility.
 
 **`hick-store` is the sixth, and it is a trap worth naming**, because it is the
 one that makes this table less useful than it looks. It compiles for Android and
@@ -75,6 +80,36 @@ never have. (`hick-structure` is a different case: navigating code structure is
 something a reader might genuinely want on a phone, so its C grammars are a cost
 worth paying rather than one to design out.) That is a portability wart worth fixing when there is a mobile shell to
 motivate it, and not before.
+
+### The phone's job, performed on a phone's OS
+
+Compiling proves a crate links. `experiments/ios-core/` runs the mobile story
+itself — installed as a real `.app` on a booted iPhone 17 Pro simulator
+(iOS 26.1), 2026-08-18, ten checks and no failures:
+
+| Check | Result |
+|---|---|
+| the app container is writable | pass |
+| a `.hick` document parses | pass |
+| the block model builds with no run behind it | pass |
+| prose renders to HTML | pass |
+| an unrun cell is marked `never-run`, not shown as fresh | pass |
+| a cached transcript renders that same cell as `ok` | pass |
+| the cached output reaches the rendered block | pass |
+| a real VTT transcript derives speaker turns | pass |
+| the speakers are the people who actually spoke | pass |
+| nothing was executed to produce any of it | pass |
+
+That is `notes-ide.md`'s claim — the phone reads and captures, renders from
+cached transcripts, and marks never-run blocks as never-run — demonstrated on
+the operating system it was a claim about, rather than inferred from a
+successful link. The `never-run` mark is the load-bearing one: a reader on a
+phone must never be shown a stale output as though it were fresh, and
+`build_block_model` is where that decision is actually made.
+
+The probe writes its report into the app's own `Documents/`, which the host then
+reads back with `simctl get_app_container` — so the sandbox write is confirmed
+from outside the sandbox rather than taken from the app's own word.
 
 ## What genuinely cannot be shared, and why
 
@@ -351,11 +386,14 @@ Rewritten 2026-08-18 after `docs/developers/verify-on-apple-hardware.md` was run
 on Apple hardware. What was settled has moved into the sections above; what is
 below is what is still owed.
 
-- **Nothing has been built for a phone yet.** Still true, and now precisely
-  bounded: the portable core compiles for iOS, `git2` pushes from a simulator,
-  and `cargo tauri ios init` writes an Xcode project — but no shell exists that
-  links only the portable half, and the desktop shell cannot compile for iOS.
-  There is still no Gradle project and no Android run of anything.
+- **No shell has been built for a phone yet**, which is now the only thing
+  missing rather than a general statement. Every crate compiles for iOS, the
+  document engine has been *run* on a simulator and does the phone's job
+  (`experiments/ios-core/`), and `git2` has pushed from one
+  (`experiments/git-libraries/ios-push/`). What does not exist is `apps/mobile/`
+  — a shell linking the portable half — and a `mobile.html` for it to show. The
+  desktop shell still cannot compile for iOS. There is still no Gradle project
+  and no Android run of anything.
 - **The no-spawn constraint is unverified on a device.** It is the property the
   whole portable set is defined by, and a simulator cannot test it: a simulator
   app *can* `posix_spawn`, which `experiments/git-libraries/ios-push` demonstrates
@@ -371,10 +409,12 @@ below is what is still owed.
   pushed to a real remote from inside an app sandbox over HTTPS with a token. The
   trait that isolates it, the merge path called in-process, and the keychain the
   token lives in are all still to write.
-- **The last four crates were never checked against iOS.** `hick-merge`,
-  `hick-structure`, `hick-token`, and `hick-literate` need a C toolchain and
-  Xcode is one, so the open question is binary size rather than feasibility — but
-  it is open.
+- **The four C-dependent crates compile for iOS, and the size question is
+  still open.** `hick-merge`, `hick-structure`, `hick-token`, and `hick-literate`
+  all build for `aarch64-apple-ios` with no setup beyond Xcode, so feasibility is
+  settled. Nobody has measured what libsodium and the tree-sitter grammars cost a
+  phone in binary size, and `hick-token` is still a capability the phone pays for
+  and can never use.
 - **Store submission from CI is unproven, and the identities do not exist.** This
   machine holds one `Apple Development` certificate and no `Developer ID
   Application`, no `Apple Distribution`, and no provisioning profiles, so nothing

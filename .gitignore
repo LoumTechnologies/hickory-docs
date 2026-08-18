@@ -35,5 +35,6 @@ apps/web/public/install.sh
 # Playwright MCP scratch output from browser-driven verification.
 .playwright-mcp/
 
-# The git-library harness builds in place; its Cargo.lock files are kept.
-experiments/git-libraries/*/target/
+# The probes under experiments/ build in place; their Cargo.lock files are kept.
+experiments/*/target/
+experiments/*/*/target/
