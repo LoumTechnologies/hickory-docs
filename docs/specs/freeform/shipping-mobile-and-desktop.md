@@ -423,6 +423,16 @@ below is what is still owed.
   whole portable set is defined by, and a simulator cannot test it: a simulator
   app *can* `posix_spawn`, which `experiments/git-libraries/ios-push` demonstrates
   by doing it. Settling this needs a provisioned build on real hardware.
+
+  Everything except the signature is ready, as of 2026-08-18. The target is an
+  **iPhone 8 on iOS 16.7.16** (`iPhone10,1`), already paired with the build
+  machine, with Xcode's device-support files for it present. Both probes build
+  for `aarch64-apple-ios` at `minos 16.0`. What is missing is an Apple ID signed
+  into Xcode and a provisioning profile carrying the device — iOS runs no
+  unsigned code, so this is a signing errand and not an engineering one. When it
+  is done, run `experiments/ios-core` first (does the engine work on 2017
+  hardware?) and then `experiments/git-libraries/ios-push` — and read the
+  `SPAWN:` line, which is the whole point of going to a device.
 - **The `hick-token` dependency is unresolved.** Capability tokens drag libsodium
   into the weave path, which a phone should not be carrying. Fixing it means
   separating what weaving needs from what executing needs, inside `hick-literate`.
