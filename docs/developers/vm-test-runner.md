@@ -61,24 +61,51 @@ Shared Profile: (+)
 ```
 
 So "in Documents" satisfies the guests and breaks the service; "outside
-Documents" satisfies the service and breaks the guests. **Satisfying both means
-sharing the runner's directory with the guests explicitly** rather than relying
-on the default profile:
+Documents" satisfies the service and breaks the guests.
 
-```sh
-for vm in "Ubuntu Linux" "Windows 11 Pro"; do
-  prlctl set "$vm" --shared-folder-add runner --path "$HOME/actions-runner-hickory"
-done
-```
+### What does not work, and why it is worth knowing
 
-Check afterwards that it survives `vmkit reset`, since that reverts the guest to
-a snapshot: if the share is recorded in snapshot state rather than VM config, it
-will need re-adding or baking into the `built` checkpoint via
-`vmkit provision`.
+**A named shared folder does not help.** `prlctl set <vm> --shf-host-add runner
+--path ~/actions-runner-hickory` succeeds, and mounts at `/media/psf/runner` —
+which vmkit never looks at. Its mapping is hardcoded to the *home* share
+(`lib/transport.sh`, `guest_repo`): `$HOME/<rel>` becomes
+`/media/psf/Home/<rel>` on Linux and `\\Mac\Home\<rel>` on Windows, and it
+refuses outright for a repo outside `$HOME`.
 
-The alternative — granting Full Disk Access to the runner so it can live in
-Documents — is worse: it is invisible in the repository, does not survive a
-rebuild of the machine, and grants far more than the runner needs.
+**The setting that would work has no CLI flag.** What is needed is
+`<ShareUserHomeDir>` inside `<HostSharing>` in the VM's `config.pvs` — the GUI's
+"Share Mac → Home folder". `prlctl set <vm> --shf-host on` is *accepted and
+silently does nothing*; every `--shf-*-home` spelling is rejected outright.
+Setting it by editing `config.pvs` with the VM stopped does work, and
+`prlctl list -i` then reports `Host defined sharing: User home directory`.
+
+**But it does not survive `vmkit reset`, which is the end of it.** Parallels
+stores the VM configuration *inside the snapshot*, so reverting to
+`portzero-built` restores the old sharing config along with the disk. Measured:
+after a revert, `config.pvs` was back to `Enabled=0 ShareUserHomeDir=0` and
+`/media/psf/Home` showed only `Desktop Documents Downloads` again, while the
+guest that had NOT been reverted kept the change. Since `vmkit test` resets
+before every run, any host-side sharing change is undone before the test uses
+it.
+
+### What would actually fix it
+
+One of:
+
+1. **Bake it into the `built` snapshot** — revert, enable home sharing, boot,
+   re-`vmkit checkpoint` as `built`. This is the real fix, and it rewrites a
+   snapshot that another organization's tests also use, so it is a decision
+   rather than a step.
+2. **Grant the runner Full Disk Access** and keep it in `~/Documents`, which is
+   where the other runner on this machine already lives. GUI-only, invisible to
+   this repository, and does not survive a rebuild of the machine — but it needs
+   no snapshot surgery.
+3. **Teach vmkit to push into Linux and Windows guests** the way it already
+   pushes into macOS ones (`push_script_macos` in `lib/transport.sh`), which
+   would remove the share from the picture entirely. Filed upstream.
+
+Until one of those lands, **only the macOS leg can run** — it is the one that
+does not use the share.
 
 **The macOS leg is unaffected either way**, because vmkit tar.gz-pushes into
 macOS guests over stdin instead of using the share. That is why it can pass
