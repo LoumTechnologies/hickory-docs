@@ -92,24 +92,42 @@ Write-Output "   run exit=$($run.ExitCode)"
 if ($run.Out) { Write-Output "   out: $($run.Out)" }
 if ($run.Err) { Write-Output "   err: $($run.Err)" }
 
-# 1. A confined cell RUNS. If AppContainer cannot start a process at all, every
-#    other assertion here would pass vacuously.
 $woven = Join-Path $work 'confined.md'
 $wovenText = if (Test-Path $woven) { Get-Content $woven -Raw } else { '' }
-Phase 'a-confined-cell-runs' ($wovenText -match 'confined')
+$cellRan = [bool]($wovenText -match 'confined')
+# Phrases the executor uses when it declines to run rather than run
+# unconfined. Deliberately NOT a bare 'sandbox' match: this tool says the word
+# in its own configuration errors, so 'unknown HICKORY_EXECUTOR value
+# "sandbox"' -- a run that never started -- once satisfied this assertion.
+$refused = [bool]($run.Err -match 'cannot confine container|no sandbox available')
+
+# 0. The run reached a cell at all. Everything below is about what a cell was
+#    prevented from doing, and a run that never got that far did not do any of
+#    it either: a document that failed at startup writes nothing anywhere, so
+#    "nothing escaped" is true of it and means nothing. This assertion exists
+#    so that a stale or broken archive reads as a broken archive rather than as
+#    a working sandbox.
+Phase 'the-archive-can-run-a-confined-document' ($cellRan -or $refused)
+
+# 1. A confined cell RUNS. If AppContainer cannot start a process at all, every
+#    other assertion here would pass vacuously.
+Phase 'a-confined-cell-runs' $cellRan
 
 # 2. It cannot write outside its workdir. Checked on the HOST filesystem, not on
-#    the cell's exit code.
-Phase 'a-cell-cannot-write-outside-its-workdir' (-not (Test-Path $escape))
-if (Test-Path $escape) {
-    Write-Output "   the sandbox let a cell create $escape"
-    Remove-Item -LiteralPath $escape -ErrorAction SilentlyContinue
+#    the cell's exit code -- an installer that "succeeded" while writing nowhere
+#    is exactly the failure a sandbox has to rule out.
+if ($cellRan) {
+    Phase 'a-cell-cannot-write-outside-its-workdir' (-not (Test-Path $escape))
+    if (Test-Path $escape) {
+        Write-Output "   the sandbox let a cell create $escape"
+        Remove-Item -LiteralPath $escape -ErrorAction SilentlyContinue
+    }
+} else {
+    Phase-Skip 'a-cell-cannot-write-outside-its-workdir' 'no cell ran, so nothing could have escaped'
 }
 
 # 3. The executor did not quietly fall back to running unconfined. A refusal is
 #    an acceptable outcome for this guarantee; pretending is not.
-Phase 'did-not-silently-run-unconfined' (
-    ($wovenText -match 'confined') -or ($run.Err -match 'refus|no sandbox|sandbox')
-)
+Phase 'did-not-silently-run-unconfined' ($cellRan -or $refused)
 
 Vmkit-Result 'Windows AppContainer confinement'
