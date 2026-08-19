@@ -16,6 +16,13 @@ pub struct TermConfig {
     /// Lines of scrollback kept per session, server-side, so a closed pane
     /// can be reopened onto what it was showing.
     pub scrollback_lines: usize,
+    /// Whether to tell the shell to report its working directory.
+    ///
+    /// On by default, because without it the folder tree cannot follow a `cd`
+    /// on macOS at all (`shell_integration`). Off is for someone whose shell
+    /// startup is theirs alone and who would rather have a stale row than a
+    /// generated `.zshrc` in the chain.
+    pub integrate_shell: bool,
 }
 
 /// The shell to fall back to when the environment names none. Not a guess
@@ -37,6 +44,7 @@ impl Default for TermConfig {
         TermConfig {
             shell: FALLBACK_SHELL.to_string(),
             scrollback_lines: DEFAULT_SCROLLBACK_LINES,
+            integrate_shell: true,
         }
     }
 }
@@ -63,7 +71,33 @@ impl TermConfig {
         Ok(TermConfig {
             shell,
             scrollback_lines,
+            integrate_shell: parse_integration(std::env::var("HICKORY_SHELL_INTEGRATION").ok())?,
         })
+    }
+}
+
+/// `HICKORY_SHELL_INTEGRATION`, which is a switch rather than a value.
+///
+/// Refused rather than guessed at when it is neither on nor off: someone who
+/// typed `HICKORY_SHELL_INTEGRATION=yes` meant something, and silently
+/// choosing for them is how they conclude the setting does nothing.
+fn parse_integration(raw: Option<String>) -> Result<bool> {
+    let Some(raw) = raw else {
+        return Ok(true);
+    };
+    match raw.trim().to_ascii_lowercase().as_str() {
+        "" => Ok(true),
+        "1" | "true" | "on" | "yes" => Ok(true),
+        "0" | "false" | "off" | "no" => Ok(false),
+        other => bail!(
+            "HICKORY_SHELL_INTEGRATION must say whether to integrate with your shell, \
+             but was '{other}'.\n  \
+             Valid values are 1/true/on/yes and 0/false/off/no.\n  \
+             Next step: unset it to keep the default (on), or set \
+             HICKORY_SHELL_INTEGRATION=0 to leave your shell startup untouched — \
+             sessions then report the directory they were started in rather than \
+             the one they are working in."
+        ),
     }
 }
 

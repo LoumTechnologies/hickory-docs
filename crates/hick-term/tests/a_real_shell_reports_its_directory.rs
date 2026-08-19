@@ -26,6 +26,13 @@ fn shell_at(path: &str) -> bool {
     std::path::Path::new(path).is_file()
 }
 
+/// Wherever zsh lives on this machine.
+fn zsh_path() -> Option<&'static str> {
+    ["/bin/zsh", "/usr/bin/zsh", "/opt/homebrew/bin/zsh"]
+        .into_iter()
+        .find(|path| shell_at(path))
+}
+
 fn open(terminals: &Terminals, dir: &std::path::Path, argv: &[&str]) -> Arc<Session> {
     terminals
         .open(SessionSpec {
@@ -146,5 +153,220 @@ fn a_silent_shell_stays_where_it_started_and_admits_it() {
         "the fallback must be the directory the session started in"
     );
 
+    session.kill().ok();
+}
+
+/// The point of the whole thing: a plain shell, started the way the app starts
+/// it, follows a `cd` with nobody having typed an escape sequence.
+///
+/// This is the test that would have failed before shell integration existed —
+/// on macOS it is the *only* way this can pass, because no shell there emits
+/// OSC 7 on its own.
+#[test]
+fn an_integrated_shell_follows_a_cd_with_no_help() {
+    let Some(zsh) = zsh_path() else {
+        eprintln!("no zsh on this machine — skipped");
+        return;
+    };
+
+    let start = tempfile::tempdir().unwrap();
+    let elsewhere = tempfile::tempdir().unwrap();
+    let target = elsewhere.path().canonicalize().unwrap();
+
+    // The shell is started with no argv of its own, which is what a session
+    // opened from the app looks like, and what turns integration on.
+    let config = TermConfig {
+        shell: zsh.to_string(),
+        ..TermConfig::default()
+    };
+    assert!(
+        config.integrate_shell,
+        "integration is meant to be the default"
+    );
+    let terminals = Terminals::new(config);
+    let session = terminals
+        .open(SessionSpec {
+            title: "shell".to_string(),
+            cwd: start.path().to_path_buf(),
+            argv: Vec::new(),
+            monitor: false,
+        })
+        .expect("the shell starts");
+
+    session
+        .write(format!("cd {}\n", target.display()).as_bytes())
+        .unwrap();
+
+    // Waiting for `cwd_is_live` alone races the shell: it reports at its FIRST
+    // prompt, which is before the `cd` has been read, so the first live value
+    // is the directory it started in. The thing being tested is that it follows
+    // — so wait for where it should have followed to.
+    let after = wait_for(&session, Duration::from_secs(20), |s| {
+        s.cwd_is_live && std::path::Path::new(&s.cwd) == target.as_path()
+    });
+    assert!(
+        after.cwd_is_live,
+        "an integrated shell did not report its directory at all: {after:?}"
+    );
+    assert_eq!(
+        std::path::Path::new(&after.cwd),
+        target.as_path(),
+        "reported a directory, but never followed the cd"
+    );
+
+    session.kill().ok();
+}
+
+/// The user's own configuration still runs, which is the part that makes this
+/// acceptable at all. A generated `.zshrc` that quietly replaced theirs would
+/// be a worse bug than the one it fixes.
+#[test]
+fn integration_does_not_replace_the_users_own_zshrc() {
+    let Some(zsh) = zsh_path() else {
+        eprintln!("no zsh on this machine — skipped");
+        return;
+    };
+
+    // A home of their own, with a `.zshrc` that leaves a mark.
+    let home = tempfile::tempdir().unwrap();
+    std::fs::write(
+        home.path().join(".zshrc"),
+        "export HICKORY_USER_RC_RAN=indeed\n",
+    )
+    .unwrap();
+
+    let work = tempfile::tempdir().unwrap();
+    let terminals = Terminals::new(TermConfig {
+        shell: zsh.to_string(),
+        ..TermConfig::default()
+    });
+    // `ZDOTDIR` is what the integration forwards to, and setting it here is
+    // how this test stands in for a user who has one.
+    let previous = std::env::var("ZDOTDIR").ok();
+    // SAFETY: single-threaded test setup, restored below.
+    unsafe { std::env::set_var("ZDOTDIR", home.path()) };
+    let session = terminals
+        .open(SessionSpec {
+            title: "shell".to_string(),
+            cwd: work.path().to_path_buf(),
+            argv: Vec::new(),
+            monitor: false,
+        })
+        .expect("the shell starts");
+    match previous {
+        Some(value) => unsafe { std::env::set_var("ZDOTDIR", value) },
+        None => unsafe { std::env::remove_var("ZDOTDIR") },
+    }
+
+    session
+        .write(b"printf 'RC=%s\\n' \"$HICKORY_USER_RC_RAN\"\n")
+        .unwrap();
+
+    let screen = {
+        let deadline = Instant::now() + Duration::from_secs(20);
+        loop {
+            let text = session.screen_text();
+            if text.contains("RC=indeed") || Instant::now() > deadline {
+                break text;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    };
+    assert!(
+        screen.contains("RC=indeed"),
+        "the user's own .zshrc did not run:\n{screen}"
+    );
+
+    session.kill().ok();
+}
+
+/// Every shell we integrate with, into a directory whose name needs escaping.
+///
+/// The percent-encoding is where these two hooks differ, and the difference was
+/// a real bug: `printf '%d' "'é"` in bash reports -61 rather than 195, so the
+/// unmasked form emitted `%FFFFFFFFFFFFFFC3` and a directory with an accent in
+/// its name arrived as nonsense. zsh's printf does not sign-extend. Only a real
+/// shell in a real directory catches that, which is why this is here and not a
+/// unit test.
+#[test]
+fn an_integrated_shell_reports_a_directory_that_needs_escaping() {
+    let shells: Vec<&str> = ["/bin/zsh", "/usr/bin/zsh", "/bin/bash", "/usr/bin/bash"]
+        .into_iter()
+        .filter(|path| shell_at(path))
+        .collect();
+    assert!(!shells.is_empty(), "no zsh or bash on this machine at all");
+
+    for shell in shells {
+        let start = tempfile::tempdir().unwrap();
+        let elsewhere = tempfile::tempdir().unwrap();
+        // A space and a non-ASCII character, which is the whole point.
+        let awkward = elsewhere.path().join("dir with café");
+        std::fs::create_dir(&awkward).unwrap();
+        let target = awkward.canonicalize().unwrap();
+
+        let terminals = Terminals::new(TermConfig {
+            shell: shell.to_string(),
+            ..TermConfig::default()
+        });
+        let session = terminals
+            .open(SessionSpec {
+                title: "shell".to_string(),
+                cwd: start.path().to_path_buf(),
+                argv: Vec::new(),
+                monitor: false,
+            })
+            .expect("the shell starts");
+
+        session
+            .write(format!("cd '{}'\n", target.display()).as_bytes())
+            .unwrap();
+
+        let after = wait_for(&session, Duration::from_secs(20), |s| {
+            s.cwd_is_live && std::path::Path::new(&s.cwd) == target.as_path()
+        });
+        assert_eq!(
+            std::path::Path::new(&after.cwd),
+            target.as_path(),
+            "{shell} did not report a directory with a space and an accent \
+             correctly (live={}): {after:?}",
+            after.cwd_is_live
+        );
+        session.kill().ok();
+    }
+}
+
+/// The opt-out actually opts out.
+#[test]
+fn integration_can_be_turned_off() {
+    let Some(zsh) = zsh_path() else {
+        eprintln!("no zsh on this machine — skipped");
+        return;
+    };
+    let start = tempfile::tempdir().unwrap();
+    let terminals = Terminals::new(TermConfig {
+        shell: zsh.to_string(),
+        integrate_shell: false,
+        ..TermConfig::default()
+    });
+    let session = terminals
+        .open(SessionSpec {
+            title: "shell".to_string(),
+            cwd: start.path().to_path_buf(),
+            argv: Vec::new(),
+            monitor: false,
+        })
+        .expect("the shell starts");
+
+    session.write(b"cd /usr/share\n").unwrap();
+    let summary = wait_for(&session, Duration::from_secs(3), |s| s.cwd_is_live);
+    assert!(
+        !summary.cwd_is_live,
+        "integration was off and the shell still reported: {summary:?}"
+    );
+    assert_eq!(
+        std::path::Path::new(&summary.cwd),
+        start.path(),
+        "the fallback is still the directory it started in"
+    );
     session.kill().ok();
 }

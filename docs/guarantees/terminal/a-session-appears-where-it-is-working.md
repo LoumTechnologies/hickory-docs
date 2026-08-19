@@ -22,17 +22,33 @@ Four properties hold it up:
    `SessionSummary::cwd_is_live` says which of the two a reader is looking at,
    because the two are not equally trustworthy.
 
-   **On macOS, "when the shell says" means "almost never", and that was
-   measured.** Both system shells carry Apple's `update_terminal_cwd` hook, and
-   both gate it on `TERM_PROGRAM`: `/etc/zshrc` sources
-   `/etc/zshrc_$TERM_PROGRAM`, and only `/etc/zshrc_Apple_Terminal` exists. This
-   app sets `TERM` and not `TERM_PROGRAM` (`session.rs`), which is the truthful
-   answer and earns it zero OSC 7. So on macOS every session shows its
-   started-in directory, `cwd_is_live` is false for its whole life, and the
-   feature degrades to the fallback rather than working. Claiming to be
-   `Apple_Terminal` would light it up and would be a lie to every program that
-   asks; emitting the hook ourselves means writing into the user's shell startup.
-   Neither is chosen here, and the gap is written down instead of implied.
+   **No shell on macOS says it on its own, so the shell is told.** Both system
+   shells carry Apple's `update_terminal_cwd` hook and both gate it on
+   `TERM_PROGRAM`: `/etc/zshrc` sources `/etc/zshrc_$TERM_PROGRAM`, and only
+   `/etc/zshrc_Apple_Terminal` exists. Measured on macOS 15.7.7, `zsh -i` emits
+   **zero** OSC 7 sequences and `bash -l -i` zero, so every session's row sat at
+   its start directory for the life of the session.
+
+   [`shell_integration`](../../../crates/hick-term/src/shell_integration.rs)
+   closes that: a generated startup file that **sources the user's own
+   configuration first** and then adds one hook — `ZDOTDIR` for zsh, `--rcfile`
+   for bash. Nothing the user owns is edited and nothing persists; the scripts
+   live in a temporary directory that goes when the session does, and
+   `HICKORY_SHELL_INTEGRATION=0` turns it off. A shell that cannot be integrated
+   is still a working shell reporting its start directory, which is the
+   behaviour that was already shipping.
+
+   **Claiming to be Terminal.app was rejected, and not only for being a lie.**
+   That file is mostly *not* OSC 7 — it is Terminal.app's session save/restore
+   machinery, which splits the user's shell history into per-session files keyed
+   on `$TERM_SESSION_ID`. A terminal launched from another terminal inherits
+   that id, so every session in this app would share one history file; launched
+   from the Dock it would not. Instead the app now names itself —
+   `TERM_PROGRAM=HickoryDocs` — which is true, stops
+   `/etc/zshrc_$TERM_PROGRAM` matching somebody else's file, and removes the
+   worst property the old behaviour had: **OSC 7 used to work or not depending
+   on how the app was launched**, because `TERM_PROGRAM=Apple_Terminal` was
+   inherited from whatever started it.
 2. **A session is never hidden by the shape of the listing.** It is shown at
    the deepest directory the listing contains, which is its own working
    directory when that is listed and its nearest listed ancestor when the
@@ -61,10 +77,18 @@ An unterminated sequence is abandoned at a bounded size rather than growing.
 Last LLM verification:
 - Date: 2026-08-18
 - Reviewer: Claude (Opus 5)
-- Result: verified; the OSC 7 assumption was **measured on Apple hardware** and
-  the macOS answer turned out to be that the shells stay silent — see the
-  caveats
-- Evidence: `crates/hick-term/src/screen.rs` — the `Osc` state machine in
+- Result: verified; the OSC 7 assumption was **measured on Apple hardware**, the
+  macOS answer turned out to be that no shell says it, and the shell is now told
+  — see the caveats
+- Evidence: `crates/hick-term/src/shell_integration.rs` — the generated
+  `ZDOTDIR` trampoline (all four zsh startup files forwarded, because setting
+  `ZDOTDIR` moves every one of them and a dropped `.zshenv` is a dropped
+  `PATH`), the bash `--rcfile`, and the byte-wise percent-encoding both hooks
+  emit. Applied in `session.rs::spawn`, and only when the session has no `argv`
+  of its own — a session running somebody's command is not one whose startup we
+  rewrite. `TermConfig::integrate_shell` reads
+  `HICKORY_SHELL_INTEGRATION`, validated at boot like the rest.
+  `crates/hick-term/src/screen.rs` — the `Osc` state machine in
   `Screen::scan_osc`, `cwd_from_osc7` (host ignored deliberately),
   `percent_decode`, and `MAX_OSC`. `crates/hick-term/src/session.rs` —
   `SessionSummary::cwd` now prefers the live directory, with `cwd_is_live`
@@ -85,7 +109,8 @@ Last LLM verification:
   render tests covering the click, the collapsed-directory count, and a session
   elsewhere not appearing.
 - Caveats — what LLM review could NOT establish:
-  - **A shell is now driven, and macOS's answer is "no".** Measured 2026-08-18
+  - **A shell is now driven, macOS's answer was "no", and it is now told.**
+    Measured 2026-08-18
     on a MacBook Pro (MacBookPro15,1, Intel Core i7), macOS 15.7.7, by running
     each shell in a real PTY, `cd`-ing twice, and counting OSC 7 sequences in
     what came back:
@@ -108,6 +133,25 @@ Last LLM verification:
     follows to the new directory with `cwd_is_live` true; the other lets a silent
     shell `cd` and asserts the session stays at its started-in directory with
     `cwd_is_live` false. Both pass on macOS 15.7.7.
+  - **Shell integration is covered by real shells, and found a bug in its own
+    hook.** `crates/hick-term/tests/a_real_shell_reports_its_directory.rs` (6
+    tests) drives zsh and bash through real PTYs: an integrated shell follows a
+    `cd` with nobody typing an escape sequence, the user's own `.zshrc` still
+    runs, the opt-out opts out, a silent shell still admits it is not live, and
+    a directory named `dir with café` round-trips. That last one exists because
+    it failed: `printf '%d' "'é"` in bash reports −61 rather than 195 — it
+    sign-extends — so the first version emitted `%FFFFFFFFFFFFFFC3` and a
+    directory with an accent arrived as nonsense. zsh's printf does not do this,
+    so only one of the two hooks needs the masking, and only a real shell in a
+    real directory catches it.
+  - **Only zsh and bash are integrated.** `sh` is deliberately not, because a
+    shell invoked as `sh` is in POSIX mode and reads a different file, and
+    guessing which is how a startup file gets sourced twice. fish and
+    PowerShell are not handled at all. Those sessions report their start
+    directory, honestly, as before. A `bash -l` session is also not covered:
+    `--rcfile` is ignored by a login shell.
+  - **Windows is untested here.** The integration is Unix-shaped, and nothing
+    has run on Windows.
   - **Nothing was seen in a running window.** The rows typecheck and their
     tests pass under jsdom; how a folder with twenty sessions in it reads, and
     whether the count badge is noticed, is unverified.

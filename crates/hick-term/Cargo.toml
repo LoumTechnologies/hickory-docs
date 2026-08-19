@@ -18,6 +18,9 @@ portable-pty = "0.8"
 vt100 = "0.15"
 serde = { version = "1", features = ["derive"] }
 tokio = { version = "1", features = ["sync"] }
+# Shell integration writes a startup file per session and deletes it with the
+# session. Nothing the user owns is edited, so the scripts have to live
+# somewhere that cleans itself up.
+tempfile = "3"
 
 [dev-dependencies]
-tempfile = "3"

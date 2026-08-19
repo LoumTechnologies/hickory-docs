@@ -24,6 +24,8 @@
 //!   "finished, and now what?".
 //! - [`config`] — `HICKORY_SHELL` and `HICKORY_TERM_SCROLLBACK`, typed and
 //!   validated at startup.
+//! - [`shell_integration`] — how a shell is told to report its directory,
+//!   since on macOS none of them does by default.
 //!
 //! ## What is not here
 //!
@@ -40,6 +42,7 @@ pub mod prompt;
 pub mod registry;
 pub mod screen;
 pub mod session;
+pub mod shell_integration;
 pub mod turbo;
 
 pub use attention::{Claim, attention_order};
@@ -50,4 +53,5 @@ pub use prompt::{looks_like_a_question, question_in};
 pub use registry::Terminals;
 pub use screen::Screen;
 pub use session::{Choice, Prompt, PromptSource, Session, SessionSpec, SessionSummary};
+pub use shell_integration::Integration;
 pub use turbo::turbo_choice;

@@ -114,6 +114,9 @@ pub struct Session {
     /// means what it says.
     state_since: Mutex<(SessionState, u64)>,
     git: Mutex<Option<GitFacts>>,
+    /// The generated shell startup files, held so they outlive the shell that
+    /// is reading them and go when the session goes.
+    _integration: Option<crate::shell_integration::Integration>,
 }
 
 fn now_ms() -> u64 {
@@ -149,6 +152,43 @@ impl Session {
         // Programs that ask what they are talking to should get a truthful
         // answer; xterm.js is xterm-256color.
         cmd.env("TERM", "xterm-256color");
+        // And a truthful answer to "which terminal", which is not the same as
+        // no answer.
+        //
+        // Whatever launched the app is in this process's environment, so a
+        // session started from Terminal.app inherited `TERM_PROGRAM=
+        // Apple_Terminal` and the shell then ran `/etc/zshrc_Apple_Terminal` —
+        // OSC 7 by accident, plus Terminal.app's session-history machinery,
+        // and only when the app happened to be launched from a terminal. From
+        // the Dock it got neither. Behaviour that depends on how the app was
+        // started is the kind nobody can reproduce.
+        //
+        // Naming ourselves fixes that in the honest direction: it is true, it
+        // stops `/etc/zshrc_$TERM_PROGRAM` matching somebody else's file, and
+        // it is how a user's own config can tell it is us. `shell_integration`
+        // is what provides OSC 7 now, on purpose rather than by inheritance.
+        cmd.env("TERM_PROGRAM", "HickoryDocs");
+
+        // Teach the shell to report where it is, but only when the session IS
+        // a shell. A session given its own `argv` is running somebody's
+        // command, and rewriting the startup of `zsh -f -i` or `cargo watch`
+        // would be changing what they asked for.
+        //
+        // `TERM_PROGRAM` is deliberately left alone — see `shell_integration`
+        // for what claiming to be Terminal.app would actually do.
+        let integration = if spec.argv.is_empty() && config.integrate_shell {
+            crate::shell_integration::Integration::install(&config.shell)
+        } else {
+            None
+        };
+        if let Some(integration) = &integration {
+            for (key, value) in integration.env() {
+                cmd.env(key, value);
+            }
+            for arg in integration.args() {
+                cmd.arg(arg);
+            }
+        }
 
         let child = pair.slave.spawn_command(cmd).with_context(|| {
             let what = spec
@@ -178,6 +218,7 @@ impl Session {
         let (output, _) = broadcast::channel(1024);
         let session = Arc::new(Session {
             id,
+            _integration: integration,
             git: Mutex::new(git::facts(&spec.cwd)),
             screen: Mutex::new(Screen::new(24, 80, config.scrollback_lines)),
             output,
