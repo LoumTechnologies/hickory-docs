@@ -106,10 +106,75 @@ jobs:
           mv "$dir/$asset" "$dir/hick-${triple}.${ext}"
           ls -l "$dir"
 
+      # Claim the whole VM host for this leg.
+      #
+      # GitHub's `concurrency` group above serializes runs of THIS workflow, and
+      # the single runner serializes the legs within one run. Neither knows
+      # about anything else sharing the Mac — a second self-hosted runner for
+      # another repository, an agent session, or a person using a guest — and
+      # vmkit's `ensure_only` resolves contention by STOPPING every other
+      # running VM, so a job landing mid-session powers off somebody's work
+      # instead of waiting for it.
+      #
+      # A hold inverts that: while it is held, every other vmkit invocation
+      # REFUSES (exit 1) rather than starting a second VM or stopping this one.
+      # That is what makes "one VM at a time" true across everything on the
+      # host, not just across this workflow.
+      #
+      # Failing to acquire is a hard failure on purpose. Continuing unheld would
+      # mean `ensure_only` stomping whoever is holding.
+      - name: Claim the VM host
+        run: |
+          set -euo pipefail
+          # TTL just past `timeout-minutes`, so a leg killed without reaching
+          # the release step below frees the host by itself a few minutes later
+          # rather than blocking every leg after it until someone notices.
+          if ! token=$(vmkit hold --print-token --ttl 2100                 -- "hickory-docs VM Tests ${{ matrix.platform }} (run ${{ github.run_id }})" 2>err.log | tail -1); then
+            echo "::error::could not claim the VM host — something else is using it"
+            cat err.log
+            vmkit hold --status || true
+            echo "Release it with 'vmkit unhold' on the host if it is stale."
+            exit 1
+          fi
+          echo "::add-mask::$token"
+          echo "VMKIT_HOLD_TOKEN=$token" >> "$GITHUB_ENV"
+
+      # Defence in depth, because the hold is COOPERATIVE: it guards vmkit's own
+      # paths, not `prlctl start` typed by hand or a guest resumed from the
+      # Parallels UI. If two are already up, the invariant is broken before this
+      # job touched anything and the run should say so rather than adding a
+      # third.
+      - name: Assert the host is running at most one VM
+        run: |
+          set -euo pipefail
+          running=$(prlctl list -o name --no-header | sed '/^[[:space:]]*$/d' | wc -l | tr -d ' ')
+          echo "VMs running: $running"
+          prlctl list -o name,status --no-header || true
+          if [ "$running" -gt 1 ]; then
+            echo "::error::$running VMs are running; vmkit's one-VM-at-a-time invariant is already broken"
+            exit 1
+          fi
+
       - name: Test the download on a pristine ${{ matrix.platform }} guest
         env:
           HICKORY_EXPECT_VERSION: ${{ steps.release.outputs.version }}
         run: vmkit test ${{ matrix.platform }} download
+
+      - name: Assert the host is still running at most one VM
+        if: always()
+        run: |
+          running=$(prlctl list -o name --no-header | sed '/^[[:space:]]*$/d' | wc -l | tr -d ' ')
+          echo "VMs running: $running"
+          if [ "$running" -gt 1 ]; then
+            echo "::error::this leg left $running VMs running"
+            exit 1
+          fi
+
+      # Always, including cancellation: a hold that outlives its job blocks
+      # every later leg until its TTL expires.
+      - name: Release the VM host
+        if: always()
+        run: vmkit unhold || true
 
       - name: What the host thinks of itself afterwards
         if: always()
