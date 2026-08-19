@@ -675,19 +675,21 @@ mod tests {
         assert_eq!(content, refreshed);
     }
 
+    /// Unix only: Windows has no executable bit, so there is nothing here to
+    /// assert. Gating the whole test rather than its body, because the inner
+    /// `cfg` left `report` bound and unused on Windows — which `-D warnings`
+    /// rejects.
+    #[cfg(unix)]
     #[test]
     fn hook_is_executable() {
+        use std::os::unix::fs::PermissionsExt as _;
         let repo = init_repo();
         let report = run_init(repo.path()).unwrap();
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt as _;
-            let mode = std::fs::metadata(&report.hook_path)
-                .unwrap()
-                .permissions()
-                .mode();
-            assert_eq!(mode & 0o111, 0o111, "hook not executable: {mode:o}");
-        }
+        let mode = std::fs::metadata(&report.hook_path)
+            .unwrap()
+            .permissions()
+            .mode();
+        assert_eq!(mode & 0o111, 0o111, "hook not executable: {mode:o}");
     }
 
     #[test]

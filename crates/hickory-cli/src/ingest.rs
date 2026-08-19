@@ -291,6 +291,13 @@ fn read_origin_attribute(path: &Path) -> Option<String> {
 
 /// The first `http(s)` URL recorded in an origin attribute.
 ///
+/// Unix only, and everything it calls with it: the Windows reader parses an
+/// NTFS `Zone.Identifier` stream, which is `HostUrl=…` lines rather than a
+/// binary plist, so none of this is reachable there. Without the gate they are
+/// dead code on Windows and `-D warnings` refuses the build — which is how they
+/// broke that target, unnoticed, until CI grew a job that compiles it.
+#[cfg(unix)]
+///
 /// Two shapes arrive here. Linux writes a plain URL string. macOS writes a
 /// **binary plist**, and that one is parsed rather than scanned — see
 /// `bplist_strings` for the byte that made scanning wrong.
@@ -309,6 +316,7 @@ fn first_url(bytes: &[u8]) -> Option<String> {
     is_http_url(&url).then_some(url)
 }
 
+#[cfg(unix)]
 fn is_http_url(value: &str) -> bool {
     value.starts_with("http://") || value.starts_with("https://")
 }
@@ -327,6 +335,7 @@ fn is_http_url(value: &str) -> bool {
 ///
 /// Only what this attribute contains is decoded: the offset table, and string
 /// objects. Anything else is skipped rather than misread.
+#[cfg(unix)]
 fn bplist_strings(bytes: &[u8]) -> Vec<String> {
     // The trailer is the last 32 bytes and holds everything needed to walk the
     // offset table: how wide an offset is, how many objects there are, where the
@@ -363,11 +372,13 @@ fn bplist_strings(bytes: &[u8]) -> Vec<String> {
 }
 
 /// A big-endian integer of however many bytes it was given.
+#[cfg(unix)]
 fn be_usize(bytes: &[u8]) -> usize {
     bytes.iter().fold(0usize, |acc, b| (acc << 8) | *b as usize)
 }
 
 /// One plist object, decoded only if it is a string.
+#[cfg(unix)]
 fn bplist_string_at(bytes: &[u8], at: usize) -> Option<String> {
     const ASCII: u8 = 0x5;
     const UTF16: u8 = 0x6;
@@ -913,7 +924,9 @@ pub fn ingest_inbox(root: &Path, config: &InboxConfig) -> Result<Vec<Outcome>> {
     Ok(out)
 }
 
-#[cfg(test)]
+// Unix only, like the parser they cover: the fixtures are macOS extended
+// attributes and the functions under test are not compiled on Windows.
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
 
