@@ -103,6 +103,11 @@ pub struct Session {
     writer: Mutex<Box<dyn Write + Send>>,
     master: Mutex<Box<dyn MasterPty + Send>>,
     child: Mutex<Box<dyn Child + Send + Sync>>,
+    /// Read only by `foreground_child`, which is Unix-only — a ConPTY has no
+    /// process group to compare this against. Kept rather than `cfg`-ed away
+    /// because it is the child's identity, not a Unix detail, and the next
+    /// thing that wants it will want it on both platforms.
+    #[cfg_attr(windows, allow(dead_code))]
     child_pid: Option<u32>,
     last_output: Mutex<Instant>,
     exit: Mutex<Option<i32>>,
@@ -369,6 +374,26 @@ impl Session {
 
     /// Whether something other than the session's own shell holds the
     /// terminal. `None` where the platform will not say.
+    ///
+    /// Windows is one of those platforms, and this is the `None` the signature
+    /// already promised rather than a gap opened here. A ConPTY has no process
+    /// group to ask about, so `portable-pty` offers `process_group_leader` on
+    /// Unix only — calling it unconditionally is what stopped the whole
+    /// workspace compiling for Windows, unnoticed, because no job built that
+    /// target until CI grew one.
+    ///
+    /// The cost is that `classify` cannot tell "a command is running" from "the
+    /// shell is idle" on Windows, so a session there leans on its other signals
+    /// (output, exit code, a declared prompt). Worth knowing before trusting the
+    /// attention queue on that platform.
+    #[cfg(windows)]
+    fn foreground_child(&self) -> Option<bool> {
+        None
+    }
+
+    /// Whether something other than the session's own shell holds the
+    /// terminal. `None` where the platform will not say.
+    #[cfg(not(windows))]
     fn foreground_child(&self) -> Option<bool> {
         let leader = self
             .master
