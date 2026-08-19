@@ -417,11 +417,7 @@ impl LocalExecutor {
     /// one refactor away from a probe showing up in somebody's document.
     pub async fn probe_command(&self, container: &str, command: &str) -> Result<bool> {
         let workdir = self.workdir_for(container)?;
-        let (shell, shell_flag) = Self::shell();
-        let status = tokio::process::Command::new(shell)
-            .arg(shell_flag)
-            .arg(command)
-            .current_dir(&workdir)
+        let status = Self::shell_command(command, &workdir)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
@@ -467,6 +463,38 @@ impl LocalExecutor {
         } else {
             ("sh", "-c")
         }
+    }
+
+    /// The platform shell, ready to run `command`.
+    ///
+    /// The Windows half is why this exists. `cmd.exe /C` takes the rest of the
+    /// command line **as text**, but `Command::arg` quotes what it is given for
+    /// `CommandLineToArgvW` — so a command that already carries quotes gets
+    /// them escaped again, and `"C:\path\hick.exe" __sandbox-run …` reaches cmd
+    /// as `\"C:\path\hick.exe\" …`, which it reports as
+    /// `'\"C:\path\hick.exe\"' is not recognized as an internal or external
+    /// command`. Every confined cell failed that way — the sandbox could not
+    /// launch anything at all, which is worse than not confining, because the
+    /// document simply does not run.
+    ///
+    /// `raw_arg` hands the string over untouched, which is what a shell taking
+    /// a command line needs. `sh -c` already works that way, so only Windows
+    /// changes.
+    fn shell_command(command: &str, workdir: &std::path::Path) -> tokio::process::Command {
+        let (shell, shell_flag) = Self::shell();
+        let mut cmd = tokio::process::Command::new(shell);
+        cmd.arg(shell_flag);
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt as _;
+            cmd.as_std_mut().raw_arg(command);
+        }
+        #[cfg(not(windows))]
+        {
+            cmd.arg(command);
+        }
+        cmd.current_dir(workdir);
+        cmd
     }
 
     /// Kill a spawned command hard, group and all where the platform allows.
@@ -518,27 +546,24 @@ impl LocalExecutor {
         }
 
         info!("[local:{container}] executing: {}", display.trim());
-        let (shell, shell_flag) = Self::shell();
-        let mut cmd = tokio::process::Command::new(shell);
-        cmd.arg(shell_flag)
-            .arg(command)
-            .current_dir(&workdir)
-            .stdin(if stdin_data.is_some() {
-                Stdio::piped()
-            } else {
-                Stdio::null()
-            })
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            // Belt and braces for the timeout path: if this future is ever
-            // dropped instead of driven to the explicit kill, the direct
-            // child still dies with it.
-            .kill_on_drop(true);
+        let mut cmd = Self::shell_command(command, &workdir);
+        cmd.stdin(if stdin_data.is_some() {
+            Stdio::piped()
+        } else {
+            Stdio::null()
+        })
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        // Belt and braces for the timeout path: if this future is ever
+        // dropped instead of driven to the explicit kill, the direct
+        // child still dies with it.
+        .kill_on_drop(true);
         // Its own process group, so a timeout can kill the shell AND
         // whatever the shell spawned (see `kill_hard`).
         #[cfg(unix)]
         cmd.process_group(0);
         let mut child = cmd.spawn().with_context(|| {
+            let (shell, shell_flag) = Self::shell();
             format!("failed to spawn `{shell} {shell_flag}` in container '{container}'")
         })?;
         let child_pid = child.id();
