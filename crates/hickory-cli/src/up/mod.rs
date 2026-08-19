@@ -24,7 +24,7 @@ pub mod state;
 
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::time::{Duration, Instant, SystemTime};
 
 use anyhow::{Context, Result};
 use fs2::FileExt;
@@ -103,6 +103,83 @@ const WEAVE_DEBOUNCE: Duration = Duration::from_millis(120);
 /// The same, for a loop that executes cells. Running is expensive and a burst
 /// of saves should collapse into one run, so this waits longer for quiet.
 const RUN_DEBOUNCE: Duration = Duration::from_millis(500);
+
+/// How long to wait for the files in a batch to stop changing, and how often to
+/// look while waiting.
+///
+/// The debounce above answers "has the directory been quiet", which is not the
+/// same question as "has this file finished being written" — and an editor that
+/// truncates and then dribbles its buffer in stalls for longer than any quiet
+/// period you would want to wait on every save. When that happens the batch
+/// fires on a half-written file, the loop maps it back, and the document loses
+/// whatever had not been written yet.
+///
+/// `ingest.rs` already answers the same question for a file arriving in an
+/// inbox (`has_settled`, size-stability polling). This is that idea applied to
+/// the one other place the loop reads a file somebody else is writing.
+const BATCH_SETTLE_BUDGET: Duration = Duration::from_millis(2_000);
+const BATCH_SETTLE_POLL: Duration = Duration::from_millis(40);
+/// How long everything must hold still before the batch is believed.
+///
+/// Two consecutive equal polls are NOT enough, and that is the whole subtlety:
+/// a writer that pauses between chunks looks identical either side of a short
+/// poll, so "unchanged since 40ms ago" reports a half-written file as finished.
+/// Stability has to be measured as a continuous window longer than the pauses a
+/// writer takes, not as a single comparison.
+///
+/// 300ms is a heuristic and worth naming as one. It comfortably exceeds the
+/// gaps a real editor leaves — those are sub-millisecond, since an editor
+/// writes its buffer in one call or a few back-to-back — while staying under
+/// what a person notices on save. A writer that stalls longer than this between
+/// chunks still defeats it; `BATCH_SETTLE_BUDGET` bounds the damage, and the
+/// events its later writes produce bring the loop back to correct the document.
+const BATCH_SETTLE_STABLE_FOR: Duration = Duration::from_millis(300);
+
+/// What every path in the batch looks like right now: size and modification
+/// time, or `None` where it does not exist.
+///
+/// Size alone would miss a rewrite that happens to land on the same length, and
+/// mtime alone is too coarse on filesystems with second granularity. Together
+/// they are cheap and catch both.
+fn fingerprints(batch: &HashSet<PathBuf>) -> HashMap<PathBuf, Option<(u64, Option<SystemTime>)>> {
+    batch
+        .iter()
+        .map(|path| {
+            let stat = std::fs::metadata(path)
+                .ok()
+                .map(|m| (m.len(), m.modified().ok()));
+            (path.clone(), stat)
+        })
+        .collect()
+}
+
+/// Wait until nothing in `batch` is still being written.
+///
+/// Costs `BATCH_SETTLE_STABLE_FOR` in the common case, because that is how long
+/// a file nobody is touching has to sit still before it is believed.
+///
+/// If the budget runs out the batch is handled anyway rather than dropped: a
+/// write still going after two seconds keeps producing filesystem events, so
+/// the next cycle re-reads it and corrects whatever this one got wrong —
+/// whereas dropping the batch would lose the update outright if the writer
+/// happened to finish in the gap.
+async fn settle_batch(batch: &HashSet<PathBuf>) {
+    let deadline = Instant::now() + BATCH_SETTLE_BUDGET;
+    let mut last = fingerprints(batch);
+    let mut unchanged_since = Instant::now();
+    while Instant::now() < deadline {
+        tokio::time::sleep(BATCH_SETTLE_POLL).await;
+        let current = fingerprints(batch);
+        if current == last {
+            if unchanged_since.elapsed() >= BATCH_SETTLE_STABLE_FOR {
+                return;
+            }
+        } else {
+            last = current;
+            unchanged_since = Instant::now();
+        }
+    }
+}
 
 /// What `hick up` was asked to do.
 pub struct UpConfig {
@@ -297,6 +374,9 @@ pub async fn run(config: UpConfig) -> Result<()> {
                 Err(_) => break,
             }
         }
+        // Quiet is not the same as finished. Wait for the files themselves to
+        // stop changing before anything reads them.
+        settle_batch(&batch).await;
         // A file dropped in the inbox becomes a note, and the note joins this
         // batch so it is woven in the same cycle rather than the next one.
         if batch

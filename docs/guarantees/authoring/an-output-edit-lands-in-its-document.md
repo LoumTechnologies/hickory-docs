@@ -84,8 +84,9 @@ Last LLM verification:
   load: bursts of 20–30 saves with and without pauses, interleaved document and
   output edits, an edit typed while a two-second cell is running, a non-atomic
   truncate-and-dribble save, and ten documents edited at once. Its assertions
-  are convergence properties polled to a deadline, never timings, so a loaded
-  runner cannot make them flake.
+  are convergence properties polled to a deadline rather than timings — with one
+  exception, corrected 2026-08-19 and described below, where the test was
+  arithmetic-dependent and did flake on a loaded runner.
   `crates/hickory-cli/tests/up_loop.rs` —
   `an_edit_saved_in_a_woven_file_lands_in_the_document` drives the real binary
   and saves the way an editor does (write sibling, rename over target);
@@ -115,3 +116,35 @@ Last LLM verification:
   during them. A pathological writer that never pauses could in principle keep
   the loop permanently behind; nothing here proves it cannot, and the honest
   contract is eventual agreement rather than bounded latency.
+- **A half-written save could reach the document, found 2026-08-19 by running
+  this suite on macOS for the first time.** The loop debounced on *quiet* — it
+  collected watcher events until the directory had been still for 120ms — and
+  quiet is not the same question as "has this file finished being written". An
+  editor that truncates and dribbles its buffer in stalls longer than that, the
+  batch fires on a half-written file, and the loop maps it back: the document
+  lost `def describe():` entirely, and on the CI runner it stayed lost.
+  `up/mod.rs::settle_batch` now waits for every path in the batch to hold still
+  for a continuous window before anything reads it, which is `ingest.rs`'s
+  `has_settled` idea applied to the other place the loop reads a file somebody
+  else is writing.
+
+  Two things about that fix are worth keeping in mind. **Two equal polls are not
+  stability** — a paused writer looks identical either side of a short poll, and
+  the first version of this fix passed its own test for that reason; the window
+  has to be continuous and longer than the pauses a writer takes. And **300ms is
+  a heuristic**, comfortably above a real editor's sub-millisecond gaps and below
+  what a person notices on save, but a writer that stalls longer still defeats
+  it — the budget bounds the wait, and the events its later writes produce bring
+  the loop back to correct the document.
+
+  **The test that caught it was passing for the wrong reason**, which is the more
+  useful half. It paused 30ms between chunks against a 120ms debounce, so the
+  batch could only fire mid-write on a machine slow enough to stall a chunk past
+  120ms — it passed by arithmetic rather than by the product being correct, and
+  its own comment claimed the pauses were "long enough for the debounce to fire".
+  It also wrote 12-byte chunks of a 60-byte file and, when that was first
+  "fixed" to 64-byte chunks, wrote the whole file in one go and proved nothing.
+  It now pauses longer than the debounce, chunks smaller than the file, and
+  watches the document *during* the write rather than after — the violation is
+  transient, because the last chunk heals it, so asserting on the final state
+  only catches it at random.

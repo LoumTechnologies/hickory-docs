@@ -382,16 +382,67 @@ fn a_non_atomic_save_does_not_push_a_partial_file_into_the_document() {
         .expect("read")
         .replace("\"start\"", "\"slowly-written\"");
 
-    // Truncate, then dribble the content in with pauses long enough for the
-    // debounce to fire on a partial file.
-    {
-        let mut file = std::fs::File::create(&output).expect("truncate");
-        for chunk in target.as_bytes().chunks(12) {
-            file.write_all(chunk).expect("write chunk");
-            file.flush().expect("flush");
-            std::thread::sleep(Duration::from_millis(30));
+    // Truncate, then dribble the content in.
+    //
+    // Two numbers make this deterministic, and BOTH were wrong before:
+    //
+    // * the pause must exceed the debounce, or the loop never sees a quiet
+    //   directory holding a half-written file. It paused 30ms against a 120ms
+    //   weave debounce, so the batch fired only when a machine was slow enough
+    //   to stall a chunk past 120ms — the test passed by arithmetic, and failed
+    //   the first time it ran on a loaded CI runner;
+    // * the chunk must be smaller than the file, or there is no partial state
+    //   at all. `notes.py` is about 60 bytes, so 64-byte chunks wrote it in one
+    //   go and the test proved nothing while passing in a second.
+    //
+    // 16 bytes and 200ms give several genuinely partial states, the first of
+    // which already carries the marker: `MARKER = "slowly-written"` sits at the
+    // top of the file and `def describe():` below it.
+    let writer = {
+        let output = output.clone();
+        std::thread::spawn(move || {
+            let mut file = std::fs::File::create(&output).expect("truncate");
+            for chunk in target.as_bytes().chunks(16) {
+                file.write_all(chunk).expect("write chunk");
+                file.flush().expect("flush");
+                std::thread::sleep(Duration::from_millis(200));
+            }
+        })
+    };
+
+    // Watch the document WHILE it is written, because the violation is
+    // transient: once the last chunk lands the loop maps the whole file back
+    // and the document heals itself. Asserting only on the final state catches
+    // this the way CI did — occasionally, on a slow machine, at random.
+    //
+    // A document carrying the new marker without the rest of the file is a
+    // half-written save that reached it, which is exactly what the guarantee
+    // forbids.
+    // `def describe():` is in the document before the save starts and in the
+    // file being written, so it must be there at EVERY instant in between. Its
+    // disappearance means a truncated read was mapped back and ate it.
+    //
+    // Checked continuously rather than at the end, because the violation is
+    // transient — once the last chunk lands the loop maps the whole file back
+    // and the document heals. Asserting only on the final state catches this
+    // the way CI did: occasionally, on a slow machine, at random.
+    let mut partial_seen: Option<String> = None;
+    while !writer.is_finished() {
+        if let Ok(content) = std::fs::read_to_string(&doc)
+            && !content.contains("def describe():")
+        {
+            partial_seen = Some(content);
+            break;
         }
+        std::thread::sleep(Duration::from_millis(10));
     }
+    writer.join().expect("the writer finished");
+
+    assert!(
+        partial_seen.is_none(),
+        "a half-written save reached the document:\n{}",
+        partial_seen.unwrap_or_default()
+    );
 
     let settled =
         settle(&doc, |c| c.contains("slowly-written")).expect("the finished content must land");
