@@ -731,8 +731,15 @@ fn a_cell_is_confined_unless_someone_says_otherwise() {
         "with no HICKORY_EXECUTOR set, a cell saw {confined} entries in $HOME and an \
          explicitly-local one saw {unconfined} — the default is not confining anything"
     );
-    // `.` and `..` are all an empty home has, plus whatever toolchains were
-    // bound back in read-only.
-    assert!(confined >= 2, "the cell had no home at all: {confined}");
+    // How the home is taken away differs by sandbox, and only bubblewrap's way
+    // leaves anything to count. It mounts a tmpfs, so `.` and `..` remain,
+    // plus whatever toolchains were bound back in read-only. Seatbelt cannot
+    // mount anything and denies the read instead, which lists nothing at all —
+    // the same guarantee reached by a stricter route, so asserting a floor here
+    // would be asserting bubblewrap's mechanism rather than the promise.
+    if hickory_executor_sandbox::Sandbox::detect() == hickory_executor_sandbox::Sandbox::Bubblewrap
+    {
+        assert!(confined >= 2, "the cell had no home at all: {confined}");
+    }
     eprintln!("OK default: unset HICKORY_EXECUTOR confines ({confined} vs {unconfined} in $HOME)");
 }

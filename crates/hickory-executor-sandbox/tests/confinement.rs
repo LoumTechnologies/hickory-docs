@@ -59,16 +59,19 @@ async fn a_cell_cannot_write_outside_its_workdir() {
         "the sandbox let a cell create a file in /etc"
     );
 
-    // $HOME is the more realistic target. A write there SUCCEEDS inside the
-    // sandbox — the cell has a private, empty home on a tmpfs, so tools that
-    // want a cache directory still work — and lands nowhere: the host's home
-    // never sees it. That is the property worth asserting, not the exit code.
+    // $HOME is the more realistic target, and the property worth asserting is
+    // the same on both sandboxes even though they reach it differently: the
+    // host's home never sees the write. Bubblewrap mounts a private tmpfs
+    // home, so the write SUCCEEDS and lands nowhere — tools that want a cache
+    // directory still work. Seatbelt cannot mount anything, so it denies the
+    // write outright. Asserting the exit code would be asserting the
+    // mechanism; asserting the host's home is asserting the guarantee.
     let home = std::env::var("HOME").unwrap_or_else(|_| "/root".into());
     let escape = format!("touch {home}/hickory-should-not-exist && echo WROTE");
-    executor
-        .execute("c", &escape)
-        .await
-        .expect("a private home is writable inside the sandbox");
+    let wrote = executor.execute("c", &escape).await;
+    if Sandbox::detect() == Sandbox::Bubblewrap {
+        wrote.expect("a private home is writable inside the sandbox");
+    }
     assert!(
         !std::path::Path::new(&format!("{home}/hickory-should-not-exist")).exists(),
         "the sandbox let a cell write into the real $HOME"
@@ -207,6 +210,26 @@ async fn two_containers_do_not_share_a_tmp() {
     // The other half: shared WITHIN a container, private BETWEEN them. A
     // single shared /tmp would let one container read another's scratch
     // files, which is the isolation this executor exists to provide.
+    //
+    // Bubblewrap only. **Seatbelt cannot do this and it is not an oversight**:
+    // it has no mount namespaces, so the literal path `/tmp` is one directory
+    // for every process on the machine and there is nowhere to redirect it to.
+    // The alternative — denying `/tmp` outright — would break the sibling test
+    // above and every document that writes a scratch file there, trading a
+    // real capability for an isolation property macOS will not give either
+    // way. Recorded as a boundary in
+    // docs/guarantees/execution/a-sandboxed-cell-cannot-reach-past-its-workdir.md;
+    // a run that needs it wants the Docker executor. Each container's *own*
+    // tmp directory is still private — that part is covered by
+    // `a_cell_cannot_read_another_containers_workdir`.
+    if Sandbox::detect() != Sandbox::Bubblewrap {
+        eprintln!(
+            "skipped: {:?} cannot give each container a private /tmp — see the \
+             guarantee's Boundary section",
+            Sandbox::detect()
+        );
+        return;
+    }
     let executor = started().await;
     executor.ensure_started("other", "alpine").await.unwrap();
     executor

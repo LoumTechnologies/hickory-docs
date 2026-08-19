@@ -329,6 +329,34 @@ impl LocalExecutor {
         self.workdir_for(container)
     }
 
+    /// Every OTHER container's workdir and private tmp, for a sandbox that has
+    /// to be told what to hide.
+    ///
+    /// Bubblewrap gets this from namespaces: it binds one workdir into the
+    /// cell's mount namespace and the rest simply do not exist. Seatbelt has no
+    /// namespaces and allows reads globally, so it has to name what to deny —
+    /// and naming the *peers* rather than the directory they all sit in
+    /// matters, because that directory also holds things a cell is entitled to
+    /// reach, such as a volume mounted into its own workdir.
+    ///
+    /// Only containers started so far are listed, which is what the caller
+    /// builds a policy from at the moment it runs a command.
+    pub fn peer_dirs(&self, except: &str) -> Vec<PathBuf> {
+        let state = self.state.lock().unwrap();
+        state
+            .containers
+            .iter()
+            .filter(|(name, _)| name.as_str() != except)
+            .flat_map(|(name, container)| {
+                let workdir = container.workdir.clone();
+                let tmp = workdir
+                    .parent()
+                    .map(|parent| parent.join(format!(".tmp-{name}")));
+                std::iter::once(workdir).chain(tmp)
+            })
+            .collect()
+    }
+
     /// A container's private `/tmp`, which lives as long as the container.
     ///
     /// A sandbox gives each spawned command a fresh `/tmp`, and a fresh one

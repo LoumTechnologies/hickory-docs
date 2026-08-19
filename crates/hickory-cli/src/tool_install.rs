@@ -143,7 +143,9 @@ pub fn install(catalogue: &Catalogue, root: &Path, language: &str) -> Result<Pat
     // The network is granted here and nowhere else in this tool: an install
     // that cannot fetch is not an install.
     let Some((program, args)) =
-        policy::wrap(sandbox, &prefix, &command, true, Profile::Installer, None)
+        // An installer has no peers to hide from: it runs before any cell,
+        // into a prefix of its own.
+        policy::wrap(sandbox, &prefix, &command, true, Profile::Installer, None, &[])
     else {
         bail!("the sandbox could not be prepared for the install");
     };

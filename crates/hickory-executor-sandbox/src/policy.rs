@@ -181,6 +181,7 @@ pub fn wrap(
     allow_network: bool,
     profile: Profile,
     tmpdir: Option<&Path>,
+    peers: &[std::path::PathBuf],
 ) -> Option<(String, Vec<String>)> {
     let dir = workdir.to_string_lossy().to_string();
     let dir_for_home = dir.clone();
@@ -297,7 +298,7 @@ pub fn wrap(
             Some(("bwrap".into(), args))
         }
         Sandbox::Seatbelt => {
-            let policy_text = seatbelt_profile(workdir, allow_network, profile);
+            let policy_text = seatbelt_profile(workdir, tmpdir, allow_network, profile, peers);
             // Seatbelt cannot set an environment variable, so the installer's
             // redirected HOME is prepended to the command instead. It reaches
             // `sh` as an assignment, which is the same effect by a different
@@ -392,13 +393,40 @@ const HOME_TOOL_DIRS: &[&str] = &[
 /// implementation detail of this executor, not a thing to run by hand.
 pub const SANDBOX_RUN_SUBCOMMAND: &str = "__sandbox-run";
 
+/// A path as the kernel will see it, for policies that match on the real one.
+///
+/// Falls back to the path as given when it cannot be resolved — a directory
+/// that does not exist yet has nothing to canonicalise, and a policy naming it
+/// is no worse than the one we would have written anyway.
+fn resolve(path: &Path) -> std::path::PathBuf {
+    std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
+}
+
 /// A Seatbelt profile: deny by default, then grant the minimum.
 ///
 /// Written out rather than assembled from a template file so the policy and
 /// the code that applies it cannot drift apart, and so a reader can see the
 /// whole thing at once.
-fn seatbelt_profile(workdir: &Path, allow_network: bool, profile: Profile) -> String {
-    let dir = workdir.to_string_lossy();
+fn seatbelt_profile(
+    workdir: &Path,
+    tmpdir: Option<&Path>,
+    allow_network: bool,
+    profile: Profile,
+    peers: &[std::path::PathBuf],
+) -> String {
+    // RESOLVED, not as given. Seatbelt matches the path the kernel arrives at
+    // after following symlinks, and on macOS a cell's workdir is nearly always
+    // reached through one: `/var` is a symlink to `/private/var`, so a
+    // `TMPDIR` workdir handed in as `/var/folders/…` is really
+    // `/private/var/folders/…`. Granting the unresolved spelling grants
+    // nothing, and the cell is denied its own directory — `sh: note.txt:
+    // Operation not permitted` — which reads as a broken document rather than
+    // a broken policy.
+    //
+    // The `/tmp` grant below always spelled both halves, which is the same
+    // hazard noticed for one path and not generalised.
+    let resolved = resolve(workdir);
+    let dir = resolved.to_string_lossy();
     let mut policy = String::from(
         "(version 1)\
          (deny default)\
@@ -409,6 +437,31 @@ fn seatbelt_profile(workdir: &Path, allow_network: bool, profile: Profile) -> St
          (allow file-write* (subpath \"/tmp\") (subpath \"/private/tmp\") (subpath \"/dev/null\"))",
     );
     policy.push_str(&format!("(allow file-write* (subpath \"{dir}\"))"));
+
+    let own_tmp = tmpdir.map(resolve);
+    if let Some(tmp) = &own_tmp {
+        let tmp = tmp.to_string_lossy();
+        policy.push_str(&format!("(allow file-write* (subpath \"{tmp}\"))"));
+    }
+
+    // The part that actually separates one container from another.
+    //
+    // Bubblewrap gets it for free: one workdir is bound into the cell's mount
+    // namespace and the others do not exist to it. Seatbelt has no namespaces
+    // and `(allow file-read*)` above is global, so without this a cell could
+    // read every other container's workdir by absolute path.
+    //
+    // Each peer is named. Denying the directory they all share instead looks
+    // tidier and is wrong: that directory also holds things this cell is
+    // entitled to reach — a `<hick:volume>` mounted into its workdir resolves
+    // through it, and denying the parent made `cd project` fail with
+    // `Not a directory`, which reads as a broken document. Deny what must be
+    // hidden, not everything near it.
+    for peer in peers {
+        let peer = resolve(peer);
+        let peer = peer.to_string_lossy();
+        policy.push_str(&format!("(deny file-read* (subpath \"{peer}\"))"));
+    }
     // Same reasoning as bubblewrap's two homes: a cell may not read the
     // user's dotfiles, an installer must be able to see the tool it runs.
     // Seatbelt cannot mount an empty home, so it denies the reads instead.
@@ -440,8 +493,15 @@ fn seatbelt_profile(workdir: &Path, allow_network: bool, profile: Profile) -> St
 /// reduced probe would leave out.
 fn works(sandbox: Sandbox) -> bool {
     let probe_dir = std::env::temp_dir();
-    let Some((program, args)) = wrap(sandbox, &probe_dir, "exit 0", false, Profile::Cell, None)
-    else {
+    let Some((program, args)) = wrap(
+        sandbox,
+        &probe_dir,
+        "exit 0",
+        false,
+        Profile::Cell,
+        None,
+        &[],
+    ) else {
         return false;
     };
     std::process::Command::new(program)
@@ -475,6 +535,7 @@ mod tests {
             allow_network,
             Profile::Cell,
             None,
+            &[],
         )
         .unwrap()
         .1
@@ -528,13 +589,93 @@ mod tests {
 
     #[test]
     fn the_seatbelt_profile_denies_by_default_and_grants_the_workdir() {
-        let profile = seatbelt_profile(&PathBuf::from("/Users/x/work"), false, Profile::Cell);
+        let profile = seatbelt_profile(
+            &PathBuf::from("/Users/x/work"),
+            None,
+            false,
+            Profile::Cell,
+            &[],
+        );
         assert!(profile.contains("(deny default)"));
         assert!(profile.contains("(allow file-write* (subpath \"/Users/x/work\"))"));
         assert!(!profile.contains("(allow network*)"));
         assert!(
-            seatbelt_profile(&PathBuf::from("/w"), true, Profile::Cell)
+            seatbelt_profile(&PathBuf::from("/w"), None, true, Profile::Cell, &[])
                 .contains("(allow network*)")
+        );
+    }
+
+    /// The bug that made a shipped example fail on macOS.
+    ///
+    /// Seatbelt matches the path the kernel resolves to, and on macOS `/var`
+    /// is a symlink to `/private/var` — so a workdir handed in under `TMPDIR`
+    /// was granted under a spelling the kernel never sees, and the cell was
+    /// denied its own directory.
+    #[test]
+    fn the_seatbelt_profile_grants_the_resolved_workdir_not_the_symlinked_one() {
+        let dir = tempfile::tempdir().expect("a temp dir");
+        let given = dir.path();
+        let resolved = std::fs::canonicalize(given).expect("it resolves");
+        if given == resolved {
+            // Nothing to prove on a filesystem that hands back what it was
+            // given; this is a macOS-shaped hazard.
+            return;
+        }
+        let profile = seatbelt_profile(given, None, false, Profile::Cell, &[]);
+        assert!(
+            profile.contains(&format!(
+                "(allow file-write* (subpath \"{}\"))",
+                resolved.display()
+            )),
+            "the resolved path is not granted:\n{profile}"
+        );
+    }
+
+    /// One container may not read another's, which bubblewrap gets from
+    /// namespaces and Seatbelt has to be told.
+    #[test]
+    fn the_seatbelt_profile_hides_sibling_containers() {
+        let peers = [
+            PathBuf::from("/w/root/theirs"),
+            PathBuf::from("/w/root/.tmp-theirs"),
+        ];
+        let profile = seatbelt_profile(
+            &PathBuf::from("/w/root/mine"),
+            Some(&PathBuf::from("/w/root/.tmp-mine")),
+            false,
+            Profile::Cell,
+            &peers,
+        );
+        assert!(
+            profile.contains("(deny file-read* (subpath \"/w/root/theirs\"))"),
+            "a peer workdir is not denied:\n{profile}"
+        );
+        assert!(
+            profile.contains("(deny file-read* (subpath \"/w/root/.tmp-theirs\"))"),
+            "a peer tmp is not denied:\n{profile}"
+        );
+        assert!(
+            profile.contains("(allow file-write* (subpath \"/w/root/.tmp-mine\"))"),
+            "the container's own tmp is not writable:\n{profile}"
+        );
+    }
+
+    /// The regression that denying the shared parent caused: a volume mounted
+    /// into the cell's own workdir resolves through the directory every
+    /// container sits in, so denying that directory broke `cd project` in a
+    /// document that had done nothing wrong.
+    #[test]
+    fn the_seatbelt_profile_does_not_deny_the_directory_containers_share() {
+        let profile = seatbelt_profile(
+            &PathBuf::from("/w/root/mine"),
+            Some(&PathBuf::from("/w/root/.tmp-mine")),
+            false,
+            Profile::Cell,
+            &[PathBuf::from("/w/root/theirs")],
+        );
+        assert!(
+            !profile.contains("(deny file-read* (subpath \"/w/root\"))"),
+            "the shared parent is denied, which takes volumes with it:\n{profile}"
         );
     }
 
@@ -551,6 +692,7 @@ mod tests {
             true,
             Profile::Installer,
             None,
+            &[],
         )
         .unwrap()
         .1;
@@ -631,6 +773,7 @@ mod tests {
             false,
             Profile::Cell,
             None,
+            &[],
         )
         .expect("the launcher is always available on a machine that can run us");
         assert!(
@@ -654,6 +797,7 @@ mod tests {
             true,
             Profile::Cell,
             None,
+            &[],
         )
         .unwrap();
         let net = args
@@ -700,7 +844,8 @@ mod tests {
                 "echo hi",
                 false,
                 Profile::Cell,
-                None
+                None,
+                &[]
             )
             .is_none()
         );

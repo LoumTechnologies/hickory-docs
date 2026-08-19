@@ -138,6 +138,10 @@ impl SandboxedExecutor {
         let workdir = self.inner.workdir_of(container)?;
         // One /tmp per container, not per command — see `tmpdir_of`.
         let tmpdir = self.inner.tmpdir_of(container)?;
+        // What to hide from this cell, asked at the moment it runs: a container
+        // started later is not in the list, because it did not exist when the
+        // policy was written.
+        let peers = self.inner.peer_dirs(container);
         let Some((program, args)) = policy::wrap(
             self.sandbox,
             &workdir,
@@ -145,6 +149,7 @@ impl SandboxedExecutor {
             self.allows_network(container),
             policy::Profile::Cell,
             Some(&tmpdir),
+            &peers,
         ) else {
             bail!("no sandbox available to confine container '{container}'");
         };

@@ -26,6 +26,18 @@ Seatbelt on macOS, and they are not the same strength — Seatbelt cannot give a
 cell its own process namespace, and hides your home by denying reads rather
 than by mounting an empty one. `Sandbox::describe` states which is in force.
 
+**The private `/tmp` is a Linux-only part of this promise, and that is a
+boundary rather than a bug.** Bubblewrap bind-mounts each container's own
+directory at `/tmp`, so the path is private per container. Seatbelt has no
+mount namespaces: the literal path `/tmp` is one directory for every process on
+the machine and there is nowhere to redirect it to. Denying `/tmp` outright was
+considered and rejected — it would break every document that writes a scratch
+file there, trading a real capability for an isolation property macOS will not
+grant either way. So on macOS, **two containers share `/tmp`**. Everything else
+holds: each container's workdir and its own tmp directory are private, which is
+what `a_cell_cannot_read_another_containers_workdir` covers. A run that needs
+`/tmp` isolation wants the Docker executor.
+
 **Windows gets nothing, and is told so.** There is no sandbox this executor
 can drive there, so it **refuses to run** and names the alternatives (WSL2,
 the Docker executor, or the local executor's stated lack of isolation).
@@ -55,7 +67,7 @@ asked for isolation, believes they have it, and does not.
 ---
 
 Last LLM verification:
-- Date: 2026-08-13
+- Date: 2026-08-18
 - Reviewer: Claude (Opus 5)
 - Result: verified on Linux/bubblewrap; macOS unrun; Windows is a refusal, not
   a behaviour
@@ -74,11 +86,44 @@ Last LLM verification:
     filenames. Under `HICKORY_EXECUTOR=sandbox` the same document reports
     `ls: cannot access '/home/…/.ssh': No such file or directory`, the write
     lands nowhere, and the host's home is untouched.
+- **Measured on macOS 2026-08-18, which found two real defects.** Nothing in CI
+  had ever run this crate on a Mac (`ci.yml` was Ubuntu only), and the release
+  job's macOS smoke test passed because a GitHub runner sets `TMPDIR` under the
+  workspace rather than to `/var/folders/…`.
+  - **A cell could not write its own workdir.** `seatbelt_profile` put the
+    workdir into the policy as given, and Seatbelt matches the path the kernel
+    resolves to — on macOS `/var` is a symlink to `/private/var`, so the grant
+    named a path the kernel never sees. Every cell that wrote a file failed with
+    `Operation not permitted`, and `hick test examples/text-tools-tour.hick`
+    failed on its first cell. The profile now resolves the path (`resolve`), and
+    `the_seatbelt_profile_grants_the_resolved_workdir_not_the_symlinked_one`
+    pins it.
+  - **A cell could read every other container's workdir.** The profile's
+    `(allow file-read*)` is global, and bubblewrap's isolation here comes from
+    namespaces Seatbelt does not have. It now denies each **named peer** —
+    `LocalExecutor::peer_dirs` lists the other containers' workdirs and tmp
+    directories at the moment the command runs. Pinned by
+    `the_seatbelt_profile_hides_sibling_containers` and by
+    `a_cell_cannot_read_another_containers_workdir`, which now passes on both
+    platforms.
+
+    Denying the *directory the containers share* was tried first and is wrong,
+    which is worth recording because it looks tidier: that directory is also
+    what a `<hick:volume>` mounted into the cell's own workdir resolves through,
+    so denying it made `cd project` fail with `Not a directory` in a document
+    that had done nothing wrong. `the_seatbelt_profile_does_not_deny_the_directory_containers_share`
+    keeps it from coming back. A container started *after* the command began is
+    not in the list, since it did not exist when the policy was written.
+  - A macOS job was added to `ci.yml`, and it forces
+    `TMPDIR="$(getconf DARWIN_USER_TEMP_DIR)"` so the runner cannot go on hiding
+    the symlink hazard the way it did. With these fixes the full workspace suite
+    passes on macOS — 1418 tests, 0 failures — which it had never done.
 - Caveats — what LLM review could NOT establish:
-  - **macOS has never been run.** The Seatbelt profile is written from its
-    documented syntax and has no test on real hardware. `sandbox-exec` is also
-    deprecated by Apple; if it is removed, this degrades to a refusal on macOS
-    too.
+  - **macOS is now run, on one machine and one version.** Everything above was
+    exercised on macOS 15.7.7 (Intel), and `ci.yml`'s macOS job runs on
+    `macos-14` (arm64). Neither is every Mac. `sandbox-exec` also remains
+    deprecated by Apple; if it is removed this degrades to a refusal on macOS,
+    the way Windows already does.
   - **Reads of the system are permitted by design**, so a cell can still read
     world-readable files outside your home — `/etc/passwd`, any repository on
     a shared path. The threat model is "cannot write your machine, cannot
@@ -90,5 +135,7 @@ Last LLM verification:
   - Nothing bounds CPU, memory, or wall time yet. A cell can still spin
     forever; it just cannot touch your files while doing it.
 - Test coverage: `crates/hickory-executor-sandbox/tests/confinement.rs`
-  (7 tests against the real sandbox, skipped loudly where none exists) plus 8
-  policy unit tests.
+  (10 tests against the real sandbox, skipped loudly where none exists — and
+  where a property belongs to one sandbox rather than the guarantee, the test
+  now says which and why instead of asserting the mechanism) plus 21 policy
+  unit tests, three of them added for the defects above.
