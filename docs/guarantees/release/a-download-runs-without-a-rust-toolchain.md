@@ -153,7 +153,50 @@ Last LLM verification:
     `smoke: none` flag, and emits a `::notice` when it skips. This is what
     makes the per-target table above true by construction instead of by
     matrix bookkeeping.
+- **Tested on pristine VMs, 2026-08-19.** `vmkit.conf` + `vmtest/scripts/`
+  drive Parallels guests reverted to a golden snapshot, so "no toolchain" is a
+  property of the machine rather than of a step that uninstalled one. The
+  `clean-machine` job remains a good proxy and still runs on an image that
+  shipped with Node, Python, a package manager and a C compiler.
+  - **macOS: 18 of 18 phases pass** against a locally built
+    `x86_64-apple-darwin` archive — the archive carries all five things this
+    guarantee names, `hick --version` agrees with the version in the asset name,
+    `hick-lsp` loads on closed stdin, `hick test examples/text-tools-tour.hick`
+    re-derives and matches, and `hick weave` renders. First time a document has
+    been executed from a download on a machine with no toolchain.
+  - **Linux and Windows were run against the published `unstable` release**
+    (`0.1.0-unstable.93ccfc32`, cut 2026-08-13) and both correctly report that
+    it carries no `hick-lsp` — which is true and is not a defect: `hick-lsp` was
+    added to `scripts/dist.sh` on 2026-08-14 in `8a23d3c`, so the published
+    artifact predates the promise this guarantee makes. Re-running against a
+    current release is what turns those two phases green.
+  - **Windows promises less, and says so rather than skipping quietly.**
+    `execute-a-document` reports `ok=SKIP` naming the reason — a document's
+    cells shell out to `sh`, which Windows does not ship — while unpack, layout,
+    `--version`, `--help` and `weave` are asserted for real. Weave is the whole
+    product surface that has to work on a machine with no shell, and it does.
+  - **The order of the phases is load-bearing.** `hick weave` writes the
+    document's `.md` beside it, so weaving inside the unpacked archive replaces
+    the committed output, and `hick test` then reports drift against a file the
+    test clobbered a moment earlier. The first run "found" exactly that. Verify
+    first against the bytes as shipped; weave afterwards, into a directory of
+    its own.
 - Caveats — what LLM review could NOT establish without a real run:
+  - **The Windows guest is not pristine.** `pristine-no-cargo` and
+    `pristine-no-rustc` both fail on it: that VM has a Rust toolchain installed,
+    so it cannot yet answer the question this guarantee asks. The assertions are
+    doing their job by saying so — a guest that has quietly acquired a toolchain
+    passes every later phase while proving nothing. Re-provisioning it is what
+    makes the Windows leg mean what it claims.
+  - **Only x86_64 is covered by the VM legs.** The guests are x86_64 because the
+    Mac hosting them is, so `aarch64-apple-darwin` and
+    `aarch64-unknown-linux-gnu` are still verified only on GitHub-hosted
+    runners.
+  - **The VM workflow has never run in CI.** `.github/workflows/vm-tests.yml`
+    exists and every command in it was exercised by hand on this host, but the
+    self-hosted runner is registered to a different GitHub organization, so no
+    job has ever been dispatched to it.
+
   - **Neither fix has run in CI.** Both are CI-only failure modes: the
     Windows build cannot be reproduced on this machine (`cargo check
     --target x86_64-pc-windows-msvc` dies in `libsodium-sys`'s `configure`

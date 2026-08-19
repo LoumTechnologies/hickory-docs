@@ -1,0 +1,116 @@
+# Pristine-machine tests, on real VMs.
+#
+# `.instructions/continuous-delivery-downloadable.md` makes two promises about
+# every release: the artifact is the deliverable, so the artifact is what CI
+# verifies; and **a download must work with no toolchain**. A GitHub-hosted
+# runner can only prove the first. It arrives with Rust, Node, Python, a C
+# compiler and a package manager already installed, so "it worked in CI" and
+# "it works on the machine somebody downloaded it onto" are different claims,
+# and only one of them was ever being tested.
+#
+# These jobs run the published archive on Parallels guests reverted to a golden
+# snapshot, driven by vmkit (https://github.com/PortZeroNetwork/vmkit) on a
+# self-hosted macOS host. "No toolchain" is then a property of the machine
+# rather than of a step that uninstalled one.
+#
+# Guarantee: docs/guarantees/release/a-download-runs-without-a-rust-toolchain.md
+name: VM Tests
+
+on:
+  # After the artifact exists and is downloadable, because what is tested is
+  # the published asset — the exact bytes a user gets. The hosted smoke tests
+  # in release-build.yml still gate publication; this is the deeper, slower
+  # check that runs behind them rather than in front.
+  workflow_run:
+    workflows: [Unstable Release]
+    types: [completed]
+    branches: [master]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to test (default: unstable)"
+        required: false
+        default: unstable
+
+concurrency:
+  # QUEUE, never cancel. There is one Parallels host and one VM may run at a
+  # time; a cancelled run leaves a guest mid-revert, and the next run then
+  # reverts a guest somebody is using. vmkit's own FAILURES.md #4 is this exact
+  # bug, seen for real.
+  group: vm-tests
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  vm:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
+    # One leg per platform rather than a single `vmkit series` run, and the
+    # reason is not tidiness: a self-hosted job that goes quiet long enough
+    # misses its job-lock renewals and GitHub reclaims it mid-test
+    # ("the self-hosted runner lost communication", vmkit FAILURES.md #14),
+    # which then leaves a wedged guest for the next leg to trip over. Job
+    # LENGTH is the only part of that under our control. There is one runner,
+    # so these serialize anyway — the matrix buys short legs, not parallelism.
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [linux, windows, macos]
+    runs-on: [self-hosted, macOS, X64]
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Which release is under test
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="${{ inputs.tag || 'unstable' }}"
+          version=$(gh release view "$tag" --json tagName,assets \
+            --jq '[.assets[].name | capture("^hick-(?<v>.+)-x86_64-apple-darwin\\.tar\\.gz$").v][0]')
+          if [ -z "$version" ] || [ "$version" = "null" ]; then
+            echo "::error::release '$tag' has no x86_64 assets to test"
+            exit 1
+          fi
+          echo "tag=$tag"         >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "testing $tag ($version)"
+
+      # x86_64 everywhere on purpose: the guests are x86_64 because the Mac
+      # hosting them is, and an artifact built for the other architecture fails
+      # as a wall of unexplained assertion failures rather than as "wrong
+      # architecture" (vmkit FAILURES.md #17).
+      - name: Stage the published archive for ${{ matrix.platform }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.release.outputs.tag }}
+          VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          set -euo pipefail
+          case "${{ matrix.platform }}" in
+            linux)   triple=x86_64-unknown-linux-gnu; ext=tar.gz ;;
+            macos)   triple=x86_64-apple-darwin;      ext=tar.gz ;;
+            windows) triple=x86_64-pc-windows-msvc;   ext=zip    ;;
+          esac
+          asset="hick-${VERSION}-${triple}.${ext}"
+          dir="vmtest/.artifacts/${{ matrix.platform }}"
+          mkdir -p "$dir"
+          gh release download "$TAG" --pattern "$asset" --dir "$dir" --clobber
+          # vmkit.conf names a fixed path, so staging is a rename rather than a
+          # pattern the config has to know about.
+          mv "$dir/$asset" "$dir/hick-${triple}.${ext}"
+          ls -l "$dir"
+
+      - name: Test the download on a pristine ${{ matrix.platform }} guest
+        env:
+          HICKORY_EXPECT_VERSION: ${{ steps.release.outputs.version }}
+        run: vmkit test ${{ matrix.platform }} download
+
+      - name: What the host thinks of itself afterwards
+        if: always()
+        run: vmkit doctor || true

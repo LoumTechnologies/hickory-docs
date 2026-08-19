@@ -38,3 +38,7 @@ apps/web/public/install.sh
 # The probes under experiments/ build in place; their Cargo.lock files are kept.
 experiments/*/target/
 experiments/*/*/target/
+
+# Release archives staged for a VM run. Built by CI (or by hand) and copied to
+# the paths vmkit.conf names; never a source file.
+vmtest/.artifacts/

@@ -107,6 +107,19 @@ jobs:
           cargo run -p hickory-cli -- run examples/grand-tour.hick --features with-r --out /tmp/grand-tour-with-r
           cargo run -p hickory-cli -- test examples/grand-tour.hick --features with-r --out /tmp/grand-tour-with-r
 
+  # The guest test scripts parse on a VM, minutes into a run, on a machine
+  # nobody is watching. Both halves of this check were real failures the first
+  # time `vmkit test` ran: a `.ps1` containing one em dash died with
+  # `Missing closing '}'` on a line whose braces balanced, because PowerShell
+  # 5.1 reads UTF-8 without a BOM as CP1252 and an em dash decodes to a smart
+  # quote it honours as a string delimiter. Two seconds here beats a booted
+  # guest there.
+  guest-scripts:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: ./scripts/check-guest-scripts.sh
+
   # macOS, because the product runs there and nothing in CI did.
   #
   # Everything above this job runs on Linux, and four separate platform bugs
