@@ -408,6 +408,15 @@ mod tests {
         assert_eq!(windows_quote(r#"say "hi""#), r#""say \"hi\"""#);
     }
 
+    /// The `sh` half of `shell_quote`, hence Unix-only.
+    ///
+    /// It calls the platform-dispatching function and asserts single quotes,
+    /// which is the right shape on Unix and the wrong one on Windows — there
+    /// `shell_quote` returns `windows_quote`'s double-quoted, caret-escaped
+    /// form, and this failed as the very first Windows test anyone ran. The
+    /// Windows side is covered directly by the three `windows_quote` tests
+    /// above, which are not gated because that function compiles everywhere.
+    #[cfg(unix)]
     #[test]
     fn quoting_survives_a_command_containing_quotes() {
         // A cell full of shell quoting must reach the shell unchanged.
