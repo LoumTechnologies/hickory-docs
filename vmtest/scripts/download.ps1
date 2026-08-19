@@ -190,8 +190,18 @@ Phase 'lsp-loads' (Ran-Ok (Invoke-Native -Exe $lsp -StdIn $empty))
 # a directory of its own.
 $doc = Join-Path $root.FullName 'examples\text-tools-tour.hick'
 
-# Execution needs `sh`. Where the machine has one this is a real assertion;
-# where it does not it is a skip that names why.
+# The SHIPPED EXAMPLES cannot run here, and the reason is not the one this
+# script used to give.
+#
+# It claimed a document's cells shell out to `sh`, which Windows does not ship.
+# That is wrong: `LocalExecutor::shell()` returns `cmd.exe /C` on Windows, so
+# cells run perfectly well. What cannot run is these particular documents --
+# `text-tools-tour` is `printf`, `sort -t, -k2 -n` and `awk`, none of which cmd
+# has. The limitation belongs to the examples, not to the product.
+#
+# So: assert it where a POSIX shell happens to exist, and otherwise skip naming
+# the real reason. Windows cell execution proper is covered by the `sandbox`
+# flavor, which uses a cmd-syntax document.
 if (Get-Command sh -ErrorAction SilentlyContinue) {
     $run = Invoke-Native -Exe $hick -Arguments @('test', 'examples\text-tools-tour.hick') `
         -WorkDir $root.FullName
@@ -201,7 +211,7 @@ if (Get-Command sh -ErrorAction SilentlyContinue) {
         Write-Output "   $($run.Err)"
     }
 } else {
-    Phase-Skip 'execute-a-document' "no 'sh' on this machine; a document's cells shell out to one and Windows does not ship it (docs/users/install.md)"
+    Phase-Skip 'execute-a-document' "the shipped examples are POSIX shell (printf/sort/awk) and this machine has none; cells themselves run through cmd.exe -- see the sandbox flavor for Windows cell execution"
 }
 
 # Weave executes nothing, so it is the half that works with no shell at all --

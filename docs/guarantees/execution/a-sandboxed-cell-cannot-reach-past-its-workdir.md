@@ -38,11 +38,26 @@ holds: each container's workdir and its own tmp directory are private, which is
 what `a_cell_cannot_read_another_containers_workdir` covers. A run that needs
 `/tmp` isolation wants the Docker executor.
 
-**Windows gets nothing, and is told so.** There is no sandbox this executor
-can drive there, so it **refuses to run** and names the alternatives (WSL2,
-the Docker executor, or the local executor's stated lack of isolation).
-Silently running unconfined would be the worst outcome available: the user
-asked for isolation, believes they have it, and does not.
+**Windows confines through AppContainer, and that is the newest and least
+proven of the three.** `appcontainer.rs` runs a cell at Low integrity under its
+own package SID, grants that SID an ACE on the workdir and nowhere else, gives
+it no capability SIDs unless the document declared a network, and puts it in a
+job object with `KILL_ON_JOB_CLOSE`. Because AppContainer is applied by the
+*parent* at process creation, `hick` re-invokes itself as the hidden
+`__sandbox-run` subcommand rather than exec'ing a wrapper the way bubblewrap and
+Seatbelt do.
+
+**It has never been run.** It compiles, `Sandbox::detect` returns it on every
+Windows machine, and no test has ever exercised it on Windows — CI is Linux and
+macOS, and the release job smoke-tests the Windows binary with `--version` only.
+Treat every Windows sentence in this file as a description of the code rather
+than of observed behaviour until that changes.
+
+Where a machine has no sandbox at all, the executor still **refuses to run**
+rather than silently running unconfined, and names the alternatives (WSL2, the
+Docker executor, or the local executor's stated lack of isolation) — the user
+asked for isolation, and believing they have it when they do not is the worst
+outcome available.
 
 ## Deliberate details
 
@@ -69,8 +84,9 @@ asked for isolation, believes they have it, and does not.
 Last LLM verification:
 - Date: 2026-08-18
 - Reviewer: Claude (Opus 5)
-- Result: verified on Linux/bubblewrap; macOS unrun; Windows is a refusal, not
-  a behaviour
+- Result: verified on Linux/bubblewrap and on macOS/Seatbelt (two defects found
+  and fixed there, below); **Windows/AppContainer is implemented and entirely
+  unrun**
 - Evidence:
   - `crates/hickory-executor-sandbox/` — `policy.rs` builds the argv and the
     Seatbelt profile; `lib.rs` wraps `LocalExecutor` so transcripts, volumes,
@@ -119,6 +135,16 @@ Last LLM verification:
     the symlink hazard the way it did. With these fixes the full workspace suite
     passes on macOS — 1418 tests, 0 failures — which it had never done.
 - Caveats — what LLM review could NOT establish:
+  - **Windows has never executed a single confined cell.** `appcontainer.rs`
+    is 400 lines of Win32 that nothing has run: not CI (Linux and macOS only),
+    not the release smoke test (`--version` on Windows, by matrix flag), and not
+    a developer — the crate's own `confinement.rs` would exercise it, since
+    `available()` skips only when `Sandbox::detect()` is `None` and it returns
+    `AppContainer` on any Windows box, but no job runs those tests there.
+    Everything this file says about Windows is therefore read off the source.
+    Closing it needs a Windows machine running `cargo test -p
+    hickory-executor-sandbox`, and a flavor that exercises the shipped binary on
+    a guest — neither exists yet.
   - **macOS is now run, on one machine and one version.** Everything above was
     exercised on macOS 15.7.7 (Intel), and `ci.yml`'s macOS job runs on
     `macos-14` (arm64). Neither is every Mac. `sandbox-exec` also remains
