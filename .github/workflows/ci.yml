@@ -219,6 +219,26 @@ jobs:
         with:
           key: desktop-check
           workspaces: apps/desktop/src-tauri
+      # The UI has to EXIST before the Rust is checked, which is not obvious
+      # from the crate: `server.rs` embeds `apps/web/dist/` with
+      # `#[derive(rust_embed::Embed)]`, and that derive silently generates
+      # nothing when the folder is missing. The failure it produces says
+      # `no associated function named `get` found for struct `Ui``, which reads
+      # like the code is wrong rather than like a build step is missing — this
+      # job had been failing that way since before anyone noticed.
+      #
+      # Built the same way `scripts/dist-desktop.sh` builds it, so what CI
+      # checks and what a release packages cannot come apart.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: apps/web/package-lock.json
+      - name: Build the UI the desktop crate embeds
+        run: |
+          npm --prefix apps/web ci
+          npm --prefix apps/web run build
+
       - name: Install the Linux webview headers the crate links against
         run: |
           sudo apt-get update
