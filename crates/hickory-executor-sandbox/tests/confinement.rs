@@ -56,7 +56,13 @@ async fn a_cell_can_work_in_its_own_workdir() {
     }
     let executor = started().await;
     let out = executor
-        .execute("c", "echo hello > note.txt && cat note.txt")
+        .execute(
+            "c",
+            &per_shell(
+                "echo hello > note.txt && cat note.txt",
+                "echo hello > note.txt && type note.txt",
+            ),
+        )
         .await
         .expect("a cell can write its own workdir");
     assert!(out.contains("hello"), "{out}");
@@ -69,13 +75,37 @@ async fn a_cell_cannot_write_outside_its_workdir() {
     }
     let executor = started().await;
     // The whole point: a document you did not write cannot touch your files.
+    //
+    // The Windows target is `C:\Users\Public` rather than a system directory
+    // on purpose. `touch /etc/...` is msys on Windows and fails whatever the
+    // sandbox does, so the assertion held for a run in which nothing was ever
+    // confined — and a system directory would fail for lack of Administrator
+    // instead. Public is writable by an ordinary user, so a cell that reaches
+    // it really did escape.
+    let outside = if cfg!(windows) {
+        std::path::PathBuf::from(r"C:\Users\Public\hickory-should-not-exist.txt")
+    } else {
+        std::path::PathBuf::from("/etc/hickory-should-not-exist")
+    };
+    let _ = std::fs::remove_file(&outside);
     let result = executor
-        .execute("c", "touch /etc/hickory-should-not-exist && echo WROTE")
+        .execute(
+            "c",
+            &per_shell(
+                &format!("touch {} && echo WROTE", outside.display()),
+                &format!("echo x> \"{}\" && echo WROTE", outside.display()),
+            ),
+        )
         .await;
-    assert!(result.is_err(), "writing to /etc succeeded: {result:?}");
     assert!(
-        !std::path::Path::new("/etc/hickory-should-not-exist").exists(),
-        "the sandbox let a cell create a file in /etc"
+        result.is_err(),
+        "writing to {} succeeded: {result:?}",
+        outside.display()
+    );
+    assert!(
+        !outside.exists(),
+        "the sandbox let a cell create {}",
+        outside.display()
     );
 
     // $HOME is the more realistic target, and the property worth asserting is
@@ -85,15 +115,24 @@ async fn a_cell_cannot_write_outside_its_workdir() {
     // directory still work. Seatbelt cannot mount anything, so it denies the
     // write outright. Asserting the exit code would be asserting the
     // mechanism; asserting the host's home is asserting the guarantee.
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/root".into());
-    let escape = format!("touch {home}/hickory-should-not-exist && echo WROTE");
+    let home = if cfg!(windows) {
+        std::env::var("USERPROFILE").unwrap_or_else(|_| r"C:\Users\Default".into())
+    } else {
+        std::env::var("HOME").unwrap_or_else(|_| "/root".into())
+    };
+    let escape = per_shell(
+        &format!("touch {home}/hickory-should-not-exist && echo WROTE"),
+        &format!("echo x> \"{home}\\hickory-should-not-exist\" && echo WROTE"),
+    );
     let wrote = executor.execute("c", &escape).await;
     if Sandbox::detect() == Sandbox::Bubblewrap {
         wrote.expect("a private home is writable inside the sandbox");
     }
     assert!(
-        !std::path::Path::new(&format!("{home}/hickory-should-not-exist")).exists(),
-        "the sandbox let a cell write into the real $HOME"
+        !std::path::Path::new(&home)
+            .join("hickory-should-not-exist")
+            .exists(),
+        "the sandbox let a cell write into the real home directory"
     );
 }
 
@@ -346,7 +385,15 @@ async fn a_confined_cell_is_killed_at_its_timeout() {
     // network stack, and a confined cell is denied the network unless its
     // document asked for it — the cell would fail instantly for the wrong
     // reason and the test would pass without ever testing the timeout.
-    let sleeper = per_shell("sleep 30", "waitfor /t 30 hickory");
+    // A busy loop, not `waitfor` and not `ping`. Measured inside a real
+    // AppContainer: `waitfor /t 30 hickory` fails immediately with "Cannot
+    // wait for the specified signal" — it needs an object in the global
+    // namespace, the same thing that stops msys tools running here — and
+    // pinging loopback needs the network a confined cell is denied. Either
+    // would fail instantly for the wrong reason and the test would pass
+    // without ever reaching the timeout it exists to check. A `for /L` burns
+    // CPU, but it depends on nothing outside cmd itself.
+    let sleeper = per_shell("sleep 30", "for /L %i in (1,1,2000000000) do @rem");
     let err = executor
         .execute_with_options(
             "c",
