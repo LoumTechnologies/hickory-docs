@@ -318,23 +318,9 @@ pub fn wrap(
             // to exec that would confine what comes after it — something has
             // to make the `CreateProcessW` call, and shipping a second binary
             // to do it would be one more thing to install and to sign.
-            let me = std::env::current_exe().ok()?;
-            let mut args = vec![
-                SANDBOX_RUN_SUBCOMMAND.to_string(),
-                "--workdir".to_string(),
-                dir,
-            ];
-            if allow_network {
-                args.push("--allow-network".to_string());
-            }
-            // No home handling here: Windows redirects an AppContainer's
-            // AppData into the package's own store automatically, so a tool
-            // that writes a cache already writes it somewhere private.
+            let me = launcher()?;
+            let args = appcontainer_args(dir, command, allow_network);
             let _ = profile;
-            // `--` first: a cell's command routinely begins with something
-            // that looks like a flag, and it must reach the shell unread.
-            args.push("--".to_string());
-            args.push(command.to_string());
             Some((me.to_string_lossy().to_string(), args))
         }
         Sandbox::None => None,
@@ -392,6 +378,76 @@ const HOME_TOOL_DIRS: &[&str] = &[
 /// and reads as internal in any help output that leaks it: it is an
 /// implementation detail of this executor, not a thing to run by hand.
 pub const SANDBOX_RUN_SUBCOMMAND: &str = "__sandbox-run";
+
+/// What the launcher is told: the policy, then the cell's command.
+///
+/// Separate from `wrap` so the argument shape can be asserted anywhere. It is
+/// the half that has to be right on a machine none of us is sitting at, and it
+/// does not depend on a `hick` binary existing to be checked.
+fn appcontainer_args(workdir: String, command: &str, allow_network: bool) -> Vec<String> {
+    let mut args = vec![
+        SANDBOX_RUN_SUBCOMMAND.to_string(),
+        "--workdir".to_string(),
+        workdir,
+    ];
+    if allow_network {
+        args.push("--allow-network".to_string());
+    }
+    // No home handling here: Windows redirects an AppContainer's AppData into
+    // the package's own store automatically, so a tool that writes a cache
+    // already writes it somewhere private.
+    //
+    // `--` first: a cell's command routinely begins with something that looks
+    // like a flag, and it must reach the shell unread.
+    args.push("--".to_string());
+    args.push(command.to_string());
+    args
+}
+
+/// Which binary can serve as the AppContainer launcher.
+///
+/// `current_exe()` alone is wrong, and not only under a test harness. The
+/// launcher must be a binary that answers `__sandbox-run`, which is the `hick`
+/// CLI — but the process asking may be the desktop app (`Hickory Docs.exe`) or
+/// a test binary (`confinement-<hash>.exe`), neither of which has that
+/// subcommand. Re-invoking those confines nothing and fails in a way that
+/// reads like a sandbox bug rather than a missing binary.
+///
+/// Order: an explicit path wins; otherwise ourselves when we ARE the CLI;
+/// otherwise a `hick` beside us, or one directory up (cargo puts test binaries
+/// in `deps/` and the CLI in its parent).
+fn launcher() -> Option<std::path::PathBuf> {
+    launcher_from(
+        std::env::var_os(LAUNCHER_VAR),
+        &std::env::current_exe().ok()?,
+    )
+}
+
+/// The resolution itself, with the environment passed in so it can be tested
+/// on any platform without mutating a process-wide variable.
+fn launcher_from(
+    explicit: Option<std::ffi::OsString>,
+    me: &std::path::Path,
+) -> Option<std::path::PathBuf> {
+    if let Some(explicit) = explicit {
+        let path = std::path::PathBuf::from(explicit);
+        return path.is_file().then_some(path);
+    }
+    if me.file_stem().is_some_and(|stem| stem == "hick") {
+        return Some(me.to_path_buf());
+    }
+    let exe = if cfg!(windows) { "hick.exe" } else { "hick" };
+    let here = me.parent()?;
+    let beside = here.join(exe);
+    if beside.is_file() {
+        return Some(beside);
+    }
+    let above = here.parent()?.join(exe);
+    above.is_file().then_some(above)
+}
+
+/// Overrides which binary is re-invoked as the AppContainer launcher.
+pub const LAUNCHER_VAR: &str = "HICKORY_SANDBOX_LAUNCHER";
 
 /// A path as the kernel will see it, for policies that match on the real one.
 ///
@@ -766,20 +822,7 @@ mod tests {
         // so the arguments ARE the policy: workdir, network, then the command
         // after a `--` that stops a cell's own leading flag being read as
         // one of ours.
-        let (program, args) = wrap(
-            Sandbox::AppContainer,
-            &PathBuf::from(r"C:\work\dir"),
-            "--version",
-            false,
-            Profile::Cell,
-            None,
-            &[],
-        )
-        .expect("the launcher is always available on a machine that can run us");
-        assert!(
-            program.ends_with("hick") || program.ends_with("hick.exe") || !program.is_empty(),
-            "the launcher is this binary: {program}"
-        );
+        let args = appcontainer_args(r"C:\work\dir".to_string(), "--version", false);
         assert_eq!(args[0], SANDBOX_RUN_SUBCOMMAND);
         assert_eq!(args[1], "--workdir");
         assert_eq!(args[2], r"C:\work\dir");
@@ -790,16 +833,7 @@ mod tests {
 
     #[test]
     fn the_appcontainer_launcher_opens_the_network_only_when_granted() {
-        let (_, args) = wrap(
-            Sandbox::AppContainer,
-            &PathBuf::from(r"C:\work"),
-            "curl example.com",
-            true,
-            Profile::Cell,
-            None,
-            &[],
-        )
-        .unwrap();
+        let args = appcontainer_args(r"C:\work".to_string(), "curl example.com", true);
         let net = args
             .iter()
             .position(|a| a == "--allow-network")
@@ -848,6 +882,66 @@ mod tests {
                 &[]
             )
             .is_none()
+        );
+    }
+
+    /// The launcher name on the platform the resolution is compiled for.
+    fn launcher_exe() -> &'static str {
+        if cfg!(windows) { "hick.exe" } else { "hick" }
+    }
+
+    #[test]
+    fn the_launcher_is_ourselves_when_we_are_the_cli() {
+        let me = std::path::PathBuf::from(format!("/opt/hickory/{}", launcher_exe()));
+        assert_eq!(launcher_from(None, &me), Some(me));
+    }
+
+    #[test]
+    fn a_program_that_is_not_the_cli_finds_the_cli_beside_it() {
+        // The desktop app is the real case: `Hickory Docs.exe` cannot answer
+        // `__sandbox-run`, so re-invoking it confines nothing.
+        let dir = tempfile::tempdir().expect("a temp dir");
+        let hick = dir.path().join(launcher_exe());
+        std::fs::write(&hick, b"").expect("a file");
+        let app = dir.path().join("Hickory Docs");
+        assert_eq!(launcher_from(None, &app), Some(hick));
+    }
+
+    #[test]
+    fn a_test_binary_finds_the_cli_one_directory_up() {
+        // cargo builds integration tests into `target/debug/deps/` and the CLI
+        // into `target/debug/`, so the launcher is never a sibling there.
+        let dir = tempfile::tempdir().expect("a temp dir");
+        let deps = dir.path().join("deps");
+        std::fs::create_dir(&deps).expect("a deps dir");
+        let hick = dir.path().join(launcher_exe());
+        std::fs::write(&hick, b"").expect("a file");
+        let test_binary = deps.join("confinement-9886057035e4c123");
+        assert_eq!(launcher_from(None, &test_binary), Some(hick));
+    }
+
+    #[test]
+    fn there_is_no_launcher_when_no_cli_is_anywhere_near() {
+        let dir = tempfile::tempdir().expect("a temp dir");
+        let app = dir.path().join("Hickory Docs");
+        assert_eq!(launcher_from(None, &app), None);
+    }
+
+    #[test]
+    fn an_explicit_launcher_wins_and_must_exist() {
+        let dir = tempfile::tempdir().expect("a temp dir");
+        let chosen = dir.path().join("somewhere-else");
+        std::fs::write(&chosen, b"").expect("a file");
+        let me = std::path::PathBuf::from(format!("/opt/hickory/{}", launcher_exe()));
+        assert_eq!(
+            launcher_from(Some(chosen.clone().into_os_string()), &me),
+            Some(chosen),
+        );
+        // A path that names nothing is a mistake worth surfacing, not a
+        // silent fall-back to a binary the user did not choose.
+        assert_eq!(
+            launcher_from(Some(dir.path().join("absent").into_os_string()), &me),
+            None,
         );
     }
 }

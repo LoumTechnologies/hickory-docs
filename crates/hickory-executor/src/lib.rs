@@ -487,7 +487,16 @@ impl LocalExecutor {
         #[cfg(windows)]
         {
             use std::os::windows::process::CommandExt as _;
-            cmd.as_std_mut().raw_arg(command);
+            // The outer quotes are not decoration. `cmd /?` documents that it
+            // preserves quoting only when the line carries EXACTLY two quote
+            // characters; otherwise it strips the leading quote and the LAST
+            // one. A confined line quotes the launcher, the workdir, and the
+            // command — six — so the program name reached CreateProcess as
+            // `C:\...\hick.exe"`, a filename no Windows API will accept, and
+            // every confined cell died with "The filename, directory name, or
+            // volume label syntax is incorrect". Wrapping the whole line gives
+            // cmd its own pair to strip and leaves what is inside untouched.
+            cmd.as_std_mut().raw_arg(format!("\"{command}\""));
         }
         #[cfg(not(windows))]
         {

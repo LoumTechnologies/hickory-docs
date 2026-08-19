@@ -160,6 +160,16 @@ jobs:
           HICKORY_EXPECT_VERSION: ${{ steps.release.outputs.version }}
         run: vmkit test ${{ matrix.platform }} download
 
+      # The confinement, on the one platform whose implementation nothing has
+      # ever executed. Windows only: Linux and macOS confinement is covered for
+      # real by `confinement.rs` in CI, and a second copy here would assert the
+      # same things twice. This drives the SHIPPED binary, which is also the
+      # only context where the AppContainer launcher resolves the way it does
+      # for a user — `hick.exe` re-invoking itself.
+      - name: Test the Windows sandbox on a real guest
+        if: matrix.platform == 'windows'
+        run: vmkit test windows sandbox
+
       - name: Assert the host is still running at most one VM
         if: always()
         run: |

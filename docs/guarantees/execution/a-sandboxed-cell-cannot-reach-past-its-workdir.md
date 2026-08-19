@@ -47,11 +47,40 @@ job object with `KILL_ON_JOB_CLOSE`. Because AppContainer is applied by the
 `__sandbox-run` subcommand rather than exec'ing a wrapper the way bubblewrap and
 Seatbelt do.
 
-**It has never been run.** It compiles, `Sandbox::detect` returns it on every
-Windows machine, and no test has ever exercised it on Windows — CI is Linux and
-macOS, and the release job smoke-tests the Windows binary with `--version` only.
-Treat every Windows sentence in this file as a description of the code rather
-than of observed behaviour until that changes.
+**It had never been run, and running it found two defects that no amount of
+reading would have.** Measured on a Windows 11 guest, 2026-08-19:
+
+1. **Every confined cell failed before it started.** The confined line quotes
+   the launcher, the workdir, and the command — six quote characters — and
+   `cmd /?` documents that `cmd /C` preserves quoting only when there are
+   *exactly two*; otherwise it strips the leading quote and the **last** one.
+   The program name therefore reached `CreateProcess` as `C:\...\hick.exe"`,
+   a filename Windows rejects, and the cell died with "The filename, directory
+   name, or volume label syntax is incorrect". Fixed by wrapping the whole line
+   in one more pair of quotes (`LocalExecutor::shell_command`).
+2. **The cell's own shell syntax was executed by the outer shell.** `cmd`
+   applies `> < & | ^ ( )` before `CommandLineToArgvW` splits the line, and —
+   contrary to what quoting suggests — it does so *inside* double quotes too. A
+   cell running `echo hello > note.txt && cat note.txt` had its argument
+   swallowed by the outer redirect and the second half run **unconfined**.
+   Fixed by caret-escaping those characters in `windows_quote`, which `cmd`
+   consumes, so the confined process receives the bare text.
+
+A third defect is a product bug rather than a Windows one: confinement
+re-invokes `current_exe()`, which is only the CLI when the CLI is what is
+running. The desktop app (`Hickory Docs.exe`) and any test binary have no
+`__sandbox-run` subcommand, so both would have re-invoked something that cannot
+confine. `policy::launcher` now resolves a real `hick` — explicitly via
+`HICKORY_SANDBOX_LAUNCHER`, else itself, else one beside or one directory above
+— and confinement **refuses** when it finds none rather than running the wrong
+binary.
+
+What is still weaker than Linux and macOS: `%VAR%` in a cell's command is
+expanded by the outer `cmd` before the cell sees it, which `sh -c` with single
+quotes does not do on the other two platforms. `cmd` has no escape for `%`, so
+closing that means not routing the confined line through an outer shell at
+all — the launcher already runs `cmd.exe /C` inside the AppContainer, so the
+outer one buys nothing.
 
 Where a machine has no sandbox at all, the executor still **refuses to run**
 rather than silently running unconfined, and names the alternatives (WSL2, the

@@ -151,7 +151,21 @@ impl SandboxedExecutor {
             Some(&tmpdir),
             &peers,
         ) else {
-            bail!("no sandbox available to confine container '{container}'");
+            bail!(
+                "cannot confine container '{container}': {}.\n\nOn Windows this \
+                 is usually not a missing sandbox but a missing launcher — \
+                 confinement re-invokes the `hick` binary, and the running \
+                 program ({}) does not answer `{}`. Point {} at a `hick` \
+                 executable, or run the cell through the `hick` CLI. To run \
+                 without confinement instead, set HICKORY_EXECUTOR=local, which \
+                 gives the cell your whole machine.",
+                policy::Sandbox::missing_hint(),
+                std::env::current_exe()
+                    .map(|p| p.display().to_string())
+                    .unwrap_or_else(|_| "this program".into()),
+                policy::SANDBOX_RUN_SUBCOMMAND,
+                policy::LAUNCHER_VAR,
+            );
         };
         let mut line = shell_quote(&program);
         for arg in args {
@@ -226,8 +240,18 @@ fn windows_quote(value: &str) -> String {
                 backslashes = 0;
                 out.push('"');
             }
+            // cmd.exe reads these as syntax *before* CommandLineToArgvW ever
+            // splits the line, and — measured on Windows 11, not assumed — it
+            // does so even inside double quotes. A cell's `a > b && c` is
+            // otherwise executed by the OUTER shell: the redirect swallows the
+            // argument and the second half runs unconfined. The caret is
+            // consumed by cmd, so the confined process still receives the bare
+            // character.
             _ => {
                 backslashes = 0;
+                if matches!(ch, '&' | '<' | '>' | '^' | '|' | '(' | ')') {
+                    out.push('^');
+                }
                 out.push(ch);
             }
         }
@@ -424,5 +448,102 @@ mod tests {
         assert!(quoted.starts_with('\''));
         assert!(quoted.ends_with('\''));
         assert!(quoted.contains(r"'\''"));
+    }
+
+    /// `cmd.exe`'s documented `/C` quote handling, so the rule this code
+    /// depends on can be asserted from any machine.
+    ///
+    /// From `cmd /?`: quotes are preserved only when there is no `/S`, there
+    /// are **exactly two** quote characters, no special characters between
+    /// them, whitespace between them, and the text between them names an
+    /// executable. Otherwise the leading quote and the **last** quote are
+    /// removed. Verified against a real cmd.exe on Windows 11 (2026-08-19) —
+    /// both the failing and the passing form.
+    fn cmd_strips_quotes(line: &str) -> String {
+        if line.matches('"').count() == 2 {
+            return line.to_string();
+        }
+        let Some(rest) = line.strip_prefix('"') else {
+            return line.to_string();
+        };
+        match rest.rfind('"') {
+            Some(last) => format!("{}{}", &rest[..last], &rest[last + 1..]),
+            None => rest.to_string(),
+        }
+    }
+
+    /// The program `cmd.exe` would try to execute from a command line.
+    fn program_of(line: &str) -> String {
+        let line = line.trim_start();
+        if let Some(rest) = line.strip_prefix('"') {
+            return rest.split('"').next().unwrap_or_default().to_string();
+        }
+        line.split_whitespace().next().unwrap_or_default().to_string()
+    }
+
+    /// Compose a confined line the way `confine` does, for a Windows target,
+    /// regardless of the host this test runs on.
+    fn confined_line(program: &str, args: &[&str]) -> String {
+        let mut line = windows_quote(program);
+        for arg in args {
+            line.push(' ');
+            line.push_str(&windows_quote(arg));
+        }
+        line
+    }
+
+    #[test]
+    fn a_confined_line_survives_cmds_quote_stripping() {
+        // Regression: the launcher path, the workdir, and the cell's command
+        // are three quoted arguments — six quote characters — so cmd takes the
+        // strip branch. Handed over bare, the program name kept a trailing
+        // quote and every confined cell failed with ERROR_INVALID_NAME before
+        // it ran. Measured, not guessed: see the doc on `cmd_strips_quotes`.
+        let launcher = r"C:\Program Files\Hickory\hick.exe";
+        let line = confined_line(
+            launcher,
+            &[
+                "__sandbox-run",
+                "--workdir",
+                r"C:\Users\x\AppData\Local\Temp\c1",
+                "--",
+                "echo hello > note.txt && cat note.txt",
+            ],
+        );
+
+        let bare = cmd_strips_quotes(&line);
+        assert_ne!(
+            program_of(&bare),
+            launcher,
+            "if cmd stopped mangling a bare line this guard is obsolete — check \
+             a real cmd.exe before deleting it"
+        );
+
+        // What `shell_command` actually hands to `cmd /C`.
+        let wrapped = cmd_strips_quotes(&format!("\"{line}\""));
+        assert_eq!(
+            program_of(&wrapped),
+            launcher,
+            "the launcher must survive cmd's quote stripping intact"
+        );
+    }
+
+    #[test]
+    fn the_cells_shell_syntax_is_hidden_from_the_outer_shell() {
+        // Without the carets the outer cmd performs the redirect itself: the
+        // argument is swallowed and `cat` runs unconfined. Confirmed on
+        // Windows 11 — the confined process received no command at all.
+        let quoted = windows_quote("echo hello > note.txt && cat note.txt");
+        assert!(quoted.contains("^>"), "the redirect must be hidden: {quoted}");
+        assert!(quoted.contains("^&^&"), "the operator must be hidden: {quoted}");
+        assert!(
+            !quoted.contains(" > ") && !quoted.contains(" && "),
+            "no metacharacter may reach the outer shell unescaped: {quoted}"
+        );
+    }
+
+    #[test]
+    fn a_literal_caret_is_escaped_too() {
+        assert_eq!(windows_quote("a^b"), r#""a^^b""#);
     }
 }
