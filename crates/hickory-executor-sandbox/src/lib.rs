@@ -129,12 +129,14 @@ impl SandboxedExecutor {
         ))
     }
 
-    /// Rewrite a command so the shell that runs it is inside the sandbox.
+    /// The program and arguments that run `command` confined.
     ///
-    /// The wrapped form is a single `sh -c` string because that is what
-    /// `LocalExecutor` spawns; quoting the inner command keeps a cell's own
-    /// shell syntax intact.
-    fn confine(&self, container: &str, command: &str) -> Result<String> {
+    /// An argv, not a shell line. Every sandbox wrapper already carries the
+    /// shell it wants inside its own arguments — `bwrap … sh -c …`,
+    /// `sandbox-exec … sh -c …`, `hick __sandbox-run … -- …` — so composing a
+    /// string for an outer shell to re-split adds a quoting layer that buys
+    /// nothing and can only lose.
+    fn confine(&self, container: &str, command: &str) -> Result<(String, Vec<String>)> {
         let workdir = self.inner.workdir_of(container)?;
         // One /tmp per container, not per command — see `tmpdir_of`.
         let tmpdir = self.inner.tmpdir_of(container)?;
@@ -167,12 +169,7 @@ impl SandboxedExecutor {
                 policy::LAUNCHER_VAR,
             );
         };
-        let mut line = shell_quote_program(&program);
-        for arg in args {
-            line.push(' ');
-            line.push_str(&shell_quote(&arg));
-        }
-        Ok(line)
+        Ok((program, args))
     }
 }
 
@@ -198,85 +195,6 @@ fn looks_like_a_denied_network(error: &str) -> bool {
         "EAI_AGAIN",
     ];
     SIGNS.iter().any(|sign| error.contains(sign))
-}
-
-/// Quote one argument for the shell this platform hands commands to.
-///
-/// Two shells, two rules, and getting it wrong is not a cosmetic bug: an
-/// unquoted workdir with a space in it turns one argument into two, and the
-/// sandbox confines the wrong directory.
-/// Quote the program name.
-///
-/// On Windows this is deliberately NOT metacharacter-escaped: `cmd` resolves
-/// the executable *before* it consumes carets, so `C:\Program Files ^(x86^)\`
-/// is looked up literally and reported as "The system cannot find the path
-/// specified" (measured on Windows 11, 2026-08-19).
-fn shell_quote_program(value: &str) -> String {
-    if cfg!(windows) {
-        windows_quote(value, false)
-    } else {
-        format!("'{}'", value.replace('\'', r"'\''"))
-    }
-}
-
-/// Quote an argument, hiding anything the outer shell would otherwise act on.
-fn shell_quote(value: &str) -> String {
-    if cfg!(windows) {
-        windows_quote(value, true)
-    } else {
-        // Single quotes: the only sh quoting with no escapes to get wrong.
-        format!("'{}'", value.replace('\'', r"'\''"))
-    }
-}
-
-/// Quote for `cmd.exe`, which is two problems rather than one.
-///
-/// `CommandLineToArgvW` splits on unquoted spaces and treats backslashes as
-/// escapes only when they precede a quote; `cmd.exe` *additionally* expands
-/// `%VAR%` and treats `&|<>^` as syntax before any of that happens. So the
-/// argument is double-quoted for the parser and the metacharacters that
-/// survive quoting are caret-escaped for the shell.
-fn windows_quote(value: &str, hide_metacharacters: bool) -> String {
-    let mut out = String::with_capacity(value.len() + 2);
-    out.push('"');
-    let mut backslashes = 0;
-    for ch in value.chars() {
-        match ch {
-            '\\' => {
-                backslashes += 1;
-                out.push(ch);
-            }
-            '"' => {
-                // Every backslash immediately before a quote is doubled, then
-                // the quote itself is escaped.
-                for _ in 0..=backslashes {
-                    out.push('\\');
-                }
-                backslashes = 0;
-                out.push('"');
-            }
-            // cmd.exe reads these as syntax *before* CommandLineToArgvW ever
-            // splits the line, and — measured on Windows 11, not assumed — it
-            // does so even inside double quotes. A cell's `a > b && c` is
-            // otherwise executed by the OUTER shell: the redirect swallows the
-            // argument and the second half runs unconfined. The caret is
-            // consumed by cmd, so the confined process still receives the bare
-            // character.
-            _ => {
-                backslashes = 0;
-                if hide_metacharacters && matches!(ch, '&' | '<' | '>' | '^' | '|' | '(' | ')') {
-                    out.push('^');
-                }
-                out.push(ch);
-            }
-        }
-    }
-    // Trailing backslashes would escape the closing quote.
-    for _ in 0..backslashes {
-        out.push('\\');
-    }
-    out.push('"');
-    out
 }
 
 #[async_trait]
@@ -307,18 +225,25 @@ impl Executor for SandboxedExecutor {
         // $HOME is a tmpfs with only toolchain directories bound back — and
         // the second is the only one worth asking, since it is the one that
         // decides whether the cell works.
-        let confined = self.confine(container, command)?;
-        self.inner.probe_command(container, &confined).await
+        let (program, args) = self.confine(container, command)?;
+        self.inner.probe_argv(container, &program, &args).await
     }
 
     async fn execute(&self, container: &str, command: &str) -> Result<String> {
-        let confined = self.confine(container, command)?;
+        let (program, args) = self.confine(container, command)?;
         // The transcript records the cell as written; only the spawn sees the
         // sandbox. A woven document full of `bwrap --ro-bind …` would be a
         // page about our implementation in the middle of somebody else's
         // work.
         self.inner
-            .execute_as(container, command, &confined, None, ExecOptions::default())
+            .execute_argv_as(
+                container,
+                command,
+                &program,
+                &args,
+                None,
+                ExecOptions::default(),
+            )
             .await
             .map_err(|error| self.explain(container, error))
     }
@@ -329,12 +254,13 @@ impl Executor for SandboxedExecutor {
         command: &str,
         stdin_data: &str,
     ) -> Result<String> {
-        let confined = self.confine(container, command)?;
+        let (program, args) = self.confine(container, command)?;
         self.inner
-            .execute_as(
+            .execute_argv_as(
                 container,
                 command,
-                &confined,
+                &program,
+                &args,
                 Some(stdin_data),
                 ExecOptions::default(),
             )
@@ -354,9 +280,9 @@ impl Executor for SandboxedExecutor {
         // `LocalExecutor`, so a timed-out confined cell is killed group and
         // all, exactly like an unconfined one.
         // docs/guarantees/execution/a-cell-cannot-hang-a-run.md
-        let confined = self.confine(container, command)?;
+        let (program, args) = self.confine(container, command)?;
         self.inner
-            .execute_as(container, command, &confined, stdin_data, options)
+            .execute_argv_as(container, command, &program, &args, stdin_data, options)
             .await
             .map_err(|error| self.explain(container, error))
     }
@@ -418,182 +344,5 @@ impl Executor for SandboxedExecutor {
 
     async fn shutdown(&self) -> Result<()> {
         self.inner.shutdown().await
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn a_windows_path_with_a_space_stays_one_argument() {
-        // The failure this prevents: `C:\Program Files\…` splits into two
-        // arguments, the launcher confines a directory that does not exist,
-        // and the sandbox protects nothing that matters.
-        let quoted = windows_quote(r"C:\Program Files\thing", false);
-        assert_eq!(quoted, r#""C:\Program Files\thing""#);
-    }
-
-    #[test]
-    fn a_trailing_backslash_does_not_escape_the_closing_quote() {
-        // A Windows directory path ends in a backslash often enough that this
-        // is the realistic corruption: `"C:\dir\"` swallows the quote and
-        // everything after it becomes part of the argument.
-        assert_eq!(windows_quote(r"C:\dir\", false), r#""C:\dir\\""#);
-    }
-
-    #[test]
-    fn an_embedded_quote_is_escaped_with_its_backslashes_doubled() {
-        assert_eq!(windows_quote(r#"say "hi""#, false), r#""say \"hi\"""#);
-    }
-
-    /// The `sh` half of `shell_quote`, hence Unix-only.
-    ///
-    /// It calls the platform-dispatching function and asserts single quotes,
-    /// which is the right shape on Unix and the wrong one on Windows — there
-    /// `shell_quote` returns `windows_quote`'s double-quoted, caret-escaped
-    /// form, and this failed as the very first Windows test anyone ran. The
-    /// Windows side is covered directly by the three `windows_quote` tests
-    /// above, which are not gated because that function compiles everywhere.
-    #[cfg(unix)]
-    #[test]
-    fn quoting_survives_a_command_containing_quotes() {
-        // A cell full of shell quoting must reach the shell unchanged.
-        let quoted = shell_quote(r#"echo 'it'\''s fine'"#);
-        assert!(quoted.starts_with('\''));
-        assert!(quoted.ends_with('\''));
-        assert!(quoted.contains(r"'\''"));
-    }
-
-    /// `cmd.exe`'s documented `/C` quote handling, so the rule this code
-    /// depends on can be asserted from any machine.
-    ///
-    /// From `cmd /?`: quotes are preserved only when there is no `/S`, there
-    /// are **exactly two** quote characters, no special characters between
-    /// them, whitespace between them, and the text between them names an
-    /// executable. Otherwise the leading quote and the **last** quote are
-    /// removed. Verified against a real cmd.exe on Windows 11 (2026-08-19) —
-    /// both the failing and the passing form.
-    fn cmd_strips_quotes(line: &str) -> String {
-        if line.matches('"').count() == 2 {
-            return line.to_string();
-        }
-        let Some(rest) = line.strip_prefix('"') else {
-            return line.to_string();
-        };
-        match rest.rfind('"') {
-            Some(last) => format!("{}{}", &rest[..last], &rest[last + 1..]),
-            None => rest.to_string(),
-        }
-    }
-
-    /// The program `cmd.exe` would try to execute from a command line.
-    fn program_of(line: &str) -> String {
-        let line = line.trim_start();
-        if let Some(rest) = line.strip_prefix('"') {
-            return rest.split('"').next().unwrap_or_default().to_string();
-        }
-        line.split_whitespace()
-            .next()
-            .unwrap_or_default()
-            .to_string()
-    }
-
-    /// Compose a confined line the way `confine` does, for a Windows target,
-    /// regardless of the host this test runs on.
-    fn confined_line(program: &str, args: &[&str]) -> String {
-        let mut line = windows_quote(program, false);
-        for arg in args {
-            line.push(' ');
-            line.push_str(&windows_quote(arg, true));
-        }
-        line
-    }
-
-    #[test]
-    fn a_confined_line_survives_cmds_quote_stripping() {
-        // Regression: the launcher path, the workdir, and the cell's command
-        // are three quoted arguments — six quote characters — so cmd takes the
-        // strip branch. Handed over bare, the program name kept a trailing
-        // quote and every confined cell failed with ERROR_INVALID_NAME before
-        // it ran. Measured, not guessed: see the doc on `cmd_strips_quotes`.
-        let launcher = r"C:\Program Files\Hickory\hick.exe";
-        let line = confined_line(
-            launcher,
-            &[
-                "__sandbox-run",
-                "--workdir",
-                r"C:\Users\x\AppData\Local\Temp\c1",
-                "--",
-                "echo hello > note.txt && cat note.txt",
-            ],
-        );
-
-        let bare = cmd_strips_quotes(&line);
-        assert_ne!(
-            program_of(&bare),
-            launcher,
-            "if cmd stopped mangling a bare line this guard is obsolete — check \
-             a real cmd.exe before deleting it"
-        );
-
-        // What `shell_command` actually hands to `cmd /C`.
-        let wrapped = cmd_strips_quotes(&format!("\"{line}\""));
-        assert_eq!(
-            program_of(&wrapped),
-            launcher,
-            "the launcher must survive cmd's quote stripping intact"
-        );
-    }
-
-    #[test]
-    fn the_cells_shell_syntax_is_hidden_from_the_outer_shell() {
-        // Without the carets the outer cmd performs the redirect itself: the
-        // argument is swallowed and `cat` runs unconfined. Confirmed on
-        // Windows 11 — the confined process received no command at all.
-        let quoted = windows_quote("echo hello > note.txt && cat note.txt", true);
-        assert!(
-            quoted.contains("^>"),
-            "the redirect must be hidden: {quoted}"
-        );
-        assert!(
-            quoted.contains("^&^&"),
-            "the operator must be hidden: {quoted}"
-        );
-        assert!(
-            !quoted.contains(" > ") && !quoted.contains(" && "),
-            "no metacharacter may reach the outer shell unescaped: {quoted}"
-        );
-    }
-
-    #[test]
-    fn a_literal_caret_is_escaped_too() {
-        assert_eq!(windows_quote("a^b", true), r#""a^^b""#);
-    }
-
-    #[test]
-    fn the_program_path_is_never_metacharacter_escaped() {
-        // `C:\Program Files (x86)\...` is the ordinary case, and cmd resolves
-        // the executable before it consumes carets — escaping the parentheses
-        // makes the launcher unfindable. Measured on Windows 11: "The system
-        // cannot find the path specified".
-        let path = r"C:\Program Files (x86)\Hickory\hick.exe";
-        let quoted = windows_quote(path, false);
-        assert!(
-            !quoted.contains('^'),
-            "the program must stay literal: {quoted}"
-        );
-        assert!(quoted.contains("(x86)"), "{quoted}");
-    }
-
-    #[test]
-    fn a_caret_in_an_argument_is_doubled_so_it_survives() {
-        // cmd consumes one caret from every argument it passes on, so a path
-        // that genuinely contains one arrives short of it: `has^caret` reached
-        // the confined process as `hascaret`.
-        assert_eq!(
-            windows_quote(r"C:\a\has^caret", true),
-            r#""C:\a\has^^caret""#
-        );
     }
 }

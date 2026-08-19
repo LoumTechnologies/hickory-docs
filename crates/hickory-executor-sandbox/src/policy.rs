@@ -638,6 +638,40 @@ mod tests {
     }
 
     #[test]
+    fn a_cells_command_is_one_argv_element_on_every_sandbox() {
+        // The property that replaced the quoting: `wrap` hands back a program
+        // and its arguments, and the cell's command is ONE of them, byte for
+        // byte. Nothing downstream re-splits it, so there is no shell dialect
+        // between the author and their command.
+        //
+        // This is the regression guard for a real escape. When the confined
+        // argv was flattened into a line for an outer `cmd.exe`, a cell
+        // running `echo hello > note.txt && cat note.txt` had the redirect
+        // performed by that outer shell and its second half run UNCONFINED.
+        const CELL: &str = "echo hello > note.txt && cat note.txt";
+
+        let bwrap = wrap(
+            Sandbox::Bubblewrap,
+            &PathBuf::from("/work"),
+            CELL,
+            false,
+            Profile::Cell,
+            None,
+            &[],
+        )
+        .expect("bubblewrap composes without touching the filesystem")
+        .1;
+        assert_eq!(
+            bwrap.iter().filter(|a| a.as_str() == CELL).count(),
+            1,
+            "the cell appears once, unmangled: {bwrap:?}"
+        );
+
+        let appcontainer = appcontainer_args("C:\\work".to_string(), CELL, false);
+        assert_eq!(appcontainer.last().map(String::as_str), Some(CELL));
+    }
+
+    #[test]
     fn a_cell_cannot_outlive_the_run_that_started_it() {
         assert!(args_for(false).contains(&"--die-with-parent".to_string()));
         assert!(args_for(false).contains(&"--new-session".to_string()));

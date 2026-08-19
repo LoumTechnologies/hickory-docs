@@ -280,6 +280,21 @@ struct LocalState {
 
 /// Host-process executor. See the crate docs for its (loudly documented)
 /// semantics: **no sandboxing, images ignored, containers are temp dirs.**
+/// How a command reaches the operating system.
+///
+/// Two shapes, because there are two genuinely different things: a cell is
+/// shell text an author wrote, and a confined cell is a program plus its
+/// arguments that some sandbox composed. Collapsing the second into the first
+/// means re-quoting an argv into a string for a shell to take apart again, and
+/// every quoting rule that string has to survive is a place to be wrong.
+#[derive(Clone, Copy)]
+enum Launch<'a> {
+    /// Shell text, handed to the platform shell.
+    Shell(&'a str),
+    /// A program and its arguments, spawned directly.
+    Argv(&'a str, &'a [String]),
+}
+
 pub struct LocalExecutor {
     /// Root temp dir holding one workdir per container; cleaned on drop.
     root: tempfile::TempDir,
@@ -416,8 +431,23 @@ impl LocalExecutor {
     /// function appends to the transcript, and a "sometimes" flag on it is
     /// one refactor away from a probe showing up in somebody's document.
     pub async fn probe_command(&self, container: &str, command: &str) -> Result<bool> {
+        self.probe_launch(container, Launch::Shell(command)).await
+    }
+
+    /// [`probe_command`](Self::probe_command) for a program and its arguments.
+    pub async fn probe_argv(
+        &self,
+        container: &str,
+        program: &str,
+        args: &[String],
+    ) -> Result<bool> {
+        self.probe_launch(container, Launch::Argv(program, args))
+            .await
+    }
+
+    async fn probe_launch(&self, container: &str, launch: Launch<'_>) -> Result<bool> {
         let workdir = self.workdir_for(container)?;
-        let status = Self::shell_command(command, &workdir)
+        let status = Self::command_for(launch, &workdir)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
             .stderr(Stdio::null())
@@ -435,8 +465,43 @@ impl LocalExecutor {
         stdin_data: Option<&str>,
         options: ExecOptions,
     ) -> Result<String> {
-        self.run_command_as(container, display, command, stdin_data, options)
-            .await
+        self.run_command_as(
+            container,
+            display,
+            Launch::Shell(command),
+            stdin_data,
+            options,
+        )
+        .await
+    }
+
+    /// Run a program directly, with no shell between us and it, while the
+    /// transcript still shows `display` — the cell as its author wrote it.
+    ///
+    /// This is what a confined cell uses. A sandbox wrapper already carries
+    /// the shell it wants inside its own argv (`bwrap … sh -c …`,
+    /// `hick __sandbox-run … -- …`), so putting another shell in front of it
+    /// only creates a quoting problem: three defects on Windows in one day
+    /// came from that outer `cmd.exe`, including a cell whose `&&` was split
+    /// by it and whose second half then ran UNCONFINED. An argv has no
+    /// quoting to get wrong.
+    pub async fn execute_argv_as(
+        &self,
+        container: &str,
+        display: &str,
+        program: &str,
+        args: &[String],
+        stdin_data: Option<&str>,
+        options: ExecOptions,
+    ) -> Result<String> {
+        self.run_command_as(
+            container,
+            display,
+            Launch::Argv(program, args),
+            stdin_data,
+            options,
+        )
+        .await
     }
 
     async fn run_command(
@@ -446,8 +511,27 @@ impl LocalExecutor {
         stdin_data: Option<&str>,
         options: ExecOptions,
     ) -> Result<String> {
-        self.run_command_as(container, command, command, stdin_data, options)
-            .await
+        self.run_command_as(
+            container,
+            command,
+            Launch::Shell(command),
+            stdin_data,
+            options,
+        )
+        .await
+    }
+
+    /// Build the process for a launch, in the workdir it runs in.
+    fn command_for(launch: Launch<'_>, workdir: &std::path::Path) -> tokio::process::Command {
+        match launch {
+            Launch::Shell(command) => Self::shell_command(command, workdir),
+            Launch::Argv(program, args) => {
+                let mut cmd = tokio::process::Command::new(program);
+                cmd.args(args);
+                cmd.current_dir(workdir);
+                cmd
+            }
+        }
     }
 
     /// The shell a cell's command is handed to.
@@ -534,7 +618,7 @@ impl LocalExecutor {
         &self,
         container: &str,
         display: &str,
-        command: &str,
+        launch: Launch<'_>,
         stdin_data: Option<&str>,
         options: ExecOptions,
     ) -> Result<String> {
@@ -555,7 +639,7 @@ impl LocalExecutor {
         }
 
         info!("[local:{container}] executing: {}", display.trim());
-        let mut cmd = Self::shell_command(command, &workdir);
+        let mut cmd = Self::command_for(launch, &workdir);
         cmd.stdin(if stdin_data.is_some() {
             Stdio::piped()
         } else {
@@ -571,9 +655,17 @@ impl LocalExecutor {
         // whatever the shell spawned (see `kill_hard`).
         #[cfg(unix)]
         cmd.process_group(0);
-        let mut child = cmd.spawn().with_context(|| {
-            let (shell, shell_flag) = Self::shell();
-            format!("failed to spawn `{shell} {shell_flag}` in container '{container}'")
+        let mut child = cmd.spawn().with_context(|| match launch {
+            Launch::Shell(_) => {
+                let (shell, shell_flag) = Self::shell();
+                format!("failed to spawn `{shell} {shell_flag}` in container '{container}'")
+            }
+            // Naming the program is the whole point here: this is the confined
+            // path, where a failure to spawn means the sandbox launcher itself
+            // could not be started.
+            Launch::Argv(program, _) => {
+                format!("failed to spawn `{program}` in container '{container}'")
+            }
         })?;
         let child_pid = child.id();
 

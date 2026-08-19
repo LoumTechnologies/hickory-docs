@@ -10,6 +10,25 @@
 use hickory_executor::Executor;
 use hickory_executor_sandbox::{Sandbox, SandboxedExecutor};
 
+/// The same intent, in the shell a cell actually gets on this platform.
+///
+/// Cells run through `sh -c` on Unix and `cmd.exe /C` on Windows, so a test
+/// written in POSIX syntax is not testing the sandbox on Windows — it is
+/// testing whether Git for Windows happens to be on PATH. And when it is, the
+/// test still fails, for a reason worth knowing: msys2 binaries need a section
+/// object in the GLOBAL `\BaseNamedObjects` namespace, and an AppContainer is
+/// given a private one, so `cat`, `sleep` and the rest die with
+/// STATUS_ACCESS_DENIED before doing anything at all. Measured in CI,
+/// 2026-08-19 — see the guarantee. Git-Bash tooling simply cannot run confined
+/// on Windows.
+fn per_shell(unix: &str, windows: &str) -> String {
+    if cfg!(windows) {
+        windows.to_string()
+    } else {
+        unix.to_string()
+    }
+}
+
 fn available() -> bool {
     if Sandbox::detect() == Sandbox::None {
         eprintln!(
@@ -191,12 +210,25 @@ async fn one_containers_cells_share_a_tmp() {
     // hypothetical — it broke one of this repository's own documents, whose
     // cells pass state through a file in /tmp.)
     let executor = started().await;
+    // On Windows the per-container tmp is not something this code binds:
+    // Windows redirects an AppContainer's TEMP into the package's own store,
+    // and the package SID is derived from the workdir — so it is already
+    // per-container. The test is the same question either way.
     executor
-        .execute("c", "echo remembered > /tmp/note.txt")
+        .execute(
+            "c",
+            &per_shell(
+                "echo remembered > /tmp/note.txt",
+                r"echo remembered> %TEMP%\note.txt",
+            ),
+        )
         .await
         .expect("a cell can write /tmp");
     let out = executor
-        .execute("c", "cat /tmp/note.txt")
+        .execute(
+            "c",
+            &per_shell("cat /tmp/note.txt", r"type %TEMP%\note.txt"),
+        )
         .await
         .expect("the next cell finds it");
     assert!(out.contains("remembered"), "{out}");
@@ -261,11 +293,26 @@ async fn a_cell_cannot_read_another_containers_workdir() {
     // Each container's workdir is bound only into its own sandbox, so one
     // cell cannot read what another produced except through a declared
     // volume.
+    // `for /d` rather than a wildcard path: `type ..\*\secret.txt` does not
+    // expand a wildcard in a DIRECTORY component, so it reports failure even
+    // when the peer is perfectly readable — a test built on it would pass
+    // whether or not anything was confining. Checked both ways on Windows 11.
     let result = executor
-        .execute("c", "cat ../*/secret.txt 2>/dev/null || echo DENIED")
+        .execute(
+            "c",
+            &per_shell(
+                "cat ../*/secret.txt 2>/dev/null || echo DENIED",
+                r#"for /d %d in (..\*) do @type "%d\secret.txt" 2>nul"#,
+            ),
+        )
         .await
         .unwrap();
-    assert!(result.contains("DENIED"), "{result}");
+    // The absence of the data, not the presence of a fallback message: what
+    // the guarantee promises is that the bytes do not arrive.
+    assert!(
+        !result.contains("secret"),
+        "a cell read another container's workdir: {result}"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -295,10 +342,15 @@ async fn a_confined_cell_is_killed_at_its_timeout() {
     }
     let executor = started().await;
     let started_at = std::time::Instant::now();
+    // `waitfor` rather than `ping -n`: waiting by pinging loopback needs the
+    // network stack, and a confined cell is denied the network unless its
+    // document asked for it — the cell would fail instantly for the wrong
+    // reason and the test would pass without ever testing the timeout.
+    let sleeper = per_shell("sleep 30", "waitfor /t 30 hickory");
     let err = executor
         .execute_with_options(
             "c",
-            "sleep 30",
+            &sleeper,
             None,
             hickory_executor::ExecOptions {
                 timeout: Some(std::time::Duration::from_millis(300)),
@@ -313,7 +365,7 @@ async fn a_confined_cell_is_killed_at_its_timeout() {
     let msg = err.to_string();
     assert!(msg.contains("timed out"), "{msg}");
     assert!(
-        msg.contains("sleep 30") && !msg.contains("--ro-bind"),
+        msg.contains(sleeper.as_str()) && !msg.contains("--ro-bind"),
         "the error names the cell as written, not the sandbox wrapper: {msg}"
     );
 }

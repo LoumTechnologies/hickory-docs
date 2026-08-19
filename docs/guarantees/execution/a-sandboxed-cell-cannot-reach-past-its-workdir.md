@@ -47,46 +47,56 @@ job object with `KILL_ON_JOB_CLOSE`. Because AppContainer is applied by the
 `__sandbox-run` subcommand rather than exec'ing a wrapper the way bubblewrap and
 Seatbelt do.
 
-**It had never been run, and running it found two defects that no amount of
-reading would have.** Measured on a Windows 11 guest, 2026-08-19:
+**It had never been run, and running it found three defects that no amount of
+reading would have.** Measured on a Windows 11 guest and in CI, 2026-08-19:
 
-1. **Every confined cell failed before it started.** The confined line quotes
+1. **Every confined cell failed before it started.** The confined line quoted
    the launcher, the workdir, and the command — six quote characters — and
    `cmd /?` documents that `cmd /C` preserves quoting only when there are
    *exactly two*; otherwise it strips the leading quote and the **last** one.
-   The program name therefore reached `CreateProcess` as `C:\...\hick.exe"`,
-   a filename Windows rejects, and the cell died with "The filename, directory
-   name, or volume label syntax is incorrect". Fixed by wrapping the whole line
-   in one more pair of quotes (`LocalExecutor::shell_command`).
-2. **The cell's own shell syntax was executed by the outer shell.** `cmd`
-   applies `> < & | ^ ( )` before `CommandLineToArgvW` splits the line, and —
-   contrary to what quoting suggests — it does so *inside* double quotes too. A
-   cell running `echo hello > note.txt && cat note.txt` had its argument
-   swallowed by the outer redirect and the second half run **unconfined**.
-   Fixed by caret-escaping those characters in `windows_quote`, which `cmd`
-   consumes, so the confined process receives the bare text. The escaping is
-   **asymmetric**, which measuring caught and reasoning had not: `cmd` resolves
-   the *program* before it consumes carets, so escaping the launcher's path
-   makes it unfindable (`C:\Program Files ^(x86^)\...` → "The system cannot
-   find the path specified"). The program is quoted plain; every argument is
-   escaped. A literal caret in an argument must be doubled for the same reason
-   — a directory named `has^caret` reached the confined process as `hascaret`.
+   The program name reached `CreateProcess` as `C:\...\hick.exe"`, which
+   Windows rejects.
+2. **A cell's own shell syntax was executed by the outer shell.** `cmd` applies
+   `> < & | ^ ( )` before argv splitting, inside double quotes as well. A cell
+   running `echo hello > note.txt && cat note.txt` had its argument taken by
+   the outer redirect and **ran its second half unconfined** — the sandbox
+   silently not applying to half a command is the worst failure available here.
+3. **The launcher was `current_exe()`**, which is the CLI only when the CLI is
+   running. The desktop app (`Hickory Docs.exe`) and every test binary have no
+   `__sandbox-run`, so both re-invoked something that cannot confine.
 
-A third defect is a product bug rather than a Windows one: confinement
-re-invokes `current_exe()`, which is only the CLI when the CLI is what is
-running. The desktop app (`Hickory Docs.exe`) and any test binary have no
-`__sandbox-run` subcommand, so both would have re-invoked something that cannot
-confine. `policy::launcher` now resolves a real `hick` — explicitly via
-`HICKORY_SANDBOX_LAUNCHER`, else itself, else one beside or one directory above
-— and confinement **refuses** when it finds none rather than running the wrong
-binary.
+The first two are gone by construction rather than by better quoting. A
+confined command is now an **argv** from `policy::wrap` all the way to
+`CreateProcess` — `LocalExecutor::execute_argv_as` spawns the program directly,
+with no shell in front of it. Every wrapper already carries the shell it wants
+inside its own arguments (`bwrap … sh -c …`, `hick __sandbox-run … -- …`), so
+the outer one only ever created a string for something else to take apart
+again. The guard is `a_cells_command_is_one_argv_element_on_every_sandbox`:
+the cell appears exactly once in the argv, byte for byte. Removing that layer
+also removed the `%VAR%` gap on Windows and the asymmetric caret-escaping that
+gap had required.
 
-What is still weaker than Linux and macOS: `%VAR%` in a cell's command is
-expanded by the outer `cmd` before the cell sees it, which `sh -c` with single
-quotes does not do on the other two platforms. `cmd` has no escape for `%`, so
-closing that means not routing the confined line through an outer shell at
-all — the launcher already runs `cmd.exe /C` inside the AppContainer, so the
-outer one buys nothing.
+The third is fixed by `policy::launcher`, which resolves a real `hick` —
+explicitly via `HICKORY_SANDBOX_LAUNCHER`, else itself, else one beside or one
+directory above — and **refuses** when it finds none rather than re-invoking
+the wrong binary.
+
+**What confinement costs on Windows: msys2 tooling cannot run inside it.**
+Measured three independent ways in CI — `cat.exe`, `sleep.exe` and their
+siblings from Git for Windows all die with
+
+```
+fatal error - NtCreateDirectoryObject(\BaseNamedObjects\msys-2.0S5-…): 0xC0000022
+```
+
+`0xC0000022` is `STATUS_ACCESS_DENIED`. msys2 needs a section object in the
+**global** `\BaseNamedObjects` namespace; an AppContainer is given a private
+one (`\Sessions\N\AppContainerNamedObjects\<SID>`), by design. So a Windows
+user whose cells call `bash`, `grep`, `sed` or `awk` from Git for Windows gets
+commands that work unsandboxed and fail confined. This is a property of
+AppContainer, not something to fix here — but it is the single most likely way
+a Windows user meets this sandbox, and it must be said plainly rather than
+discovered.
 
 Where a machine has no sandbox at all, the executor still **refuses to run**
 rather than silently running unconfined, and names the alternatives (WSL2, the
