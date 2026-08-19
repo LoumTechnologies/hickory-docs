@@ -241,6 +241,67 @@ fn ceil_char_boundary(s: &str, i: usize) -> usize {
     i
 }
 
+/// `timeout -k 5 <secs> <command>`, on machines that have no `timeout`.
+///
+/// coreutils' `timeout` is on every Linux container image and busybox has it
+/// too — and **macOS ships neither**. A cell run through the local or sandboxed
+/// executor on a Mac therefore got `sh: timeout: command not found` and exit
+/// 127, which the model reads as "the script failed" and starts debugging code
+/// that never ran. Nothing in CI could see it: the test suite runs on Linux.
+///
+/// So the shell decides for itself. Where `timeout` exists it is used, because
+/// it is the thing that has been tested for decades. Where it does not, the
+/// same contract is rebuilt from POSIX `sh`: run in the background, let a
+/// watchdog SIGTERM it after `secs` and SIGKILL it five seconds later, and
+/// report **124** for a kill this watchdog performed.
+///
+/// The 124 is decided by a marker file rather than by the exit status, because
+/// a signalled process exits 143 or 137 and so does one somebody else killed —
+/// and "the timeout fired" has to be distinguishable from "something died",
+/// since only the first gets explained to the model as a timeout.
+///
+/// Two details are load-bearing, and both were found by the thing hanging.
+///
+/// The watchdog's output goes to `/dev/null`: a background subshell inherits
+/// the pipes the executor is reading, so a watchdog sleeping out a 600-second
+/// default holds stdout open for ten minutes after the script itself finished.
+/// The script completes instantly and the *collection* hangs, which looks like
+/// the script hanging and is not.
+///
+/// And the kill goes to the process GROUP — `set -m` first, so the job gets one
+/// of its own. Signalling the single pid kills the `sh` and leaves its children
+/// running: a script whose body is `sleep 30` is reaped, its `sleep` is not, and
+/// the orphan holds the same stdout pipe for its full thirty seconds. The
+/// timeout fires correctly and nobody can tell, because the read does not
+/// return. (Linux hides this: `sh -c` there often execs a lone command, so the
+/// pid *is* the sleep. macOS does not, which is why it surfaced here.)
+///
+/// Job control is switched back off immediately after the launch, and `wait`'s
+/// own stderr is discarded, because a shell with `-m` set announces finished
+/// jobs — `[1]-  Done  sh .hickory-agent/action-0.sh` — straight into the
+/// stderr the model is about to read. The process group is assigned when the
+/// job starts, so turning it off afterwards costs nothing.
+fn timed(secs: u64, script_path: &str, command: &str) -> String {
+    let marker = format!("{script_path}.timedout");
+    format!(
+        "if command -v timeout >/dev/null 2>&1; then \
+           timeout -k 5 {secs} {command}; \
+         else \
+           rm -f {marker}; \
+           set -m; {command} & __hick_pid=$!; set +m; \
+           ( sleep {secs}; \
+             kill -TERM -$__hick_pid 2>/dev/null || kill -TERM $__hick_pid 2>/dev/null; \
+             : > {marker}; sleep 5; \
+             kill -KILL -$__hick_pid 2>/dev/null || kill -KILL $__hick_pid 2>/dev/null \
+           ) >/dev/null 2>&1 & __hick_watch=$!; \
+           wait $__hick_pid 2>/dev/null; __hick_status=$?; \
+           kill $__hick_watch 2>/dev/null; \
+           if [ -f {marker} ]; then rm -f {marker}; exit 124; fi; \
+           exit $__hick_status; \
+         fi"
+    )
+}
+
 /// Run one extracted code block through `executor` inside `container`.
 ///
 /// `container` is normally one the DOCUMENT declares, so the agent's scripts
@@ -273,15 +334,16 @@ pub async fn run_script(
         )
         .await?;
 
-    // Run it under `timeout` INSIDE the container. Racing an outer future
+    // Run it under a timeout INSIDE the container. Racing an outer future
     // against the call would return control while the runaway process kept
-    // holding the container's CPU and files; `timeout` actually kills it,
-    // and `-k` follows with SIGKILL for anything that ignores SIGTERM.
+    // holding the container's CPU and files; killing it in there actually
+    // stops it, and SIGKILL follows for anything that ignores SIGTERM.
     // Exit 124 is the documented "timed out" code.
     let secs = limits.timeout.as_secs().max(1);
-    let command = format!(
-        "timeout -k 5 {secs} {}",
-        block.language.run_command(&script_path)
+    let command = timed(
+        secs,
+        &script_path,
+        &block.language.run_command(&script_path),
     );
     // A backstop for the executor itself hanging (a lost connection to a
     // remote microVM never reaches `timeout` in the guest). Generous, so it
