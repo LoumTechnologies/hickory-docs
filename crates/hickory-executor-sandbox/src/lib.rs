@@ -167,7 +167,7 @@ impl SandboxedExecutor {
                 policy::LAUNCHER_VAR,
             );
         };
-        let mut line = shell_quote(&program);
+        let mut line = shell_quote_program(&program);
         for arg in args {
             line.push(' ');
             line.push_str(&shell_quote(&arg));
@@ -205,9 +205,24 @@ fn looks_like_a_denied_network(error: &str) -> bool {
 /// Two shells, two rules, and getting it wrong is not a cosmetic bug: an
 /// unquoted workdir with a space in it turns one argument into two, and the
 /// sandbox confines the wrong directory.
+/// Quote the program name.
+///
+/// On Windows this is deliberately NOT metacharacter-escaped: `cmd` resolves
+/// the executable *before* it consumes carets, so `C:\Program Files ^(x86^)\`
+/// is looked up literally and reported as "The system cannot find the path
+/// specified" (measured on Windows 11, 2026-08-19).
+fn shell_quote_program(value: &str) -> String {
+    if cfg!(windows) {
+        windows_quote(value, false)
+    } else {
+        format!("'{}'", value.replace('\'', r"'\''"))
+    }
+}
+
+/// Quote an argument, hiding anything the outer shell would otherwise act on.
 fn shell_quote(value: &str) -> String {
     if cfg!(windows) {
-        windows_quote(value)
+        windows_quote(value, true)
     } else {
         // Single quotes: the only sh quoting with no escapes to get wrong.
         format!("'{}'", value.replace('\'', r"'\''"))
@@ -221,7 +236,7 @@ fn shell_quote(value: &str) -> String {
 /// `%VAR%` and treats `&|<>^` as syntax before any of that happens. So the
 /// argument is double-quoted for the parser and the metacharacters that
 /// survive quoting are caret-escaped for the shell.
-fn windows_quote(value: &str) -> String {
+fn windows_quote(value: &str, hide_metacharacters: bool) -> String {
     let mut out = String::with_capacity(value.len() + 2);
     out.push('"');
     let mut backslashes = 0;
@@ -249,7 +264,7 @@ fn windows_quote(value: &str) -> String {
             // character.
             _ => {
                 backslashes = 0;
-                if matches!(ch, '&' | '<' | '>' | '^' | '|' | '(' | ')') {
+                if hide_metacharacters && matches!(ch, '&' | '<' | '>' | '^' | '|' | '(' | ')') {
                     out.push('^');
                 }
                 out.push(ch);
@@ -415,7 +430,7 @@ mod tests {
         // The failure this prevents: `C:\Program Files\…` splits into two
         // arguments, the launcher confines a directory that does not exist,
         // and the sandbox protects nothing that matters.
-        let quoted = windows_quote(r"C:\Program Files\thing");
+        let quoted = windows_quote(r"C:\Program Files\thing", false);
         assert_eq!(quoted, r#""C:\Program Files\thing""#);
     }
 
@@ -424,12 +439,12 @@ mod tests {
         // A Windows directory path ends in a backslash often enough that this
         // is the realistic corruption: `"C:\dir\"` swallows the quote and
         // everything after it becomes part of the argument.
-        assert_eq!(windows_quote(r"C:\dir\"), r#""C:\dir\\""#);
+        assert_eq!(windows_quote(r"C:\dir\", false), r#""C:\dir\\""#);
     }
 
     #[test]
     fn an_embedded_quote_is_escaped_with_its_backslashes_doubled() {
-        assert_eq!(windows_quote(r#"say "hi""#), r#""say \"hi\"""#);
+        assert_eq!(windows_quote(r#"say "hi""#, false), r#""say \"hi\"""#);
     }
 
     /// The `sh` half of `shell_quote`, hence Unix-only.
@@ -478,16 +493,19 @@ mod tests {
         if let Some(rest) = line.strip_prefix('"') {
             return rest.split('"').next().unwrap_or_default().to_string();
         }
-        line.split_whitespace().next().unwrap_or_default().to_string()
+        line.split_whitespace()
+            .next()
+            .unwrap_or_default()
+            .to_string()
     }
 
     /// Compose a confined line the way `confine` does, for a Windows target,
     /// regardless of the host this test runs on.
     fn confined_line(program: &str, args: &[&str]) -> String {
-        let mut line = windows_quote(program);
+        let mut line = windows_quote(program, false);
         for arg in args {
             line.push(' ');
-            line.push_str(&windows_quote(arg));
+            line.push_str(&windows_quote(arg, true));
         }
         line
     }
@@ -533,9 +551,15 @@ mod tests {
         // Without the carets the outer cmd performs the redirect itself: the
         // argument is swallowed and `cat` runs unconfined. Confirmed on
         // Windows 11 — the confined process received no command at all.
-        let quoted = windows_quote("echo hello > note.txt && cat note.txt");
-        assert!(quoted.contains("^>"), "the redirect must be hidden: {quoted}");
-        assert!(quoted.contains("^&^&"), "the operator must be hidden: {quoted}");
+        let quoted = windows_quote("echo hello > note.txt && cat note.txt", true);
+        assert!(
+            quoted.contains("^>"),
+            "the redirect must be hidden: {quoted}"
+        );
+        assert!(
+            quoted.contains("^&^&"),
+            "the operator must be hidden: {quoted}"
+        );
         assert!(
             !quoted.contains(" > ") && !quoted.contains(" && "),
             "no metacharacter may reach the outer shell unescaped: {quoted}"
@@ -544,6 +568,32 @@ mod tests {
 
     #[test]
     fn a_literal_caret_is_escaped_too() {
-        assert_eq!(windows_quote("a^b"), r#""a^^b""#);
+        assert_eq!(windows_quote("a^b", true), r#""a^^b""#);
+    }
+
+    #[test]
+    fn the_program_path_is_never_metacharacter_escaped() {
+        // `C:\Program Files (x86)\...` is the ordinary case, and cmd resolves
+        // the executable before it consumes carets — escaping the parentheses
+        // makes the launcher unfindable. Measured on Windows 11: "The system
+        // cannot find the path specified".
+        let path = r"C:\Program Files (x86)\Hickory\hick.exe";
+        let quoted = windows_quote(path, false);
+        assert!(
+            !quoted.contains('^'),
+            "the program must stay literal: {quoted}"
+        );
+        assert!(quoted.contains("(x86)"), "{quoted}");
+    }
+
+    #[test]
+    fn a_caret_in_an_argument_is_doubled_so_it_survives() {
+        // cmd consumes one caret from every argument it passes on, so a path
+        // that genuinely contains one arrives short of it: `has^caret` reached
+        // the confined process as `hascaret`.
+        assert_eq!(
+            windows_quote(r"C:\a\has^caret", true),
+            r#""C:\a\has^^caret""#
+        );
     }
 }

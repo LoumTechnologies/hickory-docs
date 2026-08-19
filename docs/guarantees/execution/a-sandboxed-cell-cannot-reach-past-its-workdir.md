@@ -64,7 +64,13 @@ reading would have.** Measured on a Windows 11 guest, 2026-08-19:
    cell running `echo hello > note.txt && cat note.txt` had its argument
    swallowed by the outer redirect and the second half run **unconfined**.
    Fixed by caret-escaping those characters in `windows_quote`, which `cmd`
-   consumes, so the confined process receives the bare text.
+   consumes, so the confined process receives the bare text. The escaping is
+   **asymmetric**, which measuring caught and reasoning had not: `cmd` resolves
+   the *program* before it consumes carets, so escaping the launcher's path
+   makes it unfindable (`C:\Program Files ^(x86^)\...` → "The system cannot
+   find the path specified"). The program is quoted plain; every argument is
+   escaped. A literal caret in an argument must be doubled for the same reason
+   — a directory named `has^caret` reached the confined process as `hascaret`.
 
 A third defect is a product bug rather than a Windows one: confinement
 re-invokes `current_exe()`, which is only the CLI when the CLI is what is
