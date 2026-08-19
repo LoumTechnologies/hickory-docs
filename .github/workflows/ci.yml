@@ -107,6 +107,69 @@ jobs:
           cargo run -p hickory-cli -- run examples/grand-tour.hick --features with-r --out /tmp/grand-tour-with-r
           cargo run -p hickory-cli -- test examples/grand-tour.hick --features with-r --out /tmp/grand-tour-with-r
 
+  # macOS, because the product runs there and nothing in CI did.
+  #
+  # Everything above this job runs on Linux, and four separate platform bugs
+  # reached `master` behind that gap — a Seatbelt profile that denied a cell its
+  # own workdir, containers able to read each other's, an agent script timeout
+  # that shelled out to a `timeout(1)` macOS does not ship, and two tests
+  # asserting bubblewrap's mechanism rather than the guarantee. None of them was
+  # findable on Ubuntu.
+  #
+  # Deliberately NOT a copy of the `rust` job: the example documents, DuckDB, R
+  # and the grand tour are verified on Linux and prove the same things twice.
+  # What is unique here is the confinement, which is a different implementation
+  # on this platform.
+  macos:
+    needs: [changes]
+    if: always() && (github.event_name == 'push' || needs.changes.outputs.run_rust == 'true')
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.96.1
+      - uses: Swatinem/rust-cache@v2
+      # Same reasoning as the Linux job: a suite that skips every language
+      # server and passes covers nothing. rust-analyzer is a toolchain
+      # component here, which makes it the cheap one to guarantee.
+      - run: rustup component add rust-analyzer
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo build --workspace
+      # Prove confinement works BEFORE testing as though it does — and prove it
+      # where it actually broke.
+      #
+      # A GitHub macOS runner sets TMPDIR under the workspace
+      # (/Users/runner/work/_temp), which is a real directory. A user's Mac
+      # hands out /var/folders/…, and `/var` is a symlink to `/private/var`.
+      # Seatbelt matches the resolved path, so a policy naming the unresolved
+      # one grants nothing and the cell is denied its own workdir. That is why
+      # the release job's macOS smoke test passed for months while `hick test`
+      # failed on every real Mac. Forcing the platform's own temp directory here
+      # is what keeps this runner honest.
+      - name: Verify the sandbox confines a cell in a symlinked temp directory
+        run: |
+          TMPDIR="$(getconf DARWIN_USER_TEMP_DIR)"
+          export TMPDIR
+          echo "TMPDIR=$TMPDIR"
+          readlink /var || echo "/var is not a symlink on this runner"
+          work="$(mktemp -d)"
+          printf '(version 1)(deny default)(allow process-exec)(allow process-fork)(allow file-read*)(allow file-write* (subpath "%s"))\n' \
+            "$(cd "$work" && pwd -P)" > /tmp/hickory-probe.sb
+          sandbox-exec -f /tmp/hickory-probe.sb /bin/sh -c "cd $work && echo confined > it.txt && cat it.txt"
+      - name: Test with the platform's own temp directory, not the runner's
+        run: |
+          TMPDIR="$(getconf DARWIN_USER_TEMP_DIR)"
+          export TMPDIR
+          cargo test --workspace -- --test-threads=1
+      # One shipped document, executed by the real binary under the default
+      # (confined) executor. This is the check that would have caught the
+      # Seatbelt bug on day one: it fails with `Operation not permitted` the
+      # moment a cell writes a file.
+      - name: Verify a shipped example runs confined on macOS
+        run: |
+          TMPDIR="$(getconf DARWIN_USER_TEMP_DIR)"
+          export TMPDIR
+          cargo run -p hickory-cli -- test examples/text-tools-tour.hick
+
   web:
     needs: [changes]
     if: always() && (github.event_name == 'push' || needs.changes.outputs.run_web == 'true')
