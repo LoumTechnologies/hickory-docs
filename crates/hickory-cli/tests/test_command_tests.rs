@@ -22,6 +22,10 @@ fn hick() -> Command {
     Command::new(env!("CARGO_BIN_EXE_hick"))
 }
 
+/// Gated with its only caller. Without this, `-D warnings` fails the Windows
+/// build on dead code — a cfg-gated test takes its helpers with it, and macOS
+/// cannot show you that, because there the function is used.
+#[cfg(unix)]
 fn fixture(name: &str) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("tests/fixtures")
