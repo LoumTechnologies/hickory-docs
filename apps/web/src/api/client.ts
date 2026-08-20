@@ -117,6 +117,15 @@ export const api = {
   /** The open folder's file tree: directories first, alphabetical. */
   files: () => request<FilesResponse>("GET", "/api/files"),
 
+  /** Show a path in the platform's file manager: a file selected inside its
+   * folder, a directory opened. `path` is root-relative; `""` is the folder
+   * itself. */
+  reveal: (path: string) => request<{ ok: true }>("POST", "/api/reveal", { path }),
+  /** Open a path in whatever program this machine already opens that kind of
+   * file with. Nothing is read or written here — the OS association decides. */
+  openExternal: (path: string) =>
+    request<{ ok: true }>("POST", "/api/open-external", { path }),
+
   /** Any text file in the folder, whole, with the hash a save passes back. */
   file: (path: string) =>
     request<PlainFile>("GET", `/api/file?path=${encodeURIComponent(path)}`),

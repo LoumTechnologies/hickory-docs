@@ -112,6 +112,16 @@ async fn file_tree_lists_the_root_gitignore_aware_and_sorted() {
     assert_eq!(body["root"], folder.as_ref());
     assert_eq!(body["truncated"], false);
 
+    // Where the folder actually is, and how this machine spells a path
+    // inside it: what the tree's context menu copies as an absolute path.
+    // Guards docs/guarantees/authoring/a-tree-row-opens-in-the-platform.md.
+    assert_eq!(body["root_path"], session.root.to_string_lossy().as_ref());
+    assert_eq!(body["separator"], std::path::MAIN_SEPARATOR_STR);
+    assert!(
+        body["file_manager"].as_str().is_some_and(|n| !n.is_empty()),
+        "the menu needs a name for this desktop's file manager: {body}"
+    );
+
     // Directories first, then files, both case-insensitive alphabetical —
     // and nothing gitignored, hidden, cached, or vendored.
     assert_eq!(

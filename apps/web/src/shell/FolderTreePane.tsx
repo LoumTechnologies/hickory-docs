@@ -9,10 +9,12 @@
 // reports clicks. What opening a file MEANS (a route, a generated pane,
 // nothing) is the mounting view's decision, expressed through `fileAction`.
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState, type MouseEvent } from "react";
 
 import { api } from "../api/client";
 import type { FileNode, FilesResponse } from "../api/types";
+import { TreeContextMenu } from "./TreeContextMenu";
+import { copyText, treeMenuItems, type TreeFolder, type TreeMenuItem } from "./treeMenu";
 
 /** One open folder: the server's FilesResponse, kept whole. */
 export type FolderTree = FilesResponse;
@@ -247,6 +249,15 @@ export function directoryPaths(nodes: readonly FileNode[]): Set<string> {
   return out;
 }
 
+/**
+ * A right-click on a row, reported with what was clicked.
+ *
+ * Every row kind reports the same three things — where the pointer was, which
+ * root-relative path the row names, and whether it is a directory — so the
+ * menu is built in one place from one shape rather than per row type.
+ */
+export type OnRowMenu = (event: MouseEvent, path: string, dir: boolean) => void;
+
 export interface FolderTreePaneProps {
   roots: readonly FolderTree[];
   /** Non-document paths that a click can open (generated files). */
@@ -364,11 +375,59 @@ function FolderRoot({
   );
   const atRoot = placement.get("") ?? [];
 
+  // The folder as the context menu needs to know it: where it is on this
+  // machine, how paths are spelled there, and what the file manager is called.
+  const info: TreeFolder = useMemo(
+    () => ({
+      rootPath: folder.root_path,
+      separator: folder.separator,
+      fileManager: folder.file_manager,
+    }),
+    [folder.root_path, folder.separator, folder.file_manager],
+  );
+
+  const [menu, setMenu] = useState<{
+    x: number;
+    y: number;
+    path: string;
+    dir: boolean;
+  } | null>(null);
+  // A failed reveal (no file manager on a headless Linux box, a file deleted
+  // between the listing and the click) says so in the pane. The alternative is
+  // a menu item that appears to do nothing at all.
+  const [notice, setNotice] = useState<string | null>(null);
+
+  const openMenu = useCallback<OnRowMenu>((event, path, dir) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setNotice(null);
+    setMenu({ x: event.clientX, y: event.clientY, path, dir });
+  }, []);
+
+  const runItem = useCallback((item: TreeMenuItem) => {
+    setMenu(null);
+    const action = item.action;
+    if (action.kind === "copy") {
+      void copyText(action.text).catch((e: unknown) =>
+        setNotice(`Could not copy: ${e instanceof Error ? e.message : String(e)}`),
+      );
+      return;
+    }
+    const call = action.kind === "reveal" ? api.reveal(action.path) : api.openExternal(action.path);
+    void call.catch((e: unknown) =>
+      setNotice(e instanceof Error ? e.message : String(e)),
+    );
+  }, []);
+
   const name = folder.root.replace(/\/+$/, "").split("/").pop() || folder.root;
   return (
     <section className="folder-tree__root">
       <header className="folder-tree__header">
-        <span className="folder-tree__name" data-tip={folder.root}>
+        <span
+          className="folder-tree__name"
+          data-tip={folder.root}
+          onContextMenu={(event) => openMenu(event, "", true)}
+        >
           {name}
         </span>
         <button
@@ -384,6 +443,7 @@ function FolderRoot({
       {folder.truncated && (
         <p className="muted folder-tree__truncated">Large folder — not everything is listed.</p>
       )}
+      {notice && <p className="error folder-tree__notice">{notice}</p>}
       <ul className="folder-tree__list" role="tree">
         {atRoot.map((session) => (
           <SessionRow key={session.id} session={session} depth={0} onOpen={onOpenTerminal} />
@@ -402,9 +462,20 @@ function FolderRoot({
             placement={placement}
             onOpenTerminal={onOpenTerminal}
             root={folder.root}
+            onRowMenu={openMenu}
           />
         ))}
       </ul>
+      {menu && (
+        <TreeContextMenu
+          x={menu.x}
+          y={menu.y}
+          subject={menu.path === "" ? name : menu.path}
+          items={treeMenuItems(info, menu.path, menu.dir)}
+          onPick={runItem}
+          onClose={() => setMenu(null)}
+        />
+      )}
     </section>
   );
 }
@@ -421,6 +492,7 @@ function TreeRow({
   placement,
   onOpenTerminal,
   root,
+  onRowMenu,
 }: {
   node: FileNode;
   depth: number;
@@ -433,6 +505,8 @@ function TreeRow({
   placement: ReadonlyMap<string, TreeSession[]>;
   onOpenTerminal?: (id: string) => void;
   root: string;
+  /** A right-click anywhere on this row (or its children). */
+  onRowMenu: OnRowMenu;
 }) {
   const indent = { paddingLeft: `${depth * 0.85 + 0.4}rem` };
   if (node.dir) {
@@ -448,6 +522,7 @@ function TreeRow({
           className="folder-tree__dir mono"
           style={indent}
           onClick={() => onToggle(node.path)}
+          onContextMenu={(event) => onRowMenu(event, node.path, true)}
           data-tip={node.path}
         >
           <span className="folder-tree__disclosure" aria-hidden>
@@ -487,6 +562,7 @@ function TreeRow({
                 placement={placement}
                 onOpenTerminal={onOpenTerminal}
                 root={root}
+                onRowMenu={onRowMenu}
               />
             ))}
           </ul>
@@ -510,6 +586,7 @@ function TreeRow({
           data-tip={node.path}
           data-tree-path={node.path}
           data-tree-kind="inert"
+          onContextMenu={(event) => onRowMenu(event, node.path, false)}
         >
           {node.name}
         </span>
@@ -529,6 +606,10 @@ function TreeRow({
         data-tree-path={node.path}
         data-tree-kind={action.kind}
         onClick={() => onOpen(action)}
+        // A file this app cannot or will not open in a pane still has a
+        // machine that can: the same menu is on every row, inert ones
+        // included.
+        onContextMenu={(event) => onRowMenu(event, node.path, false)}
       >
         {node.name}
       </button>

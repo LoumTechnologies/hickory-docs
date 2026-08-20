@@ -368,6 +368,7 @@ pub async fn files(State(state): State<LocalState>) -> ApiResult<Json<Value>> {
         .map(|n| n.to_string_lossy().to_string())
         .unwrap_or_else(|| "hick".to_string());
     let root = state.index.root().to_path_buf();
+    let root_path = root.canonicalize().unwrap_or_else(|_| root.clone());
     let index = state.index.clone();
     // Walking a working tree is filesystem work; keep it off the runtime.
     let (tree, truncated) = tokio::task::spawn_blocking(move || file_tree(&root, &index))
@@ -375,6 +376,13 @@ pub async fn files(State(state): State<LocalState>) -> ApiResult<Json<Value>> {
         .map_err(|e| ApiError::internal(format!("file listing task failed: {e}")))?;
     Ok(Json(json!({
         "root": root_name,
+        // The absolute path, the separator that joins it to a node's path,
+        // and what this desktop calls its file manager: everything the tree's
+        // context menu needs to say "copy the absolute path" and "reveal in
+        // Finder" without guessing which machine it is running on.
+        "root_path": root_path.to_string_lossy(),
+        "separator": std::path::MAIN_SEPARATOR_STR,
+        "file_manager": super::reveal::file_manager_name(),
         "tree": tree,
         "truncated": truncated,
     })))

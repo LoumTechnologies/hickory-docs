@@ -185,6 +185,16 @@ export interface FileNode {
 export interface FilesResponse {
   /** The open folder, as the server names it (absolute or display path). */
   root: string;
+  /** The open folder's absolute path on this machine, in the platform's own
+   * spelling — what "copy absolute path" copies. Absent from older answers
+   * and from the mock, so every reader must cope without it. */
+  root_path?: string;
+  /** The separator that joins `root_path` to a node's (always forward-slashed)
+   * path: `"/"` everywhere but Windows. */
+  separator?: string;
+  /** What this desktop calls its file manager — "Finder", "File Explorer",
+   * or the generic "file manager" — so a menu item can say the real name. */
+  file_manager?: string;
   tree: FileNode[];
   /** Set when the walk stopped early (a huge folder); the tree is a prefix. */
   truncated?: boolean;

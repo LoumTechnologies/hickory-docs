@@ -4617,6 +4617,50 @@ textarea:focus {
 }
 .folder-tree__file { padding-left: 0.4rem; }
 .folder-tree__file.on { color: var(--accent); }
+.folder-tree__notice { padding: 0 0.6rem 0.3rem; font-size: 0.75rem; }
+/* The right-click menu (shell/TreeContextMenu.tsx): fixed to the pointer, so
+   it is positioned in viewport coordinates and cannot be clipped by the
+   pane's own overflow. */
+.tree-menu {
+  position: fixed;
+  z-index: 60;
+  padding: 0.25rem 0;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-raised);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+  font-size: 0.8rem;
+}
+.tree-menu__title {
+  margin: 0;
+  padding: 0.15rem 0.6rem 0.3rem;
+  color: var(--fg-muted);
+  font-size: 0.72rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  direction: rtl; /* a long path elides at its front, keeping the name */
+  text-align: left;
+}
+.tree-menu__item {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: none;
+  color: var(--fg);
+  padding: 0.22rem 0.6rem;
+  cursor: pointer;
+  font-size: inherit;
+}
+.tree-menu__item:hover,
+.tree-menu__item:focus { background: var(--bg-sunken); outline: none; }
+.tree-menu__item--group {
+  margin-top: 0.25rem;
+  border-top: 1px solid var(--border);
+  padding-top: 0.3rem;
+}
+
 /* A file the app has no way to open: named, present, not pretending to be a
    link. */
 .folder-tree__file--inert { color: var(--fg-muted); cursor: default; }

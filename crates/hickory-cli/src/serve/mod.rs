@@ -33,6 +33,7 @@ pub mod debug_bridge;
 pub mod lsp_bridge;
 pub mod plain_file;
 pub mod refactor;
+pub mod reveal;
 pub mod socket;
 pub mod store;
 pub mod terminal;
@@ -403,6 +404,8 @@ fn router(state: LocalState) -> Router {
             get(api::get_settings_ui).put(api::put_settings_ui),
         )
         .route("/files", get(api::files))
+        .route("/reveal", post(reveal::reveal))
+        .route("/open-external", post(reveal::open_external))
         .route("/file", get(plain_file::get_file).put(plain_file::put_file))
         .route("/scratchpad", post(plain_file::post_scratchpad))
         .route("/search", get(api::search))

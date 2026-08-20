@@ -134,6 +134,103 @@ describe("rendering the folder", () => {
   });
 });
 
+// The right-click menu: the tree's door to the rest of the machine.
+// Guards docs/guarantees/authoring/a-tree-row-opens-in-the-platform.md.
+describe("the right-click menu", () => {
+  const PLATFORM: FilesResponse = {
+    ...RESPONSE,
+    root_path: "/home/me/notebook",
+    separator: "/",
+    file_manager: "Finder",
+  };
+
+  function menuItem(id: string): HTMLElement {
+    const el = document.querySelector<HTMLElement>(`[data-menu-item="${id}"]`);
+    if (!el) throw new Error(`no menu item ${id} in ${document.body.innerHTML}`);
+    return el;
+  }
+
+  it("copies the absolute path, the relative path, and the name", async () => {
+    const written: string[] = [];
+    Object.assign(navigator, {
+      clipboard: { writeText: (t: string) => (written.push(t), Promise.resolve()) },
+    });
+    mockFiles(PLATFORM);
+    render(<Harness />);
+    const row = await screen.findByText("readme.txt");
+
+    for (const id of ["copy-absolute", "copy-relative", "copy-name"]) {
+      fireEvent.contextMenu(row);
+      fireEvent.click(menuItem(id));
+    }
+    expect(written).toEqual(["/home/me/notebook/readme.txt", "readme.txt", "readme.txt"]);
+  });
+
+  it("hands a file to the file manager and to its default program", async () => {
+    const calls: [string, unknown][] = [];
+    installMockHandler(async (method, path, body) => {
+      if (method === "GET" && path === "/api/files") return PLATFORM;
+      calls.push([`${method} ${path}`, body]);
+      return { ok: true };
+    });
+    render(<Harness />);
+    const row = await screen.findByText("readme.txt");
+
+    fireEvent.contextMenu(row);
+    expect(menuItem("reveal").textContent).toBe("Reveal in Finder");
+    fireEvent.click(menuItem("reveal"));
+    fireEvent.contextMenu(row);
+    fireEvent.click(menuItem("open-external"));
+
+    expect(calls).toEqual([
+      ["POST /api/reveal", { path: "readme.txt" }],
+      ["POST /api/open-external", { path: "readme.txt" }],
+    ]);
+  });
+
+  it("offers the menu on a directory and on a binary the app cannot open", async () => {
+    mockFiles(PLATFORM);
+    render(<Harness />);
+    // A binary row is inert to a click and still has a machine that can open
+    // it — that is the whole reason the menu is on every row.
+    fireEvent.contextMenu(await screen.findByText("logo.png"));
+    expect(menuItem("open-external")).toBeTruthy();
+    fireEvent.keyDown(window, { key: "Escape" });
+
+    fireEvent.contextMenu(screen.getByText(/src/));
+    // A directory has no default program of its own worth naming.
+    expect(document.querySelector('[data-menu-item="open-external"]')).toBeNull();
+    expect(menuItem("copy-name").textContent).toBe("Copy folder name");
+    // ...and right-clicking it did not also expand it.
+    expect(screen.queryByText("main.rs")).toBeNull();
+  });
+
+  it("says so when the platform refuses, instead of appearing to do nothing", async () => {
+    installMockHandler(async (method, path) => {
+      if (method === "GET" && path === "/api/files") return PLATFORM;
+      throw new Error("could not start the file manager (`xdg-open`)");
+    });
+    render(<Harness />);
+    fireEvent.contextMenu(await screen.findByText("readme.txt"));
+    fireEvent.click(menuItem("reveal"));
+    expect(await screen.findByText(/could not start the file manager/)).toBeTruthy();
+  });
+
+  it("closes on Escape and on a click elsewhere", async () => {
+    mockFiles(PLATFORM);
+    render(<Harness />);
+    const row = await screen.findByText("readme.txt");
+
+    fireEvent.contextMenu(row);
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(document.querySelector(".tree-menu")).toBeNull();
+
+    fireEvent.contextMenu(row);
+    fireEvent.mouseDown(document.body);
+    expect(document.querySelector(".tree-menu")).toBeNull();
+  });
+});
+
 describe("what clicking a file does", () => {
   it("maps documents, generated files, plain text files, and binaries apart", () => {
     const openable = new Set(["src/gen/orders.py"]);
