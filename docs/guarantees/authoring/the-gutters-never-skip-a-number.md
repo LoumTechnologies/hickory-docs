@@ -30,10 +30,18 @@ Two rules keep it:
    from a block widget is the whole guarantee: a widget's row exists and
    cannot be numbered; a fold's rows do not exist.
 
-The action rail down the editor's outer edge carries one icon per cell,
-diagram, and convertible fence. An exec icon shows its cell's last result —
-never run, running, passed, failed, or not yet known to the server — and
-clicking it swaps that block between its result and its source.
+The action rail down the editor's outer edge carries every verb a card has.
+A cell contributes a column — run, source, and replay when an expect block is
+standing in for its transcript; a diagram contributes source alone; a prose
+fence contributes its converter. The run icon doubles as the cell's status —
+never run, running, passed, failed, or not yet known to the server — because
+it is the only place that status is visible.
+
+A rendered card contains no controls at all. It shows what the cell is and
+what it did, and every click lives in the one column that exists to be
+clicked. That is a readability rule rather than a layout one, but it shares
+the layout rule's reason: a control floating over a result competes with the
+result, exactly as a block widget competes with the gutter.
 
 ## Boundary
 
@@ -51,6 +59,13 @@ icon is pushed DOWN, never up, so rail order always matches document order and
 an icon is never drawn above the line it belongs to. That means a rail icon is
 level with its line except where cards crowd, and the popover it opens is
 level with the ICON rather than with the line.
+
+A card's several icons use that same stacker: each wants its card's line, so
+the second and third are pushed into a column beneath the first. A card with
+more icons than its neighbour therefore crowds the next card sooner, which is
+accepted — the alternative is a rail wide enough to lay a card's actions out
+sideways, which would take width from the text for the sake of the rare card
+that has three.
 
 Ribbons now terminate at the action rail's outer edge rather than the number
 rail's, and the brace horn wraps both — otherwise a ribbon would run under the
@@ -73,6 +88,9 @@ Last LLM verification:
   module header states the rule. `CellPanelWidget` and `DiagramWidget` are
   deleted along with `CellRegistry`/`DiagramRegistry`, and `wysiwyg()` no
   longer takes them.
+  `apps/web/src/lib/railActions.ts` (which icons a card offers, and whether
+  a cell has anything to replay — shared with `CellPanel` so the icon and the
+  panel cannot disagree),
   `apps/web/src/editor/cards.ts` (what the rail lists),
   `apps/web/src/editor/CardRail.tsx` (placement against the same height map
   the number rail reads; icons carry cell state),

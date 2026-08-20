@@ -640,11 +640,6 @@ textarea:focus {
 
 .cell-lang { font-size: 0.75rem; color: var(--fg-muted); }
 
-.btn-run {
-  font-size: 0.8rem;
-  padding: 0.2rem 0.8rem;
-}
-
 .cell-command {
   margin: 0;
   padding: 0.7rem 0.9rem;
@@ -1090,23 +1085,10 @@ textarea:focus {
   align-items: center;
   gap: 0.6rem;
 }
-.cell-panel-bar .btn-run { margin-left: auto; }
 .cell-verified {
   font-size: 0.75rem;
   color: var(--ok);
   white-space: nowrap;
-}
-.cell-panel-bar .btn-ghost {
-  font-size: 0.75rem;
-  padding: 0.1rem 0.55rem;
-  color: var(--fg-muted);
-  background: none;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-}
-.cell-panel-bar .btn-ghost.on {
-  color: var(--fg);
-  background: var(--bg-sunken);
 }
 .cell-panel .transcript { margin-top: 0.5rem; }
 
@@ -4163,6 +4145,22 @@ textarea:focus {
 }
 .cm-rendered:focus-within { border-left-color: var(--accent); }
 
+/* The fold owns the frame, and nothing inside it draws a second one.
+   `.cell-panel` and `.diagram-panel` were standalone block widgets once —
+   each was its own card, so each carried its own border, radius, background
+   and outer margin. They are portalled INSIDE `.cm-rendered` now, which
+   supplies all four, and keeping theirs drew a box within a box. Scoped
+   rather than deleted: the panels are still self-contained components, and
+   the rule that they lose their chrome belongs to the place that replaces
+   it. */
+.cm-rendered .cell-panel,
+.cm-rendered .diagram-panel {
+  margin: 0;
+  border: none;
+  border-radius: 0;
+  background: none;
+}
+
 /* The commands, as a shell would echo them. The document holds the bare
    command; the `$ ` is decoration standing in for the folded source. */
 .cell-command {
@@ -4177,20 +4175,9 @@ textarea:focus {
   color: var(--fg-muted);
   user-select: none;
 }
-.cell-source-btn { margin-left: 0.25rem; }
-
+/* Nothing floats over the picture any more — the diagram's only control is
+   its rail icon, so the figure is left alone to be looked at. */
 .rendered-diagram { position: relative; }
-/* Quiet until wanted: a diagram is there to be looked at, and a control
-   sitting on top of it competes with the picture. */
-.rendered-diagram__source {
-  position: absolute;
-  top: 0.3rem;
-  right: 0.4rem;
-  opacity: 0;
-  transition: opacity 120ms ease;
-}
-.rendered-diagram:hover .rendered-diagram__source,
-.rendered-diagram__source:focus-visible { opacity: 1; }
 
 /* the action rail ----------------------------------------------------------
    One icon per card, down the outer edge of the editor, positioned by
@@ -4247,6 +4234,19 @@ textarea:focus {
 .cm-card-rail__icon.is-unknown { color: var(--stale); }
 .cm-card-rail__fence { color: var(--accent-2); }
 .cm-card-rail__diagram { color: var(--accent-2); }
+/* Run is the verb that changes the world, so it is the one that reads as a
+   control rather than a marker; source and replay are navigation and stay
+   quiet until hovered. */
+.cm-card-rail__act-source,
+.cm-card-rail__act-replay { color: var(--fg-muted); }
+.cm-card-rail__act-source.on {
+  border-color: var(--accent-2);
+  color: var(--fg);
+}
+.cm-card-rail__icon:disabled {
+  cursor: default;
+  opacity: 0.7;
+}
 
 /* The popover a rail icon opens: beside the icon, over the text, never in it.
    Capped and scrolled internally so a long transcript cannot push its own

@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 import { CellPanel } from "./CellPanel";
+import { hasReplay } from "../lib/railActions";
 import type { ExecBlock, TranscriptEvent } from "../api/types";
 
 afterEach(cleanup);
@@ -26,7 +27,7 @@ function cell(overrides: Partial<ExecBlock>): ExecBlock {
 
 describe("CellPanel de-duplication", () => {
   it("verified cell (ok + expect): no transcript by default, ✓ affordance, Replay reveals it", () => {
-    const { container } = render(
+    const { container, rerender } = render(
       <CellPanel
         block={cell({ status: "ok", expect: { match: "exact", body: "apple,3\nbanana,5\n" } })}
       />,
@@ -36,7 +37,15 @@ describe("CellPanel de-duplication", () => {
     expect(screen.getByText("✓ output verified")).toBeTruthy();
     // No separate "expects …" summary chip anymore.
     expect(container.textContent).not.toContain("expects exact");
-    fireEvent.click(screen.getByRole("button", { name: "Replay" }));
+    // Nothing in the panel is clickable now — the Replay verb is an icon on
+    // the action rail, and the panel only reflects the state it is handed.
+    expect(container.querySelector("button")).toBeNull();
+    rerender(
+      <CellPanel
+        block={cell({ status: "ok", expect: { match: "exact", body: "apple,3\nbanana,5\n" } })}
+        replay
+      />,
+    );
     expect(container.querySelector(".transcript")).toBeTruthy();
   });
 
@@ -59,7 +68,11 @@ describe("CellPanel de-duplication", () => {
     expect(diff.textContent).toContain("+ cherry,7");
     // Transcript stays collapsed behind Replay (the diff is the second copy).
     expect(container.querySelector(".transcript")).toBeNull();
-    expect(screen.getByRole("button", { name: "Replay" })).toBeTruthy();
+    // The Replay verb lives on the rail; `hasReplay` is what puts it there,
+    // and it agrees with the panel about there being something to reveal.
+    expect(
+      hasReplay({ status: "failed", hasExpect: true, transcriptLength: 3, running: false }),
+    ).toBe(true);
   });
 
   it("cell without expect keeps its transcript visible — that IS the output", () => {

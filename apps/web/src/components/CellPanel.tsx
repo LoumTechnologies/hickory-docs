@@ -1,4 +1,5 @@
-import { useMemo, useState } from "react";
+import { useMemo } from "react";
+import { hasReplay } from "../lib/railActions";
 import type { ExecBlock } from "../api/types";
 import { diffLines } from "../lib/diff";
 import { stdoutOf } from "../lib/transcript";
@@ -15,20 +16,23 @@ export interface CellPanelProps {
    * render catches up with a freshly typed cell). */
   block?: ExecBlock;
   running?: boolean;
-  onRun?: (execId: string) => void;
   /** The cell's commands. Passed when this panel STANDS IN for the source —
    * the block is rendered, so the commands are not on screen anywhere else
    * and the panel has to show them. Omitted when the source is visible above
    * the panel, where repeating it would be noise. */
   command?: string;
-  /** Swap this block back to its source. Absent when the source is already
-   * showing. */
-  onShowSource?: () => void;
+  /** Whether the transcript is revealed. Owned by the rail, which carries
+   * the Replay icon — see lib/railActions.ts. */
+  replay?: boolean;
 }
 
 /**
- * The strip below an exec cell in the Document view: run button, status chip,
- * and — only when it adds information — output. The cell's source already
+ * The strip below an exec cell in the Document view: what the cell IS and
+ * what it did — container, status, and, only when it adds information, the
+ * output. Nothing in here is clickable: every verb this cell has (run,
+ * source, replay) is an icon on the action rail, because a rendered card is
+ * something to read and the rail is the column that exists to be clicked.
+ * The cell's source already
  * shows the command and (when verified) the expect body IS the output, so:
  *
  *  - status ok + expect: no transcript by default (the verified expect body
@@ -41,14 +45,12 @@ export interface CellPanelProps {
 export function CellPanel({
   block,
   running,
-  onRun,
   command,
-  onShowSource,
+  replay = false,
 }: CellPanelProps) {
   const transcript = block?.transcript ?? [];
   const stdout = useMemo(() => stdoutOf(transcript), [transcript]);
   const svgFigure = useMemo(() => (looksLikeSvg(stdout) ? stdout.trim() : null), [stdout]);
-  const [replay, setReplay] = useState(false);
 
   const verified = !running && block?.status === "ok" && !!block?.expect;
   const failedExpect =
@@ -66,13 +68,17 @@ export function CellPanel({
         {command !== undefined && <CommandLines command={command} />}
         <div className="cell-panel-bar">
           <span className="muted">cell not yet known to the server — save to sync</span>
-          {onShowSource && <SourceButton onClick={onShowSource} />}
         </div>
       </div>
     );
   }
 
-  const collapsible = (verified || failedExpect) && transcript.length > 0;
+  const collapsible = hasReplay({
+    status: block.status,
+    hasExpect: !!block.expect,
+    transcriptLength: transcript.length,
+    running: !!running,
+  });
   const showTranscript =
     running || (transcript.length > 0 && (collapsible ? replay : !verified && !failedExpect));
 
@@ -90,23 +96,6 @@ export function CellPanel({
             ✓ output verified
           </span>
         )}
-        {collapsible && (
-          <button
-            className={`btn btn-ghost${replay ? " on" : ""}`}
-            aria-pressed={replay}
-            onClick={() => setReplay((v) => !v)}
-          >
-            Replay
-          </button>
-        )}
-        <button
-          className="btn btn-run"
-          disabled={running}
-          onClick={() => onRun?.(block.id)}
-        >
-          Run
-        </button>
-        {onShowSource && <SourceButton onClick={onShowSource} />}
       </div>
       {diff && (
         <div className="cell-diff" data-testid="cell-diff">
@@ -157,14 +146,3 @@ function CommandLines({ command }: { command: string }) {
   );
 }
 
-function SourceButton({ onClick }: { onClick: () => void }) {
-  return (
-    <button
-      className="btn btn-ghost cell-source-btn"
-      onClick={onClick}
-      data-tip="Show this block's source, so you can edit it"
-    >
-      source
-    </button>
-  );
-}

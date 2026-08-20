@@ -39,6 +39,8 @@ import {
   type RenderedSlot,
 } from "./rendered";
 import { popoverTop } from "../lib/cardRail";
+import { actionsFor, hasReplay } from "../lib/railActions";
+import type { RailAction } from "../lib/railActions";
 import { DiagramPanel } from "../components/DiagramPanel";
 import { CellPanel } from "../components/CellPanel";
 import { FenceConvert } from "../components/FenceConvert";
@@ -159,6 +161,10 @@ export function DocumentEditor({
   // Which card's popover is open, and the rail-relative top of the icon that
   // opened it.
   const [open, setOpen] = useState<{ card: DocCard; iconTop: number } | null>(null);
+  // Cells whose transcript is revealed, by block start. This used to be local
+  // state inside CellPanel, back when Replay was a button in the panel; the
+  // rail owns the verb now, so the rail's owner owns the state.
+  const [replaying, setReplaying] = useState<readonly number[]>([]);
   const popoverRef = useRef<HTMLDivElement | null>(null);
   // Blocks currently showing their result instead of their source.
   const renderedRegistry = useMemo(() => new RenderedRegistry(), []);
@@ -477,6 +483,31 @@ export function DocumentEditor({
   };
   const toggleRendered = (card: DocCard) => toggleRenderedAt(card.at);
 
+  /** The server's exec block for a card, when it knows about one. */
+  const blockOf = (card: DocCard) =>
+    card.kind === "exec"
+      ? matchExecBlock({ span: [card.from, card.to], index: card.index }, execBlocks)
+      : undefined;
+
+  /** Which icons a card puts on the rail. */
+  const cardActionsOf = (card: DocCard): RailAction[] => {
+    if (card.kind !== "exec") return actionsFor(card.kind);
+    const block = blockOf(card);
+    return actionsFor("exec", {
+      replay: hasReplay({
+        status: block?.status,
+        hasExpect: !!block?.expect,
+        transcriptLength: block?.transcript?.length ?? 0,
+        running: block ? runningCells.has(block.id) : false,
+      }),
+    });
+  };
+
+  const toggleReplayAt = (at: number) =>
+    setReplaying((current) =>
+      current.includes(at) ? current.filter((p) => p !== at) : [...current, at],
+    );
+
   /** Replace a fence with the exec cell built from it. */
   const convertFenceCard = (card: DocCard, text: string) => {
     const view = viewRef.current;
@@ -552,15 +583,28 @@ export function DocumentEditor({
           view={railView}
           cards={cards}
           stateOf={cardStateOf}
-          openKey={open?.card.key ?? null}
+          openKey={open ? `${open.card.key}:convert` : null}
           renderedAt={renderedAt}
-          onOpen={(card, iconTop) => {
-            if (card.kind === "fence") {
+          actionsOf={cardActionsOf}
+          replayingAt={replaying}
+          onAction={(card, action, iconTop) => {
+            if (action === "convert") {
               setOpen((current) => (current?.card.key === card.key ? null : { card, iconTop }));
               return;
             }
             setOpen(null);
-            toggleRendered(card);
+            if (action === "source") {
+              toggleRendered(card);
+              return;
+            }
+            if (action === "replay") {
+              toggleReplayAt(card.at);
+              return;
+            }
+            // Run. A cell the server has not rendered yet has no id to run,
+            // and the icon says so rather than doing nothing silently.
+            const block = blockOf(card);
+            if (block) onRunCell(block.id);
           }}
         />
         {open && (
@@ -605,14 +649,6 @@ export function DocumentEditor({
                   state: "unknown" as const,
                 }))}
               />
-              <button
-                type="button"
-                className="btn btn-ghost rendered-diagram__source"
-                onClick={() => toggleRenderedAt(slot.at)}
-                data-tip="Show this diagram's source, so you can edit it"
-              >
-                source
-              </button>
             </div>,
             slot.el,
             slot.key,
@@ -623,9 +659,8 @@ export function DocumentEditor({
           <CellPanel
             block={block}
             running={block ? runningCells.has(block.id) : false}
-            onRun={onRunCell}
             command={slot.text}
-            onShowSource={() => toggleRenderedAt(slot.at)}
+            replay={replaying.includes(slot.at)}
           />,
           slot.el,
           slot.key,

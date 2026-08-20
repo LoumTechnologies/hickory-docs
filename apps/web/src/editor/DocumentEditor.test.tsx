@@ -94,7 +94,7 @@ describe("DocumentEditor (WYSIWYG over raw source)", () => {
   });
 
   // Protects docs/guarantees/authoring/a-literate-file-opens-rendered.md
-  it("renders a cell on open, and the rail icon swaps it for the source", async () => {
+  it("puts every one of a cell's verbs on the rail, and none in the card", async () => {
     const realtime = new LocalRealtime();
     const onRun = vi.fn();
     const source = '<hick:exec container="shell" image="debian:12">\nhick --version\n</hick:exec>\n';
@@ -110,29 +110,35 @@ describe("DocumentEditor (WYSIWYG over raw source)", () => {
     );
     // Reader-friendly on open: the result is on screen without being asked
     // for, and the command it ran is shown in place of the tags.
-    await waitFor(() => expect(screen.getByRole("button", { name: "Run" })).toBeTruthy());
+    await waitFor(() => expect(container.querySelector(".cm-rendered-exec")).toBeTruthy());
     expect(screen.getByTestId("cell-command").textContent).toContain("$ hick --version");
     expect(screen.getByText("ok")).toBeTruthy();
-    expect(container.querySelector(".cm-rendered-exec")).toBeTruthy();
+    // The card is something to READ: not one clickable thing inside it.
+    expect(container.querySelector(".cm-rendered-exec button")).toBeNull();
     // The tags are folded away, not deleted: the document still holds them.
     const view = (window as unknown as { __hickoryView?: EditorViewType }).__hickoryView!;
     expect(view.state.doc.toString()).toBe(source);
 
-    screen.getByRole("button", { name: "Run" }).click();
+    // Run is the rail's own icon now, and running is what clicking it does.
+    const run = container.querySelector<HTMLButtonElement>(".cm-card-rail__act-run")!;
+    expect(run.getAttribute("aria-label")).toContain("click to run it");
+    // A verb does not latch, so it reports no pressed state.
+    expect(run.getAttribute("aria-pressed")).toBeNull();
+    run.click();
     expect(onRun).toHaveBeenCalledWith("cli-version");
 
-    // The rail icon is the way to the source, and says so.
-    const icon = container.querySelector<HTMLButtonElement>(".cm-card-rail__exec")!;
-    expect(icon.getAttribute("aria-pressed")).toBe("true");
-    expect(icon.getAttribute("aria-label")).toContain("click for the source");
-    icon.click();
+    // The source icon is the way back, and says which way it goes.
+    const src = () => container.querySelector<HTMLButtonElement>(".cm-card-rail__act-source")!;
+    expect(src().getAttribute("aria-pressed")).toBe("true");
+    expect(src().getAttribute("aria-label")).toContain("click for the source");
+    src().click();
     await waitFor(() => expect(container.querySelector(".cm-rendered-exec")).toBeNull());
     expect(container.querySelector(".cm-content")!.textContent).toContain(
       '<hick:exec container="shell" image="debian:12">',
     );
 
     // And back again.
-    container.querySelector<HTMLButtonElement>(".cm-card-rail__exec")!.click();
+    container.querySelector<HTMLButtonElement>(".cm-card-rail__act-source")!.click();
     await waitFor(() => expect(container.querySelector(".cm-rendered-exec")).toBeTruthy());
     realtime.close();
   });
