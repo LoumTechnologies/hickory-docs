@@ -84,7 +84,14 @@ echo escaped > "$escape" & echo WROTE
 </hick:doc>
 "@
 $docPath = Join-Path $work 'confined.hick'
-Set-Content -LiteralPath $docPath -Value $doc -Encoding UTF8
+# UTF-8 WITHOUT a BOM. PowerShell 5.1's `-Encoding UTF8` writes one, and a
+# leading BOM used to make hick parse a wrapped document as a bare one -- the
+# cells never ran and the run still exited 0. That is fixed in the parser, but
+# this test exists to exercise the SANDBOX; writing the file the way an editor
+# that does not add a BOM would keeps the two failures apart, so a red run here
+# means confinement is broken rather than encoding.
+[System.IO.File]::WriteAllText(
+    $docPath, $doc, (New-Object System.Text.UTF8Encoding($false)))
 
 $run = Invoke-Native -Exe $hick -Arguments @('run', $docPath) -WorkDir $work `
     -Env @{ HICKORY_EXECUTOR = 'sandbox' }
@@ -108,6 +115,22 @@ $refused = [bool]($run.Err -match 'cannot confine container|no sandbox available
 #    so that a stale or broken archive reads as a broken archive rather than as
 #    a working sandbox.
 Phase 'the-archive-can-run-a-confined-document' ($cellRan -or $refused)
+if (-not $cellRan) {
+    # What the run actually produced. Without this the failure is "the woven
+    # document did not contain the word", which says nothing about whether the
+    # cell was denied, produced no output, or never ran.
+    Write-Output "   --- $woven ---"
+    if (Test-Path $woven) {
+        foreach ($l in ($wovenText -split "`r?`n")) { Write-Output "   | $l" }
+    } else {
+        Write-Output "   (no woven file at all)"
+    }
+    $note = Join-Path $work 'note.txt'
+    Write-Output "   note.txt exists: $(Test-Path $note)"
+    Get-ChildItem -Path $work -Recurse -File -ErrorAction SilentlyContinue |
+        Select-Object -First 20 |
+        ForEach-Object { Write-Output "   file: $($_.FullName) ($($_.Length) bytes)" }
+}
 
 # 1. A confined cell RUNS. If AppContainer cannot start a process at all, every
 #    other assertion here would pass vacuously.

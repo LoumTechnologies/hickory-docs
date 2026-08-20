@@ -81,6 +81,21 @@ explicitly via `HICKORY_SANDBOX_LAUNCHER`, else itself, else one beside or one
 directory above — and **refuses** when it finds none rather than re-invoking
 the wrong binary.
 
+**The Windows sandbox has now been run on Windows.** `vmkit test windows
+sandbox` drives the *published* archive on a Parallels guest reverted to a
+golden snapshot — the binary a user downloads, on a machine with no toolchain,
+which is the only place the AppContainer launcher resolves the way it does for
+them. It passes: a confined cell runs, it cannot write outside its workdir
+(checked on the host filesystem afterwards, not on the cell's exit code), and
+the executor did not quietly fall back to running unconfined.
+
+Two things had to be fixed before that run tested anything. The flavor script
+reported `ok=true` for two assertions in a run where the tool had failed at
+startup and no cell had executed — nothing had escaped the workdir because
+nothing had run. And a UTF-8 BOM, which PowerShell writes by default, made the
+document parse as a bare one so no cell ran at all; that was a product bug, and
+is recorded in `docs/guarantees/authoring/a-document-may-begin-with-markdown.md`.
+
 **What confinement costs on Windows: msys2 tooling cannot run inside it.**
 Measured three independent ways in CI — `cat.exe`, `sleep.exe` and their
 siblings from Git for Windows all die with

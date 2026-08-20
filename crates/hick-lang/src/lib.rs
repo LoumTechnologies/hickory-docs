@@ -1081,8 +1081,23 @@ struct Parser<'a> {
     close_marker: String,
 }
 
+/// A leading UTF-8 byte-order mark, which is an encoding signature rather than
+/// content and must not be parsed as text.
+///
+/// `str::trim_start` does NOT remove it: `U+FEFF` is a format character, not
+/// `White_Space`. So a document saved by Notepad, by PowerShell's
+/// `Set-Content -Encoding UTF8`, or by any of the Windows editors that write
+/// one, failed `opens_root` on its first byte and was parsed as a BARE
+/// document — its `<hick:doc>` wrapper unrecognised, its cells never run, its
+/// weave a single line of leftover XML declaration. `hick run` reported "1
+/// file(s) written" and exited 0 while doing essentially nothing, which is the
+/// worst way for this to fail: a Windows user gets no error to search for.
+/// Found by running the real binary on a real Windows machine, 2026-08-20.
+const BOM: &str = "\u{feff}";
+
 impl<'a> Parser<'a> {
     fn new(input: &'a str) -> Self {
+        let input = input.strip_prefix(BOM).unwrap_or(input);
         let prefix = resolve_prefix(input);
         let open_marker = format!("<{prefix}:");
         let close_marker = format!("</{prefix}:");
@@ -1773,6 +1788,47 @@ pub fn dedent(text: &str, max_indent: usize) -> String {
 
 #[cfg(test)]
 mod tests {
+
+    /// Protects `docs/guarantees/authoring/a-document-may-begin-with-markdown.md`
+    #[test]
+    fn a_byte_order_mark_does_not_turn_a_wrapped_document_into_a_bare_one() {
+        // Notepad, PowerShell's `Set-Content -Encoding UTF8`, and several
+        // Windows editors write a BOM. `trim_start` does not remove it, so the
+        // wrapper went unrecognised and every cell in the document was
+        // silently skipped while the run reported success.
+        let body = concat!(
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n",
+            "<hick:doc xmlns:hick=\"http://www.hickorydocs.com/1.0\" weave=\"out.md\">\n",
+            "# Title\n\n",
+            "<hick:exec container=\"c\">\necho hi\n</hick:exec>\n",
+            "</hick:doc>\n",
+        );
+        let plain = parse(body).expect("parses without a BOM");
+        let with_bom = parse(&format!("\u{feff}{body}")).expect("parses with a BOM");
+
+        assert_eq!(
+            with_bom.weave_path, plain.weave_path,
+            "the BOM hid the doc tag, so its attributes were lost"
+        );
+        assert_eq!(
+            with_bom.nodes.len(),
+            plain.nodes.len(),
+            "a BOM changed how many nodes the document has"
+        );
+        assert!(
+            plain.weave_path.is_some(),
+            "the fixture must be a WRAPPED document, or this proves nothing"
+        );
+    }
+
+    /// A BOM in the middle of a file is ordinary text and stays that way — the
+    /// no-escaping invariant is about content, and only the leading encoding
+    /// signature is not content.
+    #[test]
+    fn a_byte_order_mark_that_is_not_leading_is_left_alone() {
+        let doc = parse("hello \u{feff} world").expect("a bare document");
+        assert!(doc.source.contains('\u{feff}'), "{:?}", doc.source);
+    }
     use super::*;
     use std::path::Path;
 

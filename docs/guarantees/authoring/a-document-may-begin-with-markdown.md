@@ -105,3 +105,30 @@ Last LLM verification:
   - **A bare document that opens a nested `hick:doc` is undefined.** Rule 1
     makes it safe to *mention*, and the prologue rule keeps it from being read
     as the root, but no decision has been made about what such a tag means.
+
+## A byte-order mark is an encoding signature, not the start of the document
+
+Measured on Windows, 2026-08-20, by running the shipped binary on a real
+machine rather than in CI.
+
+A `.hick` file saved by Notepad, by PowerShell's `Set-Content -Encoding UTF8`,
+or by any of the Windows editors that write a UTF-8 BOM began with `U+FEFF`.
+`str::trim_start` does **not** remove that — it is a format character, not
+`White_Space` — so `opens_root` tested the BOM against `<?xml` and `<hick:doc`,
+failed both, and the file was parsed as a **bare** document. Its wrapper went
+unrecognised, every cell in it was skipped, and the weave came out as a single
+line of leftover XML declaration.
+
+The failure mode is what makes this worth stating: `hick run` printed
+`1 file(s) written` and **exited 0**. A Windows author got no error, no
+diagnostic, and nothing to search for — only a document that quietly did
+nothing. A file in someone's git repository outlives every version of this
+tool, so the parser tolerates the signature rather than rejecting the file.
+
+Only a **leading** BOM is removed. One anywhere else is ordinary text and stays
+byte-for-byte, because the no-escaping invariant is about content and only the
+leading mark is not content.
+
+Verified by `a_byte_order_mark_does_not_turn_a_wrapped_document_into_a_bare_one`
+and `a_byte_order_mark_that_is_not_leading_is_left_alone` in
+`crates/hick-lang/src/lib.rs`.
