@@ -336,10 +336,20 @@ mod tests {
     /// python without debugpy exits non-zero on the import.
     fn executable_exiting(dir: &Path, name: &str, code: i32) {
         fs::create_dir_all(dir).unwrap();
-        let path = dir.join(name);
-        fs::write(&path, format!("#!/bin/sh\nexit {code}\n")).unwrap();
-        #[cfg(unix)]
+        // A `#!/bin/sh` file is not executable on Windows no matter what it
+        // is called, and the python probe RUNS what it finds — so a shebang
+        // stand-in there makes every adapter look absent and the tests pass
+        // or fail for reasons that have nothing to do with discovery.
+        // `search` already looks for a `.cmd` spelling, and cmd can run one.
+        #[cfg(windows)]
         {
+            let path = dir.join(format!("{name}.cmd"));
+            fs::write(&path, format!("@echo off\r\nexit /b {code}\r\n")).unwrap();
+        }
+        #[cfg(not(windows))]
+        {
+            let path = dir.join(name);
+            fs::write(&path, format!("#!/bin/sh\nexit {code}\n")).unwrap();
             use std::os::unix::fs::PermissionsExt as _;
             fs::set_permissions(&path, fs::Permissions::from_mode(0o755)).unwrap();
         }
@@ -429,7 +439,15 @@ mod tests {
             return;
         }
         let found = discover("typescript", dir.path()).expect("found js-debug");
-        assert!(found.command[0].ends_with("node"), "{:?}", found.command);
+        // `node` on Unix, `node.exe` on Windows — the stem is the claim.
+        assert_eq!(
+            Path::new(&found.command[0])
+                .file_stem()
+                .and_then(|stem| stem.to_str()),
+            Some("node"),
+            "{:?}",
+            found.command
+        );
         assert!(
             found.command[1].ends_with("dapDebugServer.js"),
             "{:?}",

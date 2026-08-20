@@ -158,12 +158,20 @@ fn fingerprints(batch: &HashSet<PathBuf>) -> HashMap<PathBuf, Option<(u64, Optio
 /// Costs `BATCH_SETTLE_STABLE_FOR` in the common case, because that is how long
 /// a file nobody is touching has to sit still before it is believed.
 ///
-/// If the budget runs out the batch is handled anyway rather than dropped: a
-/// write still going after two seconds keeps producing filesystem events, so
-/// the next cycle re-reads it and corrects whatever this one got wrong —
-/// whereas dropping the batch would lose the update outright if the writer
-/// happened to finish in the gap.
-async fn settle_batch(batch: &HashSet<PathBuf>) {
+/// Returns whether everything held still. A `false` means something is STILL
+/// being written, and the caller must not read it: mapping a half-written file
+/// back into the document is exactly what
+/// `docs/guarantees/authoring/an-output-edit-lands-in-its-document.md`
+/// forbids, and a save arriving in small chunks takes far longer than any
+/// budget worth waiting by default.
+///
+/// Handling the batch anyway was the old answer, on the reasoning that later
+/// events would correct the document. They do — but the guarantee is about
+/// what the document contains *meanwhile*, and "it heals a moment later" is
+/// not the same promise. Dropping the batch is not an option either: the
+/// update would be lost outright if the writer finished in the gap. So the
+/// caller waits instead, absorbing new events as they arrive.
+async fn settle_batch(batch: &HashSet<PathBuf>) -> bool {
     let deadline = Instant::now() + BATCH_SETTLE_BUDGET;
     let mut last = fingerprints(batch);
     let mut unchanged_since = Instant::now();
@@ -172,13 +180,14 @@ async fn settle_batch(batch: &HashSet<PathBuf>) {
         let current = fingerprints(batch);
         if current == last {
             if unchanged_since.elapsed() >= BATCH_SETTLE_STABLE_FOR {
-                return;
+                return true;
             }
         } else {
             last = current;
             unchanged_since = Instant::now();
         }
     }
+    false
 }
 
 /// What `hick up` was asked to do.
@@ -375,8 +384,30 @@ pub async fn run(config: UpConfig) -> Result<()> {
             }
         }
         // Quiet is not the same as finished. Wait for the files themselves to
-        // stop changing before anything reads them.
-        settle_batch(&batch).await;
+        // stop changing before anything reads them — however long that takes.
+        // A save written in small chunks outlasts any fixed budget, and
+        // reading one mid-write puts half a file into somebody's document.
+        let mut waited = Duration::ZERO;
+        while !settle_batch(&batch).await {
+            waited += BATCH_SETTLE_BUDGET;
+            // Whatever is being written is still being written. Take anything
+            // new with it rather than leaving it for a later cycle.
+            while let Ok(path) = rx.try_recv() {
+                batch.insert(path);
+            }
+            // Said once, not every round: a file that never stops changing
+            // would otherwise look like the loop had silently stopped working.
+            if waited == BATCH_SETTLE_BUDGET * 3 {
+                eprintln!(
+                    "hick up: still being written, waiting before weaving: {}",
+                    batch
+                        .iter()
+                        .map(|path| path.display().to_string())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                );
+            }
+        }
         // A file dropped in the inbox becomes a note, and the note joins this
         // batch so it is woven in the same cycle rather than the next one.
         if batch
