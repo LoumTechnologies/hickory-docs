@@ -27,6 +27,8 @@
 /// written in this file — which is LF, being text in git — means the same
 /// thing here as it does under `sh`.
 /// docs/guarantees/verification/an-expectation-means-the-same-on-every-platform.md
+/// The separator is per-shell too, not just the command: cmd sequences with
+/// `&`, which in `sh` would put the first command in the background instead.
 pub fn echo_lines(lines: &[&str]) -> String {
     if cfg!(windows) {
         lines
@@ -68,27 +70,6 @@ pub fn sleeps_then_echoes(seconds: u32, text: &str) -> String {
     } else {
         format!("sleep {seconds}; echo {text}")
     }
-}
-
-/// A cell that prints `lines`, one per line.
-///
-/// `printf 'one\ntwo\n'` is not a cmd builtin, and the separator is the other
-/// half of the problem: cmd sequences with `&`, which in `sh` would put the
-/// first command in the background instead. So the separator is per-shell too,
-/// not just the command.
-///
-/// The bytes differ by a line ending — cmd's `echo` always writes CRLF — so
-/// anything asserting on this output compares `contains` or trimmed content.
-/// What these tests mean by it is which lines arrived, not how they end. An
-/// expectation pinned with `match="exact"` cannot be written this way at all;
-/// see issue #18.
-pub fn echo_lines(lines: &[&str]) -> String {
-    let separator = if cfg!(windows) { "& " } else { "; " };
-    lines
-        .iter()
-        .map(|line| format!("echo {line}"))
-        .collect::<Vec<_>>()
-        .join(separator)
 }
 
 /// A cell whose output is different every single time it runs.

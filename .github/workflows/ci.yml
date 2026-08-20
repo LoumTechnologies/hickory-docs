@@ -166,6 +166,30 @@ jobs:
       # was recorded with LF endings on every platform (#18). This line is what
       # turns that guarantee's Windows half from reasoning into evidence.
       - run: cargo test -p hickory-cli --test test_command_tests -- --test-threads=1
+      # The rest of what actually executes on Windows (#17). Named suite by
+      # suite rather than `-p`, because what is NOT here is as deliberate as
+      # what is: the agent suites need a POSIX shell the agent itself writes
+      # (#19), needs-preflight probes with `command -v` (#21), and ingest has
+      # a path-guard bug that a ported fixture would have hidden (#22).
+      - run: >-
+          cargo test -p hick-literate --test agent_cells --test pipeline_tests
+          -- --test-threads=1
+      - run: >-
+          cargo test -p hickory-cli --test cache_flags --test init_tests
+          --test lineage_sweep --test up_stress --test volatile_outputs
+          --test serve_terminals -- --test-threads=1
+      # `hick-lsp` has to exist before discovery can find it, exactly as the
+      # macOS job does it. The `--skip` comes off when #20 is fixed, which is
+      # how that fix gets proven rather than asserted.
+      - run: cargo build -p hick-lsp
+      - run: >-
+          cargo test -p hickory-cli --test lsp_languages --
+          --skip every_installed_language_answers_in_document_coordinates
+          --test-threads=1
+      - run: >-
+          cargo test -p hick-term --test a_real_shell_reports_its_directory
+          --test full_screen_apps -- --test-threads=1
+      - run: cargo test -p hickory-executor-canopy --test isolation -- --test-threads=1
       # `cargo test --workspace` is still NOT run here, and the reason is worth
       # stating rather than leaving as an absence: the remaining suites write
       # their cell commands in POSIX shell, and cells run through `cmd.exe /C`
