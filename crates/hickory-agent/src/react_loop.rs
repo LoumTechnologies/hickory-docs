@@ -147,10 +147,19 @@ pub async fn run_agent(
         frozen.push_str(TOOLS_SYSTEM_PROMPT);
     }
     let mut history = vec![Message::new(Role::System, frozen)];
-    let mut session_context = String::new();
+    // The shell the model is writing FOR belongs here rather than in the
+    // frozen prefix: it is a property of this session's executor, and the
+    // frozen text has to stay byte-identical across sessions to keep its cache
+    // breakpoint. Without it the model writes bash on a Windows machine and
+    // every block fails for a reason it cannot see.
+    let mut session_context = format!(
+        "Your code runs on {}. Shell blocks are saved as a script and run by \
+         that shell, so write for it.",
+        executor.script_platform().describe()
+    );
     if let Some(es) = &edit_session {
         session_context.push_str(&format!(
-            "Primary document of this session: {}",
+            "\n\nPrimary document of this session: {}",
             es.doc_path().display()
         ));
     }

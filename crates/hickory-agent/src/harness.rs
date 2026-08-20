@@ -354,10 +354,12 @@ fn copy_dir(from: &Path, to: &Path) -> Result<()> {
 }
 
 /// Run a task's check command from `dir`; exit 0 = pass.
+///
+/// The HOST's shell, through the one place that knows which that is. This was
+/// a hardcoded `sh`, which does not exist on a Windows machine — the check
+/// could not spawn, so a task could never be judged to pass there.
 fn run_check(cmd: &str, dir: &Path) -> Result<bool> {
-    let status = std::process::Command::new("sh")
-        .arg("-c")
-        .arg(cmd)
+    let status = hickory_executor::host_shell_command(cmd)
         .current_dir(dir)
         .status()
         .with_context(|| format!("check command failed to spawn: {cmd}"))?;

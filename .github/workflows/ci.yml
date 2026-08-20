@@ -167,10 +167,14 @@ jobs:
       # turns that guarantee's Windows half from reasoning into evidence.
       - run: cargo test -p hickory-cli --test test_command_tests -- --test-threads=1
       # The rest of what actually executes on Windows (#17). Named suite by
-      # suite rather than `-p`, because what is NOT here is as deliberate as
-      # what is: the agent suites still need a POSIX shell the agent writes
-      # for itself (#19). Preflight (#21) and ingest (#22) are in, now that
-      # the bugs a ported fixture would have hidden are fixed.
+      # suite rather than `-p`, so that what is NOT here stays a decision
+      # rather than an accident.
+      - run: >-
+          cargo test -p hickory-agent --lib --test harness_offline
+          -- --test-threads=1
+      - run: >-
+          cargo test -p hickory-cli --test agent_shares_the_document_room
+          -- --test-threads=1
       - run: >-
           cargo test -p hick-literate --test agent_cells --test pipeline_tests
           -- --test-threads=1

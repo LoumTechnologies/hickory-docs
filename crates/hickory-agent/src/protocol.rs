@@ -27,8 +27,10 @@ Write ONE fenced code block per response, then STOP and wait for the real execut
 
 ## Executable fenced blocks
 
-- Shell: ```bash, ```sh, ```shell — saved as a script and run with POSIX `sh`; use for `ls`, pipelines, installers, compilers, etc.
-- Python: ```python — run with `python3`.
+- Shell: ```bash, ```sh, ```shell — saved as a script and run by the shell of the machine your code runs on; use for `ls`, pipelines, installers, compilers, etc.
+- Python: ```python — saved as a script and run with python.
+
+Which shell that is depends on where your code runs, and it is stated in the session context below. Write for the one named there.
 
 Scripts run in a workspace directory; state accumulates across scripts in files (each script is a fresh process). Print your results — your script's stdout is what you see as the observation."#;
 

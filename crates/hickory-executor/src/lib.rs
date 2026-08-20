@@ -442,8 +442,12 @@ pub trait Executor: Send + Sync {
     /// piping through `execute_with_stdin` is the only tool it has.
     async fn write_file(&self, container: &str, path: &str, contents: &str) -> Result<()> {
         let dir = path.rsplit_once('/').map(|(dir, _)| dir).unwrap_or(".");
-        self.execute_with_stdin(container, &format!("mkdir -p {dir} && cat > {path}"), contents)
-            .await?;
+        self.execute_with_stdin(
+            container,
+            &format!("mkdir -p {dir} && cat > {path}"),
+            contents,
+        )
+        .await?;
         Ok(())
     }
 
@@ -1218,11 +1222,20 @@ impl Executor for LocalExecutor {
     async fn write_file(&self, container: &str, path: &str, contents: &str) -> Result<()> {
         let workdir = self.workdir_for(container)?;
         let relative = std::path::Path::new(path);
-        if relative.is_absolute()
-            || relative
-                .components()
-                .any(|c| matches!(c, std::path::Component::ParentDir))
-        {
+        // NOT `is_absolute()`. On Windows that is FALSE for `/etc/hosts` --
+        // rooted, but naming no drive, which Windows calls relative -- so the
+        // guard would let it through and `join` would resolve it to
+        // `C:\etc\hosts`, outside the container entirely. The same mistake
+        // let HICKORY_INBOX escape a notes folder (#22); scanning components
+        // for a root or a drive prefix catches every spelling.
+        if relative.components().any(|c| {
+            matches!(
+                c,
+                std::path::Component::ParentDir
+                    | std::path::Component::RootDir
+                    | std::path::Component::Prefix(_)
+            )
+        }) {
             bail!(
                 "refusing to write '{path}' in container '{container}': a script path must be \
                  relative to the container workdir and must not contain '..'"
@@ -1230,8 +1243,9 @@ impl Executor for LocalExecutor {
         }
         let target = workdir.join(relative);
         if let Some(parent) = target.parent() {
-            std::fs::create_dir_all(parent)
-                .with_context(|| format!("creating {} in container '{container}'", parent.display()))?;
+            std::fs::create_dir_all(parent).with_context(|| {
+                format!("creating {} in container '{container}'", parent.display())
+            })?;
         }
         std::fs::write(&target, contents)
             .with_context(|| format!("writing {} in container '{container}'", target.display()))?;

@@ -10,47 +10,69 @@
 //! `hick:exec` cell reads that file back. The expectation is pinned exactly, so
 //! the cell only passes if it ran in the same room the script did.
 //!
-//! **Not ported to Windows, and the reason is product code rather than this
-//! test.** `hickory_agent::script::run_script` writes every code block with
-//! `mkdir -p .hickory-agent && cat > …` and then runs it under
-//! `if command -v timeout …; then … else set -m; … kill -TERM -$pid …; fi` —
-//! POSIX shell handed to `cmd.exe /C`, which is the shell a cell gets on
-//! Windows. Shell blocks are additionally run as `sh <script>`. So an agent
-//! cannot execute anything at all there, and no rewriting of this test's
-//! fixture changes that. Rewriting the cell's `cat` would only move the
-//! failure. See the issue tracking it before adding this file to a Windows
-//! job.
+//! This runs on Windows now, and that is the point of it. It could not
+//! before: `run_script` wrote every block with `mkdir -p … && cat > …` and ran
+//! it under `if command -v timeout …; else set -m; … kill -TERM -$pid …; fi` —
+//! POSIX shell handed to `cmd.exe /C` — so an agent could execute nothing at
+//! all there (#19). The block is now WRITTEN rather than composed, and the
+//! limit is the executor's own.
+//!
+//! It asserts a side effect rather than output: the agent leaves a file and a
+//! CELL reads it back, with the expectation pinned exactly. A block that
+//! silently ran nothing would still produce a plausible empty observation, but
+//! it cannot leave a file for something else to find.
 
 use std::sync::Arc;
 
 use hickory_agent::{AgentConfig, AgentEvent, ScriptedLlmClient, run_agent};
 use hickory_executor::{Executor, LocalExecutor};
 
-/// The cell `cat`s a file the document never creates — only the agent does.
-const DOC: &str = r##"<?xml version="1.0" encoding="UTF-8"?>
+/// The cell reads a file the document never creates — only the agent does.
+///
+/// `type` on Windows, `cat` elsewhere: the cell gets that platform's shell.
+/// The expectation is LF on both because captured output is recorded with LF
+/// line endings everywhere (#18), which is what lets one exact expectation
+/// mean the same thing on either.
+fn doc() -> String {
+    let read = if cfg!(windows) {
+        "type handoff.txt"
+    } else {
+        "cat handoff.txt"
+    };
+    format!(
+        r##"<?xml version="1.0" encoding="UTF-8"?>
 <hick:doc xmlns:hick="http://www.hickorydocs.com/1.0">
 # Shared room
 
 <hick:container name="workshop" image="host" />
 <hick:exec container="workshop">
-cat handoff.txt
+{read}
 <hick:expect match="exact">written by the agent
 </hick:expect>
 </hick:exec>
 </hick:doc>
-"##;
+"##
+    )
+}
 
 #[tokio::test(flavor = "multi_thread")]
 async fn the_agent_and_the_document_cells_share_a_container() {
     let project = tempfile::tempdir().unwrap();
     let doc_path = project.path().join("doc.hick");
-    std::fs::write(&doc_path, DOC).unwrap();
+    std::fs::write(&doc_path, doc()).unwrap();
 
     let llm = ScriptedLlmClient::new(vec![
         // (a) write the file the document's cell expects to find.
-        "<hick:next>code</hick:next>\nLeaving the handoff file for the cell.\n\
-         ```bash\nprintf 'written by the agent\\n' > handoff.txt\n```"
-            .to_string(),
+        format!(
+            "<hick:next>code</hick:next>\nLeaving the handoff file for the cell.\n\
+             ```bash\n{}\n```",
+            // No space before `>`: cmd would write it into the file.
+            if cfg!(windows) {
+                "echo written by the agent>handoff.txt"
+            } else {
+                "printf 'written by the agent\\n' > handoff.txt"
+            }
+        ),
         // (b) run the document. The cell must see the file.
         "<hick:next>tool</hick:next>\nNow verify.\n\
          <hick:tool name=\"verify\">\n</hick:tool>"

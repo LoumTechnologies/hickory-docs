@@ -859,6 +859,11 @@ fn reprepare_document(name: &str, state: &MultiDocumentState) -> Result<HickDocu
 ///
 /// `params` supplies CLI `--param key=value` pairs that override document
 /// variables.
+/// Where a replayed session's action scripts are written, inside the
+/// container workdir rather than at an absolute path that only one platform
+/// has.
+const REPLAY_DIR: &str = ".hick-replay";
+
 pub async fn run_pipeline(
     sources: &[(&str, &str)],
     params: &[(String, String)],
@@ -3006,7 +3011,6 @@ pub async fn run_pipeline_cmd(opts: PipelineRunOpts) -> Result<()> {
 /// `/workspace` preopen of the invoking directory no longer exists.
 async fn pipeline_session_replay(file_path: &Path, source: &str, verbose: bool) -> Result<()> {
     use anyhow::Context as _;
-    use base64::Engine as _;
 
     let session = hick_lang::parse_session(source)
         .map_err(|e| anyhow::anyhow!("{e}"))
@@ -3045,19 +3049,58 @@ async fn pipeline_session_replay(file_path: &Path, source: &str, verbose: bool) 
                         executor.ensure_started("replay", "alpine").await?;
                         started = true;
                     }
-                    let interpreter = match action.lang.to_lowercase().as_str() {
-                        "sh" | "shell" | "bash" => "sh",
-                        "python" | "python3" | "py" => "python3",
-                        "node" | "js" | "javascript" => "node",
-                        _ => "sh",
+                    // Written, not composed. This used to be
+                    // `printf '%s' '<base64>' | base64 -d > /tmp/… && sh …`:
+                    // POSIX text handed to whatever shell the executor
+                    // resolves to, writing into a `/tmp` that does not exist
+                    // on Windows. Every replayed action failed there, and the
+                    // failure was printed and stepped over, so a replay that
+                    // executed nothing looked like one whose actions were
+                    // simply quiet.
+                    let platform = executor.script_platform();
+                    let (script_path, cmd) = match action.lang.to_lowercase().as_str() {
+                        "python" | "python3" | "py" => {
+                            let path =
+                                platform.join_path(REPLAY_DIR, &format!("action-{action_idx}.py"));
+                            let cmd = platform.python_script_command(&path);
+                            (path, cmd)
+                        }
+                        "node" | "js" | "javascript" => {
+                            let path =
+                                platform.join_path(REPLAY_DIR, &format!("action-{action_idx}.js"));
+                            let cmd = format!("node {path}");
+                            (path, cmd)
+                        }
+                        _ => {
+                            let path = platform.join_path(
+                                REPLAY_DIR,
+                                &format!(
+                                    "action-{action_idx}.{}",
+                                    platform.shell_script_extension()
+                                ),
+                            );
+                            let cmd = platform.shell_script_command(&path);
+                            (path, cmd)
+                        }
                     };
-                    let encoded =
-                        base64::engine::general_purpose::STANDARD.encode(action.code.as_bytes());
-                    let script_path = format!("/tmp/__hick_action_{action_idx}");
-                    let cmd = format!(
-                        "printf '%s' '{encoded}' | base64 -d > {script_path} && \
-                         {interpreter} {script_path}"
+                    let is_shell = !matches!(
+                        action.lang.to_lowercase().as_str(),
+                        "python" | "python3" | "py" | "node" | "js" | "javascript"
                     );
+                    let preamble = if is_shell {
+                        platform.shell_script_preamble()
+                    } else {
+                        ""
+                    };
+                    // A replay that cannot write its own script cannot replay,
+                    // so this one does NOT step over the failure.
+                    executor
+                        .write_file(
+                            "replay",
+                            &script_path,
+                            &format!("{preamble}{}", action.code),
+                        )
+                        .await?;
                     println!("[action-{action_idx}] lang={}", action.lang);
                     if verbose {
                         for line in action.code.trim().lines() {

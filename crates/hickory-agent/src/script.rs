@@ -7,7 +7,7 @@
 use std::fmt;
 
 use anyhow::Result;
-use hickory_executor::{Executor, TranscriptEvent};
+use hickory_executor::{ExecOptions, ExecTimedOut, Executor, ScriptPlatform, TranscriptEvent};
 use serde::{Deserialize, Serialize};
 
 /// Execution backend for an extracted fenced code block.
@@ -20,10 +20,18 @@ pub enum Language {
 
 impl Language {
     /// File extension used when writing the script to the workspace.
-    pub fn extension(&self) -> &'static str {
+    pub fn extension(&self, platform: ScriptPlatform) -> &'static str {
         match self {
-            Language::Shell => "sh",
+            Language::Shell => platform.shell_script_extension(),
             Language::Python => "py",
+        }
+    }
+
+    /// Text the script needs before the author's own code.
+    pub fn preamble(&self, platform: ScriptPlatform) -> &'static str {
+        match self {
+            Language::Shell => platform.shell_script_preamble(),
+            Language::Python => "",
         }
     }
 
@@ -36,12 +44,14 @@ impl Language {
         }
     }
 
-    /// Shell command to execute a script file at `script_path` in the
-    /// container.
-    pub fn run_command(&self, script_path: &str) -> String {
+    /// Command that executes a script file at `script_path` in the container.
+    ///
+    /// The platform is the EXECUTOR's, not the host's: a Docker executor on a
+    /// Windows machine runs a Linux container, and its scripts are POSIX.
+    pub fn run_command(&self, platform: ScriptPlatform, script_path: &str) -> String {
         match self {
-            Language::Shell => format!("sh {script_path}"),
-            Language::Python => format!("python3 {script_path}"),
+            Language::Shell => platform.shell_script_command(script_path),
+            Language::Python => platform.python_script_command(script_path),
         }
     }
 }
@@ -241,67 +251,6 @@ fn ceil_char_boundary(s: &str, i: usize) -> usize {
     i
 }
 
-/// `timeout -k 5 <secs> <command>`, on machines that have no `timeout`.
-///
-/// coreutils' `timeout` is on every Linux container image and busybox has it
-/// too — and **macOS ships neither**. A cell run through the local or sandboxed
-/// executor on a Mac therefore got `sh: timeout: command not found` and exit
-/// 127, which the model reads as "the script failed" and starts debugging code
-/// that never ran. Nothing in CI could see it: the test suite runs on Linux.
-///
-/// So the shell decides for itself. Where `timeout` exists it is used, because
-/// it is the thing that has been tested for decades. Where it does not, the
-/// same contract is rebuilt from POSIX `sh`: run in the background, let a
-/// watchdog SIGTERM it after `secs` and SIGKILL it five seconds later, and
-/// report **124** for a kill this watchdog performed.
-///
-/// The 124 is decided by a marker file rather than by the exit status, because
-/// a signalled process exits 143 or 137 and so does one somebody else killed —
-/// and "the timeout fired" has to be distinguishable from "something died",
-/// since only the first gets explained to the model as a timeout.
-///
-/// Two details are load-bearing, and both were found by the thing hanging.
-///
-/// The watchdog's output goes to `/dev/null`: a background subshell inherits
-/// the pipes the executor is reading, so a watchdog sleeping out a 600-second
-/// default holds stdout open for ten minutes after the script itself finished.
-/// The script completes instantly and the *collection* hangs, which looks like
-/// the script hanging and is not.
-///
-/// And the kill goes to the process GROUP — `set -m` first, so the job gets one
-/// of its own. Signalling the single pid kills the `sh` and leaves its children
-/// running: a script whose body is `sleep 30` is reaped, its `sleep` is not, and
-/// the orphan holds the same stdout pipe for its full thirty seconds. The
-/// timeout fires correctly and nobody can tell, because the read does not
-/// return. (Linux hides this: `sh -c` there often execs a lone command, so the
-/// pid *is* the sleep. macOS does not, which is why it surfaced here.)
-///
-/// Job control is switched back off immediately after the launch, and `wait`'s
-/// own stderr is discarded, because a shell with `-m` set announces finished
-/// jobs — `[1]-  Done  sh .hickory-agent/action-0.sh` — straight into the
-/// stderr the model is about to read. The process group is assigned when the
-/// job starts, so turning it off afterwards costs nothing.
-fn timed(secs: u64, script_path: &str, command: &str) -> String {
-    let marker = format!("{script_path}.timedout");
-    format!(
-        "if command -v timeout >/dev/null 2>&1; then \
-           timeout -k 5 {secs} {command}; \
-         else \
-           rm -f {marker}; \
-           set -m; {command} & __hick_pid=$!; set +m; \
-           ( sleep {secs}; \
-             kill -TERM -$__hick_pid 2>/dev/null || kill -TERM $__hick_pid 2>/dev/null; \
-             : > {marker}; sleep 5; \
-             kill -KILL -$__hick_pid 2>/dev/null || kill -KILL $__hick_pid 2>/dev/null \
-           ) >/dev/null 2>&1 & __hick_watch=$!; \
-           wait $__hick_pid 2>/dev/null; __hick_status=$?; \
-           kill $__hick_watch 2>/dev/null; \
-           if [ -f {marker} ]; then rm -f {marker}; exit 124; fi; \
-           exit $__hick_status; \
-         fi"
-    )
-}
-
 /// Run one extracted code block through `executor` inside `container`.
 ///
 /// `container` is normally one the DOCUMENT declares, so the agent's scripts
@@ -320,40 +269,67 @@ pub async fn run_script(
     action_index: usize,
     limits: ScriptLimits,
 ) -> Result<ScriptResult> {
-    let script_path = format!(
-        "{SCRIPT_DIR}/action-{action_index}.{}",
-        block.language.extension()
+    let platform = executor.script_platform();
+    let script_path = platform.join_path(
+        SCRIPT_DIR,
+        &format!(
+            "action-{action_index}.{}",
+            block.language.extension(platform)
+        ),
     );
 
-    // Write the script via stdin so no quoting of the code is needed.
+    // Written, not composed. This used to be
+    // `mkdir -p … && cat > …` piped through the executor's shell -- POSIX
+    // text, so on Windows `mkdir -p` made a directory called `-p` and `cat`
+    // was not a command, and the agent could run nothing at all there.
+    // Writing a file is not a shell operation.
     executor
-        .execute_with_stdin(
+        .write_file(
             container,
-            &format!("mkdir -p {SCRIPT_DIR} && cat > {script_path}"),
-            &block.code,
+            &script_path,
+            &format!("{}{}", block.language.preamble(platform), block.code),
         )
         .await?;
 
-    // Run it under a timeout INSIDE the container. Racing an outer future
-    // against the call would return control while the runaway process kept
-    // holding the container's CPU and files; killing it in there actually
-    // stops it, and SIGKILL follows for anything that ignores SIGTERM.
-    // Exit 124 is the documented "timed out" code.
+    // The limit is the EXECUTOR's, not a shell fragment of our own. This used
+    // to wrap the command in `if command -v timeout …; else set -m; … kill
+    // -TERM -$pid; fi` -- a second kill mechanism, written in POSIX, that no
+    // Windows shell could run. `ExecOptions` already kills the process and
+    // its children (process group on Unix, process tree on Windows), so there
+    // is one mechanism instead of two and no dialect in it.
     let secs = limits.timeout.as_secs().max(1);
-    let command = timed(
-        secs,
-        &script_path,
-        &block.language.run_command(&script_path),
-    );
+    let command = block.language.run_command(platform, &script_path);
     // A backstop for the executor itself hanging (a lost connection to a
     // remote microVM never reaches `timeout` in the guest). Generous, so it
     // only ever fires when the in-container limit could not.
     let outer = limits.timeout + std::time::Duration::from_secs(30);
-    let timed_out = tokio::time::timeout(outer, executor.execute(container, &command))
-        .await
-        .is_err();
+    let run = executor.execute_with_options(
+        container,
+        &command,
+        None,
+        ExecOptions {
+            timeout: Some(std::time::Duration::from_secs(secs)),
+        },
+    );
+    let outcome = tokio::time::timeout(outer, run).await;
 
-    if timed_out {
+    // The executor's own limit fired. Distinguished from an ordinary failure
+    // by the error TYPE rather than by matching on the wording of a message,
+    // which is the sort of thing that goes quietly wrong when the message is
+    // reworded.
+    if let Ok(Err(error)) = &outcome
+        && error.downcast_ref::<ExecTimedOut>().is_some()
+    {
+        return Ok(ScriptResult {
+            stdout: String::new(),
+            stderr: format!("[killed after {secs}s by the agent script timeout]"),
+            // 124 is what `timeout(1)` reports, and what this reported when it
+            // was `timeout(1)`.
+            exit_code: Some(124),
+        });
+    }
+
+    if outcome.is_err() {
         // Nothing was recorded, so say plainly what happened rather than
         // returning an empty observation the model would read as success.
         return Ok(ScriptResult {

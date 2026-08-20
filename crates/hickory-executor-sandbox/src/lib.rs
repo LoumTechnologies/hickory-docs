@@ -219,6 +219,22 @@ impl Executor for SandboxedExecutor {
         self.inner.ensure_started(container, image).await
     }
 
+    fn script_platform(&self) -> hickory_executor::ScriptPlatform {
+        // Whatever the shell inside the sandbox is, which is the inner
+        // executor's answer: bubblewrap and Seatbelt wrap `sh`, and the
+        // AppContainer launcher runs `cmd.exe`.
+        self.inner.script_platform()
+    }
+
+    async fn write_file(&self, container: &str, path: &str, contents: &str) -> Result<()> {
+        // Straight through, deliberately. The default on the trait composes
+        // `mkdir -p … && cat > …` and runs it through a shell; the inner
+        // executor writes the file. Confinement is about what a CELL can
+        // reach, and this is the executor placing a file in a workdir it
+        // already owns, not a cell reaching for one.
+        self.inner.write_file(container, path, contents).await
+    }
+
     async fn probe_program(&self, container: &str, bin: &str) -> Result<bool> {
         // Confined, like everything else. "Is duckdb installed?" and "can
         // this cell see duckdb?" have different answers here — under

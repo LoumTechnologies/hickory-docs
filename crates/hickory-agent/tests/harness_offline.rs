@@ -19,8 +19,8 @@ async fn harness_records_runs_and_reports_offline() {
                 {"name": "challenger", "effort": "low"}
             ],
             "tasks": [
-                {"id": "t1", "prompt": "finish immediately", "check_cmd": "true"},
-                {"id": "t2", "prompt": "finish immediately again", "check_cmd": "true"}
+                {"id": "t1", "prompt": "finish immediately", "check_cmd": "exit 0"},
+                {"id": "t2", "prompt": "finish immediately again", "check_cmd": "exit 0"}
             ]
         }"#,
     )
