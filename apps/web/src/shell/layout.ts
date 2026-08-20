@@ -141,6 +141,34 @@ export function treePane(layout: Layout): Pane | null {
 // Walking
 // ---------------------------------------------------------------------------
 
+/**
+ * The same arrangement with every id freshly minted.
+ *
+ * Ids come from a per-session counter that restarts at zero, which was fine
+ * while a layout only ever lived in memory. A RESTORED layout brings its old
+ * ids back with it, and the counter would happily hand `pane-1` out again to
+ * the next split — two panes with one id, and every lookup finding whichever
+ * came first. Re-minting on the way in keeps the invariant that every id in a
+ * live layout came from this one generator.
+ */
+export function reid(layout: Layout): Layout {
+  let focus = layout.focus;
+  const walk = (node: Node): Node => {
+    if (node.type === "pane") {
+      const id = nextId("pane");
+      if (node.id === layout.focus) focus = id;
+      return { ...node, id, tabs: node.tabs.map((t) => ({ ...t, id: nextId("tab") })) };
+    }
+    return { ...node, id: nextId("split"), children: node.children.map(walk) };
+  };
+  const root = walk(layout.root);
+  // A focus naming a pane that is no longer there would leave every "open
+  // here" with nowhere to go.
+  const live = panes(root);
+  if (!live.some((p) => p.id === focus)) focus = live[0]?.id ?? focus;
+  return { root, focus };
+}
+
 export function panes(node: Node): Pane[] {
   return node.type === "pane" ? [node] : node.children.flatMap(panes);
 }

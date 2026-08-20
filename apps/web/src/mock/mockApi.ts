@@ -33,6 +33,9 @@ const state = {
   runs: new Map<string, Run>(),
   agentTurns: [] as (AgentTurn & { doc_id: string })[],
   uiSettings: { window_title: null as string | null },
+  // The window layout, in memory. A landing-page visitor must not have one
+  // written anywhere on their machine.
+  workspaceUi: null as unknown,
   // Past the seeded ids (d1…, p1…): starting at 1 minted a created document
   // as "d1", colliding with the seeded quickstart — the new tab silently
   // became a second window onto an existing document.
@@ -227,6 +230,18 @@ export function installMockApi() {
     const b = body as Record<string, unknown>;
     const route = `${method} ${path}`;
     let m: RegExpMatchArray | null;
+
+    // What the window remembers. The mock keeps it in memory: the demo has
+    // no data directory, and a landing-page visitor must not have a window
+    // layout written anywhere on their machine.
+    if (route === "GET /api/workspace/ui") return { state: state.workspaceUi ?? null };
+    if (route === "PUT /api/workspace/ui") {
+      state.workspaceUi = b.state;
+      return { ok: true };
+    }
+    // No drafts, ever: nothing in the demo has a disk to be unsaved from.
+    if (route === "GET /api/workspace/drafts") return { drafts: [] };
+    if (path.startsWith("/api/workspace/drafts")) return { ok: true };
 
     if (route === "GET /api/files") {
       // The open folder: every document, plus everything they weave.

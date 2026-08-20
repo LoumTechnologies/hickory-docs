@@ -20,7 +20,18 @@ import { useDocSession, type SessionRegistry } from "./documentSession";
 
 /** The document itself: debugger chrome on top, the collaborative editor
  * under it. One per "document" tab; the session it draws survives the tab. */
-export function DocTabBody({ registry, docId }: { registry: SessionRegistry; docId: string }) {
+export function DocTabBody({
+  registry,
+  docId,
+  wrapColumn,
+  onWrapColumn,
+}: {
+  registry: SessionRegistry;
+  docId: string;
+  /** Where prose wraps in this tab, restored with the arrangement. */
+  wrapColumn?: number;
+  onWrapColumn?: (column: number) => void;
+}) {
   const session = useDocSession(registry, docId);
   if (!session) return <p className="muted">Loading document…</p>;
   if (session.fatalError) return <p className="error">{session.fatalError}</p>;
@@ -107,6 +118,8 @@ export function DocTabBody({ registry, docId }: { registry: SessionRegistry; doc
         lspDiagnostics={session.lspDiagnostics}
         onDebugFile={(path) => debug.start(path)}
         onViewReady={session.onDocViewReady}
+        wrapColumn={wrapColumn}
+        onWrapColumn={onWrapColumn}
       />
     </div>
   );

@@ -27,6 +27,8 @@ import { proseWrap } from "../editor/wrapColumn";
 import { wrapGutterMarkers } from "../editor/wrapGutter";
 import { FILES_CHANGED_EVENT } from "../shell/FolderTreePane";
 import { createPlainSaver, type PlainSaveState } from "../lib/plainFileSave";
+import { draftDisposition, useDraftKeeper } from "../lib/drafts";
+import { MergeView } from "./MergeView";
 
 export function PlainFilePane({
   path,
@@ -44,6 +46,19 @@ export function PlainFilePane({
   const [saveState, setSaveState] = useState<PlainSaveState>({ kind: "idle" });
   const [adopting, setAdopting] = useState(false);
   const [adoptError, setAdoptError] = useState<string | null>(null);
+  // A draft to put back into the buffer once the view exists. Held as state
+  // rather than applied immediately because the load lands before the editor
+  // is built.
+  const [restored, setRestored] = useState<string | null>(null);
+  // Two versions of this file that both have changes worth keeping. Set when
+  // a save conflicts, and when a restored draft finds the file has moved on.
+  const [merge, setMerge] = useState<{
+    base: string;
+    ours: string;
+    theirs: string;
+    oursLabel: string;
+    theirsLabel: string;
+  } | null>(null);
   const onAdoptedRef = useRef(onAdopted);
   onAdoptedRef.current = onAdopted;
 
@@ -68,6 +83,41 @@ export function PlainFilePane({
         setFile(loaded);
         setLoadError(null);
         saver.load(loaded.content, loaded.hash);
+        // Was this buffer holding unsaved work when the app last closed?
+        //
+        // Three answers, and only one of them interrupts anybody. The file is
+        // as we left it: put the text back, still unsaved, silently — that is
+        // the common case by a wide margin, and a dialog here would train
+        // people to dismiss dialogs. The file already says the same thing:
+        // the draft is stale, drop it. The file moved on and so did we: that
+        // is a merge, and it is worth someone's attention.
+        void api.drafts().then(
+          ({ drafts }) => {
+            if (!live) return;
+            const draft = drafts.find((d) => d.path === path);
+            if (!draft) return;
+            const next = draftDisposition(draft, loaded.content);
+            if (next.kind === "clean") {
+              void api.discardDraft(path).catch(() => {});
+              return;
+            }
+            if (next.kind === "restore") {
+              setRestored(next.contents);
+              return;
+            }
+            setMerge({
+              base: next.base,
+              ours: next.ours,
+              theirs: next.theirs,
+              oursLabel: "Your unsaved changes",
+              theirsLabel: "The file on disk",
+            });
+          },
+          () => {
+            // No draft store on this machine: the file opens as it is on
+            // disk, which is what would have happened anyway.
+          },
+        );
       },
       (e) => live && setLoadError(e instanceof Error ? e.message : String(e)),
     );
@@ -139,6 +189,37 @@ export function PlainFilePane({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loaded, saver]);
 
+  /** Put text into the buffer and treat it as an unsaved edit — which is
+   * exactly what it is: restored work that the file does not have yet. */
+  const putInBuffer = useCallback(
+    (text: string) => {
+      const view = viewRef.current;
+      if (!view) return;
+      if (view.state.doc.toString() !== text) syncAndFlash(view, text);
+      saver.changed(text);
+    },
+    [saver],
+  );
+
+  // The restored draft goes in once the view exists — the load that found it
+  // lands before the editor is built.
+  useEffect(() => {
+    if (restored === null || !loaded) return;
+    putInBuffer(restored);
+    setRestored(null);
+  }, [restored, loaded, putInBuffer]);
+
+  // Write the buffer down while it differs from the file. Read through a
+  // callback so this costs nothing on the typing path — see lib/drafts.ts.
+  useDraftKeeper({
+    path,
+    enabled: loaded,
+    read: () => ({
+      contents: viewRef.current?.state.doc.toString() ?? "",
+      base: saver.baseContent(),
+    }),
+  });
+
   // Take the disk copy into the live buffer, flashing what changed.
   const adoptDiskCopy = useCallback(
     (fresh: PlainFile) => {
@@ -195,6 +276,44 @@ export function PlainFilePane({
   }, [path]);
 
   const overwrite = useCallback(() => saver.resolve("overwrite"), [saver]);
+
+  /** The third answer to a conflict, and the one that does not throw work
+   * away: three-way merge the buffer against the disk, over the bytes this
+   * session started from. */
+  const openMerge = useCallback(() => {
+    const view = viewRef.current;
+    if (!view) return;
+    const ours = view.state.doc.toString();
+    const base = saver.baseContent();
+    void api.file(path).then(
+      (fresh) =>
+        setMerge({
+          base,
+          ours,
+          theirs: fresh.content,
+          oursLabel: "Your unsaved changes",
+          theirsLabel: "The file on disk",
+        }),
+      (e) => setSaveState({ kind: "error", message: e instanceof Error ? e.message : String(e) }),
+    );
+  }, [saver, path]);
+
+  /** The merged text becomes the buffer, and the file is reloaded first so
+   * the save that follows rides on the hash the disk actually has. */
+  const acceptMerge = useCallback(
+    (text: string) => {
+      setMerge(null);
+      saver.resolve("reload");
+      void api.file(path).then(
+        (fresh) => {
+          adoptDiskCopy(fresh);
+          putInBuffer(text);
+        },
+        (e) => setSaveState({ kind: "error", message: e instanceof Error ? e.message : String(e) }),
+      );
+    },
+    [saver, path, adoptDiskCopy, putInBuffer],
+  );
   const reload = useCallback(() => {
     saver.resolve("reload");
     api.file(path).then(adoptDiskCopy, (e) =>
@@ -246,6 +365,11 @@ export function PlainFilePane({
           </button>{" "}
           <button type="button" className="btn" onClick={overwrite}>
             Overwrite with my version
+          </button>{" "}
+          {/* The answer that throws nothing away. Reload loses this buffer;
+              overwrite loses whatever the other program wrote. */}
+          <button type="button" className="btn btn-primary" onClick={openMerge}>
+            Merge…
           </button>
         </div>
       )}
@@ -255,7 +379,23 @@ export function PlainFilePane({
         </div>
       )}
       {!file && <p className="muted">Loading {path}…</p>}
-      <div className="output-editor">
+      {/* The merge REPLACES the editor rather than floating over it: the two
+          sides plus their context need the whole pane to be readable, and a
+          modal over the buffer would hide the very text being merged. The
+          buffer is untouched underneath until the merge is accepted. */}
+      {merge ? (
+        <MergeView
+          path={path}
+          base={merge.base}
+          ours={merge.ours}
+          theirs={merge.theirs}
+          oursLabel={merge.oursLabel}
+          theirsLabel={merge.theirsLabel}
+          onAccept={acceptMerge}
+          onCancel={() => setMerge(null)}
+        />
+      ) : null}
+      <div className="output-editor" hidden={merge !== null}>
         <div ref={hostRef} className="editor-cm-host" />
       </div>
     </div>

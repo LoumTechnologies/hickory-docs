@@ -79,6 +79,7 @@ import { TerminalPane } from "../terminal/TerminalPane";
 import { sessionById, useTerminals } from "../terminal/useTerminals";
 import { nextInQueue } from "../lib/attentionCursor";
 import { DocTabBody, GeneratedTabBody, UntitledTab } from "./workspaceTabs";
+import { useWorkspaceUi } from "./useWorkspaceUi";
 
 /** The routes the workspace answers. Everything else is App's. */
 export type WorkspaceRoute = Extract<
@@ -133,6 +134,14 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   const [tabStyle] = useState<TabStyle>(() => loadTabStyle());
   const [channelWidth] = useState<number>(() => loadChannelWidth());
   const [shellBox, setShellBox] = useState<HTMLElement | null>(null);
+
+  // What the window looked like last time, and where each tab's prose measure
+  // sits. Restored into an untouched workspace only — the same rule a
+  // document's own declared layout follows — and the route's opener waits for
+  // `hydrated` so the two cannot race. See views/useWorkspaceUi.ts.
+  const workspaceUi = useWorkspaceUi(layout, (restored) => {
+    setLayout((current) => (isWorkspaceEmpty(current) ? restored : current));
+  });
 
   // ---- which document the chrome follows ---------------------------------
   //
@@ -222,7 +231,12 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   // string means navigating from `#/new` to `#/scratchpad` looks like no
   // change at all, and the effect never runs.
   const routeKey = route.name === "doc" ? `doc:${route.id}` : route.name;
+  const hydrated = workspaceUi.hydrated;
   useEffect(() => {
+    // Wait for the stored layout. Opening the routed document first would
+    // leave the workspace non-empty when the restore lands, and the restore
+    // would be dropped without a word.
+    if (!hydrated) return;
     if (route.name === "new") {
       setLayout((current) => openUntitledTab(current));
       return;
@@ -239,7 +253,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     ensureDocOpen(route.id);
     // routeKey stands in for the route object, which is rebuilt per render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [routeKey, ensureDocOpen]);
+  }, [routeKey, ensureDocOpen, hydrated]);
 
   // The other direction: focusing a different document's pane makes the URL
   // follow, replacing the current entry — focus flips are not history the
@@ -695,7 +709,16 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
             }
             render={(tab) => {
               if (tab.kind === "document" && tab.docId) {
-                return <DocTabBody registry={registry} docId={tab.docId} />;
+                return (
+                  <DocTabBody
+                    registry={registry}
+                    docId={tab.docId}
+                    // The measure belongs to the TAB, keyed by its path, and
+                    // is restored with the arrangement it was set in.
+                    wrapColumn={workspaceUi.wrapFor(tab.target)}
+                    onWrapColumn={(column) => workspaceUi.setWrap(tab.target, column)}
+                  />
+                );
               }
               if (tab.kind === "generated" && tab.docId) {
                 return <GeneratedTabBody registry={registry} docId={tab.docId} path={tab.target} />;

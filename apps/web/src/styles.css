@@ -5598,3 +5598,110 @@ textarea:focus {
   color: var(--fg-muted);
   text-align: center;
 }
+
+/* the merge view ------------------------------------------------------------
+   Opened when two versions of one file both have changes worth keeping — a
+   restored draft against a file that moved on while the app was closed.
+
+   The visual job is to make "how much of this is my problem" answerable
+   before any of it is read: agreed text is quiet, auto-merged regions are
+   visible but plainly settled, and only a real conflict looks like a
+   question. */
+.merge-view {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  background: var(--bg);
+}
+.merge-view__head {
+  padding: 0.9rem 1.1rem 0.7rem;
+  border-bottom: 1px solid var(--border);
+}
+.merge-view__title { margin: 0 0 0.35rem; font-size: 0.95rem; font-weight: 600; }
+.merge-view__summary { margin: 0; font-size: 0.82rem; color: var(--fg); }
+.merge-view__note {
+  margin: 0.4rem 0 0;
+  font-size: 0.76rem;
+  color: var(--fg-muted);
+  max-width: 52ch;
+}
+.merge-view__regions {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 0.6rem 1.1rem 1.2rem;
+}
+.merge-view__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  padding: 0.6rem 1.1rem;
+  border-top: 1px solid var(--border);
+}
+
+.merge-region pre {
+  margin: 0;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.8rem;
+  white-space: pre-wrap;
+  overflow-x: auto;
+}
+/* Agreed text: present because context is what makes a conflict answerable,
+   quiet because it is not the question. */
+.merge-region--stable {
+  color: var(--fg-muted);
+  padding: 0.15rem 0;
+}
+.merge-region--resolved {
+  margin: 0.4rem 0;
+  padding: 0.35rem 0.6rem;
+  border-left: 3px solid var(--ok);
+  background: var(--bg-raised);
+  border-radius: 0 5px 5px 0;
+}
+.merge-region__label {
+  margin: 0 0 0.2rem;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--fg-muted);
+}
+.merge-region--conflict {
+  margin: 0.6rem 0;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--warn);
+  border-radius: 6px;
+  background: var(--bg-raised);
+}
+/* Answered, but still shown: the reader may want to change their mind, and a
+   conflict that vanished on being answered would take its own context with
+   it. */
+.merge-region--answered { border-color: var(--ok); }
+.merge-region__sides {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.6rem;
+}
+@media (max-width: 52rem) {
+  .merge-region__sides { grid-template-columns: 1fr; }
+}
+.merge-side {
+  padding: 0.3rem 0.45rem;
+  border-radius: 5px;
+  border: 1px solid transparent;
+}
+.merge-side--taken {
+  border-color: var(--ok);
+  background: color-mix(in srgb, var(--ok) 10%, transparent);
+}
+.merge-region__choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-top: 0.5rem;
+}
+.btn-small {
+  font-size: 0.74rem;
+  padding: 0.15rem 0.5rem;
+}
