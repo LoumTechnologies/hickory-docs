@@ -438,7 +438,11 @@ mod tests {
     fn two_streams(platform: ScriptPlatform) -> String {
         match platform {
             ScriptPlatform::Posix => "echo out; echo err >&2".to_string(),
-            ScriptPlatform::WindowsCmd => "echo out\r\necho err 1>&2".to_string(),
+            // Redirect FIRST. `echo err 1>&2` writes "err " — cmd strips the
+            // redirect token and leaves the space that preceded it, so the
+            // stream carries a trailing blank nobody asked for. Measured on
+            // Windows 11: `1>&2 echo err` is clean.
+            ScriptPlatform::WindowsCmd => "echo out\r\n1>&2 echo err".to_string(),
         }
     }
 
@@ -446,8 +450,9 @@ mod tests {
     fn fails_with_three(platform: ScriptPlatform) -> String {
         match platform {
             ScriptPlatform::Posix => "echo oops >&2; exit 3".to_string(),
-            // `exit /b 3` sets the batch's errorlevel, which `cmd /C` returns.
-            ScriptPlatform::WindowsCmd => "echo oops 1>&2\r\nexit /b 3".to_string(),
+            // `exit /b 3` sets the batch's errorlevel, which `cmd /C` returns;
+            // the redirect leads for the same trailing-space reason as above.
+            ScriptPlatform::WindowsCmd => "1>&2 echo oops\r\nexit /b 3".to_string(),
         }
     }
 
