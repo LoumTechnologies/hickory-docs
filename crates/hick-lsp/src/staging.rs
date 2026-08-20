@@ -267,7 +267,9 @@ impl StagingArea {
 /// staging area's own path keeps it working when a child answers with a path
 /// that resolved a symlink on the way (macOS's `/var` → `/private/var`).
 pub fn staged_output_path(path: &Path) -> Option<String> {
-    let mut components = path.components().skip_while(|component| !is_staging_dir(component));
+    let mut components = path
+        .components()
+        .skip_while(|component| !is_staging_dir(component));
     // The staging directory, then the per-document one.
     components.next()?;
     components.next()?;
@@ -299,6 +301,17 @@ fn document_key(hick_uri: &Url) -> String {
 /// because each of them turns "write inside this document's staging
 /// directory" into "write wherever this string says".
 fn join_within(root: &Path, relative: &str) -> Option<PathBuf> {
+    // A leading separator has to be refused BEFORE the loop, not skipped by
+    // it. `"/etc/passwd".split('/')` is `["", "etc", "passwd"]`, and treating
+    // that empty first segment as "nothing to do" silently reinterprets a
+    // rooted path as a relative one: the document asked for `/etc/passwd` and
+    // would get `<staging>/etc/passwd`, a different file, staged without
+    // complaint. It does not escape the staging area, which is why this is a
+    // wrong-answer bug rather than a hole — but a block whose path cannot mean
+    // what it says should be refused rather than quietly redirected.
+    if relative.starts_with('/') || relative.starts_with('\\') {
+        return None;
+    }
     let mut out = root.to_path_buf();
     for part in relative.split(['/', '\\']) {
         if part.is_empty() || part == "." {

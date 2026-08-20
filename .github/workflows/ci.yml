@@ -178,14 +178,18 @@ jobs:
           cargo test -p hickory-cli --test cache_flags --test init_tests
           --test lineage_sweep --test up_stress --test volatile_outputs
           --test serve_terminals --test ingest -- --test-threads=1
-      # `hick-lsp` has to exist before discovery can find it, exactly as the
-      # macOS job does it. The `--skip` comes off when #20 is fixed, which is
-      # how that fix gets proven rather than asserted.
+      # `hick-lsp` has to exist before discovery can find it.
       - run: cargo build -p hick-lsp
-      - run: >-
-          cargo test -p hickory-cli --test lsp_languages --
-          --skip every_installed_language_answers_in_document_coordinates
-          --test-threads=1
+      # A language server for the suite to actually answer with. Without one
+      # `every_installed_language_answers_in_document_coordinates` fails
+      # loudly ("this suite tested nothing") rather than passing empty — that
+      # guard is deliberate, so the runner has to be given a server rather
+      # than the test given a `--skip`. This is what proves #20: before it,
+      # virtual files were written to a hardcoded `file:///tmp` that Windows
+      # rejects, so every request came back empty and the suite could not have
+      # answered anything here.
+      - run: python -m pip install --disable-pip-version-check basedpyright
+      - run: cargo test -p hickory-cli --test lsp_languages -- --test-threads=1
       - run: >-
           cargo test -p hick-term --test a_real_shell_reports_its_directory
           --test full_screen_apps -- --test-threads=1
