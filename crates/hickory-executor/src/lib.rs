@@ -571,16 +571,20 @@ impl LocalExecutor {
         #[cfg(windows)]
         {
             use std::os::windows::process::CommandExt as _;
-            // The outer quotes are not decoration. `cmd /?` documents that it
-            // preserves quoting only when the line carries EXACTLY two quote
-            // characters; otherwise it strips the leading quote and the LAST
-            // one. A confined line quotes the launcher, the workdir, and the
-            // command — six — so the program name reached CreateProcess as
-            // `C:\...\hick.exe"`, a filename no Windows API will accept, and
-            // every confined cell died with "The filename, directory name, or
-            // volume label syntax is incorrect". Wrapping the whole line gives
-            // cmd its own pair to strip and leaves what is inside untouched.
-            cmd.as_std_mut().raw_arg(format!("\"{command}\""));
+            // Handed over untouched. This once wrapped the line in another
+            // pair of quotes, to survive cmd's documented habit of stripping
+            // the leading quote and the last one — but that was for the
+            // CONFINED line, which quoted a launcher, a workdir and a command
+            // and so arrived with six. Confined commands are an argv now and
+            // never come through here, so the only thing left is a cell's own
+            // shell text, which the author wrote to be handed to a shell as
+            // it stands.
+            //
+            // Wrapping it was actively wrong, measured on Windows 11: a cell
+            // reading `echo one` produced NO output and no error, and a run
+            // whose only cell was `exit 1` reported success. A tool that runs
+            // nothing and says it worked is worse than one that fails.
+            cmd.as_std_mut().raw_arg(command);
         }
         #[cfg(not(windows))]
         {
