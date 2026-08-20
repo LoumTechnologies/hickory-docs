@@ -596,7 +596,7 @@ impl HickBackend {
             .iter()
             .map(|(uri, m)| {
                 (
-                    uri.as_str().to_string(),
+                    uri_key(uri.as_str()),
                     (m.hick_uri.clone(), m.position_map.clone()),
                 )
             })
@@ -690,6 +690,57 @@ enum StructuralKind {
 /// lines the position map cannot translate (e.g. pasted/synthetic content),
 /// are left untouched — the server-side bridge maps those through run
 /// provenance instead.
+/// A URI reduced to something two programs can agree on.
+///
+/// A child language server answers with its OWN spelling of the same file.
+/// basedpyright on Windows returns `file:///c%3A/Users/…` where
+/// `Url::from_file_path` produced `file:///C:/Users/…` — lowercase drive,
+/// percent-encoded colon, and on some servers a different separator. Keying
+/// the translation index by the raw string misses every one of those, the
+/// location is never translated, and go-to-definition lands the user in a
+/// staging directory instead of their own document.
+///
+/// Comparing the resolved path instead makes the spelling irrelevant. Windows
+/// paths are compared case-insensitively because its filesystem is, and a
+/// server that lowercases a drive letter must not thereby become a different
+/// file.
+/// `/C:/x` -> `/c:/x`, leaving the rest of a case-sensitive path alone.
+fn drive_lowercased(text: &str) -> String {
+    let bytes = text.as_bytes();
+    if bytes.len() >= 3 && bytes[0] == b'/' && bytes[1].is_ascii_alphabetic() && bytes[2] == b':' {
+        let mut out = String::with_capacity(text.len());
+        out.push('/');
+        out.push(bytes[1].to_ascii_lowercase() as char);
+        out.push_str(&text[2..]);
+        return out;
+    }
+    text.to_string()
+}
+
+pub(crate) fn uri_key(uri: &str) -> String {
+    let Ok(url) = Url::parse(uri) else {
+        return uri.to_string();
+    };
+    match url.to_file_path() {
+        Ok(path) => {
+            let text = path.to_string_lossy().replace('\\', "/");
+            if cfg!(windows) {
+                // Windows' filesystem is case-insensitive, so two spellings
+                // that differ only in case are one file.
+                return text.to_lowercase();
+            }
+            // Elsewhere the path is case-SENSITIVE and must not be flattened
+            // — but a drive letter still gets normalised, so this rule can be
+            // asserted on any machine rather than only on the one where it
+            // matters. `/C:/x` and `/c%3A/x` are the same file wherever the
+            // URI came from.
+            drive_lowercased(&text)
+        }
+        // Not a file URI at all: keep it whole rather than inventing a key.
+        Err(()) => url.to_string(),
+    }
+}
+
 pub(crate) fn translate_locations(
     value: serde_json::Value,
     index: &HashMap<String, (Url, PositionMap)>,
@@ -721,7 +772,7 @@ pub(crate) fn translate_locations(
                 let plain = obj
                     .get("uri")
                     .and_then(|u| u.as_str())
-                    .and_then(|u| index.get(u))
+                    .and_then(|u| index.get(&uri_key(u)))
                     .and_then(|(hick, map)| {
                         let range = translate_range(obj.get("range")?, map)?;
                         Some((hick.as_str().to_string(), range))
@@ -735,7 +786,7 @@ pub(crate) fn translate_locations(
                 let link = obj
                     .get("targetUri")
                     .and_then(|u| u.as_str())
-                    .and_then(|u| index.get(u))
+                    .and_then(|u| index.get(&uri_key(u)))
                     .and_then(|(hick, map)| {
                         let range = translate_range(obj.get("targetRange")?, map)?;
                         let sel = obj
@@ -794,7 +845,7 @@ pub(crate) fn translate_edit_uris(
                 if let Some(Value::Object(changes)) = obj.get("changes").cloned() {
                     let mut remapped = serde_json::Map::new();
                     for (uri, edits) in changes {
-                        match index.get(&uri) {
+                        match index.get(&uri_key(&uri)) {
                             Some((hick_uri, map)) => {
                                 let mut edits = edits;
                                 edits = translate_bare_ranges(edits, map);
@@ -826,7 +877,7 @@ pub(crate) fn translate_edit_uris(
                     }
                     if key == "uri"
                         && let Some(uri) = obj.get("uri").and_then(|v| v.as_str())
-                        && let Some((hick_uri, _)) = index.get(uri)
+                        && let Some((hick_uri, _)) = index.get(&uri_key(uri))
                     {
                         obj.insert("uri".to_string(), Value::String(hick_uri.to_string()));
                         continue;
@@ -1880,8 +1931,29 @@ mod tests {
 
     fn index_with(vf: &str, hick: &str, map: PositionMap) -> HashMap<String, (Url, PositionMap)> {
         let mut index = HashMap::new();
-        index.insert(vf.to_string(), (Url::parse(hick).unwrap(), map));
+        index.insert(uri_key(vf), (Url::parse(hick).unwrap(), map));
         index
+    }
+
+    #[test]
+    fn a_child_that_spells_a_uri_differently_still_maps_home() {
+        // basedpyright on Windows answers `file:///c%3A/Users/...` for the file
+        // we staged as `file:///C:/Users/...` — lowercase drive, percent-encoded
+        // colon. Keyed by the raw string those are different files, the
+        // location is never translated, and go-to-definition lands the user in
+        // a staging directory instead of their own document.
+        assert_eq!(
+            uri_key("file:///C:/Users/x/app.py"),
+            uri_key("file:///c%3A/Users/x/app.py"),
+            "two spellings of one path must key the same"
+        );
+        // Different files stay different.
+        assert_ne!(
+            uri_key("file:///C:/Users/x/app.py"),
+            uri_key("file:///C:/Users/x/other.py")
+        );
+        // Something that is not a file URI is kept whole rather than mangled.
+        assert_eq!(uri_key("untitled:Untitled-1"), "untitled:Untitled-1");
     }
 
     #[test]
