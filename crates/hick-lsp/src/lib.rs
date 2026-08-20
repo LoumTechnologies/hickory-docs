@@ -14,8 +14,12 @@ pub mod lang_detect;
 pub mod position_map;
 pub mod semantic;
 pub mod server_config;
+pub mod staging;
 pub mod structural;
 pub mod virtual_file;
 
 /// The tower-lsp backend implementing the hick LSP multiplexer.
 pub use backend::HickBackend;
+/// Where a document's code is staged for the child language servers, and how
+/// a path under there is named back to the output path the document gave it.
+pub use staging::{STAGING_PREFIX, StagingArea, StagingError, staged_output_path};

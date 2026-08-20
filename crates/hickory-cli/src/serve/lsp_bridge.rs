@@ -366,10 +366,11 @@ fn server_uri_to_client(uri: &str, root: &Path) -> Option<String> {
     }
     // hick-lsp stages the files a document *would* write under a temp
     // directory, one per document. Those are not files the user has, so they
-    // are named by the output path the document gives them.
-    let text = path.to_string_lossy().replace('\\', "/");
-    let rest = text.split("/hick-lsp-vfiles/").nth(1)?;
-    let rel = rest.split_once('/').map(|(_hash, rel)| rel)?;
+    // are named by the output path the document gives them. Where that
+    // directory is, and how to read a path under it, belongs to `hick-lsp`
+    // rather than to a string match here: it moved once already, from a
+    // hardcoded `/tmp` that did not exist on Windows.
+    let rel = hick_lsp::staged_output_path(&path)?;
     Some(format!("{OUTPUT_SCHEME}{rel}"))
 }
 
@@ -453,9 +454,15 @@ mod tests {
 
     #[test]
     fn a_virtual_output_file_becomes_an_output_uri() {
-        let uri = "file:///tmp/hick-lsp-vfiles/9f2a/src/stats.py";
+        // The staging directory is made fresh per run under the user's own
+        // temp directory, so the shape — not a fixed path — is what this
+        // asserts. `hick_lsp::STAGING_PREFIX` is the half both sides share.
+        let uri = format!(
+            "file:///tmp/{}ab12/9f2a/src/stats.py",
+            hick_lsp::STAGING_PREFIX
+        );
         assert_eq!(
-            server_uri_to_client(uri, &root()).unwrap(),
+            server_uri_to_client(&uri, &root()).unwrap(),
             "hick-output:///src/stats.py"
         );
     }
