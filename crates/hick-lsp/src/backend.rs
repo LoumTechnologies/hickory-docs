@@ -14,6 +14,7 @@ use crate::child_lsp::{ChildNotification, lsp_command};
 use crate::dispatcher::Dispatcher;
 use crate::document::HickDocumentState;
 use crate::position_map::PositionMap;
+use crate::staging::{StagingArea, StagingError};
 
 /// Accumulated child diagnostics: hick document URI -> (virtual file URI -> diagnostics).
 type ChildDiagnosticsStore = Arc<RwLock<HashMap<Url, HashMap<Url, Vec<Diagnostic>>>>>;
@@ -42,6 +43,18 @@ pub struct HickBackend {
     /// remember which one that was. An editor resolves the item it is showing,
     /// which is always from the completion it just asked for.
     last_completion_language: Arc<RwLock<Option<String>>>,
+    /// Where this run stages the code a child language server reads.
+    ///
+    /// Owned here, and deleted when this backend drops — see
+    /// [`crate::staging`] for why it is a per-run directory under the user's
+    /// own temp directory rather than a shared path under `/tmp`.
+    staging: StagingArea,
+    /// Whether the user has already been shown a staging failure.
+    ///
+    /// A failure repeats on every keystroke, and one popup per keystroke is
+    /// worse than the silence this replaced. The first one is shown; the rest
+    /// go to the editor's log, which is where a user looks second.
+    staging_failure_shown: Arc<RwLock<bool>>,
 }
 
 struct DocEntry {
@@ -75,16 +88,42 @@ impl HickBackend {
             vfile_index: Arc::new(RwLock::new(HashMap::new())),
             child_diagnostics: Arc::new(RwLock::new(HashMap::new())),
             last_completion_language: Arc::new(RwLock::new(None)),
+            staging: StagingArea::new(),
+            staging_failure_shown: Arc::new(RwLock::new(false)),
         }
     }
 
-    /// Derive a stable virtual file URI from the .hick document URI and virtual
-    /// file path, preserving directory structure so that tools like
-    /// rust-analyzer can resolve paths from Cargo.toml correctly.
-    fn vfile_uri(hick_uri: &Url, vfile_path: &str) -> Url {
-        let hash = simple_hash(hick_uri.as_str());
-        Url::parse(&format!("file:///tmp/hick-lsp-vfiles/{hash}/{vfile_path}"))
-            .unwrap_or_else(|_| hick_uri.clone())
+    /// The URI a child language server knows one `hick:file` block's code by.
+    ///
+    /// Directory structure is preserved under the document's staging
+    /// directory, so a child that resolves paths out of a manifest —
+    /// rust-analyzer reading `Cargo.toml`, tsc reading `tsconfig.json` —
+    /// resolves them the way the document's own layout says.
+    fn vfile_uri(&self, hick_uri: &Url, vfile_path: &str) -> Url {
+        self.staging.vfile_uri(hick_uri, vfile_path)
+    }
+
+    /// Tell the user their code could not be staged, and why.
+    ///
+    /// This is the other half of the bug: the write used to be a `let _ =`, so
+    /// a failure produced an editor that answered nothing and said nothing.
+    /// An LSP server cannot print — stdout **is** the protocol — so it goes
+    /// three places instead: `tracing` for a developer running with
+    /// `RUST_LOG`, `window/logMessage` for the editor's LSP log every time,
+    /// and `window/showMessage` once, because a person whose hover has gone
+    /// quiet will not think to open a log pane.
+    async fn report_staging_failure(&self, hick_uri: &Url, error: &StagingError) {
+        tracing::error!(%hick_uri, %error, "could not stage a document's code");
+        let text = format!("{error}");
+        self.client
+            .log_message(MessageType::ERROR, text.clone())
+            .await;
+
+        let mut shown = self.staging_failure_shown.write().await;
+        if !*shown {
+            *shown = true;
+            self.client.show_message(MessageType::ERROR, text).await;
+        }
     }
 
     /// Process a document change: parse, generate virtual files, forward to
@@ -143,27 +182,40 @@ impl HickBackend {
         let new_vfile_uris: Vec<Url> = state
             .virtual_files
             .iter()
-            .map(|vf| Self::vfile_uri(hick_uri, &vf.path))
+            .map(|vf| self.vfile_uri(hick_uri, &vf.path))
             .collect();
 
         // 3. Close old virtual files, pruning diagnostics for removed files.
         self.close_vfiles_for(hick_uri, &new_vfile_uris).await;
-
-        // 4. Determine root URI for child LSP initialization.
-        //
-        // We use the virtual file directory so that child LSPs like
-        // rust-analyzer don't discover unrelated projects in the .hick
-        // file's parent directory.
-        let hash = simple_hash(hick_uri.as_str());
-        let root_uri = format!("file:///tmp/hick-lsp-vfiles/{hash}/");
 
         let vfile_version = {
             let docs = self.documents.read().await;
             docs.get(hick_uri).map(|e| e.vfile_version + 1).unwrap_or(1)
         };
 
-        // 5. Write all virtual files to disk so that tools like
-        //    rust-analyzer can discover project structure (e.g., Cargo.toml).
+        // 4. Determine the root URI child LSPs are initialised against.
+        //
+        //    The document's own staging directory, not the folder the `.hick`
+        //    file sits in, so a child like rust-analyzer does not go
+        //    discovering unrelated projects beside it.
+        //
+        //    A machine with nowhere to stage code has nothing to point a child
+        //    at, and a child asked about files that are not there answers
+        //    nothing — which is precisely the silent failure this used to be.
+        //    So the reason is reported and no child is spawned: hick-lsp's own
+        //    parse diagnostics and structural answers still work.
+        let root_uri = match self.staging.document_root_uri(hick_uri) {
+            Ok(root_uri) => root_uri,
+            Err(error) => {
+                self.report_staging_failure(hick_uri, &error).await;
+                self.store_document(hick_uri, state, Vec::new(), vfile_version)
+                    .await;
+                return;
+            }
+        };
+
+        // 5. Stage every virtual file so that tools like rust-analyzer can
+        //    discover project structure (e.g., Cargo.toml).
         //
         //    Writing the files is not enough on its own: a project-aware
         //    server decides what it can answer by finding a MANIFEST, and
@@ -173,14 +225,10 @@ impl HickBackend {
         //    back null while semantic tokens work, which reads like a
         //    forwarding bug and is not one. So the project's own manifests
         //    are copied in beside the virtual files.
-        copy_manifests(hick_uri, &root_uri);
+        copy_manifests(&self.staging, hick_uri);
         for vf in &state.virtual_files {
-            let vf_uri = Self::vfile_uri(hick_uri, &vf.path);
-            if let Ok(path) = vf_uri.to_file_path() {
-                if let Some(parent) = path.parent() {
-                    let _ = std::fs::create_dir_all(parent);
-                }
-                let _ = std::fs::write(&path, vf.content());
+            if let Err(error) = self.staging.write_vfile(hick_uri, &vf.path, &vf.content()) {
+                self.report_staging_failure(hick_uri, &error).await;
             }
         }
 
@@ -201,7 +249,7 @@ impl HickBackend {
                 continue;
             }
 
-            let vf_uri = Self::vfile_uri(hick_uri, &vf.path);
+            let vf_uri = self.vfile_uri(hick_uri, &vf.path);
             let content = vf.content();
             tracing::debug!(%vf_uri, content_len = content.len(), "forwarding to child LSP");
             let position_map = PositionMap::build(&vf.segments);
@@ -261,18 +309,28 @@ impl HickBackend {
             }
         }
 
-        // 6. Update stored state.
-        {
-            let mut docs = self.documents.write().await;
-            let entry = docs.entry(hick_uri.clone()).or_insert_with(|| DocEntry {
-                state: None,
-                open_vfiles: Vec::new(),
-                vfile_version: 0,
-            });
-            entry.state = Some(state);
-            entry.open_vfiles = new_open_vfiles;
-            entry.vfile_version = vfile_version;
-        }
+        // 7. Update stored state.
+        self.store_document(hick_uri, state, new_open_vfiles, vfile_version)
+            .await;
+    }
+
+    /// Record what this document parsed to, and which virtual files are open.
+    async fn store_document(
+        &self,
+        hick_uri: &Url,
+        state: HickDocumentState,
+        open_vfiles: Vec<Url>,
+        vfile_version: i32,
+    ) {
+        let mut docs = self.documents.write().await;
+        let entry = docs.entry(hick_uri.clone()).or_insert_with(|| DocEntry {
+            state: None,
+            open_vfiles: Vec::new(),
+            vfile_version: 0,
+        });
+        entry.state = Some(state);
+        entry.open_vfiles = open_vfiles;
+        entry.vfile_version = vfile_version;
     }
 
     /// Close all virtual files associated with a .hick document.
@@ -713,7 +771,7 @@ pub(crate) fn translate_locations(
 /// virtual coordinates.
 /// Rewrite a workspace edit so it names documents rather than virtual files.
 ///
-/// An edit that came back pointing at `/tmp/hick-lsp-vfiles/…` would, if
+/// An edit that came back pointing into the staging directory would, if
 /// applied, write to a file that exists only for the language server's
 /// benefit — the user's change would land nowhere and look like it worked.
 /// Every `uri` is remapped to the document that produced that virtual file,
@@ -921,26 +979,17 @@ const MANIFESTS: &[&str] = &[
 /// Best-effort throughout: a manifest that cannot be read leaves the server
 /// exactly as badly off as it was before, which is the pre-existing
 /// behaviour rather than a new failure.
-fn copy_manifests(hick_uri: &Url, root_uri: &str) {
+fn copy_manifests(staging: &StagingArea, hick_uri: &Url) {
     let Ok(document_path) = hick_uri.to_file_path() else {
         return;
     };
     let Some(project) = document_path.parent() else {
         return;
     };
-    let Some(root) = Url::parse(root_uri)
-        .ok()
-        .and_then(|url| url.to_file_path().ok())
-    else {
-        return;
-    };
-    if std::fs::create_dir_all(&root).is_err() {
-        return;
-    }
     for name in MANIFESTS {
         let source = project.join(name);
         if source.is_file() {
-            let _ = std::fs::copy(&source, root.join(name));
+            let _ = staging.copy_into(hick_uri, &source, name);
         }
     }
 }
@@ -1209,6 +1258,11 @@ impl LanguageServer for HickBackend {
         let uri = params.text_document.uri;
 
         self.close_vfiles_for(&uri, &[]).await;
+        // The code staged for this document goes with it. The whole staging
+        // directory is removed when this server stops either way; this is so a
+        // long session that opens a hundred documents is not still holding a
+        // copy of the code from all hundred.
+        self.staging.forget(&uri);
 
         let mut docs = self.documents.write().await;
         docs.remove(&uri);
@@ -1807,14 +1861,6 @@ fn parse_error_location(err: &hick_lang::ParseError) -> (usize, String) {
         hick_lang::ParseError::UnexpectedClose { line, .. } => (*line, err.to_string()),
         hick_lang::ParseError::UnclosedComment { line } => (*line, err.to_string()),
     }
-}
-
-fn simple_hash(s: &str) -> u64 {
-    let mut hash: u64 = 5381;
-    for byte in s.bytes() {
-        hash = hash.wrapping_mul(33).wrapping_add(byte as u64);
-    }
-    hash
 }
 
 #[cfg(test)]
