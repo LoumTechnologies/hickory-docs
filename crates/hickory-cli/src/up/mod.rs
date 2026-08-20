@@ -175,14 +175,34 @@ async fn settle_batch(batch: &HashSet<PathBuf>) -> bool {
     let deadline = Instant::now() + BATCH_SETTLE_BUDGET;
     let mut last = fingerprints(batch);
     let mut unchanged_since = Instant::now();
+    // How far apart this writer's own writes have been. A fixed window is a
+    // guess about somebody else's editor, and the wrong guess is silent: a
+    // save dribbled out in chunks 200ms apart looks FINISHED to a 300ms
+    // window the moment one chunk is late, which on a loaded machine is
+    // routine. Waiting three times the longest gap seen so far asks the
+    // writer how patient to be instead of assuming. Costs nothing in the
+    // common case — a save nobody is still writing produces no gaps at all.
+    //
+    // **This narrows the window; it does not close it.** Nothing watching
+    // from outside can distinguish "paused mid-save" from "finished" — a
+    // writer that stalls longer than the tolerance is indistinguishable from
+    // one that is done, and no constant makes that false. What is bounded is
+    // the exposure: a stall has to exceed three times the writer's own
+    // established cadence before a partial file can be read, and the next
+    // event corrects the document. An editor that writes to a temp file and
+    // renames has no exposure at all, which is why most do it.
+    let mut last_change = Instant::now();
+    let mut longest_gap = Duration::ZERO;
     while Instant::now() < deadline {
         tokio::time::sleep(BATCH_SETTLE_POLL).await;
         let current = fingerprints(batch);
         if current == last {
-            if unchanged_since.elapsed() >= BATCH_SETTLE_STABLE_FOR {
+            if unchanged_since.elapsed() >= BATCH_SETTLE_STABLE_FOR.max(longest_gap * 3) {
                 return true;
             }
         } else {
+            longest_gap = longest_gap.max(last_change.elapsed());
+            last_change = Instant::now();
             last = current;
             unchanged_since = Instant::now();
         }
@@ -729,6 +749,85 @@ fn report_ready(state: &WovenState, config: &UpConfig, total_docs: usize, failed
         }
     }
     eprintln!("  edit any output file and the change lands in its document. Ctrl-C to stop.");
+}
+
+#[cfg(test)]
+mod settle_tests {
+    use super::{BATCH_SETTLE_STABLE_FOR, settle_batch};
+    use std::collections::HashSet;
+    use std::io::Write as _;
+    use std::path::PathBuf;
+    use std::time::Duration;
+
+    /// A writer that stutters: several chunks close together, then one late.
+    ///
+    /// This is the shape that defeated the fixed window, and it is not exotic
+    /// — a 200ms cadence stalling to 400ms once is routine on a loaded
+    /// machine. The old 300ms window declared the file finished during that
+    /// one late gap and a half-written save reached the document. The window
+    /// now waits twice the longest gap the writer has actually shown, so the
+    /// writer sets the patience rather than a constant guessing at it.
+    ///
+    /// The first gap has to be short enough to be OBSERVED: nothing can know a
+    /// writer is mid-stream before seeing it write once, which is why the
+    /// batch exists at all — an event is what put the file here.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_writer_that_stutters_is_still_waited_for() {
+        let dir = tempfile::tempdir().expect("a temp dir");
+        let path = dir.path().join("dribbled.txt");
+        std::fs::write(&path, b"first-chunk-----").expect("create");
+
+        // Under the window, under the window, then well over it.
+        let gaps = [
+            BATCH_SETTLE_STABLE_FOR / 2,
+            BATCH_SETTLE_STABLE_FOR / 2,
+            BATCH_SETTLE_STABLE_FOR + Duration::from_millis(100),
+        ];
+        let expected = (gaps.len() as u64 + 1) * 16;
+        let writer = {
+            let path = path.clone();
+            std::thread::spawn(move || {
+                let mut file = std::fs::OpenOptions::new()
+                    .append(true)
+                    .open(&path)
+                    .expect("open");
+                for gap in gaps {
+                    std::thread::sleep(gap);
+                    file.write_all(b"0123456789abcdef").expect("write");
+                    file.flush().expect("flush");
+                }
+            })
+        };
+
+        let batch: HashSet<PathBuf> = [path.clone()].into_iter().collect();
+        while !settle_batch(&batch).await {}
+        let settled_len = std::fs::metadata(&path).expect("stat").len();
+
+        writer.join().expect("the writer finished");
+        assert_eq!(
+            settled_len, expected,
+            "settled while the file was still being written: saw {settled_len} \
+             of {expected} bytes"
+        );
+    }
+
+    /// The common case must not pay for the uncommon one: a file nobody is
+    /// touching still settles in about the fixed window.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_file_nobody_is_writing_settles_promptly() {
+        let dir = tempfile::tempdir().expect("a temp dir");
+        let path = dir.path().join("quiet.txt");
+        std::fs::write(&path, b"done").expect("create");
+        let batch: HashSet<PathBuf> = [path].into_iter().collect();
+
+        let start = std::time::Instant::now();
+        while !settle_batch(&batch).await {}
+        assert!(
+            start.elapsed() < BATCH_SETTLE_STABLE_FOR * 3,
+            "a quiet file took {:?} to settle",
+            start.elapsed()
+        );
+    }
 }
 
 #[cfg(test)]
