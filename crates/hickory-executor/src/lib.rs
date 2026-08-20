@@ -130,6 +130,168 @@ pub struct ExecOptions {
     pub timeout: Option<Duration>,
 }
 
+/// The failure returned when a command exceeded [`ExecOptions::timeout`] and
+/// was killed.
+///
+/// A typed error rather than a string, because two callers have to tell "the
+/// limit fired" apart from "the command failed", and one of them is not a
+/// human: the agent turns a timeout into an observation that says the script
+/// was killed, and matching on the wording of a message to do that is a bug
+/// waiting for the wording to change. The [`Display`](std::fmt::Display) text
+/// is the user-facing message and is what `anyhow` prints unchanged.
+#[derive(Debug, Clone)]
+pub struct ExecTimedOut {
+    /// Container the command was running in.
+    pub container: String,
+    /// The limit that was exceeded.
+    pub limit: Duration,
+    /// The full user-facing message, next steps included.
+    message: String,
+}
+
+impl std::fmt::Display for ExecTimedOut {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for ExecTimedOut {}
+
+// ---------------------------------------------------------------------------
+// Script platform
+// ---------------------------------------------------------------------------
+
+/// The command language of the container a script will be written into and
+/// run by.
+///
+/// This exists because "what shell is there" is a property of the **executor**,
+/// not of the machine the process is running on. `LocalExecutor` runs a cell
+/// through `cmd.exe /C` on Windows on purpose (see [`LocalExecutor::shell`]),
+/// while the Docker and Canopy executors run it inside a Linux container even
+/// when the host is Windows. Anything that composes a script — the agent, the
+/// session replay — has to ask the executor rather than ask `cfg!(windows)`,
+/// or it is right on one of those two and wrong on the other.
+///
+/// Every form below was measured against a real `cmd.exe` on Windows 11
+/// (2026-08-20) rather than assumed; the specific traps are named at each
+/// method.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ScriptPlatform {
+    /// A POSIX shell (`sh`) and `python3`.
+    Posix,
+    /// Windows `cmd.exe` and `python`.
+    WindowsCmd,
+}
+
+impl ScriptPlatform {
+    /// The platform of the machine this process is running on.
+    pub const fn host() -> Self {
+        if cfg!(windows) {
+            ScriptPlatform::WindowsCmd
+        } else {
+            ScriptPlatform::Posix
+        }
+    }
+
+    /// Extension for a shell script file.
+    ///
+    /// `.cmd` rather than `.bat` on Windows: both are batch files, and `.cmd`
+    /// is the one whose `errorlevel` handling has not been kept
+    /// backwards-compatible with COMMAND.COM.
+    pub fn shell_script_extension(&self) -> &'static str {
+        match self {
+            ScriptPlatform::Posix => "sh",
+            ScriptPlatform::WindowsCmd => "cmd",
+        }
+    }
+
+    /// Text prepended to a shell script before it is written.
+    ///
+    /// `@echo off` is not decoration. A batch file runs with command echo ON,
+    /// so `cmd.exe` prints every line of the script to stdout before running
+    /// it — the captured output of a five-line script would be the script
+    /// itself interleaved with its results, and anything comparing that output
+    /// to an expectation (or handing it to a model as an observation) reads
+    /// our own file back. `sh` echoes nothing, so POSIX needs no preamble.
+    pub fn shell_script_preamble(&self) -> &'static str {
+        match self {
+            ScriptPlatform::Posix => "",
+            ScriptPlatform::WindowsCmd => "@echo off\r\n",
+        }
+    }
+
+    /// The command that runs a shell script at `script_path`.
+    ///
+    /// On Windows the batch file is named on its own: the command is already
+    /// being handed to `cmd.exe /C`, and a batch file is something cmd runs
+    /// directly, propagating its last `errorlevel`. There is no `sh` to invoke
+    /// and no reason to invent one.
+    pub fn shell_script_command(&self, script_path: &str) -> String {
+        match self {
+            ScriptPlatform::Posix => format!("sh {script_path}"),
+            ScriptPlatform::WindowsCmd => script_path.to_string(),
+        }
+    }
+
+    /// The command that runs a Python script at `script_path`.
+    ///
+    /// `python3` does not exist on a stock Windows install — python.org's
+    /// installer puts `python.exe` on PATH, and the name `python3` there is
+    /// usually the Microsoft Store app-execution alias, which opens the Store
+    /// instead of running anything.
+    pub fn python_script_command(&self, script_path: &str) -> String {
+        match self {
+            ScriptPlatform::Posix => format!("python3 {script_path}"),
+            ScriptPlatform::WindowsCmd => format!("python {script_path}"),
+        }
+    }
+
+    /// Join a directory and a file name with this platform's separator.
+    ///
+    /// Backslashes on Windows, and not for tidiness: a forward slash works for
+    /// redirection but `cmd` reads a leading `/` as the start of a switch, so
+    /// `.hickory-agent/action-0.cmd` is not a path it will run.
+    pub fn join_path(&self, dir: &str, file: &str) -> String {
+        match self {
+            ScriptPlatform::Posix => format!("{dir}/{file}"),
+            ScriptPlatform::WindowsCmd => format!("{dir}\\{file}"),
+        }
+    }
+
+    /// One line naming this shell, for a prompt or an error.
+    pub fn describe(&self) -> &'static str {
+        match self {
+            ScriptPlatform::Posix => "POSIX sh",
+            ScriptPlatform::WindowsCmd => "Windows cmd.exe",
+        }
+    }
+}
+
+/// The host's shell, ready to run `command`, as a plain `std` command.
+///
+/// One place knows how a command line reaches a shell on this machine, because
+/// getting it wrong is invisible: on Windows `Command::arg` quotes what it is
+/// given for `CommandLineToArgvW`, and `cmd.exe /C` wants the rest of the line
+/// as text, so an argument that already carries quotes arrives re-escaped and
+/// cmd reports a command nobody wrote. [`LocalExecutor`] builds its async
+/// command from this, and so does anything outside the executor that has to
+/// run a line of a user's shell (the token-economics harness's check command).
+pub fn host_shell_command(command: &str) -> std::process::Command {
+    let (shell, flag) = LocalExecutor::shell();
+    let mut cmd = std::process::Command::new(shell);
+    cmd.arg(flag);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt as _;
+        cmd.raw_arg(command);
+    }
+    #[cfg(not(windows))]
+    {
+        cmd.arg(command);
+    }
+    cmd
+}
+
 // ---------------------------------------------------------------------------
 // The Executor trait
 // ---------------------------------------------------------------------------
@@ -234,6 +396,42 @@ pub trait Executor: Send + Sync {
             Some(data) => self.execute_with_stdin(container, command, data).await,
             None => self.execute(container, command).await,
         }
+    }
+
+    /// The command language of this executor's containers.
+    ///
+    /// Default [`ScriptPlatform::Posix`]: a container is Linux unless the
+    /// executor says otherwise, which is true of Docker and Canopy on every
+    /// host. `LocalExecutor` — whose "container" is the host — overrides it.
+    fn script_platform(&self) -> ScriptPlatform {
+        ScriptPlatform::Posix
+    }
+
+    /// Write `contents` to `path` (relative to the container workdir),
+    /// creating parent directories.
+    ///
+    /// This is on the trait because writing a file is not a shell operation
+    /// and should never have been composed as one. The agent used to write
+    /// its scripts with `mkdir -p … && cat > …` piped through
+    /// [`Executor::execute_with_stdin`], which is POSIX text handed to
+    /// whatever shell the executor resolves to — on Windows, `cmd.exe`, where
+    /// `mkdir -p` creates a directory called `-p` and `cat` is not a command.
+    /// An executor that can put bytes in a file needs no shell at all to do
+    /// it, and one dialect fewer is one fewer to keep correct.
+    ///
+    /// The default implementation is the POSIX composition, for the executors
+    /// whose containers really are Linux; it is the only place that text now
+    /// exists. Any executor whose [`Executor::script_platform`] is not
+    /// [`ScriptPlatform::Posix`] MUST override this.
+    ///
+    /// This is plumbing and does not belong in a woven document, so an
+    /// override should record nothing — the default records only because
+    /// piping through `execute_with_stdin` is the only tool it has.
+    async fn write_file(&self, container: &str, path: &str, contents: &str) -> Result<()> {
+        let dir = path.rsplit_once('/').map(|(dir, _)| dir).unwrap_or(".");
+        self.execute_with_stdin(container, &format!("mkdir -p {dir} && cat > {path}"), contents)
+            .await?;
+        Ok(())
     }
 
     /// Register `target` as a fork of `from`. Must be called before `target`
@@ -565,60 +763,43 @@ impl LocalExecutor {
         }
     }
 
-    /// The platform shell, ready to run `command`.
+    /// The platform shell in `workdir`, ready to run `command`.
     ///
-    /// The Windows half is why this exists. `cmd.exe /C` takes the rest of the
-    /// command line **as text**, but `Command::arg` quotes what it is given for
-    /// `CommandLineToArgvW` — so a command that already carries quotes gets
-    /// them escaped again, and `"C:\path\hick.exe" __sandbox-run …` reaches cmd
-    /// as `\"C:\path\hick.exe\" …`, which it reports as
-    /// `'\"C:\path\hick.exe\"' is not recognized as an internal or external
-    /// command`. Every confined cell failed that way — the sandbox could not
-    /// launch anything at all, which is worse than not confining, because the
-    /// document simply does not run.
-    ///
-    /// `raw_arg` hands the string over untouched, which is what a shell taking
-    /// a command line needs. `sh -c` already works that way, so only Windows
-    /// changes.
+    /// The command line itself is composed by [`host_shell_command`], which is
+    /// where the Windows quoting rule lives; this only adds the working
+    /// directory and converts to the async command type.
     fn shell_command(command: &str, workdir: &std::path::Path) -> tokio::process::Command {
-        let (shell, shell_flag) = Self::shell();
-        let mut cmd = tokio::process::Command::new(shell);
-        cmd.arg(shell_flag);
-        #[cfg(windows)]
-        {
-            use std::os::windows::process::CommandExt as _;
-            // Handed over untouched. This once wrapped the line in another
-            // pair of quotes, to survive cmd's documented habit of stripping
-            // the leading quote and the last one — but that was for the
-            // CONFINED line, which quoted a launcher, a workdir and a command
-            // and so arrived with six. Confined commands are an argv now and
-            // never come through here, so the only thing left is a cell's own
-            // shell text, which the author wrote to be handed to a shell as
-            // it stands.
-            //
-            // Wrapping it was actively wrong, measured on Windows 11: a cell
-            // reading `echo one` produced NO output and no error, and a run
-            // whose only cell was `exit 1` reported success. A tool that runs
-            // nothing and says it worked is worse than one that fails.
-            cmd.as_std_mut().raw_arg(command);
-        }
-        #[cfg(not(windows))]
-        {
-            cmd.arg(command);
-        }
+        let mut cmd = tokio::process::Command::from(host_shell_command(command));
         cmd.current_dir(workdir);
         cmd
     }
 
-    /// Kill a spawned command hard, group and all where the platform allows.
+    /// Kill a spawned command hard, and its children with it.
     ///
     /// On Unix the child was spawned as the leader of its own process group
     /// (`process_group(0)`), so `SIGKILL` to `-pid` takes down the shell AND
     /// everything it spawned — a cell's background children do not outlive
-    /// the cell. On Windows only the direct child (`cmd.exe`) is killed;
-    /// grandchildren it spawned may survive. `kill_on_drop(true)` on the
-    /// spawn is the additional guarantee that a cancelled future never
-    /// leaves the direct child running.
+    /// the cell.
+    ///
+    /// Windows has no process groups to signal, and killing the direct child
+    /// alone is not enough: `cmd.exe /C script.cmd` is a shell that spawns the
+    /// programs in the script, so a timeout that kills only cmd leaves the
+    /// `python` (or the `ping`, or the compiler) it started running with no
+    /// parent, still holding the workdir the run is about to be judged on.
+    /// `taskkill /T /F` walks the parent-pid tree from the child down and
+    /// kills all of it, which is the same promise the process-group signal
+    /// makes on Unix. It ships in `System32` on every Windows edition this
+    /// product targets; if it is somehow missing, the direct child is still
+    /// killed below and the cell still fails — one dead process short of the
+    /// guarantee, not a hang.
+    ///
+    /// It has to run BEFORE `start_kill`: `taskkill` resolves the tree by
+    /// asking the OS who the parents are, and once cmd.exe is dead its
+    /// children have been reparented and are no longer reachable from this
+    /// pid.
+    ///
+    /// `kill_on_drop(true)` on the spawn is the additional guarantee that a
+    /// cancelled future never leaves the direct child running.
     async fn kill_hard(child: &mut tokio::process::Child, pid: Option<u32>) {
         #[cfg(unix)]
         if let Some(pid) = pid {
@@ -627,7 +808,17 @@ impl LocalExecutor {
                 libc::kill(-(pid as i32), libc::SIGKILL);
             }
         }
-        #[cfg(not(unix))]
+        #[cfg(windows)]
+        if let Some(pid) = pid {
+            let _ = tokio::process::Command::new("taskkill")
+                .args(["/T", "/F", "/PID", &pid.to_string()])
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .status()
+                .await;
+        }
+        #[cfg(not(any(unix, windows)))]
         let _ = pid;
         let _ = child.start_kill();
         // Reap, so the kill is observed and no zombie is left behind.
@@ -823,17 +1014,21 @@ impl LocalExecutor {
             }
             // `display`, not `command`, for the same reason as the failure
             // path below: the reader wrote the cell, not the sandbox wrapper.
-            bail!(
-                "cell timed out in container '{container}' after {limit:?}: {}\n  \
-                 The command exceeded the per-cell time limit and was killed. A cell \
-                 that waits for input it will never get — reading stdin interactively, \
-                 listening on a socket — hits this limit no matter how high it is set.\n  \
-                 Next steps: raise the limit for this one cell with timeout=\"<seconds>\" \
-                 on its <hick:exec> tag, or declare timeout=\"0\" to let it run \
-                 unbounded; set HICKORY_CELL_TIMEOUT=<seconds> to change the default \
-                 for every cell (default: 120 seconds).",
-                display.trim().lines().next().unwrap_or("?")
-            );
+            return Err(anyhow::Error::new(ExecTimedOut {
+                container: container.to_string(),
+                limit,
+                message: format!(
+                    "cell timed out in container '{container}' after {limit:?}: {}\n  \
+                     The command exceeded the per-cell time limit and was killed. A cell \
+                     that waits for input it will never get — reading stdin interactively, \
+                     listening on a socket — hits this limit no matter how high it is set.\n  \
+                     Next steps: raise the limit for this one cell with timeout=\"<seconds>\" \
+                     on its <hick:exec> tag, or declare timeout=\"0\" to let it run \
+                     unbounded; set HICKORY_CELL_TIMEOUT=<seconds> to change the default \
+                     for every cell (default: 120 seconds).",
+                    display.trim().lines().next().unwrap_or("?")
+                ),
+            }));
         };
         let (((out_buf, out_evs), (err_buf, err_evs)), status) = completed?;
         let code = status.code().unwrap_or(-1);
@@ -987,6 +1182,43 @@ impl Executor for LocalExecutor {
     ) -> Result<String> {
         self.run_command(container, command, stdin_data, options)
             .await
+    }
+
+    /// The host's, because this executor's "container" is the host: the same
+    /// answer [`LocalExecutor::shell`] gives, in the form a script writer
+    /// needs.
+    fn script_platform(&self) -> ScriptPlatform {
+        ScriptPlatform::host()
+    }
+
+    /// A plain filesystem write, with no shell anywhere near it — the whole
+    /// reason this method is on the trait.
+    ///
+    /// `path` is relative to the container workdir and may not climb out of
+    /// it. A caller that hands over `../../etc/hosts` gets an error rather
+    /// than a write: containers are the only boundary this executor has, and
+    /// a helper that quietly writes outside one would remove it.
+    async fn write_file(&self, container: &str, path: &str, contents: &str) -> Result<()> {
+        let workdir = self.workdir_for(container)?;
+        let relative = std::path::Path::new(path);
+        if relative.is_absolute()
+            || relative
+                .components()
+                .any(|c| matches!(c, std::path::Component::ParentDir))
+        {
+            bail!(
+                "refusing to write '{path}' in container '{container}': a script path must be \
+                 relative to the container workdir and must not contain '..'"
+            );
+        }
+        let target = workdir.join(relative);
+        if let Some(parent) = target.parent() {
+            std::fs::create_dir_all(parent)
+                .with_context(|| format!("creating {} in container '{container}'", parent.display()))?;
+        }
+        std::fs::write(&target, contents)
+            .with_context(|| format!("writing {} in container '{container}'", target.display()))?;
+        Ok(())
     }
 
     async fn register_fork(
