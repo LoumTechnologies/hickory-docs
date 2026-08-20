@@ -27,6 +27,9 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
+mod common;
+use common::sleeps_then_echoes;
+
 fn hick() -> Command {
     Command::new(env!("CARGO_BIN_EXE_hick"))
 }
@@ -50,7 +53,17 @@ def describe():
 "#;
 
 /// A document with a cell slow enough that an edit can land mid-run.
-const SLOW_DOC: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
+///
+/// The cell's slowness is the entire fixture: the test below types into the
+/// output while the run is in flight, and a cell that finishes instantly means
+/// there is no run to type during — every assertion then holds for a document
+/// that was never busy. `sleep` is not a cmd builtin, so on Windows this cell
+/// used to fail immediately and the race the test exists for was never
+/// created. `sleeps_then_echoes` spells the same two seconds in whichever
+/// shell the cell is actually handed to.
+fn slow_doc() -> String {
+    format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
 <hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="slow.md">
 # Slow
 
@@ -61,10 +74,13 @@ MARKER = "start"
 </hick:file>
 
 <hick:exec container="sh">
-sleep 2 && echo settled
+{}
 </hick:exec>
 </hick:doc>
-"#;
+"#,
+        sleeps_then_echoes(2, "settled")
+    )
+}
 
 struct Loop {
     child: Child,
@@ -302,7 +318,7 @@ fn marker_of(text: &str) -> Option<String> {
 /// error, which is the worst way to lose work.
 #[test]
 fn an_edit_during_a_run_is_not_lost() {
-    let up = Loop::start("slow.hick", SLOW_DOC, true);
+    let up = Loop::start("slow.hick", &slow_doc(), true);
     let output = up.path("slow.py");
     let doc = up.path("slow.hick");
     settle(&output, |c| c.contains("start")).expect("initial weave");

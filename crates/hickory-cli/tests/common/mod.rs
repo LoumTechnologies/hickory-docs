@@ -41,3 +41,41 @@ pub fn sleeps_then_echoes(seconds: u32, text: &str) -> String {
         format!("sleep {seconds}; echo {text}")
     }
 }
+
+/// A cell that prints `lines`, one per line.
+///
+/// `printf 'one\ntwo\n'` is not a cmd builtin, and the separator is the other
+/// half of the problem: cmd sequences with `&`, which in `sh` would put the
+/// first command in the background instead. So the separator is per-shell too,
+/// not just the command.
+///
+/// The bytes differ by a line ending — cmd's `echo` always writes CRLF — so
+/// anything asserting on this output compares `contains` or trimmed content.
+/// What these tests mean by it is which lines arrived, not how they end. An
+/// expectation pinned with `match="exact"` cannot be written this way at all;
+/// see issue #18.
+pub fn echo_lines(lines: &[&str]) -> String {
+    let separator = if cfg!(windows) { "& " } else { "; " };
+    lines
+        .iter()
+        .map(|line| format!("echo {line}"))
+        .collect::<Vec<_>>()
+        .join(separator)
+}
+
+/// A cell whose output is different every single time it runs.
+///
+/// `date +%s%N` is a GNU-coreutils spelling twice over: `date` in cmd is a
+/// builtin that tries to *set* the clock, and given an argument it fails —
+/// deterministically, with the same message every run. A test that needs a
+/// volatile output would then be handed a perfectly stable one and would pass
+/// while proving nothing. `%TIME%` is re-expanded by cmd on every run and
+/// carries centiseconds; `%RANDOM%` is there so two runs inside the same
+/// centisecond still differ.
+pub fn changes_every_run() -> String {
+    if cfg!(windows) {
+        "echo %TIME% %RANDOM%".to_string()
+    } else {
+        "date +%s%N".to_string()
+    }
+}

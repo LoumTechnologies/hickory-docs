@@ -44,3 +44,8 @@ Last LLM verification:
   `the_root_volatile_attribute_is_actually_parsed` pins the parse path and
   asserts `find_tags("doc")` is empty so the silent-miss cannot return.
   Driven for real against `docs/analysis/claude-code-corpus.hick`.
+  The cell whose output "changes every run" is written per shell
+  (`tests/common/mod.rs::changes_every_run`): `date +%s%N` is coreutils, and
+  cmd's `date` builtin fails with the *same* message every time, which would
+  have handed the test a perfectly stable document and let the exemption pass
+  untested.

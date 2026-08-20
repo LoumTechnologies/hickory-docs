@@ -29,7 +29,13 @@ Last LLM verification:
   the client receives (`hick_term::screen::Screen`), so asserting on that
   model is asserting on what an emulator would draw from those bytes.
 - Test coverage: `crates/hick-term/tests/full_screen_apps.rs` runs the real
-  programs, skipping any that are not installed:
+  programs, skipping any that are not installed — and *saying so*, which it
+  did not until 2026-08-20. The probe was `sh -c "command -v x"`, which does
+  not spawn at all on a machine without `sh`; `unwrap_or(false)` read that as
+  "not installed", so on Windows all four tests returned before their first
+  assertion and printed nothing. That is a green suite covering nothing. The
+  probe now walks `PATH` directly (honouring `PATHEXT`) and every skip names
+  the program it wanted:
   - **vim** draws the file, stays on the alternate screen, redraws after a
     resize, and restores the normal screen on `:q!`;
   - **htop** paints its meters full-screen;

@@ -32,6 +32,19 @@
 //! What is NOT conditional is that at least one language must work — a
 //! machine with no language server at all fails the last test in this file,
 //! because that is a broken environment rather than a passing suite.
+//!
+//! ## Windows
+//!
+//! The discovery tests and the two sandbox tests run there and mean the same
+//! thing; `every_installed_language_answers_in_document_coordinates` does not,
+//! and the reason is a product one rather than a test one:
+//! `hick_lsp::backend` writes every virtual file under a hardcoded
+//! `file:///tmp/hick-lsp-vfiles/…`, and `Url::to_file_path` refuses a path with
+//! no drive letter on Windows — so nothing is written, and a child server is
+//! asked about files that do not exist. Until that is fixed, a Windows job
+//! should run this file with
+//! `--skip every_installed_language_answers_in_document_coordinates`, and
+//! removing that skip is how the fix gets proven.
 
 use std::io::{BufRead as _, BufReader, Read as _, Write as _};
 use std::path::{Path, PathBuf};
@@ -303,6 +316,36 @@ fn skip(language: &str, why: &str) {
     eprintln!("SKIPPED {language}: {why}");
 }
 
+/// The same intent, in the shell a cell actually gets on this platform.
+///
+/// Cells run through `sh -c` on Unix and `cmd.exe /C` on Windows, so a cell
+/// written in POSIX syntax proves nothing about the sandbox on Windows — and
+/// worse, an escape attempt made with a tool cmd does not have fails whatever
+/// the sandbox does, which is a green result for a run in which nothing was
+/// confined. See `crates/hickory-executor-sandbox/tests/confinement.rs`, whose
+/// Windows forms these match.
+fn per_shell(unix: &str, windows: &str) -> String {
+    if cfg!(windows) {
+        windows.to_string()
+    } else {
+        unix.to_string()
+    }
+}
+
+/// Somewhere outside any cell's workdir that an ordinary user CAN write, so a
+/// cell that reaches it really did escape.
+///
+/// Not a system directory on Windows: a write to one fails for lack of
+/// Administrator rather than for lack of permission to leave the sandbox, and
+/// the test would pass on an unconfined machine.
+fn escape_target() -> std::path::PathBuf {
+    if cfg!(windows) {
+        std::path::PathBuf::from(r"C:\Users\Public\hickory-escaped-from-a-document.txt")
+    } else {
+        std::path::PathBuf::from("/etc/hickory-escaped")
+    }
+}
+
 /// Open the document and ask the questions an editor asks.
 ///
 /// Returns false when the language's server is not installed here.
@@ -562,23 +605,48 @@ fn a_document_runs_confined_through_the_real_binary() {
     };
 
     let dir = tempfile::tempdir().unwrap();
+    let outside = escape_target();
+    let _ = std::fs::remove_file(&outside);
     // The cell does two things: something ordinary that must work, and an
     // escape that must not. Both in one run, so a sandbox that blocked
     // everything would fail the first half rather than look like a pass.
+    //
+    // The escape is asserted on the HOST FILESYSTEM rather than on a word in
+    // the woven page. The word used to be assembled by `tr` so that a
+    // transcript — which contains the command as well as its output — could
+    // not be read back as its own evidence; `tr` does not exist on Windows,
+    // which would have made that assertion vacuous exactly where the sandbox
+    // is newest. Whether the file arrived is the guarantee itself, and it
+    // cannot be faked by a cell that never ran.
     //
     // `>` and `&&` are written literally, not as XML entities: hick's parser
     // never unescapes, so an entity would reach the shell as the characters
     // `&amp;&amp;` and the cell would be a syntax error. (hick's own linter
     // says so, which is how this comment came to exist.)
-    let doc = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
+    //
+    // The escape swallows its own failure (`|| true`, `|| rem`) because a
+    // non-zero cell would fail the run for the right reason and the wrong
+    // assertion — what is being read is the file, not the exit code.
+    let cell = per_shell(
+        &format!(
+            "echo mine > note.txt && cat note.txt\ntouch {} 2>/dev/null || true",
+            outside.display()
+        ),
+        &format!(
+            "echo mine>note.txt && type note.txt & echo x> \"{}\" 2>nul || rem",
+            outside.display()
+        ),
+    );
+    let doc = format!(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
         <hick:doc xmlns:hick=\"http://www.hickorydocs.com/1.0\" weave=\"out.md\">\n\
         # Confined\n\n\
         <hick:container name=\"c\" image=\"python:3.12\" />\n\
         <hick:exec container=\"c\">\n\
-        echo mine > note.txt && cat note.txt\n\
-        touch /etc/hickory-escaped 2>/dev/null && echo EscAPED | tr a-z A-Z || echo ConFINED | tr a-z A-Z\n\
+        {cell}\n\
         </hick:exec>\n\
-        </hick:doc>\n";
+        </hick:doc>\n"
+    );
     let path = dir.path().join("confined.hick");
     std::fs::write(&path, doc).unwrap();
 
@@ -604,17 +672,10 @@ fn a_document_runs_confined_through_the_real_binary() {
         woven.contains("mine"),
         "the cell's ordinary work did not happen: {woven}"
     );
-    // The words are assembled by `tr` rather than written outright because a
-    // transcript contains the COMMAND as well as its output — a cell that
-    // echoed "ESCAPED" would put that word in the document whether or not it
-    // ever ran, and the assertion would be reading its own fixture back.
     assert!(
-        woven.contains("CONFINED") && !woven.contains("ESCAPED"),
-        "the cell escaped its sandbox: {woven}"
-    );
-    assert!(
-        !Path::new("/etc/hickory-escaped").exists(),
-        "a cell created a file in /etc"
+        !outside.exists(),
+        "a cell wrote {} — it escaped its sandbox",
+        outside.display()
     );
     // And the woven document is about the user's work, not ours.
     assert!(
@@ -697,14 +758,25 @@ fn a_cell_is_confined_unless_someone_says_otherwise() {
     let dir = tempfile::tempdir().unwrap();
     // `id -u` would be identical either way; what differs is reach. A cell
     // that can see the user's home directory listing is not confined.
-    let doc = "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
+    //
+    // `find /c /v ""` is cmd's line count, and `dir /a /b` its listing; a
+    // denied read leaves `dir` with nothing on stdout, so the count is the
+    // same question on both platforms — how much of the user's home did this
+    // cell get to see.
+    let cell = per_shell(
+        "ls -a \"$HOME\" | wc -l",
+        "dir /a /b \"%USERPROFILE%\" | find /c /v \"\"",
+    );
+    let doc = format!(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
         <hick:doc xmlns:hick=\"http://www.hickorydocs.com/1.0\" weave=\"out.md\">\n\
         # Default\n\n\
         <hick:container name=\"c\" image=\"python:3.12\" />\n\
         <hick:exec container=\"c\">\n\
-        ls -a \"$HOME\" | wc -l\n\
+        {cell}\n\
         </hick:exec>\n\
-        </hick:doc>\n";
+        </hick:doc>\n"
+    );
     std::fs::write(dir.path().join("d.hick"), doc).unwrap();
 
     let run = |executor: Option<&str>| {

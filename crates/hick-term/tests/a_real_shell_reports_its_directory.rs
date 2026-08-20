@@ -15,6 +15,14 @@
 //!   PTY rather than through a byte fixture; and
 //! - the shell that does not is reported as not-live rather than guessed at,
 //!   which is the property a reader of the folder tree depends on.
+//!
+//! **Windows is entirely the second case, by design.** `Integration::install`
+//! recognises zsh and bash and nothing else, so `cmd.exe` is handed no hook,
+//! never emits OSC 7, and every session there reports the directory it was
+//! told to start in with `cwd_is_live` false. The tests that drive a zsh hook
+//! skip there — loudly, naming the shell they wanted — and the two that assert
+//! the honest fallback run on both platforms, because that fallback is the
+//! whole of the Windows behaviour rather than an edge of it.
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -31,6 +39,32 @@ fn zsh_path() -> Option<&'static str> {
     ["/bin/zsh", "/usr/bin/zsh", "/opt/homebrew/bin/zsh"]
         .into_iter()
         .find(|path| shell_at(path))
+}
+
+/// A shell that emits no OSC 7 and is not going to be taught to.
+///
+/// `/bin/sh` qualifies because `shell_integration` deliberately refuses to
+/// guess what a shell invoked as `sh` reads at startup. `cmd.exe` qualifies
+/// because there is no hook for it at all — which makes it the Windows case
+/// this test is about, not a stand-in for one.
+fn silent_shell() -> Option<&'static str> {
+    if cfg!(windows) {
+        Some("cmd.exe")
+    } else {
+        shell_at("/bin/sh").then_some("/bin/sh")
+    }
+}
+
+/// `cd` to somewhere that exists on this platform, entered as a user would.
+///
+/// CR, not LF: Enter is a carriage return, a Windows console reads a line when
+/// it sees one, and a Unix tty translates it to the newline the shell wants.
+fn cd_elsewhere() -> &'static [u8] {
+    if cfg!(windows) {
+        b"cd C:\\Windows\r"
+    } else {
+        b"cd /usr/share\r"
+    }
 }
 
 fn open(terminals: &Terminals, dir: &std::path::Path, argv: &[&str]) -> Arc<Session> {
@@ -125,20 +159,25 @@ fn a_shell_that_emits_osc_7_moves_the_session() {
 /// is the whole reason a reader is not misled by it.
 #[test]
 fn a_silent_shell_stays_where_it_started_and_admits_it() {
-    if !shell_at("/bin/sh") {
+    let Some(shell) = silent_shell() else {
         eprintln!("no /bin/sh — skipped");
         return;
-    }
+    };
     let start = tempfile::tempdir().unwrap();
     // Not canonicalised: the fallback is the directory the session was *told* to
     // start in, verbatim, which is the honest thing for it to report.
     let started_in = start.path().to_path_buf();
 
     let terminals = Terminals::new(TermConfig::default());
-    let session = open(&terminals, start.path(), &["/bin/sh", "-i"]);
+    let argv: Vec<&str> = if cfg!(windows) {
+        vec![shell]
+    } else {
+        vec![shell, "-i"]
+    };
+    let session = open(&terminals, start.path(), &argv);
 
     // Somewhere real, and definitely not where it started.
-    session.write(b"cd /usr/share\n").unwrap();
+    session.write(cd_elsewhere()).unwrap();
     // Give it longer than it could possibly need, so this is "it never came"
     // rather than "we did not wait".
     let summary = wait_for(&session, Duration::from_secs(3), |s| s.cwd_is_live);
@@ -294,7 +333,19 @@ fn an_integrated_shell_reports_a_directory_that_needs_escaping() {
         .into_iter()
         .filter(|path| shell_at(path))
         .collect();
-    assert!(!shells.is_empty(), "no zsh or bash on this machine at all");
+    if shells.is_empty() {
+        // On Unix an empty list is a broken machine and must fail. On Windows
+        // it is the truth: there is no shell here we integrate with, so there
+        // is no percent-encoding to get wrong. The Windows half of the same
+        // question — an awkward directory survives the spawn and is reported
+        // verbatim — is asserted by the test below, which is the strongest
+        // claim available on a platform with no hook.
+        if cfg!(windows) {
+            eprintln!("SKIPPED: nothing on this platform emits OSC 7 to get wrong");
+            return;
+        }
+        panic!("no zsh or bash on this machine at all");
+    }
 
     for shell in shells {
         let start = tempfile::tempdir().unwrap();
@@ -335,6 +386,46 @@ fn an_integrated_shell_reports_a_directory_that_needs_escaping() {
     }
 }
 
+/// Windows: an awkward directory survives the spawn, and the session says
+/// plainly that it is not following the shell.
+///
+/// There is no OSC 7 hook for `cmd.exe`, so the reported directory is the one
+/// the session was told to start in for the whole of its life. That makes two
+/// things worth asserting and nothing else: the path arrives intact through
+/// the ConPTY spawn even with a space and an accent in it, and `cwd_is_live`
+/// is false rather than a guess. A reader of the folder tree is entitled to
+/// know which of those two it is looking at.
+#[cfg(windows)]
+#[test]
+fn a_session_with_no_hook_reports_an_awkward_directory_verbatim_and_not_live() {
+    let elsewhere = tempfile::tempdir().unwrap();
+    let awkward = elsewhere.path().join("dir with café");
+    std::fs::create_dir(&awkward).unwrap();
+
+    let terminals = Terminals::new(TermConfig::default());
+    let session = terminals
+        .open(SessionSpec {
+            title: "shell".to_string(),
+            cwd: awkward.clone(),
+            argv: Vec::new(),
+            monitor: false,
+        })
+        .expect("the shell starts");
+
+    // Long enough that "it never came" is the finding, not "we did not wait".
+    let summary = wait_for(&session, Duration::from_secs(5), |s| s.cwd_is_live);
+    assert!(
+        !summary.cwd_is_live,
+        "nothing here emits OSC 7, so no session may be reported as live: {summary:?}"
+    );
+    assert_eq!(
+        std::path::Path::new(&summary.cwd),
+        awkward.as_path(),
+        "the directory the session was started in came back changed"
+    );
+    session.kill().ok();
+}
+
 /// The opt-out actually opts out.
 #[test]
 fn integration_can_be_turned_off() {
@@ -357,7 +448,7 @@ fn integration_can_be_turned_off() {
         })
         .expect("the shell starts");
 
-    session.write(b"cd /usr/share\n").unwrap();
+    session.write(cd_elsewhere()).unwrap();
     let summary = wait_for(&session, Duration::from_secs(3), |s| s.cwd_is_live);
     assert!(
         !summary.cwd_is_live,

@@ -86,7 +86,12 @@ Last LLM verification:
   truncate-and-dribble save, and ten documents edited at once. Its assertions
   are convergence properties polled to a deadline rather than timings — with one
   exception, corrected 2026-08-19 and described below, where the test was
-  arithmetic-dependent and did flake on a loaded runner.
+  arithmetic-dependent and did flake on a loaded runner. The "two-second cell"
+  is written per shell (`tests/common/mod.rs::sleeps_then_echoes`): `sleep` is
+  not a cmd builtin, so on Windows that cell died instantly, there was no run
+  in flight to type during, and every assertion in
+  `an_edit_during_a_run_is_not_lost` passed without the race it exists for
+  ever being created.
   `crates/hickory-cli/tests/up_loop.rs` —
   `an_edit_saved_in_a_woven_file_lands_in_the_document` drives the real binary
   and saves the way an editor does (write sibling, rename over target);

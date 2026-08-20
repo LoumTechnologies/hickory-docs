@@ -12,10 +12,18 @@ use std::path::Path;
 
 use hickory_cli::{CheckFailure, ExecutorChoice, RunMode, check_failures, run_doc, write_outputs};
 
-/// A document whose exec output changes on every run (a counter file in the
-/// document's own directory), weaving a volatile report and tangling a
-/// reproducible script.
-const DOC: &str = r##"<?xml version="1.0" encoding="UTF-8"?>
+mod common;
+use common::changes_every_run;
+
+/// A document whose exec output changes on every run, weaving a volatile
+/// report and tangling a reproducible script.
+///
+/// The cell has to genuinely differ run to run or this document is not
+/// volatile at all and the exemption below is never exercised — see
+/// `changes_every_run`, which is why the body is per-shell.
+fn doc() -> String {
+    format!(
+        r##"<?xml version="1.0" encoding="UTF-8"?>
 <hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="report.md" volatile="true">
 # Report over changing data
 
@@ -30,10 +38,13 @@ print("stable")
 </hick:file>
 
 <hick:exec container="c">
-date +%s%N
+{}
 </hick:exec>
 </hick:doc>
-"##;
+"##,
+        changes_every_run()
+    )
+}
 
 async fn run_and_check(dir: &Path) -> Vec<CheckFailure> {
     let doc_path = dir.join("doc.hick");
@@ -47,7 +58,7 @@ async fn run_and_check(dir: &Path) -> Vec<CheckFailure> {
 async fn a_volatile_report_does_not_drift_but_its_files_still_do() {
     let dir = tempfile::tempdir().unwrap();
     let doc_path = dir.path().join("doc.hick");
-    std::fs::write(&doc_path, DOC).unwrap();
+    std::fs::write(&doc_path, doc()).unwrap();
 
     // Commit the outputs, exactly as a first `hick run` would.
     let run = run_doc(&doc_path, &[], RunMode::Execute, ExecutorChoice::Local)
@@ -90,7 +101,7 @@ fn the_root_volatile_attribute_is_actually_parsed() {
     // The root `hick:doc` is the document, not one of its child nodes, so
     // `find_tags("doc")` matches nothing — the first implementation read the
     // flag that way and silently never found it. This pins the real path.
-    let doc = hick_lang::parse(DOC).expect("parse");
+    let doc = hick_lang::parse(&doc()).expect("parse");
     assert!(doc.volatile, "root volatile=\"true\" was not parsed");
     assert_eq!(doc.weave_path.as_deref(), Some("report.md"));
     assert!(
