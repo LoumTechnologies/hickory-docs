@@ -219,13 +219,21 @@ impl Executor for SandboxedExecutor {
         self.inner.ensure_started(container, image).await
     }
 
-    async fn probe(&self, container: &str, command: &str) -> Result<bool> {
+    async fn probe_program(&self, container: &str, bin: &str) -> Result<bool> {
         // Confined, like everything else. "Is duckdb installed?" and "can
-        // this cell see duckdb?" have different answers here — the cell's
-        // $HOME is a tmpfs with only toolchain directories bound back — and
-        // the second is the only one worth asking, since it is the one that
-        // decides whether the cell works.
-        let (program, args) = self.confine(container, command)?;
+        // this cell see duckdb?" have different answers here — under
+        // bubblewrap and Seatbelt the cell's $HOME is a tmpfs with only
+        // toolchain directories bound back, and under AppContainer the app
+        // package's own ACL decides — and the second question is the only one
+        // worth asking, since it is the one that decides whether the cell
+        // works. So this asks INSIDE the sandbox rather than resolving the
+        // name on the host the way `LocalExecutor` can.
+        let Some(command) = policy::probe_command(self.sandbox, bin) else {
+            // Nothing to ask with. Not blocking a document over a check that
+            // was never performed.
+            return Ok(true);
+        };
+        let (program, args) = self.confine(container, &command)?;
         self.inner.probe_argv(container, &program, &args).await
     }
 

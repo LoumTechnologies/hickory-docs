@@ -43,8 +43,10 @@ use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
 mod capture;
+mod program;
 
 pub use capture::{CapturedStream, normalize_captured_newlines};
+pub use program::{find_program, find_program_in};
 
 // ---------------------------------------------------------------------------
 // Transcript types
@@ -183,8 +185,19 @@ pub trait Executor: Send + Sync {
     /// The default is `true` — "assume it is present". An executor that
     /// cannot answer the question must not be able to block a document from
     /// running over a check it never performed.
-    async fn probe(&self, container: &str, command: &str) -> Result<bool> {
-        let _ = (container, command);
+    /// Is `bin` a program a cell in this container could run?
+    ///
+    /// A program NAME, not a shell command. Which shell a cell gets depends on
+    /// the executor and the platform — `sh` here, `cmd.exe` on Windows, `sh`
+    /// inside a Linux container on a Windows host — and the caller cannot know
+    /// which, so a probe phrased as shell text is answerable by only one of
+    /// them. `<hick:needs>` used to send `command -v '<bin>' > /dev/null 2>&1`,
+    /// which reported every tool on Windows as missing.
+    ///
+    /// The default answers `true`: an executor that cannot check must not
+    /// block a document over a check it did not perform.
+    async fn probe_program(&self, container: &str, bin: &str) -> Result<bool> {
+        let _ = (container, bin);
         Ok(true)
     }
 
@@ -964,8 +977,12 @@ impl Executor for LocalExecutor {
             .await
     }
 
-    async fn probe(&self, container: &str, command: &str) -> Result<bool> {
-        self.probe_command(container, command).await
+    async fn probe_program(&self, container: &str, bin: &str) -> Result<bool> {
+        // No subprocess: this is a filesystem question and the answer is on
+        // the filesystem. The cell's own workdir is the cwd because on Windows
+        // `cmd` resolves a bare name against it before PATH.
+        let workdir = self.workdir_for(container)?;
+        Ok(crate::find_program(bin, &workdir).is_some())
     }
 
     async fn execute_with_stdin(

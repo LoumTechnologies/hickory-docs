@@ -86,19 +86,6 @@ pub fn needs_of(tag: &HickTag) -> Vec<Need> {
     needs
 }
 
-/// The shell command that answers "is this on PATH?".
-///
-/// `command -v` rather than `which`: it is a POSIX shell builtin, so it
-/// exists wherever `sh` does, and it does not depend on a `which` binary
-/// being installed — which would make the check's own dependency the first
-/// thing to go missing.
-pub fn probe_command(bin: &str) -> String {
-    // Single-quoted, with the one escape sh needs, so a tool name containing
-    // shell syntax cannot become shell syntax.
-    let quoted = bin.replace('\'', r"'\''");
-    format!("command -v '{quoted}' > /dev/null 2>&1")
-}
-
 /// What a preflight found.
 #[derive(Debug, Default, PartialEq, Eq)]
 pub struct Missing {
@@ -139,9 +126,12 @@ impl Missing {
         out.push_str(
             "\nInstall them however you normally would; nothing is downloaded for you.\n\
              \n\
-             If one IS installed, the cell cannot see it: cells run confined by default, with \n\
-             an empty $HOME apart from the usual toolchain directories. A binary somewhere \n\
-             unusual can be reached with HICKORY_EXECUTOR=local, which runs unconfined.\n\
+             If one IS installed, the cell cannot see it: cells run confined by default, and \n\
+             a confined cell sees less of the machine than you do. On Linux and macOS it \n\
+             has an empty $HOME apart from the usual toolchain directories; on Windows the \n\
+             app container's own permissions decide, and a per-user install is typically \n\
+             invisible where a machine-wide one is not. A binary somewhere unusual can be \n\
+             reached with HICKORY_EXECUTOR=local, which runs unconfined.\n\
              \n\
              If a declaration is simply wrong, the fix is in the document: <hick:needs bin=\"…\" />",
         );
@@ -173,7 +163,7 @@ pub async fn preflight(
         executor.ensure_started(container, image).await?;
 
         for need in needs {
-            if !executor.probe(container, &probe_command(&need.bin)).await? {
+            if !executor.probe_program(container, &need.bin).await? {
                 missing
                     .by_container
                     .entry(container.clone())
@@ -243,17 +233,6 @@ mod tests {
     fn a_needs_with_nothing_to_need_declares_nothing() {
         let tag = container_in("  <hick:needs for=\"something\" />\n");
         assert!(needs_of(&tag).is_empty());
-    }
-
-    #[test]
-    fn the_probe_cannot_be_turned_into_shell_syntax() {
-        // A tool name is author-supplied text, and the probe runs in a shell.
-        let command = probe_command("evil'; rm -rf /; echo '");
-        assert!(command.starts_with("command -v '"), "{command}");
-        assert!(!command.contains("; rm -rf /; echo ;"), "{command}");
-        // The dangerous text survives INSIDE the quotes, which is the point:
-        // it is looked up as a (very odd) program name, not executed.
-        assert!(command.contains(r"'\''"), "{command}");
     }
 
     #[test]

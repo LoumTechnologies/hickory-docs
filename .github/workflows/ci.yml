@@ -168,16 +168,17 @@ jobs:
       - run: cargo test -p hickory-cli --test test_command_tests -- --test-threads=1
       # The rest of what actually executes on Windows (#17). Named suite by
       # suite rather than `-p`, because what is NOT here is as deliberate as
-      # what is: the agent suites need a POSIX shell the agent itself writes
-      # (#19), needs-preflight probes with `command -v` (#21), and ingest has
-      # a path-guard bug that a ported fixture would have hidden (#22).
+      # what is: the agent suites still need a POSIX shell the agent writes
+      # for itself (#19). Preflight (#21) and ingest (#22) are in, now that
+      # the bugs a ported fixture would have hidden are fixed.
       - run: >-
           cargo test -p hick-literate --test agent_cells --test pipeline_tests
           -- --test-threads=1
       - run: >-
           cargo test -p hickory-cli --test cache_flags --test init_tests
           --test lineage_sweep --test up_stress --test volatile_outputs
-          --test serve_terminals --test ingest -- --test-threads=1
+          --test serve_terminals --test ingest --test needs_preflight
+          -- --test-threads=1
       # `hick-lsp` has to exist before discovery can find it.
       - run: cargo build -p hick-lsp
       # A language server for the suite to actually answer with. Without one

@@ -379,6 +379,40 @@ const HOME_TOOL_DIRS: &[&str] = &[
 /// implementation detail of this executor, not a thing to run by hand.
 pub const SANDBOX_RUN_SUBCOMMAND: &str = "__sandbox-run";
 
+/// The shell text that answers "is `bin` runnable?" inside this sandbox.
+///
+/// The one place a shell spelling survives, and it lives here because this is
+/// the module that decides which shell wraps a cell: `wrap` appends `sh -c`
+/// for bubblewrap and Seatbelt, and the AppContainer launcher runs
+/// `cmd.exe /C`. A caller like `<hick:needs>` cannot know which, which is why
+/// it now asks for a program by name and lets the executor phrase the
+/// question.
+///
+/// `None` means "this sandbox cannot be asked", and the caller must read that
+/// as *not blocking* rather than as missing — refusing a document over a check
+/// that was never performed is the worse error.
+pub fn probe_command(sandbox: Sandbox, bin: &str) -> Option<String> {
+    match sandbox {
+        // `command -v` rather than `which`: a POSIX builtin exists wherever
+        // `sh` does, so the check does not have its own dependency to go
+        // missing. Single-quoted with the one escape sh needs, so a tool name
+        // containing shell syntax cannot become shell syntax.
+        Sandbox::Bubblewrap | Sandbox::Seatbelt => {
+            let quoted = bin.replace('\'', r"'\''");
+            Some(format!("command -v '{quoted}'"))
+        }
+        // cmd's answer to the same question. A name containing a quote cannot
+        // be expressed safely here, so it is refused rather than guessed at.
+        Sandbox::AppContainer => {
+            if bin.contains('"') {
+                return None;
+            }
+            Some(format!("where \"{bin}\""))
+        }
+        Sandbox::None => None,
+    }
+}
+
 /// What the launcher is told: the policy, then the cell's command.
 ///
 /// Separate from `wrap` so the argument shape can be asserted anywhere. It is
@@ -635,6 +669,31 @@ mod tests {
         assert_eq!(tail[1], "-c");
         assert_eq!(tail[2], "sh");
         assert_eq!(tail[3], "--");
+    }
+
+    #[test]
+    fn a_tool_name_cannot_become_shell_syntax() {
+        // A tool name is author-supplied text and the probe runs in a shell.
+        let command = probe_command(Sandbox::Bubblewrap, "evil'; rm -rf /; echo '")
+            .expect("bubblewrap can be asked");
+        assert!(command.starts_with("command -v '"), "{command}");
+        assert!(!command.contains("; rm -rf /; echo ;"), "{command}");
+        // The dangerous text survives INSIDE the quotes, which is the point:
+        // it is looked up as a (very odd) program name, not executed.
+        assert!(command.contains(r"'\''"), "{command}");
+    }
+
+    #[test]
+    fn a_name_cmd_cannot_be_asked_about_safely_is_refused_rather_than_guessed() {
+        // cmd has no quoting that survives an embedded quote the way sh's
+        // does, so there is no safe spelling. `None` means "not asked", which
+        // the caller reads as not blocking — never as missing.
+        assert_eq!(probe_command(Sandbox::AppContainer, "ev\"il"), None);
+        assert_eq!(
+            probe_command(Sandbox::AppContainer, "python").as_deref(),
+            Some("where \"python\"")
+        );
+        assert_eq!(probe_command(Sandbox::None, "python"), None);
     }
 
     #[test]

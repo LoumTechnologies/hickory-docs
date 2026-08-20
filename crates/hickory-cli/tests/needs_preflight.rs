@@ -7,10 +7,13 @@
 //! that includes the exit status, the message, and crucially the fact that
 //! nothing ran first.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Command;
 
 /// The `hick` this workspace just built.
+mod common;
+use common::{always_installed_program, create_side_effect_file};
+
 fn hick() -> Option<PathBuf> {
     let mut path = std::env::current_exe().ok()?;
     path.pop();
@@ -42,23 +45,30 @@ struct Run {
     side_effect: bool,
 }
 
-fn run(document_text: &str) -> Option<Run> {
+fn run(needs: &str, body: impl Fn(&Path) -> String) -> Option<Run> {
     let hick = hick()?;
     let dir = tempfile::tempdir().unwrap();
-    std::fs::write(dir.path().join("d.hick"), document_text).unwrap();
+    // Evidence a cell ran, as a FILE. The old marker was `echo itran | tr a-z
+    // A-Z` — assembled by `tr` so the word could not appear in the command
+    // text and be read back as if it were output. The reasoning was right and
+    // the tool was not: `tr` does not exist on Windows, so the marker could
+    // never appear whether or not the cell ran, and every "nothing ran"
+    // assertion below held for a document that had run perfectly well.
+    let marker = dir.path().join("ran.txt");
+    std::fs::write(dir.path().join("d.hick"), document(needs, &body(&marker))).unwrap();
     let out = Command::new(hick)
         .arg("run")
         .arg("d.hick")
         .current_dir(dir.path())
+        // Unconfined on purpose: a confined cell may write only its own
+        // workdir, whose path this test does not know, so it could not see
+        // the evidence either way. What is under test is the preflight, not
+        // the sandbox.
+        .env("HICKORY_EXECUTOR", "local")
         .output()
         .expect("hick runs");
-    // A transcript contains the COMMAND as well as its output, so a cell
-    // that echoed a marker would put that marker in the document whether or
-    // not it ever ran — the assertion would be reading its own fixture back.
-    // The marker is therefore assembled by `tr`: lowercase in the command,
-    // uppercase only if something actually executed.
     let woven = std::fs::read_to_string(dir.path().join("out.md")).ok();
-    let side_effect = woven.as_deref().is_some_and(|text| text.contains("ITRAN"));
+    let side_effect = marker.exists();
     Some(Run {
         ok: out.status.success(),
         output: format!(
@@ -73,10 +83,10 @@ fn run(document_text: &str) -> Option<Run> {
 
 #[test]
 fn a_missing_program_stops_the_document_before_anything_runs() {
-    let Some(result) = run(&document(
+    let Some(result) = run(
         "  <hick:needs bin=\"definitely-not-a-real-program\" for=\"the analysis\" />\n",
-        "echo itran | tr a-z A-Z",
-    )) else {
+        create_side_effect_file,
+    ) else {
         eprintln!("SKIPPED: hick has not been built into this target dir");
         return;
     };
@@ -114,14 +124,37 @@ fn a_missing_program_stops_the_document_before_anything_runs() {
     );
 }
 
+/// The control that makes the test above falsifiable.
+#[test]
+fn a_satisfied_document_really_does_run_its_cell() {
+    // `a_missing_program_stops_the_document_before_anything_runs` asserts a
+    // file does NOT appear. On its own that holds for a run which failed for
+    // any reason at all — including a marker that could never be written,
+    // which is precisely what happened on Windows while the marker was `tr`.
+    // Same document, need satisfied: the file must appear.
+    let Some(result) = run(
+        &format!("  <hick:needs bin=\"{}\" />\n", always_installed_program()),
+        create_side_effect_file,
+    ) else {
+        return;
+    };
+    assert!(result.ok, "a satisfied document failed: {}", result.output);
+    assert!(
+        result.side_effect,
+        "the cell did not run, so the absence of this file proves nothing \
+         about preflight:\n{}",
+        result.woven.unwrap_or_default()
+    );
+}
+
 #[test]
 fn every_missing_program_is_named_at_once() {
     // Three round trips to learn about three missing programs is how a person
     // decides a tool hates them.
-    let Some(result) = run(&document(
+    let Some(result) = run(
         "  <hick:needs bin=\"not-real-one\" />\n  <hick:needs bin=\"not-real-two\" />\n",
-        "echo hi",
-    )) else {
+        |_| "echo hi".to_string(),
+    ) else {
         return;
     };
     assert!(result.output.contains("not-real-one"), "{}", result.output);
@@ -131,12 +164,16 @@ fn every_missing_program_is_named_at_once() {
 
 #[test]
 fn a_program_that_is_present_lets_the_document_run() {
-    // `sh` is the one program that must exist for any of this to work at all,
-    // so it is the only safe thing to assert is installed on a test machine.
-    let Some(result) = run(&document(
-        "  <hick:needs bin=\"sh\" for=\"the cells\" />\n",
-        "echo hello",
-    )) else {
+    // The shell itself is the one program that must exist for any of this to
+    // work at all, so it is the only safe thing to assert is installed on
+    // somebody else's machine — and it is a different name per platform.
+    let Some(result) = run(
+        &format!(
+            "  <hick:needs bin=\"{}\" for=\"the cells\" />\n",
+            always_installed_program()
+        ),
+        |_| "echo hello".to_string(),
+    ) else {
         return;
     };
     assert!(result.ok, "a satisfied document failed: {}", result.output);
@@ -149,14 +186,23 @@ fn the_check_never_appears_in_the_document() {
     // The probe is our bookkeeping. A woven document listing `command -v sh`
     // beside the author's own commands would be a page about our
     // implementation in the middle of somebody else's work.
-    let Some(result) = run(&document("  <hick:needs bin=\"sh\" />\n", "echo hello")) else {
+    let Some(result) = run(
+        &format!("  <hick:needs bin=\"{}\" />\n", always_installed_program()),
+        |_| "echo hello".to_string(),
+    ) else {
         return;
     };
     let woven = result.woven.expect("the document wove");
-    assert!(
-        !woven.contains("command -v"),
-        "the probe leaked into the document:\n{woven}"
-    );
+    // Both spellings, not just this platform's. Asserting only `command -v`
+    // would let the cmd probe leak on Windows unnoticed — and under the local
+    // executor there is now no shell probe at all, so this also catches a
+    // future change that reintroduces one.
+    for probe in ["command -v", "where \""] {
+        assert!(
+            !woven.contains(probe),
+            "the probe leaked into the document:\n{woven}"
+        );
+    }
     assert!(
         !woven.contains("needs"),
         "the declaration was woven as content:\n{woven}"
@@ -167,7 +213,7 @@ fn the_check_never_appears_in_the_document() {
 fn a_document_that_declares_nothing_still_runs() {
     // `needs` is optional, and adding it must not have made every existing
     // document without one suspect.
-    let Some(result) = run(&document("", "echo hello")) else {
+    let Some(result) = run("", |_| "echo hello".to_string()) else {
         return;
     };
     assert!(result.ok, "{}", result.output);

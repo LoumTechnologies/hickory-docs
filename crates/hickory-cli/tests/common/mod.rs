@@ -88,3 +88,31 @@ pub fn changes_every_run() -> String {
         "date +%s%N".to_string()
     }
 }
+
+/// A cell that creates `path`, as evidence it ran.
+///
+/// Named for what it is rather than `create_marker`, which already exists in
+/// `hick-literate`'s own test helpers — two modules with a same-named helper
+/// merged cleanly once and then did not compile.
+///
+/// A FILE rather than a marker in the output, because a transcript records the
+/// command as well as its result: a cell that echoed a marker would put that
+/// marker in the document whether or not it ever ran, and the assertion would
+/// be reading its own fixture back. It also survives a bug class that stdout
+/// does not — a cell that silently runs nothing still produces a plausible
+/// empty transcript, but it cannot create a file.
+pub fn create_side_effect_file(path: &std::path::Path) -> String {
+    if cfg!(windows) {
+        format!("type nul > \"{}\"", path.display())
+    } else {
+        format!("touch '{}'", path.display())
+    }
+}
+
+/// A program that is installed wherever a cell can run at all.
+///
+/// The shell itself: if this is missing, no cell could run regardless, so it
+/// is the only thing safe to assert is present on someone else's machine.
+pub fn always_installed_program() -> &'static str {
+    if cfg!(windows) { "cmd" } else { "sh" }
+}
