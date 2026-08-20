@@ -429,19 +429,44 @@ mod tests {
         assert!(obs.contains("error"));
     }
 
+    /// The same two-stream script, in the shell the executor will use.
+    ///
+    /// These are the crate's own tests and they were POSIX text, so on Windows
+    /// they exercised `cmd.exe` running `echo out; echo err >&2` — one line
+    /// that means nothing there. `;` is not a separator in cmd, `>&2` is not
+    /// how it redirects, and the batch simply printed the lot.
+    fn two_streams(platform: ScriptPlatform) -> String {
+        match platform {
+            ScriptPlatform::Posix => "echo out; echo err >&2".to_string(),
+            ScriptPlatform::WindowsCmd => "echo out\r\necho err 1>&2".to_string(),
+        }
+    }
+
+    /// A script that writes to stderr and exits non-zero.
+    fn fails_with_three(platform: ScriptPlatform) -> String {
+        match platform {
+            ScriptPlatform::Posix => "echo oops >&2; exit 3".to_string(),
+            // `exit /b 3` sets the batch's errorlevel, which `cmd /C` returns.
+            ScriptPlatform::WindowsCmd => "echo oops 1>&2\r\nexit /b 3".to_string(),
+        }
+    }
+
     #[tokio::test(flavor = "multi_thread")]
     async fn run_script_captures_stdout_and_exit() {
         let ex = LocalExecutor::new().unwrap();
         ex.ensure_started(AGENT_CONTAINER, "host").await.unwrap();
         let block = CodeBlock {
             language: Language::Shell,
-            code: "echo out; echo err >&2".into(),
+            code: two_streams(ex.script_platform()),
         };
         let result = run_script(&ex, AGENT_CONTAINER, &block, 0, ScriptLimits::default())
             .await
             .unwrap();
         assert_eq!(result.stdout, "out\n");
         assert_eq!(result.stderr, "err\n");
+        // Both are exact rather than `contains`, and they stay exact on
+        // Windows because captured output is recorded with LF endings
+        // everywhere (#18) and the batch preamble silences command echo.
         assert_eq!(result.exit_code, Some(0));
     }
 
@@ -451,7 +476,7 @@ mod tests {
         ex.ensure_started(AGENT_CONTAINER, "host").await.unwrap();
         let block = CodeBlock {
             language: Language::Shell,
-            code: "echo oops >&2; exit 3".into(),
+            code: fails_with_three(ex.script_platform()),
         };
         let result = run_script(&ex, AGENT_CONTAINER, &block, 0, ScriptLimits::default())
             .await
@@ -465,6 +490,24 @@ mod tests {
 mod limit_tests {
     use super::*;
     use hickory_executor::LocalExecutor;
+
+    /// A script that dumps far more than any observation should carry.
+    ///
+    /// `seq` and `$(…)` are POSIX; cmd counts with `for /L` and has no command
+    /// substitution. Left as POSIX this printed one unrecognised-command error
+    /// on Windows — well under the cap — so the test passed while never
+    /// flooding anything.
+    fn flood(platform: ScriptPlatform) -> String {
+        let line = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+        match platform {
+            ScriptPlatform::Posix => {
+                format!("for i in $(seq 1 40000); do echo '{line}'; done")
+            }
+            ScriptPlatform::WindowsCmd => {
+                format!("for /L %%i in (1,1,40000) do @echo {line}")
+            }
+        }
+    }
 
     #[test]
     fn short_output_is_untouched() {
@@ -532,9 +575,7 @@ mod limit_tests {
         let block = CodeBlock {
             language: Language::Shell,
             // ~2 MB, the shape of one `grep -r` over a large repo.
-            code:
-                "for i in $(seq 1 40000); do echo 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'; done"
-                    .into(),
+            code: flood(ex.script_platform()),
         };
         let limits = ScriptLimits {
             max_output_bytes: 4096,
