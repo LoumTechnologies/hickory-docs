@@ -38,6 +38,7 @@ pub mod socket;
 pub mod store;
 pub mod terminal;
 pub mod watch;
+pub mod workspace;
 
 use std::collections::HashMap;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
@@ -412,6 +413,16 @@ fn router(state: LocalState) -> Router {
         .route("/structure", get(api::structure))
         .route("/executor", get(api::executor))
         .route("/health", get(api::health))
+        .route(
+            "/workspace/ui",
+            get(workspace::get_ui).put(workspace::put_ui),
+        )
+        .route(
+            "/workspace/drafts",
+            get(workspace::list_drafts)
+                .put(workspace::put_draft)
+                .delete(workspace::discard_draft),
+        )
         .route("/terminals", get(terminal::list).post(terminal::open))
         .route("/terminals/turbo", put(terminal::set_turbo))
         .route("/terminals/ws", get(terminal::ws_handler))

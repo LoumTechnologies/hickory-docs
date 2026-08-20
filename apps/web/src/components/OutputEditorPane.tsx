@@ -23,9 +23,10 @@ import { languageExtensions } from "../editor/languages";
 import { lineHighlightField } from "../editor/lineHighlight";
 import { RightRail } from "../editor/RightRail";
 import { wrapGutterMarkers } from "../editor/wrapGutter";
-import { isMarkdownPath, markdownStyling } from "../editor/markdownStyling";
+import { fencedCodeRanges, isMarkdownPath, markdownStyling } from "../editor/markdownStyling";
 import { taskCheckboxes } from "../editor/taskList";
 import { renderedMath } from "../editor/mathRender";
+import { proseWrap } from "../editor/wrapColumn";
 import { byteToChar } from "../lib/offsets";
 
 export interface HighlightRange {
@@ -183,7 +184,15 @@ export function OutputEditorPane({
           // panel on top, keymap first, shifted chord left to the shell.
           search({ top: true }),
           keymap.of([...searchKeymap, ...defaultKeymap, ...historyKeymap, indentWithTab]),
-          EditorView.lineWrapping,
+          // Prose wraps at the measure; a fenced code block keeps its lines
+          // and takes the whole pane. In a non-markdown file EVERY line is
+          // code, which is exactly what `fencedCodeRanges` returning the whole
+          // buffer expresses.
+          proseWrap((state) =>
+            isMarkdownPath(initial.path)
+              ? fencedCodeRanges(state.doc.toString())
+              : [[0, state.doc.length] as [number, number]],
+          ),
           EditorView.updateListener.of((u) => {
             if (u.docChanged) {
               changesRef.current = changesRef.current

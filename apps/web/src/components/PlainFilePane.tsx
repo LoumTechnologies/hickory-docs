@@ -20,9 +20,10 @@ import { api } from "../api/client";
 import type { AdoptResponse, PlainFile } from "../api/types";
 import { changeFlashField, syncAndFlash } from "../editor/changeFlash";
 import { languageExtensions } from "../editor/languages";
-import { isMarkdownPath, markdownStyling } from "../editor/markdownStyling";
+import { fencedCodeRanges, isMarkdownPath, markdownStyling } from "../editor/markdownStyling";
 import { taskCheckboxes } from "../editor/taskList";
 import { renderedMath } from "../editor/mathRender";
+import { proseWrap } from "../editor/wrapColumn";
 import { wrapGutterMarkers } from "../editor/wrapGutter";
 import { FILES_CHANGED_EVENT } from "../shell/FolderTreePane";
 import { createPlainSaver, type PlainSaveState } from "../lib/plainFileSave";
@@ -99,7 +100,15 @@ export function PlainFilePane({
           history(),
           search({ top: true }),
           keymap.of([...searchKeymap, ...defaultKeymap, ...historyKeymap, indentWithTab]),
-          EditorView.lineWrapping,
+          // Prose wraps at the measure; a fenced code block keeps its lines
+          // and takes the whole pane. In a non-markdown file EVERY line is
+          // code, which is exactly what `fencedCodeRanges` returning the whole
+          // buffer expresses.
+          proseWrap((state) =>
+            isMarkdownPath(initial.path)
+              ? fencedCodeRanges(state.doc.toString())
+              : [[0, state.doc.length] as [number, number]],
+          ),
           EditorView.updateListener.of((u) => {
             // Only edits a person made: a programmatic reload is this pane
             // catching up with the disk, and saving it back would write

@@ -16,6 +16,8 @@ import type { Extension } from "@codemirror/state";
 import { EnvRegistry, setVerifiedExpects, structureOf, wysiwyg } from "./wysiwyg";
 import { taskCheckboxes } from "./taskList";
 import { renderedMath } from "./mathRender";
+import { EditorRuler } from "./EditorRuler";
+import { WRAP_DEFAULT, proseWrap } from "./wrapColumn";
 import { mathSpans } from "../lib/math";
 import {
   diagnosticRanges,
@@ -82,6 +84,11 @@ export interface DocumentEditorProps {
   lspDiagnostics?: LspDiagnostic[];
   /** Dim hint shown while the buffer is empty (the untitled document). */
   placeholderText?: string;
+  /** Where PROSE wraps, in columns. Owned by the tab (so it is per-document
+   * and survives a restart); code never wraps whatever this says. */
+  wrapColumn?: number;
+  /** Report a measure the reader dragged on the ruler. */
+  onWrapColumn?: (column: number) => void;
 }
 
 /**
@@ -151,6 +158,8 @@ export function DocumentEditor({
   lspDiagnostics,
   onDebugFile,
   placeholderText,
+  wrapColumn = WRAP_DEFAULT,
+  onWrapColumn,
 }: DocumentEditorProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
@@ -348,7 +357,19 @@ export function DocumentEditor({
             if (focusing && live) markActiveEditor(live);
             return null;
           }),
-          EditorView.lineWrapping,
+          // Prose wraps at the ruler's measure; code keeps its lines and takes
+          // the whole pane. `proseWrap` turns lineWrapping on for both and
+          // then lets code opt out, line by line — see editor/wrapColumn.ts.
+          proseWrap((state) => {
+            const structure = structureOf(state);
+            const text = state.doc.toString();
+            return [
+              ...verbatimRanges(structure.blocks),
+              ...proseFences(structure, text).map(
+                (fence) => [fence.from, fence.to] as [number, number],
+              ),
+            ];
+          }),
           EditorView.updateListener.of((u) => {
             if (!u.docChanged) return;
             onChange?.(u.state.doc.toString());
@@ -603,6 +624,11 @@ export function DocumentEditor({
       {/* The bordered box holds the editor, its right line-number rail, and
           the action rail outside that; the ribbon overlay anchors on the
           number rail's outer edge through `.with-right-rail`. */}
+      <EditorRuler
+        view={railView}
+        column={wrapColumn}
+        onColumn={(next) => onWrapColumn?.(next)}
+      />
       <div className="document-editor with-right-rail with-card-rail">
         <div ref={hostRef} className="editor-cm-host" />
         <RightRail view={railView} />

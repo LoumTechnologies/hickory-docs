@@ -461,3 +461,22 @@ export interface OpenTerminal {
    * folder, so two agents cannot fight over one checkout. */
   worktree_branch?: string;
 }
+
+// --- Workspace state and drafts (api.md, "Workspace state and drafts") ----
+
+/** One buffer's unsaved contents, and what it was unsaved *from*. */
+export interface WorkspaceDraft {
+  /** Project-relative path of the file being edited. */
+  path: string;
+  /** The buffer as the reader left it. */
+  contents: string;
+  /** The file's contents when this editing session began — the common
+   * ancestor a three-way merge needs. Empty when the buffer had no file. */
+  base: string;
+  /** Milliseconds since the epoch. Advisory: it orders drafts for display. */
+  saved_at: number;
+}
+
+/** The stored window layout. Opaque on the wire; `lib/uiState.ts` owns its
+ * shape, and is the only thing that should ever narrow this type. */
+export type WorkspaceUiState = unknown;

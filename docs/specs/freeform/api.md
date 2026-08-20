@@ -204,3 +204,35 @@ session has already said. In: binary or text frames, written to the PTY
 verbatim. Sizing goes over REST, so every frame on this socket means the same
 thing. A client that falls far behind is dropped from the stream rather than
 buffered forever; reconnecting replays the scrollback, which is the state.
+
+## Workspace state and drafts (v0.5)
+
+What the window remembers between runs, and what it was holding that had not
+been saved yet. Both live under the **user's own data directory**, keyed by
+the project's canonical path — never inside the project, so git cannot reach
+them by construction rather than by a `.gitignore` entry this tool cannot
+guarantee on somebody else's machine. `HICKORY_STATE_DIR` names the directory
+for a portable install.
+
+- `GET /api/workspace/ui` → `{state: <any> | null}` — the stored window
+  layout. Opaque to the server: which tabs sit in which panes, and where each
+  tab's prose measure is, are shapes the UI owns, and a second definition
+  server-side would be one more thing to keep in step for nothing. Capped at
+  1MB; a damaged file reads as `null` (default tabs) rather than failing to
+  start.
+- `PUT /api/workspace/ui` `{state}` → `{ok: true}`. 422 with a message naming
+  the draft store when the blob is large enough to be document contents.
+- `GET /api/workspace/drafts` → `{drafts: [{path, contents, base, saved_at}]}`
+  — every buffer with unsaved changes. `base` is the file's contents when that
+  editing session began: the common ancestor that lets a restored draft be
+  **merged** against a file that moved on, rather than fought over. Empty for
+  a buffer that had no file behind it.
+- `PUT /api/workspace/drafts` `{path, contents, base, saved_at}` →
+  `{ok: true}`. Capped at 20MB.
+- `DELETE /api/workspace/drafts?path=…` → `{ok: true}` — the buffer was saved,
+  or the draft was thrown away. Never an error when there is nothing there:
+  the page discards on every save, and most saves have nothing to discard.
+
+None of this is required for the app to run. A store that cannot be opened —
+a read-only home, a platform with no data directory — degrades to "the window
+forgets its layout", and says so, rather than failing to start.
