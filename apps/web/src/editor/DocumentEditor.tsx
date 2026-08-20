@@ -14,6 +14,7 @@ import { Awareness } from "y-protocols/awareness";
 import { yCollab } from "y-codemirror.next";
 import type { Extension } from "@codemirror/state";
 import { EnvRegistry, setVerifiedExpects, structureOf, wysiwyg } from "./wysiwyg";
+import { taskCheckboxes } from "./taskList";
 import {
   diagnosticRanges,
   positionToOffset,
@@ -308,6 +309,11 @@ export function DocumentEditor({
           // The hovered-ribbon line tint, shared with the right rail.
           lineHighlightField,
           wysiwyg(envRegistry, (path) => onDebugFileRef.current?.(path)),
+          // Task boxes come from the DOCUMENT's structure parse, not a plain
+          // markdown scan: a `- [ ]` inside an exec cell's payload is a
+          // command's argument, and turning it into a checkbox would offer to
+          // edit a line the reader is not looking at.
+          taskCheckboxes((state) => structureOf(state).tasks),
           renderedBlocks(renderedRegistry),
           hickoryFolding(),
           yCollab(ytext, awareness),

@@ -50,6 +50,32 @@ export interface Heading {
   markTo: number;
 }
 
+/** One line of a `>` block quote. Quotes are scanned per LINE rather than
+ * per paragraph: the decoration that tints a quote is a line decoration, and
+ * a reader who splits a quote in half wants both halves to stay quoted while
+ * they type — which per-paragraph grouping would fight. */
+export interface QuoteLine {
+  /** Whole line range. */
+  from: number;
+  to: number;
+  /** How many `>` markers open the line; nesting tints deeper. */
+  depth: number;
+  /** The `> > ` marker run, trailing space included. */
+  markFrom: number;
+  markTo: number;
+}
+
+/** A `- [ ]` / `- [x]` task-list item. */
+export interface TaskItem {
+  /** Whole line range. */
+  from: number;
+  to: number;
+  checked: boolean;
+  /** The three-character box, brackets included — what a click replaces. */
+  boxFrom: number;
+  boxTo: number;
+}
+
 export interface InlineMark {
   kind: "strong" | "em" | "code";
   /** Content (between the delimiters). */
@@ -67,6 +93,8 @@ export interface HickDocStructure {
   blocks: HickBlock[];
   headings: Heading[];
   inline: InlineMark[];
+  quotes: QuoteLine[];
+  tasks: TaskItem[];
 }
 
 // Open/close/self-closing hick: tags including quoted attributes. Quoted
@@ -208,6 +236,12 @@ function inRanges(pos: number, ranges: [number, number][]): boolean {
 }
 
 const HEADING_RE = /^(#{1,6})[ \t]+\S?/;
+// A quote prefix is one or more `>`, each allowed one space after it. Up to
+// three leading spaces, the same indent CommonMark lets any block start with.
+const QUOTE_RE = /^ {0,3}(?:>[ \t]?)+/;
+// A task box belongs to a list item, so the bullet is part of the match: a
+// bare `[ ]` in prose is text about brackets, not a checkbox.
+const TASK_RE = /^([ \t]*(?:[-*+]|\d+[.)])[ \t]+)\[([ xX])\](?=[ \t])/;
 // Inline code first (it suppresses other marks inside), then strong, then em.
 const CODE_RE = /`([^`\n]+)`/g;
 const STRONG_RE = /\*\*([^*\n]+)\*\*|__([^_\n]+)__/g;
@@ -262,33 +296,66 @@ export function scanMarkdownProse(
   text: string,
   verbatim: [number, number][],
   tagRanges: [number, number][],
-): { headings: Heading[]; inline: InlineMark[] } {
+): { headings: Heading[]; inline: InlineMark[]; quotes: QuoteLine[]; tasks: TaskItem[] } {
   const headings: Heading[] = [];
   const inline: InlineMark[] = [];
+  const quotes: QuoteLine[] = [];
+  const tasks: TaskItem[] = [];
   let lineFrom = 0;
   while (lineFrom <= text.length) {
     let lineTo = text.indexOf("\n", lineFrom);
     if (lineTo < 0) lineTo = text.length;
     if (lineTo > lineFrom && !inRanges(lineFrom, verbatim)) {
       const line = text.slice(lineFrom, lineTo);
-      const h = HEADING_RE.exec(line);
+      // A quote prefix is stripped BEFORE anything else looks at the line, so
+      // `> ## Heading` and `> - [x] done` are a heading and a task inside a
+      // quote rather than three unrelated features refusing to compose. What
+      // is left is scanned at `base`, its offset in the document.
+      let content = line;
+      let base = lineFrom;
+      const q = QUOTE_RE.exec(line);
+      if (q) {
+        quotes.push({
+          from: lineFrom,
+          to: lineTo,
+          depth: (q[0].match(/>/g) ?? []).length,
+          markFrom: lineFrom,
+          markTo: lineFrom + q[0].length,
+        });
+        content = line.slice(q[0].length);
+        base = lineFrom + q[0].length;
+      }
+      const h = HEADING_RE.exec(content);
       if (h) {
-        const markEnd = line.length > h[1].length ? h[1].length + 1 : h[1].length;
+        const markEnd = content.length > h[1].length ? h[1].length + 1 : h[1].length;
         headings.push({
           level: h[1].length,
           from: lineFrom,
           to: lineTo,
-          markFrom: lineFrom,
-          markTo: lineFrom + markEnd,
+          markFrom: base,
+          markTo: base + markEnd,
         });
       } else {
-        scanInline(line, lineFrom, inline, tagRanges);
+        const t = TASK_RE.exec(content);
+        if (t) {
+          const boxFrom = base + t[1].length;
+          tasks.push({
+            from: lineFrom,
+            to: lineTo,
+            // Anything but a space is checked: `[x]`, `[X]`, and the `[-]`
+            // some tools write all mean the box is not empty.
+            checked: t[2] !== " ",
+            boxFrom,
+            boxTo: boxFrom + 3,
+          });
+        }
+        scanInline(content, base, inline, tagRanges);
       }
     }
     lineFrom = lineTo + 1;
   }
   inline.sort((a, b) => a.openFrom - b.openFrom);
-  return { headings, inline };
+  return { headings, inline, quotes, tasks };
 }
 
 /**
@@ -302,11 +369,11 @@ export function parseHickDoc(text: string): HickDocStructure {
     const blocks = buildBlocks(text, tags);
     const verbatim = verbatimRanges(blocks);
     const tagRanges: [number, number][] = tags.map((t) => [t.from, t.to]);
-    const { headings, inline } = scanMarkdownProse(text, verbatim, tagRanges);
-    return { tags, blocks, headings, inline };
+    const { headings, inline, quotes, tasks } = scanMarkdownProse(text, verbatim, tagRanges);
+    return { tags, blocks, headings, inline, quotes, tasks };
   } catch {
     // The document view must keep working on any input.
-    return { tags: [], blocks: [], headings: [], inline: [] };
+    return { tags: [], blocks: [], headings: [], inline: [], quotes: [], tasks: [] };
   }
 }
 

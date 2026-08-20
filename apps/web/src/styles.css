@@ -790,6 +790,46 @@ textarea:focus {
   padding: 0.05em 0.25em;
 }
 
+/* Block quotes: a rule down the left edge and quieter text. The `>` markers
+   stay in the buffer (dimmed by .cm-md-mark) because this editor never hides
+   the source it is styling. */
+.cm-md-quote {
+  color: var(--fg-muted);
+  border-left: 3px solid var(--border);
+  padding-left: 0.7em;
+  margin-left: 0.1em;
+}
+.cm-md-quote-2 { border-left-width: 3px; box-shadow: inset 6px 0 0 -3px var(--border); padding-left: 1.3em; }
+.cm-md-quote-3 { box-shadow: inset 6px 0 0 -3px var(--border), inset 12px 0 0 -9px var(--border); padding-left: 1.9em; }
+
+/* Task lists. The line class carries the done state so the text can be
+   struck through without touching the checkbox glyph itself. */
+.cm-md-task--done .cm-md-task-text { text-decoration: line-through; }
+.cm-md-task--done { color: var(--fg-muted); }
+
+.cm-md-checkbox {
+  display: inline-block;
+  width: 1.05em;
+  height: 1.05em;
+  line-height: 1.05em;
+  text-align: center;
+  vertical-align: -0.15em;
+  margin-right: 0.15em;
+  border: 1px solid var(--fg-muted);
+  border-radius: 3px;
+  font-size: 0.85em;
+  cursor: pointer;
+  /* The glyph is text, so it inherits colour and scales with the zoom
+     level; nothing here depends on an image that a theme swap would miss. */
+  color: var(--bg);
+  user-select: none;
+}
+.cm-md-checkbox:hover { border-color: var(--accent); }
+.cm-md-checkbox--on {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
 /* hick tags: visible, but subtle dimmed chrome. */
 .cm-hick-chrome {
   font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;

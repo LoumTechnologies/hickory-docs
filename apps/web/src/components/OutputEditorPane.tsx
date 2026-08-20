@@ -24,6 +24,7 @@ import { lineHighlightField } from "../editor/lineHighlight";
 import { RightRail } from "../editor/RightRail";
 import { wrapGutterMarkers } from "../editor/wrapGutter";
 import { isMarkdownPath, markdownStyling } from "../editor/markdownStyling";
+import { taskCheckboxes } from "../editor/taskList";
 import { byteToChar } from "../lib/offsets";
 
 export interface HighlightRange {
@@ -175,7 +176,7 @@ export function OutputEditorPane({
           // markdown look (big headings, styled bold/em/code). Display-only
           // decorations — the buffer's text is untouched, and they compose
           // with the lineage highlights, search, and any `extensions`.
-          ...(isMarkdownPath(initial.path) ? [markdownStyling()] : []),
+          ...(isMarkdownPath(initial.path) ? [markdownStyling(), taskCheckboxes()] : []),
           history(),
           // In-buffer find (Mod-F), same shape as the document editor's:
           // panel on top, keymap first, shifted chord left to the shell.

@@ -17,7 +17,7 @@ import type { Extension, Range } from "@codemirror/state";
 import { Decoration, EditorView } from "@codemirror/view";
 import type { DecorationSet } from "@codemirror/view";
 import { scanMarkdownProse } from "./hickDoc";
-import type { Heading, InlineMark } from "./hickDoc";
+import type { Heading, InlineMark, QuoteLine, TaskItem } from "./hickDoc";
 
 // One Decoration instance per class, shared by both editors so the CSS in
 // styles.css (`.cm-md-*`) is the single definition of the look.
@@ -29,9 +29,23 @@ export const mdStrong = Decoration.mark({ class: "cm-md-strong" });
 export const mdEm = Decoration.mark({ class: "cm-md-em" });
 export const mdCode = Decoration.mark({ class: "cm-md-code" });
 
+/** Quote lines, by nesting depth. Deeper than three reuses the third tint:
+ * the point of the indent is "this is quoted", and a fourth shade of the same
+ * grey carries no information a reader could act on. */
+export const QUOTE_DEPTHS = 3;
+export const mdQuoteLines = [1, 2, 3].map((depth) =>
+  Decoration.line({ class: `cm-md-quote cm-md-quote-${depth}` }),
+);
+export const mdTaskLine = Decoration.line({ class: "cm-md-task" });
+export const mdTaskDoneLine = Decoration.line({
+  class: "cm-md-task cm-md-task--done",
+});
+
 export interface MarkdownProse {
   headings: Heading[];
   inline: InlineMark[];
+  quotes: QuoteLine[];
+  tasks: TaskItem[];
 }
 
 /**
@@ -50,6 +64,21 @@ export function proseDecorationRanges(
     ranges.push(headingLineDecos[Math.min(h.level, 6) - 1].range(clamp(h.from)));
     if (h.markTo > h.markFrom)
       ranges.push(mdMark.range(clamp(h.markFrom), clamp(h.markTo)));
+  }
+  // Quotes are a line tint plus a dimmed `>` run: the marker stays in the
+  // text (this module never hides anything) but stops competing with the
+  // words it introduces.
+  for (const quote of prose.quotes) {
+    const depth = Math.min(Math.max(quote.depth, 1), QUOTE_DEPTHS);
+    ranges.push(mdQuoteLines[depth - 1].range(clamp(quote.from)));
+    if (quote.markTo > quote.markFrom)
+      ranges.push(mdMark.range(clamp(quote.markFrom), clamp(quote.markTo)));
+  }
+  for (const task of prose.tasks) {
+    ranges.push(
+      (task.checked ? mdTaskDoneLine : mdTaskLine).range(clamp(task.from)),
+    );
+    ranges.push(mdMark.range(clamp(task.boxFrom), clamp(task.boxTo)));
   }
   for (const mark of prose.inline) {
     const style =
