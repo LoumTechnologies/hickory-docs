@@ -71,6 +71,9 @@ export function actionsFor(
     case "exec":
       return options.replay ? ["run", "source", "replay"] : ["run", "source"];
     case "diagram":
+    // An equation is a picture too: the only verb it has is "show me what I
+    // actually typed".
+    case "math":
       return ["source"];
     case "fence":
       return ["convert"];

@@ -22,6 +22,7 @@ import { changeFlashField, syncAndFlash } from "../editor/changeFlash";
 import { languageExtensions } from "../editor/languages";
 import { isMarkdownPath, markdownStyling } from "../editor/markdownStyling";
 import { taskCheckboxes } from "../editor/taskList";
+import { renderedMath } from "../editor/mathRender";
 import { wrapGutterMarkers } from "../editor/wrapGutter";
 import { FILES_CHANGED_EVENT } from "../shell/FolderTreePane";
 import { createPlainSaver, type PlainSaveState } from "../lib/plainFileSave";
@@ -94,7 +95,7 @@ export function PlainFilePane({
           lineNumbers(),
           wrapGutterMarkers(),
           ...languageExtensions(initial.language),
-          ...(isMarkdownPath(initial.path) ? [markdownStyling(), taskCheckboxes()] : []),
+          ...(isMarkdownPath(initial.path) ? [markdownStyling(), taskCheckboxes(), renderedMath()] : []),
           history(),
           search({ top: true }),
           keymap.of([...searchKeymap, ...defaultKeymap, ...historyKeymap, indentWithTab]),

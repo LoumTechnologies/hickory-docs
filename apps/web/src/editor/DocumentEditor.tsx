@@ -15,6 +15,8 @@ import { yCollab } from "y-codemirror.next";
 import type { Extension } from "@codemirror/state";
 import { EnvRegistry, setVerifiedExpects, structureOf, wysiwyg } from "./wysiwyg";
 import { taskCheckboxes } from "./taskList";
+import { renderedMath } from "./mathRender";
+import { mathSpans } from "../lib/math";
 import {
   diagnosticRanges,
   positionToOffset,
@@ -24,7 +26,13 @@ import type { LspDiagnostic } from "../lsp/client";
 import { hickoryFolding } from "./folding";
 import { forgetEditor, markActiveEditor } from "./activeEditor";
 import type { EnvSlot } from "./wysiwyg";
-import { containerNamesOf, execBlocksOf, expectRangeOf, proseFences } from "./hickDoc";
+import {
+  containerNamesOf,
+  execBlocksOf,
+  expectRangeOf,
+  proseFences,
+  verbatimRanges,
+} from "./hickDoc";
 import { lineHighlightField } from "./lineHighlight";
 import { RightRail } from "./RightRail";
 import { CardRail, type CardState } from "./CardRail";
@@ -43,6 +51,7 @@ import { popoverTop } from "../lib/cardRail";
 import { actionsFor, hasReplay } from "../lib/railActions";
 import type { RailAction } from "../lib/railActions";
 import { DiagramPanel } from "../components/DiagramPanel";
+import { MathPanel } from "../components/MathPanel";
 import { CellPanel } from "../components/CellPanel";
 import { FenceConvert } from "../components/FenceConvert";
 import { EnvCard } from "../components/EnvCard";
@@ -314,6 +323,18 @@ export function DocumentEditor({
           // command's argument, and turning it into a checkbox would offer to
           // edit a line the reader is not looking at.
           taskCheckboxes((state) => structureOf(state).tasks),
+          // Inline and display maths written in PROSE. The verbatim ranges of
+          // the document are excluded, so `$PATH` in a shell cell stays a
+          // shell variable and `$` in a generated file stays a byte of that
+          // file. A `<hick:math>` block is not handled here at all: it is a
+          // rendered block with a rail icon (see editor/rendered.ts).
+          renderedMath((state) => {
+            const structure = structureOf(state);
+            return mathSpans(
+              state.doc.toString(),
+              verbatimRanges(structure.blocks),
+            );
+          }),
           renderedBlocks(renderedRegistry),
           hickoryFolding(),
           yCollab(ytext, awareness),
@@ -655,6 +676,15 @@ export function DocumentEditor({
                   state: "unknown" as const,
                 }))}
               />
+            </div>,
+            slot.el,
+            slot.key,
+          );
+        }
+        if (slot.kind === "math") {
+          return createPortal(
+            <div className="rendered-math">
+              <MathPanel source={slot.text} />
             </div>,
             slot.el,
             slot.key,

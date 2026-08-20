@@ -1215,6 +1215,46 @@ textarea:focus {
   font-size: 0.8rem;
 }
 
+/* Typeset maths.
+ *
+ * KaTeX brings its own stylesheet and its own fonts; everything here is about
+ * how an equation sits in a document that is otherwise monospace source. The
+ * colour is inherited rather than set, so an equation is the document's text
+ * colour in every theme — KaTeX's own default is black, which in a dark
+ * document would be an invisible equation. */
+.math-panel {
+  margin: 0.4rem 0 0.2rem;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+.math-figure {
+  display: flex;
+  justify-content: center;
+  /* A long equation scrolls rather than forcing the pane wider: the text
+     column's width belongs to the prose. */
+  overflow-x: auto;
+  padding: 0.2rem 0;
+}
+.math-panel--empty { font-size: 0.8rem; }
+.rendered-math { position: relative; }
+.cm-rendered .math-panel { margin: 0; }
+
+/* Maths rendered in place of its own source, inline or on its own lines.
+   `.cm-math` is the widget; the caret reveals the LaTeX by removing it. */
+.cm-math { color: var(--fg); }
+.cm-math .katex { color: inherit; }
+.cm-math--display {
+  display: block;
+  overflow-x: auto;
+  padding: 0.15rem 0;
+}
+/* The engine failed to LOAD (not "the LaTeX is wrong" — KaTeX draws what it
+   understood for that). The source stays visible, marked as untypeset. */
+.cm-math--unparsed {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  color: var(--fg-muted);
+  text-decoration: underline dotted var(--fg-muted);
+}
+
 /* Executor-resolution note, inline at the end of a hick:container line.
    Faded end-of-line annotation (the inline-values pattern): every screen
    row keeps a line number, nothing wraps. */

@@ -217,7 +217,7 @@ const PROSE_CONTAINERS = new Set([
  * markdown styling must not apply inside them. Prose containers (doc, when,
  * session, …) are excluded so nested prose still styles; their verbatim
  * children contribute their own ranges. */
-function verbatimRanges(blocks: HickBlock[]): [number, number][] {
+export function verbatimRanges(blocks: HickBlock[]): [number, number][] {
   const ranges: [number, number][] = [];
   for (const b of blocks) {
     if (PROSE_CONTAINERS.has(b.name)) continue;
