@@ -257,10 +257,17 @@ jobs:
           ls -l dist/desktop
           for deb in dist/desktop/*.deb; do
             [ -e "$deb" ] || continue
-            dpkg-deb -c "$deb" | grep -q "usr/bin/" || {
+            # Read the listing into a variable first. `dpkg-deb -c | grep -q`
+            # looks right and lies: grep exits at the first match, the closed
+            # pipe kills dpkg-deb's tar with SIGPIPE, and `pipefail` turns a
+            # SUCCESSFUL find into a failed pipeline. This check reported "an
+            # installer with no program" for a 16MB .deb that contained the
+            # program, and blocked a release doing it.
+            contents="$(dpkg-deb -c "$deb")"
+            if ! printf '%s\n' "$contents" | grep -q "usr/bin/"; then
               echo "::error::$deb contains no usr/bin/ entry — an installer with no program." >&2
               exit 1
-            }
+            fi
           done
 
       - uses: actions/upload-artifact@v4

@@ -43,6 +43,24 @@ echo "==> building Hickory Docs $VERSION for $TARGET"
 # engine, so the two agree about what they are.
 export HICKORY_VERSION="$VERSION"
 
+# What the BUNDLE records as its version, which is not always what we call the
+# build. Windows rejects `0.1.0-unstable.f957b9e4` outright — an MSI's optional
+# pre-release identifier must be numeric-only and no greater than 65535 — and
+# the whole desktop release fails at the bundling step, after every binary has
+# already been built. So the installer records the numeric core and the FILE
+# name still carries the full identifier, which is the half a person reads.
+#
+# Only Windows: macOS and Linux take the full string, and an app that knows
+# exactly which unstable build it is is worth keeping where it is allowed.
+# `hick --version` reports HICKORY_VERSION on every platform regardless.
+case "$TARGET" in
+  *windows*) BUNDLE_VERSION="${VERSION%%-*}" ;;
+  *)         BUNDLE_VERSION="$VERSION" ;;
+esac
+if [ "$BUNDLE_VERSION" != "$VERSION" ]; then
+  echo "==> msi records $BUNDLE_VERSION; the file is named $VERSION"
+fi
+
 # The UI is built by tauri.conf.json's beforeBuildCommand (`npm run build` in
 # apps/web), so node_modules has to exist first. Doing it here keeps the
 # failure legible: "no node_modules" beats a build script exiting 127.
@@ -81,7 +99,7 @@ fi
   # is an "unbound variable" error; the ${arr[@]+...} form is the portable
   # spelling of "expand only if non-empty".
   CI=true cargo tauri build \
-    --config "{\"version\": \"$VERSION\"}" \
+    --config "{\"version\": \"$BUNDLE_VERSION\"}" \
     ${cross_args[@]+"${cross_args[@]}"} \
     ${TAURI_BUNDLES:+--bundles "$TAURI_BUNDLES"}
 )
