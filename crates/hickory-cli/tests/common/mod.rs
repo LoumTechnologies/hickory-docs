@@ -13,6 +13,34 @@
 //! dev-dependency that exists only for this.
 #![allow(dead_code)]
 
+/// A cell that prints each of `lines`, one per line, and exits 0.
+///
+/// The cmd form is `echo one& echo two`. Two things about it were measured
+/// rather than guessed: the `&` must have no space before it (cmd's `echo`
+/// prints everything up to the separator, trailing space included), and there
+/// is no cmd builtin that can print without a trailing newline — `<nul set /p=`
+/// is the usual trick, and it exits **1**, which fails the cell outright.
+///
+/// So on Windows a cell's output ends `\r\n` and there is nothing the document
+/// can do about it. That is why `hickory_executor::normalize_captured_newlines`
+/// exists: the bytes are recorded as `\n`, and the `<hick:expect match="exact">`
+/// written in this file — which is LF, being text in git — means the same
+/// thing here as it does under `sh`.
+/// docs/guarantees/verification/an-expectation-means-the-same-on-every-platform.md
+pub fn echo_lines(lines: &[&str]) -> String {
+    if cfg!(windows) {
+        lines
+            .iter()
+            .map(|l| format!("echo {l}"))
+            .collect::<Vec<_>>()
+            .join("& ")
+    } else {
+        // Literal backslash-n: this string is written into a `.hick` document,
+        // where it is the shell that interprets it, not Rust.
+        format!("printf '{}\\n'", lines.join("\\n"))
+    }
+}
+
 /// A cell that keeps running until something stops it.
 ///
 /// Not `waitfor` and not `ping`: `waitfor` needs an object in the global

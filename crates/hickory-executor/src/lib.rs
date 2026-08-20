@@ -42,6 +42,10 @@ use log::{debug, info};
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
+mod capture;
+
+pub use capture::{CapturedStream, normalize_captured_newlines};
+
 // ---------------------------------------------------------------------------
 // Transcript types
 // ---------------------------------------------------------------------------
@@ -78,7 +82,10 @@ impl TranscriptEvent {
 pub struct ExecTranscriptEntry {
     /// Individual command lines (non-empty, trimmed) — for woven display.
     pub commands: Vec<String>,
-    /// Captured stdout of the exec, byte-for-byte.
+    /// Captured stdout of the exec, byte-for-byte **after** the one rewrite
+    /// every executor owes it: `\r\n` becomes `\n`, on every platform. See
+    /// [`normalize_captured_newlines`] for why that is a property of capture
+    /// rather than of comparison.
     pub output: String,
     /// Ordered timed events (cmd/out/err/exit) for this exec.
     pub events: Vec<TranscriptEvent>,
@@ -186,6 +193,15 @@ pub trait Executor: Send + Sync {
     /// The command (and its output) is recorded as a transcript entry with
     /// timed events. A non-zero exit status is an error (the transcript
     /// entry is still recorded first).
+    ///
+    /// **Part of this trait's contract, not an implementation detail:** the
+    /// returned stdout and everything recorded alongside it use `\n` line
+    /// endings, whatever the host shell emitted. An implementation that
+    /// decodes bytes from a process must pass them through
+    /// [`normalize_captured_newlines`] (or [`CapturedStream`], if it decodes
+    /// in chunks). Without it a document's `<hick:expect match="exact">` means
+    /// something different per platform — see that function's docs and
+    /// `docs/guarantees/verification/an-expectation-means-the-same-on-every-platform.md`.
     async fn execute(&self, container: &str, command: &str) -> Result<String>;
 
     /// Like [`Executor::execute`], but with `stdin_data` piped to the command.
@@ -692,23 +708,36 @@ impl LocalExecutor {
             let _ = Self::now_offset_ms(&mut state);
             state.epoch.expect("epoch set")
         };
+        // Both streams are normalised as they are read (`CapturedStream`), so
+        // a `\r\n` split across two 8 KiB reads still becomes one `\n` in the
+        // events. The raw bytes are kept as well, because the aggregate is
+        // decoded from the whole buffer rather than assembled from the
+        // per-chunk decodes: a multi-byte character straddling a read would
+        // survive there and be mangled here, and the aggregate is what an
+        // expectation is compared against.
         let out_task = async {
             let mut buf = Vec::new();
             let mut chunk = [0u8; 8192];
             let mut evs = Vec::new();
+            let mut stream = CapturedStream::new();
             loop {
                 match stdout.read(&mut chunk).await {
                     Ok(0) => break,
                     Ok(n) => {
                         let t = epoch.elapsed().as_millis() as u64;
-                        evs.push(TranscriptEvent::Out {
-                            t,
-                            data: String::from_utf8_lossy(&chunk[..n]).into_owned(),
-                        });
+                        let data = stream.push(&chunk[..n]);
+                        if !data.is_empty() {
+                            evs.push(TranscriptEvent::Out { t, data });
+                        }
                         buf.extend_from_slice(&chunk[..n]);
                     }
                     Err(e) => return Err(anyhow::Error::from(e)),
                 }
+            }
+            let tail = stream.finish();
+            if !tail.is_empty() {
+                let t = epoch.elapsed().as_millis() as u64;
+                evs.push(TranscriptEvent::Out { t, data: tail });
             }
             Ok::<_, anyhow::Error>((buf, evs))
         };
@@ -716,19 +745,25 @@ impl LocalExecutor {
             let mut buf = Vec::new();
             let mut chunk = [0u8; 8192];
             let mut evs = Vec::new();
+            let mut stream = CapturedStream::new();
             loop {
                 match stderr.read(&mut chunk).await {
                     Ok(0) => break,
                     Ok(n) => {
                         let t = epoch.elapsed().as_millis() as u64;
-                        evs.push(TranscriptEvent::Err {
-                            t,
-                            data: String::from_utf8_lossy(&chunk[..n]).into_owned(),
-                        });
+                        let data = stream.push(&chunk[..n]);
+                        if !data.is_empty() {
+                            evs.push(TranscriptEvent::Err { t, data });
+                        }
                         buf.extend_from_slice(&chunk[..n]);
                     }
                     Err(e) => return Err(anyhow::Error::from(e)),
                 }
+            }
+            let tail = stream.finish();
+            if !tail.is_empty() {
+                let t = epoch.elapsed().as_millis() as u64;
+                evs.push(TranscriptEvent::Err { t, data: tail });
             }
             Ok::<_, anyhow::Error>((buf, evs))
         };
@@ -810,8 +845,9 @@ impl LocalExecutor {
         events.extend(merged);
         events.push(TranscriptEvent::Exit { t: exit_t, code });
 
-        let output = String::from_utf8_lossy(&out_buf).into_owned();
-        let stderr_text = String::from_utf8_lossy(&err_buf).into_owned();
+        let output = normalize_captured_newlines(&String::from_utf8_lossy(&out_buf)).into_owned();
+        let stderr_text =
+            normalize_captured_newlines(&String::from_utf8_lossy(&err_buf)).into_owned();
 
         let duration = start.elapsed();
         {
@@ -1064,6 +1100,41 @@ fn sanitize_name(name: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Protects
+    /// `docs/guarantees/verification/an-expectation-means-the-same-on-every-platform.md`.
+    ///
+    /// Written in each platform's own shell on purpose. On Windows this is
+    /// the real case — cmd's `echo` emits CRLF and cannot be told not to — and
+    /// on Unix the `printf` spells out the same bytes, so the rule is checked
+    /// where CI can see it rather than only on the one runner that has cmd.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn captured_output_is_recorded_with_lf_line_endings() {
+        let cell = if cfg!(windows) {
+            "echo one& echo two"
+        } else {
+            "printf 'one\\r\\ntwo\\r\\n'"
+        };
+        let ex = LocalExecutor::new().unwrap();
+        ex.ensure_started("c1", "alpine:3.20").await.unwrap();
+        let out = ex.execute("c1", cell).await.unwrap();
+        assert_eq!(out, "one\ntwo\n", "the returned stdout still carries CRLF");
+
+        let ts = ex.transcripts();
+        let entry = &ts["c1"][0];
+        assert_eq!(
+            entry.output, "one\ntwo\n",
+            "the transcript entry still carries CRLF"
+        );
+        for event in &entry.events {
+            if let TranscriptEvent::Out { data, .. } | TranscriptEvent::Err { data, .. } = event {
+                assert!(
+                    !data.contains("\r\n"),
+                    "an event still carries CRLF: {data:?}"
+                );
+            }
+        }
+    }
 
     #[tokio::test(flavor = "multi_thread")]
     async fn execute_captures_stdout_and_records_events() {

@@ -2,9 +2,21 @@
 //!
 //! `test_fails_on_drifted_expectation` is the test backing the guarantee in
 //! `docs/guarantees/verification/test-fails-on-drift.md`.
+//!
+//! Every document here carries `<hick:expect match="exact">`, which makes the
+//! suite the end-to-end check that an expectation means the same thing on
+//! every platform: the cells are written in the shell a cell actually gets
+//! (`sh -c` on Unix, `cmd.exe /C` on Windows — see `common::echo_lines`), and
+//! cmd's `echo` emits CRLF where the expectations below, being text in git,
+//! are LF.
+//! docs/guarantees/verification/an-expectation-means-the-same-on-every-platform.md
+
+mod common;
 
 use std::path::{Path, PathBuf};
 use std::process::Command;
+
+use common::echo_lines;
 
 fn hick() -> Command {
     Command::new(env!("CARGO_BIN_EXE_hick"))
@@ -22,41 +34,58 @@ fn write_doc(dir: &Path, name: &str, body: &str) -> PathBuf {
     path
 }
 
-const PASSING_DOC: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
+/// The cell every document below runs: two lines, `one` then `two`.
+fn two_lines() -> String {
+    echo_lines(&["one", "two"])
+}
+
+/// The `<hick:exec>` must stay on line 7 — `test_fails_on_drifted_expectation`
+/// asserts the report names that line.
+fn passing_doc() -> String {
+    format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
 <hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="passing.md">
 # Passing
 
 <hick:container name="c" image="alpine:3.20" />
 
 <hick:exec container="c">
-printf 'one\ntwo\n'
+{}
 <hick:expect match="exact">one
 two
 </hick:expect>
 </hick:exec>
 </hick:doc>
-"#;
+"#,
+        two_lines()
+    )
+}
 
-const DRIFTED_DOC: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
+fn drifted_doc() -> String {
+    format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
 <hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="drifted.md">
 # Drifted
 
 <hick:container name="c" image="alpine:3.20" />
 
 <hick:exec container="c">
-printf 'one\ntwo\n'
+{}
 <hick:expect match="exact">one
 three
 </hick:expect>
 </hick:exec>
 </hick:doc>
-"#;
+"#,
+        two_lines()
+    )
+}
 
 #[test]
 fn run_succeeds_and_records_failed_expectation_without_failing() {
     // On `run`, expectations are evaluated and recorded but do NOT fail.
     let dir = tempfile::tempdir().unwrap();
-    let doc = write_doc(dir.path(), "drifted.hick", DRIFTED_DOC);
+    let doc = write_doc(dir.path(), "drifted.hick", &drifted_doc());
     let out = hick().args(["run"]).arg(&doc).output().expect("run hick");
     assert!(
         out.status.success(),
@@ -70,7 +99,7 @@ fn run_succeeds_and_records_failed_expectation_without_failing() {
 #[test]
 fn test_passes_on_matching_expectations() {
     let dir = tempfile::tempdir().unwrap();
-    let doc = write_doc(dir.path(), "passing.hick", PASSING_DOC);
+    let doc = write_doc(dir.path(), "passing.hick", &passing_doc());
     // First run writes the woven output so check has committed files.
     assert!(hick().args(["run"]).arg(&doc).status().unwrap().success());
     let out = hick().args(["test"]).arg(&doc).output().unwrap();
@@ -87,7 +116,7 @@ fn test_fails_on_drifted_expectation() {
     // The failing block must be reported with doc path, line, and
     // expected-vs-actual.
     let dir = tempfile::tempdir().unwrap();
-    let doc = write_doc(dir.path(), "drifted.hick", DRIFTED_DOC);
+    let doc = write_doc(dir.path(), "drifted.hick", &drifted_doc());
     let out = hick().args(["test"]).arg(&doc).output().unwrap();
     assert!(
         !out.status.success(),
@@ -105,7 +134,7 @@ fn test_fails_on_committed_output_drift() {
     // Drift between the freshly woven output and the committed file also
     // fails check, even when expectations pass.
     let dir = tempfile::tempdir().unwrap();
-    let doc = write_doc(dir.path(), "passing.hick", PASSING_DOC);
+    let doc = write_doc(dir.path(), "passing.hick", &passing_doc());
     assert!(hick().args(["run"]).arg(&doc).status().unwrap().success());
     // Tamper with the committed woven markdown.
     let woven = dir.path().join("passing.md");
@@ -116,6 +145,11 @@ fn test_fails_on_committed_output_drift() {
     assert!(stderr.contains("passing.md"), "stderr: {stderr}");
 }
 
+/// Unix only, and this one genuinely is: the fixture is a copy of the shipped
+/// `examples/text-tools-tour.hick`, whose whole subject is `sort`, `awk` and
+/// `wc`. There is no cmd rewrite of that document that is still the shipped
+/// example, and a rewritten one would be testing something else.
+#[cfg(unix)]
 #[test]
 fn test_fails_on_drifted_fixture_copy_of_shipped_example() {
     // The shipped example, deliberately drifted (apple 12 -> apple 13).
@@ -140,16 +174,22 @@ fn regex_lines_expectations_pass_and_fail() {
         // drift. Without it the document weaves `regex.md`, which has never
         // been committed, and `hick test` reports drift before it ever gets to
         // the expectation. See `docs/specs/freeform/bare-documents.md`.
-        r#"<?xml version="1.0" encoding="UTF-8"?>
+        //
+        // Unquoted, unlike the `echo "value: 42"` this used to be: `sh` strips
+        // the quotes and cmd prints them.
+        &format!(
+            r#"<?xml version="1.0" encoding="UTF-8"?>
 <hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="none">
 <hick:container name="c" image="alpine:3.20" />
 <hick:exec container="c">
-echo "value: 42"
+{}
 <hick:expect match="regex-lines">value: \d+
 </hick:expect>
 </hick:exec>
 </hick:doc>
 "#,
+            echo_lines(&["value: 42"])
+        ),
     );
     let out = hick().args(["test"]).arg(&doc).output().unwrap();
     assert!(
@@ -162,16 +202,19 @@ echo "value: 42"
     let doc2 = write_doc(
         dir.path(),
         "regex-short.hick",
-        r#"<?xml version="1.0" encoding="UTF-8"?>
+        &format!(
+            r#"<?xml version="1.0" encoding="UTF-8"?>
 <hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="none">
 <hick:container name="c" image="alpine:3.20" />
 <hick:exec container="c">
-printf 'a\nb\n'
+{}
 <hick:expect match="regex-lines">a
 </hick:expect>
 </hick:exec>
 </hick:doc>
 "#,
+            echo_lines(&["a", "b"])
+        ),
     );
     let out2 = hick().args(["test"]).arg(&doc2).output().unwrap();
     assert!(!out2.status.success(), "must fail when lines uncovered");
@@ -180,7 +223,7 @@ printf 'a\nb\n'
 #[test]
 fn json_block_model_has_spans_transcripts_statuses() {
     let dir = tempfile::tempdir().unwrap();
-    let doc = write_doc(dir.path(), "passing.hick", PASSING_DOC);
+    let doc = write_doc(dir.path(), "passing.hick", &passing_doc());
     let out = hick().args(["run", "--json"]).arg(&doc).output().unwrap();
     assert!(out.status.success());
     let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
@@ -205,7 +248,7 @@ fn canopy_executor_without_config_fails_actionably() {
     // asserted only loosely: canopy API knowledge stays in the adapter crate
     // (docs/guarantees/execution/canopy-api-isolated-to-one-crate.md).
     let dir = tempfile::tempdir().unwrap();
-    let doc = write_doc(dir.path(), "passing.hick", PASSING_DOC);
+    let doc = write_doc(dir.path(), "passing.hick", &passing_doc());
     let out = hick()
         .args(["run"])
         .arg(&doc)
@@ -227,7 +270,9 @@ fn canopy_executor_without_config_fails_actionably() {
 
 /// The frozen cell's command, shared between the document and the recording
 /// so the cache key the pipeline computes is the one the test wrote.
-const FROZEN_COMMAND: &str = "\nprintf 'one\\ntwo\\n'\n";
+fn frozen_command() -> String {
+    format!("\n{}\n", two_lines())
+}
 
 fn frozen_doc() -> String {
     format!(
@@ -237,9 +282,10 @@ fn frozen_doc() -> String {
 
 <hick:container name="c" image="alpine:3.20" />
 
-<hick:exec container="c" freeze="true">{FROZEN_COMMAND}</hick:exec>
+<hick:exec container="c" freeze="true">{}</hick:exec>
 </hick:doc>
-"#
+"#,
+        frozen_command()
     )
 }
 
@@ -252,7 +298,7 @@ fn record_frozen_cell(project_dir: &Path, output: &str) {
     let key = hick_literate::cache::exec_cache_key(
         "alpine:3.20",
         "",
-        FROZEN_COMMAND,
+        &frozen_command(),
         &[],
         &hick_literate::cache::inputs_digest(&[]),
         &[],
@@ -262,7 +308,7 @@ fn record_frozen_cell(project_dir: &Path, output: &str) {
         "c",
         &key,
         &hick_literate::cache::ExecCacheEntry {
-            commands: vec![FROZEN_COMMAND.trim().to_string()],
+            commands: vec![frozen_command().trim().to_string()],
             output: output.to_string(),
             output_hash: hick_literate::cache::sha256_hex(output),
         },
@@ -273,7 +319,7 @@ fn record_frozen_cell(project_dir: &Path, output: &str) {
 #[test]
 fn test_exits_verified_when_nothing_changed() {
     let dir = tempfile::tempdir().unwrap();
-    let doc = write_doc(dir.path(), "passing.hick", PASSING_DOC);
+    let doc = write_doc(dir.path(), "passing.hick", &passing_doc());
     assert!(hick().arg("run").arg(&doc).status().unwrap().success());
     let out = hick().arg("test").arg(&doc).output().unwrap();
     assert_eq!(
@@ -291,7 +337,7 @@ fn test_exits_drifted_when_a_committed_output_is_out_of_date() {
     // may reasonably auto-fix this one, so it must not share a code with a
     // failed expectation.
     let dir = tempfile::tempdir().unwrap();
-    let doc = write_doc(dir.path(), "passing.hick", PASSING_DOC);
+    let doc = write_doc(dir.path(), "passing.hick", &passing_doc());
     assert!(hick().arg("run").arg(&doc).status().unwrap().success());
     std::fs::write(dir.path().join("passing.md"), "hand-edited\n").unwrap();
     let out = hick().arg("test").arg(&doc).output().unwrap();
@@ -306,7 +352,7 @@ fn test_exits_expectation_failed_when_a_claim_is_false() {
     // of its own output, and no amount of regenerating fixes that. It gets
     // its own code (3) so CI can auto-fix drift and never auto-fix this.
     let dir = tempfile::tempdir().unwrap();
-    let doc = write_doc(dir.path(), "drifted.hick", DRIFTED_DOC);
+    let doc = write_doc(dir.path(), "drifted.hick", &drifted_doc());
     // Commit the woven output first, so the ONLY finding is the expectation.
     assert!(hick().arg("run").arg(&doc).status().unwrap().success());
     let out = hick().arg("test").arg(&doc).output().unwrap();
@@ -332,7 +378,7 @@ fn a_failed_expectation_outranks_drift() {
     // or a CI job that auto-regenerates on drift would quietly bury a false
     // claim by committing over it.
     let dir = tempfile::tempdir().unwrap();
-    let doc = write_doc(dir.path(), "drifted.hick", DRIFTED_DOC);
+    let doc = write_doc(dir.path(), "drifted.hick", &drifted_doc());
     assert!(hick().arg("run").arg(&doc).status().unwrap().success());
     std::fs::write(dir.path().join("drifted.md"), "hand-edited\n").unwrap();
     let out = hick().arg("test").arg(&doc).output().unwrap();
@@ -449,16 +495,17 @@ fn test_reports_unverifiable_when_the_recording_directory_exists_but_the_cell_is
     record_frozen_cell(dir.path(), "one\ntwo\n");
     // Retire the recording the way an edit would: a different command means a
     // different key, so the directory exists but this cell is not in it.
+    let changed = echo_lines(&["changed"]);
     let doc = write_doc(
         dir.path(),
         "frozen.hick",
-        &frozen_doc().replace("printf 'one\\ntwo\\n'", "printf 'changed\\n'"),
+        &frozen_doc().replace(&two_lines(), &changed),
     );
     let out = hick().arg("test").arg(&doc).output().unwrap();
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert_eq!(out.status.code(), Some(2), "{stderr}");
     assert!(
-        stderr.contains("printf 'changed"),
+        stderr.contains(&changed),
         "names the command that has no recording: {stderr}"
     );
 }
@@ -498,16 +545,18 @@ fn a_failed_expectation_outranks_unverifiable() {
 
 <hick:container name="c" image="alpine:3.20" />
 
-<hick:exec container="c" freeze="true">{FROZEN_COMMAND}</hick:exec>
+<hick:exec container="c" freeze="true">{}</hick:exec>
 
 <hick:exec container="c">
-printf 'one\ntwo\n'
+{}
 <hick:expect match="exact">one
 three
 </hick:expect>
 </hick:exec>
 </hick:doc>
-"#
+"#,
+            frozen_command(),
+            two_lines()
         ),
     );
     let out = hick().arg("test").arg(&doc).output().unwrap();
