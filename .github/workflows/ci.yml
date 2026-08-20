@@ -154,7 +154,15 @@ jobs:
       # that have never run on this platform, and a failure in them says
       # something about the product rather than about the runner.
       - run: cargo test -p hickory-executor-sandbox -- --test-threads=1
-      - run: cargo test --workspace -- --test-threads=1
+      # `cargo test --workspace` is NOT run here yet, and the reason is worth
+      # stating rather than leaving as an absence: the suite writes its cell
+      # commands in POSIX shell, and cells run through `cmd.exe /C` on Windows.
+      # Those tests do not test what they claim on this platform — several
+      # passed while confining nothing, because an msys `touch` fails whatever
+      # the sandbox does. Porting them is issue #17; re-adding this line is its
+      # close condition. Running it today would only keep the release channel
+      # red, since Unstable Release chains off a green CI.
+      - run: cargo build --workspace --all-targets
 
   # macOS, because the product runs there and nothing in CI did.
   #
