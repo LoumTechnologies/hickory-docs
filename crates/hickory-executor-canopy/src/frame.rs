@@ -61,6 +61,15 @@ pub fn shell_quote(s: &str) -> String {
 ///
 /// Everything talking to the guest sees a pty, so anything that colourises
 /// or manages a prompt when attached to a terminal does so here.
+///
+/// Dropping `\r` outright is *stricter* than the rule the other executors
+/// follow (`hickory_executor::normalize_captured_newlines` rewrites `\r\n` and
+/// leaves a lone `\r` alone), and that is deliberate rather than an oversight:
+/// a pty ends every line with `\r\n` and uses a bare `\r` to move the cursor,
+/// so neither carries meaning once the stream has been flattened into recorded
+/// text. This is what already satisfies
+/// `docs/guarantees/verification/an-expectation-means-the-same-on-every-platform.md`
+/// for the canopy executor.
 pub fn strip_ansi(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     let mut chars = s.chars();

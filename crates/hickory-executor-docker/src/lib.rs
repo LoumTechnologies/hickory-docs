@@ -41,6 +41,7 @@ use async_trait::async_trait;
 use hick_token::ContainerCapabilities;
 use hickory_executor::{
     ContainerResourceStats, ExecTranscriptEntry, Executor, TranscriptEvent, Transcripts,
+    normalize_captured_newlines,
 };
 use tokio::io::AsyncWriteExt as _;
 use tokio::process::Command;
@@ -274,8 +275,15 @@ impl DockerExecutor {
         let out = child.wait_with_output().await?;
 
         let elapsed = started.elapsed();
-        let stdout = String::from_utf8_lossy(&out.stdout).to_string();
-        let stderr = String::from_utf8_lossy(&out.stderr).to_string();
+        // `\r\n` -> `\n`, the same rewrite `LocalExecutor` applies: a
+        // Windows-container image, or a program inside a Linux one that emits
+        // DOS line endings, must not make a document's expectations mean
+        // something different from where they were written.
+        // docs/guarantees/verification/an-expectation-means-the-same-on-every-platform.md
+        let stdout =
+            normalize_captured_newlines(&String::from_utf8_lossy(&out.stdout)).into_owned();
+        let stderr =
+            normalize_captured_newlines(&String::from_utf8_lossy(&out.stderr)).into_owned();
         let code = out.status.code().unwrap_or(-1);
         let t = elapsed.as_millis() as u64;
 

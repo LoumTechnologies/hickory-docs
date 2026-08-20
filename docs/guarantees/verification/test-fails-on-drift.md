@@ -13,6 +13,12 @@ never verified against anything (exit `2`). See
 `test-separates-unverifiable-from-drifted.md` for all four codes and their
 precedence.
 
+"Byte equality" is equality against the bytes as *recorded*, and recording
+rewrites `\r\n` to `\n` on every platform — see
+`an-expectation-means-the-same-on-every-platform.md`. The comparison itself is
+unchanged and is still exact: what that buys is that a document drifts for the
+same reasons wherever it is checked.
+
 ---
 
 Last LLM verification:
@@ -33,10 +39,17 @@ Last LLM verification:
   gave a failed expectation its own code. Re-verified after issue #9 renamed
   the subcommand from `check` to `test` with no alias: `hick check` now
   exits as an unrecognized subcommand (`the_old_check_subcommand_is_gone`).
+  Re-checked 2026-08-20 after issue #18: `expect.rs` is untouched —
+  `exact_is_byte_exact_about_trailing_newline` still passes unchanged — and
+  the whole of `test_command_tests.rs` now writes its cells in each
+  platform's own shell, so `hick test` is exercised on Windows for the first
+  time (`cmd.exe /C` emitting CRLF against LF expectations).
 - Test coverage: `crates/hickory-cli/tests/test_command_tests.rs` —
   `test_fails_on_drifted_expectation` (the guarantee's test), plus
   `test_fails_on_committed_output_drift`,
-  `test_fails_on_drifted_fixture_copy_of_shipped_example`,
+  `test_fails_on_drifted_fixture_copy_of_shipped_example` (Unix only: the
+  fixture is a copy of the shipped `sort`/`awk`/`wc` tour, and no cmd rewrite
+  of it would still be that example),
   `test_passes_on_matching_expectations`,
   `regex_lines_expectations_pass_and_fail`, and
   `run_succeeds_and_records_failed_expectation_without_failing`
