@@ -16,7 +16,7 @@
 //! There is no clock in here. Dates come from the source file, so ingesting the
 //! same file twice on different days produces the same bytes.
 
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 use sha2::{Digest, Sha256};
@@ -64,12 +64,28 @@ impl InboxConfig {
             );
         }
         let path = Path::new(value);
-        if path.is_absolute() {
+        // NOT `is_absolute()`, which is the obvious check and the wrong one.
+        // On Windows it is FALSE for `/tmp/elsewhere`: that path is rooted but
+        // names no drive, so Windows calls it relative — while `join` still
+        // resolves it to `C:\tmp\elsewhere`, outside the notes folder
+        // entirely. Ingest MOVES files after reading them, so the guard
+        // failing open means somebody's recording is relocated to a directory
+        // they never named. Scanning components catches every spelling of
+        // "not a name inside this folder": `/x`, `\x`, `C:\x`, the
+        // drive-relative `C:x`, and `\\server\share`.
+        if path
+            .components()
+            .any(|c| matches!(c, Component::Prefix(_) | Component::RootDir))
+        {
             bail!(
-                "{INBOX_VAR} is `{value}`, which is an absolute path.\n  \
+                "{INBOX_VAR} is `{value}`, which points outside your notes \
+                 folder — it starts from a drive or the root of a disk rather \
+                 than naming somewhere inside the folder.\n  \
                  The inbox lives inside the notes folder so that a notes \
                  repository is self-contained and can be moved or cloned \
-                 anywhere.\n  \
+                 anywhere. Ingest also moves files after reading them, so a \
+                 path that escapes the folder would move somebody's file \
+                 somewhere they did not ask for.\n  \
                  Next step: use a relative name like `{DEFAULT_INBOX}`."
             );
         }

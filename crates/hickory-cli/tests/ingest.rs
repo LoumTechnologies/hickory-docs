@@ -326,6 +326,56 @@ fn a_bad_inbox_setting_fails_with_a_message_that_names_the_variable() {
     }
 }
 
+/// Protects `docs/guarantees/authoring/ingest-keeps-the-original-bytes.md`
+#[test]
+fn an_inbox_starting_at_a_root_is_refused_on_every_platform() {
+    // `is_absolute()` is the obvious guard and it was the wrong one. On
+    // Windows it is FALSE for `/tmp/elsewhere` — rooted, but naming no drive,
+    // which Windows calls relative — while `join` still resolves it to
+    // `C:\tmp\elsewhere`. Ingest MOVES files after reading them, so a guard
+    // that fails open relocates somebody's recording somewhere they never
+    // named. The value above was already in the list below when this was
+    // found: the test was right and had simply never run on Windows.
+    for bad in ["/tmp/elsewhere", "/etc/hickory", "/"] {
+        let err = InboxConfig::from_lookup(|_| Some(bad.to_string()))
+            .expect_err("a rooted inbox must be refused")
+            .to_string();
+        assert!(err.contains("HICKORY_INBOX"), "{bad}: {err}");
+        assert!(err.contains("Next step"), "{bad}: {err}");
+    }
+}
+
+/// The spellings only Windows has. Asserted where they mean something rather
+/// than on a platform that reads `C:\tmp` as an ordinary directory name.
+#[cfg(windows)]
+#[test]
+fn the_windows_spellings_of_outside_the_folder_are_refused() {
+    // `C:tmp` is the sharp one: drive-relative, so it has no root at all and
+    // `has_root()` would let it through, but it still resolves against another
+    // drive's current directory rather than inside the notes folder.
+    for bad in [r"C:\tmp", r"\tmp", r"C:tmp", r"\\server\share"] {
+        let err = InboxConfig::from_lookup(|_| Some(bad.to_string()))
+            .expect_err("a rooted or drive-qualified inbox must be refused")
+            .to_string();
+        assert!(err.contains("HICKORY_INBOX"), "{bad}: {err}");
+    }
+}
+
+#[test]
+fn a_name_inside_the_folder_is_still_accepted() {
+    // The guard must not be so broad that the feature stops working.
+    for good in ["inbox", "meetings/inbox", "a/b/c"] {
+        let config = InboxConfig::from_lookup(|_| Some(good.to_string()))
+            .unwrap_or_else(|e| panic!("{good} should be accepted: {e}"));
+        assert!(
+            config
+                .inbox(Path::new("/notes"))
+                .starts_with(Path::new("/notes")),
+            "{good} escaped the notes folder"
+        );
+    }
+}
+
 #[test]
 fn the_ingest_command_reports_every_outcome() {
     let dir = folder_with("sync.vtt", VTT.as_bytes());

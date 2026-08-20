@@ -177,7 +177,7 @@ jobs:
       - run: >-
           cargo test -p hickory-cli --test cache_flags --test init_tests
           --test lineage_sweep --test up_stress --test volatile_outputs
-          --test serve_terminals -- --test-threads=1
+          --test serve_terminals --test ingest -- --test-threads=1
       # `hick-lsp` has to exist before discovery can find it, exactly as the
       # macOS job does it. The `--skip` comes off when #20 is fixed, which is
       # how that fix gets proven rather than asserted.
