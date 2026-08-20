@@ -20,6 +20,7 @@ import { search, searchKeymap } from "@codemirror/search";
 import type { OutputFile, Provenance } from "../api/types";
 import { changeFlashField, syncAndFlash } from "../editor/changeFlash";
 import { languageExtensions } from "../editor/languages";
+import { forgetFocusedEditor, markFocusedEditor } from "../editor/activeEditor";
 import { lineHighlightField } from "../editor/lineHighlight";
 import { RightRail } from "../editor/RightRail";
 import { wrapGutterMarkers } from "../editor/wrapGutter";
@@ -193,6 +194,15 @@ export function OutputEditorPane({
               ? fencedCodeRanges(state.doc.toString())
               : [[0, state.doc.length] as [number, number]],
           ),
+          // Which buffer Print means. Not `markActiveEditor` — that one
+          // answers "where does an Insert go?", and a hick element written
+          // into a file this document generates would land in the woven
+          // output, where it means nothing.
+          EditorView.focusChangeEffect.of((_state, focusing) => {
+            const live = viewRef.current;
+            if (focusing && live) markFocusedEditor(live);
+            return null;
+          }),
           EditorView.updateListener.of((u) => {
             if (u.docChanged) {
               changesRef.current = changesRef.current
@@ -227,6 +237,7 @@ export function OutputEditorPane({
     return () => {
       view.dom.removeEventListener("mousemove", onMove);
       onViewReady?.(null);
+      forgetFocusedEditor(view);
       view.destroy();
       viewRef.current = null;
       setRailView(null);

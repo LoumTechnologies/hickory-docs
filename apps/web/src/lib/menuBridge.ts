@@ -10,6 +10,15 @@ export type MenuAction =
   | "new"
   | "save"
   | "save-as"
+  | "save-all"
+  | "print"
+  // Zoom, at two scopes: the whole window, and the focused tab alone.
+  | "zoom-in"
+  | "zoom-out"
+  | "zoom-reset"
+  | "zoom-tab-in"
+  | "zoom-tab-out"
+  | "zoom-tab-reset"
   | "settings"
   | "files"
   // Terminals: open one, and walk the attention queue.
@@ -30,6 +39,14 @@ const ACTIONS: ReadonlySet<string> = new Set([
   "new",
   "save",
   "save-as",
+  "save-all",
+  "print",
+  "zoom-in",
+  "zoom-out",
+  "zoom-reset",
+  "zoom-tab-in",
+  "zoom-tab-out",
+  "zoom-tab-reset",
   "settings",
   "files",
   "insert",

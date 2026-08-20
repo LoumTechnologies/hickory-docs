@@ -20,6 +20,7 @@ import { api } from "../api/client";
 import type { AdoptResponse, PlainFile } from "../api/types";
 import { changeFlashField, syncAndFlash } from "../editor/changeFlash";
 import { languageExtensions } from "../editor/languages";
+import { forgetFocusedEditor, markFocusedEditor } from "../editor/activeEditor";
 import { fencedCodeRanges, isMarkdownPath, markdownStyling } from "../editor/markdownStyling";
 import { taskCheckboxes } from "../editor/taskList";
 import { renderedMath } from "../editor/mathRender";
@@ -28,6 +29,7 @@ import { wrapGutterMarkers } from "../editor/wrapGutter";
 import { FILES_CHANGED_EVENT } from "../shell/FolderTreePane";
 import { createPlainSaver, type PlainSaveState } from "../lib/plainFileSave";
 import { draftDisposition, useDraftKeeper } from "../lib/drafts";
+import { onFlushSaves } from "../lib/flushSaves";
 import { MergeView } from "./MergeView";
 
 export function PlainFilePane({
@@ -71,6 +73,9 @@ export function PlainFilePane({
     [path],
   );
   useEffect(() => () => saver.dispose(), [saver]);
+  // File > Save All: this pane owns its saver, so it answers for its own
+  // buffer. See lib/flushSaves.ts.
+  useEffect(() => onFlushSaves(() => saver.flushNow()), [saver]);
 
   // The initial read. The pane renders its refusals — binary, too large,
   // missing — as text where the editor would be: the tab is still an honest
@@ -159,6 +164,15 @@ export function PlainFilePane({
               ? fencedCodeRanges(state.doc.toString())
               : [[0, state.doc.length] as [number, number]],
           ),
+          // Which buffer Print means. Not `markActiveEditor` — that one
+          // answers "where does an Insert go?", and a hick element written
+          // into a file this document generates would land in the woven
+          // output, where it means nothing.
+          EditorView.focusChangeEffect.of((_state, focusing) => {
+            const live = viewRef.current;
+            if (focusing && live) markFocusedEditor(live);
+            return null;
+          }),
           EditorView.updateListener.of((u) => {
             // Only edits a person made: a programmatic reload is this pane
             // catching up with the disk, and saving it back would write
@@ -182,6 +196,7 @@ export function PlainFilePane({
     });
     viewRef.current = view;
     return () => {
+      forgetFocusedEditor(view);
       view.destroy();
       viewRef.current = null;
     };

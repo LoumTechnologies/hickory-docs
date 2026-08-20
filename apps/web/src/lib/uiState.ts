@@ -20,6 +20,7 @@
 
 import { panes, reid, type Layout, type Node, type Pane, type Tab, type ViewKind } from "../shell/layout";
 import { WRAP_DEFAULT, clampWrapColumn } from "../editor/wrapColumn";
+import { ZOOM_DEFAULT, clampZoom } from "./zoom";
 
 /** Bumped when a stored blob would be misread by this version. */
 export const UI_STATE_VERSION = 1;
@@ -28,6 +29,11 @@ export interface WorkspaceUi {
   version: number;
   /** The arrangement, or null when there is nothing worth restoring. */
   layout: Layout | null;
+  /** Zoom level per tab, keyed the same way as `wrap`. The WHOLE-UI level
+   * is not here: it follows the screen and the eyes in front of it rather
+   * than the project, so it lives in localStorage with the other appearance
+   * preferences (lib/zoom.ts). */
+  zoom: Record<string, number>;
   /** Prose measure per tab, keyed by the tab's target — its path.
    *
    * Keyed by path rather than by tab id on purpose: tab ids are per-session
@@ -38,7 +44,7 @@ export interface WorkspaceUi {
 }
 
 export function emptyUi(): WorkspaceUi {
-  return { version: UI_STATE_VERSION, layout: null, wrap: {} };
+  return { version: UI_STATE_VERSION, layout: null, wrap: {}, zoom: {} };
 }
 
 const VIEW_KINDS: ReadonlySet<string> = new Set<ViewKind>([
@@ -164,7 +170,13 @@ export function normalizeUi(raw: unknown): WorkspaceUi {
       if (typeof value === "number") wrap[path] = clampWrapColumn(value);
     }
   }
-  return { version: UI_STATE_VERSION, layout, wrap };
+  const zoom: Record<string, number> = {};
+  if (isRecord(raw.zoom)) {
+    for (const [path, value] of Object.entries(raw.zoom)) {
+      if (typeof value === "number") zoom[path] = clampZoom(value);
+    }
+  }
+  return { version: UI_STATE_VERSION, layout, wrap, zoom };
 }
 
 /** The measure for one tab, defaulting where none was stored. */
@@ -175,6 +187,16 @@ export function wrapFor(ui: WorkspaceUi, target: string): number {
 /** The same state with one tab's measure changed. */
 export function withWrap(ui: WorkspaceUi, target: string, column: number): WorkspaceUi {
   return { ...ui, wrap: { ...ui.wrap, [target]: clampWrapColumn(column) } };
+}
+
+/** The zoom level for one tab, defaulting to actual size. */
+export function zoomFor(ui: WorkspaceUi, target: string): number {
+  return ui.zoom[target] ?? ZOOM_DEFAULT;
+}
+
+/** The same state with one tab's zoom changed. */
+export function withZoom(ui: WorkspaceUi, target: string, level: number): WorkspaceUi {
+  return { ...ui, zoom: { ...ui.zoom, [target]: clampZoom(level) } };
 }
 
 /**

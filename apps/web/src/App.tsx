@@ -61,6 +61,8 @@ export function App() {
           return;
         case "save":
         case "save-as":
+        case "save-all":
+        case "print":
           // The workspace routes the command to whichever document is
           // focused; it is mounted for both the doc and untitled routes.
           if (routeRef.current.name === "doc" || routeRef.current.name === "new") {

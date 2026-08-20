@@ -5705,3 +5705,76 @@ textarea:focus {
   font-size: 0.74rem;
   padding: 0.15rem 0.5rem;
 }
+
+/* printing ------------------------------------------------------------------
+   The printable copy is written into `.print-sheet` by lib/printing.ts and
+   removed again the moment the dialog closes; it is never part of the page a
+   reader sees. The rule below is what makes the rest of the app disappear
+   while it is there.
+
+   Why not print the editor itself: CodeMirror virtualises, so only the lines
+   near the viewport exist in the DOM. Printing the window would print one
+   screenful, silently, and the paper would look fine. */
+.print-sheet { display: none; }
+
+@media print {
+  /* Everything the app draws is chrome as far as paper is concerned. */
+  body > *:not(.print-sheet) { display: none !important; }
+  /* The only rules in this file that do not style through var(--…), and the
+     only ones that should be.
+     
+     The token guard exists because a raw colour in a rule is invisible to two
+     of the three themes. Paper is not one of the three themes: it is white,
+     the ink is black, and that is true whichever palette the reader has the
+     app set to. Named colours rather than tokens, so nothing here can be
+     "fixed" later by pointing it at a theme that does not apply. */
+  .print-sheet {
+    display: block;
+    color: black;
+    background: white;
+  }
+  .print-sheet__title {
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    font-size: 14pt;
+    margin: 0 0 12pt;
+    padding-bottom: 4pt;
+    border-bottom: 1px solid gray;
+  }
+  .print-sheet__body {
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 9pt;
+    line-height: 1.45;
+    /* Paper has a hard measure, and a printed line that runs off the right
+       edge is simply gone — so here, unlike on screen, code wraps too. */
+    white-space: pre-wrap;
+    word-break: break-word;
+    margin: 0;
+  }
+  @page {
+    margin: 18mm 15mm;
+  }
+}
+
+/* zoom ---------------------------------------------------------------------
+   Two scopes, one mechanism: a font size, never a transform. A transform
+   scales rendered pixels — blurry text, hit targets that no longer line up
+   with what is drawn, and a scrollbar belonging to the untransformed box.
+   This file sizes in `rem` almost throughout, so moving the root's font size
+   re-lays-out at the new size, which is what zoom is supposed to mean.
+
+   `--ui-zoom` is set on <html> by lib/zoom.ts; `--tab-zoom` is set per tab
+   body by the workspace. A tab at 100% therefore inherits the window's level
+   and nothing else, which is why the two compose instead of fighting. */
+html {
+  font-size: calc(100% * var(--ui-zoom, 1));
+}
+.tab-zoom {
+  font-size: calc(1rem * var(--tab-zoom, 1));
+  /* The box is a layout passthrough: it exists to carry a font size, and a
+     pane's body still has to fill the pane. */
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  flex: 1;
+}

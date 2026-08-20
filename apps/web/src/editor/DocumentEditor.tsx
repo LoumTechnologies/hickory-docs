@@ -26,7 +26,12 @@ import {
 } from "../lsp/cmLsp";
 import type { LspDiagnostic } from "../lsp/client";
 import { hickoryFolding } from "./folding";
-import { forgetEditor, markActiveEditor } from "./activeEditor";
+import {
+  forgetEditor,
+  forgetFocusedEditor,
+  markActiveEditor,
+  markFocusedEditor,
+} from "./activeEditor";
 import type { EnvSlot } from "./wysiwyg";
 import {
   containerNamesOf,
@@ -354,7 +359,10 @@ export function DocumentEditor({
           // focus away from every editor on the page.
           EditorView.focusChangeEffect.of((_state, focusing) => {
             const live = viewRef.current;
-            if (focusing && live) markActiveEditor(live);
+            if (focusing && live) {
+              markActiveEditor(live);
+              markFocusedEditor(live);
+            }
             return null;
           }),
           // Prose wraps at the ruler's measure; code keeps its lines and takes
@@ -412,6 +420,7 @@ export function DocumentEditor({
       cancelled = true;
       onViewReady?.(null);
       forgetEditor(view);
+      forgetFocusedEditor(view);
       view.destroy();
       viewRef.current = null;
       setRailView(null);

@@ -29,8 +29,10 @@ import {
   emptyUi,
   normalizeUi,
   withWrap,
+  withZoom,
   worthStoring,
   wrapFor,
+  zoomFor,
   type WorkspaceUi,
 } from "../lib/uiState";
 import type { Layout } from "../shell/layout";
@@ -46,6 +48,10 @@ export interface WorkspaceUiHandle {
   wrapFor: (target: string) => number;
   /** Record a measure the reader dragged on a ruler. */
   setWrap: (target: string, column: number) => void;
+  /** How far one tab is zoomed, and a way to move it. The whole-window level
+   * is not here — it belongs to the screen, not the project. */
+  zoomFor: (target: string) => number;
+  setZoom: (target: string, level: number) => void;
 }
 
 /**
@@ -113,9 +119,15 @@ export function useWorkspaceUi(
     setUi((current) => withWrap(current, target, column));
   }, []);
 
+  const setZoom = useCallback((target: string, level: number) => {
+    setUi((current) => withZoom(current, target, level));
+  }, []);
+
   return {
     hydrated,
     wrapFor: useCallback((target: string) => wrapFor(ui, target), [ui]),
     setWrap,
+    zoomFor: useCallback((target: string) => zoomFor(ui, target), [ui]),
+    setZoom,
   };
 }
