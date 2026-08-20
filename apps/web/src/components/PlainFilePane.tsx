@@ -48,6 +48,15 @@ export function PlainFilePane({
   const [saveState, setSaveState] = useState<PlainSaveState>({ kind: "idle" });
   const [adopting, setAdopting] = useState(false);
   const [adoptError, setAdoptError] = useState<string | null>(null);
+  // Whether some document in the folder already writes this file.
+  //
+  // The tree normally routes such a file to the generated pane and this one
+  // never opens for it. This is the second line of defence, for the ways it
+  // can still get here — a path typed into the URL, a document created while
+  // this tab was open — because offering to "make literate" a file that
+  // already is, is worse than an extra request: the reader is told their
+  // document is not what it plainly is.
+  const [generatedBy, setGeneratedBy] = useState<string | null>(null);
   // A draft to put back into the buffer once the view exists. Held as state
   // rather than applied immediately because the load lands before the editor
   // is built.
@@ -88,6 +97,24 @@ export function PlainFilePane({
         setFile(loaded);
         setLoadError(null);
         saver.load(loaded.content, loaded.hash);
+        void api.files().then(
+          (files) => {
+            if (!live) return;
+            const find = (nodes: typeof files.tree): string | null => {
+              for (const node of nodes) {
+                if (node.path === path) return node.generated_by ?? null;
+                const found = node.children ? find(node.children) : null;
+                if (found) return found;
+              }
+              return null;
+            };
+            setGeneratedBy(find(files.tree));
+          },
+          () => {
+            // The listing is unavailable: the button stays, and the adopt
+            // route's own refusal is the backstop.
+          },
+        );
         // Was this buffer holding unsaved work when the app last closed?
         //
         // Three answers, and only one of them interrupts anybody. The file is
@@ -347,6 +374,14 @@ export function PlainFilePane({
   return (
     <div className="plain-file-pane">
       <div className="doc-tab-toolbar" role="toolbar" aria-label={`Actions for ${path}`}>
+        {generatedBy ? (
+          // Not a disabled button: there is nothing to enable. This file is
+          // already the output of a literate document, and saying which one
+          // is more useful than a greyed-out verb.
+          <span className="muted plain-file__generated" role="status">
+            Written by a literate document — it is already literate.
+          </span>
+        ) : (
         <button
           className="btn"
           // Not while a save is in flight or parked on a conflict: the
@@ -357,6 +392,7 @@ export function PlainFilePane({
         >
           {adopting ? "Adopting…" : "Make literate"}
         </button>
+        )}
         {(saveState.kind === "saving" || saveState.kind === "saved") && (
           <span
             className={`save-state save-state-${saveState.kind === "saving" ? "editing" : "saved"}`}

@@ -27,7 +27,7 @@ import { PlainFilePane } from "../components/PlainFilePane";
 import { ScratchpadPane } from "../components/ScratchpadPane";
 import { SearchPanel } from "../components/SearchPanel";
 import { ReferencesPanel } from "../components/ReferencesPanel";
-import { PromptPanel } from "../components/PromptPanel";
+import { PromptPanel, usePrompt } from "../components/PromptPanel";
 import { resolveSearchHit, type SearchNavigation } from "../lib/searchNavigation";
 import { insertTarget, type MenuAction } from "../lib/menuBridge";
 import { insertElement } from "../editor/insertElement";
@@ -73,16 +73,13 @@ import {
   openFileTab,
   openGeneratedTab,
   openIntoDeclared,
-  openSessionsTab,
   openTerminalTab,
   openScratchpadTab,
   openUntitledTab,
-  SESSIONS_TAB,
 } from "./workspaceState";
 import { DocSessionHost, SessionRegistry, useSessionVersion } from "./documentSession";
 import { AttentionCard } from "../terminal/AttentionCard";
 import { MonitorDock } from "../terminal/MonitorDock";
-import { SessionsPane } from "../terminal/SessionsPane";
 import { TerminalPane } from "../terminal/TerminalPane";
 import { sessionById, useTerminals } from "../terminal/useTerminals";
 import { nextInQueue } from "../lib/attentionCursor";
@@ -147,6 +144,10 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   const [tabStyle] = useState<TabStyle>(() => loadTabStyle());
   const [channelWidth] = useState<number>(() => loadChannelWidth());
   const [shellBox, setShellBox] = useState<HTMLElement | null>(null);
+  // The workspace's own prompt, for the things that belong to the WINDOW
+  // rather than to a document — asking for a worktree's branch name, now that
+  // terminals have no pane of their own to ask on.
+  const shellPrompt = usePrompt();
 
   // What the window looked like last time, and where each tab's prose measure
   // sits. Restored into an untouched workspace only — the same rule a
@@ -636,7 +637,8 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     const onTerminalCommand = (event: Event) => {
       const detail = (event as CustomEvent).detail;
       if (detail === "terminal") {
-        setLayout(openSessionsTab);
+        // No list to open any more: the terminal appears as an icon on its
+        // directory's row in the one tree this window has.
         void openTerminal();
       } else if (detail === "attention") {
         nextAttention();
@@ -789,23 +791,6 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       // nothing; it is told its level and re-fits itself.
       return <TerminalPane sessionId={tab.target} zoom={workspaceUi.zoomFor(tab.target)} />;
     }
-    if (tab.kind === "tool" && tab.target === SESSIONS_TAB) {
-      return (
-        <SessionsPane
-          sessions={terminals.sessions}
-          turbo={terminals.turbo}
-          error={terminals.error}
-          activeId={attentionAt}
-          onOpen={showTerminal}
-          onClose={(id) => void terminals.close(id)}
-          onNew={(monitor) => void openTerminal({ monitor })}
-          onNewWorktree={(branch) =>
-            void openTerminal({ title: branch, worktree_branch: branch })
-          }
-          onSetTurbo={(enabled) => void terminals.setTurbo(enabled)}
-        />
-      );
-    }
     if (tab.kind === "tree") {
       return (
         <FolderTreePane
@@ -826,6 +811,19 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
             cwdIsLive: session.cwd_is_live ?? false,
           }))}
           onOpenTerminal={showTerminal}
+          // Terminals live in the tree now, so the verbs that used to sit on
+          // the terminals pane live on the rows they act on: a directory
+          // opens one IN that directory, and an icon's own menu is the only
+          // place a session can be stopped.
+          onNewTerminal={(path) => void openTerminal({ cwd: path })}
+          onNewWorktree={(path) => {
+            void shellPrompt.askText("Branch for the new worktree:", "").then((branch) => {
+              if (branch) {
+                void openTerminal({ title: branch, worktree_branch: branch, cwd: path });
+              }
+            });
+          }}
+          onCloseTerminal={(id) => void terminals.close(id)}
           onOpen={(action) => {
             // A document ADDS a tab (or fronts its existing one);
             // a generated file opens beside its owner. Nothing
@@ -834,7 +832,10 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
               ensureDocOpen(action.id);
               navigate(`/docs/${action.id}`);
             } else if (action.kind === "generated") {
-              const owner = openableOutputs.get(action.path);
+              // The server names the owner for any document in the folder;
+              // `openableOutputs` only knows the OPEN ones, so it is the
+              // fallback rather than the first answer.
+              const owner = action.docId ?? openableOutputs.get(action.path);
               if (owner) openGeneratedFor(owner, action.path);
             } else {
               openPlainFile(action.path);
@@ -962,6 +963,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
         />
       )}
       {focused && <PromptPanel prompt={focused.prompt} onSettle={focused.settle} />}
+      <PromptPanel prompt={shellPrompt.prompt} onSettle={shellPrompt.settle} />
       {focused && (
         <ChatDock
           // Keyed by document: the dock docks to the focused document, one

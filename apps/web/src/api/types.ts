@@ -180,6 +180,9 @@ export interface FileNode {
   dir: boolean;
   children?: FileNode[];
   doc_id?: string;
+  /** The id of the document that generates this file, when one does. Absent
+   * on documents themselves, on directories, and on files nobody writes. */
+  generated_by?: string;
 }
 
 export interface FilesResponse {

@@ -27,6 +27,10 @@ function serve({ content, drafts }: { content: string; drafts: WorkspaceDraft[] 
   vi.spyOn(api, "discardDraft").mockResolvedValue({ ok: true });
   vi.spyOn(api, "saveDraft").mockResolvedValue({ ok: true });
   vi.spyOn(api, "saveFile").mockResolvedValue({ path: "notes.md", hash: "h:saved" });
+  vi.spyOn(api, "files").mockResolvedValue({
+    root: "notebook",
+    tree: [{ name: "notes.md", path: "notes.md", dir: false }],
+  });
 }
 
 const draft = (over: Partial<WorkspaceDraft> = {}): WorkspaceDraft => ({
@@ -97,5 +101,41 @@ describe("reopening a file that had unsaved changes", () => {
     return waitFor(() => {
       expect(document.querySelector(".cm-content")?.textContent).toContain("two");
     });
+  });
+});
+
+describe("a file that is already the output of a document", () => {
+  it("is not offered a button to make it literate", () => {
+    // It already is. Offering the verb tells the reader their document is not
+    // what it plainly is.
+    serve({ content: ON_DISK, drafts: [] });
+    vi.spyOn(api, "files").mockResolvedValue({
+      root: "notebook",
+      tree: [{ name: "notes.md", path: "notes.md", dir: false, generated_by: "d1" }],
+    });
+    render(<PlainFilePane path="notes.md" />);
+    return waitFor(() => {
+      expect(screen.queryByRole("button", { name: /make literate/i })).toBeNull();
+      expect(screen.getByText(/already literate/i)).toBeTruthy();
+    });
+  });
+
+  it("keeps the button for a file nobody writes", () => {
+    serve({ content: ON_DISK, drafts: [] });
+    render(<PlainFilePane path="notes.md" />);
+    return waitFor(() =>
+      expect(screen.getByRole("button", { name: /make literate/i })).toBeTruthy(),
+    );
+  });
+
+  it("keeps the button when the listing is unavailable", () => {
+    // The adopt route's own refusal is the backstop; a failed listing must
+    // not remove a verb that might be valid.
+    serve({ content: ON_DISK, drafts: [] });
+    vi.spyOn(api, "files").mockRejectedValue(new Error("no listing"));
+    render(<PlainFilePane path="notes.md" />);
+    return waitFor(() =>
+      expect(screen.getByRole("button", { name: /make literate/i })).toBeTruthy(),
+    );
   });
 });

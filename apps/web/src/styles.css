@@ -5538,56 +5538,66 @@ textarea:focus {
    quieter than a file row: these are transient, and the files are the folder.
    --------------------------------------------------------------------------- */
 
-.folder-tree__session {
-  display: flex;
+/* Terminals, as icons on the row of the directory they are working in.
+   
+   Icons rather than rows: a row per session pushes the folder's contents down
+   and turns a busy project's tree into mostly-not-files, which inverts what
+   the tree is for. These ride a row that already exists and take no vertical
+   space at all.
+
+   Most of them appear only while their row is hovered, because a tree covered
+   in glyphs is a tree nobody reads. The exception is the whole point — see
+   `--urgent` below. */
+.folder-tree__terms {
+  display: inline-flex;
   align-items: center;
-  gap: 0.4rem;
-  width: 100%;
-  padding: 0.1rem 0.35rem;
-  border: 0;
-  background: none;
-  color: var(--fg-muted);
-  text-align: left;
-  cursor: pointer;
+  gap: 0.15rem;
+  margin-left: auto;
+  padding-left: 0.4rem;
 }
 
-.folder-tree__session:hover {
-  background: var(--bg-raised);
-  color: var(--fg);
-}
-
-.folder-tree__session-dot {
+.folder-tree__term {
   flex: none;
-  width: 0.45rem;
-  height: 0.45rem;
-  border-radius: 50%;
-  background: var(--fg-muted);
-}
-
-/* The same states the sessions pane uses, so a running thing looks like a
-   running thing wherever you meet it. */
-.folder-tree__session.state-running .folder-tree__session-dot {
-  background: var(--accent-2);
-}
-.folder-tree__session.state-waiting .folder-tree__session-dot {
-  background: var(--warn);
-}
-.folder-tree__session.state-failed .folder-tree__session-dot {
-  background: var(--fail);
-}
-.folder-tree__session.state-finished .folder-tree__session-dot {
-  background: var(--ok);
-}
-
-.folder-tree__session-monitor {
-  font-size: 0.65rem;
-  padding: 0 0.25rem;
-  border-radius: 3px;
-  background: var(--neutral-bg);
+  font-size: 0.62rem;
+  line-height: 1;
+  padding: 0.1rem 0.1rem;
+  border-radius: 2px;
   color: var(--fg-muted);
+  cursor: pointer;
+  /* Hidden rather than removed: the row must not reflow when the pointer
+     arrives, or the thing being reached for moves out from under it. */
+  opacity: 0;
+  transition: opacity 90ms ease-out;
+}
+.folder-tree__dir:hover .folder-tree__term,
+.folder-tree__header:hover .folder-tree__term,
+.folder-tree__term:focus-visible {
+  opacity: 1;
+}
+.folder-tree__term:hover { color: var(--fg); background: var(--bg-raised); }
+
+/* A session that wants something from a person does not wait to be hovered.
+   An affordance that only appears once the pointer is already there cannot
+   tell you to go there — which is the entire reason to show terminals in the
+   tree at all. */
+.folder-tree__term--urgent { opacity: 1; }
+
+.folder-tree__term.state-needs-you { color: var(--warn); }
+.folder-tree__term.state-failed { color: var(--fail); }
+.folder-tree__term.state-working { color: var(--accent-2); }
+.folder-tree__term.state-finished { color: var(--ok); }
+.folder-tree__term.state-idle { color: var(--fg-muted); }
+
+/* A monitor session watches rather than works; the ring says so without
+   spending another glyph on it. */
+.folder-tree__term--monitor {
+  outline: 1px dotted currentColor;
+  outline-offset: -1px;
 }
 
-/* On a collapsed directory: how many sessions are hidden inside it. */
+/* On a collapsed directory: how many sessions are hidden inside it, because a
+   folded directory would otherwise hide the processes running in it — exactly
+   the thing worth seeing. */
 .folder-tree__session-count {
   margin-left: auto;
   font-size: 0.65rem;
@@ -5597,6 +5607,13 @@ textarea:focus {
   background: var(--neutral-bg);
   color: var(--fg-muted);
   text-align: center;
+}
+/* ...and if one of them is asking a question, the count says so in colour as
+   well as in its tooltip. */
+.folder-tree__session-count--urgent {
+  background: var(--warn);
+  color: var(--bg);
+  font-weight: 600;
 }
 
 /* the merge view ------------------------------------------------------------
@@ -5777,4 +5794,37 @@ html {
   min-height: 0;
   min-width: 0;
   flex: 1;
+}
+
+/* The tree row a revealed ribbon is aiming at.
+   
+   A tree row is wide and its file name is left-aligned, so the ribbon lands on
+   the row's near vertical edge — inches away from the name it means. The line
+   says "one of these rows"; this says which one. The tint carries the
+   ribbon's own colour, so several revealed at once stay told apart and the
+   row matches the line that reaches it. */
+.folder-tree__row--aimed {
+  background: color-mix(in srgb, var(--ribbon-0) 22%, transparent);
+  box-shadow: inset 2px 0 0 var(--ribbon-0);
+  border-radius: 2px;
+}
+.folder-tree__row--aimed[data-ribbon-color="1"] {
+  background: color-mix(in srgb, var(--ribbon-1) 22%, transparent);
+  box-shadow: inset 2px 0 0 var(--ribbon-1);
+}
+.folder-tree__row--aimed[data-ribbon-color="2"] {
+  background: color-mix(in srgb, var(--ribbon-2) 22%, transparent);
+  box-shadow: inset 2px 0 0 var(--ribbon-2);
+}
+.folder-tree__row--aimed[data-ribbon-color="3"] {
+  background: color-mix(in srgb, var(--ribbon-3) 22%, transparent);
+  box-shadow: inset 2px 0 0 var(--ribbon-3);
+}
+.folder-tree__row--aimed[data-ribbon-color="4"] {
+  background: color-mix(in srgb, var(--ribbon-4) 22%, transparent);
+  box-shadow: inset 2px 0 0 var(--ribbon-4);
+}
+.folder-tree__row--aimed[data-ribbon-color="5"] {
+  background: color-mix(in srgb, var(--ribbon-5) 22%, transparent);
+  box-shadow: inset 2px 0 0 var(--ribbon-5);
 }
