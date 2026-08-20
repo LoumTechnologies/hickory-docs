@@ -110,7 +110,12 @@ export function CardRail({
         return view.lineBlockAt(pos).top + offset;
       });
       const tops = stackIcons(wanted);
-      const band = { top: scroller.scrollTop, bottom: scroller.scrollTop + scroller.clientHeight };
+      // The band is the rail's OWN box, because `tops` are rail-relative
+      // viewport pixels — the same space `el.style.top` is written in. Asking
+      // the scroller for `scrollTop` here would be a document coordinate, and
+      // the two agree only while the document is scrolled to the very top;
+      // below that every icon reads as off-screen and the rail goes blank.
+      const band = { top: 0, bottom: scroller.clientHeight };
       const map = new Map<string, number>();
       cards.forEach((card, i) => {
         const el = rail.querySelector<HTMLElement>(`[data-card="${CSS.escape(card.key)}"]`);
