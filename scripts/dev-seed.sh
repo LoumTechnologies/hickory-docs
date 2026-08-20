@@ -197,6 +197,185 @@ splitter. See docs/specs/freeform/shell-layouts.md.
 </hick:doc>
 EOF
 
+# The card fixture: every piece of editor chrome at once, so the rail, the
+# inline chips, and the two fold kinds can be looked at together rather than
+# hunted for across four documents. Its job is the gutter guarantee — see
+# docs/guarantees/authoring/the-gutters-never-skip-a-number.md — which is only
+# checkable by eye, on a document that exercises all of it.
+write_if_absent "$PROJECT_DIR/cards.hick" <<'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="cards.md">
+# Every card, in one document
+
+A fixture, not a tutorial. It exists so the editor's card UI can be looked at
+all at once: every rail icon, every inline chip, every banner, and both fold
+kinds, in a document short enough to scroll in one pass.
+
+**What to check.** Scroll from the first line to the last and read the left
+gutter. The numbers must run unbroken — no skipped number anywhere, whether a
+block is showing its source or its result. Every annotation below rides the
+END of a line that already has a number; the only rows allowed to stand for
+more than one line are the two folds (a rendered cell, a rendered diagram),
+and those step over lines that are genuinely not being shown.
+
+<hick:feature name="extra" description="Shows the second when-banner instead of the first" />
+
+## The environment, annotated inline
+
+The declaration below is one line, and the executor note the app appends to it
+is on that same line. Where the environment's commands actually run is the
+only thing chrome can add here; the name, image, and rules are already source
+text on numbered lines.
+
+<hick:container name="shell" image="alpine:3.20" />
+<hick:volume name="src" input="." />
+
+## Cells — the rail's `▶` icon
+
+Two of them, so the rail has to stack a pair of icons and the labels have to
+count. The first names its container, so its icon reads `Cell 1 — shell`.
+
+<hick:exec container="shell">
+printf 'pear,4\nplum,2\npear,6\n' > fruit.csv
+cat fruit.csv
+<hick:expect match="exact">pear,4
+plum,2
+pear,6
+</hick:expect>
+</hick:exec>
+
+The second is the cell a diagram points at, so it carries an `id`. A cell that
+proves a picture is the one place an exec has to be findable by name.
+
+<hick:exec id="no-back-edges" container="shell">
+awk -F, '{sum[$1]+=$2} END {for (k in sum) print k, sum[k]}' fruit.csv | sort
+<hick:expect match="exact">pear 10
+plum 2
+</hick:expect>
+</hick:exec>
+
+## A diagram — the rail's `◈` icon
+
+Rendered by default and swapped back to source from the same icon. It asserts
+the cell above, so the picture cannot quietly stop being true.
+
+<hick:diagram renderer="mermaid" asserts="#no-back-edges">
+flowchart TD
+  csv[fruit.csv] --> awk[awk sum]
+  awk --> totals[totals]
+</hick:diagram>
+
+## Prose fences — the rail's `≡` icon
+
+A fence in prose is a command nobody wired up. Its icon offers to make it a
+real cell. One with an info string:
+
+```sh
+sort -t, -k2 -n fruit.csv
+```
+
+And one without, because the converter has to guess the language for this one:
+
+```
+wc -l < fruit.csv
+```
+
+A fence inside verbatim payload is deliberately NOT a card — the one in the
+generated file below is content, not a suggestion.
+
+## A generated file — the path chip
+
+<hick:file path="notes.txt">
+Assembled from the fragments below.
+
+<hick:paste select=".note" />
+</hick:file>
+
+## Fragments — the handle chips
+
+A `copy` contributes to the file above and stays in the woven markdown:
+
+<hick:copy id="note-first" class="note">
+Cards ride the end of a line. Nothing here adds a row.
+</hick:copy>
+
+A `cut` contributes and then removes itself from the weave, which is why its
+chip says `cut` rather than `copy`:
+
+<hick:cut id="note-second" class="note">
+This sentence reaches notes.txt and never reaches cards.md.
+</hick:cut>
+
+## Conditionals — the banners
+
+Two `when` blocks, exactly one of which is live. Run with `--features extra`
+to swap them.
+
+<hick:when test="!extra">
+The default section. Nothing was asked for, so this is what weaves.
+</hick:when>
+
+<hick:when test="extra">
+The feature section. `--features extra` was passed.
+</hick:when>
+
+## The end
+
+If the gutter counted straight from line 1 to here, the cards are behaving.
+</hick:doc>
+EOF
+
+write_if_absent "$PROJECT_DIR/sessions/20260820-090000-every-turn-chip.hick" <<'EOF'
+<?xml version="1.0" encoding="UTF-8"?>
+<hick:session xmlns:hick="http://www.hickorydocs.com/1.0" start="2026-08-20T09:00:00Z">
+<hick:user>Show me every turn chip at once — you, agent, tool, result, ran, output.</hick:user>
+<hick:assistant>
+A session is the other half of the card fixture: turn chips are the annotations
+a `.hick` document cannot carry, because a session is its own root element.
+Each one below rides the end of the line its element opens on.
+
+<hick:tool name="read_doc">
+<hick:input>cards.hick</hick:input>
+</hick:tool>
+</hick:assistant>
+<hick:tool-result name="read_doc" ok="true">
+cards.hick — 1 container, 2 cells, 1 diagram, 2 prose fences, 1 file, 2 fragments.
+</hick:tool-result>
+<hick:assistant>
+Here is a tool the agent was refused, so the chip reads `refused` rather than
+`ok`:
+
+<hick:tool name="write_doc">
+<hick:input>cards.hick</hick:input>
+</hick:tool>
+</hick:assistant>
+<hick:tool-result name="write_doc" ok="false">
+declined — this document is a fixture and is edited by hand
+</hick:tool-result>
+<hick:assistant>
+And a command, with its output. The `ran` chip names the language; the
+`output` chip names the exit status, and says "failed" when it is not zero.
+
+<hick:action lang="sh">
+wc -l < fruit.csv
+</hick:action>
+</hick:assistant>
+<hick:observation source="action-0" exit="0">
+3
+</hick:observation>
+<hick:assistant>
+A failing one, so the red half of the output chip is on screen too:
+
+<hick:action lang="sh">
+grep quince fruit.csv
+</hick:action>
+</hick:assistant>
+<hick:observation source="action-1" exit="1">
+</hick:observation>
+<hick:user>Good — the gutter should still count straight through all of it.</hick:user>
+</hick:session>
+EOF
+
 # Weave once, so a fresh seed is CONSISTENT rather than drifted. Without this
 # the first thing a developer might try — `hick test .dev/project` — reports a
 # failure that is really just "nothing has run yet", which is a bad first

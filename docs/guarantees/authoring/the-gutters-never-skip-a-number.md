@@ -87,6 +87,12 @@ Last LLM verification:
   rail icon swaps it for the source" covers the toggle in both directions. `apps/web/src/lib/cardRail.test.ts` (12 tests:
   stacking, monotonicity, recovery, visibility band, popover clamping).
   `apps/web/src/editor/cards.test.ts` (what the rail lists, in order).
+- By-eye fixture: `just dev-seed` writes `.dev/project/cards.hick` (every
+  rail card, inline chip, banner, and both fold kinds in one document) and
+  `.dev/project/sessions/20260820-090000-every-turn-chip.hick` (the turn
+  chips, which a `hick:doc` cannot carry because a session is its own root
+  element). Open both and read the left gutter top to bottom; the numbers
+  must run unbroken. That is what the jsdom assertion below cannot do.
 - Caveat requiring review: the row-count assertion runs in jsdom, which does
   no layout — it proves the DOM structure has no extra row, not that nothing
   overflows its line visually. The inline chips are sized to sit on the
