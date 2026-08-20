@@ -404,8 +404,16 @@ fn drive_one_language(language: &Language) -> bool {
 
     // Real servers index before they answer; gopls and rust-analyzer are the
     // slow ones. A generous budget here costs nothing when the answer is
-    // ready sooner.
-    let budget = Duration::from_secs(60);
+    // ready sooner — `request_until` polls and returns the moment there is
+    // something, so this is a ceiling rather than a wait.
+    //
+    // Windows needs more of it than the number suggests: rust-analyzer
+    // indexing a freshly-created staging directory on a CI runner is racing
+    // Defender, which scans every file it touches on first read. 60s was
+    // enough on Linux and ran out at 61s there, with the suite reporting an
+    // empty hover — which reads as "the server answered wrongly" rather than
+    // "the server had not finished".
+    let budget = Duration::from_secs(if cfg!(windows) { 180 } else { 60 });
     let (line, character) = definition_site(language, first_code_line);
 
     // Hover, on the symbol's own definition.
