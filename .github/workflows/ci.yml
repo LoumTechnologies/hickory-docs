@@ -162,6 +162,10 @@ jobs:
           cargo test -p hick-literate --test capability_enforcement_tests
           --test cell_timeout_tests --test freeze_tests -- --test-threads=1
       - run: cargo test -p hickory-cli --test cell_timeout_env -- --test-threads=1
+      # Expectations, which could not pass here at all until captured output
+      # was recorded with LF endings on every platform (#18). This line is what
+      # turns that guarantee's Windows half from reasoning into evidence.
+      - run: cargo test -p hickory-cli --test test_command_tests -- --test-threads=1
       # `cargo test --workspace` is still NOT run here, and the reason is worth
       # stating rather than leaving as an absence: the remaining suites write
       # their cell commands in POSIX shell, and cells run through `cmd.exe /C`
