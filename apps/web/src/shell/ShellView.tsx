@@ -339,6 +339,9 @@ function TabChip({
   side: boolean;
   depth?: number;
 }) {
+  // Middle-click is a press and a release on the same tab; between them this
+  // remembers that the press was ours (see onPointerDown below).
+  const middlePress = useRef(false);
   return (
     <span
       className={`shell-tab${index === pane.active ? " shell-tab--on" : ""}${side ? " shell-tab--side" : ""}`}
@@ -352,7 +355,33 @@ function TabChip({
       // How a side-tree drop knows which PANE index a visual row means.
       data-shell-tab-index={index}
       style={side && depth > 0 ? { paddingLeft: `${depth * 12}px` } : undefined}
-      onPointerDown={(event) => dragging.startTabDrag(pane.id, tab.id, event)}
+      // Middle-press and middle-release on the same tab closes it: the
+      // gesture every browser and editor trained people to expect. Deliberately
+      // NOT `auxclick`, which is what a browser would give us — WebKitGTK, the
+      // engine behind the Linux window, does not reliably raise a click event
+      // for the middle button on an ordinary element, so the whole gesture has
+      // to be read from the pointer stream the drag code already listens to.
+      onPointerDown={(event) => {
+        if (event.button === 1) {
+          // Suppresses the compatibility mouse events, and with them GTK's
+          // middle-click paste and the autoscroll Windows would start.
+          event.preventDefault();
+          middlePress.current = true;
+          return;
+        }
+        middlePress.current = false;
+        dragging.startTabDrag(pane.id, tab.id, event);
+      }}
+      // A press that began on some other tab and ended here is not a close:
+      // the release only counts where its press landed.
+      onPointerUp={(event) => {
+        if (event.button !== 1 || !middlePress.current) return;
+        middlePress.current = false;
+        onLayout(closeTab(layout, pane.id, tab.id));
+      }}
+      onPointerLeave={() => {
+        middlePress.current = false;
+      }}
     >
       <button
         type="button"
