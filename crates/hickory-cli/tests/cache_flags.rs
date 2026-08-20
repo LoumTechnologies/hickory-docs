@@ -9,19 +9,31 @@
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-fn hick() -> Command {
-    Command::new(env!("CARGO_BIN_EXE_hick"))
-}
+mod common;
+use common::echo_lines;
 
 /// The one exec command, shared between the frozen and unfrozen spellings of
 /// the document so both compute the same cache key.
-const COMMAND: &str = "\nprintf 'one\\ntwo\\n'\n";
+///
+/// A function rather than a `const` because the text is per-shell: cells run
+/// through `cmd.exe /C` on Windows, where `printf` does not exist. Nothing
+/// here pins the output with `<hick:expect>`, so the CRLF cmd adds is
+/// invisible to every assertion below — each looks for the word `one` inside
+/// the recording or the woven page.
+fn command() -> String {
+    format!("\n{}\n", echo_lines(&["one", "two"]))
+}
+
+fn hick() -> Command {
+    Command::new(env!("CARGO_BIN_EXE_hick"))
+}
 
 fn doc_source(freeze: Option<bool>) -> String {
     let attr = match freeze {
         Some(v) => format!(r#" freeze="{v}""#),
         None => String::new(),
     };
+    let command = command();
     format!(
         r#"<?xml version="1.0" encoding="UTF-8"?>
 <hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="cached.md">
@@ -29,7 +41,7 @@ fn doc_source(freeze: Option<bool>) -> String {
 
 <hick:container name="c" image="alpine:3.20" />
 
-<hick:exec container="c"{attr}>{COMMAND}</hick:exec>
+<hick:exec container="c"{attr}>{command}</hick:exec>
 </hick:doc>
 "#
     )
@@ -127,6 +139,8 @@ fn a_frozen_cell_is_the_only_thing_a_flagless_run_records() {
     // did not ask to be remembered. Only the frozen cell is recorded.
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("mixed.hick");
+    let command = command();
+    let live = echo_lines(&["live"]);
     std::fs::write(
         &path,
         format!(
@@ -136,9 +150,9 @@ fn a_frozen_cell_is_the_only_thing_a_flagless_run_records() {
 
 <hick:container name="c" image="alpine:3.20" />
 
-<hick:exec container="c" freeze="true">{COMMAND}</hick:exec>
+<hick:exec container="c" freeze="true">{command}</hick:exec>
 <hick:exec container="c">
-printf 'live'
+{live}
 </hick:exec>
 </hick:doc>
 "#

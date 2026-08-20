@@ -9,6 +9,17 @@
 //! writes a file, then `verify` executes the document — and the document's own
 //! `hick:exec` cell reads that file back. The expectation is pinned exactly, so
 //! the cell only passes if it ran in the same room the script did.
+//!
+//! **Not ported to Windows, and the reason is product code rather than this
+//! test.** `hickory_agent::script::run_script` writes every code block with
+//! `mkdir -p .hickory-agent && cat > …` and then runs it under
+//! `if command -v timeout …; then … else set -m; … kill -TERM -$pid …; fi` —
+//! POSIX shell handed to `cmd.exe /C`, which is the shell a cell gets on
+//! Windows. Shell blocks are additionally run as `sh <script>`. So an agent
+//! cannot execute anything at all there, and no rewriting of this test's
+//! fixture changes that. Rewriting the cell's `cat` would only move the
+//! failure. See the issue tracking it before adding this file to a Windows
+//! job.
 
 use std::sync::Arc;
 

@@ -50,6 +50,15 @@ Last LLM verification:
   "documentation drift"). `init_installs_hook_idempotently` covers the
   sentinel-delimited rewrite that gets an existing repository onto the new
   wording.
+  The harness puts the built binary on the hook's PATH with
+  `std::env::join_paths` rather than a `:`-joined string. It used to join with
+  `:`, which is not the separator on Windows: `hick` would not be found, the
+  hook would take its "hick not found on PATH; skipping" branch, and every
+  assertion here about the hook *blocking* a commit would have been made
+  against a hook that checked nothing. The documents the hook tests use
+  `match="regex-lines"` rather than `match="exact"` for the same reason as
+  issue #18 — cmd's `echo` writes CRLF, a document in git is LF, and which of
+  the four outcomes the hook reports is what these tests are about.
 - Caveat: exit `2` (not verified) has no hook-level test — it needs a frozen
   cell with no recording, which the other exit-`2` coverage exercises at the
   CLI level (`test_freeze_reports_an_unrecorded_cell_as_unverifiable` in

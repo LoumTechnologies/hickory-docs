@@ -225,3 +225,17 @@ Last LLM verification:
   where a property belongs to one sandbox rather than the guarantee, the test
   now says which and why instead of asserting the mechanism) plus 21 policy
   unit tests, three of them added for the defects above.
+  - The two whole-document tests in
+    `crates/hickory-cli/tests/lsp_languages.rs` —
+    `a_document_runs_confined_through_the_real_binary` and
+    `a_cell_is_confined_unless_someone_says_otherwise` — run the shipped
+    binary rather than the crate, and are the only place the *default*
+    (`HICKORY_EXECUTOR` unset) is observed. Both were POSIX-only until
+    2026-08-20 and now write their cells per shell. The escape is asserted on
+    the host filesystem — did the file arrive outside the workdir — rather
+    than on a word in the woven page. The word used to be assembled by
+    `echo EscAPED | tr a-z A-Z` so a transcript could not be read back as its
+    own evidence; `tr` does not exist on Windows, which would have made that
+    assertion vacuous on the newest sandbox of the three. A file a cell either
+    created or did not is the guarantee itself and cannot be faked by a cell
+    that never ran.

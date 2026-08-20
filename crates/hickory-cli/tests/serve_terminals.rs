@@ -15,6 +15,43 @@ use hickory_cli::serve::{ServeOptions, prepare};
 use serde_json::{Value, json};
 use tokio_tungstenite::tungstenite::Message;
 
+/// The argv of a session that prints `text` and exits.
+///
+/// A session's argv is handed straight to `portable_pty::CommandBuilder` with
+/// no shell in front of it, so every program named here has to be a program.
+/// `echo`, `true`, `false` and `cat` are not programs on Windows — they are
+/// shell builtins or coreutils — and a session whose argv cannot be spawned
+/// looks, from the outside, a lot like one that ran and failed. That is the
+/// shape a test cannot tell apart from what it meant to assert, so the argv is
+/// per-platform rather than the assertion being relaxed.
+fn prints(text: &str) -> Vec<String> {
+    argv(&["echo", text], &["cmd", "/C", "echo", text])
+}
+
+/// A session that exits 0 immediately.
+fn exits_cleanly() -> Vec<String> {
+    argv(&["true"], &["cmd", "/C", "exit", "0"])
+}
+
+/// A session that exits non-zero immediately.
+fn exits_failing() -> Vec<String> {
+    argv(&["false"], &["cmd", "/C", "exit", "1"])
+}
+
+/// A session that stays alive and prints back whatever is typed at it.
+///
+/// `findstr /n .` is the cmd-side `cat`: no file operand means it reads stdin,
+/// and it keeps reading until the stream ends, which is what makes the "typing
+/// reaches the program" half of the test a real question.
+fn echoes_what_is_typed() -> Vec<String> {
+    argv(&["cat"], &["findstr", "/n", "."])
+}
+
+fn argv(unix: &[&str], windows: &[&str]) -> Vec<String> {
+    let chosen = if cfg!(windows) { windows } else { unix };
+    chosen.iter().map(|part| part.to_string()).collect()
+}
+
 struct Session {
     base: String,
     _dir: tempfile::TempDir,
@@ -104,7 +141,7 @@ async fn a_terminal_runs_a_command_and_the_socket_carries_what_it_printed() {
     let (status, opened) = post(
         &session,
         "/api/terminals",
-        json!({ "title": "greeting", "argv": ["echo", "hello from the pty"] }),
+        json!({ "title": "greeting", "argv": prints("hello from the pty") }),
     )
     .await;
     assert_eq!(status, 200, "{opened}");
@@ -122,7 +159,7 @@ async fn a_client_that_arrives_after_the_output_still_sees_it() {
     let (_, opened) = post(
         &session,
         "/api/terminals",
-        json!({ "argv": ["echo", "printed before you looked"] }),
+        json!({ "argv": prints("printed before you looked") }),
     )
     .await;
     let id = opened["id"].as_str().unwrap().to_string();
@@ -139,8 +176,18 @@ async fn a_client_that_arrives_after_the_output_still_sees_it() {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_command_that_fails_is_failed_and_leads_the_queue() {
     let session = start().await;
-    let (_, ok) = post(&session, "/api/terminals", json!({ "argv": ["true"] })).await;
-    let (_, bad) = post(&session, "/api/terminals", json!({ "argv": ["false"] })).await;
+    let (_, ok) = post(
+        &session,
+        "/api/terminals",
+        json!({ "argv": exits_cleanly() }),
+    )
+    .await;
+    let (_, bad) = post(
+        &session,
+        "/api/terminals",
+        json!({ "argv": exits_failing() }),
+    )
+    .await;
     let ok_id = ok["id"].as_str().unwrap().to_string();
     let bad_id = bad["id"].as_str().unwrap().to_string();
 
@@ -197,7 +244,7 @@ async fn a_monitor_stays_out_of_the_queue() {
     let (_, monitor) = post(
         &session,
         "/api/terminals",
-        json!({ "title": "dev server", "argv": ["false"], "monitor": true }),
+        json!({ "title": "dev server", "argv": exits_failing(), "monitor": true }),
     )
     .await;
     let monitor_id = monitor["id"].as_str().unwrap().to_string();
@@ -214,13 +261,21 @@ async fn a_monitor_stays_out_of_the_queue() {
 #[tokio::test(flavor = "multi_thread")]
 async fn typing_reaches_the_program_and_closing_ends_the_session() {
     let session = start().await;
-    let (_, opened) = post(&session, "/api/terminals", json!({ "argv": ["cat"] })).await;
+    let (_, opened) = post(
+        &session,
+        "/api/terminals",
+        json!({ "argv": echoes_what_is_typed() }),
+    )
+    .await;
     let id = opened["id"].as_str().unwrap().to_string();
 
+    // CR then LF, because the Enter key is a CR: a console reading a line on
+    // Windows waits for one, and a Unix tty turns it into the newline `cat` is
+    // waiting for (ICRNL). Sending only LF works on exactly one of the two.
     let (status, _) = post(
         &session,
         &format!("/api/terminals/{id}/input"),
-        json!({ "data": "typed into cat\n" }),
+        json!({ "data": "typed into cat\r\n" }),
     )
     .await;
     assert_eq!(status, 200);

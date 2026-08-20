@@ -23,13 +23,39 @@ use std::time::{Duration, Instant};
 use hick_term::session::Session;
 use hick_term::{SessionSpec, TermConfig, Terminals};
 
+/// Is `program` on this machine's PATH?
+///
+/// Walked directly rather than asked of a shell. `sh -c "command -v x"` was
+/// the old spelling and it fails to SPAWN on a machine with no `sh` — which
+/// `unwrap_or(false)` then read as "not installed", so every test in this file
+/// skipped on Windows without printing a word. A silent skip is the one
+/// outcome a suite must never have: it is indistinguishable from a pass, and
+/// this file would have stayed green with the PTY layer entirely broken.
 fn installed(program: &str) -> bool {
-    std::process::Command::new("sh")
-        .arg("-c")
-        .arg(format!("command -v {program}"))
-        .output()
-        .map(|o| o.status.success())
-        .unwrap_or(false)
+    let Some(paths) = std::env::var_os("PATH") else {
+        return false;
+    };
+    // `PATHEXT` is how Windows decides what "executable" means; a bare name on
+    // PATH there is `vim.exe` or `less.bat`, never `vim`.
+    let suffixes: Vec<String> = if cfg!(windows) {
+        std::env::var("PATHEXT")
+            .unwrap_or_else(|_| ".COM;.EXE;.BAT;.CMD".to_string())
+            .split(';')
+            .map(str::to_string)
+            .collect()
+    } else {
+        vec![String::new()]
+    };
+    std::env::split_paths(&paths).any(|dir| {
+        suffixes
+            .iter()
+            .any(|suffix| dir.join(format!("{program}{suffix}")).is_file())
+    })
+}
+
+/// Say what was not tested, and why. Never skip in silence.
+fn skip(program: &str) {
+    eprintln!("SKIPPED: {program} is not installed on this machine");
 }
 
 fn open(terminals: &Terminals, dir: &std::path::Path, argv: &[&str]) -> Arc<Session> {
@@ -59,6 +85,7 @@ fn wait_for(session: &Session, timeout: Duration, done: impl Fn(&str) -> bool) -
 #[test]
 fn vim_draws_its_editor_and_leaves_the_alternate_screen_on_exit() {
     if !installed("vim") {
+        skip("vim");
         return;
     }
     let dir = tempfile::tempdir().unwrap();
@@ -109,6 +136,7 @@ fn vim_draws_its_editor_and_leaves_the_alternate_screen_on_exit() {
 #[test]
 fn htop_paints_a_full_screen_of_meters() {
     if !installed("htop") {
+        skip("htop");
         return;
     }
     let dir = tempfile::tempdir().unwrap();
@@ -133,6 +161,7 @@ fn htop_paints_a_full_screen_of_meters() {
 #[test]
 fn less_pages_a_file_and_answers_its_keys() {
     if !installed("less") {
+        skip("less");
         return;
     }
     let dir = tempfile::tempdir().unwrap();
@@ -166,6 +195,7 @@ fn less_pages_a_file_and_answers_its_keys() {
 #[test]
 fn a_coding_agent_draws_its_interface() {
     if !installed("claude") {
+        skip("claude");
         return;
     }
     let dir = tempfile::tempdir().unwrap();

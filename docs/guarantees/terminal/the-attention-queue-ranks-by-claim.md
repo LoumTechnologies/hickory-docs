@@ -48,4 +48,8 @@ Last LLM verification:
   session-left-the-queue case, and the empty queue.
   `crates/hickory-cli/tests/serve_terminals.rs::
   a_command_that_fails_is_failed_and_leads_the_queue` and
-  `a_monitor_stays_out_of_the_queue` assert the order over the wire.
+  `a_monitor_stays_out_of_the_queue` assert the order over the wire. Their
+  argv is per-platform: a session's argv goes straight to `CommandBuilder`
+  with no shell in front of it, and `true`/`false` are not programs on
+  Windows — a session that cannot be spawned is also not in the queue, so the
+  monitor test would have held for the wrong reason there.

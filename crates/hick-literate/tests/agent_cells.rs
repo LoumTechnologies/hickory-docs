@@ -10,6 +10,13 @@
 //! frozen, and bounded — so the runner is a stub that performs a scripted
 //! edit. `crates/hickory-cli/tests/agent_cell_vertex.rs` covers the real
 //! runner with a `ScriptedLlmClient`.
+//!
+//! The surrounding cells are `echo`, not `printf`: these run through
+//! `LocalExecutor`, which is `sh -c` on Unix and `cmd.exe /C` on Windows, and
+//! `printf` is not a cmd builtin. `echo one` is the one spelling both shells
+//! share. What each assertion checks is `contains`, so the CRLF cmd appends
+//! is not a difference the tests can see — and the ordering property they
+//! exist for is the same either way.
 
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -109,9 +116,9 @@ fn doc_with_agent_between_two_execs() -> &'static str {
 <hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="out.md">
 <hick:container name="before" image="host" />
 <hick:container name="after" image="host" />
-<hick:exec container="before">printf 'first\n'</hick:exec>
+<hick:exec container="before">echo first</hick:exec>
 <hick:agent id="a1" model="scripted-model-1"><hick:prompt>do the thing</hick:prompt></hick:agent>
-<hick:exec container="after">printf 'last\n'</hick:exec>
+<hick:exec container="after">echo last</hick:exec>
 </hick:doc>"#
 }
 
@@ -160,7 +167,7 @@ async fn an_exec_the_agent_writes_runs_in_the_same_pass() {
     );
     let runner = Arc::new(StubRunner::new(Some(
         r#"<hick:container name="authored" image="host" />
-<hick:exec container="authored">printf 'from the agent\n'</hick:exec>"#,
+<hick:exec container="authored">echo from the agent</hick:exec>"#,
     )));
 
     let result = run(&doc, Some(runner), None, false).await.unwrap();

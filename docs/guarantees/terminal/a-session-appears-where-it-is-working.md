@@ -150,8 +150,18 @@ Last LLM verification:
     PowerShell are not handled at all. Those sessions report their start
     directory, honestly, as before. A `bash -l` session is also not covered:
     `--rcfile` is ignored by a login shell.
-  - **Windows is untested here.** The integration is Unix-shaped, and nothing
-    has run on Windows.
+  - **Windows now has the fallback half, and only that half.** The two tests
+    that assert the honest fallback run there: a `cmd.exe` session is opened
+    through a real ConPTY, told to `cd`, and must report the directory it was
+    *started* in with `cwd_is_live` false
+    (`a_silent_shell_stays_where_it_started_and_admits_it`), and a session
+    started in `dir with café` must report that directory back byte-for-byte
+    (`a_session_with_no_hook_reports_an_awkward_directory_verbatim_and_not_live`,
+    `#[cfg(windows)]`). Nothing there emits OSC 7 — `Integration::install`
+    recognises zsh and bash and returns `None` for `cmd.exe` — so the
+    following-a-`cd` half has no Windows meaning and its tests skip loudly.
+    Written on macOS and not yet observed on a Windows runner; the fallback
+    tests are the ones to watch when it is.
   - **Nothing was seen in a running window.** The rows typecheck and their
     tests pass under jsdom; how a folder with twenty sessions in it reads, and
     whether the count badge is noticed, is unverified.

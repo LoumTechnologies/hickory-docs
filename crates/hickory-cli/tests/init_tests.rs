@@ -2,9 +2,19 @@
 //! the pre-commit drift gate. The gate is exercised by running the installed
 //! hook script directly (not via `git commit`) with the built `hick`
 //! binary on PATH.
+//!
+//! The hook is POSIX shell on every platform, because that is what git runs it
+//! with: on Windows git invokes hooks through the `sh` that Git for Windows
+//! ships, not through `cmd`. So `sh` is the honest driver here even on a
+//! machine whose *cells* run through `cmd.exe /C` — and the documents below
+//! are the half that has to change, because a cell inside one of them does get
+//! cmd.
 
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
+
+mod common;
+use common::echo_lines;
 
 fn hickory_bin() -> PathBuf {
     PathBuf::from(env!("CARGO_BIN_EXE_hick"))
@@ -45,11 +55,16 @@ fn run_hook(repo: &Path) -> Output {
     let hook = repo.join(".git/hooks/pre-commit");
     assert!(hook.exists(), "hook not installed at {}", hook.display());
     let bin_dir = hickory_bin().parent().unwrap().to_path_buf();
-    let path = format!(
-        "{}:{}",
-        bin_dir.display(),
-        std::env::var("PATH").unwrap_or_default()
-    );
+    // `join_paths`, not a `:`-joined string. The separator is `;` on Windows,
+    // so joining with `:` there produced one unparseable first entry: `hick`
+    // would not be found, the hook would take its "hick not found on PATH;
+    // skipping" branch, and every test below asserting that the hook BLOCKS a
+    // commit would have been asserting against a hook that checked nothing.
+    let mut entries = vec![bin_dir];
+    entries.extend(std::env::split_paths(
+        &std::env::var_os("PATH").unwrap_or_default(),
+    ));
+    let path = std::env::join_paths(entries).expect("a PATH the hook can read");
     Command::new("sh")
         .arg(hook)
         .current_dir(repo)
@@ -58,35 +73,45 @@ fn run_hook(repo: &Path) -> Output {
         .unwrap()
 }
 
-const PASSING_DOC: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
-<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="passing.md">
-# Passing
+/// A document that says what its cell really prints, and one that does not.
+///
+/// Two things here are per-platform. The cell is written with `echo_lines`,
+/// because `printf` is not a cmd builtin and cmd sequences with `&` where `sh`
+/// would background. And the match mode is `regex-lines` rather than `exact`:
+/// `exact` compares byte for byte, cmd's `echo` always writes CRLF, and a
+/// document in git is LF — so an exact expectation cannot hold on Windows for
+/// a line-ending reason (issue #18). `regex-lines` compares line by line,
+/// which is the claim these two documents are actually making: the first says
+/// the cell prints `one` then `two`, the second says `one` then `three`, and
+/// only one of them is true. Which of the four outcomes the hook reports —
+/// what every assertion in this file is about — is unchanged by the mode.
+fn passing_doc() -> String {
+    doc("passing", &["one", "two"])
+}
+
+fn false_claim_doc() -> String {
+    doc("false-claim", &["one", "three"])
+}
+
+fn doc(name: &str, expected: &[&str]) -> String {
+    let command = echo_lines(&["one", "two"]);
+    let expectation = expected.join("\n");
+    format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="{name}.md">
+# {name}
 
 <hick:container name="c" image="alpine:3.20" />
 
 <hick:exec container="c">
-printf 'one\ntwo\n'
-<hick:expect match="exact">one
-two
+{command}
+<hick:expect match="regex-lines">{expectation}
 </hick:expect>
 </hick:exec>
 </hick:doc>
-"#;
-
-const FALSE_CLAIM_DOC: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
-<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="false-claim.md">
-# False claim
-
-<hick:container name="c" image="alpine:3.20" />
-
-<hick:exec container="c">
-printf 'one\ntwo\n'
-<hick:expect match="exact">one
-three
-</hick:expect>
-</hick:exec>
-</hick:doc>
-"#;
+"#
+    )
+}
 
 #[test]
 fn init_installs_hook_idempotently() {
@@ -120,7 +145,7 @@ fn hook_passes_with_clean_doc_and_fails_on_a_false_claim() {
     run_init(repo.path());
 
     // A tracked, passing doc whose outputs are committed: hook succeeds.
-    std::fs::write(repo.path().join("passing.hick"), PASSING_DOC).unwrap();
+    std::fs::write(repo.path().join("passing.hick"), passing_doc()).unwrap();
     let out = Command::new(hickory_bin())
         .arg("run")
         .arg(repo.path().join("passing.hick"))
@@ -140,7 +165,7 @@ fn hook_passes_with_clean_doc_and_fails_on_a_false_claim() {
     // output is absent, not stale — so a blanket "documentation drift"
     // message would send the author to the wrong fix (regenerate) for a
     // failure that must never be regenerated away.
-    std::fs::write(repo.path().join("false-claim.hick"), FALSE_CLAIM_DOC).unwrap();
+    std::fs::write(repo.path().join("false-claim.hick"), false_claim_doc()).unwrap();
     git(repo.path(), &["add", "false-claim.hick"]);
     let out = run_hook(repo.path());
     assert!(
@@ -166,7 +191,7 @@ fn failing_doc_blocks_commit_via_hook_script() {
     // pre-commit hook exactly as `git commit` would invoke it.
     let repo = init_repo();
     run_init(repo.path());
-    std::fs::write(repo.path().join("false-claim.hick"), FALSE_CLAIM_DOC).unwrap();
+    std::fs::write(repo.path().join("false-claim.hick"), false_claim_doc()).unwrap();
     git(repo.path(), &["add", "."]);
     let out = run_hook(repo.path());
     assert!(
@@ -184,7 +209,7 @@ fn hook_names_drift_when_a_committed_output_is_stale() {
     let repo = init_repo();
     run_init(repo.path());
 
-    std::fs::write(repo.path().join("passing.hick"), PASSING_DOC).unwrap();
+    std::fs::write(repo.path().join("passing.hick"), passing_doc()).unwrap();
     let out = Command::new(hickory_bin())
         .arg("run")
         .arg(repo.path().join("passing.hick"))
