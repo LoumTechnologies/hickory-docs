@@ -10,11 +10,12 @@
 //! the SPAWNED `hick` process, never in this test process — that is what
 //! keeps them from racing every other test.
 
-#![cfg(unix)] // the sleeping cell below uses `sh`'s `sleep`
-
 use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::time::{Duration, Instant};
+
+mod common;
+use common::{runs_until_killed, sleeps_then_echoes};
 
 fn hick() -> Command {
     Command::new(env!("CARGO_BIN_EXE_hick"))
@@ -36,10 +37,11 @@ fn write_doc(dir: &Path, body: &str) -> PathBuf {
 
 #[test]
 fn the_env_default_cuts_a_sleeping_cell() {
+    let sleeper = runs_until_killed();
     let dir = tempfile::tempdir().unwrap();
     let doc = write_doc(
         dir.path(),
-        r#"<hick:exec container="c">sleep 30</hick:exec>"#,
+        &format!(r#"<hick:exec container="c">{}</hick:exec>"#, sleeper),
     );
     let started = Instant::now();
     let out = hick()
@@ -59,7 +61,7 @@ fn the_env_default_cuts_a_sleeping_cell() {
     let stderr = String::from_utf8_lossy(&out.stderr);
     assert!(stderr.contains("timed out"), "stderr: {stderr}");
     assert!(
-        stderr.contains("sleep 30"),
+        stderr.contains(sleeper.as_str()),
         "must name the command: {stderr}"
     );
     assert!(
@@ -101,7 +103,10 @@ fn a_cell_attribute_beats_the_env_default() {
     let dir = tempfile::tempdir().unwrap();
     let doc = write_doc(
         dir.path(),
-        r#"<hick:exec container="c" timeout="30">sleep 2; echo ok</hick:exec>"#,
+        &format!(
+            r#"<hick:exec container="c" timeout="30">{}</hick:exec>"#,
+            sleeps_then_echoes(2, "ok")
+        ),
     );
     let status = hick()
         .arg("run")

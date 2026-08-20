@@ -8,6 +8,9 @@
 //! transcripts.
 
 use std::path::{Path, PathBuf};
+
+mod common;
+use common::{append_mark, create_marker, marks};
 use std::sync::Arc;
 
 use hick_literate::cache::{CacheConfig, CacheMode, ExecCacheEntry, cache_store, sha256_hex};
@@ -127,7 +130,7 @@ async fn a_frozen_cell_serves_its_recording_without_executing() {
     let scratch = Scratch::new("serves-recording");
     let marker = scratch.path().join("frozen-ran.txt");
     let cc = CacheConfig::new(scratch.path(), CacheMode::Off);
-    let command = format!("\ntouch {}\n", marker.display());
+    let command = format!("\n{}\n", create_marker(&marker));
     record(&cc, "frozen", "alpine", &command, "recorded output\n");
 
     let src = hick_doc(&format!(
@@ -160,7 +163,7 @@ async fn a_frozen_cell_without_a_recording_runs_once_and_records_itself() {
     let scratch = Scratch::new("records-on-first-run");
     let marker = scratch.path().join("runs.txt");
     let cc = CacheConfig::new(scratch.path(), CacheMode::Off);
-    let command = format!("\nprintf x >> {}\n", marker.display());
+    let command = format!("\n{}\n", append_mark("x", &marker));
 
     let src = hick_doc(&format!(
         r#"<hick:container name="frozen" image="alpine" />
@@ -171,14 +174,14 @@ async fn a_frozen_cell_without_a_recording_runs_once_and_records_itself() {
         .await
         .expect("the first run establishes the baseline instead of failing");
     assert_eq!(
-        std::fs::read_to_string(&marker).unwrap(),
+        marks(&std::fs::read_to_string(&marker).unwrap()),
         "x",
         "a frozen cell with no recording must execute exactly once"
     );
 
     run(&src, Some(&cc)).await.expect("the second run replays");
     assert_eq!(
-        std::fs::read_to_string(&marker).unwrap(),
+        marks(&std::fs::read_to_string(&marker).unwrap()),
         "x",
         "the recording written by the first run must be replayed, not re-executed"
     );
@@ -196,20 +199,20 @@ async fn editing_a_frozen_cell_re_records_it_on_the_next_run() {
         hick_doc(&format!(
             r#"<hick:container name="frozen" image="alpine" />
 <hick:exec container="frozen" freeze="true">
-printf {suffix} >> {}
+{}
 </hick:exec>"#,
-            marker.display()
+            append_mark(suffix, &marker)
         ))
     };
 
     run(&doc_with("a"), Some(&cc)).await.unwrap();
     run(&doc_with("a"), Some(&cc)).await.unwrap();
-    assert_eq!(std::fs::read_to_string(&marker).unwrap(), "a");
+    assert_eq!(marks(&std::fs::read_to_string(&marker).unwrap()), "a");
 
     run(&doc_with("b"), Some(&cc)).await.unwrap();
     run(&doc_with("b"), Some(&cc)).await.unwrap();
     assert_eq!(
-        std::fs::read_to_string(&marker).unwrap(),
+        marks(&std::fs::read_to_string(&marker).unwrap()),
         "ab",
         "a changed command has no recording, so it must run once more and record that"
     );
@@ -335,7 +338,7 @@ async fn an_opted_out_cell_re_executes_instead_of_reusing_its_recording() {
     let scratch = Scratch::new("opt-out-ignores-recording");
     let marker = scratch.path().join("ran-again.txt");
     let cc = CacheConfig::new(scratch.path(), CacheMode::Require);
-    let command = format!("\ntouch {}\n", marker.display());
+    let command = format!("\n{}\n", create_marker(&marker));
     record(&cc, "integration", "alpine", &command, "stale\n");
 
     let src = hick_doc(&format!(
