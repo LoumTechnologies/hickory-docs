@@ -74,6 +74,9 @@ export function actionsFor(
     // An equation is a picture too: the only verb it has is "show me what I
     // actually typed".
     case "math":
+    // A table's grid IS the edited thing, so its one verb is the way back to
+    // the CSV — which is what a reviewer reads in the diff.
+    case "table":
       return ["source"];
     case "fence":
       return ["convert"];

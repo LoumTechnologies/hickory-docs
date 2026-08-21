@@ -69,6 +69,8 @@ fn origin_file(doc_path: &str, span_files: &[Arc<str>], span: &hick_lang::Source
 /// - `<hick:file>` → heading + fenced code block (unless `doc-hidden="true"`)
 /// - `<hick:diagram>` → fenced block tagged with its `renderer`
 /// - `<hick:math>` → a `$$…$$` display-math block
+/// - `<hick:table>` → a markdown table (its CSV is also written when it
+///   carries a `path`)
 /// - `<hick:claim>` → an attribution line, then the prose unchanged
 /// - `<hick:transcript>` → its derived speaker turns
 /// - `<hick:said>` → `**Who** (time): what they said`
@@ -195,6 +197,27 @@ fn process_weave_tag(
                 span_files,
             );
             weave_ip.add(Arc::new(StringNode::new("```\n".to_string())));
+        }
+        // A table is a dataset that is also prose, and both halves matter.
+        //
+        // The CONTENT is CSV, because that is what a spreadsheet exports,
+        // what a query writes, and what a script reads — and when the tag
+        // carries a `path`, those exact bytes are written there, the same way
+        // a `hick:file` body is (see the file-output pass in lib.rs). The
+        // WEAVE is a markdown table, because a reader opening the document
+        // wants the data, not the delimiters.
+        //
+        // Weaving the CSV in a fenced block instead would show a reader the
+        // commas; storing markdown instead would leave a file nothing else
+        // can read.
+        "table" => {
+            let delimiter = crate::csv_table::delimiter_of(tag_attr(tag, "delimiter").as_deref());
+            let header = crate::csv_table::header_of(tag_attr(tag, "header").as_deref());
+            let rows = crate::csv_table::parse_csv(&tag.text_content(), delimiter);
+            let table = crate::csv_table::to_markdown(&rows, header);
+            if !table.is_empty() {
+                weave_ip.add(Arc::new(StringNode::new(format!("\n{table}\n"))));
+            }
         }
         // Display maths weaves to `$$…$$`, which is what GitHub, every editor
         // preview, and every static-site generator already renders. The same

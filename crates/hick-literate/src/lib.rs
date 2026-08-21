@@ -10,6 +10,7 @@ pub mod capture;
 pub mod cell_timeout;
 pub mod compact;
 pub mod config;
+pub mod csv_table;
 pub mod equiv;
 pub mod expect;
 pub mod needs;
@@ -585,8 +586,14 @@ fn process_documents_round(
         let source_file: Arc<str> = Arc::from(*doc_name);
         let span_files = span_file_table(doc);
         for node in &doc.nodes {
+            // A `hick:table` with a `path` is a file output too: its CSV is
+            // the dataset, and the woven markdown is how the document reads.
+            // Without a `path` it is prose that happens to be tabular, and
+            // writes nothing.
             if let HickNode::Tag(tag) = node
-                && tag.name == "file"
+                && (tag.name == "file"
+                    || (tag.name == "table"
+                        && tag_attr(tag, "path").is_some_and(|p| !p.is_empty())))
             {
                 let raw_path = tag_attr(tag, "path").unwrap_or_default();
                 let path = interpolate_path(&raw_path, state);

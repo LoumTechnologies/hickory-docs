@@ -31,6 +31,7 @@ pub mod agent;
 pub mod api;
 pub mod debug_bridge;
 pub mod find;
+pub mod formula;
 pub mod lsp_bridge;
 pub mod plain_file;
 pub mod refactor;
@@ -419,6 +420,10 @@ fn router(state: LocalState) -> Router {
         // Who last touched each line. Off by default in the editor, so this
         // is only ever asked for by someone who turned the column on.
         .route("/blame", get(api::blame))
+        // Formulas: the host has already resolved references and worked out
+        // the order by the time a backend sees anything. See serve/formula.rs.
+        .route("/formula/evaluate", post(formula::evaluate))
+        .route("/formula/languages", get(formula::languages))
         .route("/executor", get(api::executor))
         .route("/health", get(api::health))
         .route(

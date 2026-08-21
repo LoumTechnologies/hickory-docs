@@ -2665,6 +2665,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "hick-formula"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
 name = "hick-grove"
 version = "0.1.0"
 dependencies = [
@@ -2919,6 +2930,7 @@ dependencies = [
  "hick-dap",
  "hick-exec",
  "hick-flow",
+ "hick-formula",
  "hick-lang",
  "hick-literate",
  "hick-lsp",

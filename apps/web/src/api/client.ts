@@ -25,6 +25,7 @@ import type {
   TerminalsResponse,
   BlameLine,
   FindOptions,
+  FormulaResults,
   FindResponse,
   ReplaceResponse,
   UiSettings,
@@ -210,6 +211,19 @@ export const api = {
 
   /** Definitions and references across this session's generated files. */
   structure: () => request<StructureResponse>("GET", "/api/structure"),
+
+  /** Every formula in a grid, computed.
+   *
+   * The host resolves references and works out the order before any backend
+   * is asked anything, so this is one call whatever language the formulas
+   * are in. The backend installs itself on first use — it is a script the
+   * binary carries, not a download. */
+  evaluateFormulas: (language: string, rows: string[][]) =>
+    request<FormulaResults>("POST", "/api/formula/evaluate", { language, rows }),
+
+  /** Languages this machine can evaluate formulas in right now. */
+  formulaLanguages: () =>
+    request<{ languages: string[] }>("GET", "/api/formula/languages"),
 
   /** Who last touched each line. Answers `{lines: []}` for a folder that is
    * not a repository, an untracked file, or a machine with no git — the

@@ -535,3 +535,11 @@ export interface BlameLine {
   summary: string;
   uncommitted: boolean;
 }
+
+/** What a table's formulas came to. Keyed by A1 label, and only for cells
+ * that ARE formulas — echoing literals back would make the response the size
+ * of the table for no reason. */
+export interface FormulaResults {
+  values: Record<string, string>;
+  errors: Record<string, string>;
+}

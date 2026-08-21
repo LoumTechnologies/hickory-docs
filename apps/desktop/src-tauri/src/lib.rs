@@ -261,6 +261,7 @@ const INSERT_GROUPS: InsertGroups = &[
             ("val", "Variable Value"),
             ("when", "Conditional Block"),
             ("diagram", "Diagram"),
+            ("table", "Table"),
             ("math", "Equation"),
             ("transform", "Transform"),
             ("include", "Include A File"),

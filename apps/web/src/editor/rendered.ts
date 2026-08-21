@@ -75,6 +75,7 @@ export function renderableBlocks(structure: HickDocStructure): HickBlock[] {
     ...execBlocksOf(structure),
     ...blocksNamed(structure, "diagram"),
     ...blocksNamed(structure, "math"),
+    ...blocksNamed(structure, "table"),
   ].sort((a, b) => a.from - b.from);
 }
 
@@ -86,7 +87,7 @@ export interface RenderedSlot {
   key: string;
   el: HTMLElement;
   index: number;
-  kind: "exec" | "diagram" | "math";
+  kind: "exec" | "diagram" | "math" | "table";
   /** The block's start offset — what a toggle effect carries. */
   at: number;
   /** The block's whole source span, for matching the server's exec blocks. */
@@ -95,6 +96,8 @@ export interface RenderedSlot {
   text: string;
   /** diagram only. */
   renderer: string;
+  /** table only: the tag's own attributes, for the grid. */
+  table?: { path?: string; delimiter?: string; header: boolean; language?: string };
   asserts: string[];
 }
 
@@ -118,6 +121,10 @@ class RenderedWidget extends WidgetType {
       a.kind === b.kind &&
       a.text === b.text &&
       a.renderer === b.renderer &&
+      a.table?.path === b.table?.path &&
+      a.table?.delimiter === b.table?.delimiter &&
+      a.table?.header === b.table?.header &&
+      a.table?.language === b.table?.language &&
       a.asserts.join(" ") === b.asserts.join(" ")
     );
   }
@@ -138,7 +145,10 @@ class RenderedWidget extends WidgetType {
     // An equation is one or two lines of tall type, not a picture: guessing a
     // diagram's height for it makes the scrollbar lie by a screenful in a
     // document full of maths.
-    return this.slot.kind === "math" ? 56 : 90;
+    if (this.slot.kind === "math") return 56;
+    // A grid is as tall as its rows; this is only the first guess, before
+    // anything is measured.
+    return this.slot.kind === "table" ? 140 : 90;
   }
 
   ignoreEvent() {
@@ -163,11 +173,17 @@ function buildRendered(state: EditorState, registry: RenderedRegistry): Decorati
   const structure = structureOf(state);
   const doc = state.doc;
   const ranges: Range<Decoration>[] = [];
-  const counts = { exec: 0, diagram: 0, math: 0 };
+  const counts = { exec: 0, diagram: 0, math: 0, table: 0 };
 
   for (const block of renderableBlocks(structure)) {
     const kind =
-      block.name === "diagram" ? "diagram" : block.name === "math" ? "math" : "exec";
+      block.name === "diagram"
+        ? "diagram"
+        : block.name === "math"
+          ? "math"
+          : block.name === "table"
+            ? "table"
+            : "exec";
     const index = counts[kind]++;
     if (!rendered.includes(block.from)) continue;
     // A block replacement must cover whole lines, or CodeMirror cannot take
@@ -188,6 +204,22 @@ function buildRendered(state: EditorState, registry: RenderedRegistry): Decorati
               ? commandOf(state, structure, block)
               : doc.sliceString(block.contentFrom, block.contentTo),
           renderer: block.attrs.renderer ?? "mermaid",
+          table:
+            kind === "table"
+              ? {
+                  path: block.attrs.path,
+                  delimiter:
+                    block.attrs.delimiter === "tab" ? "\t" : block.attrs.delimiter,
+                  // A CSV with a header row is the overwhelmingly common
+                  // case; a document that has to say so every time is a
+                  // document full of noise.
+                  header: block.attrs.header !== "false",
+                  // No language means no formulas: a cell beginning with `=`
+                  // is then just text, which is what a table of shell
+                  // snippets needs it to be.
+                  language: block.attrs.language,
+                }
+              : undefined,
           asserts: (block.attrs.asserts ?? "")
             .split(/\s+/)
             .filter(Boolean)
