@@ -17,6 +17,7 @@ import {
   panes,
   split,
   tab as makeTab,
+  withRail,
   withTree,
   type Layout,
   type Pane,
@@ -24,10 +25,45 @@ import {
   type Tab,
 } from "../shell/layout";
 
-/** The layout a brand-new workspace starts as: one empty pane and the
- * folder tree beside it. */
+/** The tab the agent conversation lives in. */
+export const CHAT_TAB = "chat";
+
+/** The tab the welcome page lives in. A tool tab, so it counts as furniture
+ * and an arrangement holding only it is still "empty". */
+export const WELCOME_TAB = "welcome";
+
+/** Show the welcome page. Opening it twice fronts the one that exists. */
+export function openWelcomeTab(layout: Layout): Layout {
+  for (const pane of panes(layout.root)) {
+    const index = pane.tabs.findIndex((t) => t.kind === "tool" && t.target === WELCOME_TAB);
+    if (index >= 0) return activate(layout, pane.id, index);
+  }
+  return openInLayout(layout, makeTab("tool", WELCOME_TAB, "Welcome"), layout.focus);
+}
+
+/**
+ * The layout a brand-new workspace starts as: the folder tree on the left,
+ * the work in the middle, the agent on the right.
+ *
+ * The chat is a PANE here rather than a dock along the bottom. A dock made it
+ * a mode — it covered the document it was about, and collapsing it was the
+ * only way to see the thing you were asking about. As a pane it sits beside
+ * the work, and can be moved, split, resized, or closed like anything else.
+ */
 export function initialWorkspace(): Layout {
-  return withTree(freeform(), makeTab("tree", "folder", "Files"));
+  return withRail(
+    withTree(freeform(), makeTab("tree", "folder", "Files")),
+    makeTab("chat", CHAT_TAB, "Agent"),
+  );
+}
+
+/** Show the agent conversation. Opening it twice fronts the one that exists. */
+export function openChatTab(layout: Layout): Layout {
+  for (const pane of panes(layout.root)) {
+    const index = pane.tabs.findIndex((t) => t.kind === "chat");
+    if (index >= 0) return activate(layout, pane.id, index);
+  }
+  return withRail(layout, makeTab("chat", CHAT_TAB, "Agent"));
 }
 
 /** Furniture: panes that are part of the window rather than of the work.
@@ -39,7 +75,7 @@ export function initialWorkspace(): Layout {
  * "what is going on", neither of them the place you were already looking.
  * Terminals are icons on their directory's row now (shell/FolderTreePane). */
 function isFurniture(t: Tab): boolean {
-  return t.kind === "tree" || t.kind === "tool";
+  return t.kind === "tree" || t.kind === "tool" || t.kind === "chat";
 }
 
 /**

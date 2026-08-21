@@ -21,6 +21,7 @@ import {
   zoomCommandFor,
   type ZoomScope,
 } from "../lib/zoom";
+import { toggleBlameShown } from "../lib/blamePref";
 
 export interface ZoomHandle {
   /** The whole-window level, for anything that wants to show it. */
@@ -91,6 +92,9 @@ export function useZoom({
       onMenuAction((action) => {
         const zoom = MENU_ZOOM[action];
         if (zoom) run(zoom.scope, zoom.command);
+        // The blame column rides this hook because it is the same kind of
+        // thing: a View-menu switch that every open editor obeys at once.
+        else if (action === "blame") toggleBlameShown();
       }),
     [run],
   );

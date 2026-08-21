@@ -14,6 +14,7 @@ import { useCallback, useEffect, useMemo, useState, type MouseEvent } from "reac
 import { api } from "../api/client";
 import type { FileNode, FilesResponse } from "../api/types";
 import { TreeContextMenu } from "./TreeContextMenu";
+import { TreeFindReplace } from "./TreeFindReplace";
 import {
   copyText,
   terminalMenuItems,
@@ -298,6 +299,8 @@ export interface FolderTreePaneProps {
   /** "Close" on a terminal icon's own menu — the only place a session can be
    * stopped now that terminals have no list of their own. */
   onCloseTerminal?: (id: string) => void;
+  /** Jump to a find hit: a root-relative path and a 1-based line. */
+  onOpenHit?: (path: string, line: number) => void;
   error?: string | null;
 }
 
@@ -377,12 +380,20 @@ export function FolderTreePane({
   onNewTerminal,
   onNewWorktree,
   onCloseTerminal,
+  onOpenHit,
   error,
 }: FolderTreePaneProps) {
   if (error) return <p className="error folder-tree__error">{error}</p>;
   if (roots.length === 0) return <p className="muted folder-tree__loading">Reading folder…</p>;
   return (
     <div className="folder-tree">
+      {/* Find and replace across everything, above the tree it acts on. Not
+          an overlay: this is a list you work through while the tree stays
+          where it is. */}
+      <TreeFindReplace
+        onOpenHit={(path, line) => onOpenHit?.(path, line)}
+        onReplaced={() => window.dispatchEvent(new Event(FILES_CHANGED_EVENT))}
+      />
       {roots.map((folder) => (
         <FolderRoot
           key={folder.root}

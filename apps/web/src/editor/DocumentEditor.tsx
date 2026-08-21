@@ -19,6 +19,8 @@ import { renderedMath } from "./mathRender";
 import { EditorRuler } from "./EditorRuler";
 import { WRAP_DEFAULT, proseWrap } from "./wrapColumn";
 import { editorChrome } from "./chrome";
+import { blameGutter } from "./blameGutter";
+import { useBlame } from "./useBlame";
 import { mathSpans } from "../lib/math";
 import {
   diagnosticRanges,
@@ -95,6 +97,9 @@ export interface DocumentEditorProps {
   wrapColumn?: number;
   /** Report a measure the reader dragged on the ruler. */
   onWrapColumn?: (column: number) => void;
+  /** This document's path, for the blame column. Absent means no column —
+   * an untitled buffer has no history to show. */
+  path?: string | null;
 }
 
 /**
@@ -166,6 +171,7 @@ export function DocumentEditor({
   placeholderText,
   wrapColumn = WRAP_DEFAULT,
   onWrapColumn,
+  path = null,
 }: DocumentEditorProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
@@ -179,6 +185,10 @@ export function DocumentEditor({
   const envRegistry = useMemo(() => new EnvRegistry(), []);
   const [envSlots, setEnvSlots] = useState<EnvSlot[]>([]);
   const [executorInfo, setExecutorInfo] = useState<ExecutorInfo | null>(null);
+  // Who last touched each line, when the column is on. Lazy: nothing is
+  // asked of git until somebody turns it on.
+  useBlame(railView, path);
+
   // The action rail's contents, recomputed whenever an edit changes them.
   // Held as state rather than derived per render because the editor
   // deliberately does not re-render on every keystroke.
@@ -309,6 +319,10 @@ export function DocumentEditor({
           // Gutters, caret, selection, the find panel — one definition, loaded
           // by every editor in the app. See editor/chrome.ts.
           editorChrome("document"),
+          // Before the debug layer, which is where lineNumbers() comes from:
+          // gutters lay out in declaration order, and this one belongs
+          // OUTSIDE the numbers. Off by default — see editor/blameGutter.ts.
+          blameGutter(),
           history(),
           // Undo must never reach content this client did not type.
           //

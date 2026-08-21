@@ -28,7 +28,12 @@ export type ViewKind =
   // A terminal session, addressed by its server-side id. The pane shows the
   // session; it does not own it, which is why closing the tab leaves the work
   // running. See src/terminal/.
-  | "terminal";
+  | "terminal"
+  // The agent conversation. A PANE, not a dock along the bottom: the chat is
+  // a thing you read and scroll beside your work, and a dock made it a mode
+  // that covered the document it was about. As a pane it can be moved,
+  // split, resized, and closed like everything else.
+  | "chat";
 
 export interface Tab {
   id: string;
@@ -129,6 +134,26 @@ export function withTree(layout: Layout, entry: Tab, size = 0.2): Layout {
   };
   // The focus stays where it was: the tree is furniture, not what you came
   // here to edit.
+  return { root, focus: layout.focus };
+}
+
+/**
+ * Put a pane at the RIGHT edge of an arrangement.
+ *
+ * `withTree`'s mirror image, and separate rather than parameterised because
+ * the two differ in more than a side: the tree takes no focus (it is
+ * furniture you navigate with), and neither does this — opening the chat
+ * should not take the caret out of the document you are asking about.
+ */
+export function withRail(layout: Layout, entry: Tab, size = 0.26): Layout {
+  const pane: Pane = { ...emptyPane(), tabs: [entry], active: 0 };
+  const root: Split = {
+    type: "split",
+    id: nextId("split"),
+    direction: "row",
+    children: [layout.root, pane],
+    sizes: [1 - size, size],
+  };
   return { root, focus: layout.focus };
 }
 

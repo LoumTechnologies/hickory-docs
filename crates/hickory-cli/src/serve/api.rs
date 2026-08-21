@@ -455,22 +455,63 @@ fn file_tree(root: &std::path::Path, index: &super::store::DocIndex) -> (Vec<Tre
     }
     // Which files the documents in this folder write. Done after the walk so
     // a document is credited with an output that was listed before it.
-    let mut generated: HashMap<String, String> = HashMap::new();
-    for (rel, absolute) in &documents {
+    let generated = outputs_of(&documents, index);
+    mark_generated(&mut top, &generated);
+    sort_tree(&mut top);
+    (top, truncated)
+}
+
+/// Output path → the id of the document that writes it, for a set of
+/// documents already located.
+fn outputs_of(
+    documents: &[(String, std::path::PathBuf)],
+    index: &super::store::DocIndex,
+) -> HashMap<String, String> {
+    let mut generated = HashMap::new();
+    for (rel, absolute) in documents {
         let Ok(source) = std::fs::read_to_string(absolute) else {
             continue;
         };
         let id = index.add(rel);
         for output in declared_outputs(rel, &source) {
             // First document wins. Two documents writing one file is a
-            // conflict the weaver reports; the tree does not need to pick a
-            // side to answer "is this generated".
+            // conflict the weaver reports; a caller asking "is this
+            // generated" does not need to pick a side.
             generated.entry(output).or_insert_with(|| id.clone());
         }
     }
-    mark_generated(&mut top, &generated);
-    sort_tree(&mut top);
-    (top, truncated)
+    generated
+}
+
+/// Every generated file under `root`, and which document writes it.
+///
+/// The folder tree gets this from its own walk; find-and-replace needs the
+/// same answer without one, to refuse a write that the next weave would undo.
+pub fn generated_outputs(
+    root: &std::path::Path,
+    index: &super::store::DocIndex,
+) -> HashMap<String, String> {
+    let mut documents = Vec::new();
+    let walker = ignore::WalkBuilder::new(root)
+        .hidden(true)
+        .git_ignore(true)
+        .require_git(false)
+        .git_global(false)
+        .filter_entry(|e| e.file_name() != ".hick-cache" && e.file_name() != "node_modules")
+        .build();
+    for entry in walker.flatten() {
+        if !entry.file_type().is_some_and(|t| t.is_file()) {
+            continue;
+        }
+        let Ok(rel) = entry.path().strip_prefix(root) else {
+            continue;
+        };
+        let rel = rel.to_string_lossy().replace('\\', "/");
+        if rel.ends_with(".hick") {
+            documents.push((rel, entry.path().to_path_buf()));
+        }
+    }
+    outputs_of(&documents, index)
 }
 
 /// The files a document DECLARES it writes: its `weave` target and the path
@@ -1153,4 +1194,47 @@ mod tree_tests {
         let children = tree[2].children.as_ref().unwrap();
         assert_eq!(children[0].generated_by, None, "nothing claims src/main.rs");
     }
+}
+
+// ---------------------------------------------------------------------------
+// Blame
+// ---------------------------------------------------------------------------
+
+#[derive(Deserialize)]
+pub struct BlameParams {
+    pub path: String,
+}
+
+/// `GET /api/blame?path=…` — who last touched each line.
+///
+/// One `git blame` for the whole file, never one per line: a thousand-line
+/// file would otherwise fork a thousand processes to fill a column that is
+/// off by default.
+///
+/// A folder that is not a repository, a file that is untracked, a machine
+/// with no git — all answer `{"lines": []}` rather than an error. The column
+/// is an optional annotation; refusing to open a file because its history is
+/// unavailable would be absurd.
+pub async fn blame(
+    State(state): State<LocalState>,
+    Query(params): Query<BlameParams>,
+) -> ApiResult<Json<Value>> {
+    let root = state.index.root().to_path_buf();
+    // Bounds-checked the same way every other path parameter is: relative, no
+    // `..`, inside the folder.
+    if params.path.is_empty()
+        || params.path.starts_with('/')
+        || params.path.split('/').any(|part| part == "..")
+    {
+        return Err(ApiError::bad_request(format!(
+            "{} is not a path inside this folder",
+            params.path
+        )));
+    }
+    let rel = std::path::PathBuf::from(&params.path);
+    let lines = tokio::task::spawn_blocking(move || crate::agent_lineage::blame_file(&root, &rel))
+        .await
+        .map_err(|e| ApiError::internal(format!("the blame task failed: {e}")))?;
+
+    Ok(Json(json!({ "path": params.path, "lines": lines })))
 }

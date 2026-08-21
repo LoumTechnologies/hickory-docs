@@ -743,12 +743,18 @@ textarea:focus {
   font-family: inherit;
 }
 
-/* --- document editor (Typora-style WYSIWYG over raw .hick source) --- */
+/* --- document editor (Typora-style WYSIWYG over raw .hick source) ---
+ *
+ * NO border and NO radius. It used to be a rounded card, and the tab above it
+ * was a second surface, and the document's own toolbar between them was a
+ * third — so the tab appeared joined to the toolbar and the toolbar appeared
+ * joined to nothing, while the document it was all about floated in a box
+ * below. The tab strip is already drawn to read as the pane's own front edge
+ * (see `.shell-tab--on`, the file-folder connection); the editor has to be
+ * the surface that edge belongs to, which means being flush with it. */
 .document-editor {
-  border: 1px solid var(--border);
-  border-radius: 10px;
   overflow: hidden;
-  background: var(--bg-raised);
+  background: var(--bg);
 }
 
 .document-editor {
@@ -1425,6 +1431,18 @@ textarea:focus {
  * two different programs. The font and the size come from
  * `editorChrome("code")`, which is the same extension the document editor
  * loads, so there is one definition rather than two that drift. */
+/* Inside a TAB the code editor is the pane, flush with the tab that names it
+   — the same rule the document editor follows. The card treatment below is
+   for a split, where the output sits BESIDE a document and being a distinct
+   object is the point. */
+.shell-pane__body > .plain-file-pane .output-editor,
+.shell-pane__body .tab-zoom > .plain-file-pane .output-editor,
+.shell-pane__body .generated-pane .output-editor {
+  border: 0;
+  border-radius: 0;
+  border-left: 2px solid var(--accent-2);
+}
+
 .output-editor,
 .plain-file-pane .output-editor {
   flex: 1;
@@ -1723,7 +1741,10 @@ textarea:focus {
 .plain-file-pane {
   display: flex;
   flex-direction: column;
-  gap: 0.35rem;
+  /* No gap: the toolbar is attached to the editor by a rule, not floated
+     above it by a margin. Three stacked cards inside one pane is what made
+     the tab look joined to the toolbar and the toolbar joined to nothing. */
+  gap: 0;
   min-width: 0;
   min-height: 0;
   flex: 1;
@@ -4215,10 +4236,11 @@ textarea:focus {
   align-items: center;
   gap: 0.35rem;
   flex-wrap: wrap;
-  margin-bottom: 0.4rem;
-  padding: 0.25rem 0.6rem;
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  margin-bottom: 0;
+  padding: 0.2rem 0.6rem;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
   background: var(--bg-raised);
   font-size: 0.8rem;
 }
@@ -5137,16 +5159,20 @@ textarea:focus {
    slim strip in the debug strip's idiom: block chrome, one line, quiet.
    These moved out of the workspace toolbar so each open document can be
    run or verified on its own. */
+/* Attached to the editor, not floating above it: one bottom rule and no
+   margin, so the strip and the text are one surface with a line between them
+   rather than two cards with a gap. */
 .doc-tab-toolbar {
   flex: none;
   display: flex;
   align-items: center;
   justify-content: flex-end;
   gap: 0.35rem;
-  margin-bottom: 0.4rem;
-  padding: 0.25rem 0.6rem;
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  margin-bottom: 0;
+  padding: 0.2rem 0.6rem;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
   background: var(--bg-raised);
   font-size: 0.8rem;
 }
@@ -5845,3 +5871,356 @@ html {
   background: color-mix(in srgb, var(--ribbon-5) 22%, transparent);
   box-shadow: inset 2px 0 0 var(--ribbon-5);
 }
+
+/* find and replace across the folder ----------------------------------------
+   At the top of the tree rather than in an overlay: this is a list you work
+   through while the tree beneath it stays where it was. The ranked search
+   overlay (⌘⇧F) is the other thing and stays — "where is the bit about
+   invoices" and "rename this in 40 files" are different jobs. */
+.tree-find__open {
+  width: 100%;
+  text-align: left;
+  padding: 0.25rem 0.5rem;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  background: none;
+  color: var(--fg-muted);
+  font-size: 0.74rem;
+  cursor: pointer;
+}
+.tree-find__open:hover { color: var(--fg); background: var(--bg-raised); }
+
+.tree-find {
+  border-bottom: 1px solid var(--border);
+  padding: 0.4rem 0.5rem 0.5rem;
+  background: var(--bg-raised);
+  max-height: 60%;
+  overflow: auto;
+}
+.tree-find__fields { display: flex; gap: 0.3rem; align-items: center; }
+.tree-find__input {
+  flex: 1;
+  min-width: 0;
+  padding: 0.15rem 0.35rem;
+  font-size: 0.76rem;
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+.tree-find__input:focus { outline: none; border-color: var(--accent); }
+.tree-find__close {
+  border: 0;
+  background: none;
+  color: var(--fg-muted);
+  cursor: pointer;
+  font-size: 0.9rem;
+  line-height: 1;
+}
+.tree-find__options { display: flex; gap: 0.2rem; margin-top: 0.3rem; }
+.tree-find__toggle {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.66rem;
+  padding: 0.05rem 0.3rem;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--bg);
+  color: var(--fg-muted);
+  cursor: pointer;
+}
+.tree-find__toggle--on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--bg);
+}
+.tree-find__summary { margin: 0.4rem 0 0; font-size: 0.72rem; color: var(--fg-muted); }
+.tree-find__error { margin: 0.4rem 0 0; font-size: 0.72rem; }
+.tree-find__actions { margin-top: 0.4rem; }
+
+.tree-find__files { list-style: none; margin: 0.5rem 0 0; padding: 0; }
+.tree-find__files ul { list-style: none; margin: 0; padding: 0; }
+.tree-find__path {
+  margin: 0.4rem 0 0.1rem;
+  font-size: 0.72rem;
+  color: var(--fg);
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+/* Shown, not hidden: its matches are real and worth reading. It is the WRITE
+   that is refused, and the badge says why. */
+.tree-find__file--generated .tree-find__path { color: var(--fg-muted); }
+.tree-find__generated {
+  font-size: 0.6rem;
+  padding: 0 0.25rem;
+  border-radius: 3px;
+  background: var(--neutral-bg);
+  color: var(--fg-muted);
+}
+.tree-find__hit {
+  display: flex;
+  gap: 0.45rem;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: none;
+  color: var(--fg-muted);
+  font-size: 0.7rem;
+  padding: 0.05rem 0.3rem;
+  cursor: pointer;
+}
+.tree-find__hit:hover { background: var(--bg-sunken); color: var(--fg); }
+.tree-find__line { flex: none; min-width: 2.2em; text-align: right; opacity: 0.7; }
+.tree-find__text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* the blame column ----------------------------------------------------------
+   Left of the line numbers, and off by default. The numbers stay against the
+   text because they are the coordinate everything else in this app refers to —
+   a stack trace, a ribbon, a collaborator saying "line 40" — so the annotation
+   goes outside them.
+
+   A run of lines from one commit is labelled once, at its first line. Every
+   row here is therefore either a boundary or blank, which is what keeps the
+   column readable instead of a wall of the same name. */
+.cm-blame-gutter {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.68em;
+  color: var(--fg-muted);
+  user-select: none;
+}
+.cm-blame-entry {
+  display: inline-block;
+  max-width: 14em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 0 0.5em 0 0.4em;
+  opacity: 0.75;
+}
+.cm-blame-entry:hover { opacity: 1; color: var(--fg); }
+/* Uncommitted is yours and is the one state worth telling apart at a glance:
+   it is the difference between "this is history" and "this is what you are
+   in the middle of". */
+.cm-blame-entry--mine { color: var(--accent-2); font-style: italic; }
+/* CodeMirror's width-reserving spacer. Never counted as an entry. */
+.cm-blame-spacer { display: inline-block; }
+
+/* the status bar ------------------------------------------------------------
+   A status bar earns its permanent row by answering questions you would
+   otherwise go and look for, and loses it the moment it shows things nobody
+   reads. Left is the state of the WORK — how much is wrong, what is waiting.
+   Right is the state of the VIEW — where the caret is, what the file is. A
+   glance to one side answers one kind of question. */
+.status-bar {
+  flex: 0 0 auto;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  height: 1.45rem;
+  padding: 0 0.6rem;
+  border-top: 1px solid var(--border);
+  background: var(--bg-raised);
+  font-size: 0.7rem;
+  color: var(--fg-muted);
+  user-select: none;
+}
+.status-bar__left,
+.status-bar__right {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  min-width: 0;
+}
+.status-bar__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  padding: 0 0.15rem;
+  border-radius: 3px;
+  cursor: default;
+  white-space: nowrap;
+}
+button.status-bar__item { cursor: pointer; }
+button.status-bar__item:hover { background: var(--bg-sunken); color: var(--fg); }
+.status-bar__glyph { opacity: 0.8; }
+/* Loud only when something is actually wrong. A bar that is always coloured
+   is a bar whose colour means nothing. */
+.status-bar__item--loud { color: var(--fail); }
+.status-bar__item--attention { color: var(--warn); }
+.status-bar__path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  /* The path is the one thing here allowed to be long, and the one thing
+     allowed to lose its tail: the end of a path is the file name, which the
+     tab already shows. */
+  direction: rtl;
+  text-align: left;
+  max-width: 28ch;
+}
+
+/* The agent as a PANE rather than a dock.
+   
+   A dock made the conversation a mode: it sat over the document it was about,
+   and collapsing it was the only way to see the thing you were asking about.
+   As a pane it fills its pane — no radius, no shadow, no lift — and it can be
+   moved, split, resized, and closed like everything else in the shell. */
+.chat-dock--pane {
+  flex: 1;
+  min-height: 0;
+  margin-top: 0;
+  padding: 0.4rem 0.55rem 0.5rem;
+  border: 0;
+  border-radius: 0;
+  background: var(--bg);
+  box-shadow: none;
+  overflow: hidden;
+}
+.chat-toggle--static {
+  font-weight: 600;
+  color: var(--fg);
+}
+.chat-pane__empty { padding: 0.8rem; font-size: 0.8rem; }
+
+/* the top field ------------------------------------------------------------
+   One control that understands four prefixes, rather than four controls to
+   learn and four places to look. */
+.workspace-top {
+  flex: 0 0 auto;
+  display: flex;
+  justify-content: center;
+  padding: 0.3rem 0.6rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-raised);
+}
+.command-bar { position: relative; width: min(38rem, 100%); }
+.command-bar__input {
+  width: 100%;
+  padding: 0.2rem 0.6rem;
+  font-size: 0.78rem;
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  text-align: center;
+}
+.command-bar__input:focus { outline: none; border-color: var(--accent); text-align: left; }
+.command-bar__panel {
+  position: absolute;
+  top: calc(100% + 0.3rem);
+  left: 0;
+  right: 0;
+  z-index: 40;
+  max-height: 22rem;
+  overflow: auto;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 10px 30px rgb(0 0 0 / 28%);
+}
+/* The hint is how the prefixes are discoverable without a help page. */
+.command-bar__hint {
+  margin: 0;
+  padding: 0.25rem 0.55rem;
+  font-size: 0.66rem;
+  color: var(--fg-muted);
+  border-bottom: 1px solid var(--border);
+}
+.command-bar__empty { margin: 0; padding: 0.5rem 0.55rem; font-size: 0.74rem; }
+.command-bar__list { list-style: none; margin: 0; padding: 0.2rem 0; }
+.command-bar__item {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: none;
+  color: var(--fg);
+  font: inherit;
+  font-size: 0.76rem;
+  padding: 0.2rem 0.55rem;
+  cursor: pointer;
+}
+.command-bar__item--on { background: var(--accent); color: var(--bg); }
+.command-bar__detail {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.68rem;
+  opacity: 0.7;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* the welcome pane ---------------------------------------------------------
+   What an empty workspace says instead of nothing. Everything on it does
+   something: a row is a verb or a document, never a link to a tour. */
+.welcome {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  justify-content: center;
+  padding: 2.5rem 1.5rem;
+}
+.welcome__inner { width: 100%; max-width: 46rem; }
+.welcome__head { margin-bottom: 2rem; }
+.welcome__title { margin: 0; font-size: 2rem; font-weight: 300; letter-spacing: -0.01em; }
+.welcome__sub { margin: 0.2rem 0 0; color: var(--fg-muted); font-size: 0.9rem; }
+.welcome__columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2.5rem;
+}
+@media (max-width: 46rem) {
+  .welcome__columns { grid-template-columns: 1fr; gap: 1.5rem; }
+}
+.welcome__h2 {
+  margin: 0 0 0.5rem;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--fg-muted);
+  font-weight: 600;
+}
+.welcome__list { list-style: none; margin: 0; padding: 0; }
+.welcome__action {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  font-size: 0.86rem;
+  padding: 0.22rem 0.3rem;
+  border-radius: 4px;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.welcome__action:hover { background: var(--bg-raised); }
+.welcome__empty { font-size: 0.82rem; margin: 0; }
+.welcome__foot {
+  margin-top: 2.5rem;
+  padding-top: 0.8rem;
+  border-top: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.76rem;
+  color: var(--fg-muted);
+}
+.welcome__toggle { display: flex; align-items: center; gap: 0.4rem; cursor: pointer; }

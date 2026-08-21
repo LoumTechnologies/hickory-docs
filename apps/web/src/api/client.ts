@@ -23,6 +23,10 @@ import type {
   OpenTerminal,
   TerminalSession,
   TerminalsResponse,
+  BlameLine,
+  FindOptions,
+  FindResponse,
+  ReplaceResponse,
   UiSettings,
   WorkspaceDraft,
   WorkspaceUiState,
@@ -206,6 +210,43 @@ export const api = {
 
   /** Definitions and references across this session's generated files. */
   structure: () => request<StructureResponse>("GET", "/api/structure"),
+
+  /** Who last touched each line. Answers `{lines: []}` for a folder that is
+   * not a repository, an untracked file, or a machine with no git — the
+   * column is an optional annotation, never a reason a file will not open. */
+  blame: (path: string) =>
+    request<{ path: string; lines: BlameLine[] }>(
+      "GET",
+      `/api/blame?path=${encodeURIComponent(path)}`,
+    ),
+
+  /** EXHAUSTIVE find across the folder, in path order — the one replace is
+   * built on. Not `search`, which is ranked top-k: a ranked answer is a
+   * sample, and replacing across a sample changes some of the occurrences. */
+  find: (q: string, options: FindOptions = {}) =>
+    request<FindResponse>(
+      "GET",
+      `/api/find?q=${encodeURIComponent(q)}` +
+        (options.regex ? "&regex=true" : "") +
+        (options.case ? "&case=true" : "") +
+        (options.whole_word ? "&whole_word=true" : ""),
+    ),
+
+  /** Rewrite every match. `paths` narrows it to the files that were ticked;
+   * a generated file is refused and reported in `skipped`, because writing
+   * to one either loses the edit at the next weave or fights the up-loop. */
+  replaceAll: (
+    q: string,
+    replacement: string,
+    options: FindOptions = {},
+    paths?: string[],
+  ) =>
+    request<ReplaceResponse>("POST", "/api/find/replace", {
+      q,
+      replacement,
+      ...options,
+      ...(paths ? { paths } : {}),
+    }),
 
   /** Ranked project-wide search over documents and generated files. */
   search: (q: string, k = 20) =>

@@ -26,6 +26,9 @@ import { taskCheckboxes } from "../editor/taskList";
 import { renderedMath } from "../editor/mathRender";
 import { proseWrap } from "../editor/wrapColumn";
 import { editorChrome } from "../editor/chrome";
+import { blameGutter } from "../editor/blameGutter";
+import { useBlame } from "../editor/useBlame";
+import { claimReveal, onRevealLine } from "../lib/revealLine";
 import { wrapGutterMarkers } from "../editor/wrapGutter";
 import { FILES_CHANGED_EVENT } from "../shell/FolderTreePane";
 import { createPlainSaver, type PlainSaveState } from "../lib/plainFileSave";
@@ -44,6 +47,9 @@ export function PlainFilePane({
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
+  // The live view AS STATE: a ref never re-renders, and the blame column has
+  // to mount its fetch against the view that actually exists.
+  const [railView, setRailView] = useState<EditorView | null>(null);
   const [file, setFile] = useState<PlainFile | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saveState, setSaveState] = useState<PlainSaveState>({ kind: "idle" });
@@ -180,6 +186,11 @@ export function PlainFilePane({
           // reading the block that writes it are not two different programs.
           editorChrome("code"),
           changeFlashField,
+          // Before lineNumbers, which is what puts it to their LEFT:
+          // CodeMirror lays gutters out in the order they are declared, and
+          // the numbers stay against the text because they are the
+          // coordinate everything else in this app refers to.
+          blameGutter(),
           lineNumbers(),
           wrapGutterMarkers(),
           ...languageExtensions(initial.language),
@@ -227,10 +238,12 @@ export function PlainFilePane({
       }),
     });
     viewRef.current = view;
+    setRailView(view);
     return () => {
       forgetFocusedEditor(view);
       view.destroy();
       viewRef.current = null;
+      setRailView(null);
     };
     // Mounted once per load; the saver is stable per path.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -265,6 +278,32 @@ export function PlainFilePane({
       contents: viewRef.current?.state.doc.toString() ?? "",
       base: saver.baseContent(),
     }),
+  });
+
+  // Who last touched each line, when the column is on.
+  useBlame(railView, path);
+
+  // A find hit asked for this file at a line. Claimed on mount as well as on
+  // the event, because the request is usually made before this pane exists.
+  useEffect(() => {
+    const jump = () => {
+      const view = viewRef.current;
+      if (!view) return;
+      const line = claimReveal(path);
+      if (line === null) return;
+      const target = view.state.doc.line(Math.min(line, view.state.doc.lines));
+      view.dispatch({
+        selection: { anchor: target.from },
+        // `center`, not `nearest`: a hit that lands on the last visible row
+        // is technically shown and practically missed.
+        effects: EditorView.scrollIntoView(target.from, { y: "center" }),
+      });
+      view.focus();
+    };
+    jump();
+    return onRevealLine((asked) => {
+      if (asked === path) jump();
+    });
   });
 
   // Take the disk copy into the live buffer, flashing what changed.

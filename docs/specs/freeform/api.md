@@ -236,3 +236,53 @@ for a portable install.
 None of this is required for the app to run. A store that cannot be opened —
 a read-only home, a platform with no data directory — degrades to "the window
 forgets its layout", and says so, rather than failing to start.
+
+## Find and replace (v0.5)
+
+Deliberately separate from `/api/search`, and the distinction is the point.
+Search is **ranked** — BM25 plus embeddings, top-k — which is right for "where
+is the thing about invoices" and wrong for replace: a ranked answer is a
+*sample*, and replacing across a sample silently changes some of the
+occurrences. These two are **exhaustive** and ordered by path.
+
+- `GET /api/find?q=…&regex=&case=&whole_word=` →
+  `{files: [{path, matches: [{line, text, at: [{column, length}]}], generated_by?}], truncated}`.
+  Literal unless `regex`; case-insensitive unless `case`, because that is what
+  someone typing a word into a box means. `generated_by` names the document
+  that writes the file, so the UI can grey out what replace will refuse
+  *before* the button is pressed. Files over 4MB and non-UTF-8 files are
+  skipped; the match cap is 5,000 and `truncated` says when it was hit. A bad
+  pattern is a 400 that says how to search for it literally.
+- `POST /api/find/replace` `{q, replacement, regex?, case?, whole_word?, paths?}`
+  → `{changed: [{path, matches}], skipped: [{path, matches, reason, document?}], replacements}`.
+  `paths` narrows the write to the files that were ticked.
+
+**Replace refuses a generated file**, and names its document. Writing to one
+either loses the edit at the next weave or fights the up-loop for it; changing
+the document is the edit that survives, and it fixes every other copy at the
+same time. A `.hick` document is *not* refused: it is source, and a rename
+inside one is exactly what somebody means.
+
+Find and replace build their matcher from one pattern, once — every option is
+a change to the pattern rather than a branch in the loop — so a preview can
+never describe a different edit from the one performed.
+
+## Blame (v0.5)
+
+- `GET /api/blame?path=…` →
+  `{path, lines: [{line, commit, author, email, time, summary, uncommitted}]}`.
+
+One `git blame --porcelain` for the whole file, never one per line: a
+thousand-line file would otherwise fork a thousand processes to fill a column
+that is **off by default**. `time` is unix seconds, formatted by the client in
+the reader's own locale — a server has no business deciding that.
+
+A folder that is not a repository, an untracked file, a machine with no git:
+all answer `{"lines": []}`. The column is an optional annotation, and refusing
+to open a file because its history is unavailable would be absurd. A line that
+is not in any commit reports `uncommitted: true` rather than borrowing the
+author of whoever last touched the file.
+
+This is the same `git blame` that `agent_lineage.rs` composes with lineage to
+answer "was this written by a person or by the agent"
+(`provenance-and-standing.md`); the column is that machinery made visible.

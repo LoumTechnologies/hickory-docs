@@ -483,3 +483,55 @@ export interface WorkspaceDraft {
 /** The stored window layout. Opaque on the wire; `lib/uiState.ts` owns its
  * shape, and is the only thing that should ever narrow this type. */
 export type WorkspaceUiState = unknown;
+
+// --- Exhaustive find and replace (api.md, "Find and replace") -------------
+//
+// Deliberately separate from SearchResponse, which is RANKED. A ranked answer
+// is a sample, and replacing across a sample changes some of the occurrences.
+
+export interface FindMatch {
+  /** 1-based. */
+  line: number;
+  /** The whole line, so a row shows context without a second request. */
+  text: string;
+  /** Every match on this line, as a byte column and a length. */
+  at: { column: number; length: number }[];
+}
+
+export interface FindFile {
+  path: string;
+  matches: FindMatch[];
+  /** The document that writes this file, when one does. Replace refuses it,
+   * and the UI greys it out before the button is pressed. */
+  generated_by?: string;
+}
+
+export interface FindResponse {
+  files: FindFile[];
+  /** The match cap was hit; there are more than these. */
+  truncated: boolean;
+}
+
+export interface FindOptions {
+  regex?: boolean;
+  case?: boolean;
+  whole_word?: boolean;
+}
+
+export interface ReplaceResponse {
+  changed: { path: string; matches: number }[];
+  skipped: { path: string; matches: number; reason: string; document?: string }[];
+  replacements: number;
+}
+
+/** One line's authorship, from `GET /api/blame`. */
+export interface BlameLine {
+  line: number;
+  commit: string;
+  author: string;
+  email: string;
+  /** Unix seconds; formatted by the client, in the reader's own locale. */
+  time: number;
+  summary: string;
+  uncommitted: boolean;
+}
