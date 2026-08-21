@@ -6224,3 +6224,84 @@ button.status-bar__item:hover { background: var(--bg-sunken); color: var(--fg); 
   color: var(--fg-muted);
 }
 .welcome__toggle { display: flex; align-items: center; gap: 0.4rem; cursor: pointer; }
+
+/* tables ---------------------------------------------------------------------
+   A grid, not a list of inputs: the thing that makes a table editor worth
+   having is moving around it without the mouse. A cell is a plain span until
+   you enter it — a grid of a thousand live inputs scrolls badly and reads
+   worse. */
+.table-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size: 0.8rem;
+}
+.table-panel__scroll { overflow: auto; max-height: 24rem; }
+.table-panel__grid {
+  border-collapse: collapse;
+  width: max-content;
+  min-width: 100%;
+}
+.table-panel__grid th,
+.table-panel__grid td {
+  border: 1px solid var(--border);
+  padding: 0;
+  min-width: 5rem;
+  max-width: 22rem;
+  text-align: left;
+  vertical-align: top;
+}
+.table-panel__grid thead th {
+  background: var(--bg-sunken);
+  font-weight: 600;
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+.table-panel__cell {
+  display: block;
+  padding: 0.16rem 0.4rem;
+  min-height: 1.2em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: pre;
+  cursor: text;
+}
+.table-panel__cell:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.table-panel__input {
+  display: block;
+  width: 100%;
+  padding: 0.16rem 0.4rem;
+  border: 0;
+  background: var(--bg-raised);
+  color: var(--fg);
+  font: inherit;
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.table-panel__actions { display: flex; gap: 0.3rem; align-items: center; flex-wrap: wrap; }
+.table-panel__size { margin-left: auto; font-size: 0.7rem; }
+.table-panel__readonly { margin: 0; font-size: 0.74rem; }
+.rendered-table { position: relative; }
+.cm-rendered .table-panel { margin: 0; }
+
+/* A ```csv fence: the grid, and the step from "a table I pasted into my
+   notes" to "the dataset this document owns". */
+.fence-table { display: flex; flex-direction: column; gap: 0.5rem; }
+.fence-table__promote {
+  border-top: 1px solid var(--border);
+  padding-top: 0.45rem;
+}
+.fence-table__why { margin: 0 0 0.35rem; font-size: 0.72rem; max-width: 40ch; }
+.fence-table__row { display: flex; gap: 0.35rem; }
+.fence-table__path {
+  flex: 1;
+  min-width: 0;
+  padding: 0.15rem 0.35rem;
+  font-size: 0.74rem;
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}

@@ -18,7 +18,7 @@
 import { execBlocksOf, blocksNamed, proseFences } from "./hickDoc";
 import type { HickDocStructure } from "./hickDoc";
 
-export type CardKind = "exec" | "diagram" | "math" | "fence";
+export type CardKind = "exec" | "diagram" | "math" | "table" | "fence";
 
 export interface DocCard {
   /** Stable within one document version; the rail keys its buttons on it. */
@@ -94,6 +94,21 @@ export function cardsOf(structure: HickDocStructure, options: CardsOptions): Doc
       from: block.from,
       to: block.to,
       label: `Equation ${index + 1}`,
+    });
+  });
+
+  // A `<hick:table>` is a dataset that is also prose; the card is how its
+  // grid is reached, and how the CSV underneath is got back to.
+  blocksNamed(structure, "table").forEach((block, index) => {
+    const path = block.attrs.path;
+    cards.push({
+      key: `table-${index}`,
+      kind: "table",
+      index,
+      at: block.from,
+      from: block.from,
+      to: block.to,
+      label: path ? `Table ${index + 1} — ${path}` : `Table ${index + 1}`,
     });
   });
 

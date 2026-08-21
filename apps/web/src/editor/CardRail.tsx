@@ -61,6 +61,7 @@ function glyph(card: DocCard, action: RailAction, state: CardState): string {
       // a cell's column needs Run and source to be told apart at a glance.
       if (card.kind === "diagram") return "◈";
       if (card.kind === "math") return "∑";
+      if (card.kind === "table") return "▦";
       return "▣";
     case "run":
       switch (state) {

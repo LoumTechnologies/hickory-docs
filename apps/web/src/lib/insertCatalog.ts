@@ -743,6 +743,38 @@ export const INSERT_ELEMENTS: readonly InsertElement[] = [
     ],
   },
   {
+    id: "table",
+    tag: "table",
+    title: "Table",
+    group: "Document",
+    summary:
+      "A dataset that is also prose: CSV in the document, a markdown table in the weave, and the file itself when it names one.",
+    placement: "block",
+    body: "block",
+    bodyLabel: "CSV",
+    bodyPlaceholder: "region,units\nnorth,120",
+    fields: [
+      {
+        name: "path",
+        label: "Path",
+        hint: "Where the CSV is written. Leave empty for a table that writes no file.",
+        placeholder: "data/sales.csv",
+      },
+      {
+        name: "delimiter",
+        label: "Delimiter",
+        hint: "Comma unless said otherwise. `tab` is spelled out — a tab cannot be typed into an attribute.",
+        choices: [",", "tab", ";", "|"],
+      },
+      {
+        name: "header",
+        label: "Header row",
+        hint: "The first row names the columns. Set false when it is data.",
+        choices: ["true", "false"],
+      },
+    ],
+  },
+  {
     id: "math",
     tag: "math",
     title: "Equation",

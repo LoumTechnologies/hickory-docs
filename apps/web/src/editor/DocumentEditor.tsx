@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { EditorState, Transaction } from "@codemirror/state";
 import { EditorView, keymap, placeholder } from "@codemirror/view";
@@ -62,6 +62,9 @@ import { actionsFor, hasReplay } from "../lib/railActions";
 import type { RailAction } from "../lib/railActions";
 import { DiagramPanel } from "../components/DiagramPanel";
 import { MathPanel } from "../components/MathPanel";
+import { TablePanel } from "../components/TablePanel";
+import { FenceTable, tableElementFor } from "../components/FenceTable";
+import { isTabularFence } from "../lib/csv";
 import { CellPanel } from "../components/CellPanel";
 import { FenceConvert } from "../components/FenceConvert";
 import { EnvCard } from "../components/EnvCard";
@@ -601,6 +604,22 @@ export function DocumentEditor({
     view.focus();
   };
 
+  /** Replace a fence's BODY, leaving its markers and its info string. */
+  const replaceFenceBody = (card: DocCard, fence: { body: string }, csv: string) => {
+    const view = viewRef.current;
+    if (!view) return;
+    const text = view.state.doc.toString();
+    const bodyFrom = text.indexOf("\n", card.from) + 1;
+    const bodyTo = bodyFrom + fence.body.length;
+    if (bodyFrom <= 0 || bodyTo > text.length) return;
+    const body = csv.replace(/\n+$/, "");
+    if (text.slice(bodyFrom, bodyTo) === body) return;
+    view.dispatch({
+      changes: { from: bodyFrom, to: bodyTo, insert: body },
+      userEvent: "input.table",
+    });
+  };
+
   // The popover is the FENCE converter's, and only that. A cell and a diagram
   // render in the document itself now, with their controls on the rendered
   // block — a second copy of the Run button floating beside it would be two
@@ -611,6 +630,19 @@ export function DocumentEditor({
     const structure = structureOf(view.state);
     const fence = proseFences(structure, view.state.doc.toString())[card.index];
     if (!fence) return null;
+    // A ```csv fence is a table somebody pasted into their notes. It gets a
+    // grid rather than the "make it a cell" converter — running a CSV file as
+    // a shell command is not a thing anybody means — and its own promotion,
+    // to a `<hick:table>` that owns a dataset.
+    if (isTabularFence(fence.info)) {
+      return (
+        <FenceTable
+          body={fence.body}
+          onChange={(csv) => replaceFenceBody(card, fence, csv)}
+          onPromote={(path) => convertFenceCard(card, tableElementFor(fence.body, path))}
+        />
+      );
+    }
     return (
       <FenceConvert
         info={fence.info}
@@ -621,6 +653,30 @@ export function DocumentEditor({
       />
     );
   };
+
+  /**
+   * Replace one block's CONTENT — the bytes between its tags — leaving the
+   * tags themselves alone.
+   *
+   * Used by the table grid, whose edits are edits to the document. Content
+   * offsets rather than the block span, because rewriting the span would
+   * rewrite the opening tag and lose its attributes.
+   */
+  const replaceBlockContent = useCallback((slot: RenderedSlot, text: string) => {
+    const view = viewRef.current;
+    if (!view) return;
+    const structure = structureOf(view.state);
+    const block = structure.blocks.find((b) => b.from === slot.at);
+    if (!block) return;
+    const body = text.endsWith("\n") ? text : `${text}\n`;
+    if (view.state.doc.sliceString(block.contentFrom, block.contentTo) === body) return;
+    view.dispatch({
+      changes: { from: block.contentFrom, to: block.contentTo, insert: body },
+      // A user event, so the CRDT and the undo history both treat it as
+      // typing — which is what it is.
+      userEvent: "input.table",
+    });
+  }, []);
 
   // Place the popover against its REAL height, before paint.
   //
@@ -728,6 +784,24 @@ export function DocumentEditor({
                   // "checked by", never "passing", because it does not know.
                   state: "unknown" as const,
                 }))}
+              />
+            </div>,
+            slot.el,
+            slot.key,
+          );
+        }
+        if (slot.kind === "table") {
+          return createPortal(
+            <div className="rendered-table">
+              <TablePanel
+                source={slot.text}
+                header={slot.table?.header ?? true}
+                delimiter={slot.table?.delimiter}
+                // An edit in the grid rewrites the CSV in the document, in
+                // place. The document stays the source of truth — there is
+                // no second copy of the table anywhere — which is what keeps
+                // the file a file somebody reviews in a diff.
+                onChange={(csv) => replaceBlockContent(slot, csv)}
               />
             </div>,
             slot.el,
