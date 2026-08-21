@@ -416,6 +416,9 @@ fn router(state: LocalState) -> Router {
         .route("/find", get(find::find))
         .route("/find/replace", post(find::replace))
         .route("/structure", get(api::structure))
+        // Who last touched each line. Off by default in the editor, so this
+        // is only ever asked for by someone who turned the column on.
+        .route("/blame", get(api::blame))
         .route("/executor", get(api::executor))
         .route("/health", get(api::health))
         .route(

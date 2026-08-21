@@ -26,6 +26,8 @@ import { taskCheckboxes } from "../editor/taskList";
 import { renderedMath } from "../editor/mathRender";
 import { proseWrap } from "../editor/wrapColumn";
 import { editorChrome } from "../editor/chrome";
+import { blameGutter } from "../editor/blameGutter";
+import { useBlame } from "../editor/useBlame";
 import { claimReveal, onRevealLine } from "../lib/revealLine";
 import { wrapGutterMarkers } from "../editor/wrapGutter";
 import { FILES_CHANGED_EVENT } from "../shell/FolderTreePane";
@@ -45,6 +47,9 @@ export function PlainFilePane({
 }) {
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
+  // The live view AS STATE: a ref never re-renders, and the blame column has
+  // to mount its fetch against the view that actually exists.
+  const [railView, setRailView] = useState<EditorView | null>(null);
   const [file, setFile] = useState<PlainFile | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saveState, setSaveState] = useState<PlainSaveState>({ kind: "idle" });
@@ -181,6 +186,11 @@ export function PlainFilePane({
           // reading the block that writes it are not two different programs.
           editorChrome("code"),
           changeFlashField,
+          // Before lineNumbers, which is what puts it to their LEFT:
+          // CodeMirror lays gutters out in the order they are declared, and
+          // the numbers stay against the text because they are the
+          // coordinate everything else in this app refers to.
+          blameGutter(),
           lineNumbers(),
           wrapGutterMarkers(),
           ...languageExtensions(initial.language),
@@ -228,10 +238,12 @@ export function PlainFilePane({
       }),
     });
     viewRef.current = view;
+    setRailView(view);
     return () => {
       forgetFocusedEditor(view);
       view.destroy();
       viewRef.current = null;
+      setRailView(null);
     };
     // Mounted once per load; the saver is stable per path.
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -267,6 +279,9 @@ export function PlainFilePane({
       base: saver.baseContent(),
     }),
   });
+
+  // Who last touched each line, when the column is on.
+  useBlame(railView, path);
 
   // A find hit asked for this file at a line. Claimed on mount as well as on
   // the event, because the request is usually made before this pane exists.

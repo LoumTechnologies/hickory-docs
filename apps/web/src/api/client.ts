@@ -23,6 +23,7 @@ import type {
   OpenTerminal,
   TerminalSession,
   TerminalsResponse,
+  BlameLine,
   FindOptions,
   FindResponse,
   ReplaceResponse,
@@ -209,6 +210,15 @@ export const api = {
 
   /** Definitions and references across this session's generated files. */
   structure: () => request<StructureResponse>("GET", "/api/structure"),
+
+  /** Who last touched each line. Answers `{lines: []}` for a folder that is
+   * not a repository, an untracked file, or a machine with no git — the
+   * column is an optional annotation, never a reason a file will not open. */
+  blame: (path: string) =>
+    request<{ path: string; lines: BlameLine[] }>(
+      "GET",
+      `/api/blame?path=${encodeURIComponent(path)}`,
+    ),
 
   /** EXHAUSTIVE find across the folder, in path order — the one replace is
    * built on. Not `search`, which is ranked top-k: a ranked answer is a

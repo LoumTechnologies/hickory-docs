@@ -523,3 +523,15 @@ export interface ReplaceResponse {
   skipped: { path: string; matches: number; reason: string; document?: string }[];
   replacements: number;
 }
+
+/** One line's authorship, from `GET /api/blame`. */
+export interface BlameLine {
+  line: number;
+  commit: string;
+  author: string;
+  email: string;
+  /** Unix seconds; formatted by the client, in the reader's own locale. */
+  time: number;
+  summary: string;
+  uncommitted: boolean;
+}

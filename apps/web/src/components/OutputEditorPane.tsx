@@ -29,6 +29,8 @@ import { taskCheckboxes } from "../editor/taskList";
 import { renderedMath } from "../editor/mathRender";
 import { proseWrap } from "../editor/wrapColumn";
 import { editorChrome } from "../editor/chrome";
+import { blameGutter } from "../editor/blameGutter";
+import { useBlame } from "../editor/useBlame";
 import { claimReveal, onRevealLine } from "../lib/revealLine";
 import { byteToChar } from "../lib/offsets";
 
@@ -173,6 +175,11 @@ export function OutputEditorPane({
           // a line number is how a person says WHERE, and the gutter's width
           // is the channel the lineage ribbons are drawn through — without it
           // they are squeezed into the four pixels of the pane divider.
+          // Before lineNumbers, which is what puts it to their LEFT:
+          // CodeMirror lays gutters out in the order they are declared, and
+          // the numbers stay against the text because they are the
+          // coordinate everything else in this app refers to.
+          blameGutter(),
           lineNumbers(),
           // Wrap marks on soft-wrapped continuation rows, in the number
           // gutter — the number renders once, the rest of the tall cell
@@ -269,6 +276,9 @@ export function OutputEditorPane({
     changesRef.current = null;
   }, [file]);
 
+
+  // Who last touched each line, when the column is on.
+  useBlame(railView, file.path);
 
   // A find hit asked for this file at a line. Claimed on mount as well as on
   // the event, because the request is usually made before this pane exists.

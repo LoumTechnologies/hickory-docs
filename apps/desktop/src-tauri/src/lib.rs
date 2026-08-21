@@ -180,6 +180,15 @@ fn app_menu(handle: &AppHandle) -> tauri::Result<Menu<Wry>> {
                 .accelerator("CmdOrCtrl+Alt+0")
                 .build(handle)?,
         )
+        .separator()
+        .item(
+            // Off by default: a blame column is a permanent indent on every
+            // line of every file, answering a question nobody asks most of
+            // the time. It earns its place when you are asking it.
+            &MenuItemBuilder::with_id("blame", "Show Blame Column")
+                .accelerator("CmdOrCtrl+Alt+B")
+                .build(handle)?,
+        )
         .build()?;
 
     let insert = insert_menu(handle)?;
@@ -305,6 +314,7 @@ fn on_menu(app: &AppHandle, id: &str) {
         // pixels — blurry text, and hit targets that no longer line up with
         // what is drawn.
         _ if id.starts_with("zoom-") => dispatch_to_ui(app, id),
+        "blame" => dispatch_to_ui(app, id),
         // Every item of the Insert submenu, which the page answers by opening
         // its panel on the named element.
         _ if id.starts_with("insert") => dispatch_to_ui(app, id),

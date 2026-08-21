@@ -140,6 +140,124 @@ fn configured_identity(dir: &Path) -> String {
     }
 }
 
+/// One line's authorship, for the editor's blame column.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct LineBlame {
+    /// 1-based, matching the editor's own line numbers.
+    pub line: usize,
+    /// Abbreviated commit id; empty when the line is not committed.
+    pub commit: String,
+    /// The author's name alone — a blame column has no room for an address,
+    /// and the address is in the hover.
+    pub author: String,
+    /// The author's email, for the hover and for telling two people with one
+    /// name apart.
+    pub email: String,
+    /// Author time, unix seconds. Formatted by whoever draws it, in the
+    /// reader's own locale — a server has no business deciding that.
+    pub time: i64,
+    /// The commit's first line.
+    pub summary: String,
+    /// Not in any commit: the reader's own uncommitted work.
+    pub uncommitted: bool,
+}
+
+/// Blame every line of `file`, in ONE `git blame` invocation.
+///
+/// [`blame`] below answers about a single span and shells out per call, which
+/// is right for a provenance question asked once. A blame COLUMN asks about
+/// every line of the file at once, and doing that a line at a time would be
+/// one process per line — a thousand-line file would fork a thousand times.
+///
+/// Never fails, for the same reasons the single-span version never fails:
+/// missing git, not a repository, an untracked file. It returns an empty list
+/// and the caller shows no column, which is exactly what "off by default"
+/// looks like anyway.
+pub fn blame_file(repo_dir: &Path, file: &Path) -> Vec<LineBlame> {
+    let file_arg = file.to_string_lossy().to_string();
+    let Some(out) = git(repo_dir, &["blame", "--porcelain", "--", &file_arg]) else {
+        return Vec::new();
+    };
+    if !out.status.success() {
+        return Vec::new();
+    }
+    let stdout = String::from_utf8_lossy(&out.stdout);
+
+    // Porcelain names a commit's details once and then refers back to the sha,
+    // so the details have to be remembered across lines.
+    let mut seen: std::collections::HashMap<String, (String, String, i64, String)> =
+        std::collections::HashMap::new();
+    let mut out_lines = Vec::new();
+    let mut sha = String::new();
+    let mut final_line = 0usize;
+    let mut author = String::new();
+    let mut email = String::new();
+    let mut time = 0i64;
+    let mut summary = String::new();
+
+    for raw in stdout.lines() {
+        if let Some(rest) = raw.strip_prefix("author-mail ") {
+            email = rest.trim().trim_matches(['<', '>']).to_string();
+        } else if let Some(rest) = raw.strip_prefix("author-time ") {
+            time = rest.trim().parse().unwrap_or(0);
+        } else if let Some(rest) = raw.strip_prefix("author ") {
+            author = rest.trim().to_string();
+        } else if let Some(rest) = raw.strip_prefix("summary ") {
+            summary = rest.trim().to_string();
+        } else if raw.starts_with('\t') {
+            // The content line closes an entry.
+            if sha.is_empty() {
+                continue;
+            }
+            let details = if author.is_empty() {
+                seen.get(&sha).cloned().unwrap_or_default()
+            } else {
+                let d = (author.clone(), email.clone(), time, summary.clone());
+                seen.insert(sha.clone(), d.clone());
+                d
+            };
+            let uncommitted = sha.chars().all(|c| c == '0');
+            out_lines.push(LineBlame {
+                line: final_line,
+                commit: if uncommitted {
+                    String::new()
+                } else {
+                    sha.chars().take(8).collect()
+                },
+                author: if uncommitted {
+                    "Uncommitted".to_string()
+                } else {
+                    details.0
+                },
+                email: details.1,
+                time: details.2,
+                summary: if uncommitted {
+                    "Not committed yet".to_string()
+                } else {
+                    details.3
+                },
+                uncommitted,
+            });
+            author.clear();
+            email.clear();
+            summary.clear();
+            time = 0;
+        } else {
+            // A header: `<sha> <orig-line> <final-line> [<count>]`.
+            let mut parts = raw.split_whitespace();
+            let Some(candidate) = parts.next() else {
+                continue;
+            };
+            if candidate.len() >= 40 && candidate.chars().all(|c| c.is_ascii_hexdigit()) {
+                sha = candidate.to_string();
+                let _orig = parts.next();
+                final_line = parts.next().and_then(|n| n.parse().ok()).unwrap_or(0);
+            }
+        }
+    }
+    out_lines
+}
+
 /// Derive authorship of `file` line `line` from `git blame`.
 ///
 /// Never fails: every path git can take — missing binary, not a repository,

@@ -120,6 +120,7 @@ export function DocTabBody({
         onViewReady={session.onDocViewReady}
         wrapColumn={wrapColumn}
         onWrapColumn={onWrapColumn}
+        path={doc.path}
       />
     </div>
   );

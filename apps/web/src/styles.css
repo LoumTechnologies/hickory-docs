@@ -5952,3 +5952,35 @@ html {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* the blame column ----------------------------------------------------------
+   Left of the line numbers, and off by default. The numbers stay against the
+   text because they are the coordinate everything else in this app refers to —
+   a stack trace, a ribbon, a collaborator saying "line 40" — so the annotation
+   goes outside them.
+
+   A run of lines from one commit is labelled once, at its first line. Every
+   row here is therefore either a boundary or blank, which is what keeps the
+   column readable instead of a wall of the same name. */
+.cm-blame-gutter {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.68em;
+  color: var(--fg-muted);
+  user-select: none;
+}
+.cm-blame-entry {
+  display: inline-block;
+  max-width: 14em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 0 0.5em 0 0.4em;
+  opacity: 0.75;
+}
+.cm-blame-entry:hover { opacity: 1; color: var(--fg); }
+/* Uncommitted is yours and is the one state worth telling apart at a glance:
+   it is the difference between "this is history" and "this is what you are
+   in the middle of". */
+.cm-blame-entry--mine { color: var(--accent-2); font-style: italic; }
+/* CodeMirror's width-reserving spacer. Never counted as an entry. */
+.cm-blame-spacer { display: inline-block; }

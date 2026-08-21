@@ -1195,3 +1195,46 @@ mod tree_tests {
         assert_eq!(children[0].generated_by, None, "nothing claims src/main.rs");
     }
 }
+
+// ---------------------------------------------------------------------------
+// Blame
+// ---------------------------------------------------------------------------
+
+#[derive(Deserialize)]
+pub struct BlameParams {
+    pub path: String,
+}
+
+/// `GET /api/blame?path=…` — who last touched each line.
+///
+/// One `git blame` for the whole file, never one per line: a thousand-line
+/// file would otherwise fork a thousand processes to fill a column that is
+/// off by default.
+///
+/// A folder that is not a repository, a file that is untracked, a machine
+/// with no git — all answer `{"lines": []}` rather than an error. The column
+/// is an optional annotation; refusing to open a file because its history is
+/// unavailable would be absurd.
+pub async fn blame(
+    State(state): State<LocalState>,
+    Query(params): Query<BlameParams>,
+) -> ApiResult<Json<Value>> {
+    let root = state.index.root().to_path_buf();
+    // Bounds-checked the same way every other path parameter is: relative, no
+    // `..`, inside the folder.
+    if params.path.is_empty()
+        || params.path.starts_with('/')
+        || params.path.split('/').any(|part| part == "..")
+    {
+        return Err(ApiError::bad_request(format!(
+            "{} is not a path inside this folder",
+            params.path
+        )));
+    }
+    let rel = std::path::PathBuf::from(&params.path);
+    let lines = tokio::task::spawn_blocking(move || crate::agent_lineage::blame_file(&root, &rel))
+        .await
+        .map_err(|e| ApiError::internal(format!("the blame task failed: {e}")))?;
+
+    Ok(Json(json!({ "path": params.path, "lines": lines })))
+}

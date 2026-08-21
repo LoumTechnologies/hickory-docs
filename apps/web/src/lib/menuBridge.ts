@@ -19,6 +19,8 @@ export type MenuAction =
   | "zoom-tab-in"
   | "zoom-tab-out"
   | "zoom-tab-reset"
+  /** Show or hide the blame column, in every editor at once. */
+  | "blame"
   | "settings"
   | "files"
   // Terminals: open one, and walk the attention queue.
@@ -47,6 +49,7 @@ const ACTIONS: ReadonlySet<string> = new Set([
   "zoom-tab-in",
   "zoom-tab-out",
   "zoom-tab-reset",
+  "blame",
   "settings",
   "files",
   "insert",

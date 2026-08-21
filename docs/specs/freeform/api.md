@@ -266,3 +266,23 @@ inside one is exactly what somebody means.
 Find and replace build their matcher from one pattern, once — every option is
 a change to the pattern rather than a branch in the loop — so a preview can
 never describe a different edit from the one performed.
+
+## Blame (v0.5)
+
+- `GET /api/blame?path=…` →
+  `{path, lines: [{line, commit, author, email, time, summary, uncommitted}]}`.
+
+One `git blame --porcelain` for the whole file, never one per line: a
+thousand-line file would otherwise fork a thousand processes to fill a column
+that is **off by default**. `time` is unix seconds, formatted by the client in
+the reader's own locale — a server has no business deciding that.
+
+A folder that is not a repository, an untracked file, a machine with no git:
+all answer `{"lines": []}`. The column is an optional annotation, and refusing
+to open a file because its history is unavailable would be absurd. A line that
+is not in any commit reports `uncommitted: true` rather than borrowing the
+author of whoever last touched the file.
+
+This is the same `git blame` that `agent_lineage.rs` composes with lineage to
+answer "was this written by a person or by the agent"
+(`provenance-and-standing.md`); the column is that machinery made visible.
