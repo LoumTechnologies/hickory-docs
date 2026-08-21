@@ -26,6 +26,7 @@ import type {
   BlameLine,
   FindOptions,
   FormulaResults,
+  FormulaTrace,
   GitLog,
   GitStatus,
   ProjectSuggestion,
@@ -235,6 +236,12 @@ export const api = {
    * binary carries, not a download. */
   evaluateFormulas: (language: string, rows: string[][]) =>
     request<FormulaResults>("POST", "/api/formula/evaluate", { language, rows }),
+
+  /** The same evaluation, cell by cell — what the table's debugger steps
+   * through. The same code path on the host, so the steps can never disagree
+   * with the values the grid is showing. */
+  traceFormulas: (language: string, rows: string[][]) =>
+    request<FormulaTrace>("POST", "/api/formula/trace", { language, rows }),
 
   /** Languages this machine can evaluate formulas in right now. */
   formulaLanguages: () =>

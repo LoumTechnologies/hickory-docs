@@ -12,8 +12,29 @@
 // `requestMeasure`, where CodeMirror's height map and the DOM agree — the
 // same discipline RightRail.tsx follows, for the same reason.
 //
+// It is the content element's PADDING box that column zero sits at, not its
+// border box. `.cm-content` carries `--cm-pad-x` (2.5rem) of padding, and the
+// dotted margin line in the editor is drawn from the inside of it — so a ruler
+// measured from the border box put every tick, and the marker, 2.5rem to the
+// left of the line the text actually wraps at.
+//
 // Display-only except for the marker: the ticks take no pointer events, so a
 // click near the ruler that was meant for the text is not stolen by it.
+//
+// ## Inside a table it names columns instead
+//
+// A measuring stick over a grid is measuring the wrong thing: a table's
+// columns are not a character count, and the prose measure does not apply to a
+// block that never wraps. So when the caret is inside a table the same strip
+// becomes the table's column header — A, B, C over the columns they belong to
+// — which is where a spreadsheet has always put them.
+//
+// It reads the widths out of the table's own header cells rather than being
+// told them. The grid is React inside a CodeMirror widget and the ruler is
+// React outside it; a prop would have to travel up through the editor and back
+// down, and would be one render behind every column drag. One measurement, of
+// the element that has the real geometry, is the same discipline the prose
+// measure follows.
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { EditorView } from "@codemirror/view";
@@ -28,7 +49,9 @@ import {
 
 /** Where the text starts and how wide a character is, in ruler-local pixels. */
 interface Metrics {
-  /** Left edge of the text, relative to the ruler's own left edge. */
+  /** Column zero — the inside of the content element's left padding, relative
+   * to the ruler's own left edge. The same edge the dotted margin line is
+   * drawn from, which is the point. */
   originX: number;
   /** One character. */
   charWidth: number;
@@ -41,18 +64,31 @@ interface Metrics {
 const TICK_EVERY = 5;
 const LABEL_EVERY = 10;
 
+/** One column of a table, as the ruler draws it. */
+interface ColumnBand {
+  label: string;
+  /** Left edge and width, in ruler-local pixels. */
+  x: number;
+  width: number;
+}
+
 export function EditorRuler({
   view,
   column,
   onColumn,
+  tableEl = null,
 }: {
   view: EditorView | null;
   /** The measure, in columns. Owned by the tab so it can be persisted. */
   column: number;
   onColumn: (next: number) => void;
+  /** The rendered table the caret is inside, or null. Present means the ruler
+   * names that table's columns instead of measuring prose. */
+  tableEl?: HTMLElement | null;
 }) {
   const rulerRef = useRef<HTMLDivElement | null>(null);
   const [metrics, setMetrics] = useState<Metrics | null>(null);
+  const [bands, setBands] = useState<ColumnBand[]>([]);
   // Held during a drag so the marker follows the pointer without a round trip
   // through the tab's state on every pointermove.
   const [dragColumn, setDragColumn] = useState<number | null>(null);
@@ -64,8 +100,12 @@ export function EditorRuler({
       read: (v) => {
         const content = v.contentDOM.getBoundingClientRect();
         const box = ruler.getBoundingClientRect();
+        // `--cm-pad-x`, read from the element that has it rather than
+        // hardcoded here: two places stating the same inset is how they come
+        // to disagree.
+        const padLeft = parseFloat(getComputedStyle(v.contentDOM).paddingLeft) || 0;
         return {
-          originX: content.left - box.left,
+          originX: content.left - box.left + padLeft,
           charWidth: v.defaultCharacterWidth,
           width: box.width,
         };
@@ -95,6 +135,48 @@ export function EditorRuler({
       observer?.disconnect();
     };
   }, [view, measure]);
+
+  // A column drag, the grid scrolling sideways, and a pane divider moving all
+  // change where the columns are, and none of them is a signal this component
+  // otherwise hears about — so the table's own box is observed.
+  const measureBands = useCallback(() => {
+    const ruler = rulerRef.current;
+    if (!tableEl || !ruler) {
+      setBands((current) => (current.length === 0 ? current : []));
+      return;
+    }
+    const box = ruler.getBoundingClientRect();
+    const next: ColumnBand[] = [];
+    for (const head of tableEl.querySelectorAll(".table-panel__head")) {
+      const rect = head.getBoundingClientRect();
+      // A column scrolled out of the grid's own scroller must not be drawn
+      // over the prose beside it.
+      if (rect.width <= 0) continue;
+      next.push({ label: head.textContent ?? "", x: rect.left - box.left, width: rect.width });
+    }
+    setBands((current) =>
+      current.length === next.length &&
+      current.every((b, i) => b.label === next[i].label && b.x === next[i].x && b.width === next[i].width)
+        ? current
+        : next,
+    );
+  }, [tableEl]);
+
+  useEffect(() => {
+    measureBands();
+    if (!tableEl) return;
+    const scroller = tableEl.querySelector(".table-panel__scroll");
+    scroller?.addEventListener("scroll", measureBands);
+    window.addEventListener("resize", measureBands);
+    const observer =
+      typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measureBands);
+    observer?.observe(tableEl);
+    return () => {
+      scroller?.removeEventListener("scroll", measureBands);
+      window.removeEventListener("resize", measureBands);
+      observer?.disconnect();
+    };
+  }, [tableEl, measureBands]);
 
   // The document's own idea of the measure is the source of truth; this keeps
   // the editor in step when the tab's value arrives from somewhere else (a
@@ -152,9 +234,28 @@ export function EditorRuler({
 
   const markerX = metrics ? metrics.originX + shown * metrics.charWidth : 0;
 
+  const naming = bands.length > 0;
+
   return (
-    <div className="editor-ruler" ref={rulerRef} data-testid="editor-ruler">
-      <div className="editor-ruler__ticks" aria-hidden="true">
+    <div
+      className={`editor-ruler${naming ? " editor-ruler--columns" : ""}`}
+      ref={rulerRef}
+      data-testid="editor-ruler"
+    >
+      {naming && (
+        <div className="editor-ruler__columns" aria-hidden="true">
+          {bands.map((band) => (
+            <span
+              key={band.label + band.x}
+              className="editor-ruler__column"
+              style={{ left: `${band.x}px`, width: `${band.width}px` }}
+            >
+              {band.label}
+            </span>
+          ))}
+        </div>
+      )}
+      <div className="editor-ruler__ticks" aria-hidden="true" hidden={naming}>
         {ticks.map((tick) => (
           <span
             key={tick.column}
@@ -171,6 +272,7 @@ export function EditorRuler({
       <button
         type="button"
         role="slider"
+        hidden={naming}
         className={`editor-ruler__marker${dragColumn !== null ? " editor-ruler__marker--dragging" : ""}`}
         style={{ left: `${markerX}px` }}
         aria-label="Where prose wraps"

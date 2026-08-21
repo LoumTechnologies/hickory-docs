@@ -544,6 +544,35 @@ export interface FormulaResults {
   errors: Record<string, string>;
 }
 
+/** What one reference was worth when the cell that used it ran. `kind` is
+ * carried because `empty` is not the empty string — a blank cell is skipped
+ * by `sum` where `""` is not, and a debugger showing both as nothing would
+ * hide the difference. */
+export interface FormulaBinding {
+  cell: string;
+  text: string;
+  kind: "number" | "text" | "bool" | "empty";
+}
+
+/** One cell's turn, as the table's debugger steps through it. */
+export interface FormulaStep {
+  cell: string;
+  /** Which batch it went out in. Cells sharing a level cannot depend on each
+   * other, so their order among themselves means nothing. */
+  level: number;
+  expression: string;
+  bindings: FormulaBinding[];
+  value: string | null;
+  error: string | null;
+}
+
+/** The same evaluation `evaluateFormulas` does, with every step kept. Steps
+ * are empty for a sheet with a cycle: a circle has no order, and inventing
+ * one to step through would be the debugger telling its first lie. */
+export interface FormulaTrace extends FormulaResults {
+  steps: FormulaStep[];
+}
+
 /** One completion drawn from the project's own text. `semantic` is false when
  * the local model is not installed — the ranking is then frequency alone,
  * which is said rather than implied. */

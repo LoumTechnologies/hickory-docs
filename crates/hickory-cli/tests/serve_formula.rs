@@ -1,6 +1,7 @@
 //! The formula route, driven the way the table's grid drives it.
 //!
 //! Protects docs/guarantees/execution/a-formula-is-an-expression-in-a-real-language.md
+//! and docs/guarantees/execution/stepping-a-table-replays-the-order-the-host-chose.md
 
 use hickory_cli::ExecutorChoice;
 use hickory_cli::serve::{ServeOptions, prepare};
@@ -156,5 +157,88 @@ async fn a_table_too_big_to_be_a_spreadsheet_is_refused_with_a_reason() {
     assert!(
         body["error"].as_str().unwrap().contains("exec cell"),
         "the message must say what to do instead: {body}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_trace_walks_the_grid_cell_by_cell_in_the_order_it_ran() {
+    // What the table's debugger steps through: which cell went when, what it
+    // read, and what it came to.
+    if !have(&["python3", "python"]) {
+        eprintln!("skipped: no python on this machine");
+        return;
+    }
+    let session = start().await;
+    let (status, body) = post(
+        &session,
+        "/api/formula/trace",
+        json!({
+            "language": "python",
+            "rows": [
+                ["10", "=A1*2"],
+                ["=B1+5", ""],
+            ],
+        }),
+    )
+    .await;
+    assert_eq!(status, 200, "{body}");
+    let steps = body["steps"].as_array().unwrap();
+    let order: Vec<&str> = steps.iter().map(|s| s["cell"].as_str().unwrap()).collect();
+    assert_eq!(order, vec!["B1", "A2"], "{body}");
+
+    assert_eq!(steps[0]["expression"], "A1*2");
+    assert_eq!(steps[0]["level"], 0);
+    assert_eq!(steps[0]["bindings"][0]["cell"], "A1");
+    assert_eq!(steps[0]["bindings"][0]["text"], "10");
+    // A blank cell is not the empty string, and the step is where the
+    // difference is visible.
+    assert_eq!(steps[0]["bindings"][0]["kind"], "number");
+    assert_eq!(steps[0]["value"], "20");
+    assert!(steps[0]["error"].is_null());
+
+    assert_eq!(steps[1]["level"], 1, "the chain costs a second round trip");
+    assert_eq!(steps[1]["bindings"][0]["text"], "20");
+    assert_eq!(steps[1]["value"], "25");
+
+    // The same answer the grid gets, from the same evaluation.
+    assert_eq!(body["values"]["B1"], "20");
+    assert_eq!(body["values"]["A2"], "25");
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_trace_of_a_circle_has_nothing_to_step_through_and_says_why() {
+    let session = start().await;
+    let (status, body) = post(
+        &session,
+        "/api/formula/trace",
+        json!({ "language": "python", "rows": [["=B1", "=A1"]] }),
+    )
+    .await;
+    assert_eq!(status, 200, "{body}");
+    assert!(body["steps"].as_array().unwrap().is_empty(), "{body}");
+    assert!(
+        body["errors"]["A1"].as_str().unwrap().contains("circle"),
+        "{body}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_trace_refuses_a_table_that_is_really_a_dataset_too() {
+    // The same limit as evaluating: stepping through a dataset would tie up
+    // an interpreter to fill a panel nobody is reading.
+    let session = start().await;
+    let rows: Vec<Vec<String>> = (0..500)
+        .map(|_| (0..50).map(|_| "1".to_string()).collect())
+        .collect();
+    let (status, body) = post(
+        &session,
+        "/api/formula/trace",
+        json!({ "language": "python", "rows": rows }),
+    )
+    .await;
+    assert_eq!(status, 422);
+    assert!(
+        body["error"].as_str().unwrap().contains("exec cell"),
+        "{body}"
     );
 }

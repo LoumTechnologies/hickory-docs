@@ -397,3 +397,181 @@ async fn the_backend_installs_itself_on_first_use() {
         "the backend put itself in place"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Stepping: the same evaluation, kept.
+// Protects docs/guarantees/execution/stepping-a-table-replays-the-order-the-host-chose.md
+// ---------------------------------------------------------------------------
+
+use hick_formula::{Value as CellValue, trace_sheet};
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_trace_is_one_step_per_formula_in_the_order_they_ran() {
+    // A literal has no turn: nothing was evaluated, so there is nothing to
+    // step through, and a step showing `10 → 10` would be furniture.
+    if !have(&["python3", "python"]) {
+        eprintln!("skipped: no python on this machine");
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let traced = trace_sheet(
+        dir.path(),
+        "python",
+        &sheet(&[("A1", "10"), ("A2", "=A1*2"), ("A3", "=A2+5")]),
+    )
+    .await
+    .unwrap();
+    let order: Vec<String> = traced.steps.iter().map(|s| s.cell.label()).collect();
+    assert_eq!(order, vec!["A2", "A3"]);
+    assert_eq!(traced.steps[0].expression, "A1*2");
+    assert_eq!(traced.steps[0].value.as_deref(), Some("20"));
+    assert_eq!(traced.steps[1].value.as_deref(), Some("25"));
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_step_says_what_the_cell_read_at_the_moment_it_ran() {
+    // The one thing a value in the grid cannot tell you. A2 read A1 as the
+    // NUMBER 10 — not as the text "10", and not as A1's formula.
+    if !have(&["python3", "python"]) {
+        eprintln!("skipped: no python on this machine");
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let traced = trace_sheet(
+        dir.path(),
+        "python",
+        &sheet(&[("A1", "10"), ("B1", ""), ("A2", "=A1*2")]),
+    )
+    .await
+    .unwrap();
+    let step = &traced.steps[0];
+    assert_eq!(
+        step.bindings,
+        vec![(
+            CellRef::parse("A1").unwrap(),
+            CellValue::Number { value: 10.0 }
+        )]
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_step_reading_a_blank_cell_shows_empty_rather_than_a_blank_string() {
+    // Summing a column skips blanks rather than treating them as zero-length
+    // text, and the step is where that difference is visible.
+    if !have(&["python3", "python"]) {
+        eprintln!("skipped: no python on this machine");
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let traced = trace_sheet(dir.path(), "python", &sheet(&[("A1", "=Z9")]))
+        .await
+        .unwrap();
+    assert_eq!(
+        traced.steps[0].bindings,
+        vec![(CellRef::parse("Z9").unwrap(), CellValue::Empty)]
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn independent_cells_share_a_level_and_a_chain_does_not() {
+    // The level is the batch, and the batch is the round trip. A debugger
+    // that showed four hundred independent cells as four hundred rounds
+    // would be describing a program that does not exist.
+    if !have(&["python3", "python"]) {
+        eprintln!("skipped: no python on this machine");
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let traced = trace_sheet(
+        dir.path(),
+        "python",
+        &sheet(&[
+            ("A1", "1"),
+            ("B1", "=A1+1"),
+            ("C1", "=A1+2"),
+            ("D1", "=B1+C1"),
+        ]),
+    )
+    .await
+    .unwrap();
+    let levels: Vec<(String, usize)> = traced
+        .steps
+        .iter()
+        .map(|s| (s.cell.label(), s.level))
+        .collect();
+    assert_eq!(
+        levels,
+        vec![
+            ("B1".to_string(), 0),
+            ("C1".to_string(), 0),
+            ("D1".to_string(), 1)
+        ]
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_broken_cell_keeps_its_own_step_and_its_dependant_reads_empty() {
+    if !have(&["python3", "python"]) {
+        eprintln!("skipped: no python on this machine");
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let traced = trace_sheet(
+        dir.path(),
+        "python",
+        &sheet(&[("A1", "=nope + 1"), ("A2", "=A1")]),
+    )
+    .await
+    .unwrap();
+    assert!(traced.steps[0].error.is_some(), "{:?}", traced.steps[0]);
+    assert!(traced.steps[0].value.is_none());
+    // Not the upstream message: a cell that depends on a broken one reports
+    // its own trouble.
+    assert_eq!(
+        traced.steps[1].bindings,
+        vec![(CellRef::parse("A1").unwrap(), CellValue::Empty)]
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_circle_has_no_steps_at_all() {
+    // A circle has no order, and inventing one to step through would be the
+    // debugger telling its first lie. No interpreter is needed to know it.
+    let dir = tempfile::tempdir().unwrap();
+    let traced = trace_sheet(
+        dir.path(),
+        "python",
+        &sheet(&[("A1", "=B1"), ("B1", "=A1")]),
+    )
+    .await
+    .unwrap();
+    assert!(traced.steps.is_empty());
+    assert_eq!(traced.computed.errors.len(), 2);
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn stepping_and_computing_are_the_same_evaluation() {
+    // The reason `evaluate_sheet` delegates: a debugger that disagrees with
+    // the program is worse than none.
+    if !have(&["python3", "python"]) {
+        eprintln!("skipped: no python on this machine");
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let s = sheet(&[
+        ("A1", "3"),
+        ("A2", "=A1*7"),
+        ("A3", "=A2+1"),
+        ("B1", "=nope"),
+    ]);
+    let computed = evaluate_sheet(dir.path(), "python", &s).await.unwrap();
+    let traced = trace_sheet(dir.path(), "python", &s).await.unwrap();
+    assert_eq!(traced.computed, computed);
+    for step in &traced.steps {
+        match (&step.value, &step.error) {
+            (Some(value), None) => assert_eq!(computed.values.get(&step.cell), Some(value)),
+            (None, Some(message)) => assert_eq!(computed.errors.get(&step.cell), Some(message)),
+            other => panic!("a step is a value or an error: {other:?}"),
+        }
+    }
+}

@@ -1070,6 +1070,8 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
           // is restored with the arrangement it was set in.
           wrapColumn={workspaceUi.wrapFor(tab.target)}
           onWrapColumn={(column) => workspaceUi.setWrap(tab.target, column)}
+          tableLayouts={workspaceUi.tables}
+          onTableLayout={workspaceUi.setTableLayout}
         />
       );
     }

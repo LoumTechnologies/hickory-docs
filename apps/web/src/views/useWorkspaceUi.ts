@@ -28,6 +28,7 @@ import { isWorkspaceEmpty } from "./workspaceState";
 import {
   emptyUi,
   normalizeUi,
+  withTableLayout,
   withWrap,
   withZoom,
   worthStoring,
@@ -36,6 +37,7 @@ import {
   type WorkspaceUi,
 } from "../lib/uiState";
 import type { Layout } from "../shell/layout";
+import type { TableLayout } from "../components/TablePanel";
 
 /** How long the arrangement must sit still before it is written down. */
 export const UI_SAVE_DEBOUNCE_MS = 600;
@@ -52,6 +54,11 @@ export interface WorkspaceUiHandle {
    * is not here — it belongs to the screen, not the project. */
   zoomFor: (target: string) => number;
   setZoom: (target: string, level: number) => void;
+  /** How big every table was left, keyed by `tableKey` — the whole record,
+   * because the editor names its own tables and a per-key getter would make
+   * every table re-render whenever any of them moved. */
+  tables: Record<string, TableLayout>;
+  setTableLayout: (key: string, size: TableLayout) => void;
 }
 
 /**
@@ -123,11 +130,17 @@ export function useWorkspaceUi(
     setUi((current) => withZoom(current, target, level));
   }, []);
 
+  const setTableLayout = useCallback((key: string, size: TableLayout) => {
+    setUi((current) => withTableLayout(current, key, size));
+  }, []);
+
   return {
     hydrated,
     wrapFor: useCallback((target: string) => wrapFor(ui, target), [ui]),
     setWrap,
     zoomFor: useCallback((target: string) => zoomFor(ui, target), [ui]),
     setZoom,
+    tables: ui.tables,
+    setTableLayout,
   };
 }

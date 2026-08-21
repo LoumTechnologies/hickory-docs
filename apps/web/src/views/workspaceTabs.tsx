@@ -12,6 +12,7 @@ import type { EditorView } from "@codemirror/view";
 import { api } from "../api/client";
 import { LocalRealtime } from "../api/realtime";
 import { DocumentEditor } from "../editor/DocumentEditor";
+import type { TableLayout } from "../components/TablePanel";
 import { DebugStrip } from "../debug/DebugStrip";
 import { RefactorBadge } from "../components/RefactorBadge";
 import { GeneratedFileView } from "../shell/views";
@@ -25,12 +26,18 @@ export function DocTabBody({
   docId,
   wrapColumn,
   onWrapColumn,
+  tableLayouts,
+  onTableLayout,
 }: {
   registry: SessionRegistry;
   docId: string;
   /** Where prose wraps in this tab, restored with the arrangement. */
   wrapColumn?: number;
   onWrapColumn?: (column: number) => void;
+  /** How big each table in this document was left, and where to report a
+   * resize. Presentation, held by the workspace and never by the document. */
+  tableLayouts?: Record<string, TableLayout>;
+  onTableLayout?: (key: string, size: TableLayout) => void;
 }) {
   const session = useDocSession(registry, docId);
   if (!session) return <p className="muted">Loading document…</p>;
@@ -120,6 +127,8 @@ export function DocTabBody({
         onViewReady={session.onDocViewReady}
         wrapColumn={wrapColumn}
         onWrapColumn={onWrapColumn}
+        tableLayouts={tableLayouts}
+        onTableLayout={onTableLayout}
         path={doc.path}
       />
     </div>

@@ -75,6 +75,45 @@ pub fn levels(sheet: &Sheet) -> Result<Vec<Vec<CellRef>>, crate::graph::Cycle> {
     Ok(out)
 }
 
+/// One cell's turn, kept so it can be stepped through afterwards.
+///
+/// This is what a debugger for a table is: not a debugger for the *language*
+/// — the thing that knows Python is Python, and stepping inside an expression
+/// is `hick-dap`'s job — but a record of the order the host chose and what
+/// each cell READ when its turn came. That order is the host's whole
+/// contribution (see `lib.rs`), and it is the part a person cannot see by
+/// looking at the grid.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Step {
+    /// Whose turn it was.
+    pub cell: CellRef,
+    /// Which batch it went out in. Cells sharing a level cannot depend on
+    /// each other — that is what makes them one request — so their order
+    /// among themselves means nothing and is not worth reading into.
+    pub level: usize,
+    /// The expression, without the leading `=`.
+    pub expression: String,
+    /// What its references resolved to **when it ran**, in the order the
+    /// expression mentions them. A cell that read a stale value would show it
+    /// here, which is the one thing a value in the grid cannot tell you.
+    pub bindings: Vec<(CellRef, Value)>,
+    /// What it came to, written as it would be in a cell.
+    pub value: Option<String>,
+    /// What the language said, when it did not come to anything.
+    pub error: Option<String>,
+}
+
+/// A sheet's evaluation, cell by cell, plus what it all came to.
+#[derive(Debug, Clone, Default, PartialEq)]
+pub struct Trace {
+    /// The answer the grid displays.
+    pub computed: Computed,
+    /// Every formula cell's turn, in the order it happened. Empty when the
+    /// sheet has a cycle: a circle has no order, and inventing one to step
+    /// through would be the debugger telling its first lie.
+    pub steps: Vec<Step>,
+}
+
 /// Evaluate every formula in `sheet` with the backend for `language`.
 ///
 /// Literal cells are read as values and never sent anywhere — there is
@@ -85,7 +124,17 @@ pub async fn evaluate_sheet(
     language: &str,
     sheet: &Sheet,
 ) -> Result<Computed> {
-    let mut computed = Computed::default();
+    Ok(trace_sheet(root, language, sheet).await?.computed)
+}
+
+/// Evaluate every formula in `sheet`, keeping each cell's turn.
+///
+/// The same code path as `evaluate_sheet`, deliberately: a debugger that
+/// walked its own copy of the order would eventually disagree with the grid
+/// about what happened, and a debugger that disagrees with the program is
+/// worse than none. `evaluate_sheet` is this function with the steps dropped.
+pub async fn trace_sheet(root: &std::path::Path, language: &str, sheet: &Sheet) -> Result<Trace> {
+    let mut trace = Trace::default();
 
     let groups = match levels(sheet) {
         Ok(groups) => groups,
@@ -95,13 +144,13 @@ pub async fn evaluate_sheet(
             // order the sheet does not have.
             let message = cycle.message();
             for cell in cycle.cells {
-                computed.errors.insert(cell, message.clone());
+                trace.computed.errors.insert(cell, message.clone());
             }
-            return Ok(computed);
+            return Ok(trace);
         }
     };
     if groups.iter().all(Vec::is_empty) {
-        return Ok(computed);
+        return Ok(trace);
     }
 
     // Start from the literals: what every formula's references resolve to
@@ -113,19 +162,27 @@ pub async fn evaluate_sheet(
         .collect();
 
     let mut session = Session::start(root, language).await?;
-    for group in groups {
+    for (level, group) in groups.into_iter().enumerate() {
         if group.is_empty() {
             continue;
         }
+        // Reading order within a level, which is the only thing the order
+        // within a level can honestly be: nothing here depends on anything
+        // else here, so left-to-right along each row is a presentation
+        // choice rather than a claim.
+        let mut group = group;
+        group.sort_by_key(|cell| (cell.row, cell.column));
+
+        let mut reads: BTreeMap<CellRef, Vec<(CellRef, Value)>> = BTreeMap::new();
         let formulas: Vec<Formula> = group
             .iter()
             .map(|cell| {
                 let expression = expression_of(sheet.get(cell).map(String::as_str).unwrap_or(""));
-                let bindings = references_in(expression)
+                let bindings: Vec<(CellRef, Value)> = references_in(expression)
                     .into_iter()
                     .map(|reference| {
                         (
-                            reference.label(),
+                            reference,
                             // A reference to a cell that is not there is
                             // empty, not an error: a table with a gap in it
                             // is a table, and `sum` over it should work.
@@ -133,34 +190,74 @@ pub async fn evaluate_sheet(
                         )
                     })
                     .collect();
+                reads.insert(*cell, bindings.clone());
                 Formula {
                     id: cell.label(),
                     expression: expression.to_string(),
-                    bindings,
+                    bindings: bindings
+                        .into_iter()
+                        .map(|(reference, value)| (reference.label(), value))
+                        .collect(),
                 }
             })
             .collect();
 
         let answer = session.evaluate(formulas).await?;
+        // Answers come back in any order; the steps are the order things
+        // HAPPENED in, so they are laid out by the group rather than by the
+        // response.
+        let mut answers: BTreeMap<CellRef, crate::protocol::FormulaResult> = BTreeMap::new();
         for result in answer.results {
-            let Some(cell) = CellRef::parse(&result.id) else {
-                continue;
-            };
-            if let Some(error) = result.error {
-                computed.errors.insert(cell, error.message);
-                // A failed cell resolves to EMPTY for anything downstream,
-                // rather than to its own error text — a cell that depends on
-                // a broken one should report its own trouble, not inherit a
-                // string that happens to be somebody else's message.
-                resolved.insert(cell, Value::Empty);
-            } else if let Some(value) = result.value {
-                computed.values.insert(cell, value.to_cell());
-                resolved.insert(cell, value);
+            if let Some(cell) = CellRef::parse(&result.id) {
+                answers.insert(cell, result);
             }
+        }
+        for cell in &group {
+            let expression = expression_of(sheet.get(cell).map(String::as_str).unwrap_or(""));
+            let mut step = Step {
+                cell: *cell,
+                level,
+                expression: expression.to_string(),
+                bindings: reads.remove(cell).unwrap_or_default(),
+                value: None,
+                error: None,
+            };
+            match answers.remove(cell) {
+                Some(result) => {
+                    if let Some(error) = result.error {
+                        trace.computed.errors.insert(*cell, error.message.clone());
+                        step.error = Some(error.message);
+                        // A failed cell resolves to EMPTY for anything
+                        // downstream, rather than to its own error text — a
+                        // cell that depends on a broken one should report its
+                        // own trouble, not inherit a string that happens to be
+                        // somebody else's message.
+                        resolved.insert(*cell, Value::Empty);
+                    } else if let Some(value) = result.value {
+                        let text = value.to_cell();
+                        trace.computed.values.insert(*cell, text.clone());
+                        step.value = Some(text);
+                        resolved.insert(*cell, value);
+                    }
+                }
+                None => {
+                    // A backend that answered nothing for a cell it was asked
+                    // about. Said plainly rather than shown as a cell that
+                    // silently never ran.
+                    let message = format!(
+                        "the {language} backend returned no answer for {}",
+                        cell.label()
+                    );
+                    trace.computed.errors.insert(*cell, message.clone());
+                    step.error = Some(message);
+                    resolved.insert(*cell, Value::Empty);
+                }
+            }
+            trace.steps.push(step);
         }
     }
     session.shutdown().await;
-    Ok(computed)
+    Ok(trace)
 }
 
 /// Which languages formulas can be evaluated in on this machine right now.

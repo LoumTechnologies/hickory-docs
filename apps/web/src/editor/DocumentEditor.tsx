@@ -63,7 +63,8 @@ import { actionsFor, hasReplay } from "../lib/railActions";
 import type { RailAction } from "../lib/railActions";
 import { DiagramPanel } from "../components/DiagramPanel";
 import { MathPanel } from "../components/MathPanel";
-import { TablePanel } from "../components/TablePanel";
+import { TablePanel, type TableLayout } from "../components/TablePanel";
+import { tableKey } from "../lib/uiState";
 import { FenceTable, tableElementFor } from "../components/FenceTable";
 import { isTabularFence } from "../lib/csv";
 import { CellPanel } from "../components/CellPanel";
@@ -104,6 +105,12 @@ export interface DocumentEditorProps {
   /** This document's path, for the blame column. Absent means no column —
    * an untitled buffer has no history to show. */
   path?: string | null;
+  /** How big each table in this document was left, keyed by `tableKey`.
+   * Presentation, so it lives in the workspace's state and never in the
+   * document — see lib/uiState.ts. */
+  tableLayouts?: Record<string, TableLayout>;
+  /** Report a table the reader resized. */
+  onTableLayout?: (key: string, size: TableLayout) => void;
 }
 
 /**
@@ -176,6 +183,8 @@ export function DocumentEditor({
   wrapColumn = WRAP_DEFAULT,
   onWrapColumn,
   path = null,
+  tableLayouts,
+  onTableLayout,
 }: DocumentEditorProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
@@ -193,6 +202,18 @@ export function DocumentEditor({
   // asked of git until somebody turns it on.
   useBlame(railView, path);
 
+  // Focus is tracked on the document rather than per widget: the widgets are
+  // portalled into CodeMirror's DOM and come and go as the fold does, so a
+  // handler per widget would be a subscription per render.
+  useEffect(() => {
+    const onFocusIn = (event: FocusEvent) => {
+      const target = event.target;
+      setFocusedEl(target instanceof HTMLElement ? target : null);
+    };
+    document.addEventListener("focusin", onFocusIn);
+    return () => document.removeEventListener("focusin", onFocusIn);
+  }, []);
+
   // The action rail's contents, recomputed whenever an edit changes them.
   // Held as state rather than derived per render because the editor
   // deliberately does not re-render on every keystroke.
@@ -208,6 +229,16 @@ export function DocumentEditor({
   // Blocks currently showing their result instead of their source.
   const renderedRegistry = useMemo(() => new RenderedRegistry(), []);
   const [renderedSlots, setRenderedSlots] = useState<RenderedSlot[]>([]);
+  // Where the caret is, as state rather than as a ref, because the ruler
+  // above the editor changes what it draws when the caret is inside a table.
+  // Only the head of the selection is kept: a range is re-reported on every
+  // drag, and nothing here cares how long it is.
+  const [caret, setCaret] = useState(0);
+  // Which rendered widget has the focus. A rendered table is a FOLD — the
+  // caret cannot be inside it, and the widget deliberately swallows its own
+  // events so a click in a cell is not read as a click in the text. So "the
+  // reader is in this table" is a focus question, not a caret question.
+  const [focusedEl, setFocusedEl] = useState<HTMLElement | null>(null);
 
   useEffect(
     () => envRegistry.subscribe(() => setEnvSlots(envRegistry.list())),
@@ -408,6 +439,9 @@ export function DocumentEditor({
             ];
           }),
           EditorView.updateListener.of((u) => {
+            if (u.selectionSet || u.docChanged) {
+              setCaret(u.state.selection.main.head);
+            }
             if (!u.docChanged) return;
             onChange?.(u.state.doc.toString());
             // The rail follows the text. Replaced only when the list
@@ -552,6 +586,17 @@ export function DocumentEditor({
   // than read out of the editor state: a slot exists for exactly the blocks
   // that are rendered, and it is already React state that updates when one
   // appears or goes away.
+  // The table the reader is in: the one holding the focus, or failing that
+  // the one the caret sits inside — which is how it reads when a document is
+  // opened straight onto a table, before anything has been clicked.
+  const activeTableEl =
+    renderedSlots.find((slot) => slot.kind === "table" && focusedEl && slot.el.contains(focusedEl))
+      ?.el ??
+    renderedSlots.find(
+      (slot) => slot.kind === "table" && caret >= slot.span[0] && caret <= slot.span[1],
+    )?.el ??
+    null;
+
   const renderedAt = renderedSlots.map((slot) => slot.at);
 
   const toggleRenderedAt = (at: number) => {
@@ -715,10 +760,14 @@ export function DocumentEditor({
       {/* The bordered box holds the editor, its right line-number rail, and
           the action rail outside that; the ribbon overlay anchors on the
           number rail's outer edge through `.with-right-rail`. */}
+      {/* Inside a table the ruler stops measuring prose and names the
+          table's columns instead, so A1 is readable off the same stick that
+          is already there rather than out of a second row of furniture. */}
       <EditorRuler
         view={railView}
         column={wrapColumn}
         onColumn={(next) => onWrapColumn?.(next)}
+        tableEl={activeTableEl}
       />
       <div className="document-editor with-right-rail with-card-rail">
         <div ref={hostRef} className="editor-cm-host" />
@@ -799,9 +848,15 @@ export function DocumentEditor({
           );
         }
         if (slot.kind === "table") {
+          // Named by the table's own `path` where it has one, so the size
+          // survives prose being written above it — see `tableKey`.
+          const key = tableKey(path, slot.index, slot.table?.path);
           return createPortal(
-            <div className="rendered-table">
+            <div className="rendered-table rendered-table--laned">
               <TablePanel
+                laneRight
+                layout={tableLayouts?.[key]}
+                onLayout={(size) => onTableLayout?.(key, size)}
                 source={slot.text}
                 header={slot.table?.header ?? true}
                 delimiter={slot.table?.delimiter}

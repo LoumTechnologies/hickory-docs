@@ -220,6 +220,106 @@ export function withCell(table: Csv, row: number, column: number, value: string)
   return { ...table, rows };
 }
 
+/**
+ * The table with a set of cells emptied.
+ *
+ * A cell PAST the end of its own row is skipped rather than padded: the file
+ * keeps its ragged rows until somebody edits one, and clearing a cell that
+ * was never there would write fields the file did not have.
+ */
+export function clearCells(table: Csv, cells: { row: number; column: number }[]): Csv {
+  const rows = table.rows.map((r) => [...r]);
+  for (const { row, column } of cells) {
+    const target = rows[row];
+    if (target && column < target.length) target[column] = "";
+  }
+  return { ...table, rows };
+}
+
+/** Remove several rows at once — a selection of them, from the toolbar.
+ * Removed from the bottom up, so earlier removals do not shift the indices
+ * of the ones still to come. */
+export function removeRows(table: Csv, rows: number[]): Csv {
+  return [...rows].sort((a, b) => b - a).reduce(removeRow, table);
+}
+
+/** Remove several columns at once, bottom-up for the same reason. */
+export function removeColumns(table: Csv, columns: number[]): Csv {
+  return [...columns].sort((a, b) => b - a).reduce(removeColumn, table);
+}
+
+/**
+ * A block of cells written into the table with its top-left corner at
+ * (`row`, `column`), growing the table as far as it has to.
+ *
+ * A paste is an instruction, so it grows: pasting four rows into the last row
+ * of a table means the table now has three more. It does not, however, tidy
+ * anything it did not touch — a ragged row two rows above stays ragged.
+ */
+export function pasteBlock(
+  table: Csv,
+  row: number,
+  column: number,
+  block: string[][],
+): Csv {
+  const rows = table.rows.map((r) => [...r]);
+  block.forEach((fields, down) => {
+    const at = row + down;
+    while (rows.length <= at) rows.push([]);
+    const target = rows[at];
+    fields.forEach((field, across) => {
+      const into = column + across;
+      while (target.length <= into) target.push("");
+      target[into] = field;
+    });
+  });
+  return { ...table, rows };
+}
+
+/**
+ * How much of the table actually holds something.
+ *
+ * Not the same as its shape: a table can be twelve rows tall with the last
+ * four empty. What this answers is what a shrink would really take, so
+ * "removes 4 rows" can be said only when there is something in them.
+ */
+export function filledSize(table: Pick<Csv, "rows">): { rows: number; columns: number } {
+  let rows = 0;
+  let columns = 0;
+  table.rows.forEach((row, index) => {
+    row.forEach((field, column) => {
+      if (field.trim() === "") return;
+      rows = Math.max(rows, index + 1);
+      columns = Math.max(columns, column + 1);
+    });
+  });
+  return { rows, columns };
+}
+
+/**
+ * The table at exactly `rows` × `columns`.
+ *
+ * Grows with empty cells and trims from the end — the end, because a table is
+ * read from the top left, and taking rows off the bottom is what "make it
+ * smaller" means to the person who typed a smaller number.
+ *
+ * This is the one place a ragged row is squared up, and deliberately: padding
+ * for DISPLAY would claim the file said something it did not, but an explicit
+ * "make this table four columns wide" is an instruction rather than a guess.
+ */
+export function resizeTable(table: Csv, rows: number, columns: number): Csv {
+  const wanted = Math.max(1, Math.floor(rows));
+  const wide = Math.max(1, Math.floor(columns));
+  const next: string[][] = [];
+  for (let row = 0; row < wanted; row++) {
+    const existing = table.rows[row] ?? [];
+    const fields = existing.slice(0, wide);
+    while (fields.length < wide) fields.push("");
+    next.push(fields);
+  }
+  return { ...table, rows: next };
+}
+
 /** Insert an empty row at `at` (0-based; `rows.length` appends). */
 export function insertRow(table: Csv, at: number): Csv {
   const width = columnCount(table);

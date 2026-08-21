@@ -432,6 +432,7 @@ fn router(state: LocalState) -> Router {
         // Formulas: the host has already resolved references and worked out
         // the order by the time a backend sees anything. See serve/formula.rs.
         .route("/formula/evaluate", post(formula::evaluate))
+        .route("/formula/trace", post(formula::trace))
         .route("/formula/languages", get(formula::languages))
         .route("/executor", get(api::executor))
         .route("/health", get(api::health))

@@ -60,3 +60,33 @@ describe("the ruler's margin marker", () => {
     );
   });
 });
+
+describe("where column zero is", () => {
+  it("measures from the inside of the content padding, where the text starts", () => {
+    // The bug this exists to stop: `.cm-content` carries `--cm-pad-x` of
+    // padding and the dotted margin line is drawn from the inside of it, so a
+    // ruler measured from the BORDER box put every tick and the marker 2.5rem
+    // to the left of the line the text actually wraps at.
+    const live = view();
+    const content = live.contentDOM;
+    content.style.paddingLeft = "40px";
+    // jsdom lays nothing out, so the geometry the component reads is stated
+    // here rather than measured: 100px to the content box, 40px of padding.
+    content.getBoundingClientRect = () => ({ left: 100, width: 600 }) as DOMRect;
+    Object.defineProperty(live, "defaultCharacterWidth", { value: 8, configurable: true });
+
+    render(<EditorRuler view={live} column={80} onColumn={() => {}} />);
+    const ruler = screen.getByTestId("editor-ruler");
+    ruler.getBoundingClientRect = () => ({ left: 0, width: 900 }) as DOMRect;
+    live.requestMeasure = (<T,>(request: {
+      read: (v: EditorView) => T;
+      write?: (measure: T, v: EditorView) => void;
+    }) => request.write?.(request.read(live), live)) as typeof live.requestMeasure;
+
+    fireEvent(window, new Event("resize"));
+
+    // 100 (content) + 40 (padding) + 80 × 8 = 780, not 740.
+    expect(screen.getByRole("slider").style.left).toBe("780px");
+    live.destroy();
+  });
+});

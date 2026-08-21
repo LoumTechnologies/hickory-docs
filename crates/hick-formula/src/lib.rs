@@ -51,7 +51,7 @@ pub mod session;
 /// Which backend serves a language, and getting one onto the machine.
 pub use backend::{Backend, backend_for, install, installed_languages};
 /// Evaluating a whole table, where the host's graph meets a backend.
-pub use evaluate::{Computed, available, evaluate_sheet, levels};
+pub use evaluate::{Computed, Step, Trace, available, evaluate_sheet, levels, trace_sheet};
 /// A cell reference and the sheet arithmetic around it.
 pub use graph::{CellRef, Sheet, evaluation_order, references_in};
 /// The wire format between the host and a backend.

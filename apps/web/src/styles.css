@@ -886,6 +886,26 @@ textarea:focus {
 .editor-ruler__marker:focus-visible,
 .editor-ruler__marker--dragging { color: var(--accent); outline: none; }
 
+/* Inside a table the same strip names the table's columns. A measuring stick
+   over a grid is measuring the wrong thing — a column is not a character
+   count — and this is where a spreadsheet has always put its letters. */
+.editor-ruler--columns { background: var(--bg-sunken); }
+.editor-ruler__columns { position: absolute; inset: 0; pointer-events: none; }
+.editor-ruler__column {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-right: 1px solid var(--border);
+  font-size: 0.62rem;
+  line-height: 1;
+  color: var(--fg-muted);
+  overflow: hidden;
+}
+.editor-ruler__column:first-child { border-left: 1px solid var(--border); }
+
 /* Headings: big type, `#` marks stay visible but dimmed. */
 .cm-md-heading { font-weight: 650; line-height: 1.3; }
 .cm-md-h1 { font-size: 1.8em; padding-top: 0.4em; }
@@ -4362,6 +4382,13 @@ textarea:focus {
    collapsed region does — so it may be as tall as it likes: the rows it
    occupies are rows it took away. The border marks it as standing in for
    text, so it never reads as part of the prose. */
+/* A card is a solid object in the text, and the prose measure is not drawn
+   through solid objects. The dotted margin line is `.cm-content::before` —
+   absolutely positioned, so it paints ABOVE every in-flow block including
+   this one, and a card's opaque background is not enough to hide it. Joining
+   the positioned layer is: later in the DOM than the line, so later in the
+   paint. Without this the wrap marker for prose runs straight down a table,
+   where it measures nothing and reads as a column rule. */
 .cm-rendered {
   margin: 0.35rem 0;
   border: 1px solid var(--border);
@@ -4369,6 +4396,8 @@ textarea:focus {
   border-radius: 6px;
   background: var(--bg-raised);
   overflow: hidden;
+  position: relative;
+  z-index: 1;
 }
 .cm-rendered:focus-within { border-left-color: var(--accent); }
 
@@ -6237,28 +6266,169 @@ button.status-bar__item:hover { background: var(--bg-sunken); color: var(--fg); 
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   font-size: 0.8rem;
 }
-.table-panel__scroll { overflow: auto; max-height: 24rem; }
+/* Past nine rows the panel pins its own height in pixels (TablePanel.tsx) and
+   this cap never comes into it; it is the backstop for a table that fits,
+   whose height is its content's. */
+.table-panel__scroll { overflow: auto; max-height: 24rem; position: relative; }
+
+/* The name box and the formula bar. A1 stops being a convention somebody has
+   to be told about once the selected cell says its own name, and the bar is
+   the only place a formula's TEXT is visible while the grid shows what it came
+   to. */
+.table-panel__bar {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: hidden;
+}
+.table-panel__name {
+  flex: 0 0 4.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.16rem 0.4rem;
+  background: var(--bg-sunken);
+  border-right: 1px solid var(--border);
+  font-size: 0.74rem;
+}
+.table-panel__fx {
+  display: flex;
+  align-items: center;
+  padding: 0 0.45rem;
+  background: var(--bg-sunken);
+  border-right: 1px solid var(--border);
+  font-style: italic;
+  font-size: 0.72rem;
+  opacity: 0.7;
+}
+.table-panel__formula {
+  flex: 1;
+  min-width: 0;
+  padding: 0.16rem 0.45rem;
+  border: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-size: 0.78rem;
+}
+.table-panel__formula:focus { outline: 2px solid var(--accent); outline-offset: -2px; }
+.table-panel__formula:disabled { background: var(--bg-sunken); }
+
+/* Declared widths, not measured ones. A cell is a span until you enter it and
+   an input while you are in it, and under automatic layout those two measure
+   differently — so entering a cell resized the table under the pointer. */
 .table-panel__grid {
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0;
+  table-layout: fixed;
+  /* `max-content` and NOT `min-width: 100%`: stretching to fill the panel
+     would redistribute the declared widths, so a column dragged to 60px would
+     not be 60px and the drag would move its neighbours. A table narrower than
+     the panel simply ends, which is what its columns actually say. */
   width: max-content;
-  min-width: 100%;
 }
 .table-panel__grid th,
 .table-panel__grid td {
-  border: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
   padding: 0;
-  min-width: 5rem;
-  max-width: 22rem;
   text-align: left;
   vertical-align: top;
+  overflow: hidden;
+}
+/* Every row is exactly one row tall, borders included — which is what lets
+   the panel say "nine rows" in pixels and be right, and what stops entering a
+   cell (a span becomes an input) from changing a row's height. The numbers
+   come from TablePanel.tsx so there is one of them, not two that drift. */
+.table-panel__grid tbody th,
+.table-panel__grid tbody td {
+  height: var(--table-row-height, 24px);
+  box-sizing: border-box;
 }
 .table-panel__grid thead th {
+  height: var(--table-head-height, 22px);
+  box-sizing: border-box;
+}
+.table-panel__grid tr > *:first-child { border-left: 1px solid var(--border); }
+.table-panel__grid thead th { border-top: 1px solid var(--border); }
+
+/* The A1 furniture: letters across the top, numbers down the side. Both are
+   sticky, because a reference you have to scroll back to find is a reference
+   you count out by hand instead. */
+/* Scoped to the grid so these beat the plain `th`/`td` alignment above them,
+   which is the body's and not the furniture's. */
+.table-panel__grid .table-panel__head,
+.table-panel__grid .table-panel__gutter,
+.table-panel__grid .table-panel__corner {
   background: var(--bg-sunken);
-  font-weight: 600;
+  font-weight: 500;
+  font-size: 0.68rem;
+  text-align: center;
+  vertical-align: middle;
+  color: var(--muted, inherit);
+  user-select: none;
+  cursor: pointer;
+  padding: 0.1rem 0.2rem;
+}
+/* `sticky` is a positioned ancestor, so the resize handle needs nothing more. */
+.table-panel__head { position: sticky; top: 0; z-index: 2; }
+.table-panel__gutter-col { width: 2.6rem; }
+.table-panel__gutter { position: sticky; left: 0; z-index: 1; }
+/* The corner takes the whole table, as every spreadsheet's does — so it is a
+   target now, and says so. */
+.table-panel__corner {
   position: sticky;
   top: 0;
+  left: 0;
+  z-index: 3;
+}
+/* Scoped for the same reason as the rule above: the furniture's own
+   background would otherwise outrank the highlight that says which row and
+   column the selected cell is in. */
+.table-panel__grid .table-panel__head--active,
+.table-panel__grid .table-panel__gutter--active {
+  background: var(--accent);
+  color: var(--bg);
+}
+
+/* The header ROW of the CSV — the first line of the file, when it names the
+   columns. Distinct from the letter row above it, which is the grid's own
+   furniture and is not in the file at all. */
+.table-panel__names .table-panel__cell { font-weight: 600; }
+
+/* Every grid line is a handle: the right edge of a column and the bottom edge
+   of a row, in the header, in the row numbers, and in every cell — because the
+   line you want to move is usually the one your pointer is already next to.
+   Five pixels, and a press that does not move falls through to the cell
+   underneath (see `Resizer`), so an edge is never a dead zone. */
+.table-panel__resizer {
+  position: absolute;
+  /* Above the cell, which fills the whole box. */
   z-index: 1;
 }
+.table-panel__resizer--column {
+  top: 0;
+  right: 0;
+  width: 5px;
+  height: 100%;
+  cursor: col-resize;
+}
+.table-panel__resizer--row {
+  left: 0;
+  bottom: 0;
+  height: 5px;
+  width: 100%;
+  cursor: row-resize;
+  /* Where the two meet, the column wins: a corner is ambiguous and column
+     edges are what people reach for. */
+  z-index: 0;
+}
+/* The handles are absolutely positioned, so every cell that holds one has to
+   be their containing block. The header and the row numbers already are —
+   they are sticky. */
+.table-panel__grid tbody td,
+.table-panel__grid tbody th { position: relative; }
 .table-panel__cell {
   display: block;
   padding: 0.16rem 0.4rem;
@@ -6266,9 +6436,55 @@ button.status-bar__item:hover { background: var(--bg-sunken); color: var(--fg); 
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: pre;
-  cursor: text;
+  cursor: cell;
 }
-.table-panel__cell:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+/* A drag across the grid selects CELLS. Without this it also drags a text
+   selection through them, so sweeping a rectangle leaves the prose either
+   side of the table highlighted blue. Scoped to `[role="gridcell"]`, which is
+   set only where the table can be edited: a read-only table is text somebody
+   may well want to select and copy. */
+.table-panel__cell[role="gridcell"] { user-select: none; }
+/* The selected cell keeps its ring when focus moves to a button — that is the
+   whole point of selection surviving blur, and the ring is how you can tell.
+   Focus draws the SAME ring rather than a competing one: the two are the same
+   rectangle, and a selected cell must look identical whether or not the
+   keyboard happens to be pointed at it. (Tabbing into the grid from outside
+   focuses a cell that was never selected, which is the one case where the
+   focus half earns its keep on its own.) */
+.table-panel__grid .table-panel__cell--selected,
+.table-panel__grid .table-panel__cell:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+/* The rest of a range. The anchor keeps the ring — it is still the cell the
+   formula bar edits — and everything swept with it gets a wash instead, so a
+   selection of forty cells has one focus point rather than forty. */
+.table-panel__grid .table-panel__cell--within {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+}
+/* A letter or a number that was CLICKED, as opposed to one merely lit because
+   the anchor is in that row. The difference matters: `− Column` acts on the
+   first and not on the second. */
+.table-panel__grid .table-panel__head--taken,
+.table-panel__grid .table-panel__gutter--taken {
+  background: var(--accent);
+  color: var(--bg);
+  font-weight: 700;
+}
+/* Stepping: the cell whose turn it is, and the cells it read. Deliberately
+   not the selection's colour — what is selected and what is running are two
+   different facts about the same grid, and one wash for both would be a lie
+   whenever they disagree. */
+.table-panel__grid .table-panel__cell--stepping {
+  outline: 2px solid var(--warn);
+  outline-offset: -2px;
+  background: color-mix(in srgb, var(--warn) 18%, transparent);
+}
+.table-panel__grid .table-panel__cell--read {
+  background: color-mix(in srgb, var(--accent-2) 16%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent-2) 55%, transparent);
+}
+
 .table-panel__input {
   display: block;
   width: 100%;
@@ -6280,10 +6496,69 @@ button.status-bar__item:hover { background: var(--bg-sunken); color: var(--fg); 
   outline: 2px solid var(--accent);
   outline-offset: -2px;
 }
+/* The bottom edge, dragged. Three grip lines so it reads as a handle rather
+   than as a border somebody forgot to style. */
+.table-panel__height {
+  height: 7px;
+  margin-top: -1px;
+  cursor: ns-resize;
+  touch-action: none;
+  background:
+    linear-gradient(var(--border), var(--border)) center / 2.5rem 1px no-repeat;
+  opacity: 0.7;
+}
+.table-panel__height:hover {
+  opacity: 1;
+  background:
+    linear-gradient(var(--accent), var(--accent)) center / 3.5rem 2px no-repeat;
+}
 .table-panel__actions { display: flex; gap: 0.3rem; align-items: center; flex-wrap: wrap; }
-.table-panel__size { margin-left: auto; font-size: 0.7rem; }
+.table-panel__note--bad { color: var(--fail); font-size: 0.72rem; margin: 0; }
 .table-panel__readonly { margin: 0; font-size: 0.74rem; }
+/* The row lane sits where the editor's line numbers are — which in this
+   editor is the RIGHT-hand rail. It is drawn AS WELL AS the numbers beside
+   the first column, never instead of them: those are where a spreadsheet puts
+   them and where a hand goes to grab a row, and this lane is about lining up
+   with the editor's rail. Two jobs, two lanes.
+   A table is a block REPLACEMENT — a fold — so that rail has exactly one
+   number for the whole thing and cannot label the rows (see
+   docs/guarantees/authoring/the-gutters-never-skip-a-number.md). The grid
+   therefore draws its own lane at its far right, and takes the full measure so
+   that lane lands against the rail's edge rather than wherever the columns
+   happen to end. A spacer column absorbs the slack, so the declared column
+   widths are still the widths. */
 .rendered-table { position: relative; }
+.rendered-table--laned .table-panel__grid--laned { width: 100%; }
+.table-panel__spacer-col { width: auto; }
+.table-panel__grid .table-panel__spacer {
+  border: 0;
+  background: none;
+}
+.rendered-table--laned .table-panel__grid .table-panel__gutter--lane,
+.rendered-table--laned .table-panel__grid .table-panel__corner--lane {
+  /* The rail's own look: no box, muted mono digits hugging the text they
+     number from the left, exactly as `.cm-right-rail__line` does. */
+  background: none;
+  border: 0;
+  border-left: 1px solid var(--border);
+  text-align: left;
+  font-family: ui-monospace, Menlo, monospace;
+  font-size: 0.72rem;
+  padding-left: 0.6ch;
+}
+.table-panel__lane-col { width: 3.2rem; }
+/* The lane is at the far right and scrolls with the grid; only the numbers
+   beside the first column are pinned there. */
+.table-panel__gutter--lane { position: static; }
+/* The selected row's number, in a lane that has no background to invert
+   against: the highlight has to be the INK here, not the box. Without this it
+   is dark-on-dark and the one row you are looking at is the one with no
+   number. */
+.rendered-table--laned .table-panel__grid .table-panel__gutter--lane.table-panel__gutter--active {
+  background: none;
+  color: var(--accent);
+  font-weight: 700;
+}
 .cm-rendered .table-panel { margin: 0; }
 
 /* A ```csv fence: the grid, and the step from "a table I pasted into my
@@ -6322,6 +6597,107 @@ button.status-bar__item:hover { background: var(--bg-sunken); color: var(--fg); 
   border-radius: 3px;
 }
 .table-panel__note { margin: 0; font-size: 0.7rem; }
+
+/* "3 × 2", typed. The number that reports the size is the number you edit to
+   change it — pressing "+ Row" eleven times is how somebody ends up writing
+   the CSV by hand instead. */
+.table-panel__size {
+  margin-left: auto;
+  font-size: 0.7rem;
+  background: none;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  padding: 0 0.3rem;
+  color: inherit;
+  font-family: inherit;
+  cursor: pointer;
+}
+.table-panel__size:hover,
+.table-panel__size[aria-expanded="true"] {
+  border-color: var(--border);
+  background: var(--bg-sunken);
+}
+.table-size {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.4rem 0.5rem;
+  background: var(--bg-sunken);
+}
+.table-size__form { display: flex; align-items: end; gap: 0.4rem; flex-wrap: wrap; }
+.table-size__field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  font-size: 0.68rem;
+  color: var(--muted, inherit);
+}
+.table-size__number {
+  width: 5rem;
+  padding: 0.12rem 0.3rem;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+  font-size: 0.78rem;
+}
+.table-size__by { padding-bottom: 0.2rem; opacity: 0.6; }
+.table-size__note { margin: 0; font-size: 0.7rem; max-width: 46ch; }
+/* Shrinking is destructive and says so while the number is still being typed,
+   rather than as a confirm step that trains people to click through. */
+.table-size__note--warn { color: var(--warn); }
+.table-size__note--bad { color: var(--fail); }
+
+/* Stepping through the formulas.
+   What is being debugged is the ORDER — which cell went when and what it read
+   when its turn came. That is the host's contribution to a formula and the
+   part a person cannot see by looking at the grid; stepping INSIDE an
+   expression belongs to the language's own debugger. */
+.formula-debug {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--warn);
+  border-radius: 4px;
+  padding: 0.4rem 0.5rem;
+  background: var(--bg-sunken);
+  font-size: 0.75rem;
+}
+.formula-debug__bar { display: flex; gap: 0.3rem; align-items: center; flex-wrap: wrap; }
+.formula-debug__where { font-size: 0.7rem; }
+/* The Close button sits at the far end rather than beside the transport, so
+   "stop" is never one pixel from "step". */
+.formula-debug__bar > :last-child { margin-left: auto; }
+.formula-debug__body { display: flex; flex-direction: column; gap: 0.3rem; }
+.formula-debug__expression { margin: 0; font-size: 0.76rem; }
+.formula-debug__cell {
+  padding: 0 0.3rem;
+  margin-right: 0.3rem;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--warn) 25%, transparent);
+}
+.formula-debug__eq { opacity: 0.6; margin-right: 0.3rem; }
+.formula-debug__reads { border-collapse: collapse; font-size: 0.72rem; }
+.formula-debug__reads th,
+.formula-debug__reads td {
+  border: 1px solid var(--border);
+  padding: 0.08rem 0.4rem;
+  text-align: left;
+  font-weight: 400;
+}
+.formula-debug__reads thead th { color: var(--muted, inherit); font-size: 0.66rem; }
+.formula-debug__reads tbody th { background: color-mix(in srgb, var(--accent-2) 16%, transparent); }
+/* A blank cell is not the empty string — `sum` skips one and not the other —
+   so it is named rather than drawn as nothing at all. */
+.formula-debug__empty { opacity: 0.6; font-style: italic; }
+.formula-debug__reads-none { margin: 0; font-size: 0.72rem; }
+.formula-debug__result { margin: 0; font-size: 0.76rem; color: var(--accent-2); }
+.formula-debug__result--bad { color: var(--fail); }
+.formula-debug__note { margin: 0; font-size: 0.7rem; }
 
 /* autocompletion -----------------------------------------------------------
    Two sources in one list, and the mark is the point. A language server's

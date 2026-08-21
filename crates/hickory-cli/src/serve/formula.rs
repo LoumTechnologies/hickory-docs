@@ -1,10 +1,15 @@
 //! Evaluating a table's formulas.
 //!
-//! One route, because the protocol's whole design is that the interesting
-//! work — references, ordering, cycles — is the host's and is already done by
-//! the time a backend is asked anything (see `hick_formula`). What is left
-//! here is turning a CSV grid into a sheet, handing it over, and turning the
-//! answer back into cells.
+//! Two routes over one evaluation, because the protocol's whole design is that
+//! the interesting work — references, ordering, cycles — is the host's and is
+//! already done by the time a backend is asked anything (see `hick_formula`).
+//! What is left here is turning a CSV grid into a sheet, handing it over, and
+//! turning the answer back into cells.
+//!
+//! `evaluate` answers what the grid displays. `trace` answers the same
+//! evaluation with every cell's turn kept, which is what the table's debugger
+//! steps through — the same code path, so the two can never disagree about
+//! what happened.
 //!
 //! The backend installs itself on first use. That is affordable *because* it
 //! is a local write of a script this binary carries — there is no network
@@ -16,7 +21,7 @@ use axum::extract::State;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use hick_formula::{CellRef, Sheet};
+use hick_formula::{CellRef, Sheet, Value as FormulaValue};
 
 use super::LocalState;
 use super::api::{ApiError, ApiResult};
@@ -43,6 +48,78 @@ pub async fn evaluate(
     State(state): State<LocalState>,
     Json(body): Json<EvaluateBody>,
 ) -> ApiResult<Json<Value>> {
+    let sheet = sheet_of(&body)?;
+    let root = state.index.root().to_path_buf();
+    let computed = hick_formula::evaluate_sheet(&root, &body.language, &sheet)
+        .await
+        .map_err(missing_interpreter)?;
+
+    Ok(Json(json!({
+        "values": labelled(&computed.values),
+        "errors": labelled(&computed.errors),
+    })))
+}
+
+/// `POST /api/formula/trace` — the same evaluation, cell by cell.
+///
+/// What the table's debugger steps through. It is deliberately the same code
+/// path as `evaluate`: `trace_sheet` IS the evaluator, and `evaluate_sheet` is
+/// it with the steps dropped. A debugger walking its own copy of the order
+/// would eventually disagree with the grid about what happened, and a
+/// debugger that disagrees with the program is worse than none.
+///
+/// The steps are the HOST's contribution made visible — which cell went when,
+/// what it read, and what the value it read was worth at that moment. Stepping
+/// *inside* an expression is a different tool: that is the language's
+/// debugger, and it is `hick-dap`'s job.
+pub async fn trace(
+    State(state): State<LocalState>,
+    Json(body): Json<EvaluateBody>,
+) -> ApiResult<Json<Value>> {
+    let sheet = sheet_of(&body)?;
+    let root = state.index.root().to_path_buf();
+    let traced = hick_formula::trace_sheet(&root, &body.language, &sheet)
+        .await
+        .map_err(missing_interpreter)?;
+
+    let steps: Vec<Value> = traced
+        .steps
+        .iter()
+        .map(|step| {
+            let bindings: Vec<Value> = step
+                .bindings
+                .iter()
+                .map(|(cell, value)| {
+                    json!({
+                        "cell": cell.label(),
+                        // Both, because they answer different questions: the
+                        // text is what the expression saw, and the kind is
+                        // why an empty cell is not the empty string.
+                        "text": value.to_cell(),
+                        "kind": kind_of(value),
+                    })
+                })
+                .collect();
+            json!({
+                "cell": step.cell.label(),
+                "level": step.level,
+                "expression": step.expression,
+                "bindings": bindings,
+                "value": step.value,
+                "error": step.error,
+            })
+        })
+        .collect();
+
+    Ok(Json(json!({
+        "steps": steps,
+        "values": labelled(&traced.computed.values),
+        "errors": labelled(&traced.computed.errors),
+    })))
+}
+
+/// The grid as a sheet, refusing a table that is really a dataset.
+fn sheet_of(body: &EvaluateBody) -> Result<Sheet, ApiError> {
     let cells: usize = body.rows.iter().map(Vec::len).sum();
     if cells > MAX_CELLS {
         return Err(ApiError::unprocessable(format!(
@@ -62,29 +139,32 @@ pub async fn evaluate(
             sheet.insert(CellRef::new(column, row), text.clone());
         }
     }
+    Ok(sheet)
+}
 
-    let root = state.index.root().to_path_buf();
-    let language = body.language.clone();
-    let computed = hick_formula::evaluate_sheet(&root, &language, &sheet)
-        .await
-        .map_err(|e| {
-            // A missing interpreter is the common case and is not a server
-            // fault: the table still renders, it just does not compute.
-            ApiError::unprocessable(format!("{e:#}"))
-        })?;
+/// A missing interpreter is the common case and is not a server fault: the
+/// table still renders, it just does not compute.
+fn missing_interpreter(error: anyhow::Error) -> ApiError {
+    ApiError::unprocessable(format!("{error:#}"))
+}
 
-    let values: serde_json::Map<String, Value> = computed
-        .values
-        .iter()
+/// A map keyed by cell, keyed by A1 label instead.
+fn labelled(map: &std::collections::BTreeMap<CellRef, String>) -> serde_json::Map<String, Value> {
+    map.iter()
         .map(|(cell, text)| (cell.label(), Value::String(text.clone())))
-        .collect();
-    let errors: serde_json::Map<String, Value> = computed
-        .errors
-        .iter()
-        .map(|(cell, message)| (cell.label(), Value::String(message.clone())))
-        .collect();
+        .collect()
+}
 
-    Ok(Json(json!({ "values": values, "errors": errors })))
+/// Which sort of value a binding was. `empty` is the one worth naming: a
+/// blank cell is not the empty string, and a debugger that showed both as
+/// nothing would hide the difference that made `sum` skip it.
+fn kind_of(value: &FormulaValue) -> &'static str {
+    match value {
+        FormulaValue::Number { .. } => "number",
+        FormulaValue::Text { .. } => "text",
+        FormulaValue::Bool { .. } => "bool",
+        FormulaValue::Empty => "empty",
+    }
 }
 
 /// `GET /api/formula/languages` — what this machine can evaluate right now.

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { cellLabel, isFormula } from "./cellRef";
+import { cellLabel, isFormula, parseCellLabel } from "./cellRef";
 
 describe("A1 labels", () => {
   it("names the first cell A1", () => {
@@ -30,5 +30,25 @@ describe("what counts as a formula", () => {
     expect(isFormula("a=b")).toBe(false);
     expect(isFormula("42")).toBe(false);
     expect(isFormula("")).toBe(false);
+  });
+});
+
+describe("finding the cell a label names", () => {
+  it("round trips every label the grid can draw", () => {
+    for (const [column, row] of [
+      [0, 0],
+      [1, 2],
+      [25, 9],
+      [26, 0],
+      [701, 99],
+    ]) {
+      expect(parseCellLabel(cellLabel(column, row))).toEqual({ column, row });
+    }
+  });
+
+  it("refuses what is not a label, rather than guessing", () => {
+    for (const text of ["", "A", "1", "A0", "1A", "A1.5", "$B$4"]) {
+      expect(parseCellLabel(text)).toBeNull();
+    }
   });
 });

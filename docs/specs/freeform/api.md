@@ -293,9 +293,23 @@ answer "was this written by a person or by the agent"
   keyed by A1 label and both holding **only formula cells** — a literal has
   nothing to compute, and echoing it back would make the response the size of
   the table.
+- `POST /api/formula/trace` `{language, rows}` → `{steps, values, errors}` —
+  the **same evaluation, cell by cell**, which is what the table's debugger
+  steps through. Each step is `{cell, level, expression, bindings, value,
+  error}`, in the order the cells actually ran; `bindings` is what each
+  reference was worth *at that moment*, as `{cell, text, kind}`, where `kind`
+  distinguishes an `empty` cell from an empty string. A sheet with a cycle
+  answers no steps at all — a circle has no order, and inventing one to step
+  through would be the debugger's first lie.
 - `GET /api/formula/languages` → `{languages}` — what this machine can
   evaluate right now, so the UI offers what will work rather than what the
   build knows about.
+
+`trace` and `evaluate` are one code path on the host: `trace_sheet` is the
+evaluator and `evaluate_sheet` is it with the steps dropped. A debugger that
+walked its own copy of the order would eventually disagree with the grid about
+what happened, and a debugger that disagrees with the program is worse than
+none. Both refuse the same 20,000-cell table for the same reason.
 
 A formula is a cell beginning with `=`, and what follows is an **expression in
 a real language**. Every spreadsheet ships its own small, badly-specified

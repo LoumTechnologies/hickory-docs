@@ -4,6 +4,8 @@ import {
   UI_STATE_VERSION,
   emptyUi,
   normalizeUi,
+  tableKey,
+  withTableLayout,
   withWrap,
   worthStoring,
   wrapFor,
@@ -186,5 +188,62 @@ describe("what is worth writing down", () => {
     const layout = withTree(freeform(), tab("tree", "folder", "Files"));
     const withDoc = openInLayout(layout, tab("document", "notes.hick", undefined, "d1"), layout.focus);
     expect(worthStoring(withDoc)).toBe(true);
+  });
+});
+
+describe("a table's remembered size", () => {
+  it("is named by the table's own path where it has one", () => {
+    // A path survives prose being written above the table, the table moving
+    // down the document, or another table appearing before it.
+    expect(tableKey("notes/sales.hick", 2, "data/sales.csv")).toBe("path:data/sales.csv");
+  });
+
+  it("falls back to the nth table of the document when it writes no file", () => {
+    expect(tableKey("notes/sales.hick", 2)).toBe("notes/sales.hick#2");
+    expect(tableKey(null, 0)).toBe("untitled#0");
+  });
+
+  it("comes back from storage, and is dropped when it is nonsense", () => {
+    const stored = normalizeUi({
+      version: UI_STATE_VERSION,
+      layout: null,
+      wrap: {},
+      zoom: {},
+      tables: {
+        "path:a.csv": { height: 300, widths: { "0": 220 } },
+        "path:b.csv": { height: "tall" },
+        "path:c.csv": "not a size",
+        "path:d.csv": { height: 9_000_000 },
+      },
+    });
+    expect(stored.tables["path:a.csv"]).toEqual({ height: 300, widths: { "0": 220 } });
+    // A malformed height leaves nothing behind rather than a broken entry.
+    expect(stored.tables["path:b.csv"]).toBeUndefined();
+    expect(stored.tables["path:c.csv"]).toBeUndefined();
+    // A height that would push the table off the screen is clamped, not kept.
+    expect(stored.tables["path:d.csv"]).toEqual({ height: 4000 });
+  });
+
+  it("remembers the rows that were dragged taller, and clamps an absurd one", () => {
+    const stored = normalizeUi({
+      version: UI_STATE_VERSION,
+      layout: null,
+      wrap: {},
+      zoom: {},
+      tables: {
+        "path:a.csv": { heights: { "0": 60, "3": 9_000, "4": "tall" } },
+        "path:b.csv": { heights: {} },
+      },
+    });
+    // Past a paragraph's worth the table stops being something a page holds.
+    expect(stored.tables["path:a.csv"]).toEqual({ heights: { "0": 60, "3": 600 } });
+    // Nothing worth keeping is nothing kept, rather than an empty record.
+    expect(stored.tables["path:b.csv"]).toBeUndefined();
+  });
+
+  it("survives a round trip through withTableLayout", () => {
+    const ui = withTableLayout(emptyUi(), "path:a.csv", { height: 240 });
+    expect(ui.tables).toEqual({ "path:a.csv": { height: 240 } });
+    expect(emptyUi().tables).toEqual({});
   });
 });

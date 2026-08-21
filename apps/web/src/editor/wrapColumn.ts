@@ -121,6 +121,15 @@ export function proseWrap(codeRanges: CodeRanges): Extension {
     ViewPlugin.define((view) => {
       const write = () => {
         view.dom.style.setProperty("--prose-wrap", `${wrapPixels(view)}px`);
+        // The gutters' real width, for anything that needs to draw INTO that
+        // lane. A rendered table is a fold, so the gutter has one number for
+        // the whole block and cannot label its rows; the grid draws its own
+        // row lane and pulls it left by this much. Written here rather than
+        // measured separately because this is already the callback that fires
+        // when the font size or the line count changes the gutter's width.
+        const gutters = view.dom.querySelector(".cm-gutters");
+        const width = gutters ? gutters.getBoundingClientRect().width : 0;
+        view.dom.style.setProperty("--cm-gutter-w", `${width}px`);
       };
       write();
       return {

@@ -146,9 +146,10 @@ class RenderedWidget extends WidgetType {
     // diagram's height for it makes the scrollbar lie by a screenful in a
     // document full of maths.
     if (this.slot.kind === "math") return 56;
-    // A grid is as tall as its rows; this is only the first guess, before
+    // A grid is as tall as its rows, plus the formula bar and the row of
+    // column letters above them; this is only the first guess, before
     // anything is measured.
-    return this.slot.kind === "table" ? 140 : 90;
+    return this.slot.kind === "table" ? 190 : 90;
   }
 
   ignoreEvent() {

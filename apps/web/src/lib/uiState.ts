@@ -20,6 +20,7 @@
 
 import { panes, reid, type Layout, type Node, type Pane, type Tab, type ViewKind } from "../shell/layout";
 import { WRAP_DEFAULT, clampWrapColumn } from "../editor/wrapColumn";
+import type { TableLayout } from "../components/TablePanel";
 import { ZOOM_DEFAULT, clampZoom } from "./zoom";
 
 /** Bumped when a stored blob would be misread by this version. */
@@ -41,10 +42,55 @@ export interface WorkspaceUi {
    * moment it was read back. A path is what the reader thinks of as "this
    * document" anyway. */
   wrap: Record<string, number>;
+  /** How big each table was left, keyed by `tableKey`.
+   *
+   * Here rather than in the document because a column width is presentation
+   * and a `.hick` document is a dataset somebody diffs. Two people opening the
+   * same table are allowed to want different amounts of room for it, and
+   * neither should show up in the other's `git status`. */
+  tables: Record<string, TableLayout>;
+}
+
+/** The name a table's remembered size is stored under.
+ *
+ * Its `path` when it has one, because that is the table's own identity and it
+ * survives being moved down the document, split into a second file, or having
+ * prose written above it. Failing that, the nth table of this document — which
+ * is stable against everything except reordering the tables themselves. */
+export function tableKey(documentPath: string | null, index: number, path?: string): string {
+  return path ? `path:${path}` : `${documentPath ?? "untitled"}#${index}`;
+}
+
+/** A stored size, with anything unrecognisable dropped. */
+function readTableLayout(raw: unknown): TableLayout | null {
+  if (!isRecord(raw)) return null;
+  const out: TableLayout = {};
+  if (typeof raw.height === "number" && Number.isFinite(raw.height)) {
+    out.height = Math.max(64, Math.min(4000, Math.round(raw.height)));
+  }
+  const measures = (raw: unknown, least: number, most: number) => {
+    if (!isRecord(raw)) return undefined;
+    const kept: Record<string, number> = {};
+    for (const [index, value] of Object.entries(raw)) {
+      if (typeof value === "number" && Number.isFinite(value)) {
+        kept[index] = Math.max(least, Math.min(most, Math.round(value)));
+      }
+    }
+    return Object.keys(kept).length > 0 ? kept : undefined;
+  };
+  out.widths = measures(raw.widths, 40, 2000);
+  // A row may be dragged tall enough to hold a paragraph, and no taller: past
+  // that the table stops being something a page can hold.
+  out.heights = measures(raw.heights, 16, 600);
+  if (out.widths === undefined) delete out.widths;
+  if (out.heights === undefined) delete out.heights;
+  return out.height === undefined && out.widths === undefined && out.heights === undefined
+    ? null
+    : out;
 }
 
 export function emptyUi(): WorkspaceUi {
-  return { version: UI_STATE_VERSION, layout: null, wrap: {}, zoom: {} };
+  return { version: UI_STATE_VERSION, layout: null, wrap: {}, zoom: {}, tables: {} };
 }
 
 const VIEW_KINDS: ReadonlySet<string> = new Set<ViewKind>([
@@ -176,7 +222,14 @@ export function normalizeUi(raw: unknown): WorkspaceUi {
       if (typeof value === "number") zoom[path] = clampZoom(value);
     }
   }
-  return { version: UI_STATE_VERSION, layout, wrap, zoom };
+  const tables: Record<string, TableLayout> = {};
+  if (isRecord(raw.tables)) {
+    for (const [key, value] of Object.entries(raw.tables)) {
+      const size = readTableLayout(value);
+      if (size) tables[key] = size;
+    }
+  }
+  return { version: UI_STATE_VERSION, layout, wrap, zoom, tables };
 }
 
 /** The measure for one tab, defaulting where none was stored. */
@@ -187,6 +240,20 @@ export function wrapFor(ui: WorkspaceUi, target: string): number {
 /** The same state with one tab's measure changed. */
 export function withWrap(ui: WorkspaceUi, target: string, column: number): WorkspaceUi {
   return { ...ui, wrap: { ...ui.wrap, [target]: clampWrapColumn(column) } };
+}
+
+/** How big a table was left, or nothing when it has never been resized. */
+export function tableLayoutFor(ui: WorkspaceUi, key: string): TableLayout | undefined {
+  return ui.tables[key];
+}
+
+/** The same state with one table's size changed. */
+export function withTableLayout(
+  ui: WorkspaceUi,
+  key: string,
+  size: TableLayout,
+): WorkspaceUi {
+  return { ...ui, tables: { ...ui.tables, [key]: size } };
 }
 
 /** The zoom level for one tab, defaulting to actual size. */
