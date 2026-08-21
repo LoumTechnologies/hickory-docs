@@ -22,15 +22,28 @@ command that fixes whichever is missing.
 
 ## From clone to running app
 
-1. `just dev` — idempotent. Installs the pre-commit hook, installs frontend
-   dependencies if they are absent, seeds a scratch project if there is none,
-   then opens the desktop app with the UI hot-reloading. Vite listens on a
+1. `just dev` — idempotent, and the only command you need. Every run brings
+   the whole environment up to date before opening anything: the pre-commit
+   hook, frontend dependencies (reinstalled when `package-lock.json` is newer
+   than `node_modules`), the `hick` binary, and the seeded scratch project.
+   Then it opens the desktop app with the UI hot-reloading. Vite listens on a
    port derived from this worktree's path, so two checkouts can run it at
    once without agreeing on anything. Closing the window stops everything.
+
+   **There is no second command to remember.** If `just dev` shows you
+   something, it is what is in this checkout — with one exception, which it
+   prints by name: a fixture *you* edited is kept rather than overwritten.
 2. `just dev-seed` — writes `.dev/project/`: a two-stage chain
    (`decisions.hick` → `stats.hick` → `stats.py`), because a single document
-   cannot show the lineage browser doing its job. Safe to run repeatedly —
-   files you have edited are kept, never overwritten.
+   cannot show the lineage browser doing its job, plus `cards.hick`, the
+   editor-chrome fixture. `just dev` runs this for you; run it directly only
+   to re-seed without opening the app.
+
+   It records what it wrote in `.dev/seed-manifest`, which is what lets it
+   tell "you edited this" from "this is merely old". A file you have not
+   touched is replaced when the fixture in git changes; a file you have
+   edited is kept and listed at the end of the run, with the one way to take
+   the new version (delete it and re-run, or `just dev-clean`).
 3. `just dev-stop` — for a run that was killed in a way that left the dev
    server behind. The normal exit is closing the window.
 4. `just dev-clean` — stop, then delete **this worktree's** `.dev/` scratch.

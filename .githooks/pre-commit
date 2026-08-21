@@ -37,6 +37,10 @@ for check in "${checks[@]}"; do
         bash -n "$script" || status=1
       done
       ;;
+    dev)
+      # Runs the seed against a throwaway directory — never your own .dev/.
+      scripts/check-dev-seed.sh || status=1
+      ;;
     *)
       echo "pre-commit: unknown check '$check' from affected-checks.sh" >&2
       status=1

@@ -59,8 +59,13 @@ fi
 # Expensive on purpose: the dev environment itself is only re-verified when
 # something that can actually break it changes, not on every commit. See
 # docs/developers/developer-environment.md.
+#
+# `dev` is the row that runs the dev scripts themselves. Before it existed,
+# `scripts/dev*.sh` mapped to rust+web — checks that build the things the dev
+# environment starts without ever executing the scripts that start them, so a
+# broken seed or a stale-fixture bug had nothing standing in its way.
 if matches "docker-compose.yml" || matches "scripts/dev*.sh" || matches "justfile"; then
-  checks+=(rust web)
+  checks+=(rust web dev)
 fi
 
 if [ "${#checks[@]}" -gt 0 ]; then

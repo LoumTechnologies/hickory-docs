@@ -8,28 +8,97 @@
 # that is what this makes: a two-stage chain, because a single document cannot
 # show the lineage browser doing its job.
 #
-# Safe to run twice: existing files are left exactly as they are, so a
-# document you edited while developing survives the next `just dev`.
+# Safe to run twice, and re-run by every `just dev` — which is the point. A
+# seed that only ever wrote missing files meant that changing a fixture in this
+# repository left every existing checkout showing the old one, with nothing on
+# screen to say so and `just dev-clean` as the undocumented cure. So each file
+# is written with a record of what was seeded, and a re-seed can tell the two
+# cases apart:
+#
+#   * you have not touched it  -> it is replaced with the current fixture,
+#   * you edited it            -> your version is kept, and the difference is
+#                                 reported by name rather than left to surprise
+#                                 you later.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-PROJECT_DIR=.dev/project
-mkdir -p "$PROJECT_DIR"
+# Both are overridable so this script can be exercised against a throwaway
+# directory (scripts/check-dev-seed.sh) without touching a developer's real
+# scratch project. Nothing but that check sets them.
+SEED_ROOT="${HICKORY_SEED_ROOT:-.dev}"
+PROJECT_DIR="$SEED_ROOT/project"
+MANIFEST="$SEED_ROOT/seed-manifest"
+# The weave at the end builds a binary, which the check does not need and
+# should not pay for. 1 for a real seed, 0 for the check.
+SEED_WEAVE="${HICKORY_SEED_WEAVE:-1}"
+mkdir -p "$PROJECT_DIR" "$SEED_ROOT"
+touch "$MANIFEST"
 
-write_if_absent() {
-  local path="$1"
-  if [ -e "$path" ]; then
-    echo "  kept    $path"
+# A newline-separated list rather than an array: macOS still ships bash 3.2,
+# where an empty array expanded under `set -u` is an error.
+STALE=""
+
+# sha256 of stdin, on every platform a developer here might have: coreutils,
+# macOS, and git-bash all ship one of these three.
+hash_stdin() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum | cut -d' ' -f1
+  elif command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 | cut -d' ' -f1
+  else
+    openssl dgst -sha256 | awk '{print $NF}'
+  fi
+}
+
+recorded_hash() {
+  awk -v p="$1" '$2 == p { print $1 }' "$MANIFEST" | tail -1
+}
+
+record_hash() {
+  local path="$1" hash="$2" tmp
+  tmp=$(mktemp)
+  awk -v p="$path" '$2 != p' "$MANIFEST" >"$tmp"
+  echo "$hash $path" >>"$tmp"
+  mv "$tmp" "$MANIFEST"
+}
+
+# Write a seeded file, or explain why it was left alone. Reads the content on
+# stdin; the manifest is what makes the "unmodified" case safe to overwrite.
+seed_file() {
+  local path="$1" content seeded current recorded
+  content=$(cat)
+  seeded=$(printf '%s\n' "$content" | hash_stdin)
+
+  if [ ! -e "$path" ]; then
+    mkdir -p "$(dirname "$path")"
+    printf '%s\n' "$content" >"$path"
+    record_hash "$path" "$seeded"
+    echo "  created $path"
     return
   fi
-  mkdir -p "$(dirname "$path")"
-  cat >"$path"
-  echo "  created $path"
+
+  current=$(hash_stdin <"$path")
+  if [ "$current" = "$seeded" ]; then
+    record_hash "$path" "$seeded"
+    echo "  current $path"
+    return
+  fi
+
+  recorded=$(recorded_hash "$path")
+  if [ -n "$recorded" ] && [ "$current" = "$recorded" ]; then
+    printf '%s\n' "$content" >"$path"
+    record_hash "$path" "$seeded"
+    echo "  updated $path (the fixture changed; you had not edited it)"
+    return
+  fi
+
+  STALE="$STALE$path\n"
+  echo "  kept    $path (your edits — the fixture in git differs)"
 }
 
 echo "Seeding $PROJECT_DIR"
 
-write_if_absent "$PROJECT_DIR/decisions.hick" <<'EOF'
+seed_file "$PROJECT_DIR/decisions.hick" <<'EOF'
 <?xml version="1.0" encoding="UTF-8"?>
 <hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="decisions.md">
 # Scratch project — decisions
@@ -49,7 +118,7 @@ first run of a fresh install must behave like every later run.
 </hick:doc>
 EOF
 
-write_if_absent "$PROJECT_DIR/stats.hick" <<'EOF'
+seed_file "$PROJECT_DIR/stats.hick" <<'EOF'
 <?xml version="1.0" encoding="UTF-8"?>
 <hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="stats.md">
 # Scratch project — implementation
@@ -92,7 +161,7 @@ cd project && python3 stats.py
 </hick:doc>
 EOF
 
-write_if_absent "$PROJECT_DIR/debugging.hick" <<'EOF'
+seed_file "$PROJECT_DIR/debugging.hick" <<'EOF'
 <?xml version="1.0" encoding="UTF-8"?>
 <hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="debugging.md">
 # Scratch project — the debugger
@@ -173,7 +242,7 @@ amount of checking stdout can reach.
 </hick:doc>
 EOF
 
-write_if_absent "$PROJECT_DIR/workspace.hick" <<'EOF'
+seed_file "$PROJECT_DIR/workspace.hick" <<'EOF'
 <?xml version="1.0" encoding="UTF-8"?>
 <hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="workspace.md">
 # Workspace
@@ -202,14 +271,20 @@ EOF
 # hunted for across four documents. Its job is the gutter guarantee — see
 # docs/guarantees/authoring/the-gutters-never-skip-a-number.md — which is only
 # checkable by eye, on a document that exercises all of it.
-write_if_absent "$PROJECT_DIR/cards.hick" <<'EOF'
-<?xml version="1.0" encoding="UTF-8"?>
-<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="cards.md">
+seed_file "$PROJECT_DIR/cards.hick" <<'EOF'
 # Every card, in one document
 
 A fixture, not a tutorial. It exists so the editor's card UI can be looked at
 all at once: every rail icon, every inline chip, every banner, and both fold
 kinds, in a document short enough to scroll in one pass.
+
+**No wrapper.** This document starts at its first heading: no XML
+declaration, no root element, no closing tag. It weaves `cards.md` because
+that is its own name (`bare-documents.md`). The other seeded documents keep
+the explicit root, so the folder shows both forms — and note that this
+paragraph cannot spell that root's tag, even in backticks, because hick has
+no escaping and would read it as a tag. Documents that need to talk about
+the syntax rebind the prefix to `h:` and keep their wrapper.
 
 **What to check.** Scroll from the first line to the last and read the left
 gutter. The numbers must run unbroken — no skipped number anywhere, whether a
@@ -322,10 +397,9 @@ The feature section. `--features extra` was passed.
 ## The end
 
 If the gutter counted straight from line 1 to here, the cards are behaving.
-</hick:doc>
 EOF
 
-write_if_absent "$PROJECT_DIR/sessions/20260820-090000-every-turn-chip.hick" <<'EOF'
+seed_file "$PROJECT_DIR/sessions/20260820-090000-every-turn-chip.hick" <<'EOF'
 <?xml version="1.0" encoding="UTF-8"?>
 <hick:session xmlns:hick="http://www.hickorydocs.com/1.0" start="2026-08-20T09:00:00Z">
 <hick:user>Show me every turn chip at once — you, agent, tool, result, ran, output.</hick:user>
@@ -376,15 +450,27 @@ grep quince fruit.csv
 </hick:session>
 EOF
 
-# Weave once, so a fresh seed is CONSISTENT rather than drifted. Without this
-# the first thing a developer might try — `hick test .dev/project` — reports a
-# failure that is really just "nothing has run yet", which is a bad first
-# impression of the drift gate.
-HICK=""
-for candidate in target/release/hick target/debug/hick; do
-  [ -x "$candidate" ] && HICK="$candidate" && break
-done
-[ -n "$HICK" ] || HICK="$(command -v hick || true)"
+# Weave with a `hick` built from THIS checkout, so a fresh seed is CONSISTENT
+# rather than drifted. Without this the first thing a developer might try —
+# `hick test .dev/project` — reports a failure that is really just "nothing has
+# run yet", which is a bad first impression of the drift gate.
+#
+# It builds rather than hunting for an artifact. The version this used to pick,
+# `target/release/hick` ahead of `target/debug/hick`, meant a release binary
+# from weeks ago beat a debug one from a minute ago and the scratch project got
+# woven by code nobody was looking at. `cargo build` is a no-op when it is
+# already current, so the cost of being right here is nothing.
+if [ "$SEED_WEAVE" = "0" ]; then
+  HICK=""
+elif [ -z "${HICK:-}" ] && command -v cargo >/dev/null 2>&1; then
+  echo
+  echo "Building hick (no-op if it is already current)…"
+  if cargo build --quiet --bin hick; then
+    HICK=target/debug/hick
+  fi
+fi
+[ -n "${HICK:-}" ] || [ "$SEED_WEAVE" = "0" ] || HICK="$(command -v hick || true)"
+
 if [ -n "$HICK" ]; then
   echo
   echo "Weaving the seed with $HICK…"
@@ -392,4 +478,13 @@ if [ -n "$HICK" ]; then
 fi
 
 echo
+if [ -n "$STALE" ]; then
+  echo "Your copies of these files differ from the fixtures in git:"
+  printf '%b' "$STALE" | sed 's/^/  /'
+  echo
+  echo "They were left exactly as you have them. If you did not mean to keep"
+  echo "your version, delete the file and re-run \`just dev\` — it will be"
+  echo "written fresh. \`just dev-clean\` does the same for the whole folder."
+  echo
+fi
 echo "Seeded. \`just dev\` opens this folder; \`just dev-clean\` removes it."

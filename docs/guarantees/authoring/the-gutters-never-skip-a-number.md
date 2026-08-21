@@ -106,7 +106,10 @@ Last LLM verification:
   stacking, monotonicity, recovery, visibility band, popover clamping).
   `apps/web/src/editor/cards.test.ts` (what the rail lists, in order).
 - By-eye fixture: `just dev-seed` writes `.dev/project/cards.hick` (every
-  rail card, inline chip, banner, and both fold kinds in one document) and
+  rail card, inline chip, banner, and both fold kinds in one document — and,
+  since 2026-08-21, a **bare** document, so the gutter is read on a file whose
+  line 1 is its first heading rather than an XML declaration; see
+  `docs/specs/freeform/bare-documents.md`) and
   `.dev/project/sessions/20260820-090000-every-turn-chip.hick` (the turn
   chips, which a `hick:doc` cannot carry because a session is its own root
   element). Open both and read the left gutter top to bottom; the numbers

@@ -10,6 +10,11 @@
 # nothing to log into: the desktop app runs `hickory_cli::serve` in its own
 # process, so `just dev` is that app, in dev mode, against documents on disk.
 #
+# Everything it needs is brought up to date on every run — frontend
+# dependencies, the `hick` binary, and the seeded scratch project — because a
+# dev environment that shows you something out of date, and cures it with a
+# command you were supposed to know about, is worse than one that is slow.
+#
 # What it starts:
 #   * Vite, serving apps/web with hot reload, on a port derived from this
 #     worktree's path (below).
@@ -114,16 +119,29 @@ fi
 
 mkdir -p "$RUN_DIR"
 
-if [ ! -d apps/web/node_modules ]; then
+# Reinstall when the lockfile is newer than what is installed, not only when
+# nothing is installed at all. A pull that changes package-lock.json otherwise
+# leaves the old dependency tree in place, and the UI that opens is not the UI
+# in this checkout — with `npm ci` as a step nobody told you to run.
+if [ ! -d apps/web/node_modules ] || [ apps/web/package-lock.json -nt apps/web/node_modules ]; then
   echo "Installing frontend dependencies…"
   npm --prefix apps/web ci
+  touch apps/web/node_modules
 fi
 
-# Seeding is idempotent and cheap, so `just dev` does it rather than making
-# an empty first run look broken.
-if [ ! -d "$PROJECT_DIR" ] || [ -z "$(ls -A "$PROJECT_DIR" 2>/dev/null)" ]; then
-  ./scripts/dev-seed.sh
-fi
+# Build the engine's CLI up front and hand it to the seeder, so the scratch
+# project is woven by this checkout's code. `cargo tauri dev` compiles the same
+# workspace into the same target directory a moment later, so this shares that
+# work rather than duplicating it.
+echo "Building hick (no-op if it is already current)…"
+cargo build --quiet --bin hick
+export HICK="$PWD/target/debug/hick"
+
+# Every run, not only the first. The seed is idempotent and knows the
+# difference between a file you edited and a file that is merely old, so
+# re-running it is what keeps the scratch project equal to the fixtures in this
+# checkout instead of frozen at whenever the folder happened to be created.
+./scripts/dev-seed.sh
 
 PORT=$(worktree_port)
 export HICKORY_PROJECT_DIR="$PWD/$PROJECT_DIR"
