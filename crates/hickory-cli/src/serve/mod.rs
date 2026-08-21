@@ -30,6 +30,7 @@
 pub mod agent;
 pub mod api;
 pub mod debug_bridge;
+pub mod find;
 pub mod lsp_bridge;
 pub mod plain_file;
 pub mod refactor;
@@ -410,6 +411,10 @@ fn router(state: LocalState) -> Router {
         .route("/file", get(plain_file::get_file).put(plain_file::put_file))
         .route("/scratchpad", post(plain_file::post_scratchpad))
         .route("/search", get(api::search))
+        // Exhaustive, not ranked — see serve/find.rs for why that distinction
+        // is the whole reason this is not `/search`.
+        .route("/find", get(find::find))
+        .route("/find/replace", post(find::replace))
         .route("/structure", get(api::structure))
         .route("/executor", get(api::executor))
         .route("/health", get(api::health))

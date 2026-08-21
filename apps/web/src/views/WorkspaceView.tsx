@@ -20,7 +20,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { api } from "../api/client";
-import type { DocSummary, OpenTerminal, SearchHit } from "../api/types";
+import type { DocSummary, FileNode, OpenTerminal, SearchHit } from "../api/types";
 import { ChatDock } from "../components/ChatDock";
 import { InsertMenu } from "../components/InsertMenu";
 import { PlainFilePane } from "../components/PlainFilePane";
@@ -44,8 +44,7 @@ import {
   FILES_CHANGED_EVENT,
   FolderTreePane,
   isLikelyBinaryPath,
-  useFolderTrees,
-} from "../shell/FolderTreePane";
+  useFolderTrees, fileAction } from "../shell/FolderTreePane";
 import {
   activate,
   paneById,
@@ -89,6 +88,7 @@ import { focusedEditor } from "../editor/activeEditor";
 import { useZoom } from "./useZoom";
 import { TAB_ZOOM_VAR } from "../lib/zoom";
 import { requestFlushSaves } from "../lib/flushSaves";
+import { revealLine } from "../lib/revealLine";
 import { printText, printTitleFor } from "../lib/printing";
 
 /** The routes the workspace answers. Everything else is App's. */
@@ -96,6 +96,26 @@ export type WorkspaceRoute = Extract<
   Route,
   { name: "doc" } | { name: "new" } | { name: "scratchpad" }
 >;
+
+/** The tree node for a root-relative path, across every open root. */
+function findNodeByPath(
+  roots: readonly { tree: FileNode[] }[],
+  path: string,
+): FileNode | null {
+  const walk = (nodes: readonly FileNode[]): FileNode | null => {
+    for (const node of nodes) {
+      if (node.path === path) return node;
+      const found = node.children ? walk(node.children) : null;
+      if (found) return found;
+    }
+    return null;
+  };
+  for (const root of roots) {
+    const found = walk(root.tree);
+    if (found) return found;
+  }
+  return null;
+}
 
 export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   // What the window is arranged as. Session state, owned HERE, above any
@@ -824,6 +844,25 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
             });
           }}
           onCloseTerminal={(id) => void terminals.close(id)}
+          // A find hit opens its file and puts the caret on the line. The
+          // file may be a document, a generated output, or a plain file —
+          // the tree already knows which, so this reuses its own routing.
+          onOpenHit={(path, line) => {
+            const node = findNodeByPath(folderRoots, path);
+            const action = node
+              ? fileAction(node, new Set(openableOutputs.keys()))
+              : ({ kind: "file", path } as const);
+            if (action.kind === "doc") {
+              ensureDocOpen(action.id);
+              navigate(`/docs/${action.id}`);
+            } else if (action.kind === "generated") {
+              const owner = action.docId ?? openableOutputs.get(action.path);
+              if (owner) openGeneratedFor(owner, action.path);
+            } else if (action.kind === "file") {
+              openPlainFile(action.path);
+            }
+            revealLine(path, line);
+          }}
           onOpen={(action) => {
             // A document ADDS a tab (or fronts its existing one);
             // a generated file opens beside its owner. Nothing

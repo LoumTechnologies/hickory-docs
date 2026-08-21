@@ -243,6 +243,33 @@ export function installMockApi() {
     if (route === "GET /api/workspace/drafts") return { drafts: [] };
     if (path.startsWith("/api/workspace/drafts")) return { ok: true };
 
+    // Exhaustive find over the mock's woven files. Replace is refused: the
+    // demo has no disk to write to, and saying so is more honest than a
+    // success that changed nothing.
+    if (path.startsWith("/api/find?")) {
+      const q = new URLSearchParams(path.slice(path.indexOf("?"))).get("q") ?? "";
+      if (!q) return { files: [], truncated: false };
+      const files: unknown[] = [];
+      for (const doc of state.docs) {
+        for (const file of weaveOutputs(doc.source, doc.path)) {
+          const matches = file.content
+            .split("\n")
+            .map((text, i) => ({ text, line: i + 1 }))
+            .filter((row) => row.text.toLowerCase().includes(q.toLowerCase()))
+            .map((row) => ({
+              line: row.line,
+              text: row.text,
+              at: [{ column: row.text.toLowerCase().indexOf(q.toLowerCase()), length: q.length }],
+            }));
+          if (matches.length) files.push({ path: file.path, matches, generated_by: doc.id });
+        }
+      }
+      return { files, truncated: false };
+    }
+    if (route === "POST /api/find/replace") {
+      return { changed: [], skipped: [], replacements: 0 };
+    }
+
     if (route === "GET /api/files") {
       // The open folder: every document, plus everything they weave.
       const entries = new Map<string, string | undefined>();

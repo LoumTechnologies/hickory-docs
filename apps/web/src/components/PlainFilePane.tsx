@@ -26,6 +26,7 @@ import { taskCheckboxes } from "../editor/taskList";
 import { renderedMath } from "../editor/mathRender";
 import { proseWrap } from "../editor/wrapColumn";
 import { editorChrome } from "../editor/chrome";
+import { claimReveal, onRevealLine } from "../lib/revealLine";
 import { wrapGutterMarkers } from "../editor/wrapGutter";
 import { FILES_CHANGED_EVENT } from "../shell/FolderTreePane";
 import { createPlainSaver, type PlainSaveState } from "../lib/plainFileSave";
@@ -265,6 +266,29 @@ export function PlainFilePane({
       contents: viewRef.current?.state.doc.toString() ?? "",
       base: saver.baseContent(),
     }),
+  });
+
+  // A find hit asked for this file at a line. Claimed on mount as well as on
+  // the event, because the request is usually made before this pane exists.
+  useEffect(() => {
+    const jump = () => {
+      const view = viewRef.current;
+      if (!view) return;
+      const line = claimReveal(path);
+      if (line === null) return;
+      const target = view.state.doc.line(Math.min(line, view.state.doc.lines));
+      view.dispatch({
+        selection: { anchor: target.from },
+        // `center`, not `nearest`: a hit that lands on the last visible row
+        // is technically shown and practically missed.
+        effects: EditorView.scrollIntoView(target.from, { y: "center" }),
+      });
+      view.focus();
+    };
+    jump();
+    return onRevealLine((asked) => {
+      if (asked === path) jump();
+    });
   });
 
   // Take the disk copy into the live buffer, flashing what changed.

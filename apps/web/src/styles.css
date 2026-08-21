@@ -5845,3 +5845,110 @@ html {
   background: color-mix(in srgb, var(--ribbon-5) 22%, transparent);
   box-shadow: inset 2px 0 0 var(--ribbon-5);
 }
+
+/* find and replace across the folder ----------------------------------------
+   At the top of the tree rather than in an overlay: this is a list you work
+   through while the tree beneath it stays where it was. The ranked search
+   overlay (⌘⇧F) is the other thing and stays — "where is the bit about
+   invoices" and "rename this in 40 files" are different jobs. */
+.tree-find__open {
+  width: 100%;
+  text-align: left;
+  padding: 0.25rem 0.5rem;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  background: none;
+  color: var(--fg-muted);
+  font-size: 0.74rem;
+  cursor: pointer;
+}
+.tree-find__open:hover { color: var(--fg); background: var(--bg-raised); }
+
+.tree-find {
+  border-bottom: 1px solid var(--border);
+  padding: 0.4rem 0.5rem 0.5rem;
+  background: var(--bg-raised);
+  max-height: 60%;
+  overflow: auto;
+}
+.tree-find__fields { display: flex; gap: 0.3rem; align-items: center; }
+.tree-find__input {
+  flex: 1;
+  min-width: 0;
+  padding: 0.15rem 0.35rem;
+  font-size: 0.76rem;
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+.tree-find__input:focus { outline: none; border-color: var(--accent); }
+.tree-find__close {
+  border: 0;
+  background: none;
+  color: var(--fg-muted);
+  cursor: pointer;
+  font-size: 0.9rem;
+  line-height: 1;
+}
+.tree-find__options { display: flex; gap: 0.2rem; margin-top: 0.3rem; }
+.tree-find__toggle {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.66rem;
+  padding: 0.05rem 0.3rem;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--bg);
+  color: var(--fg-muted);
+  cursor: pointer;
+}
+.tree-find__toggle--on {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--bg);
+}
+.tree-find__summary { margin: 0.4rem 0 0; font-size: 0.72rem; color: var(--fg-muted); }
+.tree-find__error { margin: 0.4rem 0 0; font-size: 0.72rem; }
+.tree-find__actions { margin-top: 0.4rem; }
+
+.tree-find__files { list-style: none; margin: 0.5rem 0 0; padding: 0; }
+.tree-find__files ul { list-style: none; margin: 0; padding: 0; }
+.tree-find__path {
+  margin: 0.4rem 0 0.1rem;
+  font-size: 0.72rem;
+  color: var(--fg);
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+}
+/* Shown, not hidden: its matches are real and worth reading. It is the WRITE
+   that is refused, and the badge says why. */
+.tree-find__file--generated .tree-find__path { color: var(--fg-muted); }
+.tree-find__generated {
+  font-size: 0.6rem;
+  padding: 0 0.25rem;
+  border-radius: 3px;
+  background: var(--neutral-bg);
+  color: var(--fg-muted);
+}
+.tree-find__hit {
+  display: flex;
+  gap: 0.45rem;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: none;
+  color: var(--fg-muted);
+  font-size: 0.7rem;
+  padding: 0.05rem 0.3rem;
+  cursor: pointer;
+}
+.tree-find__hit:hover { background: var(--bg-sunken); color: var(--fg); }
+.tree-find__line { flex: none; min-width: 2.2em; text-align: right; opacity: 0.7; }
+.tree-find__text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

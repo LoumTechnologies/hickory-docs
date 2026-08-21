@@ -29,6 +29,7 @@ import { taskCheckboxes } from "../editor/taskList";
 import { renderedMath } from "../editor/mathRender";
 import { proseWrap } from "../editor/wrapColumn";
 import { editorChrome } from "../editor/chrome";
+import { claimReveal, onRevealLine } from "../lib/revealLine";
 import { byteToChar } from "../lib/offsets";
 
 export interface HighlightRange {
@@ -267,6 +268,30 @@ export function OutputEditorPane({
     // last-woven copy, which is exactly what `file.provenance` indexes.
     changesRef.current = null;
   }, [file]);
+
+
+  // A find hit asked for this file at a line. Claimed on mount as well as on
+  // the event, because the request is usually made before this pane exists.
+  useEffect(() => {
+    const jump = () => {
+      const view = viewRef.current;
+      if (!view) return;
+      const line = claimReveal(file.path);
+      if (line === null) return;
+      const target = view.state.doc.line(Math.min(line, view.state.doc.lines));
+      view.dispatch({
+        selection: { anchor: target.from },
+        // `center`, not `nearest`: a hit that lands on the last visible row
+        // is technically shown and practically missed.
+        effects: EditorView.scrollIntoView(target.from, { y: "center" }),
+      });
+      view.focus();
+    };
+    jump();
+    return onRevealLine((asked) => {
+      if (asked === file.path) jump();
+    });
+  });
 
   return (
     <div className="output-pane">
