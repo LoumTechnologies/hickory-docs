@@ -76,7 +76,9 @@ import {
   openScratchpadTab,
   openUntitledTab,
   openWelcomeTab,
+  openGitTab,
   WELCOME_TAB,
+  GIT_TAB,
 } from "./workspaceState";
 import { DocSessionHost, SessionRegistry, useSessionVersion } from "./documentSession";
 import { AttentionCard } from "../terminal/AttentionCard";
@@ -90,6 +92,7 @@ import { focusedEditor } from "../editor/activeEditor";
 import { useZoom } from "./useZoom";
 import { StatusBar } from "../shell/StatusBar";
 import { WelcomePane, type WelcomeAction } from "./WelcomePane";
+import { GitPane } from "./GitPane";
 import { CommandBar, type CommandItem, type CommandMode } from "../shell/CommandBar";
 import { loadShowWelcome } from "../lib/welcomePref";
 import { severityOf, totalProblems } from "../lib/problems";
@@ -256,6 +259,35 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     view.focus();
   }, [registry]);
 
+  // The branch, for the status bar. Refetched when files change — a commit,
+  // a checkout, or a save can all move it.
+  const [git, setGit] = useState<{ branch: string; dirty: number } | null>(null);
+  useEffect(() => {
+    const read = () => {
+      void api.gitStatus().then(
+        (status) =>
+          setGit(
+            status.repository && status.branch
+              ? {
+                  branch: status.branch,
+                  dirty: (status.staged ?? 0) + (status.unstaged ?? 0) + (status.untracked ?? 0),
+                }
+              : null,
+          ),
+        // Not a repository, or no git: the status bar simply says nothing
+        // about branches, which is the honest answer.
+        () => setGit(null),
+      );
+    };
+    read();
+    window.addEventListener(FILES_CHANGED_EVENT, read);
+    window.addEventListener("focus", read);
+    return () => {
+      window.removeEventListener(FILES_CHANGED_EVENT, read);
+      window.removeEventListener("focus", read);
+    };
+  }, []);
+
   /** The path of whatever tab is active in the focused pane. */
   const focusedPath: string | null = (() => {
     const pane = paneById(layout, layout.focus);
@@ -286,6 +318,12 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
         run: () => {
           void openTerminalRef.current();
         },
+      },
+      {
+        id: "history",
+        label: "History",
+        hint: "The commit graph, with every commit's files",
+        run: () => setLayout(openGitTab),
       },
       {
         id: "find",
@@ -1072,6 +1110,9 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       // nothing; it is told its level and re-fits itself.
       return <TerminalPane sessionId={tab.target} zoom={workspaceUi.zoomFor(tab.target)} />;
     }
+    if (tab.kind === "tool" && tab.target === GIT_TAB) {
+      return <GitPane onOpenFile={(path) => openHit(path, 1)} />;
+    }
     if (tab.kind === "tool" && tab.target === WELCOME_TAB) {
       return (
         <WelcomePane
@@ -1314,6 +1355,8 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
         </p>
       )}
       <StatusBar
+        git={git}
+        onGit={() => setLayout(openGitTab)}
         problems={problems}
         needsAttention={terminals.attention.length}
         path={focusedPath}

@@ -26,6 +26,8 @@ import type {
   BlameLine,
   FindOptions,
   FormulaResults,
+  GitLog,
+  GitStatus,
   ProjectSuggestion,
   FindResponse,
   ReplaceResponse,
@@ -237,6 +239,19 @@ export const api = {
   /** Languages this machine can evaluate formulas in right now. */
   formulaLanguages: () =>
     request<{ languages: string[] }>("GET", "/api/formula/languages"),
+
+  /** The commit graph, with every commit's files and line counts — one git
+   * invocation, so expanding a row costs nothing. Read-only: changing a
+   * repository is a thing people rightly do deliberately, and there is a
+   * terminal on every row of the tree. */
+  gitLog: (limit = 120, path?: string) =>
+    request<GitLog>(
+      "GET",
+      `/api/git/log?limit=${limit}` + (path ? `&path=${encodeURIComponent(path)}` : ""),
+    ),
+
+  /** The branch, and whether anything is uncommitted. */
+  gitStatus: () => request<GitStatus>("GET", "/api/git/status"),
 
   /** Who last touched each line. Answers `{lines: []}` for a folder that is
    * not a repository, an untracked file, or a machine with no git — the

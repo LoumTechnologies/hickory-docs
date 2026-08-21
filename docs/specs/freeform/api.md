@@ -351,3 +351,32 @@ network, and everything it improves works without it.
 
 A prefix shorter than two characters returns nothing — every identifier in a
 project matches one letter, which is a list nobody reads.
+
+## History (v0.5)
+
+- `GET /api/git/log?limit=&path=` →
+  `{repository, commits: [{sha, short, parents, author, email, time, subject, body, refs, files, added, removed}]}`
+  where each file is `{path, from?, status, added?, removed?}`.
+- `GET /api/git/status` →
+  `{repository, branch?, staged?, unstaged?, untracked?}`.
+
+**One git invocation answers everything the graph shows.** `--numstat` costs
+almost nothing on top of the log walk, so a commit's files arrive with the
+commit and expanding a row is free — where a `git show` per expansion would be
+a process per click and a visible pause on any real history.
+
+`repository: false` for a folder that is not under version control, which is
+an entirely normal thing for a folder of notes to be. Not an error, and the
+pane says so in words.
+
+`added`/`removed` are **absent** for a binary file rather than zero: zero would
+say the change touched nothing. Renames are one change carrying both names —
+`--find-renames` — because a delete plus an add is a story that did not
+happen.
+
+**Nothing here changes the repository.** No commit, no checkout, no stage, no
+discard. Reading history is something an editor can do well and safely;
+writing it is something people rightly do deliberately, where the exact
+command is visible — and there is a terminal on every row of the file tree, in
+the directory the work is in. A half-built git UI that can commit but not
+amend teaches a workflow it cannot finish.

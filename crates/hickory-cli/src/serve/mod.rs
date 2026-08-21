@@ -32,6 +32,7 @@ pub mod api;
 pub mod debug_bridge;
 pub mod find;
 pub mod formula;
+pub mod git;
 pub mod lsp_bridge;
 pub mod plain_file;
 pub mod refactor;
@@ -423,6 +424,11 @@ fn router(state: LocalState) -> Router {
         // Who last touched each line. Off by default in the editor, so this
         // is only ever asked for by someone who turned the column on.
         .route("/blame", get(api::blame))
+        // History, read-only. Changing a repository is a thing people rightly
+        // do deliberately, where the exact command is visible — and there is
+        // a terminal on every row of the tree. See serve/git.rs.
+        .route("/git/log", get(git::log))
+        .route("/git/status", get(git::status))
         // Formulas: the host has already resolved references and worked out
         // the order by the time a backend sees anything. See serve/formula.rs.
         .route("/formula/evaluate", post(formula::evaluate))

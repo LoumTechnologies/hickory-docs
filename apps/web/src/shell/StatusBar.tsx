@@ -18,6 +18,11 @@ export interface StatusBarProps {
   problems: ProblemCounts;
   /** Terminals that want something from a person, right now. */
   needsAttention: number;
+  /** The branch, and how much is uncommitted. Absent for a folder that is not
+   * a repository, which is entirely normal for a folder of notes. */
+  git?: { branch: string; dirty: number } | null;
+  /** Show the commit graph. */
+  onGit?: () => void;
   /** The focused file's path, or null when nothing is focused. */
   path: string | null;
   /** 1-based caret position in the focused editor. */
@@ -37,13 +42,37 @@ export function StatusBar({
   path,
   caret,
   zoom,
+  git,
   onProblems,
   onAttention,
+  onGit,
 }: StatusBarProps) {
   const clean = problems.errors === 0 && problems.warnings === 0;
   return (
     <footer className="status-bar" role="contentinfo">
       <div className="status-bar__left">
+        {/* Leftmost, the way every editor puts it — and only when there IS a
+            branch. A permanent "no repository" would spend a slot saying
+            nothing. */}
+        {git && (
+          <button
+            type="button"
+            className="status-bar__item"
+            onClick={onGit}
+            data-tip={
+              git.dirty > 0
+                ? `On ${git.branch} — ${git.dirty} file${git.dirty === 1 ? "" : "s"} changed. Show history.`
+                : `On ${git.branch}, nothing uncommitted. Show history.`
+            }
+            aria-label={`Branch ${git.branch}${git.dirty > 0 ? `, ${git.dirty} changed` : ""}`}
+          >
+            <span className="status-bar__glyph" aria-hidden>
+              ⑂
+            </span>
+            {git.branch}
+            {git.dirty > 0 && <span className="status-bar__dirty">{git.dirty}</span>}
+          </button>
+        )}
         <button
           type="button"
           className={`status-bar__item${clean ? "" : " status-bar__item--loud"}`}

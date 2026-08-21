@@ -553,3 +553,49 @@ export interface ProjectSuggestion {
   score: number;
   semantic: boolean;
 }
+
+// --- Git (api.md, "History") ---------------------------------------------
+
+export interface GitFileChange {
+  path: string;
+  /** Where it came from, on a rename. */
+  from?: string;
+  /** `A`, `M`, `D`, `R`. */
+  status: string;
+  /** Absent for a binary file, where lines are not a meaningful count —
+   * which is different from zero and must not render as zero. */
+  added?: number;
+  removed?: number;
+}
+
+export interface GitCommit {
+  sha: string;
+  short: string;
+  parents: string[];
+  author: string;
+  email: string;
+  /** Unix seconds; formatted by the client in the reader's own locale. */
+  time: number;
+  subject: string;
+  body: string;
+  /** Branch and tag names pointing here. */
+  refs: string[];
+  files: GitFileChange[];
+  added: number;
+  removed: number;
+}
+
+export interface GitLog {
+  /** False for a folder that is not under version control, which is an
+   * entirely normal thing for a folder of notes to be. */
+  repository: boolean;
+  commits: GitCommit[];
+}
+
+export interface GitStatus {
+  repository: boolean;
+  branch?: string;
+  staged?: number;
+  unstaged?: number;
+  untracked?: number;
+}
