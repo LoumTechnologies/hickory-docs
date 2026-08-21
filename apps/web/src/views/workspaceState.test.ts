@@ -9,8 +9,7 @@ import {
   treePane,
   type Layout,
   type Pane,
-  type Tab,
-} from "../shell/layout";
+  type Tab, freeform } from "../shell/layout";
 import {
   activateDocTab,
   adoptPlainFileTab,
@@ -28,6 +27,7 @@ import {
   openTerminalTab,
   openScratchpadTab,
   openUntitledTab,
+  openChatTab,
 } from "./workspaceState";
 
 /** Every tab in the layout, flattened, for the nothing-closes invariant. */
@@ -42,11 +42,34 @@ function editorPane(layout: Layout): Pane {
 }
 
 describe("initialWorkspace", () => {
-  it("starts empty: a tree pane and one empty editor pane", () => {
+  it("starts empty: the tree, an empty editor pane, and the agent", () => {
+    // Three panes, and still "empty": the tree and the agent are furniture —
+    // part of the window rather than of the work — so a declared layout may
+    // still be applied into this.
     const layout = initialWorkspace();
     expect(isWorkspaceEmpty(layout)).toBe(true);
     expect(treePane(layout)).not.toBeNull();
-    expect(panes(layout.root)).toHaveLength(2);
+    expect(panes(layout.root)).toHaveLength(3);
+  });
+
+  it("puts the agent on the right, and the tree on the left", () => {
+    const layout = initialWorkspace();
+    const order = panes(layout.root).map((pane) => pane.tabs[0]?.kind ?? "empty");
+    expect(order).toEqual(["tree", "empty", "chat"]);
+  });
+
+  it("fronts the agent pane that exists rather than opening a second", () => {
+    const layout = initialWorkspace();
+    const again = openChatTab(layout);
+    expect(panes(again.root)).toHaveLength(3);
+    expect(panes(again.root).filter((p) => p.tabs.some((t) => t.kind === "chat"))).toHaveLength(1);
+  });
+
+  it("opens the agent on the right when it has been closed", () => {
+    const bare = freeform();
+    const withChat = openChatTab(bare);
+    const order = panes(withChat.root).map((pane) => pane.tabs[0]?.kind ?? "empty");
+    expect(order).toEqual(["empty", "chat"]);
   });
 });
 

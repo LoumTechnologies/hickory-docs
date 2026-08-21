@@ -6068,3 +6068,159 @@ button.status-bar__item:hover { background: var(--bg-sunken); color: var(--fg); 
   text-align: left;
   max-width: 28ch;
 }
+
+/* The agent as a PANE rather than a dock.
+   
+   A dock made the conversation a mode: it sat over the document it was about,
+   and collapsing it was the only way to see the thing you were asking about.
+   As a pane it fills its pane — no radius, no shadow, no lift — and it can be
+   moved, split, resized, and closed like everything else in the shell. */
+.chat-dock--pane {
+  flex: 1;
+  min-height: 0;
+  margin-top: 0;
+  padding: 0.4rem 0.55rem 0.5rem;
+  border: 0;
+  border-radius: 0;
+  background: var(--bg);
+  box-shadow: none;
+  overflow: hidden;
+}
+.chat-toggle--static {
+  font-weight: 600;
+  color: var(--fg);
+}
+.chat-pane__empty { padding: 0.8rem; font-size: 0.8rem; }
+
+/* the top field ------------------------------------------------------------
+   One control that understands four prefixes, rather than four controls to
+   learn and four places to look. */
+.workspace-top {
+  flex: 0 0 auto;
+  display: flex;
+  justify-content: center;
+  padding: 0.3rem 0.6rem;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-raised);
+}
+.command-bar { position: relative; width: min(38rem, 100%); }
+.command-bar__input {
+  width: 100%;
+  padding: 0.2rem 0.6rem;
+  font-size: 0.78rem;
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  text-align: center;
+}
+.command-bar__input:focus { outline: none; border-color: var(--accent); text-align: left; }
+.command-bar__panel {
+  position: absolute;
+  top: calc(100% + 0.3rem);
+  left: 0;
+  right: 0;
+  z-index: 40;
+  max-height: 22rem;
+  overflow: auto;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 10px 30px rgb(0 0 0 / 28%);
+}
+/* The hint is how the prefixes are discoverable without a help page. */
+.command-bar__hint {
+  margin: 0;
+  padding: 0.25rem 0.55rem;
+  font-size: 0.66rem;
+  color: var(--fg-muted);
+  border-bottom: 1px solid var(--border);
+}
+.command-bar__empty { margin: 0; padding: 0.5rem 0.55rem; font-size: 0.74rem; }
+.command-bar__list { list-style: none; margin: 0; padding: 0.2rem 0; }
+.command-bar__item {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: none;
+  color: var(--fg);
+  font: inherit;
+  font-size: 0.76rem;
+  padding: 0.2rem 0.55rem;
+  cursor: pointer;
+}
+.command-bar__item--on { background: var(--accent); color: var(--bg); }
+.command-bar__detail {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.68rem;
+  opacity: 0.7;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* the welcome pane ---------------------------------------------------------
+   What an empty workspace says instead of nothing. Everything on it does
+   something: a row is a verb or a document, never a link to a tour. */
+.welcome {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  justify-content: center;
+  padding: 2.5rem 1.5rem;
+}
+.welcome__inner { width: 100%; max-width: 46rem; }
+.welcome__head { margin-bottom: 2rem; }
+.welcome__title { margin: 0; font-size: 2rem; font-weight: 300; letter-spacing: -0.01em; }
+.welcome__sub { margin: 0.2rem 0 0; color: var(--fg-muted); font-size: 0.9rem; }
+.welcome__columns {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2.5rem;
+}
+@media (max-width: 46rem) {
+  .welcome__columns { grid-template-columns: 1fr; gap: 1.5rem; }
+}
+.welcome__h2 {
+  margin: 0 0 0.5rem;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.09em;
+  color: var(--fg-muted);
+  font-weight: 600;
+}
+.welcome__list { list-style: none; margin: 0; padding: 0; }
+.welcome__action {
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  font-size: 0.86rem;
+  padding: 0.22rem 0.3rem;
+  border-radius: 4px;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.welcome__action:hover { background: var(--bg-raised); }
+.welcome__empty { font-size: 0.82rem; margin: 0; }
+.welcome__foot {
+  margin-top: 2.5rem;
+  padding-top: 0.8rem;
+  border-top: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.76rem;
+  color: var(--fg-muted);
+}
+.welcome__toggle { display: flex; align-items: center; gap: 0.4rem; cursor: pointer; }

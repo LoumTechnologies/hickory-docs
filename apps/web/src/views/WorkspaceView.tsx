@@ -75,6 +75,8 @@ import {
   openTerminalTab,
   openScratchpadTab,
   openUntitledTab,
+  openWelcomeTab,
+  WELCOME_TAB,
 } from "./workspaceState";
 import { DocSessionHost, SessionRegistry, useSessionVersion } from "./documentSession";
 import { AttentionCard } from "../terminal/AttentionCard";
@@ -87,6 +89,9 @@ import { useWorkspaceUi } from "./useWorkspaceUi";
 import { focusedEditor } from "../editor/activeEditor";
 import { useZoom } from "./useZoom";
 import { StatusBar } from "../shell/StatusBar";
+import { WelcomePane, type WelcomeAction } from "./WelcomePane";
+import { CommandBar, type CommandItem, type CommandMode } from "../shell/CommandBar";
+import { loadShowWelcome } from "../lib/welcomePref";
 import { severityOf, totalProblems } from "../lib/problems";
 import { positionToUtf16 } from "../lsp/positions";
 import { EditorView } from "@codemirror/view";
@@ -127,6 +132,16 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   const [layout, setLayout] = useState<Layout>(initialWorkspace);
   const layoutRef = useRef(layout);
   layoutRef.current = layout;
+  // Read through refs by the welcome page's actions and the top field's
+  // candidates, which are built before the callbacks they reach for exist.
+  const openTerminalRef = useRef<() => Promise<unknown> | void>(() => undefined);
+  const openHitRef = useRef<(path: string, line: number) => void>(() => undefined);
+  const focusedPathRef = useRef<string | null>(null);
+  // The tree and the outputs map are built further down; these let the
+  // callbacks above read the current values without depending on declaration
+  // order.
+  const folderRootsRef = useRef<readonly { tree: FileNode[] }[]>([]);
+  const openableOutputsRef = useRef<ReadonlyMap<string, string>>(new Map());
   // The regions of a declared layout, when one was applied — only ever at a
   // fresh launch, into an empty workspace (see ensure below). They keep
   // routing generated files to their panes afterwards.
@@ -155,9 +170,6 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   const [insertNotice, setInsertNotice] = useState<string | null>(null);
   // The dock is part of the workspace, not a mode: it is always mounted and
   // remembers whether the log is expanded.
-  const [chatCollapsed, setChatCollapsed] = useState(
-    () => localStorage.getItem("hickory.chatCollapsed") === "1",
-  );
   // The presentation preferences: how lineage draws (bands or braces), where
   // tabs live, how wide the inter-pane channel is. All EDITED on the Settings
   // page ("#/settings" — see SettingsView's Appearance section) and only READ
@@ -245,11 +257,45 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   }, [registry]);
 
   /** The path of whatever tab is active in the focused pane. */
-  const focusedPath = (() => {
+  const focusedPath: string | null = (() => {
     const pane = paneById(layout, layout.focus);
     const tab = pane?.tabs[pane.active];
     return tab && tab.kind !== "tree" && tab.kind !== "tool" ? tab.target : null;
   })();
+
+  /** What the welcome page offers. Every one of them does something — a row
+   * here is a verb, never a link to a tour. */
+  const welcomeActions: WelcomeAction[] = useMemo(
+    () => [
+      {
+        id: "new",
+        label: "New document…",
+        hint: "An untitled buffer, adopted into a document on its first save",
+        run: () => navigate("/new"),
+      },
+      {
+        id: "scratchpad",
+        label: "Scratchpad",
+        hint: "Text on its way to becoming a note",
+        run: () => navigate("/scratchpad"),
+      },
+      {
+        id: "terminal",
+        label: "Open a terminal",
+        hint: "In this folder; it appears on the folder's row in the tree",
+        run: () => {
+          void openTerminalRef.current();
+        },
+      },
+      {
+        id: "find",
+        label: "Find in folder…",
+        hint: "Exhaustive find and replace across every file",
+        run: () => focusTreeRef.current(),
+      },
+    ],
+    [],
+  );
 
   const workspaceUi = useWorkspaceUi(layout, (restored) => {
     setLayout((current) => (isWorkspaceEmpty(current) ? restored : current));
@@ -348,6 +394,128 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     );
   }, []);
 
+  /**
+   * What the top field answers, in each of its modes.
+   *
+   * The bar itself knows nothing about this workspace — it parses a prefix
+   * and asks. Which is what lets "go to line" mean the focused editor, and
+   * "files" mean this folder, without the control having to be told.
+   */
+  const commandCandidates = useCallback(
+    async (mode: CommandMode, term: string): Promise<CommandItem[]> => {
+      if (mode === "line") {
+        const line = Number(term);
+        if (!Number.isFinite(line) || line < 1) return [];
+        const view = focusedEditor();
+        if (!view) return [];
+        return [
+          {
+            id: `line-${line}`,
+            label: `Go to line ${line}`,
+            detail: focusedPathRef.current ?? "",
+            run: () => {
+              const target = view.state.doc.line(
+                Math.min(Math.floor(line), view.state.doc.lines),
+              );
+              view.dispatch({
+                selection: { anchor: target.from },
+                effects: EditorView.scrollIntoView(target.from, { y: "center" }),
+              });
+              view.focus();
+            },
+          },
+        ];
+      }
+      if (mode === "command") {
+        const all: CommandItem[] = [
+          ...welcomeActions.map((action) => ({
+            id: action.id,
+            label: action.label,
+            detail: action.hint,
+            run: action.run,
+          })),
+          {
+            id: "settings",
+            label: "Settings",
+            detail: "Appearance, provider keys",
+            run: () => navigate("/settings"),
+          },
+          {
+            id: "welcome",
+            label: "Welcome page",
+            detail: "Start, and what is in this folder",
+            run: () => setLayout(openWelcomeTab),
+          },
+        ];
+        const needle = term.toLowerCase();
+        return all.filter((c) => c.label.toLowerCase().includes(needle));
+      }
+      if (mode === "content") {
+        if (!term) return [];
+        // The RANKED engine, deliberately: "where is the bit about invoices"
+        // is a question with a best answer, unlike find-and-replace.
+        const found = await api.search(term, 12);
+        return found.hits.map((hit, index) => ({
+          id: `${hit.path}:${index}`,
+          label: hit.path,
+          detail: hit.snippet,
+          run: () => openHitRef.current(hit.path, hit.start_line),
+        }));
+      }
+      // Files: everything the tree lists, matched on the path.
+      const needle = term.toLowerCase();
+      const out: CommandItem[] = [];
+      const walk = (nodes: readonly FileNode[]) => {
+        for (const node of nodes) {
+          if (node.dir) {
+            if (node.children) walk(node.children);
+            continue;
+          }
+          if (needle && !node.path.toLowerCase().includes(needle)) continue;
+          out.push({
+            id: node.path,
+            label: node.name,
+            detail: node.path,
+            run: () => openHitRef.current(node.path, 1),
+          });
+          if (out.length >= 40) return;
+        }
+      };
+      for (const root of folderRootsRef.current) walk(root.tree);
+      return out;
+    },
+    [welcomeActions],
+  );
+
+  /**
+   * Open a path and put the caret on a line.
+   *
+   * Shared by the tree's find results and the top field, and it reuses the
+   * TREE's routing: a path may be a document, a generated output, or a plain
+   * file, and the tree already knows which. Two answers to that question
+   * would eventually disagree.
+   */
+  const openHit = useCallback(
+    (path: string, line: number) => {
+      const node = findNodeByPath(folderRootsRef.current, path);
+      const action = node
+        ? fileAction(node, new Set(openableOutputsRef.current.keys()))
+        : ({ kind: "file", path } as const);
+      if (action.kind === "doc") {
+        ensureDocOpen(action.id);
+        navigate(`/docs/${action.id}`);
+      } else if (action.kind === "generated") {
+        const owner = action.docId ?? openableOutputsRef.current.get(action.path);
+        if (owner) openGeneratedFor(owner, action.path);
+      } else if (action.kind === "file") {
+        openPlainFile(action.path);
+      }
+      revealLine(path, line);
+    },
+    [ensureDocOpen, openGeneratedFor, openPlainFile],
+  );
+  openHitRef.current = openHit;
+
   // The route is a REQUEST against the workspace, not its owner:
   // `#/docs/<id>` means "make sure this document is open and frontmost",
   // `#/new` means "make sure there is an untitled buffer". Back and forward
@@ -403,6 +571,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   // sit side by side later without this view changing shape. Hoisted above
   // the title effect: the root also names the window.
   const { roots: folderRoots, error: folderError } = useFolderTrees();
+  folderRootsRef.current = folderRoots;
 
   // What the window calls itself: the custom override from Settings, else
   // the project folder's name, else the focused file (lib/windowTitle.ts).
@@ -516,6 +685,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     });
   }, []);
   focusTreeRef.current = focusTree;
+  openTerminalRef.current = () => openTerminal();
 
   // The "open here" ports: one per file the focused document's ribbons reach
   // but no pane shows. They live in the shell's divider (or edge rail) —
@@ -601,6 +771,18 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       text: view.state.doc.toString(),
     });
   }, []);
+
+  // The welcome page, once, and only into a workspace that has nothing open.
+  // A workspace restored with work in it does not want a welcome screen in
+  // front of it; that is the whole difference between "just launched" and
+  // "came back".
+  const welcomed = useRef(false);
+  useEffect(() => {
+    if (!workspaceUi.hydrated || welcomed.current) return;
+    welcomed.current = true;
+    if (!loadShowWelcome()) return;
+    setLayout((current) => (isWorkspaceEmpty(current) ? openWelcomeTab(current) : current));
+  }, [workspaceUi.hydrated]);
 
   useEffect(() => {
     if (insertNotice === null) return;
@@ -829,6 +1011,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     // registry.version (via useSessionVersion) is what actually changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [registry, registry.version]);
+  openableOutputsRef.current = openableOutputs;
 
   const banner = focused?.banner ?? null;
 
@@ -889,6 +1072,39 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       // nothing; it is told its level and re-fits itself.
       return <TerminalPane sessionId={tab.target} zoom={workspaceUi.zoomFor(tab.target)} />;
     }
+    if (tab.kind === "tool" && tab.target === WELCOME_TAB) {
+      return (
+        <WelcomePane
+          actions={welcomeActions}
+          recent={folderDocs}
+          onOpenRecent={(id) => {
+            ensureDocOpen(id);
+            navigate(`/docs/${id}`);
+          }}
+        />
+      );
+    }
+    if (tab.kind === "chat") {
+      // The conversation follows the FOCUSED document — one agent pane
+      // re-targeting rather than one per document, which is the same choice
+      // the dock made and the one worth keeping: the question you are asking
+      // is almost always about what you are looking at.
+      if (!focused) {
+        return (
+          <p className="muted chat-pane__empty">
+            Open a document to talk to the agent about it.
+          </p>
+        );
+      }
+      return (
+        <ChatDock
+          key={focused.docId}
+          docId={focused.docId}
+          realtime={focused.realtime}
+          onAgentFinished={focused.refresh}
+        />
+      );
+    }
     if (tab.kind === "tree") {
       return (
         <FolderTreePane
@@ -925,22 +1141,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
           // A find hit opens its file and puts the caret on the line. The
           // file may be a document, a generated output, or a plain file —
           // the tree already knows which, so this reuses its own routing.
-          onOpenHit={(path, line) => {
-            const node = findNodeByPath(folderRoots, path);
-            const action = node
-              ? fileAction(node, new Set(openableOutputs.keys()))
-              : ({ kind: "file", path } as const);
-            if (action.kind === "doc") {
-              ensureDocOpen(action.id);
-              navigate(`/docs/${action.id}`);
-            } else if (action.kind === "generated") {
-              const owner = action.docId ?? openableOutputs.get(action.path);
-              if (owner) openGeneratedFor(owner, action.path);
-            } else if (action.kind === "file") {
-              openPlainFile(action.path);
-            }
-            revealLine(path, line);
-          }}
+          onOpenHit={openHit}
           onOpen={(action) => {
             // A document ADDS a tab (or fronts its existing one);
             // a generated file opens beside its owner. Nothing
@@ -966,6 +1167,11 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
 
   return (
     <div className="doc-page with-chat wide-mode">
+      {/* One field across the top, understanding four prefixes, rather than
+          four separate controls to learn and four places to look. */}
+      <div className="workspace-top">
+        <CommandBar candidates={commandCandidates} />
+      </div>
       <div className="doc-main">
         {banner && (
           <div className={`banner banner-${banner.kind}`} role="status">
@@ -1081,24 +1287,6 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       )}
       {focused && <PromptPanel prompt={focused.prompt} onSettle={focused.settle} />}
       <PromptPanel prompt={shellPrompt.prompt} onSettle={shellPrompt.settle} />
-      {focused && (
-        <ChatDock
-          // Keyed by document: the dock docks to the focused document, one
-          // dock re-targeting on focus change (v1 — a dock per document is
-          // the follow-up if switching proves disruptive).
-          key={focused.docId}
-          docId={focused.docId}
-          realtime={focused.realtime}
-          collapsed={chatCollapsed}
-          onToggleCollapsed={() =>
-            setChatCollapsed((v) => {
-              localStorage.setItem("hickory.chatCollapsed", v ? "0" : "1");
-              return !v;
-            })
-          }
-          onAgentFinished={focused.refresh}
-        />
-      )}
       {/* The dock: things that run so you can work. Always visible, never
           focused, amber when one of them has fallen over. */}
       <MonitorDock

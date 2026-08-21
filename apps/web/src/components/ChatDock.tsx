@@ -85,8 +85,11 @@ export interface ChatDockProps {
   docId: string;
   realtime: Realtime;
   /** Collapse to the composer only. */
-  collapsed: boolean;
-  onToggleCollapsed: () => void;
+  /** Collapse, for the one place this is still a dock. As a PANE there is
+   * nothing to collapse — the pane itself is the affordance, and it can be
+   * resized, moved, or closed like anything else. */
+  collapsed?: boolean;
+  onToggleCollapsed?: () => void;
   /** The agent may have edited the document; refresh the views. */
   onAgentFinished: () => void;
 }
@@ -144,7 +147,7 @@ export function deepestFrom(turns: AgentTurn[], from: string): string {
 export function ChatDock({
   docId,
   realtime,
-  collapsed,
+  collapsed = false,
   onToggleCollapsed,
   onAgentFinished,
 }: ChatDockProps) {
@@ -268,16 +271,23 @@ export function ChatDock({
   };
 
   return (
-    <section className={`chat-dock${collapsed ? " collapsed" : ""}`} aria-label="Agent chat">
+    <section
+      className={`chat-dock${collapsed ? " collapsed" : ""}${onToggleCollapsed ? "" : " chat-dock--pane"}`}
+      aria-label="Agent chat"
+    >
       <header className="chat-head">
-        <button
-          className="chat-toggle"
-          aria-expanded={!collapsed}
-          onClick={onToggleCollapsed}
-          data-tip={collapsed ? "Show conversation" : "Hide conversation"}
-        >
-          <span aria-hidden="true">{collapsed ? "▴" : "▾"}</span> Agent
-        </button>
+        {onToggleCollapsed ? (
+          <button
+            className="chat-toggle"
+            aria-expanded={!collapsed}
+            onClick={onToggleCollapsed}
+            data-tip={collapsed ? "Show conversation" : "Hide conversation"}
+          >
+            <span aria-hidden="true">{collapsed ? "▴" : "▾"}</span> Agent
+          </button>
+        ) : (
+          <span className="chat-toggle chat-toggle--static">Agent</span>
+        )}
         {turns.length > 0 && (
           <span className="chat-count">
             {branch.length} of {turns.length} turn{turns.length === 1 ? "" : "s"} on this branch
