@@ -39,6 +39,13 @@ worktree_port() {
   echo $((41000 + slug % 8000))
 }
 
+# The engine's port sits directly above the UI's. Derived the same way and
+# from the same slug, so the pair moves together between worktrees and neither
+# is written down anywhere.
+api_port() {
+  echo $(( $(worktree_port) + 1 ))
+}
+
 stop() {
   # The window closing is the normal exit; this is for a run that was killed
   # in a way that left the vite child behind.
@@ -51,12 +58,19 @@ stop() {
     fi
     rm -f "$RUN_DIR/vite.pid"
   fi
-  # Anything still holding this worktree's port is ours by construction.
-  local port
-  port=$(worktree_port)
+  # Anything still holding either of this worktree's ports is ours by
+  # construction. The engine's matters as much as Vite's now: a named port
+  # cannot be stepped around the way an ephemeral one could.
   if command -v fuser >/dev/null 2>&1; then
-    fuser -k "$port/tcp" 2>/dev/null || true
+    fuser -k "$(worktree_port)/tcp" 2>/dev/null || true
+    fuser -k "$(api_port)/tcp" 2>/dev/null || true
   fi
+  # Those kills are SIGKILL, so the engine never runs the drop that releases
+  # its directory lock — and the next `just dev` refuses to start on a lock
+  # held by a process that no longer exists. Clearing it here is what keeps
+  # the rule in .instructions/dev-environment.md true: a killed run must be
+  # re-runnable, not a puzzle. Only ever THIS worktree's scratch lock.
+  rm -f "$PROJECT_DIR/.hick-cache/up.lock"
   echo "Stopped."
 }
 
@@ -144,12 +158,22 @@ export HICK="$PWD/target/debug/hick"
 ./scripts/dev-seed.sh
 
 PORT=$(worktree_port)
+API_PORT=$(api_port)
 export HICKORY_PROJECT_DIR="$PWD/$PROJECT_DIR"
+# The engine binds this instead of an ephemeral port, and the window loads
+# Vite instead of the engine. Both are read by the desktop shell at startup
+# and both are absent in a downloaded copy — see dev.rs.
+export HICKORY_SERVE_PORT="$API_PORT"
+export HICKORY_UI_ORIGIN="http://localhost:$PORT"
+# What Vite proxies `/api` to. Read by apps/web/vite.config.ts.
+export HICKORY_API_ORIGIN="http://127.0.0.1:$API_PORT"
 
 echo "Dev environment"
 echo "  project : $HICKORY_PROJECT_DIR"
-echo "  vite    : http://localhost:$PORT (derived from this worktree)"
-echo "  app     : the window that opens; it runs the engine in-process"
+echo "  ui      : http://localhost:$PORT — Vite, and what the window loads."
+echo "            Frontend changes hot-reload; open it in a browser too."
+echo "  engine  : http://127.0.0.1:$API_PORT — in the app's own process."
+echo "            Vite proxies /api here, WebSocket included."
 echo "Close the window to stop everything."
 echo
 

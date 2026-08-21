@@ -41,7 +41,13 @@ struct Ui;
 /// A running local session: where to point the window, and the lock that keeps
 /// anything else from writing the same files while it runs.
 pub struct Session {
+    /// The engine's own address — what `/api` is on, and what a dev proxy is
+    /// pointed at.
     pub url: String,
+    /// What the window loads. The same as `url` in anything anybody
+    /// downloads; Vite's address under `just dev`, so a frontend change is a
+    /// hot reload rather than a rebuild. See dev.rs.
+    pub ui_url: String,
     /// Held for the process's lifetime. Dropping it releases the directory.
     _lock: DirectoryLock,
     /// The in-app up-loop (`local-only.md`: "the desktop app runs the
@@ -119,6 +125,11 @@ pub fn remember(config_dir: &Path, dir: &Path) {
 /// variables the way the CLI's do. `None` (no config dir on this platform)
 /// degrades to env-only.
 pub async fn start(target: &Path, config_dir: Option<&Path>) -> Result<Session> {
+    // Development may name the port, so that whatever is proxying to the
+    // engine can be pointed at it before the engine exists. Unset — which is
+    // every downloaded copy — leaves the ephemeral port below. See dev.rs.
+    let dev = crate::dev::from_env()?;
+
     // The lock protects a WORKING DIRECTORY: two processes weaving the same
     // folder would each read the other's writes as the user's edits. A single
     // document's working directory is the folder it sits in — locking the
@@ -153,10 +164,18 @@ pub async fn start(target: &Path, config_dir: Option<&Path>) -> Result<Session> 
     // anything else is a page request.
     let router = prepared.router.fallback(ui_handler);
 
-    let addr = SocketAddr::from((Ipv4Addr::LOCALHOST, 0));
-    let listener = tokio::net::TcpListener::bind(addr)
-        .await
-        .with_context(|| format!("binding {addr}"))?;
+    let addr = SocketAddr::from((Ipv4Addr::LOCALHOST, dev.serve_port.unwrap_or(0)));
+    let listener = tokio::net::TcpListener::bind(addr).await.with_context(|| {
+        match dev.serve_port {
+            // A named port can be held by something else, and the something
+            // else is nearly always a previous run of this app. Say which
+            // command releases it rather than leaving a bare "address in use".
+            Some(port) => format!(
+                "binding {addr}: something already holds port {port}. That is usually a                  `just dev` still running — `just dev-stop` releases it."
+            ),
+            None => format!("binding {addr}"),
+        }
+    })?;
     let bound = listener.local_addr()?;
 
     tokio::spawn(async move {
@@ -171,7 +190,13 @@ pub async fn start(target: &Path, config_dir: Option<&Path>) -> Result<Session> 
     });
 
     Ok(Session {
+        // Where the ENGINE is, always. Where the window points is a separate
+        // question the caller answers, because in development it is Vite.
         url: format!("http://{bound}"),
+        ui_url: dev
+            .ui_origin
+            .clone()
+            .unwrap_or_else(|| format!("http://{bound}")),
         _lock: lock,
         _watch: watch,
     })

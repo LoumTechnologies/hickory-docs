@@ -48,6 +48,19 @@ export interface Realtime {
    */
   onDebugFrame?(handler: (frame: Uint8Array) => boolean): void;
   close(): void;
+  /**
+   * Undo a `close()`, if this realtime was closed.
+   *
+   * Exists because a React effect's cleanup is not a promise that the
+   * component is going away. Under StrictMode — a DEV build only, which is
+   * why this went years without being needed — every effect is mounted,
+   * cleaned up, and mounted again to prove it can be. The cleanup closes the
+   * room; without a way back the second mount holds a socket that is shut for
+   * good, and the document never syncs. See views/documentSession.tsx.
+   *
+   * A no-op on a realtime that is open, and on one that never had a socket.
+   */
+  reopen(): void;
 }
 
 /**
@@ -222,6 +235,18 @@ export class WsRealtime implements Realtime {
     }
     this.ws?.close();
   }
+
+  reopen() {
+    if (!this.closed) return;
+    this.closed = false;
+    // The refusal count is what stops a room the server rejects from being
+    // retried forever. A deliberate reopen is a fresh judgement about that
+    // room, so it starts the count again rather than inheriting a verdict
+    // reached before anybody asked for this connection.
+    this.refusals = 0;
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) return;
+    this.connect();
+  }
 }
 
 // A process-wide realtime instance registered at startup in mock mode so views
@@ -236,6 +261,10 @@ export function getSharedRealtime(): Realtime | null {
 
 /** In-browser realtime for VITE_MOCK=1: no network; run events are pushed locally. */
 export class LocalRealtime implements Realtime {
+  /** Nothing to reopen: there is no socket, and the local bus outlives every
+   * view that reads it. */
+  reopen() {}
+
   /** No server in mock mode — the client must seed its own content. */
   readonly serverAuthoritative = false;
   private runListeners = new Set<(msg: RunWsMessage) => void>();

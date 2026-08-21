@@ -260,6 +260,14 @@ function useDocumentSession(
   }, [docId]);
 
   useEffect(() => {
+    // `reopen` before `close`, and both on the same object, because the memo
+    // above is not re-run when this effect mounts a second time. Under
+    // StrictMode — a dev build only — React mounts, cleans up, and mounts
+    // again; without the reopen the second mount would hold the socket the
+    // first cleanup shut, and the document would never sync. A production
+    // bundle never double-mounts, which is why running this app from Vite for
+    // the first time is what surfaced it.
+    realtime.reopen();
     return () => {
       if (realtime !== getSharedRealtime()) realtime.close();
     };

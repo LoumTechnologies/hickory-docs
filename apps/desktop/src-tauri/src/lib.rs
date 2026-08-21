@@ -19,6 +19,7 @@
 //! calling them on the main thread deadlocks against the event loop they are
 //! waiting on.
 
+pub mod dev;
 pub mod server;
 
 use std::path::{Path, PathBuf};
@@ -535,7 +536,9 @@ fn open(
         server::remember(config_dir, dir);
     }
 
-    let url = session.url.clone();
+    // The UI's address, not the engine's: under `just dev` they differ, and
+    // the window wants the one with hot reload on it.
+    let url = session.ui_url.clone();
     handle.manage(session);
     handle.manage(runtime);
 

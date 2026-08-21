@@ -26,9 +26,25 @@ command that fixes whichever is missing.
    the whole environment up to date before opening anything: the pre-commit
    hook, frontend dependencies (reinstalled when `package-lock.json` is newer
    than `node_modules`), the `hick` binary, and the seeded scratch project.
-   Then it opens the desktop app with the UI hot-reloading. Vite listens on a
-   port derived from this worktree's path, so two checkouts can run it at
-   once without agreeing on anything. Closing the window stops everything.
+   Then it opens the desktop app with the UI hot-reloading — a frontend
+   change lands in the open window without a rebuild or a reload.
+
+   Two ports, both derived from this worktree's path so two checkouts can run
+   at once without agreeing on anything: **Vite**, which the window loads, and
+   the **engine** one above it, in the app's own process. Vite proxies `/api`
+   — the live-sync WebSocket included — back to the engine, so the browser
+   still sees a single origin. `just dev` prints both.
+
+   That means the app is also **openable in a browser** at the Vite address,
+   against the same engine and the same scratch project: useful for devtools,
+   and the only way to inspect the UI without the webview. Closing the window
+   stops everything.
+
+   A **shipped** app works the other way round and has no hot reload in it:
+   the window loads the engine, which serves the UI compiled into the binary
+   from `apps/web/dist`. Both dev variables are absent there, which is what
+   makes the downloaded app the thing this checkout describes rather than a
+   configuration of it (`apps/desktop/src-tauri/src/dev.rs`).
 
    **There is no second command to remember.** If `just dev` shows you
    something, it is what is in this checkout — with one exception, which it
@@ -45,7 +61,10 @@ command that fixes whichever is missing.
    edited is kept and listed at the end of the run, with the one way to take
    the new version (delete it and re-run, or `just dev-clean`).
 3. `just dev-stop` — for a run that was killed in a way that left the dev
-   server behind. The normal exit is closing the window.
+   server behind. It frees both ports and clears the scratch project's
+   directory lock, which a killed engine has no chance to release; without
+   that the next `just dev` refuses to start on a lock nobody holds. The
+   normal exit is closing the window.
 4. `just dev-clean` — stop, then delete **this worktree's** `.dev/` scratch.
    Never another worktree's, and never a cache anyone would have to download
    again.
