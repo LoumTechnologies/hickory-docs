@@ -6322,3 +6322,52 @@ button.status-bar__item:hover { background: var(--bg-sunken); color: var(--fg); 
   border-radius: 3px;
 }
 .table-panel__note { margin: 0; font-size: 0.7rem; }
+
+/* autocompletion -----------------------------------------------------------
+   Two sources in one list, and the mark is the point. A language server's
+   answer is authoritative — it is in scope and it has a type. The project
+   index's is a guess drawn from what this codebase happens to say a lot.
+   Both are worth showing; a list that mixed them silently would make the
+   guesses look like facts. */
+.cm-completion-origin {
+  display: inline-block;
+  width: 1.1em;
+  text-align: center;
+  font-size: 0.8em;
+  opacity: 0.85;
+  flex: none;
+}
+/* In scope: the accent, because it is the answer to defer to. */
+.cm-completion-origin--lsp { color: var(--accent); }
+/* From this project: quieter, and a different glyph. Colour alone would fail
+   for a reader who cannot tell these two apart. */
+.cm-completion-origin--project { color: var(--fg-muted); }
+
+.cm-tooltip-autocomplete ul li {
+  display: flex;
+  align-items: baseline;
+  gap: 0.35rem;
+  padding: 0.1rem 0.4rem;
+}
+.cm-tooltip-autocomplete .cm-completionLabel { flex: 0 1 auto; }
+.cm-tooltip-autocomplete .cm-completionDetail {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-style: normal;
+  font-size: 0.9em;
+  opacity: 0.6;
+}
+/* The section headers ("In scope", "This project") are how the two groups
+   read as two groups at a glance. */
+.cm-tooltip-autocomplete .cm-completionSection {
+  font-size: 0.66rem;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--fg-muted);
+  padding: 0.2rem 0.4rem 0.05rem;
+  border-top: 1px solid var(--border);
+}
+.cm-completion-info { font-size: 0.74rem; max-width: 26rem; }

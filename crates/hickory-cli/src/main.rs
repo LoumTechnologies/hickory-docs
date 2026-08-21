@@ -138,6 +138,9 @@ enum Command {
     /// Show or install the backends that evaluate a table's formulas.
     #[command(subcommand)]
     Formula(FormulaCommand),
+    /// Show or install the local model that ranks completions and search.
+    #[command(subcommand)]
+    Model(ModelCommand),
     /// Internal: run a command inside a Windows AppContainer.
     ///
     /// Not for people. On Windows the sandbox is applied by the process that
@@ -164,6 +167,27 @@ enum LspCommand {
     /// they are treated as what they are. Nothing is written outside
     /// `.hick-cache/`, which `hick init` already keeps out of git.
     Install(LspInstallArgs),
+}
+
+#[derive(Subcommand)]
+enum ModelCommand {
+    /// Whether the local model is installed, and what it is for.
+    List,
+    /// Download the embedding model into `.hick-cache/models/embed/`.
+    ///
+    /// The one place this product touches the network, and only when asked.
+    /// Everything it improves works without it: completions fall back to
+    /// frequency, search to lexical ranking. Neither is a degraded mode that
+    /// warns at you — they are what the tool does on a machine that has never
+    /// been online.
+    Install(ModelInstallArgs),
+}
+
+#[derive(clap::Args)]
+struct ModelInstallArgs {
+    /// The project to install into. Defaults to the current directory.
+    #[arg(long)]
+    root: Option<std::path::PathBuf>,
 }
 
 #[derive(Subcommand)]
@@ -642,6 +666,7 @@ fn run() -> ExitCode {
             Command::Search(args) => cmd_search(args).await,
             Command::Lsp(cmd) => cmd_lsp(cmd),
             Command::Formula(cmd) => cmd_formula(cmd),
+            Command::Model(cmd) => cmd_model(cmd).await,
             Command::Dap(cmd) => cmd_dap(cmd),
             Command::SandboxRun(args) => cmd_sandbox_run(args),
             Command::Mcp(args) => {
@@ -1252,6 +1277,32 @@ async fn cmd_agent(args: AgentArgs) -> Result<ExitCode> {
     Ok(ExitCode::SUCCESS)
 }
 
+/// `hick model` — the optional local model, and what it changes.
+async fn cmd_model(command: ModelCommand) -> Result<ExitCode> {
+    let root = std::env::current_dir().context("resolving the current directory")?;
+    match command {
+        ModelCommand::List => {
+            let where_ = hick_search::model_dir(&root);
+            if hick_search::model_available(&root) {
+                println!("Local model: installed at {}", where_.display());
+                println!("  Completions rank by what this project is about as well as by");
+                println!("  how often a name is used; search ranks semantically too.");
+            } else {
+                println!("Local model: not installed.");
+                println!("  Everything works without it — completions rank by frequency");
+                println!("  and search ranks lexically. `hick model install` adds the");
+                println!("  semantic half; it is the one command here that uses the network.");
+            }
+            Ok(ExitCode::SUCCESS)
+        }
+        ModelCommand::Install(args) => {
+            let root = args.root.unwrap_or(root);
+            hickory_cli::search_install::install_model(&root).await?;
+            Ok(ExitCode::SUCCESS)
+        }
+    }
+}
+
 /// `hick formula` — what can evaluate a table, and putting it in place.
 fn cmd_formula(command: FormulaCommand) -> Result<ExitCode> {
     use hick_formula::backend;
@@ -1271,11 +1322,10 @@ fn cmd_formula(command: FormulaCommand) -> Result<ExitCode> {
                     ),
                 }
             }
-            println!(
-                "\nNothing here is downloaded. A backend is a small script this binary\n\
-                 carries; the first formula in a document writes it into\n\
-                 .hick-cache/formula/ and runs it with the interpreter above."
-            );
+            println!();
+            println!("Nothing here is downloaded. A backend is a small script this binary");
+            println!("carries; the first formula in a document writes it into");
+            println!(".hick-cache/formula/ and runs it with the interpreter above.");
             Ok(ExitCode::SUCCESS)
         }
         FormulaCommand::Install(args) => {

@@ -326,3 +326,28 @@ into `.hick-cache/formula/` the first time it is needed and run with an
 interpreter already on the machine. That is why installation can be automatic
 here and cannot be for `hick lsp install`. A machine without the interpreter
 is told which one it needs; the table still renders and still edits.
+
+## Completions from the project itself (v0.5)
+
+- `GET /api/complete?prefix=…&context=…&k=…` →
+  `{suggestions: [{text, detail, score, semantic}]}`.
+
+Deliberately **not** a language server's answer, and never presented as one.
+An LSP knows what is in scope here and what its type is; it has no opinion
+about whether this codebase says `cfg`, `config` or `settings`. This does, and
+knows nothing about types. Neither subsumes the other, which is why the editor
+shows both, marked, in one list.
+
+Suggestions are identifiers from the project's own indexed text, ranked by how
+often they appear and — when the local model is installed — by how close their
+surroundings are to what is being typed. `semantic` says which happened, so
+the UI never claims more than it did: with no model the ranking is frequency
+alone, which is still useful and still works on a machine that has never been
+online.
+
+`hick model install` fetches the model; `hick model list` says whether it is
+there and what it changes. It is the one command in the tool that uses the
+network, and everything it improves works without it.
+
+A prefix shorter than two characters returns nothing — every identifier in a
+project matches one letter, which is a list nobody reads.

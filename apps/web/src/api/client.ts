@@ -26,6 +26,7 @@ import type {
   BlameLine,
   FindOptions,
   FormulaResults,
+  ProjectSuggestion,
   FindResponse,
   ReplaceResponse,
   UiSettings,
@@ -211,6 +212,18 @@ export const api = {
 
   /** Definitions and references across this session's generated files. */
   structure: () => request<StructureResponse>("GET", "/api/structure"),
+
+  /** What this project calls things: identifiers from its own text, ranked
+   * by how often they are used and — when the local model is installed — by
+   * how close their surroundings are to what is being typed. A different
+   * question from the language server's, shown beside it rather than instead
+   * of it. */
+  complete: (prefix: string, context: string, k = 8) =>
+    request<{ suggestions: ProjectSuggestion[] }>(
+      "GET",
+      `/api/complete?prefix=${encodeURIComponent(prefix)}` +
+        `&context=${encodeURIComponent(context.slice(-600))}&k=${k}`,
+    ),
 
   /** Every formula in a grid, computed.
    *

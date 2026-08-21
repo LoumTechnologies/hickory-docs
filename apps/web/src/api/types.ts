@@ -543,3 +543,13 @@ export interface FormulaResults {
   values: Record<string, string>;
   errors: Record<string, string>;
 }
+
+/** One completion drawn from the project's own text. `semantic` is false when
+ * the local model is not installed — the ranking is then frequency alone,
+ * which is said rather than implied. */
+export interface ProjectSuggestion {
+  text: string;
+  detail: string;
+  score: number;
+  semantic: boolean;
+}

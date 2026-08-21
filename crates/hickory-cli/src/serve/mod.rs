@@ -412,6 +412,9 @@ fn router(state: LocalState) -> Router {
         .route("/file", get(plain_file::get_file).put(plain_file::put_file))
         .route("/scratchpad", post(plain_file::post_scratchpad))
         .route("/search", get(api::search))
+        // What this project calls things — a different question from the
+        // language server's, and shown beside it rather than instead of it.
+        .route("/complete", get(api::complete))
         // Exhaustive, not ranked — see serve/find.rs for why that distinction
         // is the whole reason this is not `/search`.
         .route("/find", get(find::find))

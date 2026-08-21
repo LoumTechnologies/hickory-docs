@@ -29,6 +29,8 @@ import { taskCheckboxes } from "../editor/taskList";
 import { renderedMath } from "../editor/mathRender";
 import { proseWrap } from "../editor/wrapColumn";
 import { editorChrome } from "../editor/chrome";
+import { completions } from "../lsp/completion";
+import { api } from "../api/client";
 import { blameGutter } from "../editor/blameGutter";
 import { useBlame } from "../editor/useBlame";
 import { claimReveal, onRevealLine } from "../lib/revealLine";
@@ -196,6 +198,13 @@ export function OutputEditorPane({
           history(),
           // In-buffer find (Mod-F), same shape as the document editor's:
           // panel on top, keymap first, shifted chord left to the shell.
+          // Completions from this project's own text. The language server's
+          // half is wired per document (see editor/DocumentEditor.tsx); a
+          // plain file has no room yet, and one honest source beats none.
+          completions({
+            project: (prefix, around) =>
+              api.complete(prefix, around).then((answer) => answer.suggestions),
+          }),
           search({ top: true }),
           keymap.of([...searchKeymap, ...defaultKeymap, ...historyKeymap, indentWithTab]),
           // Prose wraps at the measure; a fenced code block keeps its lines
