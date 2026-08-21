@@ -772,6 +772,12 @@ export const INSERT_ELEMENTS: readonly InsertElement[] = [
         hint: "The first row names the columns. Set false when it is data.",
         choices: ["true", "false"],
       },
+      {
+        name: "language",
+        label: "Formula language",
+        hint: "Cells beginning with `=` are expressions in this language. Leave empty and `=` is just text.",
+        choices: ["python", "javascript"],
+      },
     ],
   },
   {

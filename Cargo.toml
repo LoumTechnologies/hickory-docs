@@ -7,6 +7,7 @@ members = [
     "crates/hick-exec",
     "crates/hick-feature",
     "crates/hick-flow",
+    "crates/hick-formula",
     "crates/hick-grove",
     "crates/hick-handlers",
     "crates/hick-lang",

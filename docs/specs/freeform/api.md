@@ -286,3 +286,43 @@ author of whoever last touched the file.
 This is the same `git blame` that `agent_lineage.rs` composes with lineage to
 answer "was this written by a person or by the agent"
 (`provenance-and-standing.md`); the column is that machinery made visible.
+
+## Formulas (v0.5)
+
+- `POST /api/formula/evaluate` `{language, rows}` → `{values, errors}`, both
+  keyed by A1 label and both holding **only formula cells** — a literal has
+  nothing to compute, and echoing it back would make the response the size of
+  the table.
+- `GET /api/formula/languages` → `{languages}` — what this machine can
+  evaluate right now, so the UI offers what will work rather than what the
+  build knows about.
+
+A formula is a cell beginning with `=`, and what follows is an **expression in
+a real language**. Every spreadsheet ships its own small, badly-specified
+formula language; this product already runs Python, JavaScript, Rust and shell
+in the same document, and a fifth would be a strange thing to add.
+
+The split is the design, and it is why "any language" is affordable:
+
+- The **host** owns everything language-independent — what a cell reference
+  is, which cells a formula depends on, what order they evaluate in, and what
+  a cycle is. That is also what makes a table mixing two languages evaluate in
+  one order, which per-backend graphs could never promise.
+- A **backend** owns one thing: given an expression and the values its
+  references resolved to, produce a value or an error. Sixty lines.
+
+Batches are by **level**: every cell whose dependencies are already known goes
+in one request, so the number of round trips is the *depth* of the graph
+rather than its size. A column of four hundred independent formulas is one
+request; a chain of four hundred is four hundred, which is the honest cost of
+a chain.
+
+Errors are the language's own — a Python `NameError`, a JavaScript
+`TypeError` — because that message is the one the author can act on, where
+`#VALUE!` throws it away. A circular reference names every cell in the circle.
+
+**Nothing is downloaded.** A backend is a script the binary carries, written
+into `.hick-cache/formula/` the first time it is needed and run with an
+interpreter already on the machine. That is why installation can be automatic
+here and cannot be for `hick lsp install`. A machine without the interpreter
+is told which one it needs; the table still renders and still edits.

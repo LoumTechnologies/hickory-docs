@@ -135,6 +135,9 @@ enum Command {
     /// Show or install the debug adapters that power breakpoints.
     #[command(subcommand)]
     Dap(DapCommand),
+    /// Show or install the backends that evaluate a table's formulas.
+    #[command(subcommand)]
+    Formula(FormulaCommand),
     /// Internal: run a command inside a Windows AppContainer.
     ///
     /// Not for people. On Windows the sandbox is applied by the process that
@@ -161,6 +164,33 @@ enum LspCommand {
     /// they are treated as what they are. Nothing is written outside
     /// `.hick-cache/`, which `hick init` already keeps out of git.
     Install(LspInstallArgs),
+}
+
+#[derive(Subcommand)]
+enum FormulaCommand {
+    /// List the languages formulas can be written in, and whether this
+    /// machine can run each one.
+    ///
+    /// Unlike `lsp` and `dap`, nothing here is fetched. A formula backend is
+    /// a small script this binary carries; what a machine needs is the
+    /// interpreter, which it either has or does not.
+    List,
+    /// Write a language's backend into `.hick-cache/formula/`.
+    ///
+    /// Rarely necessary by hand: the first formula in a document installs
+    /// what it needs. Writing sixty lines into a cache with no network
+    /// involved is not an act worth asking permission for — which is exactly
+    /// why it can be automatic here and cannot be for a language server.
+    Install(FormulaInstallArgs),
+}
+
+#[derive(clap::Args)]
+struct FormulaInstallArgs {
+    /// Languages to install. All of them when none is named.
+    languages: Vec<String>,
+    /// The project to install into. Defaults to the current directory.
+    #[arg(long)]
+    root: Option<std::path::PathBuf>,
 }
 
 #[derive(Subcommand)]
@@ -611,6 +641,7 @@ fn run() -> ExitCode {
             Command::Doc(cmd) => cmd_doc(cmd).await,
             Command::Search(args) => cmd_search(args).await,
             Command::Lsp(cmd) => cmd_lsp(cmd),
+            Command::Formula(cmd) => cmd_formula(cmd),
             Command::Dap(cmd) => cmd_dap(cmd),
             Command::SandboxRun(args) => cmd_sandbox_run(args),
             Command::Mcp(args) => {
@@ -1219,6 +1250,68 @@ async fn cmd_agent(args: AgentArgs) -> Result<ExitCode> {
     );
     println!("{}", outcome.session_path.display());
     Ok(ExitCode::SUCCESS)
+}
+
+/// `hick formula` — what can evaluate a table, and putting it in place.
+fn cmd_formula(command: FormulaCommand) -> Result<ExitCode> {
+    use hick_formula::backend;
+
+    match command {
+        FormulaCommand::List => {
+            println!("Languages a table's formulas can be written in:\n");
+            for entry in backend::BACKENDS {
+                match backend::find_interpreter(entry) {
+                    Some(interpreter) => {
+                        println!("  {:<12} ready — {interpreter}", entry.language)
+                    }
+                    None => println!(
+                        "  {:<12} needs one of: {}",
+                        entry.language,
+                        entry.interpreters.join(", ")
+                    ),
+                }
+            }
+            println!(
+                "\nNothing here is downloaded. A backend is a small script this binary\n\
+                 carries; the first formula in a document writes it into\n\
+                 .hick-cache/formula/ and runs it with the interpreter above."
+            );
+            Ok(ExitCode::SUCCESS)
+        }
+        FormulaCommand::Install(args) => {
+            let root = match args.root {
+                Some(root) => root,
+                None => std::env::current_dir().context("resolving the current directory")?,
+            };
+            let languages: Vec<String> = if args.languages.is_empty() {
+                backend::BACKENDS
+                    .iter()
+                    .map(|b| b.language.to_string())
+                    .collect()
+            } else {
+                args.languages
+            };
+            let mut failed = false;
+            for language in &languages {
+                match backend::install(&root, language) {
+                    Ok(path) => println!("{language}: {}", path.display()),
+                    Err(error) => {
+                        // A missing interpreter is not a failed install of
+                        // the OTHER languages; keep going and report at the
+                        // end, so `hick formula install` on a machine with
+                        // python but no node still installs python.
+                        eprintln!("{language}: {error:#}");
+                        failed = true;
+                    }
+                }
+            }
+            Ok(if failed {
+                ExitCode::FAILURE
+            } else {
+                ExitCode::SUCCESS
+            })
+        }
+    }
 }
 
 fn cmd_lsp(command: LspCommand) -> Result<ExitCode> {

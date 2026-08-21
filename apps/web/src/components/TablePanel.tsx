@@ -15,6 +15,9 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { api } from "../api/client";
+import { cellLabel, isFormula } from "../lib/cellRef";
+
 import {
   cellAt,
   columnCount,
@@ -38,6 +41,11 @@ export interface TablePanelProps {
   /** The new CSV text after an edit. Absent means read-only — a generated
    * table has a document behind it, and editing the output is not the way. */
   onChange?: (csv: string) => void;
+  /** The language this table's formulas are written in. Absent means the
+   * table has no formulas: a cell beginning with `=` is then just text, which
+   * is what it was before formulas existed and what a table of shell snippets
+   * still needs it to be. */
+  language?: string;
 }
 
 interface Cursor {
@@ -50,6 +58,7 @@ export function TablePanel({
   header = true,
   delimiter,
   onChange,
+  language,
 }: TablePanelProps) {
   // Parsed from the source on every render rather than held as state: the
   // document is the truth, and a second copy here would drift the moment
@@ -58,6 +67,52 @@ export function TablePanel({
   const width = Math.max(1, columnCount(table));
   const height = Math.max(1, table.rows.length);
   const editable = onChange !== undefined;
+
+  // What the formulas came to. Held here rather than written into the CSV:
+  // the file keeps the FORMULA, which is the thing worth reviewing and the
+  // thing that still works when the machine has no interpreter. The value is
+  // a view of it, recomputed, exactly as a spreadsheet shows a cell.
+  const [computed, setComputed] = useState<{
+    values: Record<string, string>;
+    errors: Record<string, string>;
+  }>({ values: {}, errors: {} });
+  const [formulaNote, setFormulaNote] = useState<string | null>(null);
+
+  const hasFormulas = table.rows.some((row) => row.some(isFormula));
+
+  useEffect(() => {
+    if (!language || !hasFormulas) {
+      setComputed({ values: {}, errors: {} });
+      setFormulaNote(null);
+      return;
+    }
+    let live = true;
+    // A keystroke is not a question. Evaluating on every character would
+    // spawn an interpreter per keypress and show numbers flickering through
+    // half-typed expressions.
+    const timer = window.setTimeout(() => {
+      api.evaluateFormulas(language, table.rows).then(
+        (answer) => {
+          if (!live) return;
+          setComputed(answer);
+          setFormulaNote(null);
+        },
+        (error: unknown) => {
+          if (!live) return;
+          // A missing interpreter is the common case and not a fault: the
+          // table still renders and still edits, it just does not compute.
+          setComputed({ values: {}, errors: {} });
+          setFormulaNote(error instanceof Error ? error.message : String(error));
+        },
+      );
+    }, 400);
+    return () => {
+      live = false;
+      window.clearTimeout(timer);
+    };
+    // `source` stands in for the rows, which are rebuilt per render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [language, source, hasFormulas]);
 
   const [cursor, setCursor] = useState<Cursor | null>(null);
   const [draft, setDraft] = useState("");
@@ -97,6 +152,21 @@ export function TablePanel({
     setDraft(cellAt(table, row, column));
   };
 
+  /**
+   * What a cell shows when it is not being edited.
+   *
+   * A formula shows its VALUE and reveals its source when you enter it —
+   * which is what every spreadsheet does, and the only arrangement in which
+   * a table of formulas is readable. A formula with no value yet (nothing
+   * evaluated, or an error) shows its own text, because a blank cell would
+   * be a lie about there being nothing there.
+   */
+  const shownAt = (row: number, column: number): string => {
+    const raw = cellAt(table, row, column);
+    if (!isFormula(raw)) return raw;
+    return computed.values[cellLabel(column, row)] ?? raw;
+  };
+
   const headerRow = header ? table.rows[0] : null;
   const bodyFrom = header ? 1 : 0;
 
@@ -111,6 +181,8 @@ export function TablePanel({
                   <th key={column} scope="col">
                     <Cell
                       value={cellAt(table, 0, column)}
+                      shown={shownAt(0, column)}
+                      problem={computed.errors[cellLabel(column, 0)]}
                       editing={cursor?.row === 0 && cursor.column === column}
                       draft={draft}
                       editable={editable}
@@ -137,6 +209,8 @@ export function TablePanel({
                     <td key={column}>
                       <Cell
                         value={cellAt(table, row, column)}
+                        shown={shownAt(row, column)}
+                        problem={computed.errors[cellLabel(column, row)]}
                         editing={cursor?.row === row && cursor.column === column}
                         draft={draft}
                         editable={editable}
@@ -202,6 +276,11 @@ export function TablePanel({
           >
             − Column
           </button>
+          {language && (
+            <span className="table-panel__lang muted" data-tip={`Formulas are ${language}`}>
+              {language}
+            </span>
+          )}
           <span className="table-panel__size muted">
             {height} × {width}
           </span>
@@ -214,12 +293,19 @@ export function TablePanel({
           Written by a document — edit it there.
         </p>
       )}
+      {formulaNote && (
+        <p className="table-panel__note muted" role="status">
+          {formulaNote}
+        </p>
+      )}
     </div>
   );
 }
 
 function Cell({
   value,
+  shown,
+  problem,
   editing,
   draft,
   editable,
@@ -229,7 +315,12 @@ function Cell({
   onMove,
   onDone,
 }: {
+  /** The cell's own text — a formula, or a literal. */
   value: string;
+  /** What to display: a formula's computed value, or its text. */
+  shown: string;
+  /** What the language said, when this formula did not evaluate. */
+  problem?: string;
   editing: boolean;
   draft: string;
   editable: boolean;
@@ -242,15 +333,21 @@ function Cell({
   if (!editing) {
     return (
       <span
-        className="table-panel__cell"
+        className={`table-panel__cell${problem ? " table-panel__cell--bad" : ""}${
+          value !== shown ? " table-panel__cell--computed" : ""
+        }`}
         role={editable ? "button" : undefined}
         tabIndex={editable ? 0 : undefined}
+        // A computed cell's hover shows the formula behind it; a broken one
+        // shows the LANGUAGE's own message, because `#VALUE!` throws away the
+        // only part the author can act on.
+        data-tip={problem ?? (value !== shown ? value : undefined)}
         onClick={editable ? onEnter : undefined}
         onFocus={editable ? onEnter : undefined}
       >
         {/* A non-breaking space, so an empty cell is still a target with a
             height. A zero-height row is a row nobody can click into. */}
-        {value === "" ? " " : value}
+        {shown === "" ? " " : shown}
       </span>
     );
   }

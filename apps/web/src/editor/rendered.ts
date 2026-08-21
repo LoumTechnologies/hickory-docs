@@ -97,7 +97,7 @@ export interface RenderedSlot {
   /** diagram only. */
   renderer: string;
   /** table only: the tag's own attributes, for the grid. */
-  table?: { path?: string; delimiter?: string; header: boolean };
+  table?: { path?: string; delimiter?: string; header: boolean; language?: string };
   asserts: string[];
 }
 
@@ -124,6 +124,7 @@ class RenderedWidget extends WidgetType {
       a.table?.path === b.table?.path &&
       a.table?.delimiter === b.table?.delimiter &&
       a.table?.header === b.table?.header &&
+      a.table?.language === b.table?.language &&
       a.asserts.join(" ") === b.asserts.join(" ")
     );
   }
@@ -213,6 +214,10 @@ function buildRendered(state: EditorState, registry: RenderedRegistry): Decorati
                   // case; a document that has to say so every time is a
                   // document full of noise.
                   header: block.attrs.header !== "false",
+                  // No language means no formulas: a cell beginning with `=`
+                  // is then just text, which is what a table of shell
+                  // snippets needs it to be.
+                  language: block.attrs.language,
                 }
               : undefined,
           asserts: (block.attrs.asserts ?? "")

@@ -60,6 +60,7 @@ hick-literate = { path = "../hick-literate" }
 # Reading a document's DECLARED outputs out of its source for the folder
 # tree, without weaving every document in the folder on every listing.
 regex = "1"
+hick-formula = { version = "0.1", path = "../hick-formula" }
 hickory-workspace = { version = "0.1", path = "../hickory-workspace" }
 hick-search = { path = "../hick-search" }
 # Gitignore-aware walking for `GET /api/files` — the same walker (and the same

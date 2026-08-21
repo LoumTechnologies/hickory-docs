@@ -6305,3 +6305,20 @@ button.status-bar__item:hover { background: var(--bg-sunken); color: var(--fg); 
   border: 1px solid var(--border);
   border-radius: 4px;
 }
+
+/* A computed cell shows its value; its formula is one hover (or one click)
+   away. That is what every spreadsheet does, and the only arrangement in
+   which a table of formulas is readable at all. */
+.table-panel__cell--computed { color: var(--accent-2); }
+.table-panel__cell--bad {
+  color: var(--fail);
+  text-decoration: underline wavy var(--fail);
+  text-underline-offset: 2px;
+}
+.table-panel__lang {
+  font-size: 0.68rem;
+  padding: 0 0.3rem;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+}
+.table-panel__note { margin: 0; font-size: 0.7rem; }

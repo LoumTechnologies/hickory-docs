@@ -797,6 +797,7 @@ export function DocumentEditor({
                 source={slot.text}
                 header={slot.table?.header ?? true}
                 delimiter={slot.table?.delimiter}
+                language={slot.table?.language}
                 // An edit in the grid rewrites the CSV in the document, in
                 // place. The document stays the source of truth — there is
                 // no second copy of the table anywhere — which is what keeps

@@ -1,10 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+
+import { api } from "../api/client";
 
 import { TablePanel } from "./TablePanel";
 
 afterEach(() => {
   cleanup();
+  vi.restoreAllMocks();
 });
 
 const CSV = "name,age\nAda,36\nGrace,45\n";
@@ -142,5 +145,73 @@ describe("a table the reader may not edit", () => {
     expect(screen.getByText(/written by a document/i)).toBeTruthy();
     fireEvent.click(screen.getByText("Ada"));
     expect(document.querySelector(".table-panel__input")).toBeNull();
+  });
+});
+
+describe("formulas", () => {
+  it("asks for nothing when the table names no language", () => {
+    // A cell beginning with `=` is then just text, which is what a table of
+    // shell snippets needs it to be.
+    const evaluate = vi.spyOn(api, "evaluateFormulas");
+    grid({ source: "a\n=1+1\n" });
+    expect(evaluate).not.toHaveBeenCalled();
+  });
+
+  it("asks for nothing when the table has no formulas", () => {
+    const evaluate = vi.spyOn(api, "evaluateFormulas");
+    grid({ source: "a\n1\n", language: "python" });
+    expect(evaluate).not.toHaveBeenCalled();
+  });
+
+  it("shows a formula's value, not its text", async () => {
+    vi.spyOn(api, "evaluateFormulas").mockResolvedValue({
+      values: { A2: "2" },
+      errors: {},
+    });
+    grid({ source: "a\n=1+1\n", language: "python" });
+    await waitFor(() => expect(screen.getByText("2")).toBeTruthy());
+    expect(screen.queryByText("=1+1")).toBeNull();
+  });
+
+  it("keeps the formula in the FILE, which is what is reviewed", async () => {
+    // The value is a view. What is written down is the expression, which is
+    // the thing worth reading in a diff and the thing that still works on a
+    // machine with no interpreter.
+    const onChange = vi.fn();
+    vi.spyOn(api, "evaluateFormulas").mockResolvedValue({
+      values: { A2: "2" },
+      errors: {},
+    });
+    grid({ source: "a\n=1+1\n", language: "python", onChange });
+    await waitFor(() => expect(screen.getByText("2")).toBeTruthy());
+    fireEvent.click(screen.getByText("2"));
+    const input = document.querySelector(".table-panel__input") as HTMLInputElement;
+    // Entering the cell reveals the formula, as every spreadsheet does.
+    expect(input.value).toBe("=1+1");
+  });
+
+  it("shows the language's own message on a broken formula", async () => {
+    vi.spyOn(api, "evaluateFormulas").mockResolvedValue({
+      values: {},
+      errors: { A2: "NameError: name 'nope' is not defined" },
+    });
+    grid({ source: "a\n=nope\n", language: "python" });
+    await waitFor(() => {
+      const bad = document.querySelector(".table-panel__cell--bad") as HTMLElement;
+      expect(bad).toBeTruthy();
+      expect(bad.dataset.tip).toContain("NameError");
+    });
+  });
+
+  it("still renders and still edits when nothing can evaluate", async () => {
+    // A missing interpreter is the common case and not a fault.
+    vi.spyOn(api, "evaluateFormulas").mockRejectedValue(
+      new Error("formulas in `python` need one of: python3, python"),
+    );
+    grid({ source: "a\n=1+1\n", language: "python" });
+    await waitFor(() => expect(screen.getByRole("status").textContent).toMatch(/python3/));
+    // The formula's own text is shown rather than a blank cell, which would
+    // be a lie about there being nothing there.
+    expect(screen.getByText("=1+1")).toBeTruthy();
   });
 });
