@@ -57,6 +57,10 @@ hick-literate = { path = "../hick-literate" }
 # Project-wide search (semble-shaped: lexical always, Model2Vec semantic when
 # a model is installed). The crate is offline by design; downloading a model
 # is this CLI's explicit `hick search --install-model`.
+# Reading a document's DECLARED outputs out of its source for the folder
+# tree, without weaving every document in the folder on every listing.
+regex = "1"
+hickory-workspace = { version = "0.1", path = "../hickory-workspace" }
 hick-search = { path = "../hick-search" }
 # Gitignore-aware walking for `GET /api/files` — the same walker (and the same
 # filters) hick-search indexes with, so the folder tree and search agree on

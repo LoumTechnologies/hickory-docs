@@ -31,6 +31,7 @@ members = [
     "crates/hickory-cli",
     "crates/hickory-collab",
     "crates/hickory-lineage",
+    "crates/hickory-workspace",
 ]
 # editors/zed-hick is a standalone wasm extension crate built by Zed's
 # toolchain, not part of this workspace.

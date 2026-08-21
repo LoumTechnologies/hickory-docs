@@ -11,6 +11,7 @@
 //! see [`super::agent`] — the same ReAct loop `hick agent` runs, wired to the
 //! chat dock.
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use axum::Json;
@@ -347,9 +348,29 @@ struct TreeNode {
     dir: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     doc_id: Option<String>,
+    /// The document that generates this file, when one does.
+    ///
+    /// This is what stops the app offering to "make literate" a file that
+    /// already is — a woven `cards.md` beside the `cards.hick` that writes it.
+    /// It also lets such a file open as the generated thing it is, with its
+    /// lineage and its refusal to be edited, rather than as a plain file that
+    /// happens to be overwritten from time to time.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    generated_by: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     children: Option<Vec<TreeNode>>,
 }
+
+/// The `weave` attribute of a document's root element, and the `path` of a
+/// `hick:file` block. Both are plain literal attributes in the source, which
+/// is what makes reading them without a parse honest — see `declared_outputs`.
+static WEAVE_ATTR: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+    regex::Regex::new(r#"\bweave\s*=\s*"([^"]*)""#).expect("the weave-attribute pattern compiles")
+});
+static FILE_PATH_ATTR: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+    regex::Regex::new(r#"<hick:file\b[^>]*?\bpath\s*=\s*"([^"]*)""#)
+        .expect("the file-path-attribute pattern compiles")
+});
 
 /// A folder tree past this many entries answers what it has, flagged
 /// `"truncated": true`, instead of walking (and shipping) a monster.
@@ -394,6 +415,7 @@ pub async fn files(State(state): State<LocalState>) -> ApiResult<Json<Value>> {
 /// `node_modules` never entered.
 fn file_tree(root: &std::path::Path, index: &super::store::DocIndex) -> (Vec<TreeNode>, bool) {
     let mut top: Vec<TreeNode> = Vec::new();
+    let mut documents: Vec<(String, std::path::PathBuf)> = Vec::new();
     let mut count = 0usize;
     let mut truncated = false;
     let walker = ignore::WalkBuilder::new(root)
@@ -426,10 +448,93 @@ fn file_tree(root: &std::path::Path, index: &super::store::DocIndex) -> (Vec<Tre
         // Forward slashes even on Windows: the path is a tree key and a
         // display string, not an OS path.
         let rel = rel.to_string_lossy().replace('\\', "/");
+        if !dir && rel.ends_with(".hick") {
+            documents.push((rel.clone(), entry.path().to_path_buf()));
+        }
         insert_tree_node(&mut top, &rel, dir, index);
     }
+    // Which files the documents in this folder write. Done after the walk so
+    // a document is credited with an output that was listed before it.
+    let mut generated: HashMap<String, String> = HashMap::new();
+    for (rel, absolute) in &documents {
+        let Ok(source) = std::fs::read_to_string(absolute) else {
+            continue;
+        };
+        let id = index.add(rel);
+        for output in declared_outputs(rel, &source) {
+            // First document wins. Two documents writing one file is a
+            // conflict the weaver reports; the tree does not need to pick a
+            // side to answer "is this generated".
+            generated.entry(output).or_insert_with(|| id.clone());
+        }
+    }
+    mark_generated(&mut top, &generated);
     sort_tree(&mut top);
     (top, truncated)
+}
+
+/// The files a document DECLARES it writes: its `weave` target and the path
+/// of every `hick:file` block.
+///
+/// Read from the source with a regex rather than by weaving. Weaving every
+/// document in the folder would be correct and far too slow for a listing
+/// that refetches whenever the window regains focus — and what this is used
+/// for (do not offer to adopt a file that is already generated; open it as
+/// the generated thing it is) degrades safely if it is ever wrong.
+///
+/// Which means the honest boundary is: a path built from a variable
+/// (`path="{{name}}.rs"`) is not recognised here. Such a file keeps behaving
+/// the way every generated file did before this existed.
+fn declared_outputs(doc_rel: &str, source: &str) -> Vec<String> {
+    let dir = doc_rel.rsplit_once('/').map(|(d, _)| d).unwrap_or("");
+    let join = |value: &str| -> Option<String> {
+        let value = value.trim();
+        if value.is_empty() || value.contains("{{") {
+            return None;
+        }
+        let joined = if dir.is_empty() {
+            value.to_string()
+        } else {
+            format!("{dir}/{value}")
+        };
+        // Normalise `a/./b` and `a/b/../c` so the key matches a tree path.
+        let mut parts: Vec<&str> = Vec::new();
+        for part in joined.split('/') {
+            match part {
+                "" | "." => {}
+                ".." => {
+                    parts.pop();
+                }
+                other => parts.push(other),
+            }
+        }
+        Some(parts.join("/"))
+    };
+
+    let mut out = Vec::new();
+    for capture in WEAVE_ATTR.captures_iter(source) {
+        if let Some(path) = join(&capture[1]) {
+            out.push(path);
+        }
+    }
+    for capture in FILE_PATH_ATTR.captures_iter(source) {
+        if let Some(path) = join(&capture[1]) {
+            out.push(path);
+        }
+    }
+    out
+}
+
+/// Stamp `generated_by` onto every node whose path a document writes.
+fn mark_generated(nodes: &mut [TreeNode], generated: &HashMap<String, String>) {
+    for node in nodes {
+        if !node.dir && node.doc_id.is_none() {
+            node.generated_by = generated.get(&node.path).cloned();
+        }
+        if let Some(children) = node.children.as_mut() {
+            mark_generated(children, generated);
+        }
+    }
 }
 
 /// Place one walked entry. The walker yields a directory before its contents,
@@ -454,6 +559,7 @@ fn insert_tree_node(top: &mut Vec<TreeNode>, rel: &str, dir: bool, index: &super
                 path: prefix.clone(),
                 dir,
                 doc_id,
+                generated_by: None,
                 children: dir.then(Vec::new),
             });
             return;
@@ -467,6 +573,7 @@ fn insert_tree_node(top: &mut Vec<TreeNode>, rel: &str, dir: bool, index: &super
                     path: prefix.clone(),
                     dir: true,
                     doc_id: None,
+                    generated_by: None,
                     children: Some(Vec::new()),
                 });
                 siblings.len() - 1
@@ -928,3 +1035,122 @@ pub async fn put_settings_ui(
 
 /// Arc-friendly alias used by the router module.
 pub type Shared = Arc<LocalState>;
+
+#[cfg(test)]
+mod tree_tests {
+    use super::*;
+
+    #[test]
+    fn a_documents_weave_target_is_one_of_its_outputs() {
+        // The case that started this: `cards.md` beside the `cards.hick` that
+        // writes it, offered a button to "make it literate" when it already
+        // is.
+        let outputs = declared_outputs(
+            "cards.hick",
+            r#"<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="cards.md">"#,
+        );
+        assert_eq!(outputs, vec!["cards.md".to_string()]);
+    }
+
+    #[test]
+    fn every_generated_file_block_is_an_output() {
+        let outputs = declared_outputs(
+            "app.hick",
+            r#"
+            <hick:file path="src/main.rs">fn main() {}</hick:file>
+            <hick:file path="Cargo.toml">[package]</hick:file>
+            "#,
+        );
+        assert_eq!(
+            outputs,
+            vec!["src/main.rs".to_string(), "Cargo.toml".to_string()]
+        );
+    }
+
+    #[test]
+    fn outputs_are_relative_to_the_documents_own_directory() {
+        // A tree key is root-relative, so a document three folders down that
+        // says `path="main.rs"` must not claim the root's `main.rs`.
+        let outputs = declared_outputs(
+            "notes/deep/app.hick",
+            r#"<hick:doc weave="README.md"><hick:file path="src/main.rs"/>"#,
+        );
+        assert_eq!(
+            outputs,
+            vec![
+                "notes/deep/README.md".to_string(),
+                "notes/deep/src/main.rs".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_dot_dot_in_a_path_is_resolved_rather_than_left_in_the_key() {
+        // `notes/deep/../out.rs` would never match the tree's `notes/out.rs`.
+        let outputs = declared_outputs("notes/deep/app.hick", r#"<hick:file path="../out.rs"/>"#);
+        assert_eq!(outputs, vec!["notes/out.rs".to_string()]);
+    }
+
+    #[test]
+    fn a_path_built_from_a_variable_is_not_claimed() {
+        // The honest boundary of reading declarations instead of weaving: an
+        // interpolated path is left alone rather than recorded as the literal
+        // `{{name}}.rs`, which would mark a file nobody has.
+        assert!(declared_outputs("app.hick", r#"<hick:file path="{{name}}.rs"/>"#).is_empty());
+    }
+
+    #[test]
+    fn a_document_that_generates_nothing_claims_nothing() {
+        assert!(declared_outputs("notes.hick", "# Just prose\n").is_empty());
+    }
+
+    #[test]
+    fn marking_skips_documents_and_directories() {
+        // A `.hick` file is a document, never somebody else's output, and a
+        // directory is not a file at all.
+        let generated = HashMap::from([
+            ("cards.md".to_string(), "d1".to_string()),
+            ("src".to_string(), "d1".to_string()),
+            ("other.hick".to_string(), "d1".to_string()),
+        ]);
+        let mut tree = vec![
+            TreeNode {
+                name: "cards.md".into(),
+                path: "cards.md".into(),
+                dir: false,
+                doc_id: None,
+                generated_by: None,
+                children: None,
+            },
+            TreeNode {
+                name: "other.hick".into(),
+                path: "other.hick".into(),
+                dir: false,
+                doc_id: Some("d2".into()),
+                generated_by: None,
+                children: None,
+            },
+            TreeNode {
+                name: "src".into(),
+                path: "src".into(),
+                dir: true,
+                doc_id: None,
+                generated_by: None,
+                children: Some(vec![TreeNode {
+                    name: "main.rs".into(),
+                    path: "src/main.rs".into(),
+                    dir: false,
+                    doc_id: None,
+                    generated_by: None,
+                    children: None,
+                }]),
+            },
+        ];
+        mark_generated(&mut tree, &generated);
+        assert_eq!(tree[0].generated_by.as_deref(), Some("d1"));
+        assert_eq!(tree[1].generated_by, None, "a document is not an output");
+        assert_eq!(tree[2].generated_by, None, "a directory is not a file");
+        let children = tree[2].children.as_ref().unwrap();
+        assert_eq!(children[0].generated_by, None, "nothing claims src/main.rs");
+    }
+}

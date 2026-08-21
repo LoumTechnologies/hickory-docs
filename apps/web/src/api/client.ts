@@ -24,6 +24,8 @@ import type {
   TerminalSession,
   TerminalsResponse,
   UiSettings,
+  WorkspaceDraft,
+  WorkspaceUiState,
 } from "./types";
 
 export const MOCK = import.meta.env.VITE_MOCK === "1";
@@ -253,4 +255,30 @@ export const api = {
     request<TerminalSession>("POST", `/api/terminals/${id}/answer`, { send }),
   setTurbo: (enabled: boolean) =>
     request<{ turbo: boolean }>("PUT", "/api/terminals/turbo", { enabled }),
+
+  // --- What the window remembers between runs -----------------------------
+  //
+  // Stored under the user's own data directory, never in the project: git
+  // cannot reach it by construction. See api.md, "Workspace state and
+  // drafts".
+
+  /** The stored window layout, or null on a project opened for the first
+   * time (and on a damaged file, which reads as "no layout" rather than as
+   * a reason not to start). */
+  workspaceUi: () =>
+    request<{ state: WorkspaceUiState }>("GET", "/api/workspace/ui"),
+  saveWorkspaceUi: (state: WorkspaceUiState) =>
+    request<{ ok: true }>("PUT", "/api/workspace/ui", { state }),
+
+  /** Every buffer that had unsaved changes when the app last closed, each
+   * carrying the bytes it was taken from so a file that moved on can be
+   * merged rather than fought over. */
+  drafts: () => request<{ drafts: WorkspaceDraft[] }>("GET", "/api/workspace/drafts"),
+  saveDraft: (draft: WorkspaceDraft) =>
+    request<{ ok: true }>("PUT", "/api/workspace/drafts", draft),
+  discardDraft: (path: string) =>
+    request<{ ok: true }>(
+      "DELETE",
+      `/api/workspace/drafts?path=${encodeURIComponent(path)}`,
+    ),
 };

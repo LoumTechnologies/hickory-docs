@@ -56,9 +56,12 @@ function glyph(card: DocCard, action: RailAction, state: CardState): string {
     case "replay":
       return "↺";
     case "source":
-      // A diagram has only this one icon, so it keeps the diagram mark; a
-      // cell's column needs Run and source to be told apart at a glance.
-      return card.kind === "diagram" ? "◈" : "▣";
+      // A diagram and an equation each have only this one icon, so each keeps
+      // its own mark and the rail says what KIND of thing sits on that line;
+      // a cell's column needs Run and source to be told apart at a glance.
+      if (card.kind === "diagram") return "◈";
+      if (card.kind === "math") return "∑";
+      return "▣";
     case "run":
       switch (state) {
         case "running":

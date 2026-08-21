@@ -68,6 +68,7 @@ fn origin_file(doc_path: &str, span_files: &[Arc<str>], span: &hick_lang::Source
 /// - `HickNode::Text` → prose (with substitutions applied, dedented)
 /// - `<hick:file>` → heading + fenced code block (unless `doc-hidden="true"`)
 /// - `<hick:diagram>` → fenced block tagged with its `renderer`
+/// - `<hick:math>` → a `$$…$$` display-math block
 /// - `<hick:claim>` → an attribution line, then the prose unchanged
 /// - `<hick:transcript>` → its derived speaker turns
 /// - `<hick:said>` → `**Who** (time): what they said`
@@ -194,6 +195,29 @@ fn process_weave_tag(
                 span_files,
             );
             weave_ip.add(Arc::new(StringNode::new("```\n".to_string())));
+        }
+        // Display maths weaves to `$$…$$`, which is what GitHub, every editor
+        // preview, and every static-site generator already renders. The same
+        // reasoning as the diagram above: the woven markdown has to be worth
+        // reading with no hick installed, and a fenced ```latex block would
+        // show a reader the source of an equation instead of the equation.
+        //
+        // Children go through `hick:file`'s path so a `<hick:paste>` inside
+        // the maths resolves — an equation whose coefficients came from the
+        // cell that computed them is the whole point of putting one here.
+        "math" => {
+            weave_ip.add(Arc::new(StringNode::new("\n$$\n".to_string())));
+            process_file_children_to_weave(
+                &tag.children,
+                weave_ip,
+                transcripts,
+                state,
+                tag.source_column,
+                registry,
+                doc_path,
+                span_files,
+            );
+            weave_ip.add(Arc::new(StringNode::new("$$\n".to_string())));
         }
         // A claim is somebody's assertion about an assertion. It weaves an
         // attribution line — who, on what standing, about what scope — and

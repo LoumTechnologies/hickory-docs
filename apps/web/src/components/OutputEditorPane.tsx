@@ -20,10 +20,15 @@ import { search, searchKeymap } from "@codemirror/search";
 import type { OutputFile, Provenance } from "../api/types";
 import { changeFlashField, syncAndFlash } from "../editor/changeFlash";
 import { languageExtensions } from "../editor/languages";
+import { forgetFocusedEditor, markFocusedEditor } from "../editor/activeEditor";
 import { lineHighlightField } from "../editor/lineHighlight";
 import { RightRail } from "../editor/RightRail";
 import { wrapGutterMarkers } from "../editor/wrapGutter";
-import { isMarkdownPath, markdownStyling } from "../editor/markdownStyling";
+import { fencedCodeRanges, isMarkdownPath, markdownStyling } from "../editor/markdownStyling";
+import { taskCheckboxes } from "../editor/taskList";
+import { renderedMath } from "../editor/mathRender";
+import { proseWrap } from "../editor/wrapColumn";
+import { editorChrome } from "../editor/chrome";
 import { byteToChar } from "../lib/offsets";
 
 export interface HighlightRange {
@@ -156,6 +161,10 @@ export function OutputEditorPane({
       state: EditorState.create({
         doc: initial.content,
         extensions: [
+          // The same chrome every editor wears; `code` is the look a
+          // `hick:file` body has inside a document, so opening the file and
+          // reading the block that writes it are not two different programs.
+          editorChrome("code"),
           highlightField,
           // The fading mark on text a re-weave just changed.
           changeFlashField,
@@ -175,13 +184,30 @@ export function OutputEditorPane({
           // markdown look (big headings, styled bold/em/code). Display-only
           // decorations — the buffer's text is untouched, and they compose
           // with the lineage highlights, search, and any `extensions`.
-          ...(isMarkdownPath(initial.path) ? [markdownStyling()] : []),
+          ...(isMarkdownPath(initial.path) ? [markdownStyling(), taskCheckboxes(), renderedMath()] : []),
           history(),
           // In-buffer find (Mod-F), same shape as the document editor's:
           // panel on top, keymap first, shifted chord left to the shell.
           search({ top: true }),
           keymap.of([...searchKeymap, ...defaultKeymap, ...historyKeymap, indentWithTab]),
-          EditorView.lineWrapping,
+          // Prose wraps at the measure; a fenced code block keeps its lines
+          // and takes the whole pane. In a non-markdown file EVERY line is
+          // code, which is exactly what `fencedCodeRanges` returning the whole
+          // buffer expresses.
+          proseWrap((state) =>
+            isMarkdownPath(initial.path)
+              ? fencedCodeRanges(state.doc.toString())
+              : [[0, state.doc.length] as [number, number]],
+          ),
+          // Which buffer Print means. Not `markActiveEditor` — that one
+          // answers "where does an Insert go?", and a hick element written
+          // into a file this document generates would land in the woven
+          // output, where it means nothing.
+          EditorView.focusChangeEffect.of((_state, focusing) => {
+            const live = viewRef.current;
+            if (focusing && live) markFocusedEditor(live);
+            return null;
+          }),
           EditorView.updateListener.of((u) => {
             if (u.docChanged) {
               changesRef.current = changesRef.current
@@ -216,6 +242,7 @@ export function OutputEditorPane({
     return () => {
       view.dom.removeEventListener("mousemove", onMove);
       onViewReady?.(null);
+      forgetFocusedEditor(view);
       view.destroy();
       viewRef.current = null;
       setRailView(null);

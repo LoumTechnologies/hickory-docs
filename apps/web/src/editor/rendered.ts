@@ -68,12 +68,14 @@ export function isRendered(state: EditorState, at: number): boolean {
   return state.field(renderedField, false)?.includes(at) ?? false;
 }
 
-/** Every exec and diagram block of a document, in order — the blocks that
- * have something to render. */
+/** Every exec, diagram, and math block of a document, in order — the blocks
+ * that have something to render. */
 export function renderableBlocks(structure: HickDocStructure): HickBlock[] {
-  return [...execBlocksOf(structure), ...blocksNamed(structure, "diagram")].sort(
-    (a, b) => a.from - b.from,
-  );
+  return [
+    ...execBlocksOf(structure),
+    ...blocksNamed(structure, "diagram"),
+    ...blocksNamed(structure, "math"),
+  ].sort((a, b) => a.from - b.from);
 }
 
 // ---------------------------------------------------------------------------
@@ -84,7 +86,7 @@ export interface RenderedSlot {
   key: string;
   el: HTMLElement;
   index: number;
-  kind: "exec" | "diagram";
+  kind: "exec" | "diagram" | "math";
   /** The block's start offset — what a toggle effect carries. */
   at: number;
   /** The block's whole source span, for matching the server's exec blocks. */
@@ -132,7 +134,11 @@ class RenderedWidget extends WidgetType {
   }
 
   get estimatedHeight() {
-    return this.slot.kind === "diagram" ? 180 : 90;
+    if (this.slot.kind === "diagram") return 180;
+    // An equation is one or two lines of tall type, not a picture: guessing a
+    // diagram's height for it makes the scrollbar lie by a screenful in a
+    // document full of maths.
+    return this.slot.kind === "math" ? 56 : 90;
   }
 
   ignoreEvent() {
@@ -157,10 +163,11 @@ function buildRendered(state: EditorState, registry: RenderedRegistry): Decorati
   const structure = structureOf(state);
   const doc = state.doc;
   const ranges: Range<Decoration>[] = [];
-  const counts = { exec: 0, diagram: 0 };
+  const counts = { exec: 0, diagram: 0, math: 0 };
 
   for (const block of renderableBlocks(structure)) {
-    const kind = block.name === "diagram" ? "diagram" : "exec";
+    const kind =
+      block.name === "diagram" ? "diagram" : block.name === "math" ? "math" : "exec";
     const index = counts[kind]++;
     if (!rendered.includes(block.from)) continue;
     // A block replacement must cover whole lines, or CodeMirror cannot take
@@ -177,9 +184,9 @@ function buildRendered(state: EditorState, registry: RenderedRegistry): Decorati
           at: block.from,
           span: [block.from, block.to],
           text:
-            kind === "diagram"
-              ? doc.sliceString(block.contentFrom, block.contentTo)
-              : commandOf(state, structure, block),
+            kind === "exec"
+              ? commandOf(state, structure, block)
+              : doc.sliceString(block.contentFrom, block.contentTo),
           renderer: block.attrs.renderer ?? "mermaid",
           asserts: (block.attrs.asserts ?? "")
             .split(/\s+/)

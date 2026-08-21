@@ -20,10 +20,18 @@ import { api } from "../api/client";
 import type { AdoptResponse, PlainFile } from "../api/types";
 import { changeFlashField, syncAndFlash } from "../editor/changeFlash";
 import { languageExtensions } from "../editor/languages";
-import { isMarkdownPath, markdownStyling } from "../editor/markdownStyling";
+import { forgetFocusedEditor, markFocusedEditor } from "../editor/activeEditor";
+import { fencedCodeRanges, isMarkdownPath, markdownStyling } from "../editor/markdownStyling";
+import { taskCheckboxes } from "../editor/taskList";
+import { renderedMath } from "../editor/mathRender";
+import { proseWrap } from "../editor/wrapColumn";
+import { editorChrome } from "../editor/chrome";
 import { wrapGutterMarkers } from "../editor/wrapGutter";
 import { FILES_CHANGED_EVENT } from "../shell/FolderTreePane";
 import { createPlainSaver, type PlainSaveState } from "../lib/plainFileSave";
+import { draftDisposition, useDraftKeeper } from "../lib/drafts";
+import { onFlushSaves } from "../lib/flushSaves";
+import { MergeView } from "./MergeView";
 
 export function PlainFilePane({
   path,
@@ -41,6 +49,28 @@ export function PlainFilePane({
   const [saveState, setSaveState] = useState<PlainSaveState>({ kind: "idle" });
   const [adopting, setAdopting] = useState(false);
   const [adoptError, setAdoptError] = useState<string | null>(null);
+  // Whether some document in the folder already writes this file.
+  //
+  // The tree normally routes such a file to the generated pane and this one
+  // never opens for it. This is the second line of defence, for the ways it
+  // can still get here — a path typed into the URL, a document created while
+  // this tab was open — because offering to "make literate" a file that
+  // already is, is worse than an extra request: the reader is told their
+  // document is not what it plainly is.
+  const [generatedBy, setGeneratedBy] = useState<string | null>(null);
+  // A draft to put back into the buffer once the view exists. Held as state
+  // rather than applied immediately because the load lands before the editor
+  // is built.
+  const [restored, setRestored] = useState<string | null>(null);
+  // Two versions of this file that both have changes worth keeping. Set when
+  // a save conflicts, and when a restored draft finds the file has moved on.
+  const [merge, setMerge] = useState<{
+    base: string;
+    ours: string;
+    theirs: string;
+    oursLabel: string;
+    theirsLabel: string;
+  } | null>(null);
   const onAdoptedRef = useRef(onAdopted);
   onAdoptedRef.current = onAdopted;
 
@@ -53,6 +83,9 @@ export function PlainFilePane({
     [path],
   );
   useEffect(() => () => saver.dispose(), [saver]);
+  // File > Save All: this pane owns its saver, so it answers for its own
+  // buffer. See lib/flushSaves.ts.
+  useEffect(() => onFlushSaves(() => saver.flushNow()), [saver]);
 
   // The initial read. The pane renders its refusals — binary, too large,
   // missing — as text where the editor would be: the tab is still an honest
@@ -65,6 +98,59 @@ export function PlainFilePane({
         setFile(loaded);
         setLoadError(null);
         saver.load(loaded.content, loaded.hash);
+        void api.files().then(
+          (files) => {
+            if (!live) return;
+            const find = (nodes: typeof files.tree): string | null => {
+              for (const node of nodes) {
+                if (node.path === path) return node.generated_by ?? null;
+                const found = node.children ? find(node.children) : null;
+                if (found) return found;
+              }
+              return null;
+            };
+            setGeneratedBy(find(files.tree));
+          },
+          () => {
+            // The listing is unavailable: the button stays, and the adopt
+            // route's own refusal is the backstop.
+          },
+        );
+        // Was this buffer holding unsaved work when the app last closed?
+        //
+        // Three answers, and only one of them interrupts anybody. The file is
+        // as we left it: put the text back, still unsaved, silently — that is
+        // the common case by a wide margin, and a dialog here would train
+        // people to dismiss dialogs. The file already says the same thing:
+        // the draft is stale, drop it. The file moved on and so did we: that
+        // is a merge, and it is worth someone's attention.
+        void api.drafts().then(
+          ({ drafts }) => {
+            if (!live) return;
+            const draft = drafts.find((d) => d.path === path);
+            if (!draft) return;
+            const next = draftDisposition(draft, loaded.content);
+            if (next.kind === "clean") {
+              void api.discardDraft(path).catch(() => {});
+              return;
+            }
+            if (next.kind === "restore") {
+              setRestored(next.contents);
+              return;
+            }
+            setMerge({
+              base: next.base,
+              ours: next.ours,
+              theirs: next.theirs,
+              oursLabel: "Your unsaved changes",
+              theirsLabel: "The file on disk",
+            });
+          },
+          () => {
+            // No draft store on this machine: the file opens as it is on
+            // disk, which is what would have happened anyway.
+          },
+        );
       },
       (e) => live && setLoadError(e instanceof Error ? e.message : String(e)),
     );
@@ -89,15 +175,36 @@ export function PlainFilePane({
       state: EditorState.create({
         doc: initial.content,
         extensions: [
+          // The same chrome every editor wears; `code` is the look a
+          // `hick:file` body has inside a document, so opening the file and
+          // reading the block that writes it are not two different programs.
+          editorChrome("code"),
           changeFlashField,
           lineNumbers(),
           wrapGutterMarkers(),
           ...languageExtensions(initial.language),
-          ...(isMarkdownPath(initial.path) ? [markdownStyling()] : []),
+          ...(isMarkdownPath(initial.path) ? [markdownStyling(), taskCheckboxes(), renderedMath()] : []),
           history(),
           search({ top: true }),
           keymap.of([...searchKeymap, ...defaultKeymap, ...historyKeymap, indentWithTab]),
-          EditorView.lineWrapping,
+          // Prose wraps at the measure; a fenced code block keeps its lines
+          // and takes the whole pane. In a non-markdown file EVERY line is
+          // code, which is exactly what `fencedCodeRanges` returning the whole
+          // buffer expresses.
+          proseWrap((state) =>
+            isMarkdownPath(initial.path)
+              ? fencedCodeRanges(state.doc.toString())
+              : [[0, state.doc.length] as [number, number]],
+          ),
+          // Which buffer Print means. Not `markActiveEditor` — that one
+          // answers "where does an Insert go?", and a hick element written
+          // into a file this document generates would land in the woven
+          // output, where it means nothing.
+          EditorView.focusChangeEffect.of((_state, focusing) => {
+            const live = viewRef.current;
+            if (focusing && live) markFocusedEditor(live);
+            return null;
+          }),
           EditorView.updateListener.of((u) => {
             // Only edits a person made: a programmatic reload is this pane
             // catching up with the disk, and saving it back would write
@@ -121,12 +228,44 @@ export function PlainFilePane({
     });
     viewRef.current = view;
     return () => {
+      forgetFocusedEditor(view);
       view.destroy();
       viewRef.current = null;
     };
     // Mounted once per load; the saver is stable per path.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loaded, saver]);
+
+  /** Put text into the buffer and treat it as an unsaved edit — which is
+   * exactly what it is: restored work that the file does not have yet. */
+  const putInBuffer = useCallback(
+    (text: string) => {
+      const view = viewRef.current;
+      if (!view) return;
+      if (view.state.doc.toString() !== text) syncAndFlash(view, text);
+      saver.changed(text);
+    },
+    [saver],
+  );
+
+  // The restored draft goes in once the view exists — the load that found it
+  // lands before the editor is built.
+  useEffect(() => {
+    if (restored === null || !loaded) return;
+    putInBuffer(restored);
+    setRestored(null);
+  }, [restored, loaded, putInBuffer]);
+
+  // Write the buffer down while it differs from the file. Read through a
+  // callback so this costs nothing on the typing path — see lib/drafts.ts.
+  useDraftKeeper({
+    path,
+    enabled: loaded,
+    read: () => ({
+      contents: viewRef.current?.state.doc.toString() ?? "",
+      base: saver.baseContent(),
+    }),
+  });
 
   // Take the disk copy into the live buffer, flashing what changed.
   const adoptDiskCopy = useCallback(
@@ -184,6 +323,44 @@ export function PlainFilePane({
   }, [path]);
 
   const overwrite = useCallback(() => saver.resolve("overwrite"), [saver]);
+
+  /** The third answer to a conflict, and the one that does not throw work
+   * away: three-way merge the buffer against the disk, over the bytes this
+   * session started from. */
+  const openMerge = useCallback(() => {
+    const view = viewRef.current;
+    if (!view) return;
+    const ours = view.state.doc.toString();
+    const base = saver.baseContent();
+    void api.file(path).then(
+      (fresh) =>
+        setMerge({
+          base,
+          ours,
+          theirs: fresh.content,
+          oursLabel: "Your unsaved changes",
+          theirsLabel: "The file on disk",
+        }),
+      (e) => setSaveState({ kind: "error", message: e instanceof Error ? e.message : String(e) }),
+    );
+  }, [saver, path]);
+
+  /** The merged text becomes the buffer, and the file is reloaded first so
+   * the save that follows rides on the hash the disk actually has. */
+  const acceptMerge = useCallback(
+    (text: string) => {
+      setMerge(null);
+      saver.resolve("reload");
+      void api.file(path).then(
+        (fresh) => {
+          adoptDiskCopy(fresh);
+          putInBuffer(text);
+        },
+        (e) => setSaveState({ kind: "error", message: e instanceof Error ? e.message : String(e) }),
+      );
+    },
+    [saver, path, adoptDiskCopy, putInBuffer],
+  );
   const reload = useCallback(() => {
     saver.resolve("reload");
     api.file(path).then(adoptDiskCopy, (e) =>
@@ -202,6 +379,14 @@ export function PlainFilePane({
   return (
     <div className="plain-file-pane">
       <div className="doc-tab-toolbar" role="toolbar" aria-label={`Actions for ${path}`}>
+        {generatedBy ? (
+          // Not a disabled button: there is nothing to enable. This file is
+          // already the output of a literate document, and saying which one
+          // is more useful than a greyed-out verb.
+          <span className="muted plain-file__generated" role="status">
+            Written by a literate document — it is already literate.
+          </span>
+        ) : (
         <button
           className="btn"
           // Not while a save is in flight or parked on a conflict: the
@@ -212,6 +397,7 @@ export function PlainFilePane({
         >
           {adopting ? "Adopting…" : "Make literate"}
         </button>
+        )}
         {(saveState.kind === "saving" || saveState.kind === "saved") && (
           <span
             className={`save-state save-state-${saveState.kind === "saving" ? "editing" : "saved"}`}
@@ -235,6 +421,11 @@ export function PlainFilePane({
           </button>{" "}
           <button type="button" className="btn" onClick={overwrite}>
             Overwrite with my version
+          </button>{" "}
+          {/* The answer that throws nothing away. Reload loses this buffer;
+              overwrite loses whatever the other program wrote. */}
+          <button type="button" className="btn btn-primary" onClick={openMerge}>
+            Merge…
           </button>
         </div>
       )}
@@ -244,7 +435,23 @@ export function PlainFilePane({
         </div>
       )}
       {!file && <p className="muted">Loading {path}…</p>}
-      <div className="output-editor">
+      {/* The merge REPLACES the editor rather than floating over it: the two
+          sides plus their context need the whole pane to be readable, and a
+          modal over the buffer would hide the very text being merged. The
+          buffer is untouched underneath until the merge is accepted. */}
+      {merge ? (
+        <MergeView
+          path={path}
+          base={merge.base}
+          ours={merge.ours}
+          theirs={merge.theirs}
+          oursLabel={merge.oursLabel}
+          theirsLabel={merge.theirsLabel}
+          onAccept={acceptMerge}
+          onCancel={() => setMerge(null)}
+        />
+      ) : null}
+      <div className="output-editor" hidden={merge !== null}>
         <div ref={hostRef} className="editor-cm-host" />
       </div>
     </div>

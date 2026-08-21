@@ -18,7 +18,7 @@
 import { execBlocksOf, blocksNamed, proseFences } from "./hickDoc";
 import type { HickDocStructure } from "./hickDoc";
 
-export type CardKind = "exec" | "diagram" | "fence";
+export type CardKind = "exec" | "diagram" | "math" | "fence";
 
 export interface DocCard {
   /** Stable within one document version; the rail keys its buttons on it. */
@@ -80,6 +80,22 @@ export function cardsOf(structure: HickDocStructure, options: CardsOptions): Doc
       });
     });
   }
+
+  // A `<hick:math>` block is a paragraph-sized equation, so it gets a rail
+  // icon rather than the caret-reveal that inline maths uses: a reader who
+  // wants the LaTeX of a displayed equation should not have to put the cursor
+  // inside it to see it.
+  blocksNamed(structure, "math").forEach((block, index) => {
+    cards.push({
+      key: `math-${index}`,
+      kind: "math",
+      index,
+      at: block.from,
+      from: block.from,
+      to: block.to,
+      label: `Equation ${index + 1}`,
+    });
+  });
 
   proseFences(structure, options.text).forEach((fence, index) => {
     cards.push({

@@ -64,6 +64,49 @@ describe("markdownStyling — fencedCodeRanges", () => {
   });
 });
 
+describe("markdownStyling — block quotes", () => {
+  it("marks each quoted LINE with its nesting depth and marker run", () => {
+    const src = "> one\n> > two\nplain\n";
+    const { quotes } = parseMarkdownProse(src);
+    expect(quotes.map((q) => q.depth)).toEqual([1, 2]);
+    expect(src.slice(quotes[0].markFrom, quotes[0].markTo)).toBe("> ");
+    expect(src.slice(quotes[1].markFrom, quotes[1].markTo)).toBe("> > ");
+  });
+
+  it("styles prose inside a quote, so `> **bold**` is both", () => {
+    const src = "> a **bold** word\n";
+    const { quotes, inline } = parseMarkdownProse(src);
+    expect(quotes).toHaveLength(1);
+    const strong = inline.find((m) => m.kind === "strong")!;
+    expect(src.slice(strong.from, strong.to)).toBe("bold");
+  });
+
+  it("reads a heading inside a quote as a heading, not as a hash", () => {
+    const src = "> ## Quoted heading\n";
+    const { headings } = parseMarkdownProse(src);
+    expect(headings.map((h) => h.level)).toEqual([2]);
+    expect(src.slice(headings[0].markFrom, headings[0].markTo)).toBe("## ");
+  });
+
+  it("does not quote a line inside a fenced code block", () => {
+    const src = "```sh\n> not a quote\n```\n";
+    expect(parseMarkdownProse(src).quotes).toEqual([]);
+  });
+
+  it("gives a quote line a tinted line class and dims its marker", () => {
+    const src = "> quoted\n";
+    const classes = proseDecorationRanges(parseMarkdownProse(src), src.length).map(classOf);
+    expect(classes).toContain("cm-md-quote cm-md-quote-1");
+    expect(classes).toContain("cm-md-mark");
+  });
+
+  it("caps the tint at three levels rather than inventing a fourth grey", () => {
+    const src = "> > > > deep\n";
+    const classes = proseDecorationRanges(parseMarkdownProse(src), src.length).map(classOf);
+    expect(classes).toContain("cm-md-quote cm-md-quote-3");
+  });
+});
+
 describe("markdownStyling — proseDecorationRanges", () => {
   it("emits a heading line class per level and a dimmed mark", () => {
     const src = "## Second\n";

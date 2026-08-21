@@ -43,7 +43,38 @@ export function activeEditor(): EditorView | null {
   return current;
 }
 
+// ---------------------------------------------------------------------------
+// The broader one: whichever editor was last focused, of any kind.
+// ---------------------------------------------------------------------------
+//
+// Kept separate from `current` above rather than folded into it, because the
+// two answer different questions and the distinction is load-bearing. An
+// INSERT must land in a document — writing a hick element into a generated
+// file would put the tag in the woven output, where it means nothing — so
+// only document editors register there. PRINTING has no such rule: a plain
+// file is exactly as printable as a document, and the reader means the pane
+// they are looking at.
+
+let focused: EditorView | null = null;
+
+/** Remember this editor as the last one the reader was in. Every editing
+ * pane registers here, unlike `markActiveEditor`. */
+export function markFocusedEditor(view: EditorView): void {
+  focused = view;
+}
+
+export function forgetFocusedEditor(view: EditorView | null): void {
+  if (view && focused === view) focused = null;
+}
+
+/** The editor the reader was last in, whatever kind of file it holds. */
+export function focusedEditor(): EditorView | null {
+  if (focused && !focused.dom.isConnected) focused = null;
+  return focused;
+}
+
 /** Test seam: drop whatever is remembered. */
 export function resetActiveEditor(): void {
   current = null;
+  focused = null;
 }

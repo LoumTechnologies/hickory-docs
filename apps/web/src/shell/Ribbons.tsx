@@ -368,6 +368,44 @@ export function RibbonOverlay({
   if (reveal.current === null) reveal.current = new HoverReveal(setRevealedKeys);
   useEffect(() => () => reveal.current?.dispose(), []);
 
+  /**
+   * Tint the tree row a revealed ribbon is pointing at.
+   *
+   * A tree row is wide and its file name is left-aligned, so the ribbon lands
+   * on the row's near vertical EDGE — inches from the name it means. The line
+   * says "one of these rows"; without this it does not say which. Marking the
+   * row itself is the only way to close that gap without moving either the
+   * name or the line.
+   *
+   * Written straight onto the DOM rather than lifted into the tree pane's
+   * state: the tree is a different component in a different subtree, this
+   * changes on every hover, and a class toggle is exactly what a class toggle
+   * looks like.
+   */
+  useEffect(() => {
+    if (!container) return;
+    const marked: HTMLElement[] = [];
+    for (const shape of shapes) {
+      // Only a generated file has a path to find a row by; a document target
+      // is a byte span in the document that is already on screen.
+      if (shape.ends !== "tree" || shape.target.kind !== "generated") continue;
+      if (!revealedKeys.has(shape.key)) continue;
+      const row = terminalEl(container, `[data-tree-path=${attr(shape.target.path)}]`);
+      if (!row) continue;
+      row.classList.add("folder-tree__row--aimed");
+      // The colour is the ribbon's own, so several revealed at once stay
+      // told apart — the row and the line that reaches it match.
+      row.dataset.ribbonColor = String(shape.color);
+      marked.push(row);
+    }
+    return () => {
+      for (const row of marked) {
+        row.classList.remove("folder-tree__row--aimed");
+        delete row.dataset.ribbonColor;
+      }
+    };
+  }, [container, shapes, revealedKeys]);
+
   // Whitespace-only connections reveal from the pointer's POSITION over
   // their involved lines, tested here on container mousemove rather than
   // with pointer-taking elements — a hit rect over a blank line would steal

@@ -41,6 +41,19 @@ export interface PlainSaver {
   /** In conflict: "overwrite" forces the buffer onto disk; "reload" means
    * the caller adopted the disk copy and will load() it. */
   resolve(how: "overwrite" | "reload"): void;
+  /** The last content a successful exchange established — what the file held
+   * when this editing session began, as far as we ever knew.
+   *
+   * This is the COMMON ANCESTOR of the buffer and whatever the disk says now,
+   * which is what turns a conflict from "reload or overwrite, pick one" into
+   * a three-way merge. It is also what a draft records, so the same choice is
+   * available after a restart. */
+  baseContent(): string;
+  /** Write whatever is pending NOW, skipping the debounce — what File >
+   * Save All asks of every pane holding a file. A buffer with nothing
+   * pending, or one parked on a conflict, does nothing: forcing a conflicted
+   * save from a menu item would overwrite somebody's work without asking. */
+  flushNow(): void;
   /** Cancel the pending debounce (unmount). In-flight PUTs settle alone. */
   dispose(): void;
 }
@@ -100,6 +113,16 @@ export function createPlainSaver(options: PlainSaverOptions): PlainSaver {
     },
     hasPendingEdits() {
       return latest !== null && latest !== baseContent;
+    },
+    flushNow() {
+      if (timer !== null) {
+        clearTimeout(timer);
+        timer = null;
+      }
+      flush();
+    },
+    baseContent() {
+      return baseContent;
     },
     resolve(how: "overwrite" | "reload") {
       if (!conflicted) return;

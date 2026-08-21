@@ -72,6 +72,11 @@
   --ribbon-3: #b8a7f5;
   --ribbon-4: #e0a35f;
   --ribbon-5: #e5849b;
+  /* Editor chrome shared by every editor (editor/chrome.ts): the
+     selection wash and the find-panel hit colours. */
+  --select-bg: #2b4a6f;
+  --search-hit: #5a4a24;
+  --search-hit-on: #8a6f2c;
 }
 
 /* "light" — the original warm paper palette. */
@@ -122,6 +127,9 @@
   --ribbon-3: #5f5a9e;
   --ribbon-4: #9a6b16;
   --ribbon-5: #446b7a;
+  --select-bg: #cfe0f5;
+  --search-hit: #f5e4bd;
+  --search-hit-on: #e8c878;
 }
 
 /* "warm-dark" — the original sepia dark palette, kept as a choice. */
@@ -172,6 +180,9 @@
   --ribbon-3: #a89ed6;
   --ribbon-4: #d3a54a;
   --ribbon-5: #7fb0a8;
+  --select-bg: #4a3f28;
+  --search-hit: #5c4a22;
+  --search-hit-on: #8f7333;
 }
 
 * {
@@ -760,12 +771,114 @@ textarea:focus {
   line-height: 1.65;
 }
 
+/* The page is LEFT-ALIGNED and as wide as the pane.
+ *
+ * It used to be a centred 46rem column, which is the right shape for an
+ * article and the wrong shape for a document that is half code: a fenced
+ * block or an exec cell got the same narrow measure as a sentence, so an
+ * aligned table or a long command wrapped into nonsense with empty pane on
+ * both sides of it.
+ *
+ * So the measure moved off the page and onto the PROSE. `--prose-wrap` is
+ * written by editor/wrapColumn.ts from the view's own character width, and
+ * `--cm-pad-x` is the one place the text's left inset is stated — the dotted
+ * margin line is drawn at the sum of the two, which is the only way it can
+ * land on the same pixel the text wraps at. */
 .document-editor .cm-content {
-  max-width: 46rem;
-  margin: 0 auto;
-  padding: 2rem 2.5rem 3rem;
+  --cm-pad-x: 2.5rem;
+  max-width: none;
+  margin: 0;
+  padding: 2rem var(--cm-pad-x) 3rem;
   caret-color: var(--fg);
+  position: relative;
 }
+
+/* The measure, applied per LINE rather than to the page, so the line below
+   can opt out of it. */
+.document-editor .cm-line,
+.output-editor .cm-line,
+.plain-file .cm-line {
+  max-width: var(--prose-wrap, 46rem);
+}
+
+/* Code keeps its lines and takes the whole pane.
+ *
+ * A shell command broken across two rows is a command you can no longer read
+ * as one thing, and wrapping destroys any block whose meaning is in its
+ * columns. So a code line drops the measure, stops wrapping, and overflows
+ * into the horizontal scroll the scroller already provides. */
+.cm-code-line {
+  max-width: none;
+  white-space: pre;
+  width: max-content;
+  min-width: 100%;
+}
+
+/* The margin line: dotted, quiet, and never in the way of a click. It is the
+   editor's half of the ruler's marker — the two are drawn from the same
+   character width, so they cannot drift apart. */
+.document-editor .cm-content::before,
+.output-editor .cm-content::before,
+.plain-file .cm-content::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(var(--cm-pad-x, 2.5rem) + var(--prose-wrap, 46rem));
+  border-left: 1px dotted var(--border);
+  pointer-events: none;
+}
+
+/* The ruler: a measuring stick above the text, aligned to the text rather
+   than to its own box, because the gutter's width changes with the line
+   count. Display-only apart from the marker. */
+.editor-ruler {
+  position: relative;
+  height: 1.1rem;
+  flex: 0 0 auto;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-raised);
+  overflow: hidden;
+  user-select: none;
+}
+.editor-ruler__ticks {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.editor-ruler__tick {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--border);
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.58rem;
+  line-height: 1.1rem;
+  color: var(--fg-muted);
+  /* The number sits to the right of its own tick, which is what makes the
+     tick mark the column rather than the label's centre. */
+  padding-left: 2px;
+  white-space: nowrap;
+}
+.editor-ruler__tick--labelled { background: var(--fg-muted); }
+.editor-ruler__marker {
+  position: absolute;
+  top: 0;
+  transform: translateX(-50%);
+  height: 1.1rem;
+  line-height: 1rem;
+  padding: 0 2px;
+  border: none;
+  background: none;
+  color: var(--fg-muted);
+  font-size: 0.7rem;
+  cursor: ew-resize;
+  touch-action: none;
+}
+.editor-ruler__marker:hover,
+.editor-ruler__marker:focus-visible,
+.editor-ruler__marker--dragging { color: var(--accent); outline: none; }
 
 /* Headings: big type, `#` marks stay visible but dimmed. */
 .cm-md-heading { font-weight: 650; line-height: 1.3; }
@@ -788,6 +901,46 @@ textarea:focus {
   background: var(--bg-sunken);
   border-radius: 4px;
   padding: 0.05em 0.25em;
+}
+
+/* Block quotes: a rule down the left edge and quieter text. The `>` markers
+   stay in the buffer (dimmed by .cm-md-mark) because this editor never hides
+   the source it is styling. */
+.cm-md-quote {
+  color: var(--fg-muted);
+  border-left: 3px solid var(--border);
+  padding-left: 0.7em;
+  margin-left: 0.1em;
+}
+.cm-md-quote-2 { border-left-width: 3px; box-shadow: inset 6px 0 0 -3px var(--border); padding-left: 1.3em; }
+.cm-md-quote-3 { box-shadow: inset 6px 0 0 -3px var(--border), inset 12px 0 0 -9px var(--border); padding-left: 1.9em; }
+
+/* Task lists. The line class carries the done state so the text can be
+   struck through without touching the checkbox glyph itself. */
+.cm-md-task--done .cm-md-task-text { text-decoration: line-through; }
+.cm-md-task--done { color: var(--fg-muted); }
+
+.cm-md-checkbox {
+  display: inline-block;
+  width: 1.05em;
+  height: 1.05em;
+  line-height: 1.05em;
+  text-align: center;
+  vertical-align: -0.15em;
+  margin-right: 0.15em;
+  border: 1px solid var(--fg-muted);
+  border-radius: 3px;
+  font-size: 0.85em;
+  cursor: pointer;
+  /* The glyph is text, so it inherits colour and scales with the zoom
+     level; nothing here depends on an image that a theme swap would miss. */
+  color: var(--bg);
+  user-select: none;
+}
+.cm-md-checkbox:hover { border-color: var(--accent); }
+.cm-md-checkbox--on {
+  background: var(--accent);
+  border-color: var(--accent);
 }
 
 /* hick tags: visible, but subtle dimmed chrome. */
@@ -1175,6 +1328,46 @@ textarea:focus {
   font-size: 0.8rem;
 }
 
+/* Typeset maths.
+ *
+ * KaTeX brings its own stylesheet and its own fonts; everything here is about
+ * how an equation sits in a document that is otherwise monospace source. The
+ * colour is inherited rather than set, so an equation is the document's text
+ * colour in every theme — KaTeX's own default is black, which in a dark
+ * document would be an invisible equation. */
+.math-panel {
+  margin: 0.4rem 0 0.2rem;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+.math-figure {
+  display: flex;
+  justify-content: center;
+  /* A long equation scrolls rather than forcing the pane wider: the text
+     column's width belongs to the prose. */
+  overflow-x: auto;
+  padding: 0.2rem 0;
+}
+.math-panel--empty { font-size: 0.8rem; }
+.rendered-math { position: relative; }
+.cm-rendered .math-panel { margin: 0; }
+
+/* Maths rendered in place of its own source, inline or on its own lines.
+   `.cm-math` is the widget; the caret reveals the LaTeX by removing it. */
+.cm-math { color: var(--fg); }
+.cm-math .katex { color: inherit; }
+.cm-math--display {
+  display: block;
+  overflow-x: auto;
+  padding: 0.15rem 0;
+}
+/* The engine failed to LOAD (not "the LaTeX is wrong" — KaTeX draws what it
+   understood for that). The source stays visible, marked as untypeset. */
+.cm-math--unparsed {
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  color: var(--fg-muted);
+  text-decoration: underline dotted var(--fg-muted);
+}
+
 /* Executor-resolution note, inline at the end of a hick:container line.
    Faded end-of-line annotation (the inline-values pattern): every screen
    row keeps a line number, nothing wraps. */
@@ -1224,15 +1417,27 @@ textarea:focus {
   align-items: stretch;
 }
 
-.output-editor {
+/* A code pane wears the look a `hick:file` body has inside a document.
+ *
+ * The sunken ground and the accent rule are `.cm-file-line`'s (see above),
+ * lifted onto the pane's own box: opening `orders.py` and reading the
+ * `<hick:file path="orders.py">` block that writes it should not feel like
+ * two different programs. The font and the size come from
+ * `editorChrome("code")`, which is the same extension the document editor
+ * loads, so there is one definition rather than two that drift. */
+.output-editor,
+.plain-file-pane .output-editor {
   flex: 1;
   min-width: 0;
   min-height: 0;
   display: flex;
   border: 1px solid var(--border);
+  /* The accent rule down the left edge, exactly as a generated block has it
+     inside a document. */
+  border-left: 2px solid var(--accent-2);
   border-radius: 10px;
   overflow: hidden;
-  background: var(--bg-raised);
+  background: var(--bg-sunken);
 }
 .output-editor .cm-editor {
   flex: 1;
@@ -1240,8 +1445,6 @@ textarea:focus {
   max-height: 100%;
   font-size: 0.86rem;
 }
-.output-editor .cm-editor.cm-focused { outline: none; }
-.output-editor .cm-scroller { font-family: ui-monospace, Menlo, monospace; }
 
 .cm-prov-active {
   background: color-mix(in srgb, var(--accent-2) 22%, transparent);
@@ -1329,16 +1532,12 @@ textarea:focus {
 .enterprise-note { margin-top: 2rem; font-size: 0.88rem; }
 .enterprise-note a { color: var(--accent); }
 
-/* --- folding (native CM fold framework; heights stay in the height map) --- */
-.document-editor .cm-gutters {
-  background: transparent;
-  border-right: none;
-  color: var(--fg-muted);
-}
-.document-editor .cm-foldGutter .cm-gutterElement {
-  min-width: 1.5rem;
-  padding: 0 0.25rem 0 0.6rem;
-}
+/* --- folding (native CM fold framework; heights stay in the height map) ---
+   The gutter's own look moved to editor/chrome.ts, as an extension every
+   editor loads. It used to live here, scoped to `.document-editor`, which
+   meant every OTHER editor fell through to CodeMirror's built-in light theme:
+   a white gutter with dark numbers, in a dark window. Scoping the chrome to
+   one editor was the mistake; the white gutter was only how it showed up. */
 .cm-fold-marker {
   display: inline-block;
   cursor: pointer;
@@ -1350,7 +1549,7 @@ textarea:focus {
   user-select: none;
 }
 .cm-fold-marker.cm-fold-open { transform: rotate(90deg); }
-.document-editor .cm-foldGutter .cm-gutterElement:hover .cm-fold-marker { opacity: 1; }
+.cm-foldGutter .cm-gutterElement:hover .cm-fold-marker { opacity: 1; }
 /* Folded-body placeholder: a quiet pill, padding-only (no margins — CM must
    be able to measure the line box exactly). */
 .cm-hick-fold-placeholder {
@@ -1377,6 +1576,9 @@ textarea:focus {
    loop to enter. */
 .cm-scroller {
   scrollbar-gutter: stable;
+  /* Code lines do not wrap (see .cm-code-line), so there has to be somewhere
+     for a long one to go. */
+  overflow-x: auto;
 }
 
 .split-view {
@@ -1468,10 +1670,13 @@ textarea:focus {
 }
 .tree-lineage p { margin: 0.15rem 0; }
 .tree-lineage .prov-synthetic { opacity: 0.7; font-style: italic; }
-/* Narrower measure in split so both panes fit; padding stays padding. */
+/* Tighter inset in split so both panes fit. The MEASURE is not touched — it
+   belongs to the tab now, and squeezing it here would silently disagree with
+   the ruler's marker. */
 .split-left .document-editor .cm-content {
+  --cm-pad-x: 1.25rem;
   max-width: none;
-  padding: 1.25rem 1.25rem 2rem;
+  padding: 1.25rem var(--cm-pad-x) 2rem;
 }
 .split-left .document-editor .cm-editor,
 .split-output-editor .cm-editor { max-height: 100%; }
@@ -5350,56 +5555,66 @@ textarea:focus {
    quieter than a file row: these are transient, and the files are the folder.
    --------------------------------------------------------------------------- */
 
-.folder-tree__session {
-  display: flex;
+/* Terminals, as icons on the row of the directory they are working in.
+   
+   Icons rather than rows: a row per session pushes the folder's contents down
+   and turns a busy project's tree into mostly-not-files, which inverts what
+   the tree is for. These ride a row that already exists and take no vertical
+   space at all.
+
+   Most of them appear only while their row is hovered, because a tree covered
+   in glyphs is a tree nobody reads. The exception is the whole point — see
+   `--urgent` below. */
+.folder-tree__terms {
+  display: inline-flex;
   align-items: center;
-  gap: 0.4rem;
-  width: 100%;
-  padding: 0.1rem 0.35rem;
-  border: 0;
-  background: none;
-  color: var(--fg-muted);
-  text-align: left;
-  cursor: pointer;
+  gap: 0.15rem;
+  margin-left: auto;
+  padding-left: 0.4rem;
 }
 
-.folder-tree__session:hover {
-  background: var(--bg-raised);
-  color: var(--fg);
-}
-
-.folder-tree__session-dot {
+.folder-tree__term {
   flex: none;
-  width: 0.45rem;
-  height: 0.45rem;
-  border-radius: 50%;
-  background: var(--fg-muted);
-}
-
-/* The same states the sessions pane uses, so a running thing looks like a
-   running thing wherever you meet it. */
-.folder-tree__session.state-running .folder-tree__session-dot {
-  background: var(--accent-2);
-}
-.folder-tree__session.state-waiting .folder-tree__session-dot {
-  background: var(--warn);
-}
-.folder-tree__session.state-failed .folder-tree__session-dot {
-  background: var(--fail);
-}
-.folder-tree__session.state-finished .folder-tree__session-dot {
-  background: var(--ok);
-}
-
-.folder-tree__session-monitor {
-  font-size: 0.65rem;
-  padding: 0 0.25rem;
-  border-radius: 3px;
-  background: var(--neutral-bg);
+  font-size: 0.62rem;
+  line-height: 1;
+  padding: 0.1rem 0.1rem;
+  border-radius: 2px;
   color: var(--fg-muted);
+  cursor: pointer;
+  /* Hidden rather than removed: the row must not reflow when the pointer
+     arrives, or the thing being reached for moves out from under it. */
+  opacity: 0;
+  transition: opacity 90ms ease-out;
+}
+.folder-tree__dir:hover .folder-tree__term,
+.folder-tree__header:hover .folder-tree__term,
+.folder-tree__term:focus-visible {
+  opacity: 1;
+}
+.folder-tree__term:hover { color: var(--fg); background: var(--bg-raised); }
+
+/* A session that wants something from a person does not wait to be hovered.
+   An affordance that only appears once the pointer is already there cannot
+   tell you to go there — which is the entire reason to show terminals in the
+   tree at all. */
+.folder-tree__term--urgent { opacity: 1; }
+
+.folder-tree__term.state-needs-you { color: var(--warn); }
+.folder-tree__term.state-failed { color: var(--fail); }
+.folder-tree__term.state-working { color: var(--accent-2); }
+.folder-tree__term.state-finished { color: var(--ok); }
+.folder-tree__term.state-idle { color: var(--fg-muted); }
+
+/* A monitor session watches rather than works; the ring says so without
+   spending another glyph on it. */
+.folder-tree__term--monitor {
+  outline: 1px dotted currentColor;
+  outline-offset: -1px;
 }
 
-/* On a collapsed directory: how many sessions are hidden inside it. */
+/* On a collapsed directory: how many sessions are hidden inside it, because a
+   folded directory would otherwise hide the processes running in it — exactly
+   the thing worth seeing. */
 .folder-tree__session-count {
   margin-left: auto;
   font-size: 0.65rem;
@@ -5409,4 +5624,224 @@ textarea:focus {
   background: var(--neutral-bg);
   color: var(--fg-muted);
   text-align: center;
+}
+/* ...and if one of them is asking a question, the count says so in colour as
+   well as in its tooltip. */
+.folder-tree__session-count--urgent {
+  background: var(--warn);
+  color: var(--bg);
+  font-weight: 600;
+}
+
+/* the merge view ------------------------------------------------------------
+   Opened when two versions of one file both have changes worth keeping — a
+   restored draft against a file that moved on while the app was closed.
+
+   The visual job is to make "how much of this is my problem" answerable
+   before any of it is read: agreed text is quiet, auto-merged regions are
+   visible but plainly settled, and only a real conflict looks like a
+   question. */
+.merge-view {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  background: var(--bg);
+}
+.merge-view__head {
+  padding: 0.9rem 1.1rem 0.7rem;
+  border-bottom: 1px solid var(--border);
+}
+.merge-view__title { margin: 0 0 0.35rem; font-size: 0.95rem; font-weight: 600; }
+.merge-view__summary { margin: 0; font-size: 0.82rem; color: var(--fg); }
+.merge-view__note {
+  margin: 0.4rem 0 0;
+  font-size: 0.76rem;
+  color: var(--fg-muted);
+  max-width: 52ch;
+}
+.merge-view__regions {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 0.6rem 1.1rem 1.2rem;
+}
+.merge-view__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5rem;
+  padding: 0.6rem 1.1rem;
+  border-top: 1px solid var(--border);
+}
+
+.merge-region pre {
+  margin: 0;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.8rem;
+  white-space: pre-wrap;
+  overflow-x: auto;
+}
+/* Agreed text: present because context is what makes a conflict answerable,
+   quiet because it is not the question. */
+.merge-region--stable {
+  color: var(--fg-muted);
+  padding: 0.15rem 0;
+}
+.merge-region--resolved {
+  margin: 0.4rem 0;
+  padding: 0.35rem 0.6rem;
+  border-left: 3px solid var(--ok);
+  background: var(--bg-raised);
+  border-radius: 0 5px 5px 0;
+}
+.merge-region__label {
+  margin: 0 0 0.2rem;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--fg-muted);
+}
+.merge-region--conflict {
+  margin: 0.6rem 0;
+  padding: 0.5rem 0.6rem;
+  border: 1px solid var(--warn);
+  border-radius: 6px;
+  background: var(--bg-raised);
+}
+/* Answered, but still shown: the reader may want to change their mind, and a
+   conflict that vanished on being answered would take its own context with
+   it. */
+.merge-region--answered { border-color: var(--ok); }
+.merge-region__sides {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.6rem;
+}
+@media (max-width: 52rem) {
+  .merge-region__sides { grid-template-columns: 1fr; }
+}
+.merge-side {
+  padding: 0.3rem 0.45rem;
+  border-radius: 5px;
+  border: 1px solid transparent;
+}
+.merge-side--taken {
+  border-color: var(--ok);
+  background: color-mix(in srgb, var(--ok) 10%, transparent);
+}
+.merge-region__choices {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin-top: 0.5rem;
+}
+.btn-small {
+  font-size: 0.74rem;
+  padding: 0.15rem 0.5rem;
+}
+
+/* printing ------------------------------------------------------------------
+   The printable copy is written into `.print-sheet` by lib/printing.ts and
+   removed again the moment the dialog closes; it is never part of the page a
+   reader sees. The rule below is what makes the rest of the app disappear
+   while it is there.
+
+   Why not print the editor itself: CodeMirror virtualises, so only the lines
+   near the viewport exist in the DOM. Printing the window would print one
+   screenful, silently, and the paper would look fine. */
+.print-sheet { display: none; }
+
+@media print {
+  /* Everything the app draws is chrome as far as paper is concerned. */
+  body > *:not(.print-sheet) { display: none !important; }
+  /* The only rules in this file that do not style through var(--…), and the
+     only ones that should be.
+     
+     The token guard exists because a raw colour in a rule is invisible to two
+     of the three themes. Paper is not one of the three themes: it is white,
+     the ink is black, and that is true whichever palette the reader has the
+     app set to. Named colours rather than tokens, so nothing here can be
+     "fixed" later by pointing it at a theme that does not apply. */
+  .print-sheet {
+    display: block;
+    color: black;
+    background: white;
+  }
+  .print-sheet__title {
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    font-size: 14pt;
+    margin: 0 0 12pt;
+    padding-bottom: 4pt;
+    border-bottom: 1px solid gray;
+  }
+  .print-sheet__body {
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 9pt;
+    line-height: 1.45;
+    /* Paper has a hard measure, and a printed line that runs off the right
+       edge is simply gone — so here, unlike on screen, code wraps too. */
+    white-space: pre-wrap;
+    word-break: break-word;
+    margin: 0;
+  }
+  @page {
+    margin: 18mm 15mm;
+  }
+}
+
+/* zoom ---------------------------------------------------------------------
+   Two scopes, one mechanism: a font size, never a transform. A transform
+   scales rendered pixels — blurry text, hit targets that no longer line up
+   with what is drawn, and a scrollbar belonging to the untransformed box.
+   This file sizes in `rem` almost throughout, so moving the root's font size
+   re-lays-out at the new size, which is what zoom is supposed to mean.
+
+   `--ui-zoom` is set on <html> by lib/zoom.ts; `--tab-zoom` is set per tab
+   body by the workspace. A tab at 100% therefore inherits the window's level
+   and nothing else, which is why the two compose instead of fighting. */
+html {
+  font-size: calc(100% * var(--ui-zoom, 1));
+}
+.tab-zoom {
+  font-size: calc(1rem * var(--tab-zoom, 1));
+  /* The box is a layout passthrough: it exists to carry a font size, and a
+     pane's body still has to fill the pane. */
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  min-width: 0;
+  flex: 1;
+}
+
+/* The tree row a revealed ribbon is aiming at.
+   
+   A tree row is wide and its file name is left-aligned, so the ribbon lands on
+   the row's near vertical edge — inches away from the name it means. The line
+   says "one of these rows"; this says which one. The tint carries the
+   ribbon's own colour, so several revealed at once stay told apart and the
+   row matches the line that reaches it. */
+.folder-tree__row--aimed {
+  background: color-mix(in srgb, var(--ribbon-0) 22%, transparent);
+  box-shadow: inset 2px 0 0 var(--ribbon-0);
+  border-radius: 2px;
+}
+.folder-tree__row--aimed[data-ribbon-color="1"] {
+  background: color-mix(in srgb, var(--ribbon-1) 22%, transparent);
+  box-shadow: inset 2px 0 0 var(--ribbon-1);
+}
+.folder-tree__row--aimed[data-ribbon-color="2"] {
+  background: color-mix(in srgb, var(--ribbon-2) 22%, transparent);
+  box-shadow: inset 2px 0 0 var(--ribbon-2);
+}
+.folder-tree__row--aimed[data-ribbon-color="3"] {
+  background: color-mix(in srgb, var(--ribbon-3) 22%, transparent);
+  box-shadow: inset 2px 0 0 var(--ribbon-3);
+}
+.folder-tree__row--aimed[data-ribbon-color="4"] {
+  background: color-mix(in srgb, var(--ribbon-4) 22%, transparent);
+  box-shadow: inset 2px 0 0 var(--ribbon-4);
+}
+.folder-tree__row--aimed[data-ribbon-color="5"] {
+  background: color-mix(in srgb, var(--ribbon-5) 22%, transparent);
+  box-shadow: inset 2px 0 0 var(--ribbon-5);
 }

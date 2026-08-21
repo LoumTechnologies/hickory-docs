@@ -92,6 +92,20 @@ fn app_menu(handle: &AppHandle) -> tauri::Result<Menu<Wry>> {
                 .accelerator("CmdOrCtrl+Shift+S")
                 .build(handle)?,
         )
+        .item(
+            // Every open buffer at once. The app already saves as you type,
+            // so this is "flush everything now" rather than "or else it is
+            // lost" — which is why it has no urgent accelerator.
+            &MenuItemBuilder::with_id("save-all", "Save All")
+                .accelerator("CmdOrCtrl+Alt+S")
+                .build(handle)?,
+        )
+        .separator()
+        .item(
+            &MenuItemBuilder::with_id("print", "Print…")
+                .accelerator("CmdOrCtrl+P")
+                .build(handle)?,
+        )
         .separator()
         .item(
             &MenuItemBuilder::with_id("terminal", "New Terminal")
@@ -131,6 +145,43 @@ fn app_menu(handle: &AppHandle) -> tauri::Result<Menu<Wry>> {
         .select_all()
         .build()?;
 
+    // Zoom, at two scopes. The whole window takes the chord everybody
+    // already has in their fingers from browsers and editors; adding Alt
+    // narrows it to the focused tab, which is the rarer request.
+    let view = SubmenuBuilder::new(handle, "View")
+        .item(
+            &MenuItemBuilder::with_id("zoom-in", "Zoom In")
+                .accelerator("CmdOrCtrl+=")
+                .build(handle)?,
+        )
+        .item(
+            &MenuItemBuilder::with_id("zoom-out", "Zoom Out")
+                .accelerator("CmdOrCtrl+-")
+                .build(handle)?,
+        )
+        .item(
+            &MenuItemBuilder::with_id("zoom-reset", "Actual Size")
+                .accelerator("CmdOrCtrl+0")
+                .build(handle)?,
+        )
+        .separator()
+        .item(
+            &MenuItemBuilder::with_id("zoom-tab-in", "Zoom In This Tab")
+                .accelerator("CmdOrCtrl+Alt+=")
+                .build(handle)?,
+        )
+        .item(
+            &MenuItemBuilder::with_id("zoom-tab-out", "Zoom Out This Tab")
+                .accelerator("CmdOrCtrl+Alt+-")
+                .build(handle)?,
+        )
+        .item(
+            &MenuItemBuilder::with_id("zoom-tab-reset", "Actual Size In This Tab")
+                .accelerator("CmdOrCtrl+Alt+0")
+                .build(handle)?,
+        )
+        .build()?;
+
     let insert = insert_menu(handle)?;
 
     let window = SubmenuBuilder::new(handle, "Window")
@@ -143,6 +194,7 @@ fn app_menu(handle: &AppHandle) -> tauri::Result<Menu<Wry>> {
     let menu = menu.item(&app_submenu);
     menu.item(&file)
         .item(&edit)
+        .item(&view)
         .item(&insert)
         .item(&window)
         .build()
@@ -200,6 +252,7 @@ const INSERT_GROUPS: InsertGroups = &[
             ("val", "Variable Value"),
             ("when", "Conditional Block"),
             ("diagram", "Diagram"),
+            ("math", "Equation"),
             ("transform", "Transform"),
             ("include", "Include A File"),
             ("upstream", "Upstream Document"),
@@ -244,9 +297,14 @@ fn insert_menu(handle: &AppHandle) -> tauri::Result<tauri::menu::Submenu<Wry>> {
 /// and the file watcher are per-process, so a new session is a restart).
 fn on_menu(app: &AppHandle, id: &str) {
     match id {
-        "new" | "save" | "save-as" | "settings" | "files" | "terminal" | "attention" => {
-            dispatch_to_ui(app, id)
-        }
+        "new" | "save" | "save-as" | "save-all" | "print" | "settings" | "files" | "terminal"
+        | "attention" => dispatch_to_ui(app, id),
+        // Zoom, both scopes. Handled by the page rather than by the webview's
+        // own zoom: this app sizes in `rem`, so moving the root font size
+        // RE-LAYS-OUT at the new size, where a webview zoom scales rendered
+        // pixels — blurry text, and hit targets that no longer line up with
+        // what is drawn.
+        _ if id.starts_with("zoom-") => dispatch_to_ui(app, id),
         // Every item of the Insert submenu, which the page answers by opening
         // its panel on the named element.
         _ if id.starts_with("insert") => dispatch_to_ui(app, id),

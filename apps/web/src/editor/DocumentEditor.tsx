@@ -14,6 +14,12 @@ import { Awareness } from "y-protocols/awareness";
 import { yCollab } from "y-codemirror.next";
 import type { Extension } from "@codemirror/state";
 import { EnvRegistry, setVerifiedExpects, structureOf, wysiwyg } from "./wysiwyg";
+import { taskCheckboxes } from "./taskList";
+import { renderedMath } from "./mathRender";
+import { EditorRuler } from "./EditorRuler";
+import { WRAP_DEFAULT, proseWrap } from "./wrapColumn";
+import { editorChrome } from "./chrome";
+import { mathSpans } from "../lib/math";
 import {
   diagnosticRanges,
   positionToOffset,
@@ -21,9 +27,20 @@ import {
 } from "../lsp/cmLsp";
 import type { LspDiagnostic } from "../lsp/client";
 import { hickoryFolding } from "./folding";
-import { forgetEditor, markActiveEditor } from "./activeEditor";
+import {
+  forgetEditor,
+  forgetFocusedEditor,
+  markActiveEditor,
+  markFocusedEditor,
+} from "./activeEditor";
 import type { EnvSlot } from "./wysiwyg";
-import { containerNamesOf, execBlocksOf, expectRangeOf, proseFences } from "./hickDoc";
+import {
+  containerNamesOf,
+  execBlocksOf,
+  expectRangeOf,
+  proseFences,
+  verbatimRanges,
+} from "./hickDoc";
 import { lineHighlightField } from "./lineHighlight";
 import { RightRail } from "./RightRail";
 import { CardRail, type CardState } from "./CardRail";
@@ -42,6 +59,7 @@ import { popoverTop } from "../lib/cardRail";
 import { actionsFor, hasReplay } from "../lib/railActions";
 import type { RailAction } from "../lib/railActions";
 import { DiagramPanel } from "../components/DiagramPanel";
+import { MathPanel } from "../components/MathPanel";
 import { CellPanel } from "../components/CellPanel";
 import { FenceConvert } from "../components/FenceConvert";
 import { EnvCard } from "../components/EnvCard";
@@ -72,6 +90,11 @@ export interface DocumentEditorProps {
   lspDiagnostics?: LspDiagnostic[];
   /** Dim hint shown while the buffer is empty (the untitled document). */
   placeholderText?: string;
+  /** Where PROSE wraps, in columns. Owned by the tab (so it is per-document
+   * and survives a restart); code never wraps whatever this says. */
+  wrapColumn?: number;
+  /** Report a measure the reader dragged on the ruler. */
+  onWrapColumn?: (column: number) => void;
 }
 
 /**
@@ -141,6 +164,8 @@ export function DocumentEditor({
   lspDiagnostics,
   onDebugFile,
   placeholderText,
+  wrapColumn = WRAP_DEFAULT,
+  onWrapColumn,
 }: DocumentEditorProps) {
   const hostRef = useRef<HTMLDivElement>(null);
   const viewRef = useRef<EditorView | null>(null);
@@ -281,6 +306,9 @@ export function DocumentEditor({
       state: EditorState.create({
         doc: ytext.toString(),
         extensions: [
+          // Gutters, caret, selection, the find panel — one definition, loaded
+          // by every editor in the app. See editor/chrome.ts.
+          editorChrome("document"),
           history(),
           // Undo must never reach content this client did not type.
           //
@@ -308,6 +336,23 @@ export function DocumentEditor({
           // The hovered-ribbon line tint, shared with the right rail.
           lineHighlightField,
           wysiwyg(envRegistry, (path) => onDebugFileRef.current?.(path)),
+          // Task boxes come from the DOCUMENT's structure parse, not a plain
+          // markdown scan: a `- [ ]` inside an exec cell's payload is a
+          // command's argument, and turning it into a checkbox would offer to
+          // edit a line the reader is not looking at.
+          taskCheckboxes((state) => structureOf(state).tasks),
+          // Inline and display maths written in PROSE. The verbatim ranges of
+          // the document are excluded, so `$PATH` in a shell cell stays a
+          // shell variable and `$` in a generated file stays a byte of that
+          // file. A `<hick:math>` block is not handled here at all: it is a
+          // rendered block with a rail icon (see editor/rendered.ts).
+          renderedMath((state) => {
+            const structure = structureOf(state);
+            return mathSpans(
+              state.doc.toString(),
+              verbatimRanges(structure.blocks),
+            );
+          }),
           renderedBlocks(renderedRegistry),
           hickoryFolding(),
           yCollab(ytext, awareness),
@@ -318,10 +363,25 @@ export function DocumentEditor({
           // focus away from every editor on the page.
           EditorView.focusChangeEffect.of((_state, focusing) => {
             const live = viewRef.current;
-            if (focusing && live) markActiveEditor(live);
+            if (focusing && live) {
+              markActiveEditor(live);
+              markFocusedEditor(live);
+            }
             return null;
           }),
-          EditorView.lineWrapping,
+          // Prose wraps at the ruler's measure; code keeps its lines and takes
+          // the whole pane. `proseWrap` turns lineWrapping on for both and
+          // then lets code opt out, line by line — see editor/wrapColumn.ts.
+          proseWrap((state) => {
+            const structure = structureOf(state);
+            const text = state.doc.toString();
+            return [
+              ...verbatimRanges(structure.blocks),
+              ...proseFences(structure, text).map(
+                (fence) => [fence.from, fence.to] as [number, number],
+              ),
+            ];
+          }),
           EditorView.updateListener.of((u) => {
             if (!u.docChanged) return;
             onChange?.(u.state.doc.toString());
@@ -364,6 +424,7 @@ export function DocumentEditor({
       cancelled = true;
       onViewReady?.(null);
       forgetEditor(view);
+      forgetFocusedEditor(view);
       view.destroy();
       viewRef.current = null;
       setRailView(null);
@@ -576,6 +637,11 @@ export function DocumentEditor({
       {/* The bordered box holds the editor, its right line-number rail, and
           the action rail outside that; the ribbon overlay anchors on the
           number rail's outer edge through `.with-right-rail`. */}
+      <EditorRuler
+        view={railView}
+        column={wrapColumn}
+        onColumn={(next) => onWrapColumn?.(next)}
+      />
       <div className="document-editor with-right-rail with-card-rail">
         <div ref={hostRef} className="editor-cm-host" />
         <RightRail view={railView} />
@@ -649,6 +715,15 @@ export function DocumentEditor({
                   state: "unknown" as const,
                 }))}
               />
+            </div>,
+            slot.el,
+            slot.key,
+          );
+        }
+        if (slot.kind === "math") {
+          return createPortal(
+            <div className="rendered-math">
+              <MathPanel source={slot.text} />
             </div>,
             slot.el,
             slot.key,

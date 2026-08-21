@@ -30,15 +30,16 @@ export function initialWorkspace(): Layout {
   return withTree(freeform(), makeTab("tree", "folder", "Files"));
 }
 
-/** The tool tab listing terminal sessions. One name, used by both the
- * opener and the furniture test below. */
-export const SESSIONS_TAB = "sessions";
-
-/** Furniture: panes that are part of the window rather than of the work —
- * the folder tree, and the terminals list. Neither counts as "something is
- * open here". */
+/** Furniture: panes that are part of the window rather than of the work.
+ *
+ * The folder tree, and any other tool pane. There used to be a second entry
+ * here — a pane listing every terminal session — and removing it is the point
+ * of this window having ONE tree: a terminal has a working directory, the
+ * tree already draws directories, and two trees meant two places to look for
+ * "what is going on", neither of them the place you were already looking.
+ * Terminals are icons on their directory's row now (shell/FolderTreePane). */
 function isFurniture(t: Tab): boolean {
-  return t.kind === "tree" || (t.kind === "tool" && t.target === SESSIONS_TAB);
+  return t.kind === "tree" || t.kind === "tool";
 }
 
 /**
@@ -50,20 +51,6 @@ function isFurniture(t: Tab): boolean {
  */
 export function isWorkspaceEmpty(layout: Layout): boolean {
   return panes(layout.root).every((pane) => pane.tabs.every(isFurniture));
-}
-
-/**
- * Show the terminals list: beside the folder tree, which is where the things
- * you navigate with live. Opening it twice fronts the one that exists.
- */
-export function openSessionsTab(layout: Layout): Layout {
-  for (const pane of panes(layout.root)) {
-    const index = pane.tabs.findIndex((t) => t.kind === "tool" && t.target === SESSIONS_TAB);
-    if (index >= 0) return activate(layout, pane.id, index);
-  }
-  const entry = makeTab("tool", SESSIONS_TAB, "Terminals");
-  const tree = panes(layout.root).find((pane) => pane.tabs.some((t) => t.kind === "tree"));
-  return openInLayout(layout, entry, tree?.id ?? layout.focus);
 }
 
 /** The pane holding a document's tab, when one does. Identity is the doc id:

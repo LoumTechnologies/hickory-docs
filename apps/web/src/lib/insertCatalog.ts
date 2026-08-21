@@ -743,6 +743,18 @@ export const INSERT_ELEMENTS: readonly InsertElement[] = [
     ],
   },
   {
+    id: "math",
+    tag: "math",
+    title: "Equation",
+    group: "Document",
+    summary: "Display maths, typeset in the document and woven as `$$…$$`.",
+    placement: "block",
+    body: "block",
+    bodyLabel: "LaTeX",
+    bodyPlaceholder: "e = mc^2",
+    fields: [],
+  },
+  {
     id: "transform",
     tag: "transform",
     title: "Transform",

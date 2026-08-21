@@ -17,7 +17,7 @@
 //
 // See docs/specs/freeform/shell-layouts.md.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { api } from "../api/client";
 import type { DocSummary, OpenTerminal, SearchHit } from "../api/types";
@@ -27,10 +27,9 @@ import { PlainFilePane } from "../components/PlainFilePane";
 import { ScratchpadPane } from "../components/ScratchpadPane";
 import { SearchPanel } from "../components/SearchPanel";
 import { ReferencesPanel } from "../components/ReferencesPanel";
-import { PromptPanel } from "../components/PromptPanel";
+import { PromptPanel, usePrompt } from "../components/PromptPanel";
 import { resolveSearchHit, type SearchNavigation } from "../lib/searchNavigation";
 import { insertTarget, type MenuAction } from "../lib/menuBridge";
-import { activeEditor } from "../editor/activeEditor";
 import { insertElement } from "../editor/insertElement";
 import { loadRibbonStyle, type RibbonStyle } from "../lib/ribbonStyle";
 import { loadTabStyle, type TabStyle } from "../lib/tabStyle";
@@ -47,7 +46,16 @@ import {
   isLikelyBinaryPath,
   useFolderTrees,
 } from "../shell/FolderTreePane";
-import { activate, panes as panesOf, tab as makeTab, treePane, withTree, type Layout } from "../shell/layout";
+import {
+  activate,
+  paneById,
+  panes as panesOf,
+  tab as makeTab,
+  treePane,
+  withTree,
+  type Layout,
+  type Tab,
+} from "../shell/layout";
 import { regionsOf } from "../shell/layouts";
 import type { Region } from "../shell/layout";
 import { navigate, redirect, type Route } from "../router";
@@ -65,20 +73,23 @@ import {
   openFileTab,
   openGeneratedTab,
   openIntoDeclared,
-  openSessionsTab,
   openTerminalTab,
   openScratchpadTab,
   openUntitledTab,
-  SESSIONS_TAB,
 } from "./workspaceState";
 import { DocSessionHost, SessionRegistry, useSessionVersion } from "./documentSession";
 import { AttentionCard } from "../terminal/AttentionCard";
 import { MonitorDock } from "../terminal/MonitorDock";
-import { SessionsPane } from "../terminal/SessionsPane";
 import { TerminalPane } from "../terminal/TerminalPane";
 import { sessionById, useTerminals } from "../terminal/useTerminals";
 import { nextInQueue } from "../lib/attentionCursor";
 import { DocTabBody, GeneratedTabBody, UntitledTab } from "./workspaceTabs";
+import { useWorkspaceUi } from "./useWorkspaceUi";
+import { focusedEditor } from "../editor/activeEditor";
+import { useZoom } from "./useZoom";
+import { TAB_ZOOM_VAR } from "../lib/zoom";
+import { requestFlushSaves } from "../lib/flushSaves";
+import { printText, printTitleFor } from "../lib/printing";
 
 /** The routes the workspace answers. Everything else is App's. */
 export type WorkspaceRoute = Extract<
@@ -133,6 +144,31 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   const [tabStyle] = useState<TabStyle>(() => loadTabStyle());
   const [channelWidth] = useState<number>(() => loadChannelWidth());
   const [shellBox, setShellBox] = useState<HTMLElement | null>(null);
+  // The workspace's own prompt, for the things that belong to the WINDOW
+  // rather than to a document — asking for a worktree's branch name, now that
+  // terminals have no pane of their own to ask on.
+  const shellPrompt = usePrompt();
+
+  // What the window looked like last time, and where each tab's prose measure
+  // sits. Restored into an untouched workspace only — the same rule a
+  // document's own declared layout follows — and the route's opener waits for
+  // `hydrated` so the two cannot race. See views/useWorkspaceUi.ts.
+  const workspaceUi = useWorkspaceUi(layout, (restored) => {
+    setLayout((current) => (isWorkspaceEmpty(current) ? restored : current));
+  });
+
+  // ⌘+ / ⌘- / ⌘0 size the whole window; adding Alt sizes only the focused
+  // tab. See views/useZoom.ts for why that split, and why it is the root's
+  // font size rather than a transform.
+  useZoom({
+    focusedTarget: () => {
+      const pane = paneById(layoutRef.current, layoutRef.current.focus);
+      const tab = pane?.tabs[pane.active];
+      return tab && tab.kind !== "tree" && tab.kind !== "tool" ? tab.target : null;
+    },
+    zoomOfTab: (target) => workspaceUi.zoomFor(target),
+    setTabZoom: workspaceUi.setZoom,
+  });
 
   // ---- which document the chrome follows ---------------------------------
   //
@@ -222,7 +258,12 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   // string means navigating from `#/new` to `#/scratchpad` looks like no
   // change at all, and the effect never runs.
   const routeKey = route.name === "doc" ? `doc:${route.id}` : route.name;
+  const hydrated = workspaceUi.hydrated;
   useEffect(() => {
+    // Wait for the stored layout. Opening the routed document first would
+    // leave the workspace non-empty when the restore lands, and the restore
+    // would be dropped without a word.
+    if (!hydrated) return;
     if (route.name === "new") {
       setLayout((current) => openUntitledTab(current));
       return;
@@ -239,7 +280,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     ensureDocOpen(route.id);
     // routeKey stands in for the route object, which is rebuilt per render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [routeKey, ensureDocOpen]);
+  }, [routeKey, ensureDocOpen, hydrated]);
 
   // The other direction: focusing a different document's pane makes the URL
   // follow, replacing the current entry — focus flips are not history the
@@ -417,7 +458,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   // not the focused SESSION, because the untitled buffer has no session and
   // is exactly where a first `<hick:exec>` most wants to be typed.
   const openInsert = useCallback((id: string | null) => {
-    const view = activeEditor();
+    const view = focusedEditor();
     if (!view) {
       setInsertNotice(
         "There is no document open to insert into. Open one from the Files tree, or start a new one.",
@@ -430,7 +471,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
 
   const applyInsert = useCallback(
     (element: Parameters<typeof insertElement>[1], values: Parameters<typeof insertElement>[2], body: string) => {
-      const view = activeEditor();
+      const view = focusedEditor();
       if (!view) {
         setInsertNotice("The document this was going into was closed. Open it again and retry.");
         return;
@@ -439,6 +480,29 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     },
     [],
   );
+
+  /**
+   * Print whatever buffer has the focus.
+   *
+   * The text comes from the editor's STATE rather than its DOM: CodeMirror
+   * only keeps the lines near the viewport in the document, so printing what
+   * is rendered would print one screenful and the paper would look fine. See
+   * lib/printing.ts.
+   */
+  const printFocusedBuffer = useCallback(() => {
+    const view = focusedEditor();
+    if (!view) {
+      setInsertNotice("Open a document or a file to print.");
+      return;
+    }
+    const tab = panesOf(layoutRef.current.root)
+      .flatMap((pane) => (pane.tabs[pane.active] ? [pane.tabs[pane.active]] : []))
+      .find((t) => t.kind !== "tree" && t.kind !== "tool");
+    printText({
+      title: printTitleFor(tab?.target ?? "document"),
+      text: view.state.doc.toString(),
+    });
+  }, []);
 
   useEffect(() => {
     if (insertNotice === null) return;
@@ -457,6 +521,20 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       // has no session for the lookup below to find.
       if (detail === "insert" || insertTarget(detail) !== null) {
         openInsert(insertTarget(detail));
+        return;
+      }
+      // Save All is the one command that is deliberately NOT about the
+      // focused buffer: every open document, plus every pane holding a file
+      // it saves itself. The panes are reached by an event rather than by a
+      // registry because a plain file has no session — it owns its own saver,
+      // and only it knows whether anything is pending.
+      if (detail === "save-all") {
+        for (const open of registry.all()) open.menuSave();
+        requestFlushSaves();
+        return;
+      }
+      if (detail === "print") {
+        printFocusedBuffer();
         return;
       }
       const session = registry.get(focusedIdRef.current);
@@ -559,7 +637,8 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     const onTerminalCommand = (event: Event) => {
       const detail = (event as CustomEvent).detail;
       if (detail === "terminal") {
-        setLayout(openSessionsTab);
+        // No list to open any more: the terminal appears as an icon on its
+        // directory's row in the one tree this window has.
         void openTerminal();
       } else if (detail === "attention") {
         nextAttention();
@@ -655,6 +734,119 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
 
   const banner = focused?.banner ?? null;
 
+  /**
+   * What one tab shows.
+   *
+   * Lifted out of the JSX so the shell's `render` can wrap every body in
+   * its tab's zoom box without this switch growing another level of
+   * indentation.
+   */
+  const renderTabBody = (tab: Tab): ReactNode => {
+    if (tab.kind === "document" && tab.docId) {
+      return (
+        <DocTabBody
+          registry={registry}
+          docId={tab.docId}
+          // The measure belongs to the TAB, keyed by its path, and
+          // is restored with the arrangement it was set in.
+          wrapColumn={workspaceUi.wrapFor(tab.target)}
+          onWrapColumn={(column) => workspaceUi.setWrap(tab.target, column)}
+        />
+      );
+    }
+    if (tab.kind === "generated" && tab.docId) {
+      return <GeneratedTabBody registry={registry} docId={tab.docId} path={tab.target} />;
+    }
+    if (tab.kind === "file") {
+      // Keyed by tab: two panes showing the same path are two
+      // buffers, each saving whole and each hearing the other's
+      // save as an external change on the next refresh signal.
+      return (
+        <PlainFilePane
+          key={tab.id}
+          path={tab.target}
+          onAdopted={(adopted) => {
+            // The file gained an owner: this tab becomes a
+            // generated tab in place, and the owning document
+            // opens beside it — the comparison adoption exists
+            // for. The tree refreshes to show the new document.
+            setLayout((current) =>
+              adoptPlainFileTab(current, tab.target, adopted.doc_id, adopted.output_path),
+            );
+            ensureDocOpen(adopted.doc_id);
+            navigate(`/docs/${adopted.doc_id}`);
+            window.dispatchEvent(new Event(FILES_CHANGED_EVENT));
+          }}
+        />
+      );
+    }
+    if (tab.kind === "scratchpad") {
+      return <ScratchpadPane key={tab.id} />;
+    }
+    if (tab.kind === "untitled") {
+      return <UntitledTab tabId={tab.id} onCreated={onUntitledCreated} />;
+    }
+    if (tab.kind === "terminal") {
+      // The emulator draws to a canvas, so the CSS zoom around it does
+      // nothing; it is told its level and re-fits itself.
+      return <TerminalPane sessionId={tab.target} zoom={workspaceUi.zoomFor(tab.target)} />;
+    }
+    if (tab.kind === "tree") {
+      return (
+        <FolderTreePane
+          roots={folderRoots}
+          error={folderError}
+          openable={new Set(openableOutputs.keys())}
+          activeDocId={focusedId ?? undefined}
+          onNewDocument={() => navigate("/new")}
+          // What is running, shown where it is running. The tree
+          // already knows the folder; the sessions already know
+          // their directory; this is the join.
+          sessions={terminals.sessions.map((session) => ({
+            id: session.id,
+            title: session.title,
+            cwd: session.cwd,
+            state: session.state,
+            monitor: session.monitor,
+            cwdIsLive: session.cwd_is_live ?? false,
+          }))}
+          onOpenTerminal={showTerminal}
+          // Terminals live in the tree now, so the verbs that used to sit on
+          // the terminals pane live on the rows they act on: a directory
+          // opens one IN that directory, and an icon's own menu is the only
+          // place a session can be stopped.
+          onNewTerminal={(path) => void openTerminal({ cwd: path })}
+          onNewWorktree={(path) => {
+            void shellPrompt.askText("Branch for the new worktree:", "").then((branch) => {
+              if (branch) {
+                void openTerminal({ title: branch, worktree_branch: branch, cwd: path });
+              }
+            });
+          }}
+          onCloseTerminal={(id) => void terminals.close(id)}
+          onOpen={(action) => {
+            // A document ADDS a tab (or fronts its existing one);
+            // a generated file opens beside its owner. Nothing
+            // closes, nothing rebuilds.
+            if (action.kind === "doc") {
+              ensureDocOpen(action.id);
+              navigate(`/docs/${action.id}`);
+            } else if (action.kind === "generated") {
+              // The server names the owner for any document in the folder;
+              // `openableOutputs` only knows the OPEN ones, so it is the
+              // fallback rather than the first answer.
+              const owner = action.docId ?? openableOutputs.get(action.path);
+              if (owner) openGeneratedFor(owner, action.path);
+            } else {
+              openPlainFile(action.path);
+            }
+          }}
+        />
+      );
+    }
+    return null;
+  };
+
   return (
     <div className="doc-page with-chat wide-mode">
       <div className="doc-main">
@@ -693,101 +885,18 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
                 Open a file from the Files tree, or split another pane.
               </span>
             }
-            render={(tab) => {
-              if (tab.kind === "document" && tab.docId) {
-                return <DocTabBody registry={registry} docId={tab.docId} />;
-              }
-              if (tab.kind === "generated" && tab.docId) {
-                return <GeneratedTabBody registry={registry} docId={tab.docId} path={tab.target} />;
-              }
-              if (tab.kind === "file") {
-                // Keyed by tab: two panes showing the same path are two
-                // buffers, each saving whole and each hearing the other's
-                // save as an external change on the next refresh signal.
-                return (
-                  <PlainFilePane
-                    key={tab.id}
-                    path={tab.target}
-                    onAdopted={(adopted) => {
-                      // The file gained an owner: this tab becomes a
-                      // generated tab in place, and the owning document
-                      // opens beside it — the comparison adoption exists
-                      // for. The tree refreshes to show the new document.
-                      setLayout((current) =>
-                        adoptPlainFileTab(current, tab.target, adopted.doc_id, adopted.output_path),
-                      );
-                      ensureDocOpen(adopted.doc_id);
-                      navigate(`/docs/${adopted.doc_id}`);
-                      window.dispatchEvent(new Event(FILES_CHANGED_EVENT));
-                    }}
-                  />
-                );
-              }
-              if (tab.kind === "scratchpad") {
-                return <ScratchpadPane key={tab.id} />;
-              }
-              if (tab.kind === "untitled") {
-                return <UntitledTab tabId={tab.id} onCreated={onUntitledCreated} />;
-              }
-              if (tab.kind === "terminal") {
-                return <TerminalPane sessionId={tab.target} />;
-              }
-              if (tab.kind === "tool" && tab.target === SESSIONS_TAB) {
-                return (
-                  <SessionsPane
-                    sessions={terminals.sessions}
-                    turbo={terminals.turbo}
-                    error={terminals.error}
-                    activeId={attentionAt}
-                    onOpen={showTerminal}
-                    onClose={(id) => void terminals.close(id)}
-                    onNew={(monitor) => void openTerminal({ monitor })}
-                    onNewWorktree={(branch) =>
-                      void openTerminal({ title: branch, worktree_branch: branch })
-                    }
-                    onSetTurbo={(enabled) => void terminals.setTurbo(enabled)}
-                  />
-                );
-              }
-              if (tab.kind === "tree") {
-                return (
-                  <FolderTreePane
-                    roots={folderRoots}
-                    error={folderError}
-                    openable={new Set(openableOutputs.keys())}
-                    activeDocId={focusedId ?? undefined}
-                    onNewDocument={() => navigate("/new")}
-                    // What is running, shown where it is running. The tree
-                    // already knows the folder; the sessions already know
-                    // their directory; this is the join.
-                    sessions={terminals.sessions.map((session) => ({
-                      id: session.id,
-                      title: session.title,
-                      cwd: session.cwd,
-                      state: session.state,
-                      monitor: session.monitor,
-                      cwdIsLive: session.cwd_is_live ?? false,
-                    }))}
-                    onOpenTerminal={showTerminal}
-                    onOpen={(action) => {
-                      // A document ADDS a tab (or fronts its existing one);
-                      // a generated file opens beside its owner. Nothing
-                      // closes, nothing rebuilds.
-                      if (action.kind === "doc") {
-                        ensureDocOpen(action.id);
-                        navigate(`/docs/${action.id}`);
-                      } else if (action.kind === "generated") {
-                        const owner = openableOutputs.get(action.path);
-                        if (owner) openGeneratedFor(owner, action.path);
-                      } else {
-                        openPlainFile(action.path);
-                      }
-                    }}
-                  />
-                );
-              }
-              return null;
-            }}
+            // Every tab body is wrapped in its own zoom box. A pane's level
+            // is a font size on that box and nothing else moves — which is
+            // the point of a tab-scoped zoom: the furniture staying put is
+            // what makes it usable for one dense file.
+            render={(tab) => (
+              <div
+                className="tab-zoom"
+                style={{ [TAB_ZOOM_VAR]: workspaceUi.zoomFor(tab.target) } as React.CSSProperties}
+              >
+                {renderTabBody(tab)}
+              </div>
+            )}
           />
           {/* Where this text came from, drawn between the panes showing it.
               Not a layout: an overlay, following the focused document. */}
@@ -854,6 +963,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
         />
       )}
       {focused && <PromptPanel prompt={focused.prompt} onSettle={focused.settle} />}
+      <PromptPanel prompt={shellPrompt.prompt} onSettle={shellPrompt.settle} />
       {focused && (
         <ChatDock
           // Keyed by document: the dock docks to the focused document, one

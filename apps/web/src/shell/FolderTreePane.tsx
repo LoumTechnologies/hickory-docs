@@ -14,7 +14,14 @@ import { useCallback, useEffect, useMemo, useState, type MouseEvent } from "reac
 import { api } from "../api/client";
 import type { FileNode, FilesResponse } from "../api/types";
 import { TreeContextMenu } from "./TreeContextMenu";
-import { copyText, treeMenuItems, type TreeFolder, type TreeMenuItem } from "./treeMenu";
+import {
+  copyText,
+  terminalMenuItems,
+  treeMenuItems,
+  type TreeFolder,
+  type TreeMenuItem,
+} from "./treeMenu";
+import { alwaysVisible, hiddenSummary, rankSessions, urgentCount } from "../lib/treeTerminals";
 
 /** One open folder: the server's FilesResponse, kept whole. */
 export type FolderTree = FilesResponse;
@@ -26,8 +33,10 @@ export type FolderTree = FilesResponse;
 export type FileAction =
   /** A `.hick` document: navigate to its route. */
   | { kind: "doc"; id: string }
-  /** A file the current document generates: open a generated pane. */
-  | { kind: "generated"; path: string }
+  /** A file some document generates: open a generated pane. `docId` names the
+   * owner when the server knew it, which it does for any document in the
+   * folder — not only for the ones already open. */
+  | { kind: "generated"; path: string; docId?: string }
   /** Any other text file: open a plain-file pane. */
   | { kind: "file"; path: string }
   /** A file this app cannot show (binary, by extension): named, and inert. */
@@ -60,6 +69,12 @@ export function isLikelyBinaryPath(path: string): boolean {
  */
 export function fileAction(node: FileNode, openable: ReadonlySet<string>): FileAction {
   if (node.doc_id) return { kind: "doc", id: node.doc_id };
+  // `openable` is what the OPEN documents weave; `generated_by` is what every
+  // document in the folder declares. The second is the reason a woven file
+  // opens as the generated thing it is even when its document is closed —
+  // and the reason the app stops offering to make `cards.md` literate when
+  // `cards.hick` has been writing it all along.
+  if (node.generated_by) return { kind: "generated", path: node.path, docId: node.generated_by };
   if (openable.has(node.path)) return { kind: "generated", path: node.path };
   if (isLikelyBinaryPath(node.path)) return { kind: "inert" };
   return { kind: "file", path: node.path };
@@ -268,45 +283,86 @@ export interface FolderTreePaneProps {
   onNewDocument: () => void;
   /** The document currently on screen, to mark its row. */
   activeDocId?: string;
-  /** Terminal sessions, shown at the directory each one is working in. */
+  /** Terminal sessions, shown as icons on the directory each one is working
+   * in. There is no separate list of terminals any more: a terminal has a
+   * working directory, this tree already draws directories, and two trees
+   * meant two places to look for "what is going on". */
   sessions?: readonly TreeSession[];
-  /** A click on a session row: show that terminal. */
+  /** A click on a terminal icon: show that terminal. */
   onOpenTerminal?: (id: string) => void;
+  /** "Open terminal here" on a directory's menu, with its root-relative
+   * path. */
+  onNewTerminal?: (path: string) => void;
+  /** "New worktree here…" on a directory's menu. */
+  onNewWorktree?: (path: string) => void;
+  /** "Close" on a terminal icon's own menu — the only place a session can be
+   * stopped now that terminals have no list of their own. */
+  onCloseTerminal?: (id: string) => void;
   error?: string | null;
 }
 
 /** One running session, at the directory it is running in. */
-function SessionRow({
-  session,
-  depth,
+/**
+ * The terminals running in one directory, as icons on that directory's own
+ * row.
+ *
+ * Icons rather than rows: a row per session pushes the folder's contents down
+ * and turns a busy project's tree into mostly-not-files, which inverts what
+ * the tree is for. These ride a row that already exists and cost no vertical
+ * space at all. See lib/treeTerminals.ts for the ordering, and for why a
+ * session that needs you does not wait to be hovered.
+ */
+function TerminalIcons({
+  sessions,
   onOpen,
+  onMenu,
 }: {
-  session: TreeSession;
-  depth: number;
+  sessions: readonly TreeSession[];
   onOpen?: (id: string) => void;
+  onMenu?: (event: MouseEvent, session: TreeSession) => void;
 }) {
-  const indent = { paddingLeft: `${depth * 0.85 + 0.4}rem` };
-  // Where the shell says it is, versus where it was started, is a real
-  // difference in how much to trust this row's placement — so the tooltip
-  // says which one it is rather than presenting both as the same fact.
-  const where = session.cwdIsLive
-    ? session.cwd
-    : `${session.cwd} — started here; this shell does not report its directory`;
+  if (sessions.length === 0) return null;
   return (
-    <li role="treeitem">
-      <button
-        type="button"
-        className={`folder-tree__session mono state-${session.state}`}
-        style={indent}
-        data-tip={where}
-        data-session-id={session.id}
-        onClick={() => onOpen?.(session.id)}
-      >
-        <span className="folder-tree__session-dot" aria-hidden />
-        {session.title}
-        {session.monitor && <span className="folder-tree__session-monitor">monitor</span>}
-      </button>
-    </li>
+    <span className="folder-tree__terms" role="group" aria-label="Terminals here">
+      {rankSessions(sessions).map((session) => {
+        // Where the shell says it is, versus where it was started, is a real
+        // difference in how much to trust this icon's placement — so the
+        // tooltip says which one it is rather than presenting both as one
+        // fact.
+        const where = session.cwdIsLive
+          ? session.cwd
+          : `${session.cwd} — started here; this shell does not report its directory`;
+        return (
+          <span
+            key={session.id}
+            role="button"
+            tabIndex={0}
+            className={`folder-tree__term state-${session.state}${
+              alwaysVisible(session.state) ? " folder-tree__term--urgent" : ""
+            }${session.monitor ? " folder-tree__term--monitor" : ""}`}
+            data-session-id={session.id}
+            data-tip={`${session.title} — ${session.state.replace("-", " ")}\n${where}`}
+            aria-label={`${session.title}, ${session.state.replace("-", " ")}`}
+            // The icon sits INSIDE the directory's own button, whose click
+            // toggles the folder. Both handlers stop propagation, or opening
+            // a terminal would fold the directory it is in.
+            onClick={(event) => {
+              event.stopPropagation();
+              onOpen?.(session.id);
+            }}
+            onKeyDown={(event) => {
+              if (event.key !== "Enter" && event.key !== " ") return;
+              event.preventDefault();
+              event.stopPropagation();
+              onOpen?.(session.id);
+            }}
+            onContextMenu={(event) => onMenu?.(event, session)}
+          >
+            ▮
+          </span>
+        );
+      })}
+    </span>
   );
 }
 
@@ -318,6 +374,9 @@ export function FolderTreePane({
   activeDocId,
   sessions = [],
   onOpenTerminal,
+  onNewTerminal,
+  onNewWorktree,
+  onCloseTerminal,
   error,
 }: FolderTreePaneProps) {
   if (error) return <p className="error folder-tree__error">{error}</p>;
@@ -334,6 +393,9 @@ export function FolderTreePane({
           activeDocId={activeDocId}
           sessions={sessions}
           onOpenTerminal={onOpenTerminal}
+          onNewTerminal={onNewTerminal}
+          onNewWorktree={onNewWorktree}
+          onCloseTerminal={onCloseTerminal}
         />
       ))}
     </div>
@@ -348,6 +410,9 @@ function FolderRoot({
   activeDocId,
   sessions,
   onOpenTerminal,
+  onNewTerminal,
+  onNewWorktree,
+  onCloseTerminal,
 }: {
   folder: FolderTree;
   openable: ReadonlySet<string>;
@@ -356,6 +421,9 @@ function FolderRoot({
   activeDocId?: string;
   sessions: readonly TreeSession[];
   onOpenTerminal?: (id: string) => void;
+  onNewTerminal?: (path: string) => void;
+  onNewWorktree?: (path: string) => void;
+  onCloseTerminal?: (id: string) => void;
 }) {
   const [expanded, setExpanded] = useState<Set<string>>(() => loadExpanded(folder.root));
   const toggle = useCallback(
@@ -404,6 +472,18 @@ function FolderRoot({
     setMenu({ x: event.clientX, y: event.clientY, path, dir });
   }, []);
 
+  /** A right-click on a terminal icon: its own short menu, not the row's. */
+  const [termMenu, setTermMenu] = useState<{
+    x: number;
+    y: number;
+    session: TreeSession;
+  } | null>(null);
+  const openTermMenu = useCallback((event: MouseEvent, session: TreeSession) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setTermMenu({ x: event.clientX, y: event.clientY, session });
+  }, []);
+
   const runItem = useCallback((item: TreeMenuItem) => {
     setMenu(null);
     const action = item.action;
@@ -413,11 +493,25 @@ function FolderRoot({
       );
       return;
     }
+    // Terminal verbs are the pane's owner's business: it holds the session
+    // list and the layout a new terminal opens into.
+    if (action.kind === "terminal") {
+      onNewTerminal?.(action.path);
+      return;
+    }
+    if (action.kind === "worktree") {
+      onNewWorktree?.(action.path);
+      return;
+    }
+    if (action.kind === "close-terminal") {
+      onCloseTerminal?.(action.id);
+      return;
+    }
     const call = action.kind === "reveal" ? api.reveal(action.path) : api.openExternal(action.path);
     void call.catch((e: unknown) =>
       setNotice(e instanceof Error ? e.message : String(e)),
     );
-  }, []);
+  }, [onNewTerminal, onNewWorktree, onCloseTerminal]);
 
   const name = folder.root.replace(/\/+$/, "").split("/").pop() || folder.root;
   return (
@@ -430,6 +524,9 @@ function FolderRoot({
         >
           {name}
         </span>
+        {/* Terminals working in the folder itself ride its header, the same
+            way a subdirectory's ride its row. */}
+        <TerminalIcons sessions={atRoot} onOpen={onOpenTerminal} onMenu={openTermMenu} />
         <button
           type="button"
           className="folder-tree__new"
@@ -445,9 +542,6 @@ function FolderRoot({
       )}
       {notice && <p className="error folder-tree__notice">{notice}</p>}
       <ul className="folder-tree__list" role="tree">
-        {atRoot.map((session) => (
-          <SessionRow key={session.id} session={session} depth={0} onOpen={onOpenTerminal} />
-        ))}
         {folder.tree.map((node) => (
           <TreeRow
             key={node.path}
@@ -463,6 +557,7 @@ function FolderRoot({
             onOpenTerminal={onOpenTerminal}
             root={folder.root}
             onRowMenu={openMenu}
+            onTermMenu={openTermMenu}
           />
         ))}
       </ul>
@@ -474,6 +569,19 @@ function FolderRoot({
           items={treeMenuItems(info, menu.path, menu.dir)}
           onPick={runItem}
           onClose={() => setMenu(null)}
+        />
+      )}
+      {termMenu && (
+        <TreeContextMenu
+          x={termMenu.x}
+          y={termMenu.y}
+          subject={termMenu.session.title}
+          items={terminalMenuItems(termMenu.session)}
+          onPick={(item) => {
+            setTermMenu(null);
+            runItem(item);
+          }}
+          onClose={() => setTermMenu(null)}
         />
       )}
     </section>
@@ -493,6 +601,7 @@ function TreeRow({
   onOpenTerminal,
   root,
   onRowMenu,
+  onTermMenu,
 }: {
   node: FileNode;
   depth: number;
@@ -507,6 +616,8 @@ function TreeRow({
   root: string;
   /** A right-click anywhere on this row (or its children). */
   onRowMenu: OnRowMenu;
+  /** A right-click on one of this row's terminal icons. */
+  onTermMenu?: (event: MouseEvent, session: TreeSession) => void;
 }) {
   const indent = { paddingLeft: `${depth * 0.85 + 0.4}rem` };
   if (node.dir) {
@@ -515,6 +626,17 @@ function TreeRow({
     // A collapsed directory would hide what is running inside it, which is
     // exactly the thing worth seeing — so it says how many instead.
     const hidden = open ? 0 : sessionsUnder(sessions, root, node.path);
+    // Whether any of those hidden ones is asking a question, so a folded
+    // directory can say "and one of them needs you" rather than just a count.
+    const hiddenUrgent = open
+      ? 0
+      : urgentCount(
+          sessions.filter((session) => {
+            const cwd = relativeCwd(session.cwd, root);
+            const dir = node.path.replace(/\/+$/, "");
+            return cwd !== null && (cwd === dir || cwd.startsWith(`${dir}/`));
+          }),
+        );
     return (
       <li role="treeitem" aria-expanded={open}>
         <button
@@ -529,25 +651,27 @@ function TreeRow({
             {open ? "▾" : "▸"}
           </span>
           {node.name}
-          {hidden > 0 && (
-            <span
-              className="folder-tree__session-count"
-              data-tip={`${hidden} terminal${hidden === 1 ? "" : "s"} running in here`}
-            >
-              {hidden}
-            </span>
+          {/* Open: the terminals working in THIS directory, as icons.
+              Collapsed: a count, because a folded directory would otherwise
+              hide the processes running inside it — which is exactly the
+              thing worth seeing. */}
+          {open ? (
+            <TerminalIcons sessions={here} onOpen={onOpenTerminal} onMenu={onTermMenu} />
+          ) : (
+            hidden > 0 && (
+              <span
+                className={`folder-tree__session-count${
+                  hiddenUrgent > 0 ? " folder-tree__session-count--urgent" : ""
+                }`}
+                data-tip={hiddenSummary(hidden, hiddenUrgent)}
+              >
+                {hidden}
+              </span>
+            )
           )}
         </button>
         {open && (
           <ul className="folder-tree__list" role="group">
-            {here.map((session) => (
-              <SessionRow
-                key={session.id}
-                session={session}
-                depth={depth + 1}
-                onOpen={onOpenTerminal}
-              />
-            ))}
             {(node.children ?? []).map((child) => (
               <TreeRow
                 key={child.path}
@@ -563,6 +687,7 @@ function TreeRow({
                 onOpenTerminal={onOpenTerminal}
                 root={root}
                 onRowMenu={onRowMenu}
+                onTermMenu={onTermMenu}
               />
             ))}
           </ul>

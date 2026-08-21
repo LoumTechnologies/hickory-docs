@@ -2564,9 +2564,11 @@ dependencies = [
  "hickory-executor-docker",
  "hickory-executor-sandbox",
  "hickory-lineage",
+ "hickory-workspace",
  "ignore",
  "log",
  "notify",
+ "regex",
  "reqwest 0.12.28",
  "rpassword",
  "serde",
@@ -2684,6 +2686,17 @@ dependencies = [
  "hick-lang",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "hickory-workspace"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "dirs",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
 ]
 
 [[package]]

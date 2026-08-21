@@ -28,7 +28,16 @@ export type TreeMenuAction =
   /** Show this root-relative path in the file manager. */
   | { kind: "reveal"; path: string }
   /** Open this root-relative path in its default program. */
-  | { kind: "open"; path: string };
+  | { kind: "open"; path: string }
+  /** Start a terminal working in this root-relative directory. Terminals live
+   * in the folder tree now — they have a working directory, and the tree
+   * already draws directories, so "open one here" is a verb of the row. */
+  | { kind: "terminal"; path: string }
+  /** Start a terminal in a fresh git worktree, on its own branch. */
+  | { kind: "worktree"; path: string }
+  /** Stop this session. The only place a terminal can be closed now that
+   * they have no list of their own. */
+  | { kind: "close-terminal"; id: string; title: string };
 
 export interface TreeMenuItem {
   /** Stable across renders and platforms; what a test clicks by. */
@@ -113,7 +122,37 @@ export function treeMenuItems(
       action: { kind: "open", path },
     });
   }
+  if (dir) {
+    items.push({
+      id: "new-terminal",
+      label: "Open terminal here",
+      action: { kind: "terminal", path },
+      group: true,
+    });
+    items.push({
+      id: "new-worktree",
+      label: "New worktree here…",
+      action: { kind: "worktree", path },
+    });
+  }
   return items;
+}
+
+/**
+ * The menu for one terminal icon.
+ *
+ * Short on purpose. An icon is a small target and a long menu on one is a
+ * menu nobody reads; the two verbs a running session has are "show me" and
+ * "stop".
+ */
+export function terminalMenuItems(session: { id: string; title: string }): TreeMenuItem[] {
+  return [
+    {
+      id: "close-terminal",
+      label: `Close ${session.title}`,
+      action: { kind: "close-terminal", id: session.id, title: session.title },
+    },
+  ];
 }
 
 /**
