@@ -28,6 +28,18 @@ import {
 /** The tab the agent conversation lives in. */
 export const CHAT_TAB = "chat";
 
+/** The tab the commit graph lives in. */
+export const GIT_TAB = "git";
+
+/** Show the history. Opening it twice fronts the one that exists. */
+export function openGitTab(layout: Layout): Layout {
+  for (const pane of panes(layout.root)) {
+    const index = pane.tabs.findIndex((t) => t.kind === "tool" && t.target === GIT_TAB);
+    if (index >= 0) return activate(layout, pane.id, index);
+  }
+  return openInLayout(layout, makeTab("tool", GIT_TAB, "History"), layout.focus);
+}
+
 /** The tab the welcome page lives in. A tool tab, so it counts as furniture
  * and an arrangement holding only it is still "empty". */
 export const WELCOME_TAB = "welcome";

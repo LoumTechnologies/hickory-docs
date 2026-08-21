@@ -37,6 +37,50 @@ const CHUNK_OVERLAP: usize = 8;
 /// Files larger than this are skipped: they are generated blobs or data, and
 /// a chunk inside one is rarely what anyone is searching for.
 const MAX_FILE_BYTES: u64 = 512 * 1024;
+/// Below this many characters, every identifier in the project matches.
+const MIN_COMPLETION_PREFIX: usize = 2;
+
+/// How much a chunk's closeness to the current context lifts its tokens.
+///
+/// Chosen so semantics REORDER a frequency ranking rather than replace it: a
+/// token used fifty times still beats one used twice in a nearby chunk, which
+/// is right, because the common name is usually the one wanted. Turning this
+/// up makes the list follow the cursor around and stop being predictable.
+const SEMANTIC_WEIGHT: f32 = 2.0;
+
+/// One completion drawn from the project's own text.
+#[derive(Debug, Clone, Serialize)]
+pub struct Suggestion {
+    /// The identifier to insert.
+    pub text: String,
+    /// Where it was first seen — `path:line`, for the popup's second line.
+    pub detail: String,
+    /// Comparable only within one list.
+    pub score: f32,
+    /// Whether the embedding model contributed to the ranking. False means
+    /// frequency alone, which is still useful and still offline — and the UI
+    /// says so rather than claiming more than happened.
+    pub semantic: bool,
+}
+
+/// The identifier-shaped tokens of a piece of text.
+///
+/// Deliberately language-agnostic: a letter or underscore followed by letters,
+/// digits and underscores. That is the identifier rule of nearly every
+/// language this app runs, and being approximately right for all of them is
+/// worth more here than being exactly right for one.
+fn identifiers(text: &str) -> impl Iterator<Item = &str> {
+    text.split(|c: char| !(c.is_alphanumeric() || c == '_'))
+        .filter(|token| {
+            !token.is_empty()
+                && token.len() >= MIN_COMPLETION_PREFIX
+                && token
+                    .chars()
+                    .next()
+                    .is_some_and(|c| c.is_alphabetic() || c == '_')
+        })
+}
+
 /// Reciprocal-rank-fusion constant (the standard 60 from the RRF paper).
 const RRF_K: f32 = 60.0;
 
@@ -240,6 +284,102 @@ impl SearchEngine {
         });
 
         fuse(&chunks, lexical, semantic, top_k)
+    }
+
+    /// Completions drawn from this project's own text.
+    ///
+    /// # What this is, and what it is not
+    ///
+    /// It is not a language model, and this file is careful never to imply
+    /// one. It is retrieval: the identifiers this codebase actually uses,
+    /// ranked by how often they appear and — when the embedding model is
+    /// installed — by how close their surroundings are to what is being
+    /// typed right now.
+    ///
+    /// That is a genuinely different kind of answer from a language server's,
+    /// which is the whole reason it is worth showing beside one. An LSP knows
+    /// what is *in scope* and what its type is; it has no opinion about
+    /// whether this codebase calls the thing `cfg`, `config` or `settings`.
+    /// This does, and knows nothing about types. Neither subsumes the other,
+    /// which is why the popup has to say which is speaking.
+    ///
+    /// Degrades in one step: with no model installed the ranking is frequency
+    /// alone, which is still useful and still offline. `semantic` on each
+    /// suggestion says which happened, so the UI never claims more than it
+    /// did.
+    pub fn completions(&self, prefix: &str, context: &str, top_k: usize) -> Vec<Suggestion> {
+        if prefix.len() < MIN_COMPLETION_PREFIX {
+            // Below this every identifier in the project matches, which is a
+            // list nobody reads and a request nobody meant.
+            return Vec::new();
+        }
+        let chunks = self.all_chunks();
+        if chunks.is_empty() {
+            return Vec::new();
+        }
+
+        // How close each chunk is to what is being typed. Without a model
+        // every chunk is equally close, which reduces the ranking to
+        // frequency — the honest fallback rather than a worse guess.
+        let affinity: Vec<f32> = match &self.model {
+            Some(model) => {
+                let query = model
+                    .encode(std::slice::from_ref(&context.to_string()))
+                    .into_iter()
+                    .next()
+                    .unwrap_or_default();
+                chunks
+                    .iter()
+                    .map(|(_, chunk)| {
+                        chunk
+                            .embedding
+                            .as_ref()
+                            .map(|e| cosine(&query, e).max(0.0))
+                            .unwrap_or(0.0)
+                    })
+                    .collect()
+            }
+            None => vec![0.0; chunks.len()],
+        };
+
+        // token -> (score, where it was first seen)
+        let mut scores: HashMap<String, (f32, String)> = HashMap::new();
+        for (index, (path, chunk)) in chunks.iter().enumerate() {
+            // A chunk's affinity lifts every token in it. `1.0 +` so that
+            // with no model the weight is exactly one and the ranking is a
+            // pure count.
+            let weight = 1.0 + affinity[index] * SEMANTIC_WEIGHT;
+            for token in identifiers(&chunk.text) {
+                if token.len() <= prefix.len() || !token.starts_with(prefix) {
+                    continue;
+                }
+                let entry = scores
+                    .entry(token.to_string())
+                    .or_insert_with(|| (0.0, format!("{path}:{}", chunk.start_line)));
+                entry.0 += weight;
+            }
+        }
+
+        let mut out: Vec<Suggestion> = scores
+            .into_iter()
+            .map(|(text, (score, where_))| Suggestion {
+                text,
+                detail: where_,
+                score,
+                semantic: self.model.is_some(),
+            })
+            .collect();
+        // Score first, then alphabetical, so a tie is stable between runs —
+        // a completion list that reshuffles on every keystroke is one nobody
+        // can build muscle memory against.
+        out.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| a.text.cmp(&b.text))
+        });
+        out.truncate(top_k);
+        out
     }
 
     /// Chunks similar to the chunk containing `line` (1-based) of `rel_path`
@@ -629,5 +769,125 @@ mod tests {
         );
         let err = parse_file_line("src/x.py").unwrap_err().to_string();
         assert!(err.contains("FILE:LINE"), "{err}");
+    }
+}
+
+#[cfg(test)]
+mod completion_tests {
+    use super::*;
+
+    fn project(files: &[(&str, &str)]) -> tempfile::TempDir {
+        let dir = tempfile::tempdir().unwrap();
+        for (path, body) in files {
+            let full = dir.path().join(path);
+            if let Some(parent) = full.parent() {
+                std::fs::create_dir_all(parent).unwrap();
+            }
+            std::fs::write(full, body).unwrap();
+        }
+        dir
+    }
+
+    fn engine(dir: &tempfile::TempDir) -> SearchEngine {
+        SearchEngine::open(dir.path()).expect("the index opens")
+    }
+
+    #[test]
+    fn identifiers_are_split_the_way_nearly_every_language_agrees() {
+        let found: Vec<&str> = identifiers("fn read_config(path: &Path) -> Config { }").collect();
+        assert!(found.contains(&"read_config"), "{found:?}");
+        assert!(found.contains(&"Config"), "{found:?}");
+        // Not a keyword filter — `fn` is two characters and survives, which
+        // is fine: a two-character prefix will not match it anyway.
+        assert!(!found.contains(&"&"), "{found:?}");
+    }
+
+    #[test]
+    fn a_token_that_starts_with_a_digit_is_not_an_identifier() {
+        let found: Vec<&str> = identifiers("x = 3px + total").collect();
+        assert!(!found.contains(&"3px"), "{found:?}");
+        assert!(found.contains(&"total"), "{found:?}");
+    }
+
+    #[test]
+    fn a_prefix_too_short_to_narrow_anything_returns_nothing() {
+        // Every identifier in the project matches one letter; that is a list
+        // nobody reads and a request nobody meant.
+        let dir = project(&[("a.py", "total_units = 1\n")]);
+        assert!(engine(&dir).completions("t", "", 10).is_empty());
+    }
+
+    #[test]
+    fn suggestions_come_from_the_projects_own_text() {
+        // The whole point: the names THIS codebase uses, which a language
+        // server has no opinion about.
+        let dir = project(&[(
+            "a.py",
+            "total_units = 1\ntotal_revenue = 2\nunrelated = 3\n",
+        )]);
+        let found = engine(&dir).completions("tot", "", 10);
+        let names: Vec<&str> = found.iter().map(|s| s.text.as_str()).collect();
+        assert!(names.contains(&"total_units"), "{names:?}");
+        assert!(names.contains(&"total_revenue"), "{names:?}");
+        assert!(!names.contains(&"unrelated"), "{names:?}");
+    }
+
+    #[test]
+    fn the_prefix_itself_is_not_suggested() {
+        // Completing `total` to `total` is not a completion.
+        let dir = project(&[("a.py", "total = 1\ntotal_units = 2\n")]);
+        let found = engine(&dir).completions("total", "", 10);
+        assert!(found.iter().all(|s| s.text != "total"), "{found:?}");
+    }
+
+    #[test]
+    fn the_more_a_name_is_used_the_higher_it_ranks() {
+        // With no model this is the whole ranking, and it is the right one:
+        // the common name is usually the one wanted.
+        let dir = project(&[(
+            "a.py",
+            "widget_count\nwidget_count\nwidget_count\nwidget_total\n",
+        )]);
+        let found = engine(&dir).completions("widget", "", 10);
+        assert_eq!(found[0].text, "widget_count", "{found:?}");
+    }
+
+    #[test]
+    fn a_tie_is_broken_alphabetically_so_the_list_does_not_reshuffle() {
+        // A completion list that reorders on every keystroke is one nobody
+        // can build muscle memory against.
+        let dir = project(&[("a.py", "alpha_one\nalpha_two\n")]);
+        let found = engine(&dir).completions("alpha", "", 10);
+        assert_eq!(
+            found.iter().map(|s| s.text.as_str()).collect::<Vec<_>>(),
+            vec!["alpha_one", "alpha_two"]
+        );
+    }
+
+    #[test]
+    fn a_suggestion_says_where_it_came_from() {
+        let dir = project(&[("src/app.py", "total_units = 1\n")]);
+        let found = engine(&dir).completions("tot", "", 10);
+        assert!(found[0].detail.contains("src/app.py"), "{found:?}");
+    }
+
+    #[test]
+    fn without_the_model_it_says_so_rather_than_claiming_semantics() {
+        // The UI must never claim more than happened.
+        let dir = project(&[("a.py", "total_units = 1\n")]);
+        let engine = engine(&dir);
+        assert!(!engine.semantic());
+        assert!(
+            engine
+                .completions("tot", "", 10)
+                .iter()
+                .all(|s| !s.semantic)
+        );
+    }
+
+    #[test]
+    fn an_empty_project_suggests_nothing_rather_than_failing() {
+        let dir = project(&[]);
+        assert!(engine(&dir).completions("tot", "", 10).is_empty());
     }
 }

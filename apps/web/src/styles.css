@@ -6322,3 +6322,198 @@ button.status-bar__item:hover { background: var(--bg-sunken); color: var(--fg); 
   border-radius: 3px;
 }
 .table-panel__note { margin: 0; font-size: 0.7rem; }
+
+/* autocompletion -----------------------------------------------------------
+   Two sources in one list, and the mark is the point. A language server's
+   answer is authoritative — it is in scope and it has a type. The project
+   index's is a guess drawn from what this codebase happens to say a lot.
+   Both are worth showing; a list that mixed them silently would make the
+   guesses look like facts. */
+.cm-completion-origin {
+  display: inline-block;
+  width: 1.1em;
+  text-align: center;
+  font-size: 0.8em;
+  opacity: 0.85;
+  flex: none;
+}
+/* In scope: the accent, because it is the answer to defer to. */
+.cm-completion-origin--lsp { color: var(--accent); }
+/* From this project: quieter, and a different glyph. Colour alone would fail
+   for a reader who cannot tell these two apart. */
+.cm-completion-origin--project { color: var(--fg-muted); }
+
+.cm-tooltip-autocomplete ul li {
+  display: flex;
+  align-items: baseline;
+  gap: 0.35rem;
+  padding: 0.1rem 0.4rem;
+}
+.cm-tooltip-autocomplete .cm-completionLabel { flex: 0 1 auto; }
+.cm-tooltip-autocomplete .cm-completionDetail {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-style: normal;
+  font-size: 0.9em;
+  opacity: 0.6;
+}
+/* The section headers ("In scope", "This project") are how the two groups
+   read as two groups at a glance. */
+.cm-tooltip-autocomplete .cm-completionSection {
+  font-size: 0.66rem;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--fg-muted);
+  padding: 0.2rem 0.4rem 0.05rem;
+  border-top: 1px solid var(--border);
+}
+.cm-completion-info { font-size: 0.74rem; max-width: 26rem; }
+
+/* the commit graph ---------------------------------------------------------
+   The lanes are real, computed by lib/gitGraph.ts, because "what came from
+   where" is the question a graph answers and a decorative bullet per line
+   does not answer it. Row height and lane width are shared between the SVG
+   and the list — that sharing is the only way the nodes line up with the text
+   beside them. */
+.git-pane {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: 0.3rem 0 1rem;
+}
+.git-pane--none { padding: 1.2rem; max-width: 42rem; }
+.git-pane--none p { margin: 0 0 0.5rem; font-size: 0.84rem; }
+.git-pane__loading,
+.git-pane__error { padding: 1rem; font-size: 0.84rem; }
+.git-pane__more { margin: 0.5rem 1rem; }
+
+.git-log { list-style: none; margin: 0; padding: 0; }
+.git-commit__line { display: flex; align-items: stretch; }
+.git-commit__graph { flex: none; display: block; }
+
+.git-edge {
+  fill: none;
+  stroke-width: 1.6;
+  stroke: var(--ribbon-0);
+}
+.git-edge--c1 { stroke: var(--ribbon-1); }
+.git-edge--c2 { stroke: var(--ribbon-2); }
+.git-edge--c3 { stroke: var(--ribbon-3); }
+.git-edge--c4 { stroke: var(--ribbon-4); }
+.git-edge--c5 { stroke: var(--ribbon-5); }
+
+.git-node {
+  fill: var(--bg);
+  stroke: var(--ribbon-0);
+  stroke-width: 2.2;
+}
+.git-node--c1 { stroke: var(--ribbon-1); }
+.git-node--c2 { stroke: var(--ribbon-2); }
+.git-node--c3 { stroke: var(--ribbon-3); }
+.git-node--c4 { stroke: var(--ribbon-4); }
+.git-node--c5 { stroke: var(--ribbon-5); }
+/* A merge is filled: two parents is a different kind of event, and it should
+   be visible without counting the lines going into it. */
+.git-node--merge { fill: currentColor; stroke-width: 1.6; }
+
+.git-commit__summary {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0 0.7rem;
+  border: 0;
+  background: none;
+  color: var(--fg);
+  font: inherit;
+  font-size: 0.82rem;
+  text-align: left;
+  cursor: pointer;
+}
+.git-commit__summary:hover { background: var(--bg-raised); }
+.git-commit__subject {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.git-commit__meta {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  font-size: 0.72rem;
+  color: var(--fg-muted);
+}
+.git-ref {
+  padding: 0 0.3rem;
+  border: 1px solid var(--accent);
+  border-radius: 3px;
+  color: var(--accent);
+  font-size: 0.66rem;
+}
+.git-commit__sha { opacity: 0.75; }
+
+.git-churn { display: inline-flex; gap: 0.3rem; font-size: 0.7rem; }
+.git-churn__files { opacity: 0.6; }
+.git-churn__added { color: var(--ok); }
+.git-churn__removed { color: var(--fail); }
+.git-churn--binary { color: var(--fg-muted); font-style: italic; }
+
+.git-commit__detail {
+  margin-left: var(--git-graph, 2rem);
+  padding: 0.2rem 0.7rem 0.6rem;
+  border-left: 1px solid var(--border);
+}
+.git-commit__body {
+  margin: 0 0 0.5rem;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.74rem;
+  white-space: pre-wrap;
+  color: var(--fg-muted);
+}
+.git-commit__nofiles { margin: 0; font-size: 0.76rem; }
+.git-files { list-style: none; margin: 0; padding: 0; }
+.git-file {
+  display: flex;
+  align-items: baseline;
+  gap: 0.45rem;
+  width: 100%;
+  text-align: left;
+  border: 0;
+  background: none;
+  color: var(--fg-muted);
+  font: inherit;
+  font-size: 0.74rem;
+  padding: 0.08rem 0.2rem;
+  cursor: pointer;
+}
+.git-file:hover { background: var(--bg-sunken); color: var(--fg); }
+.git-file__status {
+  flex: none;
+  width: 1em;
+  text-align: center;
+  font-weight: 700;
+  font-size: 0.68rem;
+}
+.git-file__status--A { color: var(--ok); }
+.git-file__status--D { color: var(--fail); }
+.git-file__status--M { color: var(--accent-2); }
+.git-file__status--R { color: var(--warn); }
+.git-file__path { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.git-file__from { opacity: 0.6; }
+
+/* The branch, leftmost in the status bar, the way every editor puts it. */
+.status-bar__dirty {
+  margin-left: 0.15rem;
+  padding: 0 0.25rem;
+  border-radius: 3px;
+  background: var(--warn);
+  color: var(--bg);
+  font-size: 0.62rem;
+}

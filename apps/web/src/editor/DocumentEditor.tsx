@@ -16,6 +16,7 @@ import type { Extension } from "@codemirror/state";
 import { EnvRegistry, setVerifiedExpects, structureOf, wysiwyg } from "./wysiwyg";
 import { taskCheckboxes } from "./taskList";
 import { renderedMath } from "./mathRender";
+import { completions } from "../lsp/completion";
 import { EditorRuler } from "./EditorRuler";
 import { WRAP_DEFAULT, proseWrap } from "./wrapColumn";
 import { editorChrome } from "./chrome";
@@ -358,6 +359,13 @@ export function DocumentEditor({
           // command's argument, and turning it into a checkbox would offer to
           // edit a line the reader is not looking at.
           taskCheckboxes((state) => structureOf(state).tasks),
+          // Two sources, one list, each marked. The language server knows
+          // what is in scope; the project index knows what this codebase
+          // calls things. Neither subsumes the other — see lsp/completion.ts.
+          completions({
+            project: (prefix, around) =>
+              api.complete(prefix, around).then((answer) => answer.suggestions),
+          }),
           // Inline and display maths written in PROSE. The verbatim ranges of
           // the document are excluded, so `$PATH` in a shell cell stays a
           // shell variable and `$` in a generated file stays a byte of that

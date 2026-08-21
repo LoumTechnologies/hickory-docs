@@ -1238,3 +1238,58 @@ pub async fn blame(
 
     Ok(Json(json!({ "path": params.path, "lines": lines })))
 }
+
+// ---------------------------------------------------------------------------
+// Completions drawn from the project itself
+// ---------------------------------------------------------------------------
+
+#[derive(Deserialize)]
+pub struct CompleteParams {
+    /// What has been typed so far.
+    pub prefix: String,
+    /// The lines around the caret, for the semantic ranking. Optional: with
+    /// no model installed it is not read at all.
+    #[serde(default)]
+    pub context: String,
+    #[serde(default = "default_complete_k")]
+    pub k: usize,
+}
+
+fn default_complete_k() -> usize {
+    8
+}
+
+/// `GET /api/complete?prefix=…&context=…` — what this project calls things.
+///
+/// Deliberately NOT a language server's answer and never presented as one.
+/// An LSP knows what is in scope and what its type is; it has no opinion
+/// about whether this codebase says `cfg`, `config` or `settings`. This does,
+/// and knows nothing about types. The two are shown together and labelled,
+/// because neither subsumes the other.
+pub async fn complete(
+    State(state): State<LocalState>,
+    Query(params): Query<CompleteParams>,
+) -> ApiResult<Json<Value>> {
+    let root = state.index.root().to_path_buf();
+    let shared = state.search.clone();
+    let k = params.k.clamp(1, 25);
+    let suggestions = tokio::task::spawn_blocking(move || -> anyhow::Result<_> {
+        let mut slot = shared.lock().expect("search mutex poisoned");
+        let rebuild = match slot.as_ref() {
+            None => true,
+            Some(engine) => !engine.semantic() && hick_search::model_available(&root),
+        };
+        if rebuild {
+            *slot = Some(hick_search::SearchEngine::open(&root)?);
+        } else if let Some(engine) = slot.as_mut() {
+            engine.refresh()?;
+        }
+        let engine = slot.as_ref().expect("just built");
+        Ok(engine.completions(&params.prefix, &params.context, k))
+    })
+    .await
+    .map_err(|e| ApiError::internal(format!("the completion task failed: {e}")))?
+    .map_err(|e| ApiError::internal(format!("{e:#}")))?;
+
+    Ok(Json(json!({ "suggestions": suggestions })))
+}

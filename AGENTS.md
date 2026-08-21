@@ -23,6 +23,12 @@ The surface syntax is settled separately in
 document may begin with markdown or YAML frontmatter, and every document weaves
 a `.md` of its own name.
 
+An open question, investigated and deliberately not built, is
+`docs/specs/freeform/two-branches-in-one-document.md`: whether feature flags
+could replace branching in a `.hick` document. The short answer is that the
+branch→feature-set half is worth doing and the branches-as-flags half would
+cost the provenance that this product exists for.
+
 How outside material enters a notes folder is `docs/specs/freeform/ingest.md`;
 how the result is marked is `docs/specs/freeform/provenance-and-standing.md`.
 The rule that governs both: **provenance is derived and checkable, standing is

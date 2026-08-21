@@ -26,6 +26,9 @@ import type {
   BlameLine,
   FindOptions,
   FormulaResults,
+  GitLog,
+  GitStatus,
+  ProjectSuggestion,
   FindResponse,
   ReplaceResponse,
   UiSettings,
@@ -212,6 +215,18 @@ export const api = {
   /** Definitions and references across this session's generated files. */
   structure: () => request<StructureResponse>("GET", "/api/structure"),
 
+  /** What this project calls things: identifiers from its own text, ranked
+   * by how often they are used and — when the local model is installed — by
+   * how close their surroundings are to what is being typed. A different
+   * question from the language server's, shown beside it rather than instead
+   * of it. */
+  complete: (prefix: string, context: string, k = 8) =>
+    request<{ suggestions: ProjectSuggestion[] }>(
+      "GET",
+      `/api/complete?prefix=${encodeURIComponent(prefix)}` +
+        `&context=${encodeURIComponent(context.slice(-600))}&k=${k}`,
+    ),
+
   /** Every formula in a grid, computed.
    *
    * The host resolves references and works out the order before any backend
@@ -224,6 +239,19 @@ export const api = {
   /** Languages this machine can evaluate formulas in right now. */
   formulaLanguages: () =>
     request<{ languages: string[] }>("GET", "/api/formula/languages"),
+
+  /** The commit graph, with every commit's files and line counts — one git
+   * invocation, so expanding a row costs nothing. Read-only: changing a
+   * repository is a thing people rightly do deliberately, and there is a
+   * terminal on every row of the tree. */
+  gitLog: (limit = 120, path?: string) =>
+    request<GitLog>(
+      "GET",
+      `/api/git/log?limit=${limit}` + (path ? `&path=${encodeURIComponent(path)}` : ""),
+    ),
+
+  /** The branch, and whether anything is uncommitted. */
+  gitStatus: () => request<GitStatus>("GET", "/api/git/status"),
 
   /** Who last touched each line. Answers `{lines: []}` for a folder that is
    * not a repository, an untracked file, or a machine with no git — the
