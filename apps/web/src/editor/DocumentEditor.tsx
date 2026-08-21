@@ -18,6 +18,7 @@ import { taskCheckboxes } from "./taskList";
 import { renderedMath } from "./mathRender";
 import { EditorRuler } from "./EditorRuler";
 import { WRAP_DEFAULT, proseWrap } from "./wrapColumn";
+import { editorChrome } from "./chrome";
 import { mathSpans } from "../lib/math";
 import {
   diagnosticRanges,
@@ -305,6 +306,9 @@ export function DocumentEditor({
       state: EditorState.create({
         doc: ytext.toString(),
         extensions: [
+          // Gutters, caret, selection, the find panel — one definition, loaded
+          // by every editor in the app. See editor/chrome.ts.
+          editorChrome("document"),
           history(),
           // Undo must never reach content this client did not type.
           //

@@ -25,6 +25,7 @@ import { fencedCodeRanges, isMarkdownPath, markdownStyling } from "../editor/mar
 import { taskCheckboxes } from "../editor/taskList";
 import { renderedMath } from "../editor/mathRender";
 import { proseWrap } from "../editor/wrapColumn";
+import { editorChrome } from "../editor/chrome";
 import { wrapGutterMarkers } from "../editor/wrapGutter";
 import { FILES_CHANGED_EVENT } from "../shell/FolderTreePane";
 import { createPlainSaver, type PlainSaveState } from "../lib/plainFileSave";
@@ -174,6 +175,10 @@ export function PlainFilePane({
       state: EditorState.create({
         doc: initial.content,
         extensions: [
+          // The same chrome every editor wears; `code` is the look a
+          // `hick:file` body has inside a document, so opening the file and
+          // reading the block that writes it are not two different programs.
+          editorChrome("code"),
           changeFlashField,
           lineNumbers(),
           wrapGutterMarkers(),

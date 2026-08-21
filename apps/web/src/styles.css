@@ -72,6 +72,11 @@
   --ribbon-3: #b8a7f5;
   --ribbon-4: #e0a35f;
   --ribbon-5: #e5849b;
+  /* Editor chrome shared by every editor (editor/chrome.ts): the
+     selection wash and the find-panel hit colours. */
+  --select-bg: #2b4a6f;
+  --search-hit: #5a4a24;
+  --search-hit-on: #8a6f2c;
 }
 
 /* "light" — the original warm paper palette. */
@@ -122,6 +127,9 @@
   --ribbon-3: #5f5a9e;
   --ribbon-4: #9a6b16;
   --ribbon-5: #446b7a;
+  --select-bg: #cfe0f5;
+  --search-hit: #f5e4bd;
+  --search-hit-on: #e8c878;
 }
 
 /* "warm-dark" — the original sepia dark palette, kept as a choice. */
@@ -172,6 +180,9 @@
   --ribbon-3: #a89ed6;
   --ribbon-4: #d3a54a;
   --ribbon-5: #7fb0a8;
+  --select-bg: #4a3f28;
+  --search-hit: #5c4a22;
+  --search-hit-on: #8f7333;
 }
 
 * {
@@ -1406,15 +1417,27 @@ textarea:focus {
   align-items: stretch;
 }
 
-.output-editor {
+/* A code pane wears the look a `hick:file` body has inside a document.
+ *
+ * The sunken ground and the accent rule are `.cm-file-line`'s (see above),
+ * lifted onto the pane's own box: opening `orders.py` and reading the
+ * `<hick:file path="orders.py">` block that writes it should not feel like
+ * two different programs. The font and the size come from
+ * `editorChrome("code")`, which is the same extension the document editor
+ * loads, so there is one definition rather than two that drift. */
+.output-editor,
+.plain-file-pane .output-editor {
   flex: 1;
   min-width: 0;
   min-height: 0;
   display: flex;
   border: 1px solid var(--border);
+  /* The accent rule down the left edge, exactly as a generated block has it
+     inside a document. */
+  border-left: 2px solid var(--accent-2);
   border-radius: 10px;
   overflow: hidden;
-  background: var(--bg-raised);
+  background: var(--bg-sunken);
 }
 .output-editor .cm-editor {
   flex: 1;
@@ -1422,8 +1445,6 @@ textarea:focus {
   max-height: 100%;
   font-size: 0.86rem;
 }
-.output-editor .cm-editor.cm-focused { outline: none; }
-.output-editor .cm-scroller { font-family: ui-monospace, Menlo, monospace; }
 
 .cm-prov-active {
   background: color-mix(in srgb, var(--accent-2) 22%, transparent);
@@ -1511,16 +1532,12 @@ textarea:focus {
 .enterprise-note { margin-top: 2rem; font-size: 0.88rem; }
 .enterprise-note a { color: var(--accent); }
 
-/* --- folding (native CM fold framework; heights stay in the height map) --- */
-.document-editor .cm-gutters {
-  background: transparent;
-  border-right: none;
-  color: var(--fg-muted);
-}
-.document-editor .cm-foldGutter .cm-gutterElement {
-  min-width: 1.5rem;
-  padding: 0 0.25rem 0 0.6rem;
-}
+/* --- folding (native CM fold framework; heights stay in the height map) ---
+   The gutter's own look moved to editor/chrome.ts, as an extension every
+   editor loads. It used to live here, scoped to `.document-editor`, which
+   meant every OTHER editor fell through to CodeMirror's built-in light theme:
+   a white gutter with dark numbers, in a dark window. Scoping the chrome to
+   one editor was the mistake; the white gutter was only how it showed up. */
 .cm-fold-marker {
   display: inline-block;
   cursor: pointer;
@@ -1532,7 +1549,7 @@ textarea:focus {
   user-select: none;
 }
 .cm-fold-marker.cm-fold-open { transform: rotate(90deg); }
-.document-editor .cm-foldGutter .cm-gutterElement:hover .cm-fold-marker { opacity: 1; }
+.cm-foldGutter .cm-gutterElement:hover .cm-fold-marker { opacity: 1; }
 /* Folded-body placeholder: a quiet pill, padding-only (no margins — CM must
    be able to measure the line box exactly). */
 .cm-hick-fold-placeholder {

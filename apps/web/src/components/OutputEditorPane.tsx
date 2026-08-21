@@ -28,6 +28,7 @@ import { fencedCodeRanges, isMarkdownPath, markdownStyling } from "../editor/mar
 import { taskCheckboxes } from "../editor/taskList";
 import { renderedMath } from "../editor/mathRender";
 import { proseWrap } from "../editor/wrapColumn";
+import { editorChrome } from "../editor/chrome";
 import { byteToChar } from "../lib/offsets";
 
 export interface HighlightRange {
@@ -160,6 +161,10 @@ export function OutputEditorPane({
       state: EditorState.create({
         doc: initial.content,
         extensions: [
+          // The same chrome every editor wears; `code` is the look a
+          // `hick:file` body has inside a document, so opening the file and
+          // reading the block that writes it are not two different programs.
+          editorChrome("code"),
           highlightField,
           // The fading mark on text a re-weave just changed.
           changeFlashField,
