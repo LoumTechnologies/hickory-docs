@@ -86,6 +86,10 @@ import { DocTabBody, GeneratedTabBody, UntitledTab } from "./workspaceTabs";
 import { useWorkspaceUi } from "./useWorkspaceUi";
 import { focusedEditor } from "../editor/activeEditor";
 import { useZoom } from "./useZoom";
+import { StatusBar } from "../shell/StatusBar";
+import { severityOf, totalProblems } from "../lib/problems";
+import { positionToUtf16 } from "../lsp/positions";
+import { EditorView } from "@codemirror/view";
 import { TAB_ZOOM_VAR } from "../lib/zoom";
 import { requestFlushSaves } from "../lib/flushSaves";
 import { revealLine } from "../lib/revealLine";
@@ -173,6 +177,80 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   // sits. Restored into an untouched workspace only — the same rule a
   // document's own declared layout follows — and the route's opener waits for
   // `hydrated` so the two cannot race. See views/useWorkspaceUi.ts.
+  // Where the caret is, for the status bar. Held as state rather than read
+  // during render because the editors deliberately do not re-render on every
+  // keystroke — this is subscribed to instead, and it is the only thing in
+  // the window that wants a per-keystroke update.
+  const [caret, setCaret] = useState<{ line: number; column: number } | null>(null);
+  useEffect(() => {
+    let frame: number | null = null;
+    const read = () => {
+      frame = null;
+      const view = focusedEditor();
+      if (!view || !view.dom.isConnected) {
+        setCaret(null);
+        return;
+      }
+      const head = view.state.selection.main.head;
+      const line = view.state.doc.lineAt(head);
+      setCaret({ line: line.number, column: head - line.from + 1 });
+    };
+    // Polled on a frame rather than hooked into every editor: there is no one
+    // editor to hook, panes come and go, and a status bar that is one frame
+    // behind the caret is indistinguishable from one that is not.
+    const tick = () => {
+      if (frame === null) frame = requestAnimationFrame(read);
+    };
+    const timer = window.setInterval(tick, 120);
+    tick();
+    return () => {
+      window.clearInterval(timer);
+      if (frame !== null) cancelAnimationFrame(frame);
+    };
+  }, []);
+
+  // How much is wrong, across every open document. Recomputed from the
+  // sessions' own diagnostics rather than kept as a second copy: two counts
+  // that can disagree is worse than no count at all.
+  const problems = useMemo(
+    () => totalProblems(registry.all().map((open) => open.lspDiagnostics ?? [])),
+    // registry.version (via useSessionVersion) is what actually changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [registry, registry.version],
+  );
+
+  /** Put the caret on the next error or warning in the focused document. */
+  const goToNextProblem = useCallback(() => {
+    const session = registry.get(focusedIdRef.current);
+    const view = session?.docEditor;
+    const diagnostics = session?.lspDiagnostics ?? [];
+    if (!view || diagnostics.length === 0) return;
+    const ranked = [...diagnostics]
+      .filter((d) => severityOf(d) <= 2)
+      .map((d) => ({
+        d,
+        at: positionToUtf16(view.state.doc.toString(), d.range.start),
+      }))
+      .sort((a, b) => a.at - b.at);
+    if (ranked.length === 0) return;
+    const head = view.state.selection.main.head;
+    // Wraps: pressing it at the last problem takes you back to the first,
+    // which is what "next" means in a list you are working through.
+    const next = ranked.find((r) => r.at > head) ?? ranked[0];
+    view.dispatch({
+      selection: { anchor: next.at },
+      effects: EditorView.scrollIntoView(next.at, { y: "center" }),
+    });
+    view.focus();
+  }, [registry]);
+
+  /** The path of whatever tab is active in the focused pane. */
+  const focusedPath = (() => {
+    const pane = paneById(layout, layout.focus);
+    const tab = pane?.tabs[pane.active];
+    return tab && tab.kind !== "tree" && tab.kind !== "tool" ? tab.target : null;
+  })();
+
   const workspaceUi = useWorkspaceUi(layout, (restored) => {
     setLayout((current) => (isWorkspaceEmpty(current) ? restored : current));
   });
@@ -180,7 +258,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   // ⌘+ / ⌘- / ⌘0 size the whole window; adding Alt sizes only the focused
   // tab. See views/useZoom.ts for why that split, and why it is the root's
   // font size rather than a transform.
-  useZoom({
+  const zoom = useZoom({
     focusedTarget: () => {
       const pane = paneById(layoutRef.current, layoutRef.current.focus);
       const tab = pane?.tabs[pane.active];
@@ -1047,6 +1125,15 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
           Nothing is waiting on you.
         </p>
       )}
+      <StatusBar
+        problems={problems}
+        needsAttention={terminals.attention.length}
+        path={focusedPath}
+        caret={caret}
+        zoom={zoom.uiZoom}
+        onProblems={goToNextProblem}
+        onAttention={nextAttention}
+      />
     </div>
   );
 }

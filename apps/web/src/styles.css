@@ -743,12 +743,18 @@ textarea:focus {
   font-family: inherit;
 }
 
-/* --- document editor (Typora-style WYSIWYG over raw .hick source) --- */
+/* --- document editor (Typora-style WYSIWYG over raw .hick source) ---
+ *
+ * NO border and NO radius. It used to be a rounded card, and the tab above it
+ * was a second surface, and the document's own toolbar between them was a
+ * third — so the tab appeared joined to the toolbar and the toolbar appeared
+ * joined to nothing, while the document it was all about floated in a box
+ * below. The tab strip is already drawn to read as the pane's own front edge
+ * (see `.shell-tab--on`, the file-folder connection); the editor has to be
+ * the surface that edge belongs to, which means being flush with it. */
 .document-editor {
-  border: 1px solid var(--border);
-  border-radius: 10px;
   overflow: hidden;
-  background: var(--bg-raised);
+  background: var(--bg);
 }
 
 .document-editor {
@@ -1425,6 +1431,18 @@ textarea:focus {
  * two different programs. The font and the size come from
  * `editorChrome("code")`, which is the same extension the document editor
  * loads, so there is one definition rather than two that drift. */
+/* Inside a TAB the code editor is the pane, flush with the tab that names it
+   — the same rule the document editor follows. The card treatment below is
+   for a split, where the output sits BESIDE a document and being a distinct
+   object is the point. */
+.shell-pane__body > .plain-file-pane .output-editor,
+.shell-pane__body .tab-zoom > .plain-file-pane .output-editor,
+.shell-pane__body .generated-pane .output-editor {
+  border: 0;
+  border-radius: 0;
+  border-left: 2px solid var(--accent-2);
+}
+
 .output-editor,
 .plain-file-pane .output-editor {
   flex: 1;
@@ -1723,7 +1741,10 @@ textarea:focus {
 .plain-file-pane {
   display: flex;
   flex-direction: column;
-  gap: 0.35rem;
+  /* No gap: the toolbar is attached to the editor by a rule, not floated
+     above it by a margin. Three stacked cards inside one pane is what made
+     the tab look joined to the toolbar and the toolbar joined to nothing. */
+  gap: 0;
   min-width: 0;
   min-height: 0;
   flex: 1;
@@ -4215,10 +4236,11 @@ textarea:focus {
   align-items: center;
   gap: 0.35rem;
   flex-wrap: wrap;
-  margin-bottom: 0.4rem;
-  padding: 0.25rem 0.6rem;
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  margin-bottom: 0;
+  padding: 0.2rem 0.6rem;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
   background: var(--bg-raised);
   font-size: 0.8rem;
 }
@@ -5137,16 +5159,20 @@ textarea:focus {
    slim strip in the debug strip's idiom: block chrome, one line, quiet.
    These moved out of the workspace toolbar so each open document can be
    run or verified on its own. */
+/* Attached to the editor, not floating above it: one bottom rule and no
+   margin, so the strip and the text are one surface with a line between them
+   rather than two cards with a gap. */
 .doc-tab-toolbar {
   flex: none;
   display: flex;
   align-items: center;
   justify-content: flex-end;
   gap: 0.35rem;
-  margin-bottom: 0.4rem;
-  padding: 0.25rem 0.6rem;
-  border: 1px solid var(--border);
-  border-radius: 8px;
+  margin-bottom: 0;
+  padding: 0.2rem 0.6rem;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
   background: var(--bg-raised);
   font-size: 0.8rem;
 }
@@ -5984,3 +6010,61 @@ html {
 .cm-blame-entry--mine { color: var(--accent-2); font-style: italic; }
 /* CodeMirror's width-reserving spacer. Never counted as an entry. */
 .cm-blame-spacer { display: inline-block; }
+
+/* the status bar ------------------------------------------------------------
+   A status bar earns its permanent row by answering questions you would
+   otherwise go and look for, and loses it the moment it shows things nobody
+   reads. Left is the state of the WORK — how much is wrong, what is waiting.
+   Right is the state of the VIEW — where the caret is, what the file is. A
+   glance to one side answers one kind of question. */
+.status-bar {
+  flex: 0 0 auto;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 1rem;
+  height: 1.45rem;
+  padding: 0 0.6rem;
+  border-top: 1px solid var(--border);
+  background: var(--bg-raised);
+  font-size: 0.7rem;
+  color: var(--fg-muted);
+  user-select: none;
+}
+.status-bar__left,
+.status-bar__right {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  min-width: 0;
+}
+.status-bar__item {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.2rem;
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  padding: 0 0.15rem;
+  border-radius: 3px;
+  cursor: default;
+  white-space: nowrap;
+}
+button.status-bar__item { cursor: pointer; }
+button.status-bar__item:hover { background: var(--bg-sunken); color: var(--fg); }
+.status-bar__glyph { opacity: 0.8; }
+/* Loud only when something is actually wrong. A bar that is always coloured
+   is a bar whose colour means nothing. */
+.status-bar__item--loud { color: var(--fail); }
+.status-bar__item--attention { color: var(--warn); }
+.status-bar__path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  /* The path is the one thing here allowed to be long, and the one thing
+     allowed to lose its tail: the end of a path is the file name, which the
+     tab already shows. */
+  direction: rtl;
+  text-align: left;
+  max-width: 28ch;
+}
