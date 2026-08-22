@@ -40,7 +40,13 @@ export type Block =
       expect?: { match: "exact" | "regex-lines"; body: string };
       status?: ExecStatus;
     }
-  | { kind: "file"; path: string; language: string; body: string; span: [number, number] }
+  | {
+      kind: "file";
+      path: string;
+      language: string;
+      body: string;
+      span: [number, number];
+    }
   | {
       kind: "session-user" | "session-assistant" | "session-observation";
       body: string;
@@ -208,6 +214,67 @@ export interface OutputFileMeta {
   language: string;
 }
 
+/** One input that was in front of the model when it wrote (context provenance). */
+export type ContextInput =
+  | {
+      kind: "file";
+      path: string;
+      commit: string | null;
+      sha256: string;
+      first_line: number;
+      last_line: number;
+      session_line: number;
+    }
+  | {
+      kind: "conversation";
+      element: "user" | "observation" | "tool-result" | string;
+      id: string | null;
+      source: string | null;
+      summary: string;
+      sha256: string;
+      lines: number;
+      session_line: number;
+    };
+
+/** A run of lines an agent wrote, with everything that preceded the write in
+ * its session. `current_lines` is where those lines are NOW, or null when the
+ * file has moved on. Derived from the session record, never declared. */
+export interface ContextWrite {
+  session: string;
+  session_line: number;
+  file: string;
+  first_line: number;
+  last_line: number;
+  hashes: string[];
+  inputs: ContextInput[];
+  current_lines: [number, number] | null;
+}
+
+export interface ContextResponse {
+  writes: ContextWrite[];
+}
+
+/** A place a declared citation comes from or points at. */
+export interface CitePlace {
+  path: string;
+  first_line: number;
+  last_line: number;
+  element: string;
+  id: string | null;
+}
+
+/** One `cites="…"`: the author's assertion of what an element rests on,
+ * resolved to places. Declared, forgeable, drawn as an assertion. */
+export interface DeclaredCite {
+  select: string;
+  from: CitePlace;
+  to: CitePlace[];
+}
+
+export interface CitesResponse {
+  cites: DeclaredCite[];
+}
+
 export interface OutputsResponse {
   files: OutputFileMeta[];
 }
@@ -366,7 +433,8 @@ export interface StructureResponse {
 // GET/PUT /api/settings/keys. The server NEVER returns a full key — only
 // whether one is configured, and a masked hint for telling keys apart.
 
-export type ProviderId = "anthropic" | "openai" | "openrouter" | "deepseek" | "xai";
+export type ProviderId =
+  "anthropic" | "openai" | "openrouter" | "deepseek" | "xai";
 
 export interface ProviderKey {
   id: ProviderId;
@@ -400,7 +468,8 @@ export interface UiSettings {
 // knowing while its pane is closed. See crates/hick-term.
 
 /** The five states. Working and idle make no claim on your attention. */
-export type SessionState = "needs-you" | "working" | "idle" | "finished" | "failed";
+export type SessionState =
+  "needs-you" | "working" | "idle" | "finished" | "failed";
 
 /** Where a prompt came from, which decides how far it may be trusted:
  * "declared" is structural (the program said so, with its choices),
@@ -520,7 +589,12 @@ export interface FindOptions {
 
 export interface ReplaceResponse {
   changed: { path: string; matches: number }[];
-  skipped: { path: string; matches: number; reason: string; document?: string }[];
+  skipped: {
+    path: string;
+    matches: number;
+    reason: string;
+    document?: string;
+  }[];
   replacements: number;
 }
 

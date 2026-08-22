@@ -163,6 +163,10 @@ pub fn run_init(dir: &Path) -> Result<InitReport> {
     report.hook_path = hooks_dir.join("pre-commit");
     report.hook_changed = install_hook_block(&report.hook_path)?;
     report.gitignore_changed = ensure_gitignore_line(&root.join(".gitignore"), ".hick-cache/")?;
+    // Sessions are the user's own record — every prompt, every tool result,
+    // every file the model was shown. They are read locally (context
+    // provenance derives from them) and are not for the shared repository.
+    report.gitignore_changed |= ensure_gitignore_line(&root.join(".gitignore"), "sessions/")?;
     report.agents_md_changed = write_agents_section(&root.join("AGENTS.md"))?;
     report.claude_md_changed = ensure_claude_md_include(&root.join("CLAUDE.md"))?;
     report.mcp_json_changed = ensure_mcp_registration(&root.join(".mcp.json"))?;
@@ -495,7 +499,7 @@ pub fn print_init_report(report: &InitReport) {
         describe(report.hook_changed)
     );
     eprintln!(
-        ".gitignore (.hick-cache/): {}",
+        ".gitignore (.hick-cache/, sessions/): {}",
         describe(report.gitignore_changed)
     );
     eprintln!(
@@ -708,7 +712,7 @@ mod tests {
         run_init(repo.path()).unwrap();
         run_init(repo.path()).unwrap();
         let content = std::fs::read_to_string(repo.path().join(".gitignore")).unwrap();
-        assert_eq!(content, "target/\n.hick-cache/\n");
+        assert_eq!(content, "target/\n.hick-cache/\nsessions/\n");
     }
 
     #[test]

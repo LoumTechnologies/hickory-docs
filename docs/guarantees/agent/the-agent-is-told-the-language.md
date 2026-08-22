@@ -19,12 +19,16 @@ run; the remaining failure was the expectation's leading newline, which the
 mismatch message now names
 (`crates/hick-literate/src/expect.rs`, "begins with an empty line").
 
+The prompt also names `read_file`: the agent's window onto project files
+that are not documents, read-only and recorded
+(`context-provenance-is-derived-from-the-session.md`). The scratch workspace
+still cannot see the project — that is what keeps the document the only write
+path — but the agent no longer has a reason to invent what it cannot find.
+
 ## Boundary
 
 The reference is a crib, not the parser: an element it does not list still
-parses. It does not make the scratch workspace see the project — that is a
-design decision of the sandbox and is recorded as an open edge in
-`docs/specs/freeform/receipts-for-a-message.md`.
+parses.
 
 ---
 

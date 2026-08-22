@@ -59,9 +59,18 @@ import { ShellView, type ShellPort } from "../shell/ShellView";
 import {
   RibbonOverlay,
   type RibbonFile,
+  type RibbonLink,
   type RibbonSource,
 } from "../shell/Ribbons";
 import { samePath } from "../lib/paths";
+import { ProvenanceToggles } from "../shell/ProvenanceToggles";
+import {
+  loadProvenanceLayers,
+  saveProvenanceLayers,
+  toggleLayer,
+  type ProvenanceLayer,
+} from "../lib/provenanceLayers";
+import type { ContextWrite, DeclaredCite } from "../api/types";
 import {
   FILES_CHANGED_EVENT,
   FolderTreePane,
@@ -222,6 +231,17 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   // SettingsView while settings are open, so coming back remounts the
   // workspace and re-reads whatever was just saved to localStorage.
   const [ribbonStyle] = useState<RibbonStyle>(() => loadRibbonStyle());
+  // Which provenances the overlay draws — a live choice, remembered.
+  const [layers, setLayers] = useState<ReadonlySet<ProvenanceLayer>>(() =>
+    loadProvenanceLayers(),
+  );
+  const toggleProvenance = useCallback((layer: ProvenanceLayer) => {
+    setLayers((current) => {
+      const next = toggleLayer(current, layer);
+      saveProvenanceLayers(next);
+      return next;
+    });
+  }, []);
   const [tabStyle] = useState<TabStyle>(() => loadTabStyle());
   const [channelWidth] = useState<number>(() => loadChannelWidth());
   const [shellBox, setShellBox] = useState<HTMLElement | null>(null);
@@ -781,6 +801,140 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     [focused],
   );
 
+  // ---- context provenance: what the model had in front of it -------------
+  //
+  // Fetched for the focused document and re-fetched when its text changes
+  // (debounced — every keystroke changes the text). The derivation reads the
+  // session files beside the document; the answer is where each agent-written
+  // run of lines is NOW and which inputs preceded the write.
+  const [contextWrites, setContextWrites] = useState<{
+    docId: string;
+    writes: ContextWrite[];
+  } | null>(null);
+  const contextDocId = focused?.docId ?? null;
+  const contextDocSource = focused?.doc?.source ?? null;
+  useEffect(() => {
+    if (!contextDocId || contextDocSource === null || !layers.has("context"))
+      return;
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      api.context(contextDocId).then(
+        (r) => {
+          if (!cancelled)
+            setContextWrites({ docId: contextDocId, writes: r.writes });
+        },
+        () => {
+          if (!cancelled) setContextWrites({ docId: contextDocId, writes: [] });
+        },
+      );
+    }, 400);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [contextDocId, contextDocSource, layers]);
+
+  // ---- declared provenance: what the author says it rests on ------------
+  const [declared, setDeclared] = useState<{
+    docId: string;
+    cites: DeclaredCite[];
+  } | null>(null);
+  useEffect(() => {
+    if (!contextDocId || contextDocSource === null || !layers.has("declared"))
+      return;
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      api.cites(contextDocId).then(
+        (r) => {
+          if (!cancelled) setDeclared({ docId: contextDocId, cites: r.cites });
+        },
+        () => {
+          if (!cancelled) setDeclared({ docId: contextDocId, cites: [] });
+        },
+      );
+    }, 400);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [contextDocId, contextDocSource, layers]);
+
+  // The links the overlay draws: one per (agent write, input) for the
+  // focused document, from the lines as they stand now to the input's home
+  // — a file's tree row, a session's element, a document's tab — and one
+  // per declared citation, from the citing element to what it names.
+  const ribbonLinks: RibbonLink[] = useMemo(() => {
+    const doc = focused?.doc;
+    if (!doc) return [];
+    const declaredLinks: RibbonLink[] = [];
+    if (declared && declared.docId === focused.docId) {
+      declared.cites.forEach((cite, ci) => {
+        if (!samePath(cite.from.path, doc.path) || cite.from.first_line === 0)
+          return;
+        cite.to.forEach((place, pi) => {
+          const self = samePath(place.path, doc.path);
+          declaredLinks.push({
+            key: `cite:${ci}:${pi}`,
+            family: "declared",
+            from: {
+              path: doc.path,
+              lines: [cite.from.first_line, cite.from.last_line],
+            },
+            // A citation of this same document's fragment still needs a far
+            // end the overlay can find; its own tab is that end.
+            to: {
+              path: place.path,
+              lines: [place.first_line, place.last_line],
+              kind: place.path.endsWith(".hick") || self ? "document" : "file",
+            },
+            title: `Declared — this ${cite.from.element} says it cites ${place.id ? `#${place.id}` : place.element} in ${place.path} lines ${place.first_line}–${place.last_line} (cites="${cite.select}"). An assertion, not a derivation.`,
+          });
+        });
+      });
+    }
+    if (!contextWrites || contextWrites.docId !== focused.docId)
+      return declaredLinks;
+    const docDir = doc.path.includes("/")
+      ? doc.path.slice(0, doc.path.lastIndexOf("/") + 1)
+      : "";
+    const out: RibbonLink[] = [];
+    contextWrites.writes.forEach((write, wi) => {
+      const lines = write.current_lines;
+      if (!lines) return;
+      write.inputs.forEach((input, ii) => {
+        if (input.kind === "file") {
+          const path = joinRel(docDir, input.path);
+          // The document reading itself before writing is not news.
+          if (samePath(path, doc.path)) return;
+          out.push({
+            key: `${wi}:${ii}`,
+            family: "context",
+            from: { path: doc.path, lines },
+            to: { path, lines: [input.first_line, input.last_line] },
+            title: `Context — ${input.path} lines ${input.first_line}–${input.last_line} (sha256 ${input.sha256.slice(0, 12)}${
+              input.commit ? `, commit ${input.commit.slice(0, 12)}` : ""
+            }) was in front of the model when these lines were written`,
+          });
+        } else {
+          out.push({
+            key: `${wi}:${ii}`,
+            family: "context",
+            from: { path: doc.path, lines },
+            to: {
+              path: write.session,
+              lines: [input.session_line, input.session_line],
+              kind: "document",
+            },
+            title: `Context — ${input.element}${input.source ? ` ${input.source}` : ""} "${input.summary.slice(0, 60)}${
+              input.summary.length > 60 ? "…" : ""
+            }" (session line ${input.session_line}) was in front of the model when these lines were written`,
+          });
+        }
+      });
+    });
+    return [...out, ...declaredLinks];
+  }, [focused?.doc, focused?.docId, contextWrites, declared]);
+
   // What is open, as `kind:target` — decided from the layout data, not the
   // DOM, because the layout is the truth about what has a tab.
   const openTargets = useMemo(() => {
@@ -881,6 +1035,35 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
         onOpen: () => openDocumentByPath(source.docPath),
       });
     }
+    // And the far ends of context/declared links: a file the model read, the
+    // session that recorded it. The overlay prefers a tab, then a visible tree
+    // row, then the port — so the port is there for when the tree has the
+    // folder collapsed, and idle otherwise.
+    const seen = new Set(list.map((p) => p.id));
+    for (const link of ribbonLinks) {
+      if (!layers.has(link.family)) continue;
+      const isDoc =
+        link.to.kind === "document" || link.to.path.endsWith(".hick");
+      const kind = isDoc ? "document" : "file";
+      const id = `${kind}:${link.to.path}`;
+      if (
+        seen.has(id) ||
+        openTargets.has(id) ||
+        openTargets.has(`generated:${link.to.path}`)
+      )
+        continue;
+      seen.add(id);
+      const name = link.to.path.split("/").pop() ?? link.to.path;
+      list.push({
+        id,
+        label: name,
+        title: `Open ${link.to.path} — ${link.family === "context" ? "it was in front of the model" : "this cites it"}`,
+        onOpen: () =>
+          isDoc
+            ? openDocumentByPath(link.to.path)
+            : openPlainFile(link.to.path),
+      });
+    }
     return list;
   }, [
     focused,
@@ -889,6 +1072,9 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     reopenFocusedDocument,
     ribbonSources,
     openDocumentByPath,
+    ribbonLinks,
+    layers,
+    openPlainFile,
   ]);
 
   // ---- the Insert menu -----------------------------------------------------
@@ -1450,11 +1636,20 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
             container={shellBox}
             sources={ribbonSources}
             files={ribbonFiles}
+            links={ribbonLinks}
+            layers={layers}
             ribbonStyle={ribbonStyle}
             onNavigate={(target) => {
               const session = registry.get(focusedIdRef.current);
               if (!session) return;
               // Clicking a band IS the navigation.
+              if (target.kind === "path") {
+                // A context/declared far end: a document or a plain file.
+                if (target.path.endsWith(".hick"))
+                  openDocumentByPath(target.path);
+                else openPlainFile(target.path);
+                return;
+              }
               if (target.kind === "document") {
                 // Back the way it came: the document's own bytes, selected —
                 // first bringing the document on screen when the band ended
@@ -1539,9 +1734,25 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
         needsAttention={terminals.attention.length}
         path={focusedPath}
         zoom={zoom.uiZoom}
+        extra={
+          <ProvenanceToggles layers={layers} onToggle={toggleProvenance} />
+        }
         onProblems={goToNextProblem}
         onAttention={nextAttention}
       />
     </div>
   );
+}
+
+/** `dir` (ending in "/" or empty) joined with a relative `path`, with `./`
+ * and `../` folded — the path the tree knows a file by. */
+function joinRel(dir: string, path: string): string {
+  if (path.startsWith("/")) return path;
+  const parts: string[] = [];
+  for (const seg of `${dir}${path}`.split("/")) {
+    if (seg === "" || seg === ".") continue;
+    if (seg === "..") parts.pop();
+    else parts.push(seg);
+  }
+  return parts.join("/");
 }

@@ -17,6 +17,7 @@
 //! conversation trees, TUI, relay, and local-llama backends were deliberately
 //! left behind — see `docs/developers/vendoring-notes.md`.
 
+pub mod context;
 mod events;
 pub mod harness;
 mod key_store;
@@ -119,6 +120,7 @@ pub use session::NullSessionLog;
 pub use session::SessionEvent;
 /// Sink for structured agent session events.
 pub use session::SessionLog;
+pub use session::record_outcome;
 /// Conventional session file path: `sessions/<timestamp>-<slug>.hick`.
 pub use session::session_file_path;
 /// Single-writer edit session over one primary hick document.
@@ -129,6 +131,7 @@ pub use tools::ToolOutcome;
 pub use tools::execute_tool;
 /// Hashline rendering and anchor resolution primitives.
 pub use tools::hashline;
+pub use tools::{ContextRead, Wrote};
 /// Four-way token usage for one LLM call or an accumulated total.
 pub use usage::Usage;
 /// USD cost of a usage record on a model (cache multipliers applied).

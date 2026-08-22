@@ -266,6 +266,7 @@ fn the_mcp_server_speaks_the_protocol_and_keeps_one_session_open() {
         vec![
             "read_doc",
             "read_output",
+            "read_file",
             "edit_output",
             "edit_doc",
             "verify",

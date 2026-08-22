@@ -36,6 +36,8 @@ import type {
   UiSettings,
   WorkspaceDraft,
   WorkspaceUiState,
+  ContextResponse,
+  CitesResponse,
 } from "./types";
 
 export const MOCK = import.meta.env.VITE_MOCK === "1";
@@ -65,7 +67,11 @@ export function installMockHandler(h: MockHandler) {
   mockHandler = h;
 }
 
-async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+async function request<T>(
+  method: string,
+  path: string,
+  body?: unknown,
+): Promise<T> {
   if (mockHandler) {
     return (await mockHandler(method, path, body)) as T;
   }
@@ -105,9 +111,11 @@ const inFlightRenders = new Map<string, Promise<RenderResponse>>();
 function dedupedRender(id: string): Promise<RenderResponse> {
   const existing = inFlightRenders.get(id);
   if (existing) return existing;
-  const p = request<RenderResponse>("GET", `/api/docs/${id}/render`).finally(() => {
-    if (inFlightRenders.get(id) === p) inFlightRenders.delete(id);
-  });
+  const p = request<RenderResponse>("GET", `/api/docs/${id}/render`).finally(
+    () => {
+      if (inFlightRenders.get(id) === p) inFlightRenders.delete(id);
+    },
+  );
   inFlightRenders.set(id, p);
   return p;
 }
@@ -132,7 +140,8 @@ export const api = {
   /** Show a path in the platform's file manager: a file selected inside its
    * folder, a directory opened. `path` is root-relative; `""` is the folder
    * itself. */
-  reveal: (path: string) => request<{ ok: true }>("POST", "/api/reveal", { path }),
+  reveal: (path: string) =>
+    request<{ ok: true }>("POST", "/api/reveal", { path }),
   /** Open a path in whatever program this machine already opens that kind of
    * file with. Nothing is read or written here — the OS association decides. */
   openExternal: (path: string) =>
@@ -194,6 +203,13 @@ export const api = {
 
   outputs: (docId: string) =>
     request<OutputsResponse>("GET", `/api/docs/${docId}/outputs`),
+  /** Context provenance: every agent write in this document and what was in
+   * front of the model when it happened. */
+  context: (docId: string) =>
+    request<ContextResponse>("GET", `/api/docs/${docId}/context`),
+  /** Declared provenance: every `cites=` in the document, resolved. */
+  cites: (docId: string) =>
+    request<CitesResponse>("GET", `/api/docs/${docId}/cites`),
   outputFile: (docId: string, path: string) =>
     request<OutputFile>(
       "GET",
@@ -206,7 +222,11 @@ export const api = {
     }),
 
   run: (docId: string, cells?: string[]) =>
-    request<{ run_id: string }>("POST", `/api/docs/${docId}/run`, cells ? { cells } : {}),
+    request<{ run_id: string }>(
+      "POST",
+      `/api/docs/${docId}/run`,
+      cells ? { cells } : {},
+    ),
   runStatus: (runId: string) => request<Run>("GET", `/api/runs/${runId}`),
   check: (docId: string) =>
     request<{ run_id: string }>("POST", `/api/docs/${docId}/check`),
@@ -215,7 +235,8 @@ export const api = {
 
   /** The agent's LLM API keys: configured-or-not plus a masked hint. The
    * full key never travels back — see SettingsKeysResponse. */
-  settingsKeys: () => request<SettingsKeysResponse>("GET", "/api/settings/keys"),
+  settingsKeys: () =>
+    request<SettingsKeysResponse>("GET", "/api/settings/keys"),
   /** Set/clear only the named providers (string sets, null clears). */
   saveSettingsKeys: (patch: SettingsKeysPatch) =>
     request<SettingsKeysResponse>("PUT", "/api/settings/keys", patch),
@@ -247,7 +268,10 @@ export const api = {
    * are in. The backend installs itself on first use — it is a script the
    * binary carries, not a download. */
   evaluateFormulas: (language: string, rows: string[][]) =>
-    request<FormulaResults>("POST", "/api/formula/evaluate", { language, rows }),
+    request<FormulaResults>("POST", "/api/formula/evaluate", {
+      language,
+      rows,
+    }),
 
   /** The same evaluation, cell by cell — what the table's debugger steps
    * through. The same code path on the host, so the steps can never disagree
@@ -266,7 +290,8 @@ export const api = {
   gitLog: (limit = 120, path?: string) =>
     request<GitLog>(
       "GET",
-      `/api/git/log?limit=${limit}` + (path ? `&path=${encodeURIComponent(path)}` : ""),
+      `/api/git/log?limit=${limit}` +
+        (path ? `&path=${encodeURIComponent(path)}` : ""),
     ),
 
   /** The branch, and whether anything is uncommitted. */
@@ -311,7 +336,10 @@ export const api = {
 
   /** Ranked project-wide search over documents and generated files. */
   search: (q: string, k = 20) =>
-    request<SearchResponse>("GET", `/api/search?q=${encodeURIComponent(q)}&k=${k}`),
+    request<SearchResponse>(
+      "GET",
+      `/api/search?q=${encodeURIComponent(q)}&k=${k}`,
+    ),
 
   /** Start a turn. `parentId` continues from that turn — naming an older one
    * forks a branch (rewind) rather than overwriting what followed it.
@@ -341,7 +369,8 @@ export const api = {
   terminals: () => request<TerminalsResponse>("GET", "/api/terminals"),
   openTerminal: (spec: OpenTerminal = {}) =>
     request<TerminalSession>("POST", "/api/terminals", spec),
-  closeTerminal: (id: string) => request<void>("DELETE", `/api/terminals/${id}`),
+  closeTerminal: (id: string) =>
+    request<void>("DELETE", `/api/terminals/${id}`),
   /** Type into a session. The pane's own keystrokes go over the socket
    * instead; this is for everything else (menus, the card's input line). */
   terminalInput: (id: string, data: string) =>
@@ -375,7 +404,8 @@ export const api = {
   /** Every buffer that had unsaved changes when the app last closed, each
    * carrying the bytes it was taken from so a file that moved on can be
    * merged rather than fought over. */
-  drafts: () => request<{ drafts: WorkspaceDraft[] }>("GET", "/api/workspace/drafts"),
+  drafts: () =>
+    request<{ drafts: WorkspaceDraft[] }>("GET", "/api/workspace/drafts"),
   saveDraft: (draft: WorkspaceDraft) =>
     request<{ ok: true }>("PUT", "/api/workspace/drafts", draft),
   discardDraft: (path: string) =>

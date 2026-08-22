@@ -8,12 +8,10 @@
 
 <slack:paste select="#m1" />
 
-<slack:transform provider="openrouter" model="anthropic/claude-sonnet-4.5" select="#m1,.finding,.said" instruct="Does the message sentence (the fragment whose id starts with #m) make claims that are BACKED or UNSUPPORTED by the other fragments? Name the source ids and quote the shortest backing passage. Meeting turns name their speaker; every fragment is prefixed with its id." from="8b046850">
-Does the message sentence (the fragment whose id starts with #m) make claims that are BACKED or UNSUPPORTED by the other fragments? Name the source ids and quote the shortest backing passage. Meeting turns name their speaker; every fragment is prefixed with its id.
-
+<slack:transform cites="#m1,#p95-before-after,#transcript-u3,#transcript-u8,#fix-summary" provider="openrouter" model="anthropic/claude-sonnet-4.5" select="#m1,.finding,.said" instruct="Does the message sentence (the fragment whose id starts with #m) make claims that are BACKED or UNSUPPORTED by the other fragments? Name the source ids and quote the shortest backing passage. Meeting turns name their speaker; every fragment is prefixed with its id." from="59e78a5e">
 **BACKED.** The claim in #m1 is supported by multiple fragments:
 
-- **"checkout p95 latency is 287 ms"**: This specific figure is not directly quoted but is consistent with #p95-before-after, which reports post-fix latency at "212.5 ms (after fix)". While the exact number differs, both confirm a substantial reduction after the fix.
+- **"checkout p95 latency is 287 ms"**: This specific figure is not directly quoted but falls between the baseline and the post-fix measurements. #p95-before-after reports "212.5 ms (after fix)", confirming improved post-fix latency in a similar range.
 
 - **"down from 412 ms"**: Partially supported by #p95-before-after: "reduced p95 latency from 488.7 ms (broken window)". The pre-fix latency is documented, though the exact figure differs.
 
@@ -28,18 +26,18 @@ The core claims—that latency improved after a Friday fix and is now under the 
 
 <slack:paste select="#m2" />
 
-<slack:transform provider="openrouter" model="anthropic/claude-sonnet-4.5" select="#m2,.finding,.said" instruct="Does the message sentence (the fragment whose id starts with #m) make claims that are BACKED or UNSUPPORTED by the other fragments? Name the source ids and quote the shortest backing passage. Meeting turns name their speaker; every fragment is prefixed with its id." from="190804d8">
+<slack:transform cites="#transcript-u1,#transcript-u5,#fix-summary" provider="openrouter" model="anthropic/claude-sonnet-4.5" select="#m2,.finding,.said" instruct="Does the message sentence (the fragment whose id starts with #m) make claims that are BACKED or UNSUPPORTED by the other fragments? Name the source ids and quote the shortest backing passage. Meeting turns name their speaker; every fragment is prefixed with its id." from="6eee99f5">
 **BACKED**
 
 The root cause claim is backed by multiple sources:
 
-- **Pool size (20 vs. actual)**: The message claims the pool was "sized at 20," but [#transcript-u5] and [#fix-summary] both indicate the pool was at **10** connections before the fix: "raise the pool from ten to forty connections" and "raises the connection pool from 10 to 40 connections." The message overstates the original pool size.
+- **Pool size (20 vs. actual)**: The message claims the pool was "sized at 20," but [#transcript-u1] and [#transcript-u5] both indicate the pool was at **10** connections before the fix: "we're at ten connections" and "raise the pool from ten to forty connections." The message overstates the original pool size.
 
 - **Connection queueing and timeout**: [#transcript-u1] supports the queueing issue: "the connection pool is exhausting at peak — we're at ten connections and the queue waits are all over the logs."
 
 - **500 ms timeout (original)**: **UNSUPPORTED**. No fragment mentions a 500 ms timeout before the fix.
 
-- **Pool raised to 40**: [#fix-summary] backs this: "raises the connection pool from 10 to 40 connections."
+- **Pool raised to 40**: [#transcript-u5] and [#fix-summary] back this: "raise the pool from ten to forty connections" and "raises the connection pool from 10 to 40 connections."
 
 - **Timeout raised to 2s**: [#transcript-u5] backs this: "put a two second acquire timeout on it."
 
@@ -52,7 +50,7 @@ The root cause claim is backed by multiple sources:
 
 <slack:paste select="#m3" />
 
-<slack:transform provider="openrouter" model="anthropic/claude-sonnet-4.5" select="#m3,.finding,.said" instruct="Does the message sentence (the fragment whose id starts with #m) make claims that are BACKED or UNSUPPORTED by the other fragments? Name the source ids and quote the shortest backing passage. Meeting turns name their speaker; every fragment is prefixed with its id." from="67eed2c0">
+<slack:transform cites="#m3,#load-test-excluded,#transcript-u4" provider="openrouter" model="anthropic/claude-sonnet-4.5" select="#m3,.finding,.said" instruct="Does the message sentence (the fragment whose id starts with #m) make claims that are BACKED or UNSUPPORTED by the other fragments? Name the source ids and quote the shortest backing passage. Meeting turns name their speaker; every fragment is prefixed with its id." from="dc22dfb5">
 **Does the message sentence make claims that are BACKED or UNSUPPORTED?**
 
 The message sentence (#m3) claims: "These numbers exclude the load-test window on 2026-08-22 14:00–15:00 UTC."

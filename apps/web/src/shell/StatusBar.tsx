@@ -1,3 +1,4 @@
+import type React from "react";
 // The status bar: the one line that is always true.
 //
 // A status bar earns its permanent row by answering questions you would
@@ -27,6 +28,9 @@ export interface StatusBarProps {
   onGit?: () => void;
   /** The focused file's path, or null when nothing is focused. */
   path: string | null;
+  /** Controls the workspace wants at hand on the right — the provenance
+   * layer toggles. */
+  extra?: React.ReactNode;
   /** Whole-window zoom. Shown only when it is not 100%: a status bar that
    * always says "100%" has spent a slot on a constant. */
   zoom: number;
@@ -45,6 +49,7 @@ export function StatusBar({
   onProblems,
   onAttention,
   onGit,
+  extra,
 }: StatusBarProps) {
   const clean = problems.errors === 0 && problems.warnings === 0;
   return (
@@ -69,14 +74,18 @@ export function StatusBar({
               ⑂
             </span>
             {git.branch}
-            {git.dirty > 0 && <span className="status-bar__dirty">{git.dirty}</span>}
+            {git.dirty > 0 && (
+              <span className="status-bar__dirty">{git.dirty}</span>
+            )}
           </button>
         )}
         <button
           type="button"
           className={`status-bar__item${clean ? "" : " status-bar__item--loud"}`}
           onClick={onProblems}
-          data-tip={clean ? "Nothing is wrong right now" : "Go to the next problem"}
+          data-tip={
+            clean ? "Nothing is wrong right now" : "Go to the next problem"
+          }
           aria-label={problemsLabel(problems)}
         >
           <span className="status-bar__glyph" aria-hidden>
@@ -108,14 +117,21 @@ export function StatusBar({
       </div>
 
       <div className="status-bar__right">
+        {extra}
         <CaretPosition />
         {path && (
-          <span className="status-bar__item status-bar__path mono" data-tip={path}>
+          <span
+            className="status-bar__item status-bar__path mono"
+            data-tip={path}
+          >
             {path}
           </span>
         )}
         {zoom !== 1 && (
-          <span className="status-bar__item" data-tip="Window zoom — ⌘0 for actual size">
+          <span
+            className="status-bar__item"
+            data-tip="Window zoom — ⌘0 for actual size"
+          >
             {zoomLabel(zoom)}
           </span>
         )}
@@ -136,7 +152,9 @@ export function StatusBar({
  * behind the caret is indistinguishable from one that is not.
  */
 function CaretPosition() {
-  const [caret, setCaret] = useState<{ line: number; column: number } | null>(null);
+  const [caret, setCaret] = useState<{ line: number; column: number } | null>(
+    null,
+  );
   useEffect(() => {
     let frame: number | null = null;
     const read = () => {
@@ -151,7 +169,9 @@ function CaretPosition() {
       const next = { line: line.number, column: head - line.from + 1 };
       // Same place, same object, no render.
       setCaret((current) =>
-        current && current.line === next.line && current.column === next.column ? current : next,
+        current && current.line === next.line && current.column === next.column
+          ? current
+          : next,
       );
     };
     const tick = () => {

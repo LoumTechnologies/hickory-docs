@@ -168,7 +168,10 @@ async fn agent_tool_session_edits_verifies_and_replays() {
         "the script action must survive the session parse"
     );
     assert!(session_source.contains("<hick:tool name=\"edit_output\">"));
-    assert!(session_source.contains("<hick:tool-result name=\"verify\" ok=\"true\">"));
+    assert!(
+        session_source.contains("name=\"verify\" ok=\"true\">"),
+        "{session_source}"
+    );
 
     // And it REPLAYS: `hick run session.hick` semantics via hick-literate.
     hick_literate::run_pipeline_cmd(hick_literate::PipelineRunOpts {

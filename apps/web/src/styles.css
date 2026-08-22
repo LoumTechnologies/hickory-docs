@@ -72,6 +72,12 @@
   --ribbon-3: #b8a7f5;
   --ribbon-4: #e0a35f;
   --ribbon-5: #e5849b;
+  /* The two OTHER provenances, each one hue, never from the lineage palette:
+     context (what the model had in front of it) and declared (what the
+     author says it cites). Stroke pattern does the rest — see
+     .ribbon-family-context / -declared. */
+  --ribbon-context: #f2b84b;
+  --ribbon-declared: #9aa3ad;
   /* Editor chrome shared by every editor (editor/chrome.ts): the
      selection wash and the find-panel hit colours. */
   --select-bg: #2b4a6f;
@@ -127,6 +133,8 @@
   --ribbon-3: #5f5a9e;
   --ribbon-4: #9a6b16;
   --ribbon-5: #446b7a;
+  --ribbon-context: #e0a63f;
+  --ribbon-declared: #8a939c;
   --select-bg: #cfe0f5;
   --search-hit: #f5e4bd;
   --search-hit-on: #e8c878;
@@ -180,6 +188,8 @@
   --ribbon-3: #a89ed6;
   --ribbon-4: #d3a54a;
   --ribbon-5: #7fb0a8;
+  --ribbon-context: #e0a63f;
+  --ribbon-declared: #8a939c;
   --select-bg: #4a3f28;
   --search-hit: #5c4a22;
   --search-hit-on: #8f7333;
@@ -7016,3 +7026,26 @@ button.status-bar__item:hover { background: var(--bg-sunken); color: var(--fg); 
   color: var(--bg);
   font-size: 0.62rem;
 }
+
+/* ---- provenance families ------------------------------------------------
+   Lineage keeps the palette. Context is dotted and amber; declared is dashed
+   and grey. Different hue AND different stroke, so colour-blind readers and
+   monochrome prints still tell them apart. */
+.ribbon-brace.ribbon-family-context,
+.ribbon-brace-link.ribbon-family-context { stroke: var(--ribbon-context); stroke-dasharray: 1.5 3.5; stroke-linecap: round; }
+.ribbon.ribbon-family-context { fill: var(--ribbon-context); opacity: 0.35; }
+.ribbon-group--context .ribbon-connector { fill: var(--ribbon-context); }
+.ribbon-brace.ribbon-family-declared,
+.ribbon-brace-link.ribbon-family-declared { stroke: var(--ribbon-declared); stroke-dasharray: 6 4; }
+.ribbon.ribbon-family-declared { fill: var(--ribbon-declared); opacity: 0.3; }
+.ribbon-group--declared .ribbon-connector { fill: var(--ribbon-declared); }
+
+.provenance-toggles { display: inline-flex; gap: 2px; margin-right: 6px; }
+.provenance-toggle { opacity: 0.55; }
+.provenance-toggle--on { opacity: 1; }
+.provenance-toggle__swatch {
+  display: inline-block; width: 14px; height: 0; margin-right: 5px; vertical-align: middle;
+  border-top: 2px solid var(--ribbon-0);
+}
+.provenance-toggle--context .provenance-toggle__swatch { border-top-color: var(--ribbon-context); border-top-style: dotted; }
+.provenance-toggle--declared .provenance-toggle__swatch { border-top-color: var(--ribbon-declared); border-top-style: dashed; }

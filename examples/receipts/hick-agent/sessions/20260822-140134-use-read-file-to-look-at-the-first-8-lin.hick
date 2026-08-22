@@ -1,0 +1,144 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<hick:session xmlns:hick="http://www.hickorydocs.com/1.0" start="2026-08-22T14:01:34Z">
+<hick:user id="in0">Use read_file to look at the first 8 lines of data/checkout-latency.csv (the export the cell reads). Then add ONE hick:copy fragment under the '## Findings' heading, id export-shape, class finding, one sentence describing the export exactly as you saw it: its column names and that each row is a four-hour bucket. Do not change anything else. Run verify, then stop.</hick:user>
+<hick:usage turn="0" input="2316" cache-write="0" cache-read="0" output="93"/>
+<hick:assistant>
+<hick:tool name="read_file">
+<hick:arg name="path">data/checkout-latency.csv</hick:arg>
+<hick:arg name="from">1</hick:arg>
+<hick:arg name="to">8</hick:arg>
+</hick:tool>
+</hick:assistant>
+<hick:tool-result id="in1" name="read_file" ok="true">
+file: data/checkout-latency.csv lines 1-8 of 85
+5d13|bucket_start,p95_ms,requests
+136c|2026-08-10T00:00,198,4200
+e571|2026-08-10T04:00,205,4681
+faa0|2026-08-10T08:00,201,4533
+9141|2026-08-10T12:00,208,5285
+4f9e|2026-08-10T16:00,204,5137
+d6bc|2026-08-10T20:00,200,4718
+14fc|2026-08-11T00:00,207,4570
+</hick:tool-result>
+<hick:read file="data/checkout-latency.csv" commit="ab7a2d9316c45951e083361e6e31e19cda51ed4e" sha256="31f524c41c5fa3cc5069c0e53e94bd0b2e539d1daa79f53465153b2d2be2db85" lines="1-8"/>
+<hick:usage turn="1" input="2610" cache-write="0" cache-read="0" output="35"/>
+<hick:assistant>
+<hick:tool name="read_doc">
+</hick:tool>
+</hick:assistant>
+<hick:tool-result id="in2" name="read_doc" ok="true">
+doc: analysis.hick
+f636|---
+91c7|date: 2026-08-24
+f636|---
+f011|
+56d8|<hick:upstream file="meetings/2026-08-20-checkout-latency-sync.hick" />
+f011|
+cf81|## Context
+f011|
+3b19|Priya's warning about the load-test window:
+f011|
+2676|<hick:paste select="#transcript-u4" />
+f011|
+e077|<hick:container name="py" image="python:3.12" />
+1de7|<hick:volume name="src" input="." />
+f011|
+72a0|## Analysis
+f011|
+e4c3|<hick:exec id="compute" container="py" mount="src:project" show="output">
+8b75|python3 <<'EOF'
+9343|import csv
+543b|from datetime import datetime
+f011|
+e729|baseline_start = datetime(2026, 8, 10)
+c183|baseline_end = datetime(2026, 8, 12)
+7c81|broken_start = datetime(2026, 8, 12)
+d296|fix_time = datetime(2026, 8, 21, 12, 0)
+a82a|after_end = datetime(2026, 8, 24)
+c2ad|loadtest_start = datetime(2026, 8, 18, 10, 0)
+b80a|loadtest_end = datetime(2026, 8, 18, 12, 0)
+f011|
+12e7|baseline = []
+34c3|broken = []
+60bc|after = []
+3b71|excluded = 0
+f011|
+723f|with open('project/data/checkout-latency.csv') as f:
+a6e8|    reader = csv.DictReader(f)
+554a|    for row in reader:
+e31e|        bucket = datetime.fromisoformat(row['bucket_start'])
+4579|        p95 = float(row['p95_ms'])
+9081|        
+40e8|        # Exclude the 4-hour bucket containing the load-test window (08:00-12:00 on 2026-08-18)
+cce2|        bucket_containing_loadtest = datetime(2026, 8, 18, 8, 0)
+06a1|        if bucket == bucket_containing_loadtest:
+ab53|            excluded += 1
+7add|            continue
+9081|        
+24f8|        if baseline_start <= bucket < baseline_end:
+0ffc|            baseline.append(p95)
+0268|        elif broken_start <= bucket < fix_time:
+5aea|            broken.append(p95)
+2fc2|        elif fix_time <= bucket < after_end:
+9324|            after.append(p95)
+f011|
+3561|baseline_mean = sum(baseline) / len(baseline)
+8b07|broken_mean = sum(broken) / len(broken)
+35a6|after_mean = sum(after) / len(after)
+f011|
+f615|print(f"Baseline (2026-08-10 to 2026-08-12): {baseline_mean:.1f} ms")
+6af4|print(f"Broken window (2026-08-12 to 2026-08-21 12:00): {broken_mean:.1f} ms")
+8df1|print(f"After fix (2026-08-21 12:00 to 2026-08-24): {after_mean:.1f} ms")
+6b0a|print(f"Excluded {excluded} rows (load-test window 2026-08-18 10:00-12:00)")
+103a|EOF
+af51|<hick:expect match="exact">Baseline (2026-08-10 to 2026-08-12): 202.6 ms
+8e41|Broken window (2026-08-12 to 2026-08-21 12:00): 488.7 ms
+f8d2|After fix (2026-08-21 12:00 to 2026-08-24): 212.5 ms
+20b6|Excluded 1 rows (load-test window 2026-08-18 10:00-12:00)
+1cc3|</hick:expect>
+32f2|</hick:exec>
+f011|
+454d|## Findings
+f011|
+3241|<hick:copy id="baseline" class="finding">Baseline p95 latency (2026-08-10 to 2026-08-12): 202.6 ms</hick:copy>
+f011|
+57fc|<hick:copy id="p95-before-after" class="finding">The pool fix reduced p95 latency from 488.7 ms (broken window) to 212.5 ms (after fix)</hick:copy>
+f011|
+bade|<hick:copy id="load-test-excluded" class="finding">Excluded 1 row covering the 2026-08-18 10:00-12:00 load test</hick:copy>
+0266|# Checkout latency: before and after the pool fix
+f011|
+
+upstream of this session (readable and editable by passing <hick:arg name="doc">NAME</hick:arg>): meetings/2026-08-20-checkout-latency-sync.hick
+</hick:tool-result>
+<hick:read file="analysis.hick" sha256="0d3e92af493ba2c73988b982e78fe1a120193e25590065f70e91e43e37bec1e0" lines="1-79"/>
+<hick:usage turn="2" input="4034" cache-write="0" cache-read="0" output="114"/>
+<hick:assistant>
+<hick:tool name="edit_doc">
+<hick:arg name="after">454d</hick:arg>
+<hick:input>
+<hick:copy id="export-shape" class="finding">The export has columns bucket_start, p95_ms, and requests, where each row represents a four-hour bucket.</hick:copy>
+</hick:input>
+</hick:tool>
+</hick:assistant>
+<hick:tool-result id="in3" name="edit_doc" ok="true">
+edited analysis.hick and re-wove.
+edited region (fresh hashes):
+f011|
+454d|## Findings
+b249|<hick:copy id="export-shape" class="finding">The export has columns bucket_start, p95_ms, and requests, where each row represents a four-hour bucket.</hick:copy>
+f011|
+3241|<hick:copy id="baseline" class="finding">Baseline p95 latency (2026-08-10 to 2026-08-12): 202.6 ms</hick:copy>
+</hick:tool-result>
+<hick:wrote file="analysis.hick" lines="72-72" hashes="b249"/>
+<hick:usage turn="3" input="4315" cache-write="0" cache-read="0" output="33"/>
+<hick:assistant>
+<hick:tool name="verify">
+</hick:tool>
+</hick:assistant>
+<hick:tool-result id="in4" name="verify" ok="true">
+PASS — executed the document: 1 expectation(s) met; wrote 1 output file(s): analysis.md; also re-wove 1 upstream document(s)
+</hick:tool-result>
+<hick:usage turn="4" input="4419" cache-write="0" cache-read="0" output="79"/>
+<hick:assistant>Done. I added the `export-shape` finding fragment under the "## Findings" heading, describing the CSV export exactly as observed: it has columns `bucket_start`, `p95_ms`, and `requests`, with each row representing a four-hour bucket. The document verified successfully.</hick:assistant>
+<hick:usage scope="session" input="17694" cache-write="0" cache-read="0" output="354"/>
+</hick:session>

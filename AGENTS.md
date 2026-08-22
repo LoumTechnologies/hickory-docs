@@ -40,7 +40,11 @@ CRDTs merge is absent exactly where it would be needed.
 How a sentence someone posts proves itself — meeting → analysis → message,
 with ribbons across documents — is walked through in
 `docs/specs/freeform/receipts-for-a-message.md`, including what is still
-clunky. How outside material enters a notes folder is `docs/specs/freeform/ingest.md`;
+clunky. The three kinds of provenance that answer "why is this here?" —
+lineage (the weave), context (what the model was shown, from the session),
+declared (`cites=`) — and why they must never look alike, are
+`docs/specs/freeform/three-provenances.md`. Sessions are the user's own
+record and are not checked in; `hick init` ignores `sessions/`. How outside material enters a notes folder is `docs/specs/freeform/ingest.md`;
 how the result is marked is `docs/specs/freeform/provenance-and-standing.md`.
 The rule that governs both: **provenance is derived and checkable, standing is
 declared and unverifiable, and the two must never render alike.** Say

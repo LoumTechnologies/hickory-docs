@@ -40,6 +40,48 @@ pub struct ToolOutcome {
     pub ok: bool,
     /// The observation text.
     pub text: String,
+    /// What this call put IN FRONT OF the model: every file (and line range)
+    /// a read tool returned. Recorded into the session as `<hick:read>`, so
+    /// "what was in context when these lines were written" is derivable from
+    /// the conversation record alone — the model never asserts it.
+    pub reads: Vec<ContextRead>,
+    /// The lines an edit tool wrote, in the file it wrote them to, as they
+    /// stand after the edit. Recorded as `<hick:wrote>`; everything read
+    /// earlier in the same session is that write's context.
+    pub wrote: Option<Wrote>,
+}
+
+/// One thing a tool showed the model: a file, at a content hash and (when
+/// the file is in a git repository) a commit, over a 1-based inclusive line
+/// range. Derived by the tool, never declared by the model.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ContextRead {
+    /// The path as the session knows it — the document's name for the
+    /// primary, the upstream's path, an output's path, or the path given to
+    /// `read_file` resolved relative to the primary document.
+    pub path: String,
+    /// `git rev-parse HEAD` of the repository containing the file, if any.
+    /// The working tree may differ from HEAD; `sha256` is the truth about
+    /// the bytes, `commit` is where to look for them later.
+    pub commit: Option<String>,
+    /// SHA-256 of the whole file's bytes as read.
+    pub sha256: String,
+    /// First line shown, 1-based.
+    pub first_line: usize,
+    /// Last line shown, 1-based, inclusive.
+    pub last_line: usize,
+}
+
+/// The lines an edit left in a file, 1-based inclusive, with their content
+/// hashes — the anchors by which a later reader finds them again after the
+/// file has moved on.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Wrote {
+    pub file: String,
+    pub first_line: usize,
+    pub last_line: usize,
+    /// 4-hex hashline hashes of those lines, in order.
+    pub hashes: Vec<String>,
 }
 
 impl ToolOutcome {
@@ -48,6 +90,8 @@ impl ToolOutcome {
             name: name.to_string(),
             ok: true,
             text,
+            reads: Vec::new(),
+            wrote: None,
         }
     }
 
@@ -56,8 +100,91 @@ impl ToolOutcome {
             name: name.to_string(),
             ok: false,
             text,
+            reads: Vec::new(),
+            wrote: None,
         }
     }
+
+    fn with_read(mut self, read: ContextRead) -> Self {
+        self.reads.push(read);
+        self
+    }
+
+    fn with_wrote(mut self, wrote: Option<Wrote>) -> Self {
+        self.wrote = wrote;
+        self
+    }
+
+    /// A bare outcome for callers outside this module (the loop's "no
+    /// document in this session" refusal).
+    pub fn refused(name: &str, text: String) -> Self {
+        Self::err(name, text)
+    }
+}
+
+/// SHA-256 of `bytes`, lowercase hex.
+fn sha256_hex(bytes: &[u8]) -> String {
+    use sha2::Digest as _;
+    let mut h = sha2::Sha256::new();
+    h.update(bytes);
+    format!("{:x}", h.finalize())
+}
+
+/// `git rev-parse HEAD` for the repository containing `path`, if there is
+/// one and git is installed. Anything else is `None`: outside a repository
+/// there is no commit to name, and the read is still recorded by its hash.
+fn head_commit_for(path: &Path) -> Option<String> {
+    let dir = if path.is_dir() {
+        path
+    } else {
+        match path.parent() {
+            Some(p) if !p.as_os_str().is_empty() => p,
+            _ => Path::new("."),
+        }
+    };
+    let out = std::process::Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .current_dir(dir)
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let s = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    (!s.is_empty()).then_some(s)
+}
+
+/// The lines of `new` that differ from `old`: the first and last (1-based,
+/// inclusive) line indices into `new` outside the common prefix and suffix,
+/// with their hashes. `None` when nothing changed or the change was a pure
+/// deletion (no lines of `new` were written).
+fn changed_lines(old: &str, new: &str, file: &str) -> Option<Wrote> {
+    let a: Vec<&str> = old.lines().collect();
+    let b: Vec<&str> = new.lines().collect();
+    let mut prefix = 0;
+    while prefix < a.len() && prefix < b.len() && a[prefix] == b[prefix] {
+        prefix += 1;
+    }
+    let mut suffix = 0;
+    while suffix < a.len() - prefix
+        && suffix < b.len() - prefix
+        && a[a.len() - 1 - suffix] == b[b.len() - 1 - suffix]
+    {
+        suffix += 1;
+    }
+    let last = b.len().checked_sub(suffix)?;
+    if last <= prefix {
+        return None;
+    }
+    Some(Wrote {
+        file: file.to_string(),
+        first_line: prefix + 1,
+        last_line: last,
+        hashes: b[prefix..last]
+            .iter()
+            .map(|l| hashline::line_hash(l))
+            .collect(),
+    })
 }
 
 /// Weave state of one pipeline pass: text outputs plus their provenance.
@@ -92,6 +219,11 @@ pub struct EditSession {
     params: Vec<(String, String)>,
     source: String,
     weave: WeaveState,
+    /// Where `read_file` may look: the git repository containing the
+    /// document, or its directory when there is none. Nothing above it is
+    /// readable — the tool surface is the agent's only view of the project,
+    /// and that view is the project.
+    root: PathBuf,
 }
 
 impl EditSession {
@@ -102,6 +234,7 @@ impl EditSession {
         let doc_name = doc_path.display().to_string();
         let weave = weave_source(doc_path, &doc_name, &source, params).await?;
         let upstream = upstream_closure(doc_path);
+        let root = project_root(doc_path);
         Ok(Self {
             doc_path: doc_path.to_path_buf(),
             upstream,
@@ -109,7 +242,20 @@ impl EditSession {
             params: params.to_vec(),
             source,
             weave,
+            root,
         })
+    }
+
+    /// A context record for showing the whole of `source`, known as `path`.
+    fn read_of(&self, path: &Path, name: &str, source: &str) -> ContextRead {
+        let lines = source.lines().count().max(1);
+        ContextRead {
+            path: name.to_string(),
+            commit: head_commit_for(path),
+            sha256: sha256_hex(source.as_bytes()),
+            first_line: 1,
+            last_line: lines,
+        }
     }
 
     /// The session's primary document path.
@@ -163,10 +309,12 @@ impl EditSession {
         let Some((name, source)) = self.resolve_target(inv.arg("doc")) else {
             return ToolOutcome::err("read_doc", self.unknown_doc(inv.arg("doc").unwrap_or("")));
         };
+        let path = self.path_of_target(&name);
+        let read = self.read_of(&path, &name, &source);
         let index = LineIndex::new(&source);
         let mut text = format!("doc: {name}\n{}", index.render());
         if self.upstream.is_empty() {
-            return ToolOutcome::ok("read_doc", text);
+            return ToolOutcome::ok("read_doc", text).with_read(read);
         }
         // Name the rest of the chain, or the agent has no way to learn that a
         // decision it needs to change lives one document up.
@@ -175,7 +323,146 @@ impl EditSession {
              <hick:arg name=\"doc\">NAME</hick:arg>): {}\n",
             self.upstream_names()
         ));
-        ToolOutcome::ok("read_doc", text)
+        ToolOutcome::ok("read_doc", text).with_read(read)
+    }
+
+    /// The on-disk path of a resolved target name (the primary or an
+    /// upstream), for hashing and for finding its repository.
+    fn path_of_target(&self, name: &str) -> PathBuf {
+        if name == self.doc_name {
+            return self.doc_path.clone();
+        }
+        self.upstream
+            .keys()
+            .find(|p| p.display().to_string() == name)
+            .cloned()
+            .unwrap_or_else(|| PathBuf::from(name))
+    }
+
+    // -- read_file ---------------------------------------------------------
+
+    /// Show the model any file of the project, read-only, hashline-rendered,
+    /// optionally one line range — and record that it was shown.
+    ///
+    /// This is the agent's only window onto files that are not documents:
+    /// a data export, a config, a source file the document tangles from. Its
+    /// scripts run in a scratch workspace that cannot see the project, on
+    /// purpose; without this tool the agent, told a file exists, looks,
+    /// finds nothing, and makes one up. With it the read is real AND on the
+    /// record, which is what lets context provenance say "this export, at
+    /// this hash, was in front of the model when it wrote those findings".
+    fn read_file(&self, inv: &ToolInvocation) -> ToolOutcome {
+        const NAME: &str = "read_file";
+        const MAX_BYTES: usize = 1 << 20;
+        let Some(rel) = inv.arg("path") else {
+            return ToolOutcome::err(
+                NAME,
+                "read_file needs a path argument, relative to the document's directory".into(),
+            );
+        };
+        let base = self.doc_path.parent().unwrap_or(Path::new("."));
+        let candidate = base.join(rel);
+        let canonical = match candidate.canonicalize() {
+            Ok(c) => c,
+            Err(e) => {
+                return ToolOutcome::err(
+                    NAME,
+                    format!(
+                        "cannot read '{rel}' (resolved against {}): {e}",
+                        base.display()
+                    ),
+                );
+            }
+        };
+        let root = self
+            .root
+            .canonicalize()
+            .unwrap_or_else(|_| self.root.clone());
+        if !canonical.starts_with(&root) {
+            return ToolOutcome::err(
+                NAME,
+                format!(
+                    "'{rel}' is outside the project ({}); read_file reads project files only",
+                    root.display()
+                ),
+            );
+        }
+        if canonical.is_dir() {
+            let mut names: Vec<String> = std::fs::read_dir(&canonical)
+                .map(|rd| {
+                    rd.filter_map(Result::ok)
+                        .map(|e| {
+                            let n = e.file_name().to_string_lossy().to_string();
+                            if e.path().is_dir() {
+                                format!("{n}/")
+                            } else {
+                                n
+                            }
+                        })
+                        .collect()
+                })
+                .unwrap_or_default();
+            names.sort();
+            return ToolOutcome::ok(
+                NAME,
+                format!("'{rel}' is a directory; it holds:\n{}", names.join("\n")),
+            );
+        }
+        let bytes = match std::fs::read(&canonical) {
+            Ok(b) => b,
+            Err(e) => return ToolOutcome::err(NAME, format!("cannot read '{rel}': {e}")),
+        };
+        if bytes.len() > MAX_BYTES {
+            return ToolOutcome::err(
+                NAME,
+                format!(
+                    "'{rel}' is {} bytes; read_file shows at most {MAX_BYTES}. Read a range \
+                     with from/to, or let a cell process the file",
+                    bytes.len()
+                ),
+            );
+        }
+        let Ok(text) = String::from_utf8(bytes.clone()) else {
+            return ToolOutcome::err(
+                NAME,
+                format!(
+                    "'{rel}' is not UTF-8 text; a cell can process it, read_file cannot show it"
+                ),
+            );
+        };
+        let index = LineIndex::new(&text);
+        let total = index.lines.len();
+        let parse_line = |key: &str, default: usize| -> Result<usize, String> {
+            match inv.arg(key) {
+                None => Ok(default),
+                Some(v) => v
+                    .parse::<usize>()
+                    .ok()
+                    .filter(|n| *n >= 1)
+                    .ok_or_else(|| format!("{key}='{v}' is not a positive line number")),
+            }
+        };
+        let (first, last) = match (parse_line("from", 1), parse_line("to", total)) {
+            (Ok(a), Ok(b)) => (a.min(total.max(1)), b.min(total.max(1))),
+            (Err(e), _) | (_, Err(e)) => return ToolOutcome::err(NAME, e),
+        };
+        if last < first {
+            return ToolOutcome::err(NAME, format!("to={last} is before from={first}"));
+        }
+        let shown = index.render_range(first - 1, last - 1);
+        let read = ContextRead {
+            path: rel.to_string(),
+            commit: head_commit_for(&canonical),
+            sha256: sha256_hex(&bytes),
+            first_line: first,
+            last_line: last,
+        };
+        let header = if first == 1 && last == total {
+            format!("file: {rel} ({total} lines)\n")
+        } else {
+            format!("file: {rel} lines {first}-{last} of {total}\n")
+        };
+        ToolOutcome::ok(NAME, format!("{header}{shown}")).with_read(read)
     }
 
     /// Apply an edit to an upstream document and re-weave the primary.
@@ -231,6 +518,7 @@ impl EditSession {
         self.upstream.insert(path.clone(), new_source.clone());
 
         let new_index = LineIndex::new(&new_source);
+        let wrote = changed_lines(&source, &new_source, &path.display().to_string());
         ToolOutcome::ok(
             NAME,
             format!(
@@ -241,6 +529,7 @@ impl EditSession {
                 self.output_names()
             ),
         )
+        .with_wrote(wrote)
     }
 
     /// The upstream documents, nearest first, as a display list.
@@ -319,7 +608,14 @@ impl EditSession {
             text.push_str("\nlineage:\n");
             text.push_str(&self.lineage_summary(&prov, &index));
         }
-        ToolOutcome::ok("read_output", text)
+        let lines = content.lines().count().max(1);
+        ToolOutcome::ok("read_output", text).with_read(ContextRead {
+            path: path.to_string(),
+            commit: None, // an output is derived; its document's commit is the record
+            sha256: sha256_hex(content.as_bytes()),
+            first_line: 1,
+            last_line: lines,
+        })
     }
 
     /// Compact per-range lineage annotations: kind, editability, and the
@@ -496,6 +792,9 @@ impl EditSession {
 
         let new_index = LineIndex::new(&new_content);
         let region = edited_region(&new_index, edit.first_line, &edit.text);
+        // The write that matters for context is the DOCUMENT's: the output
+        // is re-derived from it, and provenance already covers that hop.
+        let wrote = changed_lines(&old_source, &self.source, &self.doc_name);
         ToolOutcome::ok(
             NAME,
             format!(
@@ -503,6 +802,7 @@ impl EditSession {
                  edited region (fresh hashes):\n{region}"
             ),
         )
+        .with_wrote(wrote)
     }
 
     /// Turn a lineage refusal into the routing signal: explain why, name
@@ -655,6 +955,7 @@ impl EditSession {
 
         let new_index = LineIndex::new(&self.source);
         let region = edited_region(&new_index, edit.first_line, &edit.text);
+        let wrote = changed_lines(&old_source, &self.source, &self.doc_name);
         ToolOutcome::ok(
             NAME,
             format!(
@@ -662,6 +963,7 @@ impl EditSession {
                 self.doc_name
             ),
         )
+        .with_wrote(wrote)
     }
 
     // -- verify ------------------------------------------------------------
@@ -889,14 +1191,15 @@ pub async fn execute_tool(
     match inv.name.as_str() {
         "read_doc" => session.read_doc(inv),
         "read_output" => session.read_output(inv),
+        "read_file" => session.read_file(inv),
         "edit_output" => session.edit_output(inv).await,
         "edit_doc" => session.edit_doc(inv).await,
         "verify" => session.verify(executor).await,
         other => ToolOutcome::err(
             other,
             format!(
-                "unknown tool '{other}' — available: read_doc, read_output, edit_output, \
-                 edit_doc, verify"
+                "unknown tool '{other}' — available: read_doc, read_output, read_file, \
+                 edit_output, edit_doc, verify"
             ),
         ),
     }
@@ -1220,6 +1523,24 @@ async fn weave_source(
 /// failing the session: an agent opening a document should not be blocked by
 /// a broken document elsewhere in the chain — that is what `hick test`
 /// is for, and the agent may well have been called to fix it.
+/// The project a document belongs to: its git repository's top level when it
+/// is in one, otherwise its own directory. `read_file` reads nothing above it.
+fn project_root(doc_path: &Path) -> PathBuf {
+    let dir = doc_path
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .unwrap_or(Path::new("."))
+        .to_path_buf();
+    let top = std::process::Command::new("git")
+        .args(["rev-parse", "--show-toplevel"])
+        .current_dir(&dir)
+        .output()
+        .ok()
+        .filter(|o| o.status.success())
+        .map(|o| PathBuf::from(String::from_utf8_lossy(&o.stdout).trim()));
+    top.unwrap_or(dir)
+}
+
 fn upstream_closure(doc_path: &Path) -> std::collections::BTreeMap<PathBuf, String> {
     let mut out = std::collections::BTreeMap::new();
     let mut seen: std::collections::HashSet<PathBuf> = std::collections::HashSet::new();

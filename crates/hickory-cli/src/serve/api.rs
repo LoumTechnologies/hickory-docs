@@ -687,6 +687,84 @@ pub async fn get_output_file(
     })))
 }
 
+/// `GET /api/docs/:id/context` — context provenance: every run of lines an
+/// agent wrote in this document, with what was in front of the model when it
+/// wrote them, derived from the session files near the document. A second
+/// provenance beside the weave's lineage; the app draws it as its own family
+/// of ribbons and never the same way (`docs/specs/freeform/three-provenances.md`).
+pub async fn get_context(
+    State(state): State<LocalState>,
+    Path(id): Path<String>,
+) -> ApiResult<Json<Value>> {
+    let path = state
+        .index
+        .absolute(&id)
+        .ok_or_else(|| ApiError::not_found(format!("no document with id {id}")))?;
+    let source = std::fs::read_to_string(&path)
+        .map_err(|e| ApiError::not_found(format!("cannot read {}: {e}", path.display())))?;
+    let root = state.index.root().to_path_buf();
+    let writes = tokio::task::spawn_blocking(move || {
+        hickory_agent::context::context_for_document(&path, &source)
+    })
+    .await
+    .map_err(|e| ApiError::internal(format!("context derivation failed: {e}")))?;
+    // Session paths relative to the project root, which is how the app
+    // names files — the tree, the tabs, the ports.
+    let writes: Vec<Value> = writes
+        .into_iter()
+        .map(|w| {
+            let mut v = serde_json::to_value(&w).unwrap_or(Value::Null);
+            if let Some(obj) = v.as_object_mut()
+                && let Some(Value::String(s)) = obj.get("session")
+            {
+                let rel = std::path::Path::new(s)
+                    .strip_prefix(&root)
+                    .map(|p| p.display().to_string())
+                    .unwrap_or_else(|_| s.clone());
+                obj.insert("session".into(), Value::String(rel));
+            }
+            v
+        })
+        .collect();
+    Ok(Json(json!({ "writes": writes })))
+}
+
+/// `GET /api/docs/:id/cites` — declared provenance: every `cites=` in the
+/// document and what it resolves to, paths root-relative. The author's
+/// assertion, drawn by the app as one.
+pub async fn get_cites(
+    State(state): State<LocalState>,
+    Path(id): Path<String>,
+) -> ApiResult<Json<Value>> {
+    let path = state
+        .index
+        .absolute(&id)
+        .ok_or_else(|| ApiError::not_found(format!("no document with id {id}")))?;
+    let source = std::fs::read_to_string(&path)
+        .map_err(|e| ApiError::not_found(format!("cannot read {}: {e}", path.display())))?;
+    let root = state.index.root().to_path_buf();
+    let rel = |p: &str| -> String {
+        let pb = std::path::Path::new(p);
+        let canon = pb.canonicalize().unwrap_or_else(|_| pb.to_path_buf());
+        canon
+            .strip_prefix(&root)
+            .map(|q| q.display().to_string())
+            .unwrap_or_else(|_| p.to_string())
+    };
+    let cites = crate::declared_cites(&path, &source)
+        .map_err(|e| ApiError::internal(format!("resolving cites: {e:#}")))?
+        .into_iter()
+        .map(|mut c| {
+            c.from.path = rel(&c.from.path);
+            for t in &mut c.to {
+                t.path = rel(&t.path);
+            }
+            c
+        })
+        .collect::<Vec<_>>();
+    Ok(Json(json!({ "cites": cites })))
+}
+
 #[derive(Deserialize)]
 pub struct EditRequest {
     pub path: String,

@@ -391,6 +391,8 @@ fn router(state: LocalState) -> Router {
         .route("/docs/{id}/outputs", get(api::list_outputs))
         .route("/docs/{id}/outputs/file", get(api::get_output_file))
         .route("/docs/{id}/outputs/edit", post(api::edit_outputs))
+        .route("/docs/{id}/context", get(api::get_context))
+        .route("/docs/{id}/cites", get(api::get_cites))
         .route("/docs/{id}/refactor/begin", post(refactor::begin))
         .route("/docs/{id}/refactor/status", get(refactor::status))
         .route("/docs/{id}/refactor/end", post(refactor::end))

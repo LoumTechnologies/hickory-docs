@@ -73,8 +73,34 @@ pub enum SessionEvent<'a> {
         /// USD cost (`None` when the model has no known price).
         cost_usd: Option<f64>,
     },
+    /// A tool showed the model a file (`<hick:read …/>`): what, at which
+    /// content hash and commit, which lines. Derived by the tool.
+    Read { read: &'a crate::tools::ContextRead },
+    /// An edit tool wrote lines (`<hick:wrote …/>`): which file, which lines
+    /// as they stand after the edit, and their hashline hashes — so a later
+    /// reader can find them again, and can say that every `<hick:read>`
+    /// earlier in this session was in front of the model when they were
+    /// written.
+    Wrote { wrote: &'a crate::tools::Wrote },
     /// Session ended — writes the closing `</hick:session>` tag.
     End,
+}
+
+/// Record a tool's outcome: the `<hick:tool-result>` the model sees, then
+/// the context it leaves behind — what it showed (`<hick:read>`) or what it
+/// wrote (`<hick:wrote>`). One call, so no recorder forgets the second half.
+pub fn record_outcome(log: &dyn SessionLog, outcome: &crate::tools::ToolOutcome) {
+    log.record(SessionEvent::ToolResult {
+        name: &outcome.name,
+        ok: outcome.ok,
+        text: &outcome.text,
+    });
+    for read in &outcome.reads {
+        log.record(SessionEvent::Read { read });
+    }
+    if let Some(wrote) = &outcome.wrote {
+        log.record(SessionEvent::Wrote { wrote });
+    }
 }
 
 /// Sink for structured agent session events.
@@ -107,6 +133,19 @@ impl SessionLog for NullSessionLog {
 pub struct HickSessionLog {
     inner: Mutex<BufWriter<std::fs::File>>,
     path: PathBuf,
+    /// Every INPUT to the conversation — the user's words, a script's
+    /// observation, a tool's result — gets `id="in<n>"`, so context
+    /// provenance can point at it and a reader can find it. Seeded from the
+    /// file when appending, so ids stay unique across processes.
+    inputs: std::sync::atomic::AtomicUsize,
+}
+
+/// How many input elements a session file already holds.
+fn count_inputs(existing: &str) -> usize {
+    ["<hick:user", "<hick:observation", "<hick:tool-result"]
+        .iter()
+        .map(|tag| existing.matches(tag).count())
+        .sum()
 }
 
 impl HickSessionLog {
@@ -131,7 +170,15 @@ impl HickSessionLog {
         Ok(Self {
             inner: Mutex::new(writer),
             path,
+            inputs: std::sync::atomic::AtomicUsize::new(0),
         })
+    }
+
+    fn next_input_id(&self) -> String {
+        let n = self
+            .inputs
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        format!("in{n}")
     }
 
     /// Open an existing session file to append to, or create a new one.
@@ -173,12 +220,14 @@ impl HickSessionLog {
             .write(true)
             .truncate(true)
             .open(&path)?;
+        let seed = count_inputs(&reopened);
         file.write_all(reopened.as_bytes())?;
         let mut writer = BufWriter::new(file);
         writer.flush()?;
         Ok(Self {
             inner: Mutex::new(writer),
             path,
+            inputs: std::sync::atomic::AtomicUsize::new(seed),
         })
     }
 
@@ -207,7 +256,8 @@ impl SessionLog for HickSessionLog {
         let result: std::io::Result<()> = (|| {
             match event {
                 SessionEvent::User { text } => {
-                    writeln!(writer, "<hick:user>{}</hick:user>", text.trim())?;
+                    let id = self.next_input_id();
+                    writeln!(writer, "<hick:user id=\"{id}\">{}</hick:user>", text.trim())?;
                 }
                 SessionEvent::Assistant { prose, action } => {
                     let prose = strip_protocol_tags(prose);
@@ -237,7 +287,11 @@ impl SessionLog for HickSessionLog {
                     writeln!(writer, "</hick:assistant>")?;
                 }
                 SessionEvent::ToolResult { name, ok, text } => {
-                    writeln!(writer, r#"<hick:tool-result name="{name}" ok="{ok}">"#)?;
+                    let id = self.next_input_id();
+                    writeln!(
+                        writer,
+                        r#"<hick:tool-result id="{id}" name="{name}" ok="{ok}">"#
+                    )?;
                     writeln!(writer, "{}", text.trim_end())?;
                     writeln!(writer, "</hick:tool-result>")?;
                 }
@@ -249,9 +303,10 @@ impl SessionLog for HickSessionLog {
                     let exit = exit_code
                         .map(|c| c.to_string())
                         .unwrap_or_else(|| "unknown".into());
+                    let id = self.next_input_id();
                     writeln!(
                         writer,
-                        r#"<hick:observation source="{source}" exit="{exit}">{}</hick:observation>"#,
+                        r#"<hick:observation id="{id}" source="{source}" exit="{exit}">{}</hick:observation>"#,
                         text.trim_end()
                     )?;
                 }
@@ -274,6 +329,28 @@ impl SessionLog for HickSessionLog {
                         usage.cache_creation_input_tokens,
                         usage.cache_read_input_tokens,
                         usage.output_tokens,
+                    )?;
+                }
+                SessionEvent::Read { read } => {
+                    let commit = read
+                        .commit
+                        .as_deref()
+                        .map(|c| format!(r#" commit="{c}""#))
+                        .unwrap_or_default();
+                    writeln!(
+                        writer,
+                        r#"<hick:read file="{}"{commit} sha256="{}" lines="{}-{}"/>"#,
+                        read.path, read.sha256, read.first_line, read.last_line
+                    )?;
+                }
+                SessionEvent::Wrote { wrote } => {
+                    writeln!(
+                        writer,
+                        r#"<hick:wrote file="{}" lines="{}-{}" hashes="{}"/>"#,
+                        wrote.file,
+                        wrote.first_line,
+                        wrote.last_line,
+                        wrote.hashes.join(" ")
                     )?;
                 }
                 SessionEvent::End => {
@@ -401,7 +478,10 @@ mod tests {
         log.record(SessionEvent::User { text: "hello" });
         // No End yet — the file on disk must still contain the turn.
         let source = std::fs::read_to_string(&path).unwrap();
-        assert!(source.contains("<hick:user>hello</hick:user>"));
+        assert!(
+            source.contains("<hick:user id=\"in0\">hello</hick:user>"),
+            "{source}"
+        );
     }
 
     #[test]

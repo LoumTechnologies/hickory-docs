@@ -432,3 +432,166 @@ async fn verify_executes_and_reports_expectations() {
     assert!(fail.text.starts_with("FAIL"), "{}", fail.text);
     assert!(fail.text.contains("expectation"), "{}", fail.text);
 }
+
+// ---------------------------------------------------------------------------
+// Context provenance: what the tools showed, and what the edits wrote
+// ---------------------------------------------------------------------------
+
+/// `read_file` shows a project file and records the read; it refuses to look
+/// outside the project, and an edit records the lines it wrote.
+/// Guarantee: docs/guarantees/agent/context-provenance-is-derived-from-the-session.md
+#[tokio::test(flavor = "multi_thread")]
+async fn read_file_shows_a_project_file_and_records_the_read() {
+    let dir = tempfile::tempdir().unwrap();
+    let doc_path = write_doc(dir.path(), DOC);
+    std::fs::create_dir_all(dir.path().join("data")).unwrap();
+    std::fs::write(dir.path().join("data/export.csv"), "a,b\n1,2\n3,4\n").unwrap();
+    let mut session = EditSession::open(&doc_path, &[]).await.unwrap();
+
+    let out = execute_tool(
+        &mut session,
+        executor(),
+        &inv("read_file", &[("path", "data/export.csv")], None),
+    )
+    .await;
+    assert!(out.ok, "{}", out.text);
+    assert!(out.text.contains("|1,2"), "hashline-rendered: {}", out.text);
+    assert_eq!(out.reads.len(), 1);
+    let read = &out.reads[0];
+    assert_eq!(read.path, "data/export.csv");
+    assert_eq!((read.first_line, read.last_line), (1, 3));
+    assert_eq!(read.sha256.len(), 64);
+
+    // A range is a range, and is recorded as one.
+    let out = execute_tool(
+        &mut session,
+        executor(),
+        &inv(
+            "read_file",
+            &[("path", "data/export.csv"), ("from", "2"), ("to", "2")],
+            None,
+        ),
+    )
+    .await;
+    assert!(out.ok, "{}", out.text);
+    assert!(
+        out.text.contains("|1,2") && !out.text.contains("|3,4"),
+        "{}",
+        out.text
+    );
+    assert_eq!((out.reads[0].first_line, out.reads[0].last_line), (2, 2));
+
+    // Nothing above the project.
+    let out = execute_tool(
+        &mut session,
+        executor(),
+        &inv("read_file", &[("path", "../../../../etc/hostname")], None),
+    )
+    .await;
+    assert!(!out.ok);
+    assert!(
+        out.text.contains("outside the project") || out.text.contains("cannot read"),
+        "{}",
+        out.text
+    );
+    assert!(out.reads.is_empty());
+
+    // read_doc records the document itself as shown.
+    let out = execute_tool(&mut session, executor(), &inv("read_doc", &[], None)).await;
+    assert!(out.ok);
+    assert_eq!(out.reads.len(), 1);
+    assert!(
+        out.reads[0].path.ends_with("doc.hick"),
+        "{}",
+        out.reads[0].path
+    );
+
+    // An edit records the lines it wrote, as they stand afterwards.
+    let doc_out = execute_tool(&mut session, executor(), &inv("read_doc", &[], None)).await;
+    let last_hash = doc_out
+        .text
+        .lines()
+        .filter_map(|l| l.split_once('|'))
+        .map(|(h, _)| h.to_string())
+        .rfind(|h| h.len() == 4)
+        .unwrap();
+    let out = execute_tool(
+        &mut session,
+        executor(),
+        &inv(
+            "edit_doc",
+            &[("after", &last_hash)],
+            Some("A new closing line.\n"),
+        ),
+    )
+    .await;
+    assert!(out.ok, "{}", out.text);
+    let wrote = out.wrote.expect("an edit records what it wrote");
+    assert!(wrote.file.ends_with("doc.hick"));
+    assert!(wrote.first_line <= wrote.last_line, "{wrote:?}");
+    assert!(
+        wrote
+            .hashes
+            .contains(&hickory_agent::hashline::line_hash("A new closing line.")),
+        "{wrote:?}"
+    );
+}
+
+/// The session file carries the record: `<hick:read>` per read, `<hick:wrote>`
+/// per edit, and an id on every input element so context can point at it.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_session_records_reads_and_writes_as_elements() {
+    use hickory_agent::{HickSessionLog, SessionEvent, SessionLog as _, record_outcome};
+    let dir = tempfile::tempdir().unwrap();
+    let doc_path = write_doc(dir.path(), DOC);
+    std::fs::write(dir.path().join("notes.txt"), "one\ntwo\n").unwrap();
+    let mut session = EditSession::open(&doc_path, &[]).await.unwrap();
+    let log = HickSessionLog::create(dir.path().join("s.hick")).unwrap();
+    log.record(SessionEvent::User {
+        text: "look and write",
+    });
+
+    let out = execute_tool(
+        &mut session,
+        executor(),
+        &inv("read_file", &[("path", "notes.txt")], None),
+    )
+    .await;
+    record_outcome(&log, &out);
+    let doc_out = execute_tool(&mut session, executor(), &inv("read_doc", &[], None)).await;
+    record_outcome(&log, &doc_out);
+    let first_hash = doc_out
+        .text
+        .lines()
+        .nth(1)
+        .and_then(|l| l.split_once('|'))
+        .map(|(h, _)| h.to_string())
+        .unwrap();
+    let out = execute_tool(
+        &mut session,
+        executor(),
+        &inv(
+            "edit_doc",
+            &[("after", &first_hash)],
+            Some("Inserted by the test.\n"),
+        ),
+    )
+    .await;
+    record_outcome(&log, &out);
+    log.record(SessionEvent::End);
+
+    let source = std::fs::read_to_string(dir.path().join("s.hick")).unwrap();
+    assert!(source.contains(r#"<hick:user id="in0">"#), "{source}");
+    assert!(
+        source.contains(r#"<hick:read file="notes.txt""#),
+        "{source}"
+    );
+    assert!(source.contains(r#" lines="1-2"/>"#), "{source}");
+    assert!(source.contains(r#"<hick:wrote file="#), "{source}");
+    assert!(
+        source.contains(r#"<hick:tool-result id="in1" name="read_file""#),
+        "{source}"
+    );
+    // It is still a parseable session.
+    hick_lang::parse(&source).expect("session parses");
+}

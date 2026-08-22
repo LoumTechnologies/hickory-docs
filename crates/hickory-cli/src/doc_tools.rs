@@ -82,18 +82,14 @@ pub fn record_tool_call(
     invocation: &ToolInvocation,
     outcome: &ToolOutcome,
 ) -> Result<()> {
-    use hickory_agent::{HickSessionLog, SessionEvent, SessionLog as _};
+    use hickory_agent::{HickSessionLog, SessionEvent, SessionLog as _, record_outcome};
 
     let log = HickSessionLog::append_or_create(session_path)?;
     log.record(SessionEvent::ToolCall {
         prose: "",
         xml: &invocation.raw_xml,
     });
-    log.record(SessionEvent::ToolResult {
-        name: &outcome.name,
-        ok: outcome.ok,
-        text: &outcome.text,
-    });
+    record_outcome(&log, outcome);
     // Close the root after every command, so the file is a parseable session
     // between calls and not only once the agent happens to stop.
     log.record(SessionEvent::End);

@@ -86,14 +86,11 @@ Each of these blocked the chain and is now in the tree, with a guarantee:
 
 In rough order of how much it hurt:
 
-1. **The agent's scripts cannot see the project.** They run in
-   `/tmp/hickory-local-*/agent`; the document's cells run in the document's
-   directory. Told "the data is in `data/`", the agent looks, finds nothing,
-   and the next thing a capable model does is make some. `verify` reading the
-   real file is what saved the run, and only because the prompt now says so.
-   The sandbox needs a read-only view of the project, or the tools need a
-   `read_file`. This is the one that produces confident, verified-looking
-   lies.
+1. ~~**The agent's scripts cannot see the project.**~~ Addressed the same
+   day by `read_file` — a read-only, recorded tool — and by context provenance
+   built on the session record (`three-provenances.md`). The scratch workspace
+   still cannot see the project, on purpose; the agent now has a real way to
+   look, and what it looked at is on the record.
 2. **An exec's output is not a fragment.** The number the cell prints cannot
    be pasted into the message; a human types it into a `copy` beside the cell
    and the `hick:expect` keeps the two honest. So the ribbon from "489 ms"
@@ -102,9 +99,10 @@ In rough order of how much it hurt:
 3. **The message has to be pre-cut into fragments.** A `slack:file` is not
    selectable, so each sentence is a `copy` + a `paste` + a `transform` with
    the same long `instruct` repeated — four times. Wanted: one element that
-   says "check this file's sentences against these sources" and a per-sentence
-   verdict that is itself addressable, so a ribbon can run from the verdict
-   to the turn it cites. Today the verdict cites ids as text.
+   says "check this file's sentences against these sources". The verdict's
+   citations now do draw — `hick refresh` stamps `cites=` from the ids the
+   passage names, and the app draws them dashed, as the declared provenance
+   they are (`three-provenances.md`).
 4. **Ingest names.** The note was written as
    `2026-08-22-2026-08-20-checkout-latency-sync.hick` (date is the file's
    mtime, not the date in its name) with the title `2026 08 20 Checkout Latency

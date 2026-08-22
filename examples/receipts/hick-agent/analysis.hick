@@ -69,6 +69,7 @@ Excluded 1 rows (load-test window 2026-08-18 10:00-12:00)
 </hick:exec>
 
 ## Findings
+<hick:copy id="export-shape" class="finding">The export has columns bucket_start, p95_ms, and requests, where each row represents a four-hour bucket.</hick:copy>
 
 <hick:copy id="baseline" class="finding">Baseline p95 latency (2026-08-10 to 2026-08-12): 202.6 ms</hick:copy>
 

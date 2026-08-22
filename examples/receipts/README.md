@@ -48,3 +48,18 @@ it drafted invented its numbers, and the checks said so — read
 `hick-agent/message.hick` and then
 `docs/specs/freeform/receipts-for-a-message.md` for what this test fixed and
 what it found still painful.
+
+## Three provenances, on these files
+
+- `hick lineage claude-code/message.hick --output messages/2026-08-24-eng-reply.txt`
+  — the weave: the quoted line is the meeting file's bytes.
+- `hick context hick-agent/analysis.hick` — the session record: the finding
+  the agent wrote on line 72 had `data/checkout-latency.csv` lines 1–8 (by
+  hash, at commit `ab7a2d9`) in front of the model, plus the prompt and every
+  tool result before it. `context-ribbon.png` is the app drawing it.
+- `hick cites claude-code/message.hick` — what each check and claim *says* it
+  rests on (`cites=`), resolved to the meeting turns and findings.
+  `declared-ribbon.png` is the app drawing one, dashed, as an assertion.
+
+The app's status bar has a toggle for each; see
+`docs/specs/freeform/three-provenances.md`.

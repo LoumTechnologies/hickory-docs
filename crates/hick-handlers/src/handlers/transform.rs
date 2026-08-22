@@ -43,8 +43,19 @@ impl TagHandler for TransformHandler {
         // money and return different bytes every run.
         let body = hick_lang::dedent(&hick_lang::tag_text(tag), ctx.indent);
         let _ = tag_attr(tag, "select");
-        Ok(TagResult::Node(Arc::new(StringNode::new(
-            body.trim_start_matches('\n').to_string(),
-        ))))
+        let mut out = body.trim_start_matches('\n').to_string();
+        // `cites=` is what the author (a model, via refresh, or a person)
+        // DECLARES the passage rests on — distinct from `select=`, which is
+        // what it was derived from and is fingerprinted. It weaves as an
+        // assertion, in words, never as a mark of verification.
+        if let Some(cites) = tag_attr(tag, "cites")
+            && !cites.trim().is_empty()
+        {
+            if !out.ends_with('\n') {
+                out.push('\n');
+            }
+            out.push_str(&format!("\n*cites: {}*\n", cites.trim()));
+        }
+        Ok(TagResult::Node(Arc::new(StringNode::new(out))))
     }
 }

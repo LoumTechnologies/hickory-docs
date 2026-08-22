@@ -70,6 +70,7 @@ import {
   type Ribbon,
 } from "../lib/ribbons";
 import type { OutputFile } from "../api/types";
+import { samePath } from "../lib/paths";
 
 /**
  * The document side.
@@ -88,6 +89,33 @@ export interface RibbonSource {
   docSource: string;
 }
 
+/**
+ * Which provenance a shape belongs to. Lineage is the weave's byte-exact
+ * derivation and is computed here from file provenance; context and
+ * declared arrive as `links` — already derived elsewhere (the session
+ * record; the document's own `cites=`) — and are drawn in their own stroke
+ * so no reader can mistake one for another.
+ */
+export type RibbonFamily = "lineage" | "context" | "declared";
+
+/**
+ * A connection handed to the overlay ready-made: from a run of lines in a
+ * source document to a place — another document, a plain file, a session
+ * element, a generated file — named by path and optional lines. The overlay
+ * finds the far end wherever it is (a tab, a tree row, a port) and draws.
+ */
+export interface RibbonLink {
+  key: string;
+  family: Exclude<RibbonFamily, "lineage">;
+  from: { path: string; lines: [number, number] };
+  to: {
+    path: string;
+    lines?: [number, number];
+    kind?: "document" | "generated" | "file";
+  };
+  title: string;
+}
+
 /** A generated file: always its content, and its editor when one is open. */
 export interface RibbonFile {
   file: OutputFile;
@@ -101,7 +129,14 @@ export type RibbonTarget =
    * Back to the document, at the BYTES this text came from — the unit the
    * span-selection path uses, and the one provenance is recorded in.
    */
-  | { kind: "document"; path: string; span: [number, number] };
+  | { kind: "document"; path: string; span: [number, number] }
+  /** A context or declared link's far end: a path, maybe lines in it. */
+  | {
+      kind: "path";
+      path: string;
+      lines?: [number, number];
+      family: RibbonFamily;
+    };
 
 /** One side's involved text, for the hovered line-number tint. */
 interface HlSide {
@@ -112,6 +147,7 @@ interface HlSide {
 
 interface Shape {
   key: string;
+  family: RibbonFamily;
   color: number;
   clamped: boolean;
   /** Where the band ends: real output text, a tab header, a folder-tree row,
@@ -247,7 +283,7 @@ function visibleTreeRow(
  */
 function findTerminal(
   container: HTMLElement,
-  kind: "document" | "generated",
+  kind: "document" | "generated" | "file",
   target: string,
 ): Terminal | null {
   const tab = terminalEl(
@@ -429,6 +465,8 @@ export function RibbonOverlay({
   container,
   sources,
   files,
+  links = [],
+  layers,
   ribbonStyle = "bands",
   onNavigate,
 }: {
@@ -443,6 +481,10 @@ export function RibbonOverlay({
    */
   sources: readonly RibbonSource[];
   files: readonly RibbonFile[];
+  /** Context and declared connections, ready-made (see RibbonLink). */
+  links?: readonly RibbonLink[];
+  /** Which families to draw; absent means all. */
+  layers?: ReadonlySet<RibbonFamily>;
   /** Bands (filled Sankey) or braces (curly braces joined by a thin line). */
   ribbonStyle?: RibbonStyle;
   onNavigate?: (target: RibbonTarget) => void;
@@ -576,7 +618,10 @@ export function RibbonOverlay({
   useEffect(() => () => setHovered(null), [setHovered]);
 
   const measure = useCallback(() => {
-    if (!container || sources.length === 0 || files.length === 0) {
+    const on = (family: RibbonFamily) => !layers || layers.has(family);
+    const anyLineage = on("lineage") && files.length > 0;
+    const anyLinks = links.some((l) => on(l.family));
+    if (!container || sources.length === 0 || (!anyLineage && !anyLinks)) {
       setShapes((current) => (current.length === 0 ? current : []));
       return;
     }
@@ -593,7 +638,7 @@ export function RibbonOverlay({
       return assigned;
     };
 
-    for (const source of sources) {
+    for (const source of anyLineage ? sources : []) {
       // A fragment is identified by its span IN ITS DOCUMENT: the same byte
       // range in two documents is two fragments, two colours.
       const fragmentIn = (key: string) => `${source.docPath}\u0000${key}`;
@@ -680,6 +725,8 @@ export function RibbonOverlay({
             ];
             const shape: Shape = {
               key: `${entry.file.path}:${ribbon.key}`,
+
+              family: "lineage",
               color: colourFor(fragmentIn(fragmentKey(ribbon))),
               clamped: from.clamped || into.clamped,
               ends: "text",
@@ -819,6 +866,8 @@ export function RibbonOverlay({
           );
           const shape: Shape = {
             key: `${source.docPath}:${entry.file.path}:${terminal.ends}:${key}`,
+
+            family: "lineage",
             color: colourFor(fragmentIn(key)),
             clamped: from.clamped,
             ends: terminal.ends,
@@ -909,6 +958,8 @@ export function RibbonOverlay({
             );
             const shape: Shape = {
               key: `${source.docPath}:${entry.file.path}:back:${key}`,
+
+              family: "lineage",
               color: colourFor(fragmentIn(key)),
               clamped: from.clamped,
               ends: terminal.ends,
@@ -945,10 +996,97 @@ export function RibbonOverlay({
       }
     }
 
+    // Context and declared connections: from lines of a source document on
+    // screen to wherever their far end is — its tab, its tree row, its port.
+    // Drawn in their family's stroke, never the lineage palette.
+    for (const link of links) {
+      if (!on(link.family)) continue;
+      const source = sources.find(
+        (s) => s.view && samePath(s.docPath, link.from.path),
+      );
+      const view = source?.view;
+      if (!source || !view) continue;
+      const kinds: ("document" | "generated" | "file")[] = link.to.kind
+        ? [link.to.kind]
+        : ["document", "generated", "file"];
+      let terminal: Terminal | null = null;
+      for (const kind of kinds) {
+        terminal = findTerminal(container, kind, link.to.path);
+        if (terminal) break;
+      }
+      if (!terminal) continue;
+      const total = view.state.doc.lines;
+      const a = Math.min(Math.max(link.from.lines[0], 1), total);
+      const b = Math.min(Math.max(link.from.lines[1], a), total);
+      const from = view.state.doc.line(a).from;
+      const to = view.state.doc.line(b).to;
+      const band = bandBetween(view, from, to);
+      if (!band) continue;
+      const pane = view.scrollDOM.getBoundingClientRect();
+      const edges = paneEdges(view);
+      const tMid = (terminal.rect.left + terminal.rect.right) / 2 - box.left;
+      const docL = edges.left - box.left;
+      const docR = edges.right - box.left;
+      const x0 = tMid >= (docL + docR) / 2 ? docR : docL;
+      const clamped = clampBand(
+        band[0] - box.top,
+        band[1] - box.top,
+        pane.top - box.top,
+        pane.bottom - box.top,
+      );
+      const dir: 1 | -1 = x0 === docR ? 1 : -1;
+      const horn = x0 === docR ? edges.rightRailW : edges.leftRailW;
+      const nub = braces ? braceNub(x0, clamped.yTop, clamped.yBot, dir) : null;
+      const attach = attachTerminal(
+        terminal,
+        box,
+        x0,
+        clamped,
+        braces,
+        nub,
+        dir,
+      );
+      const shape: Shape = {
+        key: `${link.family}:${link.key}:${terminal.ends}`,
+        family: link.family,
+        color: link.family === "context" ? 0 : 1,
+        clamped: clamped.clamped,
+        ends: terminal.ends,
+        reveal: revealStrip(x0, dir, clamped),
+        connector: attach.connector,
+        hl: [{ view, from, to }],
+        target: {
+          kind: "path",
+          path: link.to.path,
+          lines: link.to.lines,
+          family: link.family,
+        },
+      };
+      if (braces && attach.link) {
+        const brace = bracePath(
+          x0,
+          clamped.yTop,
+          clamped.yBot,
+          dir,
+          undefined,
+          { top: clamped.clampedTop, bottom: clamped.clampedBottom },
+          horn,
+        );
+        shape.brace = {
+          a: brace,
+          link: attach.link,
+          hit: `${brace} ${attach.link}`,
+        };
+      } else {
+        shape.band = attach.band;
+      }
+      out.push(shape);
+    }
+
     // Measured twice a second whether or not anything moved; commit only a
     // real change, or the SVG re-renders on every tick.
     setShapes((current) => (sameShapes(current, out) ? current : out));
-  }, [container, sources, files, ribbonStyle]);
+  }, [container, sources, files, links, layers, ribbonStyle]);
 
   // Measurement follows the things that move: scrolling either pane, editing
   // either buffer, and the window changing shape. Throttled to a frame,
@@ -985,7 +1123,7 @@ export function RibbonOverlay({
       if (frame.current !== null) cancelAnimationFrame(frame.current);
       frame.current = null;
     };
-  }, [measure, container, sources, files]);
+  }, [measure, container, sources, files, links]);
 
   if (shapes.length === 0) return null;
   return (
@@ -993,22 +1131,24 @@ export function RibbonOverlay({
       {shapes.map((shape) => {
         const title = (
           <title>
-            {shape.target.kind === "document"
-              ? shape.ends === "text"
-                ? "Show the prose this came from"
-                : `Open ${shape.target.path} — this text came from it`
-              : shape.ends === "tab"
-                ? `Show ${shape.target.path} — its tab is right here`
-                : shape.ends === "tree"
-                  ? `Open ${shape.target.path} — this row in the tree`
-                  : shape.ends === "port"
-                    ? `Open ${shape.target.path} at what this block produced`
-                    : `Show this in ${shape.target.path}`}
+            {shape.target.kind === "path"
+              ? linkTitle(shape.target, links)
+              : shape.target.kind === "document"
+                ? shape.ends === "text"
+                  ? "Show the prose this came from"
+                  : `Open ${shape.target.path} — this text came from it`
+                : shape.ends === "tab"
+                  ? `Show ${shape.target.path} — its tab is right here`
+                  : shape.ends === "tree"
+                    ? `Open ${shape.target.path} — this row in the tree`
+                    : shape.ends === "port"
+                      ? `Open ${shape.target.path} at what this block produced`
+                      : `Show this in ${shape.target.path}`}
           </title>
         );
         const modifier = `${shape.clamped ? " ribbon-clamped" : ""}${
           shape.ends === "text" ? "" : ` ribbon-to-${shape.ends}`
-        }`;
+        }${shape.family === "lineage" ? "" : ` ribbon-family-${shape.family}`}`;
         // Chrome-terminated connections draw only while revealed: their
         // lines would otherwise sit over pane text all the time. The hover
         // strip below is what reveals them; the revealed shapes themselves
@@ -1023,7 +1163,9 @@ export function RibbonOverlay({
         return (
           <g
             key={shape.key}
-            className={`ribbon-group${hoverOnly && shown ? " ribbon-group--revealed" : ""}`}
+            className={`ribbon-group${hoverOnly && shown ? " ribbon-group--revealed" : ""}${
+              shape.family === "lineage" ? "" : ` ribbon-group--${shape.family}`
+            }`}
             onMouseEnter={() => {
               setHovered(shape);
               if (hoverOnly) reveal.current?.enter(shape.key);
@@ -1185,4 +1327,18 @@ function textOnly(block: { top: number; bottom: number; type: unknown }): {
     if (text) return { top: text.top, bottom: text.bottom };
   }
   return { top: block.top, bottom: block.bottom };
+}
+
+/** The tooltip of a context/declared connection: the link's own words. */
+function linkTitle(
+  target: Extract<RibbonTarget, { kind: "path" }>,
+  links: readonly RibbonLink[],
+): string {
+  const link = links.find(
+    (l) =>
+      l.family === target.family &&
+      samePath(l.to.path, target.path) &&
+      (l.to.lines?.[0] ?? 0) === (target.lines?.[0] ?? 0),
+  );
+  return link?.title ?? `${target.family}: ${target.path}`;
 }

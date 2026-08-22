@@ -84,6 +84,20 @@ enum Command {
     /// file: which source spans produced each byte range. Weaves without
     /// executing.
     Lineage(LineageArgs),
+    /// Print a document's CONTEXT provenance: for every run of lines an
+    /// agent wrote, what was in front of the model when it wrote them —
+    /// files at a hash and commit, the prompt, tool results, observations —
+    /// derived from the session files near the document, never from what the
+    /// model said. This is a different provenance from `lineage` (the weave's
+    /// byte-exact derivation) and from anything a document declares with
+    /// `cites=`; see docs/specs/freeform/three-provenances.md.
+    Context(ContextArgs),
+    /// Print a document's DECLARED provenance: every element that says
+    /// `cites="…"` and what those selectors resolve to. An author's assertion
+    /// — a model's via refresh, or a person's — and printed as one; it proves
+    /// nothing, unlike `lineage` (the weave) and `context` (the session
+    /// record). See docs/specs/freeform/three-provenances.md.
+    Cites(ContextArgs),
     /// Promote a session document into a clean pipeline document.
     Promote(PromoteArgs),
     /// Adopt a plain file into a literate document, byte-exactly: wrap its
@@ -302,6 +316,9 @@ enum DocCommand {
     /// Print a woven output file, hashline-rendered. `--lineage` also marks
     /// which lines are editable and where each came from in the document.
     ReadOutput(DocReadOutputArgs),
+    /// Read any project file, hashline-rendered, read-only — a data export,
+    /// a config, a source file. Recorded in the session as context.
+    ReadFile(DocReadFileArgs),
     /// Edit an output file; the change is mapped back into the document
     /// byte-exactly through lineage. This is how CODE should be edited.
     EditOutput(DocEditArgs),
@@ -357,6 +374,25 @@ struct DocReadOutputArgs {
     /// edited through the output. Read this before editing.
     #[arg(long = "lineage")]
     lineage: bool,
+    #[command(flatten)]
+    common: DocCommonArgs,
+}
+
+#[derive(clap::Args)]
+struct DocReadFileArgs {
+    /// The `.hick` document whose session this read belongs to. Omit when
+    /// the working directory holds exactly one.
+    doc: Option<PathBuf>,
+    /// The file, relative to the document's directory. Must be inside the
+    /// project (the document's git repository, or its directory).
+    #[arg(long = "path")]
+    path: String,
+    /// First line to show (1-based).
+    #[arg(long = "from")]
+    from: Option<usize>,
+    /// Last line to show (1-based, inclusive).
+    #[arg(long = "to")]
+    to: Option<usize>,
     #[command(flatten)]
     common: DocCommonArgs,
 }
@@ -502,6 +538,15 @@ struct WeaveArgs {
     #[arg(long = "out")]
     out: Option<PathBuf>,
     /// Emit the block model as JSON on stdout instead of a summary.
+    #[arg(long)]
+    json: bool,
+}
+
+#[derive(clap::Args)]
+struct ContextArgs {
+    /// A `.hick` document.
+    doc: PathBuf,
+    /// Emit JSON on stdout instead of a summary.
     #[arg(long)]
     json: bool,
 }
@@ -655,6 +700,8 @@ fn run() -> ExitCode {
             Command::Up(args) => cmd_up(args).await,
             Command::Weave(args) => cmd_weave(args).await,
             Command::Lineage(args) => cmd_lineage(args).await,
+            Command::Context(args) => cmd_context(args),
+            Command::Cites(args) => cmd_cites(args),
             Command::Promote(args) => cmd_promote(args),
             Command::Adopt(args) => cmd_adopt(args).await,
             Command::Ingest(args) => cmd_ingest(args),
@@ -955,6 +1002,120 @@ async fn cmd_weave(args: WeaveArgs) -> Result<ExitCode> {
 /// `hick lineage <doc> --output <path> [--json]` — the same Provenance[]
 /// the server serves from GET /api/docs/:id/outputs/file, computed locally
 /// from a weave (no execution).
+fn cmd_cites(args: ContextArgs) -> Result<ExitCode> {
+    let source = std::fs::read_to_string(&args.doc)
+        .with_context(|| format!("reading {}", args.doc.display()))?;
+    let cites = hickory_cli::declared_cites(&args.doc, &source)?;
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&cites)?);
+        return Ok(ExitCode::SUCCESS);
+    }
+    if cites.is_empty() {
+        println!(
+            "{}: nothing declares a citation (no cites= attribute)",
+            args.doc.display()
+        );
+        return Ok(ExitCode::SUCCESS);
+    }
+    println!(
+        "{}: {} declared citation(s) — assertions by the author, not derived",
+        args.doc.display(),
+        cites.len()
+    );
+    for c in &cites {
+        println!(
+            "\n{} at lines {}-{} cites {:?}:",
+            c.from.element, c.from.first_line, c.from.last_line, c.select
+        );
+        if c.to.is_empty() {
+            println!("    (nothing matches — a dangling citation)");
+        }
+        for t in &c.to {
+            println!(
+                "    {} lines {}-{}  {}{}",
+                t.path,
+                t.first_line,
+                t.last_line,
+                t.element,
+                t.id.as_deref()
+                    .map(|i| format!(" #{i}"))
+                    .unwrap_or_default()
+            );
+        }
+    }
+    Ok(ExitCode::SUCCESS)
+}
+
+fn cmd_context(args: ContextArgs) -> Result<ExitCode> {
+    let source = std::fs::read_to_string(&args.doc)
+        .with_context(|| format!("reading {}", args.doc.display()))?;
+    let writes = hickory_agent::context::context_for_document(&args.doc, &source);
+    if args.json {
+        println!("{}", serde_json::to_string_pretty(&writes)?);
+        return Ok(ExitCode::SUCCESS);
+    }
+    if writes.is_empty() {
+        println!(
+            "{}: no agent writes recorded in any sessions/ directory beside it or above it",
+            args.doc.display()
+        );
+        return Ok(ExitCode::SUCCESS);
+    }
+    println!(
+        "{}: {} agent write(s) on record",
+        args.doc.display(),
+        writes.len()
+    );
+    for w in &writes {
+        let now = match w.current_lines {
+            Some((a, b)) if a == b => format!("now line {a}"),
+            Some((a, b)) => format!("now lines {a}-{b}"),
+            None => "no longer present as written".to_string(),
+        };
+        println!(
+            "\nlines {}-{} as written ({now}) — {}:{}",
+            w.write.first_line, w.write.last_line, w.write.session, w.write.session_line
+        );
+        println!("  in context when written:");
+        for input in &w.write.inputs {
+            match input {
+                hickory_agent::context::ContextInput::File {
+                    path,
+                    commit,
+                    sha256,
+                    first_line,
+                    last_line,
+                    ..
+                } => println!(
+                    "    file  {path} lines {first_line}-{last_line}  sha256 {}{}",
+                    &sha256[..sha256.len().min(12)],
+                    commit
+                        .as_deref()
+                        .map(|c| format!("  commit {}", &c[..c.len().min(12)]))
+                        .unwrap_or_default()
+                ),
+                hickory_agent::context::ContextInput::Conversation {
+                    element,
+                    id,
+                    source,
+                    summary,
+                    lines,
+                    session_line,
+                    ..
+                } => println!(
+                    "    {element:<12} {}{}  ({lines} line(s), session line {session_line}): {summary}",
+                    id.as_deref().unwrap_or("-"),
+                    source
+                        .as_deref()
+                        .map(|s| format!(" {s}"))
+                        .unwrap_or_default()
+                ),
+            }
+        }
+    }
+    Ok(ExitCode::SUCCESS)
+}
+
 async fn cmd_lineage(args: LineageArgs) -> Result<ExitCode> {
     let run = run_doc(
         &args.doc,
@@ -1666,20 +1827,25 @@ async fn cmd_refresh(args: RefreshArgs) -> Result<ExitCode> {
                 .await?;
             let passage = format!("\n{}\n", passage.trim());
             updated.replace_range(from..to, &passage);
+            // What the passage itself names as its sources — `#id` tokens
+            // that match the fragments it was shown — becomes `cites=`. That
+            // is DECLARED provenance: the model's own claim about what it
+            // leaned on, kept apart from `from=` (what it was shown) and
+            // drawn by the app as an assertion.
+            let cites = cited_ids(&passage, &input);
+            let mut attrs: Vec<(&str, &str)> = vec![
+                ("from", &fingerprint),
+                ("provider", llm.provider_name()),
+                ("model", llm.model_name()),
+            ];
+            if !cites.is_empty() {
+                attrs.push(("cites", &cites));
+            }
             // Re-stamp the fingerprint this passage now attests to, and name
             // the model that wrote it: the fingerprint says which bytes under
             // which instruction, and this says by whom — the same thing a
             // session records, and the one fact nobody can reconstruct later.
-            updated = restamp(
-                &updated,
-                open_from,
-                from,
-                &[
-                    ("from", &fingerprint),
-                    ("provider", llm.provider_name()),
-                    ("model", llm.model_name()),
-                ],
-            );
+            updated = restamp(&updated, open_from, from, &attrs);
             rewrote += 1;
         }
         std::fs::write(doc_path, &updated)?;
@@ -1692,6 +1858,34 @@ async fn cmd_refresh(args: RefreshArgs) -> Result<ExitCode> {
         println!("{rewrote} passage(s) rewritten");
     }
     Ok(ExitCode::SUCCESS)
+}
+
+/// The `#id`s a passage mentions that name fragments of its input — the
+/// `[#id]` labels the input carries — as a comma-separated selector list, in
+/// order of first mention, each once. Empty when the passage cites nothing.
+fn cited_ids(passage: &str, input: &str) -> String {
+    let shown: std::collections::HashSet<&str> = input
+        .lines()
+        .filter_map(|l| l.strip_prefix("[#"))
+        .filter_map(|l| l.split(']').next())
+        .collect();
+    let mut out: Vec<&str> = Vec::new();
+    let mut rest = passage;
+    while let Some(i) = rest.find('#') {
+        let after = &rest[i + 1..];
+        let end = after
+            .find(|c: char| !(c.is_alphanumeric() || c == '-' || c == '_'))
+            .unwrap_or(after.len());
+        let id = &after[..end];
+        if !id.is_empty() && shown.contains(id) && !out.contains(&id) {
+            out.push(id);
+        }
+        rest = &after[end..];
+    }
+    out.iter()
+        .map(|id| format!("#{id}"))
+        .collect::<Vec<_>>()
+        .join(",")
 }
 
 /// One stale passage to rewrite: where its tag opens, where its body lies,
@@ -1791,6 +1985,16 @@ async fn cmd_doc(cmd: DocCommand) -> Result<ExitCode> {
             }
             (resolve_doc(a.doc)?, "read_output", args, None, a.common)
         }
+        DocCommand::ReadFile(a) => {
+            let mut args = vec![("path".to_string(), a.path)];
+            if let Some(from) = a.from {
+                args.push(("from".to_string(), from.to_string()));
+            }
+            if let Some(to) = a.to {
+                args.push(("to".to_string(), to.to_string()));
+            }
+            (resolve_doc(a.doc)?, "read_file", args, None, a.common)
+        }
         DocCommand::EditOutput(a) => {
             if a.path.is_none() {
                 anyhow::bail!(
@@ -1859,6 +2063,16 @@ mod restamp_tests {
         assert!(out.starts_with(
             "<hick:transform provider=\"anthropic\" model=\"claude-sonnet-5\" select=\"#a\" from=\"new1\" instruct=\"x\">\nbody"
         ), "{out}");
+    }
+
+    /// The passage's own `#id` mentions, filtered to what it was shown,
+    /// become `cites=` — declared, and only ever what the input labelled.
+    #[test]
+    fn cited_ids_keeps_only_ids_the_input_labelled() {
+        let input = "[#m1] Sentence.\n\n[#transcript-u3] Sam: The SLO.\n\n[#p95] 212 ms.";
+        let passage = "BACKED by [#transcript-u3] and #p95; also #p95 again and #nope and #m1.";
+        assert_eq!(super::cited_ids(passage, input), "#transcript-u3,#p95,#m1");
+        assert_eq!(super::cited_ids("nothing here", input), "");
     }
 
     /// A document may bind any prefix to the namespace; refresh must find the

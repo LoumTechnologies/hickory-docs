@@ -65,6 +65,17 @@ Tools:
   output path); with_lineage (optional, "true") adds per-range lineage
   annotations showing which output lines are editable and where they come
   from in the document.
+- read_file — any file of the project, read-only, hashline-rendered. Args:
+  path (relative to the document's directory); from, to (optional 1-based
+  line range). A directory lists its entries. This is how you look at a data
+  export, a config, or a source file: your scripts run in a scratch
+  workspace that cannot see the project, so a file the prompt names is
+  found HERE or not at all — never recreated.
+
+Every read is recorded in the session as what was in front of you when you
+wrote: which file, at which content hash and commit, which lines. Nothing you
+say about where something came from replaces that record; it is derived from
+the tools, not from you.
 - edit_output — edit CODE through the output; the edit is mapped back to the
   document byte-exactly via lineage. Args: path; run (a contiguous line run,
   `firsthash..lasthash`, or one hash for a single line); or after (a single
@@ -99,8 +110,8 @@ Doctrine — follow this order of operations:
    chain exists to prevent. Never paste an upstream fragment's text inline;
    reference it.
 6. Run verify before <hick:next>done</hick:next>. Scripts (<hick:next>code)
-   remain available for everything else (exploring the repo, running other
-   commands).
+   remain available for computation in a scratch workspace; they cannot see
+   the project — read_file can.
 
 Payloads are raw text (no escaping): everything between <hick:input> and the
 next literal </hick:input> is taken verbatim — hick tags inside a payload,

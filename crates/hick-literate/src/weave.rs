@@ -288,6 +288,17 @@ fn process_weave_tag(
                 doc_path,
                 span_files,
             );
+            // What the author says this rests on — DECLARED provenance, an
+            // assertion by whoever wrote the tag, so it weaves as one: a
+            // trailing line that names the selectors, never a checkmark.
+            if let Some(cites) = tag_attr(tag, "cites")
+                && !cites.trim().is_empty()
+            {
+                weave_ip.add(Arc::new(StringNode::new(format!(
+                    "\n*cites: {}*\n",
+                    cites.trim()
+                ))));
+            }
         }
         // A transcript weaves as the meeting it is: its derived turns, in
         // order. The raw block stays in the `.hick` file and never reaches the

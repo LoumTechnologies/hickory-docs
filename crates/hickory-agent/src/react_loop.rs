@@ -303,20 +303,15 @@ pub async fn run_agent(
 
                 let outcome = match edit_session.as_mut() {
                     Some(es) => execute_tool(es, executor.clone(), &invocation).await,
-                    None => crate::tools::ToolOutcome {
-                        name: invocation.name.clone(),
-                        ok: false,
-                        text: "no primary document in this session — document tools need \
-                               `hick agent --doc <file.hick>`; use a script instead"
+                    None => crate::tools::ToolOutcome::refused(
+                        &invocation.name,
+                        "no primary document in this session — document tools need \
+                         `hick agent --doc <file.hick>`; use a script instead"
                             .to_string(),
-                    },
+                    ),
                 };
 
-                session.record(SessionEvent::ToolResult {
-                    name: &outcome.name,
-                    ok: outcome.ok,
-                    text: &outcome.text,
-                });
+                crate::session::record_outcome(&session, &outcome);
                 on_event(AgentEvent::ToolFinished {
                     name: outcome.name.clone(),
                     ok: outcome.ok,
