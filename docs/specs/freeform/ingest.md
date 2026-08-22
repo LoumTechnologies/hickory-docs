@@ -94,6 +94,13 @@ WEBVTT
 the command — the same discipline as everything else in
 `provenance-and-standing.md`.
 
+Naming follows the meeting, not the download: a `YYYY-MM-DD` at the front of
+the file name is the note's `date:` (the file's modification time is the
+fallback), the title is the rest of the name, and the transcript's `id` is the
+note's own name — `2026-08-20-checkout-latency-sync` — so its turns are
+`#2026-08-20-checkout-latency-sync-u7` and two meetings upstream of one note
+never both answer to `#transcript`.
+
 The empty `from=""` is the point: `hick test` reports the passages as stale
 immediately, so a note that has never been summarized is visibly unsummarized
 rather than silently empty.

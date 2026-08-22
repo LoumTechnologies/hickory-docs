@@ -39,6 +39,40 @@ impl ExecNode {
     }
 }
 
+/// The cell's shown output as a quotable fragment: what `show=` renders,
+/// minus the trailing line break a transcript ends with — a paste of `#cell`
+/// into a sentence wants the number, not the number and a newline. Carries
+/// the cell's exec provenance, so the paste's ribbon ends at the computation.
+/// `None` when the cell shows nothing (`show="none"`) or has no transcript.
+pub fn quotable_exec_node(
+    tag: &HickTag,
+    ctx: &ProcessingContext,
+) -> Option<(Arc<dyn Node>, String)> {
+    let container_name = tag_attr(tag, "container").unwrap_or_default();
+    let show = parse_exec_show(tag);
+    if show == ExecShow::None {
+        return None;
+    }
+    let entries = ctx.transcripts.get(&container_name)?;
+    let own: Vec<crate::TranscriptEntry> = entries
+        .iter()
+        .filter(|e| e.source_line == Some(tag.source_line))
+        .cloned()
+        .collect();
+    let rendered = if own.is_empty() {
+        render_transcript(entries, show)
+    } else {
+        render_transcript(&own, show)
+    };
+    let text = rendered.trim_end_matches(['\n', '\r']).to_string();
+    let node: Arc<dyn Node> = Arc::new(ExecNode::new(
+        text.clone(),
+        &container_name,
+        tag.source_line,
+    ));
+    Some((node, text))
+}
+
 impl std::fmt::Debug for ExecNode {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "ExecNode(container={:?})", self.container)

@@ -72,6 +72,47 @@ impl KeyStore {
         ProviderSelection::parse(selector).map(ProviderSelection::name)
     }
 
+    /// Where the desktop app keeps its keys, so the CLI can read the same
+    /// file: `HICKORY_KEY_STORE` when set, else the platform's per-user config
+    /// directory under the app's identifier. `None` when neither can be
+    /// determined — the environment is then the only source, as before.
+    pub fn desktop_path() -> Option<std::path::PathBuf> {
+        if let Ok(p) = std::env::var("HICKORY_KEY_STORE")
+            && !p.trim().is_empty()
+        {
+            return Some(std::path::PathBuf::from(p));
+        }
+        let base = if cfg!(target_os = "macos") {
+            std::env::var_os("HOME")
+                .map(|h| std::path::PathBuf::from(h).join("Library/Application Support"))
+        } else if cfg!(target_os = "windows") {
+            std::env::var_os("APPDATA").map(std::path::PathBuf::from)
+        } else {
+            std::env::var_os("XDG_CONFIG_HOME")
+                .map(std::path::PathBuf::from)
+                .or_else(|| {
+                    std::env::var_os("HOME").map(|h| std::path::PathBuf::from(h).join(".config"))
+                })
+        }?;
+        Some(
+            base.join("com.loumtechnologies.hickorydocs")
+                .join("llm-keys.json"),
+        )
+    }
+
+    /// The desktop app's store, or an empty one when there is no file — the
+    /// CLI's view: a key entered in Settings counts in the terminal too.
+    pub fn desktop() -> Self {
+        Self::desktop_path()
+            .and_then(|p| Self::load(&p).ok())
+            .unwrap_or_default()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn desktop_path_for_test() -> Option<std::path::PathBuf> {
+        Self::desktop_path()
+    }
+
     /// Load the store from `path`. An absent file is an empty store — the
     /// state of every fresh install — not an error; an unreadable or
     /// malformed file is an error naming the file and what to do about it.
@@ -329,6 +370,30 @@ mod tests {
         assert_eq!(
             store.key_for("anthropic").as_deref(),
             Some("sk-ant-kept-000042")
+        );
+    }
+}
+
+#[cfg(test)]
+mod desktop_path_tests {
+    use super::KeyStore;
+
+    /// The CLI reads the desktop app's key file; `HICKORY_KEY_STORE` points it
+    /// elsewhere, and the default lives under the app's identifier.
+    #[test]
+    fn the_desktop_path_is_overridable_and_named_for_the_app() {
+        // SAFETY: this test is the only writer of this variable in-process.
+        unsafe { std::env::set_var("HICKORY_KEY_STORE", "/tmp/x/llm-keys.json") };
+        assert_eq!(
+            KeyStore::desktop_path_for_test(),
+            Some(std::path::PathBuf::from("/tmp/x/llm-keys.json"))
+        );
+        unsafe { std::env::remove_var("HICKORY_KEY_STORE") };
+        let p = KeyStore::desktop_path_for_test();
+        assert!(
+            p.as_ref()
+                .is_none_or(|p| p.ends_with("com.loumtechnologies.hickorydocs/llm-keys.json")),
+            "{p:?}"
         );
     }
 }

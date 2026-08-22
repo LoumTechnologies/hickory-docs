@@ -522,6 +522,10 @@ fn title_of(source_text: &str, source_path: &Path) -> String {
         .file_stem()
         .map(|s| s.to_string_lossy().to_string())
         .unwrap_or_else(|| "Untitled".to_string());
+    // `2026-08-20-checkout-latency-sync` is a title with a date in front of
+    // it, not a title that starts with three numbers: the date goes to
+    // `date:` (see `date_in_name`) and the title is the rest.
+    let stem = strip_leading_date(&stem);
     let words: Vec<String> = stem
         .split(|c: char| !c.is_alphanumeric())
         .filter(|w| !w.is_empty())
@@ -537,6 +541,38 @@ fn title_of(source_text: &str, source_path: &Path) -> String {
         "Untitled".to_string()
     } else {
         words.join(" ")
+    }
+}
+
+/// A `YYYY-MM-DD` at the front of a file name, if there is one.
+///
+/// Exporters and people both name meeting files by date. That date is a fact
+/// about the meeting; the file's modification time is a fact about the
+/// download. When the name carries one, it wins.
+pub fn date_in_name(source_path: &Path) -> Option<String> {
+    let stem = source_path.file_stem()?.to_string_lossy();
+    let b = stem.as_bytes();
+    if b.len() < 10 {
+        return None;
+    }
+    let digits = |r: std::ops::Range<usize>| b[r].iter().all(u8::is_ascii_digit);
+    if digits(0..4)
+        && b[4] == b'-'
+        && digits(5..7)
+        && b[7] == b'-'
+        && digits(8..10)
+        && b.get(10).is_none_or(|c| !c.is_ascii_alphanumeric())
+    {
+        return Some(stem[..10].to_string());
+    }
+    None
+}
+
+/// `stem` without a leading `YYYY-MM-DD` and the separator after it.
+fn strip_leading_date(stem: &str) -> String {
+    match date_in_name(Path::new(stem)) {
+        Some(_) => stem[10..].trim_start_matches(['-', '_', ' ']).to_string(),
+        None => stem.to_string(),
     }
 }
 
@@ -578,6 +614,23 @@ pub fn note_for(
     }
 
     let title = title_of(source_text, source_path);
+    let named_date = date_in_name(source_path);
+    let date = named_date.as_deref().or(date);
+    // The transcript's id is the note's own name, so two meetings upstream of
+    // one document never both answer to `#transcript`. Turns follow:
+    // `#2026-08-20-checkout-latency-sync-u7`, `.said-sam` as before.
+    let transcript_id = {
+        let slug = slug(&title);
+        let slug = if slug.is_empty() {
+            "transcript".to_string()
+        } else {
+            slug
+        };
+        match date {
+            Some(d) => format!("{d}-{slug}"),
+            None => slug,
+        }
+    };
     let source_name = source_path
         .file_name()
         .map(|n| n.to_string_lossy().to_string())
@@ -608,7 +661,7 @@ pub fn note_for(
 
     note.push_str(&format!("# {title}\n\n"));
 
-    note.push_str("<hick:transcript id=\"transcript\"");
+    note.push_str(&format!("<hick:transcript id=\"{transcript_id}\""));
     if let Some(format) = format {
         note.push_str(&format!(" format=\"{}\"", format.name()));
     }
@@ -620,17 +673,17 @@ pub fn note_for(
     note.push_str("</hick:transcript>\n\n");
 
     note.push_str("## Summary\n\n");
-    note.push_str(
-        "<hick:transform select=\"#transcript\" instruct=\"Summarize this meeting for \
+    note.push_str(&format!(
+        "<hick:transform select=\"#{transcript_id}\" instruct=\"Summarize this meeting for \
          someone who missed it, in at most five sentences: what was decided, what is \
          blocked, and on whom. Plain prose, no bullet points.\" from=\"\">\n</hick:transform>\n\n",
-    );
+    ));
     note.push_str("## Action items\n\n");
-    note.push_str(
-        "<hick:transform select=\"#transcript\" instruct=\"Extract every action item as \
+    note.push_str(&format!(
+        "<hick:transform select=\"#{transcript_id}\" instruct=\"Extract every action item as \
          a markdown checklist, one line each, naming who owns it. Output only the list.\" \
          from=\"\">\n</hick:transform>\n",
-    );
+    ));
     Ok(note)
 }
 

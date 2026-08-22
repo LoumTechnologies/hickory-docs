@@ -558,8 +558,23 @@ async fn process_pipeline_outputs(
 fn declare_nodes(nodes: &[HickNode], registry: &TagRegistry, ctx: &ProcessingContext) {
     for node in nodes {
         let HickNode::Tag(tag) = node else { continue };
-        if tag.name == "upstream" {
+        // A pipeline edge holds fragments; a claim wraps what it asserts. Both
+        // are containers whose children declare as if they stood at the top.
+        if tag.name == "upstream" || tag.name == "claim" {
             declare_nodes(&tag.children, registry, ctx);
+            continue;
+        }
+        // A cell with an id is quotable: what it SHOWS (its transcript,
+        // rendered per `show=`) is registered under `#id`/`.class`, so a
+        // finding can paste the number a cell printed instead of retyping it
+        // — and the paste carries the cell's exec provenance, so the ribbon
+        // ends at the computation rather than one hop short of it.
+        if tag.name == "exec"
+            && let Some(id) = tag_attr(tag, "id")
+            && let Some((node, text)) = hick_handlers::handlers::quotable_exec_node(tag, ctx)
+        {
+            ctx.state
+                .register_copy_node(id, tag_attr(tag, "class").as_deref(), node, text);
             continue;
         }
         if let Some(handler) = registry.find(&tag.name)

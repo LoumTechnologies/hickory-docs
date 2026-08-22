@@ -231,6 +231,8 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   // SettingsView while settings are open, so coming back remounts the
   // workspace and re-reads whatever was just saved to localStorage.
   const [ribbonStyle] = useState<RibbonStyle>(() => loadRibbonStyle());
+  // The folder's project id — what the zoomed-out lineage graph is keyed by.
+  const [projectId, setProjectId] = useState<string | null>(null);
   // Which provenances the overlay draws — a live choice, remembered.
   const [layers, setLayers] = useState<ReadonlySet<ProvenanceLayer>>(() =>
     loadProvenanceLayers(),
@@ -706,6 +708,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
         async (projects) => {
           const project = projects[0];
           if (!project) return;
+          if (live) setProjectId(project.id);
           const docs = await api.projectDocs(project.id).catch(() => []);
           if (live) setFolderDocs(docs);
         },
@@ -961,6 +964,25 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
    * not carried across the load (the click that brought it on screen is
    * answered by the ribbon that now reaches its prose).
    */
+  // A span to select in a document that is still opening: kept until its
+  // session publishes an editor, then consumed. This is what makes a click
+  // on a cross-document ribbon land ON the bytes, not merely in the file.
+  const pendingSelect = useRef<{ path: string; span: [number, number] } | null>(
+    null,
+  );
+  useEffect(() => {
+    const want = pendingSelect.current;
+    if (!want) return;
+    const live = registry
+      .all()
+      .find((s) => s.doc && samePath(s.doc.path, want.path) && s.docEditor);
+    if (!live) return;
+    pendingSelect.current = null;
+    live.onSelectSpan(want.span);
+    // registry.version is the signal; it is what changes when an editor mounts.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [registry, registry.version]);
+
   const openDocumentByPath = useCallback(
     (path: string, span?: [number, number]) => {
       const live = registry
@@ -968,10 +990,14 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
         .find((s) => s.doc && samePath(s.doc.path, path));
       if (live) {
         ensureDocOpen(live.docId);
-        if (span) live.onSelectSpan(span);
+        if (span) {
+          if (live.docEditor) live.onSelectSpan(span);
+          else pendingSelect.current = { path, span };
+        }
         return;
       }
       const { id } = docIdByPath(path);
+      if (span) pendingSelect.current = { path, span };
       if (id) ensureDocOpen(id);
       else focusTreeRef.current();
     },
@@ -1735,7 +1761,25 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
         path={focusedPath}
         zoom={zoom.uiZoom}
         extra={
-          <ProvenanceToggles layers={layers} onToggle={toggleProvenance} />
+          <>
+            <ProvenanceToggles layers={layers} onToggle={toggleProvenance} />
+            {projectId && (
+              <button
+                type="button"
+                className="status-bar__item"
+                data-tip="Zoom out: every document as a node, the edges between them"
+                aria-label="Show the lineage graph"
+                onClick={() =>
+                  navigate(`/projects/${encodeURIComponent(projectId)}/lineage`)
+                }
+              >
+                <span className="status-bar__glyph" aria-hidden>
+                  ⌘
+                </span>
+                Graph
+              </button>
+            )}
+          </>
         }
         onProblems={goToNextProblem}
         onAttention={nextAttention}

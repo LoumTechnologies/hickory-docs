@@ -29,6 +29,12 @@ Three properties hold it up:
    its parsed span, not by searching for `<hick:transform`, because any
    prefix may be bound to the namespace.
 
+`<hick:check claim="#m1" against=".finding,.said">` is a transform spelled
+for one question — is this sentence backed by these sources — with the
+instruction built in (`hickory_cli::CHECK_INSTRUCT`, overridable by
+`instruct=`): `transform_spec` gives it the same selection-and-instruction
+shape, and everything above holds for it unchanged.
+
 ## Boundary
 
 The fingerprint attests to inputs and instruction, never to the prose being

@@ -91,40 +91,36 @@ In rough order of how much it hurt:
    built on the session record (`three-provenances.md`). The scratch workspace
    still cannot see the project, on purpose; the agent now has a real way to
    look, and what it looked at is on the record.
-2. **An exec's output is not a fragment.** The number the cell prints cannot
-   be pasted into the message; a human types it into a `copy` beside the cell
-   and the `hick:expect` keeps the two honest. So the ribbon from "489 ms"
-   ends at a typed finding, one hop short of the computation. The honest fix
-   is an addressable exec output (or an `expect`-backed `copy`).
-3. **The message has to be pre-cut into fragments.** A `slack:file` is not
-   selectable, so each sentence is a `copy` + a `paste` + a `transform` with
-   the same long `instruct` repeated — four times. Wanted: one element that
-   says "check this file's sentences against these sources". The verdict's
-   citations now do draw — `hick refresh` stamps `cites=` from the ids the
-   passage names, and the app draws them dashed, as the declared provenance
-   they are (`three-provenances.md`).
-4. **Ingest names.** The note was written as
-   `2026-08-22-2026-08-20-checkout-latency-sync.hick` (date is the file's
-   mtime, not the date in its name) with the title `2026 08 20 Checkout Latency
-   Sync`; every transcript is `id="transcript"`, so two meetings upstream of one
-   note now collide (`#transcript-u7` is ambiguous — an error since this
-   change, rather than a silent pick). The id should come from the note.
+2. ~~**An exec's output is not a fragment.**~~ A cell with an `id` is now
+   quotable — `<hick:paste select="#cell"/>` pastes what it shows, with the
+   cell's exec origin, so the ribbon ends at the computation
+   (`docs/guarantees/authoring/a-cell-with-an-id-is-quotable.md`).
+3. **The message still has to be pre-cut into fragments** (a `slack:file` is
+   not selectable), but the check is one element now:
+   `<slack:check claim="#m1" against=".finding,.said" from="">` — a transform
+   with the question built in, fingerprinted and refreshed like one, and its
+   verdict's citations draw as declared provenance (`three-provenances.md`).
+4. ~~**Ingest names.**~~ A date in the file name is the meeting's date, the
+   title is the rest, and the transcript's id is the note's own name
+   (`#2026-08-20-checkout-latency-sync-u7`), so two meetings upstream of one
+   note never collide. The examples here were ingested before that and keep
+   `id="transcript"`.
 5. **The overlay follows the focused document.** From the meeting note you
-   cannot see who quotes it; clicking a cross-document ribbon opens the
-   document but does not land on the span when its tab was inactive;
-   `LineageView` (the project graph) is reachable only by URL; every ribbon
-   looks the same whether its bytes were typed, transcribed, summarized, or
-   executed, and `hick:claim` is invisible in the app. The "zoom out to
-   documents as nodes" view is where all of these meet.
-6. **`hick:claim` around a `copy` hides the copy** (declarations are
-   top-level only): the copy goes at the top level and the claim wraps a
-   paste of it. Works; nobody would guess it.
-7. **Small ones.** `mount="src:/project"` warns even when commands use the
-   relative path; `hick test` takes one path, not several; the CLI's
-   `refresh`/`agent` read keys only from the environment while the desktop
-   app reads its own store, so the terminal needs an `export` the app does
-   not; the agent's `edit_doc after=` put a title at the bottom of a document
-   once; five agent sessions (two failed) were needed to get three documents.
+   still cannot see who quotes it. Since this was written: a cross-document
+   click lands on the span once the document's editor mounts; the project
+   graph has a **Graph** button in the status bar; and the three provenances
+   draw apart (`three-provenances.md`). Still open: provenance KINDS within
+   lineage (typed / transcribed / summarized / executed) look alike, and
+   `hick:claim` has no rendering in the app.
+6. ~~**`hick:claim` around a `copy` hides the copy.**~~ Declarations now
+   descend into a claim.
+7. **Small ones**, mostly gone: the mount warning fires only when a command
+   actually uses the absolute path; `hick test` takes several paths; the
+   CLI's `refresh`/`agent` read the desktop app's key store before the
+   environment (`HICKORY_KEY_STORE` overrides the location). Still true: the
+   agent's `edit_doc after=` put a title at the bottom of a document once, and
+   five sessions (two failed) were needed to get three documents — two of
+   those failures are what `read_file` and the grammar crib now prevent.
 
 ## The two variants
 

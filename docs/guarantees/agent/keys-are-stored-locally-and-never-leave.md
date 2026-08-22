@@ -9,6 +9,11 @@ or transmitted anywhere else. There is no telemetry to carry it and no server
 of ours for it to reach; those do not exist in this product
 (`docs/specs/freeform/local-only.md`).
 
+The terminal reads the same file: `hick agent` and `hick refresh` consult the
+desktop store (`KeyStore::desktop`, `HICKORY_KEY_STORE` to point elsewhere)
+before the environment, so a key entered once in Settings is the key on this
+machine — still sent only to the provider it belongs to.
+
 Four mechanisms, each doing one part:
 
 1. **Private at rest.** `KeyStore::save` creates the file with mode `0600`

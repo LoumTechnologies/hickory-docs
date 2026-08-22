@@ -78,6 +78,12 @@ validated at construction and refuses an absolute path or one containing `..`,
 because ingest *moves* files and an escaping path would move somebody's file
 somewhere they did not ask for.
 
+Naming, since 2026-08-22: a `YYYY-MM-DD` at the front of the file name is the
+note's `date:` (the modification time is the fallback), the title is the rest
+of the name, and the transcript's id is the note's own name — so two meetings
+upstream of one document never both answer to `#transcript`
+(`crates/hickory-cli/tests/ingest_naming.rs`).
+
 ---
 
 Last LLM verification:

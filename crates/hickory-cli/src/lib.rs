@@ -373,11 +373,7 @@ pub fn stale_transforms(doc_path: &Path, source: &str) -> Result<Vec<CheckFailur
     let doc = transform_document(doc_path, source)?;
     let mut out = Vec::new();
     for tag in own_transforms(&doc) {
-        let select = tag.get_attribute("select").unwrap_or_default().to_string();
-        let instruct = tag
-            .get_attribute("instruct")
-            .unwrap_or_default()
-            .to_string();
+        let (select, instruct) = transform_spec(tag);
         let recorded = tag.get_attribute("from").unwrap_or_default();
         let input = transform_input(&doc, &select);
         let actual = hick_lang::transform_fingerprint(&input, &instruct);
@@ -430,10 +426,58 @@ pub fn transform_document(doc_path: &Path, source: &str) -> Result<hick_lang::Hi
 /// otherwise report the included passage twice, and `hick refresh` would
 /// write a passage at another file's offsets into this one.
 pub fn own_transforms(doc: &hick_lang::HickDocument) -> Vec<&hick_lang::HickTag> {
-    doc.find_tags("transform")
-        .into_iter()
+    let mut tags: Vec<&hick_lang::HickTag> = doc
+        .tags()
+        .filter(|t| t.name == "transform" || t.name == "check")
         .filter(|t| t.source_span.is_none_or(|s| s.file_id.is_none()))
-        .collect()
+        .collect();
+    tags.sort_by_key(|t| t.source_line);
+    tags
+}
+
+/// The instruction a `hick:check` runs under when it names none of its own:
+/// one sentence against its sources, BACKED or UNSUPPORTED, citing ids. Fixed
+/// text, so a document full of checks carries the question once — here — and
+/// `from=` still fingerprints it, so a change to this sentence is a change to
+/// every check, visibly.
+pub const CHECK_INSTRUCT: &str = "The input is a list of fragments, each prefixed with its id in brackets; meeting turns also name their speaker and time. Exactly one fragment is a sentence from a Slack message I am about to send (its id starts with #m or #a); every other fragment is a source: a meeting turn or a finding from the analysis or the fix. Say whether the message sentence is BACKED or UNSUPPORTED by the sources. If BACKED, for each factual part of it name the source id and quote verbatim the shortest passage that backs it. If any part is not backed by any source, say which part. Two or three lines, no preamble.";
+
+/// What a transform-like element reads and is asked: for `hick:transform`,
+/// its `select=` and `instruct=`; for `hick:check`, the sentence under test
+/// (`claim=`) joined with its sources (`against=`), and the built-in
+/// instruction unless `instruct=` overrides it. A check IS a transform — same
+/// fingerprint, same refresh, same staleness — spelled for the one question
+/// people ask most.
+pub fn transform_spec(tag: &hick_lang::HickTag) -> (String, String) {
+    if tag.name == "check" {
+        let claim = tag
+            .get_attribute("claim")
+            .unwrap_or_default()
+            .trim()
+            .to_string();
+        let against = tag
+            .get_attribute("against")
+            .unwrap_or_default()
+            .trim()
+            .to_string();
+        let select = match (claim.is_empty(), against.is_empty()) {
+            (false, false) => format!("{claim},{against}"),
+            (false, true) => claim,
+            (true, _) => against,
+        };
+        let instruct = tag
+            .get_attribute("instruct")
+            .filter(|i| !i.trim().is_empty())
+            .unwrap_or(CHECK_INSTRUCT)
+            .to_string();
+        return (select, instruct);
+    }
+    (
+        tag.get_attribute("select").unwrap_or_default().to_string(),
+        tag.get_attribute("instruct")
+            .unwrap_or_default()
+            .to_string(),
+    )
 }
 
 /// One declared citation: an element that says `cites="…"` and the fragments
@@ -573,6 +617,27 @@ pub fn declared_cites(doc_path: &Path, source: &str) -> Result<Vec<DeclaredCite>
         });
     }
     Ok(out)
+}
+
+#[cfg(test)]
+mod mount_warning_tests {
+    use super::absolute_mount_warnings;
+
+    /// `mount="src:/project"` is fine; only a command that says `/project/…`
+    /// is the mistake the warning exists for.
+    #[test]
+    fn warns_only_when_a_command_uses_the_absolute_path() {
+        let relative = hick_lang::parse(
+            "<hick:exec container=\"py\" mount=\"src:/project\">python3 project/a.py</hick:exec>",
+        )
+        .unwrap();
+        assert!(absolute_mount_warnings(&relative).is_empty());
+        let absolute = hick_lang::parse(
+            "<hick:exec container=\"py\" mount=\"src:/project\">python3 /project/a.py</hick:exec>",
+        )
+        .unwrap();
+        assert_eq!(absolute_mount_warnings(&absolute).len(), 1);
+    }
 }
 
 /// 1-based line of byte offset `at` in `text`.
@@ -1260,6 +1325,18 @@ pub fn absolute_mount_warnings(doc: &hick_lang::HickDocument) -> Vec<String> {
             if !path.starts_with('/') {
                 continue;
             }
+            // The spec `src:/project` is fine on its own — every executor
+            // strips the slash and mounts under the workdir. What fails is a
+            // COMMAND that then says `/project/...`, so warn only when one
+            // does; a cell that addresses `project/...` relatively has done
+            // nothing wrong and should not be told otherwise.
+            let command = hick_lang::tag_text(tag);
+            let absolute_use = command.contains(&format!("{path}/"))
+                || command.contains(&format!("{path} "))
+                || command.trim_end().ends_with(path);
+            if !absolute_use {
+                continue;
+            }
             let rel = path.trim_start_matches('/');
             out.push(format!(
                 "line {}: mounts at `{path}`, but mounts resolve UNDER the \
@@ -1375,7 +1452,43 @@ pub fn output_lineage(run: &DocRun, output_path: &str) -> Result<Vec<hickory_lin
             }
         )
     })?;
-    Ok(hickory_lineage::from_provenance_map(map))
+    let mut provenance = hickory_lineage::from_provenance_map(map);
+    // Bytes a CELL produced: the provenance map knows the cell by its source
+    // line, and the document knows the cell's span at that line. Joining the
+    // two here gives exec output an origin the ribbons can draw — the cell
+    // itself — instead of `synthetic`, which told a reader "nowhere". A paste
+    // of `#cell-id` arrives here too, so the quoted number's ribbon ends at
+    // the computation.
+    let exec_spans: std::collections::HashMap<usize, (usize, usize)> = {
+        let mut out = std::collections::HashMap::new();
+        let mut stack: Vec<&hick_lang::HickTag> = run.doc.tags().collect();
+        while let Some(tag) = stack.pop() {
+            if tag.name == "exec"
+                && let Some(span) = tag.source_span
+                && span.file_id.is_none()
+            {
+                out.entry(tag.source_line).or_insert((span.start, span.end));
+            }
+            for child in &tag.children {
+                if let hick_lang::HickNode::Tag(t) = child {
+                    stack.push(t);
+                }
+            }
+        }
+        out
+    };
+    for (entry, span) in provenance.iter_mut().zip(map.spans().iter()) {
+        if let hick_exec::node::SourceOrigin::Exec { tag_line, .. } = &span.origin
+            && matches!(entry.origin, hickory_lineage::Origin::Synthetic)
+            && let Some((start, end)) = exec_spans.get(tag_line)
+        {
+            entry.origin = hickory_lineage::Origin::Exec {
+                doc_path: run.doc_path.display().to_string(),
+                span: (*start, *end),
+            };
+        }
+    }
+    Ok(provenance)
 }
 
 /// Human-readable lineage for every agent-authored range of one output.

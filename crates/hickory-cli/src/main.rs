@@ -473,8 +473,9 @@ struct RunArgs {
 
 #[derive(clap::Args)]
 struct TestArgs {
-    /// A `.hick` document or a directory of documents.
-    path: PathBuf,
+    /// `.hick` documents or directories of them — as many as you like.
+    #[arg(required = true, num_args = 1..)]
+    paths: Vec<PathBuf>,
     /// Parameter overrides, `key=value` (repeatable).
     #[arg(long = "param", value_parser = hick_literate::parse_param)]
     params: Vec<(String, String)>,
@@ -801,7 +802,10 @@ async fn cmd_run(args: RunArgs) -> Result<ExitCode> {
 
 async fn cmd_test(args: TestArgs) -> Result<ExitCode> {
     let executor_choice = ExecutorChoice::from_env()?;
-    let docs = expand_docs(&args.path)?;
+    let mut docs = Vec::new();
+    for path in &args.paths {
+        docs.extend(expand_docs(path)?);
+    }
     let params = params_with_features(&args.params, &args.features);
     let mut worst = CheckOutcome::Verified;
     let mut json_blocks = Vec::new();
@@ -1337,7 +1341,10 @@ fn cmd_promote(args: PromoteArgs) -> Result<ExitCode> {
 async fn cmd_agent(args: AgentArgs) -> Result<ExitCode> {
     use std::io::Write as _;
 
-    use hickory_agent::{AgentConfig, AgentEvent, client_for, resolve_selector, run_agent};
+    use hickory_agent::{
+        AgentConfig, AgentEvent, KeyStore, client_for_with_store, resolve_selector_with_store,
+        run_agent,
+    };
 
     let project_dir = match &args.dir {
         Some(dir) => dir.clone(),
@@ -1346,8 +1353,12 @@ async fn cmd_agent(args: AgentArgs) -> Result<ExitCode> {
     // With no --provider, the environment decides: HICKORY_LLM_PROVIDER,
     // else the provider whose key is present. `client_for` then reports an
     // unknown provider or a missing key by name, before anything is executed.
-    let provider = resolve_selector(args.provider.as_deref())?;
-    let llm = client_for(&provider, args.model.as_deref(), None)?;
+    // A key entered in the desktop app's Settings counts here too: the same
+    // file is read, before the environment, so one machine has one answer to
+    // "which key".
+    let store = KeyStore::desktop();
+    let provider = resolve_selector_with_store(args.provider.as_deref(), &store)?;
+    let llm = client_for_with_store(&provider, args.model.as_deref(), &store)?;
     // Executor selection follows HICKORY_EXECUTOR, same as run/test.
     let executor = ExecutorChoice::from_env()?.build().await?;
 
@@ -1718,7 +1729,7 @@ fn indent(s: &str) -> String {
 /// survive: your wording is the starting point, not something to be
 /// regenerated over.
 async fn cmd_refresh(args: RefreshArgs) -> Result<ExitCode> {
-    use hickory_agent::{LlmClient, Message, Role, client_for};
+    use hickory_agent::{LlmClient, Message, Role};
 
     let docs = expand_docs(&args.path)?;
     let mut rewrote = 0usize;
@@ -1734,11 +1745,7 @@ async fn cmd_refresh(args: RefreshArgs) -> Result<ExitCode> {
         // passage, and the byte span of its body.
         let mut jobs: Vec<RefreshJob> = Vec::new();
         for tag in hickory_cli::own_transforms(&parsed) {
-            let select = tag.get_attribute("select").unwrap_or_default().to_string();
-            let instruct = tag
-                .get_attribute("instruct")
-                .unwrap_or_default()
-                .to_string();
+            let (select, instruct) = hickory_cli::transform_spec(tag);
             let recorded = tag.get_attribute("from").unwrap_or_default().to_string();
             let input = hickory_cli::transform_input(&parsed, &select);
             let fingerprint = hick_lang::transform_fingerprint(&input, &instruct);
@@ -1775,10 +1782,11 @@ async fn cmd_refresh(args: RefreshArgs) -> Result<ExitCode> {
             }
             continue;
         }
-        let llm = client_for(
-            &hickory_agent::resolve_selector(args.provider.as_deref())?,
+        let store = hickory_agent::KeyStore::desktop();
+        let llm = hickory_agent::client_for_with_store(
+            &hickory_agent::resolve_selector_with_store(args.provider.as_deref(), &store)?,
             args.model.as_deref(),
-            None,
+            &store,
         )?;
 
         // Apply back-to-front so earlier spans stay valid.

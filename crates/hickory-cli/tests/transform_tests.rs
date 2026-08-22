@@ -174,6 +174,34 @@ Old summary.
     assert_eq!(stale_transforms(&chapter, &chapter_src).unwrap().len(), 1);
 }
 
+/// `hick:check` is a transform spelled for one question: `claim=` + `against=`
+/// are its selection, the built-in instruction is its instruction, and it is
+/// fingerprinted, checked, and refreshed exactly like one.
+/// Guarantee: docs/guarantees/verification/a-transform-is-checked-against-the-bytes-it-read.md
+#[test]
+fn a_check_is_a_transform_with_the_question_built_in() {
+    let src = "<hick:copy id=\"m1\" class=\"message\">We ship Friday.</hick:copy>\n<hick:copy id=\"f\" class=\"finding\">Ship date: Friday.</hick:copy>\n<hick:check claim=\"#m1\" against=\".finding\" from=\"FP\">\nBACKED.\n</hick:check>\n";
+    let doc = hickory_cli::transform_document(std::path::Path::new("d.hick"), src).unwrap();
+    let check = doc.tags().find(|t| t.name == "check").unwrap();
+    let (select, instruct) = hickory_cli::transform_spec(check);
+    assert_eq!(select, "#m1,.finding");
+    assert_eq!(instruct, hickory_cli::CHECK_INSTRUCT);
+    let fp = hick_lang::transform_fingerprint(&transform_input(&doc, &select), &instruct);
+    let stamped = src.replace("FP", &fp);
+    assert!(
+        stale_transforms(std::path::Path::new("d.hick"), &stamped)
+            .unwrap()
+            .is_empty()
+    );
+    let drifted = stamped.replace("Ship date: Friday.", "Ship date: Monday.");
+    assert_eq!(
+        stale_transforms(std::path::Path::new("d.hick"), &drifted)
+            .unwrap()
+            .len(),
+        1
+    );
+}
+
 /// The input a transform reads is citeable: fragments are separated, carry
 /// their ids, and a speaker turn names its speaker — so a passage that checks
 /// a sentence against a meeting can say which turn backs it.

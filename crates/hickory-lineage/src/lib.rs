@@ -121,8 +121,10 @@ impl Origin {
 
 /// Convert a pipeline [`ProvenanceMap`] into the api.md `Provenance[]` shape.
 ///
-/// Origins without a byte-precise source location (exec output, variable
-/// values, substituted segments, separators) are reported as `synthetic`:
+/// Origins without a byte-precise source location (variable values,
+/// substituted segments, separators) are reported as `synthetic`; exec output
+/// is too, HERE, and `hickory_cli::output_lineage` then gives it the cell's
+/// own span as an `Exec` origin — drawable, never editable:
 /// honest about editability — those bytes cannot be mapped back to source
 /// bytes 1:1.
 pub fn from_provenance_map(map: &ProvenanceMap) -> Vec<Provenance> {

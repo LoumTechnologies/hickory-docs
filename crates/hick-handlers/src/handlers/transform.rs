@@ -28,6 +28,26 @@ use crate::{ProcessingContext, ProcessingPhase, TagHandler, TagResult, tag_attr}
 /// - `from` — fingerprint of (input bytes + instruction) at the time it was written
 pub struct TransformHandler;
 
+/// `<hick:check claim="#m1" against=".finding,.said" from="…">`: a transform
+/// spelled for the question a message asks of its sources — is this sentence
+/// backed? Same pinned passage, same fingerprint, same `cites=`; the
+/// instruction is built in (`hickory_cli::CHECK_INSTRUCT`) unless overridden.
+pub struct CheckHandler;
+
+impl TagHandler for CheckHandler {
+    fn tag_name(&self) -> &str {
+        "check"
+    }
+
+    fn phase(&self) -> ProcessingPhase {
+        ProcessingPhase::Content
+    }
+
+    fn process(&self, tag: &HickTag, ctx: &ProcessingContext) -> Result<TagResult> {
+        TransformHandler.process(tag, ctx)
+    }
+}
+
 impl TagHandler for TransformHandler {
     fn tag_name(&self) -> &str {
         "transform"

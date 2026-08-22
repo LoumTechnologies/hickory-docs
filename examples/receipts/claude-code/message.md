@@ -9,10 +9,11 @@ them, so `hick lineage` and the app's ribbons point every sentence at the
 fragment it came from, and from there one hop up to the finding, the cell,
 or the meeting turn behind it. Under each sentence a model has checked the
 sentence against the sources it can see — the findings and every turn of the
-meeting — and says what backs it. That verdict is a `slack:transform`: it is
-stamped with a fingerprint of exactly what it read, so if the meeting note,
-a finding, or the sentence changes, `hick test` marks it stale until it is
-checked again.
+meeting — and says what backs it. That verdict is a `slack:check`: a
+transform with the question built in, stamped with a fingerprint of exactly
+what it read, so if the meeting note, a finding, or the sentence changes,
+`hick test` marks it stale until it is checked again; and `cites=` is what
+the verdict itself named, drawn by the app as the model's own claim.
 
 ## The message
 

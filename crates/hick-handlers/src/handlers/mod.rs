@@ -15,10 +15,11 @@ mod val;
 pub use copy::{CopyHandler, CutHandler, TranscriptHandler};
 pub use exclude::ExcludeHandler;
 pub use exec::ExecHandler;
+pub use exec::quotable_exec_node;
 pub use paste::PasteHandler;
 pub use script::ScriptHandler;
 pub use substitute::SubstituteHandler;
-pub use transform::TransformHandler;
+pub use transform::{CheckHandler, TransformHandler};
 pub use val::ValHandler;
 
 use crate::TagRegistry;
@@ -34,5 +35,6 @@ pub fn register_builtins(registry: &mut TagRegistry) {
     registry.register(Box::new(ScriptHandler));
     registry.register(Box::new(SubstituteHandler));
     registry.register(Box::new(TransformHandler));
+    registry.register(Box::new(CheckHandler));
     registry.register(Box::new(ValHandler));
 }

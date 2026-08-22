@@ -147,6 +147,9 @@ document is prose (markdown) and is raw, byte for byte.
 - <hick:transform select="#a,.b" instruct="…" from="">PASSAGE</hick:transform>
   a model-written passage pinned to its inputs; leave `from=""` and the
   passage empty — `hick refresh` writes it; never write the passage yourself
+- <hick:check claim="#m1" against=".finding,.said" from=""></hick:check>
+  a transform that asks whether ONE sentence is backed by its sources; same
+  rules: empty body, `hick refresh` writes the verdict
 - <hick:claim by="who" standing="expert|judgment|report|assumption" scope="…">
   TEXT</hick:claim>                                    an assertion and whose
   it is; nothing verifies it

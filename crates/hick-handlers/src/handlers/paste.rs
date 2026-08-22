@@ -148,6 +148,12 @@ impl TagHandler for PasteHandler {
                     Some(SourceOrigin::Literal { file, span }) if dedented == s => {
                         Some((file.clone(), *span))
                     }
+                    // A quoted CELL (`#cell-id`) keeps the cell's own origin:
+                    // the pasted number is the computation's, and the ribbon
+                    // should end there rather than go synthetic.
+                    Some(SourceOrigin::Exec { .. }) if dedented == s => {
+                        return Ok(TagResult::Node(node));
+                    }
                     _ => None,
                 };
                 return Ok(TagResult::Node(Arc::new(PasteNode::with_source(

@@ -19,7 +19,8 @@ run; the remaining failure was the expectation's leading newline, which the
 mismatch message now names
 (`crates/hick-literate/src/expect.rs`, "begins with an empty line").
 
-The prompt also names `read_file`: the agent's window onto project files
+The prompt also names `hick:check` (a transform with the question built in) and
+`read_file`: the agent's window onto project files
 that are not documents, read-only and recorded
 (`context-provenance-is-derived-from-the-session.md`). The scratch workspace
 still cannot see the project — that is what keeps the document the only write
