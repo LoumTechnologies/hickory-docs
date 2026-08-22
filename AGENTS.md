@@ -29,6 +29,14 @@ could replace branching in a `.hick` document. The short answer is that the
 branch→feature-set half is worth doing and the branches-as-flags half would
 cost the provenance that this product exists for.
 
+A second open question, investigated and deliberately not built, is
+`docs/specs/freeform/scaffolded-files-and-derived-edits.md`: how a document
+owns files a scaffolder (`dotnet new`) wrote. The short answer is that "a block
+that is a set of edits on top of something else" is a missing primitive worth
+having, and that CRDT edits are the wrong way to express it — a re-run of a
+scaffolder shares no history with the previous run, so the property that makes
+CRDTs merge is absent exactly where it would be needed.
+
 How outside material enters a notes folder is `docs/specs/freeform/ingest.md`;
 how the result is marked is `docs/specs/freeform/provenance-and-standing.md`.
 The rule that governs both: **provenance is derived and checkable, standing is
