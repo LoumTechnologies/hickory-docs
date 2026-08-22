@@ -38,6 +38,7 @@ import { api } from "../api/client";
 import type { FormulaStep } from "../api/types";
 import { cellLabel, columnLabel, isFormula, parseCellLabel } from "../lib/cellRef";
 import { pointAt, type PointedAt } from "../lib/formulaPoint";
+import { columnsPhrase, rowsPhrase, tableMenuItems } from "../lib/tableMenu";
 import { parseClipboardTable, toHtmlTable, toTabSeparated } from "../lib/tableClipboard";
 import {
   allSelection,
@@ -55,6 +56,7 @@ import {
   type Selection,
 } from "../lib/tableSelection";
 
+import { ContextMenu } from "./ContextMenu";
 import { FormulaDebugger } from "./FormulaDebugger";
 import { TableSizeDialog } from "./TableSizeDialog";
 
@@ -124,6 +126,17 @@ export interface TablePanelProps {
    * are two different jobs and dropping either one to do the other was the
    * wrong trade. */
   laneRight?: boolean;
+}
+
+/** Apply `step` to the table `n` times (at least once).
+ *
+ * Inserting three rows is inserting one row three times at the same index —
+ * which is also how a spreadsheet reads "select three rows, insert". Kept out
+ * of the component because it is arithmetic, not state. */
+function times(table: Csv, n: number, step: (t: Csv) => Csv): Csv {
+  let out = table;
+  for (let i = 0; i < Math.max(1, n); i++) out = step(out);
+  return out;
 }
 
 /** A column's width when nobody has dragged it. Wide enough for a short
@@ -307,6 +320,8 @@ export function TablePanel({
   const [debugging, setDebugging] = useState(false);
   // Whether the size indicator has been opened to type a new size into.
   const [sizing, setSizing] = useState(false);
+  // Where the right-click menu is, in viewport coordinates, or null.
+  const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
 
   // Seeded from the remembered layout and owned from then on: the prop is a
   // starting point, not a controlled value, so a drag does not have to make a
@@ -724,6 +739,72 @@ export function TablePanel({
   const canRemoveRows = selectedRows.length > 0 && selectedRows.length < height;
   const canRemoveColumns = selectedColumns.length > 0 && selectedColumns.length < width;
 
+  /**
+   * Open the right-click menu over a cell.
+   *
+   * A right-click on a cell OUTSIDE the current selection selects it first,
+   * which is what every spreadsheet does and what stops "Delete row" from
+   * quietly meaning some other row that was selected a minute ago. A
+   * right-click INSIDE the selection leaves the sweep alone, because taking a
+   * three-row selection apart to act on three rows is the opposite of what
+   * was asked for.
+   */
+  const openMenu = (
+    event: React.MouseEvent,
+    row: number,
+    column: number,
+    take?: "row" | "column",
+  ) => {
+    if (!editable) return;
+    event.preventDefault();
+    if (!selection || !containsCell(selection, row, column)) {
+      stopEditing();
+      setSelection(
+        take === "row"
+          ? rowSelection(row, width)
+          : take === "column"
+            ? columnSelection(column, height)
+            : cellSelection(row, column),
+      );
+    }
+    setMenu({ x: event.clientX, y: event.clientY });
+  };
+
+  /** Run what the menu was clicked for, against the current selection. */
+  const runMenu = (action: string) => {
+    setMenu(null);
+    if (!selection) return;
+    const rows = rowsIn(selection);
+    const columns = columnsIn(selection);
+    stopEditing();
+    switch (action) {
+      case "insert-rows-above":
+        apply(times(table, rows.length, (t) => insertRow(t, rows[0])));
+        break;
+      case "insert-rows-below":
+        apply(times(table, rows.length, (t) => insertRow(t, rows[rows.length - 1] + 1)));
+        break;
+      case "insert-columns-left":
+        apply(times(table, columns.length, (t) => insertColumn(t, columns[0])));
+        break;
+      case "insert-columns-right":
+        apply(
+          times(table, columns.length, (t) =>
+            insertColumn(t, columns[columns.length - 1] + 1),
+          ),
+        );
+        break;
+      case "delete-rows":
+        apply(removeRows(table, rows));
+        setSelection(null);
+        break;
+      case "delete-columns":
+        apply(removeColumns(table, columns));
+        setSelection(null);
+        break;
+    }
+  };
+
   // While stepping: the cell whose turn it is, and the cells it read. Both by
   // label, which is what the host answers in.
   const steppingAt = useMemo(
@@ -753,6 +834,7 @@ export function TablePanel({
         // Selecting on the mousedown is what makes a drag possible at all —
         // by the time a click arrives the sweep is over. The click below is
         // the same act for a pointer that sends no mousedown.
+        if (event.button === 2) return;
         event.preventDefault();
         dragging.current = "rows";
         takeRow(row, event.shiftKey);
@@ -761,6 +843,7 @@ export function TablePanel({
         if (dragging.current === "rows") extend(row, width - 1);
       }}
       onClick={(event) => takeRow(row, event.shiftKey)}
+      onContextMenu={(event) => openMenu(event, row, 0, "row")}
     >
       {row + 1}
       <Resizer
@@ -914,6 +997,7 @@ export function TablePanel({
                   }`}
                   data-tip={`Column ${columnLabel(column)} — click to select it, drag for more, drag the edge to resize`}
                   onMouseDown={(event) => {
+                    if (event.button === 2) return;
                     event.preventDefault();
                     dragging.current = "columns";
                     takeColumn(column, event.shiftKey);
@@ -922,6 +1006,7 @@ export function TablePanel({
                     if (dragging.current === "columns") extend(height - 1, column);
                   }}
                   onClick={(event) => takeColumn(column, event.shiftKey)}
+                  onContextMenu={(event) => openMenu(event, 0, column, "column")}
                 >
                   {columnLabel(column)}
                   <Resizer
@@ -953,7 +1038,11 @@ export function TablePanel({
                   {Array.from({ length: width }, (_, column) => {
                     const label = cellLabel(column, row);
                     return (
-                      <td key={column} className={isHeaderRow ? "table-panel__names" : undefined}>
+                      <td
+                        key={column}
+                        className={isHeaderRow ? "table-panel__names" : undefined}
+                        onContextMenu={(event) => openMenu(event, row, column)}
+                      >
                         <Cell
                           row={row}
                           column={column}
@@ -1044,6 +1133,23 @@ export function TablePanel({
           </tbody>
         </table>
       </div>
+
+      {menu && selection && (
+        <ContextMenu
+          x={menu.x}
+          y={menu.y}
+          className="table-menu"
+          subject={`${rowsPhrase(selectedRows)}, ${columnsPhrase(selectedColumns)}`}
+          items={tableMenuItems({
+            rows: selectedRows,
+            columns: selectedColumns,
+            height,
+            width,
+          })}
+          onPick={runMenu}
+          onClose={() => setMenu(null)}
+        />
+      )}
 
       {/* Drag the bottom edge to give the table more of the document, or less.
           A dataset with two hundred rows and a dataset with four want very
@@ -1500,6 +1606,11 @@ function Cell({
                 // What the default would otherwise have given us is focus,
                 // and the effect above puts that back on whichever cell ends
                 // up selected.
+                // A right-click is the menu's, not the sweep's: the menu
+                // decides for itself whether to change the selection, and a
+                // sweep torn apart before it opens is a menu acting on the
+                // wrong rows.
+                if (event.button === 2) return;
                 event.preventDefault();
                 onDown(event);
               }

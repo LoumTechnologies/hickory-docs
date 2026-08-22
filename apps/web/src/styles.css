@@ -4944,6 +4944,17 @@ textarea:focus {
   padding-top: 0.3rem;
 }
 
+/* An item that removes something, and one that cannot run right now. The
+   disabled item stays in the menu rather than disappearing: an item that
+   vanishes teaches nobody why it is not available. */
+.tree-menu__item--danger { color: var(--fail); }
+.tree-menu__item:disabled {
+  color: var(--fg-muted);
+  opacity: 0.55;
+  cursor: default;
+}
+.tree-menu__item:disabled:hover { background: none; }
+
 /* A file the app has no way to open: named, present, not pretending to be a
    link. */
 .folder-tree__file--inert { color: var(--fg-muted); cursor: default; }

@@ -229,6 +229,35 @@ remembered in the workspace's own state, keyed by the table's `path` where it
 has one (`tableKey`), which means two people can want different amounts of room
 for the same table and neither shows up in the other's `git status`.
 
+## The row is where the hand already is
+
+The toolbar under the grid can add a row at the bottom and remove the selected
+ones. That is the right set of operations and the wrong set of gestures: a row
+belongs in the MIDDLE of a table at least as often as at the end, and the hand
+that wants to remove row 12 is already on row 12. So the same operations are
+also under the pointer, where a spreadsheet has always put them.
+
+**A right-click on a cell outside the current selection selects it first**,
+which is what every spreadsheet does and what stops "Delete row" from quietly
+meaning some other row that was selected a minute ago. **A right-click inside
+the selection leaves the sweep alone**, because taking a three-row selection
+apart in order to act on three rows is the opposite of what was asked for.
+That means the right button is not a selecting gesture on the way down: the
+mousedown handlers that begin a sweep ignore button 2 entirely and let the
+context-menu event decide.
+
+The items name the rows and columns they will act on — "Remove rows 2–4",
+"Remove column B" — because a menu that says "Delete row" over an ambiguous
+selection is a menu people have to test on real data to trust. Inserting
+inserts as MANY as are selected, which is the spreadsheet convention and what
+makes "I need three rows here" one gesture. The delete that would empty the
+table is **offered and disabled**, with the reason in its tooltip; an item that
+vanishes when you select the whole table teaches nobody that the whole table
+was the problem.
+
+A table with no `onChange` — a generated one, with a document behind it — has
+no menu at all, for the same reason it has no toolbar.
+
 ## A fence is prose until it is promoted
 
 A ```csv fence gets the grid too, and edits its body in place — but it does
@@ -293,6 +322,18 @@ Last LLM verification:
   rather than touching the CSV. `stopEditing` is what every selecting act goes
   through, which is what stops a drag begun elsewhere from discarding an open
   edit; `takeRow`/`takeColumn`/`selectAll` are the header, gutter and corner.
+  `apps/web/src/lib/tableMenu.ts` — `tableMenuItems`, `rowsPhrase`,
+  `columnsPhrase`: what the right-click menu offers, computed from the
+  selection and the table's size so the labels can be tested without a grid.
+  `apps/web/src/components/ContextMenu.tsx` — the one menu behaviour in the
+  app (Escape, click-away, staying inside the window, the first enabled item
+  taking focus for the context-menu key), which `shell/TreeContextMenu.tsx` is
+  now a caller of rather than the only implementation.
+  `apps/web/src/components/TablePanel.tsx` — `openMenu` (the select-outside /
+  keep-inside rule, and the `take` variants for a right-click on a row number
+  or a column letter), `runMenu`, and the `event.button === 2` guards on the
+  three mousedown handlers that would otherwise have collapsed the sweep
+  before the menu opened.
   `apps/web/src/lib/tableSelection.ts` — the rectangle: anchor and focus kept
   apart, `kind` remembering what was clicked, `extendTo` refusing to select
   half a row or half a column, and `selectionLabel` (`B:B` rather than
@@ -338,7 +379,12 @@ Last LLM verification:
   keeps a headerless first row as data, leaves the prose alone.
   `apps/web/src/lib/csv.test.ts` (28 tests) — including five byte-for-byte
   round trips and "one cell edited changes one line".
-  `apps/web/src/components/TablePanel.test.tsx` (117 tests) — header vs data,
+  `apps/web/src/lib/tableMenu.test.ts` (6 tests) — the labels naming the
+  actual rows and columns in the numbering a person reads off the grid,
+  singular and swept forms, insert-as-many-as-selected, the disabled
+  whole-table deletes with their reasons, and which items are marked
+  destructive.
+  `apps/web/src/components/TablePanel.test.tsx` (125 tests) — header vs data,
   ragged padding, the write-back and its quoting, no write when nothing
   changed, Enter/Tab/arrow navigation, row and column operations, and the
   read-only case saying where to make the change instead; plus the A1
@@ -352,6 +398,12 @@ Last LLM verification:
   to remove every row. Enter: commits, moves down, and leaves the cell
   selected rather than open. And "an edit that is interrupted by a click
   somewhere else is committed, not thrown away", in two shapes.
+  The right-click menu: it selects the cell it was opened over (asserted
+  through the menu's own accessible name, which says which row and column),
+  removes that row and that column, inserts above and below (which the toolbar
+  cannot), keeps a sweep intact when the click lands inside it, offers the
+  whole-table delete disabled and does nothing when it is clicked anyway, and
+  is absent entirely on a table with a document behind it.
   Also: the row numbers down both sides and the single accessible name for
   the two corners; the nine-row viewport (a short table left alone, a long one
   pinned to 238px with all forty rows still present, a remembered height

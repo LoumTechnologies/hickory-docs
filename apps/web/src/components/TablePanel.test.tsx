@@ -1351,3 +1351,87 @@ describe("double-clicking a grid line", () => {
     expect(document.querySelector(".table-panel__input")).toBeNull();
   });
 });
+
+describe("the right-click menu", () => {
+  /** Open the menu over a cell by its text. */
+  const menuOver = (text: string) => {
+    fireEvent.contextMenu(screen.getByText(text));
+    return document.querySelector('[role="menu"]') as HTMLElement;
+  };
+  const pick = (id: string) =>
+    fireEvent.click(document.querySelector(`[data-menu-item="${id}"]`)!);
+
+  it("selects the cell it was opened over, so the items name that row", () => {
+    grid();
+    const menu = menuOver("Ada");
+    expect(menu).not.toBeNull();
+    expect(menu.getAttribute("aria-label")).toContain("row 2");
+    expect(menu.getAttribute("aria-label")).toContain("column A");
+  });
+
+  it("removes the row it was opened over", () => {
+    const onChange = vi.fn();
+    grid({ onChange });
+    menuOver("Ada");
+    pick("delete-rows");
+    expect(onChange).toHaveBeenCalledWith("name,age\nGrace,45\n");
+  });
+
+  it("removes the column it was opened over", () => {
+    const onChange = vi.fn();
+    grid({ onChange });
+    menuOver("36");
+    pick("delete-columns");
+    expect(onChange).toHaveBeenCalledWith("name\nAda\nGrace\n");
+  });
+
+  it("inserts a row above and below the cell, which the toolbar cannot", () => {
+    const onChange = vi.fn();
+    grid({ onChange });
+    menuOver("Ada");
+    pick("insert-rows-above");
+    expect(onChange).toHaveBeenCalledWith("name,age\n,\nAda,36\nGrace,45\n");
+    onChange.mockClear();
+    menuOver("Ada");
+    pick("insert-rows-below");
+    expect(onChange).toHaveBeenCalledWith("name,age\nAda,36\n,\nGrace,45\n");
+  });
+
+  it("inserts a column beside the cell", () => {
+    const onChange = vi.fn();
+    grid({ onChange });
+    menuOver("36");
+    pick("insert-columns-left");
+    expect(onChange).toHaveBeenCalledWith("name,,age\nAda,,36\nGrace,,45\n");
+  });
+
+  it("keeps a sweep intact when the click lands inside it", () => {
+    const onChange = vi.fn();
+    grid({ onChange });
+    // Sweep the two data rows, then right-click inside them: the menu must
+    // act on both, not on the one cell under the pointer.
+    fireEvent.mouseDown(screen.getByText("Ada"));
+    fireEvent.mouseEnter(screen.getByText("45"));
+    fireEvent.mouseUp(window);
+    menuOver("36");
+    pick("delete-rows");
+    expect(onChange).toHaveBeenCalledWith("name,age\n");
+  });
+
+  it("offers the delete that would empty the table, and refuses to run it", () => {
+    const onChange = vi.fn();
+    grid({ onChange });
+    fireEvent.click(document.querySelector(".table-panel__corner")!);
+    fireEvent.contextMenu(screen.getByText("Ada"));
+    const item = document.querySelector<HTMLButtonElement>('[data-menu-item="delete-rows"]')!;
+    expect(item.disabled).toBe(true);
+    fireEvent.click(item);
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("is not offered at all on a table with a document behind it", () => {
+    render(<TablePanel source={CSV} />);
+    fireEvent.contextMenu(screen.getByText("Ada"));
+    expect(document.querySelector('[role="menu"]')).toBeNull();
+  });
+});
