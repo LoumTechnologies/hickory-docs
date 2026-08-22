@@ -45,6 +45,8 @@ import {
   verbatimRanges,
 } from "./hickDoc";
 import { lineHighlightField } from "./lineHighlight";
+import { mdLinks } from "./mdLinks";
+import { base64Of, mdPaste } from "./mdPaste";
 import { RightRail } from "./RightRail";
 import { CardRail, type CardState } from "./CardRail";
 import { cardsOf, type DocCard } from "./cards";
@@ -195,6 +197,16 @@ export function DocumentEditor({
   // changed.
   const onDebugFileRef = useRef(onDebugFile);
   onDebugFileRef.current = onDebugFile;
+  // The editor is built once per document, but a buffer that was untitled
+  // when it was built has a path as soon as it is first saved — and where an
+  // image lands, and what a relative link resolves to, both depend on it. So
+  // it is read through a ref at the moment it is needed.
+  const pathRef = useRef(path);
+  pathRef.current = path;
+  // What went wrong with the last drop or paste, shown until the next one.
+  // A write that fails silently leaves a note referencing a file that was
+  // never created.
+  const [assetError, setAssetError] = useState<string | null>(null);
   const envRegistry = useMemo(() => new EnvRegistry(), []);
   const [envSlots, setEnvSlots] = useState<EnvSlot[]>([]);
   const [executorInfo, setExecutorInfo] = useState<ExecutorInfo | null>(null);
@@ -437,6 +449,30 @@ export function DocumentEditor({
                 (fence) => [fence.from, fence.to] as [number, number],
               ),
             ];
+          }),
+          // Links and images in prose: styled, Mod-clickable, and — for an
+          // image — drawn under the line that references it. The verbatim
+          // ranges are excluded for the same reason maths excludes them: a
+          // `[…](…)` inside a shell cell is shell.
+          mdLinks({
+            docPath: () => pathRef.current,
+            images: true,
+            skip: (state) => verbatimRanges(structureOf(state).blocks),
+          }),
+          // A URL pasted over a selection becomes a link; an image pasted or
+          // dropped is written into the folder and referenced. Both write
+          // ordinary markdown — see editor/mdPaste.ts.
+          mdPaste({
+            docPath: () => pathRef.current,
+            upload: async (file, docPath) => {
+              const saved = await api.saveAsset(file.name, await base64Of(file), docPath);
+              return { relative: saved.relative };
+            },
+            isProse: (state, from) =>
+              !verbatimRanges(structureOf(state).blocks).some(
+                ([vFrom, vTo]) => from >= vFrom && from < vTo,
+              ),
+            onError: setAssetError,
           }),
           EditorView.updateListener.of((u) => {
             if (u.selectionSet || u.docChanged) {
@@ -763,6 +799,14 @@ export function DocumentEditor({
       {/* Inside a table the ruler stops measuring prose and names the
           table's columns instead, so A1 is readable off the same stick that
           is already there rather than out of a second row of furniture. */}
+      {assetError && (
+        <div className="editor-asset-error" role="status">
+          <span>{assetError}</span>
+          <button type="button" onClick={() => setAssetError(null)} aria-label="Dismiss">
+            ×
+          </button>
+        </div>
+      )}
       <EditorRuler
         view={railView}
         column={wrapColumn}

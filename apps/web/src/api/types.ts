@@ -628,3 +628,13 @@ export interface GitStatus {
   unstaged?: number;
   untracked?: number;
 }
+
+/** Where an image dropped into a note was written (POST /api/asset). */
+export interface SavedAsset {
+  /** Root-relative — what the tree calls it, and what `GET /api/asset` takes. */
+  path: string;
+  /** Relative to the document that references it: what goes inside the
+   * markdown parentheses, so the note survives the folder being moved. */
+  relative: string;
+  bytes: number;
+}

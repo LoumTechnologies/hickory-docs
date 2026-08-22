@@ -31,6 +31,8 @@ similar = "2"
 # same major here so both halves of the workspace agree on event shapes.
 notify = "7"
 # Content identity for ingest: the same transcript dropped twice is one note.
+# Images dropped into a note arrive base64 in a JSON body (serve/asset.rs).
+base64 = "0.22"
 sha2 = "0.10"
 hex = "0.4"
 hick-exec.workspace = true

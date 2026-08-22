@@ -13,6 +13,7 @@ pub mod config;
 pub mod csv_table;
 pub mod equiv;
 pub mod expect;
+mod links;
 pub mod needs;
 pub mod output_cleanup;
 pub mod pipeline;

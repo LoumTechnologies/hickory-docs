@@ -54,6 +54,11 @@ impl ApiError {
     pub fn internal(msg: impl Into<String>) -> Self {
         Self(StatusCode::INTERNAL_SERVER_ERROR, msg.into(), None)
     }
+    /// The human-readable half, for a test that wants to assert an error
+    /// SAYS the thing rather than merely has a status.
+    pub fn message(&self) -> &str {
+        &self.1
+    }
     pub fn with_detail(mut self, detail: Value) -> Self {
         self.2 = Some(detail);
         self

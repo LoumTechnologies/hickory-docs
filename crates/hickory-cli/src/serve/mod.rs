@@ -29,6 +29,7 @@
 
 pub mod agent;
 pub mod api;
+pub mod asset;
 pub mod debug_bridge;
 pub mod find;
 pub mod formula;
@@ -412,6 +413,7 @@ fn router(state: LocalState) -> Router {
         .route("/open-external", post(reveal::open_external))
         .route("/file", get(plain_file::get_file).put(plain_file::put_file))
         .route("/scratchpad", post(plain_file::post_scratchpad))
+        .route("/asset", get(asset::get_asset).post(asset::post_asset))
         .route("/search", get(api::search))
         // What this project calls things — a different question from the
         // language server's, and shown beside it rather than instead of it.

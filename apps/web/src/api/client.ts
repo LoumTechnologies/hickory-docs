@@ -14,6 +14,7 @@ import type {
   Project,
   RefactorStatus,
   RenderResponse,
+  SavedAsset,
   Run,
   ScratchpadSaved,
   SearchResponse,
@@ -148,6 +149,17 @@ export const api = {
     request<AdoptResponse>("POST", "/api/adopt", {
       path,
       ...(into !== undefined ? { into } : {}),
+    }),
+
+  /** Write an image dropped or pasted into a note to disk, into an `assets/`
+   * directory beside the document, and answer where it landed. `relative` is
+   * what goes in the markdown; `path` is root-relative, for the tree and for
+   * `assetUrl`. See crates/hickory-cli/src/serve/asset.rs. */
+  saveAsset: (name: string, contentBase64: string, docPath: string | null) =>
+    request<SavedAsset>("POST", "/api/asset", {
+      name,
+      content_base64: contentBase64,
+      ...(docPath ? { doc_path: docPath } : {}),
     }),
 
   /** Save text typed in the app as a note in the open folder.

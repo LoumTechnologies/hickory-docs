@@ -487,10 +487,20 @@ pub(crate) fn process_weave_output(
         // entirely "synthetic" — no ribbons, and an edit the server could only
         // refuse. Segmenting keeps each untouched piece attached to the prose
         // it came from, and marks only what a substitution actually replaced.
+        //
+        // Two passes, in this order and composed into one segmenter: first
+        // the substitutions, then the document-link rewrite. Order matters —
+        // link rewriting runs only over passthrough text, so a link that came
+        // out of a substituted value is left alone (those bytes are already
+        // the weaver's and have no source span to keep intact).
         let subs_state = state.clone();
         let transform: Arc<dyn Node> = Arc::new(ProvenanceTransformNode::new(
             raw_ip,
-            move |text| crate::apply_substitutions_segmented_to_transform(text, &subs_state),
+            move |text| {
+                crate::links::rewrite_document_links(
+                    crate::apply_substitutions_segmented_to_transform(text, &subs_state),
+                )
+            },
             "substitute",
         ));
 
