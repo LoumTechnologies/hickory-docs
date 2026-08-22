@@ -627,7 +627,7 @@ struct RefreshArgs {
     /// Model id override (interpreted by the selected provider).
     #[arg(long = "model")]
     model: Option<String>,
-    /// LLM provider: anthropic, openai, deepseek, or grok. Defaults to
+    /// LLM provider: anthropic, openai, deepseek, grok, openrouter, or gab. Defaults to
     /// HICKORY_LLM_PROVIDER, else to whichever provider's API key is set
     /// (anthropic when several are).
     #[arg(long = "provider")]
@@ -647,7 +647,7 @@ struct AgentArgs {
     /// Model id override (default: the provider's default model).
     #[arg(long = "model")]
     model: Option<String>,
-    /// LLM provider: anthropic, openai, deepseek, or grok. Defaults to
+    /// LLM provider: anthropic, openai, deepseek, grok, openrouter, or gab. Defaults to
     /// HICKORY_LLM_PROVIDER, else to whichever provider's API key is set
     /// (anthropic when several are).
     #[arg(long = "provider")]
@@ -1379,6 +1379,12 @@ async fn cmd_agent(args: AgentArgs) -> Result<ExitCode> {
             AgentEvent::Token { data } => {
                 let _ = write!(stdout, "{data}");
                 let _ = stdout.flush();
+            }
+            // Reasoning goes to stderr, dimmed by position rather than
+            // colour: it is the model thinking, not the answer, and a pipe
+            // reading stdout must not receive it as one.
+            AgentEvent::Reasoning { data } => {
+                eprint!("{data}");
             }
             AgentEvent::ResponseComplete { .. } => {
                 let _ = writeln!(stdout);

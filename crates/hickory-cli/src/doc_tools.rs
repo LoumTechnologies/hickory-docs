@@ -88,6 +88,7 @@ pub fn record_tool_call(
     log.record(SessionEvent::ToolCall {
         prose: "",
         xml: &invocation.raw_xml,
+        reasoning: None,
     });
     record_outcome(&log, outcome);
     // Close the root after every command, so the file is a parseable session

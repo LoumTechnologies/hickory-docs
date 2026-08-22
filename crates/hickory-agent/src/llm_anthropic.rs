@@ -661,6 +661,7 @@ fn parse_next_event(buffer: &mut String, output_tokens_seen: &mut u64) -> Option
                     usage.output_tokens = inc;
                     return Some(ChatChunk {
                         delta: String::new(),
+                        reasoning: String::new(),
                         finish_reason: None,
                         usage: Some(usage),
                     });
@@ -668,13 +669,23 @@ fn parse_next_event(buffer: &mut String, output_tokens_seen: &mut u64) -> Option
             }
             "content_block_delta" => {
                 if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(&data) {
-                    let text = parsed
-                        .get("delta")
+                    let delta = parsed.get("delta");
+                    let text = delta
                         .and_then(|d| d.get("text"))
                         .and_then(|t| t.as_str())
                         .unwrap_or_default();
                     if !text.is_empty() {
                         return Some(ChatChunk::text(text));
+                    }
+                    // Extended/adaptive thinking streams as `thinking_delta`
+                    // blocks: the model's reasoning, kept apart from its
+                    // answer and shown folded.
+                    let thinking = delta
+                        .and_then(|d| d.get("thinking"))
+                        .and_then(|t| t.as_str())
+                        .unwrap_or_default();
+                    if !thinking.is_empty() {
+                        return Some(ChatChunk::reasoning(thinking));
                     }
                 }
             }
@@ -698,6 +709,7 @@ fn parse_next_event(buffer: &mut String, output_tokens_seen: &mut u64) -> Option
                     if stop_reason.is_some() || usage.is_some() {
                         return Some(ChatChunk {
                             delta: String::new(),
+                            reasoning: String::new(),
                             finish_reason: stop_reason,
                             usage,
                         });
@@ -707,6 +719,7 @@ fn parse_next_event(buffer: &mut String, output_tokens_seen: &mut u64) -> Option
             "message_stop" => {
                 return Some(ChatChunk {
                     delta: String::new(),
+                    reasoning: String::new(),
                     finish_reason: Some("end_turn".into()),
                     usage: None,
                 });

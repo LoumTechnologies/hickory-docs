@@ -76,6 +76,7 @@ impl LlmClient for ScriptedLlmClient {
         let stream = futures::stream::once(async move {
             Ok(ChatChunk {
                 delta: text,
+                reasoning: String::new(),
                 finish_reason: Some("stop".into()),
                 usage: Some(usage),
             })

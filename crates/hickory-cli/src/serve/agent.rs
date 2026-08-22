@@ -58,6 +58,10 @@ pub struct TurnRecord {
     /// The turn's final four-way token usage. `None` while running or when
     /// the run failed before reporting usage.
     pub usage: Option<Usage>,
+    /// The session file this turn is recorded in, relative to the served
+    /// folder. One file per conversation: a child turn appends to its
+    /// parent's file, so the tree is on disk and survives a restart.
+    pub session: String,
 }
 
 /// The per-document model choice the dock last posted. `None` fields mean
@@ -87,6 +91,46 @@ impl AgentHub {
     /// Replace provider resolution with a fixed client (tests, offline dev).
     pub fn set_llm_override(&self, llm: Arc<dyn LlmClient>) {
         *self.llm_override.lock().unwrap() = Some(llm);
+    }
+
+    /// Rebuild a document's turns from its session files when the hub holds
+    /// none for it — the app was restarted, or this is the first look. The
+    /// files are the durable record; memory is a cache of them.
+    fn hydrate(&self, root: &std::path::Path, doc_id: &str, doc_path: &std::path::Path) {
+        let mut map = self.turns.lock().unwrap();
+        if map.contains_key(doc_id) {
+            return;
+        }
+        let mut turns: Vec<TurnRecord> = Vec::new();
+        for (path, view) in
+            hickory_agent::session_view::conversations_for(&root.join("sessions"), doc_path)
+        {
+            let rel = path
+                .strip_prefix(root)
+                .map(|p| p.display().to_string())
+                .unwrap_or_else(|_| path.display().to_string());
+            for t in view.turns {
+                turns.push(TurnRecord {
+                    id: t.id,
+                    parent_id: t.parent,
+                    prompt: t.prompt,
+                    answer: t.answer,
+                    status: "ok".into(),
+                    error: None,
+                    created_at: view.start.clone().unwrap_or_default(),
+                    provider: t.provider.unwrap_or_default(),
+                    model: t.model.unwrap_or_default(),
+                    usage: t.usage.map(|u| Usage {
+                        input_tokens: u.input,
+                        cache_creation_input_tokens: u.cache_write,
+                        cache_read_input_tokens: u.cache_read,
+                        output_tokens: u.output,
+                    }),
+                    session: rel.clone(),
+                });
+            }
+        }
+        map.insert(doc_id.to_string(), turns);
     }
 
     fn snapshot(&self, doc_id: &str) -> Vec<TurnRecord> {
@@ -311,7 +355,9 @@ pub async fn start_turn(
         .unwrap_or_else(|| llm.model_name().to_string());
 
     let turn_id = format!("{:016x}", rand_id());
-    let prior_turns = {
+    state.agent.hydrate(state.index.root(), &id, &doc_path);
+    let parent_for_run = body.parent_id.clone();
+    let (prior_turns, session_rel) = {
         let mut map = state.agent.turns.lock().unwrap();
         let turns = map.entry(id.clone()).or_default();
         if turns.iter().any(|t| t.status == "running") {
@@ -331,6 +377,20 @@ pub async fn start_turn(
             )));
         }
         let prior = prior_turns_of(turns, body.parent_id.as_deref());
+        // The conversation's file: the parent's when continuing, a fresh one
+        // at the root of a new thread.
+        let session_rel = body
+            .parent_id
+            .as_deref()
+            .and_then(|p| turns.iter().find(|t| t.id == p))
+            .map(|t| t.session.clone())
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| {
+                let abs = hickory_agent::session_file_path(state.index.root(), &prompt);
+                abs.strip_prefix(state.index.root())
+                    .map(|p| p.display().to_string())
+                    .unwrap_or_else(|_| abs.display().to_string())
+            });
         turns.push(TurnRecord {
             id: turn_id.clone(),
             parent_id: body.parent_id.clone(),
@@ -342,8 +402,9 @@ pub async fn start_turn(
             provider: provider_name,
             model: model_name,
             usage: None,
+            session: session_rel.clone(),
         });
-        prior
+        (prior, session_rel)
     };
 
     let task_state = state.clone();
@@ -353,11 +414,15 @@ pub async fn start_turn(
         let outcome = run_turn(
             &task_state,
             &doc_id,
-            &run_key,
             llm,
             doc_path,
             prompt,
             prior_turns,
+            TurnIdentity {
+                session: task_state.index.root().join(&session_rel),
+                turn: run_key.clone(),
+                parent: parent_for_run.clone(),
+            },
         )
         .await;
         let status = if outcome.is_ok() { "ok" } else { "failed" };
@@ -391,15 +456,23 @@ pub async fn start_turn(
 /// Run one agent turn to completion, streaming its events on the run
 /// channel. Returns the final answer plus the turn's total token usage, or
 /// the error message to record.
+/// Where a turn is recorded and how it is named in the file.
+struct TurnIdentity {
+    session: std::path::PathBuf,
+    turn: String,
+    parent: Option<String>,
+}
+
 async fn run_turn(
     state: &LocalState,
     doc_id: &str,
-    turn_id: &str,
     llm: Arc<dyn LlmClient>,
     doc_path: std::path::PathBuf,
     prompt: String,
     prior_turns: Vec<PriorTurn>,
+    identity: TurnIdentity,
 ) -> Result<(String, Usage), String> {
+    let turn_id: &str = &identity.turn.clone();
     // Flush the live room to disk first: the agent's edit session reads the
     // file, and running against text missing the newest keystrokes would
     // edit a document the user is no longer looking at.
@@ -432,6 +505,11 @@ async fn run_turn(
     let mut config = AgentConfig::new(prompt, state.index.root());
     config.doc_path = Some(doc_path);
     config.prior_turns = prior_turns;
+    // One file per conversation, each turn naming its parent: the tree is
+    // on disk, and `hydrate` rebuilds the dock from it after a restart.
+    config.session_path = Some(identity.session);
+    config.turn_id = Some(identity.turn);
+    config.parent_turn_id = identity.parent;
 
     // `run_agent`'s callback is synchronous; publishing is async. A channel
     // decouples them: the loop pushes, a forwarder task publishes in order.
@@ -488,6 +566,9 @@ async fn run_turn(
 /// Empty turns for a document nothing has asked about yet, which the dock
 /// renders as an empty conversation rather than an error.
 pub async fn list_turns(State(state): State<LocalState>, Path(id): Path<String>) -> Json<Value> {
+    if let Some(doc_path) = state.index.absolute(&id) {
+        state.agent.hydrate(state.index.root(), &id, &doc_path);
+    }
     let turns = state.agent.snapshot(&id);
     let selection = state.agent.selection_of(&id);
     let provider = selection.provider.clone().unwrap_or_else(|| {
@@ -543,6 +624,7 @@ mod tests {
             provider: "anthropic".into(),
             model: "claude-sonnet-5".into(),
             usage: None,
+            session: String::new(),
         }
     }
 

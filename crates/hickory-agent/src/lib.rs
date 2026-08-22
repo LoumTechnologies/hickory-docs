@@ -31,6 +31,7 @@ mod react_loop;
 mod script;
 mod scripted;
 mod session;
+pub mod session_view;
 mod tools;
 mod usage;
 

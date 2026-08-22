@@ -393,6 +393,7 @@ fn router(state: LocalState) -> Router {
         .route("/docs/{id}/outputs/edit", post(api::edit_outputs))
         .route("/docs/{id}/context", get(api::get_context))
         .route("/docs/{id}/cites", get(api::get_cites))
+        .route("/sessions/view", get(api::session_view))
         .route("/docs/{id}/refactor/begin", post(refactor::begin))
         .route("/docs/{id}/refactor/status", get(refactor::status))
         .route("/docs/{id}/refactor/end", post(refactor::end))

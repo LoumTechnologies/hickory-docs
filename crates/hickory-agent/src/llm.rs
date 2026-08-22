@@ -38,10 +38,15 @@ pub enum Role {
 
 /// A chunk of streamed LLM output containing a text delta and optional
 /// finish reason.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct ChatChunk {
     /// The text fragment in this chunk.
     pub delta: String,
+    /// A fragment of the model's REASONING, when the provider streams it
+    /// (Anthropic `thinking_delta`; OpenAI-compatible `reasoning` /
+    /// `reasoning_content` deltas). Shown folded, recorded in the session as
+    /// `<hick:reasoning>`, never part of the answer.
+    pub reasoning: String,
     /// Set when the stream is complete (e.g. "stop", "end_turn").
     pub finish_reason: Option<String>,
     /// Partial usage carried by this chunk (Anthropic reports input +
@@ -56,8 +61,15 @@ impl ChatChunk {
     pub fn text(delta: impl Into<String>) -> Self {
         Self {
             delta: delta.into(),
-            finish_reason: None,
-            usage: None,
+            ..Self::default()
+        }
+    }
+
+    /// A reasoning delta with no answer text.
+    pub fn reasoning(delta: impl Into<String>) -> Self {
+        Self {
+            reasoning: delta.into(),
+            ..Self::default()
         }
     }
 }
@@ -89,6 +101,7 @@ pub trait LlmClient: Send + Sync {
         let stream = futures::stream::once(async move {
             Ok(ChatChunk {
                 delta: response,
+                reasoning: String::new(),
                 finish_reason: Some("stop".into()),
                 usage: None,
             })

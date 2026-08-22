@@ -1671,7 +1671,7 @@ fn is_raw_content_tag(name: &str) -> bool {
     // said "the hick:copy tag" is not a parse error. See
     // `docs/specs/freeform/ingest.md` — the raw block is the source of truth,
     // and speaker turns are derived from it rather than stored beside it.
-    matches!(name, "input" | "tool-result" | "transcript")
+    matches!(name, "input" | "tool-result" | "transcript" | "reasoning")
 }
 
 /// Convert raw [`HickNode`]s (from a `hick:session` root) into typed

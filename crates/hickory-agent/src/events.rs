@@ -26,6 +26,9 @@ pub enum AgentEvent {
     Thinking,
     /// A streamed token from the LLM response.
     Token { data: String },
+    /// A streamed fragment of the model's reasoning, when the provider
+    /// exposes it. Shown folded; never part of the answer.
+    Reasoning { data: String },
     /// LLM response complete (full accepted response text).
     ResponseComplete { text: String },
     /// About to execute a script (`cmd`-like: `data` is the code).

@@ -7049,3 +7049,32 @@ button.status-bar__item:hover { background: var(--bg-sunken); color: var(--fg); 
 }
 .provenance-toggle--context .provenance-toggle__swatch { border-top-color: var(--ribbon-context); border-top-style: dotted; }
 .provenance-toggle--declared .provenance-toggle__swatch { border-top-color: var(--ribbon-declared); border-top-style: dashed; }
+
+/* ---- the conversation, drawn: dock and session file alike --------------- */
+.chat-reasoning { margin: 0.15rem 0 0.35rem; font-size: 0.9em; }
+.chat-reasoning > summary { cursor: pointer; color: var(--muted); font-style: italic; }
+.chat-reasoning__text { white-space: pre-wrap; opacity: 0.75; margin: 0.25rem 0 0; max-height: 18em; overflow: auto; }
+.chat-work-toggle { font-size: 0.85em; }
+.chat-work { display: flex; flex-direction: column; gap: 0.25rem; margin: 0.25rem 0 0.5rem; padding-left: 0.5rem; border-left: 2px solid var(--ribbon-context); }
+.chat-step { margin: 0; font-size: 0.9em; }
+.chat-step > summary { cursor: pointer; }
+.chat-step pre { white-space: pre-wrap; margin: 0.2rem 0 0; max-height: 16em; overflow: auto; }
+.chat-step--failed > summary { color: var(--danger); }
+.chat-step--read, .chat-step--wrote { font-size: 0.85em; }
+.chat-step__arg { opacity: 0.8; }
+.chat-answer { margin: 0; white-space: pre-wrap; }
+.chat-open-session { font-size: 0.85em; }
+.session-doc { padding: 0.75rem 1rem; overflow: auto; height: 100%; }
+.session-doc__head { margin: 0 0 0.5rem; }
+.session-mode { display: inline-flex; gap: 2px; margin-left: 0.5rem; }
+.chat-log--session { max-height: none; }
+
+.chat-tree { list-style: none; margin: 0; padding: 0.25rem 0; }
+.chat-tree__row { display: flex; align-items: center; gap: 0.5rem; min-height: 30px; }
+.chat-tree__row--on .chat-tree__prompt { font-weight: 600; }
+.chat-tree__row--tip .chat-tree__turn { outline: 1px solid var(--ribbon-0); border-radius: 4px; }
+.chat-tree__graph { flex: 0 0 var(--chat-graph, 28px); }
+.chat-tree__turn { flex: 1; display: flex; justify-content: space-between; gap: 0.75rem; background: none; border: 0; color: inherit; text-align: left; padding: 0.2rem 0.4rem; cursor: pointer; font: inherit; }
+.chat-tree__turn:hover { background: var(--hover, rgba(127,127,127,0.12)); border-radius: 4px; }
+.chat-tree__node--tip { stroke: var(--fg); stroke-width: 1.5; }
+.chat-tree-toggle--on { text-decoration: underline; }

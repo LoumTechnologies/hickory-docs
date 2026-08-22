@@ -7,7 +7,7 @@
 //! it lives here and each call site passes through what the user asked for.
 //!
 //! The selector is `anthropic` (the default), `openai`, `deepseek`,
-//! `grok`/`xai`, or `openrouter`. Anthropic keeps its own client because it
+//! `grok`/`xai`, `openrouter`, or `gab`. Anthropic keeps its own client because it
 //! is the only one with explicit prompt-cache breakpoints, `count_tokens`,
 //! and the Batch API; the others share [`OpenAiCompatClient`].
 //!
@@ -68,12 +68,19 @@ impl ProviderSelection {
             Self::Compatible(Provider::DeepSeek) => "DeepSeek",
             Self::Compatible(Provider::XAi) => "xAI (Grok)",
             Self::Compatible(Provider::OpenRouter) => "OpenRouter",
+            Self::Compatible(Provider::Gab) => "Gab AI",
         }
     }
 
     /// Every selector a user may pass, for error messages.
-    pub const ALL: &'static [&'static str] =
-        &["anthropic", "openai", "deepseek", "grok", "openrouter"];
+    pub const ALL: &'static [&'static str] = &[
+        "anthropic",
+        "openai",
+        "deepseek",
+        "grok",
+        "openrouter",
+        "gab",
+    ];
 
     /// Every provider, in the order `ALL` names them. This is the list the
     /// key store and the Settings page enumerate — one canonical order so a
@@ -105,7 +112,16 @@ impl ProviderSelection {
 ///      choose and write a session that names a model they did not pick.
 ///    - none → an error naming every variable that would have worked.
 pub fn resolve_selector(explicit: Option<&str>) -> anyhow::Result<String> {
-    resolve_selector_with(explicit, |var| std::env::var(var).ok())
+    resolve_selector_with(explicit, env_key)
+}
+
+/// A key from the environment, honouring the aliases vendors document:
+/// Gab names both `GAB_API_KEY` and `GAB_AI_API_KEY`.
+fn env_key(var: &str) -> Option<String> {
+    std::env::var(var).ok().or_else(|| match var {
+        "GAB_API_KEY" => std::env::var("GAB_AI_API_KEY").ok(),
+        _ => None,
+    })
 }
 
 /// [`resolve_selector`], with a [`KeyStore`] consulted before the
@@ -120,7 +136,7 @@ pub fn resolve_selector_with_store(
     store: &KeyStore,
 ) -> anyhow::Result<String> {
     resolve_selector_with(explicit, |var| {
-        store.key_for_env(var).or_else(|| std::env::var(var).ok())
+        store.key_for_env(var).or_else(|| env_key(var))
     })
 }
 
@@ -148,7 +164,7 @@ fn resolve_selector_with(
         [] => anyhow::bail!(
             "no LLM provider key found in the environment.\n  \
              Set one of: ANTHROPIC_API_KEY, OPENAI_API_KEY, DEEPSEEK_API_KEY, XAI_API_KEY, \
-             OPENROUTER_API_KEY —\n  \
+             OPENROUTER_API_KEY, GAB_API_KEY —\n  \
              or pass --provider / set HICKORY_LLM_PROVIDER to name the vendor explicitly."
         ),
         many if many.contains(&"anthropic") => Ok("anthropic".to_string()),

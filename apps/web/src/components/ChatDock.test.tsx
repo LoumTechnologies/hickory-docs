@@ -1,5 +1,11 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 
 vi.mock("../api/client", () => ({
   api: { agent: vi.fn(), agentTurns: vi.fn() },
@@ -40,7 +46,13 @@ function turn(id: string, parent: string | null): AgentTurn {
 //      a      b        <- a rewind at `root` forked `b`
 //      |      |
 //      a2     b2
-const TREE = [turn("root", null), turn("a", "root"), turn("a2", "a"), turn("b", "root"), turn("b2", "b")];
+const TREE = [
+  turn("root", null),
+  turn("a", "root"),
+  turn("a2", "a"),
+  turn("b", "root"),
+  turn("b2", "b"),
+];
 
 describe("live stream", () => {
   it("appends LLM tokens and legacy out/err transcript data", () => {
@@ -52,10 +64,20 @@ describe("live stream", () => {
   });
 
   it("marks script and tool starts so a long pause reads as work", () => {
-    expect(appendStream("x", { kind: "script_started", lang: "python", data: "print(1)" }))
-      .toContain("[running python script…]");
-    expect(appendStream("x", { kind: "tool_started", name: "edit_doc", data: "<xml/>" }))
-      .toContain("[edit_doc…]");
+    expect(
+      appendStream("x", {
+        kind: "script_started",
+        lang: "python",
+        data: "print(1)",
+      }),
+    ).toContain("[running python script…]");
+    expect(
+      appendStream("x", {
+        kind: "tool_started",
+        name: "edit_doc",
+        data: "<xml/>",
+      }),
+    ).toContain("[edit_doc…]");
   });
 
   it("ignores bookkeeping events instead of dumping them into the preview", () => {
@@ -130,9 +152,15 @@ describe("session stats formatting", () => {
       cache_write: 500,
     };
     expect(statsLine(totals)).toBe("$0.0342 · in 12.4k · out 3.1k · cache 78%");
-    expect(statsLine({ usd: null, input: 0, output: 0, cache_read: 0, cache_write: 0 })).toBe(
-      "$— · in 0 · out 0 · cache —",
-    );
+    expect(
+      statsLine({
+        usd: null,
+        input: 0,
+        output: 0,
+        cache_read: 0,
+        cache_write: 0,
+      }),
+    ).toBe("$— · in 0 · out 0 · cache —");
   });
 });
 
@@ -141,7 +169,9 @@ describe("the dock's model control and stats line", () => {
 
   const realtime = { onRunEvent: () => () => undefined } as unknown as Realtime;
 
-  function listing(overrides: Partial<AgentTurnsResponse> = {}): AgentTurnsResponse {
+  function listing(
+    overrides: Partial<AgentTurnsResponse> = {},
+  ): AgentTurnsResponse {
     return {
       turns: [],
       provider: "anthropic",
@@ -184,19 +214,33 @@ describe("the dock's model control and stats line", () => {
     fireEvent.click(screen.getByText("Send"));
 
     await waitFor(() =>
-      expect(api.agent).toHaveBeenCalledWith("d1", "do the thing", null, "openai", "gpt-5-mini"),
+      expect(api.agent).toHaveBeenCalledWith(
+        "d1",
+        "do the thing",
+        null,
+        "openai",
+        "gpt-5-mini",
+      ),
     );
   });
 
   it("shows the stats line with its full-breakdown tooltip once usage exists", async () => {
     vi.mocked(api.agentTurns).mockResolvedValue(
       listing({
-        totals: { usd: 0.0342, input: 12_400, output: 3_100, cache_read: 44_000, cache_write: 500 },
+        totals: {
+          usd: 0.0342,
+          input: 12_400,
+          output: 3_100,
+          cache_read: 44_000,
+          cache_write: 500,
+        },
       }),
     );
     dock();
 
-    const stats = await screen.findByText("$0.0342 · in 12.4k · out 3.1k · cache 78%");
+    const stats = await screen.findByText(
+      "$0.0342 · in 12.4k · out 3.1k · cache 78%",
+    );
     expect(stats.dataset.tip).toContain("cache read 44,000 tokens");
     expect(stats.dataset.tip).toContain("cache write 500 tokens");
   });
@@ -206,5 +250,48 @@ describe("the dock's model control and stats line", () => {
     const { container } = dock();
     await waitFor(() => expect(api.agentTurns).toHaveBeenCalled());
     expect(container.querySelector(".chat-stats")).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Moving around the tree from the keyboard, and zooming out of it
+// ---------------------------------------------------------------------------
+import { parseSlash, rewindFrom } from "./ChatDock";
+import { pathTo } from "./ChatTree";
+
+// Guarantee: docs/guarantees/agent/a-session-is-the-conversation.md
+describe("slash commands and the tree", () => {
+  it("parses /rewind, /rewind N, /tree, /new, /help and nothing else", () => {
+    expect(parseSlash("/rewind")).toEqual({ kind: "rewind", steps: 1 });
+    expect(parseSlash("/rewind 3")).toEqual({ kind: "rewind", steps: 3 });
+    expect(parseSlash("/TREE")).toEqual({ kind: "tree" });
+    expect(parseSlash("/new")).toEqual({ kind: "new" });
+    expect(parseSlash("/help")).toEqual({ kind: "help" });
+    expect(parseSlash("/usr/bin/env is a path")).toBeNull();
+    expect(parseSlash("rewind please")).toBeNull();
+  });
+
+  it("rewinds along parent pointers and stops at the root", () => {
+    const turns = [
+      turn("a", null),
+      turn("b", "a"),
+      turn("c", "b"),
+      turn("d", "b"),
+    ];
+    expect(rewindFrom(turns, "c", 1)).toBe("b");
+    expect(rewindFrom(turns, "c", 2)).toBe("a");
+    expect(rewindFrom(turns, "c", 9)).toBeNull();
+    expect(rewindFrom(turns, null, 1)).toBeNull();
+  });
+
+  it("the path to the tip is the branch the dock shows", () => {
+    const turns = [
+      turn("a", null),
+      turn("b", "a"),
+      turn("c", "b"),
+      turn("d", "b"),
+    ];
+    expect([...pathTo(turns, "d")].sort()).toEqual(["a", "b", "d"]);
+    expect(pathTo(turns, "c").has("d")).toBe(false);
   });
 });

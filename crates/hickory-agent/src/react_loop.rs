@@ -56,6 +56,16 @@ pub struct AgentConfig {
     /// sessions — and what makes rewinding cheap: a branch is just a different
     /// ancestor chain, replayed into a fresh loop.
     pub prior_turns: Vec<PriorTurn>,
+    /// The session file to APPEND this run to, when the run is one turn of a
+    /// longer conversation (the dock). `None` — the CLI's default — writes a
+    /// fresh `<project_dir>/sessions/<timestamp>-<slug>.hick`. One file per
+    /// conversation is what lets the file carry the turn tree, and lets a
+    /// restarted app find the conversation again.
+    pub session_path: Option<PathBuf>,
+    /// This turn's id and its parent's, recorded on the `<hick:user>`
+    /// element so the tree is in the file, not only in memory.
+    pub turn_id: Option<String>,
+    pub parent_turn_id: Option<String>,
 }
 
 /// One completed exchange being replayed as history.
@@ -78,6 +88,9 @@ impl AgentConfig {
             image: "host".into(),
             container: AGENT_CONTAINER.to_string(),
             prior_turns: Vec::new(),
+            session_path: None,
+            turn_id: None,
+            parent_turn_id: None,
         }
     }
 }
@@ -110,9 +123,34 @@ pub async fn run_agent(
     config: &AgentConfig,
     on_event: &mut (dyn FnMut(AgentEvent) + Send),
 ) -> Result<AgentOutcome> {
-    let session_path = session_file_path(&config.project_dir, &config.prompt);
-    let session = HickSessionLog::create(&session_path)
-        .with_context(|| format!("failed to create session file {}", session_path.display()))?;
+    let session_path = config
+        .session_path
+        .clone()
+        .unwrap_or_else(|| session_file_path(&config.project_dir, &config.prompt));
+    // The document named on the root, relative to the project when it is
+    // inside it: the name the app knows it by, and one that survives the
+    // folder moving.
+    let doc_for_root: Option<std::path::PathBuf> = config.doc_path.as_ref().map(|d| {
+        let project = config
+            .project_dir
+            .canonicalize()
+            .unwrap_or_else(|_| config.project_dir.clone());
+        d.canonicalize()
+            .ok()
+            .and_then(|abs| {
+                abs.strip_prefix(&project)
+                    .ok()
+                    .map(std::path::Path::to_path_buf)
+            })
+            .unwrap_or_else(|| d.clone())
+    });
+    let session = match &config.session_path {
+        // A conversation's file: this run is one more turn in it.
+        Some(path) => HickSessionLog::append_or_create_for(path, doc_for_root.as_deref())
+            .with_context(|| format!("failed to open session file {}", path.display()))?,
+        None => HickSessionLog::create_for(&session_path, doc_for_root.as_deref())
+            .with_context(|| format!("failed to create session file {}", session_path.display()))?,
+    };
 
     on_event(AgentEvent::SessionStarted {
         model: llm.model_name().to_string(),
@@ -180,9 +218,18 @@ pub async fn run_agent(
         history.push(Message::new(Role::Assistant, turn.answer.clone()));
     }
     history.push(Message::new(Role::User, config.prompt.clone()));
-    session.record(SessionEvent::User {
-        text: &config.prompt,
-    });
+    match &config.turn_id {
+        Some(turn) => session.record(SessionEvent::UserTurn {
+            text: &config.prompt,
+            turn,
+            parent: config.parent_turn_id.as_deref(),
+            provider: llm.provider_name(),
+            model: llm.model_name(),
+        }),
+        None => session.record(SessionEvent::User {
+            text: &config.prompt,
+        }),
+    }
     on_event(AgentEvent::UserMessage {
         text: config.prompt.clone(),
     });
@@ -193,7 +240,9 @@ pub async fn run_agent(
 
     for turn in 0..config.max_turns {
         on_event(AgentEvent::Thinking);
-        let (response, turn_usage) = stream_completion(llm, history.clone(), on_event).await?;
+        let (response, reasoning, turn_usage) =
+            stream_completion(llm, history.clone(), on_event).await?;
+        let reasoning = (!reasoning.trim().is_empty()).then_some(reasoning);
         total_usage.add(&turn_usage);
         let turn_cost = cost_usd(llm.model_name(), &turn_usage);
         let total_cost = cost_usd(llm.model_name(), &total_usage);
@@ -249,6 +298,7 @@ pub async fn run_agent(
                 session.record(SessionEvent::Assistant {
                     prose: thought.as_deref().unwrap_or(""),
                     action: Some((block.language.hick_lang(), &block.code)),
+                    reasoning: reasoning.as_deref(),
                 });
                 on_event(AgentEvent::ScriptStarted {
                     lang: block.language.to_string(),
@@ -295,6 +345,7 @@ pub async fn run_agent(
                 session.record(SessionEvent::ToolCall {
                     prose: thought.as_deref().unwrap_or(""),
                     xml: &invocation.raw_xml,
+                    reasoning: reasoning.as_deref(),
                 });
                 on_event(AgentEvent::ToolStarted {
                     name: invocation.name.clone(),
@@ -331,6 +382,7 @@ pub async fn run_agent(
                 session.record(SessionEvent::Assistant {
                     prose: &summary,
                     action: None,
+                    reasoning: reasoning.as_deref(),
                 });
                 let total_cost_usd = cost_usd(llm.model_name(), &total_usage);
                 session.record(SessionEvent::Usage {
@@ -370,7 +422,9 @@ pub async fn run_agent(
             config.max_turns
         ),
     ));
-    let (response, wrap_usage) = stream_completion(llm, history.clone(), on_event).await?;
+    let (response, wrap_reasoning, wrap_usage) =
+        stream_completion(llm, history.clone(), on_event).await?;
+    let reasoning = (!wrap_reasoning.trim().is_empty()).then_some(wrap_reasoning);
     total_usage.add(&wrap_usage);
     let summary = match parse_response(&response) {
         // A handoff is what was asked for; anything else still carries the
@@ -385,6 +439,7 @@ pub async fn run_agent(
     session.record(SessionEvent::Assistant {
         prose: &summary,
         action: None,
+        reasoning: reasoning.as_deref(),
     });
     session.record(SessionEvent::Usage {
         turn: None,
@@ -410,14 +465,21 @@ async fn stream_completion(
     llm: &dyn LlmClient,
     messages: Vec<Message>,
     on_event: &mut (dyn FnMut(AgentEvent) + Send),
-) -> Result<(String, Usage)> {
+) -> Result<(String, String, Usage)> {
     let mut stream = llm.complete_stream(messages).await?;
     let mut response = String::new();
+    let mut reasoning = String::new();
     let mut usage = Usage::default();
     while let Some(chunk) = stream.next().await {
         let chunk = chunk?;
         if let Some(u) = &chunk.usage {
             usage.add(u);
+        }
+        if !chunk.reasoning.is_empty() {
+            on_event(AgentEvent::Reasoning {
+                data: chunk.reasoning.clone(),
+            });
+            reasoning.push_str(&chunk.reasoning);
         }
         if !chunk.delta.is_empty() {
             on_event(AgentEvent::Token {
@@ -426,5 +488,5 @@ async fn stream_completion(
             response.push_str(&chunk.delta);
         }
     }
-    Ok((response, usage))
+    Ok((response, reasoning, usage))
 }

@@ -38,6 +38,7 @@ import type {
   WorkspaceUiState,
   ContextResponse,
   CitesResponse,
+  SessionViewResponse,
 } from "./types";
 
 export const MOCK = import.meta.env.VITE_MOCK === "1";
@@ -207,6 +208,9 @@ export const api = {
    * front of the model when it happened. */
   context: (docId: string) =>
     request<ContextResponse>("GET", `/api/docs/${docId}/context`),
+  /** A session file as the conversation it records (turns, steps, tree). */
+  sessionView: (path: string) =>
+    request<SessionViewResponse>("GET", `/api/sessions/view?path=${encodeURIComponent(path)}`),
   /** Declared provenance: every `cites=` in the document, resolved. */
   cites: (docId: string) =>
     request<CitesResponse>("GET", `/api/docs/${docId}/cites`),

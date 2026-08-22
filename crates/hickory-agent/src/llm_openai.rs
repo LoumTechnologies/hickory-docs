@@ -54,6 +54,9 @@ pub enum Provider {
     XAi,
     /// OpenRouter, a gateway that routes to many vendors behind one key.
     OpenRouter,
+    /// Gab AI: an OpenAI-compatible gateway (`https://gab.ai/v1`) with its
+    /// own Arya model and many vendors' models behind one key.
+    Gab,
 }
 
 impl Provider {
@@ -68,6 +71,7 @@ impl Provider {
             "deepseek" => Some(Self::DeepSeek),
             "xai" | "grok" => Some(Self::XAi),
             "openrouter" => Some(Self::OpenRouter),
+            "gab" | "gab-ai" | "gabai" => Some(Self::Gab),
             _ => None,
         }
     }
@@ -79,6 +83,7 @@ impl Provider {
             Self::DeepSeek => "deepseek",
             Self::XAi => "xai",
             Self::OpenRouter => "openrouter",
+            Self::Gab => "gab",
         }
     }
 
@@ -89,6 +94,7 @@ impl Provider {
             Self::DeepSeek => "https://api.deepseek.com/chat/completions",
             Self::XAi => "https://api.x.ai/v1/chat/completions",
             Self::OpenRouter => "https://openrouter.ai/api/v1/chat/completions",
+            Self::Gab => "https://gab.ai/v1/chat/completions",
         }
     }
 
@@ -99,6 +105,9 @@ impl Provider {
             Self::DeepSeek => "DEEPSEEK_API_KEY",
             Self::XAi => "XAI_API_KEY",
             Self::OpenRouter => "OPENROUTER_API_KEY",
+            // Gab's own docs name both spellings; `GAB_API_KEY` is primary
+            // and `GAB_AI_API_KEY` is honoured by the key lookup as an alias.
+            Self::Gab => "GAB_API_KEY",
         }
     }
 
@@ -110,6 +119,7 @@ impl Provider {
             Self::DeepSeek => "DEEPSEEK_BASE_URL",
             Self::XAi => "XAI_BASE_URL",
             Self::OpenRouter => "OPENROUTER_BASE_URL",
+            Self::Gab => "GAB_BASE_URL",
         }
     }
 
@@ -120,6 +130,7 @@ impl Provider {
             Self::DeepSeek => "DEEPSEEK_MODEL",
             Self::XAi => "XAI_MODEL",
             Self::OpenRouter => "OPENROUTER_MODEL",
+            Self::Gab => "GAB_MODEL",
         }
     }
 
@@ -133,6 +144,9 @@ impl Provider {
             // The router's own auto-selector: works on every OpenRouter
             // account without naming a downstream vendor's model.
             Self::OpenRouter => "openrouter/auto",
+            // Gab's own model; `GET https://gab.ai/v1/models` (public) lists
+            // the rest, vendor models included.
+            Self::Gab => "arya",
         }
     }
 
@@ -144,7 +158,7 @@ impl Provider {
     fn max_tokens_field(self) -> &'static str {
         match self {
             Self::OpenAi => "max_completion_tokens",
-            Self::DeepSeek | Self::XAi | Self::OpenRouter => "max_tokens",
+            Self::DeepSeek | Self::XAi | Self::OpenRouter | Self::Gab => "max_tokens",
         }
     }
 }
@@ -328,6 +342,12 @@ struct Choice {
 struct ChoiceMessage {
     #[serde(default)]
     content: Option<String>,
+    /// The model's reasoning, when the vendor streams it: OpenRouter and
+    /// most gateways say `reasoning`, DeepSeek says `reasoning_content`.
+    #[serde(default)]
+    reasoning: Option<String>,
+    #[serde(default)]
+    reasoning_content: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -457,16 +477,26 @@ fn parse_next_event(buffer: &mut String, done: &mut bool) -> Option<ChatChunk> {
             .iter()
             .filter_map(|c| c.delta.as_ref().and_then(|d| d.content.clone()))
             .collect();
+        let reasoning: String = parsed
+            .choices
+            .iter()
+            .filter_map(|c| {
+                c.delta
+                    .as_ref()
+                    .and_then(|d| d.reasoning.clone().or_else(|| d.reasoning_content.clone()))
+            })
+            .collect();
         let finish_reason = parsed.choices.iter().find_map(|c| c.finish_reason.clone());
         let usage = parsed.usage.map(WireUsage::into_usage);
 
         // The usage-only frame that follows the last delta has no text and
         // no finish reason; it must still be emitted or its tokens are lost.
-        if text.is_empty() && finish_reason.is_none() && usage.is_none() {
+        if text.is_empty() && reasoning.is_empty() && finish_reason.is_none() && usage.is_none() {
             continue;
         }
         return Some(ChatChunk {
             delta: text,
+            reasoning,
             finish_reason,
             usage,
         });
@@ -586,7 +616,13 @@ mod tests {
              data: {\"choices\":[{\"delta\":{\"content\":\"<hick:next>done</hick:next>\"}}]}\n\n",
         );
         let mut done = false;
+        // Reasoning arrives as its own chunk, with no answer text in it…
         let first = parse_next_event(&mut buf, &mut done).unwrap();
-        assert_eq!(first.delta, "<hick:next>done</hick:next>");
+        assert_eq!(first.delta, "");
+        assert_eq!(first.reasoning, "thinking...");
+        // …and the answer is only ever the `content`.
+        let second = parse_next_event(&mut buf, &mut done).unwrap();
+        assert_eq!(second.delta, "<hick:next>done</hick:next>");
+        assert_eq!(second.reasoning, "");
     }
 }

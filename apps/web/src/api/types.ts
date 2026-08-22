@@ -82,6 +82,7 @@ export interface Run {
  * stays exhaustive against `TranscriptEvent` (no member here carries `t`). */
 export type AgentWsEvent =
   | { kind: "token"; data: string }
+  | { kind: "reasoning"; data: string }
   | { kind: "script_started"; lang: string; data: string }
   | {
       kind: "script_finished";
@@ -350,6 +351,8 @@ export interface AgentTurn {
   model: string;
   /** The turn's final token usage; null while running or after a failure. */
   usage: AgentUsage | null;
+  /** The session file this turn is recorded in, relative to the folder. */
+  session?: string;
 }
 
 /** Session-wide spend across a document's turns, each turn priced on the
@@ -434,7 +437,7 @@ export interface StructureResponse {
 // whether one is configured, and a masked hint for telling keys apart.
 
 export type ProviderId =
-  "anthropic" | "openai" | "openrouter" | "deepseek" | "xai";
+  "anthropic" | "openai" | "openrouter" | "deepseek" | "xai" | "gab";
 
 export interface ProviderKey {
   id: ProviderId;
@@ -711,4 +714,46 @@ export interface SavedAsset {
    * markdown parentheses, so the note survives the folder being moved. */
   relative: string;
   bytes: number;
+}
+
+// ---- a session file, read back as the conversation it records ------------
+
+export type SessionStep =
+  | { kind: "reasoning"; text: string; session_line: number }
+  | { kind: "prose"; text: string; session_line: number }
+  | { kind: "action"; lang: string; code: string; session_line: number }
+  | {
+      kind: "observation";
+      id: string | null;
+      source: string | null;
+      exit: string | null;
+      text: string;
+      session_line: number;
+    }
+  | { kind: "tool"; name: string; args: [string, string][]; input: string | null; session_line: number }
+  | { kind: "tool-result"; id: string | null; name: string; ok: boolean; text: string; session_line: number }
+  | { kind: "read"; file: string; commit: string | null; sha256: string; lines: string; session_line: number }
+  | { kind: "wrote"; file: string; lines: string; session_line: number };
+
+export interface SessionTurn {
+  id: string;
+  parent: string | null;
+  prompt: string;
+  provider: string | null;
+  model: string | null;
+  steps: SessionStep[];
+  answer: string | null;
+  usage: { input: number; cache_write: number; cache_read: number; output: number; cost_usd: number | null } | null;
+  session_line: number;
+}
+
+export interface SessionView {
+  start: string | null;
+  doc: string | null;
+  turns: SessionTurn[];
+}
+
+export interface SessionViewResponse {
+  path: string;
+  view: SessionView;
 }

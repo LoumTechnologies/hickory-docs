@@ -15,6 +15,7 @@ import { DocumentEditor } from "../editor/DocumentEditor";
 import type { TableLayout } from "../components/TablePanel";
 import { DebugStrip } from "../debug/DebugStrip";
 import { RefactorBadge } from "../components/RefactorBadge";
+import { SessionDocView } from "../components/SessionTurns";
 import { GeneratedFileView } from "../shell/views";
 import { untitledPath, wrapUntitled } from "../lib/newDoc";
 import { useDocSession, type SessionRegistry } from "./documentSession";
@@ -40,18 +41,27 @@ export function DocTabBody({
   onTableLayout?: (key: string, size: TableLayout) => void;
 }) {
   const session = useDocSession(registry, docId);
+  // A session file is a conversation first and a document second: it opens
+  // drawn like the chat it was (the same cards the dock draws), with its
+  // source one click away. (Declared before any early return — hooks.)
+  const [sessionMode, setSessionMode] = useState<"chat" | "source">("chat");
   if (!session) return <p className="muted">Loading document…</p>;
   if (session.fatalError) return <p className="error">{session.fatalError}</p>;
   const { doc, blocks, debug } = session;
   if (!doc || !blocks) return <p className="muted">Loading document…</p>;
   const running = session.runningCells.size > 0;
+  const isSession = /<[A-Za-z][\w-]*:session\b/.test(doc.source.slice(0, 2000));
 
   return (
     <div className="debug-block">
       {/* This document's own actions, at the top of its tab: run and verify
           act on THIS document, whichever tab has the focus. A slim strip,
           like the debug strip below it. */}
-      <div className="doc-tab-toolbar" role="toolbar" aria-label={`Actions for ${doc.path}`}>
+      <div
+        className="doc-tab-toolbar"
+        role="toolbar"
+        aria-label={`Actions for ${doc.path}`}
+      >
         <button
           className="btn"
           disabled={running}
@@ -72,6 +82,26 @@ export function DocTabBody({
             freely, and this badge reports the moment a woven byte would
             move. See serve/refactor.rs. */}
         <RefactorBadge docId={docId} />
+        {isSession && (
+          <span className="session-mode" role="group" aria-label="Session view">
+            <button
+              type="button"
+              className={`btn${sessionMode === "chat" ? " btn-primary" : ""}`}
+              onClick={() => setSessionMode("chat")}
+              data-tip="The conversation this file records, drawn like the chat"
+            >
+              Chat
+            </button>
+            <button
+              type="button"
+              className={`btn${sessionMode === "source" ? " btn-primary" : ""}`}
+              onClick={() => setSessionMode("source")}
+              data-tip="The hick:session source itself"
+            >
+              Source
+            </button>
+          </span>
+        )}
         {session.syncState !== "idle" && (
           <span
             className={`save-state save-state-${session.syncState}`}
@@ -99,38 +129,46 @@ export function DocTabBody({
           // *here* without a second control to pick a line.
           const editor = session.docEditor;
           if (!editor) return;
-          const line = editor.state.doc.lineAt(editor.state.selection.main.head).number - 1;
+          const line =
+            editor.state.doc.lineAt(editor.state.selection.main.head).number -
+            1;
           debug.jumpTo(line);
         }}
         onStart={() => debug.start(debug.program ?? undefined)}
         onStop={debug.stop}
         onAddWatch={() => {
-          void session.askText("Expression to watch:", "").then((expression) => {
-            if (expression) debug.addWatch(expression);
-          });
+          void session
+            .askText("Expression to watch:", "")
+            .then((expression) => {
+              if (expression) debug.addWatch(expression);
+            });
         }}
         onRemoveWatch={debug.removeWatch}
       />
-      <DocumentEditor
-        key={docId}
-        docId={docId}
-        initialSource={doc.source}
-        realtime={session.realtime}
-        onChange={session.setDirtySource}
-        selectSpan={session.selectSpan}
-        execBlocks={session.execBlocks}
-        runningCells={session.runningCells}
-        onRunCell={session.runCell}
-        lspExtensions={session.lspExtensions}
-        lspDiagnostics={session.lspDiagnostics}
-        onDebugFile={(path) => debug.start(path)}
-        onViewReady={session.onDocViewReady}
-        wrapColumn={wrapColumn}
-        onWrapColumn={onWrapColumn}
-        tableLayouts={tableLayouts}
-        onTableLayout={onTableLayout}
-        path={doc.path}
-      />
+      {isSession && sessionMode === "chat" ? (
+        <SessionDocView path={doc.path} />
+      ) : (
+        <DocumentEditor
+          key={docId}
+          docId={docId}
+          initialSource={doc.source}
+          realtime={session.realtime}
+          onChange={session.setDirtySource}
+          selectSpan={session.selectSpan}
+          execBlocks={session.execBlocks}
+          runningCells={session.runningCells}
+          onRunCell={session.runCell}
+          lspExtensions={session.lspExtensions}
+          lspDiagnostics={session.lspDiagnostics}
+          onDebugFile={(path) => debug.start(path)}
+          onViewReady={session.onDocViewReady}
+          wrapColumn={wrapColumn}
+          onWrapColumn={onWrapColumn}
+          tableLayouts={tableLayouts}
+          onTableLayout={onTableLayout}
+          path={doc.path}
+        />
+      )}
     </div>
   );
 }
@@ -158,7 +196,9 @@ export function GeneratedTabBody({
       liveFile={session.outputs.get(path) ?? null}
       makeOutputLsp={session.makeOutputLsp}
       onSourceEdits={session.flashSourceEdits}
-      onReady={(target) => session.registerOutputView(path, target ? target.view : null)}
+      onReady={(target) =>
+        session.registerOutputView(path, target ? target.view : null)
+      }
     />
   );
 }
@@ -213,7 +253,11 @@ export function UntitledTab({
       const docs = await api.projectDocs(project.id).catch(() => []);
       const path = untitledPath(docs.map((d) => d.path));
       const typed = viewRef.current?.state.doc.toString() ?? "";
-      const created = await api.createDoc(project.id, path, wrapUntitled(typed));
+      const created = await api.createDoc(
+        project.id,
+        path,
+        wrapUntitled(typed),
+      );
       // Keystrokes that landed while the create was in flight are replayed
       // with a save; the room the document tab opens seeds from the server's
       // copy, so it must hold everything typed before the handoff.
@@ -231,8 +275,8 @@ export function UntitledTab({
       {error && (
         <div className="banner banner-fail" role="status">
           Could not create the document — your text is still in this buffer.
-          Check that the app's folder is writable, then keep typing to retry.
-          ({error})
+          Check that the app's folder is writable, then keep typing to retry. (
+          {error})
         </div>
       )}
       <DocumentEditor

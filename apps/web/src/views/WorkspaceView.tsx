@@ -100,6 +100,7 @@ import {
   findFileTab,
   focusedDocId,
   initialWorkspace,
+  openChatTab,
   isWorkspaceEmpty,
   openDocTab,
   openFileTab,
@@ -350,6 +351,12 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
         label: "Scratchpad",
         hint: "Text on its way to becoming a note",
         run: () => navigate("/scratchpad"),
+      },
+      {
+        id: "agent",
+        label: "Agent — show the conversation",
+        hint: "The chat pane about the focused document; /tree zooms out, /rewind branches",
+        run: () => setLayout(openChatTab),
       },
       {
         id: "terminal",
@@ -748,8 +755,21 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   // relationship on screen on every render of this view.
   const docIdByPath = useCallback(
     (reported: string): { path: string; id?: string } => {
+      // Absolute (the engine's way of naming a file) or tree-relative (the
+      // app's, and a session path from the dock): both resolve.
+      const relative = (nodes: readonly FileNode[]): FileNode | null => {
+        for (const n of nodes) {
+          if (!n.dir && samePath(n.path, reported)) return n;
+          if (n.children) {
+            const hit = relative(n.children);
+            if (hit) return hit;
+          }
+        }
+        return null;
+      };
       for (const root of folderRoots) {
-        const node = nodeForAbsolutePath(root.tree, reported);
+        const node =
+          nodeForAbsolutePath(root.tree, reported) ?? relative(root.tree);
         if (node) return { path: node.path, id: node.doc_id };
       }
       return { path: reported };
@@ -1522,6 +1542,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       }
       return (
         <ChatDock
+          onOpenSession={openDocumentByPath}
           key={focused.docId}
           docId={focused.docId}
           realtime={focused.realtime}

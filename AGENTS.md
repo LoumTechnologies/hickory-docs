@@ -44,7 +44,12 @@ clunky. The three kinds of provenance that answer "why is this here?" —
 lineage (the weave), context (what the model was shown, from the session),
 declared (`cites=`) — and why they must never look alike, are
 `docs/specs/freeform/three-provenances.md`. Sessions are the user's own
-record and are not checked in; `hick init` ignores `sessions/`. How outside material enters a notes folder is `docs/specs/freeform/ingest.md`;
+record and are not checked in; `hick init` ignores `sessions/`. A session
+file is the conversation: one file per dock conversation, each turn naming
+its parent, drawn in the app by the same cards as the chat
+(`docs/guarantees/agent/a-session-is-the-conversation.md`); the model's
+reasoning, when a provider streams it, is kept apart and folded
+(`docs/guarantees/agent/reasoning-is-shown-apart-from-the-answer.md`). How outside material enters a notes folder is `docs/specs/freeform/ingest.md`;
 how the result is marked is `docs/specs/freeform/provenance-and-standing.md`.
 The rule that governs both: **provenance is derived and checkable, standing is
 declared and unverifiable, and the two must never render alike.** Say

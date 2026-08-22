@@ -315,7 +315,14 @@ mod tests {
             .unwrap_err()
             .to_string();
         assert!(err.contains("gemini"), "{err}");
-        for name in ["anthropic", "openai", "deepseek", "grok", "openrouter"] {
+        for name in [
+            "anthropic",
+            "openai",
+            "deepseek",
+            "grok",
+            "openrouter",
+            "gab",
+        ] {
             assert!(err.contains(name), "the error must name {name}: {err}");
         }
         assert!(!err.contains("sk-x"), "never echo key material: {err}");

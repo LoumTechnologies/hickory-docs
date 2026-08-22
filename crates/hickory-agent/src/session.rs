@@ -25,6 +25,16 @@ use chrono::Utc;
 pub enum SessionEvent<'a> {
     /// A user message (`<hick:user>`).
     User { text: &'a str },
+    /// A user message that is one TURN of a conversation: carries the turn
+    /// id, its parent's id (the branch point), and what it ran on — so the
+    /// session file holds the tree and a restarted app can rebuild it.
+    UserTurn {
+        text: &'a str,
+        turn: &'a str,
+        parent: Option<&'a str>,
+        provider: &'a str,
+        model: &'a str,
+    },
     /// A full LLM response (`<hick:assistant>`), with an optional embedded
     /// script block (`<hick:action lang="...">`).
     Assistant {
@@ -32,6 +42,10 @@ pub enum SessionEvent<'a> {
         prose: &'a str,
         /// `(lang, code)` of the embedded action, if the response ran code.
         action: Option<(&'a str, &'a str)>,
+        /// The model's reasoning for this response, when the provider
+        /// exposed it (`<hick:reasoning>`, first child of the assistant
+        /// element). Raw content, shown folded.
+        reasoning: Option<&'a str>,
     },
     /// A tool-invoking LLM response: an `<hick:assistant>` element carrying
     /// the raw `<hick:tool>` invocation XML verbatim.
@@ -40,6 +54,8 @@ pub enum SessionEvent<'a> {
         prose: &'a str,
         /// The verbatim `<hick:tool>...</hick:tool>` XML.
         xml: &'a str,
+        /// The model's reasoning, as on [`SessionEvent::Assistant`].
+        reasoning: Option<&'a str>,
     },
     /// The result of a tool invocation (`<hick:tool-result>`). Inert during
     /// replay, like observations.
@@ -152,6 +168,13 @@ impl HickSessionLog {
     /// Create the session file at `path` (parent directories are created)
     /// and write the document header.
     pub fn create(path: impl Into<PathBuf>) -> anyhow::Result<Self> {
+        Self::create_for(path, None)
+    }
+
+    /// [`create`](Self::create), naming the document the session is about on
+    /// the root element (`doc="…"`), which is how the conversation is found
+    /// again for that document.
+    pub fn create_for(path: impl Into<PathBuf>, doc: Option<&Path>) -> anyhow::Result<Self> {
         let path = path.into();
         if let Some(parent) = path.parent()
             && !parent.as_os_str().is_empty()
@@ -162,9 +185,12 @@ impl HickSessionLog {
         let mut writer = BufWriter::new(file);
         let start = Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
         writeln!(writer, r#"<?xml version="1.0" encoding="UTF-8"?>"#)?;
+        let doc_attr = doc
+            .map(|d| format!(r#" doc="{}""#, d.display()))
+            .unwrap_or_default();
         writeln!(
             writer,
-            r#"<hick:session xmlns:hick="http://www.hickorydocs.com/1.0" start="{start}">"#
+            r#"<hick:session xmlns:hick="http://www.hickorydocs.com/1.0" start="{start}"{doc_attr}>"#
         )?;
         writer.flush()?;
         Ok(Self {
@@ -195,11 +221,20 @@ impl HickSessionLog {
     /// that line, so the file on disk is a valid, parseable document after
     /// every command rather than only after the last one.
     pub fn append_or_create(path: impl Into<PathBuf>) -> anyhow::Result<Self> {
+        Self::append_or_create_for(path, None)
+    }
+
+    /// [`append_or_create`](Self::append_or_create), naming the document on
+    /// a freshly created root.
+    pub fn append_or_create_for(
+        path: impl Into<PathBuf>,
+        doc: Option<&Path>,
+    ) -> anyhow::Result<Self> {
         use std::io::Write as _;
 
         let path = path.into();
         if !path.exists() {
-            return Self::create(path);
+            return Self::create_for(path, doc);
         }
         let existing = std::fs::read_to_string(&path)
             .with_context(|| format!("reading the session file {}", path.display()))?;
@@ -237,6 +272,23 @@ impl HickSessionLog {
     }
 }
 
+/// `<hick:reasoning>` as the first child of an assistant element, when the
+/// model exposed any. Raw content: a thought that mentions a tag is a thought,
+/// not structure.
+fn write_reasoning(
+    writer: &mut impl std::io::Write,
+    reasoning: Option<&str>,
+) -> std::io::Result<()> {
+    if let Some(r) = reasoning
+        && !r.trim().is_empty()
+    {
+        writeln!(writer, "<hick:reasoning>")?;
+        writeln!(writer, "{}", r.trim_end())?;
+        writeln!(writer, "</hick:reasoning>")?;
+    }
+    Ok(())
+}
+
 /// Strip the agent's `<hick:next>...</hick:next>` protocol tags from prose so
 /// they don't appear as structured tags in the session document.
 fn strip_protocol_tags(text: &str) -> String {
@@ -259,27 +311,56 @@ impl SessionLog for HickSessionLog {
                     let id = self.next_input_id();
                     writeln!(writer, "<hick:user id=\"{id}\">{}</hick:user>", text.trim())?;
                 }
-                SessionEvent::Assistant { prose, action } => {
+                SessionEvent::UserTurn {
+                    text,
+                    turn,
+                    parent,
+                    provider,
+                    model,
+                } => {
+                    let id = self.next_input_id();
+                    let parent = parent
+                        .map(|p| format!(r#" parent="{p}""#))
+                        .unwrap_or_default();
+                    writeln!(
+                        writer,
+                        r#"<hick:user id="{id}" turn="{turn}"{parent} provider="{provider}" model="{model}">{}</hick:user>"#,
+                        text.trim()
+                    )?;
+                }
+                SessionEvent::Assistant {
+                    prose,
+                    action,
+                    reasoning,
+                } => {
                     let prose = strip_protocol_tags(prose);
-                    match action {
-                        Some((lang, code)) => {
+                    match (action, reasoning) {
+                        (None, None) => {
+                            writeln!(writer, "<hick:assistant>{prose}</hick:assistant>")?;
+                        }
+                        (action, reasoning) => {
                             writeln!(writer, "<hick:assistant>")?;
+                            write_reasoning(&mut *writer, reasoning)?;
                             if !prose.is_empty() {
                                 writeln!(writer, "{prose}")?;
                             }
-                            writeln!(writer, r#"<hick:action lang="{lang}">"#)?;
-                            writeln!(writer, "{}", code.trim_end())?;
-                            writeln!(writer, "</hick:action>")?;
+                            if let Some((lang, code)) = action {
+                                writeln!(writer, r#"<hick:action lang="{lang}">"#)?;
+                                writeln!(writer, "{}", code.trim_end())?;
+                                writeln!(writer, "</hick:action>")?;
+                            }
                             writeln!(writer, "</hick:assistant>")?;
-                        }
-                        None => {
-                            writeln!(writer, "<hick:assistant>{prose}</hick:assistant>")?;
                         }
                     }
                 }
-                SessionEvent::ToolCall { prose, xml } => {
+                SessionEvent::ToolCall {
+                    prose,
+                    xml,
+                    reasoning,
+                } => {
                     let prose = strip_protocol_tags(prose);
                     writeln!(writer, "<hick:assistant>")?;
+                    write_reasoning(&mut *writer, reasoning)?;
                     if !prose.is_empty() {
                         writeln!(writer, "{prose}")?;
                     }
@@ -416,6 +497,7 @@ mod tests {
         log.record(SessionEvent::Assistant {
             prose: "<hick:next>code</hick:next>\nI'll create it now.",
             action: Some(("python", "print('creating greeting')")),
+            reasoning: None,
         });
         log.record(SessionEvent::Observation {
             source: "action-0",
@@ -425,6 +507,7 @@ mod tests {
         log.record(SessionEvent::Assistant {
             prose: "Done — the greeting file exists.",
             action: None,
+            reasoning: None,
         });
         log.record(SessionEvent::End);
     }
@@ -503,6 +586,7 @@ mod tests {
         log.record(SessionEvent::Assistant {
             prose: "done",
             action: None,
+            reasoning: None,
         });
         log.record(SessionEvent::Usage {
             turn: None,
