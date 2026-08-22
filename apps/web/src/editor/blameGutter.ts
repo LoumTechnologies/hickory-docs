@@ -93,8 +93,17 @@ export function shortAuthor(author: string): string {
   return first.length > 12 ? `${first.slice(0, 11)}…` : first;
 }
 
-/** What one row shows: blank when this line continues the row above. */
-export function rowLabel(entry: LineBlame | undefined, previous: LineBlame | undefined): string {
+/** What one row shows: blank when this line continues the row above.
+ *
+ * `now` is threaded through rather than read inside, for the same reason
+ * `blameDate` takes it: "3d ago" is a fact about a moment, and a test that
+ * lets the real clock supply it passes all day and fails after seven in the
+ * evening, which is how it was found. */
+export function rowLabel(
+  entry: LineBlame | undefined,
+  previous: LineBlame | undefined,
+  now: number = Date.now(),
+): string {
   if (!entry) return "";
   // A run from one commit is labelled once, at its first line. Repeating it
   // down forty rows is how a blame column becomes wallpaper.
@@ -104,7 +113,7 @@ export function rowLabel(entry: LineBlame | undefined, previous: LineBlame | und
     previous.uncommitted === entry.uncommitted;
   if (sameRun) return "";
   if (entry.uncommitted) return "you — uncommitted";
-  return `${shortAuthor(entry.author)} ${blameDate(entry.time)}`;
+  return `${shortAuthor(entry.author)} ${blameDate(entry.time, now)}`;
 }
 
 class BlameMarker extends GutterMarker {

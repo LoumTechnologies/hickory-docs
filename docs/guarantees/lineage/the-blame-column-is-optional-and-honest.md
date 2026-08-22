@@ -91,13 +91,17 @@ Last LLM verification:
   line attributed from one blame, the uncommitted case not borrowing an
   author, a non-repository answering `[]`, an untracked file answering `[]`,
   and a path outside the folder refused.
-  `apps/web/src/editor/blameGutter.test.ts` (18 tests) — the date scale
+  `apps/web/src/editor/blameGutter.test.ts` (19 tests) — the date scale
   including the year cutoff and a missing time, author fitting and
   truncation, the run-labelling rule in both directions (including that an
   uncommitted line does not run into a committed one above it), the hover
   content, and the column in a real `EditorView`: nothing drawn until it is
   on, rows once it is, gone again when it is off, and `data-tip` rather than
-  a native `title`.
+  a native `title`. Every date is measured against a `now` the test supplies:
+  `rowLabel` used to call `blameDate` without one, so two of these read the
+  real clock — they passed all day and failed after seven in the evening, when
+  the fixture's three days became four in UTC. A test asserts the threading
+  itself now, so the wall clock cannot creep back in.
 - Caveat requiring review: the column's WIDTH is not asserted — jsdom does no
   layout, so "does a 14em cap actually leave room for the code" was checked by
   eye. The refill-on-save path is wired but not tested end to end; the fetch

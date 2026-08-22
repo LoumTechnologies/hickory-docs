@@ -64,8 +64,17 @@ describe("fitting an author into the column", () => {
 });
 
 describe("labelling a run of lines", () => {
+  it("reads its date from the moment it is given, not from the wall clock", () => {
+    // The defect this replaced: `rowLabel` called `blameDate` without a
+    // `now`, so these tests measured against the real clock. They passed all
+    // day and failed after seven in the evening, when the fixture's three
+    // days became four in UTC.
+    expect(rowLabel(entry(), undefined, NOW)).toBe("Ada 3d ago");
+    expect(rowLabel(entry(), undefined, NOW + 86_400_000)).toBe("Ada 4d ago");
+  });
+
   it("labels the first line of a run", () => {
-    expect(rowLabel(entry(), undefined)).toBe("Ada 3d ago");
+    expect(rowLabel(entry(), undefined, NOW)).toBe("Ada 3d ago");
   });
 
   it("leaves the rest of the run blank", () => {
@@ -77,7 +86,7 @@ describe("labelling a run of lines", () => {
 
   it("labels again where the commit changes", () => {
     const later = entry({ line: 2, commit: "ffff0000", author: "Grace Hopper" });
-    expect(rowLabel(later, entry())).toBe("Grace 3d ago");
+    expect(rowLabel(later, entry(), NOW)).toBe("Grace 3d ago");
   });
 
   it("marks uncommitted work as yours", () => {
