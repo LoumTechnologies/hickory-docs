@@ -868,6 +868,33 @@ textarea:focus {
   white-space: nowrap;
 }
 .editor-ruler__tick--labelled { background: var(--fg-muted); }
+
+/* The unit, in the lane the gutter occupies below the ruler. Small and quiet:
+   it is there to be read once and then never again. */
+.editor-ruler__unit {
+  position: absolute;
+  left: 4px;
+  top: 0;
+  line-height: 1.1rem;
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.55rem;
+  letter-spacing: 0.02em;
+  color: var(--fg-muted);
+  opacity: 0.7;
+  pointer-events: none;
+}
+
+/* 45–75 characters per line: the comfortable range for continuous reading.
+   Shaded rather than labelled, so it reads as a region the marker is inside
+   or outside of rather than as two more numbers to parse. */
+.editor-ruler__band {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  background: var(--accent);
+  opacity: 0.08;
+  pointer-events: none;
+}
 .editor-ruler__marker {
   position: absolute;
   top: 0;

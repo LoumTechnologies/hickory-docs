@@ -5,6 +5,7 @@ import { EditorView } from "@codemirror/view";
 
 import { EditorRuler } from "./EditorRuler";
 import { WRAP_MAX, WRAP_MIN, proseWrap, wrapColumnOf } from "./wrapColumn";
+import { READABLE_MAX, READABLE_MIN } from "./EditorRuler";
 
 // vitest runs without `globals`, so Testing Library's automatic cleanup
 // never registers; without this every render stacks up in one document.
@@ -56,7 +57,7 @@ describe("the ruler's margin marker", () => {
   it("says in words what it does, in the app's own tooltip layer", () => {
     render(<EditorRuler view={null} column={80} onColumn={() => {}} />);
     expect(screen.getByRole("slider").dataset.tip).toMatch(
-      /prose wraps at 80 columns.*code never wraps/i,
+      /prose wraps at about 80 characters per line.*code never wraps/i,
     );
   });
 });
@@ -88,5 +89,46 @@ describe("where column zero is", () => {
     // 100 (content) + 40 (padding) + 80 × 8 = 780, not 740.
     expect(screen.getByRole("slider").style.left).toBe("780px");
     live.destroy();
+  });
+});
+
+describe("what the ruler says it is measuring", () => {
+  // The strip used to be a row of unexplained numbers. Prose here is set in
+  // the system's proportional face, so they are not monospace columns and
+  // they are certainly not inches — they are the typographer's measure, and
+  // the ruler has to say so or it is furniture people learn to ignore.
+  it("names its unit at the left end", () => {
+    render(<EditorRuler view={null} column={72} onColumn={() => {}} />);
+    expect(document.querySelector(".editor-ruler__unit")?.textContent).toBe("chars/line");
+  });
+
+  it("says the number is an average, because the face is proportional", () => {
+    render(<EditorRuler view={null} column={72} onColumn={() => {}} />);
+    const marker = screen.getByRole("slider");
+    expect(marker.getAttribute("aria-valuetext")).toBe("about 72 characters per line");
+    expect(marker.dataset.tip).toMatch(/average, not a column count/i);
+  });
+
+  it("shades the comfortable range so the marker's place means something", () => {
+    const live = view();
+    render(<EditorRuler view={live} column={72} onColumn={() => {}} />);
+    expect(READABLE_MIN).toBeLessThan(READABLE_MAX);
+    expect(screen.getByRole("slider").dataset.tip).toContain(
+      `${READABLE_MIN}\u2013${READABLE_MAX}`,
+    );
+    live.destroy();
+  });
+
+  it("drops the prose furniture entirely inside a table, where it would lie", () => {
+    const table = document.createElement("div");
+    const head = document.createElement("div");
+    head.className = "table-panel__head";
+    head.textContent = "A";
+    table.appendChild(head);
+    document.body.appendChild(table);
+    render(<EditorRuler view={null} column={72} onColumn={() => {}} tableEl={table} />);
+    // jsdom gives every element a zero-width box, so no band is drawn; what
+    // this pins is that the unit label is a PROSE thing and goes with it.
+    expect(document.querySelector(".editor-ruler__band")).toBeNull();
   });
 });

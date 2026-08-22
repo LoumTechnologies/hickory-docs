@@ -18,6 +18,30 @@
 // measured from the border box put every tick, and the marker, 2.5rem to the
 // left of the line the text actually wraps at.
 //
+// ## What the numbers are, which is the question it kept being asked
+//
+// Not inches. A CSS pixel is not a physical unit — the same ruler at the same
+// zoom is a different width on two monitors — so an inch scale would be a
+// number that looks authoritative and measures nothing.
+//
+// Not monospace columns either, because this editor sets prose in the
+// system's proportional face (editor/chrome.ts): an `i` and an `m` are not
+// the same width, so there is no column grid for a tick to fall on.
+//
+// What it measures is the TYPOGRAPHER'S measure — characters per line — which
+// is the number five centuries of setting text actually cares about, and the
+// only one that transfers between faces. It is an average by construction:
+// CodeMirror's `defaultCharacterWidth` is the content element's real font
+// measured over a sample, so "72" means "about 72 characters of this face,
+// at this size, fit on a line", not "72 cells". A line of `l`s will hold
+// more and a line of `M`s fewer, and that is a property of the question, not
+// a defect in the answer.
+//
+// So the strip says so, in three ways that cost nothing: the unit is named at
+// its left end, the comfortable band (45–75, the range every typography text
+// gives for continuous reading) is shaded so the marker's position means
+// something, and the tooltip says "about".
+//
 // Display-only except for the marker: the ticks take no pointer events, so a
 // click near the ruler that was meant for the text is not stolen by it.
 //
@@ -63,6 +87,12 @@ interface Metrics {
  * grey smear at the font sizes this app uses. */
 const TICK_EVERY = 5;
 const LABEL_EVERY = 10;
+
+/** The comfortable measure for continuous reading, in characters per line.
+ * Shaded on the ruler so the marker has something to be near or far from —
+ * a number with no band around it is a number nobody can judge. */
+export const READABLE_MIN = 45;
+export const READABLE_MAX = 75;
 
 /** One column of a table, as the ruler draws it. */
 interface ColumnBand {
@@ -233,6 +263,12 @@ export function EditorRuler({
   }
 
   const markerX = metrics ? metrics.originX + shown * metrics.charWidth : 0;
+  const band = metrics
+    ? {
+        left: metrics.originX + READABLE_MIN * metrics.charWidth,
+        width: (READABLE_MAX - READABLE_MIN) * metrics.charWidth,
+      }
+    : null;
 
   const naming = bands.length > 0;
 
@@ -254,6 +290,21 @@ export function EditorRuler({
             </span>
           ))}
         </div>
+      )}
+      {/* The unit, at the left end, in the lane the gutter occupies below.
+          A measuring stick whose unit is not written on it is furniture
+          people learn to ignore. */}
+      {!naming && (
+        <span className="editor-ruler__unit" aria-hidden="true">
+          chars/line
+        </span>
+      )}
+      {band && !naming && (
+        <span
+          className="editor-ruler__band"
+          aria-hidden="true"
+          style={{ left: `${band.left}px`, width: `${band.width}px` }}
+        />
       )}
       <div className="editor-ruler__ticks" aria-hidden="true" hidden={naming}>
         {ticks.map((tick) => (
@@ -279,8 +330,13 @@ export function EditorRuler({
         aria-valuemin={WRAP_MIN}
         aria-valuemax={WRAP_MAX}
         aria-valuenow={shown}
-        aria-valuetext={`${shown} columns`}
-        data-tip={`Prose wraps at ${shown} columns — drag to move it. Code never wraps.`}
+        aria-valuetext={`about ${shown} characters per line`}
+        data-tip={
+          `Prose wraps at about ${shown} characters per line — drag to move it. ` +
+          `The face is proportional, so this is an average, not a column count. ` +
+          `${READABLE_MIN}\u2013${READABLE_MAX} (shaded) is the comfortable range for ` +
+          `reading. Code never wraps.`
+        }
         onPointerDown={onPointerDown}
         onPointerMove={onPointerMove}
         onPointerUp={endDrag}
