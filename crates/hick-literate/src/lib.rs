@@ -552,6 +552,24 @@ async fn process_pipeline_outputs(
 }
 
 /// Process a batch of documents through declaration and content phases.
+/// Run the declaration-phase handlers over top-level tags — and over the
+/// fragments a `hick:upstream` edge brought in, which sit under that node
+/// rather than at the top level so the weave can skip them as a unit.
+fn declare_nodes(nodes: &[HickNode], registry: &TagRegistry, ctx: &ProcessingContext) {
+    for node in nodes {
+        let HickNode::Tag(tag) = node else { continue };
+        if tag.name == "upstream" {
+            declare_nodes(&tag.children, registry, ctx);
+            continue;
+        }
+        if let Some(handler) = registry.find(&tag.name)
+            && handler.phase() == ProcessingPhase::Declaration
+        {
+            let _ = handler.process(tag, ctx);
+        }
+    }
+}
+
 fn process_documents_round(
     documents: &[(&str, HickDocument)],
     state: &Arc<MultiDocumentState>,
@@ -572,14 +590,7 @@ fn process_documents_round(
             source_file: Some(Arc::from(*doc_name)),
             span_files: &span_files,
         };
-        for node in &doc.nodes {
-            if let HickNode::Tag(tag) = node
-                && let Some(handler) = registry.find(&tag.name)
-                && handler.phase() == ProcessingPhase::Declaration
-            {
-                let _ = handler.process(tag, &decl_ctx);
-            }
-        }
+        declare_nodes(&doc.nodes, registry, &decl_ctx);
     }
 
     // Process file outputs

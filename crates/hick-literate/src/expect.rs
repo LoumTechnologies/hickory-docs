@@ -172,6 +172,21 @@ pub fn evaluate(spec: &ExpectSpec, doc: &str, actual: &str) -> ExpectationOutcom
 fn diff_detail(expected: &str, actual: &str) -> String {
     let exp_lines: Vec<&str> = expected.lines().collect();
     let act_lines: Vec<&str> = actual.lines().collect();
+    // The one mistake everybody makes once: a line break after the opening
+    // tag, so the expectation's first line is empty and nothing else can
+    // match. The message has to name it, or the author reads "expected
+    // nothing" and goes looking for a cell that printed too much.
+    if let (Some(first), Some(a)) = (exp_lines.first(), act_lines.first())
+        && first.is_empty()
+        && !a.is_empty()
+        && exp_lines.get(1) == Some(a)
+    {
+        return format!(
+            "the expectation begins with an empty line, but the output begins with {a:?}: \
+             expected text starts right after the opening tag — write `<hick:expect …>{a}` \
+             with no line break after `>`, so the first expected line is the first output line"
+        );
+    }
     for (i, (e, a)) in exp_lines.iter().zip(act_lines.iter()).enumerate() {
         if e != a {
             return format!(
@@ -250,6 +265,28 @@ mod tests {
         let out = evaluate(&spec(MatchMode::Exact, "a\nb\n"), "d", "a\nc\n");
         assert!(!out.passed);
         assert!(out.detail.contains("line 2"), "{}", out.detail);
+    }
+
+    /// A line break after `<hick:expect>` makes the first expected line
+    /// empty; the message must say so rather than report "expected nothing".
+    #[test]
+    fn a_leading_newline_in_the_expectation_is_named() {
+        let out = evaluate(
+            &spec(MatchMode::Exact, "\nbaseline 203\n"),
+            "d",
+            "baseline 203\n",
+        );
+        assert!(!out.passed);
+        assert!(
+            out.detail.contains("begins with an empty line"),
+            "{}",
+            out.detail
+        );
+        assert!(
+            out.detail.contains("no line break after `>`"),
+            "{}",
+            out.detail
+        );
     }
 
     #[test]

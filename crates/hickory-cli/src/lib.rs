@@ -372,7 +372,7 @@ pub fn check_outcome(failures: &[CheckFailure]) -> CheckOutcome {
 pub fn stale_transforms(doc_path: &Path, source: &str) -> Result<Vec<CheckFailure>> {
     let doc = transform_document(doc_path, source)?;
     let mut out = Vec::new();
-    for tag in doc.find_tags("transform") {
+    for tag in own_transforms(&doc) {
         let select = tag.get_attribute("select").unwrap_or_default().to_string();
         let instruct = tag
             .get_attribute("instruct")
@@ -402,25 +402,94 @@ pub fn stale_transforms(doc_path: &Path, source: &str) -> Result<Vec<CheckFailur
 /// refresh would immediately read as stale. That means both must apply the same
 /// transcript derivation the pipeline applies — so they share this function
 /// rather than each calling `parse` and hoping.
+///
+/// Includes and upstreams are resolved first, exactly as the pipeline resolves
+/// them: a transform may `select=` a meeting turn or a decision that lives in
+/// a document upstream of this one, and that selection has to find the same
+/// bytes here that `hick:paste` finds at weave — otherwise the fingerprint is
+/// taken over an empty input, and a passage summarizing another document can
+/// never be anything but stale (or, worse, never stale once the other document
+/// changes).
 pub fn transform_document(doc_path: &Path, source: &str) -> Result<hick_lang::HickDocument> {
     let mut doc = hick_lang::parse(source)
         .map_err(|e| anyhow::anyhow!("parse error in {}: {e}", doc_path.display()))?;
+    let base_dir = doc_path.parent().unwrap_or(Path::new("."));
+    let mut seen = std::collections::HashSet::new();
+    if let Ok(canonical) = std::fs::canonicalize(doc_path) {
+        seen.insert(canonical);
+    }
+    hick_lang::resolve_includes(&mut doc, base_dir, &mut seen)
+        .map_err(|e| anyhow::anyhow!("include error in {}: {e}", doc_path.display()))?;
     hick_transcript::expand(&mut doc);
     Ok(doc)
 }
 
-/// The bytes a transform was written from.
+/// The transforms that belong to THIS document — not ones spliced in by
+/// `hick:include`, whose spans index the included file and whose passages are
+/// that file's to check and refresh. `hick test` on the includer would
+/// otherwise report the included passage twice, and `hick refresh` would
+/// write a passage at another file's offsets into this one.
+pub fn own_transforms(doc: &hick_lang::HickDocument) -> Vec<&hick_lang::HickTag> {
+    doc.find_tags("transform")
+        .into_iter()
+        .filter(|t| t.source_span.is_none_or(|s| s.file_id.is_none()))
+        .collect()
+}
+
+/// The bytes a transform was written from: every selected fragment, in
+/// document order, one paragraph each.
 ///
-/// `text_content`, not the direct-children-only `tag_text`: a selected
-/// fragment may hold structure — a transcript holds its derived turns — and a
-/// summary's input is everything inside it, not just the text that happens to
-/// be a direct child.
+/// Each fragment is rendered the way a reader would want to cite it — its id
+/// in brackets when it has one, a speaker turn as `Sam (00:00:56.000): …`, a
+/// transcript as its turns one per line — and fragments are separated by a
+/// blank line. That is what lets a passage that checks one sentence against
+/// a meeting say *which* turn backs it, by id, rather than being handed the
+/// meeting and the sentence run together as one string with no seam.
+///
+/// This rendering IS the fingerprinted input, so changing it changes every
+/// fingerprint; that is the right trade, because an input the model could
+/// not parse is an input the fingerprint was protecting for nothing.
 pub fn transform_input(doc: &hick_lang::HickDocument, select: &str) -> String {
     hick_lang::fragments_matching(doc, select)
         .iter()
-        .map(|t| t.text_content())
+        .map(|t| render_fragment(t))
         .collect::<Vec<_>>()
-        .join("")
+        .join("\n\n")
+}
+
+fn render_fragment(tag: &hick_lang::HickTag) -> String {
+    let id = tag
+        .get_attribute("id")
+        .map(|id| format!("[#{id}] "))
+        .unwrap_or_default();
+    match tag.name.as_str() {
+        "said" => format!("{id}{}{}", said_header(tag), tag.text_content().trim()),
+        "transcript" => {
+            let turns: Vec<String> = tag
+                .children
+                .iter()
+                .filter_map(|n| match n {
+                    hick_lang::HickNode::Tag(t) if t.name == "said" => Some(render_fragment(t)),
+                    _ => None,
+                })
+                .collect();
+            if turns.is_empty() {
+                format!("{id}{}", tag.text_content().trim())
+            } else {
+                turns.join("\n")
+            }
+        }
+        _ => format!("{id}{}", tag.text_content().trim()),
+    }
+}
+
+fn said_header(tag: &hick_lang::HickTag) -> String {
+    match (tag.get_attribute("by"), tag.get_attribute("at")) {
+        (Some(by), Some(at)) => format!("{by} ({at}): "),
+        (Some(by), None) => format!("{by}: "),
+        (None, Some(at)) => format!("({at}): "),
+        (None, None) => String::new(),
+    }
 }
 
 /// Expand a path argument (file or directory) into `.hick` documents.

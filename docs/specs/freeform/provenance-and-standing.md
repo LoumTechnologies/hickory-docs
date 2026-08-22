@@ -201,9 +201,14 @@ that one part.
 - **Standing decays.** An expert judgment from two years ago about a system that
   has since been rewritten is still tagged `expert`. Nothing here models time.
 - **Nobody has drawn this yet.** Every rendering claim above is a constraint on
-  a UI that does not exist. The app currently draws lineage ribbons; how
-  provenance pairs and standing sit alongside them is unspecified and is the
-  most likely place this design turns out to be wrong.
+  a UI that does not exist. The app draws lineage ribbons — since 2026-08-22
+  across documents too, so a message's quote of a meeting turn reaches the
+  meeting note (`docs/guarantees/lineage/a-ribbon-crosses-documents.md`) — but
+  every ribbon looks the same whatever its origin, and `hick:claim` has no
+  rendering in the app at all. How provenance pairs and standing sit alongside
+  the ribbons is unspecified and is the most likely place this design turns
+  out to be wrong. `docs/specs/freeform/receipts-for-a-message.md` records the
+  first real walk through this.
 - **This adds friction to writing.** `hick:claim` is a tag someone has to type
   in the middle of a thought. If it is not nearly free in the editor — a
   selection and a keystroke — it will not be used, and an unused marking system

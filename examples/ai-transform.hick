@@ -30,7 +30,7 @@ throughout; the advertised curl installer failed for every visitor.
 
 ## The summary (written by a model, pinned to the facts)
 
-<hick:transform select=".incident" instruct="Summarize this incident for a busy engineer in at most three sentences: what broke, the user-visible impact, and the resolution. Plain prose, no bullet points." from="34460bcb">
+<hick:transform provider="openrouter" model="anthropic/claude-sonnet-4.5" select=".incident" instruct="Summarize this incident for a busy engineer in at most three sentences: what broke, the user-visible impact, and the resolution. Plain prose, no bullet points." from="90aa3ac4">
 The release pipeline failed due to three separate issues: the macOS packaging script broke on bash 3.2 with an unbound array, the Windows bundle was missing icon.ico, and the release smoke test couldn't run without bubblewrap. As a result, no release was published for two days, hickorydocs.com's apex served HTTP 522 throughout, and the advertised curl installer failed for every visitor. All three faults were fixed on 2026-08-16, the apex domain was re-attached, and the installer now falls back to the unstable channel.
 </hick:transform>
 
@@ -39,7 +39,7 @@ The release pipeline failed due to three separate issues: the macOS packaging sc
 One set of facts can feed several transforms. This one extracts rather than
 summarizes:
 
-<hick:transform select=".incident" instruct="Extract every distinct failure cause as a short comma-separated list, in the order they were discovered. Output only the list, nothing else." from="044b82b3">
+<hick:transform provider="openrouter" model="anthropic/claude-sonnet-4.5" select=".incident" instruct="Extract every distinct failure cause as a short comma-separated list, in the order they were discovered. Output only the list, nothing else." from="5413b8d4">
 dist-desktop.sh fails on macOS (bash 3.2, unbound array), Windows bundle missing icon.ico, release smoke test lacks bubblewrap
 </hick:transform>
 

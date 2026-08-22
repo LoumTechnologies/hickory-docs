@@ -121,6 +121,55 @@ impl TagHandler for CutHandler {
     }
 }
 
+/// Handler for `<hick:transcript>`: makes a meeting quotable.
+///
+/// A transcript's turns are derived from its raw bytes before handlers run
+/// (`hick_transcript::expand`), each a `<hick:said>` with an id
+/// (`#transcript-u7`) and classes (`.said`, `.said-sam`). This registers every
+/// turn — and the transcript as a whole — as a pasteable fragment, so a note
+/// downstream of a meeting can quote one sentence of it by reference and the
+/// paste carries that sentence's span in the meeting file. Without this the
+/// turns were selectable by `hick:transform` and by nothing else.
+pub struct TranscriptHandler;
+
+impl TagHandler for TranscriptHandler {
+    fn tag_name(&self) -> &str {
+        "transcript"
+    }
+
+    fn phase(&self) -> ProcessingPhase {
+        ProcessingPhase::Declaration
+    }
+
+    fn process(&self, tag: &HickTag, ctx: &ProcessingContext) -> Result<TagResult> {
+        let mut whole = Vec::new();
+        for child in &tag.children {
+            let HickNode::Tag(turn) = child else { continue };
+            if turn.name != "said" {
+                continue;
+            }
+            let id = tag_attr(turn, "id").unwrap_or_default();
+            let class = tag_attr(turn, "class");
+            let (node, text) = resolve_content_node(turn, ctx);
+            whole.push(text.clone());
+            ctx.state
+                .register_copy_node(id, class.as_deref(), node, text);
+        }
+        // The transcript itself, by its id: the turns' text, one per line —
+        // what a summary or a whole-meeting quote wants, without the cue
+        // timings of the raw block.
+        if let Some(id) = tag_attr(tag, "id")
+            && !whole.is_empty()
+        {
+            let text = whole.join("\n");
+            let node = Arc::new(StringNode::new(text.clone()));
+            ctx.state
+                .register_copy_node(id, tag_attr(tag, "class").as_deref(), node, text);
+        }
+        Ok(TagResult::Declaration)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

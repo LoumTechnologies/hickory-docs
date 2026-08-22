@@ -1,0 +1,79 @@
+---
+date: 2026-08-24
+---
+
+<hick:upstream file="meetings/2026-08-20-checkout-latency-sync.hick" />
+
+## Context
+
+Priya's warning about the load-test window:
+
+<hick:paste select="#transcript-u4" />
+
+<hick:container name="py" image="python:3.12" />
+<hick:volume name="src" input="." />
+
+## Analysis
+
+<hick:exec id="compute" container="py" mount="src:project" show="output">
+python3 <<'EOF'
+import csv
+from datetime import datetime
+
+baseline_start = datetime(2026, 8, 10)
+baseline_end = datetime(2026, 8, 12)
+broken_start = datetime(2026, 8, 12)
+fix_time = datetime(2026, 8, 21, 12, 0)
+after_end = datetime(2026, 8, 24)
+loadtest_start = datetime(2026, 8, 18, 10, 0)
+loadtest_end = datetime(2026, 8, 18, 12, 0)
+
+baseline = []
+broken = []
+after = []
+excluded = 0
+
+with open('project/data/checkout-latency.csv') as f:
+    reader = csv.DictReader(f)
+    for row in reader:
+        bucket = datetime.fromisoformat(row['bucket_start'])
+        p95 = float(row['p95_ms'])
+        
+        # Exclude the 4-hour bucket containing the load-test window (08:00-12:00 on 2026-08-18)
+        bucket_containing_loadtest = datetime(2026, 8, 18, 8, 0)
+        if bucket == bucket_containing_loadtest:
+            excluded += 1
+            continue
+        
+        if baseline_start <= bucket < baseline_end:
+            baseline.append(p95)
+        elif broken_start <= bucket < fix_time:
+            broken.append(p95)
+        elif fix_time <= bucket < after_end:
+            after.append(p95)
+
+baseline_mean = sum(baseline) / len(baseline)
+broken_mean = sum(broken) / len(broken)
+after_mean = sum(after) / len(after)
+
+print(f"Baseline (2026-08-10 to 2026-08-12): {baseline_mean:.1f} ms")
+print(f"Broken window (2026-08-12 to 2026-08-21 12:00): {broken_mean:.1f} ms")
+print(f"After fix (2026-08-21 12:00 to 2026-08-24): {after_mean:.1f} ms")
+print(f"Excluded {excluded} rows (load-test window 2026-08-18 10:00-12:00)")
+EOF
+<hick:expect match="exact">Baseline (2026-08-10 to 2026-08-12): 202.6 ms
+Broken window (2026-08-12 to 2026-08-21 12:00): 488.7 ms
+After fix (2026-08-21 12:00 to 2026-08-24): 212.5 ms
+Excluded 1 rows (load-test window 2026-08-18 10:00-12:00)
+</hick:expect>
+</hick:exec>
+
+## Findings
+
+<hick:copy id="baseline" class="finding">Baseline p95 latency (2026-08-10 to 2026-08-12): 202.6 ms</hick:copy>
+
+<hick:copy id="p95-before-after" class="finding">The pool fix reduced p95 latency from 488.7 ms (broken window) to 212.5 ms (after fix)</hick:copy>
+
+<hick:copy id="load-test-excluded" class="finding">Excluded 1 row covering the 2026-08-18 10:00-12:00 load test</hick:copy>
+# Checkout latency: before and after the pool fix
+

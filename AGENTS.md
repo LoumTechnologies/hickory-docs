@@ -37,7 +37,10 @@ having, and that CRDT edits are the wrong way to express it — a re-run of a
 scaffolder shares no history with the previous run, so the property that makes
 CRDTs merge is absent exactly where it would be needed.
 
-How outside material enters a notes folder is `docs/specs/freeform/ingest.md`;
+How a sentence someone posts proves itself — meeting → analysis → message,
+with ribbons across documents — is walked through in
+`docs/specs/freeform/receipts-for-a-message.md`, including what is still
+clunky. How outside material enters a notes folder is `docs/specs/freeform/ingest.md`;
 how the result is marked is `docs/specs/freeform/provenance-and-standing.md`.
 The rule that governs both: **provenance is derived and checkable, standing is
 declared and unverifiable, and the two must never render alike.** Say

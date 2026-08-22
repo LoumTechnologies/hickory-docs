@@ -1571,8 +1571,8 @@ async fn cmd_refresh(args: RefreshArgs) -> Result<ExitCode> {
 
         // Collect the work first: each transform's input, instruction, current
         // passage, and the byte span of its body.
-        let mut jobs: Vec<(usize, usize, String, String, String, String)> = Vec::new();
-        for tag in parsed.find_tags("transform") {
+        let mut jobs: Vec<RefreshJob> = Vec::new();
+        for tag in hickory_cli::own_transforms(&parsed) {
             let select = tag.get_attribute("select").unwrap_or_default().to_string();
             let instruct = tag
                 .get_attribute("instruct")
@@ -1585,7 +1585,7 @@ async fn cmd_refresh(args: RefreshArgs) -> Result<ExitCode> {
                 continue;
             }
             stale_total += 1;
-            let Some((body_from, body_to)) = body_span(&source, tag) else {
+            let Some((open_from, body_from, body_to)) = body_span(&source, tag) else {
                 eprintln!(
                     "skip {}:{}: cannot locate the passage body",
                     doc_path.display(),
@@ -1594,15 +1594,23 @@ async fn cmd_refresh(args: RefreshArgs) -> Result<ExitCode> {
                 continue;
             };
             let previous = source[body_from..body_to].to_string();
-            jobs.push((body_from, body_to, input, instruct, previous, fingerprint));
+            jobs.push(RefreshJob {
+                open_from,
+                body_from,
+                body_to,
+                input,
+                instruct,
+                previous,
+                fingerprint,
+            });
         }
 
         if jobs.is_empty() {
             continue;
         }
         if args.dry_run {
-            for (_, _, _, instruct, _, _) in &jobs {
-                println!("would refresh {}: {instruct}", doc_path.display());
+            for job in &jobs {
+                println!("would refresh {}: {}", doc_path.display(), job.instruct);
             }
             continue;
         }
@@ -1613,17 +1621,39 @@ async fn cmd_refresh(args: RefreshArgs) -> Result<ExitCode> {
         )?;
 
         // Apply back-to-front so earlier spans stay valid.
-        jobs.sort_by_key(|j| std::cmp::Reverse(j.0));
+        jobs.sort_by_key(|j| std::cmp::Reverse(j.open_from));
         let mut updated = source.clone();
-        for (from, to, input, instruct, previous, fingerprint) in jobs {
-            let prompt = format!(
-                "Rewrite the passage below so it is accurate for the current input.\n\n\
-                 Instruction: {instruct}\n\n\
-                 Current input:\n{input}\n\n\
-                 Previous passage (keep its voice, structure, and any wording that is \
-                 still correct — change only what the new input requires):\n{previous}\n\n\
-                 Reply with the passage only. No preamble, no code fences."
-            );
+        for RefreshJob {
+            open_from,
+            body_from: from,
+            body_to: to,
+            input,
+            instruct,
+            previous,
+            fingerprint,
+        } in jobs
+        {
+            // A never-written passage (ingest leaves them empty) gets a
+            // prompt that says so: shown an empty "previous passage" to
+            // preserve, a model tends to preserve the scaffolding instead.
+            let prompt = if previous.trim().is_empty() {
+                format!(
+                    "Write a passage from the input below.\n\n\
+                     Instruction: {instruct}\n\n\
+                     Input:\n{input}\n\n\
+                     Reply with the passage only. No preamble, no code fences, and do \
+                     not repeat the instruction or the input."
+                )
+            } else {
+                format!(
+                    "Rewrite the passage below so it is accurate for the current input.\n\n\
+                     Instruction: {instruct}\n\n\
+                     Current input:\n{input}\n\n\
+                     Previous passage (keep its voice, structure, and any wording that is \
+                     still correct — change only what the new input requires):\n{previous}\n\n\
+                     Reply with the passage only. No preamble, no code fences."
+                )
+            };
             let passage = llm
                 .complete(vec![
                     Message::new(
@@ -1636,8 +1666,20 @@ async fn cmd_refresh(args: RefreshArgs) -> Result<ExitCode> {
                 .await?;
             let passage = format!("\n{}\n", passage.trim());
             updated.replace_range(from..to, &passage);
-            // Re-stamp the fingerprint this passage now attests to.
-            updated = restamp_from(&updated, from, &fingerprint);
+            // Re-stamp the fingerprint this passage now attests to, and name
+            // the model that wrote it: the fingerprint says which bytes under
+            // which instruction, and this says by whom — the same thing a
+            // session records, and the one fact nobody can reconstruct later.
+            updated = restamp(
+                &updated,
+                open_from,
+                from,
+                &[
+                    ("from", &fingerprint),
+                    ("provider", llm.provider_name()),
+                    ("model", llm.model_name()),
+                ],
+            );
             rewrote += 1;
         }
         std::fs::write(doc_path, &updated)?;
@@ -1652,39 +1694,57 @@ async fn cmd_refresh(args: RefreshArgs) -> Result<ExitCode> {
     Ok(ExitCode::SUCCESS)
 }
 
-/// Byte span of a tag's body: between the `>` of the opening tag and the `<`
-/// of its closing tag.
-fn body_span(source: &str, tag: &hick_lang::HickTag) -> Option<(usize, usize)> {
+/// One stale passage to rewrite: where its tag opens, where its body lies,
+/// and what the model needs to see.
+struct RefreshJob {
+    open_from: usize,
+    body_from: usize,
+    body_to: usize,
+    input: String,
+    instruct: String,
+    previous: String,
+    fingerprint: String,
+}
+
+/// Byte span of a tag: where its opening tag starts, and its body — between
+/// the `>` of the opening tag and the `<` of its closing tag.
+fn body_span(source: &str, tag: &hick_lang::HickTag) -> Option<(usize, usize, usize)> {
     let open = tag.source_span?;
     let start = open.end;
     let close = source[start..].find("</")? + start;
-    Some((start, close))
+    Some((open.start, start, close))
 }
 
-/// Rewrite the `from="..."` attribute of the transform whose body starts at
-/// `body_start`, inserting one if the document does not carry it yet.
-fn restamp_from(source: &str, body_start: usize, fingerprint: &str) -> String {
-    let head = &source[..body_start];
-    let Some(open) = head.rfind("<hick:transform") else {
-        return source.to_string();
-    };
-    let tag_text = &source[open..body_start];
-    let replaced = match tag_text.find("from=\"") {
-        Some(i) => {
-            let value_start = open + i + "from=\"".len();
-            let value_end = value_start + source[value_start..].find('"').unwrap_or(0);
-            let mut out = source.to_string();
-            out.replace_range(value_start..value_end, fingerprint);
-            return out;
+/// Set attributes on the opening tag at `open_start..body_start`, rewriting
+/// each that is present and inserting the rest after the tag name.
+///
+/// Works from the tag's own span, not a search for `<hick:transform`: a
+/// document is free to bind any prefix (`<slack:transform>` is the same
+/// element), and a refresh that could not find the tag it had just rewritten
+/// would leave the passage new and the fingerprint old — stale forever.
+fn restamp(source: &str, open_start: usize, body_start: usize, attrs: &[(&str, &str)]) -> String {
+    let mut tag_text = source[open_start..body_start].to_string();
+    // Reverse, so attributes inserted after the tag name end up in the order
+    // given rather than each one pushing the last further right.
+    for (name, value) in attrs.iter().rev() {
+        let needle = format!("{name}=\"");
+        match tag_text.find(&needle) {
+            Some(i) => {
+                let value_start = i + needle.len();
+                let value_end = value_start + tag_text[value_start..].find('"').unwrap_or(0);
+                tag_text.replace_range(value_start..value_end, value);
+            }
+            None => {
+                // Insert right after the tag name: `<prefix:transform`.
+                let name_end = tag_text
+                    .find(|c: char| c.is_whitespace() || c == '>' || c == '/')
+                    .unwrap_or(tag_text.len());
+                tag_text.insert_str(name_end, &format!(" {name}=\"{value}\""));
+            }
         }
-        None => tag_text.replacen(
-            "<hick:transform",
-            &format!("<hick:transform from=\"{fingerprint}\""),
-            1,
-        ),
-    };
+    }
     let mut out = source.to_string();
-    out.replace_range(open..body_start, &replaced);
+    out.replace_range(open_start..body_start, &tag_text);
     out
 }
 
@@ -1774,4 +1834,44 @@ async fn cmd_doc(cmd: DocCommand) -> Result<ExitCode> {
     let outcome = run_doc_tool(&request).await?;
     let code = print_outcome(&outcome, request.format)?;
     Ok(ExitCode::from(code))
+}
+
+#[cfg(test)]
+mod restamp_tests {
+    use super::restamp;
+
+    /// Guarantee: docs/guarantees/verification/a-transform-is-checked-against-the-bytes-it-read.md
+    #[test]
+    fn restamp_rewrites_an_existing_fingerprint_and_inserts_the_model() {
+        let src =
+            "<hick:transform select=\"#a\" from=\"old\" instruct=\"x\">\nbody\n</hick:transform>";
+        let body = src.find('>').unwrap() + 1;
+        let out = restamp(
+            src,
+            0,
+            body,
+            &[
+                ("from", "new1"),
+                ("provider", "anthropic"),
+                ("model", "claude-sonnet-5"),
+            ],
+        );
+        assert!(out.starts_with(
+            "<hick:transform provider=\"anthropic\" model=\"claude-sonnet-5\" select=\"#a\" from=\"new1\" instruct=\"x\">\nbody"
+        ), "{out}");
+    }
+
+    /// A document may bind any prefix to the namespace; refresh must find the
+    /// tag it is rewriting by its span, not by the spelling `<hick:transform`.
+    #[test]
+    fn restamp_works_under_a_rebound_prefix() {
+        let src = "intro\n<slack:transform select=\"#a\" instruct=\"x\">\nbody\n</slack:transform>";
+        let open = src.find("<slack:").unwrap();
+        let body = src.find('>').unwrap() + 1;
+        let out = restamp(src, open, body, &[("from", "abcd1234")]);
+        assert!(
+            out.contains("<slack:transform from=\"abcd1234\" select=\"#a\""),
+            "{out}"
+        );
+    }
 }

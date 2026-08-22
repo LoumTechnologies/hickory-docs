@@ -335,6 +335,9 @@ fn process_weave_tag(
             );
             weave_ip.add(Arc::new(StringNode::new("\n".to_string())));
         }
+        // A pipeline edge renders nothing: what it brought in is selectable,
+        // not printed. See `resolve_includes` in `hick-lang`.
+        "upstream" => {}
         "when" => {
             // When tags have already been filtered, so just process children
             // Use the when tag's indentation for dedenting child content

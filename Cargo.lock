@@ -2883,6 +2883,7 @@ name = "hick-transcript"
 version = "0.1.0"
 dependencies = [
  "hick-lang",
+ "tempfile",
 ]
 
 [[package]]

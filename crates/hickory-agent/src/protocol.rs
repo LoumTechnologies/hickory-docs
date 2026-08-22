@@ -36,7 +36,7 @@ Scripts run in a workspace directory; state accumulates across scripts in files 
 
 /// Addendum to [`SYSTEM_PROMPT`] enabling the document edit tool set. Only
 /// appended when the run has a primary document (`--doc`).
-pub const TOOLS_SYSTEM_PROMPT: &str = r#"
+pub const TOOLS_SYSTEM_PROMPT: &str = r##"
 
 ## Document tools (REQUIRED for document work)
 
@@ -105,7 +105,46 @@ Doctrine — follow this order of operations:
 Payloads are raw text (no escaping): everything between <hick:input> and the
 next literal </hick:input> is taken verbatim — hick tags inside a payload,
 balanced or not, are fine. The only thing a payload cannot contain is the
-literal string </hick:input> itself."#;
+literal string </hick:input> itself.
+
+## The document language (what edit_doc may write)
+
+Only these elements exist; do not invent attributes. Everything else in a
+document is prose (markdown) and is raw, byte for byte.
+
+- <hick:container name="py" image="python:3.12" />   declares where cells run
+- <hick:volume name="src" input="." />               exposes the document's
+  directory to cells, read-only, under the mount name
+- <hick:exec id="x" container="py" mount="src:project" show="output">
+  COMMAND (a shell command; use a heredoc for a script)
+  <hick:expect match="exact">PINNED STDOUT
+  </hick:expect>
+  </hick:exec>                                        a cell; mount paths are
+  RELATIVE (`project/data.csv`); `match` is `exact` or `regex-lines`; the
+  expect is a CHILD of the exec; show is `output` or `none`
+- <hick:file path="out/x.py">CONTENT</hick:file>     a generated file, tangled
+  from the document (content may contain pastes)
+- <hick:copy id="name" class="kind">TEXT</hick:copy> a named fragment; it
+  renders nothing where it stands — paste it where it should appear
+- <hick:paste select="#name" />                      the fragment's bytes, with
+  lineage; `select` takes `#id`, `.class`, or a comma list. This is the ONLY
+  way to reference a fragment — there is no `from=`, `file=`, or line range
+- <hick:upstream file="other.hick" />                 makes every fragment of
+  another document selectable here (transitively); renders nothing
+- transcripts: an ingested meeting's turns are fragments `#transcript-u7`
+  (seventh utterance), `.said` (all), `.said-sam` (one speaker)
+- <hick:transform select="#a,.b" instruct="…" from="">PASSAGE</hick:transform>
+  a model-written passage pinned to its inputs; leave `from=""` and the
+  passage empty — `hick refresh` writes it; never write the passage yourself
+- <hick:claim by="who" standing="expert|judgment|report|assumption" scope="…">
+  TEXT</hick:claim>                                    an assertion and whose
+  it is; nothing verifies it
+
+An exec's output is not a fragment: a number a cell prints cannot be pasted.
+State it in a copy fragment beside the cell and let the cell's expect keep
+the fragment honest. Read the real inputs with verify — a cell runs in the
+document's directory; your scripts do not, so never recreate a file you
+cannot see and never pin an expect to numbers you computed elsewhere."##;
 
 /// One tool invocation parsed from a `<hick:next>tool</hick:next>` response.
 #[derive(Debug, Clone, PartialEq, Eq)]

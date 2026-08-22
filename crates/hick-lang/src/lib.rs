@@ -751,7 +751,7 @@ fn check_unique_ids(nodes: &[HickNode]) -> Result<(), ParseError> {
     let mut dupes: Vec<(String, usize, usize)> = Vec::new();
     while let Some(node) = stack.pop() {
         if let HickNode::Tag(tag) = node {
-            if (tag.name == "copy" || tag.name == "cut")
+            if is_fragment_tag(&tag.name)
                 && let Some(id) = tag.get_attribute("id")
                 && let Some(first) = seen.insert(id.to_string(), tag.source_line)
             {
@@ -781,10 +781,14 @@ fn fragments_of(nodes: Vec<HickNode>) -> Vec<HickNode> {
     out
 }
 
+/// Every fragment tag travels upstream — `transcript` included, so a note
+/// downstream of a meeting can quote a turn (`#transcript-u7`) or one
+/// speaker (`.said-sam`). The turns themselves are derived after splicing,
+/// from the transcript's raw bytes, which keep their file stamp.
 fn collect_fragments_any(nodes: &[HickNode], out: &mut Vec<HickNode>) {
     for node in nodes {
         if let HickNode::Tag(tag) = node {
-            if tag.name == "copy" || tag.name == "cut" {
+            if is_fragment_tag(&tag.name) {
                 out.push(HickNode::Tag(tag.clone()));
                 continue;
             }
@@ -988,7 +992,23 @@ fn resolve_includes_in_nodes(
                     let file_id = span_file_id(span_files, &canonical, tag.source_line)?;
                     let mut fragments = fragments_of(upstream_doc.nodes);
                     stamp_span_file(&mut fragments, file_id);
-                    result.extend(fragments);
+                    // The edge stays in the tree, holding what it brought: a
+                    // `hick:upstream` node whose children are the upstream's
+                    // fragments. Selectors reach into it; the weave renders
+                    // none of it — which is what keeps a spliced transcript
+                    // selectable turn by turn without reprinting the meeting
+                    // in every document downstream of it.
+                    result.push(HickNode::Tag(HickTag {
+                        children: fragments,
+                        self_closing: false,
+                        ..tag
+                    }));
+                } else {
+                    result.push(HickNode::Tag(HickTag {
+                        children: Vec::new(),
+                        self_closing: true,
+                        ..tag
+                    }));
                 }
                 seen.remove(&canonical);
             }

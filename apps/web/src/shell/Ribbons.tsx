@@ -82,6 +82,9 @@ import type { OutputFile } from "../api/types";
 export interface RibbonSource {
   view?: EditorView;
   docPath: string;
+  /** The document's text — or "" when the document is not loaded, in which
+   * case its ribbons can only terminate on chrome (a tab, a tree row, a
+   * port), never on its prose. */
   docSource: string;
 }
 
@@ -98,7 +101,7 @@ export type RibbonTarget =
    * Back to the document, at the BYTES this text came from — the unit the
    * span-selection path uses, and the one provenance is recorded in.
    */
-  | { kind: "document"; span: [number, number] };
+  | { kind: "document"; path: string; span: [number, number] };
 
 /** One side's involved text, for the hovered line-number tint. */
 interface HlSide {
@@ -153,7 +156,9 @@ function sameBox(
   b: { x: number; y: number; width: number; height: number } | undefined,
 ): boolean {
   if (!a || !b) return a === b;
-  return a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height;
+  return (
+    a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height
+  );
 }
 
 /** Whether two measurements would draw the same overlay. */
@@ -174,7 +179,10 @@ function sameShapes(a: readonly Shape[], b: readonly Shape[]): boolean {
       !sameBox(x.connector, y.connector) ||
       x.hl.length !== y.hl.length ||
       x.hl.some(
-        (side, j) => side.view !== y.hl[j].view || side.from !== y.hl[j].from || side.to !== y.hl[j].to,
+        (side, j) =>
+          side.view !== y.hl[j].view ||
+          side.from !== y.hl[j].from ||
+          side.to !== y.hl[j].to,
       ) ||
       (x.hoverZones?.length ?? 0) !== (y.hoverZones?.length ?? 0) ||
       (x.hoverZones ?? []).some((zone, j) => !sameBox(zone, y.hoverZones?.[j]))
@@ -190,7 +198,10 @@ function sameShapes(a: readonly Shape[], b: readonly Shape[]): boolean {
  * found by attribute. Rendered chrome is the source of truth for where it
  * is; the shell tags it, this overlay only measures.
  */
-function terminalEl(container: HTMLElement, selector: string): HTMLElement | null {
+function terminalEl(
+  container: HTMLElement,
+  selector: string,
+): HTMLElement | null {
   const el = container.querySelector(selector);
   return el instanceof HTMLElement ? el : null;
 }
@@ -215,7 +226,10 @@ interface Terminal {
  * simply not rendered) is not a terminal anyone can see, and the connection
  * must fall through to the divider port instead.
  */
-function visibleTreeRow(container: HTMLElement, target: string): HTMLElement | null {
+function visibleTreeRow(
+  container: HTMLElement,
+  target: string,
+): HTMLElement | null {
   const row = terminalEl(container, `[data-tree-path=${attr(target)}]`);
   if (!row) return null;
   const rect = row.getBoundingClientRect();
@@ -241,21 +255,34 @@ function findTerminal(
     `[data-shell-tab-kind=${attr(kind)}][data-shell-tab-target=${attr(target)}]`,
   );
   const row = visibleTreeRow(container, target);
-  const port = terminalEl(container, `[data-ribbon-port=${attr(`${kind}:${target}`)}]`);
+  const port = terminalEl(
+    container,
+    `[data-ribbon-port=${attr(`${kind}:${target}`)}]`,
+  );
   switch (pickTerminal({ tab: !!tab, tree: !!row, port: !!port })) {
     case "tab": {
       const rect = tab!.getBoundingClientRect();
       // The shell marks side tabs and strip icons explicitly; the geometric
       // test catches anything else that renders a tab taller than it is wide.
-      const vertical = tab!.hasAttribute("data-shell-tab-vertical") || rect.height > rect.width;
+      const vertical =
+        tab!.hasAttribute("data-shell-tab-vertical") ||
+        rect.height > rect.width;
       return { rect, ends: "tab", vertical };
     }
     case "tree":
       // A tree row is a wide, short row: connections land on its near
       // vertical edge, exactly the way a side tab takes them.
-      return { rect: row!.getBoundingClientRect(), ends: "tree", vertical: true };
+      return {
+        rect: row!.getBoundingClientRect(),
+        ends: "tree",
+        vertical: true,
+      };
     case "port":
-      return { rect: port!.getBoundingClientRect(), ends: "port", vertical: false };
+      return {
+        rect: port!.getBoundingClientRect(),
+        ends: "port",
+        vertical: false,
+      };
     default:
       return null;
   }
@@ -296,8 +323,12 @@ function attachTerminal(
     // of its facing edge, toward the channel the source sits across.
     const arrive: 1 | -1 = edgeX === tLeft ? -1 : 1;
     return {
-      band: braces ? undefined : ribbonPath(x0, from.yTop, from.yBot, edgeX, tTop, tBot),
-      link: nub ? braceLinkPath(nub.x, nub.y, dir, edgeX, (tTop + tBot) / 2, arrive) : undefined,
+      band: braces
+        ? undefined
+        : ribbonPath(x0, from.yTop, from.yBot, edgeX, tTop, tBot),
+      link: nub
+        ? braceLinkPath(nub.x, nub.y, dir, edgeX, (tTop + tBot) / 2, arrive)
+        : undefined,
       connector: {
         x: edgeX === tLeft ? tLeft : tRight - CONNECTOR,
         y: tTop,
@@ -314,11 +345,20 @@ function attachTerminal(
         ? tTop
         : tBot;
   return {
-    band: braces ? undefined : ribbonTerminalPath(x0, from.yTop, from.yBot, tLeft, tRight, edgeY),
-    link: nub ? braceLinkToEdgePath(nub.x, nub.y, dir, (tLeft + tRight) / 2, edgeY) : undefined,
+    band: braces
+      ? undefined
+      : ribbonTerminalPath(x0, from.yTop, from.yBot, tLeft, tRight, edgeY),
+    link: nub
+      ? braceLinkToEdgePath(nub.x, nub.y, dir, (tLeft + tRight) / 2, edgeY)
+      : undefined,
     connector:
       terminal.ends === "tab"
-        ? { x: tLeft, y: tBot - CONNECTOR, width: tRight - tLeft, height: CONNECTOR }
+        ? {
+            x: tLeft,
+            y: tBot - CONNECTOR,
+            width: tRight - tLeft,
+            height: CONNECTOR,
+          }
         : undefined,
   };
 }
@@ -337,7 +377,12 @@ function revealStrip(
 ): NonNullable<Shape["reveal"]> {
   const { yTop, yBot } = atLeast(from.yTop, from.yBot, 10);
   const width = 18;
-  return { x: dir === 1 ? x0 - 4 : x0 - width + 4, y: yTop, width, height: yBot - yTop };
+  return {
+    x: dir === 1 ? x0 - 4 : x0 - width + 4,
+    y: yTop,
+    width,
+    height: yBot - yTop,
+  };
 }
 
 /**
@@ -366,7 +411,10 @@ function paneEdges(view: EditorView): {
   const outer = [".cm-right-rail", ".cm-card-rail"]
     .map((selector) => wrapper?.querySelector(`:scope > ${selector}`))
     .filter((el): el is HTMLElement => el instanceof HTMLElement)
-    .reduce((edge, el) => Math.max(edge, el.getBoundingClientRect().right), scroller.right);
+    .reduce(
+      (edge, el) => Math.max(edge, el.getBoundingClientRect().right),
+      scroller.right,
+    );
   return {
     left: scroller.left,
     right: outer,
@@ -379,17 +427,22 @@ function paneEdges(view: EditorView): {
 
 export function RibbonOverlay({
   container,
-  source,
+  sources,
   files,
-  documentVisible = true,
   ribbonStyle = "bands",
   onNavigate,
 }: {
   container: HTMLElement | null;
-  source: RibbonSource | null;
+  /**
+   * Every document the files' provenance reaches: the focused document
+   * first, then any document whose bytes the files carry — a meeting note
+   * two hops upstream that a message quotes. A source with a `view` is on
+   * screen and anchors pane-to-pane; one without gets stubs reaching back to
+   * its tab, tree row, or port. Lineage crosses documents, so the overlay
+   * does too.
+   */
+  sources: readonly RibbonSource[];
   files: readonly RibbonFile[];
-  /** Whether the document itself is on screen. Decides which way stubs go. */
-  documentVisible?: boolean;
   /** Bands (filled Sankey) or braces (curly braces joined by a thin line). */
   ribbonStyle?: RibbonStyle;
   onNavigate?: (target: RibbonTarget) => void;
@@ -400,9 +453,12 @@ export function RibbonOverlay({
   // and port shapes draw only while hovered (plus a grace period so the
   // pointer can travel the line to click its terminal); full pane-to-pane
   // shapes between visible text stay always-on.
-  const [revealedKeys, setRevealedKeys] = useState<ReadonlySet<string>>(() => new Set());
+  const [revealedKeys, setRevealedKeys] = useState<ReadonlySet<string>>(
+    () => new Set(),
+  );
   const reveal = useRef<HoverReveal | null>(null);
-  if (reveal.current === null) reveal.current = new HoverReveal(setRevealedKeys);
+  if (reveal.current === null)
+    reveal.current = new HoverReveal(setRevealedKeys);
   useEffect(() => () => reveal.current?.dispose(), []);
 
   /**
@@ -423,11 +479,15 @@ export function RibbonOverlay({
     if (!container) return;
     const marked: HTMLElement[] = [];
     for (const shape of shapes) {
-      // Only a generated file has a path to find a row by; a document target
-      // is a byte span in the document that is already on screen.
-      if (shape.ends !== "tree" || shape.target.kind !== "generated") continue;
+      // Both kinds of target have a path to find a row by: a generated file,
+      // or a document that is not on screen — the meeting note a message
+      // quoted, say — whose tree row is where its ribbons end.
+      if (shape.ends !== "tree") continue;
       if (!revealedKeys.has(shape.key)) continue;
-      const row = terminalEl(container, `[data-tree-path=${attr(shape.target.path)}]`);
+      const row = terminalEl(
+        container,
+        `[data-tree-path=${attr(shape.target.path)}]`,
+      );
       if (!row) continue;
       row.classList.add("folder-tree__row--aimed");
       // The colour is the ribbon's own, so several revealed at once stay
@@ -462,7 +522,8 @@ export function RibbonOverlay({
       const y = last.clientY - box.top;
       for (const shape of zoned) {
         const hit = (shape.hoverZones ?? []).some(
-          (z) => x >= z.x && x <= z.x + z.width && y >= z.y && y <= z.y + z.height,
+          (z) =>
+            x >= z.x && x <= z.x + z.width && y >= z.y && y <= z.y + z.height,
         );
         if (hit && !inside.has(shape.key)) {
           inside.add(shape.key);
@@ -497,11 +558,16 @@ export function RibbonOverlay({
 
   const setHovered = useCallback((shape: Shape | null) => {
     const previous = hovered.current;
-    if (previous) for (const side of previous.hl) highlightLines(side.view, null);
+    if (previous)
+      for (const side of previous.hl) highlightLines(side.view, null);
     hovered.current = shape;
     if (shape) {
       for (const side of shape.hl) {
-        highlightLines(side.view, { from: side.from, to: side.to, color: shape.color });
+        highlightLines(side.view, {
+          from: side.from,
+          to: side.to,
+          color: shape.color,
+        });
       }
     }
   }, []);
@@ -510,20 +576,11 @@ export function RibbonOverlay({
   useEffect(() => () => setHovered(null), [setHovered]);
 
   const measure = useCallback(() => {
-    if (!container || !source || files.length === 0) {
+    if (!container || sources.length === 0 || files.length === 0) {
       setShapes((current) => (current.length === 0 ? current : []));
       return;
     }
     const box = container.getBoundingClientRect();
-    const documentView = source.view ?? null;
-    // The channel is the space between the two RAILS: connections anchor on
-    // the outer edge of the line-number rail facing the gap, so a ribbon
-    // visibly spans from number column to number column.
-    const left = documentView?.scrollDOM.getBoundingClientRect() ?? null;
-    const docEdges = documentView ? paneEdges(documentView) : null;
-    const structure = documentView ? structureOf(documentView.state) : null;
-    const sourceLength = documentView?.state.doc.length ?? 0;
-
     const braces = ribbonStyle === "braces";
     const out: Shape[] = [];
     const colours = new Map<string, number>();
@@ -536,257 +593,243 @@ export function RibbonOverlay({
       return assigned;
     };
 
-    for (const entry of files) {
-      const ribbons = deriveRibbons(entry.file, source.docPath, source.docSource);
-      if (ribbons.length === 0) continue;
+    for (const source of sources) {
+      // A fragment is identified by its span IN ITS DOCUMENT: the same byte
+      // range in two documents is two fragments, two colours.
+      const fragmentIn = (key: string) => `${source.docPath}\u0000${key}`;
+      const documentView = source.view ?? null;
+      const documentVisible = documentView !== null;
+      // The channel is the space between the two RAILS: connections anchor on
+      // the outer edge of the line-number rail facing the gap, so a ribbon
+      // visibly spans from number column to number column.
+      const left = documentView?.scrollDOM.getBoundingClientRect() ?? null;
+      const docEdges = documentView ? paneEdges(documentView) : null;
+      const structure = documentView ? structureOf(documentView.state) : null;
+      const sourceLength = documentView?.state.doc.length ?? 0;
 
-      if (entry.view && documentView && left && docEdges && structure) {
-        const right = entry.view.scrollDOM.getBoundingClientRect();
-        const outEdges = paneEdges(entry.view);
-        // Panes can be in any order: a generated file to the LEFT of its
-        // document is an arrangement someone is allowed to build. Whichever
-        // pane is left anchors on its RIGHT rail's outer edge, the other on
-        // its LEFT gutter's outer edge.
-        const { forward, x0, x1 } = anchorEdges(
-          { left: docEdges.left - box.left, right: docEdges.right - box.left },
-          { left: outEdges.left - box.left, right: outEdges.right - box.left },
+      for (const entry of files) {
+        const ribbons = deriveRibbons(
+          entry.file,
+          source.docPath,
+          source.docSource,
         );
-        const targetLength = entry.view.state.doc.length;
+        if (ribbons.length === 0) continue;
 
-        for (const ribbon of ribbons) {
-          const fullRange = sourceRange(structure, ribbon, sourceLength);
-          // Drawn extents cover only lines the span VISIBLY owns: a newline
-          // or indentation on a line whose characters belong to another
-          // span must not inflate a line-granular brace into claiming that
-          // line (lib/ribbons.ts::drawnRange). A side owning no visible
-          // line keeps its full extent but joins the hover-only shapes.
-          const trimmedSrc = drawnRange(source.docSource, fullRange[0], fullRange[1]);
-          const range = trimmedSrc ?? fullRange;
+        if (entry.view && documentView && left && docEdges && structure) {
+          const right = entry.view.scrollDOM.getBoundingClientRect();
+          const outEdges = paneEdges(entry.view);
+          // Panes can be in any order: a generated file to the LEFT of its
+          // document is an arrangement someone is allowed to build. Whichever
+          // pane is left anchors on its RIGHT rail's outer edge, the other on
+          // its LEFT gutter's outer edge.
+          const { forward, x0, x1 } = anchorEdges(
+            {
+              left: docEdges.left - box.left,
+              right: docEdges.right - box.left,
+            },
+            {
+              left: outEdges.left - box.left,
+              right: outEdges.right - box.left,
+            },
+          );
+          const targetLength = entry.view.state.doc.length;
+
+          for (const ribbon of ribbons) {
+            const fullRange = sourceRange(structure, ribbon, sourceLength);
+            // Drawn extents cover only lines the span VISIBLY owns: a newline
+            // or indentation on a line whose characters belong to another
+            // span must not inflate a line-granular brace into claiming that
+            // line (lib/ribbons.ts::drawnRange). A side owning no visible
+            // line keeps its full extent but joins the hover-only shapes.
+            const trimmedSrc = drawnRange(
+              source.docSource,
+              fullRange[0],
+              fullRange[1],
+            );
+            const range = trimmedSrc ?? fullRange;
+            const band = bandBetween(documentView, range[0], range[1]);
+            const fullOutFrom = Math.min(ribbon.outputRange[0], targetLength);
+            const fullOutTo = Math.min(ribbon.outputRange[1], targetLength);
+            const trimmedOut = drawnRange(
+              entry.file.content,
+              fullOutFrom,
+              fullOutTo,
+            );
+            const [outFrom, outTo] = trimmedOut ?? [fullOutFrom, fullOutTo];
+            const hoverOnlySide = trimmedSrc === null || trimmedOut === null;
+            const to = bandBetween(entry.view, outFrom, outTo);
+            if (!band || !to) continue;
+            // EXACT: the band's vertical extent is [top of first involved
+            // line, bottom of last], clamped to the pane — no minimum-height
+            // inflation, because a line is already a readable, clickable row.
+            const from = clampBand(
+              band[0] - box.top,
+              band[1] - box.top,
+              left.top - box.top,
+              left.bottom - box.top,
+            );
+            const into = clampBand(
+              to[0] - box.top,
+              to[1] - box.top,
+              right.top - box.top,
+              right.bottom - box.top,
+            );
+            const hl: HlSide[] = [
+              { view: documentView, from: range[0], to: range[1] },
+              { view: entry.view, from: outFrom, to: outTo },
+            ];
+            const shape: Shape = {
+              key: `${entry.file.path}:${ribbon.key}`,
+              color: colourFor(fragmentIn(fragmentKey(ribbon))),
+              clamped: from.clamped || into.clamped,
+              ends: "text",
+              hl,
+              target: {
+                kind: "generated",
+                path: entry.file.path,
+                range: ribbon.outputRange,
+              },
+            };
+            if (ribbon.whitespaceOnly || hoverOnlySide) {
+              const pad = 4; // a blank line's band is a few pixels tall
+              shape.whitespaceOnly = true;
+              shape.hoverZones = [
+                {
+                  x: docEdges.left - box.left,
+                  y: from.yTop - pad,
+                  width: docEdges.right - docEdges.left,
+                  height: from.yBot - from.yTop + pad * 2,
+                },
+                {
+                  x: outEdges.left - box.left,
+                  y: into.yTop - pad,
+                  width: outEdges.right - outEdges.left,
+                  height: into.yBot - into.yTop + pad * 2,
+                },
+              ];
+            }
+            if (braces) {
+              // Orientation is a property of the SIDE, not the link: a brace
+              // on a file's right edge is a closing `}` (nub bulging right,
+              // away from the text), on its left edge an opening `{`. The
+              // two braces embrace their own file's text: { text } .
+              const dir: 1 | -1 = forward ? 1 : -1;
+              const back: 1 | -1 = dir === 1 ? -1 : 1;
+              // Horns reach back across the anchored rail so the brace wraps
+              // the line numbers of the included range; a clamped end stays
+              // OPEN — no horn at all — so the spine visibly runs off the
+              // viewport edge where the range continues.
+              const hornA = forward ? docEdges.rightRailW : docEdges.leftRailW;
+              const hornB = forward ? outEdges.leftRailW : outEdges.rightRailW;
+              const a = bracePath(
+                x0,
+                from.yTop,
+                from.yBot,
+                dir,
+                undefined,
+                { top: from.clampedTop, bottom: from.clampedBottom },
+                hornA,
+              );
+              const b = bracePath(
+                x1,
+                into.yTop,
+                into.yBot,
+                back,
+                undefined,
+                { top: into.clampedTop, bottom: into.clampedBottom },
+                hornB,
+              );
+              const nubA = braceNub(x0, from.yTop, from.yBot, dir);
+              const nubB = braceNub(x1, into.yTop, into.yBot, back);
+              // Each end leaves its nub along that nub's own outward
+              // direction: C1 at both tips, so the line reads as growing out
+              // of the braces rather than cornering off them.
+              const link = braceLinkPath(
+                nubA.x,
+                nubA.y,
+                dir,
+                nubB.x,
+                nubB.y,
+                back,
+              );
+              shape.brace = { a, b, link, hit: `${a} ${link} ${b}` };
+            } else {
+              shape.band = ribbonPath(
+                x0,
+                from.yTop,
+                from.yBot,
+                x1,
+                into.yTop,
+                into.yBot,
+              );
+            }
+            out.push(shape);
+          }
+          continue;
+        }
+
+        // No editor for this file: the ribbon still says where its text went,
+        // it just terminates on chrome instead of floating over content — the
+        // file's own tab when a pane holds it inactive, or the "open here"
+        // port the shell lays out in the divider when nothing does. One band
+        // per source block rather than per fragment: one file that a block
+        // feeds is one statement, not fifty.
+        if (!documentView || !left || !docEdges || !structure) continue;
+        const terminal = findTerminal(container, "generated", entry.file.path);
+        if (!terminal) continue;
+        const tMid = (terminal.rect.left + terminal.rect.right) / 2 - box.left;
+        // Leave from whichever rail of the document faces the terminal: a tab
+        // can be in a pane on either side.
+        const docL = docEdges.left - box.left;
+        const docR = docEdges.right - box.left;
+        const x0 = tMid >= (docL + docR) / 2 ? docR : docL;
+
+        for (const [key, group] of groupBySourceBlock(ribbons)) {
+          const fullRange = sourceRange(structure, group.ribbon, sourceLength);
+          const range =
+            drawnRange(source.docSource, fullRange[0], fullRange[1]) ??
+            fullRange;
           const band = bandBetween(documentView, range[0], range[1]);
-          const fullOutFrom = Math.min(ribbon.outputRange[0], targetLength);
-          const fullOutTo = Math.min(ribbon.outputRange[1], targetLength);
-          const trimmedOut = drawnRange(entry.file.content, fullOutFrom, fullOutTo);
-          const [outFrom, outTo] = trimmedOut ?? [fullOutFrom, fullOutTo];
-          const hoverOnlySide = trimmedSrc === null || trimmedOut === null;
-          const to = bandBetween(entry.view, outFrom, outTo);
-          if (!band || !to) continue;
-          // EXACT: the band's vertical extent is [top of first involved
-          // line, bottom of last], clamped to the pane — no minimum-height
-          // inflation, because a line is already a readable, clickable row.
+          if (!band) continue;
           const from = clampBand(
             band[0] - box.top,
             band[1] - box.top,
             left.top - box.top,
             left.bottom - box.top,
           );
-          const into = clampBand(
-            to[0] - box.top,
-            to[1] - box.top,
-            right.top - box.top,
-            right.bottom - box.top,
-          );
-          const hl: HlSide[] = [
-            { view: documentView, from: range[0], to: range[1] },
-            { view: entry.view, from: outFrom, to: outTo },
-          ];
-          const shape: Shape = {
-            key: `${entry.file.path}:${ribbon.key}`,
-            color: colourFor(fragmentKey(ribbon)),
-            clamped: from.clamped || into.clamped,
-            ends: "text",
-            hl,
-            target: {
-              kind: "generated",
-              path: entry.file.path,
-              range: ribbon.outputRange,
-            },
-          };
-          if (ribbon.whitespaceOnly || hoverOnlySide) {
-            const pad = 4; // a blank line's band is a few pixels tall
-            shape.whitespaceOnly = true;
-            shape.hoverZones = [
-              {
-                x: docEdges.left - box.left,
-                y: from.yTop - pad,
-                width: docEdges.right - docEdges.left,
-                height: from.yBot - from.yTop + pad * 2,
-              },
-              {
-                x: outEdges.left - box.left,
-                y: into.yTop - pad,
-                width: outEdges.right - outEdges.left,
-                height: into.yBot - into.yTop + pad * 2,
-              },
-            ];
-          }
-          if (braces) {
-            // Orientation is a property of the SIDE, not the link: a brace
-            // on a file's right edge is a closing `}` (nub bulging right,
-            // away from the text), on its left edge an opening `{`. The
-            // two braces embrace their own file's text: { text } .
-            const dir: 1 | -1 = forward ? 1 : -1;
-            const back: 1 | -1 = dir === 1 ? -1 : 1;
-            // Horns reach back across the anchored rail so the brace wraps
-            // the line numbers of the included range; a clamped end stays
-            // OPEN — no horn at all — so the spine visibly runs off the
-            // viewport edge where the range continues.
-            const hornA = forward ? docEdges.rightRailW : docEdges.leftRailW;
-            const hornB = forward ? outEdges.leftRailW : outEdges.rightRailW;
-            const a = bracePath(
-              x0,
-              from.yTop,
-              from.yBot,
-              dir,
-              undefined,
-              { top: from.clampedTop, bottom: from.clampedBottom },
-              hornA,
-            );
-            const b = bracePath(
-              x1,
-              into.yTop,
-              into.yBot,
-              back,
-              undefined,
-              { top: into.clampedTop, bottom: into.clampedBottom },
-              hornB,
-            );
-            const nubA = braceNub(x0, from.yTop, from.yBot, dir);
-            const nubB = braceNub(x1, into.yTop, into.yBot, back);
-            // Each end leaves its nub along that nub's own outward
-            // direction: C1 at both tips, so the line reads as growing out
-            // of the braces rather than cornering off them.
-            const link = braceLinkPath(nubA.x, nubA.y, dir, nubB.x, nubB.y, back);
-            shape.brace = { a, b, link, hit: `${a} ${link} ${b}` };
-          } else {
-            shape.band = ribbonPath(x0, from.yTop, from.yBot, x1, into.yTop, into.yBot);
-          }
-          out.push(shape);
-        }
-        continue;
-      }
-
-      // No editor for this file: the ribbon still says where its text went,
-      // it just terminates on chrome instead of floating over content — the
-      // file's own tab when a pane holds it inactive, or the "open here"
-      // port the shell lays out in the divider when nothing does. One band
-      // per source block rather than per fragment: one file that a block
-      // feeds is one statement, not fifty.
-      if (!documentView || !left || !docEdges || !structure) continue;
-      const terminal = findTerminal(container, "generated", entry.file.path);
-      if (!terminal) continue;
-      const tMid = (terminal.rect.left + terminal.rect.right) / 2 - box.left;
-      // Leave from whichever rail of the document faces the terminal: a tab
-      // can be in a pane on either side.
-      const docL = docEdges.left - box.left;
-      const docR = docEdges.right - box.left;
-      const x0 = tMid >= (docL + docR) / 2 ? docR : docL;
-
-      for (const [key, group] of groupBySourceBlock(ribbons)) {
-        const fullRange = sourceRange(structure, group.ribbon, sourceLength);
-        const range =
-          drawnRange(source.docSource, fullRange[0], fullRange[1]) ?? fullRange;
-        const band = bandBetween(documentView, range[0], range[1]);
-        if (!band) continue;
-        const from = clampBand(
-          band[0] - box.top,
-          band[1] - box.top,
-          left.top - box.top,
-          left.bottom - box.top,
-        );
-        // `+1` iff x0 is the pane's RIGHT edge (the same predicate that
-        // chose x0): the brace always bulges away from its file's text —
-        // left edge = `{`, right edge = `}` — never toward it, wherever
-        // the tab or port happens to sit.
-        const dir: 1 | -1 = x0 === docR ? 1 : -1;
-        // Horn reaches back across whichever rail the brace anchors on.
-        const horn = x0 === docR ? docEdges.rightRailW : docEdges.leftRailW;
-        const nub = braces ? braceNub(x0, from.yTop, from.yBot, dir) : null;
-        // A top tab is attached from below; a vertical terminal (side tree,
-        // collapsed strip, folder-tree row) on its facing edge; a port on
-        // whichever horizontal edge faces the source. attachTerminal decides.
-        const attach = attachTerminal(terminal, box, x0, from, braces, nub, dir);
-        const shape: Shape = {
-          key: `${entry.file.path}:${terminal.ends}:${key}`,
-          color: colourFor(key),
-          clamped: from.clamped,
-          ends: terminal.ends,
-          reveal: revealStrip(x0, dir, from),
-          connector: attach.connector,
-          hl: [{ view: documentView, from: range[0], to: range[1] }],
-          target: {
-            kind: "generated",
-            path: entry.file.path,
-            range: group.ribbon.outputRange,
-          },
-        };
-        if (braces && attach.link) {
-          const a = bracePath(
-            x0,
-            from.yTop,
-            from.yBot,
-            dir,
-            undefined,
-            { top: from.clampedTop, bottom: from.clampedBottom },
-            horn,
-          );
-          shape.brace = { a, link: attach.link, hit: `${a} ${attach.link}` };
-        } else {
-          shape.band = attach.band;
-        }
-        out.push(shape);
-      }
-    }
-
-    // The other direction: a generated pane whose document is not on screen
-    // gets bands of its own, reaching back the way they came — to the
-    // document's inactive tab when a pane holds it, or to its divider port
-    // when none does. Provenance is symmetrical and so is the question —
-    // "where did this come from" is asked from the generated side at least
-    // as often.
-    if (!documentVisible) {
-      const terminal = findTerminal(container, "document", source.docPath);
-      for (const entry of files) {
-        if (!entry.view || !terminal) continue;
-        const pane = entry.view.scrollDOM.getBoundingClientRect();
-        const genEdges = paneEdges(entry.view);
-        const tMid = (terminal.rect.left + terminal.rect.right) / 2 - box.left;
-        const genL = genEdges.left - box.left;
-        const genR = genEdges.right - box.left;
-        const x0 = tMid >= (genL + genR) / 2 ? genR : genL;
-        const byBlock = groupBySourceBlock(
-          deriveRibbons(entry.file, source.docPath, source.docSource),
-        );
-        for (const [key, group] of byBlock) {
-          const targetLength = entry.view.state.doc.length;
-          const fullOutFrom = Math.min(group.ribbon.outputRange[0], targetLength);
-          const fullOutTo = Math.min(group.ribbon.outputRange[1], targetLength);
-          const [outFrom, outTo] =
-            drawnRange(entry.file.content, fullOutFrom, fullOutTo) ??
-            [fullOutFrom, fullOutTo];
-          const band = bandBetween(entry.view, outFrom, outTo);
-          if (!band) continue;
-          const from = clampBand(
-            band[0] - box.top,
-            band[1] - box.top,
-            pane.top - box.top,
-            pane.bottom - box.top,
-          );
-          // Same rule as the document side: orientation follows the
-          // anchored edge, bulging away from this file's text.
-          const dir: 1 | -1 = x0 === genR ? 1 : -1;
+          // `+1` iff x0 is the pane's RIGHT edge (the same predicate that
+          // chose x0): the brace always bulges away from its file's text —
+          // left edge = `{`, right edge = `}` — never toward it, wherever
+          // the tab or port happens to sit.
+          const dir: 1 | -1 = x0 === docR ? 1 : -1;
           // Horn reaches back across whichever rail the brace anchors on.
-          const horn = x0 === genR ? genEdges.rightRailW : genEdges.leftRailW;
+          const horn = x0 === docR ? docEdges.rightRailW : docEdges.leftRailW;
           const nub = braces ? braceNub(x0, from.yTop, from.yBot, dir) : null;
-          const attach = attachTerminal(terminal, box, x0, from, braces, nub, dir);
+          // A top tab is attached from below; a vertical terminal (side tree,
+          // collapsed strip, folder-tree row) on its facing edge; a port on
+          // whichever horizontal edge faces the source. attachTerminal decides.
+          const attach = attachTerminal(
+            terminal,
+            box,
+            x0,
+            from,
+            braces,
+            nub,
+            dir,
+          );
           const shape: Shape = {
-            key: `${entry.file.path}:back:${key}`,
-            color: colourFor(key),
+            key: `${source.docPath}:${entry.file.path}:${terminal.ends}:${key}`,
+            color: colourFor(fragmentIn(key)),
             clamped: from.clamped,
             ends: terminal.ends,
             reveal: revealStrip(x0, dir, from),
             connector: attach.connector,
-            hl: [{ view: entry.view, from: outFrom, to: outTo }],
-            target: { kind: "document", span: group.ribbon.sourceByteSpan },
+            hl: [{ view: documentView, from: range[0], to: range[1] }],
+            target: {
+              kind: "generated",
+              path: entry.file.path,
+              range: group.ribbon.outputRange,
+            },
           };
           if (braces && attach.link) {
             const a = bracePath(
@@ -805,12 +848,107 @@ export function RibbonOverlay({
           out.push(shape);
         }
       }
+
+      // The other direction: a generated pane whose document is not on screen
+      // gets bands of its own, reaching back the way they came — to the
+      // document's inactive tab when a pane holds it, or to its divider port
+      // when none does. Provenance is symmetrical and so is the question —
+      // "where did this come from" is asked from the generated side at least
+      // as often.
+      if (!documentVisible) {
+        const terminal = findTerminal(container, "document", source.docPath);
+        for (const entry of files) {
+          if (!entry.view || !terminal) continue;
+          const pane = entry.view.scrollDOM.getBoundingClientRect();
+          const genEdges = paneEdges(entry.view);
+          const tMid =
+            (terminal.rect.left + terminal.rect.right) / 2 - box.left;
+          const genL = genEdges.left - box.left;
+          const genR = genEdges.right - box.left;
+          const x0 = tMid >= (genL + genR) / 2 ? genR : genL;
+          const byBlock = groupBySourceBlock(
+            deriveRibbons(entry.file, source.docPath, source.docSource),
+          );
+          for (const [key, group] of byBlock) {
+            const targetLength = entry.view.state.doc.length;
+            const fullOutFrom = Math.min(
+              group.ribbon.outputRange[0],
+              targetLength,
+            );
+            const fullOutTo = Math.min(
+              group.ribbon.outputRange[1],
+              targetLength,
+            );
+            const [outFrom, outTo] = drawnRange(
+              entry.file.content,
+              fullOutFrom,
+              fullOutTo,
+            ) ?? [fullOutFrom, fullOutTo];
+            const band = bandBetween(entry.view, outFrom, outTo);
+            if (!band) continue;
+            const from = clampBand(
+              band[0] - box.top,
+              band[1] - box.top,
+              pane.top - box.top,
+              pane.bottom - box.top,
+            );
+            // Same rule as the document side: orientation follows the
+            // anchored edge, bulging away from this file's text.
+            const dir: 1 | -1 = x0 === genR ? 1 : -1;
+            // Horn reaches back across whichever rail the brace anchors on.
+            const horn = x0 === genR ? genEdges.rightRailW : genEdges.leftRailW;
+            const nub = braces ? braceNub(x0, from.yTop, from.yBot, dir) : null;
+            const attach = attachTerminal(
+              terminal,
+              box,
+              x0,
+              from,
+              braces,
+              nub,
+              dir,
+            );
+            const shape: Shape = {
+              key: `${source.docPath}:${entry.file.path}:back:${key}`,
+              color: colourFor(fragmentIn(key)),
+              clamped: from.clamped,
+              ends: terminal.ends,
+              reveal: revealStrip(x0, dir, from),
+              connector: attach.connector,
+              hl: [{ view: entry.view, from: outFrom, to: outTo }],
+              target: {
+                kind: "document",
+                path: source.docPath,
+                span: group.ribbon.sourceByteSpan,
+              },
+            };
+            if (braces && attach.link) {
+              const a = bracePath(
+                x0,
+                from.yTop,
+                from.yBot,
+                dir,
+                undefined,
+                { top: from.clampedTop, bottom: from.clampedBottom },
+                horn,
+              );
+              shape.brace = {
+                a,
+                link: attach.link,
+                hit: `${a} ${attach.link}`,
+              };
+            } else {
+              shape.band = attach.band;
+            }
+            out.push(shape);
+          }
+        }
+      }
     }
 
     // Measured twice a second whether or not anything moved; commit only a
     // real change, or the SVG re-renders on every tick.
     setShapes((current) => (sameShapes(current, out) ? current : out));
-  }, [container, source, files, documentVisible, ribbonStyle]);
+  }, [container, sources, files, ribbonStyle]);
 
   // Measurement follows the things that move: scrolling either pane, editing
   // either buffer, and the window changing shape. Throttled to a frame,
@@ -825,7 +963,10 @@ export function RibbonOverlay({
     };
     schedule();
 
-    const views = [source?.view, ...files.map((f) => f.view)].filter(Boolean) as EditorView[];
+    const views = [
+      ...sources.map((s) => s.view),
+      ...files.map((f) => f.view),
+    ].filter(Boolean) as EditorView[];
     const scrollers = views.map((view) => view.scrollDOM);
     for (const scroller of scrollers) {
       scroller.addEventListener("scroll", schedule, { passive: true });
@@ -836,14 +977,15 @@ export function RibbonOverlay({
     const timer = window.setInterval(schedule, 500);
 
     return () => {
-      for (const scroller of scrollers) scroller.removeEventListener("scroll", schedule);
+      for (const scroller of scrollers)
+        scroller.removeEventListener("scroll", schedule);
       window.removeEventListener("resize", schedule);
       observer.disconnect();
       window.clearInterval(timer);
       if (frame.current !== null) cancelAnimationFrame(frame.current);
       frame.current = null;
     };
-  }, [measure, container, source, files]);
+  }, [measure, container, sources, files]);
 
   if (shapes.length === 0) return null;
   return (
@@ -854,7 +996,7 @@ export function RibbonOverlay({
             {shape.target.kind === "document"
               ? shape.ends === "text"
                 ? "Show the prose this came from"
-                : "Bring the document back — this text came from it"
+                : `Open ${shape.target.path} — this text came from it`
               : shape.ends === "tab"
                 ? `Show ${shape.target.path} — its tab is right here`
                 : shape.ends === "tree"
@@ -925,9 +1067,15 @@ export function RibbonOverlay({
                 <path d={shape.brace.hit} className="ribbon-brace-hit">
                   {title}
                 </path>
-                <path d={shape.brace.a} className={`ribbon-brace ribbon-bc${shape.color}${modifier}`} />
+                <path
+                  d={shape.brace.a}
+                  className={`ribbon-brace ribbon-bc${shape.color}${modifier}`}
+                />
                 {shape.brace.b && (
-                  <path d={shape.brace.b} className={`ribbon-brace ribbon-bc${shape.color}${modifier}`} />
+                  <path
+                    d={shape.brace.b}
+                    className={`ribbon-brace ribbon-bc${shape.color}${modifier}`}
+                  />
                 )}
                 <path
                   d={shape.brace.link}
@@ -935,7 +1083,10 @@ export function RibbonOverlay({
                 />
               </>
             ) : shown ? (
-              <path d={shape.band} className={`ribbon ribbon-c${shape.color}${modifier}`}>
+              <path
+                d={shape.band}
+                className={`ribbon ribbon-c${shape.color}${modifier}`}
+              >
                 {title}
               </path>
             ) : null}
@@ -971,7 +1122,9 @@ function sourceRange(
   let to = Math.min(ribbon.sourceSpan[1], length);
   for (const block of structure.blocks) {
     if (
-      (block.name === "copy" || block.name === "cut" || block.name === "file") &&
+      (block.name === "copy" ||
+        block.name === "cut" ||
+        block.name === "file") &&
       ribbon.sourceSpan[0] >= block.from &&
       ribbon.sourceSpan[1] <= block.to
     ) {
@@ -994,7 +1147,11 @@ function sourceRange(
  * clamps the result to the visible pane. The answer is EXACT: the top of the
  * first line holding `from` to the bottom of the last line holding `to`.
  */
-function bandBetween(view: EditorView, from: number, to: number): [number, number] | null {
+function bandBetween(
+  view: EditorView,
+  from: number,
+  to: number,
+): [number, number] | null {
   // Blocks are document-relative; the screen conversion is documentTop —
   // NOT contentDOM's rect, which sits a content-padding away, and by a
   // different amount per editor. The rails convert through documentTop
@@ -1022,9 +1179,9 @@ function textOnly(block: { top: number; bottom: number; type: unknown }): {
   bottom: number;
 } {
   if (Array.isArray(block.type)) {
-    const text = (block.type as { type: BlockType; top: number; bottom: number }[]).find(
-      (c) => c.type === BlockType.Text,
-    );
+    const text = (
+      block.type as { type: BlockType; top: number; bottom: number }[]
+    ).find((c) => c.type === BlockType.Text);
     if (text) return { top: text.top, bottom: text.bottom };
   }
   return { top: block.top, bottom: block.bottom };

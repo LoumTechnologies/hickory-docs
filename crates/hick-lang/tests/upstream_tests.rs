@@ -48,14 +48,22 @@ fn selectors_reach_through_the_whole_chain_not_just_one_hop() {
     let dir = tempfile::tempdir().unwrap();
     chain(dir.path());
     let doc = resolve(dir.path(), r#"<hick:upstream file="domain.hick" />"#).unwrap();
-    let ids: Vec<_> = doc
-        .find_tags("copy")
-        .iter()
-        .filter_map(|t| t.get_attribute("id").map(str::to_string))
-        .collect();
+    // The edge stays in the tree holding what it brought, so selectors — not
+    // a top-level scan — are how anything reaches it.
     // `notes.hick` is two hops away and never named by this document.
-    assert!(ids.contains(&"metering-basis".to_string()), "{ids:?}");
-    assert!(ids.contains(&"term-allowance".to_string()), "{ids:?}");
+    assert_eq!(
+        hick_lang::fragments_matching(&doc, "#metering-basis").len(),
+        1
+    );
+    assert_eq!(
+        hick_lang::fragments_matching(&doc, "#term-allowance").len(),
+        1
+    );
+    assert_eq!(
+        doc.find_tags("upstream").len(),
+        1,
+        "the edge itself remains"
+    );
 }
 
 #[test]

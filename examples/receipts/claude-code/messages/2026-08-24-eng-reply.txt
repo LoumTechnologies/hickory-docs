@@ -1,0 +1,3 @@
+Sam's answer from Thursday's sync, verbatim:
+
+> Yes, the instance is configured for two hundred and we have three app replicas. Forty each is a hundred twenty, which is inside that.

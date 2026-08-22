@@ -7,3 +7,6 @@ license.workspace = true
 
 [dependencies]
 hick-lang = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"

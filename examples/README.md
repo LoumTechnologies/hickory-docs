@@ -45,3 +45,12 @@ named fact blocks — so `hick lineage` (and the app's ribbons) answer "where
 did that number come from?" byte-for-byte. Also shows that a document may
 bind ANY prefix to the hickory namespace: this one reads as `<slack:copy>`,
 `<slack:file>`.
+
+## `receipts/`
+
+A Slack message with receipts, built twice (by Claude Code and by the
+built-in agent): meeting → analysis → fix → message, each sentence a fragment
+with a model-written check under it, the Slack text a generated file whose
+lineage runs back to the meeting turn. See `receipts/README.md` and
+`docs/specs/freeform/receipts-for-a-message.md`. Needs `python3` (standard
+library) to run; verifies with no key.

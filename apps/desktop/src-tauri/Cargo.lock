@@ -2553,6 +2553,7 @@ dependencies = [
  "anyhow",
  "async-trait",
  "axum 0.8.9",
+ "base64 0.22.1",
  "clap",
  "env_logger",
  "fs2",

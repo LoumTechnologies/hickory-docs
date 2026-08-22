@@ -23,7 +23,13 @@ Four properties hold it up:
    and `said` are fragment tags, so `select="#t"` takes the whole meeting,
    `select="#t-u12"` one turn, and `select=".said-sam"` one person's. Selecting
    a whole transcript does **not** also select its turns, or a summary's input
-   would contain every sentence twice.
+   would contain every sentence twice. The same selectors work for
+   `hick:paste` (a turn is registered as a pasteable fragment when the document
+   is prepared, with its span in the meeting file) and **across
+   `hick:upstream`**: the transcript travels the edge like any fragment, its
+   turns are derived after the splice and keep the meeting file's stamp, and
+   the edge itself stays in the tree holding what it brought — so the weave of
+   a note downstream of a meeting does not reprint the meeting.
 3. **A turn knows where it came from.** Each derived `said` carries a span into
    the transcript bytes, so lineage can answer *"Sam, at 00:14:03"* rather than
    pointing at a wall of text.
@@ -51,7 +57,17 @@ span, not a new rule.
 
 ---
 
-Last LLM verification:
+Last LLM verification (2026-08-22, Claude Fable 5): re-verified after making
+turns pasteable and upstream-selectable — `TranscriptHandler` in
+`crates/hick-handlers/src/handlers/copy.rs`; `collect_fragments_any` and the
+`upstream` arm of `resolve_includes_in_nodes` in `crates/hick-lang/src/lib.rs`;
+`declare_nodes` in `crates/hick-literate/src/lib.rs`; the `"upstream"` weave arm
+in `crates/hick-literate/src/weave.rs`. Tests:
+`crates/hick-transcript/tests/upstream.rs`,
+`examples/receipts/*/message.hick` (a reply file quoting `#transcript-u7` two
+hops upstream; `hick lineage` names the meeting file for those bytes).
+
+Previous LLM verification:
 - Date: 2026-08-18
 - Reviewer: Claude (Opus 5)
 - Result: verified (implemented and reviewed in the same change)

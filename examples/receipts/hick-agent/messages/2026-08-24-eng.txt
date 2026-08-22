@@ -1,0 +1,12 @@
+
+Checkout latency, 2026-08-24:
+
+After the fix deployed Friday, checkout p95 latency is 287 ms, down from 412 ms — back under our 300 ms SLO.
+
+Root cause: the checkout service's DB connection pool was sized at 20, and under load we were queueing for connections with a 500 ms timeout — the fix raised the pool to 40 and the timeout to 2s, gated by feature flag `checkout_db_pool_v2`.
+
+These numbers exclude the load-test window on 2026-08-22 14:00–15:00 UTC.
+
+We don't need to revisit the pool size before Q4 unless traffic doubles. (my judgment, not a measurement)
+
+Questions? Ask about any line.

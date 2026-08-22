@@ -1,0 +1,11 @@
+Checkout latency, 2026-08-24:
+
+Checkout p95 is back under the 300 ms SLO: 212 ms since Friday's fix, down from 489 ms between the Aug 12 deploy and the fix.
+
+Root cause was the connection pool exhausting at peak — we were at 10 connections; the fix raises it to 40 with a 2 s acquire timeout, behind the CHECKOUT_POOL_FIX flag.
+
+The numbers exclude the Aug 18 10:00–12:00 load-test window.
+
+I don't think we need to revisit the pool size before Q4 unless traffic doubles. (my judgment, not a measurement)
+
+Ask me about any line and I will show you where it came from.

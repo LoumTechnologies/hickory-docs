@@ -17,10 +17,24 @@
 //
 // See docs/specs/freeform/shell-layouts.md.
 
-import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import {
+  Suspense,
+  lazy,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 
 import { api } from "../api/client";
-import type { DocSummary, FileNode, OpenTerminal, SearchHit } from "../api/types";
+import type {
+  DocSummary,
+  FileNode,
+  OpenTerminal,
+  SearchHit,
+} from "../api/types";
 import { ChatDock } from "../components/ChatDock";
 import { InsertMenu } from "../components/InsertMenu";
 import { PlainFilePane } from "../components/PlainFilePane";
@@ -28,7 +42,10 @@ import { ScratchpadPane } from "../components/ScratchpadPane";
 import { SearchPanel } from "../components/SearchPanel";
 import { ReferencesPanel } from "../components/ReferencesPanel";
 import { PromptPanel, usePrompt } from "../components/PromptPanel";
-import { resolveSearchHit, type SearchNavigation } from "../lib/searchNavigation";
+import {
+  resolveSearchHit,
+  type SearchNavigation,
+} from "../lib/searchNavigation";
 import { insertTarget, type MenuAction } from "../lib/menuBridge";
 import { insertElement } from "../editor/insertElement";
 import { loadRibbonStyle, type RibbonStyle } from "../lib/ribbonStyle";
@@ -39,12 +56,19 @@ import { deriveRibbons } from "../lib/ribbons";
 import { flashTab } from "../lib/flashTab";
 import { nodeForAbsolutePath } from "../lib/openPath";
 import { ShellView, type ShellPort } from "../shell/ShellView";
-import { RibbonOverlay, type RibbonFile } from "../shell/Ribbons";
+import {
+  RibbonOverlay,
+  type RibbonFile,
+  type RibbonSource,
+} from "../shell/Ribbons";
+import { samePath } from "../lib/paths";
 import {
   FILES_CHANGED_EVENT,
   FolderTreePane,
   isLikelyBinaryPath,
-  useFolderTrees, fileAction } from "../shell/FolderTreePane";
+  useFolderTrees,
+  fileAction,
+} from "../shell/FolderTreePane";
 import {
   activate,
   paneById,
@@ -80,7 +104,11 @@ import {
   WELCOME_TAB,
   GIT_TAB,
 } from "./workspaceState";
-import { DocSessionHost, SessionRegistry, useSessionVersion } from "./documentSession";
+import {
+  DocSessionHost,
+  SessionRegistry,
+  useSessionVersion,
+} from "./documentSession";
 import { AttentionCard } from "../terminal/AttentionCard";
 import { MonitorDock } from "../terminal/MonitorDock";
 // The terminal emulator is a quarter of a megabyte of JavaScript that a
@@ -98,7 +126,11 @@ import { useZoom } from "./useZoom";
 import { StatusBar } from "../shell/StatusBar";
 import { WelcomePane, type WelcomeAction } from "./WelcomePane";
 import { GitPane } from "./GitPane";
-import { CommandBar, type CommandItem, type CommandMode } from "../shell/CommandBar";
+import {
+  CommandBar,
+  type CommandItem,
+  type CommandMode,
+} from "../shell/CommandBar";
 import { loadShowWelcome } from "../lib/welcomePref";
 import { severityOf, totalProblems } from "../lib/problems";
 import { positionToUtf16 } from "../lsp/positions";
@@ -142,8 +174,12 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   layoutRef.current = layout;
   // Read through refs by the welcome page's actions and the top field's
   // candidates, which are built before the callbacks they reach for exist.
-  const openTerminalRef = useRef<() => Promise<unknown> | void>(() => undefined);
-  const openHitRef = useRef<(path: string, line: number) => void>(() => undefined);
+  const openTerminalRef = useRef<() => Promise<unknown> | void>(
+    () => undefined,
+  );
+  const openHitRef = useRef<(path: string, line: number) => void>(
+    () => undefined,
+  );
   const focusedPathRef = useRef<string | null>(null);
   // The tree and the outputs map are built further down; these let the
   // callbacks above read the current values without depending on declaration
@@ -170,9 +206,10 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   // opened. The selection is captured HERE, at open time, because the panel
   // takes the focus and CodeMirror's selection is no longer readable as
   // "what the person meant" once anything else has it.
-  const [insertPanel, setInsertPanel] = useState<{ id: string | null; selected: string } | null>(
-    null,
-  );
+  const [insertPanel, setInsertPanel] = useState<{
+    id: string | null;
+    selected: string;
+  } | null>(null);
   // Why an insert could not happen. Rare — it needs a workspace with no
   // editor in it at all — but silence would look like a broken menu.
   const [insertNotice, setInsertNotice] = useState<string | null>(null);
@@ -201,7 +238,8 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   // sessions' own diagnostics rather than kept as a second copy: two counts
   // that can disagree is worse than no count at all.
   const problems = useMemo(
-    () => totalProblems(registry.all().map((open) => open.lspDiagnostics ?? [])),
+    () =>
+      totalProblems(registry.all().map((open) => open.lspDiagnostics ?? [])),
     // registry.version (via useSessionVersion) is what actually changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [registry, registry.version],
@@ -234,7 +272,9 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
 
   // The branch, for the status bar. Refetched when files change — a commit,
   // a checkout, or a save can all move it.
-  const [git, setGit] = useState<{ branch: string; dirty: number } | null>(null);
+  const [git, setGit] = useState<{ branch: string; dirty: number } | null>(
+    null,
+  );
   useEffect(() => {
     const read = () => {
       void api.gitStatus().then(
@@ -243,7 +283,10 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
             status.repository && status.branch
               ? {
                   branch: status.branch,
-                  dirty: (status.staged ?? 0) + (status.unstaged ?? 0) + (status.untracked ?? 0),
+                  dirty:
+                    (status.staged ?? 0) +
+                    (status.unstaged ?? 0) +
+                    (status.untracked ?? 0),
                 }
               : null,
           ),
@@ -265,7 +308,9 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   const focusedPath: string | null = (() => {
     const pane = paneById(layout, layout.focus);
     const tab = pane?.tabs[pane.active];
-    return tab && tab.kind !== "tree" && tab.kind !== "tool" ? tab.target : null;
+    return tab && tab.kind !== "tree" && tab.kind !== "tool"
+      ? tab.target
+      : null;
   })();
 
   /** What the welcome page offers. Every one of them does something — a row
@@ -319,7 +364,9 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     focusedTarget: () => {
       const pane = paneById(layoutRef.current, layoutRef.current.focus);
       const tab = pane?.tabs[pane.active];
-      return tab && tab.kind !== "tree" && tab.kind !== "tool" ? tab.target : null;
+      return tab && tab.kind !== "tree" && tab.kind !== "tool"
+        ? tab.target
+        : null;
     },
     zoomOfTab: (target) => workspaceUi.zoomFor(target),
     setTabZoom: workspaceUi.setZoom,
@@ -346,7 +393,9 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     const already = panesOf(layoutRef.current.root).some((pane) =>
       pane.tabs.some((t) => t.kind === "generated" && t.target === path),
     );
-    setLayout((current) => openGeneratedTab(current, docId, path, regionsRef.current));
+    setLayout((current) =>
+      openGeneratedTab(current, docId, path, regionsRef.current),
+    );
     if (already) flashTab("generated", path);
   }, []);
 
@@ -394,7 +443,11 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
             return;
           }
         }
-        setLayout((l) => (findDocTab(l, id) ? (activateDocTab(l, id) ?? l) : openDocTab(l, id, doc.path)));
+        setLayout((l) =>
+          findDocTab(l, id)
+            ? (activateDocTab(l, id) ?? l)
+            : openDocTab(l, id, doc.path),
+        );
       },
       () => {
         // A document that will not load still gets a tab: the session's
@@ -430,7 +483,9 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
               );
               view.dispatch({
                 selection: { anchor: target.from },
-                effects: EditorView.scrollIntoView(target.from, { y: "center" }),
+                effects: EditorView.scrollIntoView(target.from, {
+                  y: "center",
+                }),
               });
               view.focus();
             },
@@ -516,7 +571,8 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
         ensureDocOpen(action.id);
         navigate(`/docs/${action.id}`);
       } else if (action.kind === "generated") {
-        const owner = action.docId ?? openableOutputsRef.current.get(action.path);
+        const owner =
+          action.docId ?? openableOutputsRef.current.get(action.path);
         if (owner) openGeneratedFor(owner, action.path);
       } else if (action.kind === "file") {
         openPlainFile(action.path);
@@ -573,10 +629,13 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   // The untitled buffer earned a name: adopt its tab in place, then let the
   // URL say so (a redirect, so Back never returns to a buffer that no
   // longer exists).
-  const onUntitledCreated = useCallback((tabId: string, docId: string, path: string) => {
-    setLayout((current) => adoptUntitledTab(current, tabId, docId, path));
-    redirect(`/docs/${docId}`);
-  }, []);
+  const onUntitledCreated = useCallback(
+    (tabId: string, docId: string, path: string) => {
+      setLayout((current) => adoptUntitledTab(current, tabId, docId, path));
+      redirect(`/docs/${docId}`);
+    },
+    [],
+  );
 
   // The folder tree's data: one root today, an array so several folders can
   // sit side by side later without this view changing shape. Hoisted above
@@ -589,7 +648,9 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   // The override is fetched once per mount — Settings is a different route,
   // so returning from it remounts this view and picks up a fresh value.
   const untitledFocused = (() => {
-    const pane = panesOf(layout.root).find((candidate) => candidate.id === layout.focus);
+    const pane = panesOf(layout.root).find(
+      (candidate) => candidate.id === layout.focus,
+    );
     return pane?.tabs[pane.active]?.kind === "untitled";
   })();
   const [customTitle, setCustomTitle] = useState<string | null>(null);
@@ -646,29 +707,69 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   // tab still needs the provenance, the saver, and the way back.
   const openDocIds = useMemo(() => docIdsIn(layout), [layout]);
 
-  // ---- ribbons and ports (the focused document's, v1) ----------------------
+  // ---- ribbons and ports (the focused document's outputs) -----------------
   //
-  // The overlay draws ONE document's lineage: the focused one's source pane,
-  // its outputs, its tabs and tree rows and ports. On focus change it
-  // re-targets. The seam for drawing several documents' overlays at once is
-  // already here — RibbonOverlay takes {source, files} — that is the
-  // follow-up, not this change.
-  // The overlay's source, memoized: the overlay re-measures whenever this
-  // object changes identity, so an inline literal would re-measure every
+  // The overlay draws the focused document's lineage: its outputs, back to
+  // the focused document AND to every other document those outputs carry
+  // bytes from — a message that quotes a meeting turn gets a ribbon to the
+  // meeting note, because that is where the bytes are. On focus change it
+  // re-targets.
+  //
+  // Each other document is named by the path provenance reports (absolute,
+  // from the engine) and drawn by the path the app knows it under (relative,
+  // from the tree) — the tree resolves one to the other. A document that is
+  // open contributes its text and editor; one that is not contributes only
+  // its path, so its ribbons terminate on its tree row or an "open here" port.
+  // The sources are memoized: the overlay re-measures whenever this array
+  // changes identity, so an inline literal would re-measure every
   // relationship on screen on every render of this view.
-  const ribbonSource = useMemo(
-    () =>
-      focused?.doc
-        ? {
-            // The view is optional: a closed document pane still leaves
-            // bands pointing back to it, which is how you find it again.
-            view: focused.docEditor ?? undefined,
-            docPath: focused.doc.path,
-            docSource: focused.doc.source,
-          }
-        : null,
-    [focused?.doc, focused?.docEditor],
+  const docIdByPath = useCallback(
+    (reported: string): { path: string; id?: string } => {
+      for (const root of folderRoots) {
+        const node = nodeForAbsolutePath(root.tree, reported);
+        if (node) return { path: node.path, id: node.doc_id };
+      }
+      return { path: reported };
+    },
+    [folderRoots],
   );
+  const ribbonSources: RibbonSource[] = useMemo(() => {
+    if (!focused?.doc) return [];
+    const primary: RibbonSource = {
+      // The view is optional: a closed document pane still leaves bands
+      // pointing back to it, which is how you find it again.
+      view: focused.docEditor ?? undefined,
+      docPath: focused.doc.path,
+      docSource: focused.doc.source,
+    };
+    const others = new Map<string, RibbonSource>();
+    for (const file of focused.outputs.values()) {
+      for (const p of file.provenance) {
+        if (p.origin.kind === "synthetic") continue;
+        if (samePath(p.origin.doc_path, focused.doc.path)) continue;
+        const { path } = docIdByPath(p.origin.doc_path);
+        if (others.has(path)) continue;
+        const open = registry
+          .all()
+          .find((s) => s.doc && samePath(s.doc.path, path));
+        others.set(path, {
+          view: open?.docEditor ?? undefined,
+          docPath: path,
+          docSource: open?.doc?.source ?? "",
+        });
+      }
+    }
+    return [primary, ...others.values()];
+    // registry.version is what changes when another document opens or edits.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    focused?.doc,
+    focused?.docEditor,
+    focused?.outputs,
+    registry,
+    registry.version,
+    docIdByPath,
+  ]);
   const ribbonFiles: RibbonFile[] = useMemo(
     () =>
       focused
@@ -698,6 +799,30 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     setLayout((current) => openDocTab(current, id, path));
     if (already) flashTab("document", path);
   }, [registry]);
+
+  /**
+   * Open another document by the path provenance reported for it — the
+   * meeting note a message quotes — selecting `span` in it when its session
+   * is already live. A document that is not loaded yet opens; the span is
+   * not carried across the load (the click that brought it on screen is
+   * answered by the ribbon that now reaches its prose).
+   */
+  const openDocumentByPath = useCallback(
+    (path: string, span?: [number, number]) => {
+      const live = registry
+        .all()
+        .find((s) => s.doc && samePath(s.doc.path, path));
+      if (live) {
+        ensureDocOpen(live.docId);
+        if (span) live.onSelectSpan(span);
+        return;
+      }
+      const { id } = docIdByPath(path);
+      if (id) ensureDocOpen(id);
+      else focusTreeRef.current();
+    },
+    [registry, ensureDocOpen, docIdByPath],
+  );
 
   // The toolbar's Files button: bring the tree pane back, or the eye to it.
   // Never a navigation — the folder is a pane of this window, not a page
@@ -743,8 +868,28 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
         onOpen: reopenFocusedDocument,
       });
     }
+    // And every OTHER document the outputs carry bytes from — the meeting a
+    // message quotes — when no tab shows it: the ribbon needs somewhere to
+    // end, and the end is the way there.
+    for (const source of ribbonSources.slice(1)) {
+      if (openTargets.has(`document:${source.docPath}`)) continue;
+      const name = source.docPath.split("/").pop() ?? source.docPath;
+      list.push({
+        id: `document:${source.docPath}`,
+        label: name,
+        title: `Open ${source.docPath} — text here came from it`,
+        onOpen: () => openDocumentByPath(source.docPath),
+      });
+    }
     return list;
-  }, [focused, openTargets, openGeneratedFor, reopenFocusedDocument]);
+  }, [
+    focused,
+    openTargets,
+    openGeneratedFor,
+    reopenFocusedDocument,
+    ribbonSources,
+    openDocumentByPath,
+  ]);
 
   // ---- the Insert menu -----------------------------------------------------
   //
@@ -765,10 +910,16 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   }, []);
 
   const applyInsert = useCallback(
-    (element: Parameters<typeof insertElement>[1], values: Parameters<typeof insertElement>[2], body: string) => {
+    (
+      element: Parameters<typeof insertElement>[1],
+      values: Parameters<typeof insertElement>[2],
+      body: string,
+    ) => {
       const view = focusedEditor();
       if (!view) {
-        setInsertNotice("The document this was going into was closed. Open it again and retry.");
+        setInsertNotice(
+          "The document this was going into was closed. Open it again and retry.",
+        );
         return;
       }
       insertElement(view, element, values, body);
@@ -791,7 +942,9 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       return;
     }
     const tab = panesOf(layoutRef.current.root)
-      .flatMap((pane) => (pane.tabs[pane.active] ? [pane.tabs[pane.active]] : []))
+      .flatMap((pane) =>
+        pane.tabs[pane.active] ? [pane.tabs[pane.active]] : [],
+      )
       .find((t) => t.kind !== "tree" && t.kind !== "tool");
     printText({
       title: printTitleFor(tab?.target ?? "document"),
@@ -808,7 +961,9 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     if (!workspaceUi.hydrated || welcomed.current) return;
     welcomed.current = true;
     if (!loadShowWelcome()) return;
-    setLayout((current) => (isWorkspaceEmpty(current) ? openWelcomeTab(current) : current));
+    setLayout((current) =>
+      isWorkspaceEmpty(current) ? openWelcomeTab(current) : current,
+    );
   }, [workspaceUi.hydrated]);
 
   useEffect(() => {
@@ -922,7 +1077,9 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
 
   const showTerminal = useCallback((id: string) => {
     const session = sessionsRef.current.find((s) => s.id === id);
-    setLayout((current) => openTerminalTab(current, id, session?.title ?? "Terminal"));
+    setLayout((current) =>
+      openTerminalTab(current, id, session?.title ?? "Terminal"),
+    );
   }, []);
 
   /** ⌘J: the next thing claiming attention, or the news that there is none. */
@@ -952,14 +1109,16 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       }
     };
     window.addEventListener("hickory-terminal-command", onTerminalCommand);
-    return () => window.removeEventListener("hickory-terminal-command", onTerminalCommand);
+    return () =>
+      window.removeEventListener("hickory-terminal-command", onTerminalCommand);
   }, [openTerminal, nextAttention]);
 
   // The card follows the cursor, and lets go when what it was showing stops
   // claiming anything — answered here, answered in its own terminal, or
   // closed. A card for a settled session is a card you learn to ignore.
   const attentionSession = sessionById(terminals.sessions, attentionAt);
-  const attentionPlace = attentionAt === null ? -1 : terminals.attention.indexOf(attentionAt);
+  const attentionPlace =
+    attentionAt === null ? -1 : terminals.attention.indexOf(attentionAt);
   useEffect(() => {
     if (attentionAt !== null && !terminals.attention.includes(attentionAt)) {
       setAttentionAt(null);
@@ -990,7 +1149,10 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
         currentDocPath: focused?.doc?.path ?? null,
         docs: folderDocs,
         outputs: focused
-          ? [...focused.outputs.values()].map((file) => ({ path: file.path, content: file.content }))
+          ? [...focused.outputs.values()].map((file) => ({
+              path: file.path,
+              content: file.content,
+            }))
           : [],
       }),
     [focused, folderDocs],
@@ -1065,7 +1227,13 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       );
     }
     if (tab.kind === "generated" && tab.docId) {
-      return <GeneratedTabBody registry={registry} docId={tab.docId} path={tab.target} />;
+      return (
+        <GeneratedTabBody
+          registry={registry}
+          docId={tab.docId}
+          path={tab.target}
+        />
+      );
     }
     if (tab.kind === "file") {
       // Keyed by tab: two panes showing the same path are two
@@ -1081,7 +1249,12 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
             // opens beside it — the comparison adoption exists
             // for. The tree refreshes to show the new document.
             setLayout((current) =>
-              adoptPlainFileTab(current, tab.target, adopted.doc_id, adopted.output_path),
+              adoptPlainFileTab(
+                current,
+                tab.target,
+                adopted.doc_id,
+                adopted.output_path,
+              ),
             );
             ensureDocOpen(adopted.doc_id);
             navigate(`/docs/${adopted.doc_id}`);
@@ -1101,7 +1274,10 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       // nothing; it is told its level and re-fits itself.
       return (
         <Suspense fallback={null}>
-          <TerminalPane sessionId={tab.target} zoom={workspaceUi.zoomFor(tab.target)} />
+          <TerminalPane
+            sessionId={tab.target}
+            zoom={workspaceUi.zoomFor(tab.target)}
+          />
         </Suspense>
       );
     }
@@ -1167,11 +1343,17 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
           // place a session can be stopped.
           onNewTerminal={(path) => void openTerminal({ cwd: path })}
           onNewWorktree={(path) => {
-            void shellPrompt.askText("Branch for the new worktree:", "").then((branch) => {
-              if (branch) {
-                void openTerminal({ title: branch, worktree_branch: branch, cwd: path });
-              }
-            });
+            void shellPrompt
+              .askText("Branch for the new worktree:", "")
+              .then((branch) => {
+                if (branch) {
+                  void openTerminal({
+                    title: branch,
+                    worktree_branch: branch,
+                    cwd: path,
+                  });
+                }
+              });
           }}
           onCloseTerminal={(id) => void terminals.close(id)}
           // A find hit opens its file and puts the caret on the line. The
@@ -1216,7 +1398,8 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
         )}
         {focused?.renderError && (
           <div className="banner banner-fail" role="status">
-            Could not weave this document — editing still works. {focused.renderError}
+            Could not weave this document — editing still works.{" "}
+            {focused.renderError}
           </div>
         )}
         <div className="shell-host" ref={setShellBox}>
@@ -1251,7 +1434,11 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
             render={(tab) => (
               <div
                 className="tab-zoom"
-                style={{ [TAB_ZOOM_VAR]: workspaceUi.zoomFor(tab.target) } as React.CSSProperties}
+                style={
+                  {
+                    [TAB_ZOOM_VAR]: workspaceUi.zoomFor(tab.target),
+                  } as React.CSSProperties
+                }
               >
                 {renderTabBody(tab)}
               </div>
@@ -1261,9 +1448,8 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
               Not a layout: an overlay, following the focused document. */}
           <RibbonOverlay
             container={shellBox}
-            source={ribbonSource}
+            sources={ribbonSources}
             files={ribbonFiles}
-            documentVisible={!!focused?.docEditor}
             ribbonStyle={ribbonStyle}
             onNavigate={(target) => {
               const session = registry.get(focusedIdRef.current);
@@ -1273,6 +1459,11 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
                 // Back the way it came: the document's own bytes, selected —
                 // first bringing the document on screen when the band ended
                 // at a port or an inactive tab rather than at visible prose.
+                // Another document's bytes open THAT document.
+                if (session.doc && !samePath(target.path, session.doc.path)) {
+                  openDocumentByPath(target.path, target.span);
+                  return;
+                }
                 if (!session.docEditor) reopenFocusedDocument();
                 session.onSelectSpan(target.span);
                 return;
@@ -1311,7 +1502,9 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
           onClose={focused.clearReferences}
         />
       )}
-      {focused && <PromptPanel prompt={focused.prompt} onSettle={focused.settle} />}
+      {focused && (
+        <PromptPanel prompt={focused.prompt} onSettle={focused.settle} />
+      )}
       <PromptPanel prompt={shellPrompt.prompt} onSettle={shellPrompt.settle} />
       {/* The dock: things that run so you can work. Always visible, never
           focused, amber when one of them has fallen over. */}
