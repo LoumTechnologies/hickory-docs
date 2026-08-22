@@ -1147,3 +1147,207 @@ describe("dragging a grid line", () => {
     expect(screen.getByTestId("table-panel-scroll").style.height).toBe("314px");
   });
 });
+
+describe("double-clicking a grid line", () => {
+  /**
+   * jsdom lays nothing out, so this stands in for the two things a browser
+   * reports about a cell: the box it is being held to, and the size its
+   * content would take if it were not.
+   *
+   * Faithful on purpose about `scrollWidth` being the LARGER of the two —
+   * that is what made a fit only ever grow, and the shrink case below is what
+   * fails if anything goes back to reading it.
+   */
+  const layout = (
+    selector: string,
+    axis: "width" | "height",
+    { box, content }: { box: number; content: number },
+  ) => {
+    for (const node of document.querySelectorAll(selector)) {
+      const el = node as HTMLElement;
+      Object.defineProperty(el, "getBoundingClientRect", {
+        configurable: true,
+        value: () => {
+          // A browser answers with the content's own size only while the
+          // element is not being held to a width or a height.
+          const size = el.style[axis] === "max-content" ? content : box;
+          return axis === "width" ? { width: size, height: 20 } : { width: 100, height: size };
+        },
+      });
+      Object.defineProperty(el, axis === "width" ? "scrollWidth" : "scrollHeight", {
+        configurable: true,
+        value: Math.max(box, content),
+      });
+    }
+  };
+
+  const inColumn = (column: number, sizes: { box: number; content: number }) =>
+    layout(`[data-column="${column}"]`, "width", sizes);
+  const inRow = (row: number, sizes: { box: number; content: number }) =>
+    layout(`[data-row="${row}"]`, "height", sizes);
+
+  const edge = (text: string, axis: "row" | "column") =>
+    cell(text).parentElement!.querySelector(`[data-testid="${axis}-resizer"]`)!;
+
+  /**
+   * What a browser actually sends: two presses and then the dblclick, the
+   * second press carrying `detail: 2`.
+   *
+   * `fireEvent.doubleClick` alone sends none of that, and the presses are
+   * half the behaviour here — the first one selects, the second must not, and
+   * the fit has to give the first one back.
+   */
+  const doubleClick = (handle: Element) => {
+    fireEvent.mouseDown(handle, { detail: 1 });
+    fireEvent.mouseUp(window, { detail: 1 });
+    fireEvent.click(handle, { detail: 1 });
+    fireEvent.mouseDown(handle, { detail: 2 });
+    fireEvent.mouseUp(window, { detail: 2 });
+    fireEvent.click(handle, { detail: 2 });
+    fireEvent.doubleClick(handle);
+  };
+
+  it("fits the column to the widest thing in it", () => {
+    const onLayout = vi.fn();
+    grid({ source: "a,b\nc,d\n", onLayout });
+    inColumn(1, { box: 104, content: 180 });
+    doubleClick(edge("d", "column"));
+    // The cell's own border, and a pixel so rounding up never lands on the
+    // text and clips it into an ellipsis.
+    expect(onLayout).toHaveBeenCalledWith({ widths: { "1": 182 } });
+  });
+
+  it("measures what the text needs, not the box the cell is already in", () => {
+    // The bug this replaced: a cell fills its column, so its scroll size is
+    // the size it ALREADY has whenever the text is smaller — and a fit built
+    // on that could only ever grow. Double-clicking anything expanded it
+    // slightly, the slack being the only thing that changed.
+    const onLayout = vi.fn();
+    grid({ source: "a,b\nc,d\n", onLayout, layout: { widths: { "1": 600 } } });
+    inColumn(1, { box: 600, content: 70 });
+    doubleClick(edge("d", "column"));
+    expect(onLayout).toHaveBeenCalledWith({ widths: { "1": 72 } });
+  });
+
+  it("leaves the cell laid out exactly as it found it", () => {
+    // The constraint is lifted only for the length of the measurement; a fit
+    // that left it off would leave one cell sized unlike the ones beside it.
+    grid({ source: "a,b\nc,d\n" });
+    inColumn(1, { box: 104, content: 180 });
+    doubleClick(edge("d", "column"));
+    expect((cell("d") as HTMLElement).style.width).toBe("");
+  });
+
+  it("fits from the line between two column letters, where a spreadsheet has it", () => {
+    const onLayout = vi.fn();
+    grid({ source: "a,b\nc,d\n", onLayout });
+    inColumn(0, { box: 104, content: 300 });
+    doubleClick(head("A").querySelector('[data-testid="column-resizer"]')!);
+    expect(onLayout).toHaveBeenCalledWith({ widths: { "0": 302 } });
+  });
+
+  it("fits the row to the tallest thing in it", () => {
+    // A cell holding a newline — which a paste from a web page produces — is
+    // several lines tall, and this is what makes room for it.
+    const onLayout = vi.fn();
+    grid({ source: "a,b\nc,d\n", onLayout });
+    inRow(1, { box: 24, content: 64 });
+    doubleClick(edge("c", "row"));
+    // A height's only slack is the cell's own border: there is no ellipsis on
+    // this axis to guard against.
+    expect(onLayout).toHaveBeenCalledWith({ heights: { "1": 65 } });
+  });
+
+  it("shrinks a row that was dragged too tall, back to its one line", () => {
+    const onLayout = vi.fn();
+    grid({ source: "a,b\nc,d\n", onLayout, layout: { heights: { "1": 300 } } });
+    inRow(1, { box: 300, content: 23 });
+    doubleClick(edge("c", "row"));
+    expect(onLayout).toHaveBeenCalledWith({ heights: { "1": 24 } });
+  });
+
+  it("fits from the line between two row numbers too", () => {
+    const onLayout = vi.fn();
+    grid({ source: "a,b\nc,d\n", onLayout });
+    inRow(0, { box: 24, content: 40 });
+    doubleClick(gutter("1").querySelector('[data-testid="row-resizer"]')!);
+    expect(onLayout).toHaveBeenCalledWith({ heights: { "0": 41 } });
+  });
+
+  it("fits an empty column to the smallest a column may be", () => {
+    // The honest answer to how much room nothing needs.
+    const onLayout = vi.fn();
+    grid({ source: "a,\nc,\n", onLayout });
+    inColumn(1, { box: 104, content: 13 });
+    const bothInRow = cell("a")
+      .parentElement!.parentElement!.querySelectorAll('[data-testid="column-resizer"]');
+    doubleClick(bothInRow[1]!);
+    expect(onLayout).toHaveBeenCalledWith({ widths: { "1": 40 } });
+  });
+
+  it("will not let one enormous cell make a column nobody can scroll past", () => {
+    const onLayout = vi.fn();
+    grid({ source: "a,b\nc,d\n", onLayout });
+    inColumn(1, { box: 104, content: 40_000 });
+    doubleClick(edge("d", "column"));
+    expect(onLayout).toHaveBeenCalledWith({ widths: { "1": 2000 } });
+  });
+
+  it("leaves a row that already fits exactly where it was", () => {
+    // Measured in a browser: one line of this font is 23px, so a border and
+    // nothing else puts a fitted row back at the 24 it started at. Slack for
+    // an ellipsis that a height cannot have would nudge every row a pixel
+    // taller on every double-click.
+    const onLayout = vi.fn();
+    grid({ source: "a,b\nc,d\n", onLayout });
+    inRow(1, { box: 24, content: 23 });
+    doubleClick(edge("c", "row"));
+    expect(onLayout).toHaveBeenCalledWith({ heights: { "1": 24 } });
+  });
+
+  it("leaves the selection alone — resizing is not a way of choosing something", () => {
+    // A double-click is two clicks, and the first cannot know the second is
+    // coming, so its tap has already moved the selection by the time "fit" is
+    // the answer. The fit puts it back.
+    grid({ source: "a,b\nc,d\n", onLayout: () => {} });
+    fireEvent.click(cell("a"));
+    inColumn(1, { box: 104, content: 180 });
+    doubleClick(edge("d", "column"));
+    expect(name()).toBe("A1");
+    expect(document.querySelector(".table-panel__cell--selected")!.textContent).toBe("a");
+  });
+
+  it("leaves a range alone, not just a single cell", () => {
+    grid({ source: "a,b\nc,d\n" });
+    fireEvent.mouseDown(cell("a"));
+    fireEvent.mouseEnter(cell("d"));
+    fireEvent.mouseUp(window);
+    inRow(1, { box: 24, content: 40 });
+    doubleClick(gutter("2").querySelector('[data-testid="row-resizer"]')!);
+    expect(name()).toBe("A1:B2");
+  });
+
+  it("selects nothing when nothing was selected before", () => {
+    grid({ source: "a,b\nc,d\n" });
+    inColumn(1, { box: 104, content: 180 });
+    doubleClick(edge("d", "column"));
+    expect(name()).toBe("—");
+  });
+
+  it("still selects on a press that is only ever one click", () => {
+    // The tap is not delayed behind a double-click timer; that would make an
+    // ordinary press on a line feel broken.
+    grid({ source: "a,b\nc,d\n" });
+    fireEvent.mouseDown(edge("d", "column"));
+    fireEvent.mouseUp(window, { detail: 1 });
+    expect(name()).toBe("B2");
+  });
+
+  it("does not open the cell behind the line for editing", () => {
+    // A double-click on a cell means "edit this"; on the line it means fit.
+    grid({ source: "a,b\nc,d\n", onChange: () => {} });
+    inColumn(1, { box: 104, content: 90 });
+    doubleClick(edge("d", "column"));
+    expect(document.querySelector(".table-panel__input")).toBeNull();
+  });
+});

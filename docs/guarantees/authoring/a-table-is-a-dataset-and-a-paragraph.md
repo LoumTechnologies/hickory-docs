@@ -158,12 +158,69 @@ spreadsheet only puts them in its headers, which is fine while the headers are
 on screen and irritating when the line you want to move is the one your
 pointer is already beside.
 
+**A double-click on a line fits what is behind it** — the column to the
+widest thing in it, the row to the tallest — which is the gesture every
+spreadsheet already has on exactly this target, on all four of them: a cell's
+two edges, the line between two column letters, and the line between two row
+numbers. It cuts both ways: a column dragged too wide comes back, because "the
+smallest that still fits" is not "grow if needed".
+
+This is the **one** place the grid measures rather than declares, and it has to
+be: "what will still fit" is a question about rendered text in a font this
+component cannot know. So it asks the cells — but **not** with `scrollWidth`,
+which is the trap here and was wrong once. A cell fills its column and its row,
+and a scroll size is the larger of the content and the box, so a cell whose
+text is *smaller* than its column reports the column. A fit built on that can
+only ever grow, and reads as "double-clicking anything expands it slightly" —
+the slack being the only thing that changed.
+
+The measurement is therefore taken with the constraint lifted: `max-content` on
+the axis being asked about, the box read back, the inline style put back at
+once. Same element, same font, same padding, only the size it was being held to
+removed — so the answer is exact by construction rather than by a second copy
+of the cell's styling, and no cell is left laid out unlike the ones beside it.
+The answer is then written back as a declared number like every other, which is
+what keeps the measuring contained: nothing downstream can tell a fitted column
+from a dragged one.
+
+The slack differs by axis, which is not fussiness. A width gets the cell's
+border plus one pixel, because rounding a fractional measurement up can land on
+the text and a column set to precisely its content clips the last letter into
+an ellipsis. A height gets the border alone: there is no ellipsis on that axis,
+and the extra pixel would nudge every row a pixel taller on every double-click
+instead of leaving a row that already fits exactly where it was.
+
+**A fit does not change what is selected.** Resizing is not a way of choosing
+something. That takes a little arranging, because a double-click is two clicks
+and the first of them cannot know the second is coming — its press has already
+selected by the time "fit" turns out to be the answer. Delaying every press
+behind a double-click timer would make an ordinary press on a line feel broken,
+so instead the press *remembers* and the fit puts it back. The second press
+does not select at all: `detail` is the click count, so a press of 2 is half a
+double-click rather than a choice. Where no press selected anything — a
+read-only table, whose cell handles have no tap — the fit leaves the selection
+exactly as it is, because restoring something nobody took is the same bug the
+other way round.
+
+An empty column fits to the minimum, which is the honest answer to how much
+room nothing needs, and one enormous cell is capped rather than allowed to make
+a column nobody can scroll past.
+
 That is affordable because **a press that never moves is a click**. The strip
 is five pixels along the edge of a cell somebody also wants to select, so
 below a three-pixel threshold it hands the press back to what is underneath —
 the cell, the row number, the column letter. Without that, the bottom five
 pixels of every row would be unselectable, which is a worse bug than the one
 the handles fix.
+
+**A cell fills its row.** Not a detail of appearance: the span used to be as
+tall as its one line of text, so the space added by dragging a row taller
+belonged to the `td` and to no cell at all. A click there hit nothing — the
+selection did not move, focus left the grid, and the editor's ruler dropped
+back from naming the table's columns to measuring prose, which is what the
+symptom looks like from the outside. The row's height is declared on the cell,
+so the percentage always has something to resolve against; `styles.test.ts`
+asserts both halves, because jsdom lays nothing out and nothing else can.
 
 **How big the table is, is not in the file.** Column widths, row heights and
 the grid's height are presentation; the CSV is a dataset a script reads, and it has no
@@ -221,7 +278,12 @@ Last LLM verification:
   (quote only what must be), `writeCsv` (line ending and trailing newline
   preserved), the grid operations, and `isTabularFence`.
   `apps/web/src/components/TablePanel.tsx` — `Resizer`, one handle for both
-  axes, with the drag threshold that hands a press back to the cell under it;
+  axes, with the drag threshold that hands a press back to the cell under it
+  and the double-click that fits; `fitColumn` / `fitRow`, the only measuring
+  in the grid, over the cells that carry `data-row` and `data-column` for the
+  purpose, through `intrinsic` — which lifts the constraint for the length of
+  the measurement rather than reading a scroll size that can never be smaller
+  than the box;
   `rowHeight` written onto the `<tr>` as a custom property, so a row cannot
   end up two heights at once, and summed rather than multiplied when the
   nine-row height is worked out. The grid; selection is separate
@@ -249,7 +311,8 @@ Last LLM verification:
   `apps/web/src/components/TableSizeDialog.tsx` — the two fields, the live
   "removes 3 rows and what is in them", and the 20,000-cell refusal that says
   what to do instead.
-  `apps/web/src/styles.css` — `user-select: none` on an editable cell (so a
+  `apps/web/src/styles.css` — the cell filling its row (and the input with
+  it), `user-select: none` on an editable cell (so a
   sweep does not also drag a text selection through the prose), the declared
   `--table-row-height` that makes nine rows nine rows, the two gutter lanes
   kept apart (`--lane`), and `.cm-rendered` joining the positioned layer so
@@ -275,7 +338,7 @@ Last LLM verification:
   keeps a headerless first row as data, leaves the prose alone.
   `apps/web/src/lib/csv.test.ts` (28 tests) — including five byte-for-byte
   round trips and "one cell edited changes one line".
-  `apps/web/src/components/TablePanel.test.tsx` (109 tests) — header vs data,
+  `apps/web/src/components/TablePanel.test.tsx` (117 tests) — header vs data,
   ragged padding, the write-back and its quoting, no write when nothing
   changed, Enter/Tab/arrow navigation, row and column operations, and the
   read-only case saying where to make the change instead; plus the A1
@@ -300,11 +363,28 @@ Last LLM verification:
   TSV / HTML / CSV / one word, growth, the selection landing on what was
   written, an unusable clipboard ignored, a read-only table that copies
   but will not take a paste, and both text fields keeping their own clipboard.
+  Double-clicking a grid line (14 tests) — the column fitted to its widest
+  cell and the row to its tallest, from a cell's edge and from the furniture,
+  a too-wide column and a too-tall row shrinking rather than only growing, a row
+  that already fits staying exactly where it was, the cell left laid out as it
+  was found, an empty column falling to the minimum, one enormous cell capped,
+  the cell behind the line not opening for editing, and the selection surviving
+  a fit in four shapes (a cell, a range, nothing selected at all, and an
+  ordinary one-click press still selecting). Those go through the sequence a
+  browser really sends — two presses, the second carrying `detail: 2`, then
+  the dblclick — because `fireEvent.doubleClick` alone sends none of it and
+  the presses are half the behaviour. jsdom reports zero for
+  everything, so the test defines both numbers a browser would give —
+  including `scrollWidth` being the LARGER of content and box, which is what
+  makes the shrink cases fail if anything goes back to reading it.
   Dragging a grid line (9 tests) — the column moved from a line inside the
   table rather than only from the header, the row moved from its bottom edge
   and from its number, neither draggable away to nothing, a press that never
   moved selecting the cell instead, a two-pixel wobble counting as that press,
   and the nine visible rows counted at the heights they actually are.
+  `apps/web/src/styles.test.ts` — the cell filling its row and the declared
+  row height that percentage needs, as layout invariants with a real failure
+  behind them.
   `apps/web/src/lib/tableSelection.test.ts` (15 tests),
   `apps/web/src/lib/tableClipboard.test.ts` (14 tests) and
   `apps/web/src/lib/csv.test.ts` (44 tests) — the arithmetic underneath,
@@ -336,3 +416,16 @@ Last LLM verification:
   measuring it; that the column widths actually stop moving when a cell is
   entered, and that five pixels is a comfortable target for a grid line, were
   checked in a browser rather than asserted.
+  The auto-fit measurement was verified in Chrome against these same rules
+  rather than reasoned about, after `scrollWidth` got it wrong: a cell holding
+  `ab` in a 104px column reports a `scrollWidth` of 103 and an intrinsic width
+  of 28, text reporting 229 has an intrinsic 230 (which is what the anti-clip
+  pixel is for), one line of this font measures 23 against the 24px default
+  row, and after fitting every column and row no cell reported itself clipped
+  on either axis. What is NOT asserted anywhere is that a browser still
+  answers that way — a layout-engine change would be caught by eye, not by
+  this suite. The click sequence behind the `detail` guard was checked the
+  same way rather than assumed: a real double-click sends down/up/click at
+  `detail: 1`, then down/up/click at `detail: 2`, then `dblclick` — and the
+  mouseup carrying it is the one on the WINDOW, which is where the handle
+  listens.

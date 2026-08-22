@@ -6433,6 +6433,15 @@ button.status-bar__item:hover { background: var(--bg-sunken); color: var(--fg); 
   display: block;
   padding: 0.16rem 0.4rem;
   min-height: 1.2em;
+  /* The cell fills its row, which matters the moment a row is dragged taller:
+     the span used to be as tall as its one line of text, so the space added
+     underneath belonged to the `td` and not to any cell. Clicking there hit
+     nothing — the selection did not move, focus left the grid, and the ruler
+     dropped back from naming the table's columns to measuring prose, which is
+     what it looks like from the outside. The row's height is declared on the
+     `td`, so this percentage always has something to resolve against. */
+  height: 100%;
+  box-sizing: border-box;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: pre;
@@ -6488,6 +6497,10 @@ button.status-bar__item:hover { background: var(--bg-sunken); color: var(--fg); 
 .table-panel__input {
   display: block;
   width: 100%;
+  /* For the same reason, and so entering a tall cell does not shrink it back
+     to one line under the pointer. */
+  height: 100%;
+  box-sizing: border-box;
   padding: 0.16rem 0.4rem;
   border: 0;
   background: var(--bg-raised);

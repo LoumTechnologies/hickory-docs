@@ -133,6 +133,28 @@ const DEFAULT_COLUMN_WIDTH = 104;
 const MIN_COLUMN_WIDTH = 40;
 /** Short enough to squeeze a row down to a line, tall enough to grab again. */
 const MIN_ROW_HEIGHT = 16;
+/** The ceilings, matching what `readTableLayout` will store: a fit is driven
+ * by content, and one enormous cell must not make a column nobody can scroll
+ * past. */
+const MAX_COLUMN_WIDTH = 2000;
+const MAX_ROW_HEIGHT = 600;
+/**
+ * The slack on a fit, which is not the same on both axes.
+ *
+ * One pixel is the cell's own border, which the measurement does not include
+ * and the declared size does.
+ *
+ * A WIDTH gets one more, because rounding a fractional measurement up can
+ * still land on the text and a column set to precisely its content clips the
+ * last letter into an ellipsis — measured in a browser: text whose
+ * `scrollWidth` reports 229 has an intrinsic width of 230. A height has no
+ * ellipsis to fall foul of, and the extra pixel there would be worse than
+ * useless: one line of this font measures 23, so a border and nothing else
+ * puts a fitted row at exactly the 24 it started at, and double-clicking a
+ * row that already fits leaves it alone.
+ */
+const FIT_BORDER = 1;
+const FIT_ANTI_CLIP = 1;
 /** How far the pointer has to travel before a press on a grid line is a DRAG
  * rather than a click.
  *
@@ -165,6 +187,41 @@ const HEAD_HEIGHT = 22;
  * a decision about this table, remembered with the rest of its layout.
  */
 const VISIBLE_ROWS = 9;
+
+const clampTo = (value: number, least: number, most: number) =>
+  Math.max(least, Math.min(most, Math.round(value)));
+
+/**
+ * How much room these cells' contents would take if nothing constrained them.
+ *
+ * The measurement an auto-fit needs, and NOT what `scrollWidth` answers.
+ * A cell fills its column and its row, so its scroll size is the larger of
+ * its content and its box — which means it reports the size the cell already
+ * has whenever the text is smaller than it, and a fit built on it can only
+ * ever grow. That reads as "double-clicking anything expands it slightly",
+ * because the slack is the only thing that changed.
+ *
+ * So the constraint is lifted for the length of the measurement: `max-content`
+ * on the axis being asked about, the box read back, the inline style put back.
+ * It is the same element with the same font and the same padding — only the
+ * width or height it was being held to is gone — so the answer is exact by
+ * construction rather than by a second copy of the cell's styling.
+ *
+ * Fractional, because text is: the caller rounds up once at the end rather
+ * than losing a fraction of a pixel per cell.
+ */
+function intrinsic(cells: Iterable<HTMLElement>, axis: "width" | "height"): number {
+  let most = 0;
+  for (const cell of cells) {
+    const held = cell.style[axis];
+    cell.style[axis] = "max-content";
+    most = Math.max(most, cell.getBoundingClientRect()[axis]);
+    // Restored immediately, so a fit never leaves a cell laid out differently
+    // from the ones beside it.
+    cell.style[axis] = held;
+  }
+  return Math.ceil(most);
+}
 
 export function TablePanel({
   source,
@@ -280,6 +337,7 @@ export function TablePanel({
         )
       : undefined);
 
+  const gridRef = useRef<HTMLTableElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const barRef = useRef<HTMLInputElement | null>(null);
   const selectedRef = useRef<HTMLElement | null>(null);
@@ -404,6 +462,79 @@ export function TablePanel({
     commit(at, draft);
     moveTo(at.row + dRow, at.column + dColumn);
     setEditing(false);
+  };
+
+  /**
+   * What was selected before a press on a grid line.
+   *
+   * A double-click is two clicks, and the first of them cannot know the second
+   * is coming — so the tap it fires has already moved the selection by the
+   * time "fit" is the answer. Rather than delay every tap behind a
+   * double-click timer, which would make an ordinary press on a line feel
+   * broken, the press remembers and the fit puts it back.
+   */
+  const beforePress = useRef<Selection | null | undefined>(undefined);
+
+  /** A press on a line that turned out to be a click: select what it is
+   * beside, remembering what was selected in case a fit follows. */
+  const tapped = (take: () => void) => () => {
+    beforePress.current = selection;
+    take();
+  };
+
+  /**
+   * A double-click: fit, and give back the selection the press moved.
+   * Resizing is not a way of choosing something.
+   *
+   * `undefined` means no press of this double-click moved anything — a
+   * read-only table, where the cell handles have no tap at all — and then the
+   * selection is left exactly as it is rather than cleared. Restoring
+   * something nobody took would be the same bug the other way round.
+   */
+  const fitted = (fit: () => void) => () => {
+    fit();
+    if (beforePress.current !== undefined) setSelection(beforePress.current);
+    beforePress.current = undefined;
+  };
+
+  /**
+   * A double-click on a grid line: the column, or the row, at the smallest
+   * measure that still fits what is in it.
+   *
+   * This is the ONE place the grid measures rather than declares, and it has
+   * to be: "what will still fit" is a question about rendered text in a font
+   * this component cannot know. It asks the cells, which are the only things
+   * that know — each is clipped to its column, so its `scrollWidth` is the
+   * width its text WOULD have taken. The answer is then written back as a
+   * declared number like any other, so everything downstream (the nine-row
+   * height, entering a cell without the table moving) is unaffected.
+   *
+   * A column with nothing in it fits to the minimum, which is the honest
+   * answer to "how much room does nothing need".
+   */
+  const fitColumn = (column: number) => {
+    const cells = gridRef.current?.querySelectorAll<HTMLElement>(`[data-column="${column}"]`);
+    if (!cells || cells.length === 0) return;
+    widen(
+      column,
+      clampTo(
+        intrinsic(cells, "width") + FIT_BORDER + FIT_ANTI_CLIP,
+        MIN_COLUMN_WIDTH,
+        MAX_COLUMN_WIDTH,
+      ),
+    );
+  };
+
+  /** The same for a row. A cell holding a newline — which a paste from a web
+   * page can produce — is several lines tall, and this is what makes room for
+   * it without anybody counting them. */
+  const fitRow = (row: number) => {
+    const cells = gridRef.current?.querySelectorAll<HTMLElement>(`[data-row="${row}"]`);
+    if (!cells || cells.length === 0) return;
+    heighten(
+      row,
+      clampTo(intrinsic(cells, "height") + FIT_BORDER, MIN_ROW_HEIGHT, MAX_ROW_HEIGHT),
+    );
   };
 
   /** Take the whole table — the corner box, and Ctrl+A. */
@@ -637,7 +768,8 @@ export function TablePanel({
         size={rowHeight(row)}
         least={MIN_ROW_HEIGHT}
         onResize={(next) => heighten(row, next)}
-        onTap={() => takeRow(row, false)}
+        onTap={tapped(() => takeRow(row, false))}
+        onFit={fitted(() => fitRow(row))}
       />
     </th>
   );
@@ -747,7 +879,10 @@ export function TablePanel({
             : { height: `${gridHeight}px`, maxHeight: "none" }
         }
       >
-        <table className={`table-panel__grid${laneRight ? " table-panel__grid--laned" : ""}`}>
+        <table
+          ref={gridRef}
+          className={`table-panel__grid${laneRight ? " table-panel__grid--laned" : ""}`}
+        >
           <colgroup>
             {/* One declared width per column, so entering a cell does not
                 resize the table — plus the row-number lane, and, when that
@@ -794,7 +929,8 @@ export function TablePanel({
                     size={columnWidth(column)}
                     least={MIN_COLUMN_WIDTH}
                     onResize={(next) => widen(column, next)}
-                    onTap={() => takeColumn(column, false)}
+                    onTap={tapped(() => takeColumn(column, false))}
+                    onFit={fitted(() => fitColumn(column))}
                   />
                 </th>
               ))}
@@ -819,6 +955,8 @@ export function TablePanel({
                     return (
                       <td key={column} className={isHeaderRow ? "table-panel__names" : undefined}>
                         <Cell
+                          row={row}
+                          column={column}
                           value={cellAt(table, row, column)}
                           shown={shownAt(row, column)}
                           problem={computed.errors[label]}
@@ -884,14 +1022,16 @@ export function TablePanel({
                           size={rowHeight(row)}
                           least={MIN_ROW_HEIGHT}
                           onResize={(next) => heighten(row, next)}
-                          onTap={editable ? () => select(row, column) : undefined}
+                          onTap={editable ? tapped(() => select(row, column)) : undefined}
+                          onFit={fitted(() => fitRow(row))}
                         />
                         <Resizer
                           axis="column"
                           size={columnWidth(column)}
                           least={MIN_COLUMN_WIDTH}
                           onResize={(next) => widen(column, next)}
-                          onTap={editable ? () => select(row, column) : undefined}
+                          onTap={editable ? tapped(() => select(row, column)) : undefined}
+                          onFit={fitted(() => fitColumn(column))}
                         />
                       </td>
                     );
@@ -1149,6 +1289,7 @@ function Resizer({
   least,
   onResize,
   onTap,
+  onFit,
 }: {
   axis: "column" | "row";
   /** What it is now, in pixels — the number the drag starts from. */
@@ -1158,6 +1299,9 @@ function Resizer({
   /** A press that never became a drag. Absent means such a press does
    * nothing, which is what a read-only table wants. */
   onTap?: () => void;
+  /** A double-click: the smallest measure that still fits the content. The
+   * gesture every spreadsheet has on this exact target. */
+  onFit?: () => void;
 }) {
   const along = (event: { clientX: number; clientY: number }) =>
     axis === "column" ? event.clientX : event.clientY;
@@ -1175,10 +1319,13 @@ function Resizer({
       dragged = true;
       onResize(Math.max(least, Math.round(size + (to - from))));
     };
-    const up = () => {
+    const up = (e: MouseEvent) => {
       window.removeEventListener("mousemove", move);
       window.removeEventListener("mouseup", up);
-      if (!dragged) onTap?.();
+      // `detail` is the click count, so the second press of a double-click is
+      // 2 and does not tap. The FIRST one still does — nothing can know a
+      // second is coming — which is why the fit gives the selection back.
+      if (!dragged && e.detail <= 1) onTap?.();
     };
     window.addEventListener("mousemove", move);
     window.addEventListener("mouseup", up);
@@ -1191,6 +1338,12 @@ function Resizer({
       data-testid={`${axis}-resizer`}
       onMouseDown={onMouseDown}
       onClick={(event) => event.stopPropagation()}
+      onDoubleClick={(event) => {
+        // Stopped so the second click does not also reach the cell behind
+        // this strip, where a double-click means "open this for editing".
+        event.stopPropagation();
+        onFit?.();
+      }}
     />
   );
 }
@@ -1244,6 +1397,8 @@ function HeightResizer({
 }
 
 function Cell({
+  row,
+  column,
   value,
   shown,
   problem,
@@ -1266,6 +1421,9 @@ function Cell({
   onDone,
   onCancel,
 }: {
+  /** Where it is, drawn onto the element so an auto-fit can find it. */
+  row: number;
+  column: number;
   /** The cell's own text — a formula, or a literal. */
   value: string;
   /** What to display: a formula's computed value, or its text. */
@@ -1301,6 +1459,12 @@ function Cell({
         ref={(node) => {
           if (selected) selectedRef.current = node;
         }}
+        // Where this cell is, so an auto-fit can find every cell in a column
+        // or a row and ask it how much room its own text needs. The only
+        // thing in the grid that is MEASURED rather than declared — see
+        // `fitColumn`.
+        data-row={row}
+        data-column={column}
         className={
           "table-panel__cell" +
           (problem ? " table-panel__cell--bad" : "") +

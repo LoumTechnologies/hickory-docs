@@ -56,6 +56,26 @@ describe("workspace layout invariants", () => {
   });
 });
 
+describe("table grid invariants", () => {
+  it("makes a cell fill its row, however tall the row was dragged", () => {
+    // The span used to be as tall as its one line of text, so the space added
+    // by dragging a row taller belonged to the `td` and to no cell at all.
+    // Clicking there hit nothing: the selection did not move, focus left the
+    // grid, and the ruler dropped back from naming the table's columns to
+    // measuring prose.
+    const cell = rule(".table-panel__cell");
+    expect(cell).toContain("height: 100%");
+    expect(cell).toContain("box-sizing: border-box");
+  });
+
+  it("gives every row a declared height, which is what that percentage needs", () => {
+    // A percentage height against an `auto` cell resolves to `auto`, so the
+    // rule above would silently do nothing.
+    const body = rule(".table-panel__grid tbody th,\n.table-panel__grid tbody td");
+    expect(body).toContain("height: var(--table-row-height");
+  });
+});
+
 describe("theming invariants", () => {
   /** The three token blocks: `:root { … }` and the two data-theme overrides. */
   const tokenBlocks = [...css.matchAll(/^:root(?:\[data-theme="[a-z-]+"\])? \{[^}]*\}/gms)].map(
