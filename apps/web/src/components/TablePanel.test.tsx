@@ -627,6 +627,71 @@ describe("pointing at a cell while writing a formula", () => {
     expect(name()).toBe("B2");
   });
 
+  it("Down points at the cell beneath, and Down again walks one further", () => {
+    // Excel's point mode from the keyboard: the first arrow leaves from the
+    // cell being edited, the next from where the pointer already is, and the
+    // reference is replaced rather than stacked.
+    grid({ source: "a,b\nc,d\ne,f\n", language: "python", onChange: () => {} });
+    const input = openCell("a");
+    fireEvent.change(input, { target: { value: "=" } });
+    input.setSelectionRange(1, 1);
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    expect(typing().value).toBe("=A2");
+    expect(cell("c").className).toContain("table-panel__cell--pointed");
+    fireEvent.keyDown(typing(), { key: "ArrowDown" });
+    expect(typing().value).toBe("=A3");
+    expect(cell("e").className).toContain("table-panel__cell--pointed");
+    expect(cell("c").className).not.toContain("table-panel__cell--pointed");
+    // Still editing, still A1 selected: the pointer is not the selection.
+    expect(name()).toBe("A1");
+  });
+
+  it("Right points only from the end of the text; in the middle it moves the caret", () => {
+    grid({ source: "a,b\nc,d\ne,f\n", language: "python", onChange: () => {} });
+    const input = openCell("a");
+    fireEvent.change(input, { target: { value: "=1+2" } });
+    input.setSelectionRange(2, 2);
+    fireEvent.keyDown(input, { key: "ArrowRight" });
+    expect(typing().value).toBe("=1+2"); // a caret move, not a reference
+    fireEvent.change(typing(), { target: { value: "=1+" } });
+    typing().setSelectionRange(3, 3);
+    fireEvent.keyDown(typing(), { key: "ArrowRight" });
+    expect(typing().value).toBe("=1+B1");
+    // At the grid's edge the pointer stays put — you are still pointing.
+    fireEvent.keyDown(typing(), { key: "ArrowRight" });
+    expect(typing().value).toBe("=1+B1");
+    // And Left walks it back.
+    fireEvent.keyDown(typing(), { key: "ArrowLeft" });
+    expect(typing().value).toBe("=1+A1");
+  });
+
+  it("typing after pointing keeps the reference, and the next arrow leaves from the edited cell", () => {
+    grid({ source: "a,b\nc,d\ne,f\n", language: "python", onChange: () => {} });
+    const input = openCell("a");
+    fireEvent.change(input, { target: { value: "=" } });
+    input.setSelectionRange(1, 1);
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    expect(typing().value).toBe("=A2");
+    fireEvent.change(typing(), { target: { value: "=A2+" } });
+    expect(document.querySelector(".table-panel__cell--pointed")).toBeNull();
+    typing().setSelectionRange(4, 4);
+    fireEvent.keyDown(typing(), { key: "ArrowRight" });
+    expect(typing().value).toBe("=A2+B1");
+  });
+
+  it("Down still moves between cells when the formula wants no operand", () => {
+    // After `42` there is nothing to point for, so the arrow is the arrow it
+    // always was: commit and step down.
+    const onChange = vi.fn();
+    grid({ source: "a,b\nc,d\ne,f\n", language: "python", onChange });
+    const input = openCell("a");
+    fireEvent.change(input, { target: { value: "=42" } });
+    input.setSelectionRange(3, 3);
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    expect(onChange).toHaveBeenCalledWith("=42,b\nc,d\ne,f\n");
+    expect(name()).toBe("A2");
+  });
+
   it("does not point from a cell that is not a formula", () => {
     // Where there is no `=` there is nothing to write a reference into.
     const onChange = vi.fn();

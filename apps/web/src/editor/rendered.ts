@@ -101,7 +101,54 @@ export interface RenderedSlot {
   asserts: string[];
 }
 
-export class RenderedRegistry extends SlotRegistry<RenderedSlot> {}
+export class RenderedRegistry extends SlotRegistry<RenderedSlot> {
+  /**
+   * Bring a registered slot up to date with the block it stands for.
+   *
+   * A rendered widget is kept for as long as its block exists — its `eq` is
+   * the key alone — so the grid or panel inside it is never torn down by an
+   * edit: not by typing a line above it (which only moves it), and not by its
+   * own commit (which changes its text). Tearing it down cost two things this
+   * used to get wrong. A table commit looked its block up by the offset the
+   * slot was registered with, found nothing after any edit above, and
+   * silently dropped the cell. And when a commit DID land, the rebuilt widget
+   * remounted the grid, which forgot the selection and sent the focus back to
+   * the top of the document — where Enter and Tab were supposed to step to
+   * the next cell. So the slot is the stable thing: its position follows the
+   * block silently (a keystroke above a table must not re-render the table),
+   * and its content is replaced in place and announced, so the React side
+   * re-renders the SAME mounted panel with the new source.
+   */
+  sync(key: string, next: Omit<RenderedSlot, "el">): void {
+    const slot = this.list().find((candidate) => candidate.key === key);
+    if (!slot) return;
+    slot.at = next.at;
+    slot.span = next.span;
+    if (sameContent(slot, next)) return;
+    slot.index = next.index;
+    slot.kind = next.kind;
+    slot.text = next.text;
+    slot.renderer = next.renderer;
+    slot.table = next.table;
+    slot.asserts = next.asserts;
+    queueMicrotask(() => this.notify());
+  }
+}
+
+/** Whether two slot descriptions would render the same thing. */
+function sameContent(a: Omit<RenderedSlot, "el">, b: Omit<RenderedSlot, "el">): boolean {
+  return (
+    a.index === b.index &&
+    a.kind === b.kind &&
+    a.text === b.text &&
+    a.renderer === b.renderer &&
+    a.table?.path === b.table?.path &&
+    a.table?.delimiter === b.table?.delimiter &&
+    a.table?.header === b.table?.header &&
+    a.table?.language === b.table?.language &&
+    a.asserts.join(" ") === b.asserts.join(" ")
+  );
+}
 
 class RenderedWidget extends WidgetType {
   constructor(
@@ -112,21 +159,11 @@ class RenderedWidget extends WidgetType {
   }
 
   eq(other: RenderedWidget) {
-    const a = this.slot;
-    const b = other.slot;
-    // Rebuild only when the rendered CONTENT would differ. Editing prose
-    // elsewhere moves the span, which must not restart a diagram engine.
-    return (
-      a.key === b.key &&
-      a.kind === b.kind &&
-      a.text === b.text &&
-      a.renderer === b.renderer &&
-      a.table?.path === b.table?.path &&
-      a.table?.delimiter === b.table?.delimiter &&
-      a.table?.header === b.table?.header &&
-      a.table?.language === b.table?.language &&
-      a.asserts.join(" ") === b.asserts.join(" ")
-    );
+    // The same block is the same widget, whatever it now says: its content
+    // reaches the mounted panel through the registry (see
+    // RenderedRegistry.sync), never by rebuilding the DOM it lives in —
+    // which would remount the panel and lose its selection and focus.
+    return this.slot.key === other.slot.key && this.slot.kind === other.slot.kind;
   }
 
   toDOM() {
@@ -192,42 +229,46 @@ function buildRendered(state: EditorState, registry: RenderedRegistry): Decorati
     const first = doc.lineAt(Math.min(block.from, doc.length));
     const last = doc.lineAt(Math.min(Math.max(block.to - 1, block.from), doc.length));
     if (last.to <= first.from) continue;
+    const slot: Omit<RenderedSlot, "el"> = {
+      key: `${kind}-${index}`,
+      index,
+      kind,
+      at: block.from,
+      span: [block.from, block.to],
+      text:
+        kind === "exec"
+          ? commandOf(state, structure, block)
+          : doc.sliceString(block.contentFrom, block.contentTo),
+      renderer: block.attrs.renderer ?? "mermaid",
+      table:
+        kind === "table"
+          ? {
+              path: block.attrs.path,
+              delimiter: block.attrs.delimiter === "tab" ? "\t" : block.attrs.delimiter,
+              // A CSV with a header row is the overwhelmingly common
+              // case; a document that has to say so every time is a
+              // document full of noise.
+              header: block.attrs.header !== "false",
+              // No language means no formulas: a cell beginning with `=`
+              // is then just text, which is what a table of shell
+              // snippets needs it to be.
+              language: block.attrs.language,
+            }
+          : undefined,
+      asserts: (block.attrs.asserts ?? "")
+        .split(/\s+/)
+        .filter(Boolean)
+        .map((selector) => selector.replace(/^#/, "")),
+    };
+    // The widget below is judged equal to the one already on screen and is
+    // never mounted; the slot that one registered is what must follow the
+    // block — in position and in content.
+    registry.sync(slot.key, slot);
     ranges.push(
-      Decoration.replace({
-        widget: new RenderedWidget(registry, {
-          key: `${kind}-${index}`,
-          index,
-          kind,
-          at: block.from,
-          span: [block.from, block.to],
-          text:
-            kind === "exec"
-              ? commandOf(state, structure, block)
-              : doc.sliceString(block.contentFrom, block.contentTo),
-          renderer: block.attrs.renderer ?? "mermaid",
-          table:
-            kind === "table"
-              ? {
-                  path: block.attrs.path,
-                  delimiter:
-                    block.attrs.delimiter === "tab" ? "\t" : block.attrs.delimiter,
-                  // A CSV with a header row is the overwhelmingly common
-                  // case; a document that has to say so every time is a
-                  // document full of noise.
-                  header: block.attrs.header !== "false",
-                  // No language means no formulas: a cell beginning with `=`
-                  // is then just text, which is what a table of shell
-                  // snippets needs it to be.
-                  language: block.attrs.language,
-                }
-              : undefined,
-          asserts: (block.attrs.asserts ?? "")
-            .split(/\s+/)
-            .filter(Boolean)
-            .map((selector) => selector.replace(/^#/, "")),
-        }),
-        block: true,
-      }).range(first.from, last.to),
+      Decoration.replace({ widget: new RenderedWidget(registry, slot), block: true }).range(
+        first.from,
+        last.to,
+      ),
     );
   }
   ranges.sort((a, b) => a.from - b.from);

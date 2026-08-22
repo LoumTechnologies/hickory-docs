@@ -445,6 +445,34 @@ Last LLM verification:
   stored size coming back with nonsense dropped and an absurd height clamped.
   `apps/web/src/components/FenceTable.test.tsx` (6 tests) — the promotion's
   exact output, including the no-path and quoted-path cases.
+- Amended 2026-08-22 (Claude, Fable 5): a grid edit — Enter, Tab, or clicking
+  out — was silently dropped whenever the document had been edited ABOVE the
+  table since the grid was drawn. The rendered widget survives such edits on
+  purpose (`RenderedWidget.eq` ignores position, so typing a heading above a
+  table does not rebuild the grid), but the slot it registered still carried
+  the block's ORIGINAL offset, and `replaceBlockContent` looks the block up by
+  that offset: it found nothing and returned without a word, leaving the cell
+  empty. `RenderedRegistry.reposition` (`apps/web/src/editor/rendered.ts`),
+  called from `buildRendered` on every document change, now moves every
+  rendered slot to where its block is; `apps/web/src/editor/rendered.test.ts`
+  asserts the slot follows an insertion above and holds still for one below.
+  Verified by driving the real grid in a browser: after an insertion at the
+  top of the document, a value committed by Enter, by Tab, and by a click into
+  the prose each landed in the `<hick:table>` body.
+- Amended 2026-08-22 (Claude, Fable 5): point mode from the KEYBOARD, as in
+  Excel. While a formula is open, Up and Down write the reference of the cell
+  above or below the edited cell at the caret, and each further arrow walks
+  that pointer one cell on, replacing the reference rather than stacking
+  them; Left and Right do the same once the caret has nothing left to do — at
+  the start or end of the text, or while the pointer is live — and otherwise
+  move the caret as in any field. Typing ends the pointer (the next arrow
+  leaves from the edited cell again); Enter, Tab, Escape and a click away
+  behave as they always did. The pointed cell carries its own dashed ring
+  (`table-panel__cell--pointed`), deliberately not the selection's: the
+  selection stays on the cell being written. `TablePanel.tsx` — `pointer`,
+  `pointBy`, `pointKey`, `typed`; four tests under "pointing at a cell while
+  writing a formula" in `TablePanel.test.tsx`; verified by hand in the
+  browser (`=`, Up, Up, `+`, Up, Right, Left → `=B2+A3`, committed by Enter).
 - Caveat requiring review: `rowspan` in pasted HTML is not reconstructed —
   cells below a spanned one shift left, exactly as they do when the same table
   is pasted into a spreadsheet as values. Said rather than half-implemented.

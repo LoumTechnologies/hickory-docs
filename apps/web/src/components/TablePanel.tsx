@@ -362,6 +362,12 @@ export function TablePanel({
   // Where the last pointed-at reference landed in the draft, so the next
   // click replaces it instead of piling up beside it. See lib/formulaPoint.ts.
   const pointed = useRef<PointedAt | null>(null);
+  // The cell the formula is currently POINTING at — by a click, or by the
+  // arrow keys walking out from the edited cell the way Excel's point mode
+  // does. Drawn with its own dashed ring, deliberately not the selection: the
+  // selection is still the cell being edited, and the pointer is the operand
+  // being chosen for it. Null when the formula is not pointing at anything.
+  const [pointer, setPointer] = useState<CellAt | null>(null);
   // Where to leave the caret after a reference is written in. Applied in an
   // effect because the input has not re-rendered with the new text yet.
   const [caretWanted, setCaretWanted] = useState<number | null>(null);
@@ -428,6 +434,7 @@ export function TablePanel({
   const stopEditing = () => {
     if (editing && active) commit(active, draft);
     setEditing(false);
+    setPointer(null);
   };
 
   /** Make a cell active without typing into it — a click, an arrow, a header. */
@@ -458,6 +465,7 @@ export function TablePanel({
     // A new edit has pointed at nothing yet; the last edit's reference is not
     // this one's to replace.
     pointed.current = null;
+    setPointer(null);
   };
 
   const moveTo = (row: number, column: number) => {
@@ -477,6 +485,7 @@ export function TablePanel({
     commit(at, draft);
     moveTo(at.row + dRow, at.column + dColumn);
     setEditing(false);
+    setPointer(null);
   };
 
   /**
@@ -599,7 +608,82 @@ export function TablePanel({
     setDraft(written.text);
     pointed.current = written.pointed;
     setCaretWanted(written.caret);
+    setPointer({ row, column });
     return true;
+  };
+
+  /**
+   * Point one cell further in a direction, from the keyboard.
+   *
+   * The first step leaves from the cell being edited; every step after that
+   * leaves from where the pointer already is, replacing the reference the
+   * previous step wrote (pointAt's rule), so walking three cells down leaves
+   * one reference, not three. At the grid's edge the step is swallowed
+   * rather than turned back into a caret move — you are still pointing.
+   * Answers whether the key meant a step at all: it does not when the
+   * formula is not asking for an operand where the caret is, and the caller
+   * then lets the arrow do what it always did.
+   */
+  const pointBy = (dRow: number, dColumn: number, caret: number): boolean => {
+    if (!pointing || !active) return false;
+    const from = pointer ?? active;
+    const target = {
+      row: Math.max(0, Math.min(from.row + dRow, height - 1)),
+      column: Math.max(0, Math.min(from.column + dColumn, width - 1)),
+    };
+    if (pointer && target.row === pointer.row && target.column === pointer.column) return true;
+    const written = pointAt(draft, caret, cellLabel(target.column, target.row), pointed.current);
+    if (!written) return false;
+    setDraft(written.text);
+    pointed.current = written.pointed;
+    setCaretWanted(written.caret);
+    setPointer(target);
+    return true;
+  };
+
+  /**
+   * An arrow key pressed while a formula is open: Excel's point mode.
+   *
+   * Up and Down always point — the field is one line, so there is nowhere
+   * else for them to go. Left and Right point only once the caret has nothing
+   * left to do: at the start or the end of the text, or while the pointer is
+   * already live (the caret sitting just after the reference it writes). In
+   * the middle of the text they move the caret, which is what an arrow key
+   * in a text field means. Answers whether the key was taken.
+   */
+  const pointKey = (event: React.KeyboardEvent<HTMLInputElement>): boolean => {
+    if (!pointing) return false;
+    const field = event.currentTarget;
+    const start = field.selectionStart ?? draft.length;
+    const end = field.selectionEnd ?? start;
+    const collapsed = start === end;
+    // The caret cannot usefully sit before the `=`: a Left at the very start
+    // points, inserting where the first operand goes.
+    const caret = Math.max(start, Math.min(1, draft.length));
+    const live =
+      pointer !== null && pointed.current !== null && collapsed && start === pointed.current.end;
+    switch (event.key) {
+      case "ArrowUp":
+        return pointBy(-1, 0, caret);
+      case "ArrowDown":
+        return pointBy(1, 0, caret);
+      case "ArrowLeft":
+        if (!live && !(collapsed && start <= 1)) return false;
+        return pointBy(0, -1, caret);
+      case "ArrowRight":
+        if (!live && !(collapsed && start >= draft.length)) return false;
+        return pointBy(0, 1, caret);
+      default:
+        return false;
+    }
+  };
+
+  /** What typing into the open cell does: the text changes, and any pointer
+   * is dropped — the next arrow leaves from the edited cell again, and the
+   * next click writes a fresh reference rather than replacing the last. */
+  const typed = (text: string) => {
+    setPointer(null);
+    setDraft(text);
   };
 
   /**
@@ -931,11 +1015,16 @@ export function TablePanel({
           }
           onChange={(event) => {
             if (!active) return;
-            edit(active.row, active.column, event.target.value, "bar");
+            if (editing && entryFrom === "bar") typed(event.target.value);
+            else edit(active.row, active.column, event.target.value, "bar");
           }}
           onBlur={stopEditing}
           onKeyDown={(event) => {
             if (!active) return;
+            if (event.key.startsWith("Arrow") && pointKey(event)) {
+              event.preventDefault();
+              return;
+            }
             if (event.key === "Enter") {
               event.preventDefault();
               commitAndMove(active, event.shiftKey ? -1 : 1, 0);
@@ -1057,6 +1146,7 @@ export function TablePanel({
                           }
                           stepping={steppingAt?.row === row && steppingAt.column === column}
                           read={steppingReads.has(label)}
+                          pointedAt={pointer?.row === row && pointer.column === column}
                           editing={editing && active?.row === row && active.column === column}
                           draft={draft}
                           editable={editable}
@@ -1095,7 +1185,8 @@ export function TablePanel({
                             else select(row, column);
                           }}
                           onEdit={() => edit(row, column)}
-                          onDraft={setDraft}
+                          onDraft={typed}
+                          onPoint={pointKey}
                           onKeys={(event) => onSelectedKeyDown(event, { row, column })}
                           onMove={(dRow, dColumn) => commitAndMove({ row, column }, dRow, dColumn)}
                           onDone={stopEditing}
@@ -1512,6 +1603,7 @@ function Cell({
   within,
   stepping,
   read,
+  pointedAt,
   editing,
   draft,
   editable,
@@ -1522,6 +1614,7 @@ function Cell({
   onSelect,
   onEdit,
   onDraft,
+  onPoint,
   onKeys,
   onMove,
   onDone,
@@ -1544,6 +1637,9 @@ function Cell({
   stepping: boolean;
   /** A cell the stepped-to formula read. */
   read: boolean;
+  /** The cell an open formula is pointing at — its reference is the one
+   * being written. Its own ring, not the selection's. */
+  pointedAt: boolean;
   editing: boolean;
   draft: string;
   editable: boolean;
@@ -1554,6 +1650,9 @@ function Cell({
   onSelect: (event: React.MouseEvent) => void;
   onEdit: () => void;
   onDraft: (value: string) => void;
+  /** An arrow key while the field is open: true when it pointed at a cell
+   * (see TablePanel's pointKey) and the field must not act on it. */
+  onPoint: (event: React.KeyboardEvent<HTMLInputElement>) => boolean;
   onKeys: (event: React.KeyboardEvent) => void;
   onMove: (dRow: number, dColumn: number) => void;
   onDone: () => void;
@@ -1578,7 +1677,8 @@ function Cell({
           (selected ? " table-panel__cell--selected" : "") +
           (within ? " table-panel__cell--within" : "") +
           (stepping ? " table-panel__cell--stepping" : "") +
-          (read ? " table-panel__cell--read" : "")
+          (read ? " table-panel__cell--read" : "") +
+          (pointedAt ? " table-panel__cell--pointed" : "")
         }
         role={editable ? "gridcell" : undefined}
         tabIndex={editable ? 0 : undefined}
@@ -1635,6 +1735,12 @@ function Cell({
       onChange={(event) => onDraft(event.target.value)}
       onBlur={onDone}
       onKeyDown={(event) => {
+        // Point mode first: while a formula is open, an arrow may mean "that
+        // cell", and then it is neither a caret move nor a cell move.
+        if (event.key.startsWith("Arrow") && onPoint(event)) {
+          event.preventDefault();
+          return;
+        }
         // The chords every spreadsheet has trained people to expect. Enter
         // commits and drops a row; Tab commits and moves right.
         if (event.key === "Enter") {

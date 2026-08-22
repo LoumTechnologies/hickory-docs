@@ -60,7 +60,7 @@
 // the element that has the real geometry, is the same discipline the prose
 // measure follows.
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import type { EditorView } from "@codemirror/view";
 
 import {
@@ -102,7 +102,7 @@ interface ColumnBand {
   width: number;
 }
 
-export function EditorRuler({
+export const EditorRuler = memo(function EditorRuler({
   view,
   column,
   onColumn,
@@ -356,4 +356,4 @@ export function EditorRuler({
       </button>
     </div>
   );
-}
+});

@@ -17,7 +17,7 @@
 //
 // See docs/specs/freeform/shell-layouts.md.
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { api } from "../api/client";
 import type { DocSummary, FileNode, OpenTerminal, SearchHit } from "../api/types";
@@ -83,7 +83,12 @@ import {
 import { DocSessionHost, SessionRegistry, useSessionVersion } from "./documentSession";
 import { AttentionCard } from "../terminal/AttentionCard";
 import { MonitorDock } from "../terminal/MonitorDock";
-import { TerminalPane } from "../terminal/TerminalPane";
+// The terminal emulator is a quarter of a megabyte of JavaScript that a
+// window without a terminal open never runs. Loaded the first time a terminal
+// tab is drawn, so the document you opened the app for is on screen sooner.
+const TerminalPane = lazy(() =>
+  import("../terminal/TerminalPane").then((m) => ({ default: m.TerminalPane })),
+);
 import { sessionById, useTerminals } from "../terminal/useTerminals";
 import { nextInQueue } from "../lib/attentionCursor";
 import { DocTabBody, GeneratedTabBody, UntitledTab } from "./workspaceTabs";
@@ -192,38 +197,6 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   // sits. Restored into an untouched workspace only — the same rule a
   // document's own declared layout follows — and the route's opener waits for
   // `hydrated` so the two cannot race. See views/useWorkspaceUi.ts.
-  // Where the caret is, for the status bar. Held as state rather than read
-  // during render because the editors deliberately do not re-render on every
-  // keystroke — this is subscribed to instead, and it is the only thing in
-  // the window that wants a per-keystroke update.
-  const [caret, setCaret] = useState<{ line: number; column: number } | null>(null);
-  useEffect(() => {
-    let frame: number | null = null;
-    const read = () => {
-      frame = null;
-      const view = focusedEditor();
-      if (!view || !view.dom.isConnected) {
-        setCaret(null);
-        return;
-      }
-      const head = view.state.selection.main.head;
-      const line = view.state.doc.lineAt(head);
-      setCaret({ line: line.number, column: head - line.from + 1 });
-    };
-    // Polled on a frame rather than hooked into every editor: there is no one
-    // editor to hook, panes come and go, and a status bar that is one frame
-    // behind the caret is indistinguishable from one that is not.
-    const tick = () => {
-      if (frame === null) frame = requestAnimationFrame(read);
-    };
-    const timer = window.setInterval(tick, 120);
-    tick();
-    return () => {
-      window.clearInterval(timer);
-      if (frame !== null) cancelAnimationFrame(frame);
-    };
-  }, []);
-
   // How much is wrong, across every open document. Recomputed from the
   // sessions' own diagnostics rather than kept as a second copy: two counts
   // that can disagree is worse than no count at all.
@@ -680,6 +653,22 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   // re-targets. The seam for drawing several documents' overlays at once is
   // already here — RibbonOverlay takes {source, files} — that is the
   // follow-up, not this change.
+  // The overlay's source, memoized: the overlay re-measures whenever this
+  // object changes identity, so an inline literal would re-measure every
+  // relationship on screen on every render of this view.
+  const ribbonSource = useMemo(
+    () =>
+      focused?.doc
+        ? {
+            // The view is optional: a closed document pane still leaves
+            // bands pointing back to it, which is how you find it again.
+            view: focused.docEditor ?? undefined,
+            docPath: focused.doc.path,
+            docSource: focused.doc.source,
+          }
+        : null,
+    [focused?.doc, focused?.docEditor],
+  );
   const ribbonFiles: RibbonFile[] = useMemo(
     () =>
       focused
@@ -1110,7 +1099,11 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     if (tab.kind === "terminal") {
       // The emulator draws to a canvas, so the CSS zoom around it does
       // nothing; it is told its level and re-fits itself.
-      return <TerminalPane sessionId={tab.target} zoom={workspaceUi.zoomFor(tab.target)} />;
+      return (
+        <Suspense fallback={null}>
+          <TerminalPane sessionId={tab.target} zoom={workspaceUi.zoomFor(tab.target)} />
+        </Suspense>
+      );
     }
     if (tab.kind === "tool" && tab.target === GIT_TAB) {
       return <GitPane onOpenFile={(path) => openHit(path, 1)} />;
@@ -1268,17 +1261,7 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
               Not a layout: an overlay, following the focused document. */}
           <RibbonOverlay
             container={shellBox}
-            source={
-              // The view is optional: a closed document pane still leaves
-              // bands pointing back to it, which is how you find it again.
-              focused?.doc
-                ? {
-                    view: focused.docEditor ?? undefined,
-                    docPath: focused.doc.path,
-                    docSource: focused.doc.source,
-                  }
-                : null
-            }
+            source={ribbonSource}
             files={ribbonFiles}
             documentVisible={!!focused?.docEditor}
             ribbonStyle={ribbonStyle}
@@ -1362,7 +1345,6 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
         problems={problems}
         needsAttention={terminals.attention.length}
         path={focusedPath}
-        caret={caret}
         zoom={zoom.uiZoom}
         onProblems={goToNextProblem}
         onAttention={nextAttention}

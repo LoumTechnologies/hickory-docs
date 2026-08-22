@@ -148,6 +148,43 @@ interface Shape {
 /** Thickness of the connector bar on a tab terminal's attached edge. */
 const CONNECTOR = 3;
 
+function sameBox(
+  a: { x: number; y: number; width: number; height: number } | undefined,
+  b: { x: number; y: number; width: number; height: number } | undefined,
+): boolean {
+  if (!a || !b) return a === b;
+  return a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height;
+}
+
+/** Whether two measurements would draw the same overlay. */
+function sameShapes(a: readonly Shape[], b: readonly Shape[]): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    const x = a[i];
+    const y = b[i];
+    if (
+      x.key !== y.key ||
+      x.color !== y.color ||
+      x.clamped !== y.clamped ||
+      x.ends !== y.ends ||
+      x.band !== y.band ||
+      x.whitespaceOnly !== y.whitespaceOnly ||
+      x.brace?.hit !== y.brace?.hit ||
+      !sameBox(x.reveal, y.reveal) ||
+      !sameBox(x.connector, y.connector) ||
+      x.hl.length !== y.hl.length ||
+      x.hl.some(
+        (side, j) => side.view !== y.hl[j].view || side.from !== y.hl[j].from || side.to !== y.hl[j].to,
+      ) ||
+      (x.hoverZones?.length ?? 0) !== (y.hoverZones?.length ?? 0) ||
+      (x.hoverZones ?? []).some((zone, j) => !sameBox(zone, y.hoverZones?.[j]))
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
 /**
  * The screen element of a terminal — a tab header or a divider port button —
  * found by attribute. Rendered chrome is the source of truth for where it
@@ -770,7 +807,9 @@ export function RibbonOverlay({
       }
     }
 
-    setShapes(out);
+    // Measured twice a second whether or not anything moved; commit only a
+    // real change, or the SVG re-renders on every tick.
+    setShapes((current) => (sameShapes(current, out) ? current : out));
   }, [container, source, files, documentVisible, ribbonStyle]);
 
   // Measurement follows the things that move: scrolling either pane, editing

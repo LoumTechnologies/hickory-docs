@@ -80,6 +80,8 @@ export function deriveRibbons(
       color = fragmentColors.size % RIBBON_PALETTE_SIZE;
       fragmentColors.set(fragKey, color);
     }
+    const outFrom = byteToChar(file.content, p.start);
+    const outTo = byteToChar(file.content, p.end);
     ribbons.push({
       key: `${file.path}:${i}`,
       kind: p.origin.kind,
@@ -88,13 +90,10 @@ export function deriveRibbons(
         byteToChar(docSource, p.origin.span[1]),
       ],
       sourceByteSpan: p.origin.span,
-      outputRange: [byteToChar(file.content, p.start), byteToChar(file.content, p.end)],
+      outputRange: [outFrom, outTo],
       bytes: p.end - p.start,
       color,
-      whitespaceOnly:
-        file.content
-          .slice(byteToChar(file.content, p.start), byteToChar(file.content, p.end))
-          .trim().length === 0,
+      whitespaceOnly: file.content.slice(outFrom, outTo).trim().length === 0,
     });
   });
   return ribbons;

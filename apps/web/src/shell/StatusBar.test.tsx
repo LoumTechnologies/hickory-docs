@@ -3,8 +3,22 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 
 import { StatusBar } from "./StatusBar";
 
+// The caret is read off the focused editor by the bar itself (it polls, so
+// the workspace above it never re-renders for a keystroke); the tests hand it
+// a stand-in editor, or none.
+const focused = vi.hoisted(() => ({ view: null as unknown }));
+vi.mock("../editor/activeEditor", () => ({ focusedEditor: () => focused.view }));
+const fakeEditorAt = (line: number, column: number) => ({
+  dom: { isConnected: true },
+  state: {
+    selection: { main: { head: 100 } },
+    doc: { lineAt: () => ({ number: line, from: 100 - (column - 1) }) },
+  },
+});
+
 afterEach(() => {
   cleanup();
+  focused.view = null;
 });
 
 const bar = (over: Partial<React.ComponentProps<typeof StatusBar>> = {}) =>
@@ -13,7 +27,6 @@ const bar = (over: Partial<React.ComponentProps<typeof StatusBar>> = {}) =>
       problems={{ errors: 0, warnings: 0 }}
       needsAttention={0}
       path={null}
-      caret={null}
       zoom={1}
       {...over}
     />,
@@ -62,16 +75,18 @@ describe("what it leaves out", () => {
     expect(onAttention).toHaveBeenCalled();
   });
 
-  it("shows no caret position when nothing is focused", () => {
-    bar({ caret: null });
+  it("shows no caret position when nothing is focused", async () => {
+    bar();
+    await new Promise((r) => requestAnimationFrame(() => r(null)));
     expect(screen.queryByText(/^Ln /)).toBeNull();
   });
 });
 
 describe("what it says about the view", () => {
-  it("shows the caret and the path of the focused file", () => {
-    bar({ caret: { line: 42, column: 7 }, path: "src/main.rs" });
-    expect(screen.getByText("Ln 42, Col 7")).toBeTruthy();
+  it("shows the caret and the path of the focused file", async () => {
+    focused.view = fakeEditorAt(42, 7);
+    bar({ path: "src/main.rs" });
+    expect(await screen.findByText("Ln 42, Col 7")).toBeTruthy();
     expect(screen.getByText("src/main.rs")).toBeTruthy();
   });
 });

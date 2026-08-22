@@ -141,6 +141,14 @@ export class SessionRegistry {
   version = 0;
 
   publish(session: DocSession): void {
+    // A session hook re-runs on every keystroke (the dirty buffer is its
+    // state), and each run hands over a fresh object. Re-publishing one whose
+    // every field is the same would re-render the workspace chrome — every
+    // pane, rail and ruler in the window — for a change nothing can see.
+    // Shallow equality is exactly the test, because the hook keeps every
+    // field referentially stable unless it changed.
+    const current = this.sessions.get(session.docId);
+    if (current && sameSession(current, session)) return;
     this.sessions.set(session.docId, session);
     this.emit();
   }
@@ -166,6 +174,14 @@ export class SessionRegistry {
     this.version += 1;
     for (const listener of [...this.listeners]) listener();
   }
+}
+
+/** Shallow equality over a session's fields — the registry's "did anything
+ * a consumer reads change" test. */
+function sameSession(a: DocSession, b: DocSession): boolean {
+  const keys = Object.keys(b) as (keyof DocSession)[];
+  if (keys.length !== Object.keys(a).length) return false;
+  return keys.every((key) => Object.is(a[key], b[key]));
 }
 
 /** Re-render whenever ANY session publishes; read sessions off the registry
@@ -660,6 +676,12 @@ function useDocumentSession(
   // text (unsaved edits included) so positions always match the screen.
   const liveSource = dirtySource ?? doc?.source ?? "";
   const lsp = useLsp(realtime, doc?.path ?? "", liveSource);
+  // The callbacks below read the live text at the moment they are CALLED,
+  // through a ref, rather than closing over it: closing over it would give
+  // them a new identity on every keystroke, and the session they belong to
+  // is published by identity (see SessionRegistry.publish).
+  const liveSourceRef = useRef(liveSource);
+  liveSourceRef.current = liveSource;
 
   const openTarget = useCallback(
     (target: LspNavigationTarget | LspLocation) => {
@@ -671,19 +693,21 @@ function useDocumentSession(
         openGenerated(path);
         return;
       }
-      const from = positionToUtf16(liveSource, target.range.start);
-      const to = positionToUtf16(liveSource, target.range.end);
+      const text = liveSourceRef.current;
+      const from = positionToUtf16(text, target.range.start);
+      const to = positionToUtf16(text, target.range.end);
       setSelectSpan([from, Math.max(to, from)]);
     },
-    [liveSource, openGenerated],
+    [openGenerated],
   );
 
   const wordAt = (offset: number) => {
+    const text = liveSourceRef.current;
     const m = /[A-Za-z_][A-Za-z0-9_]*/y;
     let start = offset;
-    while (start > 0 && /[A-Za-z0-9_]/.test(liveSource[start - 1] ?? "")) start--;
+    while (start > 0 && /[A-Za-z0-9_]/.test(text[start - 1] ?? "")) start--;
     m.lastIndex = start;
-    return m.exec(liveSource)?.[0] ?? "";
+    return m.exec(text)?.[0] ?? "";
   };
 
   const lspExtensions = useMemo(
@@ -696,7 +720,7 @@ function useDocumentSession(
         onReferences: (locations, from) =>
           setReferences({
             locations,
-            query: wordAt(positionToUtf16(liveSource, from.range.start)),
+            query: wordAt(positionToUtf16(liveSourceRef.current, from.range.start)),
           }),
         // While paused, a hover answers two questions at once: what this
         // symbol IS, and what it currently HOLDS. The type is what it should
@@ -744,11 +768,11 @@ function useDocumentSession(
         client: lsp.client,
         uri: lsp.uri,
         positionAt: (offset) =>
-          sourcePositionAt(offset, provenance, doc?.path ?? "", liveSource),
+          sourcePositionAt(offset, provenance, docPathRef.current ?? "", liveSourceRef.current),
         onNavigate: openTarget,
         onReferences: (locations) => setReferences({ locations, query: "" }),
       }),
-    [lsp.client, lsp.uri, openTarget, doc?.path, liveSource],
+    [lsp.client, lsp.uri, openTarget],
   );
 
   const registerOutputView = useCallback((path: string, view: EditorView | null) => {

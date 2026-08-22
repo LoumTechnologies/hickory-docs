@@ -203,6 +203,11 @@ export function DocumentEditor({
   // it is read through a ref at the moment it is needed.
   const pathRef = useRef(path);
   pathRef.current = path;
+  // The ruler is memoized — a hundred-odd tick elements that never change
+  // while you type — so what it is handed must not change identity per render.
+  const onWrapColumnRef = useRef(onWrapColumn);
+  onWrapColumnRef.current = onWrapColumn;
+  const onWrapColumnStable = useCallback((next: number) => onWrapColumnRef.current?.(next), []);
   // What went wrong with the last drop or paste, shown until the next one.
   // A write that fails silently leaves a note referencing a file that was
   // never created.
@@ -241,11 +246,13 @@ export function DocumentEditor({
   // Blocks currently showing their result instead of their source.
   const renderedRegistry = useMemo(() => new RenderedRegistry(), []);
   const [renderedSlots, setRenderedSlots] = useState<RenderedSlot[]>([]);
-  // Where the caret is, as state rather than as a ref, because the ruler
-  // above the editor changes what it draws when the caret is inside a table.
-  // Only the head of the selection is kept: a range is re-reported on every
-  // drag, and nothing here cares how long it is.
-  const [caret, setCaret] = useState(0);
+  // The rendered table the caret is inside (by block start), or null. State
+  // rather than a ref because the ruler above the editor changes what it
+  // draws when the caret is inside a table — but ONLY that: the caret's
+  // position itself is not kept, because it changes on every keystroke and
+  // nothing rendered here depends on it. A component re-rendering every rail,
+  // ruler and portal per keystroke is what a laggy editor is made of.
+  const [caretTableAt, setCaretTableAt] = useState<number | null>(null);
   // Which rendered widget has the focus. A rendered table is a FOLD — the
   // caret cannot be inside it, and the widget deliberately swallows its own
   // events so a click in a cell is not read as a click in the text. So "the
@@ -476,7 +483,12 @@ export function DocumentEditor({
           }),
           EditorView.updateListener.of((u) => {
             if (u.selectionSet || u.docChanged) {
-              setCaret(u.state.selection.main.head);
+              const head = u.state.selection.main.head;
+              const inTable = renderedRegistry
+                .list()
+                .find((slot) => slot.kind === "table" && head >= slot.span[0] && head <= slot.span[1]);
+              const at = inTable ? inTable.at : null;
+              setCaretTableAt((current) => (current === at ? current : at));
             }
             if (!u.docChanged) return;
             onChange?.(u.state.doc.toString());
@@ -628,9 +640,7 @@ export function DocumentEditor({
   const activeTableEl =
     renderedSlots.find((slot) => slot.kind === "table" && focusedEl && slot.el.contains(focusedEl))
       ?.el ??
-    renderedSlots.find(
-      (slot) => slot.kind === "table" && caret >= slot.span[0] && caret <= slot.span[1],
-    )?.el ??
+    renderedSlots.find((slot) => slot.kind === "table" && slot.at === caretTableAt)?.el ??
     null;
 
   const renderedAt = renderedSlots.map((slot) => slot.at);
@@ -810,7 +820,7 @@ export function DocumentEditor({
       <EditorRuler
         view={railView}
         column={wrapColumn}
-        onColumn={(next) => onWrapColumn?.(next)}
+        onColumn={onWrapColumnStable}
         tableEl={activeTableEl}
       />
       <div className="document-editor with-right-rail with-card-rail">

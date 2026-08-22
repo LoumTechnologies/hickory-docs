@@ -11,8 +11,31 @@ function byteLenAt(text: string, i: number): { bytes: number; units: number } {
   return { bytes: 4, units: 2 };
 }
 
+// Whether a text is pure ASCII, remembered for the last few texts seen. In
+// ASCII, byte offsets and UTF-16 offsets are the same number, and the
+// provenance of one file asks this question hundreds of times per redraw
+// against the same two strings — so the answer is worth keeping. The regex is
+// native and linear; the walk it replaces is interpreted and quadratic over a
+// file's provenance list. Keyed by the string itself: V8 caches a string's
+// hash, so a repeated lookup of the same (large) string is a pointer check.
+const asciiCache = new Map<string, boolean>();
+const ASCII_CACHE_SIZE = 16;
+function isAscii(text: string): boolean {
+  let known = asciiCache.get(text);
+  if (known === undefined) {
+    // eslint-disable-next-line no-control-regex
+    known = !/[^\x00-\x7f]/.test(text);
+    if (asciiCache.size >= ASCII_CACHE_SIZE) {
+      asciiCache.delete(asciiCache.keys().next().value as string);
+    }
+    asciiCache.set(text, known);
+  }
+  return known;
+}
+
 /** UTF-8 byte offset of UTF-16 index `charIndex` in `text`. */
 export function charToByte(text: string, charIndex: number): number {
+  if (isAscii(text)) return Math.max(0, Math.min(charIndex, text.length));
   let bytes = 0;
   let i = 0;
   while (i < charIndex && i < text.length) {
@@ -25,6 +48,7 @@ export function charToByte(text: string, charIndex: number): number {
 
 /** UTF-16 index for UTF-8 byte offset `byteIndex` in `text` (clamped). */
 export function byteToChar(text: string, byteIndex: number): number {
+  if (isAscii(text)) return Math.max(0, Math.min(byteIndex, text.length));
   let bytes = 0;
   let i = 0;
   while (i < text.length) {
