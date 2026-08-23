@@ -29,13 +29,92 @@ could replace branching in a `.hick` document. The short answer is that the
 branch→feature-set half is worth doing and the branches-as-flags half would
 cost the provenance that this product exists for.
 
-A second open question, investigated and deliberately not built, is
-`docs/specs/freeform/scaffolded-files-and-derived-edits.md`: how a document
-owns files a scaffolder (`dotnet new`) wrote. The short answer is that "a block
-that is a set of edits on top of something else" is a missing primitive worth
-having, and that CRDT edits are the wrong way to express it — a re-run of a
-scaffolder shares no history with the previous run, so the property that makes
-CRDTs merge is absent exactly where it would be needed.
+How a document owns files a scaffolder (`dotnet new`) wrote is
+`docs/specs/freeform/owning-what-a-scaffolder-wrote.md`: **`hick ingest` reads
+the exec's output volume** and writes the scaffold into the document as ordinary
+`hick:file` bytes carrying the run's fingerprint, so your four lines are
+ordinary edits and there is no anchor grammar at all. Nesting is
+`exec > ingested > file` — never `exec > file`, because `file > exec` already
+means "run this, paste the output here". The bytes need their own origin: they
+must not read as `Literal` (they are not yours) or as `Exec` (that is synthetic
+and kills the reverse edit). A re-run is a **three-way merge** with the recorded
+hash as the base, coarse for a principled reason — two runs of a scaffolder
+share no history, so no byte-precise thread exists to record. It supersedes
+`docs/specs/freeform/scaffolded-files-and-derived-edits.md` on the mechanism,
+which is still where the two refusals are argued: **CRDT edits** cannot express
+a derivation from a foreign artifact, and **line-offset patches** are the
+fifty-year-old version of the same mistake. What killed that document's `from=`
+is worth remembering generally — **it built a durable claim on a gitignored
+artifact** (`.hick-cache/`), so the base did not survive a clone.
+
+How one engineer's several machines see each other's IDE sessions — remote
+view and remote control, one identity, no relay and no account — is
+`docs/specs/freeform/one-engineer-many-machines.md`. Editing one file across several of them —
+and across branches and worktrees — is `docs/specs/freeform/the-merged-view.md`:
+one tab synthesizes a file from N sources with `<hick:when>`-shaped variants
+that **exist on disk nowhere**, so **the view is the merge, held live** (a
+shared region is agreed by construction and cannot conflict later). It is a
+**lens, not a document** — no save path, no `.hick` extension — and it closes
+`two-branches-in-one-document.md` without adopting branches-as-flags. A
+committed variant names a **property, never a machine**: *the distinction lives
+in the document, which machine matches lives on the machine.* The invariant that
+keeps it honest — **CI weaves with no facts at all, so the shared reading must
+stand alone and a variant may only add** — comes from the superseded
+`machine-scoped-edits.md`, which is still the place the reasoning is written
+down. A machine bought to run an agent on is
+`docs/specs/freeform/the-broker-and-the-sealed-machine.md`: a sealed machine
+holds no real key and has one road out through a broker the engineer runs,
+which allows, denies, asks, or substitutes the real credential. Say "one road
+out, with a toll booth" — **never** "airgapped", which a machine that talks to
+a model is not. The open question under all three is
+`docs/specs/freeform/changes-not-commits.md`: the reverse edit is already
+jujutsu's move-a-change-where-it-belongs on the tangle axis, a session should
+record which commit its writes *landed* in, and **emission is one-way** — a
+session may produce a commit, but nothing may re-produce one that exists, which
+is the only form of generated history that survives blame.
+
+Whether a document that emits commits replaces the repository is
+`docs/specs/freeform/expression-and-log.md`, and it does not: **a document is an
+expression, a repository is the log of its values**, so a document that emits
+history needs git *more*, each emitted commit carries the document version that
+emitted it, and **the document describes the present while git holds the past**
+— it never accumulates corrections, because the record of what generated an old
+commit is inside that commit. Machines and repos are **places** (spanning them
+is coordination); commits are a **time** (spanning them is rewriting), allowed
+only above the publication floor. Across repositories: **read across, write
+local.**
+
+Provenance *across* versions of a document is
+`docs/specs/freeform/provenance-across-versions.md`. The data is not missing,
+the identity is: `(commit, path, line)` addresses published bytes exactly (and
+only below the publication floor — re-emission churns hashes above it), replay
+recomputes exact lineage at any commit, and neither can **correlate** two
+versions. The mechanism is a **recorded correspondence** — refactor mode proves the
+outputs unchanged, which makes them a join key, and a merge is the richest
+recording site of all because base, ours and theirs are in hand. **There are no
+element ids**: an unwatched edit is guessed at by an agent, confirmed by a
+person, and recorded as an assertion, or shrugged at. Register `hick-merge` as a
+git merge driver rather than writing a team rule — and check it is configured,
+since an undefined driver silently falls back to git's line merge. The
+correspondence journal is a **record**, not a cache, so it may be committed, and
+that choice is the only thing deciding whether CI can check anything here.
+Continuity is a **fourth provenance family, off by default**, and the whole of
+it — ribbon, journal, and the pre-commit repair — rides that one switch.
+
+How a session is refined is `docs/specs/freeform/sessions-you-run-again.md`.
+A **re-run is not a reenactment**: it is a second real session that stands
+without the first, which is a draft the gitignore already discards. Three kinds
+of session must never be mistaken for each other — **run** (harness-written,
+evidence), **edited** (a declared layer over a frozen base, marked *in the
+bytes*, not merely in the rendering), and **staged** (authored, never executed,
+carried by the existing never-run marking). Equivalence between two attempts is
+an **instrument, never a gate** — the person is the judge, and their
+understanding is allowed to move. The constraint that does the work is
+legibility, not provenance: **a session must be followable by a reader who has
+only the repository**, which is also the real argument for the interview form —
+a prescient opening prompt concentrates everything you learned into one
+unexplained monolith, while a dialogue lets each requirement arrive attached to
+the question that provoked it.
 
 How a sentence someone posts proves itself — meeting → analysis → message,
 with ribbons across documents — is walked through in
@@ -80,6 +159,12 @@ declared and unverifiable, and the two must never render alike.** Say
 - Live sync: Yrs (Yjs) CRDTs (`hick-grove`, `hickory-collab`). Durable state:
   the user's git repository. The CRDT survives the removal of collaboration
   because the app's editor buffer and the file on disk are still two writers.
+- Sharing (`one-engineer-many-machines.md`): a machine is a **keypair**, a
+  fleet is a mutual list of public keys, and reachability comes from the
+  engineer's own transport — LAN, their overlay, their SSH host — behind the
+  same provider seam `--public` already uses. **Never add a relay we operate**;
+  `local-only.md`'s four reasons still hold when both endpoints belong to one
+  person. Durable state crosses git; only liveness crosses the peer channel.
 - Execution: `Executor` trait; `LocalExecutor` (default) and the Docker
   executor. NEVER reintroduce the wasm container runtime, and NEVER integrate
   third-party CLIs (cram, VHS, etc.) — verification and transcript capture are

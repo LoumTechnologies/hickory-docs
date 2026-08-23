@@ -129,6 +129,26 @@ permanent by design, so "the flag never gets deleted" stops being a defect and
 becomes the point. That is a *documentation* use, not a branching one, and it
 needs nothing new: `<hick:feature>` and `<hick:when>` already do it.
 
+## Taken up, 2026-08-23
+
+`machine-scoped-edits.md` implements (1) and (2) of the list below, in a
+narrower form than this document imagined: the feature set follows not just the
+branch but **where the weave is standing** — OS, arch, branch — as a reserved
+namespace of *observed* facts that no author declares.
+
+**(3) is answered by `the-merged-view.md`, and the answer is that the value was
+never in the flags.** Editing several branches in one tab, with the
+`<hick:when>`-shaped variants existing **on disk nowhere**, takes the whole
+benefit this document was reaching for — a shared region is agreed by
+construction, so it cannot conflict later, and the merge pain that motivated
+the idea is prevented rather than represented. And it pays none of the four
+costs: nothing composes multiplicatively in any file, there is no conditional
+on disk to go undeleted, the branches stay real branches so git is not
+replaced, and every edit lands in a real file on a real branch so blame and
+provenance keep working. The measurement this document asked for before
+revisiting (3) — how often merging `.hick` documents actually hurts — is still
+worth taking, but it now sizes a prize rather than deciding a question.
+
 ## What I would actually do
 
 1. **Do (1)**: branch → feature-set mapping in config, with the feature set

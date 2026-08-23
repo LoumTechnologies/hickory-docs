@@ -69,6 +69,14 @@ document already contained, followed one step further.
    laptop any more.** The relay was there for shared sessions; shared sessions
    were the thing a solo author did not need, and `hick up` covers the solo
    author completely. Collaboration is a feature this product does not have.
+
+   **Amended 2026-08-23** by `one-engineer-many-machines.md`: one engineer's
+   *other machine* does need to reach their laptop, and that is not
+   collaboration — there is still exactly one identity and no second human.
+   What that design takes from this one is the conclusion rather than the
+   premise: reachability is arranged with the engineer's own transport (a LAN,
+   their own overlay, their own SSH host), and **a relay we operate stays out
+   of scope**, for all four reasons below.
 2. **The relay was the only meterable thing left.** `local-first.md` worked out
    that every entitlement in `plans.json` measures something the cloud does —
    private projects, editors, exec minutes, CI verification — and that all of

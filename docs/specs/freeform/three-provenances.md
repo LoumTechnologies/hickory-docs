@@ -97,6 +97,22 @@ Surface: `hick cites <doc> [--json]`; `GET /api/docs/:id/cites`; the app's
 **Declared** toggle. Guarantee:
 `docs/guarantees/lineage/three-provenances-are-drawn-apart.md`.
 
+## A fourth family, added 2026-08-23, off by default
+
+`provenance-across-versions.md` adds **continuity** — *this span and that one,
+at an earlier commit, are the same thing*. It sits apart from the three above
+because it answers a different question: they all say *why is this here* about
+the present, and it says *what was this before*.
+
+Two things keep it from weakening the rule this document exists to enforce.
+**Every link is either a recorded fact or an explicit guess, and says which** —
+a correspondence written down while both versions were in hand is unforgeable,
+and a guess (an agent's, confirmed by a person) is drawn in the declared
+family's language, because that is what it is. There is deliberately no third
+kind that is derived-but-forgeable. And it is **a setting, off by default**: a
+fourth stroke taxes every reader, including the ones who never ask a history
+question, so nobody sees it who has not asked for it.
+
 ## The toggles
 
 Three toggles in the status bar — Lineage, Context, Declared — each with a

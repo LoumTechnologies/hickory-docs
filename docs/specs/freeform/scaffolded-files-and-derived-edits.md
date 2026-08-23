@@ -7,6 +7,19 @@ proposed for it — CRDT edits — is the wrong one for a reason worth writing
 down, and that the right mechanism is already three quarters present in this
 repository under other names.
 
+> **Superseded on its mechanism, 2026-08-23**, by
+> `owning-what-a-scaffolder-wrote.md`. The two refusals below stand and are the
+> reason to keep reading this document: **CRDT edits** cannot express a
+> derivation from a foreign artifact, and **line-offset patches** are the
+> fifty-year-old version of the same mistake. What does not stand is the
+> replacement proposed here — `from=` pointing at a captured exec, with a
+> `<hick:derive>` block of structurally-anchored edits over it. Its base is
+> `.hick-cache/transcripts/`, which `hick init` gitignores, so a clone holds the
+> reference and not the referent: `from=` is reproducible on the machine that
+> made it, which is the one property a scaffold must not have. The replacement
+> ingests the scaffolder's output into the document as ordinary `hick:file`
+> bytes with a recorded fingerprint, which needs no anchor grammar at all.
+
 > "I want to think about if we can support a hick file that builds an app
 > where a big part of bootstrapping the app is running a command like
 > `dotnet new` or something, which generates a bunch of files; and then we
