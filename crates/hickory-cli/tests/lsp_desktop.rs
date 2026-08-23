@@ -180,6 +180,91 @@ async fn the_apps_window_gets_answers_in_document_coordinates() {
     );
 }
 
+/// A session record with two things a reader wants marked: a tool the agent
+/// was refused (information — findable, not counted) and a last turn nobody
+/// answered (a warning — the record is incomplete).
+const SESSION: &str = r##"<?xml version="1.0" encoding="UTF-8"?>
+<hick:session xmlns:hick="http://www.hickorydocs.com/1.0" start="2026-08-20T09:00:00Z">
+<hick:user turn="t1">Edit it.</hick:user>
+<hick:assistant>
+<hick:tool name="write_doc">
+<hick:input>x</hick:input>
+</hick:tool>
+</hick:assistant>
+<hick:tool-result name="write_doc" ok="false">
+declined — fixture
+</hick:tool-result>
+<hick:assistant>I could not.</hick:assistant>
+<hick:user turn="t2" parent="t1">Try again.</hick:user>
+</hick:session>
+"##;
+
+/// Protects docs/guarantees/agent/a-session-is-the-conversation.md — the
+/// problem markers a session carries reach the app's window through the same
+/// bridge as every other diagnostic, with no language server installed.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_sessions_problems_reach_the_window_as_diagnostics() {
+    // The room is any open document's; the text the window sends is what
+    // gets linted, exactly as when a session tab opens in the app.
+    let app = open_app().await;
+    std::fs::write(app.root.join("session.hick"), SESSION).unwrap();
+    let url = format!("{}/api/ws?doc=doc:{}", app.base, app.doc_id);
+    let (mut socket, _) = tokio_tungstenite::connect_async(&url)
+        .await
+        .expect("the app's window connects");
+    let uri = "hick:///session.hick";
+    send(&mut socket, json!({
+        "jsonrpc": "2.0",
+        "method": "textDocument/didOpen",
+        "params": {"textDocument": {"uri": uri, "languageId": "hick", "version": 1, "text": SESSION}},
+    }))
+    .await;
+
+    // The first publish may be empty (the parse succeeded, nothing from a
+    // child yet); wait for the one that carries the session's own lints.
+    let deadline = std::time::Instant::now() + Duration::from_secs(30);
+    let mut diagnostics: Vec<Value> = Vec::new();
+    while std::time::Instant::now() < deadline {
+        let Some(message) = wait_for_method(
+            &mut socket,
+            "textDocument/publishDiagnostics",
+            Duration::from_secs(10),
+        )
+        .await
+        else {
+            break;
+        };
+        let list = message["params"]["diagnostics"]
+            .as_array()
+            .cloned()
+            .unwrap_or_default();
+        if list.iter().any(|d| d["source"] == "hick-session") {
+            diagnostics = list;
+            break;
+        }
+    }
+    assert!(
+        !diagnostics.is_empty(),
+        "no session diagnostics reached the window"
+    );
+    let refused = diagnostics
+        .iter()
+        .find(|d| d["message"].as_str().unwrap_or("").contains("refused"))
+        .expect("the refused tool is marked");
+    assert_eq!(
+        refused["severity"], 3,
+        "a refused tool is information, not a count"
+    );
+    // Line 8 (0-based) is the `<hick:tool-result …>` opening tag.
+    assert_eq!(refused["range"]["start"]["line"], 8);
+    let unanswered = diagnostics
+        .iter()
+        .find(|d| d["message"].as_str().unwrap_or("").contains("no reply"))
+        .expect("the unanswered turn is marked");
+    assert_eq!(unanswered["severity"], 2);
+    assert_eq!(unanswered["range"]["start"]["line"], 12);
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn a_window_opened_where_no_server_exists_still_works() {
     // The degradation guarantee, from the window's side: a language nothing

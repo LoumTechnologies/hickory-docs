@@ -176,10 +176,18 @@ fn parse_log(text: &str) -> Vec<Commit> {
             .filter(|r| !r.is_empty())
             .collect();
         let subject = parts.next().unwrap_or_default().to_string();
-        // The body and the numstat block share the last field, separated by
-        // the blank line git puts between them.
-        let rest = parts.next().unwrap_or_default();
-        let (body, files) = split_body_and_numstat(rest);
+        // The body and the numstat block share what is left, separated by
+        // the blank line git puts between them. Everything left, not the
+        // next field: the format ends with a trailing separator, so git's
+        // numstat lands in a field of its own after the body — and a parser
+        // that read only the body's field reported every commit as touching
+        // zero lines.
+        let mut rest = parts.next().unwrap_or_default().to_string();
+        for tail in parts {
+            rest.push('\n');
+            rest.push_str(tail);
+        }
+        let (body, files) = split_body_and_numstat(&rest);
 
         let added = files.iter().filter_map(|f| f.added).sum();
         let removed = files.iter().filter_map(|f| f.removed).sum();
@@ -371,6 +379,23 @@ mod tests {
         assert_eq!(c.files.len(), 2);
         assert_eq!(c.added, 12);
         assert_eq!(c.removed, 10);
+    }
+
+    #[test]
+    fn numstat_after_the_trailing_separator_is_counted() {
+        // The live format ends with a separator after `%b`, so git's own
+        // numstat block lands in a field of its own. This is what the graph
+        // actually receives, and for a while it rendered every commit as
+        // +0 −0.
+        let text = format!(
+            "{}{FIELD}\n\n4\t2\tsrc/lib.rs\n",
+            record(&["a", "a", "", "N", "e", "1", "", "Subject", "The body.\n"])
+        );
+        let commits = parse_log(&text);
+        assert_eq!(commits[0].body, "The body.");
+        assert_eq!(commits[0].files.len(), 1);
+        assert_eq!(commits[0].added, 4);
+        assert_eq!(commits[0].removed, 2);
     }
 
     #[test]

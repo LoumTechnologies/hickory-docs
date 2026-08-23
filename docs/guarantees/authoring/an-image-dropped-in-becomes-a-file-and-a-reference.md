@@ -94,6 +94,12 @@ Last LLM verification:
   a clipboard.
   `apps/web/src/editor/mdLinks.test.ts` — the picture drawn under its line,
   through `assetUrl`, with the markdown still in the buffer.
+- Desktop caveat, fixed 2026-08-22: Tauri's built-in drag-drop handler
+  consumes file drops before the page sees them — the cursor tracked the
+  drag and the drop landed nowhere. The main window is now built with
+  `.disable_drag_drop_handler()` (`apps/desktop/src-tauri/src/lib.rs`), so
+  the webview delivers the ordinary HTML5 `drop` that `mdPaste.ts` handles.
+  Nothing listened for the Tauri event in its place, so nothing was lost.
 - Caveat requiring review: the DROP path (as opposed to paste) is wired and
   reviewed but not driven by a test — jsdom's `DataTransfer` and
   `posAtCoords` make a faithful drag hard to stage, and the two paths share

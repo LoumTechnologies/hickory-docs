@@ -29,7 +29,7 @@ import {
   setLspDiagnostics,
 } from "../lsp/cmLsp";
 import type { LspDiagnostic } from "../lsp/client";
-import { hickoryFolding } from "./folding";
+import { hickoryFolding, sessionWorkFolds } from "./folding";
 import {
   forgetEditor,
   forgetFocusedEditor,
@@ -430,6 +430,9 @@ export function DocumentEditor({
           }),
           renderedBlocks(renderedRegistry),
           hickoryFolding(),
+          // A session opens with the agent's work folded — the dock's "show
+          // work", in the editor. See editor/folding.ts.
+          sessionWorkFolds(),
           yCollab(ytext, awareness),
           ...(placeholderText ? [placeholder(placeholderText)] : []),
           ...(lspExtensions ?? []),

@@ -159,7 +159,28 @@ Every tool call your agent makes — through either surface, across as many
 processes as it likes — is appended to that `hick:session` document, and the
 file is valid and parseable after each one. What is captured is what was done
 to the document: the calls, the anchors, the text, the results. Your agent's
-own reasoning stays in its own transcript; we don't read other tools' logs.
+own reasoning stays in its own transcript.
+
+### Importing the transcript itself (Claude Code)
+
+Claude Code keeps the whole conversation — prompts, replies, reasoning, every
+tool call and result, token counts — in
+`~/.claude/projects/<project>/<session-id>.jsonl`. Bring it in as a session
+document:
+
+```sh
+hick import claude-code ~/.claude/projects/-home-me-notes/0509e08e-….jsonl
+# → sessions/20260813-133534-revise-home-page-to-prioritize-agent-fir.hick
+```
+
+Offline, no model, nothing deleted. The result opens in the app as the
+conversation (bubbles, the agent's work folded), keeps the turn tree, and
+counts as context provenance for `hick context`. The same transcript imported
+twice names one file and is skipped (`--force` overwrites). What is left out
+— image bytes, thinking signatures, the harness's token reminders and
+bookkeeping — is printed, by reason, every time. `--stdout` prints the
+document instead of writing it. Details and the full mapping:
+`docs/specs/freeform/claude-code-sessions.md`.
 
 Choose this option when the `.hick` docs live inside a larger codebase and one
 agent should handle both, or you want your existing agent tooling
@@ -176,10 +197,12 @@ which agent produced it.
 
 ## Don't assume
 
-- **A coding agent's chat log is not a session document.** With
-  `HICKORY_SESSION` set, an outside agent's *tool calls* are recorded as a
-  real `hick:session` — but its reasoning is not, and work it does by editing
-  files directly, without the tools, is invisible to the session entirely.
+- **A coding agent's chat log is not a session document until you import
+  it.** With `HICKORY_SESSION` set, an outside agent's *tool calls* are
+  recorded as a real `hick:session` — but its reasoning is not, and work it
+  does by editing files directly, without the tools, is invisible to that
+  session. `hick import claude-code` is the other half: the transcript itself,
+  reasoning and all, after the fact.
 - **`promote` has nothing to do on a tool-driven session.** It reconstructs a
   pipeline from *script* writes; tool calls edit the document in place, so
   there is nothing left to promote. That is not a failure — the document is

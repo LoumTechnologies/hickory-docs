@@ -12,9 +12,15 @@
 //    and, for exec, the cell panel below — widgets sit outside the folded
 //    range), the body and closing tag fold away.
 
-import { codeFolding, foldGutter, foldKeymap, foldService } from "@codemirror/language";
+import {
+  codeFolding,
+  foldEffect,
+  foldGutter,
+  foldKeymap,
+  foldService,
+} from "@codemirror/language";
 import type { EditorState, Extension } from "@codemirror/state";
-import { keymap } from "@codemirror/view";
+import { ViewPlugin, keymap, type EditorView } from "@codemirror/view";
 import { structureOf } from "./wysiwyg";
 import type { HickDocStructure } from "./hickDoc";
 
@@ -41,13 +47,39 @@ export const FOLDABLE_BLOCKS = new Set([
   "user",
   "assistant",
   "observation",
+  "tool",
+  "tool-result",
+  "action",
+  "reasoning",
+  "context",
+]);
+
+/**
+ * The agent's WORK in a session — what it ran, what it called, what came
+ * back, what it was thinking — as opposed to what was said. These fold
+ * differently from every other block: the closing tag line stays visible
+ * too, so a folded tool call still reads `<hick:tool …>` … `</hick:tool>` —
+ * the whole element is on screen, and a bubble keeps its last line. And they
+ * start folded when a session opens (`sessionWorkFolds`), the way "show
+ * work" hides them in the dock: the answer reads first, the work is a click.
+ */
+export const WORK_BLOCKS = new Set([
+  "tool",
+  "tool-result",
+  "action",
+  "observation",
+  "reasoning",
+  "context",
 ]);
 
 /**
  * All foldable ranges of a document, in order (outermost first at equal
  * starts). Pure — unit-tested against structures from parseHickDoc.
  */
-export function computeFoldRanges(structure: HickDocStructure, text: string): FoldRange[] {
+export function computeFoldRanges(
+  structure: HickDocStructure,
+  text: string,
+): FoldRange[] {
   const out: FoldRange[] = [];
 
   for (const b of structure.blocks) {
@@ -57,8 +89,16 @@ export function computeFoldRanges(structure: HickDocStructure, text: string): Fo
     const lineEnd = text.indexOf("\n", b.from);
     // Single-line blocks (open + body + close on one line) aren't foldable.
     if (lineEnd < 0 || lineEnd >= b.to) continue;
-    const to = Math.min(b.to, text.length);
-    if (to > lineEnd) out.push({ from: lineEnd, to, kind: "block", name: b.name });
+    let to = Math.min(b.to, text.length);
+    // Work keeps its closing tag on screen (see WORK_BLOCKS) — when that tag
+    // starts its own line, the fold stops at the end of the line before it.
+    if (WORK_BLOCKS.has(b.name) && b.close) {
+      const closeLineStart = text.lastIndexOf("\n", b.close.from - 1) + 1;
+      if (text.slice(closeLineStart, b.close.from).trim() === "")
+        to = closeLineStart - 1;
+    }
+    if (to > lineEnd)
+      out.push({ from: lineEnd, to, kind: "block", name: b.name });
   }
 
   const hs = structure.headings;
@@ -143,4 +183,48 @@ export function hickoryFolding(): Extension {
     }),
     keymap.of(foldKeymap),
   ];
+}
+
+/** The work folds a session starts with: every WORK_BLOCKS range. Pure. */
+export function workFoldRanges(
+  ranges: FoldRange[],
+): { from: number; to: number }[] {
+  return ranges
+    .filter(
+      (r) =>
+        r.kind === "block" && r.name !== undefined && WORK_BLOCKS.has(r.name),
+    )
+    .map((r) => ({ from: r.from, to: r.to }));
+}
+
+/**
+ * Fold the agent's work ONCE, when the document first has content. A session
+ * opens with what was said on screen and what was done a click away —
+ * exactly the dock's "show work". Only once: unfolding is the reader's
+ * choice, and a later edit must not re-hide what they opened. Only for a
+ * session: a note with no `hick:session` root has no work to hide.
+ */
+export function sessionWorkFolds(): Extension {
+  return ViewPlugin.define((view: EditorView) => {
+    let done = false;
+    const attempt = (state: EditorState) => {
+      if (done || state.doc.length === 0) return;
+      done = true;
+      if (!structureOf(state).blocks.some((b) => b.name === "session")) return;
+      const folds = workFoldRanges(foldRangesOf(state));
+      if (folds.length === 0) return;
+      // Not inside an update: dispatching from one is forbidden, and the
+      // room's first sync is an update.
+      queueMicrotask(() => {
+        if (!view.dom.isConnected) return;
+        view.dispatch({ effects: folds.map((r) => foldEffect.of(r)) });
+      });
+    };
+    attempt(view.state);
+    return {
+      update(u) {
+        if (u.docChanged) attempt(u.state);
+      },
+    };
+  });
 }

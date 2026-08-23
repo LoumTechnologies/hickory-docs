@@ -88,7 +88,15 @@ export const lspDiagnosticField = StateField.define<DecorationSet>({
             // the hover below finds it without a second data structure to
             // keep in step with this one.
             Decoration.mark({
-              class: d.severity === 1 ? "cm-lsp-error" : "cm-lsp-warn",
+              // Information and hints are marked too — a refused tool, a
+              // command that exited 1 — but quietly: they are findable,
+              // not counted (lib/problems.ts).
+              class:
+                d.severity === 1
+                  ? "cm-lsp-error"
+                  : d.severity === 2
+                    ? "cm-lsp-warn"
+                    : "cm-lsp-info",
               message: d.message ?? "",
               source: d.source ?? "",
               severity: d.severity,
@@ -222,7 +230,11 @@ export function lspSupport(opts: CmLspOptions): Extension[] {
           for (const problem of problems) {
             const line = document.createElement("div");
             line.className =
-              problem.severity === 1 ? "cm-lsp-hover-error" : "cm-lsp-hover-warn";
+              problem.severity === 1
+                ? "cm-lsp-hover-error"
+                : problem.severity === 2
+                  ? "cm-lsp-hover-warn"
+                  : "cm-lsp-hover-note";
             line.textContent = problem.source
               ? `${problem.message}  (${problem.source})`
               : problem.message;

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { parseHickDoc } from "./hickDoc";
-import { computeFoldRanges, foldRangeForLine, FOLDABLE_BLOCKS } from "./folding";
+import { computeFoldRanges, foldRangeForLine, FOLDABLE_BLOCKS, workFoldRanges } from "./folding";
 import { WEAVE_SOURCE, CLI_SOURCE } from "../mock/mockData";
 
 function rangesOf(text: string) {
@@ -43,6 +43,36 @@ describe("computeFoldRanges — hick blocks", () => {
     const names = blocks.map((r) => r.name).sort();
     expect(names).toEqual(["container", "copy", "cut", "file", "user", "when"]);
     for (const r of blocks) expect(r.to).toBeGreaterThan(r.from);
+  });
+
+  it("folds the agent's work but keeps its closing tag line visible", () => {
+    // docs/guarantees/agent/a-session-is-the-conversation.md — a folded tool
+    // call still reads `<hick:tool …>` … `</hick:tool>`.
+    const text = [
+      "<hick:session>",
+      "<hick:assistant>",
+      "Looking.",
+      '<hick:tool name="read_doc">',
+      "<hick:input>a.hick</hick:input>",
+      "</hick:tool>",
+      "</hick:assistant>",
+      '<hick:observation source="action-0" exit="0">',
+      "3",
+      "</hick:observation>",
+      "</hick:session>",
+    ].join("\n");
+    const all = rangesOf(text);
+    const tool = all.find((r) => r.name === "tool")!;
+    expect(tool.from).toBe(text.indexOf("\n", text.indexOf("<hick:tool")));
+    expect(tool.to).toBe(text.indexOf("\n</hick:tool>"));
+    const obs = all.find((r) => r.name === "observation")!;
+    expect(obs.to).toBe(text.indexOf("\n</hick:observation>"));
+    // Assistant turns still fold through their closing tag: they are said,
+    // not done, and a reader folding one wants it gone.
+    const assistant = all.find((r) => r.name === "assistant")!;
+    expect(assistant.to).toBe(text.indexOf("</hick:assistant>") + "</hick:assistant>".length);
+    // The initial folds are exactly the work.
+    expect(workFoldRanges(all).map((r) => r.from)).toEqual([tool.from, obs.from]);
   });
 
   it("skips self-closing and single-line blocks", () => {

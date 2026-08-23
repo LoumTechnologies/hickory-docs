@@ -592,14 +592,18 @@ export function ChatDock({
                   <article key={turn.id} className="chat-turn">
                     <div className="chat-msg chat-user">
                       <span className="chat-role">you</span>
-                      <p>{turn.prompt}</p>
+                      <div className="chat-bubble">
+                        <p>{turn.prompt}</p>
+                      </div>
                       {controls}
                     </div>
                     <div className="chat-msg chat-agent">
                       <span className="chat-role">agent</span>
-                      <p className="chat-error">
-                        {turn.error ?? "session failed"}
-                      </p>
+                      <div className="chat-bubble">
+                        <p className="chat-error">
+                          {turn.error ?? "session failed"}
+                        </p>
+                      </div>
                     </div>
                   </article>
                 );
@@ -618,22 +622,26 @@ export function ChatDock({
       )}
 
       <div className="chat-composer">
-        <textarea
-          value={prompt}
-          rows={collapsed ? 1 : 2}
-          placeholder={
-            tip
-              ? "Reply, or rewind to an earlier turn to branch…"
-              : "Ask the agent…"
-          }
-          onChange={(e) => setPrompt(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              void send();
+        {/* The draft is a bubble too, tail on your side: what you are
+            typing is the next thing you will have said. */}
+        <div className="chat-bubble chat-bubble--draft">
+          <textarea
+            value={prompt}
+            rows={collapsed ? 1 : 2}
+            placeholder={
+              tip
+                ? "Reply, or rewind to an earlier turn to branch…"
+                : "Ask the agent…"
             }
-          }}
-        />
+            onChange={(e) => setPrompt(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                void send();
+              }
+            }}
+          />
+        </div>
         <button
           className="btn btn-primary"
           disabled={!prompt.trim() || running !== null}

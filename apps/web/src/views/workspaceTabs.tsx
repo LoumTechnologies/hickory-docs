@@ -15,7 +15,6 @@ import { DocumentEditor } from "../editor/DocumentEditor";
 import type { TableLayout } from "../components/TablePanel";
 import { DebugStrip } from "../debug/DebugStrip";
 import { RefactorBadge } from "../components/RefactorBadge";
-import { SessionDocView } from "../components/SessionTurns";
 import { GeneratedFileView } from "../shell/views";
 import { untitledPath, wrapUntitled } from "../lib/newDoc";
 import { useDocSession, type SessionRegistry } from "./documentSession";
@@ -41,16 +40,11 @@ export function DocTabBody({
   onTableLayout?: (key: string, size: TableLayout) => void;
 }) {
   const session = useDocSession(registry, docId);
-  // A session file is a conversation first and a document second: it opens
-  // drawn like the chat it was (the same cards the dock draws), with its
-  // source one click away. (Declared before any early return — hooks.)
-  const [sessionMode, setSessionMode] = useState<"chat" | "source">("chat");
   if (!session) return <p className="muted">Loading document…</p>;
   if (session.fatalError) return <p className="error">{session.fatalError}</p>;
   const { doc, blocks, debug } = session;
   if (!doc || !blocks) return <p className="muted">Loading document…</p>;
   const running = session.runningCells.size > 0;
-  const isSession = /<[A-Za-z][\w-]*:session\b/.test(doc.source.slice(0, 2000));
 
   return (
     <div className="debug-block">
@@ -82,26 +76,6 @@ export function DocTabBody({
             freely, and this badge reports the moment a woven byte would
             move. See serve/refactor.rs. */}
         <RefactorBadge docId={docId} />
-        {isSession && (
-          <span className="session-mode" role="group" aria-label="Session view">
-            <button
-              type="button"
-              className={`btn${sessionMode === "chat" ? " btn-primary" : ""}`}
-              onClick={() => setSessionMode("chat")}
-              data-tip="The conversation this file records, drawn like the chat"
-            >
-              Chat
-            </button>
-            <button
-              type="button"
-              className={`btn${sessionMode === "source" ? " btn-primary" : ""}`}
-              onClick={() => setSessionMode("source")}
-              data-tip="The hick:session source itself"
-            >
-              Source
-            </button>
-          </span>
-        )}
         {session.syncState !== "idle" && (
           <span
             className={`save-state save-state-${session.syncState}`}
@@ -145,30 +119,31 @@ export function DocTabBody({
         }}
         onRemoveWatch={debug.removeWatch}
       />
-      {isSession && sessionMode === "chat" ? (
-        <SessionDocView path={doc.path} />
-      ) : (
-        <DocumentEditor
-          key={docId}
-          docId={docId}
-          initialSource={doc.source}
-          realtime={session.realtime}
-          onChange={session.setDirtySource}
-          selectSpan={session.selectSpan}
-          execBlocks={session.execBlocks}
-          runningCells={session.runningCells}
-          onRunCell={session.runCell}
-          lspExtensions={session.lspExtensions}
-          lspDiagnostics={session.lspDiagnostics}
-          onDebugFile={(path) => debug.start(path)}
-          onViewReady={session.onDocViewReady}
-          wrapColumn={wrapColumn}
-          onWrapColumn={onWrapColumn}
-          tableLayouts={tableLayouts}
-          onTableLayout={onTableLayout}
-          path={doc.path}
-        />
-      )}
+      {/* A session file opens in the same editor as every other document —
+          drawn as the conversation it is (bubbles, the agent's work folded;
+          see editor/wysiwyg.ts and editor/folding.ts) with every byte on
+          screen, because the file IS the conversation and a second surface
+          would be a second story. */}
+      <DocumentEditor
+        key={docId}
+        docId={docId}
+        initialSource={doc.source}
+        realtime={session.realtime}
+        onChange={session.setDirtySource}
+        selectSpan={session.selectSpan}
+        execBlocks={session.execBlocks}
+        runningCells={session.runningCells}
+        onRunCell={session.runCell}
+        lspExtensions={session.lspExtensions}
+        lspDiagnostics={session.lspDiagnostics}
+        onDebugFile={(path) => debug.start(path)}
+        onViewReady={session.onDocViewReady}
+        wrapColumn={wrapColumn}
+        onWrapColumn={onWrapColumn}
+        tableLayouts={tableLayouts}
+        onTableLayout={onTableLayout}
+        path={doc.path}
+      />
     </div>
   );
 }

@@ -1,16 +1,15 @@
 // A conversation, rendered: the turns of a session and, inside each, the
-// steps the agent took. ONE renderer for two surfaces — the chat dock (live,
-// over the turn tree the server holds) and a session file opened as a
-// document (after the fact, over the same file the dock wrote). A session
-// looks like the chat it was because it is drawn by the same code.
+// steps the agent took. This is the chat DOCK's renderer, live over the turn
+// tree the server holds. A session file opened as a document is not drawn
+// here: it opens in the editor, where wysiwyg.ts draws the same bubbles over
+// the file's own bytes (see docs/guarantees/agent/a-session-is-the-conversation.md).
 //
 // Reasoning folds by default: it is the model thinking, not the answer, and
 // a reader who wants it opens it. Tool calls, scripts, and what they returned
 // are the work; they fold too, under "show work", so the answer reads first.
 
-import { useEffect, useState, type ReactNode } from "react";
-import { api } from "../api/client";
-import type { SessionStep, SessionTurn, SessionView } from "../api/types";
+import { useState, type ReactNode } from "react";
+import type { SessionStep, SessionTurn } from "../api/types";
 
 /** Reasoning, folded by default. Exported so the dock can show it live. */
 export function Reasoning({
@@ -96,6 +95,15 @@ function StepView({ step }: { step: SessionStep }) {
           wrote <code>{step.file}</code> lines {step.lines}
         </p>
       );
+    case "context":
+      return (
+        <details className="chat-step chat-step--context">
+          <summary>
+            context · <code>{step.context_kind}</code>
+          </summary>
+          <pre>{step.text}</pre>
+        </details>
+      );
     default:
       return null;
   }
@@ -126,11 +134,17 @@ export function TurnCard({
     (s) => s.kind !== "prose" || s.text !== turn.answer,
   );
   const canLoad = loadWork && loaded === null && turn.steps.length === 0;
+  // Two bubbles, each with a tail on the side its speaker sits: yours on the
+  // right, the agent's on the left. The tail is what says who spoke, the way
+  // a messages app does — a label column beside every line was both noise
+  // and, being a grid column, a trap for anything that was not a label.
   return (
     <article className="chat-turn" data-turn={turn.id}>
       <div className="chat-msg chat-user">
         <span className="chat-role">you</span>
-        <p>{turn.prompt}</p>
+        <div className="chat-bubble">
+          <p>{turn.prompt}</p>
+        </div>
         {extra}
       </div>
       <div className="chat-msg chat-agent">
@@ -138,90 +152,56 @@ export function TurnCard({
           agent
           {turn.model ? <span className="muted"> · {turn.model}</span> : null}
         </span>
-        {live ? (
-          <>
-            <Reasoning text={live.reasoning} open />
-            <pre className="chat-stream">
-              {live.text}
-              <span className="t-cursor">▋</span>
-            </pre>
-          </>
-        ) : (
-          <>
-            {(work.length > 0 || canLoad) && (
-              <button
-                type="button"
-                className="btn-link chat-work-toggle"
-                onClick={() => {
-                  if (canLoad) {
-                    void loadWork().then((s) => {
-                      setLoaded(s);
-                      setOpen(true);
-                    });
-                    return;
-                  }
-                  setOpen((o) => !o);
-                }}
-              >
-                {open
-                  ? "hide work"
-                  : canLoad
-                    ? "show work"
-                    : `show work (${work.length} step${work.length === 1 ? "" : "s"})`}
-              </button>
-            )}
-            {open && (
-              <div className="chat-work">
-                {work.map((s, i) => (
-                  <StepView key={i} step={s} />
-                ))}
-              </div>
-            )}
-            {turn.answer ? (
-              <p className="chat-answer">{turn.answer}</p>
-            ) : (
-              <p className="muted">no answer recorded</p>
-            )}
-          </>
-        )}
+        <div className="chat-bubble">
+          {live ? (
+            <>
+              <Reasoning text={live.reasoning} open />
+              <pre className="chat-stream">
+                {live.text}
+                <span className="t-cursor">▋</span>
+              </pre>
+            </>
+          ) : (
+            <>
+              {(work.length > 0 || canLoad) && (
+                <button
+                  type="button"
+                  className="btn-link chat-work-toggle"
+                  onClick={() => {
+                    if (canLoad) {
+                      void loadWork().then((s) => {
+                        setLoaded(s);
+                        setOpen(true);
+                      });
+                      return;
+                    }
+                    setOpen((o) => !o);
+                  }}
+                >
+                  {open
+                    ? "hide work"
+                    : canLoad
+                      ? "show work"
+                      : `show work (${work.length} step${work.length === 1 ? "" : "s"})`}
+                </button>
+              )}
+              {open && (
+                <div className="chat-work">
+                  {work.map((s, i) => (
+                    <StepView key={i} step={s} />
+                  ))}
+                </div>
+              )}
+              {turn.answer ? (
+                <p className="chat-answer">{turn.answer}</p>
+              ) : (
+                <p className="muted">no answer recorded</p>
+              )}
+            </>
+          )}
+        </div>
       </div>
     </article>
-  );
-}
-
-/** A session FILE opened in the app, drawn as the conversation it records —
- * the same cards the dock draws, because it is the same conversation. */
-export function SessionDocView({ path }: { path: string }) {
-  const [view, setView] = useState<SessionView | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  useEffect(() => {
-    let live = true;
-    api.sessionView(path).then(
-      (r) => live && setView(r.view),
-      (e: unknown) =>
-        live && setError(e instanceof Error ? e.message : String(e)),
-    );
-    return () => {
-      live = false;
-    };
-  }, [path]);
-  if (error) return <p className="error chat-empty">{error}</p>;
-  if (!view) return <p className="muted chat-empty">Reading the session…</p>;
-  return (
-    <div className="session-doc">
-      <p className="muted session-doc__head">
-        {view.doc ? (
-          <>
-            A conversation about <code>{view.doc}</code>
-          </>
-        ) : (
-          "A conversation"
-        )}
-        {view.start ? ` · started ${view.start}` : ""} · {view.turns.length}{" "}
-        turn{view.turns.length === 1 ? "" : "s"}
-      </p>
-      <SessionTurns turns={view.turns} />
-    </div>
   );
 }
 

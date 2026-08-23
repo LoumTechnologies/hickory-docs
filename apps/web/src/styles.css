@@ -1315,6 +1315,96 @@ textarea:focus {
   font-size: 0.85em;
   color: var(--fg-muted);
 }
+.cm-turn-reasoning {
+  border-left-color: color-mix(in srgb, var(--fg-muted) 35%, transparent);
+  font-style: italic;
+  color: var(--fg-muted);
+}
+/* What the harness put in front of the model (hick:context, from an
+   imported transcript): quiet, mono, the ribbon-context colour. */
+.cm-turn-context {
+  border-left-color: color-mix(in srgb, var(--ribbon-context, var(--fg-muted)) 45%, transparent);
+  font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  font-size: 0.85em;
+  color: var(--fg-muted);
+}
+.cm-hick-banner-turn-context { border-left-color: var(--ribbon-context, var(--fg-muted)); background: var(--neutral-bg); }
+.cm-hick-banner-turn-context .cm-hick-banner-label { color: var(--ribbon-context, var(--fg-muted)); }
+
+/* ---- speech bubbles: a session read as the conversation it is ----
+   Each top-level turn is a bubble — yours on the right, right-aligned; the
+   agent's on the left — and it is nothing but a line class:
+   the line numbers count through it, the ribbons and braces still land on
+   it, the tags are in it, and the caret goes anywhere. A bubble is a COLUMN
+   (every line the same width) rather than shrink-wrapped per line, because
+   lines are separate boxes and a ragged background is not a bubble. Both
+   columns live inside the prose measure, overlapping in the middle, so the
+   two sides stay near each other on a wide pane.
+   Padding, never margin, for the vertical gaps: CodeMirror's height map
+   measures the line box and a margin is outside it. */
+.document-editor .cm-bubble {
+  /* The column both sides share: the prose measure, or the pane when the
+     pane is narrower — a bubble that ran under the right rail would be a
+     bubble with its tail cut off. */
+  --bubble-col: min(var(--prose-wrap, 46rem), 100%);
+  --chat-bg: var(--bg);
+  border-left: 0;
+  max-width: calc(var(--bubble-col) * 0.8);
+  padding: 0 0.8rem;
+  background: var(--bubble);
+}
+/* Sides as Apple Messages has them — and as the dock draws them: what you
+   said on the right, right-aligned; the agent on the left. */
+.document-editor .cm-bubble-you {
+  --bubble: color-mix(in srgb, var(--accent) 20%, var(--bg));
+  margin-left: calc(var(--bubble-col) * 0.2);
+  text-align: right;
+}
+.document-editor .cm-bubble-agent {
+  --bubble: var(--bg-raised);
+  text-align: left;
+}
+/* Code pasted into what you said still reads left-to-right. */
+.document-editor .cm-bubble-you.cm-code-line { text-align: left; }
+/* A code line normally refuses to wrap and takes the whole pane; inside a
+   bubble it wraps instead, because a command poking out of the bubble it is
+   in reads as a broken bubble, not as a long command. */
+.document-editor .cm-bubble.cm-code-line { min-width: 0; width: auto; white-space: pre-wrap; }
+.cm-bubble-first {
+  padding-top: 0.35rem;
+  border-top-left-radius: 16px;
+  border-top-right-radius: 16px;
+}
+.cm-bubble-last {
+  position: relative;
+  padding-bottom: 0.35rem;
+  border-bottom-left-radius: 16px;
+  border-bottom-right-radius: 16px;
+}
+/* The tail: the bubble's colour blob and the page's, overlapping, exactly as
+   the dock's bubbles draw theirs. */
+.cm-bubble-last::before,
+.cm-bubble-last::after { content: ""; position: absolute; bottom: 0; height: 18px; pointer-events: none; }
+.cm-bubble-last::before { width: 18px; background: var(--bubble); }
+.cm-bubble-last::after { width: 10px; background: var(--chat-bg); }
+.cm-bubble-agent.cm-bubble-last::before { left: -7px; border-bottom-right-radius: 15px; }
+.cm-bubble-agent.cm-bubble-last::after { left: -10px; border-bottom-right-radius: 10px; }
+.cm-bubble-you.cm-bubble-last::before { right: -7px; border-bottom-left-radius: 15px; }
+.cm-bubble-you.cm-bubble-last::after { right: -10px; border-bottom-left-radius: 10px; }
+/* Breathing room between one bubble and the next: a transparent top border
+   on the first line (inside the line box, so the height map is right) with
+   the background clipped to the padding box so it does not paint under it. */
+.cm-bubble { background-clip: padding-box; }
+.cm-bubble-first { border-top: 0.5rem solid transparent; }
+/* Inside a bubble the tag chrome steps further back — the chip at the start
+   of the line is the caption; the tag is the record. */
+.document-editor .cm-bubble .cm-hick-chrome { opacity: 0.55; }
+/* The chip leads the line: a gap after it, none before. */
+.document-editor .cm-bubble .cm-inline-annotation:first-child { margin-left: 0; margin-right: 0.45rem; }
+/* A nested frame inside a bubble keeps its spine; the bubble's own left
+   padding already stands in for the outer one. */
+.cm-bubble.cm-turn-tool,
+.cm-bubble.cm-turn-action { border-left: 3px solid color-mix(in srgb, var(--fg-muted) 45%, transparent); }
 
 /* The hick:when gated region: a quiet amber spine down its whole extent. */
 .cm-when-line {
@@ -1973,6 +2063,16 @@ textarea:focus {
     45deg, transparent 65%, var(--warn) 65%, var(--warn) 80%, transparent 80%
   );
 }
+/* Information: a quiet dotted line. Something worth finding on this line —
+   a tool that refused, a command that failed, a compaction — not something
+   wrong with the document, so it is never counted. */
+.cm-lsp-info {
+  background-repeat: repeat-x;
+  background-position: left bottom;
+  background-size: 4px 2px;
+  padding-bottom: 1px;
+  background-image: linear-gradient(90deg, var(--fg-muted) 50%, transparent 50%);
+}
 /* Semantic tokens from the language server.
    Mapped onto the SAME palette the local highlighter uses, so a block the
    server can colour and one it cannot look like the same editor rather than
@@ -2245,6 +2345,7 @@ textarea:focus {
   color: var(--accent-2);
 }
 .cm-lsp-hover-warn { color: var(--warn); }
+.cm-lsp-hover-note { color: var(--fg-muted); }
 /* The type information below it, separated so two different kinds of
    statement do not read as one paragraph. */
 .cm-lsp-hover-info {
@@ -2423,21 +2524,60 @@ textarea:focus {
   padding-right: 0.2rem;
 }
 .chat-empty { font-size: 0.8rem; margin: 0.2rem 0; max-width: 46rem; }
-.chat-turn { display: flex; flex-direction: column; gap: 0.3rem; }
+.chat-turn { display: flex; flex-direction: column; gap: 0.45rem; }
+/* A turn is two bubbles, the way a messages app draws a conversation: yours
+   on the right with its tail at the bottom right, the agent's on the left
+   with its tail at the bottom left. The tail is the speaker; the small role
+   caption above is there for a screen reader and a glance. The tail is two
+   blobs — one the bubble's colour, one the page's, overlapping — so it needs
+   to know what it sits on: --chat-bg, set by each surface that hosts a log. */
 .chat-msg {
-  display: grid;
-  grid-template-columns: 3.6rem 1fr;
-  gap: 0.5rem;
-  align-items: baseline;
+  --chat-bg: var(--bg);
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
   font-size: 0.82rem;
+  min-width: 0;
 }
-.chat-msg p { margin: 0; white-space: pre-wrap; }
+.chat-user { align-self: flex-end; align-items: flex-end; max-width: 82%; }
+.chat-agent { align-self: flex-start; align-items: flex-start; max-width: 94%; }
+.chat-msg p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 .chat-role {
   font-size: 0.62rem;
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--fg-muted);
+  padding: 0 0.55rem;
 }
+.chat-bubble {
+  position: relative;
+  max-width: 100%;
+  min-width: 0;
+  padding: 0.42rem 0.7rem;
+  border-radius: 16px;
+  background: var(--bubble);
+  color: var(--fg);
+}
+.chat-bubble > * { position: relative; z-index: 1; }
+.chat-bubble::before,
+.chat-bubble::after { content: ""; position: absolute; bottom: 0; height: 18px; }
+.chat-bubble::before { width: 18px; background: var(--bubble); }
+.chat-bubble::after { width: 10px; background: var(--chat-bg); }
+.chat-user .chat-bubble {
+  --bubble: var(--accent);
+  --bubble: color-mix(in srgb, var(--accent) 24%, var(--bg));
+}
+.chat-user .chat-bubble::before { right: -7px; border-bottom-left-radius: 15px; }
+.chat-user .chat-bubble::after { right: -10px; border-bottom-left-radius: 10px; }
+.chat-agent .chat-bubble { --bubble: var(--bg-raised); }
+.chat-agent .chat-bubble::before { left: -7px; border-bottom-right-radius: 15px; }
+.chat-agent .chat-bubble::after { left: -10px; border-bottom-right-radius: 10px; }
+/* The dock itself is raised, so the agent's bubble needs a step of its own
+   and the tails cut with the dock's colour, not the page's. */
+.chat-dock .chat-msg { --chat-bg: var(--bg-raised); }
+.chat-dock .chat-agent .chat-bubble { --bubble: var(--bg-sunken); }
+.chat-dock--pane .chat-msg { --chat-bg: var(--bg); }
+.chat-dock--pane .chat-agent .chat-bubble { --bubble: var(--bg-raised); }
 .chat-user p { font-weight: 550; }
 .chat-agent p { color: var(--fg); }
 .chat-error { color: var(--danger); }
@@ -2451,8 +2591,8 @@ textarea:focus {
   color: var(--fg-muted);
 }
 .chat-turn-actions {
-  grid-column: 2;
   display: flex;
+  padding: 0 0.55rem;
   align-items: center;
   gap: 0.6rem;
   font-size: 0.7rem;
@@ -2463,17 +2603,41 @@ textarea:focus {
 .chat-rewind { font-size: 0.7rem; }
 
 .chat-composer { display: flex; gap: 0.5rem; align-items: flex-end; }
+/* The draft is the bubble you are about to have sent — same shape, same
+   tail, same side — drawn around the textarea since a textarea cannot carry
+   pseudo-elements of its own. */
+.chat-bubble--draft {
+  --chat-bg: var(--bg-raised);
+  --bubble: var(--bg);
+  flex: 1;
+  display: flex;
+  padding: 0;
+  min-width: 0;
+}
+.chat-dock--pane .chat-bubble--draft { --chat-bg: var(--bg); --bubble: var(--bg-raised); }
+.chat-bubble--draft::before { right: -8px; border-bottom-left-radius: 15px; }
+.chat-bubble--draft::after { right: -10px; border-bottom-left-radius: 10px; }
+/* Focused, the draft takes the colour your sent bubbles have: it is one of
+   them, not yet sent. */
+.chat-bubble--draft:focus-within {
+  --bubble: var(--accent);
+  --bubble: color-mix(in srgb, var(--accent) 24%, var(--bg));
+}
 .chat-composer textarea {
   flex: 1;
+  width: 100%;
   resize: vertical;
   font: inherit;
   font-size: 0.85rem;
-  padding: 0.4rem 0.55rem;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--bg);
+  padding: 0.4rem 0.7rem;
+  border: 0;
+  border-radius: 16px;
+  background: transparent;
   color: var(--fg);
+  outline: none;
 }
+/* Room for the tail: the Send button sits after it. */
+.chat-composer .btn { margin-left: 0.35rem; }
 .chat-note { font-size: 0.74rem; margin: 0; }
 
 /* --- landing (discovery page at "/") ---------------------------------------
@@ -7055,7 +7219,7 @@ button.status-bar__item:hover { background: var(--bg-sunken); color: var(--fg); 
 .chat-reasoning > summary { cursor: pointer; color: var(--muted); font-style: italic; }
 .chat-reasoning__text { white-space: pre-wrap; opacity: 0.75; margin: 0.25rem 0 0; max-height: 18em; overflow: auto; }
 .chat-work-toggle { font-size: 0.85em; }
-.chat-work { display: flex; flex-direction: column; gap: 0.25rem; margin: 0.25rem 0 0.5rem; padding-left: 0.5rem; border-left: 2px solid var(--ribbon-context); }
+.chat-work { display: flex; flex-direction: column; gap: 0.25rem; margin: 0.25rem 0 0.5rem; padding-left: 0.5rem; border-left: 2px solid var(--ribbon-context); min-width: 0; }
 .chat-step { margin: 0; font-size: 0.9em; }
 .chat-step > summary { cursor: pointer; }
 .chat-step pre { white-space: pre-wrap; margin: 0.2rem 0 0; max-height: 16em; overflow: auto; }
@@ -7064,9 +7228,6 @@ button.status-bar__item:hover { background: var(--bg-sunken); color: var(--fg); 
 .chat-step__arg { opacity: 0.8; }
 .chat-answer { margin: 0; white-space: pre-wrap; }
 .chat-open-session { font-size: 0.85em; }
-.session-doc { padding: 0.75rem 1rem; overflow: auto; height: 100%; }
-.session-doc__head { margin: 0 0 0.5rem; }
-.session-mode { display: inline-flex; gap: 2px; margin-left: 0.5rem; }
 .chat-log--session { max-height: none; }
 
 .chat-tree { list-style: none; margin: 0; padding: 0.25rem 0; }

@@ -188,6 +188,24 @@ impl HickBackend {
         // 3. Close old virtual files, pruning diagnostics for removed files.
         self.close_vfiles_for(hick_uri, &new_vfile_uris).await;
 
+        // 3b. The document's OWN diagnostics — today, the problems a
+        //     hick:session record can have (see session_lint.rs). Kept in the
+        //     same store as the children's, under the document's own URI, so
+        //     one merge and one publish serve both; `close_vfiles_for`
+        //     retains that key.
+        {
+            let own = crate::session_lint::session_diagnostics(source, &state.doc);
+            let merged = {
+                let mut store = self.child_diagnostics.write().await;
+                let per_hick = store.entry(hick_uri.clone()).or_default();
+                per_hick.insert(hick_uri.clone(), own);
+                per_hick.values().flatten().cloned().collect::<Vec<_>>()
+            };
+            self.client
+                .publish_diagnostics(hick_uri.clone(), merged, None)
+                .await;
+        }
+
         let vfile_version = {
             let docs = self.documents.read().await;
             docs.get(hick_uri).map(|e| e.vfile_version + 1).unwrap_or(1)
@@ -367,7 +385,8 @@ impl HickBackend {
         {
             let mut diags = self.child_diagnostics.write().await;
             if let Some(per_hick) = diags.get_mut(hick_uri) {
-                per_hick.retain(|vf_uri, _| new_vfile_uris.contains(vf_uri));
+                // The document's own diagnostics live under its own URI.
+                per_hick.retain(|vf_uri, _| vf_uri == hick_uri || new_vfile_uris.contains(vf_uri));
             }
         }
 

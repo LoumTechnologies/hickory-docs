@@ -102,6 +102,17 @@ pub enum Step {
         lines: String,
         session_line: usize,
     },
+    /// Something the harness put in front of the model besides the
+    /// conversation: a compaction summary, a hook's output, an attached
+    /// file. Written by `hick import`; the built-in agent records its
+    /// context as `read` instead.
+    Context {
+        /// `compact`, `meta`, `attachment:file`, … — never the serde tag.
+        #[serde(rename = "context_kind")]
+        kind: String,
+        text: String,
+        session_line: usize,
+    },
 }
 
 /// Parse a session source into its conversation view. A file that is not a
@@ -253,6 +264,14 @@ pub fn session_view(source: &str) -> SessionView {
                 Step::Wrote {
                     file: tag.get_attribute("file").unwrap_or("").to_string(),
                     lines: tag.get_attribute("lines").unwrap_or("").to_string(),
+                    session_line: tag.source_line,
+                },
+            ),
+            "context" => push_step(
+                &mut turns,
+                Step::Context {
+                    kind: tag.get_attribute("kind").unwrap_or("context").to_string(),
+                    text: tag.text_content().trim_matches('\n').to_string(),
                     session_line: tag.source_line,
                 },
             ),
@@ -416,6 +435,7 @@ aaaa|hello
                 Step::ToolResult { .. } => "tool-result",
                 Step::Read { .. } => "read",
                 Step::Wrote { .. } => "wrote",
+                Step::Context { .. } => "context",
             })
             .collect();
         assert_eq!(

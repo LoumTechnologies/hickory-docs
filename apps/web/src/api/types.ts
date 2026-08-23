@@ -733,7 +733,8 @@ export type SessionStep =
   | { kind: "tool"; name: string; args: [string, string][]; input: string | null; session_line: number }
   | { kind: "tool-result"; id: string | null; name: string; ok: boolean; text: string; session_line: number }
   | { kind: "read"; file: string; commit: string | null; sha256: string; lines: string; session_line: number }
-  | { kind: "wrote"; file: string; lines: string; session_line: number };
+  | { kind: "wrote"; file: string; lines: string; session_line: number }
+  | { kind: "context"; context_kind: string; text: string; session_line: number };
 
 export interface SessionTurn {
   id: string;

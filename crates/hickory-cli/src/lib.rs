@@ -7,6 +7,7 @@
 pub mod adopt;
 pub mod agent_cell_runner;
 pub mod agent_lineage;
+pub mod claude_code;
 pub mod dap_install;
 pub mod debug_sessions;
 pub mod doc_tools;

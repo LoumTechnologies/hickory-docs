@@ -550,6 +550,13 @@ fn open(
                 .title(native_title(config_dir, dir))
                 .inner_size(1100.0, 780.0)
                 .min_inner_size(360.0, 480.0)
+                // Tauri's own drag-drop handler swallows file drops before
+                // the page sees them: the cursor tracks the drag, the drop
+                // lands nowhere, and nothing here listens for the Tauri
+                // event in its place. The editor handles an image dropped
+                // onto it as an ordinary HTML5 drop (editor/mdPaste.ts), so
+                // the page gets the events.
+                .disable_drag_drop_handler()
                 .build()
                 .map_err(|e| e.to_string())
         });

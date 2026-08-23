@@ -14,6 +14,7 @@ pub mod lang_detect;
 pub mod position_map;
 pub mod semantic;
 pub mod server_config;
+pub mod session_lint;
 pub mod staging;
 pub mod structural;
 pub mod virtual_file;
