@@ -677,31 +677,27 @@ pub async fn ingest_from_exec(
         .await
         .with_context(|| format!("running {} failed", doc_path.display()))?;
 
-    let strip = out_prefix.trim_end_matches('/');
     let mut text: BTreeMap<String, String> = BTreeMap::new();
     let mut binary: Vec<String> = Vec::new();
-    // A volume this document has already ingested is deliberately NOT written
-    // over the document's bytes, so on a re-ingest the fresh run arrives in
-    // `ingested_volume_files` instead. Both are read here, because this is the
-    // one caller that wants the run rather than the document.
-    let produced = run
-        .result
-        .files
-        .iter()
-        .chain(run.result.ingested_volume_files.iter());
-    for (path, content) in produced {
-        let rel = if strip.is_empty() || strip == "." {
-            path.as_str()
-        } else if let Some(rest) = path.strip_prefix(strip).and_then(|r| r.strip_prefix('/')) {
-            rest
-        } else {
-            continue;
-        };
+    // Read the volume BY NAME rather than by sifting the merged file set for a
+    // path prefix. Two things go wrong with the prefix approach, and both are
+    // silent: a volume declared `output="."` shares its prefix with every
+    // other output the document produces, so the ingest swallows files
+    // belonging to the document's own `hick:file` blocks; and a volume this
+    // document has already ingested is deliberately kept out of the merged set
+    // altogether, so a re-ingest would find nothing.
+    let produced = run.result.volume_outputs.get(&volume);
+    for (path, content) in produced.into_iter().flatten() {
+        // The path is kept AS THE PIPELINE NAMES IT — prefixed by the volume's
+        // `output=`. Stripping the prefix would move every file the moment it
+        // was ingested: `hick run` wrote `service/main.rs` before, and would
+        // write `main.rs` after, which is an ingest silently rearranging the
+        // tree it was asked to preserve.
         match content.as_text() {
             Some(t) => {
-                text.insert(rel.to_string(), t.to_string());
+                text.insert(path.clone(), t.to_string());
             }
-            None => binary.push(rel.to_string()),
+            None => binary.push(path.clone()),
         }
     }
     if text.is_empty() && binary.is_empty() {

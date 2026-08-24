@@ -97,7 +97,7 @@ fn set_run_output(doc: &Path, main: &str, lib: &str) {
 /// ordinary document bytes, which is the whole point of ingest.
 fn edit_ingested(doc: &Path, path: &str, from: &str, to: &str) {
     let source = std::fs::read_to_string(doc).unwrap();
-    let marker = format!("<hick:file path=\"{path}\">");
+    let marker = format!("<hick:file path=\"app/{path}\">");
     let at = source.find(&marker).expect("the file block") + marker.len();
     let end = source[at..].find("</hick:file>").unwrap() + at;
     let body = &source[at..end];
@@ -110,7 +110,7 @@ fn edit_ingested(doc: &Path, path: &str, from: &str, to: &str) {
 
 fn ingested_body(doc: &Path, path: &str) -> String {
     let source = std::fs::read_to_string(doc).unwrap();
-    let marker = format!("<hick:file path=\"{path}\">");
+    let marker = format!("<hick:file path=\"app/{path}\">");
     let at = source.find(&marker).expect("the file block") + marker.len();
     let end = source[at..].find("</hick:file>").unwrap() + at;
     source[at..end].to_string()
@@ -236,7 +236,7 @@ fn a_file_the_run_stopped_producing_is_removed_when_you_had_not() {
     let stdout = String::from_utf8_lossy(&out.stdout).to_string();
     assert!(out.status.success(), "{stdout}");
     let source = std::fs::read_to_string(&doc).unwrap();
-    assert!(!source.contains("path=\"lib.txt\""), "{source}");
+    assert!(!source.contains("path=\"app/lib.txt\""), "{source}");
     assert!(stdout.contains("so removed"), "{stdout}");
 }
 
@@ -286,7 +286,7 @@ fn both_sides_changing_one_place_conflicts_in_the_document_and_exits_nonzero() {
     let out = ingest(dir.path(), &doc);
     let stdout = String::from_utf8_lossy(&out.stdout).to_string();
     assert!(!out.status.success(), "{stdout}");
-    assert!(stdout.contains("CONFLICT main.txt"), "{stdout}");
+    assert!(stdout.contains("CONFLICT app/main.txt"), "{stdout}");
     assert!(stdout.contains("randomises"), "{stdout}");
     // The markers are IN the document, where the resolution belongs.
     let body = ingested_body(&doc, "main.txt");

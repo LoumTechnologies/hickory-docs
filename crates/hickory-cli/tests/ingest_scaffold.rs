@@ -88,8 +88,14 @@ fn an_ingest_writes_the_runs_files_into_the_document_and_skips_what_git_ignores(
     assert!(source.contains("sha256=\""), "{source}");
     assert!(source.contains("files=\"2\""), "{source}");
     assert!(source.contains("skipped=\"1\""), "{source}");
-    assert!(source.contains("<hick:file path=\"main.txt\">"), "{source}");
-    assert!(source.contains("<hick:file path=\"lib.txt\">"), "{source}");
+    assert!(
+        source.contains("<hick:file path=\"app/main.txt\">"),
+        "{source}"
+    );
+    assert!(
+        source.contains("<hick:file path=\"app/lib.txt\">"),
+        "{source}"
+    );
     // Build output the project already ignores must not enter the document
     // that owns the source.
     assert!(!source.contains("path=\"obj/build.log\""), "{source}");
@@ -129,7 +135,7 @@ fn the_ingested_document_produces_the_scaffold_from_a_clone() {
         String::from_utf8_lossy(&out.stderr)
     );
     assert_eq!(
-        std::fs::read_to_string(dir.path().join("main.txt")).unwrap(),
+        std::fs::read_to_string(dir.path().join("app/main.txt")).unwrap(),
         "hello\n"
     );
 }
@@ -157,7 +163,7 @@ fn ingested_bytes_report_their_run_rather_than_reading_as_yours() {
     let out = hick()
         .args(["lineage"])
         .arg(&doc)
-        .args(["--output", "main.txt"])
+        .args(["--output", "app/main.txt"])
         .output()
         .expect("run hick");
     let stdout = String::from_utf8_lossy(&out.stdout).to_string();
@@ -308,4 +314,119 @@ fn the_app_shows_the_ingested_files_as_blocks_and_not_as_the_command() {
     // And the cell's command is the command, not the scaffold.
     let commands: Vec<&str> = text.matches("mkdir").collect();
     assert!(!commands.is_empty(), "the command survived: {text}");
+}
+
+#[test]
+fn ingesting_does_not_move_the_files_the_volume_already_placed() {
+    // The volume says `output="app"`, so `hick run` writes `app/main.txt`.
+    // An ingest must keep writing it there. Stripping the prefix — which this
+    // did until 2026-08-24 — meant the act of ingesting silently rearranged
+    // the tree it was asked to preserve, and the drift only showed up as a
+    // file appearing in a new place on the next run.
+    let dir = tempfile::tempdir().unwrap();
+    repo(dir.path(), "obj/\n");
+    let doc = dir.path().join("app.hick");
+    std::fs::write(&doc, doc_source()).unwrap();
+
+    // Where it lands BEFORE the ingest.
+    assert!(
+        hick()
+            .arg("run")
+            .arg(&doc)
+            .output()
+            .unwrap()
+            .status
+            .success()
+    );
+    assert!(
+        dir.path().join("app/main.txt").exists(),
+        "the volume writes under app/"
+    );
+
+    assert!(
+        hick()
+            .args(["ingest", "--from", "#scaffold"])
+            .arg(&doc)
+            .output()
+            .unwrap()
+            .status
+            .success()
+    );
+
+    // And after: the same place, from the document's own bytes this time.
+    assert!(
+        hick()
+            .arg("weave")
+            .arg(&doc)
+            .output()
+            .unwrap()
+            .status
+            .success()
+    );
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("app/main.txt")).unwrap(),
+        "hello\n"
+    );
+    assert!(
+        !dir.path().join("main.txt").exists(),
+        "the ingest moved the file out of its volume's output path"
+    );
+}
+
+#[test]
+fn an_ingest_takes_the_volume_and_not_the_documents_own_files() {
+    // A volume declared `output="."` shares its prefix with every other output
+    // the document produces. Selecting by prefix swallowed those too, so a
+    // document's own `hick:file` blocks got ingested as if a scaffolder had
+    // written them.
+    let dir = tempfile::tempdir().unwrap();
+    repo(dir.path(), "");
+    let doc = dir.path().join("app.hick");
+    let write = if cfg!(windows) {
+        "mkdir out & echo scaffolded> out\\generated.txt"
+    } else {
+        "mkdir -p out && printf 'scaffolded\\n' > out/generated.txt"
+    };
+    std::fs::write(
+        &doc,
+        format!(
+            r##"<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="none">
+<hick:container name="sdk" />
+<hick:volume name="project" output="." />
+<hick:file path="mine.txt">I wrote this
+</hick:file>
+<hick:exec container="sdk" mount="project:out">
+<hick:copy id="scaffold">
+{write}
+</hick:copy>
+</hick:exec>
+</hick:doc>
+"##
+        ),
+    )
+    .unwrap();
+
+    let out = hick()
+        .args(["ingest", "--from", "#scaffold"])
+        .arg(&doc)
+        .output()
+        .expect("run hick");
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+
+    let source = std::fs::read_to_string(&doc).unwrap();
+    let ingested_at = source.find("<hick:ingested").unwrap();
+    let block = &source[ingested_at..];
+    assert!(block.contains("generated.txt"), "{block}");
+    // `mine.txt` is the document's own, and must not be inside the block —
+    // being ingested would mark bytes the author wrote as somebody else's.
+    assert!(
+        !block.contains("mine.txt"),
+        "the document's own file was ingested: {block}"
+    );
+    assert!(source.contains("files=\"1\""), "{source}");
 }

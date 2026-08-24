@@ -214,6 +214,11 @@ pub enum NodeValue {
 }
 
 /// Binary payload — either held in memory or spilled to a temp file.
+///
+/// `Clone` so a pipeline can report the same output twice — once in the
+/// merged file set and once under the volume that produced it — without
+/// choosing which caller owns it.
+#[derive(Clone)]
 pub enum BinaryData {
     Inline(Vec<u8>),
     TempFile(PathBuf),
@@ -241,6 +246,7 @@ impl BinaryData {
 }
 
 /// Converged output of a file — text or binary.
+#[derive(Clone)]
 pub enum FileContent {
     Text(String),
     Binary(BinaryData),

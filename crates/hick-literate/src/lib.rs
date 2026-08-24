@@ -204,16 +204,25 @@ pub struct PipelineResult {
     /// weave-without-cache modes always, and by the live pipeline when
     /// [`PipelineConfig::collect_unverifiable`] is set.
     pub never_run: NeverRun,
-    /// What an INGESTED volume produced on this run — separately from
-    /// [`PipelineResult::files`], because the document owns those bytes now
-    /// and the fresh run must not be written over them.
+    /// What each OUTPUT VOLUME produced on this run, by volume name.
     ///
-    /// It is still needed, and by exactly one caller: `hick ingest` reading
-    /// the same cell a second time, where this run is **theirs** in a
-    /// three-way merge against the recorded base. Dropping it entirely would
-    /// have made a re-ingest impossible; writing it to disk would have
-    /// silently overwritten the four lines the ingest exists to protect.
-    pub ingested_volume_files: HashMap<String, FileContent>,
+    /// Separate from [`PipelineResult::files`] for two reasons, and both are
+    /// bugs that existed while it was merged in:
+    ///
+    /// - **A volume a document has ingested must not be flushed over the
+    ///   document's own bytes**, or the next run overwrites the edits the
+    ///   ingest exists to protect. Those volumes appear here and NOT in
+    ///   `files`.
+    /// - **`hick ingest` has to know which files came from the volume.**
+    ///   Reading them out of `files` by path prefix cannot work: a volume
+    ///   declared `output="."` shares its prefix with every other output the
+    ///   document produces, so an ingest would swallow files belonging to the
+    ///   document's own `hick:file` blocks.
+    ///
+    /// Keys are the output paths as `files` would name them — prefixed by the
+    /// volume's `output=` — because that is where the bytes actually land, and
+    /// an ingest must not move them.
+    pub volume_outputs: HashMap<String, HashMap<String, FileContent>>,
     /// Canonical paths of every file spliced into the pipeline's documents
     /// by `<hick:include>`/`<hick:upstream>` (the union of the resolved
     /// documents' [`hick_lang::HickDocument::span_files`]). Provenance can
@@ -1066,7 +1075,7 @@ pub async fn run_pipeline_with_authority(
     Ok(PipelineResult {
         files,
         // A dry run executes nothing, so no volume produced anything.
-        ingested_volume_files: HashMap::new(),
+        volume_outputs: HashMap::new(),
         provenance_maps,
         containers: container_defs,
         volume_provenance: HashMap::new(),
@@ -1925,7 +1934,7 @@ pub async fn run_pipeline_live(
     // (`docs/specs/freeform/owning-what-a-scaffolder-wrote.md`, sequence 3).
     let ingested_volumes = ingested_volume_names(documents.iter().map(|(_, d)| d));
     let mut volume_files: HashMap<String, FileContent> = HashMap::new();
-    let mut ingested_volume_files: HashMap<String, FileContent> = HashMap::new();
+    let mut volume_outputs: HashMap<String, HashMap<String, FileContent>> = HashMap::new();
     for (vol_name, vol_decl) in &all_volume_decls {
         let ingested = ingested_volumes.contains(vol_name);
         if ingested {
@@ -1970,9 +1979,13 @@ pub async fn run_pipeline_live(
                         FileContent::Binary(hick_exec::node::BinaryData::Inline(e.into_bytes()))
                     }
                 };
-                if ingested {
-                    ingested_volume_files.insert(output_path, content);
-                } else {
+                // Every output volume is recorded here under its own name;
+                // only a NOT-yet-ingested one is also flushed into `files`.
+                volume_outputs
+                    .entry(vol_name.clone())
+                    .or_default()
+                    .insert(output_path.clone(), content.clone());
+                if !ingested {
                     volume_files.insert(output_path, content);
                 }
             }
@@ -1994,7 +2007,7 @@ pub async fn run_pipeline_live(
 
     Ok(PipelineResult {
         files,
-        ingested_volume_files,
+        volume_outputs,
         provenance_maps,
         containers: container_defs,
         volume_provenance,
@@ -2137,7 +2150,7 @@ pub async fn run_pipeline_weave(
     Ok(PipelineResult {
         files,
         // Weave-only: nothing executed, so no volume produced anything.
-        ingested_volume_files: HashMap::new(),
+        volume_outputs: HashMap::new(),
         provenance_maps,
         containers: container_defs,
         volume_provenance: HashMap::new(),
