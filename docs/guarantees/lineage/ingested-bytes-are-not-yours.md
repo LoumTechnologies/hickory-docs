@@ -68,6 +68,17 @@ Last LLM verification:
     `apps/web/src/styles.css` — `cm-prov-ingested`.
   - Test: `crates/hickory-cli/tests/ingest_scaffold.rs::ingested_bytes_report_their_run_rather_than_reading_as_yours`
     drives the real binary end to end.
+- Caveat, found 2026-08-24 while writing `examples/scaffolded-service.hick`:
+  **an edit made INSIDE an ingested block still reports as `ingested`.** The
+  origin is stamped for the whole `hick:file` body, so "your four lines" carry
+  the run's fingerprint alongside the generator's bytes. The design's
+  aspiration — *ribbons show three colours in one file: the scaffolder's bytes,
+  your four lines, and anything woven in* — is therefore **not met at line
+  granularity**, only at block granularity. Distinguishing them needs the base
+  to diff against, and the base lives in the commit that introduced `sha256=`
+  rather than in the document; the weave does not consult git, so the ribbon
+  cannot either. The guarantee above claims only what holds: these bytes came
+  from that run, and they are editable.
 - Caveat requiring LLM review: the app draws an ingested ribbon in the lineage
   palette, since this is a lineage origin and not a fourth provenance family.
   Whether that reads clearly enough beside a literal ribbon has not been

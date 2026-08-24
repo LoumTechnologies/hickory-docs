@@ -9,6 +9,7 @@ needs whatever its cells invoke to be installed locally.
 | `text-tools-tour.hick` | nothing beyond a POSIX shell (`sort`, `awk`, `wc`, `tr`) | The core loop: cells, pinned expectations, weaving |
 | `bootstrap-ci.hick` | `python3` (standard library only) | A small statistical paper that computes its own figure and verifies its own numbers |
 | `grand-tour.hick` | `python3` with `polars`, the `duckdb` CLI; optionally `Rscript` with `ggplot2` | Literate weaving with lineage, polyglot cells, generated interactive artifacts, feature gates |
+| `scaffolded-service.hick` | nothing beyond a POSIX shell | Owning what a generator wrote: `hick ingest --from`, the gitignore as the filter, and editing bytes you did not type |
 
 Start here — it works everywhere:
 
@@ -17,7 +18,16 @@ hick run examples/text-tools-tour.hick
 hick test examples/text-tools-tour.hick
 ```
 
-`hick test examples/` runs all three and needs the full set above. The R
+`scaffolded-service.hick` is the one to read if you have ever run
+`dotnet new` or `npm create` and then had to change four lines in what it
+wrote. Its `service/` tree is committed output like everything else here, and
+the `<hick:ingested>` block in it was written by:
+
+```sh
+hick ingest --from '#scaffold' examples/scaffolded-service.hick
+```
+
+`hick test examples/` runs all of them and needs the full set above. The R
 chapter of the grand tour is behind a feature flag and stays off unless you
 ask for it:
 
