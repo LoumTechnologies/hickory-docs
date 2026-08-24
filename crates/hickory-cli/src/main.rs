@@ -77,6 +77,15 @@ enum Command {
     /// This is the command that makes `.hick` documents editable with any
     /// editor. Runs until interrupted.
     Up(UpArgs),
+    /// Open a folder or a document in the desktop app, the way `code .` does.
+    ///
+    /// Returns immediately; the app outlives the terminal.
+    ///
+    /// `hick` and the app are separate downloads — the archive carries the
+    /// command line, the app arrives as a .dmg, an AppImage or an .msi — so
+    /// this finds one that may not be installed and says so plainly if it is
+    /// not. `HICKORY_DESKTOP` points at a copy directly.
+    Open(OpenArgs),
     /// Weave without executing: cached transcripts where present, otherwise
     /// blocks are marked never-run.
     Weave(WeaveArgs),
@@ -800,6 +809,14 @@ struct LineageArgs {
 }
 
 #[derive(clap::Args)]
+struct OpenArgs {
+    /// A folder of documents, or a single `.hick` document. Defaults to the
+    /// working directory, which is what makes `hick open .` the whole gesture.
+    #[arg(default_value = ".")]
+    path: PathBuf,
+}
+
+#[derive(clap::Args)]
 struct EmitArgs {
     /// The folder whose documents to plan. Defaults to the current one.
     #[arg(default_value = ".")]
@@ -1027,6 +1044,7 @@ fn run() -> ExitCode {
             Command::Import(args) => cmd_import(args),
             Command::Carry(args) => cmd_carry(args),
             Command::Emit(args) => cmd_emit(args).await,
+            Command::Open(args) => cmd_open(args),
             Command::Equiv(args) => cmd_equiv(args).await,
             Command::Agent(args) => cmd_agent(args).await,
             Command::Refresh(args) => cmd_refresh(args).await,
@@ -2191,6 +2209,26 @@ fn cmd_merge_driver(args: MergeDriverArgs) -> Result<ExitCode> {
             Ok(ExitCode::from(1))
         }
     }
+}
+
+/// `hick open [path]` — hand a folder to the desktop app and return.
+fn cmd_open(args: OpenArgs) -> Result<ExitCode> {
+    if !args.path.exists() {
+        anyhow::bail!(
+            "{} does not exist, so there is nothing to open.\n  \
+             `hick open` takes a folder of documents or a single `.hick` file, \
+             and defaults to the working directory.",
+            args.path.display()
+        );
+    }
+    let Some(app) =
+        hickory_cli::open_app::find(|name| std::env::var(name).ok(), |path| path.exists())
+    else {
+        anyhow::bail!("{}", hickory_cli::open_app::not_installed());
+    };
+    hickory_cli::open_app::open(&app, &args.path)?;
+    eprintln!("opening {} in Hickory Docs", args.path.display());
+    Ok(ExitCode::SUCCESS)
 }
 
 /// `hick emit` — what a re-emission would produce. Emits nothing.

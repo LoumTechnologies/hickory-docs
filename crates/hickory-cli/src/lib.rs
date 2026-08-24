@@ -22,6 +22,7 @@ pub mod init;
 pub mod lsp_install;
 pub mod mcp;
 pub mod merge_driver;
+pub mod open_app;
 pub mod replay;
 pub mod search_install;
 pub mod serve;

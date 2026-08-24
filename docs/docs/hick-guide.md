@@ -720,6 +720,10 @@ rather than parsed tags.
 hick [file.hick ...]               Single-shot pipeline (default)
 hick run [file.hick ...] [options]  Explicit single-shot mode
 hick up <file.hick> [options]       Watch mode with merge snapshots
+hick open [path]                    Open a folder or document in the desktop
+                                    app, the way `code .` does. The app is a
+                                    separate download; HICKORY_DESKTOP points
+                                    at a copy directly
 hick ingest --from '#id' <file.hick>  Ingest a cell's output volume (§4);
                                     running it again is a three-way merge
                                     against the base, recovered from the commit
