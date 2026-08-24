@@ -7,6 +7,8 @@
 pub mod error;
 pub mod llm_backend;
 pub mod merge_strategy;
+/// The merged view's N-way alignment: which regions N sources agree on.
+pub mod nway;
 pub mod orchestrator;
 pub mod trivial_strategy;
 
@@ -16,6 +18,8 @@ pub use error::MergeError;
 pub use llm_backend::LlmMergeStrategy;
 /// Trait for resolving three-way merge conflicts between base, generated, and edited versions.
 pub use merge_strategy::MergeStrategy;
+/// The merged view: N symmetric sources, shared regions and variants.
+pub use nway::{MergedView, Region, Route, Source, Write, merged_view, rebuild, writes_for_edit};
 /// Three-way merge orchestrator that compares pipeline output against user edits using version store snapshots.
 pub use orchestrator::{MergeOrchestrator, MergeResult};
 /// Trivial strategies: fail on conflict, keep user edits, or take pipeline output.

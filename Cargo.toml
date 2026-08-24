@@ -31,6 +31,9 @@ members = [
     "crates/hickory-executor-sandbox",
     "crates/hickory-cli",
     "crates/hickory-collab",
+    "crates/hickory-broker",
+    "crates/hickory-fleet",
+    "crates/hickory-peer",
     "crates/hickory-lineage",
     "crates/hickory-workspace",
 ]
@@ -51,6 +54,22 @@ hick-exec = { version = "0.1", path = "crates/hick-exec" }
 
 # Settings for the binaries people download. `cargo build` and CI's test run
 # use the dev profile, so the inner loop is unaffected.
+# Debug builds carry line tables rather than full debug info.
+#
+# This workspace links ~50 integration-test binaries for `hickory-cli` alone,
+# each pulling the whole crate graph. With full `debuginfo=2` that made the
+# LINKER exhaust memory on a 31 GB machine once the peer channel's QUIC stack
+# joined the graph — reported as `linking with cc failed`, which reads like a
+# toolchain problem and is not one. It is also the same pressure CI already
+# works around by reclaiming runner disk before the build.
+#
+# Line tables keep file-and-line in every backtrace and panic, which is what a
+# test failure actually needs; what is given up is stepping through locals in
+# a debugger, and `debug = 2` in a scratch profile buys that back when
+# somebody wants it.
+[profile.dev]
+debug = "line-tables-only"
+
 [profile.release]
 # Debug symbols are a large share of an unstripped binary, and nobody
 # debugging a downloaded release has the matching source checkout anyway.

@@ -45,7 +45,19 @@ which is still where the two refusals are argued: **CRDT edits** cannot express
 a derivation from a foreign artifact, and **line-offset patches** are the
 fifty-year-old version of the same mistake. What killed that document's `from=`
 is worth remembering generally — **it built a durable claim on a gitignored
-artifact** (`.hick-cache/`), so the base did not survive a clone.
+artifact** (`.hick-cache/`), so the base did not survive a clone. **Built
+(2026-08-23):** `hick ingest --from '#cell' <doc>.hick`, the `<hick:ingested>`
+element, the gitignore filter, the non-UTF-8 refusal, and the ingested origin —
+plus one rule the spec did not name: **a volume a document has ingested is no
+longer flushed as a pipeline output** (it arrives in
+`PipelineResult::ingested_volume_files` instead), or the next `hick run`
+overwrites your four lines. **Re-ingest is built too**, and it settled where
+the base comes from: the document holds *ours* and records the run's hash, but
+a hash verifies rather than reconstructs — so **the base is this document at
+the commit that introduced that fingerprint**, recovered from git. Volatile
+regions are deliberately not built until the merge has produced enough false
+conflicts to show what they look like; note `volatile` is already a reserved
+frontmatter key.
 
 How one engineer's several machines see each other's IDE sessions — remote
 view and remote control, one identity, no relay and no account — is
@@ -82,7 +94,10 @@ emitted it, and **the document describes the present while git holds the past**
 commit is inside that commit. Machines and repos are **places** (spanning them
 is coordination); commits are a **time** (spanning them is rewriting), allowed
 only above the publication floor. Across repositories: **read across, write
-local.**
+local.** **Built (2026-08-23):** the floor itself — computed on every read
+(`merge-base(HEAD, @{upstream})`, then `origin/HEAD`, then `origin/master`),
+carried on `GET /api/git/log`, and marked per row in the git pane. Nothing
+emits anything.
 
 Provenance *across* versions of a document is
 `docs/specs/freeform/provenance-across-versions.md`. The data is not missing,
@@ -100,6 +115,25 @@ correspondence journal is a **record**, not a cache, so it may be committed, and
 that choice is the only thing deciding whether CI can check anything here.
 Continuity is a **fourth provenance family, off by default**, and the whole of
 it — ribbon, journal, and the pre-commit repair — rides that one switch.
+**Built (2026-08-23):** replay (`hick lineage --at`/`--history`, the time
+slider, the grammar boundary stated in those words) and the merge driver with
+its configured-driver check at project open and in `hick test` — never in the
+pre-commit hook, since `hick init` installs the hook. Continuity itself stays
+**also built:** the correspondence journal (`.hick-journal/`, gitignored by
+`hick init` — delete that line to let CI check it), refactor mode as a
+byte-precise recording site, the re-ingest as a diff-precise one, and the
+pre-commit repair. All of it rides one switch, per-user in
+`hickory-workspace`, **off by default**: no continuity, no journal, no check.
+Journal entries above the floor are **provisional** — the concession that part
+of a record is derived, which is the cost of recording at the moment both
+sides are in hand. Nothing draws continuity yet.
+
+A machine bought to run an agent on is sealed and reaches the network through
+`hick broker` — a CONNECT proxy with a per-host policy and a log
+(`hickory-broker`, built 2026-08-23; `allow`/`deny` only, no TLS termination,
+no keys, no CA). What a re-emission would produce is `hick emit`
+(`crates/hickory-cli/src/emission.rs`, read-only): one stage, one commit,
+refusing to rewrite anything below the floor.
 
 How a session is refined is `docs/specs/freeform/sessions-you-run-again.md`.
 A **re-run is not a reenactment**: it is a second real session that stands
@@ -107,7 +141,10 @@ without the first, which is a draft the gitignore already discards. Three kinds
 of session must never be mistaken for each other — **run** (harness-written,
 evidence), **edited** (a declared layer over a frozen base, marked *in the
 bytes*, not merely in the rendering), and **staged** (authored, never executed,
-carried by the existing never-run marking). Equivalence between two attempts is
+carried by the existing never-run marking). **Built (2026-08-23):** rewind and
+re-run named apart in the dock, and `hick carry` — which settled the carry's
+home by inventing nothing: it is an ordinary `.hick` document, written outside
+the gitignored `sessions/`. Equivalence between two attempts is
 an **instrument, never a gate** — the person is the judge, and their
 understanding is allowed to move. The constraint that does the work is
 legibility, not provenance: **a session must be followable by a reader who has
@@ -165,6 +202,23 @@ declared and unverifiable, and the two must never render alike.** Say
   same provider seam `--public` already uses. **Never add a relay we operate**;
   `local-only.md`'s four reasons still hold when both endpoints belong to one
   person. Durable state crosses git; only liveness crosses the peer channel.
+  **Built:** `hickory-fleet` — identity, the mutual key list, per-verb grants
+  (`execute` off by default; a phone can never have it), `hick fleet` — and
+  `hickory-peer`, the channel itself: **iroh 1.0, QUIC dialled by public key**,
+  whose endpoint identity IS an ed25519 key, so the fleet list is the
+  allowlist directly. Requests are gated by a **deny-by-default** path table;
+  settings are unreachable over it at all. The spec's 60-second pairing code
+  assumed a rendezvous we would have to run, so enrolment is a self-contained
+  invitation instead. **On relays (decided 2026-08-24):** the default is
+  number0's relays *and* number0's address publishing — neither is a server
+  **we** run, so the refusal and the sentence hold, but that sentence now does
+  more work, so the product says on every connection whether it was direct or
+  relayed and `HICKORY_FLEET_RELAY` takes `direct` or your own relay. Never
+  add a relay **we** operate; using somebody else's is a different decision
+  and is recorded as one. **`iroh` is pinned to `default-features = false,
+  features = ["tls-ring"]`** and must stay that way: the default `portmapper`
+  feature pulls the MPL-2.0 `attohttpc` (copyleft, which this workspace
+  forbids) and asks the router to open a port without being asked.
 - Execution: `Executor` trait; `LocalExecutor` (default) and the Docker
   executor. NEVER reintroduce the wasm container runtime, and NEVER integrate
   third-party CLIs (cram, VHS, etc.) — verification and transcript capture are

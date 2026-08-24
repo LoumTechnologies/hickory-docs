@@ -146,25 +146,42 @@ export function appendReasoning(
  *
  *   /rewind      make the tip's parent the tip (one step back)
  *   /rewind N    go back N turns
+ *   /rerun       start a SECOND conversation, from what you learned in this one
  *   /tree        zoom out: the conversation as a tree (toggle)
  *   /new         start a thread that continues from nothing
  *   /help        list these
+ *
+ * Rewind and re-run are two different acts and the difference is only about
+ * what is KEPT (docs/specs/freeform/sessions-you-run-again.md):
+ *
+ *   rewind — one session file, one conversation, an abandoned branch in the
+ *            tree. The change of mind is kept, visible in the file forever.
+ *   re-run — a second session file; the first is a draft you may discard, and
+ *            nothing in session 2 refers to session 1. The change of mind is
+ *            NOT kept.
+ *
+ * A re-run is not a reenactment: every byte of the second session is written
+ * by the harness, the tools really run, and it stands without the first ever
+ * having existed.
  *
  * Anything else starting with "/" is a message, not a command — a path or a
  * date at the start of a sentence must not be eaten.
  */
 export type SlashCommand =
   | { kind: "rewind"; steps: number }
+  | { kind: "rerun" }
   | { kind: "tree" }
   | { kind: "new" }
   | { kind: "help" };
 
 export function parseSlash(text: string): SlashCommand | null {
-  const m = text.trim().match(/^\/(rewind|tree|new|help)(?:\s+(\d+))?$/i);
+  const m = text.trim().match(/^\/(rewind|rerun|tree|new|help)(?:\s+(\d+))?$/i);
   if (!m) return null;
   switch (m[1].toLowerCase()) {
     case "rewind":
       return { kind: "rewind", steps: m[2] ? Math.max(1, Number(m[2])) : 1 };
+    case "rerun":
+      return { kind: "rerun" };
     case "tree":
       return { kind: "tree" };
     case "new":
@@ -173,6 +190,13 @@ export function parseSlash(text: string): SlashCommand | null {
       return { kind: "help" };
   }
 }
+
+/** What each act keeps — shown where the choice is made, not in a doc. */
+export const REWIND_TIP =
+  "Rewind — continue from here, in THIS conversation. The turns after it stay on their own branch in the same session file, so the change of mind is kept and visible forever.";
+
+export const RERUN_TIP =
+  "Re-run — start a SECOND conversation from what you learned in this one. The first becomes a draft you may discard (sessions/ is gitignored), and nothing in the second refers to it. The change of mind is not kept.";
 
 /** The turn `steps` back from `tip` along parent pointers (null = root). */
 export function rewindFrom(
@@ -188,7 +212,7 @@ export function rewindFrom(
 }
 
 export const SLASH_HELP =
-  "/rewind [N] — back N turns (default 1) · /tree — zoom out to the tree · /new — start a thread · /help";
+  "/rewind [N] — back N turns, keeping the branch · /rerun — a second conversation, discarding this one · /tree — zoom out to the tree · /new — start a thread · /help";
 
 /** The dock's turn as the shared renderer's shape (steps arrive lazily). */
 function asSessionTurn(t: AgentTurn): SessionTurn {
@@ -365,6 +389,23 @@ export function ChatDock({
             target
               ? `Tip is now "${turns.find((t) => t.id === target)?.prompt.slice(0, 60) ?? target}" — the next message continues from there.`
               : "Tip is the root — the next message starts a new thread.",
+          );
+          return;
+        }
+        case "rerun": {
+          // A re-run is not a branch of this conversation: it is a SECOND
+          // conversation, in its own session file, that stands without this
+          // one. So the tip goes to nothing — the next message opens the new
+          // session — and what carries across is whatever you distil by hand.
+          setTip(null);
+          setNote(
+            "Re-run: the next message starts a SECOND conversation, in its own " +
+              "session file. This one becomes a draft you may discard — sessions/ " +
+              "is gitignored, so that is already the default — and nothing in the " +
+              "new one will refer to it. Distil what you learned first: " +
+              "`hick carry <session>` writes the opening prompt and leaves the " +
+              "tests you kept and the approaches you ruled out for you to fill in. " +
+              "To keep the change of mind instead, rewind.",
           );
           return;
         }
@@ -560,7 +601,7 @@ export function ChatDock({
                     <button
                       className="btn-link chat-rewind"
                       onClick={() => setTip(turn.id)}
-                      data-tip="Continue from here — later turns stay on their own branch"
+                      data-tip={REWIND_TIP}
                     >
                       rewind here
                     </button>

@@ -1464,6 +1464,10 @@ fn origin_kind(p: &Provenance) -> &'static str {
         Origin::Variable { .. } => "variable",
         Origin::Substitution { .. } => "substitution",
         Origin::Agent { .. } => "agent",
+        // Not "literal": these bytes are in the document and editable, but a
+        // tool outside it wrote them. An agent that reported them as literal
+        // would tell itself somebody here typed a scaffolder's forty files.
+        Origin::Ingested { .. } => "ingested",
         Origin::Synthetic => "synthetic",
     }
 }

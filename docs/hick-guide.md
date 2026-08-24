@@ -226,6 +226,65 @@ command prefixed with `$ ` followed by its output. In dry-run mode only
 the commands appear; in live mode the real output follows each command.
 Paste tags are resolved from matching copy/cut blocks.
 
+### Owning what a scaffolder wrote
+
+`dotnet new webapi` writes forty files nobody typed, and the interesting
+work is changing four lines across three of them. Pasting the scaffold
+into the document makes it a silent snapshot; leaving it out makes the
+scaffold a step in a README. `hick ingest --from` is the third answer:
+it reads a cell's **output volume** and writes those bytes into the
+document as ordinary `hick:file` blocks under a `hick:ingested` element
+that records the run.
+
+```xml
+<hick:volume name="project" output="." />
+
+<hick:exec container="sdk" mount="project:/out">
+<hick:copy id="scaffold">
+cd /out &amp;&amp; dotnet new webapi -o .
+</hick:copy>
+</hick:exec>
+```
+
+Then, once:
+
+```
+hick ingest --from '#scaffold' app.hick
+```
+
+The document gains, inside that cell:
+
+```xml
+<hick:ingested from="#scaffold" sha256="9f2c…" at="2026-08-23"
+               files="38" skipped="2">
+<hick:file path="Program.cs">…every byte the scaffolder wrote…</hick:file>
+…
+</hick:ingested>
+```
+
+Four things about it are worth knowing before you run it:
+
+- **The command must be wrapped in a `hick:copy`.** Otherwise forty file
+  bodies sit as siblings of ambient command text and there is nothing
+  marking which bytes get run.
+- **The nesting is `exec > ingested > file`**, never `exec > file` —
+  `file > exec` already means the opposite ("run this, paste the output
+  here"), and the same two tags meaning inverse things by order would be
+  unreadable.
+- **Your project's `.gitignore` is the filter.** `bin/`, `obj/`,
+  `node_modules/` are skipped, counted in `skipped=`, and named on the
+  way past. A file that is not UTF-8 text and is *not* ignored refuses
+  the whole ingest by name: a document body is raw bytes, so there is no
+  encoding to hide a binary in.
+- **After this the document owns those bytes.** Your four edits are
+  ordinary edits to ordinary `hick:file` content; `hick lineage` reports
+  them as `ingested` — with the run's fingerprint, so blame says "this
+  arrived from that run" rather than "you wrote this" — and the volume
+  is no longer flushed over them on the next run.
+
+Re-ingesting the same cell is refused for now: it is a three-way merge
+against the recorded `sha256`, and that is not built yet.
+
 ---
 
 ## 5. Copy, Cut, and Paste
@@ -713,6 +772,33 @@ rather than parsed tags.
 hick [file.hick ...]               Single-shot pipeline (default)
 hick run [file.hick ...] [options]  Explicit single-shot mode
 hick up <file.hick> [options]       Watch mode with merge snapshots
+hick ingest --from '#id' <file.hick>  Ingest a cell's output volume (§4);
+                                    running it again is a three-way merge
+                                    against the base, recovered from the commit
+                                    that introduced the recorded fingerprint
+hick carry &lt;session.hick&gt;           Distil a session into what carries to the
+                                    next attempt: a prompt, the tests you kept,
+                                    the approaches you ruled out
+hick emit [dir]                     Show the commits a re-emission WOULD
+                                    produce — one stage, one commit. Emits
+                                    nothing, and refuses to rewrite anything
+                                    below the publication floor
+hick fleet invite|accept|list|grant This machine's keypair, and the machines
+                                    paired with it
+hick fleet serve|attach             Reach another of your machines' sessions,
+                                    over QUIC dialled by public key. Only keys
+                                    you hold are admitted, and every request is
+                                    gated on that machine's grants
+hick broker serve|allow|deny|log    One road out for a sealed machine, with a
+                                    toll booth on it. A CONNECT proxy with a
+                                    per-host policy; an unlisted host is denied
+hick sealed --check                 Whether this machine holds no credential
+                                    worth stealing. NOT an airgap: a machine
+                                    that talks to a model is on a network
+hick lineage <file.hick> --output <f> [--at <commit>] [--history]
+                                    Byte-precise lineage; --at replays it
+                                    as it stood at a commit, weave-only
+                                    and without checking anything out
 
 Common options:
   --config <path>          Path to _hick.yml (default: auto-discover)

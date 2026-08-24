@@ -1683,6 +1683,299 @@ textarea:focus {
   background: color-mix(in srgb, var(--fg-muted) 18%, transparent);
   border-radius: 2px;
 }
+/* Dismissing a project-open notice is per window: the notice is a fact about
+   this clone, and having dismissed it elsewhere has fixed nothing here. */
+.banner__dismiss {
+  flex: none;
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.1rem 0.5rem;
+  font: inherit;
+  font-size: 0.78rem;
+  color: var(--fg-muted);
+  cursor: pointer;
+}
+.banner__dismiss:hover {
+  color: var(--fg);
+}
+
+/* The time slider. It sits above the columns rather than beside them: it
+   changes WHICH picture you are looking at, which is not the same kind of
+   control as one that changes how the picture is drawn. */
+.time-slider {
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+}
+.time-slider__control {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+.time-slider__control input[type="range"] {
+  flex: 1;
+  min-width: 8rem;
+}
+.time-slider__label {
+  font-size: 0.8rem;
+  color: var(--fg-muted);
+}
+.time-slider__stop {
+  margin: 0.25rem 0 0;
+  font-size: 0.82rem;
+}
+.time-slider__caveat {
+  margin: 0.2rem 0 0;
+  font-size: 0.74rem;
+}
+.time-slider__boundary {
+  white-space: pre-wrap;
+}
+
+/* The fleet: a roster, not a presence list. A grant that is OFF is drawn as
+   off rather than omitted — "this machine cannot execute" is the fact worth
+   seeing, and an absent row would read as an unanswered question. */
+.fleet-pane {
+  padding: 0.6rem 0.8rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  overflow: auto;
+}
+.fleet-pane__head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+}
+.fleet-pane__fp {
+  font-size: 0.72rem;
+}
+.fleet-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+.fleet-machine {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+  font-size: 0.84rem;
+  padding: 0.25rem 0;
+  border-bottom: 1px solid var(--border);
+}
+.fleet-machine__name {
+  min-width: 8rem;
+}
+.fleet-machine__fp {
+  font-size: 0.72rem;
+}
+.fleet-machine__grants {
+  display: flex;
+  gap: 0.3rem;
+  margin-left: auto;
+}
+.fleet-grant {
+  font-size: 0.7rem;
+  padding: 0 0.35rem;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--fg-muted);
+  opacity: 0.5;
+}
+.fleet-grant--on {
+  opacity: 1;
+  color: var(--fg);
+  border-color: color-mix(in srgb, var(--accent-2) 45%, transparent);
+}
+
+/* Pairing lives in the pane, because enrolling a machine is something you do
+   standing at one — it is deliberately not reachable over the peer channel. */
+.fleet-pair {
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.5rem 0.6rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+}
+.fleet-pair__title {
+  margin: 0;
+  font-size: 0.82rem;
+  font-weight: 600;
+}
+.fleet-pair__row {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+}
+.fleet-pair__input {
+  flex: 1;
+  min-width: 0;
+  font-size: 0.78rem;
+  padding: 0.2rem 0.4rem;
+}
+.fleet-pair__hint {
+  margin: 0;
+  font-size: 0.74rem;
+}
+.fleet-pair__phrase {
+  font-size: 0.9rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  padding: 0.15rem 0.4rem;
+  border: 1px dashed var(--border);
+  border-radius: 3px;
+}
+.fleet-pair__fallback summary {
+  font-size: 0.74rem;
+  cursor: pointer;
+}
+.fleet-pair__invitation {
+  width: 100%;
+  font-size: 0.72rem;
+  resize: vertical;
+}
+.fleet-remove {
+  font-size: 0.7rem;
+  padding: 0 0.35rem;
+  border: 1px solid transparent;
+  border-radius: 3px;
+  background: none;
+  color: var(--fg-muted);
+  cursor: pointer;
+}
+.fleet-remove:hover {
+  color: var(--fail);
+  border-color: color-mix(in srgb, var(--fail) 40%, transparent);
+}
+.fleet-pane__cli {
+  font-size: 0.74rem;
+  border-top: 1px solid var(--border);
+  padding-top: 0.4rem;
+}
+/* A grant is a BUTTON now, not a label: it is the thing you change. */
+button.fleet-grant {
+  cursor: pointer;
+  background: none;
+}
+
+/* The merged view. A shared region reads as the file; a variant is visibly a
+   fork in the road, because the whole point is that you can SEE where the
+   sources disagree without opening two editors. */
+.merged-view {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.6rem 0.8rem;
+  overflow: auto;
+}
+.merged-view__head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+}
+.merged-view__lens {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--fg-muted);
+  border: 1px dashed var(--border);
+  border-radius: 3px;
+  padding: 0 0.35rem;
+}
+.merged-view__sources {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.8rem;
+  font-size: 0.82rem;
+}
+.merged-view__source {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+.merged-view__summary {
+  margin: 0;
+  font-size: 0.78rem;
+}
+.merged-view__body {
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  overflow: auto;
+}
+.merged-region--shared {
+  margin: 0;
+  padding: 0.15rem 0.6rem;
+  white-space: pre-wrap;
+  font-size: 0.84rem;
+}
+.merged-region--variant {
+  margin: 0.25rem 0;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--warn) 7%, transparent);
+}
+.merged-variant {
+  display: grid;
+  grid-template-columns: minmax(6rem, 12%) 1fr;
+  gap: 0.6rem;
+  padding: 0.15rem 0.6rem;
+}
+.merged-variant__label {
+  font-size: 0.74rem;
+  color: var(--fg-muted);
+  align-self: start;
+}
+.merged-variant__text {
+  margin: 0;
+  white-space: pre-wrap;
+  font-size: 0.84rem;
+}
+.merged-variant__empty {
+  margin: 0;
+  font-size: 0.78rem;
+  font-style: italic;
+}
+
+/* The publication floor. A draft is not dimmed — it is the live end of the
+   branch, and the thing worth marking is that it is still rewritable. */
+.git-floor {
+  margin: 0;
+  padding: 0.4rem 0.7rem;
+  font-size: 0.8rem;
+  color: var(--fg-muted);
+  border-bottom: 1px solid var(--border);
+}
+.git-floor__count {
+  color: var(--fg);
+  font-weight: 600;
+}
+.git-draft {
+  margin-left: 0.45rem;
+  padding: 0 0.35rem;
+  border: 1px dashed var(--border);
+  border-radius: 3px;
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--fg-muted);
+}
+.git-commit--draft .git-commit__sha {
+  font-style: italic;
+}
+
+/* Ingested: editable, so it is highlighted rather than greyed — but its own
+   hue, because these bytes came from a run and not from the person reading.
+   See docs/specs/freeform/owning-what-a-scaffolder-wrote.md. */
+.cm-prov-ingested {
+  background: color-mix(in srgb, var(--accent-3, var(--accent-2)) 16%, transparent);
+  border-bottom: 1px dashed color-mix(in srgb, var(--fg-muted) 55%, transparent);
+  border-radius: 2px;
+}
 .cm-prov-error {
   background: color-mix(in srgb, var(--fail) 30%, transparent);
   outline: 1px solid var(--fail);

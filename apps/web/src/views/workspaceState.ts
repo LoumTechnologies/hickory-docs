@@ -40,6 +40,33 @@ export function openGitTab(layout: Layout): Layout {
   return openInLayout(layout, makeTab("tool", GIT_TAB, "History"), layout.focus);
 }
 
+/** The tab this machine's fleet lives in. */
+export const FLEET_TAB = "fleet";
+
+/** Show the fleet. Opening it twice fronts the one that exists. */
+export function openFleetTab(layout: Layout): Layout {
+  for (const pane of panes(layout.root)) {
+    const index = pane.tabs.findIndex((t) => t.kind === "tool" && t.target === FLEET_TAB);
+    if (index >= 0) return activate(layout, pane.id, index);
+  }
+  return openInLayout(layout, makeTab("tool", FLEET_TAB, "Machines"), layout.focus);
+}
+
+/** The tab a merged view lives in. One per path, because the view IS of a
+ * path: two files compared at once are two tabs, not one confused one. */
+export const MERGED_TAB = "merged:";
+
+/** Compare one file across this repository's worktrees. */
+export function openMergedTab(layout: Layout, path: string): Layout {
+  const target = `${MERGED_TAB}${path}`;
+  for (const pane of panes(layout.root)) {
+    const index = pane.tabs.findIndex((t) => t.kind === "tool" && t.target === target);
+    if (index >= 0) return activate(layout, pane.id, index);
+  }
+  const name = path.split("/").pop() ?? path;
+  return openInLayout(layout, makeTab("tool", target, `${name} · worktrees`), layout.focus);
+}
+
 /** The tab the welcome page lives in. A tool tab, so it counts as furniture
  * and an arrangement holding only it is still "empty". */
 export const WELCOME_TAB = "welcome";

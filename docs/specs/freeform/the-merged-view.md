@@ -1,7 +1,13 @@
 # The merged view: one tab, several branches, and the merge already done
 
 *Status: design of record for editing across branches, worktrees and machines.
-Adopted 2026-08-23. **Nothing here is built.** **Supersedes**
+Adopted 2026-08-23. **Sequence steps 1–3 are built** (2026-08-23): the N-way
+read-only view over local worktrees, writing one target at a time, and shared
+writes with per-target status and undo across targets. **Peers, not a stack**
+— decided 2026-08-23, see below. Steps 4–7 (the decision itself is now made;
+remote targets, intent state, capability facts) are not built. See
+`docs/guarantees/collaboration/the-merged-view-is-a-lens.md` and
+`a-merged-view-write-reports-per-target.md`. **Supersedes**
 `machine-scoped-edits.md` on its central mechanism — machine names in committed
 conditionals — which this replaces. That document remains accurate and worth
 reading on two things it settled: why the scoped text lives in the file on every
@@ -71,7 +77,10 @@ a **stack** rather than **peers**:
 | **Stack** | a chain, each landing on the last | agreed by everything at or below | the view encodes the sequence they land in |
 
 Both are coherent and they need different write rules, so **this has to be
-decided before the edit routing is written.** In a stack, "shared" is ambiguous —
+decided before the edit routing is written.** **Decided 2026-08-23: peers.**
+The motivating case is one engineer's several machines and worktrees, which
+are symmetric; and the stack reading makes "shared" ambiguous in a way that
+would have to be answered anyway. The routing is written to match. In a stack, "shared" is ambiguous —
 shared with everything, or inherited from the branch below? — and answering it
 late means rewriting the routing.
 
@@ -268,13 +277,17 @@ machine.
 
 ## Sequence
 
-1. **Two local worktrees, read-only.** The N-way diff, the shared/variant
-   rendering, no writing at all. This is where the alignment risk is proved or
-   disproved, and it is useful on its own as a comparison view.
-2. **Writing, one target at a time** — "just here" only, with read-only the
-   default for every other target. Nothing can be broken in four places yet.
-3. **Shared writes**, with per-target status and undo across targets.
-4. **Peers or stack**, decided, and the routing written to match.
+1. ~~**Two local worktrees, read-only.**~~ **Built 2026-08-23.** The
+   alignment is conservative by construction — a line is shared only when
+   every source has it, aligned, and monotonic with its neighbours in every
+   source — and the property that makes routing possible is a unit test:
+   **every source is reconstructible from the view, byte-for-byte.**
+2. ~~**Writing, one target at a time**~~ **Built 2026-08-23.** Read-only is
+   the default for anything not named in the write.
+3. ~~**Shared writes**, with per-target status and undo across targets.~~
+   **Built 2026-08-23.** The view is rebuilt from disk at write time rather
+   than trusted from the client, and `partial` is stated rather than inferred.
+4. ~~**Peers or stack**, decided~~ **Decided 2026-08-23: peers.**
 5. **Remote targets**, over the fleet channel's `edit` grant, with queueing for
    a machine that is asleep.
 6. **Intent state**, in the local ref, once shared writes exist and there is
@@ -285,8 +298,9 @@ machine.
 
 ## Open edges
 
-- **Peers versus stack is undecided**, and it is the decision everything else
-  waits on.
+- ~~**Peers versus stack is undecided**~~ **Decided 2026-08-23: peers.** N
+  symmetric sources, shared means agreed by all, no order. The routing in
+  `hick_merge::nway` is written to match.
 - **A fresh clone has no local fact set**, so it weaves the unscoped reading
   until someone declares one. Same shape as the merge-driver onboarding step,
   and it should be checked and reported at project open rather than discovered

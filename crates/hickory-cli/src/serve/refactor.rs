@@ -33,9 +33,26 @@ use super::LocalState;
 use super::api::{ApiError, ApiResult};
 
 /// One pinned baseline: each output path to its content's string form —
-/// exactly what `compare_outputs` compares by.
+/// exactly what `compare_outputs` compares by — plus the LINEAGE of those
+/// outputs at the moment they were pinned.
+///
+/// The provenance is what turns refactor mode from an equivalence check into
+/// the recording site the continuity design needs. Refactor mode is a machine
+/// for destroying textual continuity while guaranteeing semantic identity:
+/// pin a baseline, restructure, and the outputs are proven unchanged while
+/// blame afterwards says every line is new. Because the outputs are proven
+/// identical they are a **join key** — an output byte maps to a span in the
+/// baseline document and to a span in the restructured one, and composing the
+/// two gives the correspondence exactly, with no identity scheme involved.
+///
+/// It is captured at `begin`, when the working tree IS the baseline. Storing
+/// only the text and re-weaving it later would need the siblings it reads
+/// (pastes, upstream edges) as they were then, which the working tree no
+/// longer has.
 pub struct RefactorBaseline {
     pub outputs: HashMap<String, String>,
+    /// Output path → the lineage of those bytes in the baseline document.
+    pub provenance: HashMap<String, Vec<hickory_lineage::Provenance>>,
     pub started_at: String,
 }
 
@@ -134,6 +151,17 @@ pub async fn begin(
         .iter()
         .map(|(path, content)| (path.clone(), content.to_string()))
         .collect();
+    // The lineage of every output, as it stands. A document that will not
+    // report lineage for one output still pins the rest: the equivalence
+    // check is the primary job here and must not be lost to the recording.
+    let provenance: HashMap<String, Vec<hickory_lineage::Provenance>> = outputs
+        .keys()
+        .filter_map(|path| {
+            crate::output_lineage(&run, path)
+                .ok()
+                .map(|p| (path.clone(), p))
+        })
+        .collect();
     let started_at = super::now_rfc3339();
     let listing: Vec<&String> = outputs.keys().collect();
     let body = json!({
@@ -147,6 +175,7 @@ pub async fn begin(
         id,
         RefactorBaseline {
             outputs,
+            provenance,
             started_at,
         },
     );
@@ -192,10 +221,78 @@ pub async fn status(
     })))
 }
 
-/// `POST /api/docs/:id/refactor/end` — drop the baseline.
+/// `POST /api/docs/:id/refactor/end` — drop the baseline, recording what the
+/// restructure moved if continuity is on.
+///
+/// This is the highest-value recording site per line of code in the whole
+/// design, and the reason is that the work is already done: the outputs were
+/// proven identical, so they are a join key, and the correspondence falls out
+/// of composing two lineages that both already exist.
+///
+/// **Only when the outputs still match.** A restructure that changed what the
+/// document produces has not preserved anything, so there is nothing to say
+/// two spans are the same thing — and recording it anyway would put a false
+/// fact in a record that cannot be recomputed.
+///
+/// **And only when continuity is on.** No continuity, no journal: the switch
+/// is the whole feature, not just its drawing.
 pub async fn end(State(state): State<LocalState>, Path(id): Path<String>) -> Json<Value> {
-    state.refactors.lock().unwrap().remove(&id);
-    Json(json!({ "active": false }))
+    let baseline = state.refactors.lock().unwrap().remove(&id);
+    let Some(baseline) = baseline else {
+        return Json(json!({ "active": false }));
+    };
+
+    let root = state.index.root().to_path_buf();
+    if !crate::continuity::enabled(&root) {
+        return Json(json!({ "active": false, "recorded": 0 }));
+    }
+
+    let recorded = record_refactor(&state, &id, &baseline, &root)
+        .await
+        .unwrap_or(0);
+    Json(json!({ "active": false, "recorded": recorded }))
+}
+
+/// Compose the baseline's lineage with the restructured document's, over the
+/// outputs proven identical, and append what moved to the journal.
+async fn record_refactor(
+    state: &LocalState,
+    id: &str,
+    baseline: &RefactorBaseline,
+    root: &std::path::Path,
+) -> Option<usize> {
+    let run = state.weave(id).await.ok()?;
+    // Equivalence first. `compare_outputs` is the same checker `hick equiv`
+    // and the badge use, so "proven identical" means one thing everywhere.
+    if !compare_outputs(&as_file_contents(&baseline.outputs), &run.result.files).is_empty() {
+        return Some(0);
+    }
+
+    let head = super::git_head(root);
+    let today = crate::ingest::today().unwrap_or_else(|| "unknown".to_string());
+    let mut entries = Vec::new();
+    for (path, before) in &baseline.provenance {
+        let Ok(after) = crate::output_lineage(&run, path) else {
+            continue;
+        };
+        for (from, to) in crate::continuity::join_through_outputs(before, after.as_slice()) {
+            entries.push(crate::continuity::Correspondence {
+                from,
+                to,
+                // Byte-exact: joined through outputs proven identical, which
+                // is the strongest precision any site here produces.
+                precision: crate::continuity::Precision::Byte,
+                site: crate::continuity::Site::Refactor,
+                // Both ends are the working tree, which is above the floor by
+                // definition — so the address this is keyed on can still be
+                // replaced by a re-emission.
+                provisional: true,
+                head: head.clone(),
+                recorded_at: today.clone(),
+            });
+        }
+    }
+    crate::continuity::Journal::at(root).append(&entries).ok()
 }
 
 #[cfg(test)]

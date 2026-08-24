@@ -38,6 +38,12 @@ const HOOK_BODY: &str = r#"# Managed by `hick init` — do not edit inside this 
 hick_docs=$(git ls-files -- '*.hick')
 if [ -n "$hick_docs" ]; then
     if command -v hick >/dev/null 2>&1; then
+        # Continuity's repair: an unwatched edit leaves its correspondence
+        # behind before it is committed. Does nothing unless continuity is on
+        # for this project, and NEVER blocks a commit — the check is the
+        # repair, and a rule with no escape hatch gets this hook disabled
+        # entirely, taking the drift gate below down with it.
+        hick repair || true
         hick_worst=0
         for hick_doc in $hick_docs; do
             hick_code=0
@@ -148,6 +154,12 @@ pub struct InitReport {
     pub claude_md_changed: bool,
     /// True if `.mcp.json` was created or its `hick` entry changed.
     pub mcp_json_changed: bool,
+    /// `.gitattributes` gained `*.hick merge=hick`.
+    pub gitattributes_changed: bool,
+    /// This clone's `merge.hick.driver` was defined or corrected. Never
+    /// committed — git will not let a repository hand a clone an executable
+    /// command — so every clone runs `hick init` for this half.
+    pub merge_driver_changed: bool,
     /// Per language: what discovery found, or `None` if nothing is installed.
     pub language_servers: Vec<(&'static str, &'static str, Option<String>)>,
     /// What the editor half of init found, wrote, and could not write.
@@ -167,6 +179,25 @@ pub fn run_init(dir: &Path) -> Result<InitReport> {
     // every file the model was shown. They are read locally (context
     // provenance derives from them) and are not for the shared repository.
     report.gitignore_changed |= ensure_gitignore_line(&root.join(".gitignore"), "sessions/")?;
+    // The correspondence journal is a RECORD, not a cache — it exists because
+    // what it holds cannot be recomputed once both sides are gone — so it MAY
+    // be committed, and whether CI can check continuity is exactly this line
+    // in `.gitignore` rather than a property of the design. The default is
+    // private, matching continuity being off by default: a project that wants
+    // CI to check it deletes this line.
+    report.gitignore_changed |= ensure_gitignore_line(
+        &root.join(".gitignore"),
+        &format!("{}/", crate::continuity::JOURNAL_DIR),
+    )?;
+    // Merges of `.hick` documents go through one path, and both halves are
+    // needed: the routing (committed, so it reaches everyone) and the driver
+    // definition (per clone, because git will not carry an executable
+    // command). An undefined driver makes git SILENTLY fall back to its line
+    // merge, which is why `hick test` and the app check for it — see
+    // `crate::merge_driver`.
+    report.gitattributes_changed =
+        crate::merge_driver::ensure_attributes(&crate::merge_driver::attributes_path(&root))?;
+    report.merge_driver_changed = crate::merge_driver::ensure_driver_config(&root)?;
     report.agents_md_changed = write_agents_section(&root.join("AGENTS.md"))?;
     report.claude_md_changed = ensure_claude_md_include(&root.join("CLAUDE.md"))?;
     report.mcp_json_changed = ensure_mcp_registration(&root.join(".mcp.json"))?;
@@ -499,8 +530,25 @@ pub fn print_init_report(report: &InitReport) {
         describe(report.hook_changed)
     );
     eprintln!(
-        ".gitignore (.hick-cache/, sessions/): {}",
+        ".gitignore (.hick-cache/, sessions/, .hick-journal/): {}",
         describe(report.gitignore_changed)
+    );
+    eprintln!(
+        ".gitattributes ({}): {}",
+        crate::merge_driver::ATTRIBUTES_LINE,
+        describe(report.gitattributes_changed)
+    );
+    eprintln!(
+        "merge.hick.driver (this clone only): {}",
+        describe(report.merge_driver_changed)
+    );
+    // Said plainly, because the consequence of not knowing it is silent: a
+    // clone that never runs `hick init` merges `.hick` files with git's line
+    // merge and is told nothing.
+    eprintln!(
+        "  The routing above is committed; the driver definition is not — git 
+         \x20 will not let a repository hand a clone an executable command. Every 
+         \x20 clone runs `hick init` once. `hick test` reports it if one has not."
     );
     eprintln!(
         "AGENTS.md managed section: {}",
@@ -712,7 +760,16 @@ mod tests {
         run_init(repo.path()).unwrap();
         run_init(repo.path()).unwrap();
         let content = std::fs::read_to_string(repo.path().join(".gitignore")).unwrap();
-        assert_eq!(content, "target/\n.hick-cache/\nsessions/\n");
+        // The user's own line first and unchanged, then ours, each exactly
+        // once however many times init runs. `.hick-journal/` is the
+        // correspondence journal — a RECORD rather than a cache, so it MAY be
+        // committed, and this line is the only thing deciding whether CI can
+        // check continuity. The default is private, matching continuity being
+        // off by default; a project deletes the line to opt in.
+        assert_eq!(
+            content,
+            "target/\n.hick-cache/\nsessions/\n.hick-journal/\n"
+        );
     }
 
     #[test]

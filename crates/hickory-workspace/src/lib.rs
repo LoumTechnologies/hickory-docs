@@ -64,6 +64,12 @@ pub struct Draft {
     pub saved_at: u64,
 }
 
+/// The continuity switch, as it sits on disk.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
+struct ContinuitySetting {
+    enabled: bool,
+}
+
 /// Per-project state, under the user's own data directory.
 #[derive(Debug, Clone)]
 pub struct WorkspaceStore {
@@ -113,6 +119,45 @@ impl WorkspaceStore {
     /// A corrupt file reads as `None` rather than as an error. The worst case
     /// is a window that opens with default tabs; refusing to start because a
     /// layout file is damaged would be a far worse trade.
+    /// Whether CONTINUITY is on for this project, for this user.
+    ///
+    /// Continuity is the fourth provenance family — *what was this before* —
+    /// and it is **off by default**, with the whole of it on this one switch:
+    /// no ribbon, no journal, no pre-commit repair. An earlier design made
+    /// the overlay opt-in and the bookkeeping mandatory, which was incoherent:
+    /// it taxed every commit to feed a feature most people never turn on, and
+    /// taxed hardest the workflow this product is built around.
+    ///
+    /// It lives here rather than in a `HICKORY_` variable because it is a
+    /// preference and not machine configuration — and here rather than in the
+    /// browser, because the things that WRITE a journal are the server, the
+    /// merge driver and the pre-commit hook, none of which can read
+    /// `localStorage`. Keyed by the project's canonical path, like everything
+    /// else in this store.
+    ///
+    /// A missing or unreadable file reads as OFF. A preference nobody has
+    /// expressed is not a reason to start writing records into their
+    /// repository.
+    pub fn continuity(&self) -> bool {
+        let path = self.dir.join("continuity.json");
+        let Ok(raw) = fs::read_to_string(&path) else {
+            return false;
+        };
+        serde_json::from_str::<ContinuitySetting>(&raw)
+            .map(|s| s.enabled)
+            .unwrap_or(false)
+    }
+
+    /// Turn continuity on or off for this project, for this user.
+    pub fn set_continuity(&self, enabled: bool) -> Result<()> {
+        fs::create_dir_all(&self.dir)
+            .with_context(|| format!("creating {}", self.dir.display()))?;
+        let path = self.dir.join("continuity.json");
+        let body = serde_json::to_string_pretty(&ContinuitySetting { enabled })
+            .context("encoding the continuity setting")?;
+        write_atomically(&path, body.as_bytes())
+    }
+
     pub fn load_ui(&self) -> Option<serde_json::Value> {
         let text = fs::read_to_string(self.ui_path()).ok()?;
         serde_json::from_str(&text).ok()
@@ -232,6 +277,15 @@ fn data_root() -> Result<PathBuf> {
          Set HICKORY_STATE_DIR to name a directory yourself.",
     )?;
     Ok(base.join("hickory"))
+}
+
+/// The per-user state directory, for callers that keep state which is NOT
+/// per project — machine identity and the fleet's key list, which belong to
+/// the machine and not to any folder it has open.
+pub fn state_root() -> Result<PathBuf> {
+    let root = data_root()?;
+    fs::create_dir_all(&root).with_context(|| format!("could not create {}", root.display()))?;
+    Ok(root)
 }
 
 /// A readable slug plus a hash, so a person can recognise the folder and two

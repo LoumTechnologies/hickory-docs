@@ -4,7 +4,14 @@
 revised twice the same day. The first draft made element ids the primary
 mechanism; the second demoted them to a fallback; **this one removes them
 entirely.** What is left is a recorded correspondence, a guess where nothing
-recorded one, and replay. Nothing here is built. It closes the open edge
+recorded one, and replay. **Sequence step 1 (replay) is built, and step 3's
+first half — the merge driver and the configured-driver check — is built**
+(2026-08-23); see
+`docs/guarantees/lineage/replay-recomputes-lineage-at-a-commit.md` and
+`docs/guarantees/collaboration/hick-documents-merge-through-hick.md`. The
+merge tab, the recorded correspondence, the repair, the agent guess and the
+overlay are not — and **continuity remains off by default with nothing
+written anywhere**, because none of the bookkeeping exists yet. It closes the open edge
 `expression-and-log.md` left, and amends `three-provenances.md` with a fourth
 family that is off by default. It depends on nothing unbuilt: continuity walks
 document versions in git, which already happens in ordinary use.*
@@ -253,13 +260,23 @@ Two properties worth stating:
 
 ## Sequence
 
-1. **Replay** — the time slider, exact lineage at any commit, with the grammar
-   boundary stated. No new data model, and it may prove the rest unnecessary.
+1. ~~**Replay** — the time slider, exact lineage at any commit~~ **Built
+   2026-08-23.** `hick lineage --at`, `hick lineage --history`, `GET
+   /api/docs/:id/{history,replay}`, and the slider on the lineage view. The
+   grammar boundary is stated in the design's own words. Two things building
+   it settled: the whole tree is materialized with `git archive` (a document's
+   pastes and upstream edges read siblings, so the document alone replays a
+   lineage the commit never had), and a document that *parses but will not
+   weave* is reported as a different fact from a grammar change.
 2. **Recorded correspondence in refactor mode** — pin the baseline document
    alongside its outputs, join through the unchanged outputs, write the journal.
    The highest value per line of code here.
 3. **The merge driver and the merge tab**, with the configured-driver check.
-   This is where the largest hole is.
+   This is where the largest hole is. **The driver and the check are built
+   2026-08-23**; the merge tab and the recorded correspondence are not. The
+   driver's merge is a three-way merge of the document text — deliberately
+   invoked rather than fallen into — plus one thing git's fallback cannot do:
+   a clean merge whose result does not parse is reported as a conflict.
 4. **The repair** in the pre-commit hook, on the same switch as the ribbon.
 5. **The agent guess**, with human confirmation, recorded as asserted.
 6. **The overlay**, last — and only if the query turns out to want drawing on top

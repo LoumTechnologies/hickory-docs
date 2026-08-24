@@ -73,6 +73,24 @@ pub enum SourceOrigin {
         #[cfg_attr(feature = "serde", serde(default))]
         span: Option<SourceSpan>,
     },
+    /// Bytes a tool outside this document wrote, ingested into it.
+    ///
+    /// The dual thing `SourceOrigin::Paste` is, for a different reason:
+    /// present, byte-precise document text that also names where it came
+    /// from. A scaffolder's forty files are neither `Literal` (they are not
+    /// text you wrote, and blame must not say they are) nor `Exec` (that is
+    /// synthetic, and it would kill the reverse edit on the very bytes you
+    /// most want to edit). See
+    /// `docs/specs/freeform/owning-what-a-scaffolder-wrote.md`.
+    ///
+    /// `run` is the fingerprint recorded on the `<hick:ingested>` element —
+    /// one fingerprint per run, N files under it, because a scaffold is a
+    /// single event that happens to write forty things.
+    Ingested {
+        file: Arc<str>,
+        span: SourceSpan,
+        run: Arc<str>,
+    },
     /// Value of a variable.
     Variable { name: Arc<str> },
     /// Output from a shell script execution.

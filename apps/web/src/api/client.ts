@@ -39,6 +39,15 @@ import type {
   ContextResponse,
   CitesResponse,
   SessionViewResponse,
+  PublicationFloor,
+  ReplayCommit,
+  ReplayResponse,
+  MergeDriverStatus,
+  WorktreeInfo,
+  MergedViewResponse,
+  ContinuitySettings,
+  FleetResponse,
+  FleetMachine,
 } from "./types";
 
 export const MOCK = import.meta.env.VITE_MOCK === "1";
@@ -300,6 +309,115 @@ export const api = {
 
   /** The branch, and whether anything is uncommitted. */
   gitStatus: () => request<GitStatus>("GET", "/api/git/status"),
+
+  /** Which commits on this branch are still drafts. */
+  gitFloor: () =>
+    request<{ repository: boolean; floor?: PublicationFloor }>(
+      "GET",
+      "/api/git/floor",
+    ),
+
+  /** Whether `.hick` merges go through hick in this clone. Asked at project
+   * open, because a clone that never ran `hick init` has neither the driver
+   * nor the pre-commit hook that would report it missing. */
+  mergeDriver: () =>
+    request<{ status: MergeDriverStatus; ok: boolean }>(
+      "GET",
+      "/api/git/merge-driver",
+    ),
+
+  /** What a merged view can be opened over. */
+  worktrees: () =>
+    request<{ repository: boolean; worktrees: WorktreeInfo[] }>(
+      "GET",
+      "/api/worktrees",
+    ),
+
+  /** One file as it exists in several worktrees at once. Read-only: the
+   * alignment is where the risk lives, so it is proved before anything writes
+   * through it. */
+  merged: (path: string, targets?: string[]) =>
+    request<MergedViewResponse>(
+      "GET",
+      `/api/merged?path=${encodeURIComponent(path)}` +
+        (targets?.length ? `&targets=${encodeURIComponent(targets.join(","))}` : ""),
+    ),
+
+  /** This machine, and the machines paired with it. Identity, not
+   * connectivity: nothing here can be attached to yet. */
+  fleet: () => request<FleetResponse>("GET", "/api/fleet"),
+
+  /** A phrase to read out, before hosting it. */
+  fleetPhrase: () =>
+    request<{ phrase: string; seconds: number; note: string }>(
+      "GET",
+      "/api/fleet/phrase",
+    ),
+
+  /** Wait for the other machine to dial this phrase. Blocks for the window. */
+  fleetHost: (phrase: string) =>
+    request<{ machine: FleetMachine; their_fingerprint: string; our_fingerprint: string }>(
+      "POST",
+      "/api/fleet/host",
+      { phrase },
+    ),
+
+  /** Dial a phrase the other machine printed. */
+  fleetPair: (phrase: string) =>
+    request<{
+      machine: FleetMachine;
+      their_fingerprint: string;
+      our_fingerprint: string;
+      note: string;
+    }>("POST", "/api/fleet/pair", { phrase }),
+
+  /** The line another machine accepts to enrol this one. */
+  fleetInvite: (phone = false) =>
+    request<{ invitation: string; fingerprint: string; note: string }>(
+      "GET",
+      `/api/fleet/invite${phone ? "?phone=true" : ""}`,
+    ),
+
+  /** Enrol the machine an invitation names. */
+  fleetAccept: (invitation: string) =>
+    request<{ machine: FleetMachine }>("POST", "/api/fleet/accept", { invitation }),
+
+  /** Give or take one verb for one machine. */
+  fleetGrant: (machine: string, grant: string, on: boolean) =>
+    request<{ machine: FleetMachine }>("PUT", "/api/fleet/grant", {
+      machine,
+      grant,
+      on,
+    }),
+
+  /** Revocation, which is deleting a key. */
+  fleetRemove: (machine: string) =>
+    request<{ removed: boolean; note: string }>("POST", "/api/fleet/remove", {
+      machine,
+    }),
+
+  /** Is continuity on for this project? Off by default. */
+  continuity: () =>
+    request<ContinuitySettings>("GET", "/api/settings/continuity"),
+
+  setContinuity: (enabled: boolean) =>
+    request<{ enabled: boolean }>("PUT", "/api/settings/continuity", { enabled }),
+
+  /** The commits this document's time slider can stop at, newest first. */
+  docHistory: (docId: string) =>
+    request<{ repository: boolean; commits: ReplayCommit[] }>(
+      "GET",
+      `/api/docs/${docId}/history`,
+    ),
+
+  /** The lineage this document had AT a commit — recomputed by weaving that
+   * commit's document, never executing anything. */
+  docReplay: (docId: string, commit: string, path?: string) =>
+    request<ReplayResponse>(
+      "GET",
+      `/api/docs/${docId}/replay?commit=${encodeURIComponent(commit)}` +
+        (path ? `&path=${encodeURIComponent(path)}` : ""),
+    ),
 
   /** Who last touched each line. Answers `{lines: []}` for a folder that is
    * not a repository, an untracked file, or a machine with no git — the

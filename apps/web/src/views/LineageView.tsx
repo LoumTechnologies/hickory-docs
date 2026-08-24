@@ -15,21 +15,49 @@ import { useEffect, useMemo, useState } from "react";
 
 import { api } from "../api/client";
 import { LineageColumns } from "../lineage/LineageColumns";
+import { TimeSlider } from "../lineage/TimeSlider";
 import { buildModel, type SourceDocument } from "../lineage/build";
 import { withStructure } from "../lineage/structure";
-import type { OutputFile, StructureResponse } from "../api/types";
+import type {
+  OutputFile,
+  ReplayCommit,
+  StructureResponse,
+} from "../api/types";
+
+/** The union of every shown document's history, newest first.
+ *
+ * A project-wide picture wants a project-wide slider, and a commit that
+ * touched any of these documents is a stop worth having: it is a moment when
+ * this picture could have looked different. */
+function mergedHistory(histories: ReplayCommit[][]): ReplayCommit[] {
+  const bySha = new Map<string, ReplayCommit>();
+  for (const commits of histories) {
+    for (const commit of commits) {
+      if (!bySha.has(commit.sha)) bySha.set(commit.sha, commit);
+    }
+  }
+  return [...bySha.values()].sort((a, b) => b.time - a.time);
+}
 
 export function LineageView({ projectId }: { projectId: string }) {
   const [docs, setDocs] = useState<SourceDocument[] | null>(null);
   const [structure, setStructure] = useState<StructureResponse | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [partial, setPartial] = useState<string[]>([]);
+  // Replay: which commit this picture is being shown at, `null` for the
+  // working tree. See src/lineage/TimeSlider.tsx.
+  const [history, setHistory] = useState<ReplayCommit[]>([]);
+  const [at, setAt] = useState<string | null>(null);
+  const [boundary, setBoundary] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     setDocs(null);
     setError(null);
     setPartial([]);
+    setBoundary(null);
+    setBusy(at !== null);
 
     (async () => {
       try {
@@ -38,6 +66,35 @@ export function LineageView({ projectId }: { projectId: string }) {
         const skipped: string[] = [];
 
         for (const summary of summaries) {
+          // Replaying: the document as it stood, woven without executing
+          // anything. A document that did not exist then is simply absent
+          // from the picture, which is the truth about that commit.
+          if (at !== null) {
+            try {
+              const replayed = await api.docReplay(summary.id, at);
+              if (replayed.grammar_boundary) {
+                if (!cancelled) setBoundary(replayed.message);
+                continue;
+              }
+              const outputs: OutputFile[] = [];
+              for (const path of replayed.outputs) {
+                const one = await api.docReplay(summary.id, at, path);
+                if (!one.grammar_boundary && one.output) {
+                  outputs.push({
+                    path: one.output.path,
+                    language: "",
+                    content: one.output.content,
+                    provenance: one.output.provenance,
+                  });
+                }
+              }
+              loaded.push({ path: summary.path, source: replayed.source, outputs });
+            } catch {
+              skipped.push(summary.path);
+            }
+            continue;
+          }
+
           const doc = await api.doc(summary.id);
           const outputs: OutputFile[] = [];
           try {
@@ -60,6 +117,23 @@ export function LineageView({ projectId }: { projectId: string }) {
         if (cancelled) return;
         setDocs(loaded);
         setPartial(skipped);
+        setBusy(false);
+
+        // The stops the slider can take: every commit that touched any of
+        // these documents. Fetched once per project, not per replay.
+        try {
+          const histories = await Promise.all(
+            summaries.map((s) =>
+              api.docHistory(s.id).then(
+                (h) => h.commits,
+                () => [] as ReplayCommit[],
+              ),
+            ),
+          );
+          if (!cancelled) setHistory(mergedHistory(histories));
+        } catch {
+          if (!cancelled) setHistory([]);
+        }
 
         // Structural navigation is a separate, optional request: it comes
         // from tree-sitter rather than the weave, and the lineage picture is
@@ -72,14 +146,17 @@ export function LineageView({ projectId }: { projectId: string }) {
           if (!cancelled) setStructure(null);
         }
       } catch (e) {
-        if (!cancelled) setError(String((e as Error).message ?? e));
+        if (!cancelled) {
+          setError(String((e as Error).message ?? e));
+          setBusy(false);
+        }
       }
     })();
 
     return () => {
       cancelled = true;
     };
-  }, [projectId]);
+  }, [projectId, at]);
 
   const { model, ambiguous } = useMemo(() => {
     if (!docs) return { model: null, ambiguous: new Map<string, number>() };
@@ -87,6 +164,16 @@ export function LineageView({ projectId }: { projectId: string }) {
     if (!structure) return { model: built, ambiguous: new Map<string, number>() };
     return withStructure(built, structure);
   }, [docs, structure]);
+
+  const slider = (
+    <TimeSlider
+      commits={history}
+      at={at}
+      onChange={setAt}
+      boundary={boundary}
+      busy={busy}
+    />
+  );
 
   if (error) {
     return (
@@ -100,19 +187,33 @@ export function LineageView({ projectId }: { projectId: string }) {
     );
   }
 
-  if (!model) return <div className="lineage-empty muted">Reading the pipeline…</div>;
+  if (!model)
+    return (
+      <div className="lineage-view">
+        {slider}
+        <div className="lineage-empty muted">Reading the pipeline…</div>
+      </div>
+    );
 
   if (model.stages.length === 0) {
     return (
-      <div className="lineage-empty">
-        <p>No documents in this project yet.</p>
-        <p className="muted">A stage is a `.hick` document plus the files it generates.</p>
+      <div className="lineage-view">
+        {slider}
+        <div className="lineage-empty">
+          <p>
+            {at === null
+              ? "No documents in this project yet."
+              : "No document in this project existed at that commit."}
+          </p>
+          <p className="muted">A stage is a `.hick` document plus the files it generates.</p>
+        </div>
       </div>
     );
   }
 
   return (
     <div className="lineage-view">
+      {slider}
       {ambiguous.size > 0 && (
         <p className="lineage-note" role="status">
           {ambiguous.size} name{ambiguous.size === 1 ? "" : "s"} match more than one definition

@@ -120,6 +120,19 @@ export type ProvenanceOrigin =
       doc_path: string;
       span: [number, number];
     }
+  // Bytes a tool outside the document wrote, ingested into it (`hick ingest
+  // --from`). Present, byte-precise and therefore EDITABLE — that is the
+  // point — but never `literal`, because "you wrote this" and "this arrived
+  // from that run" are different claims and drawing them alike is the lie
+  // this origin exists to prevent. `run` is the `<hick:ingested sha256=>`
+  // fingerprint: one run, N files.
+  // docs/specs/freeform/owning-what-a-scaffolder-wrote.md
+  | {
+      kind: "ingested";
+      doc_path: string;
+      span: [number, number];
+      run: string;
+    }
   | { kind: "synthetic" };
 
 export interface Provenance {
@@ -675,6 +688,8 @@ export interface GitFileChange {
 }
 
 export interface GitCommit {
+  /** Above the publication floor: still a draft. */
+  draft?: boolean;
   sha: string;
   short: string;
   parents: string[];
@@ -696,6 +711,74 @@ export interface GitLog {
    * entirely normal thing for a folder of notes to be. */
   repository: boolean;
   commits: GitCommit[];
+  /** Null where the repository has published nothing to compute one against.
+   * See docs/specs/freeform/expression-and-log.md. */
+  floor: PublicationFloor | null;
+}
+
+/** The publication floor: `merge-base(HEAD, <published ref>)`.
+ *
+ * Below it, commits are RECORDS — someone else may be holding them, and
+ * nothing may re-produce one. Above it is the frontier, which is derived:
+ * edit the document, re-emit, and those commits are replaced. Computed on
+ * every read, never stored — merging moves the floor, and a recorded one
+ * would be a claim the next fetch falsifies. */
+export interface PublicationFloor {
+  /** The ref the floor was computed against, when there is one. */
+  published_ref?: string;
+  /** The merge-base itself. Absent when nothing is published. */
+  sha?: string;
+  source: "upstream" | "remote-default" | "remote-named" | "none";
+  /** Commits reachable from HEAD but not from the floor. */
+  drafts: string[];
+  /** One sentence a person can read. */
+  summary: string;
+}
+
+/** One commit a document's time slider can stop at. */
+export interface ReplayCommit {
+  sha: string;
+  short: string;
+  time: number;
+  author: string;
+  subject: string;
+  /** The path the document had AT this commit — `--follow` walks renames. */
+  path: string;
+}
+
+/** A replay of one document at one commit.
+ *
+ * `grammar_boundary` is not a failure: replay weaves an old document with
+ * today's binary, and this product reserves the right to change the grammar.
+ * Past that point the honest claim is that replay works back to the last
+ * grammar change, and `message` says exactly that. */
+export type ReplayResponse =
+  | {
+      commit: string;
+      path: string;
+      grammar_boundary: true;
+      message: string;
+    }
+  | {
+      commit: string;
+      path: string;
+      grammar_boundary: false;
+      source: string;
+      outputs: string[];
+      output?: { path: string; content: string; provenance: Provenance[] };
+    };
+
+/** Whether `.hick` documents merge through hick in THIS clone.
+ *
+ * The routing (`*.hick merge=hick`) is committed; the driver definition
+ * cannot be, because git will not let a repository hand a clone an executable
+ * command. An undefined driver makes git fall back to its line merge
+ * silently, which is why this is checked at project open. */
+export interface MergeDriverStatus {
+  repository: boolean;
+  attributes: boolean;
+  configured: boolean;
+  summary: string;
 }
 
 export interface GitStatus {
@@ -757,4 +840,80 @@ export interface SessionView {
 export interface SessionViewResponse {
   path: string;
   view: SessionView;
+}
+
+// ---- the merged view -----------------------------------------------------
+
+/** One worktree a merged view can be opened over.
+ *
+ * "Across branches" means across WORKTREES: a branch that is not checked out
+ * cannot be written to without going behind the working tree into the object
+ * database, which bypasses hooks and produces commits nobody watched.
+ * docs/specs/freeform/the-merged-view.md */
+export interface WorktreeInfo {
+  path: string;
+  name: string;
+  branch?: string;
+  current: boolean;
+}
+
+/** A run of lines every source agrees on, or a place where they differ.
+ *
+ * The sources are PEERS: shared means agreed by ALL of them, and there is no
+ * order, because the view removes the question. */
+export type MergedRegion =
+  | { kind: "shared"; text: string }
+  | { kind: "variant"; by_source: Record<string, string> };
+
+export interface MergedViewResponse {
+  repository: boolean;
+  path?: string;
+  sources: WorktreeInfo[];
+  regions: MergedRegion[];
+  /** Worktrees that do not have this file at all — named, not dropped. */
+  missing: string[];
+  shared_lines?: number;
+  variants?: number;
+  /** Always true in this step: the alignment is proved before anything is
+   * written through it. */
+  read_only?: boolean;
+}
+
+/** Continuity — the fourth provenance family, off by default. The whole of it
+ * rides this one switch: no ribbon, no journal, no pre-commit repair. */
+export interface ContinuitySettings {
+  enabled: boolean;
+  journal_path: string;
+  entries: number;
+  /** Whether the journal is tracked by git — only a committed journal is a
+   * thing CI could check. */
+  committed: boolean;
+}
+
+// ---- the fleet -----------------------------------------------------------
+
+/** One machine whose key this one holds.
+ *
+ * A machine is a keypair; a fleet is a mutual list of public keys under the
+ * user's own state directory. There is no account and no server, and
+ * revocation is deleting a key.
+ * docs/specs/freeform/one-engineer-many-machines.md */
+export interface FleetMachine {
+  name: string;
+  public_key: string;
+  kind: "desktop" | "phone";
+  /** `view` and `edit` by default; `execute` never by default. */
+  grants: ("view" | "edit" | "execute")[];
+  added: string;
+}
+
+export interface FleetResponse {
+  this_machine: { name: string; fingerprint: string };
+  machines: FleetMachine[];
+  /** How this machine would be reachable. `default` means number0's relays
+   * and address publishing — not a server we run, but somebody's, so it is
+   * stated rather than inherited. */
+  reach: "default" | "own" | "direct" | "invalid";
+  reach_note: string;
+  note: string;
 }

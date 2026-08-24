@@ -1,7 +1,27 @@
 # One engineer, many machines: reaching a session from the chair you are in
 
-*Status: design of record for the sharing mode. Adopted 2026-08-23. **Nothing
-here is built.** It extends `local-only.md` and `notes-ide.md` without
+*Status: design of record for the sharing mode. Adopted 2026-08-23.
+**Sequence steps 1 and 2 are built** (2026-08-23 and 2026-08-24): machine
+identity, the mutual key list, grants, `hick fleet`, and the authenticated
+peer channel carrying the existing API under those grants. The transport is
+**iroh 1.0 — QUIC dialled by public key** rather than the Noise-over-WebSocket
+sketched below: its endpoint identity IS an ed25519 public key, so the fleet's
+key list is the allowlist directly and nobody here wrote the crypto. Steps 3
+to 6 (the fleet pane's attach, the `execute` grant's own surface, transports 2
+and 3 behind the seam, follow) are not built.
+The short one-time pairing code below is **built as designed** (2026-08-24),
+after a first attempt got its reasoning wrong. That attempt said a code so
+short cannot carry a public key, so it must assume a rendezvous, and the only
+rendezvous for two unreachable machines is one we would run — which
+`local-only.md` deletes — and it substituted a long self-contained invitation.
+**The code does not have to carry a key; it can BE one.** Both machines derive
+the same throwaway keypair from the phrase, one binds an endpoint under it and
+the other dials it, and they trade real keys over that connection. The phrase
+is the rendezvous. Nobody is trusted for identity and no server exists — and
+because both keys cross in one exchange, one phrase finishes a job the
+invitation flow needs two of. The invitation remains, for pairing where the two
+machines cannot reach each other at all.
+See `docs/guarantees/collaboration/a-machine-is-a-keypair.md`. It extends `local-only.md` and `notes-ide.md` without
 reopening either: no server we operate, no account, no relay, no money. The
 machines in this document are machines the engineer already owns, in the same
 category as their Docker daemon, their Canopy node, and their git remote.
@@ -198,12 +218,24 @@ answers them from its machine. What is new is above them:
 
 ## Sequence
 
-1. **Machine identity and pairing** — keypair, keychain, `hick fleet pair`,
-   the mutual key list. Nothing is reachable yet; this is the part that must be
-   right first.
-2. **The peer channel** — authenticated Noise-over-WebSocket between two
-   machines on a LAN, carrying the existing API and the existing rooms.
-   `view` and `edit` only.
+1. ~~**Machine identity and pairing**~~ **Built 2026-08-23**, and the short
+   code added 2026-08-24 as `hick fleet pair` — the design's own ceremony,
+   once the rendezvous problem turned out to be solvable without a server.
+   `hick fleet invite` / `accept` remains for machines that cannot reach each
+   other. The private half lives in a `0600` file rather than the platform
+   keychain, which is weaker against a user-level compromise and is named as
+   such rather than implied away.
+2. ~~**The peer channel**~~ **Built 2026-08-24**, as QUIC-over-iroh rather
+   than Noise-over-WebSocket. It carries the existing API gated per verb, and
+   all three grants are enforced rather than `view`/`edit` only — the gate is
+   one table, so leaving `execute` out of it would have meant leaving it
+   *open*. Two things about the relay are decided rather than inherited: the
+   default posture is number0's relays AND number0's address publishing
+   (chosen 2026-08-24, because it is what makes a café work with no setup),
+   and because neither is a server *we* run the sentence "nothing talks to a
+   server we run" stays true while doing more work than it used to — so the
+   product says on every connection whether it was direct or relayed, and
+   `HICKORY_FLEET_RELAY` takes `direct` or your own relay.
 3. **The fleet pane and attach**, with the machine strip.
 4. **The `execute` grant**, an explicit act with its own refusal message, and
    the peer's executor shown beside it.

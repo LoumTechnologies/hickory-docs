@@ -46,6 +46,10 @@ hick-dap = { path = "../hick-dap" }
 # A debug session runs the debuggee in a scratch clone that is deleted with
 # it — which is what makes "a session cannot touch the file" true.
 tempfile = "3"
+# Replay materializes the tree at an old commit with `git archive`, which
+# emits a tar. Reading it here is what keeps replay from ever checking
+# anything out into the user's working tree.
+tar = "0.4"
 # Structural navigation that ships in the download: tree-sitter grammars are
 # compiled in, so it needs no language server and no toolchain.
 hick-structure = { path = "../hick-structure" }
@@ -56,6 +60,8 @@ hick-term = { path = "../hick-term" }
 # needs no `hick-lsp` on PATH to answer a language question.
 tower-lsp = "0.20"
 hick-literate = { path = "../hick-literate" }
+# The merged view's N-way alignment: which regions N worktrees agree on.
+hick-merge = { path = "../hick-merge" }
 # Project-wide search (semble-shaped: lexical always, Model2Vec semantic when
 # a model is installed). The crate is offline by design; downloading a model
 # is this CLI's explicit `hick search --install-model`.
@@ -64,6 +70,14 @@ hick-literate = { path = "../hick-literate" }
 regex = "1"
 hick-formula = { version = "0.1", path = "../hick-formula" }
 hickory-workspace = { version = "0.1", path = "../hickory-workspace" }
+# Machine identity and the mutual key list: a machine is a keypair, a fleet is
+# a list of public keys, and there is no account and no server.
+hickory-fleet = { path = "../hickory-fleet" }
+# The seal and the broker: one road out, with a toll booth on it.
+hickory-broker = { path = "../hickory-broker" }
+# The peer channel: QUIC dialled by public key, gated per verb.
+hickory-peer = { path = "../hickory-peer" }
+iroh = { version = "1.0", default-features = false, features = ["tls-ring"] }
 hick-search = { path = "../hick-search" }
 # Gitignore-aware walking for `GET /api/files` — the same walker (and the same
 # filters) hick-search indexes with, so the folder tree and search agree on

@@ -66,6 +66,17 @@ pub enum Origin {
         doc_path: String,
         span: (usize, usize),
     },
+    /// Bytes a tool outside this document wrote, ingested into it and now
+    /// held as ordinary document text. Byte-precise and therefore editable —
+    /// that is the whole point — but never drawn or blamed as `literal`,
+    /// because "you wrote this" and "this arrived on that day from that run"
+    /// are different claims. `run` is the `<hick:ingested sha256=…>`
+    /// fingerprint: one run, N files.
+    Ingested {
+        doc_path: String,
+        span: (usize, usize),
+        run: String,
+    },
     Synthetic,
 }
 
@@ -78,7 +89,8 @@ impl Origin {
             | Origin::Paste { doc_path, span }
             | Origin::Exec { doc_path, span }
             | Origin::Variable { doc_path, span }
-            | Origin::Substitution { doc_path, span } => Some((doc_path, span.0, span.1)),
+            | Origin::Substitution { doc_path, span }
+            | Origin::Ingested { doc_path, span, .. } => Some((doc_path, span.0, span.1)),
             Origin::Agent {
                 doc_path: Some(doc_path),
                 span: Some(span),
@@ -103,9 +115,13 @@ impl Origin {
             // their source span; exec/variable/substitution values are
             // derived, so they are never produced with spans today (see
             // `from_provenance_map`) and would not be editable anyway.
-            Origin::Literal { doc_path, span } | Origin::Paste { doc_path, span } => {
-                Some((doc_path, span.0, span.1))
-            }
+            Origin::Literal { doc_path, span }
+            | Origin::Paste { doc_path, span }
+            // Ingested bytes ARE bytes of the document, so an edit to them
+            // lands in the `.hick` through the path that already exists. This
+            // is the property `from=`-into-a-gitignored-transcript could not
+            // have had, and the reason ingest is the mechanism.
+            | Origin::Ingested { doc_path, span, .. } => Some((doc_path, span.0, span.1)),
             // An agent writes through `edit_doc`, so its bytes are in the
             // document and editable — but only when a byte-precise span was
             // recorded. Without one it behaves like any other derived value.
@@ -145,6 +161,17 @@ pub fn from_provenance_map(map: &ProvenanceMap) -> Vec<Provenance> {
                     doc_path: file.to_string(),
                     span: (span.start, span.end),
                 },
+                // Degrades to synthetic when the span is not byte-precise,
+                // exactly like a literal: an ingested origin's value is that
+                // it is editable AND honestly attributed, and a length
+                // mismatch means the first half is false.
+                SourceOrigin::Ingested { file, span, run } if span.len() == out_len => {
+                    Origin::Ingested {
+                        doc_path: file.to_string(),
+                        span: (span.start, span.end),
+                        run: run.to_string(),
+                    }
+                }
                 // Never degrades to `synthetic`: the session id and turn are
                 // the whole point of the variant, and they survive even when
                 // no byte-precise document span was recorded.
@@ -697,6 +724,94 @@ mod tests {
         let round: Provenance =
             serde_json::from_value(serde_json::to_value(&p[0]).unwrap()).unwrap();
         assert_eq!(round.origin, p[0].origin);
+    }
+
+    /// docs/guarantees/lineage/ingested-bytes-are-not-yours.md
+    #[test]
+    fn ingested_bytes_are_editable_and_never_report_as_literal() {
+        let mut map = ProvenanceMap::new();
+        map.push(ProvenanceSpan {
+            output_start: 0,
+            output_end: 5,
+            origin: SourceOrigin::Ingested {
+                file: Arc::from("app.hick"),
+                span: SourceSpan::new(100, 105, 9, 0),
+                run: Arc::from("9f2cdeadbeef"),
+            },
+        });
+        // A length mismatch means the bytes are no longer byte-identical to
+        // the document span, so the claim "editable" is false and the origin
+        // degrades — exactly as a literal does.
+        map.push(ProvenanceSpan {
+            output_start: 5,
+            output_end: 7,
+            origin: SourceOrigin::Ingested {
+                file: Arc::from("app.hick"),
+                span: SourceSpan::new(200, 210, 12, 0),
+                run: Arc::from("9f2cdeadbeef"),
+            },
+        });
+
+        let p = from_provenance_map(&map);
+        assert_eq!(
+            p[0].origin,
+            Origin::Ingested {
+                doc_path: "app.hick".into(),
+                span: (100, 105),
+                run: "9f2cdeadbeef".into(),
+            }
+        );
+        // Editable: an edit to a scaffolded file lands in the `.hick` through
+        // the path that already exists. This is what a `from=` pointing at a
+        // captured exec could never have.
+        assert_eq!(p[0].origin.source(), Some(("app.hick", 100, 105)));
+        assert_eq!(p[0].origin.location(), Some(("app.hick", 100, 105)));
+        assert_eq!(p[1].origin, Origin::Synthetic);
+
+        // The run survives serialization, and the kind is its own — never
+        // `literal`, which would say somebody here typed these bytes.
+        assert_eq!(
+            serde_json::to_value(&p[0]).unwrap(),
+            serde_json::json!({
+                "start": 0, "end": 5,
+                "origin": {
+                    "kind": "ingested",
+                    "doc_path": "app.hick",
+                    "span": [100, 105],
+                    "run": "9f2cdeadbeef"
+                }
+            })
+        );
+    }
+
+    /// docs/guarantees/lineage/ingested-bytes-are-not-yours.md
+    #[test]
+    fn an_edit_to_ingested_bytes_maps_back_to_the_document() {
+        let mut map = ProvenanceMap::new();
+        map.push(ProvenanceSpan {
+            output_start: 0,
+            output_end: 11,
+            origin: SourceOrigin::Ingested {
+                file: Arc::from("app.hick"),
+                span: SourceSpan::new(300, 311, 20, 0),
+                run: Arc::from("9f2c"),
+            },
+        });
+        let p = from_provenance_map(&map);
+        let edits = map_edits(
+            "hello world",
+            &[OutputEdit {
+                start: 6,
+                end: 11,
+                text: "there".into(),
+            }],
+            &p,
+        )
+        .expect("ingested bytes are the document's own");
+        assert_eq!(edits.len(), 1);
+        assert_eq!(edits[0].doc_path, "app.hick");
+        assert_eq!(edits[0].span, (306, 311));
+        assert_eq!(edits[0].text, "there");
     }
 
     #[test]

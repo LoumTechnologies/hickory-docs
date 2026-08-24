@@ -22,6 +22,24 @@ clippy:
 fmt:
     cargo fmt --all
 
+# Everything CI runs, in one command.
+#
+# NOT `verify` — that name already means `hick test <doc>`, which verifies a
+# DOCUMENT. This verifies the repository. The point of one entry is that there
+# is never a gap between what a hook runs and what CI runs, since that gap is
+# where "passed locally, failed in CI" comes from; keep this and
+# `.github/workflows/ci.yml` saying the same thing.
+#
+# `cargo build` before `cargo test` is load-bearing and not belt-and-braces:
+# the LSP tests spawn the `hick-lsp` binary, which `cargo test` alone does not
+# produce, and without it they fail claiming no language server is installed.
+ci:
+    cargo fmt --all -- --check
+    cargo clippy --workspace --all-targets -- -D warnings
+    cargo build --workspace
+    cargo test --workspace -- --test-threads=1
+    cd apps/web && npm run typecheck && npm test
+
 # Build the static marketing site into apps/web/dist — no server, no accounts,
 # no billing. Deploy the directory anywhere that serves files.
 #   just site                      # analytics disabled

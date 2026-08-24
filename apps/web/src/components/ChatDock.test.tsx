@@ -21,6 +21,9 @@ import {
   formatTokens,
   formatUsd,
   statsLine,
+  REWIND_TIP,
+  RERUN_TIP,
+  SLASH_HELP,
 } from "./ChatDock";
 import { api } from "../api/client";
 import type { AgentTotals, AgentTurn, AgentTurnsResponse } from "../api/types";
@@ -293,5 +296,30 @@ describe("slash commands and the tree", () => {
     ];
     expect([...pathTo(turns, "d")].sort()).toEqual(["a", "b", "d"]);
     expect(pathTo(turns, "c").has("d")).toBe(false);
+  });
+});
+
+// docs/guarantees/agent/rewind-and-re-run-are-two-different-acts.md
+describe("rewind and re-run are named apart", () => {
+  it("parses both, and only as whole commands", () => {
+    expect(parseSlash("/rerun")).toEqual({ kind: "rerun" });
+    expect(parseSlash("/rewind 2")).toEqual({ kind: "rewind", steps: 2 });
+    // A path or a date at the start of a sentence must not be eaten.
+    expect(parseSlash("/rerun the thing")).toBeNull();
+  });
+
+  it("says what each act KEEPS, which is the only difference", () => {
+    // Rewind keeps the change of mind, visible in the file forever; a re-run
+    // does not, and the first attempt becomes a draft you may discard.
+    expect(REWIND_TIP).toMatch(/THIS conversation/);
+    expect(REWIND_TIP).toMatch(/kept/);
+    expect(RERUN_TIP).toMatch(/SECOND conversation/);
+    expect(RERUN_TIP).toMatch(/not kept/);
+    expect(RERUN_TIP).toMatch(/gitignored/);
+  });
+
+  it("offers both in the help, with the difference stated", () => {
+    expect(SLASH_HELP).toMatch(/keeping the branch/);
+    expect(SLASH_HELP).toMatch(/discarding this one/);
   });
 });

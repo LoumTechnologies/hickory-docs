@@ -102,7 +102,12 @@ fn command_text(tag: &HickTag) -> String {
         for node in nodes {
             match node {
                 HickNode::Text(t, _) => out.push_str(t),
-                HickNode::Tag(t) if t.name == "expect" || t.name == "capture" => {}
+                // `ingested` is what the cell PRODUCED, not what it runs —
+                // the same exclusion `hick_exec::dag::command_text` makes,
+                // and for the same reason: without it the app would show a
+                // scaffolder's forty files as the command line.
+                HickNode::Tag(t)
+                    if t.name == "expect" || t.name == "capture" || t.name == "ingested" => {}
                 HickNode::Tag(t) => collect(&t.children, out),
             }
         }
@@ -137,7 +142,18 @@ fn walk(
                 });
             }
             HickNode::Tag(tag) => match tag.name.as_str() {
-                "exec" => blocks.push(exec_block(tag, input, images)),
+                "exec" => {
+                    blocks.push(exec_block(tag, input, images));
+                    // What the run produced and this document now owns sits
+                    // at `exec > ingested > file`. The cell renders as a
+                    // cell; the files it brought in render as the file blocks
+                    // they are, right after it.
+                    for child in tag.child_tags() {
+                        if child.name == "ingested" {
+                            walk(&child.children, input, images, blocks);
+                        }
+                    }
+                }
                 "file" => {
                     let path = tag_attr(tag, "path").unwrap_or_default();
                     let body = input

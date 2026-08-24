@@ -1,0 +1,22 @@
+[package]
+name = "hickory-fleet"
+version = "0.1.0"
+edition = "2024"
+publish = false
+license.workspace = true
+description = "Machine identity for one engineer's several machines: keypairs, a mutual key list, and per-verb grants"
+
+[dependencies]
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+base64 = "0.22"
+# Machine identity. BSD-3-Clause — permissive, not copyleft, so it may be
+# linked here (the workspace rule forbids GPL and copyleft, not BSD).
+ed25519-dalek = { version = "2", features = ["rand_core"] }
+rand_core = { version = "0.6", features = ["getrandom"] }
+hickory-workspace = { path = "../hickory-workspace" }
+
+[dev-dependencies]
+tempfile = "3"

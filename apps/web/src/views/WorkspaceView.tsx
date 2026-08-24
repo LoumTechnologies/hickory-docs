@@ -29,6 +29,7 @@ import {
 } from "react";
 
 import { api } from "../api/client";
+import { MergeDriverNotice } from "../components/MergeDriverNotice";
 import type {
   DocSummary,
   FileNode,
@@ -61,6 +62,7 @@ import {
   type RibbonFile,
   type RibbonLink,
   type RibbonSource,
+  type RibbonFamily,
 } from "../shell/Ribbons";
 import { samePath } from "../lib/paths";
 import { ProvenanceToggles } from "../shell/ProvenanceToggles";
@@ -113,6 +115,10 @@ import {
   openGitTab,
   WELCOME_TAB,
   GIT_TAB,
+  FLEET_TAB,
+  MERGED_TAB,
+  openFleetTab,
+  openMergedTab,
 } from "./workspaceState";
 import {
   DocSessionHost,
@@ -136,6 +142,8 @@ import { useZoom } from "./useZoom";
 import { StatusBar } from "../shell/StatusBar";
 import { WelcomePane, type WelcomeAction } from "./WelcomePane";
 import { GitPane } from "./GitPane";
+import { FleetPane } from "./FleetPane";
+import { MergedView } from "./MergedView";
 import {
   CommandBar,
   type CommandItem,
@@ -371,6 +379,23 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
         label: "History",
         hint: "The commit graph, with every commit's files",
         run: () => setLayout(openGitTab),
+      },
+      {
+        id: "fleet",
+        label: "Machines",
+        hint: "Pair another of your machines, and choose what each may do here",
+        run: () => setLayout(openFleetTab),
+      },
+      {
+        id: "merged",
+        label: "Compare across worktrees",
+        hint: "One file as it exists in several worktrees at once — open a file first",
+        run: () => {
+          // The view is OF a path, so it needs one. With nothing focused this
+          // opens the fleet's sibling question instead of an empty pane.
+          const path = focusedPathRef.current;
+          if (path) setLayout((current) => openMergedTab(current, path));
+        },
       },
       {
         id: "find",
@@ -1434,6 +1459,51 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
   }, [registry, registry.version]);
   openableOutputsRef.current = openableOutputs;
 
+  // Continuity, for THIS project. `undefined` until the server answers (or
+
+  // forever, if it cannot) — the toggle is hidden rather than shown in a
+
+  // state nobody chose. Off is the answer to "I could not tell".
+
+  const [continuity, setContinuity] = useState<boolean | undefined>(undefined);
+
+  useEffect(() => {
+
+    let live = true;
+
+    api.continuity().then(
+
+      (answer) => live && setContinuity(answer.enabled),
+
+      () => {},
+
+    );
+
+    return () => {
+
+      live = false;
+
+    };
+
+  }, []);
+
+  const setContinuityEnabled = useCallback((enabled: boolean) => {
+
+    setContinuity(enabled);
+
+    api.setContinuity(enabled).catch(() => setContinuity(!enabled));
+
+  }, []);
+
+
+  const drawnLayers = useMemo(
+
+    () => new Set([...layers].filter((l) => l !== "continuity") as RibbonFamily[]),
+
+    [layers],
+
+  );
+
   const banner = focused?.banner ?? null;
 
   /**
@@ -1515,6 +1585,12 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
     }
     if (tab.kind === "tool" && tab.target === GIT_TAB) {
       return <GitPane onOpenFile={(path) => openHit(path, 1)} />;
+    }
+    if (tab.kind === "tool" && tab.target === FLEET_TAB) {
+      return <FleetPane />;
+    }
+    if (tab.kind === "tool" && tab.target.startsWith(MERGED_TAB)) {
+      return <MergedView path={tab.target.slice(MERGED_TAB.length)} />;
     }
     if (tab.kind === "tool" && tab.target === WELCOME_TAB) {
       return (
@@ -1624,6 +1700,9 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
         <CommandBar candidates={commandCandidates} />
       </div>
       <div className="doc-main">
+        {/* Asked at open, because a clone that never ran `hick init` merges
+            `.hick` documents with git's line merge and is told nothing. */}
+        <MergeDriverNotice />
         {banner && (
           <div className={`banner banner-${banner.kind}`} role="status">
             {banner.text}
@@ -1684,7 +1763,12 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
             sources={ribbonSources}
             files={ribbonFiles}
             links={ribbonLinks}
-            layers={layers}
+            // Only the DRAWN families reach the overlay. Continuity is a
+            // fourth family with no overlay yet — the ribbon is the last step
+            // of that design, after the journal has something in it worth
+            // drawing — so it is filtered here rather than widening
+            // `RibbonFamily` to a kind nothing emits.
+            layers={drawnLayers}
             ribbonStyle={ribbonStyle}
             onNavigate={(target) => {
               const session = registry.get(focusedIdRef.current);
@@ -1783,7 +1867,12 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
         zoom={zoom.uiZoom}
         extra={
           <>
-            <ProvenanceToggles layers={layers} onToggle={toggleProvenance} />
+            <ProvenanceToggles
+              layers={layers}
+              onToggle={toggleProvenance}
+              continuity={continuity}
+              onContinuity={setContinuityEnabled}
+            />
             {projectId && (
               <button
                 type="button"

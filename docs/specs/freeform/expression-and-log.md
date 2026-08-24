@@ -1,7 +1,12 @@
 # The document is an expression, the repository is the log
 
 *Status: design of record for what happens when documents emit history.
-Adopted 2026-08-23. **Nothing here is built.** It answers the question
+Adopted 2026-08-23. **Sequence step 1 (the floor, as a computed fact
+surfaced in the UI) is built** (2026-08-23) — see
+`docs/guarantees/collaboration/the-publication-floor-is-computed-and-shown.md`.
+**Step 3 (stage-shaped emission, read-only) is built too**; nothing emits
+anything, which is the rest of the sequence.
+It answers the question
 `changes-not-commits.md` opened and its first amendment left half-open — if a
 session may emit a commit, and a document may span machines, may a document
 span commits and repositories too, and is git then redundant? Amends that
@@ -189,13 +194,18 @@ there — generalized one level out.
 
 ## Sequence
 
-1. **The floor**, as a computed fact surfaced in the UI: which commits on this
-   branch are still drafts. Useful immediately, and it needs no emission at all.
+1. ~~**The floor**, as a computed fact surfaced in the UI~~ **Built
+   2026-08-23.** `crates/hickory-cli/src/floor.rs`, carried on `GET
+   /api/git/log` and marked per row in the git pane. The published ref is the
+   branch's own upstream first — falling straight to `origin/master` would
+   call already-published commits on a pushed feature branch drafts.
 2. **Each emitted commit carries its document version** — a property to build
    into emission from the first day, because retrofitting it means a generation
    of commits that cannot explain themselves.
-3. **Stage-shaped emission**, one stage one commit, read-only first: show the
-   commits a re-emission *would* produce.
+3. ~~**Stage-shaped emission**, read-only first~~ **Built 2026-08-23** as
+   `hick emit`: one stage one commit, what a re-emission would produce, the
+   draft each would replace, and a refusal that names any published commit it
+   would have had to rewrite. It emits nothing.
 4. **Frontier re-emission**, with the refusal below the floor.
 5. **Cross-repository reads**, pinned by hash.
 

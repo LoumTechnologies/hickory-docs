@@ -1,7 +1,11 @@
 # Sessions you run again: the carry, the interview, and nothing from nowhere
 
 *Status: design of record for how a session is refined. Adopted 2026-08-23.
-**Nothing here is built.** It grew out of `changes-not-commits.md`, which asked
+**Sequence steps 1 and 2 are built** (2026-08-23): rewind and re-run named
+apart in the dock with what each keeps stated where the choice is made, and
+`hick carry` as the explicit artifact of ending a session. Steps 3–5 (edited
+sessions, self-containment as a check, equivalence as an instrument) are not.
+See `docs/guarantees/agent/rewind-and-re-run-are-two-different-acts.md`. It grew out of `changes-not-commits.md`, which asked
 whether a session could produce a commit, and amends that document's answer.
 It depends on `a-session-is-the-conversation.md` (the guarantee) for what a
 session file already is, and on `three-provenances.md` for the rule that keeps
@@ -166,12 +170,14 @@ Two consequences worth stating because they simplify the design:
 
 ## Sequence
 
-1. **Name the two acts.** Rewind and re-run, distinct in the dock, with the
-   difference in what is kept stated where the user makes the choice. Costs
-   almost nothing and prevents the confusion the rest of this rests on.
-2. **The carry**, as an explicit artifact of ending a session: a prompt, the
-   tests you kept, the approaches you ruled out. Small, and useful before
-   anything else here exists.
+1. ~~**Name the two acts.**~~ **Built 2026-08-23.** `/rewind` and `/rerun` in
+   the dock, each affordance carrying the sentence about what it keeps.
+2. ~~**The carry**~~ **Built 2026-08-23.** `hick carry <session>` writes the
+   opening prompt and leaves the other two slots empty and named — it does not
+   distil for you, because the tests worth carrying are the ones you read and
+   kept. One thing the design left open is now settled: the carry **invents no
+   fourth artifact**. It is an ordinary `.hick` document, written outside
+   `sessions/` so it survives the session being discarded.
 3. **Edited sessions** — the declared layer over the frozen base, and the
    in-the-bytes marking. This is the one piece of new format.
 4. **Self-containment as a check** — a carried requirement with no reachable
@@ -187,10 +193,12 @@ Two consequences worth stating because they simplify the design:
   and it will now find several conversations that produced the same result.
   Which one it opens by default, and how it shows that the others exist, is not
   designed here.
-- **The carry has no home.** It is not the session (which is discardable), and
-  it is not obviously the document either. A file in the repository is the
-  honest answer and it invents a fourth artifact, which deserves more resistance
-  than this document gave it.
+- ~~**The carry has no home.**~~ **Answered 2026-08-23** by building it: a
+  carry is an ordinary `.hick` document — no new file type, no new store, no
+  new gitignore rule — written outside `sessions/` and therefore committed by
+  default, which it must be, since a carry whose only support is a gitignored
+  session dangles by construction. The resistance the design asked for is what
+  produced the answer: the minimum invention was no new artifact at all.
 - **How an edited session's base stays immutable in practice.** Nothing stops
   someone opening the file and typing. The layer is a convention until something
   enforces it, and the enforcement most likely lives in the editor rather than

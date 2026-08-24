@@ -1,0 +1,18 @@
+[package]
+name = "hickory-broker"
+version = "0.1.0"
+edition = "2024"
+publish = false
+license.workspace = true
+description = "The seal and the broker: an agent machine with no keys and one road out, with a toll booth on it"
+
+[dependencies]
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-util", "time", "sync"] }
+log = "0.4"
+
+[dev-dependencies]
+tempfile = "3"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-util", "time", "sync"] }

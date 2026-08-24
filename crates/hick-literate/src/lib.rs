@@ -204,6 +204,16 @@ pub struct PipelineResult {
     /// weave-without-cache modes always, and by the live pipeline when
     /// [`PipelineConfig::collect_unverifiable`] is set.
     pub never_run: NeverRun,
+    /// What an INGESTED volume produced on this run — separately from
+    /// [`PipelineResult::files`], because the document owns those bytes now
+    /// and the fresh run must not be written over them.
+    ///
+    /// It is still needed, and by exactly one caller: `hick ingest` reading
+    /// the same cell a second time, where this run is **theirs** in a
+    /// three-way merge against the recorded base. Dropping it entirely would
+    /// have made a re-ingest impossible; writing it to disk would have
+    /// silently overwritten the four lines the ingest exists to protect.
+    pub ingested_volume_files: HashMap<String, FileContent>,
     /// Canonical paths of every file spliced into the pipeline's documents
     /// by `<hick:include>`/`<hick:upstream>` (the union of the resolved
     /// documents' [`hick_lang::HickDocument::span_files`]). Provenance can
@@ -622,37 +632,138 @@ fn process_documents_round(
                     || (tag.name == "table"
                         && tag_attr(tag, "path").is_some_and(|p| !p.is_empty())))
             {
-                let raw_path = tag_attr(tag, "path").unwrap_or_default();
-                let path = interpolate_path(&raw_path, state);
-                let raw_ip = Arc::new(InsertionPoint::new());
-
-                process_file_children(
-                    &tag.children,
-                    &raw_ip,
+                add_file_output_for(
+                    tag,
+                    None,
                     handler_transcripts,
                     state,
-                    tag.source_column,
                     registry,
-                    Some(&source_file),
+                    &source_file,
                     &span_files,
                 );
-
-                raw_ip.close();
-
-                let subs_state = state.clone();
-                let transform: Arc<dyn Node> = Arc::new(ProvenanceTransformNode::new(
-                    raw_ip,
-                    move |text| apply_substitutions_segmented_to_transform(text, &subs_state),
-                    "substitute",
-                ));
-
-                let file_ip = Arc::new(InsertionPoint::new());
-                file_ip.add(transform);
-                file_ip.close();
-                state.add_file_output(path, file_ip);
             }
         }
+
+        // The files a scaffolder wrote and this document now owns. They sit
+        // at `exec > ingested > file` — deliberately not at the top level,
+        // because containment says "running this produced these" with no
+        // string reference to resolve, and deliberately not `exec > file`,
+        // because `file > exec` already means the opposite. See
+        // `docs/specs/freeform/owning-what-a-scaffolder-wrote.md`.
+        for (run, tag) in ingested_file_blocks(&doc.nodes) {
+            add_file_output_for(
+                tag,
+                Some(&run),
+                handler_transcripts,
+                state,
+                registry,
+                &source_file,
+                &span_files,
+            );
+        }
     }
+}
+
+/// The volumes whose bytes a document has ingested: every volume mounted by
+/// an `<hick:exec>` that carries an `<hick:ingested>` child.
+fn ingested_volume_names<'a>(
+    docs: impl Iterator<Item = &'a HickDocument>,
+) -> std::collections::HashSet<String> {
+    fn walk(nodes: &[HickNode], out: &mut std::collections::HashSet<String>) {
+        for node in nodes {
+            let HickNode::Tag(tag) = node else { continue };
+            if tag.name == "exec" && tag.child_tags().any(|c| c.name == "ingested") {
+                for entry in tag_attr(tag, "mount").unwrap_or_default().split(',') {
+                    if let Some((vol, _)) = entry.trim().split_once(':') {
+                        out.insert(vol.to_string());
+                    }
+                }
+            }
+            walk(&tag.children, out);
+        }
+    }
+    let mut out = std::collections::HashSet::new();
+    for doc in docs {
+        walk(&doc.nodes, &mut out);
+    }
+    out
+}
+
+/// Every `<hick:file>` inside a `<hick:ingested>` block, paired with the run
+/// fingerprint the block records.
+///
+/// The fingerprint is `sha256=`, which is the recorded base a re-ingest
+/// merges against — so a block without one yields nothing rather than
+/// yielding files whose origin could not name where they came from.
+fn ingested_file_blocks(nodes: &[HickNode]) -> Vec<(Arc<str>, &hick_lang::HickTag)> {
+    fn walk<'a>(nodes: &'a [HickNode], out: &mut Vec<(Arc<str>, &'a hick_lang::HickTag)>) {
+        for node in nodes {
+            let HickNode::Tag(tag) = node else { continue };
+            if tag.name == "ingested" {
+                let Some(run) = tag_attr(tag, "sha256").filter(|v| !v.is_empty()) else {
+                    warn!(
+                        "<hick:ingested> at line {} has no sha256= — the run it                          records cannot be named, so its files are skipped",
+                        tag.source_line
+                    );
+                    continue;
+                };
+                let run: Arc<str> = Arc::from(run.as_str());
+                for child in tag.child_tags() {
+                    if child.name == "file" {
+                        out.push((run.clone(), child));
+                    }
+                }
+                continue;
+            }
+            walk(&tag.children, out);
+        }
+    }
+    let mut out = Vec::new();
+    walk(nodes, &mut out);
+    out
+}
+
+/// Register one `<hick:file>`/`<hick:table path>` tag as a pipeline file
+/// output. `ingested` carries the run fingerprint when the block's bytes
+/// came from a tool outside this document.
+fn add_file_output_for(
+    tag: &hick_lang::HickTag,
+    ingested: Option<&Arc<str>>,
+    handler_transcripts: &HashMap<String, Vec<TranscriptEntry>>,
+    state: &Arc<MultiDocumentState>,
+    registry: &TagRegistry,
+    source_file: &Arc<str>,
+    span_files: &[Arc<str>],
+) {
+    let raw_path = tag_attr(tag, "path").unwrap_or_default();
+    let path = interpolate_path(&raw_path, state);
+    let raw_ip = Arc::new(InsertionPoint::new());
+
+    process_file_children(
+        &tag.children,
+        &raw_ip,
+        handler_transcripts,
+        state,
+        tag.source_column,
+        registry,
+        Some(source_file),
+        span_files,
+        ingested,
+    );
+
+    raw_ip.close();
+
+    let subs_state = state.clone();
+    let transform: Arc<dyn Node> = Arc::new(ProvenanceTransformNode::new(
+        raw_ip,
+        move |text| apply_substitutions_segmented_to_transform(text, &subs_state),
+        "substitute",
+    ));
+
+    let file_ip = Arc::new(InsertionPoint::new());
+    file_ip.add(transform);
+    file_ip.close();
+    state.add_file_output(path, file_ip);
 }
 
 // ---------------------------------------------------------------------------
@@ -954,6 +1065,8 @@ pub async fn run_pipeline_with_authority(
 
     Ok(PipelineResult {
         files,
+        // A dry run executes nothing, so no volume produced anything.
+        ingested_volume_files: HashMap::new(),
         provenance_maps,
         containers: container_defs,
         volume_provenance: HashMap::new(),
@@ -1801,9 +1914,25 @@ pub async fn run_pipeline_live(
         }
     }
 
-    // Flush output volumes into pipeline result files
+    // Flush output volumes into pipeline result files — except the ones a
+    // document has already ingested.
+    //
+    // Once `<hick:ingested>` holds a run's bytes, the DOCUMENT owns them: it
+    // is where your four lines live and where a reverse edit lands. Flushing
+    // the fresh run over the top would overwrite those four lines with the
+    // scaffolder's originals on every `hick run`, silently. Comparing the two
+    // is a three-way merge, and it is deliberately a later step
+    // (`docs/specs/freeform/owning-what-a-scaffolder-wrote.md`, sequence 3).
+    let ingested_volumes = ingested_volume_names(documents.iter().map(|(_, d)| d));
     let mut volume_files: HashMap<String, FileContent> = HashMap::new();
+    let mut ingested_volume_files: HashMap<String, FileContent> = HashMap::new();
     for (vol_name, vol_decl) in &all_volume_decls {
+        let ingested = ingested_volumes.contains(vol_name);
+        if ingested {
+            info!(
+                "Volume '{vol_name}' is ingested into a document, which now owns its bytes; keeping the fresh run aside rather than over them"
+            );
+        }
         let output_prefix = match &vol_decl.kind {
             hick_exec::volume::VolumeKind::Output { path } => Some(path.as_str()),
             hick_exec::volume::VolumeKind::InputOutput { output, .. } => Some(output.as_str()),
@@ -1813,8 +1942,15 @@ pub async fn run_pipeline_live(
         if let Some(prefix) = output_prefix
             && volume_store.contains(vol_name)
         {
-            let unpacked = volume_store.unpack_to_files(vol_name)?;
-            for (file_path, content) in unpacked {
+            // Bytes, not strings. A scaffolder writes binaries alongside
+            // source (`dotnet new` alone leaves an `obj/` full of them), and
+            // reading every entry as UTF-8 used to fail the whole run on the
+            // first one — an obscure "failed to read tar entry" for something
+            // entirely normal. A binary becomes `FileContent::Binary`, which
+            // is also what lets `hick ingest` name it rather than mangle it.
+            let unpacked =
+                volume_state::read_tar_files(volume_store.get(vol_name).unwrap_or_default())?;
+            for (file_path, bytes) in unpacked {
                 let output_path = if prefix.is_empty() || prefix == "." {
                     file_path
                 } else {
@@ -1828,7 +1964,17 @@ pub async fn run_pipeline_live(
                         }
                     )
                 };
-                volume_files.insert(output_path, FileContent::Text(content));
+                let content = match String::from_utf8(bytes) {
+                    Ok(text) => FileContent::Text(text),
+                    Err(e) => {
+                        FileContent::Binary(hick_exec::node::BinaryData::Inline(e.into_bytes()))
+                    }
+                };
+                if ingested {
+                    ingested_volume_files.insert(output_path, content);
+                } else {
+                    volume_files.insert(output_path, content);
+                }
             }
         }
     }
@@ -1848,6 +1994,7 @@ pub async fn run_pipeline_live(
 
     Ok(PipelineResult {
         files,
+        ingested_volume_files,
         provenance_maps,
         containers: container_defs,
         volume_provenance,
@@ -1989,6 +2136,8 @@ pub async fn run_pipeline_weave(
 
     Ok(PipelineResult {
         files,
+        // Weave-only: nothing executed, so no volume produced anything.
+        ingested_volume_files: HashMap::new(),
         provenance_maps,
         containers: container_defs,
         volume_provenance: HashMap::new(),
@@ -2241,6 +2390,7 @@ fn process_file_children(
     registry: &TagRegistry,
     source_file: Option<&Arc<str>>,
     span_files: &[Arc<str>],
+    ingested: Option<&Arc<str>>,
 ) {
     let ctx = ProcessingContext {
         state,
@@ -2264,7 +2414,19 @@ fn process_file_children(
                     .as_ref()
                     .and_then(|s| ctx.file_of_span(s).map(|f| (s, f)))
                 {
-                    let origin = SourceOrigin::Literal { file, span: *span };
+                    // Inside a `<hick:ingested>` block these bytes are
+                    // present in the document and byte-precise — so they are
+                    // editable — but they are not yours. Marking them
+                    // `Literal` is what would make forty files of somebody
+                    // else's code claim to be text you typed.
+                    let origin = match ingested {
+                        Some(run) => SourceOrigin::Ingested {
+                            file,
+                            span: *span,
+                            run: run.clone(),
+                        },
+                        None => SourceOrigin::Literal { file, span: *span },
+                    };
                     file_ip.add(Arc::new(SpanNode::new(dedented, origin)));
                 } else {
                     file_ip.add(Arc::new(StringNode::new(dedented)));

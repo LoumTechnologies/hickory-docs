@@ -138,7 +138,15 @@ export function OutputEditorPane({
         marks.push({
           from: a,
           to: b,
-          cls: p.origin.kind === "synthetic" ? "cm-prov-synthetic" : "cm-prov-active",
+          // Three states, not two: derived-and-uneditable, yours, and
+          // somebody else's that you may nonetheless edit. Ingested bytes
+          // are editable like literal ones and must not READ like them.
+          cls:
+            p.origin.kind === "synthetic"
+              ? "cm-prov-synthetic"
+              : p.origin.kind === "ingested"
+                ? "cm-prov-ingested"
+                : "cm-prov-active",
         });
       }
     }

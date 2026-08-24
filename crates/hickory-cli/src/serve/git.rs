@@ -71,6 +71,11 @@ struct Commit {
     files: Vec<FileChange>,
     added: u64,
     removed: u64,
+    /// Above the publication floor: still a draft, because nobody else can
+    /// be holding it yet. Filled in after the log walk from
+    /// `crate::floor`; see docs/specs/freeform/expression-and-log.md.
+    #[serde(default)]
+    draft: bool,
 }
 
 #[derive(Deserialize)]
@@ -129,13 +134,32 @@ pub async fn log(
         if !out.status.success() {
             return None;
         }
-        Some(parse_log(&String::from_utf8_lossy(&out.stdout)))
+        let mut commits = parse_log(&String::from_utf8_lossy(&out.stdout));
+        // Which of these are still drafts. Computed here, in the same
+        // blocking task, because it is the same repository and the same
+        // handful of git calls.
+        let floor = crate::floor::compute(&root);
+        if let Some(floor) = &floor {
+            let drafts = crate::floor::draft_set(floor);
+            for commit in &mut commits {
+                commit.draft = drafts.contains(commit.sha.as_str());
+            }
+        }
+        Some((commits, floor))
     })
     .await
     .map_err(|e| ApiError::internal(format!("the git task failed: {e}")))?;
 
     match answer {
-        Some(commits) => Ok(Json(json!({ "repository": true, "commits": commits }))),
+        Some((commits, floor)) => Ok(Json(json!({
+            "repository": true,
+            "commits": commits,
+            // The floor rides along with the log rather than costing a second
+            // request: a graph that cannot say which of its rows are still
+            // drafts is showing half the fact. `null` where the repository
+            // has published nothing to compute one against.
+            "floor": floor,
+        }))),
         // Not a repository, no git, an empty history: all the same answer,
         // and none of them an error.
         None => Ok(Json(json!({ "repository": false, "commits": [] }))),
@@ -192,6 +216,7 @@ fn parse_log(text: &str) -> Vec<Commit> {
         let added = files.iter().filter_map(|f| f.added).sum();
         let removed = files.iter().filter_map(|f| f.removed).sum();
         commits.push(Commit {
+            draft: false,
             sha,
             short,
             parents,

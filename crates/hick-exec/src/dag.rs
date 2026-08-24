@@ -730,7 +730,9 @@ fn extract_exec_info(tag: &HickTag, index: usize) -> Result<ExecInfo, DagValidat
                 if t.name != "copy"
                     && t.name != "cut"
                     && t.name != "expect"
-                    && t.name != "capture")
+                    && t.name != "capture"
+                    // Output, not input: an ingested scaffold is never stdin.
+                    && t.name != "ingested")
         })
         .cloned()
         .collect();
@@ -874,7 +876,14 @@ fn command_text(tag: &HickTag) -> String {
         for node in nodes {
             match node {
                 HickNode::Text(t, _) => out.push_str(t),
-                HickNode::Tag(t) if t.name == "expect" || t.name == "capture" => {}
+                // `ingested` is what the cell PRODUCED, not what it runs.
+                // It is the reason the command has to be wrapped in a
+                // `<hick:copy>` child: forty file bodies sitting as siblings
+                // of ambient command text would otherwise be shipped to the
+                // shell. See
+                // `docs/specs/freeform/owning-what-a-scaffolder-wrote.md`.
+                HickNode::Tag(t)
+                    if t.name == "expect" || t.name == "capture" || t.name == "ingested" => {}
                 HickNode::Tag(t) => collect(&t.children, out),
             }
         }
@@ -898,6 +907,11 @@ fn scan_copy_paste(nodes: &[HickNode], copies: &mut Vec<String>, pastes: &mut Ve
                         pastes.push(select.to_string());
                     }
                 }
+                // An ingested scaffold's file bodies are ordinary document
+                // bytes, not fragments this cell produces or consumes: a
+                // `<hick:paste>`-looking string inside forty files of
+                // somebody else's code must not become a pipeline edge.
+                "ingested" => {}
                 _ => {
                     scan_copy_paste(&tag.children, copies, pastes);
                 }

@@ -168,6 +168,7 @@ fn process_weave_tag(
                     registry,
                     doc_path,
                     span_files,
+                    None,
                 );
 
                 // Emit closing code fence
@@ -195,6 +196,7 @@ fn process_weave_tag(
                 registry,
                 doc_path,
                 span_files,
+                None,
             );
             weave_ip.add(Arc::new(StringNode::new("```\n".to_string())));
         }
@@ -239,6 +241,7 @@ fn process_weave_tag(
                 registry,
                 doc_path,
                 span_files,
+                None,
             );
             weave_ip.add(Arc::new(StringNode::new("$$\n".to_string())));
         }
@@ -346,6 +349,20 @@ fn process_weave_tag(
             );
             weave_ip.add(Arc::new(StringNode::new("\n".to_string())));
         }
+        // What a tool outside this document wrote, and this document now
+        // owns. The weave names the run before showing the files, because a
+        // reader who sees forty files must not have to guess whether somebody
+        // typed them. Say what it is — arrived, from that run, on that day —
+        // never "generated", which would read as derived and checkable.
+        "ingested" => weave_ingested_block(
+            tag,
+            weave_ip,
+            transcripts,
+            state,
+            registry,
+            doc_path,
+            span_files,
+        ),
         // A pipeline edge renders nothing: what it brought in is selectable,
         // not printed. See `resolve_includes` in `hick-lang`.
         "upstream" => {}
@@ -387,8 +404,98 @@ fn process_weave_tag(
                     _ => {}
                 }
             }
+            // An exec's transcript is what the registry just rendered; what
+            // the run PRODUCED and this document ingested is a child of the
+            // cell, and the registry never descends into one. Nesting is
+            // `exec > ingested > file`, so this is the only place it weaves.
+            if tag.name == "exec" {
+                for child in tag.child_tags() {
+                    if child.name == "ingested" {
+                        weave_ingested_block(
+                            child,
+                            weave_ip,
+                            transcripts,
+                            state,
+                            registry,
+                            doc_path,
+                            span_files,
+                        );
+                    }
+                }
+            }
             // Skip declaration-phase tags (var, copy, cut, substitute, etc.)
         }
+    }
+}
+
+/// Weave one `<hick:ingested>` block: an attribution line naming the run,
+/// then each file the way `hick:file` weaves one.
+///
+/// `doc-hidden` is honoured per file, exactly as elsewhere — a scaffold's
+/// build output is the case that wants it.
+#[allow(clippy::too_many_arguments)]
+fn weave_ingested_block(
+    tag: &hick_lang::HickTag,
+    weave_ip: &Arc<InsertionPoint>,
+    transcripts: &HashMap<String, Vec<TranscriptEntry>>,
+    state: &Arc<MultiDocumentState>,
+    registry: &TagRegistry,
+    doc_path: &str,
+    span_files: &[Arc<str>],
+) {
+    let Some(run) = tag_attr(tag, "sha256").filter(|v| !v.is_empty()) else {
+        return;
+    };
+    let from = tag_attr(tag, "from").unwrap_or_default();
+    let at = tag_attr(tag, "at").unwrap_or_default();
+    let files = tag_attr(tag, "files").unwrap_or_default();
+    let skipped = tag_attr(tag, "skipped").unwrap_or_default();
+    let short: String = run.chars().take(12).collect();
+
+    let mut line = String::from("\n*Ingested");
+    if !from.is_empty() {
+        line.push_str(&format!(" from `{from}`"));
+    }
+    if !at.is_empty() {
+        line.push_str(&format!(" on {at}"));
+    }
+    line.push_str(&format!(" — run `{short}`"));
+    if !files.is_empty() {
+        line.push_str(&format!(", {files} file(s)"));
+    }
+    if !skipped.is_empty() && skipped != "0" {
+        line.push_str(&format!(", {skipped} skipped"));
+    }
+    line.push_str(". These bytes came from that run, not from this document's author.*\n");
+    weave_ip.add(Arc::new(StringNode::new(line)));
+
+    let run: Arc<str> = Arc::from(run.as_str());
+    for child in tag.child_tags() {
+        if child.name != "file" {
+            continue;
+        }
+        let doc_hidden = tag_attr(child, "doc-hidden")
+            .map(|v| v == "true" || v == "1")
+            .unwrap_or(false);
+        if doc_hidden {
+            continue;
+        }
+        let path = interpolate_path(&tag_attr(child, "path").unwrap_or_default(), state);
+        let language = extension_to_language(&path);
+        weave_ip.add(Arc::new(StringNode::new(format!("\n### `{path}`\n\n"))));
+        weave_ip.add(Arc::new(StringNode::new(format!("```{language}\n"))));
+        process_file_children_to_weave(
+            &child.children,
+            weave_ip,
+            transcripts,
+            state,
+            child.source_column,
+            registry,
+            doc_path,
+            span_files,
+            Some(&run),
+        );
+        weave_ip.add(Arc::new(StringNode::new("```\n".to_string())));
     }
 }
 
@@ -408,6 +515,7 @@ fn process_file_children_to_weave(
     registry: &TagRegistry,
     doc_path: &str,
     span_files: &[Arc<str>],
+    ingested: Option<&Arc<str>>,
 ) {
     let ctx = ProcessingContext {
         state,
@@ -434,11 +542,22 @@ fn process_file_children_to_weave(
                 // so an indented block degrades to synthetic on its own rather
                 // than claiming a mapping that would land edits elsewhere.
                 match span {
+                    // Same rule as the file output: inside an ingested block
+                    // these bytes are present and byte-precise but not yours,
+                    // so the woven markdown's ribbon says where they came
+                    // from rather than colouring them as your prose.
                     Some(span) => weave_ip.add(Arc::new(SpanNode::new(
                         dedented,
-                        SourceOrigin::Literal {
-                            file: origin_file(doc_path, span_files, span),
-                            span: *span,
+                        match ingested {
+                            Some(run) => SourceOrigin::Ingested {
+                                file: origin_file(doc_path, span_files, span),
+                                span: *span,
+                                run: run.clone(),
+                            },
+                            None => SourceOrigin::Literal {
+                                file: origin_file(doc_path, span_files, span),
+                                span: *span,
+                            },
                         },
                     ))),
                     None => weave_ip.add(Arc::new(StringNode::new(dedented))),

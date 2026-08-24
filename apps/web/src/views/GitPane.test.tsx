@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-li
 
 import { GitPane, when } from "./GitPane";
 import { api } from "../api/client";
-import type { GitCommit } from "../api/types";
+import type { GitCommit, GitLog } from "../api/types";
 
 beforeEach(() => {
   vi.restoreAllMocks();
@@ -28,10 +28,11 @@ const commit = (over: Partial<GitCommit> = {}): GitCommit => ({
   ...over,
 });
 
-const serve = (log: Partial<{ repository: boolean; commits: GitCommit[] }>) =>
+const serve = (log: Partial<GitLog>) =>
   vi.spyOn(api, "gitLog").mockResolvedValue({
     repository: true,
     commits: [commit()],
+    floor: null,
     ...log,
   });
 
@@ -164,5 +165,40 @@ describe("how a commit's age reads", () => {
 
   it("becomes a year past that", () => {
     expect(when(at(500), now)).toBe("2025");
+  });
+});
+
+// docs/guarantees/collaboration/the-publication-floor-is-computed-and-shown.md
+describe("the publication floor", () => {
+  it("marks the commits above it as drafts and says why", () => {
+    serve({
+      commits: [
+        commit({ sha: "aaa", short: "aaa", subject: "still a draft", draft: true }),
+        commit({ sha: "bbb", short: "bbb", subject: "published", parents: ["ccc"] }),
+      ],
+      floor: {
+        published_ref: "origin/master",
+        sha: "bbb",
+        source: "upstream",
+        drafts: ["aaa"],
+        summary:
+          "1 commit(s) above the floor at origin/master: still drafts, because nobody else can be holding them yet. Everything below is a record.",
+      },
+    });
+    render(<GitPane />);
+    return waitFor(() => {
+      expect(screen.getByText(/1 draft$/)).toBeTruthy();
+      expect(screen.getByText(/nobody else can be holding them/)).toBeTruthy();
+      // One badge, on the one commit above the floor.
+      expect(screen.getAllByText("draft")).toHaveLength(1);
+    });
+  });
+
+  it("says nothing where the repository has published nothing to compare against", () => {
+    // A folder with no remote has published nothing; a floor bar claiming a
+    // line exists would be an invented fact.
+    serve({ floor: null });
+    render(<GitPane />);
+    return waitFor(() => expect(screen.queryByText(/above the floor/)).toBeNull());
   });
 });

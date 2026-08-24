@@ -153,6 +153,17 @@ fn narrowed(origin: &SourceOrigin, offset: usize, len: usize, input_len: usize) 
             },
             None => origin.clone(),
         },
+        // Narrowing an ingested origin keeps the run fingerprint: a slice of
+        // a scaffolder's file is still that scaffolder's bytes, and losing the
+        // run would turn it back into text somebody claims to have written.
+        SourceOrigin::Ingested { file, span, run } => match cut(span, offset, len, input_len) {
+            Some(span) => SourceOrigin::Ingested {
+                file: file.clone(),
+                span,
+                run: run.clone(),
+            },
+            None => origin.clone(),
+        },
         SourceOrigin::Agent {
             session,
             turn,

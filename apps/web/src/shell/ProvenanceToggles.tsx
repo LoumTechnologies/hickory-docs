@@ -14,9 +14,17 @@ import {
 export function ProvenanceToggles({
   layers,
   onToggle,
+  continuity,
+  onContinuity,
 }: {
   layers: ReadonlySet<ProvenanceLayer>;
   onToggle: (layer: ProvenanceLayer) => void;
+  /** Whether continuity is on FOR THIS PROJECT. Unlike the other three, this
+   * is not a per-browser drawing preference: the whole feature — ribbon,
+   * journal and pre-commit repair — rides one switch, so the toggle that
+   * draws it is the switch that records it. */
+  continuity?: boolean;
+  onContinuity?: (enabled: boolean) => void;
 }) {
   return (
     <span
@@ -25,7 +33,13 @@ export function ProvenanceToggles({
       aria-label="Provenance layers"
     >
       {PROVENANCE_LAYERS.map((layer) => {
-        const on = layers.has(layer);
+        // Continuity is not shown at all until the project has it, because a
+        // toggle for a feature that records nothing is a toggle that does
+        // nothing — and one that silently started writing records into
+        // somebody's repository would be worse.
+        const isContinuity = layer === "continuity";
+        if (isContinuity && continuity === undefined) return null;
+        const on = isContinuity ? Boolean(continuity) : layers.has(layer);
         return (
           <button
             key={layer}
@@ -35,7 +49,7 @@ export function ProvenanceToggles({
             }`}
             aria-pressed={on}
             data-tip={LAYER_LABEL[layer].tip}
-            onClick={() => onToggle(layer)}
+            onClick={() => (isContinuity ? onContinuity?.(!on) : onToggle(layer))}
           >
             <span className="provenance-toggle__swatch" aria-hidden />
             {LAYER_LABEL[layer].short}

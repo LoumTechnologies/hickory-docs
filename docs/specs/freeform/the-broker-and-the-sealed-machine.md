@@ -1,7 +1,12 @@
 # The sealed machine and the broker: an agent with no keys and one road out
 
 *Status: design of record for sealed machines and mediated egress. Adopted
-2026-08-23. **Nothing here is built.** It is the third of the sharing designs
+2026-08-23. **Sequence steps 1 and 2 are built** (2026-08-23): the seal and
+its check, and the broker with `allow`/`deny` — a CONNECT proxy with a host
+policy and a log, no TLS termination, no keys, no CA. `ask` and `substitute`
+are configurable and **deny with the reason** rather than hanging or
+pretending. See
+`docs/guarantees/collaboration/one-road-out-with-a-toll-booth.md`. It is the third of the sharing designs
 — `one-engineer-many-machines.md` is how you reach the box, this is what the
 box is allowed to do, and `machine-scoped-edits.md` is what an edit made on it
 means. It obeys `local-only.md` without amendment: the broker is a subcommand
@@ -196,11 +201,12 @@ and useful for trying the thing before buying a machine for it.
 
 ## Sequence
 
-1. **The seal, without a broker.** `hick sealed --check`, the refusals, the
-   boot failure on a stray provider variable. On its own this is a machine that
-   cannot use a model at all, which is a coherent and testable state.
-2. **The broker, `allow`/`deny` only** — a CONNECT proxy with a host policy and
-   the log. No TLS termination, no keys, no CA. This is most of the value.
+1. ~~**The seal, without a broker.**~~ **Built 2026-08-23.**
+2. ~~**The broker, `allow`/`deny` only.**~~ **Built 2026-08-23.** One thing
+   fell out of building it: a verb that is configured but not implemented must
+   **deny with the reason**, never hang — an agent that receives a timeout
+   invents a reason, and that argument applies to our own unbuilt verbs as much
+   as to a denied host.
 3. **`substitute`** — the CA, the stub credential, key storage on the broker
    via `hick-secrets`.
 4. **`ask`**, over the fleet channel, with replay-after-approval.

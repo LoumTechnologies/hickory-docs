@@ -1,0 +1,37 @@
+[package]
+name = "hickory-peer"
+version = "0.1.0"
+edition = "2024"
+publish = false
+license.workspace = true
+description = "The peer channel: one engineer's machines reaching each other's sessions, dialled by public key"
+
+[dependencies]
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+base64 = "0.22"
+log = "0.4"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-util", "time", "sync"] }
+hickory-fleet = { path = "../hickory-fleet" }
+# Pairing derives a rendezvous keypair from a spoken phrase. Slow on purpose:
+# it is what makes each guess in the window expensive.
+# LAN discovery, so two machines in one house find each other with no third
+# party at all — which is what makes `Reach::Direct` a usable posture rather
+# than "you must already know the address", and what lets a spoken phrase
+# resolve offline.
+iroh-mdns-address-lookup = "0.5"
+argon2 = "0.5"
+getrandom = "0.3"
+# QUIC dialled by public key. MIT OR Apache-2.0.
+#
+# It is here rather than a hand-rolled Noise-over-WebSocket for one reason:
+# its endpoint identity IS an ed25519 public key, which is what a machine
+# already is in this product — so the fleet's mutual key list becomes the
+# allowlist directly, and the authenticated encrypted channel is an
+# implementation nobody here had to write.
+iroh = { version = "1.0", default-features = false, features = ["tls-ring"] }
+
+[dev-dependencies]
+tempfile = "3"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-util", "time", "sync"] }

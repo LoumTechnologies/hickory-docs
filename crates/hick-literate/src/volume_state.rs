@@ -73,8 +73,12 @@ impl VolumeStore {
 
     /// Unpack a volume's tar archive into a HashMap of path → content.
     ///
-    /// Only extracts regular files. Returns file contents as strings
-    /// (lossy UTF-8 conversion for binary files).
+    /// Only extracts regular files, and **only text ones**: a non-UTF-8 entry
+    /// is an error here, not a lossy conversion. The pipeline's own flush no
+    /// longer uses this — it reads bytes through [`read_tar_files`] so a
+    /// binary in an output volume becomes `FileContent::Binary` rather than
+    /// failing the run — and this remains for callers that genuinely want
+    /// text or nothing.
     pub fn unpack_to_files(&self, name: &str) -> Result<HashMap<String, String>> {
         let data = self
             .archives

@@ -1,7 +1,14 @@
 # Owning what a scaffolder wrote
 
 *Status: design of record for how a document owns files it did not type.
-Adopted 2026-08-23. **Nothing here is built.** **Supersedes**
+Adopted 2026-08-23. **Sequence steps 1 and 2 are built** (2026-08-23):
+`hick ingest --from '#cell' <doc>.hick` writes `<hick:ingested>` with the
+gitignore filter and the non-UTF-8 refusal, and the ingested `SourceOrigin`
+keeps blame and the reverse edit honest — see
+`docs/guarantees/authoring/ingest-owns-what-a-scaffolder-wrote.md` and
+`docs/guarantees/lineage/ingested-bytes-are-not-yours.md`. **Steps 3–5 (the
+re-ingest merge, volatile regions, the correspondence record) are not.**
+**Supersedes**
 `scaffolded-files-and-derived-edits.md` on its mechanism — `from=` pointing at
 a captured exec, and a `<hick:derive>` block of structurally-anchored edits over
 it. That document remains accurate and worth reading on the two things it
@@ -224,12 +231,16 @@ rather than implying a base it cannot reproduce.
 
 ## Sequence
 
-1. **`hick ingest` over an exec's output volume**, with the gitignore filter and
-   the non-UTF-8 refusal, writing `<hick:ingested>` and its fingerprint. No
-   merge, no continuity — this alone makes a scaffolded codebase reproducible
-   from a clone, and it is most of the value.
-2. **The ingested origin** in provenance, so the ribbons and blame are honest
-   and the reverse edit works on scaffold bytes.
+1. ~~**`hick ingest` over an exec's output volume**~~ **Built 2026-08-23.**
+   With the gitignore filter and the non-UTF-8 refusal, writing
+   `<hick:ingested>` and its fingerprint. One thing the design did not name
+   fell out of building it: **a volume a document has ingested is no longer
+   flushed as a pipeline output**, because otherwise the next `hick run`
+   silently overwrites your four lines with the scaffolder's originals.
+2. ~~**The ingested origin** in provenance~~ **Built 2026-08-23.**
+   `SourceOrigin::Ingested { file, span, run }` and `Origin::Ingested`, which
+   is editable (so the reverse edit works on scaffold bytes) and never reports
+   as `literal` (so blame does not say you wrote them).
 3. **Re-ingest as a three-way merge** through `hick-merge`, with the recorded
    `sha256` as the base.
 4. **Volatile regions**, once the merge has produced enough false conflicts to

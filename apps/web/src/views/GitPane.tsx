@@ -19,7 +19,7 @@
 import { useEffect, useMemo, useState } from "react";
 
 import { api } from "../api/client";
-import type { GitCommit, GitFileChange } from "../api/types";
+import type { GitFileChange, GitLog } from "../api/types";
 import { graphWidth, laneColor, layout } from "../lib/gitGraph";
 
 /** Row height and lane spacing, in px. Shared by the SVG and the list, which
@@ -29,7 +29,7 @@ const LANE = 14;
 const EXPANDED_EXTRA = 0;
 
 export function GitPane({ onOpenFile }: { onOpenFile?: (path: string) => void }) {
-  const [log, setLog] = useState<{ repository: boolean; commits: GitCommit[] } | null>(null);
+  const [log, setLog] = useState<GitLog | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState<ReadonlySet<string>>(new Set());
   const [limit, setLimit] = useState(120);
@@ -70,14 +70,34 @@ export function GitPane({ onOpenFile }: { onOpenFile?: (path: string) => void })
 
   const graphPx = (width + 1) * LANE;
 
+  const floor = log.floor;
+
   return (
     <div className="git-pane">
+      {/* The publication floor, stated rather than felt. Below it commits are
+          records — someone else may be holding them; above it they are
+          drafts, and re-emission may replace them. Merging moves the line,
+          which is why it is computed on every read and never stored.
+          docs/specs/freeform/expression-and-log.md */}
+      {floor && (
+        <p className="git-floor" role="status">
+          <span className="git-floor__count">
+            {floor.drafts.length === 0
+              ? "No drafts"
+              : `${floor.drafts.length} draft${floor.drafts.length === 1 ? "" : "s"}`}
+          </span>{" "}
+          {floor.summary}
+        </p>
+      )}
       <ol className="git-log" style={{ ["--git-graph" as string]: `${graphPx}px` }}>
         {log.commits.map((commit, index) => {
           const row = rows[index];
           const expanded = open.has(commit.sha);
           return (
-            <li key={commit.sha} className="git-commit">
+            <li
+              key={commit.sha}
+              className={`git-commit${commit.draft ? " git-commit--draft" : ""}`}
+            >
               <div className="git-commit__line">
                 {/* One SVG per row, so a row can grow when it is expanded
                     without the graph above it having to be redrawn. */}
@@ -117,6 +137,14 @@ export function GitPane({ onOpenFile }: { onOpenFile?: (path: string) => void })
                   }
                 >
                   <span className="git-commit__subject">{commit.subject}</span>
+                  {commit.draft && (
+                    <span
+                      className="git-draft"
+                      data-tip="Above the publication floor: still a draft, because nobody else can be holding it yet. Below the floor a commit is a record and nothing may re-produce it."
+                    >
+                      draft
+                    </span>
+                  )}
                   <span className="git-commit__meta">
                     {commit.refs.map((ref) => (
                       <span key={ref} className="git-ref">

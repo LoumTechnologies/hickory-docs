@@ -34,7 +34,9 @@ pub mod debug_bridge;
 pub mod find;
 pub mod formula;
 pub mod git;
+pub mod history;
 pub mod lsp_bridge;
+pub mod merged;
 pub mod plain_file;
 pub mod refactor;
 pub mod reveal;
@@ -393,6 +395,10 @@ fn router(state: LocalState) -> Router {
         .route("/docs/{id}/outputs/edit", post(api::edit_outputs))
         .route("/docs/{id}/context", get(api::get_context))
         .route("/docs/{id}/cites", get(api::get_cites))
+        // Replay: exact lineage at any commit, recomputed by weaving that
+        // commit's document. See docs/specs/freeform/provenance-across-versions.md.
+        .route("/docs/{id}/history", get(history::history))
+        .route("/docs/{id}/replay", get(history::replay))
         .route("/sessions/view", get(api::session_view))
         .route("/docs/{id}/refactor/begin", post(refactor::begin))
         .route("/docs/{id}/refactor/status", get(refactor::status))
@@ -410,6 +416,11 @@ fn router(state: LocalState) -> Router {
         .route(
             "/settings/ui",
             get(api::get_settings_ui).put(api::put_settings_ui),
+        )
+        // Continuity: off by default, and the whole feature on one switch.
+        .route(
+            "/settings/continuity",
+            get(history::get_continuity).put(history::put_continuity),
         )
         .route("/files", get(api::files))
         .route("/reveal", post(reveal::reveal))
@@ -434,6 +445,34 @@ fn router(state: LocalState) -> Router {
         // a terminal on every row of the tree. See serve/git.rs.
         .route("/git/log", get(git::log))
         .route("/git/status", get(git::status))
+        // The publication floor and the merge-driver check: two facts about
+        // the repository that the document panes need at open, and that no
+        // amount of reading the log can answer.
+        .route("/git/floor", get(history::floor))
+        // The merged view: one tab, several worktrees, read-only for now —
+        // the alignment is where the risk lives and is proved before anything
+        // writes through it. See docs/specs/freeform/the-merged-view.md.
+        .route("/worktrees", get(merged::list))
+        .route("/merged", get(merged::merged))
+        // Writing through the view. Read-only is the default for any target
+        // not explicitly opened for writing, a multi-target edit is not
+        // atomic and reports per target, and undo across targets restores
+        // from the recorded before-bytes of every one of them.
+        .route("/merged/write", post(merged::write))
+        .route("/merged/undo", post(merged::undo))
+        .route("/git/merge-driver", get(history::merge_driver))
+        // The fleet: a roster, not a presence list — nothing is reachable.
+        .route("/fleet", get(history::fleet))
+        // Enrolling and granting are done STANDING AT a machine: these are
+        // deliberately unreachable over the peer channel, or a peer could
+        // grant itself `execute` from inside the channel those grants bound.
+        .route("/fleet/phrase", get(history::fleet_phrase))
+        .route("/fleet/host", post(history::fleet_host))
+        .route("/fleet/pair", post(history::fleet_pair))
+        .route("/fleet/invite", get(history::fleet_invite))
+        .route("/fleet/accept", post(history::fleet_accept))
+        .route("/fleet/grant", axum::routing::put(history::fleet_grant))
+        .route("/fleet/remove", post(history::fleet_remove))
         // Formulas: the host has already resolved references and worked out
         // the order by the time a backend sees anything. See serve/formula.rs.
         .route("/formula/evaluate", post(formula::evaluate))
@@ -578,6 +617,30 @@ pub async fn serve(opts: ServeOptions) -> Result<()> {
 // ---------------------------------------------------------------------------
 // Small helpers
 // ---------------------------------------------------------------------------
+
+/// The commit the work sits on, or `None` outside a repository.
+///
+/// Context for a correspondence recorded in the working tree: both its
+/// endpoints are uncommitted, so the entry names what they were uncommitted
+/// *from*.
+pub(crate) fn git_head(root: &std::path::Path) -> Option<String> {
+    let out = std::process::Command::new("git")
+        .arg("-C")
+        .arg(root)
+        .args(["rev-parse", "HEAD"])
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let sha = String::from_utf8_lossy(&out.stdout).trim().to_string();
+    (!sha.is_empty()).then_some(sha)
+}
+
+/// [`now_rfc3339`], for callers outside this module (the broker's log).
+pub fn now_rfc3339_public() -> String {
+    now_rfc3339()
+}
 
 pub(crate) fn now_rfc3339() -> String {
     let secs = std::time::SystemTime::now()
