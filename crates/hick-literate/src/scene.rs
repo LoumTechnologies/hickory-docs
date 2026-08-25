@@ -56,7 +56,7 @@ pub struct Topology {
     pub edges: Vec<SceneEdge>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct SceneNode {
     pub id: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -68,9 +68,12 @@ pub struct SceneNode {
     pub fill: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stroke: Option<String>,
+    /// Text colour. Absent means the theme's own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct SceneEdge {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
@@ -91,6 +94,9 @@ pub struct SceneEdge {
     /// end (default), none, both.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub arrow: Option<String>,
+    /// Line colour, arrowheads included. Absent means the theme's own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<String>,
 }
 
 /// Where a node sits, integer pixels in the scene's own plane.

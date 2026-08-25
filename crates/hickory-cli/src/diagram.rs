@@ -98,25 +98,18 @@ pub fn generate_topology(root: &Path, group: Grouping) -> std::io::Result<Topolo
             .into_iter()
             .map(|id| SceneNode {
                 id,
-                label: None,
-                shape: None,
-                fill: None,
-                stroke: None,
+                ..SceneNode::default()
             })
             .collect(),
         edges: counts
             .into_iter()
             .map(|((from, to), n)| SceneEdge {
-                id: None,
                 from,
                 to,
-                // Sides are a person's choice, recorded by the editor —
-                // never invented here.
-                from_side: None,
-                to_side: None,
                 label: (n > 1).then(|| format!("{n} refs")),
-                style: None,
-                arrow: None,
+                // Everything else — sides, colour — is a person's choice,
+                // recorded by the editor and never invented here.
+                ..SceneEdge::default()
             })
             .collect(),
     })
@@ -190,10 +183,7 @@ mod tests {
         Topology {
             nodes: vec![SceneNode {
                 id: "api".into(),
-                label: None,
-                shape: None,
-                fill: None,
-                stroke: None,
+                ..SceneNode::default()
             }],
             edges: vec![],
         }

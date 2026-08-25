@@ -1593,6 +1593,71 @@ textarea:focus {
   font-size: 0.74rem;
   color: var(--fail);
 }
+/* The inspector: appears under the toolbar when something is selected, and
+ * IS the styling surface — shape, palette swatches, arrowheads, dash, label.
+ * A row of small named choices, not a colour picker: eight hues keep two
+ * diagrams in one project looking like siblings. */
+.graph-inspector {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0 0 0.45rem;
+  font-size: 0.74rem;
+  color: var(--fg-muted);
+  /* Constant height on purpose: this row exists whether or not something is
+   * selected, because the panel's height is the document's height there —
+   * an inspector that comes and goes reflows the prose below the diagram
+   * on every click. Overflow scrolls inside the row instead of wrapping. */
+  min-height: 30px;
+  overflow-x: auto;
+  white-space: nowrap;
+}
+.graph-inspector__row {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+.graph-inspector__hint {
+  font-style: italic;
+}
+.graph-inspector__group {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+.graph-inspector select,
+.graph-inspector button,
+.graph-inspector input {
+  font: inherit;
+  color: var(--fg);
+  background: var(--bg-sunken);
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 0.1rem 0.4rem;
+}
+.graph-inspector__label {
+  width: 9rem;
+}
+.graph-swatch {
+  width: 16px;
+  height: 16px;
+  padding: 0 !important;
+  border-radius: 4px !important;
+  border: 1px solid var(--border) !important;
+  cursor: pointer;
+}
+.graph-swatch:hover {
+  outline: 2px solid var(--accent);
+}
+.graph-swatch--none {
+  background: var(--bg-sunken) !important;
+  color: var(--fg-muted);
+  font-size: 0.7rem;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
 .graph-editor__canvas {
   border: 1px solid var(--border);
   border-radius: 6px;
@@ -1605,6 +1670,11 @@ textarea:focus {
 }
 .graph-node {
   box-sizing: border-box;
+  /* Fill the React Flow wrapper BOTH ways: a div fills width on its own but
+   * not height, and the resizer resizes the wrapper — without this a resize
+   * grew the frame while the visible box kept its content height. */
+  width: 100%;
+  height: 100%;
   min-width: 120px;
   min-height: 44px;
   display: flex;
@@ -1643,9 +1713,11 @@ textarea:focus {
 .graph-node--cylinder {
   border-radius: 10px / 24px;
 }
-/* Grace on the connection points: the HIT target is 14px per side while the
- * visible dot is smaller and appears only when the pointer is near — a
- * target you must land on exactly is a target you miss. */
+/* The connection bubbles: round, always faintly there — a target you can
+ * see is a target you can aim for — and bright when the pointer is near or
+ * a line is being drawn. The HIT target (14px) outsizes the visible dot.
+ * Round on purpose: the resizer's corner grips are SQUARE, so what connects
+ * and what resizes never look like each other. */
 .graph-editor .react-flow__handle {
   width: 14px;
   height: 14px;
@@ -1658,7 +1730,8 @@ textarea:focus {
   inset: 4px;
   border-radius: 50%;
   background: var(--accent);
-  opacity: 0;
+  border: 1px solid var(--bg-sunken);
+  opacity: 0.45;
   transition: opacity 120ms ease;
 }
 .graph-editor .graph-node:hover .react-flow__handle::after,
@@ -1666,6 +1739,41 @@ textarea:focus {
 .graph-editor .react-flow__handle.connectingto::after,
 .graph-editor .react-flow__handle.connectingfrom::after {
   opacity: 1;
+}
+
+/* Resize grace: the corner grips are small SQUARES to look at and 16px to
+ * hit, and the box's sides are a wide invisible band — the selection is
+ * already drawn by the node's own halo, so the bands carry no ink, only
+ * grab. Near the corner is at the corner. */
+.graph-editor .react-flow__resize-control.handle {
+  width: 16px;
+  height: 16px;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+}
+.graph-editor .react-flow__resize-control.handle::after {
+  content: "";
+  position: absolute;
+  inset: 5px;
+  background: var(--accent);
+  border: 1px solid var(--bg-sunken);
+}
+.graph-editor .react-flow__resize-control.line {
+  border-color: transparent;
+  border-width: 6px;
+}
+/* The end-grips of a line: invisible until the line is SELECTED, then a
+ * soft halo at each end says "grab here to re-plug". The circle itself is
+ * the hit area (its radius is the reconnect radius), so it is tinted, never
+ * shrunk. Dragging from a node's dot without selecting draws a NEW line —
+ * the two gestures share pixels, and selection is what tells them apart. */
+.graph-editor .react-flow__edgeupdater {
+  cursor: grab;
+}
+.graph-editor .react-flow__edge.selected .react-flow__edgeupdater {
+  fill: var(--accent);
+  fill-opacity: 0.22;
 }
 .graph-node__rename {
   font: inherit;

@@ -457,18 +457,6 @@ export interface StructureResponse {
   links: StructuralLink[];
 }
 
-/** `GET /api/diagram` — the deterministic generator's answer: a scene
- * topology deduced from the folder's code. `structural` is always true today
- * and is carried so the client says "name-resolved" rather than implying a
- * compiler's precision. */
-export interface DiagramTopologyResponse {
-  structural: boolean;
-  topology: {
-    nodes: { id: string; label?: string; shape?: string }[];
-    edges: { from: string; to: string; label?: string; style?: string }[];
-  };
-}
-
 // --- settings: LLM API keys --------------------------------------------------
 // GET/PUT /api/settings/keys. The server NEVER returns a full key — only
 // whether one is configured, and a masked hint for telling keys apart.

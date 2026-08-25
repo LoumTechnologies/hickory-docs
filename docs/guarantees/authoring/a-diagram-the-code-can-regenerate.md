@@ -1,7 +1,8 @@
 # A Diagram The Code Can Regenerate
 
-Given a folder of source code, when `hick diagram <path>` runs (or the app
-asks `GET /api/diagram`), then a scene topology is deduced deterministically —
+Given a folder of source code, when `hick diagram <path>` runs — at a
+terminal, in CI, or inside a `hick:exec` cell, which is the intended home —
+then a scene topology is deduced deterministically —
 no model, no API key, no toolchain: tree-sitter compiled into the binary,
 walking gitignore-aware — as nodes per file or per top-level directory and
 edges from name-resolved references, **never** carrying a `layout`; and when
@@ -38,13 +39,13 @@ Last LLM verification:
   - CLI: `cmd_diagram` in `crates/hickory-cli/src/main.rs` — `--format`,
     `--group`, `--refresh`, `--fragment`; misuse and an empty folder get
     sentences with next steps, per the user-facing-errors rules.
-  - Server: `GET /api/diagram` (`serve/api.rs::diagram`, mounted in
-    `serve/mod.rs` beside `/structure`), `spawn_blocking` for the CPU walk,
-    answering `{structural: true, topology}`; client
-    `api.diagramTopology()` (`apps/web/src/api/client.ts`); the graph
-    editor's "Generate from code" verb
-    (`GraphEditorPanel.tsx::generateFromCode`) replaces topology only, on
-    hand-drawn scenes only.
+  - There is deliberately NO app verb and no API route for this (a
+    "Generate from code" toolbar button and `GET /api/diagram` existed
+    briefly and were removed 2026-08-25): the way a generated diagram
+    enters a document is a `hick:exec` cell running the generator with an
+    `<hick:expect>` pinning its output, a fragment stating it, and a
+    derived diagram pasting the fragment — the exec block IS the source,
+    and a second, unpinned path would be a way to draw that nothing checks.
   - Worked example: `examples/architecture-that-draws-itself.hick` — the
     code, the expect-pinned scan, the fragment, the derived graph diagram,
     and the SCIP-in-a-user-container variant as literal text (the document
@@ -55,8 +56,6 @@ Last LLM verification:
     exists here to run it, which is the point of saying the image is the
     user's to build. Its jq query is illustrative and untested against a
     real SCIP index.
-  - `/api/diagram` has no serve-level test; it is a thin wrapper over the
-    unit-tested generator.
 - Test coverage: `crates/hickory-cli/tests/diagram_cli.rs` (4 e2e tests:
   topology with no layout, mermaid downgrade parity, refresh rewriting the
   fragment while the layout survives and the refreshed document weaving, the

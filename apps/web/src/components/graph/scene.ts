@@ -22,6 +22,8 @@ export interface SceneNode {
   shape?: string;
   fill?: string;
   stroke?: string;
+  /** Text colour. Absent means the theme's own. */
+  text?: string;
 }
 
 export interface SceneEdge {
@@ -38,6 +40,8 @@ export interface SceneEdge {
   style?: string;
   /** end (default), none, both. */
   arrow?: string;
+  /** Line colour, arrowheads included. Absent means the theme's own. */
+  color?: string;
 }
 
 export interface NodeLayout {
@@ -136,6 +140,7 @@ function nodeLine(node: SceneNode): string {
     jsonField("shape", node.shape),
     jsonField("fill", node.fill),
     jsonField("stroke", node.stroke),
+    jsonField("text", node.text),
   ].filter(Boolean);
   return `{${fields.join(", ")}}`;
 }
@@ -150,6 +155,7 @@ function edgeLine(edge: SceneEdge): string {
     jsonField("label", edge.label),
     jsonField("style", edge.style),
     jsonField("arrow", edge.arrow),
+    jsonField("color", edge.color),
   ].filter(Boolean);
   return `{${fields.join(", ")}}`;
 }
@@ -216,4 +222,73 @@ export function placeMissing(
 }
 
 export const DEFAULT_W = 160;
-export const DEFAULT_H = 56;
+export const DEFAULT_H = 64;
+
+/** The canvas grid, in pixels: positions and sizes snap to it, and the dot
+ * background draws it. One number so they can never disagree. */
+export const GRID = 16;
+
+/** Snap a coordinate or size to the grid. */
+export function snap(value: number): number {
+  return Math.round(value / GRID) * GRID;
+}
+
+// ---------------------------------------------------------------------------
+// Connection slots: the points a side offers.
+// ---------------------------------------------------------------------------
+
+export type Side = "top" | "right" | "bottom" | "left";
+export const SIDES_ALL: Side[] = ["top", "right", "bottom", "left"];
+
+/** A recorded side is `left` or `left.N` — side plus which slot on it. */
+export function parseSideRef(value: string): { side: Side; slot: number } | null {
+  const [side, slot] = value.split(".");
+  if (!SIDES_ALL.includes(side as Side)) return null;
+  const n = slot === undefined ? 0 : Number(slot);
+  return Number.isInteger(n) && n >= 0 ? { side: side as Side, slot: n } : null;
+}
+
+/** The handle id a slot renders as — slot 0 keeps the bare side name, so
+ * every scene recorded before slots existed still means what it meant. */
+export function sideRef(side: Side, slot: number): string {
+  return slot === 0 ? side : `${side}.${slot}`;
+}
+
+/** Which slots each side of each node has lines attached to. */
+export function occupiedSlots(
+  edges: SceneEdge[],
+): Record<string, Partial<Record<Side, number[]>>> {
+  const out: Record<string, Partial<Record<Side, number[]>>> = {};
+  const add = (nodeId: string, ref: string | undefined) => {
+    if (!ref) return;
+    const parsed = parseSideRef(ref);
+    if (!parsed) return;
+    const sides = (out[nodeId] ??= {});
+    const slots = (sides[parsed.side] ??= []);
+    if (!slots.includes(parsed.slot)) slots.push(parsed.slot);
+  };
+  for (const edge of edges) {
+    add(edge.from, edge.fromSide);
+    add(edge.to, edge.toSide);
+  }
+  return out;
+}
+
+/** Distance between two bubbles on one side. */
+export const SLOT_SPACING = 18;
+
+/**
+ * What one side draws: every occupied slot plus exactly one FREE slot (the
+ * lowest unused index), the whole group centered with a narrow gap — a side
+ * with one line offers two points, a side with two offers three. Offsets are
+ * from the side's midpoint, in pixels.
+ */
+export function slotLayout(occupied: number[]): { slot: number; offset: number }[] {
+  let free = 0;
+  while (occupied.includes(free)) free += 1;
+  const slots = [...occupied, free].sort((a, b) => a - b);
+  return slots.map((slot, i) => ({
+    slot,
+    offset: (i - (slots.length - 1) / 2) * SLOT_SPACING,
+  }));
+}

@@ -42,8 +42,9 @@ layout is what only a person decides.** `nodes` and `edges` carry ids, labels,
 shapes (`rect`, `round`, `pill`, `circle`, `diamond`, `hexagon`, `cylinder`),
 optional colours, edge styles (`solid`/`dashed`/`dotted`) and arrowheads
 (`end`/`none`/`both`). `layout` maps node id → position, in integer pixels.
-An edge may also record `fromSide`/`toSide` (top/right/bottom/left) — which
-side of the box each end meets. Sides sit on the person's half of the split
+An edge may also record `fromSide`/`toSide` — which side of the box each end
+meets (`top`/`right`/`bottom`/`left`), with an optional slot suffix
+(`left.1`) when several lines share a side. Sides sit on the person's half of the split
 in spirit (a generator never sets them; the editor records them when a line
 is drawn or re-plugged) but live on the edge, because an edge with no nodes
 to sit between is nothing; the mermaid downgrade ignores them, since mermaid
@@ -81,18 +82,30 @@ must not reach a page that shows no diagrams.
 
 Two interaction rules, stated because they are choices and not defaults:
 
-- **A line is re-pluggable.** Grab an existing edge near either end and drag
-  it to another node — or another side of the same node — instead of
-  deleting and redrawing. Every side of a node is one connection point,
-  usable in either direction (loose connection mode): a person choosing
-  where a line meets a box is choosing a side, not a polarity. On a derived
-  scene the gesture is off, because re-plugging changes topology and the
+- **A line is re-pluggable, and selection is what tells the two grabs
+  apart.** A line ends exactly where a node's connection dot sits, and both
+  gestures want those pixels — so a bare drag from the dot draws a NEW
+  line, while clicking the line first (anywhere along its 24px band) raises
+  it above the nodes and the same drag then RE-PLUGS its end onto another
+  node, or another side of the same node. A selected line shows a soft halo
+  at each end saying "grab here". Every side of a node is one connection
+  point, usable in either direction (loose connection mode): a person
+  choosing where a line meets a box is choosing a side, not a polarity. On
+  a derived scene re-plugging is off, because it changes topology and the
   topology belongs to the fragment.
+- **A side offers as many points as it needs, and only sides offer them.**
+  Connection bubbles are round, always faintly visible, and live at the
+  sides' midlines — never at corners, which belong to the resizer's square
+  grips, so what connects and what resizes never look alike. Each side draws
+  one bubble per line already attached plus one free bubble, the group
+  centred with a narrow gap: a side holding a line still has an open point
+  right beside it, and the slot a line lands on is recorded (`left.1`).
 - **The cursor should be near the thing, not exactly on it.** A drag snaps
   to a connection point from ~36px, an edge end is grabbable for re-plugging
   from ~24px, an edge is clickable along a 24px band rather than its
   one-pixel stroke, and each handle's hit target is larger than its visible
-  dot (which appears when the pointer is near). Precision is for the layout,
+  dot; the resize grips are 16px to hit for a small square of ink, and the
+  box's sides are a wide invisible resize band. Precision is for the layout,
   not for the acquiring of targets.
 
 ## Derived scenes: paste the topology, own the layout
@@ -158,12 +171,31 @@ checks this diagram" line; a derived scene cannot disagree with its fragment
 *and* should still assert the cell that pins it, because the fragment can rot
 against the code even though the picture cannot rot against the fragment.
 
+## Styling, sizing, and the grid (built 2026-08-25)
+
+Selection is the styling surface: select a node and an inspector row offers
+the shape (all seven), and a **palette** — eight named hues stored as plain
+hex — for fill (the same hues at low alpha, so text stays legible), outline,
+and text. Select a line and the row offers its colour (arrowheads included),
+an arrowhead cycle (one end / both / none), a dash cycle, and the line's own
+label, drawn on the line. A palette rather than a picker on purpose: eight
+named choices keep two diagrams in one project looking like siblings, and
+keep the diff of "made the store red" one readable word. Derived scenes show
+no inspector — styling lives on nodes and edges, which are the fragment's.
+
+Nodes resize by their selection handles, and everything **snaps to one
+16px grid** — drags, sizes, and the dot background all use the same number,
+so boxes line up without anyone squinting. Resizing is layout and therefore
+allowed on derived scenes.
+
+Connectors keep their rounded elbows across open space and go **straight
+between close neighbours**: a smoothstep between two adjacent boxes folds
+its corner radii into an S in the little gap, so below ~96px the line is
+drawn straight.
+
 ## What is not built yet
 
-- **Styling chrome.** The format carries `fill`/`stroke` and shapes; the
-  editor draws them but offers no picker yet — a generator or a hand-edit of
-  the JSON sets them.
-- **Node resizing** (`w`/`h` are honoured, not draggable) and edge waypoints.
+- **Edge waypoints** (a line you bend by hand).
 - **The SVG-asset weave** named above.
 - **Grafly import.** The format is close enough that a converter is a small,
   separable piece; nothing depends on it.

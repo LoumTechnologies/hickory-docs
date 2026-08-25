@@ -438,10 +438,6 @@ fn router(state: LocalState) -> Router {
         .route("/find", get(find::find))
         .route("/find/replace", post(find::replace))
         .route("/structure", get(api::structure))
-        // The deterministic diagram generator over the served folder's code —
-        // the same topology `hick diagram` prints, for a "generate from
-        // code" verb in the graph editor. Name-resolved, and says so.
-        .route("/diagram", get(api::diagram))
         // Who last touched each line. Off by default in the editor, so this
         // is only ever asked for by someone who turned the column on.
         .route("/blame", get(api::blame))

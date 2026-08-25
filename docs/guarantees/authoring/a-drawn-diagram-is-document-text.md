@@ -1,8 +1,9 @@
 # A Drawn Diagram Is Document Text
 
 Given a `<hick:diagram renderer="graph">` whose body is a JSON scene, when the
-reader drags a node, connects an edge, adds, renames, or deletes a node, or
-applies auto-layout in the app's graph editor, then the finished gesture is
+reader drags a node, connects or re-plugs an edge, adds, renames, resizes, or
+deletes a node, restyles a selection from the palette, or applies auto-layout
+in the app's graph editor, then the finished gesture is
 written back into the document's own bytes as the scene's canonical
 serialization (stable key order, one node/edge/layout entry per line, integer
 positions) as a user edit — so undo undoes it, collaborators receive it, and a

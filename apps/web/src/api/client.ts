@@ -21,7 +21,6 @@ import type {
   SettingsKeysPatch,
   SettingsKeysResponse,
   StructureResponse,
-  DiagramTopologyResponse,
   OpenTerminal,
   TerminalSession,
   TerminalsResponse,
@@ -262,12 +261,6 @@ export const api = {
 
   /** Definitions and references across this session's generated files. */
   structure: () => request<StructureResponse>("GET", "/api/structure"),
-  /** The deterministic diagram generator over the served folder's code —
-   * topology only, never a layout, and `structural: true` because
-   * resolution is by name (a place to start looking, not a call graph). */
-  diagramTopology: (group: "dir" | "file" = "dir") =>
-    request<DiagramTopologyResponse>("GET", `/api/diagram?group=${group}`),
-
   /** What this project calls things: identifiers from its own text, ranked
    * by how often they are used and — when the local model is installed — by
    * how close their surroundings are to what is being typed. A different

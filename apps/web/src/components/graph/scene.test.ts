@@ -5,6 +5,10 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  occupiedSlots,
+  parseSideRef,
+  sideRef,
+  slotLayout,
   parseSceneSource,
   placeMissing,
   serializeScene,
@@ -86,6 +90,36 @@ describe("the scene's byte form", () => {
     expect(layout.api).toEqual({ x: 0, y: 0, w: 160 });
     expect(layout["new-1"].x).toBeGreaterThan(160);
     expect(layout["new-2"].y).toBeGreaterThan(layout["new-1"].y);
+  });
+
+  it("offers one free connection slot beside whatever a side already holds", () => {
+    // An empty side is one centred bubble; a side holding a line offers two,
+    // narrowly apart and still centred; gaps are refilled lowest-first.
+    expect(slotLayout([])).toEqual([{ slot: 0, offset: 0 }]);
+    expect(slotLayout([0])).toEqual([
+      { slot: 0, offset: -9 },
+      { slot: 1, offset: 9 },
+    ]);
+    expect(slotLayout([0, 2])).toEqual([
+      { slot: 0, offset: -18 },
+      { slot: 1, offset: 0 },
+      { slot: 2, offset: 18 },
+    ]);
+  });
+
+  it("reads slot occupancy from recorded sides, bare and suffixed alike", () => {
+    const slots = occupiedSlots([
+      { from: "a", to: "b", fromSide: "right", toSide: "left" },
+      { from: "c", to: "b", toSide: "left.1" },
+      { from: "c", to: "b" }, // side-less: counts nowhere
+    ]);
+    expect(slots.b.left).toEqual([0, 1]);
+    expect(slots.a.right).toEqual([0]);
+    // Slot 0 keeps the bare side name, so old scenes mean what they meant.
+    expect(sideRef("left", 0)).toBe("left");
+    expect(sideRef("left", 1)).toBe("left.1");
+    expect(parseSideRef("left.1")).toEqual({ side: "left", slot: 1 });
+    expect(parseSideRef("corner")).toBeNull();
   });
 
   it("reports a parse failure instead of throwing or guessing", () => {
