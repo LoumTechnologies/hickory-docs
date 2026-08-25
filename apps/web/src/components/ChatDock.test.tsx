@@ -8,7 +8,7 @@ import {
 } from "@testing-library/react";
 
 vi.mock("../api/client", () => ({
-  api: { agent: vi.fn(), agentTurns: vi.fn() },
+  api: { agent: vi.fn(), agentTurns: vi.fn(), agentStop: vi.fn() },
 }));
 
 import {
@@ -321,5 +321,73 @@ describe("rewind and re-run are named apart", () => {
   it("offers both in the help, with the difference stated", () => {
     expect(SLASH_HELP).toMatch(/keeping the branch/);
     expect(SLASH_HELP).toMatch(/discarding this one/);
+  });
+});
+
+// A runaway turn — a model looping mid-stream — bills tokens until somebody
+// pulls the cord, and "close the whole program" must never be the only cord.
+describe("stopping a run", () => {
+  afterEach(cleanup);
+
+  const realtime = { onRunEvent: () => () => undefined } as unknown as Realtime;
+
+  function listing(turns: AgentTurn[] = []): AgentTurnsResponse {
+    return {
+      turns,
+      provider: "anthropic",
+      model: "claude-sonnet-5",
+      totals: { usd: 0, input: 0, output: 0, cache_read: 0, cache_write: 0 },
+    };
+  }
+
+  function dock() {
+    return render(
+      <ChatDock
+        docId="d1"
+        realtime={realtime}
+        collapsed={false}
+        onToggleCollapsed={() => undefined}
+        onAgentFinished={() => undefined}
+      />,
+    );
+  }
+
+  it("replaces Send with a Stop button while a turn runs, and it pulls the cord", async () => {
+    vi.mocked(api.agentTurns).mockResolvedValue(listing());
+    vi.mocked(api.agent).mockResolvedValue({ session_id: "s1" });
+    vi.mocked(api.agentStop).mockResolvedValue({ stopping: "s1" });
+    dock();
+
+    fireEvent.change(screen.getByPlaceholderText("Ask the agent…"), {
+      target: { value: "loop forever" },
+    });
+    fireEvent.click(screen.getByText("Send"));
+
+    const stop = await screen.findByRole("button", { name: "Stop the agent" });
+    // The Send button is gone — one verb at a time — and Stop is LIVE, never
+    // disabled while the run is: a disabled stop is no stop at all.
+    expect(screen.queryByText("Send")).toBeNull();
+    expect((stop as HTMLButtonElement).disabled).toBe(false);
+
+    fireEvent.click(stop);
+    await waitFor(() => expect(api.agentStop).toHaveBeenCalledWith("d1"));
+    // Pressed once: the button says so and refuses a second pull while the
+    // first is in flight.
+    expect(stop.textContent).toContain("Stopping…");
+    expect((stop as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it("renders a stopped turn quietly — the user's own act, never a red error", async () => {
+    const stopped: AgentTurn = {
+      ...turn("s1", null),
+      answer: null,
+      status: "stopped",
+      error: "stopped by you",
+    };
+    vi.mocked(api.agentTurns).mockResolvedValue(listing([stopped]));
+    const { container } = dock();
+
+    await screen.findByText(/Stopped by you/);
+    expect(container.querySelector(".chat-error")).toBeNull();
   });
 });

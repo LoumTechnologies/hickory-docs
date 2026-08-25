@@ -443,3 +443,102 @@ async fn replies_record_their_parent_and_rewinding_forks_a_branch() {
     .await;
     assert_eq!(status, 400, "{body}");
 }
+
+// ---------------------------------------------------------------------------
+// The stop button.
+// Protects docs/guarantees/agent/a-running-agent-can-be-stopped.md.
+// ---------------------------------------------------------------------------
+
+/// The runaway that forced this feature: a model degenerating into an
+/// endless `<sh:exec></sh:exec>` stream, billing tokens until somebody
+/// killed the whole program.
+struct EndlessLlm;
+
+#[async_trait::async_trait]
+impl hickory_agent::LlmClient for EndlessLlm {
+    async fn complete(&self, _messages: Vec<hickory_agent::Message>) -> anyhow::Result<String> {
+        anyhow::bail!("the runaway only streams")
+    }
+
+    async fn complete_stream(
+        &self,
+        _messages: Vec<hickory_agent::Message>,
+    ) -> anyhow::Result<hickory_agent::ChatStream> {
+        let stream = futures::stream::unfold(0u64, |n| async move {
+            tokio::time::sleep(Duration::from_millis(2)).await;
+            Some((
+                Ok(hickory_agent::ChatChunk::text("<sh:exec></sh:exec>")),
+                n + 1,
+            ))
+        });
+        Ok(Box::pin(stream))
+    }
+
+    fn provider_name(&self) -> &str {
+        "endless"
+    }
+
+    fn model_name(&self) -> &str {
+        "endless"
+    }
+}
+
+/// `POST /api/docs/:id/agent/stop` cuts a run that would otherwise stream
+/// forever, and the turn finishes as `"stopped"` — the user's own act, which
+/// the dock renders quietly, never as a red error.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_stop_route_halts_a_runaway_turn_and_records_a_stop() {
+    let session = start().await;
+    session.state.agent.set_llm_override(Arc::new(EndlessLlm));
+
+    let (status, body) = post(
+        &session,
+        &format!("/api/docs/{}/agent", session.doc_id),
+        json!({ "prompt": "loop forever", "parent_id": null }),
+    )
+    .await;
+    assert_eq!(status, 202, "{body}");
+    let turn_id = body["session_id"].as_str().expect("session_id").to_string();
+
+    // Let it stream a moment: the stop must work MID-generation, because
+    // that is when the tokens are being billed.
+    tokio::time::sleep(Duration::from_millis(150)).await;
+
+    let (status, body) = post(
+        &session,
+        &format!("/api/docs/{}/agent/stop", session.doc_id),
+        json!({}),
+    )
+    .await;
+    assert_eq!(status, 200, "{body}");
+    assert_eq!(body["stopping"], turn_id.as_str(), "{body}");
+
+    let (_, turn) = wait_for_turn(&session, &turn_id).await;
+    assert_eq!(turn["status"], "stopped", "{turn}");
+    assert!(
+        turn["answer"].is_null(),
+        "a stopped turn has no answer to replay — the next message continues \
+         as if it never ran: {turn}"
+    );
+}
+
+/// Stopping when nothing runs is answered with a sentence, not a shrug —
+/// the usual cause is the turn finishing in the race with the click.
+#[tokio::test(flavor = "multi_thread")]
+async fn stopping_an_idle_document_names_the_situation() {
+    let session = start().await;
+    let (status, body) = post(
+        &session,
+        &format!("/api/docs/{}/agent/stop", session.doc_id),
+        json!({}),
+    )
+    .await;
+    assert_eq!(status, 409, "{body}");
+    assert!(
+        body["error"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("no agent turn is running"),
+        "{body}"
+    );
+}

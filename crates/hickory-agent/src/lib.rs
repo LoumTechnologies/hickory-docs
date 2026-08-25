@@ -96,7 +96,7 @@ pub use react_loop::AgentOutcome;
 /// Run the script-first ReAct loop to completion.
 pub use react_loop::run_agent;
 /// Configuration for one agent run.
-pub use react_loop::{AgentConfig, PriorTurn};
+pub use react_loop::{AgentConfig, PriorTurn, STOPPED_BY_USER};
 /// The container name the agent runs in.
 pub use script::AGENT_CONTAINER;
 /// A code block extracted from an LLM response.

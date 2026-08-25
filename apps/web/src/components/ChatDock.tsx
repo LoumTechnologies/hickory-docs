@@ -24,6 +24,7 @@ import type {
 import type { Realtime } from "../api/realtime";
 import { TurnCard } from "./SessionTurns";
 import { ChatTree } from "./ChatTree";
+import { StopMark } from "./icons";
 
 /** The providers the backend accepts (ProviderSelection::ALL), with each
  * one's default model as the free-text input's placeholder. */
@@ -281,6 +282,9 @@ export function ChatDock({
   const [tip, setTip] = useState<string | null>(null);
   const [prompt, setPrompt] = useState("");
   const [running, setRunning] = useState<string | null>(null);
+  // A stop was asked for and its terminal frame has not arrived yet. The
+  // button stays pressed-looking rather than clickable twice.
+  const [stopping, setStopping] = useState(false);
   const [stream, setStream] = useState("");
   const [reasoning, setReasoning] = useState("");
   const [showTree, setShowTree] = useState(false);
@@ -358,6 +362,7 @@ export function ChatDock({
           return;
         }
         setRunning(null);
+        setStopping(false);
         setStream("");
         setReasoning("");
         void refresh();
@@ -365,6 +370,19 @@ export function ChatDock({
       }),
     [realtime, refresh],
   );
+
+  // The hand on the cord. The run halts at its next seam — mid-stream
+  // included, which is what stops the token spend on a model looping — and
+  // the terminal "stopped" frame above clears the running state.
+  const stop = useCallback(() => {
+    if (!runningRef.current || stopping) return;
+    setStopping(true);
+    api.agentStop(docId).catch(() => {
+      // The turn finished in the race between seeing it run and clicking:
+      // the terminal frame is on its way and will clear everything.
+      setStopping(false);
+    });
+  }, [docId, stopping]);
 
   const branch = useMemo(() => branchOf(turns, tip), [turns, tip]);
 
@@ -628,7 +646,10 @@ export function ChatDock({
                   />
                 );
               }
-              if (turn.status === "error") {
+              if (turn.status === "error" || turn.status === "stopped") {
+                // A stop is the user's own act — quiet words, never the red
+                // an actual failure gets.
+                const stopped = turn.status === "stopped";
                 return (
                   <article key={turn.id} className="chat-turn">
                     <div className="chat-msg chat-user">
@@ -641,9 +662,17 @@ export function ChatDock({
                     <div className="chat-msg chat-agent">
                       <span className="chat-role">agent</span>
                       <div className="chat-bubble">
-                        <p className="chat-error">
-                          {turn.error ?? "session failed"}
-                        </p>
+                        {stopped ? (
+                          <p className="chat-stopped muted">
+                            Stopped by you. Whatever it had already done is
+                            real and recorded in the session; the next message
+                            continues as if this turn never ran.
+                          </p>
+                        ) : (
+                          <p className="chat-error">
+                            {turn.error ?? "session failed"}
+                          </p>
+                        )}
                       </div>
                     </div>
                   </article>
@@ -683,13 +712,28 @@ export function ChatDock({
             }}
           />
         </div>
-        <button
-          className="btn btn-primary"
-          disabled={!prompt.trim() || running !== null}
-          onClick={() => void send()}
-        >
-          {running ? "Working…" : "Send"}
-        </button>
+        {running ? (
+          // The way out of a runaway turn — a model looping mid-stream bills
+          // tokens until somebody pulls this. Never disabled while a run is
+          // live; "Stopping…" only means the request is in flight.
+          <button
+            className="btn chat-stop"
+            disabled={stopping}
+            onClick={stop}
+            aria-label="Stop the agent"
+            data-tip="Stop this turn now — the stream is cut and no more tokens are spent"
+          >
+            <StopMark /> {stopping ? "Stopping…" : "Stop"}
+          </button>
+        ) : (
+          <button
+            className="btn btn-primary"
+            disabled={!prompt.trim()}
+            onClick={() => void send()}
+          >
+            Send
+          </button>
+        )}
       </div>
       {unavailable && (
         <p className="chat-note muted">

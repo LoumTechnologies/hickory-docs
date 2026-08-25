@@ -82,9 +82,18 @@ Agent sessions stream on the run channel with `run_id === session_id` and
   `<project>/sessions/`. With no provider key in the environment the route
   answers `503` whose `error` starts with `agent not available` (the client
   renders that as a configuration note).
+- `POST /api/docs/:id/agent/stop` → `{stopping: <turn id>}` (200) — stop the
+  turn running on this document. The run halts at its next seam — between
+  streamed chunks (the provider stream is dropped, which is what stops the
+  token spend), between turns, after a script or tool — and finishes with
+  status `"stopped"` and a terminal `{run_id, status: "stopped"}` frame.
+  With nothing running the route answers `409` with a sentence (the usual
+  cause is the turn finishing in the race with the click).
 - `GET /api/docs/:id/agent/turns` → `{turns: [{id, parent_id, prompt,
-  answer, status: "running"|"ok"|"error", error, created_at}]}` — the
-  document's conversation TREE, in creation order.
+  answer, status: "running"|"ok"|"error"|"stopped", error, created_at}]}` —
+  the document's conversation TREE, in creation order. A `"stopped"` turn is
+  the user's own act: the client renders it quietly, never as a red error,
+  and it has no answer, so a reply replays the branch as if it never ran.
 
 ## Ops
 - `GET /api/health` → `{ok: true, executor: "local"|"canopy", db: bool}`

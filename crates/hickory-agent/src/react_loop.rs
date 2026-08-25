@@ -66,7 +66,17 @@ pub struct AgentConfig {
     /// element so the tree is in the file, not only in memory.
     pub turn_id: Option<String>,
     pub parent_turn_id: Option<String>,
+    /// The user's hand on the cord. Set it to `true` from anywhere and the
+    /// run stops at the next seam — between streamed chunks (dropping the
+    /// provider stream, which is what stops the token spend), between turns,
+    /// and after a script or tool finishes. The run then fails with
+    /// [`STOPPED_BY_USER`], which callers show as a stop, not a failure.
+    pub cancel: Option<Arc<std::sync::atomic::AtomicBool>>,
 }
+
+/// The message a cancelled run fails with — a contract with callers, who
+/// match it to render "stopped" rather than a red error.
+pub const STOPPED_BY_USER: &str = "stopped by you";
 
 /// One completed exchange being replayed as history.
 #[derive(Debug, Clone)]
@@ -91,6 +101,7 @@ impl AgentConfig {
             session_path: None,
             turn_id: None,
             parent_turn_id: None,
+            cancel: None,
         }
     }
 }
@@ -238,10 +249,44 @@ pub async fn run_agent(
     let mut consecutive_invalid = 0usize;
     let mut total_usage = Usage::default();
 
+    let cancel = config.cancel.clone();
+    let cancelled = || {
+        cancel
+            .as_ref()
+            .is_some_and(|c| c.load(std::sync::atomic::Ordering::Relaxed))
+    };
+    // Stopping is the user's act, not the model's outcome: the session file
+    // still closes honestly — spend recorded, end marked — and the run fails
+    // with the sentinel callers render as "stopped", never as a red error.
+    // Work already done (edits that landed, scripts that ran) is real and is
+    // deliberately not rolled back; the record of it is in the session.
+    let stop_run = |session: &HickSessionLog,
+                    total_usage: Usage,
+                    on_event: &mut (dyn FnMut(AgentEvent) + Send)| {
+        session.record(SessionEvent::Usage {
+            turn: None,
+            usage: total_usage,
+            cost_usd: cost_usd(llm.model_name(), &total_usage),
+        });
+        session.record(SessionEvent::End);
+        on_event(AgentEvent::Error {
+            message: STOPPED_BY_USER.to_string(),
+        });
+        anyhow::anyhow!(STOPPED_BY_USER)
+    };
+
     for turn in 0..config.max_turns {
+        if cancelled() {
+            return Err(stop_run(&session, total_usage, on_event));
+        }
         on_event(AgentEvent::Thinking);
         let (response, reasoning, turn_usage) =
-            stream_completion(llm, history.clone(), on_event).await?;
+            match stream_completion(llm, history.clone(), on_event, cancel.as_deref()).await {
+                Err(e) if e.to_string() == STOPPED_BY_USER => {
+                    return Err(stop_run(&session, total_usage, on_event));
+                }
+                other => other?,
+            };
         let reasoning = (!reasoning.trim().is_empty()).then_some(reasoning);
         total_usage.add(&turn_usage);
         let turn_cost = cost_usd(llm.model_name(), &turn_usage);
@@ -336,6 +381,13 @@ pub async fn run_agent(
                     Role::User,
                     format!("Observation:\n{}", result.as_observation()),
                 ));
+                // After, not during: a script is bounded by its own limits,
+                // and killing it half-way would leave the workspace in a
+                // state the session file does not describe. The observation
+                // above is recorded, so a later reader sees what ran.
+                if cancelled() {
+                    return Err(stop_run(&session, total_usage, on_event));
+                }
             }
             Turn::Tool {
                 thought,
@@ -377,6 +429,9 @@ pub async fn run_agent(
                         outcome.name, outcome.ok, outcome.text
                     ),
                 ));
+                if cancelled() {
+                    return Err(stop_run(&session, total_usage, on_event));
+                }
             }
             Turn::Done { summary } => {
                 session.record(SessionEvent::Assistant {
@@ -423,7 +478,12 @@ pub async fn run_agent(
         ),
     ));
     let (response, wrap_reasoning, wrap_usage) =
-        stream_completion(llm, history.clone(), on_event).await?;
+        match stream_completion(llm, history.clone(), on_event, cancel.as_deref()).await {
+            Err(e) if e.to_string() == STOPPED_BY_USER => {
+                return Err(stop_run(&session, total_usage, on_event));
+            }
+            other => other?,
+        };
     let reasoning = (!wrap_reasoning.trim().is_empty()).then_some(wrap_reasoning);
     total_usage.add(&wrap_usage);
     let summary = match parse_response(&response) {
@@ -465,12 +525,19 @@ async fn stream_completion(
     llm: &dyn LlmClient,
     messages: Vec<Message>,
     on_event: &mut (dyn FnMut(AgentEvent) + Send),
+    cancel: Option<&std::sync::atomic::AtomicBool>,
 ) -> Result<(String, String, Usage)> {
     let mut stream = llm.complete_stream(messages).await?;
     let mut response = String::new();
     let mut reasoning = String::new();
     let mut usage = Usage::default();
     while let Some(chunk) = stream.next().await {
+        // Checked per chunk on purpose: dropping the stream here is what
+        // aborts the provider request, which is what stops the token spend —
+        // the runaway case this exists for is a model looping mid-stream.
+        if cancel.is_some_and(|c| c.load(std::sync::atomic::Ordering::Relaxed)) {
+            anyhow::bail!(STOPPED_BY_USER);
+        }
         let chunk = chunk?;
         if let Some(u) = &chunk.usage {
             usage.add(u);

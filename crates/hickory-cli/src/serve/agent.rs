@@ -85,6 +85,10 @@ pub struct AgentHub {
     /// environment. Set through [`AgentHub::set_llm_override`] by the serve
     /// integration tests so a full turn runs without any API key.
     llm_override: Mutex<Option<Arc<dyn LlmClient>>>,
+    /// The cancel flag of each turn still running, by turn id. Setting one
+    /// stops its run at the next seam (mid-stream included); the entry is
+    /// removed when the run finishes, however it finishes.
+    cancels: Mutex<HashMap<String, Arc<std::sync::atomic::AtomicBool>>>,
 }
 
 impl AgentHub {
@@ -143,6 +147,7 @@ impl AgentHub {
     }
 
     fn finish(&self, doc_id: &str, turn_id: &str, outcome: Result<(String, Usage), String>) {
+        self.cancels.lock().unwrap().remove(turn_id);
         let mut map = self.turns.lock().unwrap();
         let Some(turn) = map
             .get_mut(doc_id)
@@ -156,11 +161,34 @@ impl AgentHub {
                 turn.usage = Some(usage);
                 turn.status = "ok".into();
             }
+            // The user pulled the cord: a stop is a stop, never a red error.
+            // The turn keeps no answer, so a reply replays the branch as if
+            // it never ran — which is what abandoning a runaway means.
+            Err(message) if message == hickory_agent::STOPPED_BY_USER => {
+                turn.error = Some(message);
+                turn.status = "stopped".into();
+            }
             Err(message) => {
                 turn.error = Some(message);
                 turn.status = "error".into();
             }
         }
+    }
+
+    /// Stop the turn running on `doc_id`, if one is. Returns the stopped
+    /// turn's id.
+    pub fn stop(&self, doc_id: &str) -> Option<String> {
+        let running = {
+            let map = self.turns.lock().unwrap();
+            map.get(doc_id)?
+                .iter()
+                .find(|t| t.status == "running")
+                .map(|t| t.id.clone())?
+        };
+        let cancels = self.cancels.lock().unwrap();
+        let flag = cancels.get(&running)?;
+        flag.store(true, std::sync::atomic::Ordering::Relaxed);
+        Some(running)
     }
 
     /// Fold the fields of one POST into the document's stored selection and
@@ -407,6 +435,16 @@ pub async fn start_turn(
         (prior, session_rel)
     };
 
+    // The stop button's handle on this run, registered before the spawn so a
+    // stop can never race the start and find nothing to pull.
+    let cancel = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    state
+        .agent
+        .cancels
+        .lock()
+        .unwrap()
+        .insert(turn_id.clone(), cancel.clone());
+
     let task_state = state.clone();
     let doc_id = id.clone();
     let run_key = turn_id.clone();
@@ -422,10 +460,15 @@ pub async fn start_turn(
                 session: task_state.index.root().join(&session_rel),
                 turn: run_key.clone(),
                 parent: parent_for_run.clone(),
+                cancel,
             },
         )
         .await;
-        let status = if outcome.is_ok() { "ok" } else { "failed" };
+        let status = match &outcome {
+            Ok(_) => "ok",
+            Err(m) if m == hickory_agent::STOPPED_BY_USER => "stopped",
+            Err(_) => "failed",
+        };
         task_state.agent.finish(&doc_id, &run_key, outcome);
 
         // The agent may have edited the document (or an upstream one) on
@@ -461,6 +504,9 @@ struct TurnIdentity {
     session: std::path::PathBuf,
     turn: String,
     parent: Option<String>,
+    /// The stop button's flag for this run — travels with the identity
+    /// because a run without its cord is the bug this exists to fix.
+    cancel: Arc<std::sync::atomic::AtomicBool>,
 }
 
 async fn run_turn(
@@ -510,6 +556,7 @@ async fn run_turn(
     config.session_path = Some(identity.session);
     config.turn_id = Some(identity.turn);
     config.parent_turn_id = identity.parent;
+    config.cancel = Some(identity.cancel);
 
     // `run_agent`'s callback is synchronous; publishing is async. A channel
     // decouples them: the loop pushes, a forwarder task publishes in order.
@@ -550,6 +597,26 @@ async fn run_turn(
             log::warn!("agent turn {turn_id} failed: {e:#}");
             Err(format!("{e:#}"))
         }
+    }
+}
+
+/// `POST /api/docs/:id/agent/stop` — stop the turn running on this document.
+///
+/// Sets the run's cancel flag; the loop stops at its next seam — between
+/// streamed chunks (dropping the provider stream, which is what stops the
+/// token spend), between turns, after a script or tool. The turn then
+/// finishes with status `"stopped"` and a terminal `{run_id, status:
+/// "stopped"}` frame on the run channel, so the dock needs no second wait.
+pub async fn stop_turn(
+    State(state): State<LocalState>,
+    Path(id): Path<String>,
+) -> ApiResult<Json<Value>> {
+    match state.agent.stop(&id) {
+        Some(turn_id) => Ok(Json(json!({ "stopping": turn_id }))),
+        None => Err(ApiError::conflict(
+            "no agent turn is running on this document — it may have just \
+             finished; refresh the conversation",
+        )),
     }
 }
 
