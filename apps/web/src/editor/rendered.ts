@@ -288,6 +288,22 @@ function buildRendered(state: EditorState, registry: RenderedRegistry): Decorati
 export function renderedBlocks(registry: RenderedRegistry): Extension {
   return [
     renderedField,
+    // A key pressed inside a rendered widget belongs to the widget: the
+    // canvas's Delete removes a node, the grid's Backspace edits a cell.
+    // CodeMirror already skips keys TARGETED inside an ignoreEvent widget,
+    // but that protection is an implementation detail of the widget
+    // plumbing — this states the rule where the widgets are defined, so a
+    // plumbing change cannot quietly hand a diagram's Delete to the buffer.
+    // Returning true only tells CodeMirror the key is handled; propagation
+    // continues, so the widget's own handlers still receive it. The other
+    // half of the defence belongs to the widgets: an interactive panel must
+    // TAKE the focus when clicked (see GraphEditorPanel), because keys
+    // pressed while the buffer still holds focus target the buffer's caret,
+    // and no target check can tell them apart from typing.
+    EditorView.domEventHandlers({
+      keydown: (event) =>
+        event.target instanceof Element && event.target.closest(".cm-rendered") !== null,
+    }),
     StateField.define<DecorationSet>({
       create: (state) => buildRendered(state, registry),
       update(value, tr) {

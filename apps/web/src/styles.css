@@ -1559,6 +1559,11 @@ textarea:focus {
   padding: 0.5rem 0.6rem;
   font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
 }
+/* The panel takes focus on click so keys stay out of the buffer; that focus
+ * is a plumbing fact, not something to draw a ring around. */
+.graph-editor:focus {
+  outline: none;
+}
 .graph-editor--loading {
   min-height: 280px;
 }

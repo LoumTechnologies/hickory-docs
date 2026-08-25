@@ -338,7 +338,24 @@ function GraphEditor({ source, resolved, assertions, onCommit }: GraphEditorPane
 
   const height = sceneRef.current ? canvasHeight(sceneRef.current) : 280;
   return (
-    <div className="graph-editor" data-testid="graph-editor">
+    <div
+      className="graph-editor"
+      data-testid="graph-editor"
+      // The panel takes the focus when clicked. It lives portalled inside
+      // the text editor's DOM, and clicking the canvas PANE moves focus
+      // nowhere on its own — so the buffer kept it, and Delete pressed
+      // while arranging the diagram erased document text at a caret nobody
+      // was looking at. With focus in here, keys target the widget, which
+      // both CodeMirror and the rendered-block guard already leave alone.
+      tabIndex={-1}
+      onPointerDownCapture={(event) => {
+        const root = event.currentTarget;
+        const target = event.target as HTMLElement;
+        // Never steal from a field someone is typing in (the rename input).
+        if (target.closest("input, textarea, [contenteditable]")) return;
+        if (!root.contains(document.activeElement)) root.focus({ preventScroll: true });
+      }}
+    >
       <div className="graph-editor__toolbar">
         {!derived && (
           <button type="button" onClick={addNode}>

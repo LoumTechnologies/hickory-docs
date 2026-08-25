@@ -3,7 +3,7 @@
 // it wants a live browser to measure anything, and what these tests are about
 // is the panel's contract with the DOCUMENT — what a gesture commits, what an
 // external edit resets, and what a derived scene refuses.
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useState } from "react";
 
@@ -97,6 +97,18 @@ describe("the graph editor panel", () => {
       '{"from": "api", "fromSide": "right", "to": "api", "toSide": "left"}',
     );
     expect(text).not.toContain('"to": "db"');
+  });
+
+  it("takes the focus when clicked, so Delete belongs to the canvas, not the buffer", async () => {
+    // The panel is portalled inside the text editor's DOM, and clicking a
+    // canvas PANE moves focus nowhere by itself — the buffer kept it, and
+    // Delete pressed while arranging the diagram erased document text at a
+    // caret nobody was looking at.
+    render(<GraphEditorPanel source={HAND_DRAWN} onCommit={vi.fn()} />);
+    const root = await screen.findByTestId("graph-editor");
+    expect(root.contains(document.activeElement)).toBe(false);
+    fireEvent.pointerDown(root);
+    expect(document.activeElement).toBe(root);
   });
 
   it("keeps the cursor grace: snap and grab radii are set, not left at a pixel", async () => {

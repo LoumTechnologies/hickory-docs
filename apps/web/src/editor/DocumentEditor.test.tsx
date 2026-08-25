@@ -404,6 +404,43 @@ describe("live diagram assertions", () => {
   });
 });
 
+describe("keys inside a rendered widget", () => {
+  // Regression: the widgets are portalled INSIDE CodeMirror's DOM, so a
+  // Delete pressed while arranging a diagram (or working a table) bubbled
+  // natively into the editor's keymap and erased document text at a caret
+  // nobody was looking at.
+  it("never reach the buffer: Delete in a widget deletes nothing from the text", async () => {
+    const realtime = new LocalRealtime();
+    const source =
+      '<hick:exec container="shell">\nls\n</hick:exec>\n\nprose that must survive\n';
+    const { container } = render(
+      <DocumentEditor
+        docId="dKeys"
+        initialSource={source}
+        realtime={realtime}
+        execBlocks={[]}
+        runningCells={new Set()}
+        onRunCell={() => undefined}
+      />,
+    );
+    await waitFor(() => expect(container.querySelector(".cm-rendered-exec")).toBeTruthy());
+    const view = (window as unknown as { __hickoryView?: EditorViewType }).__hickoryView!;
+    // A caret parked in the prose, the way one is after any earlier edit.
+    view.dispatch({ selection: { anchor: view.state.doc.length - 2 } });
+
+    // The canvas pane carries a tabindex and takes the focus when clicked,
+    // which is exactly what convinces CodeMirror it should act on keys.
+    const widget = container.querySelector(".cm-rendered-exec") as HTMLElement;
+    widget.tabIndex = 0;
+    widget.focus();
+    for (const key of ["Backspace", "Delete"]) {
+      widget.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true }));
+    }
+    expect(view.state.doc.toString()).toBe(source);
+    realtime.close();
+  });
+});
+
 describe("matchExecBlock", () => {
   it("prefers span overlap, falls back to ordinal", () => {
     const blocks = execBlocks;
