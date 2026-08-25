@@ -1740,6 +1740,19 @@ textarea:focus {
 .graph-editor .react-flow__handle.connectingfrom::after {
   opacity: 1;
 }
+/* The extra bubble — the free slot beside an attached line — carries no ink
+ * at rest: a side with one line shows one bubble, not a queue of vacancies.
+ * It appears while a connector is being dragged anywhere on the canvas
+ * (that is when it is an offer), or when its node is hovered (that is how a
+ * second line starts from the side). */
+.graph-editor .react-flow__handle.graph-handle--extra::after {
+  opacity: 0;
+}
+.graph-editor .graph-node--connecting .react-flow__handle.graph-handle--extra::after,
+.graph-editor .graph-node:hover .react-flow__handle.graph-handle--extra::after,
+.graph-editor .react-flow__handle.graph-handle--extra.connectingto::after {
+  opacity: 1;
+}
 
 /* Resize grace: the corner grips are small SQUARES to look at and 16px to
  * hit, and the box's sides are a wide invisible band — the selection is

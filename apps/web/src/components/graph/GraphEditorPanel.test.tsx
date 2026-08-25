@@ -20,6 +20,8 @@ vi.mock("@xyflow/react", () => ({
   MarkerType: { ArrowClosed: "arrowclosed" },
   ConnectionMode: { Loose: "loose", Strict: "strict" },
   NodeResizer: () => null,
+  useConnection: (selector?: (c: { inProgress: boolean }) => unknown) =>
+    selector ? selector({ inProgress: false }) : { inProgress: false },
   BaseEdge: () => null,
   getStraightPath: () => ["", 0, 0],
   getSmoothStepPath: () => ["", 0, 0],

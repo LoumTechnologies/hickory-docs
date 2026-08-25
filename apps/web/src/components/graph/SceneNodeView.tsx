@@ -7,7 +7,7 @@
 // allowed on BOTH kinds — a size is layout, the person's half.
 
 import { useEffect, useRef, useState } from "react";
-import { Handle, NodeResizer, Position } from "@xyflow/react";
+import { Handle, NodeResizer, Position, useConnection } from "@xyflow/react";
 import type { NodeProps, ResizeParams } from "@xyflow/react";
 
 import { sideRef, slotLayout } from "./scene";
@@ -26,6 +26,9 @@ export interface SceneNodeData extends Record<string, unknown> {
 
 export function SceneNodeView({ data, selected }: NodeProps) {
   const { node, derived, onRename, onResize, slots } = data as SceneNodeData;
+  // Whether ANY connection drag is live on the canvas: the moment the extra
+  // bubbles earn their ink (see below).
+  const connecting = useConnection((c) => c.inProgress);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(node.label ?? node.id);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -46,7 +49,7 @@ export function SceneNodeView({ data, selected }: NodeProps) {
   const shape = node.shape ?? "rect";
   return (
     <div
-      className={`graph-node graph-node--${shape}${selected ? " graph-node--selected" : ""}`}
+      className={`graph-node graph-node--${shape}${selected ? " graph-node--selected" : ""}${connecting ? " graph-node--connecting" : ""}`}
       style={{
         ...(node.fill ? { background: node.fill } : {}),
         ...(node.stroke ? { borderColor: node.stroke } : {}),
@@ -80,21 +83,30 @@ export function SceneNodeView({ data, selected }: NodeProps) {
           meets a box is choosing a place, not a polarity. The target handle
           under each source handle keeps side-less edges — scenes drawn
           before sides existed — rendering by default. */}
-      {SIDES.map(([side, position]) =>
-        slotLayout(slots?.[side] ?? []).map(({ slot, offset }) => {
+      {SIDES.map(([side, position]) => {
+        const occupied = slots?.[side] ?? [];
+        return slotLayout(occupied).map(({ slot, offset }) => {
           const id = sideRef(side, slot);
+          // The EXTRA bubble — the free slot beside a line already attached —
+          // is a drop target first and ink second: it is always there to
+          // catch a connector, but it only shows itself while one is being
+          // dragged (or the node is hovered, which is how a second line
+          // STARTS from that side). At rest a side with one line shows one
+          // bubble, not a queue of vacancies.
+          const extra = occupied.length > 0 && !occupied.includes(slot);
+          const className = extra ? "graph-handle--extra" : undefined;
           const style =
             side === "top" || side === "bottom"
               ? { left: `calc(50% + ${offset}px)` }
               : { top: `calc(50% + ${offset}px)` };
           return (
             <span key={id}>
-              <Handle type="target" position={position} id={id} style={style} />
-              <Handle type="source" position={position} id={id} style={style} />
+              <Handle type="target" position={position} id={id} style={style} className={className} />
+              <Handle type="source" position={position} id={id} style={style} className={className} />
             </span>
           );
-        }),
-      )}
+        });
+      })}
       {editing ? (
         <input
           ref={inputRef}

@@ -99,7 +99,11 @@ Two interaction rules, stated because they are choices and not defaults:
   grips, so what connects and what resizes never look alike. Each side draws
   one bubble per line already attached plus one free bubble, the group
   centred with a narrow gap: a side holding a line still has an open point
-  right beside it, and the slot a line lands on is recorded (`left.1`).
+  right beside it, and the slot a line lands on is recorded (`left.1`). The
+  free bubble beside an attached line carries no ink at rest — a side with
+  one line shows one bubble, not a queue of vacancies — and appears while a
+  connector is being dragged (when it is an offer) or the node is hovered
+  (which is how a second line starts from that side).
 - **The cursor should be near the thing, not exactly on it.** A drag snaps
   to a connection point from ~36px, an edge end is grabbable for re-plugging
   from ~24px, an edge is clickable along a 24px band rather than its
