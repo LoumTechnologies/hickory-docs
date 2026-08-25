@@ -180,5 +180,16 @@ echo
 # `--config` rather than editing tauri.conf.json: the committed config is a
 # release artifact, and a dev port written into it would be a hardcoded port
 # in a tracked file — the thing .instructions/dev-environment.md forbids.
+#
+# The npm prefix is ABSOLUTE and the CLI runs from the crate directory, both
+# on purpose: `cargo tauri` picks the before-dev command's working directory
+# by hunting for a package.json, and the hunt broke the day an example
+# gained one (examples/service — scaffolded-service's committed output): the
+# command ran there, `../web` pointed at examples/web, and `just dev` died
+# on a path that never existed. An absolute prefix is immune to wherever the
+# hunt lands, and the crate directory is the same cwd
+# scripts/dist-desktop.sh already uses for the same reason.
+ROOT="$PWD"
+cd apps/desktop/src-tauri
 exec cargo tauri dev \
-  --config "{\"build\": {\"devUrl\": \"http://localhost:$PORT\", \"beforeDevCommand\": \"npm --prefix ../web run dev -- --port $PORT --strictPort\"}}"
+  --config "{\"build\": {\"devUrl\": \"http://localhost:$PORT\", \"beforeDevCommand\": \"npm --prefix $ROOT/apps/web run dev -- --port $PORT --strictPort\"}}"
