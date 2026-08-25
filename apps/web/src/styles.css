@@ -1638,6 +1638,30 @@ textarea:focus {
 .graph-node--cylinder {
   border-radius: 10px / 24px;
 }
+/* Grace on the connection points: the HIT target is 14px per side while the
+ * visible dot is smaller and appears only when the pointer is near — a
+ * target you must land on exactly is a target you miss. */
+.graph-editor .react-flow__handle {
+  width: 14px;
+  height: 14px;
+  background: transparent;
+  border: none;
+}
+.graph-editor .react-flow__handle::after {
+  content: "";
+  position: absolute;
+  inset: 4px;
+  border-radius: 50%;
+  background: var(--accent);
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+.graph-editor .graph-node:hover .react-flow__handle::after,
+.graph-editor .react-flow__handle:hover::after,
+.graph-editor .react-flow__handle.connectingto::after,
+.graph-editor .react-flow__handle.connectingfrom::after {
+  opacity: 1;
+}
 .graph-node__rename {
   font: inherit;
   color: inherit;

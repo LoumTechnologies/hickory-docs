@@ -49,8 +49,17 @@ export function SceneNodeView({ data, selected }: NodeProps) {
       }}
       data-testid={`graph-node-${node.id}`}
     >
-      <Handle type="target" position={Position.Top} id="top" />
-      <Handle type="target" position={Position.Left} id="left" />
+      {/* One connection point per SIDE, each usable in either direction
+          (the canvas runs in loose connection mode): a person choosing
+          where a line meets a box is choosing a side, not a polarity. The
+          target handle under each source handle keeps side-less edges —
+          every scene drawn before sides existed — rendering by default. */}
+      {SIDES.map(([side, position]) => (
+        <span key={side}>
+          <Handle type="target" position={position} id={side} />
+          <Handle type="source" position={position} id={side} />
+        </span>
+      ))}
       {editing ? (
         <input
           ref={inputRef}
@@ -66,8 +75,13 @@ export function SceneNodeView({ data, selected }: NodeProps) {
       ) : (
         <span className="graph-node__label">{node.label ?? node.id}</span>
       )}
-      <Handle type="source" position={Position.Right} id="right" />
-      <Handle type="source" position={Position.Bottom} id="bottom" />
     </div>
   );
 }
+
+const SIDES = [
+  ["top", Position.Top],
+  ["right", Position.Right],
+  ["bottom", Position.Bottom],
+  ["left", Position.Left],
+] as const;

@@ -18,6 +18,7 @@ vi.mock("@xyflow/react", () => ({
   Handle: () => null,
   Position: { Top: "top", Left: "left", Right: "right", Bottom: "bottom" },
   MarkerType: { ArrowClosed: "arrowclosed" },
+  ConnectionMode: { Loose: "loose", Strict: "strict" },
   applyNodeChanges: (_c: unknown, ns: unknown) => ns,
   applyEdgeChanges: (_c: unknown, es: unknown) => es,
   useNodesState: (init: unknown) => useState(init),
@@ -75,6 +76,40 @@ describe("the graph editor panel", () => {
     expect(text).toContain('{"from": "db", "to": "api"}');
   });
 
+  it("re-plugs an edge end onto another node or side, recording where it lands", async () => {
+    const onCommit = vi.fn();
+    render(<GraphEditorPanel source={HAND_DRAWN} onCommit={onCommit} />);
+    await waitFor(() => expect(flowProps.onReconnect).toBeTruthy());
+    // The whole point of the gesture: no delete-and-redraw. Reconnection is
+    // never off for a hand-drawn scene, and any handle takes either end.
+    expect(flowProps.edgesReconnectable).toBe(true);
+    expect(flowProps.connectionMode).toBe("loose");
+    type Reconnect = (
+      oldEdge: { id: string },
+      connection: { source: string; target: string; sourceHandle?: string; targetHandle?: string },
+    ) => void;
+    (flowProps.onReconnect as Reconnect)(
+      { id: "api->db" },
+      { source: "api", target: "api", sourceHandle: "right", targetHandle: "left" },
+    );
+    const text = onCommit.mock.calls[0][0] as string;
+    expect(text).toContain(
+      '{"from": "api", "fromSide": "right", "to": "api", "toSide": "left"}',
+    );
+    expect(text).not.toContain('"to": "db"');
+  });
+
+  it("keeps the cursor grace: snap and grab radii are set, not left at a pixel", async () => {
+    render(<GraphEditorPanel source={HAND_DRAWN} onCommit={vi.fn()} />);
+    await waitFor(() => expect(flowProps.connectionRadius).toBeTruthy());
+    // Near the thing, not exactly on it — see the spec's editor section.
+    expect(flowProps.connectionRadius as number).toBeGreaterThanOrEqual(30);
+    expect(flowProps.reconnectRadius as number).toBeGreaterThanOrEqual(20);
+    expect(
+      (flowProps.defaultEdgeOptions as { interactionWidth: number }).interactionWidth,
+    ).toBeGreaterThanOrEqual(20);
+  });
+
   it("locks a derived scene's topology: drag rewrites only layout, connect is refused", async () => {
     const onCommit = vi.fn();
     render(<GraphEditorPanel source={DERIVED} resolved={RESOLVED} onCommit={onCommit} />);
@@ -84,6 +119,9 @@ describe("the graph editor panel", () => {
 
     (flowProps.onConnect as Connect)({ source: "db", target: "api" });
     expect(onCommit).not.toHaveBeenCalled();
+    // Re-plugging an end changes the topology too, so a derived scene
+    // refuses it the same way.
+    expect(flowProps.edgesReconnectable).toBe(false);
 
     (flowProps.onNodeDragStop as DragStop)(null, { id: "db", position: { x: 300, y: 40 } });
     const text = onCommit.mock.calls[0][0] as string;

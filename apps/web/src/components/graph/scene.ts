@@ -28,6 +28,11 @@ export interface SceneEdge {
   id?: string;
   from: string;
   to: string;
+  /** Which side of the node each end attaches to: top, right, bottom, left.
+   * Absent means "wherever the renderer likes" — a generator never sets
+   * these; they are recorded when a person draws or re-drags an end. */
+  fromSide?: string;
+  toSide?: string;
   label?: string;
   /** solid (default), dashed, dotted. */
   style?: string;
@@ -139,7 +144,9 @@ function edgeLine(edge: SceneEdge): string {
   const fields = [
     jsonField("id", edge.id),
     jsonField("from", edge.from),
+    jsonField("fromSide", edge.fromSide),
     jsonField("to", edge.to),
+    jsonField("toSide", edge.toSide),
     jsonField("label", edge.label),
     jsonField("style", edge.style),
     jsonField("arrow", edge.arrow),

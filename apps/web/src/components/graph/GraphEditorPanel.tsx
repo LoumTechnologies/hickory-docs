@@ -18,6 +18,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Background,
+  ConnectionMode,
   MarkerType,
   ReactFlow,
   ReactFlowProvider,
@@ -82,6 +83,8 @@ function flowEdges(scene: Scene): Edge[] {
       id: edge.id ?? `${edge.from}->${edge.to}`,
       source: edge.from,
       target: edge.to,
+      ...(edge.fromSide ? { sourceHandle: edge.fromSide } : {}),
+      ...(edge.toSide ? { targetHandle: edge.toSide } : {}),
       type: "smoothstep",
       ...(edge.label ? { label: edge.label } : {}),
       ...(dashed ? { style: { strokeDasharray: "6 4" } } : {}),
@@ -207,8 +210,43 @@ function GraphEditor({ source, resolved, assertions, onCommit }: GraphEditorPane
     (connection: Connection) => {
       const scene = sceneRef.current;
       if (!scene || scene.paste || !connection.source || !connection.target) return;
-      const edge: SceneEdge = { from: connection.source, to: connection.target };
+      const edge: SceneEdge = {
+        from: connection.source,
+        to: connection.target,
+        ...(connection.sourceHandle ? { fromSide: connection.sourceHandle } : {}),
+        ...(connection.targetHandle ? { toSide: connection.targetHandle } : {}),
+      };
       commitScene({ ...scene, edges: [...scene.edges, edge] });
+    },
+    [commitScene],
+  );
+
+  // Re-plugging a line: grab an edge near either END and drag it to another
+  // node — or another side of the same node — instead of delete-and-redraw.
+  // Topology for a derived scene belongs to its fragment, so there the
+  // gesture is off (`edgesReconnectable` below).
+  const onReconnect = useCallback(
+    (oldEdge: Edge, connection: Connection) => {
+      const scene = sceneRef.current;
+      if (!scene || scene.paste || !connection.source || !connection.target) return;
+      commitScene({
+        ...scene,
+        edges: scene.edges.map((edge) =>
+          (edge.id ?? `${edge.from}->${edge.to}`) === oldEdge.id
+            ? {
+                ...edge,
+                from: connection.source,
+                to: connection.target,
+                ...(connection.sourceHandle
+                  ? { fromSide: connection.sourceHandle }
+                  : { fromSide: undefined }),
+                ...(connection.targetHandle
+                  ? { toSide: connection.targetHandle }
+                  : { toSide: undefined }),
+              }
+            : edge,
+        ),
+      });
     },
     [commitScene],
   );
@@ -337,10 +375,22 @@ function GraphEditor({ source, resolved, assertions, onCommit }: GraphEditorPane
           onEdgesChange={onEdgesChange}
           onNodeDragStop={onNodeDragStop}
           onConnect={onConnect}
+          onReconnect={onReconnect}
           onNodesDelete={onNodesDelete}
           onEdgesDelete={onEdgesDelete}
           nodesConnectable={!derived}
+          edgesReconnectable={!derived}
           deleteKeyCode={derived ? null : ["Backspace", "Delete"]}
+          // A side is a place a line meets a box, not a polarity: any handle
+          // accepts either end of a connection.
+          connectionMode={ConnectionMode.Loose}
+          // Grace. The cursor should be NEAR the thing, not on it: a drag
+          // snaps to a handle from 36px out, an edge end is grabbable for
+          // re-plugging from 24px, and an edge is clickable along a 24px
+          // band rather than its one-pixel stroke.
+          connectionRadius={36}
+          reconnectRadius={24}
+          defaultEdgeOptions={{ interactionWidth: 24 }}
           fitView
           proOptions={{ hideAttribution: true }}
         >

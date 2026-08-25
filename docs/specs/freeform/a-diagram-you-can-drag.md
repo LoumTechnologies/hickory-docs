@@ -42,6 +42,12 @@ layout is what only a person decides.** `nodes` and `edges` carry ids, labels,
 shapes (`rect`, `round`, `pill`, `circle`, `diamond`, `hexagon`, `cylinder`),
 optional colours, edge styles (`solid`/`dashed`/`dotted`) and arrowheads
 (`end`/`none`/`both`). `layout` maps node id → position, in integer pixels.
+An edge may also record `fromSide`/`toSide` (top/right/bottom/left) — which
+side of the box each end meets. Sides sit on the person's half of the split
+in spirit (a generator never sets them; the editor records them when a line
+is drawn or re-plugged) but live on the edge, because an edge with no nodes
+to sit between is nothing; the mermaid downgrade ignores them, since mermaid
+routes its own lines.
 
 Ids are **semantic** (`"api"`, never a timestamp) on purpose twice over: they
 are the join key that lets a regenerated topology keep a hand-made layout, and
@@ -72,6 +78,22 @@ document are N independent editors.
 The canvas library is loaded lazily, exactly as mermaid is, and for the same
 reason: the marketing site builds from this tree, and a diagramming engine
 must not reach a page that shows no diagrams.
+
+Two interaction rules, stated because they are choices and not defaults:
+
+- **A line is re-pluggable.** Grab an existing edge near either end and drag
+  it to another node — or another side of the same node — instead of
+  deleting and redrawing. Every side of a node is one connection point,
+  usable in either direction (loose connection mode): a person choosing
+  where a line meets a box is choosing a side, not a polarity. On a derived
+  scene the gesture is off, because re-plugging changes topology and the
+  topology belongs to the fragment.
+- **The cursor should be near the thing, not exactly on it.** A drag snaps
+  to a connection point from ~36px, an edge end is grabbable for re-plugging
+  from ~24px, an edge is clickable along a 24px band rather than its
+  one-pixel stroke, and each handle's hit target is larger than its visible
+  dot (which appears when the pointer is near). Precision is for the layout,
+  not for the acquiring of targets.
 
 ## Derived scenes: paste the topology, own the layout
 

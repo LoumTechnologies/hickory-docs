@@ -76,6 +76,13 @@ pub struct SceneEdge {
     pub id: Option<String>,
     pub from: String,
     pub to: String,
+    /// Which side of each node the end attaches to (top/right/bottom/left).
+    /// A person's choice, recorded by the editor; a generator never sets it,
+    /// and the mermaid downgrade ignores it — mermaid routes its own edges.
+    #[serde(default, rename = "fromSide", skip_serializing_if = "Option::is_none")]
+    pub from_side: Option<String>,
+    #[serde(default, rename = "toSide", skip_serializing_if = "Option::is_none")]
+    pub to_side: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
     /// solid (default), dashed, dotted.

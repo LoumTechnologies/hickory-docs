@@ -110,6 +110,10 @@ pub fn generate_topology(root: &Path, group: Grouping) -> std::io::Result<Topolo
                 id: None,
                 from,
                 to,
+                // Sides are a person's choice, recorded by the editor —
+                // never invented here.
+                from_side: None,
+                to_side: None,
                 label: (n > 1).then(|| format!("{n} refs")),
                 style: None,
                 arrow: None,
