@@ -127,7 +127,7 @@ export function DiagramPanel({
  * as one that is proved: "nothing checks this" is the most useful thing this
  * panel can say about an unverified drawing.
  */
-function DiagramAssertions({
+export function DiagramAssertions({
   assertions,
 }: {
   assertions: DiagramPanelProps["assertions"];

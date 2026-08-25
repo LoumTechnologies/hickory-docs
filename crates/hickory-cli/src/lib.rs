@@ -12,6 +12,7 @@ pub mod claude_code;
 pub mod continuity;
 pub mod dap_install;
 pub mod debug_sessions;
+pub mod diagram;
 pub mod doc_tools;
 pub mod editor_lsp;
 pub mod emission;
@@ -1206,6 +1207,29 @@ pub fn diagram_assertion_warnings(doc: &hick_lang::HickDocument) -> Vec<String> 
     let mut out = Vec::new();
     for tag in doc.tags().filter(|t| t.name == "diagram") {
         let line = tag.source_line;
+        // A graph scene that does not parse weaves as its raw JSON — legal,
+        // but the author should hear about it here, beside the assertion
+        // warnings, rather than discover an unreadable fence later. A body
+        // holding a `<hick:paste>` is checked after resolution instead, which
+        // only the run can do.
+        if tag.get_attribute("renderer") == Some(hick_literate::scene::GRAPH_RENDERER)
+            && !tag.child_tags().any(|t| t.name == "paste")
+        {
+            match hick_literate::scene::parse_scene(&tag.text_content()) {
+                Ok(scene) => {
+                    for warning in hick_literate::scene::scene_warnings(&scene) {
+                        out.push(format!("line {line}: {warning}"));
+                    }
+                }
+                Err(err) => out.push(format!(
+                    "line {line}: this graph diagram's body is not a scene \
+                     ({err}), so it will weave as raw JSON instead of a \
+                     picture. A scene is {{\"nodes\": …, \"edges\": …, \
+                     \"layout\": …}} — see \
+                     docs/specs/freeform/a-diagram-you-can-drag.md."
+                )),
+            }
+        }
         let Some(asserts) = tag.get_attribute("asserts") else {
             out.push(format!(
                 "line {line}: this diagram asserts nothing, so nothing will \

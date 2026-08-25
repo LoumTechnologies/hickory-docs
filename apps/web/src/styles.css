@@ -1545,6 +1545,110 @@ textarea:focus {
   font-size: 0.8rem;
 }
 
+/* The graph editor: a canvas in the document.
+ *
+ * Same frame and same assertion line as the mermaid panel — a scene is still
+ * a diagram, and a drawn one must not look more (or less) authoritative than
+ * a typed one. The canvas gets an explicit height because the widget it lives
+ * in IS the document's height there. */
+.graph-editor {
+  margin: 0.75rem 0 0.25rem;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-raised);
+  padding: 0.5rem 0.6rem;
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+}
+.graph-editor--loading {
+  min-height: 280px;
+}
+.graph-editor__toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding-bottom: 0.45rem;
+  font-size: 0.78rem;
+}
+.graph-editor__toolbar button {
+  font: inherit;
+  color: var(--fg);
+  background: var(--bg-sunken);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.15rem 0.55rem;
+  cursor: pointer;
+}
+.graph-editor__toolbar button:hover {
+  border-color: var(--accent);
+}
+.graph-editor__derived {
+  font-size: 0.74rem;
+}
+.graph-editor__refusal {
+  font-size: 0.74rem;
+  color: var(--fail);
+}
+.graph-editor__canvas {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--bg-sunken);
+}
+/* React Flow paints its own pane; keep it on the app's theme. */
+.graph-editor__canvas .react-flow {
+  background: var(--bg-sunken);
+}
+.graph-node {
+  box-sizing: border-box;
+  min-width: 120px;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.4rem 0.7rem;
+  border: 1.5px solid var(--accent);
+  border-radius: 6px;
+  background: var(--bg-raised);
+  color: var(--fg);
+  font-size: 0.8rem;
+  text-align: center;
+}
+.graph-node--selected {
+  box-shadow: 0 0 0 2px var(--accent);
+}
+.graph-node--round,
+.graph-node--pill {
+  border-radius: 999px;
+}
+.graph-node--circle {
+  border-radius: 50%;
+  min-width: 72px;
+  min-height: 72px;
+}
+.graph-node--diamond {
+  transform: rotate(0deg);
+  clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%);
+  border-radius: 0;
+  min-height: 72px;
+}
+.graph-node--hexagon {
+  clip-path: polygon(12% 0, 88% 0, 100% 50%, 88% 100%, 12% 100%, 0 50%);
+  border-radius: 0;
+}
+.graph-node--cylinder {
+  border-radius: 10px / 24px;
+}
+.graph-node__rename {
+  font: inherit;
+  color: inherit;
+  background: var(--bg-sunken);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  padding: 0.1rem 0.3rem;
+  width: 100%;
+  text-align: center;
+}
+
 /* Typeset maths.
  *
  * KaTeX brings its own stylesheet and its own fonts; everything here is about
@@ -2874,6 +2978,21 @@ button.fleet-grant {
 .chat-user p { font-weight: 550; }
 .chat-agent p { color: var(--fg); }
 .chat-error { color: var(--danger); }
+/* The user's own stop is quiet; only real failures get the red. */
+.chat-stopped { font-style: italic; }
+/* The stop button: visibly the danger verb while a run is live, icon beside
+ * the word so it reads at a glance from across the pane. */
+.chat-stop {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  color: var(--danger);
+  border-color: var(--danger);
+}
+.chat-stop:not(:disabled):hover {
+  background: var(--danger);
+  color: var(--bg);
+}
 .chat-stream {
   margin: 0;
   font-family: ui-monospace, Menlo, monospace;

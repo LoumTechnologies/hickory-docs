@@ -74,6 +74,13 @@ export interface InsertElement {
   bodyLabel?: string;
   /** Written as the body when the caret carries no selection. */
   bodyPlaceholder?: string;
+  /** A starter body that depends on one field's chosen value — the diagram's
+   * body is mermaid text or scene JSON depending on `renderer`. Falls back
+   * to `bodyPlaceholder` for values not listed. */
+  bodyPlaceholderBy?: {
+    field: string;
+    bodies: Readonly<Record<string, string>>;
+  };
   /** The element this one belongs inside, named in the form so a rule is
    * never inserted somewhere it means nothing. */
   belongsIn?: string;
@@ -727,12 +734,31 @@ export const INSERT_ELEMENTS: readonly InsertElement[] = [
     body: "block",
     bodyLabel: "Diagram source",
     bodyPlaceholder: "graph TD\n  A --> B",
+    // The starter body is the renderer's: mermaid is text, a graph scene is
+    // JSON the canvas can open. Inserting mermaid text under
+    // renderer="graph" would greet the author with a parse error.
+    bodyPlaceholderBy: {
+      field: "renderer",
+      bodies: {
+        graph:
+          '{\n' +
+          '  "nodes": [\n' +
+          '    {"id": "a", "label": "A"},\n' +
+          '    {"id": "b", "label": "B"}\n' +
+          '  ],\n' +
+          '  "edges": [\n' +
+          '    {"from": "a", "to": "b"}\n' +
+          '  ],\n' +
+          '  "layout": {}\n' +
+          '}',
+      },
+    },
     fields: [
       {
         name: "renderer",
         label: "Renderer",
-        hint: "Only mermaid draws in this build; any other renderer still weaves as a tagged fence.",
-        choices: ["mermaid"],
+        hint: "mermaid is text you type; graph is a JSON scene you drag on a canvas. Any other renderer still weaves as a tagged fence.",
+        choices: ["mermaid", "graph"],
       },
       {
         name: "asserts",
@@ -1008,9 +1034,16 @@ export function renderElement(
  * paragraph — otherwise the catalogue's own starter text, which the insert
  * leaves selected so the first keystroke replaces it.
  */
-export function defaultBody(element: InsertElement, selected: string): string {
+export function defaultBody(
+  element: InsertElement,
+  selected: string,
+  values?: FieldValues,
+): string {
   if (element.body === "none") return "";
-  return selected.trim().length > 0 ? selected : (element.bodyPlaceholder ?? "");
+  if (selected.trim().length > 0) return selected;
+  const by = element.bodyPlaceholderBy;
+  const chosen = by && values ? by.bodies[values[by.field] ?? ""] : undefined;
+  return chosen ?? element.bodyPlaceholder ?? "";
 }
 
 /** What the caret sits in, and what already surrounds it. */

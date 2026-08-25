@@ -178,7 +178,10 @@ class RenderedWidget extends WidgetType {
   }
 
   get estimatedHeight() {
-    if (this.slot.kind === "diagram") return 180;
+    // A graph scene mounts a canvas with its own minimum height; guessing the
+    // mermaid number for it would put the scrollbar off by half a widget.
+    if (this.slot.kind === "diagram")
+      return this.slot.renderer === "graph" ? 340 : 180;
     // An equation is one or two lines of tall type, not a picture: guessing a
     // diagram's height for it makes the scrollbar lie by a screenful in a
     // document full of maths.

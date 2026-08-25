@@ -186,6 +186,30 @@ fn process_weave_tag(
         // proved it rather than from someone's memory of it.
         "diagram" => {
             let renderer = tag_attr(tag, "renderer").unwrap_or_else(|| "mermaid".to_string());
+            // A graph scene is JSON with positions; the weave downgrades it to
+            // a mermaid fence so the woven markdown still renders everywhere.
+            // Positions are dropped, which is honest — markdown has nowhere to
+            // keep them. A body that does not parse weaves as its JSON, so the
+            // reader sees what is there instead of nothing; the warning about
+            // it is emitted at validation time, beside the asserts warnings.
+            if renderer == crate::scene::GRAPH_RENDERER {
+                let body = resolved_scene_body(tag, state);
+                match crate::scene::parse_scene(&body) {
+                    Ok(scene) => {
+                        weave_ip.add(Arc::new(StringNode::new(format!(
+                            "\n```mermaid\n{}```\n",
+                            crate::scene::to_mermaid(&scene)
+                        ))));
+                    }
+                    Err(_) => {
+                        let body = body.trim_end();
+                        weave_ip.add(Arc::new(StringNode::new(format!(
+                            "\n```json\n{body}\n```\n"
+                        ))));
+                    }
+                }
+                return;
+            }
             weave_ip.add(Arc::new(StringNode::new(format!("\n```{renderer}\n"))));
             process_file_children_to_weave(
                 &tag.children,
@@ -578,6 +602,29 @@ fn process_file_children_to_weave(
             }
         }
     }
+}
+
+/// A graph diagram's body, resolved synchronously: text children dedented,
+/// `<hick:paste>` children answered from the run state's fragments — which is
+/// what lets a derived scene's topology arrive from the cell that proved it.
+/// The streaming path the other renderers use cannot be parsed as JSON before
+/// it is woven, and a scene must be parsed to be downgraded.
+fn resolved_scene_body(tag: &hick_lang::HickTag, state: &Arc<MultiDocumentState>) -> String {
+    let mut body = String::new();
+    for child in &tag.children {
+        match child {
+            HickNode::Text(text, _) => body.push_str(&dedent(text, tag.source_column)),
+            HickNode::Tag(child_tag) if child_tag.name == "paste" => {
+                if let Some(select) = tag_attr(child_tag, "select")
+                    && let Some(resolved) = state.resolve_paste(&select, None)
+                {
+                    body.push_str(&resolved);
+                }
+            }
+            HickNode::Tag(_) => {}
+        }
+    }
+    body
 }
 
 /// Process weave output for all documents if weave is enabled.

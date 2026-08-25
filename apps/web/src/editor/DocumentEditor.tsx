@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { EditorState, Transaction } from "@codemirror/state";
 import { EditorView, keymap, placeholder } from "@codemirror/view";
@@ -43,6 +43,7 @@ import {
   expectRangeOf,
   proseFences,
   verbatimRanges,
+  type HickDocStructure,
 } from "./hickDoc";
 import { lineHighlightField } from "./lineHighlight";
 import { mdLinks } from "./mdLinks";
@@ -64,6 +65,9 @@ import { popoverTop } from "../lib/cardRail";
 import { actionsFor, hasReplay } from "../lib/railActions";
 import type { RailAction } from "../lib/railActions";
 import { DiagramPanel } from "../components/DiagramPanel";
+// Lazy for the same reason mermaid is: the canvas library must never reach
+// the marketing site's bundle, which builds from this tree.
+const GraphEditorPanel = lazy(() => import("../components/graph/GraphEditorPanel"));
 import { MathPanel } from "../components/MathPanel";
 import { TablePanel, type TableLayout } from "../components/TablePanel";
 import { tableKey } from "../lib/uiState";
@@ -74,7 +78,7 @@ import { FenceConvert } from "../components/FenceConvert";
 import { EnvCard } from "../components/EnvCard";
 import { api } from "../api/client";
 import type { Realtime } from "../api/realtime";
-import type { ExecBlock, ExecutorInfo } from "../api/types";
+import type { DiagramBlock, ExecBlock, ExecutorInfo } from "../api/types";
 
 export interface DocumentEditorProps {
   docId: string;
@@ -86,6 +90,9 @@ export interface DocumentEditorProps {
   selectSpan?: [number, number] | null;
   /** Rendered exec blocks (statuses/transcripts) to attach to cells. */
   execBlocks: ExecBlock[];
+  /** Rendered diagram blocks: bodies with pastes resolved server-side, so a
+   * DERIVED diagram draws. Optional — without them the raw source draws. */
+  diagramBlocks?: DiagramBlock[];
   runningCells: Set<string>;
   onRunCell: (execId: string) => void;
   /** Debug one of the files this document generates, named by its path. */
@@ -145,7 +152,15 @@ export function matchExecBlock(
   slot: { span: [number, number]; index: number },
   blocks: ExecBlock[],
 ): ExecBlock | undefined {
-  let best: ExecBlock | undefined;
+  return matchBlock(slot, blocks);
+}
+
+/** The span-overlap-else-ordinal match, for any server block list. */
+function matchBlock<T extends { span: [number, number] }>(
+  slot: { span: [number, number]; index: number },
+  blocks: readonly T[],
+): T | undefined {
+  let best: T | undefined;
   let bestOverlap = 0;
   for (const b of blocks) {
     const o = overlap(slot.span, b.span);
@@ -155,6 +170,39 @@ export function matchExecBlock(
     }
   }
   return best ?? blocks[slot.index];
+}
+
+/**
+ * Live state of a diagram's assertions: each `asserts` id resolved to the
+ * exec cell carrying that id in the SOURCE (the server's exec ids are
+ * `container:line`, not the tag's own id), then that cell's last run status.
+ * Unknown when the id names no cell, the cell has never run or is running,
+ * or its result is stale — the panel says "checked by", never "passing",
+ * about anything it does not know.
+ */
+export function assertionStates(
+  structure: HickDocStructure,
+  execBlocks: ExecBlock[],
+  asserts: readonly string[],
+  runningCells: Set<string>,
+): { id: string; state: "passing" | "failing" | "unknown" }[] {
+  const execs = execBlocksOf(structure);
+  return asserts.map((id) => {
+    const index = execs.findIndex((exec) => exec.attrs.id === id);
+    const source = index >= 0 ? execs[index] : undefined;
+    const block = source
+      ? matchExecBlock({ span: [source.from, source.to], index }, execBlocks)
+      : undefined;
+    const state =
+      !block || runningCells.has(block.id)
+        ? ("unknown" as const)
+        : block.status === "ok"
+          ? ("passing" as const)
+          : block.status === "failed"
+            ? ("failing" as const)
+            : ("unknown" as const);
+    return { id, state };
+  });
 }
 
 /**
@@ -175,6 +223,7 @@ export function DocumentEditor({
   onChange,
   selectSpan,
   execBlocks,
+  diagramBlocks,
   runningCells,
   onRunCell,
   onViewReady,
@@ -764,21 +813,24 @@ export function DocumentEditor({
    * offsets rather than the block span, because rewriting the span would
    * rewrite the opening tag and lose its attributes.
    */
-  const replaceBlockContent = useCallback((slot: RenderedSlot, text: string) => {
-    const view = viewRef.current;
-    if (!view) return;
-    const structure = structureOf(view.state);
-    const block = structure.blocks.find((b) => b.from === slot.at);
-    if (!block) return;
-    const body = text.endsWith("\n") ? text : `${text}\n`;
-    if (view.state.doc.sliceString(block.contentFrom, block.contentTo) === body) return;
-    view.dispatch({
-      changes: { from: block.contentFrom, to: block.contentTo, insert: body },
-      // A user event, so the CRDT and the undo history both treat it as
-      // typing — which is what it is.
-      userEvent: "input.table",
-    });
-  }, []);
+  const replaceBlockContent = useCallback(
+    (slot: RenderedSlot, text: string, userEvent = "input.table") => {
+      const view = viewRef.current;
+      if (!view) return;
+      const structure = structureOf(view.state);
+      const block = structure.blocks.find((b) => b.from === slot.at);
+      if (!block) return;
+      const body = text.endsWith("\n") ? text : `${text}\n`;
+      if (view.state.doc.sliceString(block.contentFrom, block.contentTo) === body) return;
+      view.dispatch({
+        changes: { from: block.contentFrom, to: block.contentTo, insert: body },
+        // A user event, so the CRDT and the undo history both treat it as
+        // typing — which is what it is.
+        userEvent,
+      });
+    },
+    [],
+  );
 
   // Place the popover against its REAL height, before paint.
   //
@@ -885,19 +937,48 @@ export function DocumentEditor({
       </div>
       {renderedSlots.map((slot) => {
         if (slot.kind === "diagram") {
+          // The asserting cells' live run state, so the panel can say
+          // "out of date" the moment a named cell fails — not just at weave.
+          const states = railView
+            ? assertionStates(
+                structureOf(railView.state),
+                execBlocks,
+                slot.asserts,
+                runningCells,
+              )
+            : slot.asserts.map((id) => ({ id, state: "unknown" as const }));
+          // A derived diagram's source holds a `<hick:paste>` where its edges
+          // should be; the server's block carries the body with the fragment
+          // inlined. Only then — the raw text is live while the user types,
+          // and the resolved copy is only as fresh as the last render.
+          const resolved = slot.text.includes("<hick:paste")
+            ? (matchBlock({ span: slot.span, index: slot.index }, diagramBlocks ?? [])?.body ??
+              null)
+            : null;
+          if (slot.renderer === "graph") {
+            return createPortal(
+              <div className="rendered-diagram">
+                <Suspense fallback={<div className="graph-editor graph-editor--loading" />}>
+                  <GraphEditorPanel
+                    source={slot.text}
+                    resolved={resolved}
+                    assertions={states}
+                    onCommit={(text) => replaceBlockContent(slot, text, "input.diagram")}
+                  />
+                </Suspense>
+              </div>,
+              slot.el,
+              slot.key,
+            );
+          }
+          const source = resolved ?? slot.text;
           return createPortal(
             <div className="rendered-diagram">
               <DiagramPanel
                 renderer={slot.renderer}
-                source={slot.text}
+                source={source}
                 domId={`hick-diagram-${slot.index}`}
-                assertions={slot.asserts.map((id) => ({
-                  id,
-                  // Wiring a live pass/fail state to the cell that carries
-                  // this id is the next step; until then the panel says
-                  // "checked by", never "passing", because it does not know.
-                  state: "unknown" as const,
-                }))}
+                assertions={states}
               />
             </div>,
             slot.el,

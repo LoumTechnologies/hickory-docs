@@ -48,18 +48,30 @@ export type Block =
       span: [number, number];
     }
   | {
+      kind: "diagram";
+      renderer: string;
+      /** Body with this document's `<hick:paste>` fragments inlined — what
+       * the panel draws. The raw source, paste tags and all, stays in the
+       * editor buffer. */
+      body: string;
+      /** Ids named by `asserts`, `#` stripped. */
+      asserts: string[];
+      span: [number, number];
+    }
+  | {
       kind: "session-user" | "session-assistant" | "session-observation";
       body: string;
       span: [number, number];
     };
 
 export type ExecBlock = Extract<Block, { kind: "exec" }>;
+export type DiagramBlock = Extract<Block, { kind: "diagram" }>;
 
 export interface RenderResponse {
   blocks: Block[];
 }
 
-export type RunStatus = "queued" | "running" | "ok" | "failed";
+export type RunStatus = "queued" | "running" | "ok" | "failed" | "stopped";
 
 export interface Run {
   id: string;
@@ -443,6 +455,18 @@ export interface StructuralLink {
 export interface StructureResponse {
   files: FileStructure[];
   links: StructuralLink[];
+}
+
+/** `GET /api/diagram` — the deterministic generator's answer: a scene
+ * topology deduced from the folder's code. `structural` is always true today
+ * and is carried so the client says "name-resolved" rather than implying a
+ * compiler's precision. */
+export interface DiagramTopologyResponse {
+  structural: boolean;
+  topology: {
+    nodes: { id: string; label?: string; shape?: string }[];
+    edges: { from: string; to: string; label?: string; style?: string }[];
+  };
 }
 
 // --- settings: LLM API keys --------------------------------------------------

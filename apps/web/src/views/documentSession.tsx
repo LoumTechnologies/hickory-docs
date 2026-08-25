@@ -20,7 +20,7 @@ import type { EditorView } from "@codemirror/view";
 
 import { api, MOCK } from "../api/client";
 import { WsRealtime, getSharedRealtime, type Realtime } from "../api/realtime";
-import type { Block, Doc, ExecBlock, OutputFile, RunWsMessage, SourceEdit } from "../api/types";
+import type { Block, DiagramBlock, Doc, ExecBlock, OutputFile, RunWsMessage, SourceEdit } from "../api/types";
 import { flashSpans } from "../editor/changeFlash";
 import { usePrompt } from "../components/PromptPanel";
 import { byteToChar } from "../lib/offsets";
@@ -91,6 +91,9 @@ export interface DocSession {
   syncState: "idle" | "editing" | "saved";
   runningCells: Set<string>;
   execBlocks: ExecBlock[];
+  /** Diagram bodies with pastes resolved server-side — a derived diagram is
+   * unreadable from its raw source alone. */
+  diagramBlocks: DiagramBlock[];
   /** Every file this document generates, with provenance — open or not. */
   outputs: Map<string, OutputFile>;
   /** The editors currently showing one, keyed by path. */
@@ -795,6 +798,10 @@ function useDocumentSession(
     () => (blocks ?? []).filter((b): b is ExecBlock => b.kind === "exec"),
     [blocks],
   );
+  const diagramBlocks = useMemo(
+    () => (blocks ?? []).filter((b): b is DiagramBlock => b.kind === "diagram"),
+    [blocks],
+  );
 
   return {
     docId,
@@ -806,6 +813,7 @@ function useDocumentSession(
     syncState,
     runningCells,
     execBlocks,
+    diagramBlocks,
     outputs,
     openOutputs,
     docEditor,

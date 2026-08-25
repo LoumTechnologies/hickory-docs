@@ -49,6 +49,16 @@ pub enum Block {
         body: String,
         span: (usize, usize),
     },
+    Diagram {
+        renderer: String,
+        /// The body with `<hick:paste>` fragments from THIS document inlined
+        /// — what a notebook draws. The raw source, paste tags and all, stays
+        /// in the document; a derived diagram is unreadable without this.
+        body: String,
+        /// Ids named by `asserts`, `#` stripped.
+        asserts: Vec<String>,
+        span: (usize, usize),
+    },
 }
 
 /// Inputs for [`build_block_model`].
@@ -173,11 +183,89 @@ fn walk(
                     // Execs nested in the file still appear as blocks after it.
                     walk(&tag.children, input, images, blocks);
                 }
+                "diagram" => blocks.push(diagram_block(tag, input.doc)),
                 "when" => walk(&tag.children, input, images, blocks),
                 _ => {}
             },
         }
     }
+}
+
+fn diagram_block(tag: &HickTag, doc: &HickDocument) -> Block {
+    let renderer = tag_attr(tag, "renderer").unwrap_or_else(|| "mermaid".to_string());
+    let asserts = tag_attr(tag, "asserts")
+        .unwrap_or_default()
+        .split_whitespace()
+        .map(|s| s.trim_start_matches('#').to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+    let mut body = String::new();
+    resolve_diagram_children(&tag.children, doc, tag.source_column, &mut body);
+    Block::Diagram {
+        renderer,
+        body,
+        asserts,
+        span: span_of_tag(tag),
+    }
+}
+
+/// Inline `<hick:paste>` fragments from this document into a diagram body.
+///
+/// The weave resolves pastes through the whole pipeline; the block model only
+/// needs what a notebook can draw without running anything, so this resolves
+/// the document-local `copy`/`cut` fragments and drops a paste it cannot find
+/// — the picture then fails to parse in the panel, which shows the source,
+/// the existing posture for a diagram that cannot draw.
+fn resolve_diagram_children(
+    nodes: &[HickNode],
+    doc: &HickDocument,
+    indent: usize,
+    out: &mut String,
+) {
+    for node in nodes {
+        match node {
+            HickNode::Text(text, _) => out.push_str(&hick_lang::dedent(text, indent)),
+            HickNode::Tag(tag) if tag.name == "paste" => {
+                if let Some(select) = tag_attr(tag, "select")
+                    && let Some(fragment) = find_fragment(&doc.nodes, &select)
+                {
+                    out.push_str(&fragment.text_content());
+                }
+            }
+            HickNode::Tag(_) => {}
+        }
+    }
+}
+
+/// The first `copy`/`cut` fragment a paste selector (`#id`, `.class`, or a
+/// comma list of those) refers to, anywhere in the document.
+fn find_fragment<'a>(nodes: &'a [HickNode], selector: &str) -> Option<&'a HickTag> {
+    for node in nodes {
+        if let HickNode::Tag(tag) = node {
+            if (tag.name == "copy" || tag.name == "cut") && selector_matches(selector, tag) {
+                return Some(tag);
+            }
+            if let Some(found) = find_fragment(&tag.children, selector) {
+                return Some(found);
+            }
+        }
+    }
+    None
+}
+
+fn selector_matches(selector: &str, fragment: &HickTag) -> bool {
+    let id = tag_attr(fragment, "id");
+    let classes = tag_attr(fragment, "class").unwrap_or_default();
+    let classes: Vec<&str> = classes.split_whitespace().collect();
+    selector.split(',').map(str::trim).any(|part| {
+        if let Some(rest) = part.strip_prefix('#') {
+            id.as_deref() == Some(rest)
+        } else if let Some(rest) = part.strip_prefix('.') {
+            classes.contains(&rest)
+        } else {
+            false
+        }
+    })
 }
 
 fn exec_block(
@@ -231,5 +319,74 @@ fn exec_block(
         transcript,
         expect,
         status: status.to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn model_of(source: &str) -> Vec<Block> {
+        let doc = hick_lang::parse(source).expect("parse");
+        let transcripts = Transcripts::new();
+        let never_run = crate::NeverRun::new();
+        build_block_model(&BlockModelInput {
+            doc: &doc,
+            transcripts: &transcripts,
+            expectations: &[],
+            files: None,
+            never_run: &never_run,
+        })
+    }
+
+    // Protects docs/guarantees/authoring/a-diagram-names-what-proves-it.md:
+    // the app's block model carries the diagram, ids stripped of their `#`,
+    // and a derived diagram's body arrives with its paste resolved — the raw
+    // source alone is a paste tag, which no renderer can draw.
+    #[test]
+    fn diagram_block_resolves_document_local_pastes() {
+        let source = "<hick:doc xmlns:hick=\"http://www.hickorydocs.com/1.0\">\n\
+             <hick:copy id=\"edges\">\nflowchart TD\n  a --> b\n</hick:copy>\n\
+             <hick:diagram renderer=\"mermaid\" asserts=\"#row-count #edge-count\">\n\
+             <hick:paste select=\"#edges\" />\n\
+             </hick:diagram>\n\
+             </hick:doc>\n";
+        let blocks = model_of(source);
+        let diagram = blocks
+            .iter()
+            .find_map(|b| match b {
+                Block::Diagram {
+                    renderer,
+                    body,
+                    asserts,
+                    ..
+                } => Some((renderer, body, asserts)),
+                _ => None,
+            })
+            .expect("a diagram block");
+        assert_eq!(diagram.0, "mermaid");
+        assert!(
+            diagram.1.contains("a --> b"),
+            "paste inlined: {}",
+            diagram.1
+        );
+        assert!(!diagram.1.contains("hick:paste"));
+        assert_eq!(diagram.2, &["row-count", "edge-count"]);
+    }
+
+    #[test]
+    fn unresolvable_paste_is_dropped_not_echoed() {
+        let source = "<hick:doc xmlns:hick=\"http://www.hickorydocs.com/1.0\">\n\
+             <hick:diagram>\n<hick:paste select=\"#gone\" />\n</hick:diagram>\n\
+             </hick:doc>\n";
+        let blocks = model_of(source);
+        let body = blocks
+            .iter()
+            .find_map(|b| match b {
+                Block::Diagram { body, .. } => Some(body),
+                _ => None,
+            })
+            .expect("a diagram block");
+        assert!(!body.contains("hick:paste"));
     }
 }

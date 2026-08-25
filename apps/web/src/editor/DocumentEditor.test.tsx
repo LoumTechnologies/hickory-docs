@@ -2,10 +2,21 @@
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { EditorView as EditorViewType } from "@codemirror/view";
-import { DocumentEditor, matchExecBlock } from "./DocumentEditor";
+import { DocumentEditor, assertionStates, matchExecBlock } from "./DocumentEditor";
 import { LocalRealtime } from "../api/realtime";
 import { CLI_BLOCKS } from "../mock/mockData";
+import { parseHickDoc } from "./hickDoc";
 import type { ExecBlock } from "../api/types";
+
+// The real engine wants a live browser; these tests are about what the editor
+// HANDS the panel, not what the panel draws.
+const mermaidRender = vi.fn();
+vi.mock("mermaid", () => ({
+  default: {
+    initialize: vi.fn(),
+    render: (...args: unknown[]) => mermaidRender(...args),
+  },
+}));
 
 afterEach(cleanup);
 
@@ -299,6 +310,96 @@ describe("DocumentEditor (WYSIWYG over raw source)", () => {
       );
       expect(lines.join("\n")).toBe(source);
     });
+    realtime.close();
+  });
+});
+
+// Protects docs/guarantees/authoring/a-diagram-names-what-proves-it.md — the
+// panel under a proved diagram must not look like the panel under a broken one.
+describe("live diagram assertions", () => {
+  const source =
+    '<hick:exec container="shell" id="row-count">\nwc -l data.csv\n</hick:exec>\n' +
+    '<hick:diagram renderer="mermaid" asserts="#row-count">\nflowchart TD\n  a --> b\n</hick:diagram>\n';
+  const execAt = (span: [number, number], status: string): ExecBlock => ({
+    kind: "exec",
+    id: "shell:1",
+    container: "shell",
+    command: "wc -l data.csv",
+    span,
+    status: status as ExecBlock["status"],
+  });
+
+  it("maps each asserts id through the cell that carries it to its run state", () => {
+    const structure = parseHickDoc(source);
+    const exec = structure.blocks.find((b) => b.name === "exec")!;
+    const span: [number, number] = [exec.from, exec.to];
+    const states = (status: string, running = new Set<string>()) =>
+      assertionStates(structure, [execAt(span, status)], ["row-count"], running);
+    expect(states("ok")).toEqual([{ id: "row-count", state: "passing" }]);
+    expect(states("failed")).toEqual([{ id: "row-count", state: "failing" }]);
+    expect(states("never-run")).toEqual([{ id: "row-count", state: "unknown" }]);
+    // A run in flight is not a verdict.
+    expect(states("ok", new Set(["shell:1"]))).toEqual([{ id: "row-count", state: "unknown" }]);
+    // An id no cell carries stays unknown rather than borrowing a neighbour.
+    expect(assertionStates(structure, [execAt(span, "ok")], ["renamed-away"], new Set())).toEqual([
+      { id: "renamed-away", state: "unknown" },
+    ]);
+  });
+
+  it("tells the reader, in the document, when a named cell now fails", async () => {
+    mermaidRender.mockResolvedValue({ svg: "<svg></svg>" });
+    const realtime = new LocalRealtime();
+    const failing = execAt([0, source.indexOf("</hick:exec>") + "</hick:exec>".length], "failed");
+    const { container } = render(
+      <DocumentEditor
+        docId="dDiagLive"
+        initialSource={source}
+        realtime={realtime}
+        execBlocks={[failing]}
+        runningCells={new Set()}
+        onRunCell={() => undefined}
+      />,
+    );
+    await waitFor(() => expect(container.querySelector(".diagram-assertions")).toBeTruthy());
+    await waitFor(() =>
+      expect(container.querySelector(".diagram-assertions")!.textContent).toContain(
+        "out of date",
+      ),
+    );
+    realtime.close();
+  });
+
+  it("draws a derived diagram from the server's resolved body, not the paste tag", async () => {
+    mermaidRender.mockResolvedValue({ svg: "<svg></svg>" });
+    const realtime = new LocalRealtime();
+    const derived =
+      '<hick:copy id="edges">\nflowchart TD\n  a --> b\n</hick:copy>\n' +
+      '<hick:diagram renderer="mermaid">\n<hick:paste select="#edges" />\n</hick:diagram>\n';
+    const from = derived.indexOf("<hick:diagram");
+    const { container } = render(
+      <DocumentEditor
+        docId="dDiagDerived"
+        initialSource={derived}
+        realtime={realtime}
+        execBlocks={[]}
+        diagramBlocks={[
+          {
+            kind: "diagram",
+            renderer: "mermaid",
+            body: "flowchart TD\n  a --> b\n",
+            asserts: [],
+            span: [from, derived.length - 1],
+          },
+        ]}
+        runningCells={new Set()}
+        onRunCell={() => undefined}
+      />,
+    );
+    await waitFor(() => expect(container.querySelector(".diagram-panel")).toBeTruthy());
+    await waitFor(() => expect(mermaidRender).toHaveBeenCalled());
+    const drawn = mermaidRender.mock.calls.at(-1)![1] as string;
+    expect(drawn).toContain("a --> b");
+    expect(drawn).not.toContain("hick:paste");
     realtime.close();
   });
 });

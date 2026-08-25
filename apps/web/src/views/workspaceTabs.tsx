@@ -132,6 +132,7 @@ export function DocTabBody({
         onChange={session.setDirtySource}
         selectSpan={session.selectSpan}
         execBlocks={session.execBlocks}
+        diagramBlocks={session.diagramBlocks}
         runningCells={session.runningCells}
         onRunCell={session.runCell}
         lspExtensions={session.lspExtensions}

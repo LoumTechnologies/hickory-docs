@@ -338,6 +338,44 @@ pub async fn structure(State(state): State<LocalState>) -> ApiResult<Json<Value>
     })))
 }
 
+/// Query for [`diagram`].
+#[derive(serde::Deserialize)]
+pub struct DiagramQuery {
+    /// `dir` (default) or `file`.
+    pub group: Option<String>,
+}
+
+/// `GET /api/diagram?group=dir|file` — the deterministic diagram generator
+/// over the served folder's own code: the same topology `hick diagram`
+/// prints, as scene JSON a graph diagram (or a copy fragment) can hold.
+/// Never a layout — positions are the person's half.
+pub async fn diagram(
+    State(state): State<LocalState>,
+    Query(q): Query<DiagramQuery>,
+) -> ApiResult<Json<Value>> {
+    let group = match q.group.as_deref() {
+        None | Some("dir") => crate::diagram::Grouping::Dir,
+        Some("file") => crate::diagram::Grouping::File,
+        Some(other) => {
+            return Err(ApiError::bad_request(format!(
+                "`group={other}` is not a granularity — use `dir` or `file`"
+            )));
+        }
+    };
+    let root = state.index.root().to_path_buf();
+    // Tree-sitter over a whole folder is CPU work; keep it off the runtime.
+    let topology =
+        tokio::task::spawn_blocking(move || crate::diagram::generate_topology(&root, group))
+            .await
+            .map_err(|e| ApiError::internal(e.to_string()))?
+            .map_err(|e| ApiError::internal(e.to_string()))?;
+    Ok(Json(json!({
+        // Name-resolved, so the client says "a place to start looking".
+        "structural": true,
+        "topology": topology,
+    })))
+}
+
 // ---------------------------------------------------------------------------
 // The folder tree
 // ---------------------------------------------------------------------------

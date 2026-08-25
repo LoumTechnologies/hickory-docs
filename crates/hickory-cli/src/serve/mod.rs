@@ -407,6 +407,7 @@ fn router(state: LocalState) -> Router {
         .route("/docs/{id}/run", post(api::run_doc))
         .route("/docs/{id}/check", post(api::check_doc))
         .route("/docs/{id}/agent", post(agent::start_turn))
+        .route("/docs/{id}/agent/stop", post(agent::stop_turn))
         .route("/docs/{id}/agent/turns", get(agent::list_turns))
         .route("/runs/{id}", get(api::get_run))
         .route(
@@ -437,6 +438,10 @@ fn router(state: LocalState) -> Router {
         .route("/find", get(find::find))
         .route("/find/replace", post(find::replace))
         .route("/structure", get(api::structure))
+        // The deterministic diagram generator over the served folder's code —
+        // the same topology `hick diagram` prints, for a "generate from
+        // code" verb in the graph editor. Name-resolved, and says so.
+        .route("/diagram", get(api::diagram))
         // Who last touched each line. Off by default in the editor, so this
         // is only ever asked for by someone who turned the column on.
         .route("/blame", get(api::blame))

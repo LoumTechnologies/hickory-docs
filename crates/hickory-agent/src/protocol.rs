@@ -153,6 +153,18 @@ document is prose (markdown) and is raw, byte for byte.
 - <hick:claim by="who" standing="expert|judgment|report|assumption" scope="…">
   TEXT</hick:claim>                                    an assertion and whose
   it is; nothing verifies it
+- <hick:diagram renderer="mermaid" asserts="#id">BODY</hick:diagram>
+  a picture that names the cell(s) proving it still tells the truth. Always
+  set `asserts` to the exec cell whose expect pins the fact drawn, or leave
+  it off only for a deliberate sketch of something outside this project —
+  its absence is visible. `renderer="mermaid"` takes mermaid text.
+  `renderer="graph"` takes a JSON scene the person can then drag:
+  {"nodes": [{"id": "api", "label": "…", "shape": "rect|cylinder|…"}],
+  "edges": [{"from": "api", "to": "db", "label": "…"}], "layout": {…}} —
+  use short SEMANTIC ids (`"api"`, never generated ones) and OMIT `layout`:
+  arranging boxes is the person's half, and auto-layout fills in. When a
+  fragment already carries a topology, paste it —
+  {"topology": <hick:paste select="#…" />, "layout": {}} — never restate it
 
 An exec's output is not a fragment: a number a cell prints cannot be pasted.
 State it in a copy fragment beside the cell and let the cell's expect keep
@@ -465,6 +477,23 @@ pub fn extract_thought(response: &str) -> Option<String> {
 mod tests {
     use super::*;
     use crate::script::Language;
+
+    // Protects docs/guarantees/agent/the-agent-can-author-a-diagram.md: an
+    // element the prompt does not name is one the agent is told not to
+    // invent, so the diagram's absence here was the whole reason the agent
+    // could not draw.
+    #[test]
+    fn the_document_language_names_the_diagram_and_its_discipline() {
+        assert!(TOOLS_SYSTEM_PROMPT.contains("<hick:diagram"));
+        assert!(TOOLS_SYSTEM_PROMPT.contains(r#"renderer="graph""#));
+        // The discipline, not just the syntax: assert or be a deliberate
+        // sketch; semantic ids; layout is the person's half; paste an
+        // existing topology rather than restating it.
+        assert!(TOOLS_SYSTEM_PROMPT.contains("asserts"));
+        assert!(TOOLS_SYSTEM_PROMPT.contains("SEMANTIC ids"));
+        assert!(TOOLS_SYSTEM_PROMPT.contains("OMIT `layout`"));
+        assert!(TOOLS_SYSTEM_PROMPT.contains(r#""topology": <hick:paste"#));
+    }
 
     #[test]
     fn valid_code_turn() {

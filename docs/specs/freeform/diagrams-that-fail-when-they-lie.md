@@ -81,12 +81,17 @@ is a value and not a migration.
    the woven output honest for a reader who never opens the notebook. It is
    also what a coding agent emits without being asked, which matters when the
    diagrams are generated.
-2. **d3 — later.** Interaction is the reason to reach for it: click a node and
-   jump to the code, hover an edge and see the query that proves it, watch a
-   failing assertion paint its edge red. Mermaid can draw that picture but
-   cannot make it a surface you interrogate. This is a notebook interface;
-   eventually the diagram should answer questions.
-3. **first-party SVG — maybe never.** Only if both of the above are proven
+2. **graph — built (2026-08-25).** The interaction role this list staged for
+   d3, taken instead by an editor: a JSON scene body (topology apart from
+   layout), an interactive canvas in the app that writes every gesture back
+   into the document, and a weave that downgrades to a mermaid fence so the
+   woven markdown still renders everywhere. See
+   `a-diagram-you-can-drag.md` — including why it is a renderer value and not
+   a new element, which this section predicted.
+3. **d3 — probably never now.** What it was staged for (interrogate the
+   picture) is the graph renderer's job; reach for d3 only if a *reading*
+   interaction appears that an editor cannot host.
+4. **first-party SVG — maybe never.** Only if the above are proven
    inadequate. The cost is a layout engine, and layout engines are a career.
 
 The notebook draws what it can and leaves the rest as source: an unknown
@@ -94,12 +99,18 @@ renderer says so, and the document still weaves.
 
 ## What is not built yet
 
-- **Live assertion state in the panel.** The notebook shows *which* cells
-  check a diagram; it does not yet colour them by last-run result. The wiring
-  is the run-state the cell panels already receive, keyed by `id`.
-- **Deriving a diagram from a cell's output.** The mechanism (`hick:paste`
-  inside the tag) works today; what is missing is a worked example proving the
-  loop, and a SCIP query that emits mermaid rather than a count.
+- ~~**Live assertion state in the panel.**~~ Built (2026-08-25): the panel
+  maps each `asserts` id through the cell that carries it to its last-run
+  state, and says "out of date" in the document the moment a named cell
+  fails. Derived bodies draw too — the block model resolves this document's
+  pastes, so a picture whose edges come from a fragment is no longer a paste
+  tag on screen.
+- ~~**Deriving a diagram from a cell's output.**~~ Built (2026-08-25):
+  `examples/architecture-that-draws-itself.hick` is the worked loop — code,
+  an expect-pinned `hick diagram` scan (the new deterministic generator over
+  `hick-structure`; `--refresh` re-writes the fragment, layout untouched), a
+  fragment, a derived graph diagram, and the SCIP-in-a-user-container
+  variant shown emitting the same topology shape.
 - **The skill.** A Claude Code skill that reads a repository and writes one of
   these documents — the layers it finds, the picture, and the assertions that
   hold it in place — is the point of the whole feature. It is a separate piece

@@ -70,14 +70,31 @@ export function InsertMenu({
     initialValues(element),
   );
   const [body, setBody] = useState<string>(() =>
-    defaultBody(element, selectedText),
+    defaultBody(element, selectedText, initialValues(element)),
   );
   const [showProblems, setShowProblems] = useState(false);
   useEffect(() => {
     setValues(initialValues(element));
-    setBody(defaultBody(element, selectedText));
+    setBody(defaultBody(element, selectedText, initialValues(element)));
     setShowProblems(false);
   }, [element, selectedText]);
+
+  /** A field change that decides the starter body (the diagram's renderer)
+   * swaps an UNTOUCHED body along with it; a body the person already edited
+   * is theirs and stays. */
+  const setFieldValue = (name: string, value: string) => {
+    setValues((current) => {
+      const next = { ...current, [name]: value };
+      if (element.bodyPlaceholderBy?.field === name) {
+        setBody((b) =>
+          b === defaultBody(element, selectedText, current)
+            ? defaultBody(element, selectedText, next)
+            : b,
+        );
+      }
+      return next;
+    });
+  };
 
   const searchRef = useRef<HTMLInputElement>(null);
   const firstFieldRef = useRef<HTMLInputElement | HTMLSelectElement>(null);
@@ -275,12 +292,7 @@ export function InsertMenu({
                         }
                         className="insert-menu__input"
                         value={values[field.name] ?? ""}
-                        onChange={(event) =>
-                          setValues((v) => ({
-                            ...v,
-                            [field.name]: event.target.value,
-                          }))
-                        }
+                        onChange={(event) => setFieldValue(field.name, event.target.value)}
                       >
                         {field.choices.map((choice) => (
                           <option key={choice} value={choice}>

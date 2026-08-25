@@ -19,6 +19,7 @@ pub mod output_cleanup;
 pub mod pipeline;
 pub mod promote;
 pub mod render;
+pub mod scene;
 pub mod store_config;
 mod text;
 pub mod transcript;

@@ -31,8 +31,8 @@ a tag rather than a markdown fence, and for the renderer staging
 ---
 
 Last LLM verification:
-- Date: 2026-08-13
-- Reviewer: Claude (Opus 5)
+- Date: 2026-08-25
+- Reviewer: Claude (Fable 5)
 - Result: verified
 - Evidence:
   - Weaving: `crates/hick-literate/src/weave.rs` — the `"diagram"` arm emits
@@ -48,19 +48,24 @@ Last LLM verification:
     expected warnings printed, naming line numbers and the missing id, and
     `arch.md` came out with three ```mermaid fences.
   - Notebook: `apps/web/src/components/DiagramPanel.tsx` renders the picture
-    and the assertion line; `apps/web/src/editor/wysiwyg.ts` mounts it above
-    the block via the same slot/portal mechanism the cell panels use. Tests in
-    `DiagramPanel.test.tsx` cover drawing, a parse failure leaving the source
-    intact, the unchecked wording, the out-of-date wording, an unknown
-    renderer, and a stale async answer being discarded.
+    and the assertion line; `apps/web/src/editor/rendered.ts` folds the block
+    behind it. **Live state is wired now**:
+    `DocumentEditor.tsx::assertionStates` resolves each `asserts` id to the
+    exec cell carrying it in the source (the server's exec ids are
+    `container:line`, so the id attribute is matched in the structure parse,
+    then span-matched to the server block) and maps its status — ok→passing,
+    failed→failing, running/stale/never-run/missing→unknown.
+  - Derived diagrams draw in the app: `crates/hick-literate/src/render.rs`
+    emits a `diagram` block whose body has this document's `copy`/`cut`
+    fragments inlined (`resolve_diagram_children`), and the editor prefers
+    that body exactly when the raw source contains a `<hick:paste>`.
 - Caveats — what LLM review could NOT establish:
-  - **The panel does not yet know whether an assertion passed.** It reports
-    which cells check the diagram, always with state `unknown`, so the
-    "out of date" wording is exercised only by its unit test. Wiring it to
-    live run state is named in the spec as not-built.
   - **No real mermaid render has been observed.** The engine is mocked in
     tests (it wants a live browser to measure text), so what is proven here is
     the panel's behaviour around it, not that a given diagram draws.
+  - The block model resolves pastes document-locally only; a paste whose
+    fragment lives in another document draws nothing in the panel (the weave
+    still resolves it fully).
   - Nothing checks that a diagram's `asserts` cell is one that could
     *possibly* fail — a diagram can name a cell that always prints `0`. That
     is unfalsifiable-by-construction and no different from a test that asserts
@@ -71,3 +76,8 @@ Last LLM verification:
   renamed cell, missing `asserts`, a selector that is not an `#id`, several
   assertions at once, and that an unchecked diagram still weaves.
   `apps/web/src/components/DiagramPanel.test.tsx` (6 tests) covers the panel.
+  `apps/web/src/editor/DocumentEditor.test.tsx` ("live diagram assertions")
+  covers the id→cell→state mapping, the in-document "out of date" line, and a
+  derived diagram drawing from the resolved body.
+  `crates/hick-literate/src/render.rs::tests` covers the block model's
+  paste resolution and `#`-stripping.

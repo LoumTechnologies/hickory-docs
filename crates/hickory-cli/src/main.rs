@@ -171,6 +171,18 @@ enum Command {
     /// code, get ranked chunks with exact file:line. Lexical ranking works
     /// offline out of the box; `--install-model` adds semantic ranking.
     Search(SearchArgs),
+    /// Deduce a folder's architecture from its code — no model, no toolchain
+    /// — and print a diagram topology (scene JSON for `renderer="graph"`, or
+    /// mermaid). Name-resolved via tree-sitter, so it is a place to start
+    /// looking, not a compiler's call graph; SCIP in a `hick:exec` cell is
+    /// the precise version, and both emit the same shape.
+    ///
+    /// `--refresh DOC` rewrites the named `<hick:copy>` fragment in DOC with
+    /// the fresh topology instead of printing — the deterministic sibling of
+    /// `hick refresh`. A diagram pasting that fragment keeps its layout: the
+    /// layout lives in the diagram's own body, keyed by node id, and this
+    /// command never touches it.
+    Diagram(DiagramArgs),
     /// Show the commits a re-emission of this folder's documents WOULD
     /// produce. Emits nothing.
     ///
@@ -476,6 +488,26 @@ struct LspInstallArgs {
     /// The project to install into. Defaults to the current directory.
     #[arg(long)]
     root: Option<PathBuf>,
+}
+
+#[derive(clap::Args)]
+struct DiagramArgs {
+    /// The folder to read. Defaults to the current directory.
+    path: Option<PathBuf>,
+    /// Output form: `scene` (JSON for a graph diagram / copy fragment) or
+    /// `mermaid`.
+    #[arg(long, default_value = "scene")]
+    format: String,
+    /// Node granularity: `dir` (one node per top-level directory) or `file`.
+    #[arg(long, default_value = "dir")]
+    group: String,
+    /// Rewrite this document's topology fragment in place instead of
+    /// printing.
+    #[arg(long)]
+    refresh: Option<PathBuf>,
+    /// The `<hick:copy id=…>` fragment `--refresh` rewrites.
+    #[arg(long, default_value = "arch-topology")]
+    fragment: String,
 }
 
 #[derive(clap::Args)]
@@ -1051,6 +1083,7 @@ fn run() -> ExitCode {
             Command::Init(args) => cmd_init(args),
             Command::Doc(cmd) => cmd_doc(cmd).await,
             Command::Search(args) => cmd_search(args).await,
+            Command::Diagram(args) => cmd_diagram(args),
             Command::Broker(cmd) => cmd_broker(cmd).await,
             Command::Sealed(args) => cmd_sealed(args),
             Command::Fleet(cmd) => cmd_fleet(cmd).await,
@@ -1272,6 +1305,69 @@ async fn cmd_test(args: TestArgs) -> Result<ExitCode> {
 
 /// `hick up [path] [--run]` — weave a folder and keep it woven until
 /// interrupted.
+fn cmd_diagram(args: DiagramArgs) -> Result<ExitCode> {
+    let root = match &args.path {
+        Some(p) => p.clone(),
+        None => std::env::current_dir()?,
+    };
+    let group = match args.group.as_str() {
+        "dir" => hickory_cli::diagram::Grouping::Dir,
+        "file" => hickory_cli::diagram::Grouping::File,
+        other => {
+            eprintln!(
+                "`--group {other}` is not a granularity. Use `dir` (one node per \
+                 top-level directory, the default) or `file` (one node per source file)."
+            );
+            return Ok(ExitCode::FAILURE);
+        }
+    };
+    let mermaid = match args.format.as_str() {
+        "scene" => false,
+        "mermaid" => true,
+        other => {
+            eprintln!(
+                "`--format {other}` is not an output form. Use `scene` (JSON for a \
+                 `renderer=\"graph\"` diagram or a copy fragment, the default) or `mermaid`."
+            );
+            return Ok(ExitCode::FAILURE);
+        }
+    };
+    let topology = hickory_cli::diagram::generate_topology(&root, group)?;
+    if topology.nodes.is_empty() {
+        eprintln!(
+            "no source files under {} that structure understands — nothing to draw. \
+             (Gitignored files are skipped, and so are files over 512 KB.)",
+            root.display()
+        );
+        return Ok(ExitCode::FAILURE);
+    }
+    if let Some(doc_path) = &args.refresh {
+        let document = std::fs::read_to_string(doc_path)?;
+        match hickory_cli::diagram::refresh_fragment(&document, &args.fragment, &topology) {
+            Ok(next) => {
+                if next != document {
+                    std::fs::write(doc_path, next)?;
+                }
+                println!(
+                    "refreshed `#{}` in {} ({} nodes, {} edges)",
+                    args.fragment,
+                    doc_path.display(),
+                    topology.nodes.len(),
+                    topology.edges.len()
+                );
+                Ok(ExitCode::SUCCESS)
+            }
+            Err(message) => {
+                eprintln!("{message}");
+                Ok(ExitCode::FAILURE)
+            }
+        }
+    } else {
+        print!("{}", hickory_cli::diagram::render(&topology, mermaid));
+        Ok(ExitCode::SUCCESS)
+    }
+}
+
 async fn cmd_search(args: SearchArgs) -> Result<ExitCode> {
     let root = match &args.root {
         Some(r) => r.clone(),

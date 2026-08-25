@@ -83,6 +83,23 @@ describe("filling it in", () => {
     );
   });
 
+  it("swaps the diagram's starter body with its renderer — mermaid text or a scene", () => {
+    panel({ initialId: "diagram" });
+    const bodyInput = () => screen.getByLabelText(/Diagram source/) as HTMLTextAreaElement;
+    expect(bodyInput().value).toContain("graph TD");
+    // Choosing the graph renderer replaces an UNTOUCHED starter with a scene
+    // the canvas can open — mermaid text under renderer="graph" would greet
+    // the author with a parse error.
+    fireEvent.change(screen.getByLabelText(/Renderer/), { target: { value: "graph" } });
+    expect(bodyInput().value).toContain('"nodes"');
+    fireEvent.change(screen.getByLabelText(/Renderer/), { target: { value: "mermaid" } });
+    expect(bodyInput().value).toContain("graph TD");
+    // A body the person already edited is theirs, whatever the renderer says.
+    fireEvent.change(bodyInput(), { target: { value: "flowchart LR\n  a --> b" } });
+    fireEvent.change(screen.getByLabelText(/Renderer/), { target: { value: "graph" } });
+    expect(bodyInput().value).toBe("flowchart LR\n  a --> b");
+  });
+
   it("refuses to insert while a required attribute is empty, and says which", () => {
     const { onInsert } = panel({ initialId: "copy" });
     fireEvent.click(screen.getByRole("button", { name: "Insert" }));
