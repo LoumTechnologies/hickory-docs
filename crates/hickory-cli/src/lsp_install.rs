@@ -52,6 +52,34 @@ const INSTALLERS: &[Installer] = &[
         reason: "the server the TypeScript ecosystem treats as the default",
     },
     Installer {
+        language: "csharp",
+        tool: "dotnet",
+        package: "csharp-ls",
+        // Three environment variables, and every one of them is what makes
+        // this installable at all: `dotnet tool install` writes to
+        // `$HOME/.nuget/packages` and `$HOME/.dotnet` by default, and the
+        // installer sandbox makes ONLY the prefix writable. Redirected, the
+        // whole install — tool, package cache, CLI state — lands in one
+        // directory `hick init` already ignores.
+        //
+        // The telemetry opt-out is not incidental either. This product says
+        // nothing to anyone; a tool it spawns on the user's behalf must not
+        // be the exception, and the .NET CLI phones home on first run unless
+        // told not to.
+        command: "DOTNET_CLI_HOME={prefix}/dotnet DOTNET_CLI_TELEMETRY_OPTOUT=1                   NUGET_PACKAGES={prefix}/dotnet/nuget                   dotnet tool install --tool-path {prefix}/dotnet csharp-ls",
+        // Why this and not OmniSharp, which discovery has always looked for:
+        // OmniSharp ships as a per-platform release archive, so installing it
+        // means picking a URL and a checksum, while csharp-ls is a `dotnet
+        // tool` — one command, the SDK's own package path, and the SDK is
+        // already there if you are writing C#. Both are MIT; a machine that
+        // has OmniSharp keeps using it, because discovery prefers it.
+        //
+        // Not Microsoft's own Roslyn language server: it ships inside the C#
+        // extension under a licence that permits use only with Microsoft's
+        // editors, which is not something to install on someone's behalf.
+        reason: "a Roslyn-based C# server that installs as a dotnet tool",
+    },
+    Installer {
         language: "json",
         tool: "npm",
         package: "vscode-langservers-extracted",

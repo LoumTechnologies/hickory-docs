@@ -232,6 +232,52 @@ pub struct PipelineResult {
     pub span_files: Vec<String>,
 }
 
+impl PipelineResult {
+    /// Output paths that carry bytes from a cell with no baseline.
+    ///
+    /// A weave never executes: a cell whose recording it cannot find is woven
+    /// as `[never run]`, and every file that cell fed then *says* the cell
+    /// never ran. As a statement about this weave that is honest; as bytes
+    /// written over a committed artifact it is destruction — the SVG a real
+    /// run produced is replaced by a marker, and the app, which executes,
+    /// goes on rendering the chart. Disk and app disagree, silently.
+    ///
+    /// So the writer needs to know which files those are, and provenance
+    /// already knows: a span whose origin is the exec cell named in
+    /// [`PipelineResult::never_run`] is exactly a byte the cell contributed.
+    ///
+    /// **Agent cells are not covered.** `SourceOrigin::Agent` carries the
+    /// session and turn rather than a source line, so an agent cell's bytes
+    /// cannot be matched back to its [`CellId`]. Agent cells write into
+    /// documents rather than into `hick:file` products, so this has no
+    /// bearing on the artifact case; it is stated because the omission is
+    /// deliberate rather than overlooked.
+    pub fn outputs_missing_a_recording(&self) -> std::collections::BTreeSet<String> {
+        if self.never_run.is_empty() {
+            return std::collections::BTreeSet::new();
+        }
+        let mut affected = std::collections::BTreeSet::new();
+        for (path, map) in &self.provenance_maps {
+            let missing = map.spans().iter().any(|span| match &span.origin {
+                hick_exec::node::SourceOrigin::Exec {
+                    container,
+                    tag_line,
+                } => self
+                    .never_run
+                    .contains_key(&CellId::exec(container.as_ref(), *tag_line)),
+                hick_exec::node::SourceOrigin::Script { tag_line } => self
+                    .never_run
+                    .contains_key(&CellId::containerless(*tag_line)),
+                _ => false,
+            });
+            if missing {
+                affected.insert(path.clone());
+            }
+        }
+        affected
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Pipeline setup (shared between dry-run and live)
 // ---------------------------------------------------------------------------
@@ -2392,6 +2438,35 @@ pub(crate) fn span_file_table(doc: &hick_lang::HickDocument) -> Vec<Arc<str>> {
         .collect()
 }
 
+/// Drop the single line break that ends a block's open-tag line, keeping the
+/// text's span in step so a reverse edit still lands on the right bytes.
+///
+/// Returns the text unchanged when the block's content starts on the tag's
+/// own line — there is no tag-line break to remove there, and taking a real
+/// byte would corrupt the file.
+pub(crate) fn strip_opening_break<'a>(
+    text: &'a str,
+    span: Option<&hick_lang::SourceSpan>,
+) -> (&'a str, Option<hick_lang::SourceSpan>) {
+    let stripped = text
+        .strip_prefix("\r\n")
+        .map(|rest| (rest, 2))
+        .or_else(|| text.strip_prefix('\n').map(|rest| (rest, 1)));
+    let Some((rest, taken)) = stripped else {
+        return (text, span.copied());
+    };
+    let moved = span.map(|s| hick_lang::SourceSpan {
+        start: s.start + taken,
+        end: s.end,
+        // The remaining text starts at the beginning of the NEXT line, which
+        // is where the file's first byte really comes from.
+        start_line: s.start_line + 1,
+        start_col: 0,
+        file_id: s.file_id,
+    });
+    (rest, moved)
+}
+
 // The `span_files` threading (include splicing) pushed these over the
 // clippy arg limit; a param-struct refactor belongs to that change, not here.
 #[allow(clippy::too_many_arguments)]
@@ -2416,9 +2491,30 @@ fn process_file_children(
         span_files,
     };
 
-    for child in children {
+    for (position, child) in children.iter().enumerate() {
         match child {
             HickNode::Text(text, span) => {
+                // The line break that ENDS the open tag's line belongs to the
+                // tag, not to the file.
+                //
+                // `<hick:file path="chart.svg">` is written on its own line
+                // because that is how a document is readable; without this,
+                // every generated file began with a blank line. For a `.py`
+                // that is untidy, for a `#!` script it is fatal, and for the
+                // SVG and XML this product generates it is fatal in the most
+                // pointed possible way: an XML declaration MUST start at byte
+                // zero, so every chart hick wrote was a file its own weave
+                // could draw and a browser refused to parse.
+                //
+                // Only the FIRST text child, only one break, and only when
+                // the tag really is followed by one — content written on the
+                // same line as the tag keeps every byte. The trailing break
+                // before `</hick:file>` is left alone: that one is the file's
+                // final newline, which is exactly right.
+                let (text, span) = match position {
+                    0 => strip_opening_break(text, span.as_ref()),
+                    _ => (text.as_str(), span.as_ref().copied()),
+                };
                 let dedented = dedent(text, indent);
                 // `file_of_span`, not `source_file`: a span spliced in by
                 // <hick:include>/<hick:upstream> indexes the INCLUDED file,

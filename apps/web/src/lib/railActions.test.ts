@@ -18,6 +18,18 @@ describe("which icons a card puts on the rail", () => {
     expect(actionsFor("diagram")).toEqual(["source"]);
   });
 
+  it("takes the source icon off the cell that draws a picture", () => {
+    // Two states, not three: the picture owns the toggle, the cell keeps Run.
+    expect(actionsFor("exec", { source: false })).toEqual(["run"]);
+    expect(actionsFor("exec", { source: false, replay: true })).toEqual(["run", "replay"]);
+  });
+
+  it("gives a picture only the way back to the code that drew it", () => {
+    // Running belongs to the cell inside the file block, which has its own
+    // Run icon; a second one here would run the same cell twice over.
+    expect(actionsFor("picture")).toEqual(["source"]);
+  });
+
   it("gives a prose fence only the converter", () => {
     expect(actionsFor("fence")).toEqual(["convert"]);
   });

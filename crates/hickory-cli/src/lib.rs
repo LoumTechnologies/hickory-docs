@@ -985,9 +985,45 @@ pub fn contained_output_path(base: &Path, rel_path: &str) -> Result<PathBuf> {
     Ok(base.join(rel_path))
 }
 
+/// What one call to [`write_outputs_detailed`] did to the disk.
+#[derive(Debug, Default)]
+pub struct WrittenOutputs {
+    /// Files written, sorted.
+    pub written: Vec<PathBuf>,
+    /// Files left exactly as they were, sorted: an artifact already on disk
+    /// whose produced bytes came from a cell with no recording. See
+    /// [`write_outputs_detailed`].
+    pub preserved: Vec<PathBuf>,
+}
+
 /// Write a run's output files under `out_dir` (default: the document's
 /// directory). Returns the paths written.
 pub fn write_outputs(run: &DocRun, out_dir: Option<&Path>) -> Result<Vec<PathBuf>> {
+    Ok(write_outputs_detailed(run, out_dir)?.written)
+}
+
+/// Write a run's output files, reporting what was written and what was
+/// deliberately left alone.
+///
+/// **An artifact already on disk is not overwritten with `[never run]`.** A
+/// weave that cannot find a cell's recording weaves that cell as a marker,
+/// and every file the cell fed carries the marker with it — so a `hick weave`
+/// on a machine with no `.hick-cache` replaced a committed SVG with four
+/// words while the app, which executes, kept rendering the chart. Disk and
+/// app disagreed and nothing said so. The bytes on disk are the product of a
+/// run that really happened; a weave that never ran anything has nothing
+/// truer to put there, so it keeps its hands off. Same reasoning as
+/// [`write_missing_outputs`]: never manufacture drift.
+///
+/// The **weave target is exempt** and is always written. It is not an
+/// artifact of a run — it is this weave's own report, and a report that says
+/// `[never run]` is telling the truth about the recordings it found. Keeping
+/// it stale would be the lie.
+///
+/// A file that does NOT yet exist is written either way: there is nothing to
+/// destroy, and the marker is then the honest content of a document that has
+/// never been run.
+pub fn write_outputs_detailed(run: &DocRun, out_dir: Option<&Path>) -> Result<WrittenOutputs> {
     let base = match out_dir {
         Some(dir) => dir.to_path_buf(),
         None => run
@@ -996,9 +1032,19 @@ pub fn write_outputs(run: &DocRun, out_dir: Option<&Path>) -> Result<Vec<PathBuf
             .unwrap_or(Path::new("."))
             .to_path_buf(),
     };
+    let missing_recording = run.result.outputs_missing_a_recording();
+    let weave_target = run.doc.weave_path.as_deref();
     let mut written = Vec::new();
+    let mut preserved = Vec::new();
     for (rel_path, content) in &run.result.files {
         let full = contained_output_path(&base, rel_path)?;
+        if missing_recording.contains(rel_path)
+            && Some(rel_path.as_str()) != weave_target
+            && full.exists()
+        {
+            preserved.push(full);
+            continue;
+        }
         if let Some(parent) = full.parent()
             && !parent.as_os_str().is_empty()
         {
@@ -1018,7 +1064,8 @@ pub fn write_outputs(run: &DocRun, out_dir: Option<&Path>) -> Result<Vec<PathBuf
         written.push(full);
     }
     written.sort();
-    Ok(written)
+    preserved.sort();
+    Ok(WrittenOutputs { written, preserved })
 }
 
 /// Write only the output files that are MISSING under `out_dir`, leaving any

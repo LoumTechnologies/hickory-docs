@@ -211,6 +211,32 @@ describe("DocumentEditor (WYSIWYG over raw source)", () => {
     realtime.close();
   });
 
+  it("colours a C# file block and an XML one, in the document itself", async () => {
+    // The question a reader actually asks: opening scaffolding.hick, is the
+    // `Program.cs` that `dotnet new` wrote coloured like code? Until the
+    // registry learned C# and XML it was flat grey text, whatever the
+    // document said the file was.
+    const realtime = new LocalRealtime();
+    const source =
+      '<hick:file path="Program.cs">\n// hello\nConsole.WriteLine("Hello");\n</hick:file>\n';
+    const { container } = render(
+      <DocumentEditor
+        docId="dCs"
+        initialSource={source}
+        realtime={realtime}
+        execBlocks={[]}
+        runningCells={new Set()}
+        onRunCell={() => undefined}
+      />,
+    );
+    await waitFor(() => expect(container.querySelector(".tok-comment")).toBeTruthy());
+    expect(container.querySelector(".tok-comment")?.textContent).toBe("// hello");
+    expect(
+      Array.from(container.querySelectorAll(".tok-string")).map((n) => n.textContent),
+    ).toContain('"Hello"');
+    realtime.close();
+  });
+
   it("renders fragment chips, when banners, paste chips and embedded highlighting", async () => {
     const realtime = new LocalRealtime();
     const source =

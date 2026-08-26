@@ -9,7 +9,7 @@ use clap::{Parser, Subcommand};
 use hickory_cli::{
     CacheMode, CheckFailure, CheckOutcome, DocRun, ExecutorChoice, RunMode, block_model_json,
     check_failures, check_outcome, expand_docs, run_doc, run_doc_cached, unverifiable_message,
-    write_outputs,
+    write_outputs_detailed,
 };
 
 /// What `hick --version` reports.
@@ -1114,18 +1114,25 @@ fn run() -> ExitCode {
     }
 }
 
-fn print_run_summary(run: &DocRun, written: &[PathBuf]) {
+fn print_run_summary(run: &DocRun, outputs: &hickory_cli::WrittenOutputs) {
     let n_expect = run.result.expectations.len();
     let n_failed = run.result.expectations.iter().filter(|o| !o.passed).count();
     eprintln!(
         "{}: {} file(s) written, {} expectation(s) ({} failed)",
         run.doc_path.display(),
-        written.len(),
+        outputs.written.len(),
         n_expect,
         n_failed
     );
-    for path in written {
+    for path in &outputs.written {
         eprintln!("  wrote {}", path.display());
+    }
+    for path in &outputs.preserved {
+        eprintln!(
+            "  kept {} (no recording for the cell that produces it; \
+             the file on disk was left as it is)",
+            path.display()
+        );
     }
     for outcome in &run.result.expectations {
         if !outcome.passed {
@@ -1164,11 +1171,11 @@ async fn cmd_run(args: RunArgs) -> Result<ExitCode> {
             hick_literate::cache_mode(args.cache, args.freeze),
         )
         .await?;
-        let written = write_outputs(&run, args.out.as_deref())?;
+        let outputs = write_outputs_detailed(&run, args.out.as_deref())?;
         if args.json {
             json_blocks.push(block_model_json(&run)?);
         } else {
-            print_run_summary(&run, &written);
+            print_run_summary(&run, &outputs);
         }
     }
     if args.json {
@@ -1438,11 +1445,11 @@ async fn cmd_weave(args: WeaveArgs) -> Result<ExitCode> {
     let mut json_blocks = Vec::new();
     for doc_path in &docs {
         let run = run_doc(doc_path, &params, RunMode::Weave, ExecutorChoice::Local).await?;
-        let written = write_outputs(&run, args.out.as_deref())?;
+        let outputs = write_outputs_detailed(&run, args.out.as_deref())?;
         if args.json {
             json_blocks.push(block_model_json(&run)?);
         } else {
-            print_run_summary(&run, &written);
+            print_run_summary(&run, &outputs);
             if !run.result.never_run.is_empty() {
                 eprintln!(
                     "  {} block(s) never run (no cached transcript)",
@@ -2961,6 +2968,21 @@ fn cmd_formula(command: FormulaCommand) -> Result<ExitCode> {
     }
 }
 
+/// The distinct tools a catalogue's installers need, in catalogue order.
+///
+/// Derived rather than written down: the message that names them is read by
+/// somebody who has none of them, and a hardcoded list that fell behind the
+/// catalogue would send that person to install the wrong thing.
+fn installer_tools(plans: Vec<hickory_cli::tool_install::InstallPlan>) -> String {
+    let mut tools: Vec<String> = Vec::new();
+    for plan in plans {
+        if !tools.contains(&plan.tool) {
+            tools.push(plan.tool);
+        }
+    }
+    tools.join(", ")
+}
+
 fn cmd_lsp(command: LspCommand) -> Result<ExitCode> {
     use hickory_cli::lsp_install;
 
@@ -2982,9 +3004,10 @@ fn cmd_lsp(command: LspCommand) -> Result<ExitCode> {
             let languages = chosen_languages(args.languages, lsp_install::plans());
             if languages.is_empty() {
                 println!(
-                    "Nothing to install: none of the installers' tools (uv, npm) are on this \
+                    "Nothing to install: none of the installers' tools ({}) are on this \
                      machine.\nInstall one of them, or install a language server yourself — \
-                     either way `hick-lsp` will find it."
+                     either way `hick-lsp` will find it.",
+                    installer_tools(lsp_install::plans()),
                 );
                 return Ok(ExitCode::SUCCESS);
             }
@@ -3022,9 +3045,10 @@ fn cmd_dap(command: DapCommand) -> Result<ExitCode> {
             let languages = chosen_languages(args.languages, dap_install::plans());
             if languages.is_empty() {
                 println!(
-                    "Nothing to install: none of the installers' tools (uv, npm) are on this \
+                    "Nothing to install: none of the installers' tools ({}) are on this \
                      machine.\nInstall one of them, or install an adapter yourself — either way \
-                     hick will find it."
+                     hick will find it.",
+                    installer_tools(dap_install::plans()),
                 );
                 return Ok(ExitCode::SUCCESS);
             }

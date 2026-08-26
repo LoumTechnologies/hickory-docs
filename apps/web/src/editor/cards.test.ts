@@ -30,6 +30,31 @@ describe("what the rail lists", () => {
     expect(cardsOf(parseHickDoc(text), { text, diagrams: false })).toEqual([]);
   });
 
+  it("gives a file block that writes a picture its own icon", () => {
+    // The block's source is the plotting code; what it MEANS is a chart, so
+    // the rail offers the way to see which chart it is.
+    const text =
+      '<hick:file path="chart.svg">\n<hick:exec container="r">\nplot\n</hick:exec>\n</hick:file>\n';
+    const list = cards(text);
+    expect(list.map((c) => c.kind).sort()).toEqual(["exec", "picture"]);
+    expect(list.find((c) => c.kind === "picture")?.label).toContain("chart.svg");
+    // And the cell inside it is marked, so the rail can leave its source
+    // toggle off — the picture block owns that verb.
+    expect(list.find((c) => c.kind === "exec")?.insidePicture).toBe(true);
+  });
+
+  it("leaves a cell outside a picture with its own source toggle", () => {
+    const list = cards('<hick:exec container="a">\nls\n</hick:exec>\n');
+    expect(list[0].insidePicture).toBeFalsy();
+  });
+
+  it("leaves a file block that writes text alone", () => {
+    // A README is read as its source. Only a file a browser can DRAW has a
+    // second thing to show.
+    const text = '<hick:file path="README.md">\nhello\n</hick:file>\n';
+    expect(cards(text).some((c) => c.kind === "picture")).toBe(false);
+  });
+
   it("sorts every kind into one document-order rail", () => {
     const text =
       "# Doc\n\n```bash\nls\n```\n\n" +

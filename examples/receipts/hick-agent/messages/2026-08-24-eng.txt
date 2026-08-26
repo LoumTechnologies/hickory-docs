@@ -1,4 +1,3 @@
-
 Checkout latency, 2026-08-24:
 
 After the fix deployed Friday, checkout p95 latency is 287 ms, down from 412 ms — back under our 300 ms SLO.

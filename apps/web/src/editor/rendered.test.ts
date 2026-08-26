@@ -70,3 +70,95 @@ describe("a rendered block's slot", () => {
     view.destroy();
   });
 });
+
+// A generated picture is shown in place of the code that draws it, and the
+// cell nested inside that block must not try to render at the same time.
+const PICTURE =
+  '<hick:file path="chart.svg">\n<hick:exec container="r">\nplot(x)\n</hick:exec>\n</hick:file>\n';
+
+describe("a picture block", () => {
+  it("renders as one slot, swallowing the cell that draws it", async () => {
+    const { registry, view } = open(`Intro.\n\n${PICTURE}`);
+    const doc = view.state.doc.toString();
+    const file = doc.indexOf("<hick:file");
+    const exec = doc.indexOf("<hick:exec");
+    // Both are renderable and both are asked for — which is what a
+    // freshly-opened document does. Two replacements over the same rows is
+    // something CodeMirror refuses outright, so the outer block must win.
+    view.dispatch({ effects: setRenderedBlocks.of([file, exec]) });
+    await new Promise((r) => queueMicrotask(() => r(null)));
+    const slots = registry.list();
+    expect(slots).toHaveLength(1);
+    expect(slots[0].kind).toBe("picture");
+    expect(slots[0].picture?.path).toBe("chart.svg");
+    view.destroy();
+  });
+
+  it("shows editable source — not a read-only cell — when the picture is off", async () => {
+    // The two states are the picture and the code that draws it. A rendered
+    // cell in between would be a display of source you cannot type in.
+    const { registry, view } = open(PICTURE);
+    const doc = view.state.doc.toString();
+    const exec = doc.indexOf("<hick:exec");
+    view.dispatch({ effects: setRenderedBlocks.of([exec]) });
+    await new Promise((r) => queueMicrotask(() => r(null)));
+    expect(registry.list()).toHaveLength(0);
+    view.destroy();
+  });
+
+  it("still renders a cell that is not inside a picture", async () => {
+    const { registry, view } = open('<hick:exec container="a">\nls\n</hick:exec>\n');
+    view.dispatch({ effects: setRenderedBlocks.of([0]) });
+    await new Promise((r) => queueMicrotask(() => r(null)));
+    expect(registry.list().map((s) => s.kind)).toEqual(["exec"]);
+    view.destroy();
+  });
+});
+
+// A cell that owns ingested files must not hide them.
+//
+// Found by dogfooding: scaffolding.hick's whole subject is the `Program.cs`
+// that `dotnet new` wrote, sitting inside the cell as ordinary editable
+// bytes — and the app showed a command, a transcript, and no files at all.
+const INGESTING = [
+  '<hick:exec container="sdk">',
+  "<hick:copy id=\"scaffold\">",
+  "dotnet new console -o out",
+  "</hick:copy>",
+  '<hick:ingested from="#scaffold" sha256="abc" at="2026-08-26" files="1" skipped="0">',
+  '<hick:file path="app/Program.cs">',
+  'Console.WriteLine("Hello");',
+  "</hick:file>",
+  "</hick:ingested>",
+  "</hick:exec>",
+  "",
+].join("\n");
+
+describe("a cell that owns ingested files", () => {
+  it("stops rendering where the ingested bytes begin", async () => {
+    const { registry, view } = open(INGESTING);
+    view.dispatch({ effects: setRenderedBlocks.of([0]) });
+    await new Promise((r) => queueMicrotask(() => r(null)));
+    expect(registry.list().map((s) => s.kind)).toEqual(["exec"]);
+
+    // What is on SCREEN is the test: a replacement removes the rows it
+    // stands for, so the command is gone (the panel shows it) and the file
+    // the cell owns is still there, as text.
+    const shown = view.dom.textContent ?? "";
+    expect(shown, "the command is inside the rendered panel").not.toContain(
+      "dotnet new console",
+    );
+    expect(shown, "the ingested file must stay visible").toContain("Program.cs");
+    expect(shown).toContain('Console.WriteLine("Hello");');
+    view.destroy();
+  });
+
+  it("still renders the whole cell when it owns nothing", async () => {
+    const { registry, view } = open('<hick:exec container="a">\nls\n</hick:exec>\n');
+    view.dispatch({ effects: setRenderedBlocks.of([0]) });
+    await new Promise((r) => queueMicrotask(() => r(null)));
+    expect(registry.list()).toHaveLength(1);
+    expect(view.dom.textContent ?? "").not.toContain("ls");
+    view.destroy();
+  });
+});

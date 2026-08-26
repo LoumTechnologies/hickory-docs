@@ -19,7 +19,6 @@ Proposal: raise the pool from ten to forty connections and put a two second acqu
 ### `fix/pool.py`
 
 ```python
-
 import os
 
 DEFAULT_POOL_SIZE = 10

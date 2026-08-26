@@ -1,5 +1,4 @@
 
-
 """Quarterly sales report.
 
 Assembled by `hick run` from examples/grand-tour.hick.

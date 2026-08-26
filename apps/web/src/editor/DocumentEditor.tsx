@@ -46,7 +46,8 @@ import {
   type HickDocStructure,
 } from "./hickDoc";
 import { lineHighlightField } from "./lineHighlight";
-import { mdLinks } from "./mdLinks";
+import { assetUrl, mdLinks } from "./mdLinks";
+import { resolveTarget } from "../lib/mdLinks";
 import { base64Of, mdPaste } from "./mdPaste";
 import { RightRail } from "./RightRail";
 import { CardRail, type CardState } from "./CardRail";
@@ -69,6 +70,7 @@ import { DiagramPanel } from "../components/DiagramPanel";
 // the marketing site's bundle, which builds from this tree.
 const GraphEditorPanel = lazy(() => import("../components/graph/GraphEditorPanel"));
 import { MathPanel } from "../components/MathPanel";
+import { PicturePanel } from "../components/PicturePanel";
 import { TablePanel, type TableLayout } from "../components/TablePanel";
 import { tableKey } from "../lib/uiState";
 import { FenceTable, tableElementFor } from "../components/FenceTable";
@@ -743,6 +745,7 @@ export function DocumentEditor({
     if (card.kind !== "exec") return actionsFor(card.kind);
     const block = blockOf(card);
     return actionsFor("exec", {
+      source: !card.insidePicture,
       replay: hasReplay({
         status: block?.status,
         hasExpect: !!block?.expect,
@@ -1029,6 +1032,17 @@ export function DocumentEditor({
                 onChange={(csv) => replaceBlockContent(slot, csv)}
               />
             </Engaged>,
+            slot.el,
+            slot.key,
+          );
+        }
+        if (slot.kind === "picture") {
+          const target = resolveTarget(path, slot.picture?.path ?? "");
+          return createPortal(
+            <PicturePanel
+              src={target ? assetUrl(target) : null}
+              path={slot.picture?.path ?? ""}
+            />,
             slot.el,
             slot.key,
           );

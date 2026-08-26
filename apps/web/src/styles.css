@@ -1874,6 +1874,34 @@ textarea:focus {
   padding: 0.2rem 0;
 }
 .math-panel--empty { font-size: 0.8rem; }
+/* A generated picture shown in place of the file block that writes it. The
+   image is capped the same way an inline markdown picture is, so the two
+   look like the same picture in two places — which they are. */
+.rendered-picture {
+  position: relative;
+  margin: 0.35rem 0 0.5rem;
+  max-width: var(--prose-wrap, 46rem);
+}
+.rendered-picture img {
+  display: block;
+  max-width: 100%;
+  max-height: 24rem;
+  object-fit: contain;
+  object-position: left;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-sunken);
+}
+/* Nothing to draw yet: the file is missing, or holds the never-run marker.
+   Said in words, because a broken-image glyph names neither cause. */
+.rendered-picture--empty {
+  font-size: 0.78rem;
+  color: var(--fg-muted);
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  padding: 0.4rem 0.6rem;
+}
+
 .rendered-math { position: relative; }
 .cm-rendered .math-panel { margin: 0; }
 
@@ -5377,9 +5405,16 @@ button.fleet-grant {
    quiet until hovered. */
 .cm-card-rail__act-source,
 .cm-card-rail__act-replay { color: var(--fg-muted); }
+/* `.on` is exactly the rendered state (see CardRail's `pressed`), which is
+   also where the glyph is the two-character `<>`. Tightened rather than
+   shrunk: a smaller face would read as a different kind of control sitting in
+   the same column. */
 .cm-card-rail__act-source.on {
   border-color: var(--accent-2);
   color: var(--fg);
+  font-size: 0.66rem;
+  letter-spacing: -0.03em;
+  text-indent: -0.03em;
 }
 .cm-card-rail__icon:disabled {
   cursor: default;

@@ -141,6 +141,50 @@ fn the_ingested_document_produces_the_scaffold_from_a_clone() {
 }
 
 #[test]
+fn an_ingested_body_starts_on_its_own_line_without_changing_a_byte() {
+    // Legibility, and it costs the file nothing: the break that ends the open
+    // tag's line belongs to the tag. See
+    // docs/guarantees/language/a-generated-file-starts-at-its-first-byte.md.
+    //
+    // Before that rule this had to be written inline — a scaffolded file
+    // jammed onto the end of its own tag, which is the first thing a reader of
+    // the document meets. The byte check below is the half that made it
+    // impossible then and makes it safe now.
+    let dir = tempfile::tempdir().unwrap();
+    repo(dir.path(), "obj/\n");
+    let doc = dir.path().join("app.hick");
+    std::fs::write(&doc, doc_source()).unwrap();
+    assert!(
+        hick()
+            .args(["ingest", "--from", "#scaffold"])
+            .arg(&doc)
+            .output()
+            .expect("run hick")
+            .status
+            .success()
+    );
+
+    let source = std::fs::read_to_string(&doc).unwrap();
+    assert!(
+        source.contains("<hick:file path=\"app/main.txt\">\nhello\n</hick:file>"),
+        "the body belongs on its own line:\n{source}"
+    );
+
+    // And the file the document produces is byte-for-byte what the run wrote,
+    // with no newline gained from the formatting above.
+    let out = hick().arg("weave").arg(&doc).output().expect("run hick");
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("app/main.txt")).unwrap(),
+        "hello\n"
+    );
+}
+
+#[test]
 fn ingested_bytes_report_their_run_rather_than_reading_as_yours() {
     // Marking a scaffolder's files `literal` would make forty files of
     // somebody else's code claim to be text you wrote; marking them `exec`

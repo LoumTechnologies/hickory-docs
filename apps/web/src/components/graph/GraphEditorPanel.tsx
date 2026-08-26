@@ -129,6 +129,63 @@ function flowEdges(scene: Scene): Edge[] {
 /** The canvas height: the layout's own extent, within sane bounds — a
  * three-node sketch should not claim a screen, and a wide architecture
  * should not be a letterbox. */
+/**
+ * Move one end of an existing line to where a drag was dropped.
+ *
+ * Exported for its own test: which end moves, and which end must not, is the
+ * whole of the gesture's meaning, and it is a question about data rather than
+ * about a canvas nobody can measure in jsdom.
+ *
+ * The end that MOVES is the one that was picked up; the other keeps its node
+ * and its slot, so an arrow points the way it pointed. The drop end is
+ * whichever half of the connection is not the grabbed connector — the roles
+ * React Flow assigns to `source`/`target` follow the direction of the DRAG,
+ * which is the opposite of the line's own direction whenever the arrowhead is
+ * what you grabbed.
+ */
+export function moveEdgeEnd(
+  scene: Scene,
+  moving: { key: string; grabbed: "from" | "to" },
+  connection: Connection,
+  commit: (next: Scene) => void,
+): void {
+  const keyed = keyedEdges(scene.edges);
+  const held = keyed.find(({ key }) => key === moving.key);
+  if (!held) return;
+  const anchorNode = moving.grabbed === "from" ? held.edge.to : held.edge.from;
+  const anchorSide = moving.grabbed === "from" ? held.edge.toSide : held.edge.fromSide;
+  const ends = [
+    { node: connection.source, handle: connection.sourceHandle },
+    { node: connection.target, handle: connection.targetHandle },
+  ];
+  // The anchored end is still in the connection; the drop is the other one.
+  // Compared on the SLOT, not just the node, so moving a line from one side
+  // of a shape to another side of the SAME shape is a move like any other.
+  const drop =
+    ends.find((end) => !(end.node === anchorNode && end.handle === anchorSide)) ?? ends[1];
+  if (!drop.node) return;
+
+  // Occupancy WITHOUT the line being moved: its old seat is not taken for the
+  // purpose of choosing its new one.
+  const others = keyed.filter(({ key }) => key !== moving.key).map(({ edge }) => edge);
+  const slots = occupiedSlots(others);
+  const side = drop.handle?.split(".")[0];
+  const seat = drop.handle
+    ? dropRef(drop.handle, slots[drop.node]?.[side as keyof (typeof slots)[string]] ?? [])
+    : undefined;
+
+  commit({
+    ...scene,
+    edges: keyed.map(({ key, edge }) =>
+      key === moving.key
+        ? moving.grabbed === "from"
+          ? { ...edge, from: drop.node!, fromSide: seat }
+          : { ...edge, to: drop.node!, toSide: seat }
+        : edge,
+    ),
+  });
+}
+
 function canvasHeight(scene: Scene): number {
   const entries = Object.values(scene.layout);
   if (entries.length === 0) return 280;
@@ -292,10 +349,61 @@ function GraphEditor({ source, resolved, assertions, onCommit }: GraphEditorPane
     [commitScene],
   );
 
+  // A drag that starts on an OCCUPIED connector moves that line rather than
+  // drawing a second one from the same spot.
+  //
+  // A slot holds one line. Starting a new line from a taken slot could only
+  // ever mean "put another line here", and there is already a gesture for
+  // that — the flank handles, which make a new slot before or after the
+  // occupants. So the drag with no other meaning gets the meaning people
+  // expect: pick the line up by its end and put it somewhere else.
+  //
+  // Only when EXACTLY one line is attached. Two lines sharing a slot is not
+  // something the editor produces, but a hand-written document can say it,
+  // and silently moving one of two is worse than drawing a new one.
+  const movingRef = useRef<{ key: string; grabbed: "from" | "to" } | null>(null);
+
+  const onConnectStart = useCallback(
+    (
+      _event: unknown,
+      { nodeId, handleId }: { nodeId: string | null; handleId: string | null },
+    ) => {
+      movingRef.current = null;
+      const scene = sceneRef.current;
+      if (!scene || scene.paste || !nodeId || !handleId) return;
+      const attached = keyedEdges(scene.edges).filter(
+        ({ edge }) =>
+          (edge.from === nodeId && edge.fromSide === handleId) ||
+          (edge.to === nodeId && edge.toSide === handleId),
+      );
+      if (attached.length !== 1) return;
+      const { key, edge } = attached[0];
+      movingRef.current = {
+        key,
+        // Which END was picked up decides which end moves — and the other
+        // one stays put, so an arrow keeps pointing the way it pointed.
+        grabbed: edge.from === nodeId && edge.fromSide === handleId ? "from" : "to",
+      };
+    },
+    [],
+  );
+
+  // Always fires, including on a drag dropped over nothing — which must leave
+  // the line exactly where it was. Nothing is committed until `onConnect`, so
+  // forgetting the grab here is the whole of the cancel path.
+  const onConnectEnd = useCallback(() => {
+    movingRef.current = null;
+  }, []);
+
   const onConnect = useCallback(
     (connection: Connection) => {
       const scene = sceneRef.current;
       if (!scene || scene.paste || !connection.source || !connection.target) return;
+      const moving = movingRef.current;
+      if (moving) {
+        moveEdgeEnd(scene, moving, connection, commitScene);
+        return;
+      }
       // A flank handle becomes a slot that orders before or after the
       // side's occupants; commitScene compacts the numbers.
       const slots = occupiedSlots(scene.edges);
@@ -661,6 +769,8 @@ function GraphEditor({ source, resolved, assertions, onCommit }: GraphEditorPane
           onEdgesChange={onEdgesChange}
           onNodeDragStop={onNodeDragStop}
           onConnect={onConnect}
+          onConnectStart={onConnectStart}
+          onConnectEnd={onConnectEnd}
           onReconnect={onReconnect}
           onNodesDelete={onNodesDelete}
           onEdgesDelete={onEdgesDelete}
@@ -680,10 +790,12 @@ function GraphEditor({ source, resolved, assertions, onCommit }: GraphEditorPane
           reconnectRadius={24}
           defaultEdgeOptions={{ interactionWidth: 24 }}
           // Two gestures want the same pixels: a line ENDS exactly where a
-          // node's connection dot sits, and the dot is on top, so a bare
-          // drag there draws a NEW line. Selection is the disambiguator:
-          // click the line first and it is raised above the nodes, so its
-          // end-grips win the contested spot and the same drag RE-PLUGS it.
+          // node's connection dot sits, and the dot is on top. On an EMPTY
+          // dot the drag draws a new line; on an OCCUPIED one it moves the
+          // line already there (see `onConnectStart`), because a second line
+          // from a taken slot is what the flank handles are for. Selection
+          // still raises a line above the nodes, which is what makes its
+          // end-grips reachable anywhere along the contested spot.
           elevateEdgesOnSelect
           // The wheel is the document's until the reader clicks into the
           // canvas (see the panel's focus handling above); zoom is what the

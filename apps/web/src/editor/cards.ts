@@ -15,10 +15,10 @@
 // This module is pure — structure in, card list out — so where the rail's
 // icons come from is testable without a browser.
 
-import { execBlocksOf, blocksNamed, proseFences } from "./hickDoc";
+import { execBlocksOf, blocksNamed, pictureBlocksOf, proseFences } from "./hickDoc";
 import type { HickDocStructure } from "./hickDoc";
 
-export type CardKind = "exec" | "diagram" | "math" | "table" | "fence";
+export type CardKind = "exec" | "diagram" | "math" | "table" | "picture" | "fence";
 
 export interface DocCard {
   /** Stable within one document version; the rail keys its buttons on it. */
@@ -34,6 +34,11 @@ export interface DocCard {
   to: number;
   /** The rail button's accessible name and tooltip. */
   label: string;
+  /** This cell draws a picture: it lives inside a `<hick:file>` block that
+   * writes one. Such a cell has no source toggle of its own — the picture
+   * block owns that verb, and its two states are the picture and this cell's
+   * editable text. */
+  insidePicture?: boolean;
 }
 
 export interface CardsOptions {
@@ -54,6 +59,7 @@ export interface CardsOptions {
 export function cardsOf(structure: HickDocStructure, options: CardsOptions): DocCard[] {
   const cards: DocCard[] = [];
 
+  const pictures = pictureBlocksOf(structure);
   execBlocksOf(structure).forEach((block, index) => {
     const container = block.attrs.container ?? block.attrs.image ?? "";
     cards.push({
@@ -64,6 +70,7 @@ export function cardsOf(structure: HickDocStructure, options: CardsOptions): Doc
       from: block.from,
       to: block.to,
       label: container ? `Cell ${index + 1} — ${container}` : `Cell ${index + 1}`,
+      insidePicture: pictures.some((p) => block.from > p.from && block.from < p.to),
     });
   });
 
@@ -109,6 +116,21 @@ export function cardsOf(structure: HickDocStructure, options: CardsOptions): Doc
       from: block.from,
       to: block.to,
       label: path ? `Table ${index + 1} — ${path}` : `Table ${index + 1}`,
+    });
+  });
+
+  // A `<hick:file>` that writes a chart is machinery wrapped around a
+  // picture. Its card is the way to see which one it is without reading the
+  // plotting code, and the way back to the plotting code.
+  pictureBlocksOf(structure).forEach((block, index) => {
+    cards.push({
+      key: `picture-${index}`,
+      kind: "picture",
+      index,
+      at: block.from,
+      from: block.from,
+      to: block.to,
+      label: `Picture ${index + 1} — ${block.attrs.path}`,
     });
   });
 

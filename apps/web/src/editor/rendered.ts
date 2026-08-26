@@ -26,7 +26,7 @@ import { Decoration, EditorView, WidgetType } from "@codemirror/view";
 import type { DecorationSet } from "@codemirror/view";
 
 import { SlotRegistry, structureOf } from "./wysiwyg";
-import { blocksNamed, codeRangesOf, execBlocksOf } from "./hickDoc";
+import { blocksNamed, codeRangesOf, execBlocksOf, pictureBlocksOf } from "./hickDoc";
 import type { HickBlock, HickDocStructure } from "./hickDoc";
 
 /** Render this block (identified by the offset its source starts at). */
@@ -68,15 +68,16 @@ export function isRendered(state: EditorState, at: number): boolean {
   return state.field(renderedField, false)?.includes(at) ?? false;
 }
 
-/** Every exec, diagram, and math block of a document, in order — the blocks
- * that have something to render. */
+/** Every exec, diagram, math, table, and picture block of a document, in
+ * order — the blocks that have something to render. */
 export function renderableBlocks(structure: HickDocStructure): HickBlock[] {
   return [
     ...execBlocksOf(structure),
     ...blocksNamed(structure, "diagram"),
     ...blocksNamed(structure, "math"),
     ...blocksNamed(structure, "table"),
-  ].sort((a, b) => a.from - b.from);
+    ...pictureBlocksOf(structure),
+  ].sort((a, b) => a.from - b.from || b.to - a.to);
 }
 
 // ---------------------------------------------------------------------------
@@ -87,7 +88,7 @@ export interface RenderedSlot {
   key: string;
   el: HTMLElement;
   index: number;
-  kind: "exec" | "diagram" | "math" | "table";
+  kind: "exec" | "diagram" | "math" | "table" | "picture";
   /** The block's start offset — what a toggle effect carries. */
   at: number;
   /** The block's whole source span, for matching the server's exec blocks. */
@@ -98,6 +99,8 @@ export interface RenderedSlot {
   renderer: string;
   /** table only: the tag's own attributes, for the grid. */
   table?: { path?: string; delimiter?: string; header: boolean; language?: string };
+  /** picture only: the file this block writes, as the document spells it. */
+  picture?: { path: string };
   asserts: string[];
 }
 
@@ -130,6 +133,7 @@ export class RenderedRegistry extends SlotRegistry<RenderedSlot> {
     slot.text = next.text;
     slot.renderer = next.renderer;
     slot.table = next.table;
+    slot.picture = next.picture;
     slot.asserts = next.asserts;
     queueMicrotask(() => this.notify());
   }
@@ -146,6 +150,7 @@ function sameContent(a: Omit<RenderedSlot, "el">, b: Omit<RenderedSlot, "el">): 
     a.table?.delimiter === b.table?.delimiter &&
     a.table?.header === b.table?.header &&
     a.table?.language === b.table?.language &&
+    a.picture?.path === b.picture?.path &&
     a.asserts.join(" ") === b.asserts.join(" ")
   );
 }
@@ -186,6 +191,9 @@ class RenderedWidget extends WidgetType {
     // diagram's height for it makes the scrollbar lie by a screenful in a
     // document full of maths.
     if (this.slot.kind === "math") return 56;
+    // A chart is drawn to its own aspect ratio inside a capped box; this is
+    // the cap, so the scrollbar is right for everything but a very wide one.
+    if (this.slot.kind === "picture") return 260;
     // A grid is as tall as its rows, plus the formula bar and the row of
     // column letters above them; this is only the first guess, before
     // anything is measured.
@@ -214,7 +222,19 @@ function buildRendered(state: EditorState, registry: RenderedRegistry): Decorati
   const structure = structureOf(state);
   const doc = state.doc;
   const ranges: Range<Decoration>[] = [];
-  const counts = { exec: 0, diagram: 0, math: 0, table: 0 };
+  const counts = { exec: 0, diagram: 0, math: 0, table: 0, picture: 0 };
+  // A picture block has TWO states and there is no third: the picture, or the
+  // code that draws it — editable, as text, the way you would fix it.
+  //
+  // So a cell nested inside a picture block never renders on its own. Letting
+  // it would put a read-only rendering of its own command between those two,
+  // and a display of source you cannot type in is a state nobody asked for:
+  // it looks like the editor and refuses to behave like one. It also cannot
+  // coexist with the picture, since two block replacements over the same rows
+  // is something CodeMirror refuses outright.
+  const pictureSpans = pictureBlocksOf(structure).map((b): [number, number] => [b.from, b.to]);
+  const insidePicture = (block: HickBlock) =>
+    pictureSpans.some(([from, to]) => block.from > from && block.from < to);
 
   for (const block of renderableBlocks(structure)) {
     const kind =
@@ -224,13 +244,28 @@ function buildRendered(state: EditorState, registry: RenderedRegistry): Decorati
           ? "math"
           : block.name === "table"
             ? "table"
-            : "exec";
+            : block.name === "file"
+              ? "picture"
+              : "exec";
     const index = counts[kind]++;
     if (!rendered.includes(block.from)) continue;
+    if (insidePicture(block)) continue;
+    // A cell that OWNS ingested files stops rendering where they begin.
+    //
+    // `hick ingest` puts a scaffolder's output inside the cell that produced
+    // it, as ordinary editable `hick:file` bytes — that is the whole point of
+    // the element ("editable like anything else"). A replacement over the
+    // cell's full span swallows them, so a document whose subject is forty
+    // scaffolded files showed a command and a transcript and no files at all.
+    // The cell keeps its rendering; the bytes it owns stay text.
+    const ingested = blocksNamed(structure, "ingested").find(
+      (child) => child.from > block.from && child.to <= block.to,
+    );
+    const end = ingested ? ingested.from - 1 : block.to;
     // A block replacement must cover whole lines, or CodeMirror cannot take
     // the rows out of the height map.
     const first = doc.lineAt(Math.min(block.from, doc.length));
-    const last = doc.lineAt(Math.min(Math.max(block.to - 1, block.from), doc.length));
+    const last = doc.lineAt(Math.min(Math.max(end - 1, block.from), doc.length));
     if (last.to <= first.from) continue;
     const slot: Omit<RenderedSlot, "el"> = {
       key: `${kind}-${index}`,
@@ -243,6 +278,8 @@ function buildRendered(state: EditorState, registry: RenderedRegistry): Decorati
           ? commandOf(state, structure, block)
           : doc.sliceString(block.contentFrom, block.contentTo),
       renderer: block.attrs.renderer ?? "mermaid",
+      picture:
+        kind === "picture" ? { path: block.attrs.path ?? "" } : undefined,
       table:
         kind === "table"
           ? {

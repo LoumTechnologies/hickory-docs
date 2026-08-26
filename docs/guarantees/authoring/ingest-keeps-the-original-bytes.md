@@ -84,6 +84,28 @@ of the name, and the transcript's id is the note's own name — so two meetings
 upstream of one document never both answer to `#transcript`
 (`crates/hickory-cli/tests/ingest_naming.rs`).
 
+## How the bytes sit in the document
+
+The body of an ingested `<hick:file>` **starts on its own line**, and that
+costs the file nothing: the break that ends the open tag's line belongs to the
+tag and never reaches disk (see
+[a-generated-file-starts-at-its-first-byte](../language/a-generated-file-starts-at-its-first-byte.md)).
+Until that rule existed the body had to be written inline — a scaffolded
+`Program.cs`, BOM and all, jammed onto the end of its own tag, which is the
+first thing a reader of the document meets.
+
+The closing tag still follows the last byte with nothing added. A file ending
+with a newline gets `</hick:file>` on its own line for free; one that does not
+must not be given a trailing byte it never had.
+
+**Every reader of those bytes applies the same rule.** The three-way merge
+reads `ours` from the open document and the base from git, and both go through
+`file_body`, which drops that one break. Reading it raw hands the merge a
+newline the run's side does not have, so every file looks changed on our side
+and a re-ingest that should merge cleanly reports a conflict on the first line
+of everything. That is not hypothetical — it is what the change to this
+convention broke, and what the test below now holds.
+
 ---
 
 Last LLM verification:
@@ -102,7 +124,19 @@ Last LLM verification:
   `drain_inbox` in `crates/hickory-cli/src/up/mod.rs`, called before the first
   weave so a waiting transcript is covered by it, and again on any batch
   touching the inbox so a new note is woven in the same cycle.
-- Test coverage: `crates/hickory-cli/tests/ingest.rs` (29 tests) — verbatim
+- Evidence for the layout rule: `ingested_block` in
+  `crates/hickory-cli/src/ingest_exec.rs` writes the break after the open tag;
+  `file_body` in the same module takes it back off for both merge inputs
+  (`RecordedIngest::ours` and `base_from_git`). `hick adopt` uses the same
+  convention (`new_doc_source`/`file_block` in
+  `crates/hickory-cli/src/adopt.rs`).
+- Test coverage: `an_ingested_body_starts_on_its_own_line_without_changing_a_byte`
+  (`crates/hickory-cli/tests/ingest_scaffold.rs`) — the layout AND the byte
+  round-trip in one test, since either alone is the wrong half.
+  `a_re_ingest_keeps_your_edit_and_takes_the_runs_change`
+  (`crates/hickory-cli/tests/reingest_merge.rs`) is what catches the merge
+  reading the break as an edit.
+  `crates/hickory-cli/tests/ingest.rs` (29 tests) — verbatim
   bytes, derived attendees, empty-and-stale summaries driven through the real
   `hick test` binary, dedupe, move-not-delete, an unreadable file skipped with a
   reason *and left in place*, one bad file not stopping a good one, an

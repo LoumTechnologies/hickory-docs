@@ -46,22 +46,40 @@ export interface CardRailProps {
 /** The glyph for one action. Deliberately text, not an icon font: the app
  * ships no icon set, and these read at any size and in any theme.
  *
- * Run is the only glyph that varies, because it is the only one carrying
- * information: it is both the button that runs the cell and the report of
- * what happened last time it ran. */
-function glyph(card: DocCard, action: RailAction, state: CardState): string {
+ * Two glyphs carry information rather than depicting a thing, and both do it
+ * the same way — by saying what the CLICK gets you:
+ *
+ * - Run is the button that runs the cell and the report of what happened last
+ *   time it ran.
+ * - Source is a toggle, so it shows its DESTINATION. While the picture is on
+ *   screen it is `<>` — click for the code. While the code is on screen it is
+ *   the kind's own mark — click for the diagram, the chart, the grid, the
+ *   equation.
+ *
+ * The old design showed the kind's mark in both states, which meant four
+ * near-identical squares (`◈ ▦ ▨ ▣`) that depicted what the block IS and left
+ * the verb to be guessed. In the state a reader is usually in, every block now
+ * shows the same familiar `<>`; the kind only appears when it is the thing
+ * being gone back to. */
+function glyph(
+  card: DocCard,
+  action: RailAction,
+  state: CardState,
+  rendered: boolean,
+): string {
   switch (action) {
     case "convert":
       return "≡";
     case "replay":
       return "↺";
     case "source":
-      // A diagram and an equation each have only this one icon, so each keeps
-      // its own mark and the rail says what KIND of thing sits on that line;
-      // a cell's column needs Run and source to be told apart at a glance.
+      // Showing the result: the click gets you the source.
+      if (rendered) return "<>";
+      // Showing the source: the click gets you the thing itself.
       if (card.kind === "diagram") return "◈";
       if (card.kind === "math") return "∑";
       if (card.kind === "table") return "▦";
+      if (card.kind === "picture") return "▨";
       return "▣";
     case "run":
       switch (state) {
@@ -261,7 +279,7 @@ export function CardRail({
             data-tip={title(card, action, state, rendered, replaying)}
             onClick={() => onAction(card, action, topsRef.current.get(key) ?? 0)}
           >
-            {glyph(card, action, state)}
+            {glyph(card, action, state, rendered)}
           </button>
         );
       })}

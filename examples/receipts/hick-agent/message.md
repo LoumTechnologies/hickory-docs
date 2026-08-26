@@ -82,7 +82,6 @@ We don't need to revisit the pool size before Q4 unless traffic doubles.
 ### `messages/2026-08-24-eng.txt`
 
 ```
-
 Checkout latency, 2026-08-24:
 
 After the fix deployed Friday, checkout p95 latency is 287 ms, down from 412 ms — back under our 300 ms SLO.
@@ -114,7 +113,6 @@ Yes, the instance is configured for two hundred and we have three app replicas. 
 ### `messages/2026-08-24-eng-reply.txt`
 
 ```
-
 Sam's answer from Thursday's sync, verbatim:
 
 > Yes, the instance is configured for two hundred and we have three app replicas. Forty each is a hundred twenty, which is inside that.

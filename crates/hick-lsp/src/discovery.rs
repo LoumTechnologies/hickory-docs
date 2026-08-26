@@ -69,7 +69,11 @@ const C_PHP: &[Candidate] = &[
     c("intelephense", &["--stdio"]),
     c("phpactor", &["language-server"]),
 ];
-const C_CSHARP: &[Candidate] = &[c("omnisharp", &["-lsp"])];
+// OmniSharp first: it is the one the .NET ecosystem has treated as the
+// default for years, so a machine that has one has it. `csharp-ls` is what
+// `hick lsp install csharp` fetches — a Roslyn server packaged as a dotnet
+// tool — and it speaks LSP on stdio with no flags at all.
+const C_CSHARP: &[Candidate] = &[c("omnisharp", &["-lsp"]), c("csharp-ls", &[])];
 const C_KOTLIN: &[Candidate] = &[c("kotlin-language-server", &[])];
 const C_SWIFT: &[Candidate] = &[c("sourcekit-lsp", &[])];
 const C_SCALA: &[Candidate] = &[c("metals", &[])];
@@ -135,14 +139,20 @@ fn candidates(language: &str) -> &'static [Candidate] {
 /// server has already decided, and its choice is the one its other tooling
 /// agrees with.
 fn project_dirs(root: &Path) -> Vec<PathBuf> {
-    let mut dirs = Vec::new();
-
     // What `hick lsp install` put there, first: a server this project asked
     // for outranks whatever happens to be on the machine, for the same
     // reason a project-pinned one does.
-    dirs.push(root.join(".hick-cache/servers/node/node_modules/.bin"));
-    dirs.push(root.join(".hick-cache/servers/python/bin"));
-    dirs.push(root.join(".hick-cache/servers/python/Scripts"));
+    //
+    // One line per install layout, because each ecosystem's installer puts
+    // its executables somewhere different — and `dotnet tool install
+    // --tool-path` puts them straight into the directory it is given, with no
+    // `bin/` beneath it at all.
+    let mut dirs = vec![
+        root.join(".hick-cache/servers/node/node_modules/.bin"),
+        root.join(".hick-cache/servers/python/bin"),
+        root.join(".hick-cache/servers/python/Scripts"),
+        root.join(".hick-cache/servers/dotnet"),
+    ];
 
     // Then each directory from here up to the repository root.
     //
@@ -571,6 +581,26 @@ mod tests {
             "{:?}",
             found.command
         );
+    }
+
+    #[test]
+    fn the_csharp_server_this_project_installed_is_found_without_configuration() {
+        // `dotnet tool install --tool-path` puts the executable straight into
+        // the directory it is given — no `bin/` beneath it, unlike every other
+        // layout here. A discovery that assumed one would find nothing, and
+        // `hick lsp install csharp` would silently do nothing.
+        let dir = tempfile::tempdir().unwrap();
+        fake_executable(&dir.path().join(".hick-cache/servers/dotnet"), "csharp-ls");
+        let found = discover("csharp", dir.path()).expect("the installed server is found");
+        assert_eq!(found.origin, "project");
+        assert!(
+            found.command[0].contains(".hick-cache/servers/dotnet"),
+            "{:?}",
+            found.command
+        );
+        // It speaks LSP on stdio with no flags; a stray argument would make
+        // it exit before saying anything.
+        assert_eq!(found.command.len(), 1, "{:?}", found.command);
     }
 
     #[test]

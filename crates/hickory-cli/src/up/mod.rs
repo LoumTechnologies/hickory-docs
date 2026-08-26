@@ -501,6 +501,16 @@ async fn weave_document_as(
     let base = doc.parent().unwrap_or(Path::new(".")).to_path_buf();
     let mut produced: HashSet<PathBuf> = HashSet::new();
 
+    // The same rule `write_outputs_detailed` applies, applied here too because
+    // this loop has its own writer: a weave that cannot find a cell's
+    // recording must not write `[never run]` over the artifact a real run
+    // produced. `hick up` weaves on every save, so without this the loop
+    // destroyed a chart the moment anyone typed a word — while the app's live
+    // preview, which executes, went on rendering it. See
+    // `docs/guarantees/verification/a-weave-without-a-recording-keeps-the-artifact.md`.
+    let missing_recording = run.result.outputs_missing_a_recording();
+    let weave_target = run.doc.weave_path.as_deref();
+
     let mut rel_paths: Vec<&String> = run.result.files.keys().collect();
     rel_paths.sort();
     for rel_path in rel_paths {
@@ -510,8 +520,16 @@ async fn weave_document_as(
         else {
             continue;
         };
-        let provenance = output_lineage(&run, rel_path).unwrap_or_default();
         let full = crate::contained_output_path(&base, rel_path)?;
+        // Not tracked either: these bytes are not ours. `up` re-adopts the
+        // file the moment a run gives it something real to say.
+        if missing_recording.contains(rel_path.as_str())
+            && Some(rel_path.as_str()) != weave_target
+            && full.exists()
+        {
+            continue;
+        }
+        let provenance = output_lineage(&run, rel_path).unwrap_or_default();
         produced.insert(full.clone());
         state.write_output(
             &full,

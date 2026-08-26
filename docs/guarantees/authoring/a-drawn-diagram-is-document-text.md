@@ -14,6 +14,29 @@ colours, a body that does not parse weaves as its raw JSON rather than
 nothing, and a scene string containing the literal `</hick:` is refused at
 commit with a message saying why.
 
+Three rules govern the gestures themselves, because each had a reading that
+looked reasonable and said the wrong thing:
+
+1. **A drag from an OCCUPIED connector moves the line already there**; a drag
+   from an empty one draws a new line. A slot holds one line, and a second
+   line from a taken slot is what the flank handles (`before`/`after`) are
+   for — so the drag with no other meaning gets the meaning people expect:
+   pick a line up by its end and put it somewhere else. **The end that was
+   picked up is the end that moves**, and the other keeps its node and its
+   slot, so an arrow points the way it pointed. It applies only when exactly
+   one line is attached: two lines sharing a slot is not something the editor
+   produces, but a hand-written document can say it, and silently moving one
+   of two is worse than drawing a new one.
+2. **A drag dropped over nothing changes nothing.** The move is committed on
+   connection, never on release, so a cancelled gesture needs no undo.
+3. **A line being labelled gets out of its own way**: while the label editor
+   is open the line stops at the box and picks up on the other side. The
+   editor is opaque, so this is not about seeing through it — a line crossing
+   the middle of a text box reads as a strikethrough, which says "deleted"
+   about the words being typed. It is a mask on the path rather than a filled
+   rectangle, because the canvas has its own pattern behind it and a patch of
+   background colour would sit on that as a visible hole.
+
 The reason: an editor with its own store is a second copy of the diagram, and
 a second copy is where the lie starts — the reviewed file and the edited
 picture drift, and provenance stops at the store's edge. Committing the
@@ -55,6 +78,13 @@ Last LLM verification:
   - The canvas library is mocked in tests (it measures real DOM); what is
     proven is the panel's contract with the document, not that React Flow
     draws. No live drag on a real browser has been exercised by automation.
+- Evidence for the three gesture rules: `onConnectStart`/`onConnectEnd` and
+  the exported `moveEdgeEnd` in
+  `apps/web/src/components/graph/GraphEditorPanel.tsx` (the grab is recorded
+  in a ref and cleared on every drag end, so a drop over nothing commits
+  nothing); the label gap is the `<mask>` in
+  `apps/web/src/components/graph/SceneEdgeView.tsx`, referenced by `BaseEdge`
+  through the `mask` prop it spreads onto the path.
 - Test coverage: `crates/hickory-cli/tests/diagrams.rs`
   (`a_graph_scene_weaves_to_a_mermaid_fence_and_its_positions_stay_home`,
   `a_scene_that_does_not_parse_weaves_as_its_json_and_is_warned_about`,
@@ -65,4 +95,10 @@ Last LLM verification:
   orphan dropping, `</hick:` refusal);
   `apps/web/src/components/graph/GraphEditorPanel.test.tsx` (drag/connect
   commit canonical text, refusal shown and nothing written, external edit
-  resets, two panels independent).
+  resets, two panels independent, and `moveEdgeEnd` — arrowhead moves with
+  the tail anchored, tail moves with the arrowhead anchored, a move to another
+  side of the same shape, other lines untouched, and nothing committed for a
+  line that is gone);
+  `apps/web/src/components/graph/SceneEdgeView.test.tsx` (the label editor's
+  gap is a mask the path actually references, and no mask when nothing is
+  being edited).

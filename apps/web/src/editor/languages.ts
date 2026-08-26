@@ -18,6 +18,12 @@ import { html } from "@codemirror/lang-html";
 import { css } from "@codemirror/lang-css";
 import { sql } from "@codemirror/lang-sql";
 import { shell } from "@codemirror/legacy-modes/mode/shell";
+// C# and XML come from the legacy modes rather than their own lezer grammars:
+// `@codemirror/legacy-modes` is already here for the shell, so these two cost
+// no new dependency — which matters for a product that must stay MIT-only and
+// ships every byte it builds.
+import { csharp } from "@codemirror/legacy-modes/mode/clike";
+import { xml } from "@codemirror/legacy-modes/mode/xml";
 
 /** Canonical language ids the app understands. */
 export type LanguageId =
@@ -32,7 +38,9 @@ export type LanguageId =
   | "html"
   | "css"
   | "sql"
-  | "shell";
+  | "shell"
+  | "csharp"
+  | "xml";
 
 const ALIASES: Record<string, LanguageId> = {
   python: "python",
@@ -58,6 +66,16 @@ const ALIASES: Record<string, LanguageId> = {
   sh: "shell",
   bash: "shell",
   zsh: "shell",
+  csharp: "csharp",
+  cs: "csharp",
+  xml: "xml",
+  // A .NET project file is XML with a different name on it, and a document
+  // that ingests `dotnet new` gets one whether or not it asked.
+  csproj: "xml",
+  props: "xml",
+  targets: "xml",
+  xaml: "xml",
+  xsd: "xml",
 };
 
 /** Canonicalise a language name or file extension; null when unknown. */
@@ -104,6 +122,10 @@ function buildParser(lang: LanguageId): Parser {
       return sql().language.parser;
     case "shell":
       return StreamLanguage.define(shell).parser;
+    case "csharp":
+      return StreamLanguage.define(csharp).parser;
+    case "xml":
+      return StreamLanguage.define(xml).parser;
   }
 }
 
@@ -169,6 +191,10 @@ function languageSupport(lang: LanguageId): Extension {
       return sql();
     case "shell":
       return StreamLanguage.define(shell);
+    case "csharp":
+      return StreamLanguage.define(csharp);
+    case "xml":
+      return StreamLanguage.define(xml);
   }
 }
 

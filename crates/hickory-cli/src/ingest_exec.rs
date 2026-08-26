@@ -292,12 +292,23 @@ fn ingested_block(
         files.len()
     );
     for (path, content) in files {
-        // Content starts immediately after the opening tag and the closing
-        // tag follows the last byte, with nothing added — the same convention
-        // `hick adopt` uses, and for the same reason: a newline this writes
-        // in is a byte the scaffolder never wrote, and the byte-exactness
-        // check below would (correctly) refuse the whole ingest over it.
-        out.push_str(&format!("<{prefix}:file path=\"{path}\">"));
+        // The body starts on its OWN line, which costs the file nothing: the
+        // break that ends the open tag's line belongs to the tag and is not
+        // part of the file (`strip_opening_break`, guaranteed by
+        // docs/guarantees/language/a-generated-file-starts-at-its-first-byte.md).
+        // Before that rule existed this had to be written inline, and the
+        // byte-exactness check below would have refused the whole ingest over
+        // the newline — which is why the old convention was what it was.
+        //
+        // Legibility is the whole reason: a scaffolded `Program.cs` opening
+        // with a BOM and a comment, jammed onto the end of the tag line, is
+        // the first thing a reader of this document meets.
+        //
+        // The CLOSING tag still follows the last byte with nothing added. A
+        // file that ends with a newline gets `</hick:file>` on its own line
+        // for free; one that does not must not be given a trailing byte it
+        // never had.
+        out.push_str(&format!("<{prefix}:file path=\"{path}\">\n"));
         out.push_str(content);
         out.push_str(&format!("</{prefix}:file>\n"));
     }
@@ -468,7 +479,7 @@ fn base_from_git(
                 if child.name == "file"
                     && let Some(path) = child.get_attribute("path")
                 {
-                    files.insert(path.to_string(), hick_lang::tag_text(child));
+                    files.insert(path.to_string(), file_body(child));
                 }
             }
         }
@@ -483,6 +494,23 @@ fn base_from_git(
         return Ok(None);
     }
     Ok(Some((commit, files)))
+}
+
+/// The bytes an ingested `<hick:file>` block stands for.
+///
+/// The line break that ends the block's open tag belongs to the TAG, not to
+/// the file — the same rule the pipeline applies when it writes the file out
+/// (`docs/guarantees/language/a-generated-file-starts-at-its-first-byte.md`).
+/// Reading it back with `tag_text` alone would hand the merge a leading
+/// newline the scaffolder never produced, and since the run's side has no
+/// such byte, EVERY file would look changed on our side: a re-ingest that
+/// should merge cleanly reports a conflict on the first line of everything.
+fn file_body(tag: &hick_lang::HickTag) -> String {
+    let text = hick_lang::tag_text(tag);
+    text.strip_prefix("\r\n")
+        .or_else(|| text.strip_prefix('\n'))
+        .map(str::to_string)
+        .unwrap_or(text)
 }
 
 /// Three-way merge one file's text. Returns `(merged, conflicted)`.
@@ -641,9 +669,7 @@ pub async fn ingest_from_exec(
             ours: tag
                 .child_tags()
                 .filter(|c| c.name == "file")
-                .filter_map(|c| {
-                    Some((c.get_attribute("path")?.to_string(), hick_lang::tag_text(c)))
-                })
+                .filter_map(|c| Some((c.get_attribute("path")?.to_string(), file_body(c))))
                 .collect::<BTreeMap<String, String>>(),
             span: (
                 tag.source_span.map(|s| s.start).unwrap_or(0),

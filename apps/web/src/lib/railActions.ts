@@ -65,11 +65,16 @@ export function hasReplay({
  */
 export function actionsFor(
   kind: CardKind,
-  options: { replay?: boolean } = {},
+  options: { replay?: boolean; source?: boolean } = {},
 ): RailAction[] {
   switch (kind) {
-    case "exec":
-      return options.replay ? ["run", "source", "replay"] : ["run", "source"];
+    case "exec": {
+      // A cell that draws a picture has no source toggle of its own: the
+      // picture block above it owns that verb, and offering it twice is how
+      // a two-state thing grows a third state.
+      const own: RailAction[] = options.source === false ? ["run"] : ["run", "source"];
+      return options.replay ? [...own, "replay"] : own;
+    }
     case "diagram":
     // An equation is a picture too: the only verb it has is "show me what I
     // actually typed".
@@ -77,6 +82,10 @@ export function actionsFor(
     // A table's grid IS the edited thing, so its one verb is the way back to
     // the CSV — which is what a reviewer reads in the diff.
     case "table":
+    // A generated picture has the same one verb: show me the code that drew
+    // this. Running it belongs to the cell INSIDE the file block, which keeps
+    // its own Run icon — the picture card never grows a second one.
+    case "picture":
       return ["source"];
     case "fence":
       return ["convert"];

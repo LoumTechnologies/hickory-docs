@@ -39,7 +39,7 @@ vi.mock("@xyflow/react", () => ({
   useEdgesState: (init: unknown) => useState(init),
 }));
 
-import { GraphEditorPanel } from "./GraphEditorPanel";
+import { GraphEditorPanel, moveEdgeEnd } from "./GraphEditorPanel";
 
 afterEach(cleanup);
 beforeEach(() => {
@@ -425,5 +425,107 @@ describe("the graph editor panel", () => {
     (flowProps.onNodeDragStop as DragStop)(null, { id: "api", position: { x: 5, y: 5 } });
     expect(second).toHaveBeenCalledTimes(1);
     expect(first).not.toHaveBeenCalled();
+  });
+});
+
+// Dragging from a connector that already has a line MOVES that line.
+//
+// Guarantee: docs/guarantees/authoring/a-drawn-diagram-is-document-text.md
+//
+// A slot holds one line, so a drag from a taken slot has only one sensible
+// meaning; a second line from the same spot is what the flank handles are
+// for. What the gesture must never do is swap the arrow around.
+describe("moving a line by its end", () => {
+  const scene = {
+    nodes: [{ id: "api" }, { id: "db" }, { id: "cache" }],
+    edges: [{ from: "api", to: "db", fromSide: "right.0", toSide: "left.0" }],
+    layout: {},
+  } as never as Parameters<typeof moveEdgeEnd>[0];
+
+  it("moves the arrowhead and leaves the tail where it was", () => {
+    const commit = vi.fn();
+    // Grabbed the `to` end (on db) and dropped it on cache.
+    moveEdgeEnd(
+      scene,
+      { key: "api->db", grabbed: "to" },
+      {
+        source: "api",
+        sourceHandle: "right.0",
+        target: "cache",
+        targetHandle: "left.0",
+      },
+      commit,
+    );
+    const next = commit.mock.calls[0][0];
+    expect(next.edges).toHaveLength(1);
+    expect(next.edges[0]).toMatchObject({ from: "api", to: "cache", fromSide: "right.0" });
+  });
+
+  it("moves the tail and leaves the arrowhead where it was", () => {
+    const commit = vi.fn();
+    // Grabbed the `from` end (on api). The drag's own direction makes api the
+    // connection's SOURCE, which is the opposite of the line's direction —
+    // the arrow must still end at db.
+    moveEdgeEnd(
+      scene,
+      { key: "api->db", grabbed: "from" },
+      {
+        source: "cache",
+        sourceHandle: "right.0",
+        target: "db",
+        targetHandle: "left.0",
+      },
+      commit,
+    );
+    const next = commit.mock.calls[0][0];
+    expect(next.edges[0]).toMatchObject({ from: "cache", to: "db", toSide: "left.0" });
+  });
+
+  it("moves a line to another side of the SAME shape", () => {
+    const commit = vi.fn();
+    moveEdgeEnd(
+      scene,
+      { key: "api->db", grabbed: "to" },
+      {
+        source: "api",
+        sourceHandle: "right.0",
+        target: "db",
+        targetHandle: "top.0",
+      },
+      commit,
+    );
+    expect(commit.mock.calls[0][0].edges[0]).toMatchObject({
+      from: "api",
+      to: "db",
+      toSide: "top.0",
+    });
+  });
+
+  it("leaves every other line alone", () => {
+    const commit = vi.fn();
+    const two = {
+      ...scene,
+      edges: [...scene.edges, { from: "db", to: "cache" }],
+    } as never as Parameters<typeof moveEdgeEnd>[0];
+    moveEdgeEnd(
+      two,
+      { key: "api->db", grabbed: "to" },
+      { source: "api", sourceHandle: "right.0", target: "cache", targetHandle: "left.1" },
+      commit,
+    );
+    const next = commit.mock.calls[0][0];
+    expect(next.edges).toHaveLength(2);
+    expect(next.edges[1]).toMatchObject({ from: "db", to: "cache" });
+  });
+
+  it("commits nothing when the line it was told to move is gone", () => {
+    const commit = vi.fn();
+    moveEdgeEnd(
+      scene,
+      { key: "nope->gone", grabbed: "to" },
+      { source: "api", sourceHandle: "right.0", target: "cache", targetHandle: "left.0" },
+      commit,
+    );
+    expect(commit).not.toHaveBeenCalled();
   });
 });

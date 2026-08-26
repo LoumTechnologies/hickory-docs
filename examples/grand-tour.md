@@ -137,7 +137,6 @@ committed; `hick test` fails if it ever drifts from the document:
 
 ```python
 
-
 """Quarterly sales report.
 
 Assembled by `hick run` from examples/grand-tour.hick.

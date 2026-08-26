@@ -17,7 +17,6 @@ Two modules and one rule: `app` may call `lib`, never the reverse.
 ### `demo/lib/orders.py`
 
 ```python
-
 def load_orders():
     return []
 ```
@@ -27,7 +26,6 @@ def load_orders():
 ### `demo/app/main.py`
 
 ```python
-
 load_orders()
 ```
 

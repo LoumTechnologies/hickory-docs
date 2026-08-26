@@ -33,7 +33,12 @@ pub(crate) fn extension_to_language(path: &str) -> &'static str {
         "yaml" | "yml" => "yaml",
         "toml" => "toml",
         "sh" | "bash" => "bash",
-        "xml" | "hick" => "xml",
+        // `.csproj` and friends are XML with a different name on them — a
+        // document that ingests `dotnet new` gets one whether or not it asked.
+        // Kept in step with `ALIASES` in apps/web/src/editor/languages.ts, so
+        // the fence in the woven markdown and the colouring in the app agree
+        // about what a file is.
+        "xml" | "hick" | "csproj" | "props" | "targets" | "xaml" | "xsd" => "xml",
         "html" | "htm" => "html",
         "css" => "css",
         "go" => "go",
@@ -51,6 +56,26 @@ pub(crate) fn extension_to_language(path: &str) -> &'static str {
         "gradle" => "groovy",
         _ => "",
     }
+}
+
+/// File extensions a reader's markdown viewer draws as a picture.
+///
+/// Deliberately the same list as `isPicturePath` in
+/// `apps/web/src/editor/hickDoc.ts`, and it has to stay that way: the app
+/// decides which file blocks render as a picture, this decides which ones
+/// weave as one, and a document where those two disagree shows a chart in one
+/// place and a code fence in the other.
+const PICTURE_EXTENSIONS: [&str; 7] = ["svg", "png", "jpg", "jpeg", "gif", "webp", "avif"];
+
+/// Whether a `<hick:file path=…>` writes something a reader can look at
+/// rather than read.
+pub(crate) fn is_picture_path(path: &str) -> bool {
+    let ext = path
+        .rsplit('.')
+        .next()
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+    PICTURE_EXTENSIONS.contains(&ext.as_str())
 }
 
 /// The file a span's offsets index: the spliced file it was stamped with,
@@ -151,6 +176,27 @@ fn process_weave_tag(
                 let raw_path = tag_attr(tag, "path").unwrap_or_default();
                 let path = interpolate_path(&raw_path, state);
                 let language = extension_to_language(&path);
+
+                // A file that writes a PICTURE weaves as the picture.
+                //
+                // The heading-and-fence below exists to show a file's source,
+                // and a chart has no source a reader wants: fencing an SVG
+                // puts forty kilobytes of markup in the middle of a document.
+                // So an author had to write `doc-hidden="true"` and then a
+                // markdown `![…](chart.svg)` by hand — which works, and which
+                // means the document names the same picture twice. In the app
+                // that shows up as the chart drawn twice, once for the block
+                // and once for the line beneath it.
+                //
+                // Emitting the image here is what lets both go away: no
+                // `doc-hidden`, no hand-written line, one picture in the
+                // woven markdown and one in the editor. The alt text is the
+                // path, which is what a reader needs when the image does not
+                // load.
+                if is_picture_path(&path) {
+                    weave_ip.add(Arc::new(StringNode::new(format!("\n![{path}]({path})\n"))));
+                    return;
+                }
 
                 // Emit heading
                 weave_ip.add(Arc::new(StringNode::new(format!("\n### `{path}`\n\n"))));
@@ -560,9 +606,19 @@ fn process_file_children_to_weave(
         span_files: &[],
     };
 
-    for child in children {
+    for (position, child) in children.iter().enumerate() {
         match child {
             HickNode::Text(text, span) => {
+                // The fence must show the file's OWN bytes, so it drops the
+                // line break that ends the open tag's line exactly as the
+                // file output does (`strip_opening_break`). Without this the
+                // woven markdown depicts a file with a blank first line and
+                // the file on disk has none — the fence would be lying about
+                // the very thing it exists to show.
+                let (text, span) = match position {
+                    0 => crate::strip_opening_break(text, span.as_ref()),
+                    _ => (text.as_str(), *span),
+                };
                 let dedented = dedent(text, indent);
                 // The fenced copy of a `hick:file` block in the woven markdown
                 // is the same text as the block, so it carries the same span.
@@ -574,7 +630,7 @@ fn process_file_children_to_weave(
                 // origin only when the span's length matches what was emitted,
                 // so an indented block degrades to synthetic on its own rather
                 // than claiming a mapping that would land edits elsewhere.
-                match span {
+                match &span {
                     // Same rule as the file output: inside an ingested block
                     // these bytes are present and byte-precise but not yours,
                     // so the woven markdown's ribbon says where they came

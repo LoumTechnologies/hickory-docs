@@ -506,6 +506,28 @@ export function fragmentBlocksOf(structure: HickDocStructure): HickBlock[] {
   return blocksNamed(structure, "copy", "cut");
 }
 
+/** File extensions a browser draws as a picture. */
+const PICTURE_EXTENSIONS = ["svg", "png", "jpg", "jpeg", "gif", "webp", "avif"];
+
+/** Whether a `<hick:file path=…>` writes something a browser can draw. */
+export function isPicturePath(path: string | undefined): boolean {
+  if (!path) return false;
+  const ext = path.split(/[?#]/)[0].split(".").pop()?.toLowerCase() ?? "";
+  return PICTURE_EXTENSIONS.includes(ext);
+}
+
+/**
+ * `<hick:file>` blocks that write a picture, in document order.
+ *
+ * These are the file blocks worth showing as their result: what the document
+ * says is forty lines of R or matplotlib, and what it MEANS is a chart. The
+ * markdown `![…](chart.svg)` beneath such a block already draws the picture
+ * and clicks back to the block; this is the same door from the other side.
+ */
+export function pictureBlocksOf(structure: HickDocStructure): HickBlock[] {
+  return blocksNamed(structure, "file").filter((b) => isPicturePath(b.attrs.path));
+}
+
 /** `hick:when` conditional blocks in document order. */
 export function whenBlocksOf(structure: HickDocStructure): HickBlock[] {
   return blocksNamed(structure, "when");

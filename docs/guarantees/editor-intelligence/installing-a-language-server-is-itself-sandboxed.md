@@ -39,6 +39,33 @@ Pylance is licensed for Microsoft's own editors only. basedpyright is the
 open-source fork that reimplements them, so it is what makes Python in a
 document actually coloured.
 
+## The C# entry, and what it took
+
+`hick lsp install csharp` fetches **csharp-ls** (MIT), a Roslyn server
+packaged as a `dotnet tool`. Three environment variables are what make it
+installable under this sandbox at all, and none is decoration:
+
+- `DOTNET_CLI_HOME={prefix}/dotnet` and `NUGET_PACKAGES={prefix}/dotnet/nuget`
+  — `dotnet tool install` writes to `$HOME/.dotnet` and `$HOME/.nuget/packages`
+  by default, and the installer sandbox makes only the prefix writable. Without
+  the redirect the install fails on a permission error that reads like our bug.
+- `DOTNET_CLI_TELEMETRY_OPTOUT=1` — this product says nothing to anyone, and a
+  tool it spawns on the user's behalf must not be the exception. The .NET CLI
+  phones home on first run unless told not to.
+
+**Not OmniSharp**, though discovery has always looked for it and still prefers
+it when it is on the machine: OmniSharp ships as a per-platform release
+archive, so installing it means choosing a URL and a checksum, which is a
+different installer shape than any entry here has. Both are MIT.
+
+**Not Microsoft's Roslyn language server** (the one inside the C# extension):
+its licence permits use only with Microsoft's editors, which is not something
+to install on somebody's behalf.
+
+Discovery had to learn one new thing for this: `dotnet tool install
+--tool-path` puts the executable **straight into the directory it is given**,
+with no `bin/` beneath it — unlike every other layout in the search list.
+
 ---
 
 Last LLM verification:
@@ -81,6 +108,19 @@ Last LLM verification:
     a hash. What it protects is the rest of your machine, not the integrity
     of the package.
   - Never run on macOS or Windows.
-- Test coverage: the unit tests above plus the discovery test. The end-to-end
+- Evidence for the C# entry: the `csharp` `Installer` in
+  `crates/hickory-cli/src/lsp_install.rs`; the `.hick-cache/servers/dotnet`
+  entry in `project_dirs` and the `csharp-ls` candidate in `C_CSHARP`
+  (`crates/hick-lsp/src/discovery.rs`). The "nothing to install" message in
+  `crates/hickory-cli/src/main.rs` now derives its tool list from the
+  catalogue (`installer_tools`) rather than naming `uv, npm` in a literal that
+  would have gone stale the moment `dotnet` was added.
+- Test coverage: `the_csharp_server_this_project_installed_is_found_without_configuration`
+  (`crates/hick-lsp/src/discovery.rs`) — the flat `--tool-path` layout is found
+  and invoked with no arguments. Verified by hand on 2026-08-26 with .NET
+  10.0.111: `hick lsp install csharp` completed confined, put `csharp-ls`
+  0.27.0 in `.hick-cache/servers/dotnet/`, and left no `csharp-ls` in the
+  user's `~/.nuget/packages`.
+  the unit tests above plus the discovery test. The end-to-end
   install is observed, not automated — it needs the network, which the test
   suite must never require.
