@@ -259,6 +259,34 @@ Next step: generate one — a `hick:file path="app/app.csproj"` block, or
 `hick ingest` the one `dotnet new` writes — and the debugger will build it.
 ```
 
+## The shape underneath, and which to build
+
+The table above treats a build as a new phase. It is not: **a compile is a
+cell whose output is a file rather than text**, and `hick:exec` plus volumes
+already models that exactly.
+
+Notice what the debugger does today — `weave_into` writes the document's files
+to a scratch directory and launches one. **It never runs the DAG at all.** It
+bypasses the graph that already knows what produces what.
+
+So the deeper formulation is: **the debugger is a consumer of the DAG, not a
+bypass of it.** "Debug this" means *run the graph up to the cell that produces
+the artifact, then launch that artifact under an adapter*. Under that reading
+there is no build step, no per-language table and no new concept: incremental
+builds come from the cache key, and the build appears in a read-only terminal
+because the build is a cell.
+
+**Build the table first anyway.** It is small, it is testable without touching
+the DAG, and it makes C# debuggable — which is the thing a person can use. But
+build it knowing it is scaffolding for the second shape, and do not grow it:
+the moment a second compiled language needs a fourth field, that is the signal
+to stop extending the table and make the debugger run the graph instead.
+
+`builds=` is the same idea arriving from the document's side. Under the table
+it is an override; under the DAG reading it is simply how a cell says its
+output is a program, and the table becomes the default for a document that
+says nothing.
+
 ## Refusals
 
 - **No `launch.json`, no `tasks.json`, no per-project debug config.** If the
