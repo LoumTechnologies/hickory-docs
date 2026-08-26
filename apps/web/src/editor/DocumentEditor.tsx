@@ -518,6 +518,25 @@ export function DocumentEditor({
             docPath: () => pathRef.current,
             images: true,
             skip: (state) => verbatimRanges(structureOf(state).blocks),
+            // Click a generated picture and land on the block that writes
+            // it — the way back from the output to its source.
+            onOpenImageSource: (rootRelative) => {
+              const view = viewRef.current;
+              if (!view) return false;
+              const docDir = (pathRef.current ?? "").split("/").slice(0, -1).join("/");
+              const block = structureOf(view.state).blocks.find((b) => {
+                if (b.name !== "file" || !b.attrs.path) return false;
+                const abs = docDir ? `${docDir}/${b.attrs.path}` : b.attrs.path;
+                return abs === rootRelative || b.attrs.path === rootRelative;
+              });
+              if (!block) return false;
+              view.dispatch({
+                selection: { anchor: block.from },
+                scrollIntoView: true,
+              });
+              view.focus();
+              return true;
+            },
           }),
           // A URL pasted over a selection becomes a link; an image pasted or
           // dropped is written into the folder and referenced. Both write

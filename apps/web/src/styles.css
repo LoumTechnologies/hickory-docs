@@ -1839,6 +1839,10 @@ textarea:focus {
   width: 8rem;
   text-align: center;
 }
+/* A generated picture is a door back to its source. */
+.cm-md-image--sourced img {
+  cursor: pointer;
+}
 .graph-node__rename {
   font: inherit;
   color: inherit;

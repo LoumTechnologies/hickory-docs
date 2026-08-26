@@ -441,6 +441,30 @@ describe("keys inside a rendered widget", () => {
   });
 });
 
+describe("a generated picture is a door back to its source", () => {
+  it("clicking the image lands the caret on the block that writes the file", async () => {
+    const realtime = new LocalRealtime();
+    const source =
+      '<hick:file path="pic.svg" doc-hidden="true">\n<svg></svg>\n</hick:file>\n\nprose\n\n![the picture](pic.svg)\n';
+    const { container } = render(
+      <DocumentEditor
+        docId="dImg"
+        initialSource={source}
+        realtime={realtime}
+        execBlocks={[]}
+        runningCells={new Set()}
+        onRunCell={() => undefined}
+        path="cards.hick"
+      />,
+    );
+    await waitFor(() => expect(container.querySelector(".cm-md-image img")).toBeTruthy());
+    const img = container.querySelector(".cm-md-image img") as HTMLElement;
+    img.click();
+    const view = (window as unknown as { __hickoryView?: EditorViewType }).__hickoryView!;
+    expect(view.state.selection.main.head).toBe(source.indexOf("<hick:file"));
+  });
+});
+
 describe("matchExecBlock", () => {
   it("prefers span overlap, falls back to ordinal", () => {
     const blocks = execBlocks;

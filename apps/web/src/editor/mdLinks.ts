@@ -51,6 +51,9 @@ class ImageWidget extends WidgetType {
   constructor(
     readonly src: string,
     readonly alt: string,
+    /** Root-relative path of the pictured file, for click-through. */
+    readonly target: string | null,
+    readonly onOpenSource?: (rootRelative: string) => boolean,
   ) {
     super();
   }
@@ -76,6 +79,18 @@ class ImageWidget extends WidgetType {
         this.src.replace(/^.*path=/, ""),
       )}`;
     });
+    // A picture this document GENERATES can answer "where did you come
+    // from?": clicking it jumps to the block that writes it. The handler
+    // says whether it knew the file; an outside image keeps a plain cursor.
+    if (this.target && this.onOpenSource) {
+      const target = this.target;
+      const open = this.onOpenSource;
+      img.addEventListener("click", () => {
+        if (open(target)) return;
+      });
+      wrap.classList.add("cm-md-image--sourced");
+      wrap.dataset.tip = "Click: go to the block that generates this image";
+    }
     wrap.appendChild(img);
     return wrap;
   }
@@ -98,6 +113,9 @@ export interface MdLinksConfig {
   /** Draw the pictures. Off for a pane where a wide image would fight the
    * layout (a split output, a diff). */
   images?: boolean;
+  /** A click on a pictured file this document generates: jump to the block
+   * that writes it. Return true when handled (the path was one of ours). */
+  onOpenImageSource?: (rootRelative: string) => boolean;
 }
 
 /** Whether `pos` falls inside one of the sorted ranges. */
@@ -147,7 +165,7 @@ function decorationsFor(state: EditorState, config: MdLinksConfig): DecorationSe
     seenLines.add(line.number);
     ranges.push(
       Decoration.widget({
-        widget: new ImageWidget(src, link.text),
+        widget: new ImageWidget(src, link.text, resolved, config.onOpenImageSource),
         side: 1,
         block: true,
       }).range(line.to),
