@@ -1,12 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { TranscriptEvent } from "../api/types";
-import {
-  exitCodeOf,
-  finalSegments,
-  segmentsAt,
-  stdoutOf,
-  transcriptDuration,
-} from "./transcript";
+import { exitCodeOf, stdoutOf } from "./transcript";
 
 const events: TranscriptEvent[] = [
   { t: 0, kind: "cmd", data: "hick --version" },
@@ -16,37 +10,11 @@ const events: TranscriptEvent[] = [
   { t: 400, kind: "exit", code: 0 },
 ];
 
-describe("transcript timing", () => {
-  it("computes duration as the last event time", () => {
-    expect(transcriptDuration(events)).toBe(400);
-    expect(transcriptDuration([])).toBe(0);
-  });
-
-  it("shows nothing before the first event, cmd at t=0", () => {
-    expect(segmentsAt(events, -1)).toEqual([]);
-    expect(segmentsAt(events, 0)).toEqual([{ kind: "cmd", text: "hick --version" }]);
-  });
-
-  it("reveals output chunks as the playhead advances, merging same-kind runs", () => {
-    const at250 = segmentsAt(events, 250);
-    expect(at250).toEqual([
-      { kind: "cmd", text: "hick --version" },
-      { kind: "out", text: "hick " },
-    ]);
-    const at300 = segmentsAt(events, 300);
-    expect(at300[1]).toEqual({ kind: "out", text: "hick 0.4.2\n" });
-  });
-
-  it("keeps err separate from out and includes exit at the end", () => {
-    const all = finalSegments(events);
-    expect(all.map((s) => s.kind)).toEqual(["cmd", "out", "err", "exit"]);
-    expect(all[3].exitCode).toBe(0);
-  });
-
-  it("scrubbing is deterministic: same t yields same segments", () => {
-    expect(segmentsAt(events, 350)).toEqual(segmentsAt(events, 350));
-  });
-
+// The playback-timing tests that used to live here went with `segmentsAt`
+// and friends: an emulator applies escape sequences itself, so nothing needs
+// to reconstruct a screen from timed segments any more. What a transcript
+// looks like as terminal bytes is `watchStream.test.ts`.
+describe("reading a transcript", () => {
   it("stdoutOf concatenates only stdout", () => {
     expect(stdoutOf(events)).toBe("hick 0.4.2\n");
   });

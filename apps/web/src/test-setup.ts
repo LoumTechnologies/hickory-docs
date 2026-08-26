@@ -40,3 +40,58 @@ if (typeof Range !== "undefined") {
     Range.prototype.getBoundingClientRect = zeroRect;
   }
 }
+
+// jsdom gaps that xterm.js measures through.
+//
+// The watching terminal (`terminal/WatchingTerminal.tsx`) mounts a real
+// emulator, which is the point: the assertion that ANSI was *interpreted*
+// rather than shown as garbage is only worth anything against the real
+// parser. Two browser APIs xterm reaches for on `open()` do not exist here.
+//
+// `matchMedia` is how it watches for a device-pixel-ratio change. The stub
+// reports "no match" and never fires — honest, because jsdom's DPR never
+// moves — and carries the deprecated `addListener`/`removeListener` pair as
+// well as the modern one, because xterm 5 still calls the old names.
+//
+// `getContext` is used by xterm's colour code to parse a CSS colour by
+// painting it and reading the pixel back. The stub cannot do that, so any
+// colour it resolves is wrong — which does not matter for what is asserted:
+// the 16 ANSI colours are carried as palette indices on the cell
+// (`getFgColorMode()`), never through this path. Without the stub jsdom
+// prints a "not implemented" stack to stderr beside a green suite.
+if (typeof window !== "undefined" && !window.matchMedia) {
+  const stub = {
+    matches: false,
+    media: "",
+    onchange: null,
+    addListener() {},
+    removeListener() {},
+    addEventListener() {},
+    removeEventListener() {},
+    dispatchEvent: () => false,
+  };
+  window.matchMedia = (() => stub) as unknown as typeof window.matchMedia;
+}
+
+if (typeof HTMLCanvasElement !== "undefined") {
+  const ctx = {
+    fillStyle: "",
+    fillRect() {},
+    getImageData: () => ({ data: new Uint8ClampedArray([0, 0, 0, 255]) }),
+  };
+  HTMLCanvasElement.prototype.getContext = (() =>
+    ctx) as unknown as HTMLCanvasElement["getContext"];
+}
+
+// `ResizeObserver` is how a pane learns it changed width. jsdom does no
+// layout, so a real one would never have anything to report; the stub
+// therefore never fires, which is the correct behaviour rather than a
+// stand-in for it. Components that need a size are expected to have a
+// fallback for the first paint, and that fallback is what tests measure.
+if (typeof globalThis.ResizeObserver === "undefined") {
+  globalThis.ResizeObserver = class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  } as unknown as typeof ResizeObserver;
+}

@@ -705,23 +705,51 @@ textarea:focus {
   border-top: 1px solid var(--border);
 }
 
-.terminal {
-  margin: 0;
-  padding: 0.75rem 0.9rem;
+/* The watching binding: an emulator, not a `<pre>`.
+
+   The emulator is taken OUT OF FLOW, and that is load-bearing rather than
+   tidiness. This panel is a CodeMirror block widget, so its width comes from
+   `.cm-content`, which is a flex item with `min-width: auto` inside a
+   horizontally scrolling `.cm-scroller` — it is as wide as its widest child.
+   An in-flow emulator therefore measures its column, sets itself that wide,
+   widens `.cm-content` by doing so, gets measured again, and runs away: this
+   was watched climbing past 25000px in a browser before it was fixed. A
+   `<pre>` never hit it because `word-break` meant it never exceeded its
+   column. An absolutely positioned box contributes nothing to its parent's
+   content width, so the measurement has a fixed point again.
+
+   That leaves the wrapper with no height of its own, so the component sets
+   one from the emulator after every write — height follows the rows the
+   output actually used, capped in the component. `content-box` is explicit
+   because that height is the emulator's, and the padding is this rule's. */
+.watch-terminal {
+  position: relative;
+  box-sizing: content-box;
+  padding: 0.6rem 0.9rem;
   background: var(--term-bg);
   color: var(--term-fg);
-  font-size: 0.82rem;
-  line-height: 1.5;
-  max-height: 18rem;
-  overflow: auto;
-  white-space: pre-wrap;
-  word-break: break-word;
+  overflow: hidden;
+}
+.watch-terminal .xterm {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  padding: 0;
+  max-height: none;
+}
+/* xterm draws a helper textarea and a cursor. There is no input path behind
+   either in this binding, so neither should invite one. */
+.watch-terminal .xterm-cursor-layer,
+.watch-terminal .xterm .xterm-cursor {
+  display: none;
+}
+.watch-terminal .xterm-screen {
+  cursor: text;
 }
 
-.t-cmd { color: var(--term-cmd); font-weight: 600; }
-.t-prompt { color: var(--term-prompt); }
-.t-err { color: var(--term-err); }
-.t-exit { color: var(--term-exit); }
+/* Still used by the agent dock's streaming turn (SessionTurns), which is a
+   text card and rightly so — a model's prose is not terminal output. */
 .t-cursor {
   animation: blink 1.1s steps(1) infinite;
   color: var(--term-cmd);

@@ -4,7 +4,7 @@ import type { ExecBlock } from "../api/types";
 import { diffLines } from "../lib/diff";
 import { stdoutOf } from "../lib/transcript";
 import { StatusChip } from "./StatusChip";
-import { Transcript } from "./Transcript";
+import { WatchingTerminal } from "../terminal/WatchingTerminal";
 
 function looksLikeSvg(s: string): boolean {
   const t = s.trim();
@@ -111,7 +111,15 @@ export function CellPanel({
           </pre>
         </div>
       )}
-      {showTranscript && <Transcript events={transcript} live={running} />}
+      {showTranscript && (
+        // The watching binding of the one terminal component
+        // (`docs/specs/freeform/a-terminal-that-writes-the-document.md`):
+        // input none, writes nothing. It replaced a `<pre>` that showed a
+        // build's escape sequences as literal text.
+        <div className="transcript">
+          <WatchingTerminal events={transcript} live={running} />
+        </div>
+      )}
       {svgFigure && !running && (
         <figure
           className="cell-figure"

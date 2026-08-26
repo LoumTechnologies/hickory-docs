@@ -1,46 +1,13 @@
 import type { TranscriptEvent } from "../api/types";
 
-// Pure transcript-playback timing: given TranscriptEvent[] (t in milliseconds
-// from run start) and a playhead time, compute what the terminal shows.
-
-export interface TranscriptSegment {
-  kind: "cmd" | "out" | "err" | "exit";
-  text: string;
-  exitCode?: number;
-}
-
-/** Total duration of a transcript in ms (time of the last event). */
-export function transcriptDuration(events: TranscriptEvent[]): number {
-  let max = 0;
-  for (const e of events) if (e.t > max) max = e.t;
-  return max;
-}
-
-/**
- * Segments visible at playhead time `t` (inclusive). Consecutive out/err
- * chunks of the same kind are merged so styling spans whole runs of output.
- */
-export function segmentsAt(events: TranscriptEvent[], t: number): TranscriptSegment[] {
-  const segments: TranscriptSegment[] = [];
-  for (const e of events) {
-    if (e.t > t) break;
-    if (e.kind === "cmd") {
-      segments.push({ kind: "cmd", text: e.data });
-    } else if (e.kind === "exit") {
-      segments.push({ kind: "exit", text: `exit ${e.code}`, exitCode: e.code });
-    } else {
-      const last = segments[segments.length - 1];
-      if (last && last.kind === e.kind) last.text += e.data;
-      else segments.push({ kind: e.kind, text: e.data });
-    }
-  }
-  return segments;
-}
-
-/** Full transcript text as it would appear when playback completes. */
-export function finalSegments(events: TranscriptEvent[]): TranscriptSegment[] {
-  return segmentsAt(events, Infinity);
-}
+// Reading a transcript's event stream for facts about the run.
+//
+// Turning the same events into a *screen* is `watchStream.ts`, and it is a
+// different job: this file answers questions about what happened, that one
+// produces the bytes a terminal was sent. The playback-timing helpers that
+// used to live here (`segmentsAt`, `finalSegments`, `transcriptDuration`)
+// went with the `<pre>`-based transcript card they existed to drive — an
+// emulator applies the escape sequences those functions had to sidestep.
 
 /** Concatenated stdout of the transcript (used e.g. to detect SVG figures). */
 export function stdoutOf(events: TranscriptEvent[]): string {

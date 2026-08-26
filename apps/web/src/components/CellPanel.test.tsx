@@ -78,26 +78,11 @@ describe("CellPanel de-duplication", () => {
   it("cell without expect keeps its transcript visible — that IS the output", () => {
     const { container } = render(<CellPanel block={cell({ status: "ok" })} />);
     expect(container.querySelector(".transcript")).toBeTruthy();
-    // Single-command transcript: the `$ cmd` echo is suppressed (the command
-    // is the source text directly above the panel).
-    expect(container.querySelector(".terminal")!.textContent).not.toContain("sort fruit.csv");
-    expect(container.querySelector(".terminal")!.textContent).toContain("apple,3");
-  });
-
-  it("multi-command transcripts keep their `$` prompts so outputs stay attributable", () => {
-    const { container } = render(
-      <CellPanel
-        block={cell({
-          status: "ok",
-          transcript: [
-            { t: 0, kind: "cmd", data: "printf 'a\\n' > f" },
-            { t: 100, kind: "cmd", data: "cat f" },
-            { t: 200, kind: "out", data: "a\n" },
-            { t: 250, kind: "exit", code: 0 },
-          ],
-        })}
-      />,
-    );
-    expect(container.querySelector(".terminal")!.textContent).toContain("$ cat f");
+    // What the panel shows is the watching binding of the terminal, not a
+    // `<pre>` — so what it *draws* is asserted in
+    // `terminal/WatchingTerminal.test.tsx` against a real emulator, and what
+    // it is *handed* in `lib/watchStream.test.ts`. All this panel decides is
+    // whether it appears at all.
+    expect(container.querySelector("[data-testid='watch-terminal']")).toBeTruthy();
   });
 });
