@@ -91,7 +91,8 @@ fn refresh_rewrites_the_fragment_and_leaves_the_layout_alone() {
         "{rewritten}"
     );
 
-    // The refreshed document weaves: the derived diagram draws the new nodes.
+    // The refreshed document weaves: the derived diagram draws the new
+    // nodes into its SVG.
     let weave = hick().arg("weave").arg(&doc).output().unwrap();
     assert!(
         weave.status.success(),
@@ -99,8 +100,17 @@ fn refresh_rewrites_the_fragment_and_leaves_the_layout_alone() {
         String::from_utf8_lossy(&weave.stderr)
     );
     let woven = std::fs::read_to_string(dir.path().join("arch.md")).unwrap();
-    assert!(woven.contains("```mermaid"), "{woven}");
-    assert!(woven.contains("app --> lib"), "{woven}");
+    assert!(woven.contains("![diagram](diagram-"), "{woven}");
+    let name = woven
+        .split("![diagram](")
+        .nth(1)
+        .and_then(|rest| rest.split(')').next())
+        .expect("an image reference");
+    let svg = std::fs::read_to_string(dir.path().join(name)).expect("the SVG exists");
+    assert!(
+        svg.contains(">app</text>") && svg.contains(">lib</text>"),
+        "{svg}"
+    );
 }
 
 #[test]

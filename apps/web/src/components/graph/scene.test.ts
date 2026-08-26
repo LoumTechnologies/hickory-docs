@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 import {
   dropRef,
   keyedEdges,
+  straightConnector,
   occupiedSlots,
   parseSideRef,
   renumberSides,
@@ -151,6 +152,19 @@ describe("the scene's byte form", () => {
     expect(sideRef("left", 1)).toBe("left.1");
     expect(parseSideRef("left.1")).toEqual({ side: "left", slot: 1 });
     expect(parseSideRef("corner")).toBeNull();
+  });
+
+  it("never draws an elbow whose corners cannot render whole", () => {
+    // A 9px jog between near-aligned boxes was a clipped little S — every
+    // corner you see must be a whole corner, so below the threshold the
+    // line is straight.
+    expect(straightConnector("right", "left", 300, 9)).toBe(true);
+    expect(straightConnector("right", "left", 300, 18)).toBe(true);
+    expect(straightConnector("bottom", "top", 12, 300)).toBe(true);
+    // Real lateral distance earns real corners…
+    expect(straightConnector("right", "left", 300, 120)).toBe(false);
+    // …and between adjacent boxes there is no room for corners at all.
+    expect(straightConnector("right", "top", 40, 40)).toBe(true);
   });
 
   it("reports a parse failure instead of throwing or guessing", () => {

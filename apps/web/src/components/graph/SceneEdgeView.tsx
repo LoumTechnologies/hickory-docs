@@ -11,10 +11,8 @@ import { useEffect, useRef } from "react";
 import { BaseEdge, EdgeLabelRenderer, getSmoothStepPath, getStraightPath } from "@xyflow/react";
 import type { EdgeProps } from "@xyflow/react";
 
+import { straightConnector } from "./scene";
 import type { SceneEdge } from "./scene";
-
-/** Below this many pixels between endpoints, the line goes straight. */
-const STRAIGHT_BELOW = 96;
 
 interface SceneEdgeData {
   edge?: SceneEdge;
@@ -41,8 +39,13 @@ export function SceneEdgeView(props: EdgeProps) {
     data,
   } = props;
   const { edge, editing, onLabel, onCancel } = (data ?? {}) as SceneEdgeData;
-  const short = Math.hypot(targetX - sourceX, targetY - sourceY) < STRAIGHT_BELOW;
-  const [path, labelX, labelY] = short
+  const straight = straightConnector(
+    sourcePosition ?? "right",
+    targetPosition ?? "left",
+    targetX - sourceX,
+    targetY - sourceY,
+  );
+  const [path, labelX, labelY] = straight
     ? getStraightPath({ sourceX, sourceY, targetX, targetY })
     : getSmoothStepPath({
         sourceX,

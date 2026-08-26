@@ -79,8 +79,8 @@ hick diagram demo --refresh architecture-that-draws-itself.hick --fragment arch-
 A `renderer="graph"` diagram whose topology is PASTED, not drawn: in the app
 this is an interactive canvas — drag the boxes where they mean something —
 and the editor will rewrite only the `layout` below, because the nodes and
-edges belong to the scan. The weave you are reading renders it as mermaid,
-positions dropped, which is the honest downgrade for markdown.
+edges belong to the scan. The weave you are reading renders it as an SVG the
+weave itself drew — the same boxes, in the same places.
 
 <h:diagram renderer="graph" asserts="#arch-scan">
 {

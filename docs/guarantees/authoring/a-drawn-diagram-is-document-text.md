@@ -8,8 +8,9 @@ written back into the document's own bytes as the scene's canonical
 serialization (stable key order, one node/edge/layout entry per line, integer
 positions) as a user edit — so undo undoes it, collaborators receive it, and a
 diff of a diagram edit is a readable diff. When the document is woven, the
-scene downgrades to a deterministic mermaid fence (topology kept, positions
-dropped), a body that does not parse weaves as its raw JSON rather than
+scene is drawn as an SVG output file (content-named, referenced as an image
+from the woven markdown) carrying the author's positions, sizes, shapes and
+colours, a body that does not parse weaves as its raw JSON rather than
 nothing, and a scene string containing the literal `</hick:` is refused at
 commit with a message saying why.
 
@@ -39,8 +40,10 @@ Last LLM verification:
     `lastCommitted` and resets from the document on any external change.
   - Weave: `crates/hick-literate/src/weave.rs` `"diagram"` arm branches on
     `renderer == "graph"`, resolves the body synchronously
-    (`resolved_scene_body`, pastes answered from run state), and emits the
-    mermaid downgrade or a ```json fence on parse failure. Validation warning
+    (`resolved_scene_body`, pastes answered from run state), and emits an
+    SVG output file (`scene.rs::to_svg` — shapes, palette colours, slot-
+    anchored endpoints, whole-corner elbows) plus an image reference, or a
+    ```json fence on parse failure. Validation warning
     beside the asserts warnings: `hickory-cli/src/lib.rs`
     (`diagram_assertion_warnings`, the graph branch).
   - Isolation and laziness: each panel wraps its own `ReactFlowProvider`; the

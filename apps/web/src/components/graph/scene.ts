@@ -295,6 +295,35 @@ export function keyedEdges(edges: SceneEdge[]): { key: string; edge: SceneEdge }
 /** Distance between two bubbles on one side. */
 export const SLOT_SPACING = 18;
 
+/** Below this distance between endpoints, a connector is drawn straight. */
+export const STRAIGHT_BELOW = 96;
+/** Below this LATERAL shift, an elbowed connector cannot show its rounded
+ * corners in full — it degenerates into a clipped little jog — so it is
+ * drawn straight instead. The guarantee: every corner you see is a whole
+ * corner. Just above one slot's spacing, so a line meeting the neighbouring
+ * slot of an otherwise-aligned node stays clean. */
+export const NEAR_AXIS = 24;
+
+/**
+ * Whether a connector between these endpoints should be a straight line
+ * rather than a rounded elbow: short lines always (between adjacent boxes
+ * there is no room for corners), and opposite-facing lines whose lateral
+ * offset is too small for the corners to render whole.
+ */
+export function straightConnector(
+  sourceSide: string,
+  targetSide: string,
+  dx: number,
+  dy: number,
+): boolean {
+  if (Math.hypot(dx, dy) < STRAIGHT_BELOW) return true;
+  const h = (side: string) => side === "left" || side === "right";
+  const v = (side: string) => side === "top" || side === "bottom";
+  if (h(sourceSide) && h(targetSide) && Math.abs(dy) < NEAR_AXIS) return true;
+  if (v(sourceSide) && v(targetSide) && Math.abs(dx) < NEAR_AXIS) return true;
+  return false;
+}
+
 /** The flanking free handles' id suffixes — never stored in the document:
  * a line dropped on one is renumbered into a real slot on commit. */
 export const EXTRA_BEFORE = "_before";

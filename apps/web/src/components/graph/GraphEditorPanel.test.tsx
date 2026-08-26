@@ -375,12 +375,12 @@ describe("the graph editor panel", () => {
     fireEvent.change(screen.getByLabelText("Shape"), { target: { value: "cylinder" } });
     fireEvent.click(screen.getByLabelText("Fill blue"));
     fireEvent.click(screen.getByLabelText("Outline red"));
-    fireEvent.click(screen.getByLabelText("Text amber"));
+    fireEvent.click(screen.getByLabelText("Text black"));
     const text = onCommit.mock.calls.at(-1)![0] as string;
     expect(text).toContain('"shape": "cylinder"');
-    expect(text).toContain('"fill": "#60a5fa26"');
-    expect(text).toContain('"stroke": "#f87171"');
-    expect(text).toContain('"text": "#fbbf24"');
+    expect(text).toContain('"fill": "#00A9FF26"');
+    expect(text).toContain('"stroke": "#F8766D"');
+    expect(text).toContain('"text": "#000000"');
     // The other node was not selected and is untouched.
     expect(text).toContain('{"id": "db"}');
 
@@ -400,7 +400,7 @@ describe("the graph editor panel", () => {
     await screen.findByTestId("edge-inspector");
 
     fireEvent.click(screen.getByLabelText("Line green"));
-    expect(onCommit.mock.calls.at(-1)![0] as string).toContain('"color": "#4ade80"');
+    expect(onCommit.mock.calls.at(-1)![0] as string).toContain('"color": "#7CAE00"');
     // Arrowheads cycle one end → both → start → none, so a head can sit at
     // EITHER end alone.
     fireEvent.click(screen.getByLabelText("Arrowheads"));

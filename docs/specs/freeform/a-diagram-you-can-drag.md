@@ -161,17 +161,24 @@ survive keep their places, new ids appear beside the layout (visibly
 unarranged; auto-layout is a button, never something a re-run does to you),
 and layout entries for departed ids are dropped on the next commit.
 
-## The weave: downgrade, and say so
+## The weave: the picture that was drawn
 
-A scene weaves to a **mermaid fence**: deterministic `flowchart TD`, labels,
-shapes, edge styles — and no positions, because markdown has nowhere honest to
-keep an x coordinate. The woven file still renders on GitHub with no hick
-installed, which is the same bargain every renderer makes. A body that does
-not parse weaves as a ```json fence — the reader sees what is there, never
-nothing — and the warning about it appears at validation time beside the
-asserts warnings, naming the line. A later upgrade, feasible because positions
-are authored (no layout engine needed), is weaving a static SVG asset; it is
-named here and not built.
+A scene weaves to an **SVG the weave itself draws** — the author's positions,
+sizes, shapes, and colours — written as a content-named output file
+(`diagram-<hash>.svg`) beside the woven markdown and referenced as an image.
+This replaced a mermaid downgrade, which re-laid the diagram out and looked
+like a different drawing; a person who arranged boxes arranged them to say
+something, and the woven form must say the same thing. Drawing it needs no
+layout engine (positions are authored) and no font rasterizer (SVG text is
+the reader's browser's problem), which is why it is an SVG and not a PNG —
+same fidelity, no image stack in the binary, crisp at every zoom, and it
+renders on GitHub. The connector rule is the editor's own, ported: a corner
+that cannot render whole is drawn straight. `renderer="mermaid"` diagrams
+still weave as mermaid fences, unchanged. A body that does not parse weaves
+as a ```json fence — the reader sees what is there, never nothing — and the
+warning about it appears at validation time beside the asserts warnings,
+naming the line. The mermaid downgrade survives as `to_mermaid`, which
+`hick diagram --format mermaid` still emits for topology-only output.
 
 ## The one string a scene cannot hold
 

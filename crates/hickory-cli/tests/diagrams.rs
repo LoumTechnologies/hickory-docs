@@ -186,10 +186,11 @@ echo 0
 "##;
 
 #[test]
-fn a_graph_scene_weaves_to_a_mermaid_fence_and_its_positions_stay_home() {
+fn a_graph_scene_weaves_to_the_picture_that_was_drawn() {
     // The scene's JSON is for the editor; the weave is for a reader with no
-    // hick installed. The downgrade keeps the topology and drops the layout,
-    // because markdown has nowhere honest to keep an x coordinate.
+    // hick installed. The woven form is an SVG the weave itself draws — the
+    // author's positions, sizes, shapes and colours — because a mermaid
+    // downgrade re-laid the diagram out and looked like a different drawing.
     let dir = tempfile::tempdir().unwrap();
     let doc = dir.path().join("arch.hick");
     std::fs::write(&doc, GRAPH_DOC).unwrap();
@@ -201,17 +202,24 @@ fn a_graph_scene_weaves_to_a_mermaid_fence_and_its_positions_stay_home() {
         String::from_utf8_lossy(&out.stderr)
     );
     let woven = std::fs::read_to_string(dir.path().join("arch.md")).unwrap();
-    assert!(woven.contains("```mermaid"), "no fence in:\n{woven}");
     assert!(
-        woven.contains("api -->|\"SQL\"| store"),
-        "edge missing:\n{woven}"
+        woven.contains("![diagram](diagram-"),
+        "no image reference in:\n{woven}"
     );
-    assert!(
-        woven.contains("store[(\"Postgres\")]"),
-        "shape dropped:\n{woven}"
-    );
-    assert!(!woven.contains("\"x\""), "layout leaked:\n{woven}");
     assert!(!woven.contains("hick:diagram"), "tag leaked:\n{woven}");
+
+    // The referenced SVG is a real written file holding the real drawing.
+    let name = woven
+        .split("![diagram](")
+        .nth(1)
+        .and_then(|rest| rest.split(')').next())
+        .expect("an image reference");
+    let svg = std::fs::read_to_string(dir.path().join(name)).expect("the SVG file exists");
+    assert!(svg.starts_with("<svg"), "{svg}");
+    assert!(svg.contains(">Postgres</text>"), "label missing:\n{svg}");
+    assert!(svg.contains(">SQL</text>"), "edge label missing:\n{svg}");
+    // The author's layout is IN the picture: the store sits at y=190.
+    assert!(svg.contains("190"), "positions dropped:\n{svg}");
 }
 
 #[test]
@@ -275,9 +283,18 @@ fn a_derived_scene_takes_its_topology_from_a_fragment_and_keeps_its_own_layout()
         String::from_utf8_lossy(&out.stderr)
     );
     let woven = std::fs::read_to_string(dir.path().join("arch.md")).unwrap();
-    assert!(woven.contains("```mermaid"), "no fence in:\n{woven}");
     assert!(
-        woven.contains("api --> store"),
-        "pasted topology missing:\n{woven}"
+        woven.contains("![diagram](diagram-"),
+        "no image reference in:\n{woven}"
+    );
+    let name = woven
+        .split("![diagram](")
+        .nth(1)
+        .and_then(|rest| rest.split(')').next())
+        .expect("an image reference");
+    let svg = std::fs::read_to_string(dir.path().join(name)).expect("the SVG file exists");
+    assert!(
+        svg.contains(">api</text>") && svg.contains(">store</text>"),
+        "pasted topology missing:\n{svg}"
     );
 }

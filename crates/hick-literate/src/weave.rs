@@ -196,10 +196,19 @@ fn process_weave_tag(
                 let body = resolved_scene_body(tag, state);
                 match crate::scene::parse_scene(&body) {
                     Ok(scene) => {
-                        weave_ip.add(Arc::new(StringNode::new(format!(
-                            "\n```mermaid\n{}```\n",
-                            crate::scene::to_mermaid(&scene)
-                        ))));
+                        // The woven picture IS the drawn picture: an SVG the
+                        // weave itself draws, with the author's positions,
+                        // sizes, shapes, and colours — a mermaid downgrade
+                        // re-laid the diagram out and looked like a different
+                        // drawing. Named by content, so an unchanged scene is
+                        // an unchanged file.
+                        let svg = crate::scene::to_svg(&scene);
+                        let name = format!("diagram-{}.svg", &crate::cache::sha256_hex(&body)[..8]);
+                        let file_ip = Arc::new(InsertionPoint::new());
+                        file_ip.add(Arc::new(StringNode::new(svg)));
+                        file_ip.close();
+                        state.add_file_output(name.clone(), file_ip);
+                        weave_ip.add(Arc::new(StringNode::new(format!("\n![diagram]({name})\n"))));
                     }
                     Err(_) => {
                         let body = body.trim_end();

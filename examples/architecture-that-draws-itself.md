@@ -49,7 +49,23 @@ pre-commit hook — fails.
 
 
 $ hick diagram demo --group dir --format scene
-[never run]
+{
+  "nodes": [
+    {
+      "id": "lib"
+    },
+    {
+      "id": "app"
+    }
+  ],
+  "edges": [
+    {
+      "from": "app",
+      "to": "lib"
+    }
+  ]
+}
+
 
 
 The fragment below is the same topology, stated where a diagram can paste it.
@@ -68,20 +84,11 @@ hick diagram demo --refresh architecture-that-draws-itself.hick --fragment arch-
 A `renderer="graph"` diagram whose topology is PASTED, not drawn: in the app
 this is an interactive canvas — drag the boxes where they mean something —
 and the editor will rewrite only the `layout` below, because the nodes and
-edges belong to the scan. The weave you are reading renders it as mermaid,
-positions dropped, which is the honest downgrade for markdown.
+edges belong to the scan. The weave you are reading renders it as an SVG the
+weave itself drew — the same boxes, in the same places.
 
 
-```graph
-
-{
-  "topology": {"nodes":[{"id":"lib"},{"id":"app"}],"edges":[{"from":"app","to":"lib"}]},
-  "layout": {
-    "app": {"x": 60, "y": 40, "w": 160, "h": 56},
-    "lib": {"x": 60, "y": 200, "w": 160, "h": 56}
-  }
-}
-```
+![diagram](diagram-f16290a0.svg)
 
 
 ## The precise version, when you have a toolchain

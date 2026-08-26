@@ -11,15 +11,20 @@ export interface PaletteColor {
   value: string;
 }
 
+/* ggplot2's default discrete palette (eight evenly spaced HCL hues, the ones
+ * every scale_hue chart ships with), plus pure black and pure white — so a
+ * diagram and a ggplot figure in the same document speak one colour language. */
 export const STROKES: PaletteColor[] = [
-  { name: "slate", value: "#94a3b8" },
-  { name: "blue", value: "#60a5fa" },
-  { name: "green", value: "#4ade80" },
-  { name: "amber", value: "#fbbf24" },
-  { name: "red", value: "#f87171" },
-  { name: "purple", value: "#c084fc" },
-  { name: "teal", value: "#2dd4bf" },
-  { name: "pink", value: "#f472b6" },
+  { name: "red", value: "#F8766D" },
+  { name: "gold", value: "#CD9600" },
+  { name: "green", value: "#7CAE00" },
+  { name: "mint", value: "#00BE67" },
+  { name: "cyan", value: "#00BFC4" },
+  { name: "blue", value: "#00A9FF" },
+  { name: "purple", value: "#C77CFF" },
+  { name: "pink", value: "#FF61CC" },
+  { name: "black", value: "#000000" },
+  { name: "white", value: "#FFFFFF" },
 ];
 
 /** The same hues at ~15% alpha — a wash, not a wall. */
