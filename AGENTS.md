@@ -175,6 +175,113 @@ declared and unverifiable, and the two must never render alike.** Say
 "AI-touched" or "no evidence of AI" — **never** "human-written" or
 "human-verified", which nothing can prove.
 
+A proposal, not built, is `docs/specs/freeform/local-history.md`: git's
+resolution is a commit, but in a `.hick` folder **you are not the only
+writer** — runs, weaves, reverse edits, ingests, the agent, find-and-replace
+and the merge driver all write between two commits, and six of those have no
+way back. **The unit is the act, not the file**, because almost every writer
+here is a batch writer. It lives in `hickory-workspace` beside drafts, under
+the user's own data directory, and the constraint that keeps it safe is
+learned from `from=`: **nothing may cite it** — it is a cache, not a record,
+it never crosses git or the peer channel, and it is not a fifth provenance.
+Say "local history", **never** "version history", "backup", or "snapshots".
+
+Debugging a compiled language is
+`docs/specs/freeform/launching-what-a-document-builds.md`, investigated and
+not built. The finding is not about C#: **`hick-dap` assumes the generated
+file IS the program**, which is true of Python, Node and Go and false of
+everything compiled — `Program.cs` is not a program, `bin/Debug/…/app.dll`
+is. The missing concept is **a build between the weave and the launch**, which
+is exactly VS Code's `preLaunchTask`, so the shape is copied rather than
+invented. Two things do not carry over: **there is no `launch.json` and there
+must not be** (the whole editor-intelligence family is *found without being
+configured*), and the program is woven into a **scratch directory**, so a
+document with no project file has nothing to build and must be refused
+clearly rather than have one written for it. The open question is where the
+build command comes from — a built-in per-language recipe is shippable, and
+**deriving it from the document's own cell that already builds the thing** is
+right. **Never claim a language is debuggable before it is**: adding
+netcoredbg to discovery alone would offer C#, pick `Program.cs`, and fail at
+launch. A build is watched in a **read-only terminal**, not reported by a
+spinner — a failing build says why in its own output, and ANSI colour and
+carriage-return rewriting are why an emulator rather than the text card that
+exists. **A terminal you can type into is a second input the document does not
+have**, so a *watching* cell terminal has no input path at all; that is what separates it
+from a `hick-term` **session** terminal, which is a person's own shell. The
+transcript is the record and the terminal is the run happening — **nothing is
+ever verified against what a terminal showed**. It generalises: watching a
+build is just watching a cell.
+
+That rule is stated too narrowly, and
+`docs/specs/freeform/a-terminal-that-writes-the-document.md` says how: **the
+rule is not *no typing*, it is *no unrecorded input*** — typing that becomes
+the document is recorded by construction. **The characters are the same in a REPL and an editor**, and comint unified
+them in 1988 with three things hick already has under other names: a process
+mark (**the cell**), RET rebound to submit (the run gesture), and a read-only
+history (`a-generated-file-refuses-an-edit`). So the modal rule is one line —
+**Enter inserts, a modifier submits** — and a cell's transcript
+(`Cmd`/`Out`/`Err`/`Exit`, in order) is already a REPL scrollback, so the same
+bytes render **as a script** (what you edit) and **as a session** (what you
+read). Two things comint never had: the history is **editable and
+re-derivable**, and an output edit **lands back in its document** rather than
+being walled off. The line Emacs never crossed holds here too: **line-oriented
+interaction unifies with editing, screen-oriented does not** — `M-x shell` is a
+buffer, `M-x term` is not, and nobody runs `top` in comint — which is the same
+boundary the pgrp test already detects, so **one detector serves twice**. One
+terminal component, three bindings: **nothing** (ephemeral, writes nothing), **a container in a
+document** (persistent — the typing becomes the cell), **a running cell**
+(watching, no input path). The anchor needs no new element, because **a
+persistent terminal is a container**: several `hick:exec` blocks naming one
+container is already how the language says "commands that share state", and
+the DAG already chains them. Say "**anchored to a container**", never
+"attached to a document". It writes **one cell that grows**, not one per line
+(`commands: Vec<String>` is already plural), so **the unit of re-run is the
+cell** and splitting a session is what a sentence of prose is for. The
+sharpest edges both have one answer — **the anchor suspends**: the terminal
+keeps working, the document stops receiving, and the invariant holds that **an
+anchored cell is always a prefix of the session that reproduces**. **Suspend,
+never filter** — a cell with a line cut from the middle claims a run it cannot
+reproduce, while a prefix is true. A secret typed or **pasted** in suspends
+recording, and the scan **gates the write, never undoes one**, because the
+document syncs and autosaves; say "**a line that looks like a secret stops the
+recording**" — **never** "your secrets are safe here", which no scanner can
+promise. A program that is not the shell suspends it too, and that is **exact
+rather than heuristic**: `tcgetpgrp(master) != shell_pgid` means the keystrokes
+belong to a child, catching a REPL, `cat` and `read` as well as `vi` — verified
+on Linux 2026-08-26, where a full-screen detector alone would have recorded
+`python3` then `print(1)` as two shell commands. The alternate-screen sequence
+(`ESC [ ? 1049 h`) decides only how the warning **reads**, never whether to
+record. **ConPTY has no process groups**, so Windows keeps only the weaker
+signal and the rest is undesigned. Note
+`hick_literate::transcript::TranscriptBuilder` already serializes typed
+commands to `.hick` and **has no caller** — this revives it, or it should be
+deleted. Settled: **netcoredbg** (Samsung, MIT) is the adapter
+(`--interpreter=vscode`); Microsoft's `vsdbg` is licensed to its own editors
+and is unavailable to this product. **Built (2026-08-26):** the language
+server half only — `hick lsp install csharp` fetches csharp-ls (MIT) with
+`DOTNET_CLI_HOME`/`NUGET_PACKAGES` redirected into the prefix (the sandbox
+makes only that writable) and telemetry opted out, plus C# and XML
+highlighting in the app.
+
+Code intelligence wider than one file is
+`docs/specs/freeform/an-index-beside-the-language-server.md`, not built.
+**SCIP is in addition to LSP, never in place of it**: SCIP is an *index
+format* (Apache-2.0) with no completions, no diagnostics, no rename and no
+view of an unsaved buffer, while a language server has no view of a project it
+has not opened. JetBrains feels the way it does because it has both. This
+product wants an index more than most editors do, because its code lives in
+**documents** and the files appear only when something weaves them — so the
+interesting question ("where else is this used") spans documents and generated
+files no server has open. **A reference that cannot be mapped back through
+lineage to a document span is not shown**, or a person is sent to edit a file
+that regenerates over them. An index is a **cache, never a record**: it may
+speed an answer and may never *be* the answer, the live server wins any
+disagreement, and staleness is the same input-digest signal recordings already
+use — not a second mechanism. Indexers are **spawned** like language servers
+(`hick index install`, same sandboxed catalogue as `hick lsp install`); the
+`scip` crate would be **linked**, which is where the **MIT-only heading and
+the copyleft-only rule disagree** and a deliberate decision is owed.
+
 ## Stack (settled — do not relitigate)
 
 - CLI + language + local server: Rust (edition 2024), axum, tokio. No database.
