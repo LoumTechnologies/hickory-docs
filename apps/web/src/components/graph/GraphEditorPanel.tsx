@@ -142,6 +142,12 @@ function GraphEditor({ source, resolved, assertions, onCommit }: GraphEditorPane
   // old scene.
   const renameRef = useRef<(id: string, label: string) => void>(() => {});
   const resizeRef = useRef<SceneNodeData["onResize"]>(() => {});
+  // Whether the reader is WORKING IN the canvas (focus is inside the panel).
+  // The wheel belongs to whoever owns the moment: scrolling a document that
+  // happens to contain a diagram must scroll the document, and only a canvas
+  // you clicked into may turn the same gesture into zoom — the map-embedded-
+  // in-a-page rule. Escape hands the wheel back.
+  const [active, setActive] = useState(false);
   // What is selected on the canvas, for the inspector row. Ids only — the
   // scene stays the single source of everything else.
   const [selection, setSelection] = useState<{ nodes: string[]; edges: string[] }>({
@@ -424,6 +430,21 @@ function GraphEditor({ source, resolved, assertions, onCommit }: GraphEditorPane
       // was looking at. With focus in here, keys target the widget, which
       // both CodeMirror and the rendered-block guard already leave alone.
       tabIndex={-1}
+      onFocus={() => setActive(true)}
+      onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Element | null)) {
+          setActive(false);
+        }
+      }}
+      onKeyDown={(event) => {
+        // Escape is "I am done in here": the wheel scrolls the document
+        // again. But not when a field inside is using Escape for its own
+        // cancel (the rename input): that Escape means "undo my typing".
+        const target = event.target as HTMLElement;
+        if (event.key === "Escape" && !target.closest("input, textarea")) {
+          (event.currentTarget as HTMLElement).blur();
+        }
+      }}
       onPointerDownCapture={(event) => {
         const root = event.currentTarget;
         const target = event.target as HTMLElement;
@@ -528,7 +549,10 @@ function GraphEditor({ source, resolved, assertions, onCommit }: GraphEditorPane
           </span>
         )}
       </div>
-      <div className="graph-editor__canvas" style={{ height }}>
+      <div
+        className={`graph-editor__canvas${active ? " graph-editor__canvas--active" : ""}`}
+        style={{ height }}
+      >
         <ReactFlow
           nodes={nodes}
           edges={edges}
@@ -561,6 +585,12 @@ function GraphEditor({ source, resolved, assertions, onCommit }: GraphEditorPane
           // click the line first and it is raised above the nodes, so its
           // end-grips win the contested spot and the same drag RE-PLUGS it.
           elevateEdgesOnSelect
+          // The wheel is the document's until the reader clicks into the
+          // canvas (see the panel's focus handling above); zoom is what the
+          // click buys, and Escape gives the wheel back.
+          preventScrolling={active}
+          zoomOnScroll={active}
+          zoomOnPinch={active}
           // Boxes land ON the grid, not near it — dragging snaps, and the
           // resize commit snaps sizes to the same number the background
           // draws, so two boxes agree without anyone squinting.

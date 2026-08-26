@@ -125,6 +125,24 @@ describe("the graph editor panel", () => {
     expect(document.activeElement).toBe(root);
   });
 
+  it("gives the wheel to the document until the canvas is clicked into, and back on Escape", async () => {
+    // Scrolling a document that happens to contain a diagram must scroll the
+    // document; zoom is what clicking into the canvas buys.
+    render(<GraphEditorPanel source={HAND_DRAWN} onCommit={vi.fn()} />);
+    const root = await screen.findByTestId("graph-editor");
+    await waitFor(() => expect(flowProps.preventScrolling).toBe(false));
+    expect(flowProps.zoomOnScroll).toBe(false);
+
+    fireEvent.pointerDown(root);
+    fireEvent.focus(root);
+    await waitFor(() => expect(flowProps.preventScrolling).toBe(true));
+    expect(flowProps.zoomOnScroll).toBe(true);
+
+    fireEvent.keyDown(root, { key: "Escape" });
+    fireEvent.blur(root);
+    await waitFor(() => expect(flowProps.preventScrolling).toBe(false));
+  });
+
   it("keeps the cursor grace: snap and grab radii are set, not left at a pixel", async () => {
     render(<GraphEditorPanel source={HAND_DRAWN} onCommit={vi.fn()} />);
     await waitFor(() => expect(flowProps.connectionRadius).toBeTruthy());

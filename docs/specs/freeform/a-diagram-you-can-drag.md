@@ -104,6 +104,16 @@ Two interaction rules, stated because they are choices and not defaults:
   one line shows one bubble, not a queue of vacancies — and appears while a
   connector is being dragged (when it is an offer) or the node is hovered
   (which is how a second line starts from that side).
+- **The wheel belongs to whoever owns the moment.** Scrolling a document
+  that happens to contain a diagram scrolls the document, straight through
+  the canvas. Clicking into the canvas is what buys zoom-on-scroll (the
+  border says so), and Escape or clicking away gives the wheel back — the
+  rule every map embedded in a page has taught. The table grid stands
+  behind the same gate (`components/Engaged.tsx`, the rule as a reusable
+  wrapper): until clicked into, its internal scrolling is off and the wheel
+  passes through; engaged, it scrolls as before with a ring saying who owns
+  the wheel. Any future widget that swallows the wheel — a terminal pane —
+  takes the same wrapper rather than a new invention.
 - **The cursor should be near the thing, not exactly on it.** A drag snaps
   to a connection point from ~36px, an edge end is grabbable for re-plugging
   from ~24px, an edge is clickable along a 24px band rather than its

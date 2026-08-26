@@ -74,6 +74,7 @@ import { tableKey } from "../lib/uiState";
 import { FenceTable, tableElementFor } from "../components/FenceTable";
 import { isTabularFence } from "../lib/csv";
 import { CellPanel } from "../components/CellPanel";
+import { Engaged } from "../components/Engaged";
 import { FenceConvert } from "../components/FenceConvert";
 import { EnvCard } from "../components/EnvCard";
 import { api } from "../api/client";
@@ -990,7 +991,10 @@ export function DocumentEditor({
           // survives prose being written above it — see `tableKey`.
           const key = tableKey(path, slot.index, slot.table?.path);
           return createPortal(
-            <div className="rendered-table rendered-table--laned">
+            // Behind the engage gate: at rest the wheel scrolls the DOCUMENT
+            // through the grid; clicking into the table is what buys its own
+            // scrolling (styles.css hides the internal overflow until then).
+            <Engaged className="rendered-table rendered-table--laned">
               <TablePanel
                 laneRight
                 layout={tableLayouts?.[key]}
@@ -1005,7 +1009,7 @@ export function DocumentEditor({
                 // the file a file somebody reviews in a diff.
                 onChange={(csv) => replaceBlockContent(slot, csv)}
               />
-            </div>,
+            </Engaged>,
             slot.el,
             slot.key,
           );
