@@ -26,6 +26,7 @@ import {
   applyNodeChanges,
   useEdgesState,
   useNodesState,
+  useReactFlow,
 } from "@xyflow/react";
 import type { Connection, Edge, EdgeChange, Node, NodeChange, OnSelectionChangeParams } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
@@ -39,8 +40,12 @@ import { FILLS, SHAPES, STROKES } from "./palette";
 import { autoLayout } from "./layout";
 import {
   DEFAULT_H,
+  DEFAULT_W,
   GRID,
+  dropRef,
+  keyedEdges,
   occupiedSlots,
+  renumberSides,
   snap,
   parseSceneSource,
   placeMissing,
@@ -81,14 +86,17 @@ function flowNodes(
     id: node.id,
     type: "scene",
     position: { x: layout[node.id].x, y: layout[node.id].y },
-    ...(layout[node.id].w !== undefined ? { width: layout[node.id].w } : {}),
-    ...(layout[node.id].h !== undefined ? { height: layout[node.id].h } : {}),
+    // The wrapper is the ONE owner of a node's size — the resizer frame and
+    // the connector positions align to it, so the visible box must never
+    // out-size it with CSS minimums of its own.
+    width: layout[node.id].w ?? DEFAULT_W,
+    height: layout[node.id].h ?? DEFAULT_H,
     data: { node, derived, onRename, onResize, slots: slots[node.id] ?? {} } satisfies SceneNodeData,
   }));
 }
 
 function flowEdges(scene: Scene): Edge[] {
-  return scene.edges.map((edge) => {
+  return keyedEdges(scene.edges).map(({ key, edge }) => {
     const dashed = edge.style === "dashed" || edge.style === "dotted";
     const arrow = edge.arrow ?? "end";
     const marker = {
@@ -97,8 +105,10 @@ function flowEdges(scene: Scene): Edge[] {
       height: 16,
       ...(edge.color ? { color: edge.color } : {}),
     };
+    const headAtEnd = arrow === "end" || arrow === "both";
+    const headAtStart = arrow === "start" || arrow === "both";
     return {
-      id: edgeKey(edge),
+      id: key,
       source: edge.from,
       target: edge.to,
       ...(edge.fromSide ? { sourceHandle: edge.fromSide } : {}),
@@ -109,8 +119,8 @@ function flowEdges(scene: Scene): Edge[] {
         ...(dashed ? { strokeDasharray: "6 4" } : {}),
         ...(edge.color ? { stroke: edge.color } : {}),
       },
-      ...(arrow !== "none" ? { markerEnd: marker } : {}),
-      ...(arrow === "both" ? { markerStart: marker } : {}),
+      ...(headAtEnd ? { markerEnd: marker } : {}),
+      ...(headAtStart ? { markerStart: marker } : {}),
       data: { edge },
     };
   });
@@ -137,6 +147,9 @@ function GraphEditor({ source, resolved, assertions, onCommit }: GraphEditorPane
   const [refusal, setRefusal] = useState<string | null>(null);
   const [nodes, setNodes] = useNodesState<Node>([]);
   const [edges, setEdges] = useEdgesState<Edge>([]);
+  const { fitView } = useReactFlow();
+  // The line whose label is being edited, right on the line (double-click).
+  const [editingEdge, setEditingEdge] = useState<string | null>(null);
   // Node data closures are built when the scene loads; they read the live
   // handlers through these refs so a stale closure cannot commit through an
   // old scene.
@@ -156,7 +169,8 @@ function GraphEditor({ source, resolved, assertions, onCommit }: GraphEditorPane
   });
 
   const commitScene = useCallback(
-    (scene: Scene) => {
+    (committed: Scene) => {
+      let scene = committed;
       const bad = uncommittableText(scene);
       if (bad !== null) {
         // The one string the no-escaping invariant cannot hold: written into
@@ -165,6 +179,11 @@ function GraphEditor({ source, resolved, assertions, onCommit }: GraphEditorPane
         return;
       }
       setRefusal(null);
+      // Keep every side's slots contiguous 0..k-1 whatever was dropped,
+      // re-plugged, or deleted — position is a function of order, so this
+      // never moves a line; it keeps the document's refs tidy. A derived
+      // scene's edges are the fragment's and are left exactly as pasted.
+      if (!scene.paste) scene = { ...scene, edges: renumberSides(scene.edges) };
       sceneRef.current = scene;
       const text = `\n${serializeScene(scene)}`;
       lastCommitted.current = text;
@@ -277,12 +296,30 @@ function GraphEditor({ source, resolved, assertions, onCommit }: GraphEditorPane
     (connection: Connection) => {
       const scene = sceneRef.current;
       if (!scene || scene.paste || !connection.source || !connection.target) return;
+      // A flank handle becomes a slot that orders before or after the
+      // side's occupants; commitScene compacts the numbers.
+      const slots = occupiedSlots(scene.edges);
+      const refFor = (nodeId: string, handle: string | null | undefined) => {
+        if (!handle) return undefined;
+        const side = handle.split(".")[0];
+        return dropRef(handle, slots[nodeId]?.[side as keyof (typeof slots)[string]] ?? []);
+      };
+      const fromSide = refFor(connection.source, connection.sourceHandle);
+      const toSide = refFor(connection.target, connection.targetHandle);
       const edge: SceneEdge = {
         from: connection.source,
         to: connection.target,
-        ...(connection.sourceHandle ? { fromSide: connection.sourceHandle } : {}),
-        ...(connection.targetHandle ? { toSide: connection.targetHandle } : {}),
+        ...(fromSide ? { fromSide } : {}),
+        ...(toSide ? { toSide } : {}),
       };
+      // More than one line between the same two shapes is legal; identity
+      // has to say WHICH line, so a parallel newcomer gets its own id.
+      const keys = new Set(keyedEdges(scene.edges).map(({ key }) => key));
+      if (keys.has(edgeKey(edge))) {
+        let n = 2;
+        while (keys.has(`${edge.from}->${edge.to}#${n}`)) n += 1;
+        edge.id = `${edge.from}->${edge.to}#${n}`;
+      }
       commitScene({ ...scene, edges: [...scene.edges, edge] });
     },
     [commitScene],
@@ -296,20 +333,27 @@ function GraphEditor({ source, resolved, assertions, onCommit }: GraphEditorPane
     (oldEdge: Edge, connection: Connection) => {
       const scene = sceneRef.current;
       if (!scene || scene.paste || !connection.source || !connection.target) return;
+      // Occupancy WITHOUT the edge being moved: its old seat is not taken
+      // for the purpose of choosing its new one.
+      const others = keyedEdges(scene.edges)
+        .filter(({ key }) => key !== oldEdge.id)
+        .map(({ edge }) => edge);
+      const slots = occupiedSlots(others);
+      const refFor = (nodeId: string, handle: string | null | undefined) => {
+        if (!handle) return undefined;
+        const side = handle.split(".")[0];
+        return dropRef(handle, slots[nodeId]?.[side as keyof (typeof slots)[string]] ?? []);
+      };
       commitScene({
         ...scene,
-        edges: scene.edges.map((edge) =>
-          (edge.id ?? `${edge.from}->${edge.to}`) === oldEdge.id
+        edges: keyedEdges(scene.edges).map(({ key, edge }) =>
+          key === oldEdge.id
             ? {
                 ...edge,
                 from: connection.source,
                 to: connection.target,
-                ...(connection.sourceHandle
-                  ? { fromSide: connection.sourceHandle }
-                  : { fromSide: undefined }),
-                ...(connection.targetHandle
-                  ? { toSide: connection.targetHandle }
-                  : { toSide: undefined }),
+                fromSide: refFor(connection.source, connection.sourceHandle),
+                toSide: refFor(connection.target, connection.targetHandle),
               }
             : edge,
         ),
@@ -339,7 +383,9 @@ function GraphEditor({ source, resolved, assertions, onCommit }: GraphEditorPane
       const gone = new Set(deleted.map((e) => e.id));
       commitScene({
         ...scene,
-        edges: scene.edges.filter((e) => !gone.has(e.id ?? `${e.from}->${e.to}`)),
+        edges: keyedEdges(scene.edges)
+          .filter(({ key }) => !gone.has(key))
+          .map(({ edge }) => edge),
       });
     },
     [commitScene],
@@ -386,11 +432,57 @@ function GraphEditor({ source, resolved, assertions, onCommit }: GraphEditorPane
       const chosen = new Set(selection.edges);
       commitScene({
         ...scene,
-        edges: scene.edges.map((e) => (chosen.has(edgeKey(e)) ? { ...e, ...patch } : e)),
+        edges: keyedEdges(scene.edges).map(({ key, edge }) =>
+          chosen.has(key) ? { ...edge, ...patch } : edge,
+        ),
       });
     },
     [commitScene, selection],
   );
+
+  // Commit one line's label from the on-the-line editor. By KEY, not by
+  // selection: the double-clicked line need not be the selected one.
+  const labelEdge = useCallback(
+    (key: string, label: string) => {
+      setEditingEdge(null);
+      const scene = sceneRef.current;
+      if (!scene || scene.paste) return;
+      commitScene({
+        ...scene,
+        edges: keyedEdges(scene.edges).map((entry) =>
+          entry.key === key ? { ...entry.edge, label: label.trim() || undefined } : entry.edge,
+        ),
+      });
+    },
+    [commitScene],
+  );
+  const labelEdgeRef = useRef(labelEdge);
+  labelEdgeRef.current = labelEdge;
+  const cancelLabelRef = useRef(() => setEditingEdge(null));
+
+  const onEdgeDoubleClick = useCallback(
+    (_event: unknown, edge: Edge) => {
+      if (sceneRef.current?.paste) return;
+      setEditingEdge(edge.id);
+    },
+    [],
+  );
+
+  // Editing travels to the one edge through its data, and the flag flips
+  // without rebuilding the scene: the document has not changed yet.
+  useEffect(() => {
+    setEdges((current) =>
+      current.map((e) => ({
+        ...e,
+        data: {
+          ...e.data,
+          editing: e.id === editingEdge,
+          onLabel: (label: string) => labelEdgeRef.current(e.id, label),
+          onCancel: () => cancelLabelRef.current(),
+        },
+      })),
+    );
+  }, [editingEdge, setEdges]);
 
   const onSelectionChange = useCallback(({ nodes, edges }: OnSelectionChangeParams) => {
     setSelection({
@@ -416,9 +508,9 @@ function GraphEditor({ source, resolved, assertions, onCommit }: GraphEditorPane
   // The inspector reads the FIRST selected thing for its current values;
   // its actions apply to the whole selection.
   const selectedNode = sceneRef.current?.nodes.find((n) => selection.nodes.includes(n.id));
-  const selectedEdge = sceneRef.current?.edges.find((e) =>
-    selection.edges.includes(edgeKey(e)),
-  );
+  const selectedEdge = sceneRef.current
+    ? keyedEdges(sceneRef.current.edges).find(({ key }) => selection.edges.includes(key))?.edge
+    : undefined;
   return (
     <div
       className="graph-editor"
@@ -461,6 +553,13 @@ function GraphEditor({ source, resolved, assertions, onCommit }: GraphEditorPane
         )}
         <button type="button" onClick={applyAutoLayout}>
           Auto-layout
+        </button>
+        <button
+          type="button"
+          data-tip="Bring the whole scene into view"
+          onClick={() => void fitView({ padding: 0.15, duration: 200 })}
+        >
+          Zoom to fit
         </button>
         {derived && (
           <span className="graph-editor__derived muted">
@@ -565,6 +664,7 @@ function GraphEditor({ source, resolved, assertions, onCommit }: GraphEditorPane
           onReconnect={onReconnect}
           onNodesDelete={onNodesDelete}
           onEdgesDelete={onEdgesDelete}
+          onEdgeDoubleClick={onEdgeDoubleClick}
           onSelectionChange={onSelectionChange}
           nodesConnectable={!derived}
           edgesReconnectable={!derived}
@@ -644,8 +744,18 @@ function Swatches({
   );
 }
 
-const NEXT_ARROW: Record<string, string> = { end: "both", both: "none", none: "end" };
-const ARROW_GLYPH: Record<string, string> = { end: "→", both: "↔", none: "—" };
+const NEXT_ARROW: Record<string, string> = {
+  end: "both",
+  both: "start",
+  start: "none",
+  none: "end",
+};
+const ARROW_GLYPH: Record<string, string> = {
+  end: "\u2192",
+  both: "\u2194",
+  start: "\u2190",
+  none: "\u2014",
+};
 const NEXT_STYLE: Record<string, string> = {
   solid: "dashed",
   dashed: "dotted",

@@ -5,10 +5,13 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  dropRef,
+  keyedEdges,
   occupiedSlots,
   parseSideRef,
+  renumberSides,
+  sideHandles,
   sideRef,
-  slotLayout,
   parseSceneSource,
   placeMissing,
   serializeScene,
@@ -92,19 +95,47 @@ describe("the scene's byte form", () => {
     expect(layout["new-2"].y).toBeGreaterThan(layout["new-1"].y);
   });
 
-  it("offers one free connection slot beside whatever a side already holds", () => {
-    // An empty side is one centred bubble; a side holding a line offers two,
-    // narrowly apart and still centred; gaps are refilled lowest-first.
-    expect(slotLayout([])).toEqual([{ slot: 0, offset: 0 }]);
-    expect(slotLayout([0])).toEqual([
-      { slot: 0, offset: -9 },
-      { slot: 1, offset: 9 },
+  it("keeps the lines in use centred, with one free flank on each end", () => {
+    // An empty side is one centred point. Occupied slots are balanced on
+    // the midline — a vacancy never pushes a line off centre — and the two
+    // flanks sit symmetrically outside them.
+    expect(sideHandles("left", [])).toEqual([{ id: "left", offset: 0, extra: false }]);
+    expect(sideHandles("left", [0])).toEqual([
+      { id: "left._before", offset: -18, extra: true },
+      { id: "left", offset: 0, extra: false },
+      { id: "left._after", offset: 18, extra: true },
     ]);
-    expect(slotLayout([0, 2])).toEqual([
-      { slot: 0, offset: -18 },
-      { slot: 1, offset: 0 },
-      { slot: 2, offset: 18 },
+    expect(sideHandles("left", [0, 1])).toEqual([
+      { id: "left._before", offset: -27, extra: true },
+      { id: "left", offset: -9, extra: false },
+      { id: "left.1", offset: 9, extra: false },
+      { id: "left._after", offset: 27, extra: true },
     ]);
+  });
+
+  it("keeps three identical-looking parallel lines individually addressable", () => {
+    // Hand-written (or pre-id-era) parallel edges carry no ids; identity
+    // still has to answer "which line?" or two of them shadow the third —
+    // the bug where double-click opened the label editor on SOME lines.
+    const keys = keyedEdges([
+      { from: "a", to: "b" },
+      { from: "a", to: "b" },
+      { from: "a", to: "b" },
+      { from: "a", to: "b", id: "named" },
+    ]).map((e) => e.key);
+    expect(keys).toEqual(["a->b", "a->b#2", "a->b#3", "named"]);
+    expect(new Set(keys).size).toBe(4);
+  });
+
+  it("orders a flank drop before or after the occupants, then compacts the numbers", () => {
+    expect(dropRef("left._after", [0])).toBe("left.1");
+    expect(dropRef("left._before", [0])).toBe("left.-1");
+    expect(dropRef("left.1", [0])).toBe("left.1");
+    const compacted = renumberSides([
+      { from: "a", to: "b", toSide: "left.-1" },
+      { from: "c", to: "b", toSide: "left.4" },
+    ]);
+    expect(compacted.map((e) => e.toSide)).toEqual(["left", "left.1"]);
   });
 
   it("reads slot occupancy from recorded sides, bare and suffixed alike", () => {

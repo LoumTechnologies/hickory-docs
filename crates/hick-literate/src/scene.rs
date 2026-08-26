@@ -91,7 +91,7 @@ pub struct SceneEdge {
     /// solid (default), dashed, dotted.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub style: Option<String>,
-    /// end (default), none, both.
+    /// Which end(s) wear an arrowhead: end (default), start, both, none.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub arrow: Option<String>,
     /// Line colour, arrowheads included. Absent means the theme's own.
@@ -233,9 +233,11 @@ pub fn to_mermaid(scene: &Scene) -> String {
         let connector = match (dashed, arrow) {
             (false, "none") => "---",
             (false, "both") => "<-->",
+            (false, "start") => "<--",
             (false, _) => "-->",
             (true, "none") => "-.-",
             (true, "both") => "<-.->",
+            (true, "start") => "<-.-",
             (true, _) => "-.->",
         };
         out.push_str("  ");

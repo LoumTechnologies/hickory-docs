@@ -1681,15 +1681,13 @@ textarea:focus {
    * grew the frame while the visible box kept its content height. */
   width: 100%;
   height: 100%;
-  min-width: 120px;
-  min-height: 44px;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 0.4rem 0.7rem;
-  border: 1.5px solid var(--accent);
+  border: 1.5px solid var(--gn-stroke, var(--accent));
   border-radius: 6px;
-  background: var(--bg-raised);
+  background: var(--gn-fill, var(--bg-raised));
   color: var(--fg);
   font-size: 0.8rem;
   text-align: center;
@@ -1703,18 +1701,54 @@ textarea:focus {
 }
 .graph-node--circle {
   border-radius: 50%;
-  min-width: 72px;
-  min-height: 72px;
+}
+/* The clipped shapes. A CSS border cannot follow a clip-path — the clip
+ * cuts it off every slanted edge — so the outline is the element's own
+ * background (the stroke colour) showing around an inset ::before that
+ * carries the fill, both cut by the same polygon. */
+.graph-node--diamond,
+.graph-node--hexagon {
+  border: none;
+  border-radius: 0;
+  background: var(--gn-stroke, var(--accent));
+  position: relative;
+}
+.graph-node--diamond::before,
+.graph-node--hexagon::before {
+  content: "";
+  position: absolute;
+  inset: 2px;
+  /* An opaque base under the fill: palette fills are translucent, and laid
+   * straight over the stroke layer they read as a muddied stroke colour
+   * instead of a fill. The gradient trick stacks the (possibly translucent)
+   * fill over the theme's own opaque ground. */
+  background-color: var(--bg-raised);
+  background-image: linear-gradient(var(--gn-fill, transparent), var(--gn-fill, transparent));
+}
+/* Explicit polygons on the pseudo-elements rather than `clip-path: inherit`
+ * — inherit-into-::before is exactly where webviews get quirky, and the two
+ * copies must agree anyway. */
+.graph-node--diamond::before {
+  clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%);
+}
+.graph-node--hexagon::before {
+  clip-path: polygon(12% 0, 88% 0, 100% 50%, 88% 100%, 12% 100%, 0 50%);
+}
+.graph-node--diamond > *,
+.graph-node--hexagon > * {
+  position: relative;
 }
 .graph-node--diamond {
-  transform: rotate(0deg);
   clip-path: polygon(50% 0, 100% 50%, 50% 100%, 0 50%);
-  border-radius: 0;
-  min-height: 72px;
 }
 .graph-node--hexagon {
   clip-path: polygon(12% 0, 88% 0, 100% 50%, 88% 100%, 12% 100%, 0 50%);
-  border-radius: 0;
+}
+/* The selection halo is a box-shadow, which the clip also swallows: on the
+ * clipped shapes selection brightens the outline layer instead. */
+.graph-node--diamond.graph-node--selected,
+.graph-node--hexagon.graph-node--selected {
+  background: var(--accent);
 }
 .graph-node--cylinder {
   border-radius: 10px / 24px;
@@ -1793,6 +1827,17 @@ textarea:focus {
 .graph-editor .react-flow__edge.selected .react-flow__edgeupdater {
   fill: var(--accent);
   fill-opacity: 0.22;
+}
+/* The label editor, on the line itself. */
+.graph-edge__label-input {
+  font-size: 11px;
+  color: var(--fg);
+  background: var(--bg-sunken);
+  border: 1px solid var(--accent);
+  border-radius: 4px;
+  padding: 1px 5px;
+  width: 8rem;
+  text-align: center;
 }
 .graph-node__rename {
   font: inherit;

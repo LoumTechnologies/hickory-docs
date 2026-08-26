@@ -43,16 +43,19 @@ function view(slots: SceneNodeData["slots"]) {
 }
 
 describe("a node's connection bubbles", () => {
-  it("marks the free slot beside an attached line as extra; a bare side is not", () => {
+  it("centres the occupied slot and flanks it with extras; a bare side is one plain point", () => {
     const { container } = view({ left: [0] });
     const ids = (id: string) =>
       Array.from(container.querySelectorAll(`[data-id="${id}"]`));
-    // The occupied slot draws normally…
+    // The occupied slot draws normally, dead centre…
     expect(ids("left")).toHaveLength(2); // target + source
     expect(ids("left")[0].className).toBe("");
-    // …the free slot beside it exists as a target but is marked extra…
-    expect(ids("left.1")).toHaveLength(2);
-    expect(ids("left.1")[0].className).toBe("graph-handle--extra");
+    // …one extra flanks it on EACH end, so a new line keeps the group
+    // balanced whichever flank takes it…
+    expect(ids("left._before")).toHaveLength(2);
+    expect(ids("left._before")[0].className).toBe("graph-handle--extra");
+    expect(ids("left._after")).toHaveLength(2);
+    expect(ids("left._after")[0].className).toBe("graph-handle--extra");
     // …and an empty side's single bubble is ordinary, not "extra": it is the
     // only way to start a line there at all.
     expect(ids("top")).toHaveLength(2);

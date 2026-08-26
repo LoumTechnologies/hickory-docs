@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { useState } from "react";
 
 let flowProps: Record<string, unknown> = {};
+const fitViewMock = vi.fn();
 vi.mock("@xyflow/react", () => ({
   ReactFlow: (props: Record<string, unknown>) => {
     flowProps = props;
@@ -25,6 +26,8 @@ vi.mock("@xyflow/react", () => ({
   BaseEdge: () => null,
   getStraightPath: () => ["", 0, 0],
   getSmoothStepPath: () => ["", 0, 0],
+  BaseEdgeLabelRendererPlaceholder: null,
+  EdgeLabelRenderer: ({ children }: { children: React.ReactNode }) => <>{children}</>,
   applyNodeChanges: (changes: { type: string; id: string; selected?: boolean }[], ns: { id: string }[]) =>
     ns.map((n) => {
       const change = changes.find((c) => c.type === "select" && c.id === n.id);
@@ -32,6 +35,7 @@ vi.mock("@xyflow/react", () => ({
     }),
   applyEdgeChanges: (_c: unknown, es: unknown) => es,
   useNodesState: (init: unknown) => useState(init),
+  useReactFlow: () => ({ fitView: fitViewMock }),
   useEdgesState: (init: unknown) => useState(init),
 }));
 
@@ -40,6 +44,7 @@ import { GraphEditorPanel } from "./GraphEditorPanel";
 afterEach(cleanup);
 beforeEach(() => {
   flowProps = {};
+  fitViewMock.mockReset();
 });
 
 const HAND_DRAWN = `{
@@ -69,6 +74,11 @@ describe("the graph editor panel", () => {
     const onCommit = vi.fn();
     render(<GraphEditorPanel source={HAND_DRAWN} onCommit={onCommit} />);
     await waitFor(() => expect(flowProps.onNodeDragStop).toBeTruthy());
+    // The wrapper always carries a size — the resizer frame and connector
+    // positions align to it, so it may never be out-sized by the box inside.
+    const first = (flowProps.nodes as { width?: number; height?: number }[])[0];
+    expect(first.width).toBe(160);
+    expect(first.height).toBe(64);
     (flowProps.onNodeDragStop as DragStop)(null, { id: "db", position: { x: 240.4, y: 80.6 } });
     expect(onCommit).toHaveBeenCalledTimes(1);
     const text = onCommit.mock.calls[0][0] as string;
@@ -253,15 +263,78 @@ describe("the graph editor panel", () => {
     await waitFor(() => expect((flowProps.nodes as unknown[]).length).toBe(2));
     const nodes = flowProps.nodes as { id: string; data: { slots: Record<string, number[]> } }[];
     expect(nodes.find((n) => n.id === "db")!.data.slots.left).toEqual([0]);
-    // A new line dropped on the side's second bubble records that slot.
+    // A line dropped on the AFTER flank orders behind the occupant; one on
+    // the BEFORE flank orders ahead, and the side renumbers so the document
+    // stays contiguous from 0.
     (flowProps.onConnect as Connect)({
       source: "api",
       target: "db",
       sourceHandle: "bottom",
-      targetHandle: "left.1",
+      targetHandle: "left._after",
+    } as never);
+    let text = onCommit.mock.calls.at(-1)![0] as string;
+    expect(text).toContain('"toSide": "left.1"');
+    (flowProps.onConnect as Connect)({
+      source: "api",
+      target: "db",
+      sourceHandle: "top",
+      targetHandle: "left._before",
+    } as never);
+    text = onCommit.mock.calls.at(-1)![0] as string;
+    // The newcomer took the front seat; everyone behind shifted by one.
+    expect(text).toContain('"toSide": "left"');
+    expect(text).toContain('"toSide": "left.1"');
+    expect(text).toContain('"toSide": "left.2"');
+  });
+
+  it("lets two shapes carry more than one line, each with its own identity", async () => {
+    const onCommit = vi.fn();
+    render(<GraphEditorPanel source={HAND_DRAWN} onCommit={onCommit} />);
+    await waitFor(() => expect(flowProps.onConnect).toBeTruthy());
+    // The pair already has api->db; a second line between the same two
+    // shapes is a new line, not a rejected duplicate.
+    (flowProps.onConnect as Connect)({
+      source: "api",
+      target: "db",
+      sourceHandle: "bottom",
+      targetHandle: "top",
     } as never);
     const text = onCommit.mock.calls.at(-1)![0] as string;
-    expect(text).toContain('"toSide": "left.1"');
+    expect(text).toContain('"id": "api->db#2"');
+    // Both lines survive serialization, distinctly.
+    expect((text.match(/"from": "api", .*"to": "db"/g) ?? []).length).toBeGreaterThanOrEqual(1);
+    expect(text).toContain('"from": "api"');
+  });
+
+  it("opens the label editor ON the line on double-click, and commits from it", async () => {
+    const onCommit = vi.fn();
+    render(<GraphEditorPanel source={HAND_DRAWN} onCommit={onCommit} />);
+    await waitFor(() => expect(flowProps.onEdgeDoubleClick).toBeTruthy());
+    type DblClick = (event: unknown, edge: { id: string }) => void;
+    act(() => (flowProps.onEdgeDoubleClick as DblClick)(null, { id: "api->db" }));
+    await waitFor(() => {
+      const edges = flowProps.edges as { id: string; data: { editing?: boolean } }[];
+      expect(edges.find((e) => e.id === "api->db")?.data.editing).toBe(true);
+    });
+    const edges = flowProps.edges as {
+      id: string;
+      data: { onLabel: (label: string) => void };
+    }[];
+    act(() => edges.find((e) => e.id === "api->db")!.data.onLabel("uses"));
+    const text = onCommit.mock.calls.at(-1)![0] as string;
+    expect(text).toContain('"label": "uses"');
+    // Editing ended with the commit.
+    await waitFor(() => {
+      const after = flowProps.edges as { id: string; data: { editing?: boolean } }[];
+      expect(after.find((e) => e.id === "api->db")?.data.editing).toBe(false);
+    });
+  });
+
+  it("zooms to fit from the toolbar", async () => {
+    render(<GraphEditorPanel source={HAND_DRAWN} onCommit={vi.fn()} />);
+    const fit = await screen.findByText("Zoom to fit");
+    fireEvent.click(fit);
+    expect(fitViewMock).toHaveBeenCalled();
   });
 
   it("keeps a node selected through the commit its own resize makes", async () => {
@@ -328,9 +401,12 @@ describe("the graph editor panel", () => {
 
     fireEvent.click(screen.getByLabelText("Line green"));
     expect(onCommit.mock.calls.at(-1)![0] as string).toContain('"color": "#4ade80"');
-    // Arrowheads cycle one end → both → none.
+    // Arrowheads cycle one end → both → start → none, so a head can sit at
+    // EITHER end alone.
     fireEvent.click(screen.getByLabelText("Arrowheads"));
     expect(onCommit.mock.calls.at(-1)![0] as string).toContain('"arrow": "both"');
+    fireEvent.click(screen.getByLabelText("Arrowheads"));
+    expect(onCommit.mock.calls.at(-1)![0] as string).toContain('"arrow": "start"');
     fireEvent.click(screen.getByLabelText("Line style"));
     expect(onCommit.mock.calls.at(-1)![0] as string).toContain('"style": "dashed"');
     const label = screen.getByLabelText("Line label") as HTMLInputElement;

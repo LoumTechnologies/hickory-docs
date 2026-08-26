@@ -10,7 +10,7 @@ import { useEffect, useRef, useState } from "react";
 import { Handle, NodeResizer, Position, useConnection } from "@xyflow/react";
 import type { NodeProps, ResizeParams } from "@xyflow/react";
 
-import { sideRef, slotLayout } from "./scene";
+import { sideHandles } from "./scene";
 import type { SceneNode, Side } from "./scene";
 
 export interface SceneNodeData extends Record<string, unknown> {
@@ -50,11 +50,18 @@ export function SceneNodeView({ data, selected }: NodeProps) {
   return (
     <div
       className={`graph-node graph-node--${shape}${selected ? " graph-node--selected" : ""}${connecting ? " graph-node--connecting" : ""}`}
-      style={{
-        ...(node.fill ? { background: node.fill } : {}),
-        ...(node.stroke ? { borderColor: node.stroke } : {}),
-        ...(node.text ? { color: node.text } : {}),
-      }}
+      // Colours travel as custom properties rather than direct styles: the
+      // clip-path shapes (diamond, hexagon) cannot use a CSS border — the
+      // clip cuts it off the slanted edges — so their outline is a colour
+      // layer behind an inset fill layer, and both layers need to read the
+      // same two values the bordered shapes read.
+      style={
+        {
+          ...(node.fill ? { "--gn-fill": node.fill } : {}),
+          ...(node.stroke ? { "--gn-stroke": node.stroke } : {}),
+          ...(node.text ? { color: node.text } : {}),
+        } as React.CSSProperties
+      }
       onDoubleClick={() => {
         if (!derived) setEditing(true);
       }}
@@ -83,17 +90,15 @@ export function SceneNodeView({ data, selected }: NodeProps) {
           meets a box is choosing a place, not a polarity. The target handle
           under each source handle keeps side-less edges — scenes drawn
           before sides existed — rendering by default. */}
-      {SIDES.map(([side, position]) => {
-        const occupied = slots?.[side] ?? [];
-        return slotLayout(occupied).map(({ slot, offset }) => {
-          const id = sideRef(side, slot);
-          // The EXTRA bubble — the free slot beside a line already attached —
-          // is a drop target first and ink second: it is always there to
-          // catch a connector, but it only shows itself while one is being
-          // dragged (or the node is hovered, which is how a second line
-          // STARTS from that side). At rest a side with one line shows one
-          // bubble, not a queue of vacancies.
-          const extra = occupied.length > 0 && !occupied.includes(slot);
+      {SIDES.map(([side, position]) =>
+        // The lines in use stay centred; one EXTRA bubble flanks them on
+        // each end, symmetric, so a vacancy never pushes a line off the
+        // side's midline. The extras are drop targets first and ink second:
+        // always there to catch a connector, visible only while one is
+        // being dragged (or the node is hovered, which is how a second
+        // line STARTS from the side). At rest a side with one line shows
+        // one bubble, dead centre.
+        sideHandles(side, slots?.[side] ?? []).map(({ id, offset, extra }) => {
           const className = extra ? "graph-handle--extra" : undefined;
           const style =
             side === "top" || side === "bottom"
@@ -105,8 +110,8 @@ export function SceneNodeView({ data, selected }: NodeProps) {
               <Handle type="source" position={position} id={id} style={style} className={className} />
             </span>
           );
-        });
-      })}
+        }),
+      )}
       {editing ? (
         <input
           ref={inputRef}

@@ -41,7 +41,11 @@ One split does all the work: **topology is what a generator can deduce,
 layout is what only a person decides.** `nodes` and `edges` carry ids, labels,
 shapes (`rect`, `round`, `pill`, `circle`, `diamond`, `hexagon`, `cylinder`),
 optional colours, edge styles (`solid`/`dashed`/`dotted`) and arrowheads
-(`end`/`none`/`both`). `layout` maps node id → position, in integer pixels.
+(`end`/`start`/`both`/`none` — a head can sit at either end alone). Two
+shapes may carry any number of lines: a parallel line gets its own `id`
+(`api->db#2`), which is what identity means once "which line?" has more
+than one answer. Double-clicking a line opens its label editor on the line
+itself. `layout` maps node id → position, in integer pixels.
 An edge may also record `fromSide`/`toSide` — which side of the box each end
 meets (`top`/`right`/`bottom`/`left`), with an optional slot suffix
 (`left.1`) when several lines share a side. Sides sit on the person's half of the split
@@ -98,9 +102,10 @@ Two interaction rules, stated because they are choices and not defaults:
   sides' midlines — never at corners, which belong to the resizer's square
   grips, so what connects and what resizes never look alike. Each side draws
   one bubble per line already attached plus one free bubble, the group
-  centred with a narrow gap: a side holding a line still has an open point
-  right beside it, and the slot a line lands on is recorded (`left.1`). The
-  free bubble beside an attached line carries no ink at rest — a side with
+  the lines in use centred on the midline and one free flank on EACH end,
+  symmetric — a vacancy never pushes a line off centre, and whichever flank
+  a new line takes, the side renumbers and re-centres (`left.1`; refs stay
+  contiguous from 0). The flanking bubbles carry no ink at rest — a side with
   one line shows one bubble, not a queue of vacancies — and appears while a
   connector is being dragged (when it is an offer) or the node is hovered
   (which is how a second line starts from that side).

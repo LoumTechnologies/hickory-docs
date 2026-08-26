@@ -38,7 +38,7 @@ export interface SceneEdge {
   label?: string;
   /** solid (default), dashed, dotted. */
   style?: string;
-  /** end (default), none, both. */
+  /** Which end(s) wear an arrowhead: end (default), start, both, none. */
   arrow?: string;
   /** Line colour, arrowheads included. Absent means the theme's own. */
   color?: string;
@@ -274,21 +274,106 @@ export function occupiedSlots(
   return out;
 }
 
+/**
+ * Every edge with a key that is UNIQUE in this scene. An edge's own `id`
+ * (or `from->to`) is the base; parallel edges without ids — hand-written,
+ * or drawn before the editor minted ids for them — get `#2`, `#3` by
+ * position, so each of three identical-looking lines stays individually
+ * clickable, stylable, and editable instead of two of them shadowing the
+ * third behind one identity.
+ */
+export function keyedEdges(edges: SceneEdge[]): { key: string; edge: SceneEdge }[] {
+  const seen = new Map<string, number>();
+  return edges.map((edge) => {
+    const base = edge.id ?? `${edge.from}->${edge.to}`;
+    const n = (seen.get(base) ?? 0) + 1;
+    seen.set(base, n);
+    return { key: n === 1 ? base : `${base}#${n}`, edge };
+  });
+}
+
 /** Distance between two bubbles on one side. */
 export const SLOT_SPACING = 18;
 
+/** The flanking free handles' id suffixes — never stored in the document:
+ * a line dropped on one is renumbered into a real slot on commit. */
+export const EXTRA_BEFORE = "_before";
+export const EXTRA_AFTER = "_after";
+
 /**
- * What one side draws: every occupied slot plus exactly one FREE slot (the
- * lowest unused index), the whole group centered with a narrow gap — a side
- * with one line offers two points, a side with two offers three. Offsets are
- * from the side's midpoint, in pixels.
+ * What one side draws. The OCCUPIED slots are centred on the side's midpoint
+ * — the lines in use stay balanced, never pushed aside by a vacancy — and
+ * one free handle flanks them on EACH end, symmetric, so taking either
+ * flank keeps the group centred too. An empty side is one centred point.
+ * Offsets are from the side's midpoint, in pixels.
  */
-export function slotLayout(occupied: number[]): { slot: number; offset: number }[] {
-  let free = 0;
-  while (occupied.includes(free)) free += 1;
-  const slots = [...occupied, free].sort((a, b) => a - b);
-  return slots.map((slot, i) => ({
-    slot,
-    offset: (i - (slots.length - 1) / 2) * SLOT_SPACING,
+export function sideHandles(
+  side: Side,
+  occupied: number[],
+): { id: string; offset: number; extra: boolean }[] {
+  if (occupied.length === 0) return [{ id: side, offset: 0, extra: false }];
+  const slots = [...occupied].sort((a, b) => a - b);
+  const k = slots.length;
+  const taken = slots.map((slot, i) => ({
+    id: sideRef(side, slot),
+    offset: (i - (k - 1) / 2) * SLOT_SPACING,
+    extra: false,
   }));
+  const flank = ((k - 1) / 2 + 1) * SLOT_SPACING;
+  return [
+    { id: `${side}.${EXTRA_BEFORE}`, offset: -flank, extra: true },
+    ...taken,
+    { id: `${side}.${EXTRA_AFTER}`, offset: flank, extra: true },
+  ];
+}
+
+/**
+ * The stored ref for the handle a connection landed on. A real slot passes
+ * through; a flank becomes a slot that ORDERS before or after everything
+ * already there — temporarily negative on the before-flank, compacted by
+ * [`renumberSides`] in the same commit.
+ */
+export function dropRef(handleId: string, occupied: number[]): string {
+  const [side, suffix] = handleId.split(".");
+  if (suffix === EXTRA_BEFORE) {
+    return `${side}.${(occupied.length ? Math.min(...occupied) : 0) - 1}`;
+  }
+  if (suffix === EXTRA_AFTER) {
+    return `${side}.${(occupied.length ? Math.max(...occupied) : -1) + 1}`;
+  }
+  return handleId;
+}
+
+type SideEnd = "fromSide" | "toSide";
+
+/**
+ * Compact every side's slots to 0..k-1, keeping their order. Position is a
+ * function of ORDER, so this changes nothing on screen — it keeps the
+ * document's refs contiguous and non-negative whatever was dropped, moved,
+ * or deleted.
+ */
+export function renumberSides(edges: SceneEdge[]): SceneEdge[] {
+  const next = edges.map((edge) => ({ ...edge }));
+  const groups = new Map<string, { edge: SceneEdge; end: SideEnd; slot: number }[]>();
+  for (const edge of next) {
+    for (const end of ["fromSide", "toSide"] as SideEnd[]) {
+      const ref = edge[end];
+      if (!ref) continue;
+      const [side, slotText] = ref.split(".");
+      const slot = slotText === undefined ? 0 : Number(slotText);
+      if (!Number.isInteger(slot)) continue;
+      const key = `${end === "fromSide" ? edge.from : edge.to} ${side}`;
+      const group = groups.get(key) ?? [];
+      group.push({ edge, end, slot });
+      groups.set(key, group);
+    }
+  }
+  for (const group of groups.values()) {
+    group.sort((a, b) => a.slot - b.slot);
+    group.forEach((entry, i) => {
+      const side = (entry.edge[entry.end] as string).split(".")[0] as Side;
+      entry.edge[entry.end] = sideRef(side, i);
+    });
+  }
+  return next;
 }
