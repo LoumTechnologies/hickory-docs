@@ -19,6 +19,12 @@ pub fn language_id(path: &str) -> Option<&'static str> {
         "yaml" | "yml" => Some("yaml"),
         "md" => Some("markdown"),
         "go" => Some("go"),
+        // C#. This table is the ONLY thing that routes a generated file to a
+        // language, for the language server and the debugger both — so until
+        // this line existed, `hick lsp install csharp` fetched a server that
+        // could never be reached: every `.cs` virtual file got
+        // `language_id: None` and was skipped before discovery was consulted.
+        "cs" => Some("csharp"),
         "java" => Some("java"),
         "c" => Some("c"),
         "cpp" | "cc" | "cxx" => Some("cpp"),
@@ -56,6 +62,7 @@ mod tests {
         assert_eq!(language_id("ci.yml"), Some("yaml"));
         assert_eq!(language_id("README.md"), Some("markdown"));
         assert_eq!(language_id("main.go"), Some("go"));
+        assert_eq!(language_id("Program.cs"), Some("csharp"));
         assert_eq!(language_id("Main.java"), Some("java"));
         assert_eq!(language_id("main.c"), Some("c"));
         assert_eq!(language_id("main.cpp"), Some("cpp"));

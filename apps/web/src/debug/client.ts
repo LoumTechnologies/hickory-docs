@@ -1,3 +1,5 @@
+import type { TranscriptEvent } from "../api/types";
+
 // The app's side of the debug channel (0x03).
 //
 // Everything here speaks in DOCUMENT lines, because the server already mapped
@@ -89,6 +91,12 @@ export type DebugEvent =
       exit_code?: number | null;
     }
   | { event: "ended"; session: string }
+  // A build that had to happen before there was a program to launch. Its
+  // events are `TranscriptEvent`-shaped so the watching terminal renders
+  // them unchanged — a build tool's colour and its rewritten progress lines
+  // are the reason that is a terminal and not a text card. It is not a
+  // transcript: nothing here is recorded, woven, or compared.
+  | { event: "build"; events: TranscriptEvent[] }
   | {
       event: "failed";
       session: string | null;

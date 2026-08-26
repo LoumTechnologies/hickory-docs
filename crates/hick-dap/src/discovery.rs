@@ -53,6 +53,7 @@ fn candidates(language: &str) -> &'static [Candidate] {
         "go" => C_GO,
         "rust" | "c" | "cpp" => C_NATIVE,
         "ruby" => C_RUBY,
+        "csharp" => C_CSHARP,
         _ => &[],
     }
 }
@@ -94,6 +95,23 @@ const C_NATIVE: &[Candidate] = &[
         },
     },
 ];
+// netcoredbg (Samsung, MIT) is the C# adapter. Microsoft's `vsdbg` is
+// licensed for use only with Visual Studio and VS Code, so it is not
+// available to this product at all — not "not yet", not "behind a flag".
+//
+// There is deliberately no `hick dap install csharp` beside this. netcoredbg
+// ships as per-platform release archives and distro packages rather than as a
+// `dotnet tool`, so installing it needs an installer shape — a URL and a
+// checksum per platform — that `tool_install` does not have. Discovery finds
+// a netcoredbg the user installed themselves, which is the documented
+// fallback for exactly this case.
+const C_CSHARP: &[Candidate] = &[Candidate {
+    adapter: "netcoredbg",
+    recipe: Recipe::Binary {
+        bin: "netcoredbg",
+        args: &["--interpreter=vscode"],
+    },
+}];
 const C_RUBY: &[Candidate] = &[Candidate {
     adapter: "rdbg",
     recipe: Recipe::Binary {
@@ -101,6 +119,62 @@ const C_RUBY: &[Candidate] = &[Candidate {
         args: &["--open", "--stop-at-load"],
     },
 }];
+
+/// How to get an adapter for `language`, when discovery found none.
+///
+/// This is adapter knowledge, so it lives beside the candidates rather than
+/// in the CLI: which ecosystems package an adapter as one installable command
+/// is the same fact that decides what `hick dap install` can offer. Telling
+/// someone to run a command that does not exist is worse than telling them
+/// nothing — it costs them a shell round trip to find out.
+///
+/// `crates/hickory-cli/src/dap_install.rs` holds the catalogue that actually
+/// installs, and a test there asserts the two agree.
+pub fn how_to_get(language: &str) -> String {
+    // Only two ecosystems package an adapter as one command hick can run
+    // confined, and those two are what `hick dap install` offers. Every
+    // other row here names the adapter and the ecosystem's own way to get
+    // it — because this message used to say `hick dap install go`, which
+    // prints "no installer for go" and costs a person a shell round trip to
+    // find out.
+    match language {
+        "python" | "typescript" | "javascript" | "typescriptreact" | "javascriptreact" => {
+            format!(
+                "Install one with `hick dap install {language}`, or install it the way that \
+                 ecosystem does — hick prefers whatever is already there."
+            )
+        }
+        // netcoredbg ships as per-platform release archives and distro
+        // packages rather than as one installable command.
+        "csharp" => "netcoredbg is the C# adapter, and it is not something hick installs: it \
+                     ships as release archives rather than as a single command. Install it from \
+                     https://github.com/Samsung/netcoredbg/releases or your distribution's \
+                     packages, and hick will find `netcoredbg` on PATH."
+            .to_string(),
+        "go" => "delve is the Go debugger: `go install \
+                 github.com/go-delve/delve/cmd/dlv@latest`, and hick will find `dlv` on PATH."
+            .to_string(),
+        "rust" | "c" | "cpp" => "hick uses LLVM's own adapter here. `lldb-dap` ships with LLVM \
+                                 (`apt install lldb`, `brew install llvm`); codelldb is the \
+                                 other one hick looks for. Either on PATH is enough."
+            .to_string(),
+        "ruby" => "rdbg comes from Ruby's debug gem: `gem install debug`, and hick will find \
+                   `rdbg` on PATH."
+            .to_string(),
+        // A language with no candidates at all cannot get here through
+        // `adapter_for`, but a caller asking directly deserves an answer.
+        _ => format!(
+            "hick has no debug adapter for {language}. `hick dap list` names the ones it does."
+        ),
+    }
+}
+
+/// Whether `how_to_get` points at `hick dap install`.
+///
+/// For the drift check in the CLI's catalogue, and nothing else.
+pub fn suggests_hick_install(language: &str) -> bool {
+    how_to_get(language).contains("hick dap install")
+}
 
 /// Every language this build can debug, for reporting and for tests.
 pub fn known_languages() -> Vec<&'static str> {
@@ -113,6 +187,11 @@ pub fn known_languages() -> Vec<&'static str> {
         "c",
         "cpp",
         "ruby",
+        // C# is listed only because the build step that makes it launchable
+        // landed with it. On its own, this entry would make `hick dap list`
+        // and `language_of` offer C#, pick `Program.cs`, and fail at launch —
+        // worse than saying nothing. See `build.rs`.
+        "csharp",
     ]
     .into()
 }

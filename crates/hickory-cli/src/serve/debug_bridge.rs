@@ -26,7 +26,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-use hick_dap::{Breakpoint, Step};
+use hick_dap::{Breakpoint, BuildOutput, Step};
 use hickory_collab::CHANNEL_DEBUG;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -157,6 +157,23 @@ pub enum Response {
     Ended {
         session: String,
     },
+    /// A build that had to happen before there was a program to launch.
+    ///
+    /// Carried as `TranscriptEvent`-shaped events on purpose: the client
+    /// already has a terminal that renders exactly those
+    /// (`terminal/WatchingTerminal.tsx`), and a build tool's ANSI colour and
+    /// carriage-return rewriting are the whole reason it is a terminal and
+    /// not a text card. This is NOT a transcript: nothing here is recorded
+    /// under a cache key, woven, or compared. The terminal is the run
+    /// happening; the transcript is the record.
+    ///
+    /// It arrives BEFORE `started` on success and before `failed` on
+    /// failure, and the failing case is the one it exists for — a build that
+    /// fails says why in MSBuild's own words, and "build failed" throws all
+    /// of that away.
+    Build {
+        events: Vec<Value>,
+    },
     /// Something did not work, in words a person can act on.
     Failed {
         session: Option<String>,
@@ -185,14 +202,42 @@ pub async fn handle(
 ) -> Vec<Response> {
     let about = about_of(&request);
     let lines = lines_of(&request);
-    match handle_inner(registry, root, request).await {
-        Ok(responses) => responses,
-        Err((session, error)) => vec![Response::Failed {
+    // Collected out here rather than inside, because the case that needs it
+    // is the failing one: a build that fails takes `handle_inner` down the
+    // error arm, and anything gathered in there would go with it.
+    let mut built: Vec<Value> = Vec::new();
+    let result = handle_inner(registry, root, request, &mut built).await;
+    let mut out = Vec::new();
+    if !built.is_empty() {
+        out.push(Response::Build { events: built });
+    }
+    match result {
+        Ok(responses) => out.extend(responses),
+        Err((session, error)) => out.push(Response::Failed {
             session,
             message: format!("{error:#}"),
             about: Some(about.to_string()),
             lines,
-        }],
+        }),
+    }
+    out
+}
+
+/// One build line, in the shape the client's terminal already reads.
+///
+/// `t` is milliseconds since the build started — the same meaning `t` has on
+/// a cell's transcript, so the same component orders them the same way.
+fn build_event(line: BuildOutput, since: std::time::Instant) -> Value {
+    let t = since.elapsed().as_millis() as u64;
+    match line {
+        BuildOutput::Cmd(text) => json!({ "t": t, "kind": "cmd", "data": text }),
+        // A note is this app talking, not the build tool. It is carried as
+        // output rather than as a fifth kind because the terminal renders
+        // what a person reads, and the indent is how the spec writes it.
+        BuildOutput::Note(text) => json!({ "t": t, "kind": "out", "data": format!("  {text}\n") }),
+        BuildOutput::Out(text) => json!({ "t": t, "kind": "out", "data": format!("{text}\n") }),
+        BuildOutput::Err(text) => json!({ "t": t, "kind": "err", "data": format!("{text}\n") }),
+        BuildOutput::Exit(code) => json!({ "t": t, "kind": "exit", "code": code }),
     }
 }
 
@@ -229,6 +274,7 @@ async fn handle_inner(
     registry: &Arc<Registry>,
     root: &std::path::Path,
     request: Request,
+    built: &mut Vec<Value>,
 ) -> Result<Vec<Response>, Failure> {
     match request {
         Request::Start {
@@ -237,8 +283,11 @@ async fn handle_inner(
             program,
         } => {
             let path = resolve(root, &doc);
+            let since = std::time::Instant::now();
             let (session, live, statuses) = registry
-                .start(&path, &breakpoints, program.as_deref())
+                .start(&path, &breakpoints, program.as_deref(), &mut |line| {
+                    built.push(build_event(line, since))
+                })
                 .await
                 .map_err(|e| (None, e))?;
             let mut out = vec![Response::Started {
@@ -535,7 +584,7 @@ pub fn describe() -> Value {
         ],
         "responses": [
             "started", "stopped", "breakpoints", "value", "children",
-            "finished", "ended", "failed"
+            "finished", "ended", "failed", "build"
         ],
     })
 }
@@ -543,6 +592,97 @@ pub fn describe() -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A C# document whose build cannot succeed, and what the client is told.
+    ///
+    /// The point is the ORDER and the SURVIVAL: the build's own output has to
+    /// reach the client on the failing path, before the failure, or a person
+    /// gets "building app.csproj failed" and none of the reasons.
+    #[tokio::test]
+    async fn a_failed_build_reaches_the_client_before_the_failure() {
+        let dir = tempfile::tempdir().unwrap();
+        // A document that generates C# and no project file — the refusal
+        // `build` makes without running anything, so this test needs no
+        // .NET SDK to be meaningful.
+        std::fs::write(
+            dir.path().join("a.hick"),
+            "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
+             <hick:doc xmlns:hick=\"http://www.hickorydocs.com/1.0\" weave=\"o.md\">\n\
+             <hick:file path=\"Program.cs\">\n\
+             class Program { static void Main() {} }\n\
+             </hick:file>\n\
+             </hick:doc>\n",
+        )
+        .unwrap();
+
+        let registry = Arc::new(Registry::new());
+        let responses = handle(
+            &registry,
+            dir.path(),
+            Request::Start {
+                doc: "hick:///a.hick".into(),
+                breakpoints: vec![],
+                program: None,
+            },
+        )
+        .await;
+
+        // Discovery runs before the build, so on a machine with no
+        // netcoredbg the adapter is what is missing and the build never
+        // gets a chance to speak. Either way the person is told something
+        // they can act on, and that is what is asserted.
+        let failure = responses
+            .iter()
+            .find_map(|r| match r {
+                Response::Failed { message, .. } => Some(message.clone()),
+                _ => None,
+            })
+            .expect("a C# document with no project file cannot start");
+        assert!(
+            failure.contains("no project file") || failure.contains("netcoredbg"),
+            "the failure says neither what is missing nor how to get it: {failure}"
+        );
+        // And it does NOT offer a command that does not exist. There is no
+        // `hick dap install csharp` — netcoredbg ships as release archives —
+        // and this message used to suggest it anyway.
+        assert!(
+            !failure.contains("hick dap install csharp"),
+            "offered an install command that does not exist: {failure}"
+        );
+        // Whatever the build managed to say arrives BEFORE the failure.
+        if let Some(build_at) = responses
+            .iter()
+            .position(|r| matches!(r, Response::Build { .. }))
+        {
+            let failed_at = responses
+                .iter()
+                .position(|r| matches!(r, Response::Failed { .. }))
+                .unwrap();
+            assert!(build_at < failed_at, "the build arrived after the failure");
+        }
+    }
+
+    #[test]
+    fn a_build_line_is_shaped_like_a_transcript_event() {
+        // Not because it IS a transcript — nothing here is recorded or
+        // compared — but because the client already has a terminal that
+        // renders exactly this shape.
+        let since = std::time::Instant::now();
+        let cmd = build_event(BuildOutput::Cmd("dotnet build".into()), since);
+        assert_eq!(cmd["kind"], "cmd");
+        assert_eq!(cmd["data"], "dotnet build");
+        let out = build_event(BuildOutput::Out("Restored app.csproj".into()), since);
+        assert_eq!(out["kind"], "out");
+        // Lines arrive without their newline and the terminal needs one.
+        assert_eq!(out["data"], "Restored app.csproj\n");
+        // A note is this app talking, not the build tool, and it is indented
+        // the way the spec writes it.
+        let note = build_event(BuildOutput::Note("packages restore into x".into()), since);
+        assert_eq!(note["data"], "  packages restore into x\n");
+        let exit = build_event(BuildOutput::Exit(1), since);
+        assert_eq!(exit["kind"], "exit");
+        assert_eq!(exit["code"], 1);
+    }
 
     #[test]
     fn a_document_is_named_in_the_clients_scheme() {

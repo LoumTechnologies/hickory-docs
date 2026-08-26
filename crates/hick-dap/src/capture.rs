@@ -26,6 +26,7 @@ use std::time::Duration;
 
 use anyhow::{Context, Result};
 
+use crate::build::{BuildOutput, build};
 use crate::program::{adapter_for, entry_point, weave_into};
 use crate::{Breakpoint, Launch, Mapping, Session, Step};
 
@@ -106,8 +107,25 @@ pub async fn run(
     }
     let scratch = tempfile::tempdir().context("making a scratch directory for the capture run")?;
     let files = weave_into(source, scratch.path())?;
-    let program = entry_point(&files)?;
-    let adapter = adapter_for(&program, project)?;
+    // `entry_point` names the SOURCE file and `adapter_for` reads the
+    // language from it — both unchanged, because the source is what has a
+    // language. What that source *produces* is what gets launched, and for
+    // Python, Node and Go the two are the same path.
+    let entry = entry_point(&files)?;
+    let adapter = adapter_for(&entry, project)?;
+    // A capture has no terminal to watch a build in, so the build's own words
+    // go to the log. That is weaker than the interactive path on purpose
+    // rather than by oversight: `hick test` is not a person watching, and the
+    // failure message points at the log the way the session's points at the
+    // terminal.
+    let program = build(&entry, scratch.path(), project, &mut |line| match line {
+        BuildOutput::Cmd(text) | BuildOutput::Note(text) | BuildOutput::Out(text) => {
+            tracing::info!(target: "hick_dap::build", "{text}")
+        }
+        BuildOutput::Err(text) => tracing::warn!(target: "hick_dap::build", "{text}"),
+        BuildOutput::Exit(code) => tracing::info!(target: "hick_dap::build", "exit {code}"),
+    })
+    .await?;
     let mapping = Arc::new(Mapping::for_document(document, source, scratch.path())?);
 
     // A capture names a location in a generated file; a breakpoint is set in

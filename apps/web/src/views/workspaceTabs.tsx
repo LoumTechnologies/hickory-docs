@@ -96,6 +96,7 @@ export function DocTabBody({
         selectedFrame={debug.selectedFrame}
         watches={debug.watches}
         exitCode={debug.exitCode}
+        buildOutput={debug.buildOutput}
         onSelectFrame={session.selectFrameAndReveal}
         onStep={debug.step}
         onJumpHere={() => {

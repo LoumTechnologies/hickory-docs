@@ -7926,3 +7926,22 @@ button.status-bar__item:hover { background: var(--bg-sunken); color: var(--fg); 
 .chat-tree__turn:hover { background: var(--hover, rgba(127,127,127,0.12)); border-radius: 4px; }
 .chat-tree__node--tip { stroke: var(--fg); stroke-width: 1.5; }
 .chat-tree-toggle--on { text-decoration: underline; }
+
+/* The build that had to happen before there was a program to launch.
+   `docs/specs/freeform/launching-what-a-document-builds.md`: the spinner is
+   the wrong answer — a build that fails says why in its own output, and a
+   `Building…` label replaces all of that with the one fact the person
+   already knew. So it is a terminal, and it is read-only. */
+.debug-build {
+  border: 1px solid var(--border);
+  border-top: none;
+  border-radius: 0 0 8px 8px;
+  overflow: hidden;
+}
+.debug-build__title {
+  padding: 0.35rem 0.9rem;
+  font-size: 0.72rem;
+  color: var(--fg-muted);
+  background: var(--bg-raised);
+  border-bottom: 1px solid var(--border);
+}

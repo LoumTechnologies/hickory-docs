@@ -11,6 +11,8 @@
 // two backwards controls are the sharp case: most adapters have exactly one.
 
 import { useEffect } from "react";
+import type { TranscriptEvent } from "../api/types";
+import { WatchingTerminal } from "../terminal/WatchingTerminal";
 import type { DebugCapabilities, Frame, Step } from "./client";
 import { backwardsControl } from "./client";
 import type { Watch } from "./useDebugger";
@@ -89,6 +91,16 @@ export interface DebugStripProps {
   watches: Watch[];
   /** The program's exit code once it finished, when the adapter said. */
   exitCode?: number | null;
+  /**
+   * The build that ran before there was a program to launch, when one did.
+   *
+   * Empty for every language whose generated file IS the program. Shown as a
+   * terminal rather than summarised by a spinner: a build that fails says
+   * why in its own output — MSBuild's errors, the missing package, the
+   * syntax error on line 12 — and `Building…` throws all of that away and
+   * replaces it with the one fact the person already knew.
+   */
+  buildOutput?: TranscriptEvent[];
   onSelectFrame: (id: number) => void;
   onStep: (how: Step) => void;
   /** Move the instruction pointer to the caret's line, where supported. */
@@ -149,7 +161,16 @@ export function DebugStrip(props: DebugStripProps) {
   // way in, and chrome for a debugger nobody started is noise.
   if (props.status === "idle") return null;
 
+  // Shown while the build is the thing happening, and kept when the start
+  // failed — which is the case it exists for. Once the program is running,
+  // a successful build's log is a wall of text between a person and the
+  // frame they are looking at.
+  const build = props.buildOutput ?? [];
+  const showBuild =
+    build.length > 0 && (props.status === "starting" || props.status === "failed");
+
   return (
+    <>
     <div className="debug-strip" role="toolbar" aria-label="Debugger">
       <span className={`debug-strip__dot debug-strip__dot--${props.status}`} aria-hidden="true" />
       <span className="debug-strip__status" role="status">
@@ -285,5 +306,15 @@ export function DebugStrip(props: DebugStripProps) {
         </span>
       )}
     </div>
+    {showBuild && (
+      <div className="debug-build" data-testid="debug-build">
+        <div className="debug-build__title">
+          the build, as it ran — this is not a transcript and nothing is
+          verified against it
+        </div>
+        <WatchingTerminal events={build} live={props.status === "starting"} />
+      </div>
+    )}
+    </>
   );
 }

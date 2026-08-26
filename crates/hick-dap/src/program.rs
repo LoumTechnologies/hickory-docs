@@ -69,9 +69,8 @@ pub fn adapter_for(program: &Path, project: &Path) -> Result<crate::Discovered> 
     })?;
     crate::discover(language, project).with_context(|| {
         format!(
-            "no debug adapter for {language} on this machine.\n\
-             Install one with `hick dap install {language}`, or install it the way that \
-             ecosystem does — hick prefers whatever is already there."
+            "no debug adapter for {language} on this machine.\n{}",
+            crate::discovery::how_to_get(language)
         )
     })
 }

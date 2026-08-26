@@ -2,6 +2,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DebugStrip, debugKeysActive, frameLabel, stepForKey } from "./DebugStrip";
 import type { DebugStripProps } from "./DebugStrip";
+import type { TranscriptEvent } from "../api/types";
 
 describe("the combo box's line for a frame", () => {
   it("names the function and the line it will return to", () => {
@@ -72,6 +73,49 @@ describe("the strip on the debugged block", () => {
     onAddWatch: () => {},
     onRemoveWatch: () => {},
     ...over,
+  });
+
+  it("shows the build in a terminal while starting, and keeps it when the start failed", () => {
+    // The spinner is the wrong answer: a build that fails says why in its
+    // own output, and a `Building…` label throws that away.
+    const built: TranscriptEvent[] = [
+      { t: 0, kind: "cmd", data: "dotnet build --nologo --configuration Debug (app/app.csproj)" },
+      { t: 400, kind: "err", data: "Program.cs(1,25): error CS1519: Invalid token\n" },
+      { t: 500, kind: "exit", code: 1 },
+    ];
+    const { rerender } = render(
+      <DebugStrip {...base({ status: "starting", buildOutput: built })} />,
+    );
+    expect(screen.getByTestId("debug-build")).toBeTruthy();
+    expect(screen.getByTestId("watch-terminal")).toBeTruthy();
+
+    // The failing case is the one it exists for.
+    rerender(
+      <DebugStrip {...base({ status: "failed", buildOutput: built, message: "build failed" })} />,
+    );
+    expect(screen.getByTestId("debug-build")).toBeTruthy();
+
+    // Once the program is running, a successful build's log is a wall of
+    // text between a person and the frame they are looking at.
+    rerender(<DebugStrip {...base({ status: "paused", buildOutput: built })} />);
+    expect(screen.queryByTestId("debug-build")).toBeNull();
+  });
+
+  it("says the build is not evidence, where the build is shown", () => {
+    // The transcript is the record; the terminal is the run happening.
+    // Nothing is ever verified against what a terminal showed, and the one
+    // place that could be misread is beside a debugger.
+    render(
+      <DebugStrip
+        {...base({ status: "starting", buildOutput: [{ t: 0, kind: "out", data: "ok\n" }] })}
+      />,
+    );
+    expect(screen.getByTestId("debug-build").textContent).toContain("not a transcript");
+  });
+
+  it("shows no build chrome for a language whose generated file IS the program", () => {
+    render(<DebugStrip {...base({ status: "starting", buildOutput: [] })} />);
+    expect(screen.queryByTestId("debug-build")).toBeNull();
   });
 
   it("is nothing while idle: the Debug chip is the way in", () => {

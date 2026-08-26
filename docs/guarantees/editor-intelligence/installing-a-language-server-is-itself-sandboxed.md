@@ -124,3 +124,17 @@ Last LLM verification:
   the unit tests above plus the discovery test. The end-to-end
   install is observed, not automated — it needs the network, which the test
   suite must never require.
+- **Correction, 2026-08-26.** Everything above was true and the server was
+  still unreachable. `hick_lsp::lang_detect::language_id` is the only thing
+  that gives a generated file a language, and it had no `cs` row — so every
+  `.cs` virtual file got `language_id: None` and `backend.rs` skipped it
+  before discovery was ever consulted. Installing, finding and invoking
+  csharp-ls all worked; nothing ever asked for it. The row is added (with a
+  test in `lang_detect`), and it arrived from the other side of the product:
+  the debugger needed the same lookup for
+  `docs/guarantees/debugging/a-compiled-language-launches-what-a-build-produced.md`.
+  The lesson worth keeping is that "installed, discovered, and invocable" is
+  three claims that do not add up to "used", and only the fourth — a `.cs`
+  file in a document actually reaching the server — is the one a person
+  experiences. That fourth check is still **not automated**: it needs a real
+  csharp-ls, so it is owed a manual run.

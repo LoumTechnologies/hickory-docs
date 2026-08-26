@@ -21,7 +21,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
-use hick_dap::{Breakpoint, BreakpointStatus, Launch, Mapping, Session};
+use hick_dap::{Breakpoint, BreakpointStatus, BuildOutput, Launch, Mapping, Session};
 use tokio::sync::Mutex;
 
 /// How long a session may sit untouched before it is ended for us.
@@ -74,6 +74,7 @@ impl Registry {
         document: &Path,
         breakpoints: &[Breakpoint],
         program: Option<&str>,
+        on_build: &mut (dyn FnMut(BuildOutput) + Send),
     ) -> Result<(String, Arc<Live>, Vec<BreakpointStatus>)> {
         let source = std::fs::read_to_string(document)
             .with_context(|| format!("reading {}", document.display()))?;
@@ -91,7 +92,7 @@ impl Registry {
         // document with two Python files got the first one, with nothing on
         // screen to say which. Naming it is the caller's job; falling back to
         // the first debuggable file keeps "just debug this" working.
-        let program = match program {
+        let entry = match program {
             Some(named) => {
                 let wanted = scratch.path().join(named);
                 files
@@ -112,8 +113,21 @@ impl Registry {
             }
             None => hick_dap::entry_point(&files)?,
         };
-        let adapter = hick_dap::adapter_for(&program, project)?;
+        let adapter = hick_dap::adapter_for(&entry, project)?;
         tracing_adapter(&adapter);
+
+        // A compiled language's generated file is not a program: `Program.cs`
+        // is source, and what netcoredbg launches is the assembly a build
+        // produces. `entry_point` and `adapter_for` above are unchanged and
+        // still name the SOURCE, because the source is what has a language;
+        // this is the step that turns it into the thing to launch. For
+        // Python, Node and Go it returns the path it was given.
+        //
+        // `on_build` carries the build's own output out to whoever asked for
+        // the session, and it is called on the failing path too — a build
+        // that fails says why in MSBuild's words, and losing those in favour
+        // of "build failed" is the thing this exists to prevent.
+        let program = hick_dap::build(&entry, scratch.path(), project, on_build).await?;
 
         let (session, statuses) = Session::start(
             Launch {
@@ -273,7 +287,7 @@ mod tests {
         )
         .unwrap();
         let registry = Registry::new();
-        let error = match registry.start(&doc, &[], None).await {
+        let error = match registry.start(&doc, &[], None, &mut |_| {}).await {
             Ok(_) => panic!("a document with no code started a debugger"),
             Err(error) => format!("{error:#}"),
         };

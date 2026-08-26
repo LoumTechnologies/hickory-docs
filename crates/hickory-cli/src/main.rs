@@ -3029,8 +3029,21 @@ fn cmd_dap(command: DapCommand) -> Result<ExitCode> {
 
     match command {
         DapCommand::List => {
+            // Both halves, because the error a person gets here from says
+            // "`hick dap list` names them" about the languages hick can
+            // DEBUG — and this command used to name only the ones it can
+            // INSTALL. Someone with a Go file was sent to a page that did
+            // not mention Go.
+            println!("Languages hick can debug:\n");
+            for language in hick_dap::known_languages() {
+                println!("  {language}");
+                for line in textwrap_lines(&hick_dap::how_to_get(language)) {
+                    println!("      {line}");
+                }
+            }
+            println!();
             report_catalogue(
-                "Debug adapters `hick dap install` can fetch:",
+                "Of those, the adapters `hick dap install` can fetch:",
                 dap_install::plans(),
                 "hick dap install",
                 dap_install::ADAPTERS_DIR,
@@ -3061,6 +3074,29 @@ fn cmd_dap(command: DapCommand) -> Result<ExitCode> {
             Ok(ExitCode::SUCCESS)
         }
     }
+}
+
+/// Wrap a sentence at a width a terminal can hold, on word boundaries.
+///
+/// Not a dependency: this is the only place anything here wraps prose, and a
+/// crate for it would be a larger claim than the job.
+fn textwrap_lines(text: &str) -> Vec<String> {
+    const WIDTH: usize = 72;
+    let mut lines = Vec::new();
+    let mut current = String::new();
+    for word in text.split_whitespace() {
+        if !current.is_empty() && current.len() + 1 + word.len() > WIDTH {
+            lines.push(std::mem::take(&mut current));
+        }
+        if !current.is_empty() {
+            current.push(' ');
+        }
+        current.push_str(word);
+    }
+    if !current.is_empty() {
+        lines.push(current);
+    }
+    lines
 }
 
 /// The languages to install: what was asked for, or everything possible.

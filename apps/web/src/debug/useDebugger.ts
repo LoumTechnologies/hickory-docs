@@ -7,6 +7,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Realtime } from "../api/realtime";
+import type { TranscriptEvent } from "../api/types";
 import { DebugClient } from "./client";
 import type {
   BreakpointStatus,
@@ -41,6 +42,15 @@ export interface DebugSession {
   breakpoints: BreakpointStatus[];
   /** How the program ended, once it has: its exit code, when reported. */
   exitCode: number | null;
+  /**
+   * The build that ran before there was a program to launch, when one did.
+   *
+   * Empty for Python, Node and Go, where the generated file IS the program.
+   * Kept whether the start succeeded or failed — the failing case is the one
+   * it exists for, because a build that fails says why in the compiler's own
+   * words and "build failed" throws all of that away.
+   */
+  buildOutput: TranscriptEvent[];
   lastValue: { expression: string; value: string; type: string | null } | null;
   /** Expressions re-evaluated on every pause and frame change. */
   watches: Watch[];
@@ -96,6 +106,7 @@ export function useDebugger(realtime: Realtime, docPath: string): DebugSession {
     useState<{ expression: string; value: string; type: string | null } | null>(null);
   const [watches, setWatches] = useState<Watch[]>([]);
   const [exitCode, setExitCode] = useState<number | null>(null);
+  const [buildOutput, setBuildOutput] = useState<TranscriptEvent[]>([]);
 
   const sessionRef = useRef<string | null>(null);
   // The status as of right now, for callbacks that must not close over a
@@ -127,6 +138,11 @@ export function useDebugger(realtime: Realtime, docPath: string): DebugSession {
     if (!client) return;
     const off = client.on((event: DebugEvent) => {
       switch (event.event) {
+        case "build":
+          // Replaces rather than appends: a build belongs to the start that
+          // ran it, and the last one is the one on screen.
+          setBuildOutput(event.events);
+          break;
         case "started":
           sessionRef.current = event.session;
           setCapabilities(event.capabilities);
@@ -433,6 +449,7 @@ export function useDebugger(realtime: Realtime, docPath: string): DebugSession {
       selectedFrame,
       breakpoints,
       exitCode,
+      buildOutput,
       lastValue,
       watches,
       start,
@@ -459,6 +476,7 @@ export function useDebugger(realtime: Realtime, docPath: string): DebugSession {
       selectedFrame,
       breakpoints,
       exitCode,
+      buildOutput,
       lastValue,
       watches,
       start,

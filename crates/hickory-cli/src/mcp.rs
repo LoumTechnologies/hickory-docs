@@ -390,11 +390,29 @@ impl Server {
                 // An agent naming the program is an agent that knows which of
                 // several files it means; omitting it keeps the old behaviour.
                 let program = args.get("program").and_then(Value::as_str);
-                let (id, live, statuses) = self
+                // An agent has no terminal to watch a build in, so the
+                // build's own output is attached to the failure instead.
+                // Dropping it would leave "building app.csproj failed" with
+                // the one fact the agent already had, and none of the ones
+                // it needs.
+                let mut built: Vec<String> = Vec::new();
+                let started = self
                     .debuggers
-                    .start(&doc, &breakpoints, program)
-                    .await
-                    .map_err(fail)?;
+                    .start(&doc, &breakpoints, program, &mut |line| {
+                        if let hick_dap::BuildOutput::Out(text) | hick_dap::BuildOutput::Err(text) =
+                            line
+                        {
+                            built.push(text);
+                        }
+                    })
+                    .await;
+                let (id, live, statuses) = started.map_err(|error| {
+                    if built.is_empty() {
+                        fail(error)
+                    } else {
+                        fail(anyhow::anyhow!("{error:#}\n\n{}", built.join("\n")))
+                    }
+                })?;
 
                 // Run to the first stop before answering: an agent that gets
                 // a session id and no position has to guess whether the

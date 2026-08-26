@@ -429,7 +429,7 @@ async fn reaping_a_finished_session_deletes_the_scratch_clone() {
     let registry = hickory_cli::debug_sessions::Registry::new();
     // No breakpoints: the program runs straight to the end.
     let (id, live, _statuses) = registry
-        .start(&root.join("doc.hick"), &[], None)
+        .start(&root.join("doc.hick"), &[], None, &mut |_| {})
         .await
         .expect("the session starts");
     let scratch = live.scratch_path().to_path_buf();

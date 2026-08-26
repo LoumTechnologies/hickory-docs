@@ -62,3 +62,34 @@ pub fn plans() -> Vec<crate::tool_install::InstallPlan> {
 pub fn install(root: &std::path::Path, language: &str) -> anyhow::Result<std::path::PathBuf> {
     crate::tool_install::install(&CATALOGUE, root, language)
 }
+
+#[cfg(test)]
+mod tests {
+    /// The two halves of "how do I get an adapter" must agree.
+    ///
+    /// `hick_dap::how_to_get` writes the sentence a person reads when
+    /// discovery finds nothing, and this file decides what `hick dap install`
+    /// can actually do. They live in different crates because one is adapter
+    /// knowledge and the other is a catalogue — so nothing but this test
+    /// stops them drifting into a message that names a command that does not
+    /// exist.
+    #[test]
+    fn nothing_is_offered_that_cannot_be_installed_and_nothing_installable_is_hidden() {
+        for language in hick_dap::known_languages() {
+            let installable = super::INSTALLERS.iter().any(|i| i.language == language)
+                // The catalogue is keyed by ecosystem, not by language id:
+                // one `typescript` installer serves every JavaScript flavour
+                // discovery routes to the same adapter.
+                || matches!(
+                    language,
+                    "javascript" | "typescriptreact" | "javascriptreact"
+                );
+            assert_eq!(
+                hick_dap::suggests_hick_install(language),
+                installable,
+                "`{language}`: the message and the catalogue disagree about whether \
+                 `hick dap install {language}` exists"
+            );
+        }
+    }
+}
