@@ -113,7 +113,70 @@ impl App {
             )
             .await;
         assert!(status.is_success(), "typing: {body}");
-        tokio::time::sleep(Duration::from_millis(400)).await;
+    }
+
+    /// Type a line and wait until the document has taken it.
+    ///
+    /// Waiting on the EFFECT rather than on a duration, because a fixed sleep
+    /// is a guess about how long a shell takes to source its startup files
+    /// and run a command — and a guess that is right on an idle machine and
+    /// wrong on a busy one is a flaky test, which this repository treats as a
+    /// defect rather than something to retry.
+    async fn type_and_record(&self, terminal: &str, line: &str, expect_total: usize) {
+        self.type_line(terminal, line).await;
+        self.wait_for(terminal, |anchor| {
+            anchor["recorded"].as_u64().unwrap_or(0) as usize >= expect_total
+        })
+        .await;
+    }
+
+    /// Poll the session list until this terminal reaches `state`.
+    ///
+    /// `working` is what a foreground child looks like from outside — which
+    /// is how the test knows a REPL has actually taken the terminal, rather
+    /// than guessing how long python takes to start.
+    async fn wait_for_state(&self, terminal: &str, state: &str) {
+        let deadline = std::time::Instant::now() + Duration::from_secs(20);
+        let mut last = String::new();
+        while std::time::Instant::now() < deadline {
+            let list: Value = self
+                .client
+                .get(format!("{}/terminals", self.base))
+                .send()
+                .await
+                .expect("answers")
+                .json()
+                .await
+                .expect("json");
+            last = list["sessions"]
+                .as_array()
+                .unwrap_or(&Vec::new())
+                .iter()
+                .find(|s| s["id"] == terminal)
+                .and_then(|s| s["state"].as_str())
+                .unwrap_or_default()
+                .to_string();
+            if last == state {
+                return;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        panic!("the terminal never reached `{state}`; it is `{last}`");
+    }
+
+    /// Poll this terminal's anchor until `done`, or fail saying what it held.
+    async fn wait_for(&self, terminal: &str, done: impl Fn(&Value) -> bool) -> Value {
+        let deadline = std::time::Instant::now() + Duration::from_secs(20);
+        let mut last = Value::Null;
+        while std::time::Instant::now() < deadline {
+            let anchors = self.anchors().await;
+            last = anchors["anchors"][terminal].clone();
+            if done(&last) {
+                return last;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+        panic!("the anchor never reached the expected state; it holds {last}");
     }
 
     fn document(&self) -> String {
@@ -181,8 +244,9 @@ async fn grows_the_cell(shell: &str) {
     assert!(status.is_success(), "anchoring: {anchored}");
     assert_eq!(anchored["container"], "sdk");
 
-    app.type_line(&terminal, "echo one\n").await;
-    app.type_line(&terminal, "echo two | tr o 0\n").await;
+    app.type_and_record(&terminal, "echo one\n", 1).await;
+    app.type_and_record(&terminal, "echo two | tr o 0\n", 2)
+        .await;
 
     let document = app.document();
     // One cell that grew, not one cell per line.
@@ -207,6 +271,9 @@ async fn grows_the_cell(shell: &str) {
         .expect("answers");
     assert!(response.status().is_success());
     app.type_line(&terminal, "echo after\n").await;
+    // Nothing to wait FOR — the claim is that nothing happens — so this one
+    // needs a real pause, and it is the only one.
+    tokio::time::sleep(Duration::from_millis(800)).await;
     assert!(
         !app.document().contains("echo after"),
         "an unanchored terminal kept writing:\n{}",
@@ -232,10 +299,13 @@ async fn secret_stops_recording(shell: &str) {
     )
     .await;
 
-    app.type_line(&terminal, "echo before\n").await;
+    app.type_and_record(&terminal, "echo before\n", 1).await;
     app.type_line(&terminal, "export DEMO_API_KEY=sk-ant-notreal-0123456789\n")
         .await;
+    app.wait_for(&terminal, |anchor| !anchor["suspended"].is_null())
+        .await;
     app.type_line(&terminal, "echo after\n").await;
+    tokio::time::sleep(Duration::from_millis(600)).await;
 
     let document = app.document();
     // The gate held: the key never reached the document. The shell DID run
@@ -268,6 +338,8 @@ async fn secret_stops_recording(shell: &str) {
     assert!(status.is_success(), "{resumed}");
     assert!(resumed["suspended"].is_null(), "{resumed}");
     app.type_line(&terminal, "echo resumed\n").await;
+    app.wait_for(&terminal, |_| app.document().contains("echo resumed"))
+        .await;
 
     let document = app.document();
     assert_eq!(
@@ -301,9 +373,12 @@ async fn leading_space_is_not_recorded(shell: &str) {
     )
     .await;
 
-    app.type_line(&terminal, "echo recorded\n").await;
+    app.type_and_record(&terminal, "echo recorded\n", 1).await;
     app.type_line(&terminal, " echo hidden\n").await;
+    app.wait_for(&terminal, |anchor| !anchor["suspended"].is_null())
+        .await;
     app.type_line(&terminal, "echo after\n").await;
+    tokio::time::sleep(Duration::from_millis(600)).await;
 
     let document = app.document();
     assert!(document.contains("echo recorded"), "{document}");
@@ -354,14 +429,25 @@ async fn repl_is_announced(shell: &str) {
     )
     .await;
 
-    app.type_line(&terminal, "echo before\n").await;
-    app.type_line(&terminal, "python3 -q\n").await;
-    tokio::time::sleep(Duration::from_millis(900)).await;
-    // Typing INTO the REPL. These keys never reach the shell.
+    app.type_and_record(&terminal, "echo before\n", 1).await;
+    app.type_and_record(&terminal, "python3 -q\n", 2).await;
+    // The REPL has to actually hold the terminal before anything is typed
+    // into it, or the keys reach the shell and are recorded as commands.
+    // `working` is what a foreground child looks like from outside.
+    app.wait_for_state(&terminal, "working").await;
+
+    // Typing INTO the REPL. These keys never reach the shell — and the
+    // notice is raised on the input path, so it appears because somebody
+    // typed, not because a child exists.
     app.type_line(&terminal, "print('inside')\n").await;
+    app.wait_for(&terminal, |anchor| !anchor["foreign"].is_null())
+        .await;
     app.type_line(&terminal, "quit()\n").await;
-    tokio::time::sleep(Duration::from_millis(900)).await;
-    app.type_line(&terminal, "echo after\n").await;
+    // Back at the prompt before typing again, or the next keystroke lands
+    // while python is still exiting and the note is raised a second time
+    // with nothing left to type that would clear it.
+    app.wait_for_state(&terminal, "idle").await;
+    app.type_and_record(&terminal, "echo after\n", 3).await;
 
     let document = app.document();
     // The REPL's own lines are not commands and are not recorded — by

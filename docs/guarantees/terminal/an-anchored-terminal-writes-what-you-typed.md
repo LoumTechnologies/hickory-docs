@@ -146,6 +146,11 @@ Last LLM verification:
     What is missing before this could become a refusal is a way for a
     document to say "yes, I meant that" — and that does not exist. Recorded
     here rather than decided quietly.
+  - **`recorded` counts lines that reached the document**, not lines that
+    were accepted. It used to be incremented before the write and was
+    therefore briefly false — a caller trusting the count read a document the
+    line had not reached yet. Found by a test that waited on the count and
+    then read the file.
   - **A dropped command stops the recording, and losing the broadcast is how
     it is detected.** If the anchor task falls 256 commands behind, `Lagged`
     unanchors the session with a message. That is correct and it has never

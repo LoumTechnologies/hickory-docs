@@ -143,7 +143,6 @@ pub async fn observe_line(
             let doc = held.doc.clone();
             let container = held.container.clone();
             let fresh = std::mem::take(&mut held.fresh_cell);
-            held.recorded += 1;
             // The lock is not held across the document write: a slow disk
             // must not stop the PTY reader, and nothing else may touch this
             // session's state in between because only one task reads it.
@@ -152,6 +151,13 @@ pub async fn observe_line(
                 return Some(format!(
                     "recording paused — the document could not be written\n   {error:#}"
                 ));
+            }
+            // Counted AFTER the write, not before. `recorded` is read by the
+            // window as "lines in the document", and incrementing it first
+            // makes that briefly false — a caller that trusts the count then
+            // reads a document the line has not reached yet.
+            if let Some(held) = state.anchors.live.lock().await.get_mut(session) {
+                held.recorded += 1;
             }
             None
         }
