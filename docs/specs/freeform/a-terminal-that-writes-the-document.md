@@ -337,6 +337,33 @@ A person who does not know recording stopped will assume the cell holds what
 they did, and that assumption is the failure this whole design exists to
 prevent.
 
+## What is built
+
+**The watching binding (2026-08-26)** and **the persistent binding
+(2026-08-27)**. Typing in an anchored terminal writes the cell, through the
+`PS0` mechanism measured above, with the suspension rules as stated: a secret
+suspends, a line the shell kept out of its history suspends, suspension is
+sticky, and resuming starts a new cell. A shell hick has no hook for is
+**refused by name** rather than left looking anchored — which is the sharpest
+consequence of "never anchor silently", and was not obvious until the
+mechanism turned out to depend on the shell's cooperation.
+
+Guarantee: `docs/guarantees/terminal/an-anchored-terminal-writes-what-you-typed.md`.
+
+Three things this document specifies are **not** built, and the guarantee
+lists them rather than leaving them implied:
+
+- **zsh is written and never run.** bash is verified against a real PTY.
+- **The foreground-program suspension has no caller.** It turned out to be
+  nearly unreachable: inside a REPL the shell's `PS0` never fires, so nothing
+  is recorded and nothing needs refusing. What is missing is the *message* —
+  the terminal does not yet say "you are in `less`, recording is paused" —
+  and `tcgetpgrp` is what would say it.
+- **Output is not scanned.** A command that prints a token is recorded by the
+  transcript exactly as it always has been. This document is right that it is
+  the same exposure and not new here, and right that the same suspend belongs
+  on the output path.
+
 ## Refusals
 
 - **Suspend, never filter.** A cell with a line removed from the middle claims

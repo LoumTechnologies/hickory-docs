@@ -264,6 +264,16 @@ out of history and make `history 1` re-report the previous one, which the
 history *number* detects and which is a **suspension**. A program that is not
 the shell is excluded **by construction** (its PS0 never fires), so `tcgetpgrp`
 explains rather than gates. **zsh is untested and bash is verified.**
+**Built (2026-08-27):** the persistent binding — `POST
+/api/terminals/{id}/anchor` binds a terminal to a **container** (never "to a
+document"), typing grows one cell, and the suspension rules hold: a secret
+suspends, a line the shell kept out of history suspends, suspension is
+**sticky**, and resuming starts a **new cell**. A shell with no hook is
+**refused by name** rather than left looking anchored — the sharpest
+consequence of "never anchor silently", and only obvious once the mechanism
+turned out to need the shell's cooperation. Not built: the *message* for a
+foreground program (the gate is unreachable anyway — a REPL's PS0 never
+fires), and any scanning of **output**.
 
 Settled: **netcoredbg** (Samsung, MIT) is the adapter (`--interpreter=vscode`);
 Microsoft's `vsdbg` is licensed to its own editors and is unavailable to this
