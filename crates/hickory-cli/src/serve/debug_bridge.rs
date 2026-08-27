@@ -650,15 +650,18 @@ mod tests {
             })
             .expect("a C# document with no project file cannot start");
         assert!(
-            failure.contains("no project file") || failure.contains("netcoredbg"),
-            "the failure says neither what is missing nor how to get it: {failure}"
+            failure.contains("no project file") || failure.contains("no debug adapter"),
+            "the failure does not say what is missing: {failure}"
         );
-        // And it does NOT offer a command that does not exist. There is no
-        // `hick dap install csharp` — netcoredbg ships as release archives —
-        // and this message used to suggest it anyway.
+        // And it says how to get out of it. Which sentence that is depends on
+        // which of the two things was missing, and both are checked by
+        // `dap_install`'s drift test — the point here is that a person is
+        // never left with only the bad news.
         assert!(
-            !failure.contains("hick dap install csharp"),
-            "offered an install command that does not exist: {failure}"
+            failure.contains("hick dap install csharp")
+                || failure.contains("hick ingest")
+                || failure.contains("hick:file"),
+            "the failure says what is wrong but not what to do: {failure}"
         );
         // Whatever the build managed to say arrives BEFORE the failure.
         if let Some(build_at) = responses

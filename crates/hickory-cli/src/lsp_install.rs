@@ -35,6 +35,7 @@ const INSTALLERS: &[Installer] = &[
         // Pylance, which is licensed for Microsoft's editors only.
         // basedpyright is the open-source fork that reimplements them, so
         // this is what makes Python code in a document actually coloured.
+        assets: &[],
         reason: "pyright with the Pylance-only features (semantic tokens, inlay hints) added",
     },
     Installer {
@@ -49,6 +50,7 @@ const INSTALLERS: &[Installer] = &[
         // together — the server starts and fails `initialize` with "Could not
         // find a valid tsserver".
         command: "npm install --no-fund --no-audit --prefix {prefix}/node typescript-language-server typescript@5",
+        assets: &[],
         reason: "the server the TypeScript ecosystem treats as the default",
     },
     Installer {
@@ -77,6 +79,7 @@ const INSTALLERS: &[Installer] = &[
         // Not Microsoft's own Roslyn language server: it ships inside the C#
         // extension under a licence that permits use only with Microsoft's
         // editors, which is not something to install on someone's behalf.
+        assets: &[],
         reason: "a Roslyn-based C# server that installs as a dotnet tool",
     },
     Installer {
@@ -84,6 +87,7 @@ const INSTALLERS: &[Installer] = &[
         tool: "npm",
         package: "vscode-langservers-extracted",
         command: "npm install --no-fund --no-audit --prefix {prefix}/node vscode-langservers-extracted",
+        assets: &[],
         reason: "VS Code's own JSON, HTML and CSS servers, extracted; one install covers all three",
     },
 ];

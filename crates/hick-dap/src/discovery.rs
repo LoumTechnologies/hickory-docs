@@ -138,19 +138,16 @@ pub fn how_to_get(language: &str) -> String {
     // prints "no installer for go" and costs a person a shell round trip to
     // find out.
     match language {
-        "python" | "typescript" | "javascript" | "typescriptreact" | "javascriptreact" => {
+        "python" | "typescript" | "javascript" | "typescriptreact" | "javascriptreact"
+        // netcoredbg ships as per-platform release archives rather than as
+        // one installable command, which is why the catalogue grew an
+        // archive shape rather than this row staying an exception.
+        | "csharp" => {
             format!(
                 "Install one with `hick dap install {language}`, or install it the way that \
                  ecosystem does — hick prefers whatever is already there."
             )
         }
-        // netcoredbg ships as per-platform release archives and distro
-        // packages rather than as one installable command.
-        "csharp" => "netcoredbg is the C# adapter, and it is not something hick installs: it \
-                     ships as release archives rather than as a single command. Install it from \
-                     https://github.com/Samsung/netcoredbg/releases or your distribution's \
-                     packages, and hick will find `netcoredbg` on PATH."
-            .to_string(),
         "go" => "delve is the Go debugger: `go install \
                  github.com/go-delve/delve/cmd/dlv@latest`, and hick will find `dlv` on PATH."
             .to_string(),
@@ -331,6 +328,10 @@ fn project_dirs(root: &Path) -> Vec<PathBuf> {
         // or the install looks like it did nothing.
         dirs.push(ancestor.join(".hick-cache/adapters/python/bin"));
         dirs.push(ancestor.join(".hick-cache/adapters/node/node_modules/.bin"));
+        // netcoredbg's archive unpacks to a directory of its own holding the
+        // binary beside its managed DLLs, so the binary IS the directory's
+        // name — there is no `bin/` to point at.
+        dirs.push(ancestor.join(".hick-cache/adapters/netcoredbg"));
         for layout in [
             "node_modules/.bin",
             ".venv/bin",

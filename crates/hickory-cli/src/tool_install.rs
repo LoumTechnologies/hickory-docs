@@ -45,13 +45,84 @@ use hickory_executor_sandbox::policy::{self, Profile, Sandbox};
 pub struct Installer {
     pub language: &'static str,
     /// The tool that must exist on the machine for this to be possible.
+    ///
+    /// For an [`Installer::assets`] install this is the fetcher (`curl`); the
+    /// unpacker is named per-asset, because a `.tar.gz` and a `.zip` do not
+    /// need the same program.
     pub tool: &'static str,
     /// The package installed, named for the report.
     pub package: &'static str,
     /// The shell command, with `{prefix}` replaced by the install directory.
+    ///
+    /// Empty when this installs from [`Installer::assets`] instead.
     pub command: &'static str,
+    /// Prebuilt archives, one per platform, when the tool is not published
+    /// through any package manager.
+    ///
+    /// This is the shape `netcoredbg` needs and `csharp-ls` does not: a
+    /// `dotnet tool` is one command on every platform, while a release
+    /// archive is a different URL per target and a checksum that has to be
+    /// pinned, because "download and run whatever is at this URL" is not
+    /// something to do on somebody's machine.
+    pub assets: &'static [Asset],
     /// Why this package and not another, for the person reading the report.
     pub reason: &'static str,
+}
+
+/// One platform's prebuilt archive, pinned.
+pub struct Asset {
+    /// `std::env::consts::OS`.
+    pub os: &'static str,
+    /// `std::env::consts::ARCH`.
+    pub arch: &'static str,
+    pub url: &'static str,
+    /// SHA-256 of the archive, checked before anything is unpacked.
+    ///
+    /// A pin, not a signature: it proves the bytes are the ones somebody
+    /// looked at when this line was written, and proves nothing about
+    /// whether those bytes are trustworthy. Upstream publishes no
+    /// signatures, so this is the strongest available statement and it is
+    /// worth being precise about which one it is.
+    pub sha256: &'static str,
+    /// The program that unpacks it — `tar` or `unzip`.
+    pub unpack: &'static str,
+}
+
+impl Asset {
+    /// The shell that fetches, verifies and unpacks this asset.
+    ///
+    /// One `&&` chain on purpose: a failed checksum must stop before the
+    /// archive is opened, and a shell that carried on would unpack bytes
+    /// nobody vouched for.
+    fn command(&self) -> String {
+        // `sha256sum` is coreutils and absent on macOS, where the same job is
+        // `shasum -a 256`. Both read the same "<hex>  <path>" line, so only
+        // the program name differs.
+        let checker = if cfg!(target_os = "macos") {
+            "shasum -a 256 -c -"
+        } else {
+            "sha256sum -c -"
+        };
+        let unpack = match self.unpack {
+            "unzip" => "unzip -q {prefix}/download.archive -d {prefix}",
+            _ => "tar -xzf {prefix}/download.archive -C {prefix}",
+        };
+        format!(
+            "curl -fsSL {url} -o {{prefix}}/download.archive && \
+             printf '%s  %s\\n' {sha} {{prefix}}/download.archive | {checker} && \
+             {unpack} && rm {{prefix}}/download.archive",
+            url = self.url,
+            sha = self.sha256,
+        )
+    }
+}
+
+/// The archive for this machine, when the catalogue has one.
+fn asset_for(installer: &Installer) -> Option<&'static Asset> {
+    installer
+        .assets
+        .iter()
+        .find(|a| a.os == std::env::consts::OS && a.arch == std::env::consts::ARCH)
 }
 
 /// A named set of installers with a home of its own.
@@ -80,17 +151,39 @@ pub fn plans(catalogue: &Catalogue) -> Vec<InstallPlan> {
     catalogue
         .installers
         .iter()
-        .map(|installer| InstallPlan {
-            language: installer.language.to_string(),
-            package: installer.package.to_string(),
-            tool: installer.tool.to_string(),
-            reason: installer.reason.to_string(),
-            blocked: which(installer.tool).is_none().then(|| {
-                format!(
+        .map(|installer| {
+            let asset = asset_for(installer);
+            // An archive installer needs an unpacker as well as a fetcher,
+            // and on a platform the catalogue has no archive for it needs
+            // saying so — not a missing-`curl` message about a machine that
+            // has curl.
+            let blocked = if !installer.assets.is_empty() && asset.is_none() {
+                Some(format!(
+                    "{} publishes no build for {}-{}",
+                    installer.package,
+                    std::env::consts::OS,
+                    std::env::consts::ARCH
+                ))
+            } else if which(installer.tool).is_none() {
+                Some(format!(
                     "`{}` is not installed, and it is what fetches {}",
                     installer.tool, installer.package
-                )
-            }),
+                ))
+            } else {
+                asset.filter(|a| which(a.unpack).is_none()).map(|a| {
+                    format!(
+                        "`{}` is not installed, and it is what unpacks {}",
+                        a.unpack, installer.package
+                    )
+                })
+            };
+            InstallPlan {
+                language: installer.language.to_string(),
+                package: installer.package.to_string(),
+                tool: installer.tool.to_string(),
+                reason: installer.reason.to_string(),
+                blocked,
+            }
         })
         .collect()
 }
@@ -109,6 +202,27 @@ pub fn install(catalogue: &Catalogue, root: &Path, language: &str) -> Result<Pat
         );
     };
 
+    if !installer.assets.is_empty() && asset_for(installer).is_none() {
+        bail!(
+            "{package} publishes no build for {os}-{arch}, so there is nothing to install here.\n\
+             Build it yourself or install it however this platform does — hick searches the \
+             project and the machine before it looks here, so either works.",
+            package = installer.package,
+            os = std::env::consts::OS,
+            arch = std::env::consts::ARCH,
+        );
+    }
+    if let Some(asset) = asset_for(installer)
+        && which(asset.unpack).is_none()
+    {
+        bail!(
+            "`{unpack}` is not installed, and it is what unpacks {package}.\n\
+             Install {unpack} and try again, or install {package} yourself — it will be found \
+             and used.",
+            unpack = asset.unpack,
+            package = installer.package,
+        );
+    }
     if which(installer.tool).is_none() {
         bail!(
             "`{tool}` is not installed, and it is what fetches {package}.\n\
@@ -136,9 +250,11 @@ pub fn install(catalogue: &Catalogue, root: &Path, language: &str) -> Result<Pat
     let prefix = root.join(catalogue.prefix);
     std::fs::create_dir_all(&prefix).with_context(|| format!("creating {}", prefix.display()))?;
 
-    let command = installer
-        .command
-        .replace("{prefix}", &prefix.to_string_lossy());
+    let command = match asset_for(installer) {
+        Some(asset) => asset.command(),
+        None => installer.command.to_string(),
+    }
+    .replace("{prefix}", &prefix.to_string_lossy());
 
     // The network is granted here and nowhere else in this tool: an install
     // that cannot fetch is not an install.
@@ -200,15 +316,81 @@ mod tests {
         // confusingly instead of being caught here.
         for catalogue in catalogues() {
             for installer in catalogue.installers {
+                // An archive installer's command is built from the asset for
+                // this machine, so that is what has to be checked — and it
+                // has to be checked for EVERY platform's asset, not only the
+                // one this test happens to be running on.
+                let commands: Vec<String> = if installer.assets.is_empty() {
+                    vec![installer.command.to_string()]
+                } else {
+                    installer.assets.iter().map(Asset::command).collect()
+                };
+                for command in commands {
+                    assert!(
+                        command.contains("{prefix}"),
+                        "{} installs somewhere unconfined: {command}",
+                        installer.language,
+                    );
+                    assert!(
+                        !command.contains(" -g ") && !command.contains("--global"),
+                        "{} installs globally, which the sandbox would (rightly) refuse",
+                        installer.language
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn every_archive_is_pinned_to_bytes_somebody_looked_at() {
+        // A URL with no checksum is "download and run whatever is there
+        // now", which is the one thing an installer must not be. The
+        // checksum is a pin rather than a signature — upstream publishes no
+        // signatures — and the honest version of that is: these are the
+        // bytes somebody saw, and nothing more is claimed.
+        for catalogue in catalogues() {
+            for installer in catalogue.installers {
+                for asset in installer.assets {
+                    assert_eq!(
+                        asset.sha256.len(),
+                        64,
+                        "{} / {}-{}: not a SHA-256",
+                        installer.language,
+                        asset.os,
+                        asset.arch
+                    );
+                    assert!(
+                        asset.sha256.chars().all(|c| c.is_ascii_hexdigit()),
+                        "{} / {}-{}: not hex",
+                        installer.language,
+                        asset.os,
+                        asset.arch
+                    );
+                    assert!(
+                        asset.url.starts_with("https://"),
+                        "{} fetches over something other than TLS: {}",
+                        installer.language,
+                        asset.url
+                    );
+                    assert!(
+                        matches!(asset.unpack, "tar" | "unzip"),
+                        "{} needs an unpacker nothing checks for: {}",
+                        installer.language,
+                        asset.unpack
+                    );
+                }
+                // A half-bumped version is the mistake this catches: four
+                // URLs that do not agree about which release they are would
+                // install one release's binary against another's checksum.
+                let versions: std::collections::BTreeSet<&str> = installer
+                    .assets
+                    .iter()
+                    .filter_map(|a| a.url.split("/download/").nth(1))
+                    .filter_map(|rest| rest.split('/').next())
+                    .collect();
                 assert!(
-                    installer.command.contains("{prefix}"),
-                    "{} installs somewhere unconfined: {}",
-                    installer.language,
-                    installer.command
-                );
-                assert!(
-                    !installer.command.contains(" -g ") && !installer.command.contains("--global"),
-                    "{} installs globally, which the sandbox would (rightly) refuse",
+                    versions.len() <= 1,
+                    "{} pins assets from more than one release: {versions:?}",
                     installer.language
                 );
             }

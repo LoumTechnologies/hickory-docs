@@ -57,6 +57,24 @@ class Program
 /// line above is the method signature, which is a different frame.
 const SUBTOTAL_LINE: u32 = 20;
 
+/// Point the scratch project at the adapter this repository installed.
+///
+/// A developer runs `hick dap install csharp` once, at the top of this repo;
+/// a test project in a temp directory is nowhere near it. Without this the
+/// test skips on the machine most likely to be running it, which is how a
+/// suite ends up green while testing nothing — the same borrow
+/// `live_session.rs` does for debugpy.
+#[cfg(unix)]
+fn borrow_this_repos_adapters(into: &Path) {
+    let cache = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../.hick-cache");
+    if cache.join("adapters/netcoredbg/netcoredbg").exists() {
+        let _ = std::os::unix::fs::symlink(cache, into.join(".hick-cache"));
+    }
+}
+
+#[cfg(not(unix))]
+fn borrow_this_repos_adapters(_into: &Path) {}
+
 fn have(program: &str) -> bool {
     std::process::Command::new(program)
         .arg("--version")
@@ -84,6 +102,7 @@ async fn a_breakpoint_on_a_csharp_document_line_stops_inside_the_assembly() {
 
     // Discovery BEFORE the build, the way the real path orders it: a machine
     // with no netcoredbg should not spend a build finding that out.
+    borrow_this_repos_adapters(root);
     let Some(adapter) = hick_dap::discover("csharp", root) else {
         eprintln!(
             "SKIPPED: no C# debug adapter on this machine.\n{}",

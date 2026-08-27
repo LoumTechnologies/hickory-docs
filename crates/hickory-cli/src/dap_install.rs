@@ -4,7 +4,7 @@
 //! `hick lsp install`; see [`crate::tool_install`]. This file is the
 //! catalogue and nothing else.
 
-use crate::tool_install::{Catalogue, Installer};
+use crate::tool_install::{Asset, Catalogue, Installer};
 
 /// Where a debug adapter is installed, relative to the project root.
 ///
@@ -38,6 +38,7 @@ const INSTALLERS: &[Installer] = &[
         // runs the cell — a machine python paired with a venv's debugpy
         // fails in a way that reads as our bug.
         command: "uv venv {prefix}/python && uv pip install --python {prefix}/python/bin/python debugpy",
+        assets: &[],
         reason: "Microsoft's Python debugger, and the reference DAP implementation",
     },
     Installer {
@@ -49,7 +50,65 @@ const INSTALLERS: &[Installer] = &[
         // discovery looks for a script to hand to `node` rather than a name
         // on PATH.
         command: "npm install --no-fund --no-audit --prefix {prefix}/node @vscode/js-debug",
+        assets: &[],
         reason: "the Node debugger VS Code ships, usable outside it",
+    },
+    Installer {
+        language: "csharp",
+        tool: "curl",
+        package: "netcoredbg",
+        // Nothing to run: an archive install has no setup script, so the
+        // command is built from the matching asset below.
+        command: "",
+        assets: NETCOREDBG,
+        // Samsung's, MIT, and the only option. Microsoft's `vsdbg` is
+        // licensed for use only with Visual Studio and VS Code, which makes
+        // it unavailable to this product rather than merely unchosen.
+        reason: "the only MIT-licensed .NET debugger, and the one hick's C# support was built against",
+    },
+];
+
+/// netcoredbg 3.2.0-1092, pinned per platform.
+///
+/// Every archive unpacks to a `netcoredbg/` directory holding the binary and
+/// its managed DLLs, which is why discovery looks for
+/// `.hick-cache/adapters/netcoredbg/netcoredbg` rather than a `bin/`.
+///
+/// The checksums were taken from the four assets on 2026-08-27 by fetching
+/// each one. Only `linux-x86_64` has been unpacked and run; the other three
+/// are pinned bytes nobody here has executed, and the guarantee says so.
+/// Bumping the version means replacing all four together — a mixed set would
+/// install one release's binary against another's checksum and fail the
+/// verification rather than do anything dangerous, which is the failure mode
+/// worth having.
+const NETCOREDBG: &[Asset] = &[
+    Asset {
+        os: "linux",
+        arch: "x86_64",
+        url: "https://github.com/Samsung/netcoredbg/releases/download/3.2.0-1092/netcoredbg-linux-amd64.tar.gz",
+        sha256: "080eb3b2d2152465f599d3b33d1ee6e747794e11cc0a3773ec689f5e5f2c5afa",
+        unpack: "tar",
+    },
+    Asset {
+        os: "linux",
+        arch: "aarch64",
+        url: "https://github.com/Samsung/netcoredbg/releases/download/3.2.0-1092/netcoredbg-linux-arm64.tar.gz",
+        sha256: "065ff49badec8a695dbea2de6ab6a330c774a191e426a217ab8cc05250627ccb",
+        unpack: "tar",
+    },
+    Asset {
+        os: "macos",
+        arch: "aarch64",
+        url: "https://github.com/Samsung/netcoredbg/releases/download/3.2.0-1092/netcoredbg-osx-arm64.zip",
+        sha256: "f4fa33b3ff874910cc184b4bb3b9c56d0abdf5c6521cee0b144d7c6e4a6e59ea",
+        unpack: "unzip",
+    },
+    Asset {
+        os: "windows",
+        arch: "x86_64",
+        url: "https://github.com/Samsung/netcoredbg/releases/download/3.2.0-1092/netcoredbg-win64.zip",
+        sha256: "3c410a45fa502415203a94fcb88654af65bf8e3dac158a5527a722e7a6b9274a",
+        unpack: "unzip",
     },
 ];
 
