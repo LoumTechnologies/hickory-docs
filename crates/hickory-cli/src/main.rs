@@ -232,6 +232,11 @@ enum Command {
     /// Show or install the language servers that power the editor.
     #[command(subcommand)]
     Lsp(LspCommand),
+    /// Show or install the code indexers that answer questions about the
+    /// whole project rather than about one file. In ADDITION to the language
+    /// servers, never in place of them.
+    #[command(subcommand)]
+    Index(IndexCommand),
     /// Show or install the debug adapters that power breakpoints.
     #[command(subcommand)]
     Dap(DapCommand),
@@ -878,6 +883,31 @@ struct CarryArgs {
 /// Every one of these works offline and in a folder that is not a repository,
 /// which is most of the point: git's resolution is a commit, and this is the
 /// interval below one.
+/// `hick index …`
+#[derive(Debug, clap::Subcommand)]
+enum IndexCommand {
+    /// Which indexers exist, and which this machine can install.
+    List,
+    /// Fetch an indexer, confined.
+    Install {
+        /// Languages to install. Empty installs everything possible.
+        languages: Vec<String>,
+        #[arg(long)]
+        root: Option<PathBuf>,
+    },
+    /// Run an indexer over this project and write an index.
+    ///
+    /// The index is produced and **nothing reads it yet** — see
+    /// `docs/specs/freeform/an-index-beside-the-language-server.md` for the
+    /// licence decision that is deliberately left open.
+    Build {
+        /// The language to index.
+        language: String,
+        #[arg(long)]
+        root: Option<PathBuf>,
+    },
+}
+
 #[derive(Debug, clap::Args)]
 struct HistoryArgs {
     #[command(subcommand)]
@@ -1144,6 +1174,7 @@ fn run() -> ExitCode {
             Command::Model(cmd) => cmd_model(cmd).await,
             Command::Dap(cmd) => cmd_dap(cmd),
             Command::Repair(args) => cmd_repair(args),
+            Command::Index(command) => cmd_index(command),
             Command::History(args) => cmd_history(args),
             Command::MergeDriver(args) => cmd_merge_driver(args),
             Command::SandboxRun(args) => cmd_sandbox_run(args),
@@ -2396,6 +2427,119 @@ fn cmd_repair(args: RepairArgs) -> Result<ExitCode> {
 ///
 /// Git's contract: write the result to `%A` either way, exit 0 for a clean
 /// merge and non-zero for a conflict.
+fn cmd_index(command: IndexCommand) -> Result<ExitCode> {
+    use hickory_cli::index_install;
+
+    match command {
+        IndexCommand::List => {
+            println!("Code indexers answer questions about the whole project — where else is");
+            println!("this used, across documents and the files they weave. They are IN ADDITION");
+            println!("to language servers, never in place of them: a server knows your unsaved");
+            println!("buffer and an index does not, and an index spans the project and a server");
+            println!("does not.\n");
+            for language in [
+                "typescript",
+                "javascript",
+                "python",
+                "rust",
+                "csharp",
+                "java",
+            ] {
+                println!("  {language}");
+                for line in textwrap_lines(&index_install::how_to_get(language)) {
+                    println!("      {line}");
+                }
+            }
+            println!();
+            report_catalogue(
+                "Of those, the indexers `hick index install` can fetch:",
+                index_install::plans(),
+                "hick index install",
+                index_install::INDEXERS_DIR,
+            );
+            println!();
+            println!("Nothing in hick reads an index yet. `hick index build` produces one, and");
+            println!("no navigation feature consults it — see");
+            println!("docs/specs/freeform/an-index-beside-the-language-server.md.");
+            Ok(ExitCode::SUCCESS)
+        }
+
+        IndexCommand::Install { languages, root } => {
+            let root = match root {
+                Some(root) => root,
+                None => std::env::current_dir().context("resolving the current directory")?,
+            };
+            let languages = chosen_languages(languages, index_install::plans());
+            if languages.is_empty() {
+                println!(
+                    "Nothing to install: none of the installers' tools ({}) are on this \
+                     machine.\nInstall one of them, or install an indexer yourself — either way \
+                     hick will find it.",
+                    installer_tools(index_install::plans()),
+                );
+                return Ok(ExitCode::SUCCESS);
+            }
+            for language in &languages {
+                println!("Installing the {language} indexer, sandboxed…");
+                let prefix = index_install::install(&root, language)?;
+                println!("  installed into {}", prefix.display());
+            }
+            Ok(ExitCode::SUCCESS)
+        }
+
+        IndexCommand::Build { language, root } => {
+            let root = match root {
+                Some(root) => root,
+                None => std::env::current_dir().context("resolving the current directory")?,
+            };
+            let Some(recipe) = index_install::recipe(&language) else {
+                bail!(
+                    "hick does not know how to run an indexer for {language}.\n{}",
+                    index_install::how_to_get(&language)
+                );
+            };
+            let Some(binary) = index_install::discover(&language, &root) else {
+                bail!(
+                    "no {language} indexer on this machine.\n{}",
+                    index_install::how_to_get(&language)
+                );
+            };
+            // Into `.hick-cache/`, which `hick init` already ignores: an index
+            // is a build artifact of this machine and must never land in the
+            // repository.
+            let out_dir = root.join(".hick-cache/index");
+            std::fs::create_dir_all(&out_dir)
+                .with_context(|| format!("creating {}", out_dir.display()))?;
+            let out = out_dir.join(format!("{language}.scip"));
+
+            println!("Indexing {language} with {}…", binary.display());
+            let status = std::process::Command::new(&binary)
+                .args(recipe.args)
+                .arg(recipe.output_flag)
+                .arg(&out)
+                .current_dir(&root)
+                .status()
+                .with_context(|| format!("running {}", binary.display()))?;
+            if !status.success() {
+                bail!(
+                    "the {language} indexer failed ({status}). Its own output says why — hick \
+                     ran it and did not interpret it."
+                );
+            }
+            let size = std::fs::metadata(&out).map(|m| m.len()).unwrap_or(0);
+            println!("  wrote {} ({size} bytes)", out.display());
+            // Said every time, because a person who does not know this will
+            // reasonably assume navigation just got better.
+            println!();
+            println!("Nothing in hick reads this yet. Reading it means linking the `scip` crate,");
+            println!("which is Apache-2.0 — permissive, so it passes the rule in AGENTS.md and");
+            println!("contradicts its \"MIT only\" heading. That is a decision to make");
+            println!("deliberately, and it has not been made.");
+            Ok(ExitCode::SUCCESS)
+        }
+    }
+}
+
 fn cmd_history(args: HistoryArgs) -> Result<ExitCode> {
     use hickory_workspace::history::ActKind;
 

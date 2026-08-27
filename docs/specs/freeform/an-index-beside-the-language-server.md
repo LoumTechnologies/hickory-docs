@@ -1,6 +1,10 @@
 # An index beside the language server
 
-*Status: proposal, 2026-08-26. Not built.*
+*Status: proposal, 2026-08-26. **The install-and-spawn half is built
+(2026-08-27)**; the reading half is deliberately not — see the licence
+question below, which is still open. `hick index install` and `hick index
+build` work, and nothing consults what they produce. Guarantee:
+`docs/guarantees/editor-intelligence/an-index-is-installed-and-spawned-and-read-by-nothing.md`.*
 
 A language server answers questions about **the file you are looking at, as it
 is right now, including the parts you have not saved**. An index answers
@@ -90,10 +94,19 @@ That is a decision to make deliberately, and it splits in two:
   adapters already are. Nothing links them, and their licences are the user's
   business the way `rust-analyzer`'s already is.
 
-The second needs no decision. The first does, and the honest options are: read
-the Protobuf with a schema of our own (the format is stable and documented),
-or amend the heading to say what the rule says. Pretending Apache-2.0 is MIT
-is not one of them.
+The second needs no decision, and is what was built. The first does, and the
+honest options are: read the Protobuf with a schema of our own (the format is
+stable and documented), or amend the heading to say what the rule says.
+Pretending Apache-2.0 is MIT is not one of them.
+
+**Left open on purpose (2026-08-27).** The recommendation, recorded in the
+guarantee rather than acted on: amend the heading. The rule beneath it — no
+copyleft — is what expresses the actual concern, and Apache-2.0 does not
+threaten it; the heading is a shorthand that has drifted from its own rule.
+Writing our own Protobuf schema trades a dependency for a maintenance burden
+on somebody else's evolving format and buys nothing legally. But it is a
+licence decision about somebody else's product, so it is a recommendation and
+not a change.
 
 ## Refusals
 

@@ -317,6 +317,13 @@ use — not a second mechanism. Indexers are **spawned** like language servers
 (`hick index install`, same sandboxed catalogue as `hick lsp install`); the
 `scip` crate would be **linked**, which is where the **MIT-only heading and
 the copyleft-only rule disagree** and a deliberate decision is owed.
+**Built (2026-08-27): the install-and-spawn half only** — `hick index
+install|build` fetches an indexer confined, finds it the usual way, runs it,
+and writes `.hick-cache/index/<lang>.scip`. **Nothing reads it**, and the CLI
+says so every time rather than letting a person assume navigation improved.
+The licence decision is left to Nate; the recommendation (amend the heading,
+because the rule beneath it is what expresses the concern and Apache-2.0 does
+not threaten it) is written in the guarantee.
 
 ## Stack (settled — do not relitigate)
 
