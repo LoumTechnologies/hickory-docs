@@ -83,10 +83,14 @@ discovery.
 
 ## The licence question, stated rather than assumed
 
-`AGENTS.md` says **MIT only**, and the rule beneath the heading says a
-dependency whose licence is *copyleft* cannot be linked in. Apache-2.0 is
-permissive, not copyleft, so it passes the rule and contradicts the heading.
-That is a decision to make deliberately, and it splits in two:
+`AGENTS.md` used to say **MIT only** over a rule about *copyleft*. Apache-2.0
+is permissive, not copyleft, so it passed the rule and contradicted the
+heading. **Resolved 2026-08-27: the heading was amended**, because the rule
+beneath it was always the policy and the shorthand had drifted from the thing
+it was shorthand for. Apache-2.0 is allowed, and so the `scip` crate may be
+linked.
+
+The decision still splits in two, and the halves are worth keeping apart:
 
 - **The `scip` crate would be LINKED** into this product, to read an index.
   That is the case the heading is about.
@@ -94,19 +98,14 @@ That is a decision to make deliberately, and it splits in two:
   adapters already are. Nothing links them, and their licences are the user's
   business the way `rust-analyzer`'s already is.
 
-The second needs no decision, and is what was built. The first does, and the
-honest options are: read the Protobuf with a schema of our own (the format is
-stable and documented), or amend the heading to say what the rule says.
-Pretending Apache-2.0 is MIT is not one of them.
+The second needed no decision, and is what was built. The first was decided on
+2026-08-27: **the heading was amended** rather than the dependency avoided.
+Writing our own Protobuf schema would have traded a dependency for a
+maintenance burden on somebody else's evolving format and bought nothing
+legally, and pretending Apache-2.0 is MIT was never one of the options.
 
-**Left open on purpose (2026-08-27).** The recommendation, recorded in the
-guarantee rather than acted on: amend the heading. The rule beneath it — no
-copyleft — is what expresses the actual concern, and Apache-2.0 does not
-threaten it; the heading is a shorthand that has drifted from its own rule.
-Writing our own Protobuf schema trades a dependency for a maintenance burden
-on somebody else's evolving format and buys nothing legally. But it is a
-licence decision about somebody else's product, so it is a recommendation and
-not a change.
+So the reading half is **unblocked and still unbuilt** — nothing consumes an
+index yet. What stops it now is only that nobody has written it.
 
 ## Refusals
 

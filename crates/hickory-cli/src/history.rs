@@ -148,6 +148,56 @@ pub fn record_changes(
     }
 }
 
+/// Put an act back, and record the going-back as an act of its own.
+///
+/// One function rather than two steps a caller remembers to pair, because the
+/// pairing has an **order** that is easy to get wrong and silent when it is:
+/// the bytes a revert overwrites must be read BEFORE it writes, or the
+/// recorded before and after are the same and no act is stored at all. That
+/// was the first version of this, and it quietly cost the property the whole
+/// list depends on — *a history you can fall out of is a history nobody
+/// trusts*.
+///
+/// It also belongs in the library rather than in the CLI so the app panel
+/// cannot grow a second, subtly different revert.
+pub fn revert_act(
+    root: &Path,
+    history: &History,
+    act: &hickory_workspace::history::Act,
+    only: Option<&str>,
+) -> anyhow::Result<hickory_workspace::history::Reverted> {
+    // What the files hold right now — the state a person is undoing, and the
+    // one they will want back if this revert was a mistake.
+    let before: Vec<(String, Option<Vec<u8>>)> = act
+        .files
+        .iter()
+        .filter(|f| f.changed())
+        .filter(|f| only.is_none_or(|wanted| f.path == wanted))
+        .map(|f| (f.path.clone(), std::fs::read(root.join(&f.path)).ok()))
+        .collect();
+
+    let out = history.revert(root, act, only)?;
+    if out.restored.is_empty() {
+        return Ok(out);
+    }
+
+    let changes: Vec<PendingChange> = before
+        .into_iter()
+        .filter(|(path, _)| out.restored.contains(path))
+        .map(|(path, was)| {
+            let now = std::fs::read(root.join(&path)).ok();
+            (path, was, now)
+        })
+        .collect();
+    record_changes(
+        root,
+        ActKind::Revert,
+        Some(format!("reverted {} ({})", act.id, act.kind.as_str())),
+        &changes,
+    );
+    Ok(out)
+}
+
 /// Record a set of files that are about to be deleted.
 pub fn record_removals(
     root: &Path,

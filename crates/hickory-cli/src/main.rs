@@ -2531,18 +2531,14 @@ fn cmd_index(command: IndexCommand) -> Result<ExitCode> {
             // Said every time, because a person who does not know this will
             // reasonably assume navigation just got better.
             println!();
-            println!("Nothing in hick reads this yet. Reading it means linking the `scip` crate,");
-            println!("which is Apache-2.0 — permissive, so it passes the rule in AGENTS.md and");
-            println!("contradicts its \"MIT only\" heading. That is a decision to make");
-            println!("deliberately, and it has not been made.");
+            println!("Nothing in hick reads this yet — no navigation feature consults it.");
+            println!("See docs/specs/freeform/an-index-beside-the-language-server.md.");
             Ok(ExitCode::SUCCESS)
         }
     }
 }
 
 fn cmd_history(args: HistoryArgs) -> Result<ExitCode> {
-    use hickory_workspace::history::ActKind;
-
     let root = std::env::current_dir().context("resolving the current directory")?;
     let Some(history) = hickory_cli::history::open(&root) else {
         // Not an error: a machine with no data directory still runs
@@ -2626,7 +2622,9 @@ fn cmd_history(args: HistoryArgs) -> Result<ExitCode> {
             let Some(found) = history.act(&act) else {
                 bail!("no act {act} in this folder's local history. `hick history` lists them.");
             };
-            let out = history.revert(&root, &found, path.as_deref())?;
+            // Reverting and recording the going-back is ONE call, because
+            // the two have an order that is silent when it is wrong.
+            let out = hickory_cli::history::revert_act(&root, &history, &found, path.as_deref())?;
             for path in &out.restored {
                 println!("  put back {path}");
             }
@@ -2645,25 +2643,12 @@ fn cmd_history(args: HistoryArgs) -> Result<ExitCode> {
             }
             if out.restored.is_empty() {
                 println!("Nothing was put back.");
-                return Ok(ExitCode::SUCCESS);
+            } else {
+                println!(
+                    "\nThis revert is itself an act: `hick history` lists it, and reverting \
+                     THAT puts things back the way they were before you ran this."
+                );
             }
-            // Going back is itself an act, so the way back from a bad revert
-            // is the same list. A history you can fall out of is a history
-            // nobody trusts.
-            let writes: Vec<(std::path::PathBuf, Vec<u8>)> = out
-                .restored
-                .iter()
-                .filter_map(|p| {
-                    let full = root.join(p);
-                    std::fs::read(&full).ok().map(|bytes| (full, bytes))
-                })
-                .collect();
-            hickory_cli::history::record(
-                &root,
-                ActKind::Revert,
-                Some(format!("reverted {}", found.id)),
-                &writes,
-            );
             Ok(ExitCode::SUCCESS)
         }
 

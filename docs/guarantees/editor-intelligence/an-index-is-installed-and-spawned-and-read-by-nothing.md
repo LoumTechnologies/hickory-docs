@@ -20,13 +20,15 @@ implied.
   mentions either names a real `hick index install` target or names the way
   that ecosystem actually installs its indexer.
 
-**The half that is deliberately not built is the reading half**, and the
-reason is a contradiction only the product's owner can resolve. Reading an
-index means linking the `scip` crate, which is Apache-2.0: permissive, so it
-passes `AGENTS.md`'s *rule* about copyleft, and contradicts its **MIT only**
-*heading*. The indexers themselves need no such decision — they are
-**spawned**, exactly as language servers and debug adapters are, and nothing
-links them.
+**The half that is not built is the reading half.** Until 2026-08-27 what
+blocked it was a contradiction — reading an index means linking the `scip`
+crate, which is Apache-2.0: permissive, so it passed `AGENTS.md`'s *rule*
+about copyleft and contradicted its **MIT only** *heading*. **That is
+resolved: the heading was amended**, because the rule beneath it was always
+the policy. Apache-2.0 is allowed and the crate may be linked. Nothing blocks
+the reading half now except that nobody has written it. The indexers
+themselves never needed the decision — they are **spawned**, exactly as
+language servers and debug adapters are, and nothing links them.
 
 ---
 
@@ -51,16 +53,11 @@ Last LLM verification:
   with "no installer for 'javascript'" because the catalogue is keyed by
   ecosystem. A weaker check that only asserted *some* install command was
   named would have passed.
-- **What I would have done about the licence, since the spec asks for it to be
-  written down rather than decided quietly.** I would amend the heading, not
-  work around it. The rule beneath it — no copyleft — is the one that
-  expresses the actual concern, and Apache-2.0 does not threaten it; the
-  heading is a shorthand that has drifted from its own rule. The alternative
-  the spec offers, reading the Protobuf with a schema of our own, trades a
-  dependency for a maintenance burden on somebody else's evolving format, and
-  buys nothing legally that Apache-2.0 did not already give. But it is a
-  licence decision about a product I do not own, so it is written here rather
-  than taken.
+- **The licence decision was taken by Nate on 2026-08-27: amend the heading.**
+  `AGENTS.md`'s **MIT only** became **No copyleft**, which is what the rule
+  beneath it always said — the shorthand had drifted from the thing it was
+  shorthand for. Apache-2.0 is permissive and allowed, so the `scip` crate may
+  be linked and the reading half is unblocked.
 - Caveat requiring review:
   - **Nothing consumes an index, so no navigation feature is better than it
     was.** This is the whole of the reading half and it is untouched.

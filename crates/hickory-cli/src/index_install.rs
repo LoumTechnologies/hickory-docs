@@ -14,14 +14,15 @@
 //! you installed yourself, and **spawning** an indexer to produce a
 //! `index.scip`.
 //!
-//! Not built, and not by accident: **nothing reads the index.** Reading it
-//! means linking the `scip` crate, which is Apache-2.0 — permissive, not
-//! copyleft, so it passes `AGENTS.md`'s *rule* and contradicts its **MIT
-//! only** *heading*. That contradiction is a decision for the person whose
-//! product it is, not one to resolve quietly by picking whichever of the two
-//! sentences suits. The indexers themselves need no such decision: they are
-//! **spawned**, exactly as language servers and debug adapters already are,
-//! and nothing links them.
+//! Not built: **nothing reads the index.** Until 2026-08-27 that was blocked
+//! by a contradiction — reading it means linking the `scip` crate, which is
+//! Apache-2.0, permissive but not MIT — and `AGENTS.md`'s heading and its
+//! rule disagreed about whether that was allowed. The heading was amended:
+//! the rule (no copyleft) was always the policy, so Apache-2.0 is allowed and
+//! the crate may be linked. Nothing blocks the reading half now except that
+//! nobody has written it. The indexers themselves never needed the decision:
+//! they are **spawned**, exactly as language servers and debug adapters
+//! already are, and nothing links them.
 //!
 //! So `hick index build` produces an index and says, in as many words, that
 //! nothing consumes it yet. That is a strange thing to ship on its own, and

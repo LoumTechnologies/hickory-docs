@@ -19,8 +19,19 @@ be put back:
 - **A file that has moved on is reported, never silently skipped.** Somebody
   undoing a batch is already unsure what happened, and a quiet partial revert
   is how they come to trust a state that never existed.
-- **Going back is itself an act**, recorded like any other. A history you can
-  fall out of is a history nobody trusts.
+- **Going back is itself an act**, recorded like any other, so reverting a
+  revert is the way forward again. A history you can fall out of is a history
+  nobody trusts.
+
+**This is not undo/redo, and must not be wired to one.** The two overlap in
+the middle and differ at both ends: CodeMirror's undo stack is finer, is
+per-buffer, and dies with the tab; local history is coarser, is per-project,
+and survives everything. What you get is *revert an act*, and *revert the
+revert* — which is a way back rather than a redo stack: there is no cursor
+into a linear history, no redo that is invalidated by doing something else,
+and no keystroke bound to any of it. Wiring `⌘Z` to this would produce a
+`⌘Z` that sometimes reverts a scaffolder, which is worse than either
+mechanism on its own.
 - **It is bounded and forgettable.** Evicted oldest-first under a byte budget
   and an age limit (`HICKORY_HISTORY_BYTES`, `HICKORY_HISTORY_DAYS`), and
   `hick history forget` exists because this store holds bytes their author
@@ -80,6 +91,14 @@ Last LLM verification:
   error, and a feature that silently did nothing. Roots are absolutised at the
   seam now, with a test.
 - Caveat requiring review:
+  - **Revert-and-record is one function on purpose** (`history::revert_act`),
+    because the two halves have an order that is silent when it is wrong: the
+    bytes a revert overwrites must be read BEFORE it writes them, or the
+    recorded before and after are identical and **no act is stored at all**.
+    That was the first version, it was in the CLI where nothing tested it, and
+    it silently cost the property the whole list depends on. Proved by running
+    the old order and watching it record nothing, then moved into the library
+    so the app panel cannot grow a second, subtly different revert.
   - **There is no app panel.** The spec describes one in the same family as
     the git pane, with the act list on the left and a diff on the right. The
     mechanism and the CLI are built; the surface is not, so today this is a

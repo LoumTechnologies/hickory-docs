@@ -313,3 +313,61 @@ async fn reverting_a_replace_reports_a_file_that_has_moved_on() {
         "mine now\n"
     );
 }
+
+/// Going back is itself an act, so the way back from a bad revert is the same
+/// list. A history you can fall out of is a history nobody trusts.
+///
+/// This is also the closest thing local history has to **redo**: reverting the
+/// revert. It is not an undo/redo stack and must not be wired to one — see the
+/// guarantee — but a person who undid the wrong thing is not stuck.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_revert_is_an_act_and_reverting_it_puts_things_back() {
+    let session = start(&[("a.txt", "invoice_id\n")]).await;
+    let root = session.dir.path().canonicalize().unwrap();
+    post(
+        &session,
+        "/api/find/replace",
+        json!({ "q": "invoice_id", "replacement": "invoice_ref" }),
+    )
+    .await;
+    let history = hickory_cli::history::open(&root).unwrap();
+    let replace = history
+        .acts()
+        .into_iter()
+        .find(|a| a.kind == hickory_workspace::history::ActKind::Replace)
+        .unwrap();
+
+    // Undo the replace.
+    let out = hickory_cli::history::revert_act(&root, &history, &replace, None).unwrap();
+    assert_eq!(out.restored, vec!["a.txt".to_string()]);
+    assert_eq!(
+        std::fs::read_to_string(root.join("a.txt")).unwrap(),
+        "invoice_id\n"
+    );
+
+    // The going-back was recorded. Reading the before-bytes AFTER the revert
+    // had already written would make before == after and store nothing at
+    // all, which is exactly the bug this asserts against.
+    let revert = history
+        .acts()
+        .into_iter()
+        .find(|a| a.kind == hickory_workspace::history::ActKind::Revert)
+        .expect("the revert is itself an act");
+    assert_eq!(revert.changed().count(), 1, "{revert:?}");
+    assert!(
+        revert
+            .detail
+            .as_deref()
+            .is_some_and(|d| d.contains(&replace.id)),
+        "the revert does not say what it undid: {revert:?}"
+    );
+
+    // And reverting THAT is the way forward again.
+    let redo = hickory_cli::history::revert_act(&root, &history, &revert, None).unwrap();
+    assert_eq!(redo.restored, vec!["a.txt".to_string()]);
+    assert_eq!(
+        std::fs::read_to_string(root.join("a.txt")).unwrap(),
+        "invoice_ref\n",
+        "reverting the revert did not put the replace back"
+    );
+}

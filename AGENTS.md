@@ -315,8 +315,10 @@ speed an answer and may never *be* the answer, the live server wins any
 disagreement, and staleness is the same input-digest signal recordings already
 use — not a second mechanism. Indexers are **spawned** like language servers
 (`hick index install`, same sandboxed catalogue as `hick lsp install`); the
-`scip` crate would be **linked**, which is where the **MIT-only heading and
-the copyleft-only rule disagree** and a deliberate decision is owed.
+`scip` crate would be **linked**, which is where the MIT-only heading and the
+copyleft rule used to disagree — **resolved 2026-08-27 by amending the
+heading**, because the rule was always the policy. Apache-2.0 is permissive
+and allowed.
 **Built (2026-08-27): the install-and-spawn half only** — `hick index
 install|build` fetches an indexer confined, finds it the usual way, runs it,
 and writes `.hick-cache/index/<lang>.scip`. **Nothing reads it**, and the CLI
@@ -404,10 +406,18 @@ not threaten it) is written in the guarantee.
   `hickory-executor-canopy` may know its API; never edit the cloud-canopy repo.
   It stays an **optional** executor pointed at a node the *user* runs; it is
   not a service we operate, and nothing may require it.
-- **MIT only.** A dependency whose licence is GPL or otherwise copyleft cannot
-  be linked into this product. The live example: `grit` splits its licence —
+- **No copyleft.** A dependency whose licence is GPL or otherwise copyleft
+  cannot be linked into this product. Permissive licences — MIT, Apache-2.0,
+  BSD, ISC — are fine. The live example: `grit` splits its licence —
   `grit-lib` is MIT and usable, `grit-cli` is GPL-2.0 and is not. Check the
   crate, not the project.
+
+  *Amended 2026-08-27.* This said **MIT only**, which contradicted its own
+  rule: the sentence beneath it has always been about copyleft, and Apache-2.0
+  is not copyleft. The shorthand had drifted from the thing it was shorthand
+  for, and `an-index-beside-the-language-server.md` found the drift by needing
+  the Apache-2.0 `scip` crate and being unable to tell which of the two
+  sentences was the policy. The rule is the policy; the heading now says so.
 - No server, no account, no payment, no telemetry. A change that needs any of
   them is out of scope by decision — see `local-only.md`.
 
