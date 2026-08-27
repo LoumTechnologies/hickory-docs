@@ -109,13 +109,20 @@ cacheable, already a readable diff, already `hick lineage`-able. Say
 "**anchored to a container**" — never "attached to a document", which does not
 say the thing that makes it work.
 
-There is a serializer for this already, and it is dead code:
+There was a serializer for this, and it is **deleted** (2026-08-26).
 `hick_literate::transcript::TranscriptBuilder` — "accumulates container
 declarations, capability rules, volumes, forks, and executed commands, then
-serializes them to valid `.hick` XML" — has **no caller anywhere in the
-workspace**. It was built for a REPL that no longer exists. This design is
-what would revive it; if this is not built, it should be deleted, because a
-`pub` module nothing calls is a claim the product does not honour.
+serializes them to valid `.hick` XML" — had no caller anywhere in the
+workspace, and this document guessed that this design was what would revive
+it. Reading it says otherwise, on the one thing that matters: it emits **one
+`<hick:exec>` per command**, which is exactly the cell-per-line model the next
+section argues against at length. It also emits a whole document from
+scratch, `<?xml?>` declaration and `<hick:doc>` wrapper included, so it cannot
+append into a document somebody is already writing — and the wrapper became
+optional in `bare-documents.md` after it was written. It was built for a REPL
+that no longer exists and it disagrees with this design; a `pub` module
+nothing calls is a claim the product does not honour, so it is gone rather
+than kept against a use it does not fit.
 
 ## One cell that grows, not one cell per line
 
@@ -236,6 +243,79 @@ POSIX-only. The alternate-screen signal survives there and catches the visible
 cases; the rest of the answer for Windows is not designed, and pretending
 otherwise would be the same mistake as claiming the scanner catches every
 secret.
+
+### Where the typed line comes from — measured, not assumed
+
+*Added 2026-08-26, from probing a real PTY on Linux with bash 5.3.9. This
+section is the only part of the design that has been executed; everything
+below and above it is still unbuilt.*
+
+The obvious implementation is to assemble the line from the keystrokes on
+their way to the PTY. That is wrong for the ordinary reason — readline editing
+means the bytes are not the line — and the fix is the one every terminal that
+needs this has settled on: **the shell says what it ran**, through the same
+generated-startup-file mechanism `shell_integration.rs` already uses for
+OSC 7. Three candidates were tried against a real PTY, and two of them are
+dead ends worth naming so nobody tries them twice.
+
+**A `DEBUG` trap reports executed commands, not typed lines.** `ls /x |
+head -1` arrived as two records and `for i in 1 2; do echo $i; done` as four,
+including a bare `echo $i`. A cell holding those does not reproduce, which is
+the invariant this whole feature exists to protect. Ruled out.
+
+**`PROMPT_COMMAND` plus `history 1` reports the previous command at the first
+prompt** — a line out of the user's `~/.bash_history` that they did not type
+in this session. It would write somebody's last shell command into a
+document before they typed anything. Ruled out on its own.
+
+**`PS0` is the one that works.** It is expanded exactly once per submitted
+line, after the line is read and before it runs, so `history 1` inside it is
+the line just typed. Verified: pipelines and multi-line `for` loops arrive
+whole and in order, a heredoc arrives with its real newlines, an empty Enter
+emits nothing, and a repeated command is reported again rather than
+swallowed. Percent-encoding byte-by-byte under `LC_ALL=C` — the same encoding
+the OSC 7 hook already uses, so `screen.rs`'s `percent_decode` is already the
+other half — carries newlines and quotes through intact.
+
+Two findings from `PS0` that change the design rather than decorate it:
+
+- **`PS0` is expanded in a subshell**, so the hook cannot keep state between
+  firings. Anything that needs to compare this line against the last one has
+  to happen in Rust. The hook emits the history **number** alongside the
+  line and stays stateless.
+- **`HISTCONTROL` can keep a line out of history**, and then `history 1`
+  returns the *previous* line — so a naive reading records a command that did
+  not run, twice. Observed with `ignorespace` (a leading space) and with
+  `ignoredups` (the same command twice in a row), both common defaults. The
+  number is what detects it: **unchanged number means this input was not
+  recorded**, which is precisely a suspension — and the rule above already
+  says what to do about it. Stop, do not skip, and never fabricate the
+  previous line. A person who prefixes a command with a space to keep it out
+  of their history gets it kept out of the document too, and told so.
+
+And one that makes a hazard cheaper than this document expected. **A program
+that is not the shell is excluded by construction, not by the detector.**
+Inside `python3 -q`, the keystrokes go to the REPL, the shell's `PS0` never
+fires, and nothing is reported — verified: `print('inside repl')` and
+`quit()` produced no records at all, while `python3 -q` itself did. So
+`tcgetpgrp` is not what *gates* the recording here; it is what lets the
+terminal **say** recording is paused, which is the part a person needs.
+`alternate_screen()` still decides only how that message reads. Both already
+exist on `Session` (`foreground_child`, `alternate_screen`), so "one detector
+serves twice" is still true — the two uses are just "gate" and "explain"
+rather than two gates.
+
+The secret scan is **not** made cheaper by any of this: `export
+FAKE_KEY=sk-ant-…` reaches `PS0` like any other line, so the scan is
+load-bearing exactly as specified, and it gates the write.
+
+**zsh is undesigned and untested.** It was not installed on the machine this
+was measured on. `preexec` receives the command line as `$1` and needs none
+of the `history`/`PS0` machinery, so it should be simpler — but "should be"
+is what this section exists to replace. **A shell with no integration records
+nothing**, which is safe but silent, and "never anchor silently" means
+anchoring a session that has no integration must be refused rather than
+quietly do nothing.
 
 ### What the person sees
 

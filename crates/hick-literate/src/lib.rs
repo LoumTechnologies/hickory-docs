@@ -22,7 +22,6 @@ pub mod render;
 pub mod scene;
 pub mod store_config;
 mod text;
-pub mod transcript;
 pub mod volume_state;
 pub mod watch;
 mod weave;
