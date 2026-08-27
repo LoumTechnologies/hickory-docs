@@ -309,13 +309,27 @@ The secret scan is **not** made cheaper by any of this: `export
 FAKE_KEY=sk-ant-…` reaches `PS0` like any other line, so the scan is
 load-bearing exactly as specified, and it gates the write.
 
-**zsh is undesigned and untested.** It was not installed on the machine this
-was measured on. `preexec` receives the command line as `$1` and needs none
-of the `history`/`PS0` machinery, so it should be simpler — but "should be"
-is what this section exists to replace. **A shell with no integration records
-nothing**, which is safe but silent, and "never anchor silently" means
-anchoring a session that has no integration must be refused rather than
-quietly do nothing.
+**zsh was measured on 2026-08-27**, and "it should be simpler" was half right
+in exactly the way this section exists to catch. `preexec` does receive the
+command line as `$1`, so none of `history 1`'s staleness exists — but
+`$HISTCMD` inside it is **the slot a line would take, not a record of one
+taken**. A line hidden by `HIST_IGNORE_SPACE` advances it and then releases
+it, so the next genuine command reuses the number: exactly inverted from
+bash, where the hidden line is never reported and its successor arrives
+stale. Reading an unchanged number as "stale" therefore recorded the hidden
+line in zsh and suspended the innocent one after it.
+
+One rule cannot serve two shells that disagree at the wire, so the rule moved
+up: **a leading space means "do not record", decided by hick for every
+shell.** zsh's history options are deliberately not detected —
+re-implementing another program's rules inside a hook is how a hook drifts
+out of date silently — and the consequence is stated rather than hidden: a
+leading space suspends recording even where the shell would have kept the
+line. That is a hick rule, not a shell one.
+
+**A shell with no integration records nothing**, which is safe but silent,
+and "never anchor silently" means anchoring a session that has no integration
+must be refused rather than quietly do nothing.
 
 ### What the person sees
 
@@ -350,10 +364,10 @@ mechanism turned out to depend on the shell's cooperation.
 
 Guarantee: `docs/guarantees/terminal/an-anchored-terminal-writes-what-you-typed.md`.
 
-Three things this document specifies are **not** built, and the guarantee
-lists them rather than leaving them implied:
+Two things this document specifies are **not** built, and the guarantee lists
+them rather than leaving them implied. (zsh was the third; it is verified as
+of 2026-08-27, and measuring it moved a rule — see above.)
 
-- **zsh is written and never run.** bash is verified against a real PTY.
 - **The foreground-program suspension has no caller.** It turned out to be
   nearly unreachable: inside a REPL the shell's `PS0` never fires, so nothing
   is recorded and nothing needs refusing. What is missing is the *message* —
