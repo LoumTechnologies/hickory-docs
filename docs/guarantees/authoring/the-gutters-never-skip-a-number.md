@@ -14,7 +14,7 @@ widget breaks that promise in the most confusing possible way — it is a real
 screen row that no gutter can label, so the numbers step over it, and the
 column that exists to be counted stops being countable.
 
-Two rules keep it:
+Three rules keep it:
 
 1. **An annotation rides the end of the line it describes.** File path chips,
    fragment badges, `when`/`feature` banners, session-turn chips, the
@@ -29,6 +29,20 @@ Two rules keep it:
    is the one sanctioned way to occupy vertical space, and the distinction
    from a block widget is the whole guarantee: a widget's row exists and
    cannot be numbered; a fold's rows do not exist.
+3. **A fold's own gap is padding, never margin.** CodeMirror takes a block
+   widget's height from `getBoundingClientRect()`, which excludes margins, so
+   a margin on a fold is height the height map never learns about — and the
+   gutter, which is laid out from the height map, stops lining up with the
+   text even though it skipped nothing. This is the *other* way to break the
+   promise, and it is worse than a skipped number because the numbers all
+   still look right: they are simply drawn beside the wrong line. Measured on
+   `scaffolding.hick`, one exec card's `margin: 0.35rem 0` put every number
+   below it 11.2px above its own line — half a row, for the whole rest of the
+   document — and broke Home and End inside the file blocks underneath, since
+   `moveToLineBoundary` resolves a boundary by asking `posAtCoords` about a
+   real y that the height map then mapped to the next line down. So the gap
+   lives on a wrapper the widget's `toDOM` returns (`.cm-rendered-frame`,
+   `.cm-md-image`), where it is inside what CodeMirror measures.
 
 The action rail down the editor's outer edge carries every verb a card has.
 A cell contributes a column — run, source, and replay when an expect block is
@@ -78,11 +92,19 @@ repeating the number (`editor/wrapGutter.ts`).
 ---
 
 Last LLM verification:
-- Date: 2026-08-17
+- Date: 2026-08-27 (rule 3; rules 1 and 2 last verified 2026-08-17)
 - Reviewer: Claude (Opus 5)
 - Result: verified (implemented and reviewed in the same change; confirmed in
   a browser against a document with fragments, a generated file, an exec cell
   and a container — gutters ran 1–40 unbroken)
+- Evidence (rule 3): `apps/web/src/editor/rendered.ts::RenderedWidget.toDOM`
+  returns a `.cm-rendered-frame` holding the card; the gap moved from
+  `margin` on `.cm-rendered` to `padding` on the frame, and `.cm-md-image`
+  (the other block widget, in `apps/web/src/editor/mdLinks.ts`) moved its own
+  gap to padding for the same reason. Confirmed in the running app on
+  `.dev/project/scaffolding.hick`: the worst gutter-to-line offset over the
+  whole viewport went from 11.21px to 0.02px, and Home/End inside the
+  `app/app.csproj` block land on the boundaries of their own line again.
 - Evidence: `apps/web/src/editor/wysiwyg.ts` — no `block: true` decoration
   remains; `endOfLineAt` is where every annotation widget anchors, and the
   module header states the rule. `CellPanelWidget` and `DiagramWidget` are
@@ -97,10 +119,17 @@ Last LLM verification:
   `apps/web/src/lib/cardRail.ts` (`stackIcons`, `iconVisible`, `popoverTop`),
   `apps/web/src/editor/DocumentEditor.tsx` (rail + popover, measured before
   paint), `apps/web/src/shell/Ribbons.tsx::paneEdges` (both rails).
-- Test coverage: `apps/web/src/editor/DocumentEditor.test.tsx` — "puts no
+- Test coverage: `apps/web/src/styles.test.ts` — "block widget height
+  invariants" reads the stylesheet and fails on any vertical margin on
+  `.cm-rendered` or `.cm-md-image`, and requires the frame's padding. jsdom
+  does no layout, so this is a stylesheet assertion standing in for a
+  measurement; the measurement itself was taken by hand in the browser and is
+  recorded above.
+  `apps/web/src/editor/DocumentEditor.test.tsx` — "puts no
   unnumbered row in the document: every row is a line or a fold" asserts
   every annotation sits inside a `.cm-line` AND that every `.cm-content`
-  child is either a `.cm-line` or a `.cm-rendered` fold, over a document
+  child is either a `.cm-line` or a `.cm-rendered-frame` wrapping a fold,
+  over a document
   carrying one of every converted widget; "renders a cell on open, and the
   rail icon swaps it for the source" covers the toggle in both directions. `apps/web/src/lib/cardRail.test.ts` (12 tests:
   stacking, monotonicity, recovery, visibility band, popover clamping).

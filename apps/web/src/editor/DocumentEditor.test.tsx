@@ -96,7 +96,9 @@ describe("DocumentEditor (WYSIWYG over raw source)", () => {
     for (const row of rows) {
       const kind = row.classList.contains("cm-line")
         ? "line"
-        : row.classList.contains("cm-rendered")
+        // The fold is `.cm-rendered` inside a `.cm-rendered-frame`, whose only
+        // job is to hold the gap around it as padding CodeMirror can measure.
+        : row.classList.contains("cm-rendered-frame") && row.querySelector(".cm-rendered")
           ? "fold"
           : row.className;
       expect(kind, "row is a line or a rendered fold").not.toBe(row.className);

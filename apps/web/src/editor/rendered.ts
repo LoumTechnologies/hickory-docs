@@ -171,15 +171,32 @@ class RenderedWidget extends WidgetType {
     return this.slot.key === other.slot.key && this.slot.kind === other.slot.kind;
   }
 
+  // Two elements, and the outer one exists only to hold the gap.
+  //
+  // The space between a card and the text around it must be PADDING on
+  // something CodeMirror measures, never MARGIN on the widget itself.
+  // `measureVisibleLineHeights` takes a block widget's height from
+  // `getBoundingClientRect()`, which excludes margins — so a margin here is
+  // height the height map never learns about, and EVERY line below the widget
+  // is off by that much. Measured in the running app on a document with one
+  // exec card: 0.35rem top + bottom = 11.2px, which put each line number 11.2px
+  // above the line it names, and broke Home/End inside the block below it
+  // (`moveToLineBoundary` asks `posAtCoords` about a real y, and the height map
+  // answered with the next line down). The card keeps `.cm-rendered` — border,
+  // radius, background, and every selector already written against it.
   toDOM() {
+    const frame = document.createElement("div");
+    frame.className = "cm-rendered-frame";
     const el = document.createElement("div");
     el.className = `cm-rendered cm-rendered-${this.slot.kind}`;
+    frame.appendChild(el);
     this.registry.register({ ...this.slot, el });
-    return el;
+    return frame;
   }
 
-  destroy(el: HTMLElement) {
-    this.registry.unregister(this.slot.key, el);
+  destroy(frame: HTMLElement) {
+    const el = frame.querySelector<HTMLElement>(".cm-rendered");
+    this.registry.unregister(this.slot.key, el ?? frame);
   }
 
   get estimatedHeight() {

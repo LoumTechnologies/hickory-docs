@@ -99,12 +99,11 @@ const C_NATIVE: &[Candidate] = &[
 // licensed for use only with Visual Studio and VS Code, so it is not
 // available to this product at all — not "not yet", not "behind a flag".
 //
-// There is deliberately no `hick dap install csharp` beside this. netcoredbg
-// ships as per-platform release archives and distro packages rather than as a
-// `dotnet tool`, so installing it needs an installer shape — a URL and a
-// checksum per platform — that `tool_install` does not have. Discovery finds
-// a netcoredbg the user installed themselves, which is the documented
-// fallback for exactly this case.
+// netcoredbg ships as per-platform release archives and distro packages rather
+// than as a `dotnet tool`, so `hick dap install csharp` needed an installer
+// shape `tool_install` did not have — a URL and a pinned SHA-256 per platform.
+// That shape exists now (`hickory-cli::dap_install`), so both roads are open:
+// discovery still prefers a netcoredbg the user installed themselves.
 const C_CSHARP: &[Candidate] = &[Candidate {
     adapter: "netcoredbg",
     recipe: Recipe::Binary {

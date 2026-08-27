@@ -117,3 +117,35 @@ describe("theming invariants", () => {
     expect(rest).not.toMatch(/#[0-9a-fA-F]{3,8}\b/);
   });
 });
+
+describe("block widget height invariants", () => {
+  // CodeMirror takes a block widget's height from `getBoundingClientRect()`
+  // (`measureVisibleLineHeights`), which EXCLUDES margins. A vertical margin
+  // on a block widget is therefore height the height map never learns about,
+  // and every line below it drifts by exactly that much: measured in the
+  // running app on a document with one exec card, `.cm-rendered`'s
+  // `margin: 0.35rem 0` put each line number 11.2px above the line it named,
+  // and broke Home/End inside the blocks below (`moveToLineBoundary` resolves
+  // a boundary by asking `posAtCoords` about a real y, which the height map
+  // then mapped to the next line down). The gap has to be padding on
+  // something CodeMirror measures.
+  const noVerticalMargin = (selector: string) => {
+    const declarations = rule(selector);
+    const margins = declarations.matchAll(/(?:^|[;{])\s*margin(?:-top|-bottom|-block[a-z-]*)?:([^;]+)/g);
+    for (const [, value] of margins) {
+      // The first component of a shorthand is the top one; a `-top`/`-bottom`
+      // longhand has only the one.
+      expect(value.trim().split(/\s+/)[0], `${selector} carries a vertical margin`).toBe("0");
+    }
+  };
+
+  it("gives the rendered card its gap as padding on a measured wrapper", () => {
+    expect(rule(".cm-rendered-frame")).toMatch(/padding: [\d.]+rem 0/);
+    noVerticalMargin(".cm-rendered");
+  });
+
+  it("gives an inline picture its gap as padding", () => {
+    noVerticalMargin(".cm-md-image");
+    expect(rule(".cm-md-image")).toMatch(/padding: /);
+  });
+});

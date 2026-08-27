@@ -557,4 +557,34 @@ Not code.
     expect(breakpointLine(state(), 9_000)).toBeNull();
     expect(breakpointLine(state(), -1)).toBeNull();
   });
+
+  // `DEBUGGABLE_LANGUAGES` is kept in step with `hick_dap::discovery` by hand,
+  // and it had fallen behind: csharp had an adapter, a `hick dap install`
+  // recipe and a Build step, and this list still did not name it — so a `.cs`
+  // block offered no ghost dot, the breakpoint gutter rendered no cells at
+  // all, and a click in the gutter did nothing at all rather than refusing in
+  // words. A file's own extension is what decides, with no `language=`.
+  it("takes a line of C#, which netcoredbg debugs", () => {
+    const doc = `<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="out.md">
+<hick:file path="app/Program.cs">
+Console.WriteLine("Hello, World!");
+</hick:file>
+<hick:file path="app/app.csproj">
+<Project Sdk="Microsoft.NET.Sdk"></Project>
+</hick:file>
+</hick:doc>
+`;
+    const cs = EditorState.create({ doc });
+    const lineWith = (needle: string) => {
+      for (let i = 1; i <= cs.doc.lines; i += 1) {
+        if (cs.doc.line(i).text.includes(needle)) return i - 1;
+      }
+      throw new Error(`no line with ${needle}`);
+    };
+    const code = lineWith("Console.WriteLine");
+    expect(breakpointLine(cs, code)).toBe(code);
+    // The project file beside it is XML, which nothing debugs.
+    expect(breakpointLine(cs, lineWith("<Project Sdk"))).toBeNull();
+  });
 });

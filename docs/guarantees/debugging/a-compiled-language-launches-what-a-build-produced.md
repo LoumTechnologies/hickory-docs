@@ -30,23 +30,43 @@ build produced — not the file the document generated:
   woven, or compared. The transcript is the record; the terminal is the run
   happening, and the surface that shows it says so.
 
-Two things this deliberately does **not** guarantee. Nothing here is
+**The editor has to name C# too, in its own list.** The gutter decides whether
+a line can hold a breakpoint before the server is asked — `breakpointLine`
+consults `apps/web/src/debug/languages.ts`, which is kept in step with
+`hick_dap::discovery::candidates` by hand. That list is the last place C# has
+to be named, and while it was missing the whole path above was unreachable
+from the app: a `.cs` file block offered no ghost dot, the breakpoint gutter
+rendered no cells at all, and a click in the gutter did nothing whatever —
+not even the refusal that names the language.
+
+One thing this deliberately does **not** guarantee: nothing here is
 sandboxed — `Adapter::spawn` already starts the adapter directly, and the
 isolation on this path is the scratch copy, not the executor that confines
 cells; a build step is no *less* confined than the debuggee it feeds, but it
-does run a build tool the document's own content chose. And there is no
-`hick dap install csharp`: netcoredbg ships as release archives rather than as
-one installable command, so discovery finds a netcoredbg the user installed
-themselves, and every message says that rather than offering a command that
-does not exist.
+does run a build tool the document's own content chose.
+
+> **Amended 2026-08-27.** This document used to close by saying there is no
+> `hick dap install csharp`. There is one now — netcoredbg still ships as
+> release archives rather than as one installable command, so the catalogue
+> grew an archive shape instead
+> ([an-adapter-that-ships-as-an-archive-installs-like-any-other](an-adapter-that-ships-as-an-archive-installs-like-any-other.md)).
+> Discovery still prefers a netcoredbg the user installed themselves.
 
 ---
 
 Last LLM verification:
-- Date: 2026-08-26
+- Date: 2026-08-27
 - Reviewer: Claude (Opus 5)
-- Result: verified for the build; the launch is **unverified** — see caveats
+- Result: verified for the build and for the gutter; the launch is
+  **unverified** — see caveats
 - Evidence:
+  - `apps/web/src/debug/languages.ts` — `DEBUGGABLE_LANGUAGES` gains
+    `"csharp"` (2026-08-27). Confirmed in the running app against
+    `.dev/project/scaffolding.hick`: the breakpoint gutter went from **one**
+    element (CodeMirror's width spacer, and nothing else) to a ghost on each
+    line of the `app/Program.cs` block, and a click set a real dot on
+    `Console.WriteLine`. The `app/app.csproj` block beside it is XML and
+    correctly offers nothing.
   - `crates/hick-dap/src/build.rs` — the `Build` table, `build_for`, and
     `build`. `crates/hick-dap/src/discovery.rs` gains netcoredbg
     (`--interpreter=vscode`) and `csharp` in `known_languages()`, **in this
@@ -66,6 +86,10 @@ Last LLM verification:
     `TranscriptEvent`-shaped events; `apps/web/src/debug/DebugStrip.tsx`
     draws them with `WatchingTerminal`.
 - Test coverage:
+  - `apps/web/src/debug/cmDebug.test.ts` — "takes a line of C#, which
+    netcoredbg debugs" asserts `breakpointLine` accepts a `.cs` block's code
+    line from the path's extension alone, and still refuses the `.csproj`
+    beside it.
   - `crates/hick-dap/src/build.rs` unit tests: interpreted languages are
     handed back their own path, the no-project refusal says all three things
     *and* asserts no `.csproj` was written, the wildcard matches within one

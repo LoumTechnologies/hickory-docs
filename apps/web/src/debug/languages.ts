@@ -15,6 +15,11 @@ export const DEBUGGABLE_LANGUAGES = new Set([
   "javascript",
   "go",
   "rust",
+  // C#, via netcoredbg. `hick_dap::discovery` has answered for csharp since
+  // the Build step landed; this list did not, so a `.cs` file block offered no
+  // ghost dot and the breakpoint gutter rendered no cells at all — which is
+  // also why a click in the gutter did nothing rather than refusing in words.
+  "csharp",
 ]);
 
 export function isDebuggable(language: string | null | undefined): boolean {

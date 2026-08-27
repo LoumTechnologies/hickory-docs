@@ -1015,7 +1015,12 @@ textarea:focus {
    hidden behind a widget. Capped so a screenshot from a 6K display does not
    push the next paragraph off the screen. */
 .cm-md-image {
-  margin: 0.35rem 0 0.5rem;
+  /* Padding rather than a vertical margin: this is a block widget, and
+     CodeMirror measures one with `getBoundingClientRect()`, so a margin around
+     it is height the height map never learns about — drifting every line below
+     the picture away from its own line number. The border is on the <img>, so
+     the gap can simply move inside. */
+  padding: 0.35rem 0 0.5rem;
   max-width: var(--prose-wrap, 46rem);
 }
 .cm-md-image img {
@@ -5332,8 +5337,13 @@ button.fleet-grant {
    the positioned layer is: later in the DOM than the line, so later in the
    paint. Without this the wrap marker for prose runs straight down a table,
    where it measures nothing and reads as a column rule. */
+/* The gap around a card lives HERE, on a wrapper CodeMirror measures, not as
+   a margin on the card — see `RenderedWidget.toDOM`. A block widget's height
+   is read with `getBoundingClientRect()`, so a margin is height the height map
+   never sees and every line below drifts by it. */
+.cm-rendered-frame { padding: 0.35rem 0; }
 .cm-rendered {
-  margin: 0.35rem 0;
+  margin: 0;
   border: 1px solid var(--border);
   border-left: 3px solid var(--accent-2);
   border-radius: 6px;
