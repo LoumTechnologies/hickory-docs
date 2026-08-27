@@ -315,14 +315,35 @@ says nothing.
 therefore not available to this product at all.
 
 Distribution is release archives and distro packages rather than a `dotnet
-tool`, so it does not fit the one-command installer shape that
-`hick lsp install csharp` uses — a `hick dap install csharp` would need a new
-installer shape (a per-platform URL and a checksum), which is a separate piece
-of work from the build step and not a prerequisite for it. Discovery finds a
-netcoredbg the user installed themselves, which is the documented fallback for
-exactly this case.
+tool`, so it did not fit the one-command installer shape `hick lsp install
+csharp` uses. **That installer shape is now built (2026-08-27)**: the
+catalogue takes per-platform assets, each a URL and a pinned SHA-256 verified
+before anything is unpacked, and `hick dap install csharp` works. It was
+indeed a separate piece of work from the build step and not a prerequisite for
+it, which is why it landed a day later. Discovery still prefers a netcoredbg
+the user installed themselves.
 
 **The language server half is already built** (2026-08-26): `hick lsp install
 csharp` fetches csharp-ls (MIT), sandboxed, and discovery finds both it and
-OmniSharp. Highlighting for C# and XML is in the app. Nothing about the
-debugger is built.
+OmniSharp. Highlighting for C# and XML is in the app.
+
+**The debugger half is built too (2026-08-27)**, and building it corrected two
+things this document did not know.
+
+**The language server had never been reachable.** `hick_lsp::lang_detect::language_id`
+is the only thing that gives a generated file a language — for the server and
+the debugger both — and it had no `cs` row, so every `.cs` virtual file was
+skipped before discovery was consulted. "Installed, discovered and invocable"
+is three claims that do not add up to "used".
+
+**A breakpoint has three states, not two.** netcoredbg answers
+`setBreakpoints` with `verified: false` and "pending — will be resolved when
+debugging starts", then binds on module load and says so in a `breakpoint`
+event. debugpy verifies while answering, so every adapter this product had
+spoken to made verification look synchronous. Reading `verified: false` as
+"will never bind" would have drawn every C# breakpoint hollow for the life of
+a session while it worked perfectly — and it also made "run to here" refuse,
+made `<hick:capture>` report a problem on every working C# capture, and told
+an agent `NOT BOUND`. **An adapter's `verified: false` is "not yet"; the only
+certain refusal is the one hick makes itself**, before an adapter is asked,
+about a line that maps to prose.

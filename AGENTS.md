@@ -252,16 +252,34 @@ on Linux 2026-08-26, where a full-screen detector alone would have recorded
 `python3` then `print(1)` as two shell commands. The alternate-screen sequence
 (`ESC [ ? 1049 h`) decides only how the warning **reads**, never whether to
 record. **ConPTY has no process groups**, so Windows keeps only the weaker
-signal and the rest is undesigned. Note
-`hick_literate::transcript::TranscriptBuilder` already serializes typed
-commands to `.hick` and **has no caller** — this revives it, or it should be
-deleted. Settled: **netcoredbg** (Samsung, MIT) is the adapter
-(`--interpreter=vscode`); Microsoft's `vsdbg` is licensed to its own editors
-and is unavailable to this product. **Built (2026-08-26):** the language
-server half only — `hick lsp install csharp` fetches csharp-ls (MIT) with
-`DOTNET_CLI_HOME`/`NUGET_PACKAGES` redirected into the prefix (the sandbox
-makes only that writable) and telemetry opted out, plus C# and XML
-highlighting in the app.
+signal and the rest is undesigned. `hick_literate::transcript::TranscriptBuilder`
+is **deleted** (2026-08-26): it emitted one `hick:exec` per command, which is
+the cell-per-line model that spec argues against, and could only write a whole
+document from scratch. Where the typed line comes from is **measured**: a
+`DEBUG` trap reports executed commands not typed lines, `PROMPT_COMMAND` +
+`history 1` leaks a line from `~/.bash_history` at the first prompt, and
+**`PS0` is the one that works** — expanded once per submitted line, in a
+**subshell** (so state lives in Rust), with `HISTCONTROL` able to keep a line
+out of history and make `history 1` re-report the previous one, which the
+history *number* detects and which is a **suspension**. A program that is not
+the shell is excluded **by construction** (its PS0 never fires), so `tcgetpgrp`
+explains rather than gates. **zsh is untested and bash is verified.**
+
+Settled: **netcoredbg** (Samsung, MIT) is the adapter (`--interpreter=vscode`);
+Microsoft's `vsdbg` is licensed to its own editors and is unavailable to this
+product. **Built (2026-08-26):** `hick lsp install csharp` fetches csharp-ls
+(MIT) with `DOTNET_CLI_HOME`/`NUGET_PACKAGES` redirected into the prefix and
+telemetry opted out, plus C# and XML highlighting. **Built (2026-08-27):** the
+whole C# path — a `Build` step between the weave and the launch (the table
+version; it is scaffolding, and the signal to stop extending it is a second
+compiled language needing a fourth field), `hick dap install csharp` via a new
+**archive installer shape** (per-platform URL + pinned SHA-256; a pin, never a
+signature), and a real debug session verified end to end. One correction that
+cost nothing to find and would have cost a lot to ship: **`lang_detect` had no
+`cs` row**, so the C# language server had never been reachable at all. Another:
+a breakpoint has **three** states, not two — netcoredbg reports `pending` at
+set time and binds on module load, so `verified: false` means "not yet", never
+"never", and the only certain refusal is the one hick makes itself.
 
 Code intelligence wider than one file is
 `docs/specs/freeform/an-index-beside-the-language-server.md`, not built.
