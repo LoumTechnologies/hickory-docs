@@ -7,6 +7,7 @@ import { RIBBON_STYLE_KEY, loadRibbonStyle } from "../lib/ribbonStyle";
 import { TAB_STYLE_KEY, loadTabStyle } from "../lib/tabStyle";
 import { CHANNEL_WIDTH_KEY, loadChannelWidth } from "../lib/channelWidth";
 import { THEME_KEY, loadTheme } from "../lib/theme";
+import { WORD_MOTION_KEY, loadWordMotion } from "../lib/wordMotion";
 import { SettingsView } from "./SettingsView";
 
 // The backend contract (GET/PUT /api/settings/keys) is being added
@@ -177,6 +178,17 @@ describe("the appearance section", () => {
     expect(localStorage.getItem(RIBBON_STYLE_KEY)).toBe("bands");
     expect(localStorage.getItem(TAB_STYLE_KEY)).toBe("side");
     expect(localStorage.getItem(CHANNEL_WIDTH_KEY)).toBe("72");
+  });
+
+  it("offers a word-navigation choice, defaulting to whole words", async () => {
+    render(<SettingsView />);
+    expect(await screen.findByRole("group", { name: "Word navigation" })).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Whole words" }).getAttribute("aria-pressed"),
+    ).toBe("true");
+    fireEvent.click(screen.getByRole("button", { name: "Subwords" }));
+    expect(loadWordMotion()).toBe("subword");
+    expect(localStorage.getItem(WORD_MOTION_KEY)).toBe("subword");
   });
 
   it("saves a custom window title through PUT /api/settings/ui", async () => {

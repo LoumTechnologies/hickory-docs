@@ -9,6 +9,7 @@ import {
   indentWithTab,
 } from "@codemirror/commands";
 import { search, searchKeymap } from "@codemirror/search";
+import { wordMotionBindings } from "./wordMotion";
 import * as Y from "yjs";
 import { Awareness } from "y-protocols/awareness";
 import { yCollab } from "y-codemirror.next";
@@ -452,7 +453,16 @@ export function DocumentEditor({
           // The panel sits on top — a find that covers the line it found is
           // a find that answers a question by hiding the answer.
           search({ top: true }),
-          keymap.of([...searchKeymap, ...defaultKeymap, ...historyKeymap, indentWithTab]),
+          // Word motion first: bindings for one key run in registration
+          // order and the first to return true wins, so these must arrive
+          // before `defaultKeymap`'s own Ctrl+arrow. See editor/wordMotion.ts.
+          keymap.of([
+            ...wordMotionBindings,
+            ...searchKeymap,
+            ...defaultKeymap,
+            ...historyKeymap,
+            indentWithTab,
+          ]),
           // The hovered-ribbon line tint, shared with the right rail.
           lineHighlightField,
           wysiwyg(envRegistry, (path) => onDebugFileRef.current?.(path)),

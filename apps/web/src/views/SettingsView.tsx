@@ -30,6 +30,7 @@ import {
   saveChannelWidth,
 } from "../lib/channelWidth";
 import { applyTheme, loadTheme, saveTheme, type Theme } from "../lib/theme";
+import { loadWordMotion, saveWordMotion, type WordMotion } from "../lib/wordMotion";
 
 function KeyRow({
   provider,
@@ -284,6 +285,56 @@ function AppearanceSection() {
   );
 }
 
+/**
+ * Editing behaviour, as opposed to how the app looks.
+ *
+ * One row so far, and it is here rather than under Appearance because it
+ * changes what a key DOES: a person hunting for it after Ctrl+→ overshot is
+ * not looking under "Appearance". The keymap re-reads the stored value on
+ * every Ctrl+arrow, so the change lands in editors that are already open
+ * without navigating back — see editor/wordMotion.ts.
+ */
+function EditingSection() {
+  const [wordMotion, setWordMotion] = useState<WordMotion>(() => loadWordMotion());
+
+  return (
+    <section className="settings__appearance" aria-label="Editing">
+      <h2 className="settings__section-title">Editing</h2>
+      <div className="settings__rows">
+        <ChoiceRow
+          label="Word navigation"
+          value={wordMotion}
+          onPick={(motion) => {
+            setWordMotion(motion);
+            saveWordMotion(motion);
+          }}
+          choices={[
+            {
+              value: "word",
+              label: "Whole words",
+              title: "Ctrl+← and Ctrl+→ stop at spaces and punctuation",
+            },
+            {
+              value: "subword",
+              label: "Subwords",
+              title:
+                "Also stop inside an identifier: PascalCase, camelCase, snake_case",
+            },
+          ]}
+        />
+      </div>
+      <p className="muted settings__note">
+        Subwords is what a code editor calls CamelHumps: <code>Ctrl+→</code> from
+        the start of <code>XMLHttpRequest</code> stops at <code>Http</code>, then
+        at <code>Request</code>. Shift extends the selection the same way. This
+        is the motion you want in code and the wrong one in prose, and a{" "}
+        <code>.hick</code> document is both — so it is your choice rather than
+        the file’s. On macOS the keys are Option+← and Option+→.
+      </p>
+    </section>
+  );
+}
+
 export function SettingsView() {
   const [providers, setProviders] = useState<ProviderKey[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -387,6 +438,7 @@ export function SettingsView() {
         )}
 
         <AppearanceSection />
+        <EditingSection />
       </div>
     </div>
   );

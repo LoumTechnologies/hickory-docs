@@ -17,6 +17,7 @@ import { Decoration, EditorView, keymap, lineNumbers } from "@codemirror/view";
 import type { DecorationSet } from "@codemirror/view";
 import { defaultKeymap, history, historyKeymap, indentWithTab } from "@codemirror/commands";
 import { search, searchKeymap } from "@codemirror/search";
+import { wordMotionBindings } from "../editor/wordMotion";
 import type { OutputFile, Provenance } from "../api/types";
 import { changeFlashField, syncAndFlash } from "../editor/changeFlash";
 import { languageExtensions } from "../editor/languages";
@@ -214,7 +215,16 @@ export function OutputEditorPane({
               api.complete(prefix, around).then((answer) => answer.suggestions),
           }),
           search({ top: true }),
-          keymap.of([...searchKeymap, ...defaultKeymap, ...historyKeymap, indentWithTab]),
+          // Word motion first: bindings for one key run in registration
+          // order and the first to return true wins, so these must arrive
+          // before `defaultKeymap`'s own Ctrl+arrow. See editor/wordMotion.ts.
+          keymap.of([
+            ...wordMotionBindings,
+            ...searchKeymap,
+            ...defaultKeymap,
+            ...historyKeymap,
+            indentWithTab,
+          ]),
           // Prose wraps at the measure; a fenced code block keeps its lines
           // and takes the whole pane. In a non-markdown file EVERY line is
           // code, which is exactly what `fencedCodeRanges` returning the whole
