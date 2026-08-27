@@ -65,7 +65,7 @@ const STARTED = {
     step_back: false,
     exception_filters: [],
   },
-  breakpoints: [{ line: 25, verified: true }],
+  breakpoints: [{ line: 25, state: "bound" }],
 };
 
 const STOPPED = {
@@ -144,7 +144,7 @@ describe("the debugger, over the socket", () => {
     act(() => socket.deliver(STARTED));
     await waitFor(() => expect(hook.result.current.status).toBe("running"));
     // The engine's answer replaces the optimistic set: it knows which bound.
-    expect(hook.result.current.breakpoints).toEqual([{ line: 25, verified: true }]);
+    expect(hook.result.current.breakpoints).toEqual([{ line: 25, state: "bound" }]);
   });
 
   it("reports a failure instead of waiting forever", async () => {
@@ -233,7 +233,7 @@ describe("the debugger, over the socket", () => {
     );
 
     await waitFor(() =>
-      expect(hook.result.current.breakpoints.find((b) => b.line === 14)?.verified).toBe(false),
+      expect(hook.result.current.breakpoints.find((b) => b.line === 14)?.state).toBe("refused"),
     );
     // The reason lives on the breakpoint, for its hover.
     expect(hook.result.current.breakpoints.find((b) => b.line === 14)?.message).toContain(
@@ -242,7 +242,7 @@ describe("the debugger, over the socket", () => {
     // And nowhere else.
     expect(hook.result.current.message).toBeNull();
     // Only that line is affected.
-    expect(hook.result.current.breakpoints.find((b) => b.line === 25)?.verified).toBe(true);
+    expect(hook.result.current.breakpoints.find((b) => b.line === 25)?.state).toBe("bound");
   });
 
   it("keeps a breakpoint local once the program has ended", async () => {

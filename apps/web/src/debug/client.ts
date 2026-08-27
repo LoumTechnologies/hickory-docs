@@ -23,7 +23,10 @@ export interface DebugBreakpoint {
 export interface BreakpointStatus {
   line: number;
   /** False when the adapter could not bind it: drawn hollow in the gutter. */
-  verified: boolean;
+  /** Whether the adapter has bound this line. Three answers, not two —
+   * see `BindState` in `crates/hick-dap/src/session.rs` for why: an adapter
+   * that has not confirmed a breakpoint yet has not refused it. */
+  state: BindState;
   message?: string;
   /**
    * The line the adapter actually bound it to, when that is not the one asked
@@ -65,6 +68,15 @@ export interface DebugCapabilities {
   goto_targets: boolean;
   exception_filters: { id: string; label: string }[];
 }
+
+/**
+ * `bound` — the adapter confirmed it; the program will stop here.
+ * `pending` — not confirmed yet. Normal for a compiled language, where
+ *   nothing binds until the module loads.
+ * `refused` — there is no code on this line at all. The only certain
+ *   refusal, and hick makes it itself before any adapter is asked.
+ */
+export type BindState = "bound" | "pending" | "refused";
 
 export type DebugEvent =
   | { event: "started"; session: string; capabilities: DebugCapabilities; breakpoints: BreakpointStatus[] }

@@ -218,7 +218,7 @@ export function useDebugger(realtime: Realtime, docPath: string): DebugSession {
               setBreakpoints((current) =>
                 current.map((breakpoint) =>
                   broken.has(breakpoint.line)
-                    ? { ...breakpoint, verified: false, message: event.message }
+                    ? { ...breakpoint, state: "refused" as const, message: event.message }
                     : breakpoint,
                 ),
               );
@@ -257,10 +257,11 @@ export function useDebugger(realtime: Realtime, docPath: string): DebugSession {
         const without = current.filter((breakpoint) => breakpoint.line !== line);
         const next =
           without.length === current.length
-            ? // Optimistically verified: the adapter's answer replaces this a
+            ? // Optimistically bound: the adapter's answer replaces this a
               // moment later, and a dot that appears only after a round trip
-              // feels broken.
-              [...current, { line, verified: true }]
+              // feels broken. Not "pending", which would flash a half-filled
+              // dot on every click in a language that binds instantly.
+              [...current, { line, state: "bound" as const }]
             : without;
         // Only a session that is still running can be told. After the
         // program ends the adapter answers `setBreakpoints` with "Server

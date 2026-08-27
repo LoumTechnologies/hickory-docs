@@ -120,10 +120,9 @@ pub struct Breakpoint {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BreakpointStatus {
     pub line: u32,
-    /// False when the adapter could not bind it — a line the debugger will
-    /// never reach. Shown differently in the gutter, because a breakpoint
-    /// that cannot work must not look like one that does.
-    pub verified: bool,
+    /// Whether the adapter has bound this line — see [`BindState`], and note
+    /// that it has three answers rather than two.
+    pub state: BindState,
     #[serde(default)]
     pub message: Option<String>,
     /// The document line the adapter actually bound it to, when that is not
@@ -136,6 +135,50 @@ pub struct BreakpointStatus {
     /// look like a breakpoint that never fires.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub moved_to: Option<u32>,
+}
+
+/// Whether a breakpoint is bound, and the reason a bool was not enough.
+///
+/// `setBreakpoints` answers `verified: false` for two situations DAP does not
+/// distinguish, and this product had been reading both as "will never bind":
+///
+/// * **debugpy** verifies while answering, so `false` really is a refusal.
+/// * **netcoredbg** answers every breakpoint `false` with "The breakpoint is
+///   pending and will be resolved when debugging starts", binds it when the
+///   module loads, and says so in a `breakpoint` **event**. Verified on
+///   2026-08-27 by stopping a real C# program on a breakpoint that had been
+///   reported unverified (`crates/hick-dap/tests/live_session_csharp.rs`).
+///
+/// Reading the adapter's message text would tell them apart and is refused:
+/// it is a string another project owns. What is used instead is what DAP
+/// actually states — an unconfirmed breakpoint is unconfirmed, not doomed —
+/// so the only certain refusal is the one made here, before the adapter is
+/// asked at all.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum BindState {
+    /// The adapter confirmed this line. The program will stop here.
+    Bound,
+    /// The adapter has not confirmed it yet. Usual for a compiled language,
+    /// where nothing can be bound until the module is loaded — and the
+    /// honest word for "we do not know", which is what DAP has said so far.
+    Pending,
+    /// There is nothing here to stop on, and no adapter was asked. The one
+    /// case this product can be certain about: a document line that maps to
+    /// no generated code at all.
+    Refused,
+}
+
+impl BindState {
+    /// Whether the program will definitely not stop here.
+    pub fn is_refused(self) -> bool {
+        self == BindState::Refused
+    }
+
+    /// Whether the adapter has confirmed it.
+    pub fn is_bound(self) -> bool {
+        self == BindState::Bound
+    }
 }
 
 /// Read a `stopped` event body.
@@ -230,6 +273,14 @@ impl Step {
 
 /// One cell, being debugged.
 pub struct Session {
+    /// The breakpoint statuses as they stand, promoted in place by the
+    /// `breakpoint` event. A plain `std` mutex because the event pump is not
+    /// async and only ever swaps a small vector.
+    statuses: Arc<std::sync::Mutex<Vec<BreakpointStatus>>>,
+    /// The adapter's own breakpoint ids, mapped to the document lines they
+    /// belong to. Matching an event by id rather than by coordinates matters
+    /// because an adapter may have slid the breakpoint to another line.
+    bound_ids: Arc<std::sync::Mutex<HashMap<i64, u32>>>,
     adapter: Adapter,
     capabilities: Capabilities,
     /// Maps the generated file back to the document, and the document to it.
@@ -392,6 +443,13 @@ impl Session {
             .await
             .context("the adapter never became ready for breakpoints")?;
 
+        let statuses: Arc<std::sync::Mutex<Vec<BreakpointStatus>>> =
+            Arc::new(std::sync::Mutex::new(Vec::new()));
+        let bound_ids: Arc<std::sync::Mutex<HashMap<i64, u32>>> =
+            Arc::new(std::sync::Mutex::new(HashMap::new()));
+        let promoting = statuses.clone();
+        let promoting_ids = bound_ids.clone();
+
         let (tx, stops) = mpsc::unbounded_channel();
         let exit: Arc<std::sync::Mutex<Option<Exit>>> = Arc::new(std::sync::Mutex::new(None));
         let ended = exit.clone();
@@ -420,6 +478,33 @@ impl Session {
                         let _ = tx.send(None);
                         return;
                     }
+                    // How an adapter says a breakpoint it could not confirm
+                    // at set time has now bound. Without this, every
+                    // breakpoint in a compiled language stays "pending" for
+                    // the life of the session while working perfectly.
+                    "breakpoint" => {
+                        let Some(reported) = event.body.get("breakpoint") else {
+                            continue;
+                        };
+                        if reported.get("verified").and_then(Value::as_bool) != Some(true) {
+                            continue;
+                        }
+                        let Some(id) = reported.get("id").and_then(Value::as_i64) else {
+                            continue;
+                        };
+                        let line = promoting_ids.lock().unwrap().get(&id).copied();
+                        let Some(line) = line else { continue };
+                        let mut held = promoting.lock().unwrap();
+                        if let Some(status) =
+                            held.iter_mut().find(|status| status.line == line)
+                            // A refusal made here, before any adapter was
+                            // asked, is not something an adapter may overturn.
+                            && !status.state.is_refused()
+                        {
+                            status.state = BindState::Bound;
+                            status.message = None;
+                        }
+                    }
                     _ => {}
                 }
             }
@@ -437,6 +522,8 @@ impl Session {
             adapter,
             capabilities,
             mapping,
+            statuses,
+            bound_ids,
             last_stopped: tokio::sync::Mutex::new(None),
             desired: tokio::sync::Mutex::new(Vec::new()),
             running_to: tokio::sync::Mutex::new(None),
@@ -483,6 +570,7 @@ impl Session {
 
     /// Put a set into the adapter without changing what the caller asked for.
     async fn apply_breakpoints(&self, breakpoints: &[Breakpoint]) -> Result<Vec<BreakpointStatus>> {
+        let mut ids: Vec<(i64, u32)> = Vec::new();
         let mut by_file: HashMap<PathBuf, Vec<(&Breakpoint, u32)>> = HashMap::new();
         let mut unmapped = Vec::new();
         for breakpoint in breakpoints {
@@ -491,7 +579,7 @@ impl Session {
                 None => unmapped.push(BreakpointStatus {
                     line: breakpoint.line,
                     moved_to: None,
-                    verified: false,
+                    state: BindState::Refused,
                     message: Some(
                         "this line is prose, not code the document generates — there is nothing \
                          there to stop on"
@@ -551,12 +639,26 @@ impl Session {
                     .map(|line| (line as u32).saturating_sub(1))
                     .and_then(|line| self.mapping.to_document(&path, line))
                     .filter(|line| *line != breakpoint.line);
+                // `verified: false` is "not yet", not "never" — the only
+                // refusal this code is entitled to make is the unmapped one
+                // above, where no adapter was asked.
+                let confirmed = answer
+                    .and_then(|a| a.get("verified"))
+                    .and_then(Value::as_bool)
+                    .unwrap_or(false);
+                // The adapter's own id for it, so a later `breakpoint` event
+                // can be matched to the document line it belongs to without
+                // guessing from coordinates the adapter may have moved.
+                if let Some(id) = answer.and_then(|a| a.get("id")).and_then(Value::as_i64) {
+                    ids.push((id, breakpoint.line));
+                }
                 out.push(BreakpointStatus {
                     line: breakpoint.line,
-                    verified: answer
-                        .and_then(|a| a.get("verified"))
-                        .and_then(Value::as_bool)
-                        .unwrap_or(false),
+                    state: if confirmed {
+                        BindState::Bound
+                    } else {
+                        BindState::Pending
+                    },
                     message: answer
                         .and_then(|a| a.get("message"))
                         .and_then(Value::as_str)
@@ -566,7 +668,19 @@ impl Session {
             }
         }
         out.sort_by_key(|status| status.line);
+        *self.bound_ids.lock().unwrap() = ids.into_iter().collect();
+        *self.statuses.lock().unwrap() = out.clone();
         Ok(out)
+    }
+
+    /// The breakpoint statuses as they stand now, including any promotion a
+    /// `breakpoint` event has made since they were set.
+    ///
+    /// This is what a caller should show after the program has started: for a
+    /// compiled language the set-time answer is "pending" for everything, and
+    /// the truth arrives a moment later.
+    pub fn breakpoint_statuses(&self) -> Vec<BreakpointStatus> {
+        self.statuses.lock().unwrap().clone()
     }
 
     /// Wait for the next stop, or for the program to end.
@@ -836,7 +950,7 @@ impl Session {
         if statuses
             .iter()
             .find(|status| status.line == line)
-            .is_some_and(|status| !status.verified)
+            .is_some_and(|status| status.state.is_refused())
         {
             // Put back what was there before giving up, or the failure would
             // also have quietly changed the breakpoints.

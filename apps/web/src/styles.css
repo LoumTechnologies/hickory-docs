@@ -2836,9 +2836,14 @@ button.fleet-grant {
   border-radius: 50%;
   background: var(--danger);
 }
-.cm-bp-unverified {
-  background: transparent;
-  border: 1.5px solid var(--muted, var(--fg-muted));
+/* Pending: the adapter has not confirmed this line YET. Half-filled rather
+   than hollow, because hollow already means "refused" to anyone who has used
+   a debugger — and for a compiled language every breakpoint passes through
+   this state on the way to working. Saying "will not bind" about all of them
+   for the life of a session is what this state exists to stop. */
+.cm-bp-pending {
+  background: linear-gradient(to right, var(--danger) 50%, transparent 50%);
+  border: 1.5px solid var(--danger);
 }
 /* Broken: the debugger refused it. A cross rather than a colour, so it reads
    without one, and the reason is on hover — the only place it belongs. */

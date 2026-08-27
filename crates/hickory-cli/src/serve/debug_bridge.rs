@@ -466,7 +466,18 @@ async fn settle(
     match live.session.wait_for_stop(Duration::from_secs(60)).await {
         Ok(Some(stopped)) => {
             *live.thread_id.lock().await = Some(stopped.thread_id);
-            position_with(session, live, &stopped.reason).await
+            let mut out = vec![Response::Breakpoints {
+                session: session.to_string(),
+                // Re-read rather than reuse the set-time answer: for a
+                // compiled language every breakpoint is unconfirmed until the
+                // module loads, and the adapter's `breakpoint` event has
+                // arrived by the time the program is stopped. Without this
+                // the gutter draws every C# breakpoint half-filled forever
+                // while the program stops on it perfectly.
+                breakpoints: live.session.breakpoint_statuses(),
+            }];
+            out.extend(position_with(session, live, &stopped.reason).await);
+            out
         }
         Ok(None) => {
             *live.thread_id.lock().await = None;

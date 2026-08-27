@@ -406,7 +406,7 @@ impl Server {
                         }
                     })
                     .await;
-                let (id, live, statuses) = started.map_err(|error| {
+                let (id, live, _) = started.map_err(|error| {
                     if built.is_empty() {
                         fail(error)
                     } else {
@@ -436,14 +436,23 @@ impl Server {
                     caps.set_variable,
                     caps.step_back,
                 ));
+                // Read AFTER the run to the first stop, not from the
+                // set-time answer: a compiled language confirms nothing until
+                // its module loads, so the set-time list says "pending" for
+                // every line in a document that works perfectly.
+                let statuses = live.session.breakpoint_statuses();
                 for status in &statuses {
                     out.push_str(&format!(
                         "  line {}: {}{}\n",
                         status.line,
-                        if status.verified {
-                            "bound"
-                        } else {
-                            "NOT BOUND"
+                        match status.state {
+                            hick_dap::BindState::Bound => "bound",
+                            // Not "NOT BOUND": the adapter has not answered
+                            // yet, and telling an agent a breakpoint failed
+                            // when it is about to work is how it gives up on
+                            // a working document.
+                            hick_dap::BindState::Pending => "not confirmed yet",
+                            hick_dap::BindState::Refused => "NOT BOUND",
                         },
                         status
                             .message

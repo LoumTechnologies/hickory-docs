@@ -112,17 +112,9 @@ Last LLM verification:
     mapping is therefore observed rather than assumed. The test skips loudly
     and separately for a missing SDK and a missing adapter, and the skip path
     was exercised too.
-  - **netcoredbg does not verify a breakpoint at set time, and the gutter
-    treats that as "will not bind".** It answers `setBreakpoints` with
-    `verified: false` and "The breakpoint is pending and will be resolved
-    when debugging starts", then binds it when the module loads — the test
-    asserts both halves. debugpy verifies immediately, so this difference had
-    never surfaced. Nothing consumes DAP's `breakpoint` **event**, which is
-    how an adapter announces the later verification, so under netcoredbg
-    every C# breakpoint wears the hollow "unverified" mark for the life of
-    the session while working perfectly. This is a real defect in what a
-    person sees, it is **not fixed here**, and it is the first thing to fix
-    next.
+  - ~~netcoredbg does not verify a breakpoint at set time…~~ **Fixed
+    2026-08-27**, and it is now its own guarantee:
+    `a-breakpoint-that-is-not-bound-yet-is-not-refused.md`.
   - **The artifact glob is a guess disambiguated by a convention.**
     `bin/Debug/*/*.dll` can match a project's dependencies as well as its own
     assembly, so the project file's stem wins — which is .NET's default

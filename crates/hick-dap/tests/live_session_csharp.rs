@@ -139,10 +139,11 @@ async fn a_breakpoint_on_a_csharp_document_line_stops_inside_the_assembly() {
     // breakpoint would wear that mark for the life of the session while
     // working perfectly. Nothing here consumes DAP's `breakpoint` EVENT, so
     // the later verification is never seen. See the guarantee's caveats.
-    assert!(
-        !statuses[0].verified,
-        "netcoredbg verified at set time — if this now passes, the pending \
-         workaround below is obsolete and the gutter can trust `verified`: {statuses:?}"
+    assert_eq!(
+        statuses[0].state,
+        hick_dap::BindState::Pending,
+        "netcoredbg confirmed at set time — if this now happens, the promotion \
+         below is dead code rather than the fix: {statuses:?}"
     );
 
     let stopped = session
@@ -172,4 +173,18 @@ async fn a_breakpoint_on_a_csharp_document_line_stops_inside_the_assembly() {
         .await
         .expect("evaluating in the stopped frame");
     assert_eq!(value.value, "3", "argument read from the real frame");
+
+    // The promotion: netcoredbg sent a `breakpoint` event when the module
+    // loaded, and the status the app reads has moved from pending to bound.
+    // Without this the gutter draws every C# breakpoint half-filled for the
+    // life of a session while the program stops on it perfectly.
+    let settled = session.breakpoint_statuses();
+    assert_eq!(
+        settled
+            .iter()
+            .find(|s| s.line == SUBTOTAL_LINE)
+            .map(|s| s.state),
+        Some(hick_dap::BindState::Bound),
+        "the breakpoint never left `pending` even though the program stopped on it: {settled:?}"
+    );
 }

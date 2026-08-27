@@ -158,8 +158,11 @@ async fn the_window_can_set_a_breakpoint_step_and_read_values() {
         .await
         .expect("the session starts");
     assert_eq!(started["breakpoints"][0]["line"], SUBTOTAL_LINE);
+    // debugpy binds while answering, so this is `bound` at set time. A
+    // compiled language answers `pending` here and is promoted by the
+    // adapter's `breakpoint` event — see `live_session_csharp.rs`.
     assert_eq!(
-        started["breakpoints"][0]["verified"], true,
+        started["breakpoints"][0]["state"], "bound",
         "the gutter would draw this hollow: {started}"
     );
     // The capabilities the UI gates its controls on.
@@ -306,7 +309,9 @@ async fn a_breakpoint_on_prose_is_reported_not_silently_dropped() {
     let started = wait_for(&mut app.socket, "started", Duration::from_secs(60))
         .await
         .expect("starts");
-    assert_eq!(started["breakpoints"][0]["verified"], false);
+    // `refused`, not `pending`: hick decided this itself, before any adapter
+    // was asked, and it is the one refusal that is certain.
+    assert_eq!(started["breakpoints"][0]["state"], "refused");
     assert!(
         started["breakpoints"][0]["message"]
             .as_str()

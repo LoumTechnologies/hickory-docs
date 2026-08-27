@@ -30,7 +30,7 @@ import {
   lineNumbers,
 } from "@codemirror/view";
 import type { DecorationSet } from "@codemirror/view";
-import type { Frame, Variable } from "./client";
+import type { BindState, Frame, Variable } from "./client";
 import { wrapGutterMarkers } from "../editor/wrapGutter";
 import { isDebuggable } from "./languages";
 import { languageForBlock } from "../editor/hickDoc";
@@ -39,15 +39,15 @@ import { structureOf } from "../editor/wysiwyg";
 /** One gutter dot. */
 export interface BreakpointMark {
   line: number;
-  verified: boolean;
+  state: BindState;
   conditional: boolean;
-  /** Why it could not bind, shown on hover. */
+  /** Why it could not bind, or why it is not confirmed yet, shown on hover. */
   message?: string;
 }
 
-/** Whether a mark is broken: unbindable, and able to say why. */
+/** Whether a mark is broken: refused outright, with a reason to show. */
 function isBroken(mark: BreakpointMark): boolean {
-  return !mark.verified && !!mark.message;
+  return mark.state === "refused";
 }
 
 /** One line of the call stack below the one execution is stopped at. */
@@ -138,7 +138,7 @@ function dotElement(mark: BreakpointMark): HTMLElement {
   const dot = document.createElement("span");
   dot.className =
     "cm-bp" +
-    (mark.verified ? "" : " cm-bp-unverified") +
+    (mark.state === "pending" ? " cm-bp-pending" : "") +
     (mark.conditional ? " cm-bp-conditional" : "") +
     // Broken is its own look: a breakpoint the debugger refused is not the
     // same as one it has not bound yet, and the difference decides whether
@@ -168,7 +168,7 @@ class DotMarker extends GutterMarker {
   }
   eq(other: DotMarker) {
     return (
-      other.mark.verified === this.mark.verified &&
+      other.mark.state === this.mark.state &&
       other.mark.conditional === this.mark.conditional
     );
   }
@@ -223,7 +223,7 @@ class PausedAtBreakpointMarker extends GutterMarker {
   }
   eq(other: PausedAtBreakpointMarker) {
     return (
-      other.mark.verified === this.mark.verified &&
+      other.mark.state === this.mark.state &&
       other.mark.conditional === this.mark.conditional
     );
   }

@@ -162,7 +162,7 @@ describe("the gutter is findable before it holds anything", () => {
     const extensions = debugEditor({ onToggleBreakpoint: () => {} });
     const state = EditorState.create({ doc: "a = 1\nb = 2\nc = 3\n", extensions });
     const view = new EditorView({ state });
-    view.dispatch({ effects: setBreakpointMarks.of([{ line: 1, verified: true, conditional: false }]) });
+    view.dispatch({ effects: setBreakpointMarks.of([{ line: 1, state: "bound" as const, conditional: false }]) });
     view.dispatch({ effects: setPausedLine.of(2) });
 
     const cells = [...view.dom.querySelectorAll(".cm-breakpoint-gutter .cm-gutterElement")];
@@ -187,7 +187,7 @@ describe("the gutter is findable before it holds anything", () => {
     const view = new EditorView({ state });
     view.dispatch({
       effects: [
-        setBreakpointMarks.of([{ line: 0, verified: true, conditional: false }]),
+        setBreakpointMarks.of([{ line: 0, state: "bound" as const, conditional: false }]),
         setPausedLine.of(0),
       ],
     });
@@ -198,23 +198,25 @@ describe("the gutter is findable before it holds anything", () => {
     expect(stack?.querySelector(".cm-paused-arrow")).not.toBeNull();
     // And the dot keeps saying what kind of breakpoint it is.
     view.dispatch({
-      effects: setBreakpointMarks.of([{ line: 0, verified: false, conditional: true }]),
+      effects: setBreakpointMarks.of([{ line: 0, state: "pending" as const, conditional: true }]),
     });
     const dot = view.dom.querySelector(".cm-bp-stack .cm-bp");
-    expect(dot?.className).toContain("cm-bp-unverified");
+    expect(dot?.className).toContain("cm-bp-pending");
     expect(dot?.className).toContain("cm-bp-conditional");
     view.destroy();
   });
 
-  it("draws a refused breakpoint as broken, with the reason on hover", () => {
+  it("tells apart bound, not-yet-bound, and refused — three states, not two", () => {
     const extensions = debugEditor({ onToggleBreakpoint: () => {} });
     const state = EditorState.create({ doc: "a = 1\nb = 2\n", extensions });
     const view = new EditorView({ state });
     view.dispatch({
       effects: setBreakpointMarks.of([
-        { line: 0, verified: false, conditional: false, message: "Server disconnected" },
-        // Not yet bound, but nothing has gone wrong: a different state.
-        { line: 1, verified: false, conditional: false },
+        { line: 0, state: "refused" as const, conditional: false, message: "Server disconnected" },
+        // Not confirmed yet, and nothing has gone wrong. Every breakpoint in
+        // a compiled language looks like this until the module loads, which
+        // is why it must not wear the refused mark.
+        { line: 1, state: "pending" as const, conditional: false },
       ]),
     });
 
@@ -222,7 +224,7 @@ describe("the gutter is findable before it holds anything", () => {
     expect(dots[0].className).toContain("cm-bp-broken");
     expect((dots[0] as HTMLElement).dataset.tip).toBe("Server disconnected");
     expect(dots[1].className).not.toContain("cm-bp-broken");
-    expect(dots[1].className).toContain("cm-bp-unverified");
+    expect(dots[1].className).toContain("cm-bp-pending");
     view.destroy();
   });
 
@@ -287,7 +289,7 @@ describe("the stack, in the gutter", () => {
     const view = open();
     view.dispatch({
       effects: [
-        setBreakpointMarks.of([{ line: 1, verified: true, conditional: false }]),
+        setBreakpointMarks.of([{ line: 1, state: "bound" as const, conditional: false }]),
         setStackMarks.of([{ line: 1, id: 7, name: "a", depth: 1 }]),
       ],
     });
@@ -472,7 +474,7 @@ z = 3
     const line = codeLine("y = 2");
     view.dispatch({
       effects: [
-        setBreakpointMarks.of([{ line, verified: true, conditional: false }]),
+        setBreakpointMarks.of([{ line, state: "bound" as const, conditional: false }]),
         setStackMarks.of([{ line, id: 4, name: "caller", depth: 1 }]),
       ],
     });

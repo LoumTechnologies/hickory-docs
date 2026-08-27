@@ -16,7 +16,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
-use hick_dap::{Breakpoint, Launch, Mapping, Session, Step};
+use hick_dap::{BindState, Breakpoint, Launch, Mapping, Session, Step};
 
 /// A document whose generated file has a function worth stopping inside.
 const DOC: &str = r##"<?xml version="1.0" encoding="UTF-8"?>
@@ -134,8 +134,12 @@ async fn a_breakpoint_on_a_document_line_stops_the_program_there() {
     // Verified, which is the difference between a breakpoint that will work
     // and one the gutter must draw hollow.
     assert_eq!(statuses.len(), 1);
-    assert!(
-        statuses[0].verified,
+    // debugpy verifies while answering, so a Python breakpoint is bound
+    // immediately. netcoredbg does not — see `live_session_csharp.rs`, which
+    // is why this is three states rather than a bool.
+    assert_eq!(
+        statuses[0].state,
+        BindState::Bound,
         "the adapter could not bind it: {statuses:?}"
     );
     assert_eq!(statuses[0].line, SUBTOTAL_LINE);
@@ -386,7 +390,7 @@ async fn a_conditional_breakpoint_stops_only_when_it_should() {
     )
     .await
     .expect("starts");
-    assert!(statuses[0].verified);
+    assert_eq!(statuses[0].state, BindState::Bound);
 
     let stopped = session
         .wait_for_stop(Duration::from_secs(30))
@@ -430,7 +434,9 @@ async fn a_breakpoint_on_prose_is_refused_with_a_reason() {
 
     assert_eq!(statuses.len(), 1);
     assert_eq!(statuses[0].line, PROSE_LINE);
-    assert!(!statuses[0].verified);
+    // Refused, not merely unconfirmed: hick made this call itself, before
+    // any adapter was asked, and no `breakpoint` event can overturn it.
+    assert_eq!(statuses[0].state, BindState::Refused);
     assert!(
         statuses[0]
             .message
@@ -537,7 +543,7 @@ async fn running_to_a_line_keeps_the_breakpoints_a_person_set() {
     )
     .await
     .expect("the session starts");
-    assert!(statuses[0].verified);
+    assert_eq!(statuses[0].state, BindState::Bound);
     let stopped = session
         .wait_for_stop(Duration::from_secs(30))
         .await

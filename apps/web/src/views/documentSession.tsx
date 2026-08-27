@@ -333,7 +333,7 @@ function useDocumentSession(
         setBreakpointMarks.of(
           debug.breakpoints.map((breakpoint) => ({
             line: breakpoint.line,
-            verified: breakpoint.verified,
+            state: breakpoint.state,
             conditional: false,
             message: breakpoint.message,
           })),

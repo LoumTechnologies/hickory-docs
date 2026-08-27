@@ -191,7 +191,7 @@ pub async fn run(
         let Some(status) = statuses.iter().find(|s| s.line == asked) else {
             continue;
         };
-        if !status.verified {
+        if status.state.is_refused() {
             out[slot].problem = Some(format!(
                 "the debugger would not place a breakpoint at {}:{}{}. A blank line, a comment, \
                  or a line the program never loads cannot hold one.",
@@ -215,6 +215,32 @@ pub async fn run(
     }
 
     let result = drive(&session, &mapping, &resolved, specs, &mut out).await;
+
+    // Anything still unconfirmed once the program has ended really did never
+    // bind, and NOW it can be said. Asking before the run would have been
+    // wrong for every compiled language: netcoredbg confirms nothing until
+    // the module loads, so a pre-run check reported "would not place a
+    // breakpoint" about every C# capture in a document that works.
+    let settled = session.breakpoint_statuses();
+    for (slot, (index, line)) in resolved.iter().enumerate() {
+        let Some(asked) = *line else { continue };
+        if out[slot].problem.is_some() || !out[slot].hits.is_empty() {
+            continue;
+        }
+        let never_bound = settled
+            .iter()
+            .find(|s| s.line == asked)
+            .is_some_and(|s| !s.state.is_bound());
+        if never_bound {
+            out[slot].problem = Some(format!(
+                "the debugger never bound a breakpoint at {}:{}. The program ran to the end \
+                 without the adapter confirming that line — a line the program never loads \
+                 cannot hold one.",
+                specs[*index].file, specs[*index].line,
+            ));
+        }
+    }
+
     session.shutdown().await;
     result?;
     Ok(out)
