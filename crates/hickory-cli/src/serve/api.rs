@@ -39,6 +39,10 @@ impl ApiError {
     pub fn bad_request(msg: impl Into<String>) -> Self {
         Self(StatusCode::BAD_REQUEST, msg.into(), None)
     }
+    /// The message, for a caller that has to fold it into another error.
+    pub fn detail(&self) -> &str {
+        &self.1
+    }
     pub fn unprocessable(msg: impl Into<String>) -> Self {
         Self(StatusCode::UNPROCESSABLE_ENTITY, msg.into(), None)
     }

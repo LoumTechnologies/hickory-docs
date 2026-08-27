@@ -34,8 +34,10 @@
 //! on, which is the same person the server already answers. See
 //! `docs/specs/freeform/local-only.md`.
 
+pub mod anchor;
 pub mod attention;
 pub mod classify;
+pub mod command;
 pub mod config;
 pub mod git;
 pub mod prompt;

@@ -130,6 +130,8 @@ import { MonitorDock } from "../terminal/MonitorDock";
 // The terminal emulator is a quarter of a megabyte of JavaScript that a
 // window without a terminal open never runs. Loaded the first time a terminal
 // tab is drawn, so the document you opened the app for is on screen sooner.
+import { AnchorBar } from "../terminal/AnchorBar";
+
 const TerminalPane = lazy(() =>
   import("../terminal/TerminalPane").then((m) => ({ default: m.TerminalPane })),
 );
@@ -1575,12 +1577,23 @@ export function WorkspaceView({ route }: { route: WorkspaceRoute }) {
       // The emulator draws to a canvas, so the CSS zoom around it does
       // nothing; it is told its level and re-fits itself.
       return (
-        <Suspense fallback={null}>
-          <TerminalPane
-            sessionId={tab.target}
-            zoom={workspaceUi.zoomFor(tab.target)}
+        <div className="terminal-tab">
+          {/* Above the emulator, and present for exactly as long as the
+              terminal is writing: the difference between "this disappears"
+              and "this is being committed" is the most important thing on
+              the screen, so it is never a toast. */}
+          <AnchorBar
+            anchor={terminals.anchors[tab.target] ?? null}
+            onResume={() => void terminals.resumeAnchor(tab.target)}
+            onUnanchor={() => void terminals.unanchor(tab.target)}
           />
-        </Suspense>
+          <Suspense fallback={null}>
+            <TerminalPane
+              sessionId={tab.target}
+              zoom={workspaceUi.zoomFor(tab.target)}
+            />
+          </Suspense>
+        </div>
       );
     }
     if (tab.kind === "tool" && tab.target === GIT_TAB) {

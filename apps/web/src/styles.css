@@ -7950,3 +7950,58 @@ button.status-bar__item:hover { background: var(--bg-sunken); color: var(--fg); 
   background: var(--bg-raised);
   border-bottom: 1px solid var(--border);
 }
+
+/* A terminal that is writing into a document says so, for as long as it is.
+   `a-terminal-that-writes-the-document.md`: the difference between "this
+   disappears" and "this is being committed" is the most important thing on
+   the screen, so this is a strip rather than a toast. */
+.anchor-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 0.3rem 0.7rem;
+  font-size: 0.75rem;
+  background: color-mix(in srgb, var(--accent) 14%, var(--bg-raised));
+  border-bottom: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+.anchor-bar-suspended {
+  background: color-mix(in srgb, var(--warn) 18%, var(--bg-raised));
+}
+.anchor-bar code {
+  font-family: var(--mono);
+}
+.anchor-bar-count {
+  color: var(--fg-muted);
+}
+.anchor-bar-why {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.anchor-bar-why-tail {
+  color: var(--fg-muted);
+}
+.anchor-bar-actions {
+  margin-left: auto;
+  display: flex;
+  gap: 0.4rem;
+}
+.anchor-bar-actions button {
+  font-size: 0.72rem;
+  padding: 0.15rem 0.5rem;
+}
+
+/* The terminal tab: the anchor strip, then the emulator filling the rest.
+   The emulator is absolutely positioned inside `.terminal-pane`, so the pane
+   needs a box of its own to fill rather than growing to its content. */
+.terminal-tab {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+.terminal-tab .terminal-pane {
+  flex: 1 1 auto;
+  min-height: 0;
+}

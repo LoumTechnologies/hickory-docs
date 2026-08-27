@@ -117,6 +117,32 @@ __hickory_report_cwd() {
 if [[ -z "${precmd_functions[(r)__hickory_report_cwd]}" ]]; then
   precmd_functions+=(__hickory_report_cwd)
 fi
+
+# Hickory Docs shell integration: report the command being run (OSC 633).
+# `preexec` receives the typed line as $1 — already assembled by the shell, so
+# none of readline's editing has to be reconstructed from keystrokes.
+__hickory_report_cmd() {
+  emulate -L zsh
+  local s="$1" url='' i ch hex
+  local LC_ALL=C
+  for (( i = 1; i <= ${#s}; ++i )); do
+    ch="${s[i]}"
+    if [[ "$ch" == [/._~A-Za-z0-9-] ]]; then
+      url+="$ch"
+    else
+      printf -v hex '%02X' "'$ch"
+      url+="%$hex"
+    fi
+  done
+  # $HISTCMD is the shell's own counter, and it is here for the same reason
+  # bash sends a history number: a counter that did NOT move means the shell
+  # kept this line out of its history, which is a person saying "not this
+  # one" and is recorded as a suspension rather than as a command.
+  printf '\033]633;hickory-cmd;%s;%s\a' "${HISTCMD:-0}" "$url"
+}
+if [[ -z "${preexec_functions[(r)__hickory_report_cmd]}" ]]; then
+  preexec_functions+=(__hickory_report_cmd)
+fi
 "#;
 
 /// The hook, in bash.
@@ -152,6 +178,59 @@ case "${PROMPT_COMMAND:-}" in
   *__hickory_report_cwd*) ;;
   *) PROMPT_COMMAND="__hickory_report_cwd${PROMPT_COMMAND:+; $PROMPT_COMMAND}" ;;
 esac
+
+# Hickory Docs shell integration: report the command being run (OSC 633).
+#
+# PS0 and not a DEBUG trap, and not PROMPT_COMMAND. Measured on bash 5.3.9
+# against a real PTY, because two obvious answers are wrong:
+#
+#   * a DEBUG trap fires per EXECUTED command, so `ls | head` arrives as two
+#     and a `for` loop as one per iteration — a cell of those does not
+#     reproduce, which is the whole invariant;
+#   * PROMPT_COMMAND with `history 1` fires at the FIRST prompt too, and
+#     reports a line out of the user's ~/.bash_history that they never typed
+#     in this session.
+#
+# PS0 is expanded exactly once per submitted line, after the line is read and
+# before it runs. It is expanded in a SUBSHELL, so this cannot keep state
+# between firings — which is why the history number is sent and the comparing
+# is done in Rust.
+__hickory_report_cmd() {
+  local s="$1" url='' i ch hex code
+  local LC_ALL=C
+  for (( i = 0; i < ${#s}; ++i )); do
+    ch="${s:i:1}"
+    case "$ch" in
+      [/._~A-Za-z0-9-]) url="$url$ch" ;;
+      *)
+        printf -v code '%d' "'$ch"
+        printf -v hex '%02X' "$(( code & 0xFF ))"
+        url="$url%$hex"
+        ;;
+    esac
+  done
+  printf '\033]633;hickory-cmd;%s;%s\a' "$2" "$url"
+}
+__hickory_ps0() {
+  local raw n body
+  raw="$(HISTTIMEFORMAT= history 1)"
+  # `history 1` prints "  <number>  <command>", with leading padding that
+  # widens as the number does. Strip the padding, the number, and then ALL of
+  # the space between it and the command — one `${body# }` leaves a space on
+  # the front of every command, which is invisible in a terminal and is a
+  # byte in somebody's document.
+  n="${raw#"${raw%%[![:space:]]*}"}"
+  n="${n%%[[:space:]]*}"
+  body="${raw#*"$n"}"
+  body="${body#"${body%%[![:space:]]*}"}"
+  # HISTCONTROL (ignorespace, ignoredups — both common defaults) can keep a
+  # line out of history, and then `history 1` still shows the PREVIOUS one.
+  # Sending it would record a command that did not run. The number is what
+  # tells the two apart, and an unchanged number is a suspension, decided in
+  # Rust because this runs in a subshell and cannot remember anything.
+  [[ -n "$n" ]] && __hickory_report_cmd "$body" "$n"
+}
+PS0='$(__hickory_ps0)'"${PS0:-}"
 "#;
 
 /// zsh, through `ZDOTDIR`.

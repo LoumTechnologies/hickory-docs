@@ -7,6 +7,7 @@
 pub mod adopt;
 pub mod agent_cell_runner;
 pub mod agent_lineage;
+pub mod anchor;
 pub mod carry;
 pub mod claude_code;
 pub mod continuity;

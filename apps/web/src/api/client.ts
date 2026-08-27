@@ -48,6 +48,7 @@ import type {
   ContinuitySettings,
   FleetResponse,
   FleetMachine,
+  TerminalAnchor,
 } from "./types";
 
 export const MOCK = import.meta.env.VITE_MOCK === "1";
@@ -513,6 +514,20 @@ export const api = {
     request<TerminalSession>("POST", `/api/terminals/${id}/answer`, { send }),
   setTurbo: (enabled: boolean) =>
     request<{ turbo: boolean }>("PUT", "/api/terminals/turbo", { enabled }),
+  /** Which terminals are writing into which documents, all at once — "never
+   * anchor silently" means the state has to be readable at any moment, not
+   * announced once when it changes. */
+  terminalAnchors: () => request<{ anchors: Record<string, TerminalAnchor> }>(
+    "GET",
+    "/api/terminals/anchors",
+  ),
+  anchorTerminal: (id: string, doc: string, container: string) =>
+    request<TerminalAnchor>("POST", `/api/terminals/${id}/anchor`, { doc, container }),
+  unanchorTerminal: (id: string) =>
+    request<void>("DELETE", `/api/terminals/${id}/anchor`),
+  /** Record again after a suspension. Always a new cell. */
+  resumeAnchor: (id: string) =>
+    request<TerminalAnchor>("POST", `/api/terminals/${id}/anchor/resume`),
 
   // --- What the window remembers between runs -----------------------------
   //

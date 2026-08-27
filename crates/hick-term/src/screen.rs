@@ -49,6 +49,8 @@ pub struct Screen {
     cwd: Option<String>,
     osc_state: Osc,
     osc_payload: Vec<u8>,
+    /// Commands the shell has reported and nobody has collected yet.
+    typed: Vec<crate::command::TypedCommand>,
 }
 
 impl Screen {
@@ -60,6 +62,7 @@ impl Screen {
             cwd: None,
             osc_state: Osc::Idle,
             osc_payload: Vec::new(),
+            typed: Vec::new(),
         }
     }
 
@@ -138,6 +141,23 @@ impl Screen {
         if let Some(cwd) = cwd_from_osc7(&payload) {
             self.cwd = Some(cwd);
         }
+        if let Some(command) = crate::command::command_from_osc633(&payload) {
+            // Queued rather than acted on: this runs under the screen lock in
+            // the PTY reader, and what to DO with a typed command depends on
+            // whether the session is anchored to a document — which is not
+            // something a screen model should know.
+            self.typed.push(command);
+        }
+    }
+
+    /// Take the commands the shell has reported since this was last called.
+    ///
+    /// Draining rather than accumulating: an unanchored session reports
+    /// commands too (the hook is always installed, like OSC 7), and keeping
+    /// them would be a growing record of a terminal that promised to write
+    /// nothing anywhere.
+    pub fn take_typed(&mut self) -> Vec<crate::command::TypedCommand> {
+        std::mem::take(&mut self.typed)
     }
 
     /// The bytes a newly-attached client should be sent before live output.

@@ -519,6 +519,29 @@ export interface TerminalPrompt {
   source: PromptSource;
 }
 
+/**
+ * A terminal that is writing into a document.
+ *
+ * The persistent binding from
+ * `docs/specs/freeform/a-terminal-that-writes-the-document.md`. The anchor is
+ * the CONTAINER, not the document: several `hick:exec` blocks naming one
+ * container is already how the language says "commands that share state", so
+ * a terminal bound to `sdk` in a document is that shell. Say "anchored to a
+ * container", never "attached to a document".
+ */
+export interface TerminalAnchor {
+  /** The document id the cell lives in. */
+  doc: string;
+  /** The container the cell names — the anchor itself. */
+  container: string;
+  /** Why recording stopped, when it has. Suspension is sticky: the terminal
+   * keeps working and the document stops receiving, because a cell with a
+   * hole in it claims a run that cannot reproduce. */
+  suspended: string | null;
+  /** Lines written since anchoring. */
+  recorded: number;
+}
+
 export interface TerminalSession {
   id: string;
   title: string;

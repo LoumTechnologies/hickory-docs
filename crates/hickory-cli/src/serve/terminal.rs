@@ -296,6 +296,57 @@ fn resolve_cwd(root: &std::path::Path, cwd: Option<&str>) -> PathBuf {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Anchoring: the terminal that writes the document
+// ---------------------------------------------------------------------------
+
+/// `POST /api/terminals/{id}/anchor` — bind this terminal to a container in
+/// a document, and start recording what is typed into it.
+pub async fn anchor(
+    State(state): State<LocalState>,
+    UrlPath(id): UrlPath<String>,
+    Json(body): Json<super::anchored::AnchorBody>,
+) -> ApiResult<Json<Value>> {
+    // `session_of` first, so "no such terminal" reads as that rather than as
+    // an anchoring problem.
+    session_of(&state, &id)?;
+    let anchored = super::anchored::anchor(&state, &id, body)
+        .await
+        .map_err(|e| ApiError::unprocessable(format!("{e:#}")))?;
+    Ok(Json(json!(anchored)))
+}
+
+/// `DELETE /api/terminals/{id}/anchor` — stop writing. The terminal keeps
+/// working; the document stops receiving.
+pub async fn unanchor(
+    State(state): State<LocalState>,
+    UrlPath(id): UrlPath<String>,
+) -> ApiResult<Json<Value>> {
+    let was = super::anchored::unanchor(&state, &id).await;
+    Ok(Json(json!({ "anchored": false, "was_anchored": was })))
+}
+
+/// `POST /api/terminals/{id}/anchor/resume` — record again after a
+/// suspension, which always starts a new cell.
+pub async fn resume_anchor(
+    State(state): State<LocalState>,
+    UrlPath(id): UrlPath<String>,
+) -> ApiResult<Json<Value>> {
+    let anchored = super::anchored::resume(&state, &id)
+        .await
+        .map_err(|e| ApiError::unprocessable(format!("{e:#}")))?;
+    Ok(Json(json!(anchored)))
+}
+
+/// `GET /api/terminals/anchors` — which terminals are writing, and where.
+///
+/// The window asks for all of them at once rather than one per tab: "never
+/// anchor silently" means the state has to be readable at any moment, not
+/// announced once when it changes.
+pub async fn anchors(State(state): State<LocalState>) -> ApiResult<Json<Value>> {
+    Ok(Json(json!({ "anchors": state.anchors.all().await })))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

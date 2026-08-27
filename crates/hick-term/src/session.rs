@@ -100,6 +100,8 @@ pub struct Session {
     pub spec: SessionSpec,
     screen: Mutex<Screen>,
     output: broadcast::Sender<Arc<Vec<u8>>>,
+    /// Commands the shell reported, for whoever is recording them.
+    typed: broadcast::Sender<crate::command::TypedCommand>,
     writer: Mutex<Box<dyn Write + Send>>,
     master: Mutex<Box<dyn MasterPty + Send>>,
     child: Mutex<Box<dyn Child + Send + Sync>>,
@@ -221,12 +223,17 @@ impl Session {
             .context("failed to write to the pseudo-terminal")?;
 
         let (output, _) = broadcast::channel(1024);
+        // Small on purpose: a listener that has fallen this far behind on
+        // typed commands has missed some, and `Lagged` telling it so is what
+        // lets the anchor suspend rather than write a cell with a hole in it.
+        let (typed, _) = broadcast::channel(256);
         let session = Arc::new(Session {
             id,
             _integration: integration,
             git: Mutex::new(git::facts(&spec.cwd)),
             screen: Mutex::new(Screen::new(24, 80, config.scrollback_lines)),
             output,
+            typed,
             writer: Mutex::new(writer),
             master: Mutex::new(pair.master),
             child: Mutex::new(child),
@@ -255,8 +262,16 @@ impl Session {
                     Ok(0) | Err(_) => break,
                     Ok(n) => {
                         let bytes = Arc::new(buf[..n].to_vec());
+                        let mut typed = Vec::new();
                         if let Ok(mut screen) = self.screen.lock() {
                             screen.feed(&bytes[..]);
+                            typed = screen.take_typed();
+                        }
+                        // Outside the screen lock: a subscriber that is slow
+                        // must not hold up the PTY reader, and a session
+                        // nobody is recording has no subscribers at all.
+                        for command in typed {
+                            let _ = self.typed.send(command);
                         }
                         if let Ok(mut last) = self.last_output.lock() {
                             *last = Instant::now();
@@ -271,6 +286,25 @@ impl Session {
         });
     }
 
+    /// Every command the shell reports from now on.
+    ///
+    /// Nothing is replayed: a recording starts when a person anchors the
+    /// terminal, and commands typed before that belong to the part of the
+    /// session the document does not claim.
+    pub fn typed_commands(&self) -> broadcast::Receiver<crate::command::TypedCommand> {
+        self.typed.subscribe()
+    }
+
+    /// Whether this session's shell reports what it runs.
+    ///
+    /// False for a shell hick has no hook for (fish, nu, a bare `sh`) and for
+    /// `HICKORY_SHELL_INTEGRATION=0`. A terminal that cannot report its
+    /// commands cannot be anchored to a document, and saying so is the whole
+    /// of "never anchor silently".
+    pub fn reports_commands(&self) -> bool {
+        self._integration.is_some()
+    }
+
     /// Attach: everything said so far, then everything said from now on.
     ///
     /// Taken together under the screen lock, so nothing is missed and nothing
@@ -279,6 +313,24 @@ impl Session {
         let screen = self.screen.lock().expect("screen lock");
         let receiver = self.output.subscribe();
         (screen.replay().to_vec(), receiver)
+    }
+
+    /// Say something IN the terminal without saying it TO the shell.
+    ///
+    /// The bytes go to the screen model and to whoever is watching, and not
+    /// to the PTY — so a notice appears where the person is looking without
+    /// the shell ever seeing it as input. That distinction is the whole
+    /// reason this is not `write`: sending "recording paused" to the shell
+    /// would run it as a command.
+    pub fn inject(&self, bytes: &[u8]) {
+        let bytes = Arc::new(bytes.to_vec());
+        if let Ok(mut screen) = self.screen.lock() {
+            screen.feed(&bytes[..]);
+            // Whatever this painted is ours, and must never be mistaken for
+            // something the shell reported.
+            let _ = screen.take_typed();
+        }
+        let _ = self.output.send(bytes);
     }
 
     /// Type into the session.

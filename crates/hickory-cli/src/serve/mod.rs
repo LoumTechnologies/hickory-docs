@@ -28,6 +28,7 @@
 //! See `docs/specs/freeform/local-only.md`.
 
 pub mod agent;
+pub mod anchored;
 pub mod api;
 pub mod asset;
 pub mod debug_bridge;
@@ -129,6 +130,10 @@ pub struct LocalState {
     /// them. Sessions outlive their panes, so they belong to the session
     /// state rather than to any one client. See [`terminal`].
     pub terminals: Arc<hick_term::Terminals>,
+    /// Which terminals are writing into which documents. See [`anchored`];
+    /// empty is the normal state, because a terminal writes nothing until
+    /// somebody anchors it.
+    pub anchors: Arc<anchored::Anchors>,
 }
 
 /// The session's provider-key settings: the live store the agent route reads
@@ -493,12 +498,21 @@ fn router(state: LocalState) -> Router {
         )
         .route("/terminals", get(terminal::list).post(terminal::open))
         .route("/terminals/turbo", put(terminal::set_turbo))
+        .route("/terminals/anchors", get(terminal::anchors))
         .route("/terminals/ws", get(terminal::ws_handler))
         .route("/terminals/{id}", delete(terminal::close))
         .route("/terminals/{id}/input", post(terminal::input))
         .route("/terminals/{id}/resize", post(terminal::resize))
         .route("/terminals/{id}/interrupt", post(terminal::interrupt))
         .route("/terminals/{id}/answer", post(terminal::answer))
+        .route(
+            "/terminals/{id}/anchor",
+            post(terminal::anchor).delete(terminal::unanchor),
+        )
+        .route(
+            "/terminals/{id}/anchor/resume",
+            post(terminal::resume_anchor),
+        )
         .route("/ws", get(socket::ws_handler));
 
     Router::new().nest("/api", api).with_state(state)
@@ -580,6 +594,7 @@ pub async fn prepare(opts: ServeOptions) -> Result<Prepared> {
         }),
         refactors: Arc::new(Mutex::new(HashMap::new())),
         terminals: Arc::new(hick_term::Terminals::new(term_config)),
+        anchors: Arc::new(anchored::Anchors::default()),
     };
 
     Ok(Prepared {
