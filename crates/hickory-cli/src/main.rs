@@ -895,6 +895,19 @@ enum IndexCommand {
         #[arg(long)]
         root: Option<PathBuf>,
     },
+    /// Where a name is used, across every document and the files they weave.
+    ///
+    /// Answered from the index, which is a CACHE: it is as old as its last
+    /// build, and this says so. The language server's live answer wins
+    /// wherever the two disagree.
+    Find {
+        /// The name to look for.
+        name: String,
+        /// Which index to read.
+        language: String,
+        #[arg(long)]
+        root: Option<PathBuf>,
+    },
     /// Run an indexer over this project and write an index.
     ///
     /// The index is produced and **nothing reads it yet** — see
@@ -1174,7 +1187,7 @@ fn run() -> ExitCode {
             Command::Model(cmd) => cmd_model(cmd).await,
             Command::Dap(cmd) => cmd_dap(cmd),
             Command::Repair(args) => cmd_repair(args),
-            Command::Index(command) => cmd_index(command),
+            Command::Index(command) => cmd_index(command).await,
             Command::History(args) => cmd_history(args),
             Command::MergeDriver(args) => cmd_merge_driver(args),
             Command::SandboxRun(args) => cmd_sandbox_run(args),
@@ -2427,7 +2440,7 @@ fn cmd_repair(args: RepairArgs) -> Result<ExitCode> {
 ///
 /// Git's contract: write the result to `%A` either way, exit 0 for a clean
 /// merge and non-zero for a conflict.
-fn cmd_index(command: IndexCommand) -> Result<ExitCode> {
+async fn cmd_index(command: IndexCommand) -> Result<ExitCode> {
     use hickory_cli::index_install;
 
     match command {
@@ -2487,6 +2500,137 @@ fn cmd_index(command: IndexCommand) -> Result<ExitCode> {
             Ok(ExitCode::SUCCESS)
         }
 
+        IndexCommand::Find {
+            name,
+            language,
+            root,
+        } => {
+            let root = match root {
+                Some(root) => root,
+                None => std::env::current_dir().context("resolving the current directory")?,
+            };
+            use hickory_cli::index_read::Hit;
+            let path = hickory_cli::index_read::index_path(&root, &language);
+            let index = hickory_cli::index_read::read_index(&path)?;
+            let raw = hickory_cli::index_read::occurrences(&index, &name);
+
+            // Which outputs are generated, and by which document — the same
+            // map find-and-replace uses to know what it must not write.
+            //
+            // It maps an output path to the document's **id**, not to its
+            // path. Reading it as a path is silent: the weave simply fails
+            // and every generated hit is dropped as unexplainable, which
+            // looks exactly like lineage having nothing to say.
+            let doc_index = hickory_cli::serve::store::DocIndex::scan(&root)?;
+            let generated = hickory_cli::serve::api::generated_outputs(&root, &doc_index);
+
+            // Weave each generated file's document ONCE, up front. Lazily
+            // inside the closure was the obvious shape and it panics: this
+            // command is already inside a tokio runtime, so blocking on
+            // another from within it is not allowed. Resolving first also
+            // stops a project with forty hits in one output weaving it forty
+            // times.
+            let mut lineages: std::collections::HashMap<
+                String,
+                (Vec<hickory_lineage::Provenance>, String, String),
+            > = std::collections::HashMap::new();
+            let mut outputs: Vec<String> = raw
+                .iter()
+                .map(|hit| hit.path.clone())
+                .filter(|path| generated.contains_key(path))
+                .collect();
+            outputs.sort();
+            outputs.dedup();
+            for output in outputs {
+                let Some(doc) = generated.get(&output) else {
+                    continue;
+                };
+                let Some(doc_path) = doc_index.absolute(doc) else {
+                    continue;
+                };
+                let Ok(run) =
+                    hickory_cli::run_doc(&doc_path, &[], RunMode::Weave, ExecutorChoice::Local)
+                        .await
+                else {
+                    continue;
+                };
+                let Ok(lineage) = hickory_cli::output_lineage(&run, &output) else {
+                    continue;
+                };
+                let Some(hick_exec::node::FileContent::Text(text)) =
+                    run.result.files.get(&output).cloned()
+                else {
+                    continue;
+                };
+                let Ok(source) = std::fs::read_to_string(&doc_path) else {
+                    continue;
+                };
+                lineages.insert(output, (lineage, text, source));
+            }
+            let found = hickory_cli::index_read::explain(&raw, &generated, |output| {
+                lineages.get(output).cloned()
+            });
+
+            // The age, first, because an indexed answer must never be
+            // mistaken for a live one.
+            match hickory_cli::index_read::built_from(&root, &language) {
+                Some(built) => {
+                    let stale = built.moved_on(&root);
+                    println!("indexed at {}", built.at);
+                    if !stale.is_empty() {
+                        println!(
+                            "  {} of {} indexed file(s) have changed since — this answer is out \
+                             of date for them. `hick index build {language}` to refresh.",
+                            stale.len(),
+                            built.inputs.len()
+                        );
+                    }
+                }
+                None => println!("indexed at an unknown time (no build record beside the index)"),
+            }
+            println!();
+
+            if found.hits.is_empty() && found.unmapped == 0 {
+                println!("No occurrence of {name} in the {language} index.");
+                return Ok(ExitCode::SUCCESS);
+            }
+            for hit in &found.hits {
+                let what = if hit.is_definition { "def " } else { "ref " };
+                // Project-relative, because an absolute path is unreadable in
+                // a list and is not how anybody refers to a file in their own
+                // project.
+                let shown = std::path::Path::new(&hit.path)
+                    .strip_prefix(&root)
+                    .map(|p| p.display().to_string())
+                    .unwrap_or_else(|_| hit.path.clone());
+                let hit = &Hit {
+                    path: shown,
+                    ..hit.clone()
+                };
+                match &hit.through {
+                    Some(output) => {
+                        println!("  {what} {}:{}  (via {output})", hit.path, hit.line + 1)
+                    }
+                    None => println!("  {what} {}:{}", hit.path, hit.line + 1),
+                }
+            }
+            if found.unmapped > 0 {
+                // Said, never swallowed: showing fewer results than exist with
+                // no sign anything was left out is its own kind of lie.
+                println!(
+                    "\n  {} occurrence(s) in generated files are not shown: lineage could not \
+                     map them back to a document, and sending you to a generated file would \
+                     send you somewhere the next run overwrites.",
+                    found.unmapped
+                );
+            }
+            println!(
+                "\nFrom the index, which is a cache. The language server's live answer wins \
+                 where the two disagree."
+            );
+            Ok(ExitCode::SUCCESS)
+        }
+
         IndexCommand::Build { language, root } => {
             let root = match root {
                 Some(root) => root,
@@ -2528,11 +2672,22 @@ fn cmd_index(command: IndexCommand) -> Result<ExitCode> {
             }
             let size = std::fs::metadata(&out).map(|m| m.len()).unwrap_or(0);
             println!("  wrote {} ({size} bytes)", out.display());
+            // What it covers, so `find` can say whether it has gone stale.
+            // Not a second mechanism: the same question recordings already
+            // answer — did an input change — asked with the same tool.
+            match hickory_cli::index_read::write_built_from(
+                &root,
+                &language,
+                &hickory_cli::serve::now_rfc3339_public(),
+            ) {
+                Ok(built) => println!("  covers {} file(s)", built.inputs.len()),
+                Err(error) => eprintln!("  (could not record what it covers: {error:#})"),
+            }
             // Said every time, because a person who does not know this will
             // reasonably assume navigation just got better.
             println!();
-            println!("Nothing in hick reads this yet — no navigation feature consults it.");
-            println!("See docs/specs/freeform/an-index-beside-the-language-server.md.");
+            println!();
+            println!("`hick index find <name> {language}` reads it.");
             Ok(ExitCode::SUCCESS)
         }
     }

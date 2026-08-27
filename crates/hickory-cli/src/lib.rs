@@ -20,6 +20,7 @@ pub mod emission;
 pub mod floor;
 pub mod history;
 pub mod index_install;
+pub mod index_read;
 pub mod ingest;
 pub mod ingest_exec;
 pub mod init;
