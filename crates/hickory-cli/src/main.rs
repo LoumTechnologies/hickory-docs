@@ -3,7 +3,7 @@
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use anyhow::{Context as _, Result};
+use anyhow::{Context as _, Result, bail};
 use clap::{Parser, Subcommand};
 
 use hickory_cli::{
@@ -205,6 +205,10 @@ enum Command {
     /// the agent can repeat. An unlisted host is denied.
     #[command(subcommand)]
     Broker(BrokerCommand),
+    /// What every writer did to this folder, below the last commit — and how
+    /// to go back. Local to you and to this machine; never committed, never
+    /// shared, evicted on a timer.
+    History(HistoryArgs),
     /// Whether this machine is sealed, and whether the seal actually holds.
     ///
     /// A sealed machine holds no credential worth stealing and has exactly
@@ -869,6 +873,54 @@ struct CarryArgs {
     out: Option<PathBuf>,
 }
 
+/// `hick history …`
+///
+/// Every one of these works offline and in a folder that is not a repository,
+/// which is most of the point: git's resolution is a commit, and this is the
+/// interval below one.
+#[derive(Debug, clap::Args)]
+struct HistoryArgs {
+    #[command(subcommand)]
+    command: Option<HistoryCommand>,
+    /// A file, to filter to its own timeline — a filter over the same acts,
+    /// never a second structure. `hick history` with no argument is the whole
+    /// list, which is the thing people reach for.
+    path: Option<String>,
+    /// How many to show.
+    #[arg(long, default_value_t = 20)]
+    limit: usize,
+}
+
+#[derive(Debug, clap::Subcommand)]
+enum HistoryCommand {
+    /// What one act did, file by file.
+    Show {
+        /// The act id, or an unambiguous prefix of one.
+        act: String,
+    },
+    /// Put back what an act overwrote.
+    ///
+    /// Only where the bytes on disk are still what the act wrote; a file that
+    /// has moved on since is reported rather than silently skipped.
+    Revert {
+        act: String,
+        /// One file out of the act, rather than all of them.
+        #[arg(long)]
+        path: Option<String>,
+    },
+    /// Forget what is stored — everything, or everything about one path.
+    ///
+    /// An honest verb rather than a redactor this product does not have. A
+    /// file that briefly contained a secret is the obvious case.
+    Forget {
+        #[arg(long)]
+        path: Option<String>,
+        /// Forget the whole store for this folder.
+        #[arg(long, conflicts_with = "path")]
+        all: bool,
+    },
+}
+
 #[derive(clap::Args)]
 struct RepairArgs {
     /// A directory inside the repository. Defaults to the current one.
@@ -1092,6 +1144,7 @@ fn run() -> ExitCode {
             Command::Model(cmd) => cmd_model(cmd).await,
             Command::Dap(cmd) => cmd_dap(cmd),
             Command::Repair(args) => cmd_repair(args),
+            Command::History(args) => cmd_history(args),
             Command::MergeDriver(args) => cmd_merge_driver(args),
             Command::SandboxRun(args) => cmd_sandbox_run(args),
             Command::Mcp(args) => {
@@ -2343,6 +2396,150 @@ fn cmd_repair(args: RepairArgs) -> Result<ExitCode> {
 ///
 /// Git's contract: write the result to `%A` either way, exit 0 for a clean
 /// merge and non-zero for a conflict.
+fn cmd_history(args: HistoryArgs) -> Result<ExitCode> {
+    use hickory_workspace::history::ActKind;
+
+    let root = std::env::current_dir().context("resolving the current directory")?;
+    let Some(history) = hickory_cli::history::open(&root) else {
+        // Not an error: a machine with no data directory still runs
+        // everything else, and saying so beats a stack trace.
+        println!("No local history for this folder — there is nowhere on this machine to keep it.");
+        return Ok(ExitCode::SUCCESS);
+    };
+
+    let (command, path, limit) = (args.command, args.path, args.limit);
+    match command {
+        // No subcommand is the list, because "what happened to this folder"
+        // is the question people arrive with.
+        None => {
+            let acts = match &path {
+                Some(path) => history.acts_for(path),
+                None => history.acts(),
+            };
+            if acts.is_empty() {
+                println!(
+                    "Nothing recorded yet{}.\n\
+                     Local history starts when something writes: a run, a weave, a \
+                     find-and-replace, an ingest, the agent, the merge driver.",
+                    path.map(|p| format!(" for {p}")).unwrap_or_default()
+                );
+                return Ok(ExitCode::SUCCESS);
+            }
+            for act in acts.iter().take(limit) {
+                let files = act.changed().count();
+                println!(
+                    "{}  {}  {:<12} {:>3} file(s){}",
+                    act.id,
+                    act.at,
+                    act.kind.as_str(),
+                    files,
+                    act.detail
+                        .as_deref()
+                        .map(|d| format!("  {d}"))
+                        .unwrap_or_default()
+                );
+            }
+            if acts.len() > limit {
+                println!("… and {} more", acts.len() - limit);
+            }
+            println!(
+                "\nStored under {} — local to you and this machine. Not a backup: same disk, \
+                 same account, evicted on a timer.",
+                history.dir().display()
+            );
+            Ok(ExitCode::SUCCESS)
+        }
+
+        Some(HistoryCommand::Show { act }) => {
+            let Some(found) = history.act(&act) else {
+                bail!(
+                    "no act {act} in this folder's local history. `hick history` lists them; an \
+                     id prefix works as long as it names only one."
+                );
+            };
+            println!("{}  {}  {}", found.id, found.at, found.kind.as_str());
+            if let Some(detail) = &found.detail {
+                println!("  {detail}");
+            }
+            for file in found.changed() {
+                let what = match (&file.before, &file.after) {
+                    (None, Some(_)) => "created",
+                    (Some(_), None) => "deleted",
+                    _ => "changed",
+                };
+                println!("  {what:<8} {}", file.path);
+            }
+            if !found.kind.is_revertable() {
+                println!(
+                    "\nThis act wrote generated files, so `revert` is refused: the next run \
+                     would undo it. Change what generates them instead."
+                );
+            }
+            Ok(ExitCode::SUCCESS)
+        }
+
+        Some(HistoryCommand::Revert { act, path }) => {
+            let Some(found) = history.act(&act) else {
+                bail!("no act {act} in this folder's local history. `hick history` lists them.");
+            };
+            let out = history.revert(&root, &found, path.as_deref())?;
+            for path in &out.restored {
+                println!("  put back {path}");
+            }
+            // Never silently skipped: somebody undoing a batch is already
+            // unsure what happened, and a quiet partial revert is how they
+            // come to trust a state that never existed.
+            for path in &out.moved_on {
+                println!(
+                    "  left    {path} — it is not what {} wrote any more, so putting the old \
+                     bytes back would be a second unasked-for write on top of the first",
+                    found.id
+                );
+            }
+            for (path, why) in &out.refused {
+                println!("  refused {path} — {why}");
+            }
+            if out.restored.is_empty() {
+                println!("Nothing was put back.");
+                return Ok(ExitCode::SUCCESS);
+            }
+            // Going back is itself an act, so the way back from a bad revert
+            // is the same list. A history you can fall out of is a history
+            // nobody trusts.
+            let writes: Vec<(std::path::PathBuf, Vec<u8>)> = out
+                .restored
+                .iter()
+                .filter_map(|p| {
+                    let full = root.join(p);
+                    std::fs::read(&full).ok().map(|bytes| (full, bytes))
+                })
+                .collect();
+            hickory_cli::history::record(
+                &root,
+                ActKind::Revert,
+                Some(format!("reverted {}", found.id)),
+                &writes,
+            );
+            Ok(ExitCode::SUCCESS)
+        }
+
+        Some(HistoryCommand::Forget { path, all }) => {
+            if path.is_none() && !all {
+                bail!(
+                    "say what to forget: `--path <file>` for one file's versions, or `--all` \
+                     for this folder's whole local history. Neither can be undone."
+                );
+            }
+            let removed = history.forget(path.as_deref())?;
+            match path {
+                Some(path) => println!("Forgot {removed} act(s) about {path}."),
+                None => println!("Forgot {removed} act(s), and every version they held."),
+            }
+            Ok(ExitCode::SUCCESS)
+        }
+    }
+}
+
 fn cmd_merge_driver(args: MergeDriverArgs) -> Result<ExitCode> {
     match hickory_cli::merge_driver::run(
         &args.base,

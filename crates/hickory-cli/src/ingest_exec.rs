@@ -834,6 +834,17 @@ pub async fn ingest_from_exec(
         Some(existing) => next.replace_range(existing.span.0..existing.span.1, &block),
         None => next.insert_str(insert_at, &block),
     }
+    // A machine writing your source, and one of the writers that had no way
+    // back at all. Recorded before the write, so the document immediately
+    // before an ingest is one command away — which is also what makes the
+    // re-ingest merge's false conflicts cheap to study rather than
+    // frightening to trigger.
+    crate::history::record(
+        doc_path.parent().unwrap_or(std::path::Path::new(".")),
+        hickory_workspace::history::ActKind::Ingest,
+        Some(from.clone()),
+        &[(doc_path.to_path_buf(), next.clone().into_bytes())],
+    );
     std::fs::write(doc_path, &next)
         .with_context(|| format!("could not write {}", doc_path.display()))?;
 

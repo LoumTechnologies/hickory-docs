@@ -18,6 +18,7 @@ pub mod doc_tools;
 pub mod editor_lsp;
 pub mod emission;
 pub mod floor;
+pub mod history;
 pub mod ingest;
 pub mod ingest_exec;
 pub mod init;
@@ -1035,6 +1036,9 @@ pub fn write_outputs_detailed(run: &DocRun, out_dir: Option<&Path>) -> Result<Wr
     };
     let missing_recording = run.result.outputs_missing_a_recording();
     let weave_target = run.doc.weave_path.as_deref();
+    // Before anything reaches disk, and never after: whatever is there right
+    // now is what a person would lose.
+    record_generated_writes(run, &base, !run.result.transcripts.is_empty());
     let mut written = Vec::new();
     let mut preserved = Vec::new();
     for (rel_path, content) in &run.result.files {
@@ -1067,6 +1071,52 @@ pub fn write_outputs_detailed(run: &DocRun, out_dir: Option<&Path>) -> Result<Wr
     written.sort();
     preserved.sort();
     Ok(WrittenOutputs { written, preserved })
+}
+
+/// Leave a local-history stop before generated files are overwritten.
+///
+/// Called by BOTH output writers — this one and the `hick up` loop's
+/// `WovenState::write_output` — because a rule about what reaches disk that
+/// is applied to only one of them is a rule with a hole in it. That gap is
+/// what once let a weave destroy committed artifacts.
+///
+/// The act is `Run` or `Weave`, which are shown and **compared**, never
+/// reverted: the next run would undo the revert. Recording them anyway is the
+/// point of "show the document before the run" — the actual bytes, not
+/// "re-run and hope the inputs are the same".
+fn record_generated_writes(run: &DocRun, base: &Path, executed: bool) {
+    let root = run
+        .doc_path
+        .parent()
+        .unwrap_or(Path::new("."))
+        .to_path_buf();
+    let writes: Vec<(PathBuf, Vec<u8>)> = run
+        .result
+        .files
+        .iter()
+        .filter_map(|(rel, content)| {
+            let full = contained_output_path(base, rel).ok()?;
+            let bytes = match content {
+                FileContent::Text(s) => s.clone().into_bytes(),
+                FileContent::Binary(data) => data.to_bytes().ok()?,
+            };
+            Some((full, bytes))
+        })
+        .collect();
+    if writes.is_empty() {
+        return;
+    }
+    let kind = if executed {
+        hickory_workspace::history::ActKind::Run
+    } else {
+        hickory_workspace::history::ActKind::Weave
+    };
+    crate::history::record(
+        &root,
+        kind,
+        Some(run.doc_path.display().to_string()),
+        &writes,
+    );
 }
 
 /// Write only the output files that are MISSING under `out_dir`, leaving any

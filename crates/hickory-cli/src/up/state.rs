@@ -94,7 +94,7 @@ impl WovenState {
     /// an editor has open makes it report an external modification and, in
     /// some editors, discard the undo history. The loop must be invisible
     /// when it has nothing to say.
-    pub fn write_output(&mut self, path: &Path, state: OutputState) -> Result<bool> {
+    pub fn write_output(&mut self, root: &Path, path: &Path, state: OutputState) -> Result<bool> {
         let on_disk = std::fs::read_to_string(path).ok();
 
         // Never overwrite an edit we have not consumed yet.
@@ -116,6 +116,17 @@ impl WovenState {
 
         let unchanged = on_disk.is_some_and(|on_disk| on_disk == state.content);
         if !unchanged {
+            // The SECOND output writer, and it needs the same stop as
+            // `write_outputs_detailed`. A rule about what reaches disk that
+            // is applied to only one of them is a rule with a hole in it —
+            // and that gap is what once let a weave destroy committed
+            // artifacts.
+            crate::history::record(
+                root,
+                hickory_workspace::history::ActKind::Weave,
+                Some(path.display().to_string()),
+                &[(path.to_path_buf(), state.content.clone().into_bytes())],
+            );
             write_atomic(path, &state.content)?;
         }
         set_read_only(path, !state.editable())?;

@@ -182,8 +182,16 @@ async fn write_line(
     // leaving somebody with a file their own tool cannot open.
     hick_lang::parse(&next)
         .map_err(|e| anyhow::anyhow!("appending this line would break the document: {e}"))?;
+    // `Typed`, not `Saved`: the person is typing, and the terminal is the
+    // buffer. A history that called this a save would be describing the
+    // mechanism instead of what happened.
     state
-        .write_source(doc, &next)
+        .write_source_as(
+            doc,
+            &next,
+            hickory_workspace::history::ActKind::Typed,
+            Some(format!("anchored terminal · {container}")),
+        )
         .map_err(|e| anyhow::anyhow!("{}", e.detail()))?;
     state.rooms.apply_external_source(doc, &next).await;
     Ok(())

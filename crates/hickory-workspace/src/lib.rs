@@ -31,6 +31,8 @@
 //! sort it out" into a three-way merge, which resolves every region only one
 //! side touched and asks about nothing else. See `apps/web/src/lib/merge.ts`.
 
+pub mod history;
+
 use std::fs;
 use std::io::Write as _;
 use std::path::{Path, PathBuf};

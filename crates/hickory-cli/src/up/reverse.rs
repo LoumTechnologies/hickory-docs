@@ -7,7 +7,7 @@
 //! deciding what to tell the user when a range has nowhere to go.
 
 use std::collections::HashMap;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use hickory_lineage::{LineageError, OutputEdit, Provenance, SourceEdit};
@@ -113,6 +113,22 @@ pub fn apply_to_documents(
     }
 
     let updated = hickory_lineage::apply_source_edits(&sources, edits)?;
+    // One act for the whole carry-back. A reverse edit is a machine writing
+    // your SOURCE from something you typed somewhere else, and until now it
+    // was one of the writers with no way back at all.
+    let writes: Vec<(std::path::PathBuf, Vec<u8>)> = updated
+        .iter()
+        .map(|(doc_path, content)| (PathBuf::from(doc_path), content.clone().into_bytes()))
+        .collect();
+    if let Some(first) = writes.first() {
+        let root = first.0.parent().unwrap_or(Path::new(".")).to_path_buf();
+        crate::history::record(
+            &root,
+            hickory_workspace::history::ActKind::ReverseEdit,
+            Some(format!("{} edit(s) carried back", edits.len())),
+            &writes,
+        );
+    }
     let mut written = Vec::new();
     for (doc_path, content) in updated {
         super::state::write_atomic(Path::new(&doc_path), &content)?;

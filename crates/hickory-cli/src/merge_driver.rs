@@ -243,6 +243,13 @@ pub fn run(
     // fallen back into: the difference this step makes is that the result
     // passes through here, where the check below lives and where a recorded
     // correspondence will be written.
+    // What `ours` held before git's algorithm rewrote it in place. The merge
+    // driver is a writer whose way back today is `git merge --abort`, and
+    // only if you have not moved since — so the bytes are kept here, keyed by
+    // the repo-relative path the result will land at rather than by the temp
+    // file git handed over.
+    let before = std::fs::read(ours).ok();
+
     let marker = format!("--marker-size={}", marker_size.clamp(7, 80));
     let out = Command::new("git")
         .args([
@@ -269,6 +276,16 @@ pub fn run(
             )
         }
     };
+    if conflicts == 0
+        && let Ok(root) = std::env::current_dir()
+    {
+        crate::history::record_changes(
+            &root,
+            hickory_workspace::history::ActKind::Merge,
+            Some(format!("merged {path}")),
+            &[(path.to_string(), before, std::fs::read(ours).ok())],
+        );
+    }
     if conflicts > 0 {
         return Ok(MergeOutcome::Conflicted {
             reason: format!(

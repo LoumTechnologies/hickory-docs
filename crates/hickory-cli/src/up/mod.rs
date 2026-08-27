@@ -532,6 +532,7 @@ async fn weave_document_as(
         let provenance = output_lineage(&run, rel_path).unwrap_or_default();
         produced.insert(full.clone());
         state.write_output(
+            &base,
             &full,
             OutputState {
                 doc: doc.to_path_buf(),

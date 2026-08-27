@@ -212,10 +212,17 @@ pub async fn replace(
         body.paths.map(|list| list.into_iter().collect());
     let replacement = body.replacement.clone();
 
+    let find = body.find.q.clone();
     let result = tokio::task::spawn_blocking(move || -> Result<Value, String> {
         let mut changed = Vec::new();
         let mut skipped = Vec::new();
         let mut total = 0usize;
+        // Collected first, written second. A replace is the batch writer this
+        // whole design is shaped around: forty files in one act, so undoing
+        // it is one act too rather than forty reverts done in the right order
+        // by hand. Recording per file as we went would produce forty acts and
+        // make the undo useless.
+        let mut writes: Vec<(std::path::PathBuf, Vec<u8>)> = Vec::new();
         for (rel, absolute, text) in walk_text_files(&root) {
             if only.as_ref().is_some_and(|set| !set.contains(&rel)) {
                 continue;
@@ -239,10 +246,23 @@ pub async fn replace(
             if next == text {
                 continue;
             }
-            super::store::write_atomic(&absolute, next.as_bytes())
-                .map_err(|e| format!("could not write {rel}: {e:#}"))?;
+            writes.push((absolute, next.into_bytes()));
             total += count;
             changed.push(json!({ "path": rel, "matches": count }));
+        }
+
+        // One act for the whole replace, recorded before any of it lands.
+        // This is what closes the sentence at the end of
+        // `docs/guarantees/search/find-and-replace-is-exhaustive.md`.
+        crate::history::record(
+            &root,
+            hickory_workspace::history::ActKind::Replace,
+            Some(format!("{find} → {replacement}")),
+            &writes,
+        );
+        for (absolute, bytes) in &writes {
+            super::store::write_atomic(absolute, bytes)
+                .map_err(|e| format!("could not write {}: {e:#}", absolute.display()))?;
         }
         Ok(json!({ "changed": changed, "skipped": skipped, "replacements": total }))
     })

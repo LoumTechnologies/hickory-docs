@@ -215,3 +215,101 @@ async fn an_empty_pattern_is_refused_rather_than_matching_everywhere() {
     let session = start(&[("a.txt", "x\n")]).await;
     assert_eq!(get(&session, "/api/find?q=").await.0, 400);
 }
+
+/// The sentence at the end of the guarantee this file protects — "a
+/// multi-file undo inside the app is not implemented" — closed.
+///
+/// Git's resolution is a commit; a replace of forty files happens well below
+/// one, and reverting it by hand means forty reverts in the right order from
+/// memory. The whole replace is ONE act, so undoing it is one act too.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_replace_is_one_act_in_local_history_and_can_be_undone_whole() {
+    let session = start(&[
+        ("a.txt", "invoice_id here\n"),
+        ("b.txt", "and invoice_id there\n"),
+        ("c.txt", "nothing to see\n"),
+    ])
+    .await;
+    let root = session.dir.path().canonicalize().unwrap();
+
+    let (status, _) = post(
+        &session,
+        "/api/find/replace",
+        json!({ "q": "invoice_id", "replacement": "invoice_ref" }),
+    )
+    .await;
+    assert_eq!(status, 200);
+    assert!(
+        std::fs::read_to_string(root.join("a.txt"))
+            .unwrap()
+            .contains("invoice_ref")
+    );
+
+    let history = hickory_cli::history::open(&root).expect("a store for this folder");
+    let acts = history.acts();
+    let replace = acts
+        .iter()
+        .find(|a| a.kind == hickory_workspace::history::ActKind::Replace)
+        .expect("the replace left a stop");
+    // ONE act holding both files — not one act per file, which would make the
+    // undo useless.
+    assert_eq!(replace.changed().count(), 2, "{replace:?}");
+    assert!(
+        replace
+            .detail
+            .as_deref()
+            .is_some_and(|d| d.contains("invoice_id")),
+        "the act does not say what was replaced: {replace:?}"
+    );
+
+    let out = history.revert(&root, replace, None).unwrap();
+    assert_eq!(out.restored.len(), 2, "{out:?}");
+    assert!(out.moved_on.is_empty(), "{out:?}");
+    assert_eq!(
+        std::fs::read_to_string(root.join("a.txt")).unwrap(),
+        "invoice_id here\n"
+    );
+    assert_eq!(
+        std::fs::read_to_string(root.join("b.txt")).unwrap(),
+        "and invoice_id there\n"
+    );
+    // A file the replace never touched is not part of the act, so nothing
+    // about it moved.
+    assert_eq!(
+        std::fs::read_to_string(root.join("c.txt")).unwrap(),
+        "nothing to see\n"
+    );
+}
+
+/// A file somebody has been back to since is reported, never silently
+/// skipped.
+#[tokio::test(flavor = "multi_thread")]
+async fn reverting_a_replace_reports_a_file_that_has_moved_on() {
+    let session = start(&[("a.txt", "old\n"), ("b.txt", "old\n")]).await;
+    let root = session.dir.path().canonicalize().unwrap();
+    post(
+        &session,
+        "/api/find/replace",
+        json!({ "q": "old", "replacement": "new" }),
+    )
+    .await;
+    // Somebody edits one of them afterwards.
+    std::fs::write(root.join("b.txt"), "mine now\n").unwrap();
+
+    let history = hickory_cli::history::open(&root).unwrap();
+    let replace = history
+        .acts()
+        .into_iter()
+        .find(|a| a.kind == hickory_workspace::history::ActKind::Replace)
+        .unwrap();
+    let out = history.revert(&root, &replace, None).unwrap();
+
+    assert_eq!(out.restored, vec!["a.txt".to_string()]);
+    assert_eq!(out.moved_on, vec!["b.txt".to_string()]);
+    // Untouched, rather than overwritten with bytes it has not held for a
+    // while: undoing one unasked-for write must not be a second one.
+    assert_eq!(
+        std::fs::read_to_string(root.join("b.txt")).unwrap(),
+        "mine now\n"
+    );
+}

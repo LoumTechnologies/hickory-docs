@@ -203,13 +203,37 @@ impl LocalState {
             .map_err(|e| ApiError::internal(format!("reading {}: {e}", path.display())))
     }
 
-    pub fn write_source(&self, id: &str, source: &str) -> ApiResult<()> {
+    /// Write a document's source, leaving a local-history stop.
+    ///
+    /// Everything the server writes to a `.hick` file goes through here, so
+    /// this is the one place that has to remember to record — which is why
+    /// the KIND is a parameter rather than a guess. "A person saved this" and
+    /// "the agent rewrote this at a hashline anchor" are the two facts a
+    /// person scanning their history needs told apart, and only the caller
+    /// knows which it is.
+    pub fn write_source_as(
+        &self,
+        id: &str,
+        source: &str,
+        kind: hickory_workspace::history::ActKind,
+        detail: Option<String>,
+    ) -> ApiResult<()> {
         let path = self
             .index
             .absolute(id)
             .ok_or_else(|| ApiError::not_found(format!("no document {id} in this session")))?;
+        crate::history::record(
+            self.index.root(),
+            kind,
+            detail,
+            &[(path.clone(), source.as_bytes().to_vec())],
+        );
         store::write_atomic(&path, source.as_bytes())
             .map_err(|e| ApiError::internal(format!("writing {}: {e:#}", path.display())))
+    }
+
+    pub fn write_source(&self, id: &str, source: &str) -> ApiResult<()> {
+        self.write_source_as(id, source, hickory_workspace::history::ActKind::Saved, None)
     }
 
     /// Resolve a document path as provenance names it.
@@ -246,8 +270,19 @@ impl LocalState {
             .map_err(|e| ApiError::internal(format!("reading {}: {e}", path.display())))
     }
 
+    /// Write a document named the way provenance names it.
+    ///
+    /// This is the reverse edit's path: an edit somebody made in a GENERATED
+    /// file, carried back into the source that produces it. One of the
+    /// writers with no way back at all until now.
     pub fn write_source_by_doc_path(&self, doc_path: &str, source: &str) -> ApiResult<()> {
         let path = self.resolve_doc_path(doc_path)?;
+        crate::history::record(
+            self.index.root(),
+            hickory_workspace::history::ActKind::ReverseEdit,
+            Some(doc_path.to_string()),
+            &[(path.clone(), source.as_bytes().to_vec())],
+        );
         store::write_atomic(&path, source.as_bytes())
             .map_err(|e| ApiError::internal(format!("writing {}: {e:#}", path.display())))
     }
