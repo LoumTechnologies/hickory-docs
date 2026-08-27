@@ -102,14 +102,27 @@ Last LLM verification:
   command used to print only the second — someone with a Go file was sent to
   a page that did not mention Go.
 - Caveat requiring review:
-  - **No C# debug session has ever been started.** netcoredbg is not
-    installed on this machine, and installing a third-party binary on
-    someone's machine to make a test pass is not something to do
-    unasked. Everything up to `Session::start` is exercised; the adapter
-    handshake, breakpoint binding against a pdb, and whether a breakpoint set
-    on a document line maps into `Program.cs` the way it does for Python are
-    **claimed by construction and not observed**. The `Mapping` is unchanged,
-    which is the reason to expect it to work and not evidence that it does.
+  - ~~No C# debug session has ever been started.~~ **Resolved 2026-08-27, at
+    the user's request.** netcoredbg 3.2.0-1092 was fetched and unpacked
+    under bubblewrap (only its prefix writable) and a real session run:
+    `crates/hick-dap/tests/live_session_csharp.rs` builds a C# document,
+    launches the assembly, stops on a breakpoint set on a **document** line,
+    reports a top frame named `LineTotal` on that same document line, and
+    reads `quantity` as `3` out of a live .NET frame. The pdb half of the
+    mapping is therefore observed rather than assumed. The test skips loudly
+    and separately for a missing SDK and a missing adapter, and the skip path
+    was exercised too.
+  - **netcoredbg does not verify a breakpoint at set time, and the gutter
+    treats that as "will not bind".** It answers `setBreakpoints` with
+    `verified: false` and "The breakpoint is pending and will be resolved
+    when debugging starts", then binds it when the module loads — the test
+    asserts both halves. debugpy verifies immediately, so this difference had
+    never surfaced. Nothing consumes DAP's `breakpoint` **event**, which is
+    how an adapter announces the later verification, so under netcoredbg
+    every C# breakpoint wears the hollow "unverified" mark for the life of
+    the session while working perfectly. This is a real defect in what a
+    person sees, it is **not fixed here**, and it is the first thing to fix
+    next.
   - **The artifact glob is a guess disambiguated by a convention.**
     `bin/Debug/*/*.dll` can match a project's dependencies as well as its own
     assembly, so the project file's stem wins — which is .NET's default
