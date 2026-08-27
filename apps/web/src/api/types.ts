@@ -538,6 +538,10 @@ export interface TerminalAnchor {
    * keeps working and the document stops receiving, because a cell with a
    * hole in it claims a run that cannot reproduce. */
   suspended: string | null;
+  /** What is reading the keys instead of the shell, while something is.
+   * NOT a suspension: nothing has to be resumed, and it clears itself when
+   * the shell gets the terminal back. */
+  foreign: string | null;
   /** Lines written since anchoring. */
   recorded: number;
 }

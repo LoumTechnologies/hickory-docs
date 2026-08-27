@@ -328,6 +328,72 @@ async fn leading_space_is_not_recorded(shell: &str) {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn typing_into_a_repl_is_said_out_loud_and_recording_survives_it() {
+    // The case the process-group test exists for, and it is a MESSAGE rather
+    // than a state: inside `python3` the shell never sees the keystrokes, so
+    // nothing is reported and nothing needs refusing. What a person needs is
+    // to be told why their lines stopped appearing — and then to have the
+    // cell carry on when they quit.
+    for (name, shell) in hooked_shells() {
+        eprintln!("--- {name} ---");
+        repl_is_announced(&shell).await;
+    }
+}
+
+async fn repl_is_announced(shell: &str) {
+    if !std::path::Path::new("/proc/self/comm").exists() {
+        eprintln!("SKIPPED: naming the foreground program is Linux-only so far");
+        return;
+    }
+    let app = open_app(shell).await;
+    let terminal = app.open_terminal().await;
+    tokio::time::sleep(Duration::from_millis(700)).await;
+    app.post(
+        &format!("/terminals/{terminal}/anchor"),
+        json!({ "doc": app.doc_id, "container": "sdk" }),
+    )
+    .await;
+
+    app.type_line(&terminal, "echo before\n").await;
+    app.type_line(&terminal, "python3 -q\n").await;
+    tokio::time::sleep(Duration::from_millis(900)).await;
+    // Typing INTO the REPL. These keys never reach the shell.
+    app.type_line(&terminal, "print('inside')\n").await;
+    app.type_line(&terminal, "quit()\n").await;
+    tokio::time::sleep(Duration::from_millis(900)).await;
+    app.type_line(&terminal, "echo after\n").await;
+
+    let document = app.document();
+    // The REPL's own lines are not commands and are not recorded — by
+    // construction, not by refusal.
+    assert!(
+        !document.contains("print('inside')"),
+        "a REPL's input was recorded as a shell command:\n{document}"
+    );
+    // And the anchor was NOT suspended: when the REPL exits the shell reports
+    // again, and the cell carries on. That is the whole difference between
+    // this and a secret.
+    assert!(
+        document.contains("echo before") && document.contains("echo after"),
+        "recording did not survive the REPL:\n{document}"
+    );
+    let anchors = app.anchors().await;
+    assert!(
+        anchors["anchors"][&terminal]["suspended"].is_null(),
+        "a program reading the keys suspended the anchor, which nothing has to resume: {}",
+        anchors["anchors"][&terminal]
+    );
+
+    // The standing note cleared itself when the shell got the terminal back:
+    // there was nothing to resume, which is the point.
+    assert!(
+        anchors["anchors"][&terminal]["foreign"].is_null(),
+        "the note outlived the program it was about: {}",
+        anchors["anchors"][&terminal]
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn a_shell_with_no_hook_is_refused_by_name_rather_than_recording_nothing() {
     // The failure this refusal exists to prevent: a fish session that looks
     // anchored, records nothing, and tells nobody.

@@ -9,6 +9,7 @@ const anchored = {
   doc: "abc123",
   container: "sdk",
   suspended: null,
+  foreign: null,
   recorded: 3,
 };
 
@@ -63,6 +64,44 @@ describe("what an anchored terminal says about itself", () => {
 
     fireEvent.click(screen.getByText("Resume"));
     expect(onResume).toHaveBeenCalled();
+  });
+
+  it("says a program is reading the keys, and offers no Resume for it", () => {
+    // The distinction that matters: this one resolves itself when the
+    // program exits, so offering a verb would invite a person to fix
+    // something that is not broken.
+    render(
+      <AnchorBar
+        anchor={{
+          ...anchored,
+          foreign:
+            "not recording — python3 is reading these keys itself\n   the terminal is yours; the document resumes when it exits",
+        }}
+        onResume={() => {}}
+        onUnanchor={() => {}}
+      />,
+    );
+    const bar = screen.getByTestId("anchor-bar");
+    expect(bar.textContent).toContain("waiting");
+    expect(bar.textContent).toContain("python3");
+    expect(bar.textContent).toContain("resumes when it exits");
+    expect(screen.queryByText("Resume")).toBeNull();
+  });
+
+  it("shows the suspension when both are true, because only it has a verb", () => {
+    render(
+      <AnchorBar
+        anchor={{
+          ...anchored,
+          suspended: "recording paused — this line looks like a secret\n   the shell ran it",
+          foreign: "not recording — less is not a shell command\n   the terminal is yours",
+        }}
+        onResume={() => {}}
+        onUnanchor={() => {}}
+      />,
+    );
+    expect(screen.getByTestId("anchor-bar-why").textContent).toContain("looks like a secret");
+    expect(screen.getByText("Resume")).toBeTruthy();
   });
 
   it("offers no Resume while nothing is suspended", () => {

@@ -106,22 +106,46 @@ Last LLM verification:
   - **Windows is undesigned.** ConPTY has no process groups; the shell hook
     itself is shell-shaped rather than PTY-shaped so it may well work, but
     nothing has run there and no `cmd`/PowerShell hook exists.
-  - **The foreground-program suspension is nearly unreachable, by design and
-    by accident.** Inside a REPL the shell's `PS0` never fires, so nothing is
-    recorded without anything refusing — measured. `Recording::foreign_program`
-    exists so a caller that detects it with `tcgetpgrp` can *say* so, and
-    **nothing calls it yet**: the terminal does not currently announce "you
-    are in `less`, recording is paused". That is a missing message, not a
-    missing gate.
+  - ~~The foreground-program suspension is nearly unreachable…~~ **Built
+    2026-08-27, and it is not a suspension.** Modelling it as one was wrong:
+    the spec's own words are "the terminal is yours; the document resumes
+    when it exits", so nothing has to be resumed. It is a *notice*
+    (`hick_term::anchor::ForeignInput`), said in the terminal once per
+    program and shown standing in the bar while it lasts, and the anchor
+    keeps recording either side of it.
+    The other half that reasoning got wrong: `tcgetpgrp(master) !=
+    shell_pgid` is true for **every** ordinary command — `dotnet build` holds
+    the terminal exactly as `less` does — so it is not a signal that anything
+    is amiss. The question is not "is a child running" but "are the keys
+    being typed right now going to one", which is why this is checked on the
+    **input path** and nowhere else.
+    Verified against both shells: typing into `python3` inside an anchored
+    terminal records neither `print(...)` nor `quit()`, says why, keeps the
+    lines either side of it, and clears the note when the shell returns.
+    Naming the program is Linux-only (`/proc/<pid>/comm`); elsewhere the
+    message says "a program" and still says the useful half.
   - **The secret scanner is a heuristic and its tuning is unmeasured.** The
     published prefixes are exact; the entropy rule (32+ characters, mixed
     case and digits, base64-ish alphabet) was chosen by reasoning and tested
     against a handful of real build commands, not against a corpus. False
     positives cost a suspension somebody must notice and clear.
-  - **Output is not scanned at all.** A command that *prints* a token is
-    recorded by the transcript exactly as it always has been. The spec is
-    clear this is the same exposure and not new here, and equally clear that
-    the same suspend belongs on the output path. It is not built.
+  - **Output is scanned, and only warned about — a deliberate departure from
+    the spec, not an omission.** `hick run` reads every cell's recorded
+    output with the same scanner and names the cell when a line looks like a
+    credential, saying plainly that it HAS been recorded.
+    The spec asks for "the same suspend" on the output path, and its own
+    argument for stopping does not carry over. In a terminal the recording is
+    automatic and unattended, and a false positive costs a suspension a person
+    can see and resume from. In a document there is nothing to resume:
+    declining to record a cell's output changes what the document weaves, so
+    the same false positive would report drift, fail `hick test`, and keep
+    failing until somebody changed their program's output. A heuristic that
+    can break a build is a different trade from one that can pause a
+    recording, and the author is present at `hick run` in a way they are not
+    when a terminal is recording them.
+    What is missing before this could become a refusal is a way for a
+    document to say "yes, I meant that" — and that does not exist. Recorded
+    here rather than decided quietly.
   - **A dropped command stops the recording, and losing the broadcast is how
     it is detected.** If the anchor task falls 256 commands behind, `Lagged`
     unanchors the session with a message. That is correct and it has never

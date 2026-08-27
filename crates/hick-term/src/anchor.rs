@@ -47,15 +47,46 @@ pub enum Suspension {
     /// same keystrokes would be kept out of a bash document and written into
     /// a zsh one.
     HiddenByLeadingSpace,
-    /// The keystrokes belong to a program that is not the shell, so they are
-    /// not commands and recording them would be a lie.
-    ///
-    /// Mostly unreachable by construction: a REPL's input never reaches the
-    /// shell, so the shell reports nothing and there is nothing to refuse.
-    /// It exists for the case a caller detects with `tcgetpgrp` and wants
-    /// said out loud, and `full_screen` (from the alternate-screen sequence)
-    /// only decides how the sentence reads.
-    ForeignProgram { program: String, full_screen: bool },
+}
+
+/// The keystrokes are going to a program that is not the shell.
+///
+/// **Not a [`Suspension`], and modelling it as one was the first draft's
+/// mistake.** The other two stop recording until a person resumes, because
+/// after them the shell holds state the document does not describe. This one
+/// is temporary and heals itself — the spec's own words are "the terminal is
+/// yours; the document resumes when it exits". There is nothing to resume,
+/// because nothing was suspended: a REPL's keystrokes never reach the shell,
+/// so the shell reports nothing and there is nothing to refuse.
+///
+/// It exists only to be **said**. Without it, a person typing into `python3`
+/// inside an anchored terminal watches their lines not appear and has to
+/// guess why.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ForeignInput {
+    /// What is holding the terminal, when the platform will say.
+    pub program: Option<String>,
+    /// Whether it took over the screen (`ESC [ ? 1049 h`). This decides only
+    /// how the sentence READS — never whether to record.
+    pub full_screen: bool,
+}
+
+impl ForeignInput {
+    pub fn message(&self) -> String {
+        let who = self
+            .program
+            .clone()
+            .unwrap_or_else(|| "a program".to_string());
+        let what = if self.full_screen {
+            "is not a shell command"
+        } else {
+            "is reading these keys itself"
+        };
+        format!(
+            "not recording — {who} {what}\n   the terminal is yours; the document resumes when \
+             it exits"
+        )
+    }
 }
 
 impl Suspension {
@@ -75,20 +106,6 @@ impl Suspension {
                  space, which means do not record\n   the shell ran it; the document did not \
                  record it"
                 .to_string(),
-            Suspension::ForeignProgram {
-                program,
-                full_screen,
-            } => {
-                let what = if *full_screen {
-                    "is not a shell command"
-                } else {
-                    "is reading these keys itself"
-                };
-                format!(
-                    "recording paused — {program} {what}\n   the terminal is yours; the document \
-                     resumes when it exits"
-                )
-            }
         }
     }
 }
@@ -157,17 +174,6 @@ impl Recording {
             return self.suspend(Suspension::LooksLikeSecret);
         }
         Decision::Record(text.to_string())
-    }
-
-    /// Stop because the keystrokes stopped belonging to the shell.
-    pub fn foreign_program(&mut self, program: &str, full_screen: bool) -> Decision {
-        if self.suspended.is_some() {
-            return Decision::Ignore;
-        }
-        self.suspend(Suspension::ForeignProgram {
-            program: program.to_string(),
-            full_screen,
-        })
     }
 
     fn suspend(&mut self, why: Suspension) -> Decision {
@@ -352,29 +358,47 @@ mod tests {
     }
 
     #[test]
-    fn a_program_that_is_not_the_shell_reads_differently_when_it_is_full_screen() {
-        let mut recording = Recording::new();
-        let full = recording.foreign_program("less", true);
-        match full {
-            Decision::Suspend(s) => {
-                assert!(
-                    s.message().contains("is not a shell command"),
-                    "{}",
-                    s.message()
-                )
-            }
-            other => panic!("{other:?}"),
-        }
-        let mut recording = Recording::new();
-        let repl = recording.foreign_program("python3", false);
-        match repl {
-            Decision::Suspend(s) => assert!(
-                s.message().contains("reading these keys itself"),
-                "{}",
-                s.message()
-            ),
-            other => panic!("{other:?}"),
-        }
+    fn a_foreign_program_is_said_rather_than_suspended() {
+        // The distinction the first draft got wrong. A secret or a hidden
+        // line leaves the shell holding state the document cannot describe,
+        // so recording stops until a person resumes. A program reading the
+        // keys does not: when it exits the shell reports again and the cell
+        // carries on, so this is a sentence rather than a state.
+        let full = ForeignInput {
+            program: Some("less".into()),
+            full_screen: true,
+        };
+        assert!(
+            full.message().starts_with("not recording"),
+            "{}",
+            full.message()
+        );
+        assert!(
+            full.message().contains("is not a shell command"),
+            "{}",
+            full.message()
+        );
+
+        let repl = ForeignInput {
+            program: Some("python3".into()),
+            full_screen: false,
+        };
+        assert!(
+            repl.message().contains("reading these keys itself"),
+            "{}",
+            repl.message()
+        );
+        // A platform that will not name the program still says the useful
+        // half rather than nothing.
+        let unknown = ForeignInput {
+            program: None,
+            full_screen: false,
+        };
+        assert!(
+            unknown.message().contains("a program"),
+            "{}",
+            unknown.message()
+        );
     }
 
     #[test]
@@ -452,6 +476,21 @@ mod tests {
             Decision::Suspend(Suspension::HiddenByLeadingSpace)
         );
         assert_eq!(recording.observe(7, "echo after"), Decision::Ignore);
+    }
+
+    #[test]
+    fn the_scanner_reads_a_line_of_output_the_same_way_as_a_line_of_input() {
+        // `hick run` uses this on every cell's recorded output, because a
+        // command that PRINTS a token has always been committed with the
+        // document. What it does about it is different — a warning, not a
+        // refusal, because declining to record would break the weave on a
+        // false positive — but the shapes it looks for are the same ones.
+        assert!(looks_like_a_secret(
+            "token is ghp_0123456789abcdefghijklmnopqrstuvwx"
+        ));
+        assert!(looks_like_a_secret("AWS_SECRET_ACCESS_KEY=wJalrXUtnFEMI"));
+        assert!(!looks_like_a_secret("   Compiling hick-lang v0.1.0"));
+        assert!(!looks_like_a_secret("test result: ok. 12 passed; 0 failed"));
     }
 
     #[test]

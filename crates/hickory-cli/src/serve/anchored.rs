@@ -27,7 +27,7 @@
 
 use std::collections::HashMap;
 
-use hick_term::anchor::{Decision, Recording, Suspension};
+use hick_term::anchor::{Decision, ForeignInput, Recording, Suspension};
 use serde::{Deserialize, Serialize};
 use tokio::sync::Mutex;
 
@@ -42,6 +42,14 @@ pub struct Anchor {
     pub container: String,
     /// Why recording is stopped, when it is.
     pub suspended: Option<String>,
+    /// What is reading the keys instead of the shell, while something is.
+    ///
+    /// Separate from `suspended` because it is not one: nothing has to be
+    /// resumed, and it clears itself when the shell gets the terminal back.
+    /// Refreshed when a person types, so it can lag by one keystroke after
+    /// they quit a REPL — the terminal's own notice is the timely half, and
+    /// this is the standing one.
+    pub foreign: Option<String>,
     /// How many lines have gone into the document since anchoring.
     pub recorded: usize,
 }
@@ -67,6 +75,13 @@ struct Live {
     /// one — after a resume, because the shell then holds state the document
     /// does not describe.
     fresh_cell: bool,
+    /// Whether the "a program is reading these keys" notice has been said for
+    /// the program currently holding the terminal. Cleared when the shell
+    /// gets it back, so the next one says it again — and so a person editing
+    /// a long file in `vi` is told once rather than on every keystroke.
+    warned_about_child: bool,
+    /// The standing "something else is reading the keys" note, for the bar.
+    foreign: Option<String>,
     /// Dropped on unanchor, which stops the task reading typed commands.
     _stop: tokio::sync::oneshot::Sender<()>,
 }
@@ -79,6 +94,7 @@ impl Anchors {
             doc: held.doc.clone(),
             container: held.container.clone(),
             suspended: held.recording.suspended().map(Suspension::message),
+            foreign: held.foreign.clone(),
             recorded: held.recorded,
         })
     }
@@ -95,6 +111,7 @@ impl Anchors {
                         doc: held.doc.clone(),
                         container: held.container.clone(),
                         suspended: held.recording.suspended().map(Suspension::message),
+                        foreign: held.foreign.clone(),
                         recorded: held.recorded,
                     },
                 )
@@ -213,6 +230,8 @@ pub async fn anchor(
                 // has, which is what makes anchoring twice in one sitting
                 // continue rather than fragment.
                 fresh_cell: false,
+                warned_about_child: false,
+                foreign: None,
                 _stop: stop,
             },
         );
@@ -256,6 +275,52 @@ pub async fn anchor(
         .get(session_id)
         .await
         .ok_or_else(|| anyhow::anyhow!("the anchor went away while it was being made"))
+}
+
+/// Tell a person their keystrokes are going somewhere the document cannot
+/// see — once per program, not once per keystroke.
+///
+/// Called from the input path rather than a timer, because the question is
+/// not "is a child running" (every ordinary command makes that true for as
+/// long as it takes) but "are the keys I am typing right now going to one".
+/// A build holding the terminal is a build; a person typing into a REPL is a
+/// person whose lines will not appear, and only the second needs saying.
+pub async fn note_foreign_input(state: &super::LocalState, session_id: &str) {
+    let Some(session) = state.terminals.get(session_id) else {
+        return;
+    };
+    let child = session.input_goes_to_a_child();
+    let message = {
+        let mut live = state.anchors.live.lock().await;
+        let Some(held) = live.get_mut(session_id) else {
+            return;
+        };
+        // Nothing to say while recording is already stopped for a reason a
+        // person has been told about — two notices about one silence is how
+        // the one that matters stops being read.
+        if held.recording.suspended().is_some() {
+            return;
+        }
+        if !child {
+            held.warned_about_child = false;
+            held.foreign = None;
+            return;
+        }
+        let message = ForeignInput {
+            program: session.foreground_program(),
+            full_screen: session.alternate_screen(),
+        }
+        .message();
+        held.foreign = Some(message.clone());
+        if held.warned_about_child {
+            // Said once per program, not once per keystroke: a person
+            // editing a long file in `vi` needs telling, not narrating.
+            return;
+        }
+        held.warned_about_child = true;
+        message
+    };
+    notify(state, session_id, &message).await;
 }
 
 /// Say something in the terminal itself, at the moment it happens.

@@ -1114,6 +1114,50 @@ fn run() -> ExitCode {
     }
 }
 
+/// Say when a cell's OUTPUT looks like it carried a credential.
+///
+/// A warning, and deliberately not the refusal an anchored terminal makes.
+/// The spec is right that this is the same exposure — a command that *prints*
+/// a token has always been recorded by the transcript, in every cell — but
+/// its argument for stopping does not carry over, and the difference is worth
+/// stating rather than quietly copying the mechanism.
+///
+/// In a terminal the recording is automatic and unattended, and a false
+/// positive costs a suspension a person can see and resume from. In a
+/// document there is nothing to resume: declining to record a cell's output
+/// changes what the document weaves, so the same false positive would report
+/// drift, fail `hick test`, and keep failing until somebody changed the
+/// program's output. A heuristic that can break a build is a different trade
+/// from one that can pause a recording.
+///
+/// So the author — who is present, and who wrote the command that produced
+/// the output — is told, and the output IS recorded. Anything stronger than
+/// this needs a way for a document to say "yes, I meant that", which does not
+/// exist yet.
+fn warn_about_secrets_in_output(run: &DocRun) {
+    let mut flagged: Vec<(&str, usize)> = Vec::new();
+    for (container, entries) in &run.result.transcripts {
+        for entry in entries {
+            let looks = entry
+                .output
+                .lines()
+                .any(hick_term::anchor::looks_like_a_secret);
+            if looks {
+                flagged.push((container.as_str(), entry.source_line.unwrap_or(0)));
+            }
+        }
+    }
+    for (container, line) in flagged {
+        eprintln!(
+            "  note: output of the `{container}` cell at line {line} looks like it contains a \
+             credential, and it HAS been recorded.\n        \
+             A transcript is committed with the document. If that was not meant, keep the \
+             secret out of the output (read it from the environment, or print a placeholder) \
+             and run again."
+        );
+    }
+}
+
 fn print_run_summary(run: &DocRun, outputs: &hickory_cli::WrittenOutputs) {
     let n_expect = run.result.expectations.len();
     let n_failed = run.result.expectations.iter().filter(|o| !o.passed).count();
@@ -1134,6 +1178,7 @@ fn print_run_summary(run: &DocRun, outputs: &hickory_cli::WrittenOutputs) {
             path.display()
         );
     }
+    warn_about_secrets_in_output(run);
     for outcome in &run.result.expectations {
         if !outcome.passed {
             eprintln!(

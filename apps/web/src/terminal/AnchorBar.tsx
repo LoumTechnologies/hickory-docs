@@ -30,26 +30,32 @@ export function AnchorBar({
   onUnanchor: () => void;
 }) {
   if (!anchor) return null;
+  // A suspension outranks a foreign program: one needs a person to resume it
+  // and the other resolves itself, so if both are true the one with a verb
+  // attached is the one to show.
   const suspended = anchor.suspended;
+  const note = suspended ?? anchor.foreign;
   return (
     <div
-      className={`anchor-bar${suspended ? " anchor-bar-suspended" : ""}`}
+      className={`anchor-bar${suspended ? " anchor-bar-suspended" : ""}${
+        !suspended && anchor.foreign ? " anchor-bar-foreign" : ""
+      }`}
       data-testid="anchor-bar"
       role="status"
     >
       <span className="anchor-bar-what">
-        {suspended ? "paused" : "writing"}{" "}
+        {suspended ? "paused" : anchor.foreign ? "waiting" : "writing"}{" "}
         <strong>{docName ?? anchor.doc}</strong>
         {" · "}
         <code>{anchor.container}</code>
       </span>
-      {suspended ? (
+      {note ? (
         // The reason, in the words the server chose, wrapped so the
         // second line reads as the explanation it is. Never a diff
         // afterwards: someone who does not know recording stopped will
         // assume the cell holds what they did.
         <span className="anchor-bar-why" data-testid="anchor-bar-why">
-          {suspended.split("\n").map((line, i) => (
+          {note.split("\n").map((line, i) => (
             <span key={i} className={i === 0 ? "anchor-bar-why-head" : "anchor-bar-why-tail"}>
               {line.trim()}
             </span>

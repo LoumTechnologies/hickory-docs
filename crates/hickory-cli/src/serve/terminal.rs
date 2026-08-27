@@ -121,6 +121,10 @@ pub async fn input(
     session
         .write(body.data.as_bytes())
         .map_err(|e| ApiError::unprocessable(format!("{e:#}")))?;
+    // The keystroke reaches the shell FIRST and the anchor second, always —
+    // nothing here may hold up or refuse what somebody typed. This only
+    // decides whether to say that the document is not going to see it.
+    super::anchored::note_foreign_input(&state, &id).await;
     Ok(Json(json!({ "ok": true })))
 }
 

@@ -8015,3 +8015,8 @@ button.status-bar__item:hover { background: var(--bg-sunken); color: var(--fg); 
   flex: 1 1 auto;
   min-height: 0;
 }
+/* Something else is reading the keys. Not a suspension — nothing has to be
+   resumed — so it reads as waiting rather than as stopped. */
+.anchor-bar-foreign {
+  background: color-mix(in srgb, var(--fg-muted) 12%, var(--bg-raised));
+}

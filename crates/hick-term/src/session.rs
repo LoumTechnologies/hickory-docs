@@ -315,6 +315,47 @@ impl Session {
         (screen.replay().to_vec(), receiver)
     }
 
+    /// What is holding the terminal, when the platform will say.
+    ///
+    /// `None` covers three different situations on purpose, because a caller
+    /// can act on none of them differently: the shell itself is in front,
+    /// the platform has no process groups (Windows), or the name could not
+    /// be read. Only used to make a message read better — never to decide
+    /// whether to record.
+    #[cfg(target_os = "linux")]
+    pub fn foreground_program(&self) -> Option<String> {
+        if self.foreground_child() != Some(true) {
+            return None;
+        }
+        let leader = self.master.lock().ok()?.process_group_leader()?;
+        // `/proc/<pid>/comm` is the name without the arguments, which is what
+        // a sentence wants: "less is not a shell command", not the whole
+        // command line somebody typed.
+        let comm = std::fs::read_to_string(format!("/proc/{leader}/comm")).ok()?;
+        let name = comm.trim();
+        (!name.is_empty()).then(|| name.to_string())
+    }
+
+    /// What is holding the terminal. Named only on Linux so far.
+    #[cfg(not(target_os = "linux"))]
+    pub fn foreground_program(&self) -> Option<String> {
+        None
+    }
+
+    /// Whether the keys a person types right now are going somewhere other
+    /// than the shell — and therefore will not be reported, recorded, or
+    /// refused.
+    ///
+    /// This is **not** a reason to stop recording. Every ordinary command
+    /// makes it true for as long as it runs: `dotnet build` holds the
+    /// terminal exactly as `less` does, and suspending on that would stop
+    /// recording on the first useful thing anybody typed. What matters is
+    /// only whether keystrokes arriving *now* belong to a child, and the
+    /// answer is a sentence rather than a state change.
+    pub fn input_goes_to_a_child(&self) -> bool {
+        self.foreground_child() == Some(true)
+    }
+
     /// Say something IN the terminal without saying it TO the shell.
     ///
     /// The bytes go to the screen model and to whoever is watching, and not
@@ -439,14 +480,14 @@ impl Session {
     /// (output, exit code, a declared prompt). Worth knowing before trusting the
     /// attention queue on that platform.
     #[cfg(windows)]
-    fn foreground_child(&self) -> Option<bool> {
+    pub fn foreground_child(&self) -> Option<bool> {
         None
     }
 
     /// Whether something other than the session's own shell holds the
     /// terminal. `None` where the platform will not say.
     #[cfg(not(windows))]
-    fn foreground_child(&self) -> Option<bool> {
+    pub fn foreground_child(&self) -> Option<bool> {
         let leader = self
             .master
             .lock()
