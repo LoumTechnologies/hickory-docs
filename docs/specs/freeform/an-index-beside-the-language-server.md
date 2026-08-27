@@ -1,10 +1,11 @@
 # An index beside the language server
 
-*Status: proposal, 2026-08-26. **The install-and-spawn half is built
-(2026-08-27)**; the reading half is deliberately not — see the licence
-question below, which is still open. `hick index install` and `hick index
-build` work, and nothing consults what they produce. Guarantee:
-`docs/guarantees/editor-intelligence/an-index-is-installed-and-spawned-and-read-by-nothing.md`.*
+*Status: **built, 2026-08-27.** `hick index install`, `hick index build` and
+`hick index find` all work: an index is produced and read, and a reference in
+a generated file comes back as a line in the document that wrote it. The
+licence question below is settled — the heading was amended. Guarantee:
+`docs/guarantees/editor-intelligence/an-index-answers-in-documents.md`. What
+is not built is any use of this inside the app; it is a CLI command.*
 
 A language server answers questions about **the file you are looking at, as it
 is right now, including the parts you have not saved**. An index answers
@@ -104,8 +105,9 @@ Writing our own Protobuf schema would have traded a dependency for a
 maintenance burden on somebody else's evolving format and bought nothing
 legally, and pretending Apache-2.0 is MIT was never one of the options.
 
-So the reading half is **unblocked and still unbuilt** — nothing consumes an
-index yet. What stops it now is only that nobody has written it.
+The reading half is **built** (2026-08-27): `hick index find`. `scip` is
+Apache-2.0, and its only transitive dependencies — `protobuf` and
+`protobuf-support` — are MIT, so no copyleft entered the tree.
 
 ## Refusals
 

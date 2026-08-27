@@ -319,13 +319,15 @@ use — not a second mechanism. Indexers are **spawned** like language servers
 copyleft rule used to disagree — **resolved 2026-08-27 by amending the
 heading**, because the rule was always the policy. Apache-2.0 is permissive
 and allowed.
-**Built (2026-08-27): the install-and-spawn half only** — `hick index
-install|build` fetches an indexer confined, finds it the usual way, runs it,
-and writes `.hick-cache/index/<lang>.scip`. **Nothing reads it**, and the CLI
-says so every time rather than letting a person assume navigation improved.
-The licence decision is left to Nate; the recommendation (amend the heading,
-because the rule beneath it is what expresses the concern and Apache-2.0 does
-not threaten it) is written in the guarantee.
+**Built (2026-08-27):** `hick index install|build|find`. The heading was
+amended (**MIT only** → **No copyleft**), so `scip` (Apache-2.0, with MIT
+`protobuf` beneath it) is linked and the index is read. The rule that earns
+it: a reference in a **generated** file is reported as the line of the
+**document** that wrote it, through the same lineage the reverse edit and the
+debugger use — and one that cannot be mapped back is **not shown**, with the
+number dropped reported rather than swallowed. Every answer says when the
+index was built and how many covered files have changed since. Not built: any
+use of it inside the app.
 
 ## Stack (settled — do not relitigate)
 
