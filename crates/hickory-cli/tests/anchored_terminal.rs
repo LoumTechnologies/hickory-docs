@@ -10,8 +10,11 @@
 //! that **typing in a terminal writes a cell**, and that is not observable
 //! from any one of them.
 //!
-//! Skipped loudly without bash. zsh's hook ships written and unverified —
-//! it was not installed on the machine this was written on.
+//! Run against **both** hooked shells, because they are not the same
+//! mechanism underneath — bash reports through `PS0` and `history 1`, zsh
+//! through `preexec` — and the zsh path additionally exercises the
+//! `ZDOTDIR` forwarding the integration needs to keep a person's own startup
+//! files working. Skipped loudly for a shell that is not installed.
 
 use std::path::PathBuf;
 use std::time::Duration;
@@ -129,21 +132,43 @@ impl App {
     }
 }
 
-fn have_bash() -> Option<String> {
+fn have(shell: &str) -> Option<String> {
     let paths = std::env::var_os("PATH")?;
     std::env::split_paths(&paths)
-        .map(|dir| dir.join("bash"))
+        .map(|dir| dir.join(shell))
         .find(|c| c.is_file())
         .map(|p| p.to_string_lossy().into_owned())
 }
 
+/// Every shell hick installs a command hook for.
+const HOOKED: &[&str] = &["bash", "zsh"];
+
+/// The installed hooked shells, saying which are missing rather than
+/// quietly testing one and reporting a pass for both.
+fn hooked_shells() -> Vec<(&'static str, String)> {
+    let found: Vec<(&'static str, String)> = HOOKED
+        .iter()
+        .filter_map(|name| have(name).map(|path| (*name, path)))
+        .collect();
+    for name in HOOKED {
+        if !found.iter().any(|(n, _)| n == name) {
+            eprintln!("SKIPPED {name}: not installed on this machine");
+        }
+    }
+    assert!(!found.is_empty(), "no hooked shell is installed");
+    found
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn typing_in_an_anchored_terminal_grows_the_cell() {
-    let Some(bash) = have_bash() else {
-        eprintln!("SKIPPED: no bash on this machine");
-        return;
-    };
-    let app = open_app(&bash).await;
+    for (name, shell) in hooked_shells() {
+        eprintln!("--- {name} ---");
+        grows_the_cell(&shell).await;
+    }
+}
+
+async fn grows_the_cell(shell: &str) {
+    let app = open_app(shell).await;
     let terminal = app.open_terminal().await;
     tokio::time::sleep(Duration::from_millis(700)).await;
 
@@ -191,11 +216,14 @@ async fn typing_in_an_anchored_terminal_grows_the_cell() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_line_that_looks_like_a_secret_stops_the_recording() {
-    let Some(bash) = have_bash() else {
-        eprintln!("SKIPPED: no bash on this machine");
-        return;
-    };
-    let app = open_app(&bash).await;
+    for (name, shell) in hooked_shells() {
+        eprintln!("--- {name} ---");
+        secret_stops_recording(&shell).await;
+    }
+}
+
+async fn secret_stops_recording(shell: &str) {
+    let app = open_app(shell).await;
     let terminal = app.open_terminal().await;
     tokio::time::sleep(Duration::from_millis(700)).await;
     app.post(
@@ -252,6 +280,54 @@ async fn a_line_that_looks_like_a_secret_stops_the_recording() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn a_line_typed_with_a_leading_space_never_reaches_the_document() {
+    for (name, shell) in hooked_shells() {
+        eprintln!("--- {name} ---");
+        leading_space_is_not_recorded(&shell).await;
+    }
+}
+
+/// The convention every shell with a history has, honoured by hick rather
+/// than left to the shell — because the two shells disagree about it
+/// completely at the wire, and a person's "do not record this" must not
+/// depend on which one they run.
+async fn leading_space_is_not_recorded(shell: &str) {
+    let app = open_app(shell).await;
+    let terminal = app.open_terminal().await;
+    tokio::time::sleep(Duration::from_millis(700)).await;
+    app.post(
+        &format!("/terminals/{terminal}/anchor"),
+        json!({ "doc": app.doc_id, "container": "sdk" }),
+    )
+    .await;
+
+    app.type_line(&terminal, "echo recorded\n").await;
+    app.type_line(&terminal, " echo hidden\n").await;
+    app.type_line(&terminal, "echo after\n").await;
+
+    let document = app.document();
+    assert!(document.contains("echo recorded"), "{document}");
+    assert!(
+        !document.contains("echo hidden"),
+        "a line typed with a leading space was written down:\n{document}"
+    );
+    // Suspend, never filter — so what follows it is left out too.
+    assert!(
+        !document.contains("echo after"),
+        "recording carried on past the hidden line, leaving a hole:\n{document}"
+    );
+
+    let anchors = app.anchors().await;
+    let why = anchors["anchors"][&terminal]["suspended"]
+        .as_str()
+        .expect("the anchor says it is suspended");
+    assert!(
+        why.contains("space") || why.contains("history"),
+        "the reason does not mention why: {why}"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn a_shell_with_no_hook_is_refused_by_name_rather_than_recording_nothing() {
     // The failure this refusal exists to prevent: a fish session that looks
     // anchored, records nothing, and tells nobody.
@@ -260,7 +336,7 @@ async fn a_shell_with_no_hook_is_refused_by_name_rather_than_recording_nothing()
     // integration is installed only for "your shell", because a named
     // program is not one and wrapping it would be changing what was asked
     // for.
-    let app = open_app("/bin/bash").await;
+    let app = open_app(&have("bash").expect("bash")).await;
     let terminal = app
         .open_with(json!({
             "title": "raw",

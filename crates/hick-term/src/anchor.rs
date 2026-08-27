@@ -36,6 +36,17 @@ pub enum Suspension {
     /// the PREVIOUS line — see `command.rs`. Recording it would write down a
     /// command that did not run.
     NotInHistory,
+    /// The line was typed with a leading space, which every shell with a
+    /// history treats as "do not record this".
+    ///
+    /// Honoured here rather than left to the shell, because the shells do not
+    /// agree and hick must. Measured 2026-08-27: bash with
+    /// `HISTCONTROL=ignorespace` never reports the line at all (so the
+    /// *next* one arrives stale and [`Suspension::NotInHistory`] catches it),
+    /// while zsh's `preexec` reports it in full — so without this rule the
+    /// same keystrokes would be kept out of a bash document and written into
+    /// a zsh one.
+    HiddenByLeadingSpace,
     /// The keystrokes belong to a program that is not the shell, so they are
     /// not commands and recording them would be a lie.
     ///
@@ -59,6 +70,10 @@ impl Suspension {
                 .to_string(),
             Suspension::NotInHistory => "recording paused — your shell kept this line out of its \
                  history\n   the shell ran it; the document did not record it"
+                .to_string(),
+            Suspension::HiddenByLeadingSpace => "recording paused — this line starts with a \
+                 space, which means do not record\n   the shell ran it; the document did not \
+                 record it"
                 .to_string(),
             Suspension::ForeignProgram {
                 program,
@@ -130,6 +145,13 @@ impl Recording {
         self.last_number = Some(number);
         if text.trim().is_empty() {
             return Decision::Ignore;
+        }
+        // The leading-space convention, applied by hick rather than left to
+        // whichever shell this is. The shells disagree about whether such a
+        // line is even reported, and a person's "do not record this" must not
+        // depend on that.
+        if text.starts_with(|c: char| c.is_whitespace()) {
+            return self.suspend(Suspension::HiddenByLeadingSpace);
         }
         if looks_like_a_secret(text) {
             return self.suspend(Suspension::LooksLikeSecret);
@@ -398,6 +420,38 @@ mod tests {
         assert!(!looks_like_a_secret(
             "sha256sum: 4f2c1a9e8b3d6f0a5c7e9b1d3f5a7c9e1b3d5f7a9c1e3b5d7f9a1c3e5b7d9f1a"
         ));
+    }
+
+    #[test]
+    fn a_leading_space_means_do_not_record_in_every_shell() {
+        // Measured 2026-08-27, and the reason this rule is here rather than
+        // left to the shell: bash with `HISTCONTROL=ignorespace` never
+        // reports such a line, while zsh's `preexec` reports it in full. Same
+        // keystrokes, opposite outcomes, unless hick decides.
+        let mut recording = Recording::new();
+        recording.observe(1, "echo before");
+        assert_eq!(
+            recording.observe(2, " echo hidden"),
+            Decision::Suspend(Suspension::HiddenByLeadingSpace)
+        );
+        // Sticky, like every other suspension: a hole is worse than a stop.
+        assert_eq!(recording.observe(3, "echo after"), Decision::Ignore);
+    }
+
+    #[test]
+    fn a_repeated_number_after_a_hidden_line_is_already_suspended() {
+        // zsh's HISTCMD is the slot a line WOULD take, and a hidden line
+        // takes it and gives it back — so the next genuine command reuses the
+        // number. That looked like a stale report and would have suspended a
+        // perfectly good line, if the leading-space rule had not already
+        // stopped recording one line earlier.
+        let mut recording = Recording::new();
+        recording.observe(6, "setopt HIST_IGNORE_SPACE");
+        assert_eq!(
+            recording.observe(7, " echo hidden"),
+            Decision::Suspend(Suspension::HiddenByLeadingSpace)
+        );
+        assert_eq!(recording.observe(7, "echo after"), Decision::Ignore);
     }
 
     #[test]

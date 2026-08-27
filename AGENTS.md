@@ -263,7 +263,15 @@ document from scratch. Where the typed line comes from is **measured**: a
 out of history and make `history 1` re-report the previous one, which the
 history *number* detects and which is a **suspension**. A program that is not
 the shell is excluded **by construction** (its PS0 never fires), so `tcgetpgrp`
-explains rather than gates. **zsh is untested and bash is verified.**
+explains rather than gates. **Both shells are verified (2026-08-27)** and they
+disagree: zsh's `$HISTCMD` in `preexec` is the slot a line *would* take, so a
+line hidden by `HIST_IGNORE_SPACE` advances it and gives it back and the NEXT
+command reuses the number — the opposite of bash, where the hidden line is
+never reported and the next one arrives stale. So **a leading space means "do
+not record" as a hick rule**, applied in Rust for every shell, rather than
+inferred from whichever shell this is; zsh's history options are deliberately
+not detected, because re-implementing another program's rules in a hook is how
+a hook drifts.
 **Built (2026-08-27):** the persistent binding — `POST
 /api/terminals/{id}/anchor` binds a terminal to a **container** (never "to a
 document"), typing grows one cell, and the suspension rules hold: a secret

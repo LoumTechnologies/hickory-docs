@@ -8,10 +8,12 @@
 //! implementations were measured and rejected before this one (a `DEBUG`
 //! trap, and `PROMPT_COMMAND` with `history 1`) — the module docs say why.
 //!
-//! Skipped loudly without bash. zsh is **not** covered: it was not installed
-//! on the machine this was written on, so its `preexec` hook ships written
-//! and unverified, and pretending otherwise is what a green suite that tests
-//! nothing looks like.
+//! Both hooked shells are covered, and they are **not** the same mechanism:
+//! bash uses `PS0` and reports whatever `history 1` holds, while zsh's
+//! `preexec` receives the typed line directly. Every case below runs against
+//! both, because "it works in bash" was exactly the assumption that turned
+//! out to hide a difference (see `a_leading_space_is_not_recorded_by_either`).
+//! Skipped loudly for a shell that is not installed.
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -20,12 +22,38 @@ use hick_term::command::TypedCommand;
 use hick_term::config::TermConfig;
 use hick_term::session::{Session, SessionSpec};
 
-fn have_bash() -> Option<String> {
+fn have(shell: &str) -> Option<String> {
     let paths = std::env::var_os("PATH")?;
     std::env::split_paths(&paths)
-        .map(|dir| dir.join("bash"))
+        .map(|dir| dir.join(shell))
         .find(|candidate| candidate.is_file())
         .map(|path| path.to_string_lossy().into_owned())
+}
+
+/// Every shell hick installs a command hook for.
+///
+/// A test that runs against one of two supported shells is a test that says
+/// nothing about the other, and this file exists because that gap had a real
+/// difference hiding in it.
+const HOOKED: &[&str] = &["bash", "zsh"];
+
+/// Run `body` against each installed hooked shell, saying which are missing.
+fn for_each_shell(body: impl Fn(&str, Shell)) {
+    let mut ran = 0;
+    for name in HOOKED {
+        match have(name) {
+            Some(path) => {
+                eprintln!("--- {name} ---");
+                body(name, start(&path));
+                ran += 1;
+            }
+            None => eprintln!("SKIPPED {name}: not installed on this machine"),
+        }
+    }
+    assert!(
+        ran > 0,
+        "no hooked shell is installed, so this tested nothing"
+    );
 }
 
 struct Shell {
@@ -84,97 +112,92 @@ impl Shell {
 
 #[test]
 fn a_shell_reports_the_line_that_was_typed_not_the_commands_it_ran() {
-    let Some(bash) = have_bash() else {
-        eprintln!("SKIPPED: no bash on this machine");
-        return;
-    };
-    let mut shell = start(&bash);
-    shell.type_line("echo one\n");
-    // A pipeline is ONE typed line. A `DEBUG` trap reports it as two, and a
-    // cell holding `head -1` on its own does not reproduce.
-    shell.type_line("echo a | tr a b\n");
-    // A loop is one line too; a DEBUG trap reports one record per iteration.
-    shell.type_line("for i in 1 2; do echo $i; done\n");
+    for_each_shell(|shell, mut session| {
+        session.type_line("echo one\n");
+        // A pipeline is ONE typed line. bash's `DEBUG` trap reports it as
+        // two, and a cell holding `tr a b` on its own does not reproduce.
+        session.type_line("echo a | tr a b\n");
+        // A loop is one line too; a DEBUG trap reports one per iteration.
+        session.type_line("for i in 1 2; do echo $i; done\n");
 
-    let lines: Vec<String> = shell.reported().into_iter().map(|c| c.text).collect();
-    assert_eq!(
-        lines,
-        vec![
-            "echo one".to_string(),
-            "echo a | tr a b".to_string(),
-            "for i in 1 2; do echo $i; done".to_string(),
-        ],
-        "the shell did not report the typed lines"
-    );
+        let lines: Vec<String> = session.reported().into_iter().map(|c| c.text).collect();
+        assert_eq!(
+            lines,
+            vec![
+                "echo one".to_string(),
+                "echo a | tr a b".to_string(),
+                "for i in 1 2; do echo $i; done".to_string(),
+            ],
+            "{shell} did not report the typed lines"
+        );
+    });
 }
 
 #[test]
 fn nothing_is_reported_before_anything_is_typed() {
-    let Some(bash) = have_bash() else {
-        eprintln!("SKIPPED: no bash on this machine");
-        return;
-    };
     // The failure mode of the `PROMPT_COMMAND` + `history 1` design: at the
-    // first prompt it reports the last line of the user's ~/.bash_history —
+    // first prompt it reports the last line of the user's own history file —
     // a command they never typed in this session, written into a document
     // before they touched the keyboard.
-    let mut shell = start(&bash);
-    assert_eq!(
-        shell.reported(),
-        Vec::new(),
-        "a command was reported before anything was typed"
-    );
+    for_each_shell(|shell, mut session| {
+        assert_eq!(
+            session.reported(),
+            Vec::new(),
+            "{shell} reported a command before anything was typed"
+        );
+    });
 }
 
 #[test]
-fn an_empty_line_reports_nothing_and_a_repeat_reports_twice() {
-    let Some(bash) = have_bash() else {
-        eprintln!("SKIPPED: no bash on this machine");
-        return;
-    };
-    let mut shell = start(&bash);
-    shell.type_line("\n");
-    shell.type_line("\n");
-    shell.type_line("echo twice\n");
-    let lines: Vec<String> = shell.reported().into_iter().map(|c| c.text).collect();
-    assert_eq!(lines, vec!["echo twice".to_string()]);
+fn an_empty_line_reports_nothing() {
+    for_each_shell(|shell, mut session| {
+        session.type_line("\n");
+        session.type_line("\n");
+        session.type_line("echo twice\n");
+        let lines: Vec<String> = session.reported().into_iter().map(|c| c.text).collect();
+        assert_eq!(lines, vec!["echo twice".to_string()], "{shell}");
+    });
 }
 
 #[test]
-fn the_number_moves_only_when_the_shell_recorded_the_line() {
-    let Some(bash) = have_bash() else {
-        eprintln!("SKIPPED: no bash on this machine");
-        return;
-    };
-    let mut shell = start(&bash);
-    // `ignorespace` is half of the very common `HISTCONTROL=ignoreboth`, and
-    // it keeps a space-prefixed line out of history. bash's PS0 runs in a
-    // subshell and cannot remember what it last sent, so `history 1` then
-    // reports the PREVIOUS line — which would record a command that did not
-    // run. The number is what tells them apart.
-    shell.type_line("HISTCONTROL=ignorespace\n");
-    shell.type_line("echo recorded\n");
-    shell.type_line(" echo hidden\n");
+fn a_leading_space_is_not_recorded_by_either_shell() {
+    // **The difference measuring found.** The two shells disagree about this
+    // line completely: bash with `HISTCONTROL=ignorespace` never reports it
+    // (and the NEXT line then arrives stale, carrying a repeated number),
+    // while zsh's `preexec` reports it in full and the next line reuses its
+    // history slot. Same keystrokes, opposite raw behaviour.
+    //
+    // So what is asserted here is the property that must hold either way:
+    // the hidden line never arrives as a fresh, recordable report. Which of
+    // the two suspensions it becomes is `hick_term::anchor`'s business, and
+    // both stop at the same point.
+    for_each_shell(|shell, mut session| {
+        session.type_line("echo recorded\n");
+        session.type_line(" echo hidden\n");
+        session.type_line("echo after\n");
 
-    let reported = shell.reported();
-    let recorded = reported
-        .iter()
-        .position(|c| c.text == "echo recorded")
-        .expect("the plain command was reported");
-    // Whatever came after it either repeated the previous line — with the
-    // previous NUMBER, which is how the anchor knows to suspend instead of
-    // writing it down — or was not reported at all. What must never happen
-    // is a NEW number carrying the stale text.
-    for later in &reported[recorded + 1..] {
-        assert!(
-            !(later.text == "echo recorded" && later.number != reported[recorded].number),
-            "a stale line arrived with a fresh number, which would be recorded as a \
-             command that never ran: {later:?}"
-        );
-        // And the hidden line must not have been reported at all.
-        assert_ne!(
-            later.text, "echo hidden",
-            "a line the shell hid was reported"
-        );
-    }
+        let reported = session.reported();
+        let recorded = reported
+            .iter()
+            .position(|c| c.text == "echo recorded")
+            .unwrap_or_else(|| panic!("{shell} never reported the plain command: {reported:?}"));
+
+        for later in &reported[recorded + 1..] {
+            // Never a stale line with a fresh number: that would be recorded
+            // as a command that did not run.
+            assert!(
+                !(later.text == "echo recorded" && later.number != reported[recorded].number),
+                "{shell} sent a stale line with a fresh number: {later:?}"
+            );
+            // And if the hidden line arrives at all, it arrives WITH its
+            // leading space — which is what the anchor suspends on.
+            if later.text.contains("hidden") {
+                assert!(
+                    later.text.starts_with(' '),
+                    "{shell} reported the hidden line with its space stripped, so nothing \
+                     downstream can tell it was hidden: {later:?}"
+                );
+            }
+        }
+    });
 }

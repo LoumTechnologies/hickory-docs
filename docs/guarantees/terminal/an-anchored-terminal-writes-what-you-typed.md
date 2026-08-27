@@ -28,6 +28,9 @@ the cell is always **a prefix of the session that reproduces**:
   and which container for as long as it is doing so, and a shell hick has no
   hook for is **refused by name** rather than left looking anchored while
   recording nothing.
+- **A leading space means do not record**, in every shell hick anchors. That
+  convention is honoured by hick rather than left to the shell, because the
+  shells disagree about it completely — see the verification notes.
 
 What is claimed about secrets is exactly: **a line that looks like a secret
 stops the recording.** Never "your secrets are safe here" — a scanner catches
@@ -39,7 +42,8 @@ password, and this product does not say things it cannot prove.
 Last LLM verification:
 - Date: 2026-08-27
 - Reviewer: Claude (Opus 5)
-- Result: verified against a real shell, for bash. **zsh is unverified.**
+- Result: verified against real bash **and real zsh**, which turned out to
+  disagree in a way that mattered
 - Evidence, in the order the bytes travel:
   - `crates/hick-term/src/shell_integration.rs` — the hook, added beside the
     OSC 7 one the same mechanism already installs. bash uses **`PS0`**;
@@ -56,11 +60,12 @@ Last LLM verification:
     nothing else.
   - `apps/web/src/terminal/AnchorBar.tsx` — what the person sees.
 - Test coverage:
-  - `crates/hick-term/tests/typed_commands.rs` — **against a real PTY running
-    real bash**: a pipeline and a `for` loop each arrive as ONE line, nothing
-    is reported before anything is typed, an empty Enter reports nothing, and
-    a line the shell kept out of its history never arrives carrying a fresh
-    number.
+  - `crates/hick-term/tests/typed_commands.rs` — **against a real PTY, for
+    every hooked shell installed**, and it fails rather than passes if none
+    is: a pipeline and a `for` loop each arrive as ONE line, nothing is
+    reported before anything is typed, an empty Enter reports nothing, and a
+    line the shell kept out of its history never arrives as a fresh,
+    recordable report.
   - `crates/hick-term/src/anchor.rs` unit tests — a secret suspends, the
     suspension is sticky, an unchanged history number suspends rather than
     repeating the previous line, resuming reports that it is a new cell, and
@@ -70,20 +75,34 @@ Last LLM verification:
     and is not grown, a bare document does not gain a wrapper, and what is
     written still parses.
   - `crates/hickory-cli/tests/anchored_terminal.rs` — **the whole path**,
-    through the HTTP API with a real bash behind it: typing grows one cell in
-    order, unanchoring stops the document receiving, an `export …=sk-…`
-    never reaches the document while everything after it is left out too, the
-    anchor says why in words that do not overclaim, resuming starts a second
-    cell, and an un-hookable shell is refused with a message naming bash and
-    zsh and saying the terminal still works.
+    through the HTTP API, against **both** shells: typing grows one cell in
+    order, unanchoring stops the document receiving, an `export …=sk-…` never
+    reaches the document while everything after it is left out too, a line
+    typed with a leading space never reaches it either, the anchor says why
+    in words that do not overclaim, resuming starts a second cell, and an
+    un-hookable shell is refused with a message naming bash and zsh and
+    saying the terminal still works. The zsh runs additionally exercise the
+    `ZDOTDIR` forwarding, which is the part of the existing integration the
+    new hook had to be added to without breaking a person's own startup
+    files.
 - Caveat requiring review:
-  - **zsh is written and never run.** It was not installed on the machine
-    this was built on. Its `preexec` receives the typed line directly, so it
-    avoids bash's `history 1` hazard entirely — but `$HISTCMD`'s value inside
-    `preexec` is assumed rather than measured, and if it does not advance the
-    way this expects, the effect is over-suspension (safe, annoying) rather
-    than a wrong recording. **Nothing should claim zsh works until someone
-    runs it.**
+  - ~~zsh is written and never run.~~ **Resolved 2026-08-27** — zsh 5.9 was
+    installed and measured, and the assumption it was carrying was wrong in
+    both directions. `$HISTCMD` inside `preexec` is the slot a line *would*
+    take, not a record of one taken: a line hidden by `HIST_IGNORE_SPACE`
+    advances it and then gives it back, so the **next** genuine command
+    reuses the number. Under the old rule that meant zsh recorded the hidden
+    line (its number had advanced) and then suspended the innocent one after
+    it. Neither wrote anything false, and both were wrong.
+    The fix is the leading-space rule above, applied in hick rather than
+    inferred from the shell: bash never reports such a line at all, zsh
+    reports it in full, and hick stops on it either way. What is NOT done is
+    detecting zsh's history options (`HIST_IGNORE_SPACE`,
+    `HIST_IGNORE_DUPS`) — re-implementing another program's rules in a hook
+    is how a hook drifts, and the uniform rule needs none of it. The
+    consequence worth stating: **a leading space suspends recording even when
+    the shell would have kept the line**, which is a hick rule and not a
+    shell one.
   - **Windows is undesigned.** ConPTY has no process groups; the shell hook
     itself is shell-shaped rather than PTY-shaped so it may well work, but
     nothing has run there and no `cmd`/PowerShell hook exists.
