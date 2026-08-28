@@ -24,6 +24,7 @@ pub enum Target {
     Python,
     TypeScript,
     Go,
+    CSharp,
 }
 
 impl Target {
@@ -32,12 +33,13 @@ impl Target {
             "python" | "py" => Some(Target::Python),
             "typescript" | "ts" => Some(Target::TypeScript),
             "go" | "golang" => Some(Target::Go),
+            "csharp" | "cs" | "c#" => Some(Target::CSharp),
             _ => None,
         }
     }
 
     pub fn names() -> &'static str {
-        "python, typescript, go"
+        "python, typescript, go, csharp"
     }
 
     pub fn extension(self) -> &'static str {
@@ -45,6 +47,7 @@ impl Target {
             Target::Python => "py",
             Target::TypeScript => "ts",
             Target::Go => "go",
+            Target::CSharp => "cs",
         }
     }
 }
@@ -74,6 +77,7 @@ pub fn emit(target: Target, operations: &[Operation], language: &str) -> String 
         Target::Python => python(operations, language),
         Target::TypeScript => typescript(operations, language),
         Target::Go => go(operations, language),
+        Target::CSharp => csharp(operations, language),
     }
 }
 
@@ -152,8 +156,9 @@ fn python(operations: &[Operation], language: &str) -> String {
         out.push_str(&format!(
             "def {}(model: Model{arglist}) -> {}Result:\n    \
              \"\"\"Ask `{}`, typed.\"\"\"\n    \
-             return model.q({}_QUERY{})  # type: ignore[return-value]\n\n\n",
+             return {}Result._from(model.q({}_QUERY{})._data)\n\n\n",
             snake(&op.name),
+            op.name,
             op.name,
             op.name,
             screaming(&op.name),
@@ -183,8 +188,58 @@ fn py_class(name: &str, fields: &[Field]) -> String {
             py_type(&field.shape)
         ));
     }
-    out.push_str("\n\n");
+    // Python is the only target that needs this. TypeScript's JSON already IS
+    // the object, Go decodes into the struct through its tags, and C# through
+    // its attributes — but a dataclass is not built from a dict by anything,
+    // so without a constructor the annotation is a claim rather than a fact.
+    // It stopped being one when a generator read `typename` and the response
+    // held `__typename`.
+    out.push_str("\n    @staticmethod\n    def _from(data: dict[str, Any]) -> \"");
+    out.push_str(&pascal(name));
+    out.push_str("\":\n        return ");
+    out.push_str(&pascal(name));
+    out.push_str("(\n");
+    for field in fields {
+        out.push_str(&format!(
+            "            {}={},\n",
+            py_name(&field.key),
+            py_build(&field.shape, &format!("data.get(\"{}\")", field.key))
+        ));
+    }
+    out.push_str("        )\n\n\n");
     out
+}
+
+/// The expression that turns a piece of JSON into this shape.
+fn py_build(shape: &Shape, source: &str) -> String {
+    let build = match &shape.kind {
+        Kind::List(item) => format!("[{} for _v in ({} or [])]", py_build(item, "_v"), source),
+        Kind::Object(object) => format!("{}._from({source})", pascal(&object.name)),
+        Kind::Variants(variants) => {
+            // Which class to build is decided by the discriminator, which is
+            // why `__typename` has to be in the selection for a variant.
+            let arms: Vec<String> = variants
+                .iter()
+                .map(|v| {
+                    let bare = v.name.rsplit('_').next().unwrap_or(&v.name);
+                    format!(
+                        "{}._from({source}) if ({source} or {{}}).get(\"__typename\") == \"{bare}\"",
+                        pascal(&v.name)
+                    )
+                })
+                .collect();
+            format!("({} else None)", arms.join(" else "))
+        }
+        _ => source.to_string(),
+    };
+    if shape.nullable
+        && !matches!(shape.kind, Kind::List(_))
+        && !matches!(shape.kind, Kind::Scalar(_) | Kind::Enum { .. })
+    {
+        format!("({build} if {source} is not None else None)")
+    } else {
+        build
+    }
 }
 
 /// `__typename` is a dunder in Python and cannot be an attribute name, so it
@@ -399,6 +454,154 @@ fn go_type(shape: &Shape) -> String {
     // A pointer only where a null is possible AND the zero value would lie.
     if shape.nullable && !inner.starts_with("[]") && !inner.starts_with("map[") {
         format!("*{inner}")
+    } else {
+        inner
+    }
+}
+
+// ---------------------------------------------------------------------------
+// C#
+// ---------------------------------------------------------------------------
+
+fn csharp(operations: &[Operation], language: &str) -> String {
+    let mut out = banner("//", language);
+    out.push_str(
+        "#nullable enable
+using System.Text.Json.Serialization;
+
+         namespace Hick.Model.Client;
+
+",
+    );
+    for op in operations {
+        for (name, fields) in &shapes_of(op) {
+            out.push_str(&cs_record(name, fields));
+        }
+        // A variant selection becomes a polymorphic hierarchy. C# has no
+        // union type, and `System.Text.Json` can deserialise one by
+        // discriminator — which is exactly what `__typename` is — so the
+        // shape survives instead of collapsing to a bag of nullable fields.
+        for shape in variant_groups(op) {
+            out.push_str("[JsonPolymorphic(TypeDiscriminatorPropertyName = \"__typename\")]\n");
+            for variant in &shape.1 {
+                let bare = variant.rsplit('_').next().unwrap_or(variant);
+                out.push_str(&format!(
+                    "[JsonDerivedType(typeof({}), \"{}\")]\n",
+                    pascal(variant),
+                    bare
+                ));
+            }
+            out.push_str(&format!("public abstract record {};\n\n", pascal(&shape.0)));
+        }
+        out.push_str(&cs_record(&format!("{}Result", op.name), &op.result.fields));
+        out.push_str(&format!(
+            "public static class {}\n{{\n    public const string Query = @\"\n{}\n\";\n}}\n\n",
+            pascal(&op.name),
+            op.text.replace('"', "\"\"")
+        ));
+    }
+    out
+}
+
+/// The name of the abstract base for a variant selection.
+///
+/// Derived from the variants themselves — `Q_types_ClassDecl` and its
+/// siblings share `Q_types`, so the base is `Q_typesBase` — because both the
+/// declaration and every use site must arrive at the same string, and
+/// computing it two ways is how they stopped matching the first time.
+fn variant_base(variants: &[super::ObjectShape]) -> String {
+    let first = variants.first().map(|v| v.name.as_str()).unwrap_or("");
+    let stem = first
+        .rsplit_once('_')
+        .map(|(head, _)| head)
+        .unwrap_or(first);
+    format!("{}Base", pascal(stem))
+}
+
+/// Every variant selection in an operation, as (base name, variant names).
+///
+/// C# needs the base declared separately from its cases, which no other
+/// target here does — the one place a language's own shape reaches back into
+/// what the emitter has to walk.
+fn variant_groups(op: &Operation) -> Vec<(String, Vec<String>)> {
+    fn walk(shape: &Shape, into: &mut Vec<(String, Vec<String>)>) {
+        match &shape.kind {
+            Kind::List(inner) => walk(inner, into),
+            Kind::Object(object) => {
+                for field in &object.fields {
+                    walk(&field.shape, into);
+                }
+            }
+            Kind::Variants(variants) => {
+                into.push((
+                    variant_base(variants),
+                    variants.iter().map(|v| v.name.clone()).collect(),
+                ));
+                for variant in variants {
+                    for field in &variant.fields {
+                        walk(&field.shape, into);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    let mut out = Vec::new();
+    for field in &op.result.fields {
+        walk(&field.shape, &mut out);
+    }
+    let mut seen = std::collections::HashSet::new();
+    out.retain(|(name, _)| seen.insert(name.clone()));
+    out
+}
+
+fn cs_record(name: &str, fields: &[Field]) -> String {
+    if fields.is_empty() {
+        return format!("public sealed record {}();\n\n", pascal(name));
+    }
+    let mut out = format!("public sealed record {}(\n", pascal(name));
+    let rows: Vec<String> = fields
+        .iter()
+        .map(|field| {
+            let doc = field
+                .description
+                .as_ref()
+                .and_then(|d| d.lines().next())
+                .map(|d| format!("    /// <summary>{}</summary>\n", d.replace('<', "&lt;")))
+                .unwrap_or_default();
+            format!(
+                "{doc}    [property: JsonPropertyName(\"{}\")] {} {}",
+                field.key,
+                cs_type(&field.shape),
+                pascal(&field.key.replace("__", ""))
+            )
+        })
+        .collect();
+    out.push_str(&rows.join(",\n"));
+    out.push_str("\n);\n\n");
+    out
+}
+
+fn cs_type(shape: &Shape) -> String {
+    let inner = match &shape.kind {
+        Kind::List(item) => format!("IReadOnlyList<{}>", cs_type(item)),
+        Kind::Scalar(name) => match name.as_str() {
+            "String" | "ID" => "string".into(),
+            "Int" => "int".into(),
+            "Float" => "double".into(),
+            "Boolean" => "bool".into(),
+            _ => "object".into(),
+        },
+        // A GraphQL enum arrives as its name on the wire. Emitted as a string
+        // rather than a C# enum: a value the schema gains and this client has
+        // not seen would fail to deserialise, and a generator should be able
+        // to read a model newer than itself.
+        Kind::Enum { .. } => "string".into(),
+        Kind::Object(object) => pascal(&object.name),
+        Kind::Variants(variants) => variant_base(variants),
+    };
+    if shape.nullable {
+        format!("{inner}?")
     } else {
         inner
     }

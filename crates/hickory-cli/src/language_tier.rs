@@ -107,6 +107,9 @@ pub struct LanguageSupport {
     pub index: Have,
     /// Gold: a code model server for generation.
     pub model: Have,
+    /// Gold: a typed-client emitter, so a generator can be WRITTEN in this
+    /// language against any model.
+    pub client: Have,
     pub tier: Tier,
     /// The one thing that would raise this language a rung, or `None` when
     /// it is already Gold.
@@ -173,6 +176,19 @@ pub fn support(language: &'static str, root: &Path) -> LanguageSupport {
         capability(crate::code_model::discover(language, root).is_some(), false)
     };
 
+    // An emitter is language-specific support in the other direction: it is
+    // what lets somebody write a generator IN this language, typed, against
+    // any model. A language you can model but cannot write a generator in is
+    // supported halfway, and the ladder should say so.
+    let client = if data {
+        Have::NotApplicable
+    } else {
+        capability(
+            crate::typed_client::emit::Target::parse(language).is_some(),
+            false,
+        )
+    };
+
     let tier = if data {
         // Silver is the ceiling and the top of its own ladder: "the editor is
         // right" is everything a document can want from a language it only
@@ -183,7 +199,7 @@ pub fn support(language: &'static str, root: &Path) -> LanguageSupport {
         } else {
             Tier::Bronze
         }
-    } else if lsp.counts() && dap.counts() && index.counts() && model.counts() {
+    } else if lsp.counts() && dap.counts() && index.counts() && model.counts() && client.counts() {
         Tier::Gold
     } else if lsp.counts() && dap.counts() {
         Tier::Silver
@@ -191,7 +207,18 @@ pub fn support(language: &'static str, root: &Path) -> LanguageSupport {
         Tier::Bronze
     };
 
-    let next = next_step(language, tier, data, lsp, dap, index, model);
+    let next = next_step(
+        language,
+        tier,
+        data,
+        &Capabilities {
+            lsp,
+            dap,
+            index,
+            model,
+            client,
+        },
+    );
 
     LanguageSupport {
         language,
@@ -200,6 +227,7 @@ pub fn support(language: &'static str, root: &Path) -> LanguageSupport {
         dap,
         index,
         model,
+        client,
         tier,
         next,
     }
@@ -249,15 +277,23 @@ fn indexed_by_the_ecosystem(language: &str) -> bool {
 }
 
 /// The single most useful sentence for this language: what to do next.
-fn next_step(
-    language: &str,
-    tier: Tier,
-    data: bool,
+/// What a language has, for deciding the one thing to say next.
+struct Capabilities {
     lsp: Have,
     dap: Have,
     index: Have,
     model: Have,
-) -> Option<String> {
+    client: Have,
+}
+
+fn next_step(language: &str, tier: Tier, data: bool, have: &Capabilities) -> Option<String> {
+    let Capabilities {
+        lsp,
+        dap,
+        index,
+        model,
+        client,
+    } = *have;
     if tier == Tier::Gold {
         return None;
     }
@@ -287,6 +323,12 @@ fn next_step(
         return Some(format!(
             "a code model server — `code-models/` has C#, TypeScript and Go; \
              {language} needs one"
+        ));
+    }
+    if !client.counts() {
+        return Some(format!(
+            "a typed-client emitter, so a generator can be written IN {language} — \
+             `typed_client::emit` has python, typescript, go and csharp"
         ));
     }
     None

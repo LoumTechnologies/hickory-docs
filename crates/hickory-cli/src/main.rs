@@ -3810,18 +3810,19 @@ fn cmd_lang() -> Result<ExitCode> {
         root.display()
     );
     println!(
-        "  {:<16} {:<7} {:<5} {:<6} {:<6} {:<6} NEXT",
-        "LANGUAGE", "TIER", "LSP", "DEBUG", "INDEX", "MODEL"
+        "  {:<16} {:<7} {:<5} {:<6} {:<6} {:<6} {:<7} NEXT",
+        "LANGUAGE", "TIER", "LSP", "DEBUG", "INDEX", "MODEL", "CLIENT"
     );
     for row in &rows {
         println!(
-            "  {:<16} {:<7} {:<5} {:<6} {:<6} {:<6} {}",
+            "  {:<16} {:<7} {:<5} {:<6} {:<6} {:<6} {:<7} {}",
             row.language,
             row.tier.name(),
             row.lsp.mark(),
             row.dap.mark(),
             row.index.mark(),
             row.model.mark(),
+            row.client.mark(),
             row.next.as_deref().unwrap_or("")
         );
     }
@@ -3835,7 +3836,8 @@ fn cmd_lang() -> Result<ExitCode> {
          \n\
          \x20 BRONZE  the text is right — the language is routed, highlighted, and runnable in a cell.\n\
          \x20 SILVER  the editor is right — a language server and a debugger, in document coordinates.\n\
-         \x20 GOLD    the code is data — an index, and a code model a script can generate against."
+         \x20 GOLD    the code is data — an index, a code model to generate FROM, and a\n\
+         \x20         typed-client emitter to write a generator IN."
     );
     Ok(ExitCode::SUCCESS)
 }

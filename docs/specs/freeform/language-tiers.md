@@ -20,9 +20,13 @@ reachable, so a *generated* file has completions and diagnostics, and can be
 stepped through in **document coordinates** — the line you edited, not the
 line the weave produced.
 
-**Gold — the code is data.** An index answers questions about the whole
-project, and a **code model server** answers questions about the language's
-own type system, so a script can *generate* against it. This is the rung that
+**Gold — the code is data.** Three things, and the last two are
+language-specific work pointing in opposite directions. An index answers
+questions about the whole project. A **code model server** answers questions
+about the language's own type system, so a script can generate *from* it. And
+a **typed-client emitter** lets a generator be written *in* it. A language you
+can model but cannot write a generator in is supported halfway, and the ladder
+says so. This is the rung that
 makes `owning-what-a-scaffolder-wrote.md` and the repetitious-layer problem
 tractable: you review the generator, not its output.
 
