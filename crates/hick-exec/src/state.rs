@@ -191,6 +191,29 @@ impl MultiDocumentState {
         self.content_blocks.lock().unwrap().push(block);
     }
 
+    /// Make a literal copy block resolvable **before** the render pass runs.
+    ///
+    /// Copy blocks are normally registered by the copy handler while the
+    /// document is being rendered — which is after every cell has executed.
+    /// A `<hick:paste>` used as a cell's stdin is therefore evaluated against
+    /// an empty registry, and resolved to nothing: the cell ran with empty
+    /// input and no error, which is the worst way for anything to fail.
+    ///
+    /// This fills only the id map, never `content_blocks`, because the render
+    /// pass will register the same block properly a moment later and
+    /// `content_blocks` is a list — pushing twice would make one copy block
+    /// count as two for a `.class` selector and for `min=`/`max=`.
+    pub fn pre_register_copy_text(&self, id: &str, content: &str) {
+        if id.is_empty() {
+            return;
+        }
+        self.copy_blocks
+            .lock()
+            .unwrap()
+            .entry(id.to_string())
+            .or_insert_with(|| content.to_string());
+    }
+
     /// Register a `<hick:cut>` block.
     pub fn register_cut(&self, id: String, content: String) {
         self.register_cut_with_class(id, None, content);

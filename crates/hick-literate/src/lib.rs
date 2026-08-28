@@ -353,6 +353,14 @@ fn prepare_pipeline<'a>(
         scan_and_register_vars(&doc.nodes, &state);
     }
 
+    // Literal copy blocks, registered before anything executes, so a
+    // `<hick:paste>` used as a cell's stdin can resolve one. Without this the
+    // copy handler registers them during the render pass — which runs AFTER
+    // every cell — and a stdin paste silently produced an empty string.
+    for (_, doc) in &documents {
+        register_literal_copies(&doc.nodes, &state);
+    }
+
     // Process features BEFORE conditional filtering (so features work in conditions)
     let all_docs: Vec<_> = documents.iter().map(|(_, d)| d).collect();
     process_features(&all_docs, &state)?;
@@ -2215,6 +2223,25 @@ pub async fn run_pipeline_weave(
 /// Recursively scan nodes for `<hick:var>` declarations and register them.
 /// This runs before conditional filtering so that vars inside `<hick:when>`
 /// blocks are available for condition evaluation.
+/// Pre-register every `<hick:copy id=…>` whose body is plain text.
+///
+/// Only plain-text bodies: a copy whose content comes from a cell cannot be
+/// known before that cell runs, and guessing would be worse than the empty
+/// string this replaces. Those still resolve the way they always did, in the
+/// render pass.
+fn register_literal_copies(nodes: &[HickNode], state: &MultiDocumentState) {
+    for node in nodes {
+        let HickNode::Tag(tag) = node else { continue };
+        if tag.name == "copy"
+            && let Some(id) = tag.get_attribute("id")
+            && tag.children.iter().all(|c| matches!(c, HickNode::Text(..)))
+        {
+            state.pre_register_copy_text(id, &hick_lang::tag_text(tag));
+        }
+        register_literal_copies(&tag.children, state);
+    }
+}
+
 fn scan_and_register_vars(nodes: &[HickNode], state: &MultiDocumentState) {
     for node in nodes {
         if let HickNode::Tag(tag) = node {

@@ -308,6 +308,22 @@ pub enum DagValidationError {
     )]
     BrokenPasteFlow { consumer: ExecId, selector: String },
 
+    #[error(
+        "line {line}: this cell's command contains a <{prefix}:paste select=\"{selector}\">, \n\
+         which is not substituted into a command and would have run as nothing.\n\
+         Move it out of the command block to make it the cell's STDIN:\n\
+         \n\
+         \x20   <{prefix}:exec …>\n\
+         \x20   <{prefix}:copy id=\"…\">your command, reading stdin</{prefix}:copy>\n\
+         \x20   <{prefix}:paste select=\"{selector}\" />\n\
+         \x20   </{prefix}:exec>"
+    )]
+    PasteInsideCommand {
+        line: usize,
+        selector: String,
+        prefix: String,
+    },
+
     #[error("exec {exec} references undeclared container '{container}'")]
     UndeclaredContainer { exec: ExecId, container: String },
 
@@ -716,6 +732,19 @@ fn extract_exec_info(tag: &HickTag, index: usize) -> Result<ExecInfo, DagValidat
     let mut consumes_paste = Vec::new();
     scan_copy_paste(&tag.children, &mut produces_copy, &mut consumes_paste);
 
+    // A paste nested inside the command block contributes nothing:
+    // `command_text` collects text, and a self-closing tag has none. The cell
+    // then runs with a blank where the author expected content — no error, no
+    // warning, a wrong answer. Refusing here is the only honest option, and
+    // the message names the placement that does work.
+    if let Some(selector) = paste_inside_command(tag) {
+        return Err(DagValidationError::PasteInsideCommand {
+            line: tag.source_line,
+            selector,
+            prefix: "hick".to_string(),
+        });
+    }
+
     let command = command_text(tag);
 
     // Collect non-command child tags (paste, val, etc.) as stdin sources.
@@ -871,6 +900,34 @@ fn extract_agent_info(
 /// The command text of an exec/script tag: all text content EXCLUDING any
 /// `<hick:expect>` or `<hick:capture>` subtree. Both sit inside the exec tag
 /// for locality but are verification metadata, not part of the command.
+/// The selector of the first `paste` nested inside this exec's command
+/// block, if there is one.
+///
+/// Only inside a `copy`/`cut` child — a `paste` that is a direct child of the
+/// exec is the stdin form, which is supported and is what the error suggests.
+fn paste_inside_command(tag: &HickTag) -> Option<String> {
+    fn find(nodes: &[HickNode]) -> Option<String> {
+        for node in nodes {
+            if let HickNode::Tag(t) = node {
+                if t.name == "paste" {
+                    return Some(t.get_attribute("select").unwrap_or("…").to_string());
+                }
+                if let Some(found) = find(&t.children) {
+                    return Some(found);
+                }
+            }
+        }
+        None
+    }
+    tag.children
+        .iter()
+        .filter_map(|c| match c {
+            HickNode::Tag(t) if t.name == "copy" || t.name == "cut" => Some(t),
+            _ => None,
+        })
+        .find_map(|t| find(&t.children))
+}
+
 fn command_text(tag: &HickTag) -> String {
     fn collect(nodes: &[HickNode], out: &mut String) {
         for node in nodes {
