@@ -84,9 +84,17 @@ pub fn spawn(state: LocalState) -> Result<WatchGuard> {
             let _ = tx.send(path);
         }
     })
+    // The same diagnosis `hick up` gives. Without it the app reported the
+    // OS's own words — `Too many open files (os error 24)` — for the
+    // per-user inotify INSTANCE cap, which reads like a descriptor leak in
+    // hick and is actually a machine-wide budget every editor and language
+    // server spends from. Two near-identical blocks, and only the CLI's
+    // explained itself; the app is the copy a downloader meets first.
+    .map_err(crate::up::watch_error)
     .context("failed to start watching for file changes")?;
     watcher
         .watch(&root, RecursiveMode::Recursive)
+        .map_err(crate::up::watch_error)
         .with_context(|| format!("failed to watch {}", root.display()))?;
 
     let (stop_tx, stop_rx) = tokio::sync::oneshot::channel::<()>();

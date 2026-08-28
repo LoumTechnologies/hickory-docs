@@ -44,7 +44,7 @@ use state::{OutputState, WovenState};
 /// disk. Neither is guessable from the message, both are one `sysctl` away,
 /// and someone hitting either one is on their own machine with nobody to
 /// debug it for them.
-fn watch_error(err: notify::Error) -> anyhow::Error {
+pub(crate) fn watch_error(err: notify::Error) -> anyhow::Error {
     let raw = err.to_string();
     let io_kind = match &err.kind {
         notify::ErrorKind::Io(e) => Some(e.raw_os_error()),
