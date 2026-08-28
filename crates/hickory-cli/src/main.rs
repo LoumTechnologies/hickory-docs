@@ -1029,6 +1029,14 @@ struct CodeModelArgs {
     /// person — or a model writing a generator — finds out what to ask.
     #[arg(long)]
     query: Option<String>,
+    /// Print the schema as SDL rather than as a summary.
+    ///
+    /// This is the form every ecosystem's GraphQL codegen reads — `genqlient`,
+    /// `graphql-codegen`, StrawberryShake — so a generator's author who wants
+    /// a typed client generates one with the tool their language already has,
+    /// instead of waiting for Hickory to grow one per language.
+    #[arg(long)]
+    sdl: bool,
 }
 
 #[derive(clap::Args)]
@@ -3696,7 +3704,11 @@ fn cmd_code_model(args: CodeModelArgs) -> Result<ExitCode> {
         // discoverability story — a generator's author should never have to
         // guess at fields.
         let schema = server.query(INTROSPECT, None)?;
-        print_schema(&schema);
+        if args.sdl {
+            print!("{}", hickory_cli::code_model::to_sdl(&schema));
+        } else {
+            print_schema(&schema);
+        }
         return Ok(ExitCode::SUCCESS);
     };
 

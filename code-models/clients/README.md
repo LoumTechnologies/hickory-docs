@@ -40,6 +40,40 @@ and the argument for keeping an equivalence gate on anything that generates.
 `Node.__eq__` compares the underlying response by identity now, and access is
 memoised.
 
+## Typed, if you want it — from your ecosystem's tool, not from us
+
+The client returns responses reachable with dots, not generated types. That is
+a decision, not a limitation, and the reasoning is worth keeping:
+
+**The safety property people want from typing is already covered.** The danger
+is a generator reading a field that is not there, getting nothing, and
+emitting silently wrong code. `Node` raises on an unknown field and lists what
+the response does have. Types would catch it earlier; nothing catches it
+*later* than a wrong file on disk, which is what dictionaries allow.
+
+**What typing adds beyond that is editor-time feedback**, and that is real —
+but a query-typed client is a code generator per language, which is the
+expense this whole design exists to avoid, and **every Gold language's
+ecosystem already has one**: `genqlient` for Go, `graphql-codegen` for
+TypeScript, StrawberryShake for C#.
+
+So Hickory emits SDL and stops:
+
+```
+hick code-model csharp src/Domain --sdl > schema.graphql
+npx graphql-codegen          # or genqlient, or dotnet graphql
+```
+
+Verified end to end: all three servers emit SDL that the reference GraphQL
+implementation accepts, and `graphql-codegen` turns the C# schema plus a query
+into a discriminated union over `ClassDecl | RecordDecl | StructDecl |
+InterfaceDecl | EnumDecl` with nullability intact — Hickory having written no
+code generator at all.
+
+The SDL printer lives in `hickory-cli`, once, rather than in each server: it
+is the same transformation from the same introspection response everywhere,
+which is the shared core doing its job.
+
 ## What is here
 
 | language | client | status |

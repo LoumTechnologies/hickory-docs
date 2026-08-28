@@ -172,13 +172,18 @@ impl Drop for ModelServer {
 pub const INTROSPECT: &str = r#"
 {
   __schema {
+    queryType { name }
     types {
       kind
       name
       description
+      interfaces { name }
+      enumValues { name }
+      inputFields { name type { ...ref ofType { ...ref ofType { ...ref } } } }
       fields {
         name
         description
+        args { name type { ...ref ofType { ...ref ofType { ...ref } } } }
         type { ...ref ofType { ...ref ofType { ...ref ofType { ...ref } } } }
       }
       possibleTypes { name }
@@ -212,9 +217,188 @@ pub fn type_name(node: &Value) -> String {
     }
 }
 
+/// Print a schema as SDL, from its introspection response.
+///
+/// Written once here rather than once per server, because it is the same
+/// transformation everywhere and the shared core of this design is the
+/// protocol rather than the schema.
+///
+/// SDL is what makes the untyped client a **choice** instead of a limitation.
+/// A generator's author who wants completions and compile-time checking of
+/// field names does not need Hickory to grow a typed client per language:
+/// every Gold language's ecosystem already has GraphQL codegen — `genqlient`,
+/// `graphql-codegen`, StrawberryShake — and all of them take SDL. Emitting it
+/// is the whole of Hickory's job here, and the reason not to build the rest.
+pub fn to_sdl(introspection: &Value) -> String {
+    let Some(schema) = introspection.pointer("/data/__schema") else {
+        return String::new();
+    };
+    let empty = Vec::new();
+    let types = schema["types"].as_array().unwrap_or(&empty);
+    let query_type = schema
+        .pointer("/queryType/name")
+        .and_then(Value::as_str)
+        .unwrap_or("Query");
+
+    let mut out = format!("schema {{\n  query: {query_type}\n}}\n");
+    for entry in types {
+        let name = entry["name"].as_str().unwrap_or("");
+        // GraphQL's own machinery, and the built-in scalars: a codegen tool
+        // supplies both and a duplicate definition is an error.
+        if name.starts_with("__") || matches!(name, "String" | "Int" | "Float" | "Boolean" | "ID") {
+            continue;
+        }
+        out.push('\n');
+        if let Some(doc) = entry["description"].as_str().filter(|d| !d.is_empty()) {
+            out.push_str(&describe(doc, ""));
+        }
+        match entry["kind"].as_str().unwrap_or("") {
+            "OBJECT" | "INTERFACE" => {
+                let keyword = if entry["kind"] == "INTERFACE" {
+                    "interface"
+                } else {
+                    "type"
+                };
+                let implements: Vec<&str> = entry["interfaces"]
+                    .as_array()
+                    .map(|list| list.iter().filter_map(|i| i["name"].as_str()).collect())
+                    .unwrap_or_default();
+                out.push_str(&format!("{keyword} {name}"));
+                if !implements.is_empty() {
+                    out.push_str(&format!(" implements {}", implements.join(" & ")));
+                }
+                out.push_str(" {\n");
+                for field in entry["fields"].as_array().unwrap_or(&empty) {
+                    if let Some(doc) = field["description"].as_str().filter(|d| !d.is_empty()) {
+                        out.push_str(&describe(doc, "  "));
+                    }
+                    let args: Vec<String> = field["args"]
+                        .as_array()
+                        .map(|list| {
+                            list.iter()
+                                .map(|a| {
+                                    format!(
+                                        "{}: {}",
+                                        a["name"].as_str().unwrap_or(""),
+                                        type_name(&a["type"])
+                                    )
+                                })
+                                .collect()
+                        })
+                        .unwrap_or_default();
+                    let arglist = if args.is_empty() {
+                        String::new()
+                    } else {
+                        format!("({})", args.join(", "))
+                    };
+                    out.push_str(&format!(
+                        "  {}{arglist}: {}\n",
+                        field["name"].as_str().unwrap_or(""),
+                        type_name(&field["type"])
+                    ));
+                }
+                out.push_str("}\n");
+            }
+            "ENUM" => {
+                out.push_str(&format!("enum {name} {{\n"));
+                for value in entry["enumValues"].as_array().unwrap_or(&empty) {
+                    out.push_str(&format!("  {}\n", value["name"].as_str().unwrap_or("")));
+                }
+                out.push_str("}\n");
+            }
+            "INPUT_OBJECT" => {
+                out.push_str(&format!("input {name} {{\n"));
+                for field in entry["inputFields"].as_array().unwrap_or(&empty) {
+                    out.push_str(&format!(
+                        "  {}: {}\n",
+                        field["name"].as_str().unwrap_or(""),
+                        type_name(&field["type"])
+                    ));
+                }
+                out.push_str("}\n");
+            }
+            "UNION" => {
+                let members: Vec<&str> = entry["possibleTypes"]
+                    .as_array()
+                    .map(|l| l.iter().filter_map(|p| p["name"].as_str()).collect())
+                    .unwrap_or_default();
+                out.push_str(&format!("union {name} = {}\n", members.join(" | ")));
+            }
+            "SCALAR" => out.push_str(&format!("scalar {name}\n")),
+            _ => {}
+        }
+    }
+    out
+}
+
+/// A description as an SDL block string, indented.
+///
+/// Block-quoted rather than escaped: these carry the reasoning a schema is
+/// worth reading for, and they contain quotes and newlines.
+fn describe(doc: &str, indent: &str) -> String {
+    let body = doc.replace('"', "'");
+    let mut out = format!("{indent}\"\"\"\n");
+    for line in body.lines() {
+        out.push_str(&format!("{indent}{line}\n"));
+    }
+    out.push_str(&format!("{indent}\"\"\"\n"));
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sdl_carries_arguments_implements_and_descriptions() {
+        // The three things a codegen tool cannot work without, and the three
+        // the first version of this printer silently dropped: a field's
+        // arguments, what an object implements, and the prose that makes the
+        // schema worth reading.
+        let introspection = json!({"data": {"__schema": {
+        "queryType": {"name": "Query"},
+        "types": [
+            {"kind": "OBJECT", "name": "Query", "interfaces": [], "fields": [
+                {"name": "types", "description": "Every type.",
+                 "args": [{"name": "nameEndsWith",
+                           "type": {"kind": "SCALAR", "name": "String"}}],
+                 "type": {"kind": "NON_NULL", "ofType": {"kind": "LIST",
+                          "ofType": {"kind": "NON_NULL",
+                                     "ofType": {"kind": "INTERFACE", "name": "TypeDecl"}}}}}
+            ]},
+            {"kind": "OBJECT", "name": "ClassDecl",
+             "interfaces": [{"name": "TypeDecl"}], "fields": [
+                {"name": "name", "type": {"kind": "NON_NULL",
+                    "ofType": {"kind": "SCALAR", "name": "String"}}}]},
+            {"kind": "ENUM", "name": "Accessibility",
+             "enumValues": [{"name": "PUBLIC"}, {"name": "PRIVATE"}]},
+            // GraphQL's own machinery and the built-in scalars must not be
+            // re-declared: a codegen tool supplies both and a duplicate
+            // definition is an error rather than a warning.
+            {"kind": "OBJECT", "name": "__Type", "fields": []},
+            {"kind": "SCALAR", "name": "String"}
+        ]}}});
+
+        let sdl = to_sdl(&introspection);
+        assert!(
+            sdl.contains("types(nameEndsWith: String): [TypeDecl!]!"),
+            "{sdl}"
+        );
+        assert!(
+            sdl.contains("type ClassDecl implements TypeDecl {"),
+            "{sdl}"
+        );
+        assert!(sdl.contains("Every type."), "{sdl}");
+        assert!(sdl.contains("enum Accessibility {"), "{sdl}");
+        assert!(
+            !sdl.contains("__Type"),
+            "GraphQL's own types must not be emitted: {sdl}"
+        );
+        assert!(
+            !sdl.contains("scalar String"),
+            "built-in scalars must not be re-declared: {sdl}"
+        );
+    }
 
     #[test]
     fn a_list_type_reads_as_a_list() {
