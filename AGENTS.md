@@ -299,6 +299,39 @@ a breakpoint has **three** states, not two — netcoredbg reports `pending` at
 set time and binds on module load, so `verified: false` means "not yet", never
 "never", and the only certain refusal is the one hick makes itself.
 
+Showing what a generator makes, without storing it, is
+`<hick:sample path from to caption>` — a window inside the `hick:exec` that
+produces the file, whose lines appear **only in the weave**
+(`docs/guarantees/authoring/a-sample-shows-generated-lines-without-storing-them.md`,
+built 2026-08-28). The document gains one line, the bytes cannot be edited
+into a lie because there are none there, and the drift check catches
+staleness for free. Three things it needed that were not obvious: it is
+excluded from the DAG **twice** (command text and stdin — a cell fed its own
+output is the opposite of the point); it reads **this run's** bytes via
+`MultiDocumentState::register_produced_file`, because an output volume is not
+on disk until after the weave and reading the file made a first run report
+that a file it had just written did not exist; and a range past the end of
+the file **says how long the file is**, never an empty block. Picking one is
+a gesture — select lines in a generated file and `POST /api/samples` finds
+the owning document and cell. A volume is declared at document level and
+reaches a cell by being **mounted**, so that search runs forward to the mount,
+not outward from the declaration.
+
+A volume seeded from a directory carries **what the repository would carry**
+(`docs/guarantees/execution/a-volume-carries-what-the-repository-carries.md`,
+2026-08-28). This is not tidiness: a cell's recording is keyed by the digest
+of what it mounts, so `obj/` or a `__pycache__` beside a generator makes every
+recording unfindable and the next weave writes `[never run]` over a run that
+really happened. The filter is the project's own `.gitignore` — never a list
+of build-output names we maintain — and hidden files are kept, because
+`.editorconfig` is an input a build reads. The other half no ignore rule can
+fix: a cell that mounts its own **unstable** output — the weave target, or a
+`hick:file` a cell fills — is warned about. Only those two; the first version
+warned on any output and fired on three of five demo documents, every one of
+them correct, because *a document writing a script from literal text and
+mounting the directory so a cell can run it is the central move of literate
+programming*.
+
 Code intelligence wider than one file is
 `docs/specs/freeform/an-index-beside-the-language-server.md`, not built.
 **SCIP is in addition to LSP, never in place of it**: SCIP is an *index
