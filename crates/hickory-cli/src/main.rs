@@ -18,10 +18,17 @@ use hickory_cli::{
 /// workspace's `Cargo.toml` number, which nobody bumps between releases and
 /// which would make every unstable build claim to be `0.1.0`.
 /// `scripts/dist.sh` sets `HICKORY_VERSION` when it builds an artifact; a
-/// plain `cargo build` leaves it unset and falls back to the crate version.
+/// plain `cargo build` leaves it unset and falls back to the crate version
+/// **plus the commit it was built from** (`build.rs`), because otherwise
+/// every unstable build claims to be `0.1.0` — and a document's woven bytes
+/// depend on which build wove them, so two indistinguishable versions produce
+/// a drift failure that reads as a content change.
 const VERSION: &str = match option_env!("HICKORY_VERSION") {
     Some(v) => v,
-    None => env!("CARGO_PKG_VERSION"),
+    None => match option_env!("HICKORY_BUILD_VERSION") {
+        Some(v) => v,
+        None => env!("CARGO_PKG_VERSION"),
+    },
 };
 
 #[derive(Parser)]
