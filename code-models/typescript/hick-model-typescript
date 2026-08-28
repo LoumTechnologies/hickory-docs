@@ -1,0 +1,4 @@
+#!/bin/sh
+# Launcher: the server is an ES module, so it is `node server.js` rather than
+# an executable of its own. Named for what `hick code-model` looks up.
+exec node "$(dirname "$(readlink -f "$0")")/server.js" "$@"

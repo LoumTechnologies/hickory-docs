@@ -1,0 +1,11 @@
+{
+  "name": "hick-model-typescript",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": { "hick-model-typescript": "./server.js" },
+  "dependencies": {
+    "graphql": "^16.9.0",
+    "ts-morph": "^24.0.0"
+  }
+}

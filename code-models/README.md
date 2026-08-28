@@ -53,13 +53,62 @@ DTO — which happened, and is why `csharp/Compilation.cs` filters
 compilation and believed it saw everything emits confidently wrong code. The
 `unresolved` field is not optional politeness.
 
+## What is shared, measured across three languages
+
+The plan said the shared core would be small. It is smaller than that, and
+the number is worth writing down because it is the whole argument for
+per-language schemas.
+
+Introspecting all three servers and diffing their type sets: **exactly three
+types are identical everywhere.**
+
+| shared by all three, identically | `ServerInfo`, `Span`, `UnresolvedReference` |
+|---|---|
+| same name, different fields | `TypeRef`, `Method`, `InterfaceDecl`, `Query` |
+| two of three, different fields | `ClassDecl`, `EnumDecl`, `Property`, `Parameter`, `StructDecl` |
+| one language only | `RecordDecl`, `AppliedAttribute` · `TypeAliasDecl`, `Decorator` · `NamedDecl`, `StructTag`, `Field`, `Implementor` |
+
+The near-misses are the interesting part, because hoisting any of them would
+have been actively wrong:
+
+* **`TypeRef`** has three disjoint field sets. C# asks `isNullable` and
+  `isValueType`; TypeScript asks `isUnion`, `isLiteral` and `members`; Go asks
+  `isPointer`, `isSlice`, `isMap` and `key`. A common `TypeRef` would be the
+  union of all of them with two thirds null at any moment.
+* **`Method`** looks shared and is not: Go returns **several** values, so it
+  has `results`, and its `pointerReceiver` decides the method set. A single
+  `returnType` cannot hold a Go signature.
+* **`StructDecl`** exists in C# and Go and means different things — a C#
+  struct is a value type with properties; a Go struct is a field list with
+  tags and embedding. Same word, different concept, and the trap a universal
+  schema walks straight into.
+* **`Accessibility`** is identical in C# and TypeScript and **absent from Go**,
+  which has no accessibility keyword at all — only spelling. That single
+  omission is the clearest evidence the C# enum was never universal.
+
+So the core is **the protocol and the rules, not the schema**. Three types,
+about a dozen fields.
+
 ## What is here
 
-| language | server | built on |
-|---|---|---|
-| C# | `csharp/` | Roslyn (`Microsoft.CodeAnalysis.CSharp`) |
+| language | server | built on | needs at runtime |
+|---|---|---|---|
+| C# | `csharp/` | Roslyn (`Microsoft.CodeAnalysis.CSharp`) | the .NET runtime |
+| TypeScript | `typescript/` | ts-morph over the TS compiler API | `node` |
+| Go | `go/` | `go/packages` + `go/types` | `go` on PATH |
 
-Building it: `cd csharp && dotnet publish -c Release -o <somewhere>`, then put
-`hick-model-csharp` on `PATH` or in the project's `.hick-cache/models/`.
-There is no installer yet — `hick code-model` finds it, and `hick lang`
-reports the language as Gold once it does.
+That last column is part of the contract: a model server may shell out to its
+own toolchain, so a document using one declares both —
+`<hick:needs bin="hick-model-go" />` and `<hick:needs bin="go" />`.
+
+Building them:
+
+```
+cd csharp     && dotnet publish -c Release -o <somewhere>
+cd typescript && npm install                     # then hick-model-typescript
+cd go         && go build -o hick-model-go ./...
+```
+
+Put the result on `PATH` or in the project's `.hick-cache/models/`. There is
+no installer yet — `hick code-model` finds it, and `hick lang` reports the
+language as Gold once it does.

@@ -46,3 +46,6 @@ vmtest/.artifacts/
 # .NET build output (code-models/)
 **/obj/
 **/bin/
+
+# Code model servers: Node deps and Go build output
+code-models/*/node_modules/

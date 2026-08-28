@@ -284,7 +284,10 @@ fn next_step(
         ));
     }
     if !model.counts() {
-        return Some("a code model server — none is built for any language yet".to_string());
+        return Some(format!(
+            "a code model server — `code-models/` has C#, TypeScript and Go; \
+             {language} needs one"
+        ));
     }
     None
 }

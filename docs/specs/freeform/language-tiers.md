@@ -85,9 +85,14 @@ generator asking for property names must not pay for method bodies. Interfaces
 and unions express a language's own type system exactly — a record is not a
 class with a flag — which is precisely what SCIP flattens.
 
-**A schema per language, and no universal model.** This is a feature. The
-shared core is `File`, `Span`, `SymbolId` and a version, and everything else
-is where languages genuinely differ. Introspection is the documentation, which
+**A schema per language, and no universal model.** This is a feature, and
+after three servers the size of the shared core is known rather than
+estimated: **three types** — `ServerInfo`, `Span`, `UnresolvedReference` —
+about a dozen fields. Everything else that shares a *name* across two servers
+has different *fields*, and the near-misses are the ones that would have hurt
+most to hoist: Go's `Method` returns several values, Go's `StructDecl` means
+something else than C#'s, and Go has no `Accessibility` at all because
+exportedness is spelling. See `code-models/README.md` for the diff. Introspection is the documentation, which
 is the property that lets a *model* write a generator you can review: it can
 ask what a property exposes instead of guessing at an API it half-remembers.
 
@@ -132,10 +137,37 @@ already existed and now means what it says.
 
 ## What this does not replace
 
-SCIP. An index answers *where else is this used*, uniformly and across
-languages, and a per-language model cannot answer across a document that
-weaves C# and TypeScript together. The two have different rules already: an
-index is *a cache, never a record* (`an-index-beside-the-language-server.md`);
-a code model is neither, it is an input to generation whose output the drift
-gate checks. Revisit only after three model servers exist, and decide about
-the cross-language join rather than about redundancy.
+*Settled 2026-08-28, with three model servers built rather than predicted.*
+
+**SCIP stays.** The prediction was that it would, for the cross-language join.
+That reason holds, and building the servers produced a sharper one that had
+not occurred to anyone:
+
+**None of the three grew a references query.** Not C#, not TypeScript, not Go
+— and not because it was hard. Each server holds a real compilation and could
+answer "where else is this used" tomorrow. No generator ever asked. A code
+model is about **what is declared**; an index is about **where it is used**,
+and three implementations later that line has not moved once.
+
+The measurements agree. A cold model query is 410 ms for Go on a small
+package and 1.9 s for C# on a four-file project, because binding a compilation
+is the cost and it is paid per spawn. A SCIP index is a file that was already
+computed. Navigation cannot pay two seconds; generation does not care, because
+it happens once per run.
+
+And the coverage is not close: nine maintained SCIP indexers against three
+servers written here, each of which is a standing commitment to somebody
+else's compiler API.
+
+So the three keep different rules, and now for stated reasons:
+
+| | answers | rule |
+|---|---|---|
+| language server | this buffer, right now | the live authority; wins any disagreement |
+| index | where a symbol is used, across languages | *a cache, never a record* |
+| code model | what is declared, in one language's own terms | an **input to generation**, checked by the drift gate |
+
+The only thing that would reopen this is a model server that can answer
+references as cheaply as a precomputed file — at which point the question is
+still whether to lose the cross-language join, not whether the two are
+redundant.
