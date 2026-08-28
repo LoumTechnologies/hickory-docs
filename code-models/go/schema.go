@@ -192,6 +192,23 @@ func buildSchema(model *Model) (graphql.Schema, error) {
 		}),
 	})
 
+	reference := graphql.NewObject(graphql.ObjectConfig{
+		Name: "Reference",
+		Description: "One use of a symbol, and WHO used it. A bare location " +
+			"cannot answer 'is this read by the database layer'; the referring " +
+			"declaration and its package can, which is the form a generator's " +
+			"exceptions are actually written in.",
+		Fields: graphql.Fields{
+			"span":            &graphql.Field{Type: nn(span)},
+			"fromPackage":     &graphql.Field{Type: nn(graphql.String)},
+			"fromDeclaration": &graphql.Field{Type: nn(graphql.String)},
+			"isWrite": &graphql.Field{
+				Type:        nn(graphql.Boolean),
+				Description: "The left side of an assignment. `nothing outside the domain may SET this` needs reads and writes told apart.",
+			},
+		},
+	})
+
 	implementor := graphql.NewObject(graphql.ObjectConfig{
 		Name: "Implementor",
 		Description: "Who satisfies an interface, and HOW. `var _ I = T{}` and " +
@@ -244,6 +261,18 @@ func buildSchema(model *Model) (graphql.Schema, error) {
 							out = append(out, d)
 						}
 						return out, nil
+					},
+				},
+				"references": &graphql.Field{
+					Type: nnList(reference),
+					Args: graphql.FieldConfigArgument{
+						"symbol": &graphql.ArgumentConfig{
+							Type:        nn(graphql.String),
+							Description: "`Type`, `Type.Member`, or a bare function name.",
+						},
+					},
+					Resolve: func(p graphql.ResolveParams) (any, error) {
+						return model.References(p.Args["symbol"].(string)), nil
 					},
 				},
 				"implementors": &graphql.Field{

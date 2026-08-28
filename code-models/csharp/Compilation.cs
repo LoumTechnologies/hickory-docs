@@ -261,6 +261,120 @@ public sealed class CodeModel
         t.AllInterfaces.Any(i => i.Name == "IEnumerable" && i.IsGenericType)
         || t.Name is "IEnumerable" or "IReadOnlyList" or "IReadOnlyCollection" or "List" or "ICollection" or "IList";
 
+    // ---- references ----------------------------------------------------
+
+    private Dictionary<ISymbol, List<Reference>>? _uses;
+
+    /// <summary>Every use of every symbol in this project.</summary>
+    ///
+    /// <remarks>
+    /// Roslyn's `SymbolFinder.FindReferencesAsync` wants a `Solution`, which
+    /// wants a workspace, which wants MSBuild — a much larger dependency than
+    /// this server has any reason to take. The semantic model already answers
+    /// the same question one identifier at a time, so the index is built by
+    /// asking it once per identifier and grouping: the same shape Go gets free
+    /// from `Info.Uses` and TypeScript gets from the checker.
+    ///
+    /// Built lazily and once. It is O(nodes) to construct and O(1) to query,
+    /// which is the right way round for a generator that asks many times in
+    /// one pass.
+    /// </remarks>
+    private Dictionary<ISymbol, List<Reference>> Uses()
+    {
+        if (_uses is not null) return _uses;
+        _uses = new Dictionary<ISymbol, List<Reference>>(SymbolEqualityComparer.Default);
+
+        foreach (var tree in _compilation.SyntaxTrees)
+        {
+            if (tree.FilePath == "<implicit usings>") continue;
+            var model = _compilation.GetSemanticModel(tree);
+            var root = tree.GetRoot();
+            foreach (var node in root.DescendantNodes())
+            {
+                if (node is not Microsoft.CodeAnalysis.CSharp.Syntax.IdentifierNameSyntax id)
+                    continue;
+                var symbol = model.GetSymbolInfo(id).Symbol;
+                if (symbol is null) continue;
+                // The declaration itself is not a use of itself.
+                if (symbol.Locations.Any(l => l.IsInSource
+                        && l.SourceTree == tree
+                        && l.SourceSpan == id.Span))
+                    continue;
+                // Only symbols this project declares: a `Console` is not
+                // interesting and there are thousands of them.
+                if (!SymbolEqualityComparer.Default.Equals(
+                        symbol.ContainingAssembly, _compilation.Assembly))
+                    continue;
+
+                var span = SpanOf(id.GetLocation());
+                if (span is null) continue;
+                if (!_uses.TryGetValue(symbol, out var list))
+                    _uses[symbol] = list = [];
+                list.Add(new Reference(span, Enclosing(id), span.File, IsWrite(id)));
+            }
+        }
+        return _uses;
+    }
+
+    /// <summary>Every use of `Type` or `Type.Member`.</summary>
+    public IReadOnlyList<Reference> References(string symbol)
+    {
+        var uses = Uses();
+        var (typeName, member) = symbol.Contains('.')
+            ? (symbol[..symbol.LastIndexOf('.')], symbol[(symbol.LastIndexOf('.') + 1)..])
+            : (symbol, null);
+
+        foreach (var (declared, refs) in uses)
+        {
+            var owner = declared.ContainingType;
+            var matchesMember = member is not null
+                && declared.Name == member
+                && owner is not null
+                && (owner.Name == typeName || owner.ToDisplayString() == typeName);
+            var matchesType = member is null
+                && (declared.Name == typeName || declared.ToDisplayString() == typeName);
+            if (matchesMember || matchesType)
+                return refs.OrderBy(r => r.Span.File, StringComparer.Ordinal)
+                           .ThenBy(r => r.Span.StartLine).ToList();
+        }
+        return [];
+    }
+
+    /// <summary>The named declaration a node sits inside — what a rule about
+    /// layers actually tests.</summary>
+    private static string Enclosing(SyntaxNode node)
+    {
+        for (var current = node.Parent; current is not null; current = current.Parent)
+        {
+            switch (current)
+            {
+                case Microsoft.CodeAnalysis.CSharp.Syntax.MethodDeclarationSyntax m:
+                    var owner = m.Ancestors()
+                        .OfType<Microsoft.CodeAnalysis.CSharp.Syntax.TypeDeclarationSyntax>()
+                        .FirstOrDefault();
+                    return owner is null ? m.Identifier.Text
+                        : $"{owner.Identifier.Text}.{m.Identifier.Text}";
+                case Microsoft.CodeAnalysis.CSharp.Syntax.PropertyDeclarationSyntax p:
+                    return p.Identifier.Text;
+                case Microsoft.CodeAnalysis.CSharp.Syntax.TypeDeclarationSyntax t:
+                    return t.Identifier.Text;
+            }
+        }
+        return "";
+    }
+
+    /// <summary>Left of an assignment: `nothing outside the domain may SET
+    /// this` needs reads and writes told apart.</summary>
+    private static bool IsWrite(SyntaxNode node)
+    {
+        var target = node;
+        // `a.B = x` — the identifier is inside the member access on the left.
+        while (target.Parent is Microsoft.CodeAnalysis.CSharp.Syntax.MemberAccessExpressionSyntax)
+            target = target.Parent;
+        return target.Parent is Microsoft.CodeAnalysis.CSharp.Syntax.AssignmentExpressionSyntax a
+            && a.Left == target;
+    }
+
     private static Span? SpanOf(Location loc)
     {
         if (!loc.IsInSource) return null;

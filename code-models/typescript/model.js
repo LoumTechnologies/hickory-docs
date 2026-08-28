@@ -97,6 +97,88 @@ export class CodeModel {
     });
   }
 
+  /// Every use of a symbol, and who used it.
+  ///
+  /// `findReferencesAsNodes` is the checker's own answer, so this is not a
+  /// text search: a `label` in an unrelated object literal is not a
+  /// reference, and one reached through an alias or a re-export is.
+  ///
+  /// The referring declaration is the field that matters. A generator's
+  /// exceptions are written in terms of WHO uses a thing — "except fields the
+  /// persistence layer reads" — and a bare file and line cannot answer that.
+  references(symbol) {
+    const [typeName, member] = symbol.split(".");
+    const decl = this.types({}).find((t) => t.name === typeName);
+    if (!decl) return [];
+    let node = decl.__node;
+    if (member) {
+      const found =
+        node.getProperty?.(member) ?? node.getMethod?.(member) ?? null;
+      if (!found) return [];
+      node = found;
+    }
+    if (!node.findReferencesAsNodes) return [];
+    return node
+      .findReferencesAsNodes()
+      .map((ref) => {
+        const file = ref.getSourceFile();
+        const at = file.getLineAndColumnAtPos(ref.getStart());
+        return {
+          span: {
+            file: path.relative(this.root, file.getFilePath()),
+            startLine: at.line, startColumn: at.column,
+            endLine: at.line, endColumn: at.column + ref.getWidth(),
+          },
+          fromModule: path.relative(this.root, file.getFilePath()),
+          fromDeclaration: this.#enclosing(ref),
+          isWrite: this.#isWrite(ref),
+        };
+      })
+      .sort((a, b) =>
+        a.span.file === b.span.file
+          ? a.span.startLine - b.span.startLine
+          : a.span.file < b.span.file ? -1 : 1);
+  }
+
+  /// The named declaration a node sits inside — the thing a rule about layers
+  /// actually tests.
+  #enclosing(node) {
+    let current = node.getParent();
+    while (current) {
+      const kind = current.getKindName?.();
+      if (
+        kind === "FunctionDeclaration" || kind === "MethodDeclaration" ||
+        kind === "ClassDeclaration" || kind === "InterfaceDeclaration" ||
+        kind === "VariableDeclaration" || kind === "PropertyDeclaration"
+      ) {
+        const owner = current.getFirstAncestorByKind?.(SyntaxKind.ClassDeclaration);
+        const name = current.getName?.() ?? "";
+        return owner && owner !== current && owner.getName?.()
+          ? `${owner.getName()}.${name}` : name;
+      }
+      current = current.getParent();
+    }
+    return "";
+  }
+
+  /// Left of an assignment. `nothing outside the domain may SET this` needs
+  /// reads and writes told apart, which a flat symbol graph cannot do.
+  #isWrite(node) {
+    const parent = node.getParent();
+    if (!parent) return false;
+    const binary = parent.getKindName?.() === "BinaryExpression"
+      ? parent
+      : parent.getParent?.()?.getKindName?.() === "BinaryExpression"
+        ? parent.getParent() : null;
+    if (!binary) return false;
+    const op = binary.getOperatorToken?.().getText?.() ?? "";
+    if (!op.endsWith("=") || op === "==" || op === "===" || op === "!=" || op === "!==") {
+      return false;
+    }
+    return binary.getLeft().getStart() <= node.getStart()
+        && node.getEnd() <= binary.getLeft().getEnd();
+  }
+
   // ---- declarations ------------------------------------------------------
 
   #common(node, file, kind) {

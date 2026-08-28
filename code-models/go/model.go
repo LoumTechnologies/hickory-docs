@@ -391,3 +391,168 @@ func parseTag(raw string) StructTag {
 
 var _ = ast.Print
 var _ = fmt.Sprintf
+
+// ---------------------------------------------------------------------------
+// References
+// ---------------------------------------------------------------------------
+//
+// Added after the first pass claimed a code model has no business answering
+// "where is this used". That was wrong, and wrong in a way worth recording: a
+// generator exists to make a meta-pattern official ("the API layer holds no
+// business validation"), and a meta-pattern worth stating almost always has
+// exceptions worth stating too — "except for fields the database layer
+// reads". An exception phrased in terms of USE SITES is a references query,
+// and a generator that cannot ask one has to be told the exceptions by hand,
+// which is the list nobody maintains.
+//
+// In Go this costs nothing. `packages.NeedTypesInfo` already fills
+// `Info.Uses`, an identifier-to-object map for every file loaded — a
+// references index, computed before anyone asked. Grouping it is the whole
+// implementation.
+
+// Reference is one use of a symbol, and — the part that matters — WHO used it.
+//
+// A bare location cannot answer "is this referenced by the database layer".
+// The referring declaration and its package can, which is why they are here
+// and not left to the caller to reconstruct from a line number.
+type Reference struct {
+	Span            Span   `json:"span"`
+	FromPackage     string `json:"fromPackage"`
+	FromDeclaration string `json:"fromDeclaration"`
+	IsWrite         bool   `json:"isWrite"`
+}
+
+// References returns every use of `symbol`, named `Type`, `Type.Member`, or a
+// bare function name.
+func (m *Model) References(symbol string) []Reference {
+	target := m.lookup(symbol)
+	if target == nil {
+		return []Reference{}
+	}
+	out := []Reference{}
+	for _, p := range m.Pkgs {
+		if p.TypesInfo == nil {
+			continue
+		}
+		for ident, obj := range p.TypesInfo.Uses {
+			if obj != target {
+				continue
+			}
+			out = append(out, Reference{
+				Span:            m.span(ident.Pos(), ident.End()),
+				FromPackage:     p.PkgPath,
+				FromDeclaration: m.enclosing(p, ident.Pos()),
+				IsWrite:         m.isWrite(p, ident),
+			})
+		}
+	}
+	sort.Slice(out, func(i, j int) bool {
+		if out[i].Span.File != out[j].Span.File {
+			return out[i].Span.File < out[j].Span.File
+		}
+		return out[i].Span.StartLine < out[j].Span.StartLine
+	})
+	return out
+}
+
+// lookup resolves `Type`, `Type.Member` or a bare name to an object.
+func (m *Model) lookup(symbol string) types.Object {
+	typeName, member, hasMember := strings.Cut(symbol, ".")
+	for _, p := range m.Pkgs {
+		if p.Types == nil {
+			continue
+		}
+		scope := p.Types.Scope()
+		obj := scope.Lookup(typeName)
+		if obj == nil {
+			continue
+		}
+		if !hasMember {
+			return obj
+		}
+		named, ok := obj.Type().(*types.Named)
+		if !ok {
+			continue
+		}
+		for i := 0; i < named.NumMethods(); i++ {
+			if named.Method(i).Name() == member {
+				return named.Method(i)
+			}
+		}
+		if st, ok := named.Underlying().(*types.Struct); ok {
+			for i := 0; i < st.NumFields(); i++ {
+				if st.Field(i).Name() == member {
+					return st.Field(i)
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// enclosing names the declaration a position sits inside, which is the thing
+// a rule about layers actually tests.
+func (m *Model) enclosing(p *packages.Package, pos token.Pos) string {
+	for _, file := range p.Syntax {
+		if pos < file.Pos() || pos > file.End() {
+			continue
+		}
+		for _, d := range file.Decls {
+			if pos < d.Pos() || pos > d.End() {
+				continue
+			}
+			switch decl := d.(type) {
+			case *ast.FuncDecl:
+				if decl.Recv != nil && len(decl.Recv.List) > 0 {
+					return receiverName(decl.Recv.List[0].Type) + "." + decl.Name.Name
+				}
+				return decl.Name.Name
+			case *ast.GenDecl:
+				for _, spec := range decl.Specs {
+					if ts, ok := spec.(*ast.TypeSpec); ok {
+						return ts.Name.Name
+					}
+				}
+			}
+		}
+	}
+	return ""
+}
+
+func receiverName(expr ast.Expr) string {
+	switch t := expr.(type) {
+	case *ast.StarExpr:
+		return receiverName(t.X)
+	case *ast.Ident:
+		return t.Name
+	case *ast.IndexExpr:
+		return receiverName(t.X)
+	}
+	return ""
+}
+
+// isWrite: whether this use is the left side of an assignment. A rule like
+// "nothing outside the domain may set this" needs reads and writes told
+// apart, and a flat symbol graph cannot.
+func (m *Model) isWrite(p *packages.Package, ident *ast.Ident) bool {
+	for _, file := range p.Syntax {
+		if ident.Pos() < file.Pos() || ident.Pos() > file.End() {
+			continue
+		}
+		found := false
+		ast.Inspect(file, func(n ast.Node) bool {
+			assign, ok := n.(*ast.AssignStmt)
+			if !ok {
+				return true
+			}
+			for _, lhs := range assign.Lhs {
+				if lhs.Pos() <= ident.Pos() && ident.End() <= lhs.End() {
+					found = true
+				}
+			}
+			return true
+		})
+		return found
+	}
+	return false
+}

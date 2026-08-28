@@ -49,6 +49,17 @@ public sealed class Query
     public ITypeDecl? Type([Service] CodeModel model, string fullName) =>
         model.Types().FirstOrDefault(t => t.FullName == fullName);
 
+    /// <summary>Every use of `Type` or `Type.Member`, and who used it.</summary>
+    /// <remarks>
+    /// Here because a generator's exceptions are written in terms of use
+    /// sites. "The API layer holds no business validation, except for fields
+    /// the audit layer reads" is a rule with a references query inside it,
+    /// and a generator that cannot ask one has to be handed the exception
+    /// list by hand — which is the list nobody maintains.
+    /// </remarks>
+    public IReadOnlyList<Reference> References([Service] CodeModel model, string symbol) =>
+        model.References(symbol);
+
     /// <summary>`[NeverExpose]` and `NeverExposeAttribute` are the same
     /// attribute, and a caller should not have to know which spelling the
     /// author used.</summary>

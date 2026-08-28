@@ -246,6 +246,20 @@ const EnumDecl = new GraphQLObjectType({
   }),
 });
 
+const Reference = new GraphQLObjectType({
+  name: "Reference",
+  description:
+    "One use of a symbol, and WHO used it. The checker's answer, not a text " +
+    "search — a same-named property on an unrelated object is not a " +
+    "reference, and one reached through a re-export is.",
+  fields: {
+    span: { type: new GraphQLNonNull(Span) },
+    fromModule: { type: new GraphQLNonNull(GraphQLString) },
+    fromDeclaration: { type: new GraphQLNonNull(GraphQLString) },
+    isWrite: { type: new GraphQLNonNull(GraphQLBoolean) },
+  },
+});
+
 export function buildSchema(model) {
   return new GraphQLSchema({
     types: [ClassDecl, InterfaceDecl, TypeAliasDecl, EnumDecl],
@@ -270,6 +284,16 @@ export function buildSchema(model) {
           type: TypeDecl,
           args: { name: { type: new GraphQLNonNull(GraphQLString) } },
           resolve: (_r, a) => model.types({}).find((t) => t.name === a.name) ?? null,
+        },
+        references: {
+          type: NonNullList(Reference),
+          description:
+            "Every use of `Type` or `Type.member`. A generator's exceptions " +
+            "are written in terms of who uses a thing, so the referring " +
+            "declaration is part of the answer rather than something the " +
+            "caller reconstructs from a line number.",
+          args: { symbol: { type: new GraphQLNonNull(GraphQLString) } },
+          resolve: (_r, a) => model.references(a.symbol),
         },
         implementedBy: {
           type: NonNullList(TypeDecl),

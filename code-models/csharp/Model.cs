@@ -134,6 +134,19 @@ public sealed record EnumDecl(
 
 public sealed record ServerInfo(string Name, string Version, string Language, string Root, int FileCount);
 
+/// <summary>
+/// One use of a symbol, and — the part that matters — WHO used it.
+/// </summary>
+/// <remarks>
+/// A bare file and line cannot answer "is this read by the persistence
+/// layer". The referring declaration can, and that is the form a generator's
+/// exceptions are actually written in: a meta-pattern worth stating ("the API
+/// layer holds no business validation") almost always has exceptions worth
+/// stating too ("except fields the audit layer reads"), and an exception
+/// phrased in terms of use sites is a references query.
+/// </remarks>
+public sealed record Reference(Span Span, string FromDeclaration, string FromFile, bool IsWrite);
+
 /// <summary>A diagnostic the model could not resolve past, reported rather
 /// than swallowed: a generator must never run against a half-bound
 /// compilation and believe it saw everything.</summary>

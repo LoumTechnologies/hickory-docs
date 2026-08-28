@@ -89,6 +89,30 @@ have been actively wrong:
 So the core is **the protocol and the rules, not the schema**. Three types,
 about a dozen fields.
 
+## References, and the rule they exist for
+
+Every server answers `references(symbol)`, returning each use with **who
+used it** — a declaration name — and whether the use is a write.
+
+The referrer is the whole point. A generator makes a meta-pattern official,
+and a meta-pattern worth stating has exceptions worth stating:
+
+> The API layer holds no business validation — **except** for fields the
+> persistence layer also writes.
+
+Both halves are checkable, and only the second needs references. Written as a
+rule in the generator, the exception cannot drift from the code the way a
+hand-maintained allow-list beside it would. `isWrite` matters for the same
+reason: "nothing outside the domain may SET this" is a different rule from
+"nothing may read it", and a location alone cannot tell them apart.
+
+A note on cost, because the first version of this file claimed references
+would mean re-implementing an indexer. It does not. Go's `Info.Uses` is
+already an identifier-to-object map; TypeScript's checker answers directly;
+only C# needed an index built by hand, at 2.3 s once and 0.3 ms per query
+after — the right way round for a generator that asks hundreds of times in one
+pass.
+
 ## What is here
 
 | language | server | built on | needs at runtime |

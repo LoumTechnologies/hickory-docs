@@ -137,37 +137,78 @@ already existed and now means what it says.
 
 ## What this does not replace
 
-*Settled 2026-08-28, with three model servers built rather than predicted.*
+*Settled 2026-08-28. Then reopened the same day, because the first settlement
+rested on a claim that was false.*
 
-**SCIP stays.** The prediction was that it would, for the cross-language join.
-That reason holds, and building the servers produced a sharper one that had
-not occurred to anyone:
+### The claim that was wrong
 
-**None of the three grew a references query.** Not C#, not TypeScript, not Go
-— and not because it was hard. Each server holds a real compilation and could
-answer "where else is this used" tomorrow. No generator ever asked. A code
-model is about **what is declared**; an index is about **where it is used**,
-and three implementations later that line has not moved once.
+The first version of this section argued that SCIP stays because **a code
+model is about what is DECLARED and an index is about where it is USED**, and
+offered as evidence that none of the three servers had grown a references
+query. That evidence was circular: none had one because nobody had written
+one, and I concluded from its absence that it did not belong.
 
-The measurements agree. A cold model query is 410 ms for Go on a small
-package and 1.9 s for C# on a four-file project, because binding a compilation
-is the cost and it is paid per spawn. A SCIP index is a file that was already
-computed. Navigation cannot pay two seconds; generation does not care, because
-it happens once per run.
+Nate pointed out what it is for. A generator exists to make a **meta-pattern**
+official — "the API layer holds no business validation", "the domain layer
+holds no formatting" — and a meta-pattern worth stating almost always has
+exceptions worth stating too: *except for fields the persistence layer
+reads*. An exception phrased in terms of use sites **is** a references query.
+Without one, the exceptions become a hand-maintained list beside the rule,
+which is the shape of every bug in this repository's history.
 
-And the coverage is not close: nine maintained SCIP indexers against three
-servers written here, each of which is a standing commitment to somebody
-else's compiler API.
+### It was also much less work than claimed
 
-So the three keep different rules, and now for stated reasons:
+"Re-implementing an indexer" was wrong in all three languages:
+
+* **Go** — `packages.NeedTypesInfo` already fills `Info.Uses`, an
+  identifier-to-object map for every file loaded. The index was computed
+  before anyone asked; grouping it is the implementation.
+* **TypeScript** — `findReferencesAsNodes` is the checker's own answer, so a
+  same-named property on an unrelated object is not a reference and one
+  reached through a re-export is.
+* **C#** — the only one needing real work, and not much. `SymbolFinder` wants
+  a `Solution` and therefore MSBuild, which is too large a dependency; asking
+  the semantic model once per identifier and grouping gives the same map. Two
+  point three seconds to build, **0.3 ms marginal per query** thereafter,
+  which is the right way round for a generator that asks hundreds of times in
+  one pass.
+
+All three now answer `references(symbol)` with the thing that makes it usable:
+**who referred**, as a declaration name, plus whether the use is a write. A
+bare file and line cannot answer "is this written by the API layer"; a
+`fromDeclaration` can.
+
+### So where does that leave SCIP
+
+**Still here, and for a narrower reason than before.** The honest line is not
+declarations-versus-uses — that was an artifact of not having built this. It
+is:
+
+> **A code model is per-language and live. An index is cross-language and
+> precomputed.**
+
+Which means, concretely:
+
+* **For generation, SCIP now adds nothing.** One language, one project, one
+  pass, and the interesting queries join declaration facts to use facts —
+  "properties marked `[NeverExpose]` that the audit layer nonetheless reads" —
+  which is one conversation with a model and an awkward join against an index.
+* **For navigation, SCIP still wins**, on three counts the model cannot
+  answer at any price: a document that weaves C# *and* TypeScript has one
+  reference graph and three servers cannot join it; an index is a file that
+  can be published and read without a compile; and fourteen Silver languages
+  have an indexer available and no model server, nor will they soon.
+
+The one thing that would close it is a model server for every language a
+project uses *plus* something to join across them — at which point the
+question is whether that join is worth maintaining, not whether the two
+overlap.
 
 | | answers | rule |
 |---|---|---|
 | language server | this buffer, right now | the live authority; wins any disagreement |
 | index | where a symbol is used, across languages | *a cache, never a record* |
-| code model | what is declared, in one language's own terms | an **input to generation**, checked by the drift gate |
+| code model | what is declared AND where it is used, in one language's own terms, live | an **input to generation**, checked by the drift gate |
 
-The only thing that would reopen this is a model server that can answer
-references as cheaply as a precomputed file — at which point the question is
-still whether to lose the cross-language join, not whether the two are
-redundant.
+The rules are unchanged; only the middle column of the last row has grown, and
+only the reason for keeping the middle row has moved.
