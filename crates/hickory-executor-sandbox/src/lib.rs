@@ -85,7 +85,7 @@ impl SandboxedExecutor {
         }
         log::info!("sandboxed executor: {}", sandbox.describe());
         Ok(Self {
-            inner: LocalExecutor::new()?,
+            inner: LocalExecutor::new_stable()?,
             sandbox,
             capabilities: Mutex::new(HashMap::new()),
         })

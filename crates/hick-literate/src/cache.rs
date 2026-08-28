@@ -63,8 +63,30 @@ impl CacheMode {
     }
 
     /// Whether executing this cell leaves a recording behind.
+    ///
+    /// **Always.** This is the half of the axis that is not about what a
+    /// missing recording means — it is about whether a cell that really ran
+    /// is remembered, and there is no mode in which forgetting is useful.
+    ///
+    /// It used to be `self != Off`, which made `hick run` — the default,
+    /// with no flag — record nothing. The consequence was not a slower weave
+    /// but a false statement: a later weave found no recording and wrote
+    /// `[never run]` over an artifact a real run had produced, and that
+    /// marker reads as "this has never executed" when what it meant was "I
+    /// have no recording of this". With `run` recording nothing, the two came
+    /// apart constantly. Anyone with the app open on a folder they also use a
+    /// terminal in watched a chart or a generated file turn into four words
+    /// on the next keystroke.
+    ///
+    /// The rule that must not bend is a different one, and it is enforced
+    /// elsewhere: a VERIFIER writes no recording, ever, or a check could
+    /// manufacture the baseline it then compares against. That is
+    /// `PipelineConfig::collect_unverifiable`, set only by `hick test`, and
+    /// checked at both store sites. Weaving never reaches them because it
+    /// never executes. So the only thing this now records is a cell that
+    /// genuinely ran, under a verb that genuinely runs.
     pub fn records(self) -> bool {
-        self != CacheMode::Off
+        true
     }
 }
 

@@ -112,7 +112,9 @@ impl ExecutorChoice {
     /// which means this is `async`.
     pub async fn build(self) -> Result<Arc<dyn Executor>> {
         match self {
-            ExecutorChoice::Local => Ok(Arc::new(LocalExecutor::new()?)),
+            // The derived scratch directory: `hick` is one executor in one
+            // process, which is the case it is safe and useful for.
+            ExecutorChoice::Local => Ok(Arc::new(LocalExecutor::new_stable()?)),
             ExecutorChoice::Sandbox => {
                 Ok(Arc::new(hickory_executor_sandbox::SandboxedExecutor::new()?))
             }
@@ -998,6 +1000,10 @@ pub struct WrittenOutputs {
     /// whose produced bytes came from a cell with no recording. See
     /// [`write_outputs_detailed`].
     pub preserved: Vec<PathBuf>,
+    /// Paths a volume produced that this repository's `.gitignore` would
+    /// ignore, and which were therefore not written, sorted. See
+    /// [`volume_paths_to_skip`].
+    pub ignored: Vec<String>,
 }
 
 /// Write a run's output files under `out_dir` (default: the document's
@@ -1038,12 +1044,16 @@ pub fn write_outputs_detailed(run: &DocRun, out_dir: Option<&Path>) -> Result<Wr
     };
     let missing_recording = run.result.outputs_missing_a_recording();
     let weave_target = run.doc.weave_path.as_deref();
+    let skip = volume_paths_to_skip(run, &base);
     // Before anything reaches disk, and never after: whatever is there right
     // now is what a person would lose.
     record_generated_writes(run, &base, !run.result.transcripts.is_empty());
     let mut written = Vec::new();
     let mut preserved = Vec::new();
     for (rel_path, content) in &run.result.files {
+        if skip.contains(rel_path) {
+            continue;
+        }
         let full = contained_output_path(&base, rel_path)?;
         if missing_recording.contains(rel_path)
             && Some(rel_path.as_str()) != weave_target
@@ -1072,7 +1082,53 @@ pub fn write_outputs_detailed(run: &DocRun, out_dir: Option<&Path>) -> Result<Wr
     }
     written.sort();
     preserved.sort();
-    Ok(WrittenOutputs { written, preserved })
+    let mut ignored: Vec<String> = skip.into_iter().collect();
+    ignored.sort();
+    Ok(WrittenOutputs {
+        written,
+        preserved,
+        ignored,
+    })
+}
+
+/// Paths a VOLUME produced that this repository's `.gitignore` would ignore.
+///
+/// A volume's output is everything a program left in a directory, and for a
+/// compiled language most of that is build output. Flushing it wrote every
+/// `obj/` the build touched back into the repository — one `hick run` of a
+/// .NET project left a few hundred files nobody wanted, and the obvious
+/// declaration to reach for (`input="src" output="src"`) is the one that does
+/// it worst.
+///
+/// `hick ingest` has always filtered the same bytes through the same
+/// `.gitignore`, for the same stated reason: a document that owns the source
+/// must not carry build output. This makes the flush agree with the ingest.
+///
+/// **Only volume output is filtered.** A `hick:file path="target/x"` is a
+/// document saying precisely which file to write, and an author who names an
+/// ignored path meant it. A volume names a directory and inherits whatever
+/// was in it, which is a different kind of statement.
+///
+/// A directory that is not a git repository filters nothing, exactly as the
+/// ingest does there.
+fn volume_paths_to_skip(run: &DocRun, base: &Path) -> std::collections::HashSet<String> {
+    let mut from_volumes: Vec<String> = run
+        .result
+        .volume_outputs
+        .values()
+        .flat_map(|files| files.keys().cloned())
+        .collect();
+    if from_volumes.is_empty() {
+        return std::collections::HashSet::new();
+    }
+    from_volumes.sort();
+    from_volumes.dedup();
+    match crate::ingest_exec::gitignored(base, &from_volumes) {
+        Ok(Some(ignored)) => ignored.into_iter().collect(),
+        // Not a repository, or no git: nothing is filtered, which is what
+        // happened before this existed.
+        Ok(None) | Err(_) => std::collections::HashSet::new(),
+    }
 }
 
 /// Leave a local-history stop before generated files are overwritten.

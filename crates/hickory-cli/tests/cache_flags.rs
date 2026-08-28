@@ -75,15 +75,64 @@ fn recordings(project_dir: &Path) -> Vec<PathBuf> {
 }
 
 #[test]
-fn run_without_the_flag_records_nothing() {
-    // The default has to stay "ask the world, remember nothing": a run that
-    // recorded by accident would hand `check` a baseline nobody asked for.
+fn a_flagless_run_records_what_it_ran() {
+    // This asserted the opposite until the consequence turned up in use: a
+    // flagless run recorded nothing, so the NEXT weave had nothing to replay
+    // and wrote `[never run]` over the artifact the run had just produced.
+    // The marker reads as "this has never executed" and meant "I have no
+    // recording", and with `run` recording nothing the two came apart on
+    // every keystroke in the app.
+    //
+    // The fear the old test was written against — that a run would hand
+    // `check` a baseline nobody asked for — is answered by a different
+    // method. Recording and CONSULTING are separate: see the test below,
+    // which shows a flagless check executing for real with a recording
+    // sitting right there.
     let dir = tempfile::tempdir().unwrap();
     let doc = write_doc(dir.path(), None);
     assert!(hick().arg("run").arg(&doc).status().unwrap().success());
+    assert_eq!(
+        recordings(dir.path()).len(),
+        1,
+        "a cell that really ran should be remembered, so a later weave can replay it"
+    );
+}
+
+#[test]
+fn a_flagless_check_is_never_answered_from_a_recording() {
+    // The invariant the recording change must not break. `hick run` leaves a
+    // recording; `hick test` without `--cache` must still EXECUTE, or a
+    // verifier would be checking a document against its own memory.
+    //
+    // Proven with a cell whose output cannot repeat: if the check replayed
+    // the recording it would pass, and it must not.
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("live.hick");
+    std::fs::write(
+        &path,
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="live.md">
+# Live
+
+<hick:container name="c" image="alpine:3.20" />
+
+<hick:file path="v.txt"><hick:exec container="c">
+<hick:copy id="c1">head -c 8 /dev/urandom | od -An -tx1 | tr -d ' 
+'</hick:copy>
+</hick:exec></hick:file>
+</hick:doc>
+"#,
+    )
+    .unwrap();
+
+    assert!(hick().arg("run").arg(&path).status().unwrap().success());
+    assert_eq!(recordings(dir.path()).len(), 1, "the run recorded");
+
+    let out = hick().arg("test").arg(&path).output().unwrap();
     assert!(
-        recordings(dir.path()).is_empty(),
-        "plain `hick run` must not write a recording"
+        !out.status.success(),
+        "test must re-execute and see the value change, not replay the recording: {}",
+        String::from_utf8_lossy(&out.stderr)
     );
 }
 
@@ -134,9 +183,11 @@ fn a_frozen_cell_gets_its_baseline_entirely_through_the_cli() {
 }
 
 #[test]
-fn a_frozen_cell_is_the_only_thing_a_flagless_run_records() {
-    // The default stays "ask the world, remember nothing" for every cell that
-    // did not ask to be remembered. Only the frozen cell is recorded.
+fn a_flagless_run_records_every_cell_it_ran() {
+    // Both cells, not just the frozen one. `freeze="true"` decides whether a
+    // recording is the ANSWER next time, which is a different question from
+    // whether a cell that ran is remembered at all — and the second has no
+    // useful "no".
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("mixed.hick");
     let command = command();
@@ -163,8 +214,8 @@ fn a_frozen_cell_is_the_only_thing_a_flagless_run_records() {
     assert!(hick().arg("run").arg(&path).status().unwrap().success());
     assert_eq!(
         recordings(dir.path()).len(),
-        1,
-        "only the cell that declared freeze=\"true\" asked to be recorded"
+        2,
+        "both cells ran, so both are replayable by a later weave"
     );
 }
 

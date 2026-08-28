@@ -729,7 +729,9 @@ find /tmp -name "analysis.hick" 2>/dev/null | head -5
 </hick:action>
 </hick:assistant>
 <hick:observation source="action-7" exit="0"></hick:observation>
-<hick:assistant>[unfinished — stopped after 30 turns]
+<hick:assistant>
+<hick:input>
+[unfinished — stopped after 30 turns]
 
 I successfully structured the analysis document but did not complete verification because the CSV data file exists in my temporary workspace, not in the document's directory where the container can access it.
 
@@ -759,6 +761,8 @@ The CSV file `data/checkout-latency.csv` needs to exist in the document's direct
 
 ## Exact next step:
 
-Find the document's actual filesystem location and copy the CSV data there, or instruct you where to place the file so verify can succeed. The command would be: locate the document directory and `cp` my workspace's `data/checkout-latency.csv` to `<document-dir>/data/checkout-latency.csv`.</hick:assistant>
+Find the document's actual filesystem location and copy the CSV data there, or instruct you where to place the file so verify can succeed. The command would be: locate the document directory and `cp` my workspace's `data/checkout-latency.csv` to `<document-dir>/data/checkout-latency.csv`.
+</hick:input>
+</hick:assistant>
 <hick:usage scope="session" input="296241" cache-write="0" cache-read="0" output="6898"/>
 </hick:session>

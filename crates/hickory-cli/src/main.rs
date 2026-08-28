@@ -1297,6 +1297,19 @@ fn print_run_summary(run: &DocRun, outputs: &hickory_cli::WrittenOutputs) {
             path.display()
         );
     }
+    if !outputs.ignored.is_empty() {
+        eprintln!(
+            "  {} file(s) a volume produced were not written — this project's .gitignore \
+             would ignore them, and a run must not fill the repository with build output:",
+            outputs.ignored.len()
+        );
+        for path in outputs.ignored.iter().take(5) {
+            eprintln!("    {path}");
+        }
+        if outputs.ignored.len() > 5 {
+            eprintln!("    … ({} more)", outputs.ignored.len() - 5);
+        }
+    }
     warn_about_secrets_in_output(run);
     for outcome in &run.result.expectations {
         if !outcome.passed {

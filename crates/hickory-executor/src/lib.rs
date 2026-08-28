@@ -526,24 +526,140 @@ enum Launch<'a> {
     Argv(&'a str, &'a [String]),
 }
 
+/// Where a run's container workdirs live.
+///
+/// Stable when this run could claim the name for its project, ephemeral when
+/// it could not. See [`LocalExecutor::new`] for why the stable one matters.
+enum ScratchRoot {
+    /// A path derived from the project, held under a lock file and removed
+    /// when the run ends.
+    Stable { path: PathBuf, lock: PathBuf },
+    /// A fresh random directory, removed on drop by `tempfile`.
+    Ephemeral(tempfile::TempDir),
+}
+
+impl ScratchRoot {
+    fn path(&self) -> &Path {
+        match self {
+            ScratchRoot::Stable { path, .. } => path,
+            ScratchRoot::Ephemeral(dir) => dir.path(),
+        }
+    }
+}
+
+impl Drop for ScratchRoot {
+    fn drop(&mut self) {
+        if let ScratchRoot::Stable { path, lock } = self {
+            let _ = std::fs::remove_dir_all(path);
+            let _ = std::fs::remove_file(lock);
+        }
+    }
+}
+
 pub struct LocalExecutor {
-    /// Root temp dir holding one workdir per container; cleaned on drop.
-    root: tempfile::TempDir,
+    /// Root dir holding one workdir per container; cleaned on drop.
+    root: ScratchRoot,
     state: Mutex<LocalState>,
 }
 
 impl LocalExecutor {
-    /// Create an executor whose container workdirs live under a fresh
-    /// temporary directory (removed when the executor is dropped).
+    /// Create an executor whose container workdirs live under a scratch
+    /// directory, removed when the executor is dropped.
+    ///
+    /// **The name is derived, not random**, and that is the point. A cell's
+    /// workdir path appears in its own output whenever the program it runs
+    /// prints a path — `dotnet restore` names the project file it restored,
+    /// compilers name their inputs, half of everything names its cwd on
+    /// error. With a random name, that output differed on every run, so
+    /// `hick test` reported drift forever on a document that had not changed.
+    /// A product whose claim is that a document reproduces its outputs byte
+    /// for byte cannot have its own temp directory be the thing that stops it.
+    ///
+    /// Derived from the working directory, which is the project for a CLI run
+    /// and stable per-process for the app, so two runs of the same document
+    /// in the same place agree.
+    ///
+    /// **Two runs at once do not share it.** A lock file names the process
+    /// holding the directory; a second run that finds a live holder takes a
+    /// random directory instead and says so. That run is not reproducible,
+    /// which is the honest outcome — but it cannot quietly write into another
+    /// run's workdirs, which would be worse than either.
     pub fn new() -> Result<Self> {
-        let root = tempfile::Builder::new()
-            .prefix("hickory-local-")
-            .tempdir()
-            .context("failed to create LocalExecutor temp root")?;
         Ok(Self {
-            root,
+            root: ScratchRoot::Ephemeral(
+                tempfile::Builder::new()
+                    .prefix("hickory-local-")
+                    .tempdir()
+                    .context("failed to create LocalExecutor temp root")?,
+            ),
             state: Mutex::new(LocalState::default()),
         })
+    }
+
+    /// Like [`new`](Self::new), but with the derived scratch directory
+    /// described above.
+    ///
+    /// Opt-in rather than the default because the stable name is shared by
+    /// everything running from one working directory, and only one holder can
+    /// have it at a time. That is exactly right for `hick`, which builds one
+    /// executor per process — and wrong for a test binary or an embedder that
+    /// builds several at once, where each wants its own scratch and none
+    /// wants a path a sibling might remove.
+    pub fn new_stable() -> Result<Self> {
+        Ok(Self {
+            root: Self::scratch_root()?,
+            state: Mutex::new(LocalState::default()),
+        })
+    }
+
+    fn scratch_root() -> Result<ScratchRoot> {
+        let ephemeral = || -> Result<ScratchRoot> {
+            Ok(ScratchRoot::Ephemeral(
+                tempfile::Builder::new()
+                    .prefix("hickory-local-")
+                    .tempdir()
+                    .context("failed to create LocalExecutor temp root")?,
+            ))
+        };
+        let Ok(cwd) = std::env::current_dir() else {
+            return ephemeral();
+        };
+        let path = std::env::temp_dir().join(format!("hickory-local-{}", short_key(&cwd)));
+        let lock = path.with_extension("lock");
+
+        // Take the lock, or take over one whose process is gone: a run killed
+        // with SIGKILL never removes its own, and a scratch directory nobody
+        // can ever use again would be a worse bug than the one this fixes.
+        match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&lock)
+        {
+            Ok(mut file) => {
+                use std::io::Write as _;
+                let _ = writeln!(file, "{}", std::process::id());
+            }
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                if holder_is_alive(&lock) {
+                    log::info!(
+                        "another run holds {}; this one uses a temporary directory instead, \
+                         so paths in its output will not match a previous run's",
+                        path.display()
+                    );
+                    return ephemeral();
+                }
+                let _ = std::fs::write(&lock, format!("{}\n", std::process::id()));
+            }
+            Err(_) => return ephemeral(),
+        }
+
+        // A previous run's leftovers must not be visible to this one.
+        let _ = std::fs::remove_dir_all(&path);
+        if std::fs::create_dir_all(&path).is_err() {
+            let _ = std::fs::remove_file(&lock);
+            return ephemeral();
+        }
+        Ok(ScratchRoot::Stable { path, lock })
     }
 
     /// The capabilities declared for a container, if any were.
@@ -1358,6 +1474,49 @@ fn sanitize_name(name: &str) -> String {
             }
         })
         .collect()
+}
+
+/// A short, stable key for a path: FNV-1a/64 folded to 12 hex characters.
+///
+/// Not a cryptographic hash and does not need to be — this names a temp
+/// directory, and the only property required is that the same project gets
+/// the same name on every run of the same machine.
+fn short_key(path: &Path) -> String {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for byte in path.as_os_str().as_encoded_bytes() {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x100_0000_01b3);
+    }
+    // Masked to 48 bits so the result is EXACTLY 12 hex characters. `{:012x}`
+    // pads a short value but does not truncate a long one, and a caller that
+    // recognises our directories by their shape needs a fixed width.
+    format!("{:012x}", hash & 0xffff_ffff_ffff)
+}
+
+/// Whether the process named in a lock file still exists.
+///
+/// Unix only in the strict sense; elsewhere the lock is treated as live,
+/// which costs a run its stable path and never costs it correctness.
+fn holder_is_alive(lock: &Path) -> bool {
+    let Ok(body) = std::fs::read_to_string(lock) else {
+        return false;
+    };
+    let Ok(pid) = body.trim().parse::<u32>() else {
+        return false;
+    };
+    if pid == std::process::id() {
+        return true;
+    }
+    #[cfg(unix)]
+    {
+        Path::new(&format!("/proc/{pid}")).exists()
+            || unsafe { libc::kill(pid as i32, 0) } == 0
+            || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM)
+    }
+    #[cfg(not(unix))]
+    {
+        true
+    }
 }
 
 #[cfg(test)]

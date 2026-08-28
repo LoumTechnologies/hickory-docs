@@ -50,7 +50,6 @@ Fork inherited builder state
 ### `docs/hick-guide.md`
 
 ```markdown
-
 # The Hick Language
 
 Hick is a document format for describing secure, containerised workflows.
@@ -202,6 +201,39 @@ echo "data" &gt; /output/result.txt
 cat /input/result.txt
 </hick:exec>
 ```
+
+A volume also connects a cell to the **working tree**, and this is the
+attribute most people need and do not find:
+
+| attribute | what it does |
+|---|---|
+| `input="dir"` | the volume starts as a copy of `dir` from your project |
+| `output="dir"` | what the volume holds at the end is written back to `dir` |
+| both | read the tree in, write the tree out |
+| neither | scratch space, thrown away when the run ends |
+
+**Without `input=`, a cell sees nothing of your project.** A cell's workdir
+is an empty scratch directory — not the folder the document is in, and not
+the files the document itself writes. That is the right default (a document
+you were sent should not read your repository just by running), but it is
+also the first thing that surprises anyone writing a **code generator**, which
+is a cell whose whole job is to read your source:
+
+```xml
+<hick:volume name="domain" input="src/Domain" />
+<hick:volume name="generated" output="src/Api/Generated" />
+
+<hick:exec container="sdk" mount="domain:Domain,generated:out">
+<hick:copy id="generate">
+dotnet run --project tools/ApiGen -- Domain out
+</hick:copy>
+</hick:exec>
+```
+
+Keep each volume as narrow as the job. `input="src" output="src"` round-trips
+the entire tree, which for a compiled language means the build's `obj/` comes
+back with it. Gitignored files are not written back, but a volume scoped to
+what the cell actually reads and writes is clearer than relying on that.
 
 ---
 

@@ -276,6 +276,36 @@ pub fn wrap(
                             }
                         }
                     }
+                    // A home of the cell's own, kept between runs.
+                    //
+                    // The tmpfs above is what hides your dotfiles, and it is
+                    // not changed. What IS changed is that the cell no longer
+                    // gets a home that is empty *every single time*: a
+                    // toolchain writes its first-run state into $HOME, so a
+                    // home that is new on every run means the first run never
+                    // ends. `dotnet` printed its welcome banner and offered to
+                    // install a development certificate on every run, into the
+                    // output the document then checks — drift that never
+                    // settles, from a program behaving correctly.
+                    //
+                    // This is the same move `Profile::Installer` already makes
+                    // one arm below, and the same one `hick lsp install
+                    // csharp` makes with `DOTNET_CLI_HOME`. The alternative
+                    // was a list of per-tool "be quiet" variables, which is
+                    // re-implementing other programs' rules and drifts the
+                    // moment one of them changes.
+                    //
+                    // It sits beside the run's scratch directory rather than
+                    // inside it, because the scratch is removed when the run
+                    // ends and the whole point is that this is not.
+                    if let Some(cell_home) = persistent_cell_home(workdir) {
+                        args.push("--bind".into());
+                        args.push(cell_home.clone());
+                        args.push(cell_home.clone());
+                        args.push("--setenv".into());
+                        args.push("HOME".into());
+                        args.push(cell_home);
+                    }
                 }
                 // The installer keeps the real home VISIBLE — read-only,
                 // like everything outside the prefix — because that is where
@@ -337,6 +367,29 @@ pub fn wrap(
 ///
 /// `~/.cargo/bin` rather than `~/.cargo`: the credentials file for
 /// `cargo publish` lives one level up from the binaries.
+/// A writable home for cells of this project, surviving the run.
+///
+/// Derived from the scratch root's name, which `LocalExecutor` makes stable
+/// per project — so this is stable per project too, and two projects never
+/// share one. `None` when the workdir is not one of ours (a concurrent run
+/// takes a random scratch directory), in which case the cell gets the empty
+/// tmpfs home it always had.
+fn persistent_cell_home(workdir: &Path) -> Option<String> {
+    let key = workdir
+        .parent()?
+        .file_name()?
+        .to_str()?
+        .strip_prefix("hickory-local-")?;
+    // A random tempdir's suffix is not a project key, and reusing one as a
+    // home would give unrelated runs a shared directory by accident.
+    if key.len() != 12 || !key.chars().all(|c| c.is_ascii_hexdigit()) {
+        return None;
+    }
+    let home = std::env::temp_dir().join(format!("hickory-home-{key}"));
+    std::fs::create_dir_all(&home).ok()?;
+    Some(home.to_string_lossy().to_string())
+}
+
 const HOME_TOOL_DIRS: &[&str] = &[
     // Binaries people install for themselves.
     ".local/bin",

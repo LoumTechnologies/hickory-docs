@@ -946,7 +946,9 @@ f011|
 9343|import csv
 543b|from datetime import datetime
 </hick:tool-result>
-<hick:assistant>[unfinished — stopped after 30 turns]
+<hick:assistant>
+<hick:input>
+[unfinished — stopped after 30 turns]
 
 I successfully built most of the analysis document:
 
@@ -966,6 +968,8 @@ I successfully built most of the analysis document:
 The document fails verification because the `<hick:exec>` block needs the correct attribute to run Python. I added `cmd="python"` in the final edit but haven't verified it yet.
 
 **Exact next step:**
-Run `<hick:tool name="verify">` to execute the document. If it still fails, the exec syntax may need `cmd="python3"` instead of `cmd="python"`, or the python:3.12 container may require a different invocation pattern (possibly just removing the cmd attribute and letting the container default work).</hick:assistant>
+Run `<hick:tool name="verify">` to execute the document. If it still fails, the exec syntax may need `cmd="python3"` instead of `cmd="python"`, or the python:3.12 container may require a different invocation pattern (possibly just removing the cmd attribute and letting the container default work).
+</hick:input>
+</hick:assistant>
 <hick:usage scope="session" input="380784" cache-write="0" cache-read="0" output="11004"/>
 </hick:session>
