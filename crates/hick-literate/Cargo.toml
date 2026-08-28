@@ -10,6 +10,7 @@ name = "hick_literate"
 path = "src/lib.rs"
 
 [dependencies]
+ignore = "0.4"
 hickory-executor = { path = "../hickory-executor" }
 hick-case = { path = "../hick-case" }
 hick-condition = { path = "../hick-condition" }

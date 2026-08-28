@@ -33,12 +33,51 @@ impl VolumeStore {
         }
     }
 
-    /// Seed a volume from a host directory by creating a tar archive of its contents.
+    /// Seed a volume from a host directory by creating a tar archive of its
+    /// contents — **what the repository would carry**, not everything on
+    /// disk.
+    ///
+    /// The project's own `.gitignore` is the filter, the same one `hick
+    /// ingest` uses, for a reason that is about recordings rather than
+    /// tidiness: a cell's cache key covers the digest of what is mounted, so
+    /// anything in this directory that churns makes every recording of that
+    /// cell useless. Build output churns by definition. Mounting
+    /// `src/Warehouse.Web` after a `dotnet build` swept an entire `obj/` into
+    /// the key; running a Python generator once left a `__pycache__` beside
+    /// its script and the next weave could not find the recording of the run
+    /// that had just happened, so it wrote `[never run]` over it.
+    ///
+    /// Hidden files are kept — `.editorconfig` and `.dockerignore` are
+    /// inputs a build reads — and a directory with no repository around it
+    /// keeps everything, since there is then nothing that says otherwise.
     pub fn seed_from_directory(&mut self, name: &str, dir: &Path) -> Result<()> {
         let mut builder = tar::Builder::new(Vec::new());
-        builder
-            .append_dir_all(".", dir)
-            .with_context(|| format!("failed to tar directory: {}", dir.display()))?;
+        let walker = ignore::WalkBuilder::new(dir)
+            .hidden(false)
+            .git_ignore(true)
+            .git_global(false)
+            .git_exclude(true)
+            .require_git(false)
+            .parents(true)
+            .build();
+        for entry in walker.flatten() {
+            let Ok(rel) = entry.path().strip_prefix(dir) else {
+                continue;
+            };
+            if rel.as_os_str().is_empty() {
+                continue;
+            }
+            let file_type = entry.file_type();
+            if file_type.is_some_and(|t| t.is_dir()) {
+                builder
+                    .append_dir(rel, entry.path())
+                    .with_context(|| format!("failed to tar {}", entry.path().display()))?;
+            } else if file_type.is_some_and(|t| t.is_file()) {
+                builder
+                    .append_path_with_name(entry.path(), rel)
+                    .with_context(|| format!("failed to tar {}", entry.path().display()))?;
+            }
+        }
         let data = builder
             .into_inner()
             .context("failed to finalize tar archive")?;
@@ -404,6 +443,36 @@ mod tests {
         let unpacked = store.unpack_to_files("dir-vol").unwrap();
         assert_eq!(unpacked.get("file.txt").unwrap(), "content");
         assert_eq!(unpacked.get("sub/nested.txt").unwrap(), "nested content");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn what_the_repository_ignores_never_reaches_the_volume() {
+        // A cell's cache key covers the digest of what is mounted, so build
+        // output in an input directory makes every recording of that cell
+        // useless — the next weave cannot find the run that just happened and
+        // writes `[never run]` over its output.
+        let dir = std::env::temp_dir().join("hick-vol-test-ignored");
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("__pycache__")).unwrap();
+        std::fs::write(dir.join(".gitignore"), "__pycache__\nobj/\n").unwrap();
+        std::fs::write(dir.join("gen.py"), "print(1)").unwrap();
+        std::fs::write(dir.join("__pycache__/gen.pyc"), "junk").unwrap();
+        std::fs::write(dir.join(".editorconfig"), "root = true").unwrap();
+
+        let mut store = VolumeStore::new();
+        store.seed_from_directory("v", &dir).unwrap();
+        let unpacked = store.unpack_to_files("v").unwrap();
+
+        assert!(unpacked.contains_key("gen.py"));
+        // Hidden is not ignored: a build reads these.
+        assert!(unpacked.contains_key(".editorconfig"));
+        assert!(
+            !unpacked.contains_key("__pycache__/gen.pyc"),
+            "build output reached the volume: {:?}",
+            unpacked.keys().collect::<Vec<_>>()
+        );
 
         let _ = std::fs::remove_dir_all(&dir);
     }

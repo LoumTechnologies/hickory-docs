@@ -42,6 +42,26 @@ impl Target {
         "python, typescript, go, csharp"
     }
 
+    /// The client RUNTIME for this target: the plumbing every generator
+    /// written against a model server was re-implementing — spawn the
+    /// process, frame the JSON, notice that GraphQL reports failure inside a
+    /// successful-looking body.
+    ///
+    /// Embedded rather than fetched, and embedded rather than copied into
+    /// each project by hand: a vendored copy of a library that ships with the
+    /// tool is a hundred lines of a document nobody reads, and it drifts.
+    /// `None` for a target whose runtime does not exist yet — the emitted
+    /// types stand alone, they just have nothing to send themselves with.
+    pub fn runtime(self) -> Option<(&'static str, &'static str)> {
+        match self {
+            Target::Python => Some((
+                "hick_model.py",
+                include_str!("../../../../code-models/clients/python/hick_model.py"),
+            )),
+            Target::TypeScript | Target::Go | Target::CSharp => None,
+        }
+    }
+
     pub fn extension(self) -> &'static str {
         match self {
             Target::Python => "py",

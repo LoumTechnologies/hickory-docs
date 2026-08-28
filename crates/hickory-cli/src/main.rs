@@ -1042,6 +1042,11 @@ struct CodeModelArgs {
     /// Where to write it (default: stdout).
     #[arg(long = "out", short)]
     out: Option<PathBuf>,
+    /// Write the client RUNTIME for `--target` instead of a client: the
+    /// plumbing that talks to a model server, which every generator would
+    /// otherwise vendor a copy of.
+    #[arg(long)]
+    runtime: bool,
     /// Print the schema as SDL rather than as a summary.
     ///
     /// This is the form every ecosystem's GraphQL codegen reads — `genqlient`,
@@ -3708,20 +3713,71 @@ fn cmd_lsp(command: LspCommand) -> Result<ExitCode> {
 /// `hick code-model <language> [source] --query …`
 fn cmd_code_model(args: CodeModelArgs) -> Result<ExitCode> {
     use hickory_cli::code_model::{INTROSPECT, ModelServer};
+    use hickory_cli::typed_client::emit;
+
+    let parse_target = |name: &str| -> Result<emit::Target> {
+        emit::Target::parse(name).ok_or_else(|| {
+            anyhow::anyhow!(
+                "`{name}` is not a language this can generate a client in.\n  Available: {}",
+                emit::Target::names()
+            )
+        })
+    };
+
+    // The runtime needs no model server: it is the same bytes whatever
+    // language is being modelled, which is the point of it.
+    if args.runtime {
+        let target = parse_target(&args.target)?;
+        let Some((name, source)) = target.runtime() else {
+            anyhow::bail!(
+                "there is no client runtime for {} yet.\n  \
+                 `--client` still emits types for it; sending them is your \
+                 ecosystem's GraphQL client's job.\n  \
+                 Runtimes ship for: python",
+                args.target
+            );
+        };
+        match args.out.as_deref() {
+            // A directory is the common case in a document — the cell has an
+            // output volume and wants the library's own name inside it, which
+            // is what the emitted client imports.
+            Some(dir) if dir.is_dir() => {
+                let path = dir.join(name);
+                std::fs::write(&path, source)
+                    .with_context(|| format!("could not write {}", path.display()))?;
+                // Stdout, not stderr: writing to a file leaves stdout free,
+                // and a document that pins what its generator produced needs
+                // this line in the transcript.
+                println!(
+                    "wrote {} — the {} client runtime",
+                    path.display(),
+                    args.target
+                );
+            }
+            Some(path) => {
+                std::fs::write(path, source)
+                    .with_context(|| format!("could not write {}", path.display()))?;
+                // Stdout, not stderr: writing to a file leaves stdout free,
+                // and a document that pins what its generator produced needs
+                // this line in the transcript.
+                println!(
+                    "wrote {} — the {} client runtime",
+                    path.display(),
+                    args.target
+                );
+            }
+            None => print!("{source}"),
+        }
+        return Ok(ExitCode::SUCCESS);
+    }
 
     let root = std::env::current_dir()?;
     let mut server = ModelServer::start(&args.language, &args.source, &root)?;
 
     if let Some(queries) = args.client.as_deref() {
-        use hickory_cli::typed_client::{Schema, emit, resolve};
+        use hickory_cli::typed_client::{Schema, resolve};
 
-        let Some(target) = emit::Target::parse(&args.target) else {
-            anyhow::bail!(
-                "`{}` is not a language this can generate a client in.\n  Available: {}",
-                args.target,
-                emit::Target::names()
-            );
-        };
+        let target = parse_target(&args.target)?;
         let document = std::fs::read_to_string(queries)
             .with_context(|| format!("could not read {}", queries.display()))?;
         let schema = Schema::from_introspection(&server.query(INTROSPECT, None)?)?;
@@ -3731,7 +3787,7 @@ fn cmd_code_model(args: CodeModelArgs) -> Result<ExitCode> {
             Some(path) => {
                 std::fs::write(path, &source)
                     .with_context(|| format!("could not write {}", path.display()))?;
-                eprintln!(
+                println!(
                     "wrote {} — {} operation(s), typed against the {} model",
                     path.display(),
                     operations.len(),
