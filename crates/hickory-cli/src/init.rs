@@ -504,6 +504,7 @@ const REPORTED_LANGUAGES: &[(&str, &str)] = &[
     ("rust", "Rust"),
     ("python", "Python"),
     ("typescript", "TypeScript/JavaScript"),
+    ("csharp", "C#"),
     ("go", "Go"),
     ("json", "JSON"),
     ("yaml", "YAML"),
@@ -809,6 +810,30 @@ mod tests {
             content,
             std::fs::read_to_string(repo.path().join("AGENTS.md")).unwrap()
         );
+    }
+
+    /// Every language `hick lsp install` can fetch must appear in the report
+    /// `hick init` prints.
+    ///
+    /// This table drifted once already, in exactly the way
+    /// `hick_lsp::lang_detect` did: C# support landed — catalogue, installer,
+    /// discovery candidates, a DAP adapter and a real debug session — and this
+    /// hand-maintained parallel list never gained the row, so `hick init` in a
+    /// C# project reported on Go and YAML and stayed silent about the one
+    /// language that project is written in. Deriving the assertion from the
+    /// catalogue is what stops the next language landing the same way.
+    #[test]
+    fn every_installable_language_server_is_reported_by_init() {
+        for installer in crate::lsp_install::CATALOGUE.installers {
+            assert!(
+                super::REPORTED_LANGUAGES
+                    .iter()
+                    .any(|(language, _)| *language == installer.language),
+                "`hick lsp install {}` can fetch a server, but `hick init` never \
+                 mentions the language — add it to REPORTED_LANGUAGES",
+                installer.language
+            );
+        }
     }
 
     #[test]
