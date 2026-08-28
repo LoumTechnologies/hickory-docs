@@ -161,14 +161,16 @@ pub fn support(language: &'static str, root: &Path) -> LanguageSupport {
                 || indexed_by_the_ecosystem(language),
         )
     };
-    // Nothing serves a code model yet. Reported as Missing rather than
-    // omitted, because a blank column is how a reader learns the rung exists
-    // and that no language has reached it — see the plan in
-    // `docs/specs/freeform/language-tiers.md`.
+    // The blank column is how a reader learns the rung is there and that
+    // nothing has reached it — see `docs/specs/freeform/language-tiers.md`.
+    //
+    // `Installable` is deliberately not offered: no catalogue can fetch a
+    // model server yet, so a language without one is Missing rather than a
+    // promise nobody can keep.
     let model = if data {
         Have::NotApplicable
     } else {
-        Have::Missing
+        capability(crate::code_model::discover(language, root).is_some(), false)
     };
 
     let tier = if data {
@@ -347,7 +349,7 @@ mod tests {
             assert_ne!(
                 support.tier,
                 Tier::Gold,
-                "{} claims Gold with no code model built",
+                "{} claims Gold with no code model server present",
                 support.language
             );
             if support.tier == Tier::Silver {

@@ -42,3 +42,7 @@ experiments/*/*/target/
 # Release archives staged for a VM run. Built by CI (or by hand) and copied to
 # the paths vmkit.conf names; never a source file.
 vmtest/.artifacts/
+
+# .NET build output (code-models/)
+**/obj/
+**/bin/

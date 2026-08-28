@@ -236,6 +236,13 @@ enum Command {
     /// browser pointed there is looking at that machine.
     #[command(subcommand)]
     Fleet(FleetCommand),
+    /// Ask a language's code model about your source — the read side of a
+    /// CodeIO-style API, served as GraphQL.
+    ///
+    /// This is what a generator queries instead of parsing your code. Read
+    /// only: a script emits text and the document owns the bytes.
+    #[command(name = "code-model")]
+    CodeModel(CodeModelArgs),
     /// What Hickory knows about each language: Bronze, Silver or Gold, and
     /// the one thing that would raise it.
     ///
@@ -1012,6 +1019,19 @@ struct MergeDriverArgs {
 }
 
 #[derive(clap::Args)]
+struct CodeModelArgs {
+    /// The language, e.g. `csharp`.
+    language: String,
+    /// The source root to model.
+    #[arg(default_value = ".")]
+    source: PathBuf,
+    /// The GraphQL query. Omit to print the schema instead, which is how a
+    /// person — or a model writing a generator — finds out what to ask.
+    #[arg(long)]
+    query: Option<String>,
+}
+
+#[derive(clap::Args)]
 struct MergeGeneratedArgs {
     /// %P — the path in the work tree, for the message.
     #[arg(long, default_value = "(unknown path)")]
@@ -1210,6 +1230,7 @@ fn run() -> ExitCode {
             Command::Broker(cmd) => cmd_broker(cmd).await,
             Command::Sealed(args) => cmd_sealed(args),
             Command::Fleet(cmd) => cmd_fleet(cmd).await,
+            Command::CodeModel(args) => cmd_code_model(args),
             Command::Lang => cmd_lang(),
             Command::Lsp(cmd) => cmd_lsp(cmd),
             Command::Formula(cmd) => cmd_formula(cmd),
@@ -3660,6 +3681,61 @@ fn cmd_lsp(command: LspCommand) -> Result<ExitCode> {
             );
             Ok(ExitCode::SUCCESS)
         }
+    }
+}
+
+/// `hick code-model <language> [source] --query …`
+fn cmd_code_model(args: CodeModelArgs) -> Result<ExitCode> {
+    use hickory_cli::code_model::{INTROSPECT, ModelServer};
+
+    let root = std::env::current_dir()?;
+    let mut server = ModelServer::start(&args.language, &args.source, &root)?;
+
+    let Some(query) = args.query.as_deref() else {
+        // No query: print what CAN be asked. Introspection is the whole
+        // discoverability story — a generator's author should never have to
+        // guess at fields.
+        let schema = server.query(INTROSPECT, None)?;
+        print_schema(&schema);
+        return Ok(ExitCode::SUCCESS);
+    };
+
+    let answer = server.query(query, None)?;
+    println!("{}", serde_json::to_string_pretty(&answer)?);
+    Ok(ExitCode::SUCCESS)
+}
+
+/// The schema, as something a person reads rather than a JSON dump.
+fn print_schema(schema: &serde_json::Value) {
+    let Some(types) = schema
+        .pointer("/data/__schema/types")
+        .and_then(|t| t.as_array())
+    else {
+        println!("{schema}");
+        return;
+    };
+    for entry in types {
+        let name = entry["name"].as_str().unwrap_or("");
+        // Introspection returns GraphQL's own machinery too; a person asking
+        // what they can query does not want `__Directive`.
+        if name.starts_with("__") || entry["kind"] == "SCALAR" {
+            continue;
+        }
+        let kind = entry["kind"].as_str().unwrap_or("");
+        println!("{kind} {name}");
+        if let Some(possible) = entry["possibleTypes"].as_array()
+            && !possible.is_empty()
+        {
+            let names: Vec<&str> = possible.iter().filter_map(|p| p["name"].as_str()).collect();
+            println!("    one of: {}", names.join(" | "));
+        }
+        if let Some(fields) = entry["fields"].as_array() {
+            for field in fields {
+                let ty = hickory_cli::code_model::type_name(&field["type"]);
+                println!("    {:<24} {ty}", field["name"].as_str().unwrap_or(""));
+            }
+        }
+        println!();
     }
 }
 

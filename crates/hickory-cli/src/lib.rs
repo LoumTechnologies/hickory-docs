@@ -10,6 +10,7 @@ pub mod agent_lineage;
 pub mod anchor;
 pub mod carry;
 pub mod claude_code;
+pub mod code_model;
 pub mod continuity;
 pub mod dap_install;
 pub mod debug_sessions;
