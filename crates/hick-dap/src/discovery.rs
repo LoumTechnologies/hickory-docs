@@ -177,7 +177,14 @@ pub fn known_languages() -> Vec<&'static str> {
     [
         "python",
         "typescript",
+        // The React flavours, which `candidates` has always served through
+        // the Node adapter and this list omitted — so a `.tsx` file was
+        // reported as undebuggable while the adapter that debugs it was
+        // installed. Same drift as `lang_detect`'s missing `cs`, on the other
+        // side of the same feature.
+        "typescriptreact",
         "javascript",
+        "javascriptreact",
         "go",
         "rust",
         "c",
@@ -400,6 +407,24 @@ fn ancestors_to_repo_root(root: &Path) -> Vec<PathBuf> {
 
 #[cfg(test)]
 mod tests {
+
+    /// Everything advertised as debuggable must have an adapter to try.
+    #[test]
+    fn known_languages_and_candidates_agree() {
+        for language in known_languages() {
+            assert!(
+                !candidates(language).is_empty(),
+                "`{language}` is advertised as debuggable and has no adapter candidate"
+            );
+        }
+        for language in ["typescriptreact", "javascriptreact"] {
+            assert!(
+                known_languages().contains(&language),
+                "`{language}` has an adapter and must be advertised, or `hick lang` \
+                 calls a debuggable file undebuggable"
+            );
+        }
+    }
     use super::*;
     use std::fs;
 

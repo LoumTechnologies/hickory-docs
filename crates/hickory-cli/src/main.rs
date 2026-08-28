@@ -236,6 +236,13 @@ enum Command {
     /// browser pointed there is looking at that machine.
     #[command(subcommand)]
     Fleet(FleetCommand),
+    /// What Hickory knows about each language: Bronze, Silver or Gold, and
+    /// the one thing that would raise it.
+    ///
+    /// Measured, never declared — every column is read from the catalogue
+    /// that would actually be used, so this cannot claim a language is
+    /// debuggable before it is.
+    Lang,
     /// Show or install the language servers that power the editor.
     #[command(subcommand)]
     Lsp(LspCommand),
@@ -1203,6 +1210,7 @@ fn run() -> ExitCode {
             Command::Broker(cmd) => cmd_broker(cmd).await,
             Command::Sealed(args) => cmd_sealed(args),
             Command::Fleet(cmd) => cmd_fleet(cmd).await,
+            Command::Lang => cmd_lang(),
             Command::Lsp(cmd) => cmd_lsp(cmd),
             Command::Formula(cmd) => cmd_formula(cmd),
             Command::Model(cmd) => cmd_model(cmd).await,
@@ -3653,6 +3661,51 @@ fn cmd_lsp(command: LspCommand) -> Result<ExitCode> {
             Ok(ExitCode::SUCCESS)
         }
     }
+}
+
+/// `hick lang` — the support ladder, measured on this machine.
+fn cmd_lang() -> Result<ExitCode> {
+    use hickory_cli::language_tier::{Tier, survey};
+
+    let root = std::env::current_dir()?;
+    let mut rows = survey(&root);
+    // Best-supported first: the interesting rows are the ones near the top of
+    // the ladder, and the long Bronze tail is context rather than news.
+    rows.sort_by(|a, b| b.tier.cmp(&a.tier).then(a.language.cmp(b.language)));
+
+    println!(
+        "What Hickory knows about each language, in {}.\n",
+        root.display()
+    );
+    println!(
+        "  {:<16} {:<7} {:<5} {:<6} {:<6} {:<6} NEXT",
+        "LANGUAGE", "TIER", "LSP", "DEBUG", "INDEX", "MODEL"
+    );
+    for row in &rows {
+        println!(
+            "  {:<16} {:<7} {:<5} {:<6} {:<6} {:<6} {}",
+            row.language,
+            row.tier.name(),
+            row.lsp.mark(),
+            row.dap.mark(),
+            row.index.mark(),
+            row.model.mark(),
+            row.next.as_deref().unwrap_or("")
+        );
+    }
+
+    let gold = rows.iter().filter(|r| r.tier == Tier::Gold).count();
+    let silver = rows.iter().filter(|r| r.tier == Tier::Silver).count();
+    let bronze = rows.iter().filter(|r| r.tier == Tier::Bronze).count();
+    println!("\n  {gold} gold, {silver} silver, {bronze} bronze.");
+    println!(
+        "  `yes` is installed here; `get` is available and not installed yet.\n\
+         \n\
+         \x20 BRONZE  the text is right — the language is routed, highlighted, and runnable in a cell.\n\
+         \x20 SILVER  the editor is right — a language server and a debugger, in document coordinates.\n\
+         \x20 GOLD    the code is data — an index, and a code model a script can generate against."
+    );
+    Ok(ExitCode::SUCCESS)
 }
 
 fn cmd_dap(command: DapCommand) -> Result<ExitCode> {

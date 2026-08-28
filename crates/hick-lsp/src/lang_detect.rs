@@ -1,45 +1,76 @@
 //! Maps file extensions to language identifiers for child LSP routing.
 
+/// Extension → language id, and the only place either is written down.
+///
+/// A table rather than a `match` because this list is read two ways now:
+/// forwards, to route a file, and backwards, to enumerate the languages
+/// Hickory knows about at all (`known_language_ids`, which `hick lang`
+/// reports a tier for). A second list of the same languages kept beside this
+/// one is exactly the shape of bug that has already shipped twice — `cs` was
+/// missing here, which made the C# language server unreachable, and later
+/// `hick init`'s reported-languages list omitted C# for the same reason.
+const EXTENSIONS: &[(&str, &str)] = &[
+    ("rs", "rust"),
+    ("py", "python"),
+    ("js", "javascript"),
+    ("ts", "typescript"),
+    ("jsx", "javascriptreact"),
+    ("tsx", "typescriptreact"),
+    ("html", "html"),
+    ("css", "css"),
+    ("json", "json"),
+    ("toml", "toml"),
+    ("yaml", "yaml"),
+    ("yml", "yaml"),
+    ("md", "markdown"),
+    ("go", "go"),
+    // C#. This table is the ONLY thing that routes a generated file to a
+    // language, for the language server and the debugger both — so until this
+    // row existed, `hick lsp install csharp` fetched a server that could never
+    // be reached: every `.cs` virtual file got `language_id: None` and was
+    // skipped before discovery was consulted.
+    ("cs", "csharp"),
+    ("java", "java"),
+    ("c", "c"),
+    ("cpp", "cpp"),
+    ("cc", "cpp"),
+    ("cxx", "cpp"),
+    ("h", "cpp"),
+    ("hpp", "cpp"),
+    ("sh", "shellscript"),
+    ("bash", "shellscript"),
+    ("rb", "ruby"),
+    ("php", "php"),
+    ("swift", "swift"),
+    ("kt", "kotlin"),
+    ("scala", "scala"),
+    ("lua", "lua"),
+    ("zig", "zig"),
+    ("nix", "nix"),
+];
+
 /// Look up the LSP language identifier for a file path based on its extension.
 ///
 /// Returns `None` if the extension is not recognized.
 pub fn language_id(path: &str) -> Option<&'static str> {
     let ext = path.rsplit('.').next()?;
-    match ext {
-        "rs" => Some("rust"),
-        "py" => Some("python"),
-        "js" => Some("javascript"),
-        "ts" => Some("typescript"),
-        "jsx" => Some("javascriptreact"),
-        "tsx" => Some("typescriptreact"),
-        "html" => Some("html"),
-        "css" => Some("css"),
-        "json" => Some("json"),
-        "toml" => Some("toml"),
-        "yaml" | "yml" => Some("yaml"),
-        "md" => Some("markdown"),
-        "go" => Some("go"),
-        // C#. This table is the ONLY thing that routes a generated file to a
-        // language, for the language server and the debugger both — so until
-        // this line existed, `hick lsp install csharp` fetched a server that
-        // could never be reached: every `.cs` virtual file got
-        // `language_id: None` and was skipped before discovery was consulted.
-        "cs" => Some("csharp"),
-        "java" => Some("java"),
-        "c" => Some("c"),
-        "cpp" | "cc" | "cxx" => Some("cpp"),
-        "h" | "hpp" => Some("cpp"),
-        "sh" | "bash" => Some("shellscript"),
-        "rb" => Some("ruby"),
-        "php" => Some("php"),
-        "swift" => Some("swift"),
-        "kt" => Some("kotlin"),
-        "scala" => Some("scala"),
-        "lua" => Some("lua"),
-        "zig" => Some("zig"),
-        "nix" => Some("nix"),
-        _ => None,
-    }
+    EXTENSIONS
+        .iter()
+        .find(|(candidate, _)| *candidate == ext)
+        .map(|(_, id)| *id)
+}
+
+/// Every language id this table can produce, sorted and without duplicates.
+///
+/// This is Hickory's answer to "which languages does a document know how to
+/// hold at all" — the Bronze rung of `hick lang`. Derived from the routing
+/// table rather than listed again, so a language cannot be reported on
+/// without being routable, or routable without being reported.
+pub fn known_language_ids() -> Vec<&'static str> {
+    let mut ids: Vec<&'static str> = EXTENSIONS.iter().map(|(_, id)| *id).collect();
+    ids.sort_unstable();
+    ids.dedup();
+    ids
 }
 
 #[cfg(test)]
@@ -80,6 +111,28 @@ mod tests {
         assert_eq!(language_id("init.lua"), Some("lua"));
         assert_eq!(language_id("main.zig"), Some("zig"));
         assert_eq!(language_id("flake.nix"), Some("nix"));
+    }
+
+    #[test]
+    fn every_routable_language_is_enumerable() {
+        // The two directions must agree: anything `language_id` can return is
+        // something `known_language_ids` lists, because they are one table.
+        let ids = known_language_ids();
+        for (ext, id) in EXTENSIONS {
+            assert!(
+                ids.contains(id),
+                "`.{ext}` routes to `{id}`, which is not enumerated"
+            );
+        }
+        assert!(
+            ids.contains(&"csharp"),
+            "the row that has gone missing twice"
+        );
+        // Sorted and deduplicated: `cpp` has five extensions and one entry.
+        let mut sorted = ids.clone();
+        sorted.sort_unstable();
+        sorted.dedup();
+        assert_eq!(ids, sorted);
     }
 
     #[test]

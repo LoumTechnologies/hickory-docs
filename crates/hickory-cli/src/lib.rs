@@ -24,6 +24,7 @@ pub mod index_read;
 pub mod ingest;
 pub mod ingest_exec;
 pub mod init;
+pub mod language_tier;
 pub mod lsp_install;
 pub mod mcp;
 pub mod merge_driver;

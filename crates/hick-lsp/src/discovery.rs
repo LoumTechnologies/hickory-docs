@@ -478,12 +478,22 @@ fn tsserver_in(node_modules: &Path) -> Option<PathBuf> {
 
 /// Every language this build knows candidates for — what a person can expect
 /// to work without configuring anything.
+///
+/// **Checked against `candidates` rather than trusted**, because a list of
+/// languages kept beside the routing that serves them is the exact shape of
+/// bug this repository has now shipped three times: `lang_detect` had no
+/// `cs`, `hick init`'s report had no C#, and this list omitted
+/// `javascriptreact` and `typescriptreact` while `candidates` happily served
+/// them — so `hick lang` reported that React files had no language server on
+/// a machine where one was installed and working.
 pub fn known_languages() -> Vec<&'static str> {
     let mut out = vec![
         "rust",
         "python",
         "typescript",
+        "typescriptreact",
         "javascript",
+        "javascriptreact",
         "go",
         "c",
         "cpp",
@@ -518,6 +528,33 @@ pub fn known_languages() -> Vec<&'static str> {
 
 #[cfg(test)]
 mod tests {
+
+    /// The list and the routing must agree, in both directions.
+    ///
+    /// Third time this class of bug has shipped here, so it gets a test that
+    /// derives from the thing that actually serves the request rather than
+    /// from a second copy of the answer.
+    #[test]
+    fn known_languages_and_candidates_agree() {
+        for language in known_languages() {
+            assert!(
+                !candidates(language).is_empty(),
+                "`{language}` is advertised as known and has no candidate server"
+            );
+        }
+        // And the other way: every language `lang_detect` can route must
+        // either have candidates or be absent from the advertised list — a
+        // language that routes to a server nobody can find is the C# bug.
+        for language in crate::lang_detect::known_language_ids() {
+            if !candidates(language).is_empty() {
+                assert!(
+                    known_languages().contains(&language),
+                    "`{language}` has candidate servers but is not advertised, \
+                     so `hick lang` reports it as unsupported"
+                );
+            }
+        }
+    }
     use super::*;
     use std::fs;
 
