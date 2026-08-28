@@ -133,7 +133,10 @@ class Model:
         """Ask one question. Raises on refusal rather than returning empty."""
         if not self._proc or not self._proc.stdin or not self._proc.stdout:
             raise ModelError("the model server is not running — use `with Model(…)`")
-        request = {"query": query}
+        # Annotated because the values are not all strings: `variables` is a
+        # nested object, and an inferred `dict[str, str]` makes assigning it an
+        # error in the generated client's own type check.
+        request: dict[str, Any] = {"query": query}
         if variables:
             request["variables"] = variables
         self._proc.stdin.write(json.dumps(request) + "\n")

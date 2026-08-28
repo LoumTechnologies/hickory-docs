@@ -200,10 +200,20 @@ fn py_class(name: &str, fields: &[Field]) -> String {
     out.push_str(&pascal(name));
     out.push_str("(\n");
     for field in fields {
+        // `data[key]` for a field the schema says is always there, and
+        // `data.get(key)` only where null is possible. Using `.get` for both
+        // types every required field as `Any | None`, which a type checker
+        // then rejects against its own declared `str` — twenty-six errors in
+        // a generated file, which is worse than no types at all.
+        let source = if field.shape.nullable {
+            format!("data.get(\"{}\")", field.key)
+        } else {
+            format!("data[\"{}\"]", field.key)
+        };
         out.push_str(&format!(
             "            {}={},\n",
             py_name(&field.key),
-            py_build(&field.shape, &format!("data.get(\"{}\")", field.key))
+            py_build(&field.shape, &source, &format!("_{}", py_name(&field.key)))
         ));
     }
     out.push_str("        )\n\n\n");
@@ -211,9 +221,19 @@ fn py_class(name: &str, fields: &[Field]) -> String {
 }
 
 /// The expression that turns a piece of JSON into this shape.
-fn py_build(shape: &Shape, source: &str) -> String {
+///
+/// `var` names the walrus binding used when the value is optional: a type
+/// checker cannot narrow across two separate `data.get(k)` calls, because
+/// nothing tells it the two return the same thing. Binding once and testing
+/// the binding is the difference between a generated file with no errors and
+/// one with an error per optional object.
+fn py_build(shape: &Shape, source: &str, var: &str) -> String {
     let build = match &shape.kind {
-        Kind::List(item) => format!("[{} for _v in ({} or [])]", py_build(item, "_v"), source),
+        Kind::List(item) => format!(
+            "[{} for {var}i in ({} or [])]",
+            py_build(item, &format!("{var}i"), &format!("{var}j")),
+            source
+        ),
         Kind::Object(object) => format!("{}._from({source})", pascal(&object.name)),
         Kind::Variants(variants) => {
             // Which class to build is decided by the discriminator, which is
@@ -236,7 +256,9 @@ fn py_build(shape: &Shape, source: &str) -> String {
         && !matches!(shape.kind, Kind::List(_))
         && !matches!(shape.kind, Kind::Scalar(_) | Kind::Enum { .. })
     {
-        format!("({build} if {source} is not None else None)")
+        // Bind once, then test and use the binding.
+        let bound = build.replace(source, var);
+        format!("({bound} if ({var} := {source}) is not None else None)")
     } else {
         build
     }
