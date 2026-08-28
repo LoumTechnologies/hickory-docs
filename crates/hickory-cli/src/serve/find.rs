@@ -177,7 +177,7 @@ pub async fn find(
                 "matches": hits,
                 // Named here so the UI can grey out what replace will refuse
                 // BEFORE anyone presses the button.
-                "generated_by": generated.get(&rel),
+                "generated_by": super::api::generated_by(&generated, &rel),
             }));
         }
         (out, budget == 0)

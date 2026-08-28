@@ -380,6 +380,18 @@ static FILE_PATH_ATTR: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::
     regex::Regex::new(r#"<hick:file\b[^>]*?\bpath\s*=\s*"([^"]*)""#)
         .expect("the file-path-attribute pattern compiles")
 });
+/// A `<hick:volume output="DIR">` — a whole DIRECTORY a cell writes into.
+///
+/// This is the third way a document produces a file and the one that was
+/// missing. A `hick:file` names one path; a volume names a directory whose
+/// entire contents a program wrote, and nobody knows their names in advance.
+/// Without this the file tree showed a generated API layer as ordinary
+/// hand-editable source, while showing the hand-written domain beside it as
+/// generated — exactly backwards for the question a reader is asking.
+static VOLUME_OUTPUT_ATTR: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+    regex::Regex::new(r#"<hick:volume\b[^>]*?\boutput\s*=\s*"([^"]*)""#)
+        .expect("the volume-output-attribute pattern compiles")
+});
 
 /// A folder tree past this many entries answers what it has, flagged
 /// `"truncated": true`, instead of walking (and shipping) a monster.
@@ -572,14 +584,49 @@ fn declared_outputs(doc_rel: &str, source: &str) -> Vec<String> {
             out.push(path);
         }
     }
+    // A volume's output is a directory, recorded with a trailing `/` so a
+    // lookup can tell "this exact file" from "anything under here".
+    for capture in VOLUME_OUTPUT_ATTR.captures_iter(source) {
+        if let Some(path) = join(&capture[1])
+            && !path.is_empty()
+        {
+            out.push(format!("{path}/"));
+        }
+    }
     out
+}
+
+/// Which document generates `path`, if any.
+///
+/// An exact key is a `weave` target or a `hick:file`. A key ending in `/` is
+/// a volume's output directory, and claims everything beneath it — so this
+/// falls back to walking the path's ancestors. Longest prefix wins, so a
+/// narrow volume nested inside a wider one is reported as the one that
+/// actually wrote the file.
+pub fn generated_by(generated: &HashMap<String, String>, path: &str) -> Option<String> {
+    if let Some(doc) = generated.get(path) {
+        return Some(doc.clone());
+    }
+    let mut best: Option<(usize, &String)> = None;
+    for (key, doc) in generated {
+        let Some(dir) = key.strip_suffix('/') else {
+            continue;
+        };
+        if path.starts_with(dir)
+            && path.as_bytes().get(dir.len()) == Some(&b'/')
+            && best.is_none_or(|(len, _)| dir.len() > len)
+        {
+            best = Some((dir.len(), doc));
+        }
+    }
+    best.map(|(_, doc)| doc.clone())
 }
 
 /// Stamp `generated_by` onto every node whose path a document writes.
 fn mark_generated(nodes: &mut [TreeNode], generated: &HashMap<String, String>) {
     for node in nodes {
         if !node.dir && node.doc_id.is_none() {
-            node.generated_by = generated.get(&node.path).cloned();
+            node.generated_by = generated_by(generated, &node.path);
         }
         if let Some(children) = node.children.as_mut() {
             mark_generated(children, generated);
@@ -1273,6 +1320,46 @@ mod tree_tests {
         // interpolated path is left alone rather than recorded as the literal
         // `{{name}}.rs`, which would mark a file nobody has.
         assert!(declared_outputs("app.hick", r#"<hick:file path="{{name}}.rs"/>"#).is_empty());
+    }
+
+    /// A volume's `output=` directory claims everything under it.
+    ///
+    /// This is how a document says "a program wrote these and I do not know
+    /// their names". Before it was read, the app showed a generated API
+    /// layer as ordinary source you could edit — and the next run replaced
+    /// it — while marking the hand-written domain beside it as generated.
+    #[test]
+    fn a_volume_output_directory_claims_the_files_under_it() {
+        let declared = declared_outputs(
+            "30-api.hick",
+            r#"<hick:volume name="apiout" output="src/Api/Generated" />"#,
+        );
+        assert_eq!(declared, vec!["src/Api/Generated/".to_string()]);
+
+        let generated = HashMap::from([
+            ("src/Api/Generated/".to_string(), "d1".to_string()),
+            ("src/Api/".to_string(), "d0".to_string()),
+        ]);
+        // Under the directory: generated, and by the NARROWEST volume that
+        // claims it.
+        assert_eq!(
+            generated_by(&generated, "src/Api/Generated/Endpoints.g.cs").as_deref(),
+            Some("d1")
+        );
+        assert_eq!(
+            generated_by(&generated, "src/Api/Other.cs").as_deref(),
+            Some("d0")
+        );
+        // A prefix match is on a path BOUNDARY, never on spelling.
+        // `src/ApiOther/` is not under `src/Api/`, and
+        // `src/Api/GeneratedThing.cs` is under `src/Api/` but NOT under
+        // `src/Api/Generated/` — so the wider volume claims it and the
+        // narrower one does not.
+        assert_eq!(generated_by(&generated, "src/ApiOther/x.cs"), None);
+        assert_eq!(
+            generated_by(&generated, "src/Api/GeneratedThing.cs").as_deref(),
+            Some("d0")
+        );
     }
 
     #[test]

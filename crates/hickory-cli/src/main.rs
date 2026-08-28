@@ -1818,6 +1818,59 @@ async fn cmd_lineage(args: LineageArgs) -> Result<ExitCode> {
             .await?
         }
     };
+    // A file a cell wrote into an output volume is not woven, so it has no
+    // byte-precise lineage — but it has a provenance, and answering "no such
+    // output" to a file the document plainly produces is the wrong answer to
+    // the right question. Reported first, and reported as a success: the
+    // question was answerable.
+    if !run.result.provenance_maps.contains_key(&args.output)
+        && let Some(generated) = hickory_cli::generated_file(&run, &args.output)
+    {
+        eprintln!(
+            "{} -> {}: generated, not woven",
+            args.doc.display(),
+            args.output
+        );
+        let where_from = if generated.cells.is_empty() {
+            format!("output volume `{}`", generated.volume)
+        } else {
+            format!(
+                "cell{} {} (line{} {}) into output volume `{}`",
+                if generated.cells.len() == 1 { "" } else { "s" },
+                generated
+                    .cells
+                    .iter()
+                    .map(|c| format!("'{c}'"))
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                if generated.lines.len() == 1 { "" } else { "s" },
+                generated
+                    .lines
+                    .iter()
+                    .map(usize::to_string)
+                    .collect::<Vec<_>>()
+                    .join(", "),
+                generated.volume,
+            )
+        };
+        if args.json {
+            println!(
+                "{}",
+                serde_json::json!({
+                    "generated": true,
+                    "volume": generated.volume,
+                    "cells": generated.cells,
+                    "lines": generated.lines,
+                })
+            );
+        } else {
+            eprintln!("  written by {where_from}");
+            eprintln!("  Every byte is that program's output, so there is no span of any");
+            eprintln!("  document to map it to, and no edit here can be carried back.");
+            eprintln!("  Change what the cell reads, or the cell itself, and run again.");
+        }
+        return Ok(ExitCode::SUCCESS);
+    }
     let provenance = hickory_cli::output_lineage(&run, &args.output)?;
     if args.json {
         println!("{}", serde_json::to_string_pretty(&provenance)?);

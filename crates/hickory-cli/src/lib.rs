@@ -1590,6 +1590,82 @@ pub fn block_model_json(run: &DocRun) -> Result<serde_json::Value> {
     Ok(serde_json::json!({ "blocks": block_model(run) }))
 }
 
+/// A file a CELL wrote into an output volume, rather than one the document
+/// weaves.
+///
+/// These have no byte-precise lineage and never will: their bytes are a
+/// program's output, and no span of any document produced them. But "no
+/// output named that" — which is what lineage said before this existed — is
+/// the wrong answer to a real question. A generated file has a provenance,
+/// just a coarser one: **this cell, in this document, wrote all of it.**
+///
+/// That distinction is the point. A reader looking at a source file needs to
+/// know which of three things it is: text a person typed (`literal`), bytes a
+/// foreign tool wrote and this document owns (`ingested`), or output a cell
+/// produced on the way past (this). The first two are byte-precise and
+/// editable; this one is neither, and saying so plainly is what stops someone
+/// editing a file that regenerates over them.
+pub struct GeneratedFile {
+    /// The output volume the file landed in.
+    pub volume: String,
+    /// Containers whose cells wrote into that volume, in document order.
+    pub cells: Vec<String>,
+    /// Source lines of the `hick:exec` tags that mounted it.
+    pub lines: Vec<usize>,
+}
+
+/// Whether `path` is written by one of this document's output volumes.
+///
+/// Matched on the volume's `output=` prefix, which is where the volume's
+/// contents land — so `apiout` declared `output="src/Api"` claims
+/// `src/Api/Endpoints.g.cs`.
+pub fn generated_file(run: &DocRun, path: &str) -> Option<GeneratedFile> {
+    let normalized = path.replace('\\', "/");
+    let mut best: Option<(usize, String, String)> = None; // (prefix len, volume, output)
+    for tag in run.doc.tags() {
+        if tag.name != "volume" {
+            continue;
+        }
+        let (Some(name), Some(output)) = (tag.get_attribute("name"), tag.get_attribute("output"))
+        else {
+            continue;
+        };
+        let prefix = output.trim_end_matches('/');
+        // The longest matching declaration wins, so a narrow volume nested
+        // inside a wide one is reported as the one that actually wrote it.
+        if (normalized == prefix || normalized.starts_with(&format!("{prefix}/")))
+            && best.as_ref().is_none_or(|(len, _, _)| prefix.len() > *len)
+        {
+            best = Some((prefix.len(), name.to_string(), output.to_string()));
+        }
+    }
+    let (_, volume, _) = best?;
+
+    let mut cells = Vec::new();
+    let mut lines = Vec::new();
+    for tag in run.doc.tags() {
+        if tag.name != "exec" {
+            continue;
+        }
+        let mounts = tag.get_attribute("mount").unwrap_or_default();
+        let mounts_it = mounts
+            .split(',')
+            .filter_map(|entry| entry.trim().split(':').next())
+            .any(|v| v == volume);
+        if mounts_it {
+            if let Some(container) = tag.get_attribute("container") {
+                cells.push(container.to_string());
+            }
+            lines.push(tag.source_line);
+        }
+    }
+    Some(GeneratedFile {
+        volume,
+        cells,
+        lines,
+    })
+}
+
 /// Byte-precise lineage of one generated output file: the api.md
 /// `Provenance[]` shape (identical to what the server's
 /// `GET /api/docs/:id/outputs/file` returns).
