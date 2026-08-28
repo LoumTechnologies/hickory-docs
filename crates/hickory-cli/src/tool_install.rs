@@ -261,7 +261,20 @@ pub fn install(catalogue: &Catalogue, root: &Path, language: &str) -> Result<Pat
     let Some((program, args)) =
         // An installer has no peers to hide from: it runs before any cell,
         // into a prefix of its own.
-        policy::wrap(sandbox, &prefix, &command, true, Profile::Installer, None, &[])
+        // No project tools for an installer: it is fetching one, not using
+        // one, and the prefix it writes into is already its workdir.
+        policy::wrap(
+            sandbox,
+            &policy::Confinement {
+                workdir: &prefix,
+                command: &command,
+                allow_network: true,
+                profile: Profile::Installer,
+                tmpdir: None,
+                peers: &[],
+                tools: &[],
+            },
+        )
     else {
         bail!("the sandbox could not be prepared for the install");
     };

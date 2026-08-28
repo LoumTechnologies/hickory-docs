@@ -117,9 +117,9 @@ impl ExecutorChoice {
             // The derived scratch directory: `hick` is one executor in one
             // process, which is the case it is safe and useful for.
             ExecutorChoice::Local => Ok(Arc::new(LocalExecutor::new_stable()?)),
-            ExecutorChoice::Sandbox => {
-                Ok(Arc::new(hickory_executor_sandbox::SandboxedExecutor::new()?))
-            }
+            ExecutorChoice::Sandbox => Ok(Arc::new(
+                hickory_executor_sandbox::SandboxedExecutor::new_stable()?,
+            )),
             ExecutorChoice::Docker => Ok(Arc::new(
                 hickory_executor_docker::DockerExecutor::new().await?,
             )),

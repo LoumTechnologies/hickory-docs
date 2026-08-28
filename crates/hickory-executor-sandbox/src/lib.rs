@@ -52,6 +52,23 @@ use hickory_executor::{
 
 pub use policy::Sandbox;
 
+/// Directories of project-installed tools to bind read-only into a cell.
+///
+/// Derived from the working directory, the same way the scratch root is: for
+/// `hick` that is the project, and there is one executor per process. A
+/// directory that does not exist is left out rather than bound empty, because
+/// `bwrap` fails outright on a missing source.
+fn project_tools() -> Vec<std::path::PathBuf> {
+    let Ok(cwd) = std::env::current_dir() else {
+        return Vec::new();
+    };
+    [".hick-cache/models"]
+        .iter()
+        .map(|relative| cwd.join(relative))
+        .filter(|path| path.is_dir())
+        .collect()
+}
+
 /// Runs cells through [`LocalExecutor`], each command confined by the
 /// platform's sandbox.
 pub struct SandboxedExecutor {
@@ -60,11 +77,37 @@ pub struct SandboxedExecutor {
     /// Declared capabilities per container: the network is opened only for a
     /// container whose document asked for it.
     capabilities: Mutex<HashMap<String, ContainerCapabilities>>,
+    /// Project-installed tools a cell may run, bound read-only.
+    ///
+    /// Today this is the code model servers in `.hick-cache/models`. A cell
+    /// cannot see the project — it is under `$HOME`, which is replaced by a
+    /// tmpfs so your dotfiles and keys are not readable — and that correctly
+    /// hides a tool the project installed for cells to use. Binding this one
+    /// directory back is the same move `HOME_TOOL_DIRS` already makes for
+    /// `~/.local/bin`: the cell can run what you installed and can read
+    /// nothing else of yours.
+    project_tools: Vec<std::path::PathBuf>,
 }
 
 impl SandboxedExecutor {
     /// Build one, or explain why this machine cannot.
     pub fn new() -> Result<Self> {
+        Self::build(LocalExecutor::new()?)
+    }
+
+    /// Like [`new`](Self::new), with the derived scratch directory that makes
+    /// a cell's own path stable across runs.
+    ///
+    /// Opt-in for the reason [`LocalExecutor::new_stable`] is: the derived
+    /// name is shared by everything running from one working directory and
+    /// only one holder can have it. Right for `hick`, which builds one
+    /// executor per process; wrong for a test binary that builds several at
+    /// once and would have them delete each other's workdirs.
+    pub fn new_stable() -> Result<Self> {
+        Self::build(LocalExecutor::new_stable()?)
+    }
+
+    fn build(inner: LocalExecutor) -> Result<Self> {
         let sandbox = Sandbox::detect();
         if sandbox == Sandbox::None {
             bail!(
@@ -85,9 +128,10 @@ impl SandboxedExecutor {
         }
         log::info!("sandboxed executor: {}", sandbox.describe());
         Ok(Self {
-            inner: LocalExecutor::new_stable()?,
+            inner,
             sandbox,
             capabilities: Mutex::new(HashMap::new()),
+            project_tools: project_tools(),
         })
     }
 
@@ -146,12 +190,15 @@ impl SandboxedExecutor {
         let peers = self.inner.peer_dirs(container);
         let Some((program, args)) = policy::wrap(
             self.sandbox,
-            &workdir,
-            command,
-            self.allows_network(container),
-            policy::Profile::Cell,
-            Some(&tmpdir),
-            &peers,
+            &policy::Confinement {
+                workdir: &workdir,
+                command,
+                allow_network: self.allows_network(container),
+                profile: policy::Profile::Cell,
+                tmpdir: Some(&tmpdir),
+                peers: &peers,
+                tools: &self.project_tools,
+            },
         ) else {
             bail!(
                 "cannot confine container '{container}': {}.\n\nOn Windows this \

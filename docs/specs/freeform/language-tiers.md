@@ -96,17 +96,39 @@ need ordering, atomicity and formatting, all of which GraphQL handles badly,
 and Hickory already has a better answer — the script emits text and the
 document owns the bytes, where lineage and the drift gate already work.
 
-### The two things that are expensive to retrofit
+### How a cell reaches it: a tool, not a service
 
-**The model response is an input, so it belongs in the cache key.** A
-generator's inputs stop being only files. Hickory keys a recording on the
-cell's inputs; if the model's answer is not in that key, a changed domain will
-not invalidate the generated output and `hick test` will pass on stale code.
+*Amended 2026-08-28, after building it.* The first design here was a socket,
+and the second was "hick runs one declared query before the cell and drops the
+answer in as a file". Both are wrong, and the second is wrong for a reason
+worth recording: **real queries are parametric.** A generator asks about a
+type it just found, then about that type's base, then about what implements an
+interface. One pre-run query cannot serve that, and a document listing every
+question it might ask is not a document anyone would write.
 
-**A replayed document needs the model's version.** `hick lineage --at` replays
-at a commit. For a generated file to stay explicable later, the server's
-version must be recorded beside the query — the same reason a build now stamps
-the commit it came from.
+The answer removes the problem instead of solving it. **The model server is a
+tool the cell runs, like `python3` or `dotnet` — not a service Hickory
+brokers.** Hickory binds `.hick-cache/models` into the sandbox read-only and
+puts it on the cell's `PATH`; the cell spawns the server itself and talks to
+it over an ordinary pipe, for as many queries as it likes.
+
+Everything that looked expensive to retrofit then costs nothing:
+
+* **The cache key is already right.** The server answers about the source
+  *mounted into the cell*, because the sandbox hides everything else — and a
+  volume's contents are already part of `input_digest`. Change the domain and
+  the cell re-executes, verified with `--cache` against a modified domain.
+  There is no second mechanism, and nothing had to learn what a model is.
+* **Replay is already right.** A weave replays the cell's recording, so it
+  reproduces without the model server for exactly the same reason it
+  reproduces without `dotnet`. Nothing new is recorded because nothing new
+  needs to be.
+* **The sandbox is not weakened.** Verified in a cell: the model binary is
+  runnable, `~/.bashrc` is not readable, and unmounted project source is not
+  visible.
+
+The only new surface is `<hick:needs bin="hick-model-csharp" />`, which
+already existed and now means what it says.
 
 ## What this does not replace
 

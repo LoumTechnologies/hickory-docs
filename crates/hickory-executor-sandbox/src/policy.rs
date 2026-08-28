@@ -169,20 +169,45 @@ pub enum Profile {
     Installer,
 }
 
+/// What one confined command needs to know about.
+///
+/// A struct rather than eight positional arguments, which is what it grew
+/// into. A call site passing `sandbox, &dir, cmd, true, Cell, None, &[], &[]`
+/// says nothing about which empty slice is the peers and which is the tools,
+/// and getting those two the wrong way round would silently hand a cell
+/// another container's workdir.
+#[derive(Clone, Copy)]
+pub struct Confinement<'a> {
+    /// The cell's own directory, writable.
+    pub workdir: &'a Path,
+    /// The command, handed to `sh -c` inside the sandbox.
+    pub command: &'a str,
+    /// Whether the document asked for the network.
+    pub allow_network: bool,
+    pub profile: Profile,
+    /// This container's `/tmp`, shared between its cells.
+    pub tmpdir: Option<&'a Path>,
+    /// Other containers' workdirs, which this cell may not read.
+    pub peers: &'a [std::path::PathBuf],
+    /// Project-installed tool directories, bound read-only and put on PATH.
+    pub tools: &'a [std::path::PathBuf],
+}
+
 /// Build the argv that runs `command` under this sandbox.
 ///
 /// Returns the program and its arguments, ready to spawn. The command itself
 /// is always handed to `sh -c` inside the sandbox, so a cell's shell syntax
 /// behaves exactly as it does unsandboxed.
-pub fn wrap(
-    sandbox: Sandbox,
-    workdir: &Path,
-    command: &str,
-    allow_network: bool,
-    profile: Profile,
-    tmpdir: Option<&Path>,
-    peers: &[std::path::PathBuf],
-) -> Option<(String, Vec<String>)> {
+pub fn wrap(sandbox: Sandbox, c: &Confinement<'_>) -> Option<(String, Vec<String>)> {
+    let Confinement {
+        workdir,
+        command,
+        allow_network,
+        profile,
+        tmpdir,
+        peers,
+        tools,
+    } = *c;
     let dir = workdir.to_string_lossy().to_string();
     let dir_for_home = dir.clone();
     // Without a container tmp directory there is nothing to share, so the
@@ -298,6 +323,29 @@ pub fn wrap(
                     // It sits beside the run's scratch directory rather than
                     // inside it, because the scratch is removed when the run
                     // ends and the whole point is that this is not.
+                    // After the tmpfs, so a tool the project installed under
+                    // `$HOME` is handed back rather than buried by it. Order
+                    // matters to bwrap: a later mount wins.
+                    for tool in tools {
+                        args.push("--ro-bind-try".into());
+                        args.push(tool.to_string_lossy().to_string());
+                        args.push(tool.to_string_lossy().to_string());
+                    }
+                    // And on PATH, so a document names the tool rather than
+                    // the absolute path it happens to live at on one machine.
+                    // `<hick:needs bin="hick-model-csharp" />` then means what
+                    // it says, and the document is portable.
+                    if !tools.is_empty() {
+                        let prefix = tools
+                            .iter()
+                            .map(|t| t.to_string_lossy().to_string())
+                            .collect::<Vec<_>>()
+                            .join(":");
+                        let inherited = std::env::var("PATH").unwrap_or_default();
+                        args.push("--setenv".into());
+                        args.push("PATH".into());
+                        args.push(format!("{prefix}:{inherited}"));
+                    }
                     if let Some(cell_home) = persistent_cell_home(workdir) {
                         args.push("--bind".into());
                         args.push(cell_home.clone());
@@ -328,7 +376,8 @@ pub fn wrap(
             Some(("bwrap".into(), args))
         }
         Sandbox::Seatbelt => {
-            let policy_text = seatbelt_profile(workdir, tmpdir, allow_network, profile, peers);
+            let policy_text =
+                seatbelt_profile(workdir, tmpdir, allow_network, profile, peers, tools);
             // Seatbelt cannot set an environment variable, so the installer's
             // redirected HOME is prepended to the command instead. It reaches
             // `sh` as an assignment, which is the same effect by a different
@@ -556,6 +605,7 @@ fn seatbelt_profile(
     allow_network: bool,
     profile: Profile,
     peers: &[std::path::PathBuf],
+    tools: &[std::path::PathBuf],
 ) -> String {
     // RESOLVED, not as given. Seatbelt matches the path the kernel arrives at
     // after following symlinks, and on macOS a cell's workdir is nearly always
@@ -605,6 +655,14 @@ fn seatbelt_profile(
         let peer = peer.to_string_lossy();
         policy.push_str(&format!("(deny file-read* (subpath \"{peer}\"))"));
     }
+    // Allowed back after the home denial below would otherwise cover them:
+    // seatbelt takes the LAST matching rule, so these are appended here and
+    // the home denial is written before them.
+    for tool in tools {
+        let tool = resolve(tool);
+        let tool = tool.to_string_lossy();
+        policy.push_str(&format!("(allow file-read* (subpath \"{tool}\"))"));
+    }
     // Same reasoning as bubblewrap's two homes: a cell may not read the
     // user's dotfiles, an installer must be able to see the tool it runs.
     // Seatbelt cannot mount an empty home, so it denies the reads instead.
@@ -638,12 +696,15 @@ fn works(sandbox: Sandbox) -> bool {
     let probe_dir = std::env::temp_dir();
     let Some((program, args)) = wrap(
         sandbox,
-        &probe_dir,
-        "exit 0",
-        false,
-        Profile::Cell,
-        None,
-        &[],
+        &Confinement {
+            workdir: &probe_dir,
+            command: "exit 0",
+            allow_network: false,
+            profile: Profile::Cell,
+            tmpdir: None,
+            peers: &[],
+            tools: &[],
+        },
     ) else {
         return false;
     };
@@ -673,12 +734,15 @@ mod tests {
     fn args_for(allow_network: bool) -> Vec<String> {
         wrap(
             Sandbox::Bubblewrap,
-            &PathBuf::from("/work/dir"),
-            "echo hi",
-            allow_network,
-            Profile::Cell,
-            None,
-            &[],
+            &Confinement {
+                workdir: &PathBuf::from("/work/dir"),
+                command: "echo hi",
+                allow_network,
+                profile: Profile::Cell,
+                tmpdir: None,
+                peers: &[],
+                tools: &[],
+            },
         )
         .unwrap()
         .1
@@ -764,12 +828,15 @@ mod tests {
 
         let bwrap = wrap(
             Sandbox::Bubblewrap,
-            &PathBuf::from("/work"),
-            CELL,
-            false,
-            Profile::Cell,
-            None,
-            &[],
+            &Confinement {
+                workdir: &PathBuf::from("/work"),
+                command: CELL,
+                allow_network: false,
+                profile: Profile::Cell,
+                tmpdir: None,
+                peers: &[],
+                tools: &[],
+            },
         )
         .expect("bubblewrap composes without touching the filesystem")
         .1;
@@ -797,12 +864,13 @@ mod tests {
             false,
             Profile::Cell,
             &[],
+            &[],
         );
         assert!(profile.contains("(deny default)"));
         assert!(profile.contains("(allow file-write* (subpath \"/Users/x/work\"))"));
         assert!(!profile.contains("(allow network*)"));
         assert!(
-            seatbelt_profile(&PathBuf::from("/w"), None, true, Profile::Cell, &[])
+            seatbelt_profile(&PathBuf::from("/w"), None, true, Profile::Cell, &[], &[])
                 .contains("(allow network*)")
         );
     }
@@ -823,7 +891,7 @@ mod tests {
             // given; this is a macOS-shaped hazard.
             return;
         }
-        let profile = seatbelt_profile(given, None, false, Profile::Cell, &[]);
+        let profile = seatbelt_profile(given, None, false, Profile::Cell, &[], &[]);
         assert!(
             profile.contains(&format!(
                 "(allow file-write* (subpath \"{}\"))",
@@ -847,6 +915,7 @@ mod tests {
             false,
             Profile::Cell,
             &peers,
+            &[],
         );
         assert!(
             profile.contains("(deny file-read* (subpath \"/w/root/theirs\"))"),
@@ -874,6 +943,7 @@ mod tests {
             false,
             Profile::Cell,
             &[PathBuf::from("/w/root/theirs")],
+            &[],
         );
         assert!(
             !profile.contains("(deny file-read* (subpath \"/w/root\"))"),
@@ -889,12 +959,15 @@ mod tests {
         // installed — the sandbox had hidden the installer from itself.
         let args = wrap(
             Sandbox::Bubblewrap,
-            &PathBuf::from("/work/dir"),
-            "uv venv",
-            true,
-            Profile::Installer,
-            None,
-            &[],
+            &Confinement {
+                workdir: &PathBuf::from("/work/dir"),
+                command: "uv venv",
+                allow_network: true,
+                profile: Profile::Installer,
+                tmpdir: None,
+                peers: &[],
+                tools: &[],
+            },
         )
         .unwrap()
         .1;
@@ -1020,12 +1093,15 @@ mod tests {
         assert!(
             wrap(
                 Sandbox::None,
-                &PathBuf::from("/w"),
-                "echo hi",
-                false,
-                Profile::Cell,
-                None,
-                &[]
+                &Confinement {
+                    workdir: &PathBuf::from("/w"),
+                    command: "echo hi",
+                    allow_network: false,
+                    profile: Profile::Cell,
+                    tmpdir: None,
+                    peers: &[],
+                    tools: &[],
+                },
             )
             .is_none()
         );
