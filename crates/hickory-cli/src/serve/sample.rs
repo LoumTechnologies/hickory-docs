@@ -66,9 +66,12 @@ pub async fn create(
     })?;
     let source = state.read_source_by_doc_path(&doc_rel)?;
 
-    // Where the document says it writes this — the volume output or the
-    // `hick:file` — is what tells us which cell to put the sample under.
-    let anchor = declaring_offset(&doc_rel, &source, &body.path).ok_or_else(|| {
+    // Where the document says it writes this is what tells us which cell to
+    // put the sample under — but the two ways it can say so lead there
+    // differently. A `hick:file` sits INSIDE its cell; a volume is declared at
+    // document level and reaches a cell by being mounted, so the search runs
+    // forward from the declaration to the mount rather than outward from it.
+    let claim = declaring_claim(&doc_rel, &source, &body.path).ok_or_else(|| {
         ApiError::unprocessable(format!(
             "{doc_rel} generates {} but does not name it in a way this can find \
              (a path built from a variable, most likely) — add the \
@@ -76,6 +79,17 @@ pub async fn create(
             body.path
         ))
     })?;
+    let anchor = match &claim {
+        Claim::File(offset) => *offset,
+        Claim::Volume(name) => mounting_cell(&source, name).ok_or_else(|| {
+            ApiError::unprocessable(format!(
+                "{doc_rel} declares the volume {name:?} that holds {} but no cell \
+                 in it mounts that volume, so there is no run for a sample to sit \
+                 under",
+                body.path
+            ))
+        })?,
+    };
     let (insert_at, indent) = insertion_point(&source, anchor).ok_or_else(|| {
         ApiError::unprocessable(format!(
             "{doc_rel} writes {} outside any cell, so there is no run for a \
@@ -125,16 +139,27 @@ pub async fn create(
     })))
 }
 
-/// The byte offset of the attribute by which `doc_rel` claims `path`.
+/// How a document claims a generated path.
+#[derive(Debug, PartialEq)]
+enum Claim {
+    /// A `hick:file` at this byte offset. The cell, if any, encloses it.
+    File(usize),
+    /// A volume by this name. The cell is whichever one mounts it.
+    Volume(String),
+}
+
+/// How `doc_rel` claims `path`, if it does.
 ///
 /// Uses the same reading of the source the file tree uses, so a file the tree
 /// marks generated is a file this can find — and one it cannot is one the
 /// tree could not have marked either.
-fn declaring_offset(doc_rel: &str, source: &str, path: &str) -> Option<usize> {
+fn declaring_claim(doc_rel: &str, source: &str, path: &str) -> Option<Claim> {
     let dir = doc_rel.rsplit_once('/').map(|(d, _)| d).unwrap_or("");
-    let mut best: Option<(usize, usize)> = None; // (specificity, offset)
-    for (offset, value) in declared_attribute_values(source) {
-        let claimed = super::api::join_under(dir, &value)?;
+    let mut best: Option<(usize, Claim)> = None; // (specificity, where)
+    for (claim, value) in declared_attribute_values(source) {
+        let Some(claimed) = super::api::join_under(dir, &value) else {
+            continue;
+        };
         // Either this file exactly, or a directory it lies under.
         let claims = claimed == path
             || (path.starts_with(&claimed) && path.as_bytes().get(claimed.len()) == Some(&b'/'));
@@ -142,26 +167,54 @@ fn declaring_offset(doc_rel: &str, source: &str, path: &str) -> Option<usize> {
         // Longest claim wins, matching `generated_by`: a narrow volume nested
         // inside a wider one is the cell that actually wrote the file.
         if let Some(len) = hit
-            && best.is_none_or(|(best_len, _)| len > best_len)
+            && best.as_ref().is_none_or(|(best_len, _)| len > *best_len)
         {
-            best = Some((len, offset));
+            best = Some((len, claim));
         }
     }
-    best.map(|(_, offset)| offset)
+    best.map(|(_, claim)| claim)
 }
 
-/// Every `path=`/`output=` value in the source, with where it starts.
-fn declared_attribute_values(source: &str) -> Vec<(usize, String)> {
-    let mut out = Vec::new();
-    for pattern in [
-        r#"<hick:file\b[^>]*?\bpath\s*=\s*"([^"]*)""#,
-        r#"<hick:volume\b[^>]*?\boutput\s*=\s*"([^"]*)""#,
-    ] {
-        let re = regex::Regex::new(pattern).expect("the declaring-attribute pattern compiles");
-        for capture in re.captures_iter(source) {
-            let whole = capture.get(0).expect("a match has a whole");
-            out.push((whole.start(), capture[1].to_string()));
+/// The `<hick:exec>` that mounts `volume`, as a byte offset inside it.
+///
+/// `mount="domain:Domain,apiout:out"` — the volume's own name is the part
+/// before the colon, and it is matched on the whole word so `api` does not
+/// find `apiout`.
+fn mounting_cell(source: &str, volume: &str) -> Option<usize> {
+    let re = regex::Regex::new(r#"<hick:exec\b[^>]*?\bmount\s*=\s*"([^"]*)""#)
+        .expect("the mount-attribute pattern compiles");
+    for capture in re.captures_iter(source) {
+        let mounts = &capture[1];
+        let names = mounts
+            .split(',')
+            .map(|m| m.split(':').next().unwrap_or("").trim());
+        if names.into_iter().any(|n| n == volume) {
+            // Past the tag name, so `insertion_point` walking BACK to the
+            // nearest `<hick:exec` finds this one and not an earlier cell.
+            return Some(capture.get(0).expect("a match has a whole").end());
         }
+    }
+    None
+}
+
+/// Every `path=`/`output=` value in the source, with how it is claimed.
+fn declared_attribute_values(source: &str) -> Vec<(Claim, String)> {
+    let mut out = Vec::new();
+    let files = regex::Regex::new(r#"<hick:file\b[^>]*?\bpath\s*=\s*"([^"]*)""#)
+        .expect("the file-path pattern compiles");
+    for capture in files.captures_iter(source) {
+        let start = capture.get(0).expect("a match has a whole").start();
+        out.push((Claim::File(start), capture[1].to_string()));
+    }
+    let volumes = regex::Regex::new(
+        r#"<hick:volume\b[^>]*?\bname\s*=\s*"([^"]*)"[^>]*?\boutput\s*=\s*"([^"]*)""#,
+    )
+    .expect("the volume-output pattern compiles");
+    for capture in volumes.captures_iter(source) {
+        out.push((
+            Claim::Volume(capture[1].to_string()),
+            capture[2].to_string(),
+        ));
     }
     out
 }
@@ -207,9 +260,11 @@ mod tests {
 
     const DOC: &str = r#"# The API
 
-<hick:exec container="gen">
+<hick:volume name="domain" input="src/Domain" />
+<hick:volume name="apiout" output="src/Api/Generated" />
+
+<hick:exec container="gen" mount="domain:Domain,apiout:out">
 python3 gen.py
-<hick:volume name="out" output="src/Api/Generated" mode="output" />
 <hick:expect>
 8 endpoints
 </hick:expect>
@@ -217,20 +272,35 @@ python3 gen.py
 "#;
 
     #[test]
-    fn a_volume_output_is_traced_back_to_the_cell_that_wrote_it() {
-        let anchor = declaring_offset("30-api.hick", DOC, "src/Api/Generated/Endpoints.g.cs")
+    fn a_volume_output_is_traced_back_to_the_cell_that_mounts_it() {
+        // The declaration sits at document level, OUTSIDE the cell — which is
+        // the ordinary shape and the one that made the first version of this
+        // report "outside any cell" for every generated file in the demo.
+        let claim = declaring_claim("30-api.hick", DOC, "src/Api/Generated/Endpoints.g.cs")
             .expect("the volume claims it");
-        let (at, indent) = insertion_point(DOC, anchor).expect("the volume is inside a cell");
+        assert_eq!(claim, Claim::Volume("apiout".into()));
+        let anchor = mounting_cell(DOC, "apiout").expect("a cell mounts it");
+        let (at, indent) = insertion_point(DOC, anchor).expect("the mount is a cell");
         assert_eq!(indent, "");
         // Immediately before the closing tag, after the expectation.
         assert!(DOC[at..].starts_with("</hick:exec>"));
     }
 
     #[test]
+    fn a_mount_name_is_matched_whole() {
+        // `api` must not find `apiout`, or a sample lands under the wrong run.
+        assert!(mounting_cell(DOC, "api").is_none());
+        assert!(mounting_cell(DOC, "apiout").is_some());
+    }
+
+    #[test]
     fn a_file_written_outside_a_cell_has_nowhere_to_hang_a_sample() {
         let doc = "<hick:file path=\"a.rs\">\nfn main() {}\n</hick:file>\n";
-        let anchor = declaring_offset("d.hick", doc, "a.rs").expect("the file claims it");
-        assert!(insertion_point(doc, anchor).is_none());
+        let claim = declaring_claim("d.hick", doc, "a.rs").expect("the file claims it");
+        let Claim::File(offset) = claim else {
+            panic!("a hick:file is claimed as a file");
+        };
+        assert!(insertion_point(doc, offset).is_none());
     }
 
     #[test]

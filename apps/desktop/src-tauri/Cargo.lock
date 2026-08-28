@@ -2808,6 +2808,7 @@ dependencies = [
  "hick-token",
  "hick-transcript",
  "hickory-executor",
+ "ignore",
  "indexmap 2.14.0",
  "log",
  "notify",

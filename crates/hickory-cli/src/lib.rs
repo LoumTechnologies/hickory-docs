@@ -809,6 +809,12 @@ pub async fn run_doc_cached(
     for warning in absolute_mount_warnings(&doc) {
         log::warn!("{}: {warning}", doc_path.display());
     }
+    // A cell that mounts its own output silently loses every recording it
+    // makes, and the symptom (`[never run]` over a real run) points nowhere
+    // near the cause.
+    for warning in self_mounting_warnings(&doc) {
+        log::warn!("{}: {warning}", doc_path.display());
+    }
     // A drawing nobody checks is the thing this feature exists to prevent.
     for warning in claim_warnings(&doc) {
         log::warn!("{}: {warning}", doc_path.display());
@@ -1568,6 +1574,65 @@ pub fn absolute_mount_warnings(doc: &hick_lang::HickDocument) -> Vec<String> {
     out
 }
 
+/// Input volumes that carry a document's own output back into the cell.
+///
+/// A cell's recording is keyed by the digest of what it mounts, so a volume
+/// whose directory contains a file this document WRITES puts that file inside
+/// the key of the cell that writes it. Every run changes the key, no
+/// recording of that cell is ever findable again, and the next weave writes
+/// `[never run]` over the output of a run that really happened.
+///
+/// The archetype is `input="."` in a document that weaves markdown beside
+/// itself, which is a natural thing to write for a cell that measures the
+/// project — and it worked for exactly as long as nobody had the app open.
+///
+/// A warning rather than an error: a document that mounts its own output ON
+/// PURPOSE — measuring its own weave, checking its own size — is doing
+/// something legitimate and merely unstable, and the fix (mount what you
+/// measure) is not always available.
+pub fn self_mounting_warnings(doc: &hick_lang::HickDocument) -> Vec<String> {
+    let mut outputs: Vec<String> = doc
+        .tags()
+        .filter(|t| t.name == "file")
+        .filter_map(|t| t.get_attribute("path"))
+        .map(|p| p.trim().to_string())
+        .collect();
+    if let Some(weave) = doc.weave_path.as_deref()
+        && weave != hick_lang::WEAVE_NONE
+    {
+        outputs.push(weave.to_string());
+    }
+
+    let mut out = Vec::new();
+    for tag in doc.tags().filter(|t| t.name == "volume") {
+        let Some(input) = tag.get_attribute("input") else {
+            continue;
+        };
+        let dir = input.trim().trim_end_matches('/');
+        // `.` is the whole folder; anything else claims a subtree.
+        let covers = |path: &str| -> bool {
+            if dir.is_empty() || dir == "." {
+                return !path.starts_with("../");
+            }
+            path.strip_prefix(dir)
+                .is_some_and(|rest| rest.starts_with('/'))
+        };
+        let Some(clash) = outputs.iter().find(|p| covers(p)) else {
+            continue;
+        };
+        out.push(format!(
+            "line {}: the input volume `{}` carries `{clash}`, which this \
+             document writes. A cell's recording is keyed by what it mounts, \
+             so the cell's own output is inside its own cache key: every run \
+             changes the key and the next weave reports the cell as never \
+             run. Mount what the cell reads, not the folder it lives in.",
+            tag.source_line,
+            input.trim()
+        ));
+    }
+    out
+}
+
 /// Containers declaring an image the local executor will not honour.
 ///
 /// `LocalExecutor` records `image=` and ignores it: cells run against the
@@ -1888,5 +1953,72 @@ mod contained_output_path_tests {
     fn drive_prefixes_are_refused() {
         let base = Path::new("C:\\work\\doc");
         assert!(contained_output_path(base, "C:\\evil.txt").is_err());
+    }
+}
+
+#[cfg(test)]
+mod self_mounting_tests {
+    use super::self_mounting_warnings;
+
+    fn doc(source: &str) -> hick_lang::HickDocument {
+        hick_lang::parse(source).expect("the document parses")
+    }
+
+    #[test]
+    fn mounting_the_whole_folder_warns_about_the_weave_target() {
+        // The archetype, and how the warehouse's measurement cell was
+        // written: `input="."` in a document that weaves markdown beside
+        // itself. It worked for exactly as long as nobody had the app open.
+        let warnings = self_mounting_warnings(&doc(r#"<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="report.md">
+<hick:volume name="all" input="." />
+<hick:exec container="c" mount="all:project">
+wc -l project/*
+</hick:exec>
+</hick:doc>
+"#));
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
+        assert!(warnings[0].contains("report.md"), "{}", warnings[0]);
+        assert!(warnings[0].contains("cache key"), "{}", warnings[0]);
+    }
+
+    #[test]
+    fn mounting_a_subtree_the_document_writes_into_warns_too() {
+        let warnings = self_mounting_warnings(&doc(r#"<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="none">
+<hick:volume name="t" input="tools" />
+<hick:file path="tools/gen.py">print(1)
+</hick:file>
+</hick:doc>
+"#));
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
+        assert!(warnings[0].contains("tools/gen.py"), "{}", warnings[0]);
+    }
+
+    #[test]
+    fn a_volume_that_carries_nothing_this_document_writes_is_silent() {
+        // The ordinary shape — mount what the cell reads — must never warn,
+        // or the warning becomes noise and stops being read.
+        let warnings = self_mounting_warnings(&doc(r#"<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="report.md">
+<hick:volume name="src" input="src" />
+<hick:volume name="out" output="generated" />
+<hick:exec container="c" mount="src:src,out:out">
+echo hi
+</hick:exec>
+</hick:doc>
+"#));
+        assert!(warnings.is_empty(), "{warnings:?}");
+    }
+
+    #[test]
+    fn a_prefix_that_is_not_a_directory_boundary_is_not_a_match() {
+        // `tools` must not claim `toolsmith.md`.
+        let warnings = self_mounting_warnings(&doc(r#"<?xml version="1.0" encoding="UTF-8"?>
+<hick:doc xmlns:hick="http://www.hickorydocs.com/1.0" weave="toolsmith.md">
+<hick:volume name="t" input="tools" />
+</hick:doc>
+"#));
+        assert!(warnings.is_empty(), "{warnings:?}");
     }
 }

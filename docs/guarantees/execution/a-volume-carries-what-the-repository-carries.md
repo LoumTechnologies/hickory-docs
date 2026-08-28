@@ -29,6 +29,16 @@ product maintains. A hand-maintained list of "things that are build output"
 is the shape of bug this codebase has already shipped four times, and every
 project already states the answer in a file git reads.
 
+## The other half
+
+The same key makes a cell that mounts **its own output** unstable, which no
+ignore rule can fix: mounting `.` in a document that weaves markdown beside
+itself puts that markdown inside the key of the cell that produces it. That is
+a warning at run time (`self_mounting_warnings`), not an error — a document
+measuring its own weave is doing something legitimate and merely unstable —
+and it says the fix in one line: mount what the cell reads, not the folder it
+lives in.
+
 ---
 
 Last LLM verification:
@@ -43,7 +53,9 @@ Last LLM verification:
   disk beside a generator, `hick test .` reported three documents drifted and
   their cells never run; with the filter in place the same folder is `ok`
   across all seven.
-- Test coverage:
+- Test coverage: `self_mounting_tests` (4 tests: the whole-folder archetype,
+  a written subtree, the ordinary mount-what-you-read shape staying silent,
+  and `tools` not claiming `toolsmith.md`);
   `volume_state::tests::what_the_repository_ignores_never_reaches_the_volume`
   (ignored build output absent, hidden file present, ordinary source
   present); `volume_state::tests::seed_from_directory` still covers the
