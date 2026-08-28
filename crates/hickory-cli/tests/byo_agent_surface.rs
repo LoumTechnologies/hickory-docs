@@ -258,9 +258,13 @@ fn the_mcp_server_speaks_the_protocol_and_keeps_one_session_open() {
         .iter()
         .map(|t| t["name"].as_str().unwrap())
         .collect();
-    // The document tools, then the debugger — an agent that can only read a
-    // failing document is guessing, and these are what let it stop at the
-    // failure and ask.
+    // The document tools, then the two project-level ones, then the
+    // debugger. `list_docs` and `create_doc` are here and not in the
+    // built-in agent's set because the two arrive differently: the built-in
+    // agent is started ON a document, while an MCP client is pointed at a
+    // folder and has to find out what is in it. An agent that can only read
+    // a failing document is guessing, and the debugger is what lets it stop
+    // at the failure and ask.
     assert_eq!(
         names,
         vec![
@@ -270,6 +274,8 @@ fn the_mcp_server_speaks_the_protocol_and_keeps_one_session_open() {
             "edit_output",
             "edit_doc",
             "verify",
+            "list_docs",
+            "create_doc",
             "search",
             "debug_start",
             "debug_state",

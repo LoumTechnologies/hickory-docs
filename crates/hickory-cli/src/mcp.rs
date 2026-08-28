@@ -190,6 +190,49 @@ fn tool_catalogue() -> Value {
                 }
             },
             {
+                "name": "list_docs",
+                "description":
+                    "List the project's hick documents: every `.hick` file, what it weaves, \
+                     and the files it generates. Start here — every other tool takes a `doc`, \
+                     and this is the only way to learn what documents exist. Gitignored \
+                     directories are skipped, so build output never appears.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "under": {
+                            "type": "string",
+                            "description": "Only list documents under this directory, relative \
+                                            to the project root. Omit for the whole project."
+                        }
+                    }
+                }
+            },
+            {
+                "name": "create_doc",
+                "description":
+                    "Create a new hick document. The body is BARE markdown — no `<hick:doc>` \
+                     wrapper, which is optional and which ordinary documents omit; the weave \
+                     defaults to the document's own name. Refuses to overwrite an existing \
+                     file, so this can never destroy work: to change a document that already \
+                     exists, use edit_doc. Creates parent directories.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {
+                        "path": {
+                            "type": "string",
+                            "description": "Where to create it, relative to the project root. \
+                                            `.hick` is appended if absent."
+                        },
+                        "input": {
+                            "type": "string",
+                            "description": "The document body: markdown, and any hick elements \
+                                            it needs. Omit for an empty document."
+                        }
+                    },
+                    "required": ["path"]
+                }
+            },
+            {
                 "name": "search",
                 "description":
                     "Search the whole project: a natural-language or code query returns ranked \
@@ -742,6 +785,24 @@ impl Server {
                 Err(text) => text_result(&text, true),
             };
         }
+        // Listing and creating are about the project, not one document, so
+        // they route the way `search` does. They exist because every other
+        // tool takes a `doc` and, without these, an agent arriving in a
+        // project had no way to learn what documents there were or to start
+        // a new one — it had to leave the tool surface and write the file
+        // itself, which is the one thing the surface asks it not to do.
+        if name == "list_docs" {
+            return match call_list_docs_tool(args) {
+                Ok(text) => text_result(&text, false),
+                Err(text) => text_result(&text, true),
+            };
+        }
+        if name == "create_doc" {
+            return match call_create_doc_tool(args) {
+                Ok(text) => text_result(&text, false),
+                Err(text) => text_result(&text, true),
+            };
+        }
         let doc = match self.resolve_doc(args) {
             Ok(d) => d,
             Err(e) => return text_result(&e, true),
@@ -863,11 +924,215 @@ async fn call_search_tool(args: &Value) -> Result<String, String> {
     Ok(out.trim_end().to_string())
 }
 
+/// `list_docs`: every `.hick` document in the project, with what it weaves.
+///
+/// Gitignore-aware, for the same reason `hick ingest` is: a project's build
+/// output routinely contains `.hick` fixtures, and listing them as if they
+/// were the user's documents sends an agent to edit a file that regenerates
+/// over it.
+fn call_list_docs_tool(args: &Value) -> Result<String, String> {
+    let root = std::env::current_dir().map_err(|e| format!("no working directory: {e}"))?;
+    let under = args.get("under").and_then(Value::as_str).unwrap_or("");
+    let start = if under.is_empty() {
+        root.clone()
+    } else {
+        root.join(under)
+    };
+    if !start.is_dir() {
+        return Err(format!(
+            "no such directory: {under} — pass a directory relative to the project root, \
+             or omit `under` for the whole project"
+        ));
+    }
+
+    let mut docs: Vec<(String, String)> = Vec::new();
+    for entry in ignore::WalkBuilder::new(&start).build().flatten() {
+        let path = entry.path();
+        if path.extension().is_none_or(|e| e != "hick") {
+            continue;
+        }
+        let rel = path
+            .strip_prefix(&root)
+            .unwrap_or(path)
+            .display()
+            .to_string();
+        // The weave, and what the document generates, without executing it:
+        // a listing must never run anybody's cells.
+        let summary = match std::fs::read_to_string(path) {
+            // A session is a `.hick` file with a `<hick:session>` root, not a
+            // pipeline document, and the pipeline parser rightly refuses it.
+            // Reporting somebody's own conversation record as a broken
+            // document is worse than not listing it: it reads as damage.
+            Ok(source) if hick_lang::is_session_source(&source) => {
+                match hick_lang::parse_session(&source) {
+                    Ok(session) => format!(
+                        "a recorded session, {} entr{} — read-only here; \
+                         `hick promote` turns one into a document",
+                        session.nodes.len(),
+                        if session.nodes.len() == 1 { "y" } else { "ies" }
+                    ),
+                    Err(e) => format!("(a session, but it does not parse: {e})"),
+                }
+            }
+            Ok(source) => match hick_lang::parse_from_path(&source, path) {
+                Ok(doc) => describe_document(&doc),
+                Err(e) => format!("(does not parse: {e})"),
+            },
+            Err(e) => format!("(unreadable: {e})"),
+        };
+        docs.push((rel, summary));
+    }
+    docs.sort();
+
+    if docs.is_empty() {
+        return Ok(format!(
+            "no hick documents{}. Create one with create_doc.",
+            if under.is_empty() {
+                String::new()
+            } else {
+                format!(" under {under}")
+            }
+        ));
+    }
+    let mut out = String::new();
+    for (path, summary) in docs {
+        out.push_str(&format!("{path}\n    {summary}\n"));
+    }
+    Ok(out.trim_end().to_string())
+}
+
+/// One line about a document: what it weaves, what it writes, what it runs.
+///
+/// Parsed, never executed. The counts are what an agent needs to decide which
+/// document to open; the detail is what `read_doc` is for.
+fn describe_document(doc: &hick_lang::HickDocument) -> String {
+    let mut files: Vec<String> = Vec::new();
+    let mut execs = 0usize;
+    let mut stack: Vec<&hick_lang::HickNode> = doc.nodes.iter().collect();
+    while let Some(node) = stack.pop() {
+        if let hick_lang::HickNode::Tag(tag) = node {
+            match tag.name.as_str() {
+                "file" => {
+                    if let Some(path) = hick_literate::tag_attr(tag, "path") {
+                        files.push(path);
+                    }
+                }
+                "exec" => execs += 1,
+                _ => {}
+            }
+            stack.extend(tag.children.iter());
+        }
+    }
+    files.sort();
+    files.dedup();
+
+    let mut parts = Vec::new();
+    match &doc.weave_path {
+        Some(w) => parts.push(format!("weaves {w}")),
+        None => parts.push("weaves nothing (weave=\"none\")".to_string()),
+    }
+    if !files.is_empty() {
+        parts.push(format!("writes {}", files.join(", ")));
+    }
+    if execs > 0 {
+        parts.push(format!(
+            "{execs} exec cell{}",
+            if execs == 1 { "" } else { "s" }
+        ));
+    }
+    parts.join("; ")
+}
+
+/// `create_doc`: a new bare document, refusing to overwrite.
+fn call_create_doc_tool(args: &Value) -> Result<String, String> {
+    let root = std::env::current_dir().map_err(|e| format!("no working directory: {e}"))?;
+    let raw = args
+        .get("path")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|p| !p.is_empty())
+        .ok_or("pass `path`: where to create the document, relative to the project root")?;
+    let mut rel = PathBuf::from(raw);
+    if rel.extension().is_none_or(|e| e != "hick") {
+        rel.set_extension("hick");
+    }
+    // A path that climbs out of the project is refused rather than
+    // normalised: the tools are confined to the project by construction, and
+    // silently rewriting somebody's path is worse than saying no.
+    if rel.is_absolute() || rel.components().any(|c| c.as_os_str() == "..") {
+        return Err(format!(
+            "`{raw}` leaves the project — pass a path relative to the project root, \
+             with no leading `/` and no `..`"
+        ));
+    }
+    let full = root.join(&rel);
+    if full.exists() {
+        return Err(format!(
+            "{} already exists — create_doc never overwrites. Use edit_doc to change a \
+             document that is already there, or pick another path.",
+            rel.display()
+        ));
+    }
+    if let Some(parent) = full.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| format!("could not create {}: {e}", parent.display()))?;
+    }
+    // Bare, per docs/specs/freeform/bare-documents.md: no wrapper, and the
+    // weave defaults to the document's own name.
+    let body = args.get("input").and_then(Value::as_str).unwrap_or("");
+    let body = if body.is_empty() || body.ends_with('\n') {
+        body.to_string()
+    } else {
+        format!("{body}\n")
+    };
+    std::fs::write(&full, &body).map_err(|e| format!("could not write {}: {e}", rel.display()))?;
+    Ok(format!(
+        "created {} ({} bytes). It weaves {}. Read it with read_doc to get edit anchors, \
+         and call verify to execute it.",
+        rel.display(),
+        body.len(),
+        rel.with_extension("md").display()
+    ))
+}
+
 fn text_result(text: &str, is_error: bool) -> Value {
     json!({
         "content": [{ "type": "text", "text": text }],
         "isError": is_error,
     })
+}
+
+/// Where this server records, when nobody named a file.
+///
+/// Recording used to be opt-in (`--session` / `HICKORY_SESSION`), and the
+/// registration `hick init` writes sets neither — so an external agent
+/// editing through MCP left **no** record that an agent had been there.
+/// `hick context`, the whole provenance family whose job is answering "what
+/// was in front of the model when it wrote these lines", reported nothing for
+/// documents an agent had just rewritten. Silence is the wrong default for
+/// the one thing this product exists to know.
+///
+/// One file per server process, which is one file per conversation — the same
+/// unit `hick agent` and the app's dock already use.
+///
+/// It defaults on only where the answer is unambiguous: a project that has
+/// run `hick init`, recognised by the `sessions/` line that command writes
+/// into `.gitignore`. Elsewhere — an MCP server started in someone's home
+/// directory, a repository that has never seen hick — creating folders
+/// nobody asked for would be the worse mistake, so it stays silent and
+/// `HICKORY_SESSION` remains the way in.
+fn default_session_log() -> Option<PathBuf> {
+    let root = std::env::current_dir().ok()?;
+    let sessions = root.join("sessions");
+    if !sessions.is_dir() {
+        let ignore = std::fs::read_to_string(root.join(".gitignore")).ok()?;
+        if !ignore.lines().any(|l| l.trim() == "sessions/") {
+            return None;
+        }
+    }
+    // The same `sessions/<timestamp>-<slug>.hick` convention `hick agent`
+    // writes, so one folder holds every conversation whoever had it.
+    Some(hickory_agent::session_file_path(&root, "mcp"))
 }
 
 /// Serve MCP on stdin/stdout until the client closes the stream.
@@ -882,7 +1147,7 @@ pub async fn serve(default_doc: Option<PathBuf>, params: Vec<(String, String)>) 
         executor: executor.clone(),
         params,
         default_doc,
-        session_log: crate::doc_tools::session_from(None),
+        session_log: crate::doc_tools::session_from(None).or_else(default_session_log),
         debuggers: crate::debug_sessions::Registry::new(),
     };
 
@@ -940,8 +1205,11 @@ mod tests {
         let catalogue = tool_catalogue();
         let tools = catalogue["tools"].as_array().unwrap();
         let names: Vec<&str> = tools.iter().map(|t| t["name"].as_str().unwrap()).collect();
-        // The same six the built-in agent has. A surface that offers fewer
-        // makes bringing your own agent the lesser path.
+        // The six the built-in agent has, plus the two an external agent
+        // needs and the built-in one does not: it is started ON a document,
+        // while an MCP client arrives at a folder and has to find out what
+        // is in it. A surface that offers fewer makes bringing your own
+        // agent the lesser path.
         assert_eq!(
             names,
             vec![
@@ -951,6 +1219,11 @@ mod tests {
                 "edit_output",
                 "edit_doc",
                 "verify",
+                // Finding and starting documents: about the folder, not one
+                // document. Without these an agent had to leave the tool
+                // surface to learn what existed or to begin anything.
+                "list_docs",
+                "create_doc",
                 // Project-wide search: about the folder, not one document,
                 // and it can never write anything.
                 "search",
